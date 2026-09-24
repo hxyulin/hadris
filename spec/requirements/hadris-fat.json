@@ -176,7 +176,7 @@
         },
         {
           "path": "crates/block/hadris-fat/tests/fatfs_read.rs",
-          "name": "cyclic_chains_end_instead_of_hanging",
+          "name": "cyclic_chains_are_corrupt_instead_of_repeating",
           "kind": "integration"
         }
       ],

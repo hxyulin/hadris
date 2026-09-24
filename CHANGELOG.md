@@ -995,6 +995,11 @@ Each published package owns its version and may be released independently.
   became `!`, U+012E was dropped as a `.`), ignore code page bytes below
   `0x80`, and uppercase non-ASCII characters before the code page maps them,
   so the `Cp437` code page stores `é` as `É` (`0x90`).
+- **hadris-fat (V3):** `FatFs` and `ExFatFs` fail with `Corrupt` when a
+  directory's or file's cluster chain loops, instead of listing the
+  directory's entries or the file's clusters over and over. Detection uses
+  Brent's algorithm on every chain walk, including walks that resume from
+  a file's remembered position, so it needs no memory per cluster.
 - **hadris-iso:** Write Rock Ridge relocation placeholders compatible with
   libarchive/bsdtar and use only recognized relocation container names. Reject
   relocation when a root `rr_moved` directory would be mistaken for the container

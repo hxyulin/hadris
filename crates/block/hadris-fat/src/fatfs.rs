@@ -12,6 +12,7 @@ use super::block_io::{BlockBuf, ClusterGroup, MAX_BLOCK_SIZE, load, read_bytes, 
 use super::storage::BlockDevice;
 use crate::code_page::{Ascii, CodePage};
 use crate::codec::boot::{self, BootError, Geometry, RootDir};
+use crate::codec::cycle::Hint;
 use crate::codec::dirent::{self, ENTRY_SIZE, ShortEntry, Slot};
 use crate::codec::entry::FIRST_DATA_CLUSTER;
 use crate::codec::lfn::{self, Assembler, Encoded};
@@ -67,9 +68,9 @@ struct Node {
     first: u32,
     size: u32,
     dir: bool,
-    /// A known `(index, cluster)` pair of the chain, so sequential reads do
-    /// not walk it from the start. Cluster 0 when unknown.
-    hint: (u32, u32),
+    /// A known position in the chain, so sequential reads do not walk it
+    /// from the start.
+    hint: Hint,
     /// The directory entry lacks the size and modification time. A dirty
     /// node holds one pin of the driver's own until it is written.
     dirty: bool,
@@ -88,7 +89,7 @@ impl Node {
             first: short.first_cluster(kind),
             size: short.size,
             dir: short.is_dir(),
-            hint: (0, 0),
+            hint: Hint::NONE,
             dirty: false,
             opens: 0,
             unlinked: false,
@@ -109,16 +110,14 @@ enum DirStart {
 /// walks the chain once.
 struct Walk {
     start: DirStart,
-    index: u32,
-    cluster: u32,
+    at: Hint,
 }
 
 impl Walk {
     fn new(start: DirStart) -> Self {
         Self {
             start,
-            index: 0,
-            cluster: 0,
+            at: Hint::NONE,
         }
     }
 }
@@ -491,7 +490,7 @@ pub struct FatFs<D, T: NodeTable = FixedTable<64>, C: Clock = NoClock, P: CodePa
     /// renamed or removed. Until the table empties, `pinned_at` searches it.
     moved: bool,
     /// A known `(index, cluster)` of a FAT32 root directory's chain.
-    root_hint: (u32, u32),
+    root_hint: Hint,
 }
 
 /// The state a mount reads from the boot and FSInfo sectors.
@@ -630,7 +629,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             clock,
             code_page,
             moved: false,
-            root_hint: (0, 0),
+            root_hint: Hint::NONE,
         })
     }
 
@@ -727,6 +726,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// Writes the entry after `cursor` into `name` and advances `cursor`.
     /// `None` at the end. `.`, `..`, the volume label and deleted entries
     /// are skipped. The raw cursor is the index of the next directory slot.
+    /// A directory whose cluster chain loops fails with
+    /// [`ErrorKind::Corrupt`] once the walk comes back around.
     pub async fn read_dir_entry(
         &mut self,
         dir: NodeId,
@@ -738,11 +739,11 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             return Ok(None);
         };
         let mut walk = Walk::new(start);
-        (walk.index, walk.cluster) = self.dir_hint(dir);
+        walk.at = self.dir_hint(dir);
         let mut long = Assembler::new();
         let found = self.next_visible(&mut walk, &mut slot, &mut long).await?;
-        if walk.cluster != 0 {
-            self.set_dir_hint(dir, (walk.index, walk.cluster));
+        if walk.at.cluster != 0 {
+            self.set_dir_hint(dir, walk.at);
         }
         let Some(found) = found else {
             *cursor = DirCursor::from_raw(slot as u64);
@@ -756,7 +757,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         Ok(Some(DirEntry::new(node, file_type, len)))
     }
 
-    /// Reads from a file at `offset`. Returns 0 at or past the end.
+    /// Reads from a file at `offset`. Returns 0 at or past the end. A chain
+    /// that ends before the file's size or loops fails with
+    /// [`ErrorKind::Corrupt`].
     pub async fn read_at(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         if node == ROOT {
             return Err(ErrorKind::IsADirectory.into());
@@ -771,31 +774,24 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         }
         let count = (size - offset).min(buf.len() as u64) as usize;
         let cluster_size = self.geo.cluster_size as u64;
-        let (mut index, mut cluster) =
-            if state.hint.1 != 0 && state.hint.0 as u64 <= offset / cluster_size {
-                state.hint
-            } else {
-                (0, self.check_cluster(state.first)?)
-            };
+        let mut hint = state.hint;
         let mut done = 0;
         while done < count {
             let pos = offset + done as u64;
             let want = (pos / cluster_size) as u32;
-            while index < want {
-                cluster = self.next_cluster(cluster).await?.ok_or(ErrorKind::Corrupt)?;
-                index += 1;
+            hint = self.walk(state.first, hint, want).await?;
+            if hint.index < want {
+                return Err(ErrorKind::Corrupt.into());
             }
             let within = pos % cluster_size;
-            let at = self.cluster_at(cluster)? + within;
+            let at = self.cluster_at(hint.cluster)? + within;
             let n = ((cluster_size - within) as usize).min(count - done);
-            let (n, last) = self.run(cluster, n, count - done).await?;
-            index += last - cluster;
-            cluster = last;
+            let n = self.run(&mut hint, n, count - done).await?;
             read_bytes(&mut self.dev, &mut self.block, at, &mut buf[done..done + n]).await?;
             done += n;
         }
         if let Some(state) = self.nodes.get_mut(node) {
-            state.hint = (index, cluster);
+            state.hint = hint;
         }
         Ok(count)
     }
@@ -905,17 +901,18 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         }
     }
 
-    /// Where the last listing of `dir` left its chain, `(0, 0)` when unknown.
-    fn dir_hint(&self, dir: NodeId) -> (u32, u32) {
+    /// Where the last listing of `dir` left its chain, [`Hint::NONE`] when
+    /// unknown.
+    fn dir_hint(&self, dir: NodeId) -> Hint {
         if dir == ROOT {
             return self.root_hint;
         }
-        self.nodes.get(dir).map_or((0, 0), |node| node.hint)
+        self.nodes.get(dir).map_or(Hint::NONE, |node| node.hint)
     }
 
     /// Records a position in the chain of `dir`, which only ever grows, for
     /// the next `read_dir_entry` to start from.
-    fn set_dir_hint(&mut self, dir: NodeId, hint: (u32, u32)) {
+    fn set_dir_hint(&mut self, dir: NodeId, hint: Hint) {
         if dir == ROOT {
             self.root_hint = hint;
         } else if let Some(node) = self.nodes.get_mut(dir)
@@ -986,7 +983,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             first: 0,
             size: 0,
             dir: is_dir,
-            hint: (0, 0),
+            hint: Hint::NONE,
             dirty: false,
             opens: 0,
             unlinked: false,
@@ -1149,7 +1146,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         let end = offset + count as u64;
         let growth = self.cover(&state, end).await?;
         let old = state.size as u64;
-        let hint = if growth.first == state.first { state.hint } else { (0, 0) };
+        let hint = if growth.first == state.first { state.hint } else { Hint::NONE };
         let filled = if offset > old {
             self.fill(growth.first, hint, old, None, (offset - old) as usize).await
         } else {
@@ -1188,7 +1185,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         let old = state.size as u64;
         if len > old {
             let growth = self.cover(&state, len).await?;
-            let hint = if growth.first == state.first { state.hint } else { (0, 0) };
+            let hint = if growth.first == state.first { state.hint } else { Hint::NONE };
             let published = match self.fill(growth.first, hint, old, None, (len - old) as usize).await {
                 Ok(hint) => self.publish(id, &state, growth.first, len as u32, hint).await,
                 Err(err) => Err(err),
@@ -1204,15 +1201,16 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         }
         let keep = len.div_ceil(self.geo.cluster_size as u64) as u32;
         let first = if keep == 0 { 0 } else { state.first };
-        self.store(id, &state, first, len as u32, (0, 0)).await?;
+        self.store(id, &state, first, len as u32, Hint::NONE).await?;
         if state.first == 0 {
             return Ok(());
         }
         if keep == 0 {
             return self.free_chain(state.first).await;
         }
-        let (index, last) = self.walk(state.first, (0, 0), keep - 1).await?;
-        if index == keep - 1
+        let reached = self.walk(state.first, Hint::NONE, keep - 1).await?;
+        let last = reached.cluster;
+        if reached.index == keep - 1
             && let Some(next) = self.next_cluster(last).await?
         {
             self.set_fat(last, self.geo.kind.end_of_chain()).await?;
@@ -1429,7 +1427,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         state: &Node,
         first: u32,
         size: u32,
-        hint: (u32, u32),
+        hint: Hint,
     ) -> FsResult<(), D::Error> {
         let next = Node { first, size, hint, ..*state };
         let mut entry = self.read_short(state.entry).await?;
@@ -1454,7 +1452,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         state: &Node,
         first: u32,
         size: u32,
-        hint: (u32, u32),
+        hint: Hint,
     ) -> FsResult<(), D::Error> {
         match id {
             Some(id) if first == state.first => {
@@ -1647,7 +1645,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
                     return Err(ErrorKind::NoSpace.into());
                 }
                 let per_cluster = self.geo.cluster_size / ENTRY_SIZE as u32;
-                (start, (needed - run_len).div_ceil(per_cluster), walk.cluster)
+                (start, (needed - run_len).div_ceil(per_cluster), walk.at.cluster)
             }
         };
         let short = if new.lossless && taken & 1 == 0 {
@@ -1817,7 +1815,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
                 first,
                 size: 0,
                 dir: is_dir,
-                hint: (0, 0),
+                hint: Hint::NONE,
                 dirty: false,
                 opens: 0,
                 unlinked: false,
@@ -2259,24 +2257,22 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     }
 
     /// Walks a chain towards cluster index `want` from `hint` or `first`.
-    /// Returns the `(index, cluster)` reached, short of `want` when the
-    /// chain ends first.
-    async fn walk(&mut self, first: u32, hint: (u32, u32), want: u32) -> FsResult<(u32, u32), D::Error> {
-        let (mut index, mut cluster) = if hint.1 != 0 && hint.0 <= want {
+    /// Returns the position reached, short of `want` when the chain ends
+    /// first. A chain that loops fails with [`ErrorKind::Corrupt`].
+    async fn walk(&mut self, first: u32, hint: Hint, want: u32) -> FsResult<Hint, D::Error> {
+        let mut at = if hint.cluster != 0 && hint.index <= want {
             hint
         } else {
-            (0, self.check_cluster(first)?)
+            Hint::start(self.check_cluster(first)?)
         };
-        while index < want {
-            match self.next_cluster(cluster).await? {
-                Some(next) => {
-                    cluster = next;
-                    index += 1;
-                }
+        while at.index < want {
+            match self.next_cluster(at.cluster).await? {
+                Some(next) if at.advance(next) => {}
+                Some(_) => return Err(ErrorKind::Corrupt.into()),
                 None => break,
             }
         }
-        Ok((index, cluster))
+        Ok(at)
     }
 
     /// Extends a file's chain to hold `end` bytes. The new clusters are
@@ -2291,7 +2287,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             let first = self.allocate_chain(need, false).await?;
             return Ok(Growth { first, tail: 0, added: first });
         }
-        let (index, tail) = self.walk(state.first, state.hint, need - 1).await?;
+        let reached = self.walk(state.first, state.hint, need - 1).await?;
+        let (index, tail) = (reached.index, reached.cluster);
         if index + 1 >= need {
             return Ok(none);
         }
@@ -2325,52 +2322,52 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     async fn fill(
         &mut self,
         first: u32,
-        hint: (u32, u32),
+        hint: Hint,
         pos: u64,
         data: Option<&[u8]>,
         len: usize,
-    ) -> FsResult<(u32, u32), D::Error> {
+    ) -> FsResult<Hint, D::Error> {
         if len == 0 {
             return Ok(hint);
         }
         let cluster_size = self.geo.cluster_size as u64;
-        let (mut index, mut cluster) = self.walk(first, hint, (pos / cluster_size) as u32).await?;
+        let mut hint = hint;
         let mut done = 0;
         while done < len {
             let at = pos + done as u64;
             let want = (at / cluster_size) as u32;
-            while index < want {
-                cluster = self.next_cluster(cluster).await?.ok_or(ErrorKind::Corrupt)?;
-                index += 1;
+            hint = self.walk(first, hint, want).await?;
+            if hint.index < want {
+                return Err(ErrorKind::Corrupt.into());
             }
             let within = at % cluster_size;
-            let offset = self.cluster_at(cluster)? + within;
+            let offset = self.cluster_at(hint.cluster)? + within;
             let n = ((cluster_size - within) as usize).min(len - done);
-            let (n, last) = self.run(cluster, n, len - done).await?;
-            index += last - cluster;
-            cluster = last;
+            let n = self.run(&mut hint, n, len - done).await?;
             self.put(offset, data.map(|data| &data[done..done + n]), n).await?;
             done += n;
         }
-        Ok((index, cluster))
+        Ok(hint)
     }
 
-    /// Extends `n` bytes that start in `cluster` over the clusters that
-    /// follow it on disk and in its chain, up to `max` bytes, so they take
-    /// one device call. Returns the length and the run's last cluster.
-    async fn run(&mut self, cluster: u32, mut n: usize, max: usize) -> FsResult<(usize, u32), D::Error> {
+    /// Extends `n` bytes that start in the cluster at `at` over the
+    /// clusters that follow it on disk and in its chain, up to `max` bytes,
+    /// so they take one device call. Returns the length and leaves `at` at
+    /// the run's last cluster.
+    async fn run(&mut self, at: &mut Hint, mut n: usize, max: usize) -> FsResult<usize, D::Error> {
         let cluster_size = self.geo.cluster_size as usize;
-        let mut last = cluster;
         while n < max {
-            match self.next_cluster(last).await? {
-                Some(next) if next == last + 1 => {
-                    last = next;
+            match self.next_cluster(at.cluster).await? {
+                Some(next) if next == at.cluster + 1 => {
+                    if !at.advance(next) {
+                        return Err(ErrorKind::Corrupt.into());
+                    }
                     n = (n + cluster_size).min(max);
                 }
                 _ => break,
             }
         }
-        Ok((n, last))
+        Ok(n)
     }
 
     fn root_start(&self) -> DirStart {
@@ -2520,21 +2517,12 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             DirStart::Chain(first) => {
                 let per_cluster = self.geo.cluster_size / ENTRY_SIZE as u32;
                 let want = slot / per_cluster;
-                if walk.cluster == 0 || want < walk.index {
-                    walk.index = 0;
-                    walk.cluster = first;
-                }
-                while walk.index < want {
-                    match self.next_cluster(walk.cluster).await? {
-                        Some(next) => {
-                            walk.cluster = next;
-                            walk.index += 1;
-                        }
-                        None => return Ok(None),
-                    }
+                walk.at = self.walk(first, walk.at, want).await?;
+                if walk.at.index < want {
+                    return Ok(None);
                 }
                 let within = (slot % per_cluster) as u64 * ENTRY_SIZE;
-                Ok(Some(self.cluster_at(walk.cluster)? + within))
+                Ok(Some(self.cluster_at(walk.at.cluster)? + within))
             }
         }
     }

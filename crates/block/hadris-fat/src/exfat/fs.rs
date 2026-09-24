@@ -9,6 +9,7 @@ use hadris_fs::{
 
 use super::block_io::{BlockBuf, ClusterGroup, MAX_BLOCK_SIZE, load, read_bytes, write_bytes};
 use super::storage::BlockDevice;
+use crate::codec::cycle::Hint;
 use crate::codec::name as names;
 use crate::exfat::codec::{
     self, Geometry, MAX_SET, PageStart, RawEntry, Units, UpcaseDecoder, le16, le32, le64,
@@ -69,8 +70,8 @@ pub(super) struct Node {
     /// `NoFatChain`: the allocation is contiguous and has no FAT chain.
     contiguous: bool,
     dir: bool,
-    /// A known `(index, cluster)` pair of the allocation.
-    hint: (u32, u32),
+    /// A known position in the allocation.
+    hint: Hint,
     /// The entry set lacks the sizes and modification time. A dirty node
     /// holds one pin of the driver's own until it is written.
     dirty: bool,
@@ -90,7 +91,7 @@ impl Node {
             valid: set.valid_len().min(set.data_len()),
             contiguous: set.flags() & raw::NO_FAT_CHAIN != 0,
             dir: set.is_dir(),
-            hint: (0, 0),
+            hint: Hint::NONE,
             dirty: false,
             opens: 0,
             unlinked: false,
@@ -126,8 +127,7 @@ pub(super) struct DirStart {
 #[derive(Clone, Copy)]
 pub(super) struct Walk {
     start: DirStart,
-    index: u32,
-    cluster: u32,
+    at: Hint,
     /// The last cluster reached.
     last: u32,
 }
@@ -136,8 +136,7 @@ impl Walk {
     pub(super) fn new(start: DirStart) -> Self {
         Self {
             start,
-            index: 0,
-            cluster: 0,
+            at: Hint::NONE,
             last: 0,
         }
     }
@@ -535,7 +534,7 @@ pub struct ExFatFs<D, T: NodeTable = FixedTable<64>, C: Clock = NoClock> {
     nodes: T::With<Node>,
     pub(super) block: BlockBuf,
     pub(super) bitmap: Extent,
-    bitmap_hint: (u32, u32),
+    bitmap_hint: Hint,
     /// The Allocation Bitmap of the FAT that is not active, on a TexFAT
     /// volume that has one.
     mirror_bitmap: Option<Extent>,
@@ -550,7 +549,7 @@ pub struct ExFatFs<D, T: NodeTable = FixedTable<64>, C: Clock = NoClock> {
     /// renamed or removed. Until the table empties, `pinned_at` searches it.
     moved: bool,
     /// A known `(index, cluster)` of the root directory's chain.
-    root_hint: (u32, u32),
+    root_hint: Hint,
 }
 
 impl<D, T: NodeTable, C: Clock> fmt::Debug for ExFatFs<D, T, C> {
@@ -848,7 +847,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             nodes: table.empty(),
             block,
             bitmap,
-            bitmap_hint: (0, 0),
+            bitmap_hint: Hint::NONE,
             mirror_bitmap,
             upcase,
             free_clusters: None,
@@ -858,7 +857,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             read_only: read_only || backup || !upcase_valid,
             clock,
             moved: false,
-            root_hint: (0, 0),
+            root_hint: Hint::NONE,
         })
     }
 
@@ -985,7 +984,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
 
     /// Writes the entry after `cursor` into `name` and advances `cursor`.
     /// `None` at the end. The raw cursor is the index of the next directory
-    /// entry.
+    /// entry. A directory whose cluster chain loops fails with
+    /// [`ErrorKind::Corrupt`] once the walk comes back around.
     pub async fn read_dir_entry(
         &mut self,
         dir: NodeId,
@@ -998,12 +998,12 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         };
         let mut walk = Walk::new(start);
         if !start.alloc.contiguous {
-            (walk.index, walk.cluster) = self.dir_hint(dir);
+            walk.at = self.dir_hint(dir);
         }
         let mut set = Set::new();
         let next = self.next_set(&mut walk, &mut slot, &mut set).await?;
-        if walk.cluster != 0 {
-            self.set_dir_hint(dir, (walk.index, walk.cluster));
+        if walk.at.cluster != 0 {
+            self.set_dir_hint(dir, walk.at);
         }
         let Some(at) = next else {
             *cursor = DirCursor::from_raw(slot as u64);
@@ -1019,7 +1019,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     }
 
     /// Reads from a file at `offset`. Returns 0 at or past the end. Bytes
-    /// past `ValidDataLength` read as zeros.
+    /// past `ValidDataLength` read as zeros. A chain that ends before the
+    /// file's size or loops fails with [`ErrorKind::Corrupt`].
     pub async fn read_at(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         let (_, state) = self.file_node(node).await?;
         if offset >= state.len || buf.is_empty() {
@@ -1027,7 +1028,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         }
         let count = (state.len - offset).min(buf.len() as u64) as usize;
         let cluster_size = self.geo.cluster_size();
-        let mut index = (0, 0);
+        let mut index = Hint::NONE;
         let mut hint = state.hint;
         let mut done = 0;
         while done < count {
@@ -1041,15 +1042,14 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             } else {
                 let valid = (state.valid - pos).min((count - done) as u64) as usize;
                 index = self.locate_cluster(state.alloc(), hint, (pos / cluster_size) as u32).await?;
-                let at = self.cluster_at(index.1)? + within;
-                let (n, last) = self.run(state.alloc(), index, n.min(valid), valid).await?;
-                index = last;
+                let at = self.cluster_at(index.cluster)? + within;
+                let n = self.run(state.alloc(), &mut index, n.min(valid), valid).await?;
                 hint = index;
                 read_bytes(&mut self.dev, &mut self.block, at, &mut buf[done..done + n]).await?;
                 done += n;
             }
         }
-        if index.1 != 0
+        if index.cluster != 0
             && let Some(state) = self.nodes.get_mut(node)
         {
             state.hint = index;
@@ -1144,17 +1144,18 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         }
     }
 
-    /// Where the last listing of `dir` left its chain, `(0, 0)` when unknown.
-    fn dir_hint(&self, dir: NodeId) -> (u32, u32) {
+    /// Where the last listing of `dir` left its chain, [`Hint::NONE`] when
+    /// unknown.
+    fn dir_hint(&self, dir: NodeId) -> Hint {
         if dir == ROOT {
             return self.root_hint;
         }
-        self.nodes.get(dir).map_or((0, 0), |node| node.hint)
+        self.nodes.get(dir).map_or(Hint::NONE, |node| node.hint)
     }
 
     /// Records a position in the chain of `dir`, which only ever grows, for
     /// the next `read_dir_entry` to start from.
-    fn set_dir_hint(&mut self, dir: NodeId, hint: (u32, u32)) {
+    fn set_dir_hint(&mut self, dir: NodeId, hint: Hint) {
         if dir == ROOT {
             self.root_hint = hint;
         } else if let Some(node) = self.nodes.get_mut(dir)
@@ -1225,7 +1226,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             valid: 0,
             contiguous: false,
             dir: is_dir,
-            hint: (0, 0),
+            hint: Hint::NONE,
             dirty: false,
             opens: 0,
             unlinked: false,
@@ -1360,7 +1361,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         }
         let end = offset.checked_add(buf.len() as u64).ok_or(ErrorKind::FileTooLarge)?;
         let growth = self.cover(&state, end).await?;
-        let hint = if growth.alloc == state.alloc() { state.hint } else { (0, 0) };
+        let hint = if growth.alloc == state.alloc() { state.hint } else { Hint::NONE };
         let filled = if offset > state.valid {
             self.fill(growth.alloc, hint, state.valid, None, offset - state.valid).await
         } else {
@@ -1395,7 +1396,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         let (id, state) = self.file_node(node).await?;
         if len > state.len {
             let growth = self.cover(&state, len).await?;
-            let hint = if growth.alloc == state.alloc() { state.hint } else { (0, 0) };
+            let hint = if growth.alloc == state.alloc() { state.hint } else { Hint::NONE };
             if let Err(err) = self.publish(id, &state, growth.alloc, len, state.valid, hint).await {
                 self.undo_growth(growth).await;
                 return Err(err);
@@ -1409,7 +1410,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         let keep = len.div_ceil(cluster_size) as u32;
         let had = state.len.div_ceil(cluster_size) as u32;
         let alloc = if keep == 0 { Alloc { first: 0, contiguous: false } } else { state.alloc() };
-        self.store(id, &state, alloc, len, state.valid.min(len), (0, 0)).await?;
+        self.store(id, &state, alloc, len, state.valid.min(len), Hint::NONE).await?;
         if state.first == 0 || keep == had {
             return Ok(());
         }
@@ -1422,7 +1423,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             }
             return Ok(());
         }
-        let (_, last) = self.locate_cluster(state.alloc(), (0, 0), keep - 1).await?;
+        let last = self.locate_cluster(state.alloc(), Hint::NONE, keep - 1).await?.cluster;
         if let Some(next) = self.next_cluster(last).await? {
             self.set_fat(last, raw::FAT_END).await?;
             self.free_chain(next).await?;
@@ -1657,7 +1658,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         alloc: Alloc,
         len: u64,
         valid: u64,
-        hint: (u32, u32),
+        hint: Hint,
     ) -> FsResult<(), D::Error> {
         let mut set = Set::new();
         self.set_at(state.entry, &mut set).await?;
@@ -1685,7 +1686,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         alloc: Alloc,
         len: u64,
         valid: u64,
-        hint: (u32, u32),
+        hint: Hint,
     ) -> FsResult<(), D::Error> {
         match id {
             Some(id) if alloc == state.alloc() => {
@@ -1908,23 +1909,20 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         let cluster = if start.alloc.contiguous {
             self.check_cluster(start.alloc.first.checked_add(want).ok_or(ErrorKind::Corrupt)?)?
         } else {
-            if walk.cluster == 0 || want < walk.index {
-                walk.index = 0;
-                walk.cluster = self.check_cluster(start.alloc.first)?;
+            if walk.at.cluster == 0 || want < walk.at.index {
+                walk.at = Hint::start(self.check_cluster(start.alloc.first)?);
             }
-            while walk.index < want {
-                match self.next_cluster(walk.cluster).await? {
-                    Some(next) => {
-                        walk.cluster = next;
-                        walk.index += 1;
-                    }
+            while walk.at.index < want {
+                match self.next_cluster(walk.at.cluster).await? {
+                    Some(next) if walk.at.advance(next) => {}
+                    Some(_) => return Err(ErrorKind::Corrupt.into()),
                     None => {
-                        walk.last = walk.cluster;
+                        walk.last = walk.at.cluster;
                         return Ok(None);
                     }
                 }
             }
-            walk.cluster
+            walk.at.cluster
         };
         walk.last = cluster;
         Ok(Some(self.cluster_at(cluster)? + within))
@@ -2002,12 +2000,12 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         };
         decoder.drain(&mut emit);
         let extent = self.upcase.extent;
-        let mut hint = (0, 0);
+        let mut hint = Hint::NONE;
         while decoder.code < code + 256 && (decoder.next as u64) * 2 + 1 < extent.len {
             let pos = decoder.next as u64 * 2;
             let alloc = Alloc { first: extent.first, contiguous: extent.contiguous };
             hint = self.locate_cluster(alloc, hint, (pos >> self.geo.cluster_shift) as u32).await?;
-            let at = self.cluster_at(hint.1)? + (pos & (self.geo.cluster_size() - 1));
+            let at = self.cluster_at(hint.cluster)? + (pos & (self.geo.cluster_size() - 1));
             let mut pair = [0u8; 2];
             self.read(at, &mut pair).await?;
             decoder.feed(u16::from_le_bytes(pair), &mut emit);
@@ -2287,7 +2285,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             valid: old_len,
             contiguous: dir.alloc.contiguous,
             dir: true,
-            hint: (0, 0),
+            hint: Hint::NONE,
             dirty: false,
             opens: 0,
             unlinked: false,
@@ -2397,7 +2395,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
                 valid: len,
                 contiguous: false,
                 dir: is_dir,
-                hint: (0, 0),
+                hint: Hint::NONE,
                 dirty: false,
                 opens: 0,
                 unlinked: false,
@@ -2565,23 +2563,29 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         }
     }
 
-    /// The `(index, cluster)` of cluster `want` of an allocation, walked
-    /// from `hint` when it is not past `want`.
-    async fn locate_cluster(&mut self, alloc: Alloc, hint: (u32, u32), want: u32) -> FsResult<(u32, u32), D::Error> {
+    /// The position of cluster `want` of an allocation, walked from `hint`
+    /// when it is not past `want`. A chain that ends first or loops fails
+    /// with [`ErrorKind::Corrupt`].
+    async fn locate_cluster(&mut self, alloc: Alloc, hint: Hint, want: u32) -> FsResult<Hint, D::Error> {
         if alloc.contiguous {
             let cluster = alloc.first.checked_add(want).ok_or(ErrorKind::Corrupt)?;
-            return Ok((want, self.check_cluster(cluster)?));
+            let mut at = Hint::start(alloc.first);
+            at.index = want;
+            at.cluster = self.check_cluster(cluster)?;
+            return Ok(at);
         }
-        let (mut index, mut cluster) = if hint.1 != 0 && hint.0 <= want {
+        let mut at = if hint.cluster != 0 && hint.index <= want {
             hint
         } else {
-            (0, self.check_cluster(alloc.first)?)
+            Hint::start(self.check_cluster(alloc.first)?)
         };
-        while index < want {
-            cluster = self.next_cluster(cluster).await?.ok_or(ErrorKind::Corrupt)?;
-            index += 1;
+        while at.index < want {
+            let next = self.next_cluster(at.cluster).await?.ok_or(ErrorKind::Corrupt)?;
+            if !at.advance(next) {
+                return Err(ErrorKind::Corrupt.into());
+            }
         }
-        Ok((index, cluster))
+        Ok(at)
     }
 
     /// Byte offset of byte `pos` of the bitmap.
@@ -2590,7 +2594,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         let alloc = Alloc { first: extent.first, contiguous: extent.contiguous };
         let hint = self.locate_cluster(alloc, self.bitmap_hint, (pos >> self.geo.cluster_shift) as u32).await?;
         self.bitmap_hint = hint;
-        Ok(self.cluster_at(hint.1)? + (pos & (self.geo.cluster_size() - 1)))
+        Ok(self.cluster_at(hint.cluster)? + (pos & (self.geo.cluster_size() - 1)))
     }
 
     /// Reads bitmap bytes from `pos`, at most to the end of a cluster.
@@ -2615,7 +2619,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         byte[0] ^= bit;
         if let Some(mirror) = self.mirror_bitmap {
             let alloc = Alloc { first: mirror.first, contiguous: mirror.contiguous };
-            let (_, cluster) = self.locate_cluster(alloc, (0, 0), index >> (self.geo.cluster_shift + 3)).await?;
+            let cluster = self.locate_cluster(alloc, Hint::NONE, index >> (self.geo.cluster_shift + 3)).await?.cluster;
             let within = (index as u64 / 8) & (self.geo.cluster_size() - 1);
             let mut other = [0u8; 1];
             let other_at = self.cluster_at(cluster)? + within;
@@ -2853,7 +2857,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         let mut place = [(at / size, at - byte), (0, 0)];
         if let Some(mirror) = self.mirror_bitmap {
             let alloc = Alloc { first: mirror.first, contiguous: mirror.contiguous };
-            let (_, other) = self.locate_cluster(alloc, (0, 0), (byte >> self.geo.cluster_shift) as u32).await?;
+            let other = self.locate_cluster(alloc, Hint::NONE, (byte >> self.geo.cluster_shift) as u32).await?.cluster;
             let at = self.cluster_at(other)? + (byte & (self.geo.cluster_size() - 1));
             place[1] = (at / size, at - byte);
         }
@@ -2962,7 +2966,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
                 let tail = if state.contiguous {
                     state.first + have as u32 - 1
                 } else {
-                    self.locate_cluster(state.alloc(), state.hint, have as u32 - 1).await?.1
+                    self.locate_cluster(state.alloc(), state.hint, have as u32 - 1).await?.cluster
                 };
                 Ok(Growth { alloc, tail, added })
             }
@@ -2986,7 +2990,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
 
     /// Writes `len` bytes of `data`, or zeros, at byte `pos` of an
     /// allocation, and returns a hint for the last cluster written.
-    async fn fill(&mut self, alloc: Alloc, hint: (u32, u32), pos: u64, data: Option<&[u8]>, len: u64) -> FsResult<(u32, u32), D::Error> {
+    async fn fill(&mut self, alloc: Alloc, hint: Hint, pos: u64, data: Option<&[u8]>, len: u64) -> FsResult<Hint, D::Error> {
         if len == 0 {
             return Ok(hint);
         }
@@ -2998,11 +3002,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             hint = self.locate_cluster(alloc, hint, (at / cluster_size) as u32).await?;
             let within = at % cluster_size;
             let n = (cluster_size - within).min(len - done);
-            let offset = self.cluster_at(hint.1)? + within;
+            let offset = self.cluster_at(hint.cluster)? + within;
             let max = usize::try_from(len - done).unwrap_or(usize::MAX);
-            let (n, last) = self.run(alloc, hint, n as usize, max).await?;
-            hint = last;
-            let n = n as u64;
+            let n = self.run(alloc, &mut hint, n as usize, max).await? as u64;
             let chunk = data.map(|data| &data[done as usize..(done + n) as usize]);
             self.put(offset, chunk, n).await?;
             done += n;
@@ -3010,28 +3012,32 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         Ok(hint)
     }
 
-    /// Extends `n` bytes that start in cluster `at` of an allocation over
-    /// the clusters that follow it on disk and in the allocation, up to
-    /// `max` bytes, so they take one device call. Returns the length and
-    /// the `(index, cluster)` of the run's last cluster.
-    async fn run(&mut self, alloc: Alloc, at: (u32, u32), mut n: usize, max: usize) -> FsResult<(usize, (u32, u32)), D::Error> {
+    /// Extends `n` bytes that start in the cluster at `at` of an
+    /// allocation over the clusters that follow it on disk and in the
+    /// allocation, up to `max` bytes, so they take one device call. Returns
+    /// the length and leaves `at` at the run's last cluster.
+    async fn run(&mut self, alloc: Alloc, at: &mut Hint, mut n: usize, max: usize) -> FsResult<usize, D::Error> {
         let cluster_size = self.geo.cluster_size() as usize;
-        let mut last = at;
         while n < max {
             let next = if alloc.contiguous {
-                Some(last.1 + 1).filter(|&next| self.geo.is_cluster(next))
+                Some(at.cluster + 1).filter(|&next| self.geo.is_cluster(next))
             } else {
-                self.next_cluster(last.1).await?
+                self.next_cluster(at.cluster).await?
             };
             match next {
-                Some(next) if next == last.1 + 1 => {
-                    last = (last.0 + 1, next);
+                Some(next) if next == at.cluster + 1 => {
+                    if alloc.contiguous {
+                        at.cluster = next;
+                        at.index += 1;
+                    } else if !at.advance(next) {
+                        return Err(ErrorKind::Corrupt.into());
+                    }
                     n = n.saturating_add(cluster_size).min(max);
                 }
                 _ => break,
             }
         }
-        Ok((n, last))
+        Ok(n)
     }
 }
 

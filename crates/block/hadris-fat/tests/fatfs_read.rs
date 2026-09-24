@@ -595,35 +595,76 @@ fn volume_paths_and_handles() {
     assert_eq!(vol.into_inner().open_nodes(), 1);
 }
 
+fn try_list(fs: &mut Fs, dir: NodeId) -> Result<usize, ErrorKind> {
+    let mut cursor = DirCursor::start();
+    let mut buf = NameBuf::new();
+    let mut count = 0;
+    while fs
+        .read_dir_entry(dir, &mut cursor, &mut buf)
+        .map_err(|err| err.kind())?
+        .is_some()
+    {
+        count += 1;
+    }
+    Ok(count)
+}
+
+fn try_read(fs: &mut Fs, node: NodeId) -> Result<usize, ErrorKind> {
+    let mut done = 0;
+    let mut chunk = [0u8; 777];
+    loop {
+        match fs
+            .read_at(node, done as u64, &mut chunk)
+            .map_err(|err| err.kind())?
+        {
+            0 => return Ok(done),
+            n => done += n,
+        }
+    }
+}
+
 #[test]
-fn cyclic_chains_end_instead_of_hanging() {
+fn cyclic_chains_are_corrupt_instead_of_repeating() {
     let case = CASES[1];
-    let mut image = common::build(case);
+    let image = common::build(case);
     let (inner, deep) = {
         let mut fs = common::mount(case, &image);
         let inner = fs.resolve(INNER).unwrap();
         let deep = fs.lookup(inner, name("deep.bin")).unwrap();
-        (
-            common::chain(&mut fs, inner)[0] as usize,
-            common::chain(&mut fs, deep)[0] as usize,
-        )
+        (common::chain(&mut fs, inner), common::chain(&mut fs, deep))
     };
-    let u16_at = |at: usize| u16::from_le_bytes([image[at], image[at + 1]]) as usize;
-    let fat_start = u16_at(14) * u16_at(11);
-    let fat_len = u16_at(22) * u16_at(11);
-    for copy in 0..image[16] as usize {
-        for cluster in [inner, deep] {
-            let at = fat_start + copy * fat_len + cluster * 2;
-            image[at..at + 2].copy_from_slice(&(cluster as u16).to_le_bytes());
+    assert!(deep.len() > 4);
+    let u16_at = |image: &[u8], at: usize| u16::from_le_bytes([image[at], image[at + 1]]) as usize;
+    let link = |image: &mut Vec<u8>, from: u32, to: u32| {
+        let fat_start = u16_at(image, 14) * u16_at(image, 11);
+        let fat_len = u16_at(image, 22) * u16_at(image, 11);
+        for copy in 0..image[16] as usize {
+            let at = fat_start + copy * fat_len + from as usize * 2;
+            image[at..at + 2].copy_from_slice(&(to as u16).to_le_bytes());
         }
+    };
+    let loops = [
+        (inner[0], inner[0], deep[0], deep[0]),
+        (inner[1], inner[0], deep[3], deep[1]),
+    ];
+    for (dir_from, dir_to, file_from, file_to) in loops {
+        let mut dir_image = image.clone();
+        link(&mut dir_image, dir_from, dir_to);
+        let mut fs = open(case, dir_image);
+        let inner = fs.resolve(INNER).unwrap();
+        assert_eq!(try_list(&mut fs, inner), Err(ErrorKind::Corrupt));
+
+        let mut file_image = image.clone();
+        link(&mut file_image, file_from, file_to);
+        let mut fs = open(case, file_image);
+        let file = fs.resolve(&format!("{INNER}/deep.bin")).unwrap();
+        assert_eq!(try_read(&mut fs, file), Err(ErrorKind::Corrupt));
+        let mut all = vec![0u8; 70_000];
+        assert_eq!(
+            fs.read_at(file, 0, &mut all).map_err(|err| err.kind()),
+            Err(ErrorKind::Corrupt)
+        );
     }
-    let mut fs = open(case, image);
-    let root = fs.root();
-    let nested = fs.lookup(root, name("Nested Dir")).unwrap();
-    let inner = fs.lookup(nested, name("inner")).unwrap();
-    assert!(list(&mut fs, inner).len() >= INNER_FILES);
-    let file = fs.lookup(inner, name("deep.bin")).unwrap();
-    assert_eq!(read_all(&mut fs, file).len(), 70_000);
 }
 
 fn fat32_layout(image: &[u8]) -> (usize, usize, usize, u8) {
