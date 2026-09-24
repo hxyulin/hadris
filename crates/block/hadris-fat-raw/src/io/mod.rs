@@ -378,6 +378,10 @@ impl ClusterGroup {
         }
     }
 
+    pub(crate) fn spans(&self, cluster: u32) -> bool {
+        cluster.wrapping_sub(self.base) < Self::SPAN
+    }
+
     pub(crate) fn has(&self, cluster: u32) -> bool {
         let bit = cluster.wrapping_sub(self.base);
         bit < Self::SPAN && self.bits[bit as usize / 64] & (1 << (bit % 64)) != 0

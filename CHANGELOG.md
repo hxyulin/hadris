@@ -34,6 +34,16 @@ Each published package owns its version and may be released independently.
   a `DirWalk` that keeps its chain position, `read_slot`, `write_slots`,
   `clear_slots` and `mkfs`, plus `load`, `store`, `read_bytes`,
   `write_bytes` and `write_zeros`.
+- **hadris-fat-raw (V3):** `exfat::io`, the exFAT device primitives the
+  `ExFatFs` driver is built on, in the same three modes. An `ExFat` state
+  tracks `VolumeFlags`, the Allocation Bitmaps and the free count, and an
+  `Upcase` index decodes the up-case table lazily: `read_boot` (with the
+  backup boot region), `read_volume`, `upcase`, FAT `get`, `next` and
+  `set`, `bit`, `bitmap_bytes`, `set_bit`, `count_free`, `allocate`,
+  `allocate_run` and `free_chain` (bitmap writes batched per device block,
+  progress in a `Held`), `write_set` (secondary entries before the File
+  entry's block) and `clear_set`, and `begin_write`, `clear_dirty` and
+  `write_percent_in_use` for `VolumeDirty` and `PercentInUse`.
 - **hadris-storage (V3):** `BlockDevice` gains `max_block_count` (how many
   blocks a device holds once written past its end, `block_count` by
   default), `disk_offset` (the byte offset of block 0 on the disk a device

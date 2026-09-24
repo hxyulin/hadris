@@ -6,6 +6,97 @@ pub fn hadris_fat_raw::date::decode(u16, u16, u8) -> core::option::Option<hadris
 pub fn hadris_fat_raw::date::encode(hadris_fs::time::DateTime) -> (u16, u16, u8)
 pub const fn hadris_fat_raw::date::pack(u16, u8, u8, u8, u8, u8) -> (u16, u16)
 pub mod hadris_fat_raw::exfat
+pub mod hadris_fat_raw::exfat::io
+pub mod hadris_fat_raw::exfat::io::async
+pub async fn hadris_fat_raw::exfat::io::async::allocate<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, core::option::Option<&mut hadris_fat_raw::io::Held>) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async::allocate_run<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, core::option::Option<&mut hadris_fat_raw::io::Held>, u32) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async::begin_write<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async::bit<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, u32) -> hadris_io::fs_error::FsResult<bool, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async::bitmap_bytes<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, u64, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async::clear_dirty<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async::clear_set<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, &[u64], &mut [hadris_fat_raw::exfat::RawEntry]) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async::count_free<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async::free_chain<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, &mut hadris_fat_raw::io::Held, u32) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async::get<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::exfat::Geometry, u32) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async::next<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::exfat::Geometry, u32) -> hadris_io::fs_error::FsResult<core::option::Option<u32>, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async::read_boot<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf) -> hadris_io::fs_error::FsResult<(hadris_fat_raw::exfat::Geometry, hadris_fat_raw::exfat::io::BootRegion), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async::read_volume<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, hadris_fat_raw::exfat::Geometry, &mut hadris_fat_raw::exfat::io::Upcase) -> hadris_io::fs_error::FsResult<hadris_fat_raw::exfat::io::ExFat, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async::set<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, u32, u32) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async::set_bit<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, u32, hadris_fat_raw::exfat::io::ClusterState) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async::upcase<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::exfat::Geometry, &mut hadris_fat_raw::exfat::io::Upcase, u16) -> hadris_io::fs_error::FsResult<u16, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async::write_percent_in_use<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async::write_set<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, &[u64], &[hadris_fat_raw::exfat::RawEntry]) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub mod hadris_fat_raw::exfat::io::async_send
+pub async fn hadris_fat_raw::exfat::io::async_send::allocate<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, core::option::Option<&mut hadris_fat_raw::io::Held>) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async_send::allocate_run<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, core::option::Option<&mut hadris_fat_raw::io::Held>, u32) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async_send::begin_write<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async_send::bit<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, u32) -> hadris_io::fs_error::FsResult<bool, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async_send::bitmap_bytes<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, u64, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async_send::clear_dirty<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async_send::clear_set<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, &[u64], &mut [hadris_fat_raw::exfat::RawEntry]) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async_send::count_free<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async_send::free_chain<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, &mut hadris_fat_raw::io::Held, u32) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async_send::get<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::exfat::Geometry, u32) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async_send::next<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::exfat::Geometry, u32) -> hadris_io::fs_error::FsResult<core::option::Option<u32>, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async_send::read_boot<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf) -> hadris_io::fs_error::FsResult<(hadris_fat_raw::exfat::Geometry, hadris_fat_raw::exfat::io::BootRegion), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async_send::read_volume<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, hadris_fat_raw::exfat::Geometry, &mut hadris_fat_raw::exfat::io::Upcase) -> hadris_io::fs_error::FsResult<hadris_fat_raw::exfat::io::ExFat, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async_send::set<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, u32, u32) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async_send::set_bit<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, u32, hadris_fat_raw::exfat::io::ClusterState) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async_send::upcase<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::exfat::Geometry, &mut hadris_fat_raw::exfat::io::Upcase, u16) -> hadris_io::fs_error::FsResult<u16, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async_send::write_percent_in_use<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::exfat::io::async_send::write_set<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, &[u64], &[hadris_fat_raw::exfat::RawEntry]) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub mod hadris_fat_raw::exfat::io::sync
+pub fn hadris_fat_raw::exfat::io::sync::allocate<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, core::option::Option<&mut hadris_fat_raw::io::Held>) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::exfat::io::sync::allocate_run<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, core::option::Option<&mut hadris_fat_raw::io::Held>, u32) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::exfat::io::sync::begin_write<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::exfat::io::sync::bit<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, u32) -> hadris_io::fs_error::FsResult<bool, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::exfat::io::sync::bitmap_bytes<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, u64, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::exfat::io::sync::clear_dirty<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::exfat::io::sync::clear_set<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, &[u64], &mut [hadris_fat_raw::exfat::RawEntry]) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::exfat::io::sync::count_free<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::exfat::io::sync::free_chain<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, &mut hadris_fat_raw::io::Held, u32) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::exfat::io::sync::get<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::exfat::Geometry, u32) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::exfat::io::sync::next<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::exfat::Geometry, u32) -> hadris_io::fs_error::FsResult<core::option::Option<u32>, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::exfat::io::sync::read_boot<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf) -> hadris_io::fs_error::FsResult<(hadris_fat_raw::exfat::Geometry, hadris_fat_raw::exfat::io::BootRegion), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::exfat::io::sync::read_volume<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, hadris_fat_raw::exfat::Geometry, &mut hadris_fat_raw::exfat::io::Upcase) -> hadris_io::fs_error::FsResult<hadris_fat_raw::exfat::io::ExFat, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::exfat::io::sync::set<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, u32, u32) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::exfat::io::sync::set_bit<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, u32, hadris_fat_raw::exfat::io::ClusterState) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::exfat::io::sync::upcase<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::exfat::Geometry, &mut hadris_fat_raw::exfat::io::Upcase, u16) -> hadris_io::fs_error::FsResult<u16, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::exfat::io::sync::write_percent_in_use<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::exfat::io::sync::write_set<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::exfat::io::ExFat, &[u64], &[hadris_fat_raw::exfat::RawEntry]) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub enum hadris_fat_raw::exfat::io::BootRegion
+pub hadris_fat_raw::exfat::io::BootRegion::Backup
+pub hadris_fat_raw::exfat::io::BootRegion::Main
+pub enum hadris_fat_raw::exfat::io::ClusterState
+pub hadris_fat_raw::exfat::io::ClusterState::Free
+pub hadris_fat_raw::exfat::io::ClusterState::Used
+pub struct hadris_fat_raw::exfat::io::ExFat
+impl hadris_fat_raw::exfat::io::ExFat
+pub const fn hadris_fat_raw::exfat::io::ExFat::allocation_changed(&self) -> bool
+pub const fn hadris_fat_raw::exfat::io::ExFat::bitmap(&self) -> hadris_fat_raw::exfat::io::Extent
+pub const fn hadris_fat_raw::exfat::io::ExFat::flags(&self) -> u16
+pub const fn hadris_fat_raw::exfat::io::ExFat::free_clusters(&self) -> core::option::Option<u32>
+pub const fn hadris_fat_raw::exfat::io::ExFat::geometry(&self) -> &hadris_fat_raw::exfat::Geometry
+pub const fn hadris_fat_raw::exfat::io::ExFat::mirror_bitmap(&self) -> core::option::Option<hadris_fat_raw::exfat::io::Extent>
+pub const fn hadris_fat_raw::exfat::io::ExFat::new(hadris_fat_raw::exfat::Geometry, hadris_fat_raw::exfat::io::Extent, core::option::Option<hadris_fat_raw::exfat::io::Extent>) -> Self
+pub const fn hadris_fat_raw::exfat::io::ExFat::was_dirty(&self) -> bool
+pub struct hadris_fat_raw::exfat::io::Extent
+impl hadris_fat_raw::exfat::io::Extent
+pub const fn hadris_fat_raw::exfat::io::Extent::chain(u32, u64) -> Self
+pub const fn hadris_fat_raw::exfat::io::Extent::contiguous(u32, u64) -> Self
+pub const fn hadris_fat_raw::exfat::io::Extent::first(&self) -> u32
+pub const fn hadris_fat_raw::exfat::io::Extent::is_contiguous(&self) -> bool
+pub const fn hadris_fat_raw::exfat::io::Extent::is_empty(&self) -> bool
+pub const fn hadris_fat_raw::exfat::io::Extent::len(&self) -> u64
+pub struct hadris_fat_raw::exfat::io::Upcase
+impl hadris_fat_raw::exfat::io::Upcase
+pub const fn hadris_fat_raw::exfat::io::Upcase::checksum(&self) -> u32
+pub const fn hadris_fat_raw::exfat::io::Upcase::extent(&self) -> hadris_fat_raw::exfat::io::Extent
+pub fn hadris_fat_raw::exfat::io::Upcase::is_valid(&self) -> bool
+pub fn hadris_fat_raw::exfat::io::Upcase::new() -> Self
+pub const fn hadris_fat_raw::exfat::io::Upcase::stored_checksum(&self) -> u32
+impl core::default::Default for hadris_fat_raw::exfat::io::Upcase
+pub fn hadris_fat_raw::exfat::io::Upcase::default() -> Self
 #[repr(C)] pub struct hadris_fat_raw::exfat::BitmapEntry
 pub hadris_fat_raw::exfat::BitmapEntry::bitmap_flags: u8
 pub hadris_fat_raw::exfat::BitmapEntry::data_length: hadris_common::types::number::U64<hadris_common::types::endian::LittleEndian>

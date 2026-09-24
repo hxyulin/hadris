@@ -4,9 +4,12 @@
 //! gain items, and the existing ones follow the specification and stay
 //! exhaustive. The codecs check a boot sector into a [`Geometry`], compute
 //! the boot, set and up-case table checksums and name hashes, encode names
-//! and times, and decode compressed up-case tables.
+//! and times, and decode compressed up-case tables. With a mode feature,
+//! `io` adds the device primitives.
 
 mod codec;
+#[cfg(any(feature = "sync", feature = "async"))]
+pub mod io;
 mod layout;
 
 pub use codec::{

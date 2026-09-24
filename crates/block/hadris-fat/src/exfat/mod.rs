@@ -79,6 +79,7 @@ pub mod sync {
     }
 
     use crate::sync::block_io;
+    use hadris_fat_raw::exfat::io::sync as exio;
     use hadris_storage::sync as storage;
 
     macro_rules! impl_exfat_driver {
@@ -105,6 +106,7 @@ pub mod r#async {
     }
 
     use crate::r#async::block_io;
+    use hadris_fat_raw::exfat::io::r#async as exio;
     use hadris_storage::r#async as storage;
 
     macro_rules! impl_exfat_driver {
@@ -133,6 +135,7 @@ pub mod async_send {
     }
 
     use crate::async_send::block_io;
+    use hadris_fat_raw::exfat::io::async_send as exio;
     use hadris_storage::async_send as storage;
 
     macro_rules! impl_exfat_driver {
