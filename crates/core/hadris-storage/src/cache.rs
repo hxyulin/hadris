@@ -1,23 +1,34 @@
 use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec;
 use alloc::vec::Vec;
+
+const NIL: usize = usize::MAX;
+
+/// Most blocks one coalesced flush write carries.
+pub(crate) const MAX_RUN: usize = 256;
 
 #[derive(Debug)]
 struct Entry {
     index: Option<u64>,
     data: Box<[u8]>,
-    dirty: bool,
-    used: u64,
+    prev: usize,
+    next: usize,
 }
 
+/// Slots on an intrusive LRU list (head is most recent), a block-to-slot map
+/// and the set of dirty block indices, so lookup, eviction and flush never
+/// scan every slot.
 #[derive(Debug)]
 pub(crate) struct CacheState {
     capacity: usize,
     block_size: usize,
     entries: Vec<Entry>,
     slots: BTreeMap<u64, usize>,
-    tick: u64,
+    dirty: BTreeSet<u64>,
+    head: usize,
+    tail: usize,
+    run: Vec<u8>,
 }
 
 #[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
@@ -28,12 +39,19 @@ impl CacheState {
             block_size,
             entries: Vec::new(),
             slots: BTreeMap::new(),
-            tick: 0,
+            dirty: BTreeSet::new(),
+            head: NIL,
+            tail: NIL,
+            run: Vec::new(),
         }
     }
 
+    pub(crate) fn capacity(&self) -> usize {
+        self.capacity
+    }
+
     pub(crate) fn is_dirty(&self) -> bool {
-        self.entries.iter().any(|entry| entry.dirty)
+        !self.dirty.is_empty()
     }
 
     pub(crate) fn lookup(&mut self, index: u64) -> Option<usize> {
@@ -42,38 +60,45 @@ impl CacheState {
         Some(slot)
     }
 
+    pub(crate) fn peek(&self, index: u64) -> Option<usize> {
+        self.slots.get(&index).copied()
+    }
+
+    /// The least recently used slot once the cache is full.
     pub(crate) fn victim(&self) -> Option<usize> {
         if self.entries.len() < self.capacity {
-            return None;
+            None
+        } else {
+            Some(self.tail)
         }
-        self.entries
-            .iter()
-            .enumerate()
-            .min_by_key(|(_, entry)| entry.used)
-            .map(|(slot, _)| slot)
     }
 
     pub(crate) fn grow(&mut self) -> usize {
+        let slot = self.entries.len();
         self.entries.push(Entry {
             index: None,
             data: vec![0; self.block_size].into_boxed_slice(),
-            dirty: false,
-            used: 0,
+            prev: NIL,
+            next: NIL,
         });
-        self.entries.len() - 1
+        self.push_front(slot);
+        slot
     }
 
     pub(crate) fn dirty_index(&self, slot: usize) -> Option<u64> {
-        let entry = &self.entries[slot];
-        if entry.dirty { entry.index } else { None }
+        self.entries[slot]
+            .index
+            .filter(|index| self.dirty.contains(index))
     }
 
+    /// Drops the block a slot holds and makes the slot the next victim.
     pub(crate) fn forget(&mut self, slot: usize) {
-        let entry = &mut self.entries[slot];
-        if let Some(index) = entry.index.take() {
+        if let Some(index) = self.entries[slot].index.take() {
             self.slots.remove(&index);
+            self.dirty.remove(&index);
         }
-        entry.dirty = false;
+        self.unlink(slot);
+        self.push_back(slot);
     }
 
     pub(crate) fn assign(&mut self, slot: usize, index: u64) {
@@ -91,30 +116,106 @@ impl CacheState {
     }
 
     pub(crate) fn mark_dirty(&mut self, slot: usize) {
-        self.entries[slot].dirty = true;
+        if let Some(index) = self.entries[slot].index {
+            self.dirty.insert(index);
+        }
     }
 
-    pub(crate) fn clean(&mut self, slot: usize) {
-        self.entries[slot].dirty = false;
+    pub(crate) fn first_dirty(&self) -> Option<u64> {
+        self.dirty.first().copied()
     }
 
-    pub(crate) fn next_dirty(&self) -> Option<usize> {
-        self.slots
-            .values()
+    /// How many consecutive dirty blocks start at `start`, at most [`MAX_RUN`].
+    pub(crate) fn dirty_run(&self, start: u64) -> usize {
+        let mut len = 1;
+        while len < MAX_RUN && self.dirty.contains(&(start + len as u64)) {
+            len += 1;
+        }
+        len
+    }
+
+    /// Copies `len` cached blocks from `start` into one buffer for a single
+    /// device write. Every block in the range must be cached.
+    pub(crate) fn gather(&mut self, start: u64, len: usize) -> &[u8] {
+        self.run.clear();
+        for index in start..start + len as u64 {
+            let slot = self.slots[&index];
+            self.run.extend_from_slice(&self.entries[slot].data);
+        }
+        &self.run
+    }
+
+    pub(crate) fn clean_range(&mut self, start: u64, len: usize) {
+        for index in start..start + len as u64 {
+            self.dirty.remove(&index);
+        }
+    }
+
+    /// Dirty blocks in `first..first + count`.
+    pub(crate) fn dirty_in(&self, first: u64, count: usize) -> impl Iterator<Item = u64> + '_ {
+        self.dirty
+            .range(first..first.saturating_add(count as u64))
             .copied()
-            .find(|&slot| self.entries[slot].dirty)
+    }
+
+    /// Cached blocks in `first..first + count` with their slots.
+    pub(crate) fn cached_in(
+        &self,
+        first: u64,
+        count: usize,
+    ) -> impl Iterator<Item = (u64, usize)> + '_ {
+        self.slots
+            .range(first..first.saturating_add(count as u64))
+            .map(|(&index, &slot)| (index, slot))
     }
 
     pub(crate) fn invalidate(&mut self, first: u64, count: usize) {
-        for index in first..first.saturating_add(count as u64) {
-            if let Some(slot) = self.slots.get(&index).copied() {
-                self.forget(slot);
-            }
+        let slots: Vec<usize> = self.cached_in(first, count).map(|(_, slot)| slot).collect();
+        for slot in slots {
+            self.forget(slot);
         }
     }
 
     fn touch(&mut self, slot: usize) {
-        self.tick += 1;
-        self.entries[slot].used = self.tick;
+        if self.head != slot {
+            self.unlink(slot);
+            self.push_front(slot);
+        }
+    }
+
+    fn unlink(&mut self, slot: usize) {
+        let (prev, next) = (self.entries[slot].prev, self.entries[slot].next);
+        if prev == NIL {
+            self.head = next
+        } else {
+            self.entries[prev].next = next
+        }
+        if next == NIL {
+            self.tail = prev
+        } else {
+            self.entries[next].prev = prev
+        }
+        self.entries[slot].prev = NIL;
+        self.entries[slot].next = NIL;
+    }
+
+    fn push_front(&mut self, slot: usize) {
+        self.entries[slot].next = self.head;
+        if self.head == NIL {
+            self.tail = slot
+        } else {
+            self.entries[self.head].prev = slot
+        }
+        self.head = slot;
+    }
+
+    fn push_back(&mut self, slot: usize) {
+        self.entries[slot].prev = self.tail;
+        if self.tail == NIL {
+            self.head = slot
+        } else {
+            self.entries[self.tail].next = slot
+        }
+        self.tail = slot;
     }
 }

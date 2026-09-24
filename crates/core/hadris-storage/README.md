@@ -21,7 +21,7 @@ implements `block_size`, `block_count` and `read_blocks`, and nothing else.
 | `StreamDevice` | A block device over any `Read + Seek` stream, with any block size. Wrap read-only streams in `ReadOnly`; the sealed `StreamWrite` trait carries the choice |
 | `MemDevice` | A block device over `&[u8]` (read-only), `&mut [u8]`, `[u8; N]`, `Vec<u8>` or `Box<[u8]>`. Error `OutOfRange` |
 | `Slice` | A contiguous block range of another device, such as a partition. Requests past its end never reach the device |
-| `Cache` | Write-back LRU cache of whole blocks (`alloc`). Its first write goes straight through, so a read-only device says so at once |
+| `Cache` | Write-back LRU cache of whole blocks (`alloc`). Its first write goes straight through, so a read-only device says so at once. Requests of at least `capacity` blocks bypass it |
 | `ByteView` | Byte-granular reads and writes over a device, also usable as a stream |
 | `StorageError<E>` | Error of the adapters that can refuse a request themselves (`StreamDevice`, `Slice`, `ByteView`) |
 | `BlockIndex`, `BlockCount`, `BlockSize` | Value types with private fields and `const fn` constructors and accessors |

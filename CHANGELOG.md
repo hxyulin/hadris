@@ -444,6 +444,13 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-storage (V3):** `Cache` keeps its blocks on an LRU list and its
+  dirty blocks in an ordered set, so a miss, an eviction and a flush no
+  longer scan every slot (a 64 MiB FAT32 copy through a 65536-block cache
+  went from 8 to 200 MiB/s). Consecutive missing blocks are read in one
+  device call, a flush writes each run of consecutive dirty blocks in one
+  call, and requests of at least `capacity` blocks go straight to the
+  device. Write-back behaviour is unchanged.
 - **Fuzzing (V3):** `fs_dump` lists every filesystem through one generic
   walk over the `hadris-fs` `FileSystem` node API, with each driver wrapped
   in a `Volume`. Small seeds are committed for `cpio_read` (every format,
