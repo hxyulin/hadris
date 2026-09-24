@@ -71,41 +71,106 @@ fn create_then_extract_through_pipes() {
     assert_eq!(std::fs::read(out.join("sub/file.txt")).unwrap(), b"hello");
 }
 
-#[test]
-fn extract_refuses_names_outside_the_output() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut archive = Vec::new();
-    let name = b"../escape\0";
+fn newc_entry(archive: &mut Vec<u8>, name: &str, mode: u32, data: &[u8]) {
     archive.extend_from_slice(b"070701");
     for value in [
         1u32,
-        0o100644,
+        mode,
         0,
         0,
         1,
         0,
+        data.len() as u32,
         0,
         0,
         0,
         0,
-        0,
-        name.len() as u32,
+        name.len() as u32 + 1,
         0,
     ] {
         archive.extend_from_slice(format!("{value:08X}").as_bytes());
     }
-    archive.extend_from_slice(name);
+    archive.extend_from_slice(name.as_bytes());
+    archive.push(0);
     while archive.len() % 4 != 0 {
         archive.push(0);
     }
-    let path = dir.path().join("evil.cpio");
-    std::fs::write(&path, &archive).unwrap();
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_hadris-cpio"))
+    archive.extend_from_slice(data);
+    while archive.len() % 4 != 0 {
+        archive.push(0);
+    }
+}
+
+fn extract(dir: &std::path::Path, archive: &[u8]) -> std::process::Output {
+    let path = dir.join("evil.cpio");
+    std::fs::write(&path, archive).unwrap();
+    std::process::Command::new(env!("CARGO_BIN_EXE_hadris-cpio"))
         .args(["extract", "-o"])
-        .arg(dir.path().join("out"))
+        .arg(dir.join("out"))
         .arg(&path)
         .output()
-        .unwrap();
+        .unwrap()
+}
+
+#[test]
+fn extract_refuses_names_outside_the_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut archive = Vec::new();
+    newc_entry(&mut archive, "../escape", 0o100644, b"");
+    let output = extract(dir.path(), &archive);
     assert!(!output.status.success());
     assert!(!dir.path().join("escape").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn extract_refuses_paths_through_an_extracted_symlink() {
+    let dir = tempfile::tempdir().unwrap();
+    let outside = dir.path().join("outside");
+    std::fs::create_dir(&outside).unwrap();
+    let mut archive = Vec::new();
+    newc_entry(
+        &mut archive,
+        "link",
+        0o120777,
+        outside.to_str().unwrap().as_bytes(),
+    );
+    newc_entry(&mut archive, "link/escaped.txt", 0o100644, b"evil");
+    newc_entry(&mut archive, "TRAILER!!!", 0, b"");
+    let output = extract(dir.path(), &archive);
+    assert!(!output.status.success());
+    assert!(!outside.join("escaped.txt").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn extract_replaces_a_symlink_with_a_directory_entry() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let outside = dir.path().join("outside");
+    std::fs::create_dir(&outside).unwrap();
+    std::fs::set_permissions(&outside, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut archive = Vec::new();
+    newc_entry(
+        &mut archive,
+        "link",
+        0o120777,
+        outside.to_str().unwrap().as_bytes(),
+    );
+    newc_entry(&mut archive, "link", 0o040700, b"");
+    newc_entry(&mut archive, "link/inside.txt", 0o100644, b"data");
+    newc_entry(&mut archive, "TRAILER!!!", 0, b"");
+    let output = extract(dir.path(), &archive);
+    let mode = std::fs::metadata(&outside).unwrap().permissions().mode();
+    assert_eq!(mode & 0o777, 0o755);
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let link = dir.path().join("out/link");
+    assert!(link.symlink_metadata().unwrap().is_dir());
+    assert_eq!(std::fs::read(link.join("inside.txt")).unwrap(), b"data");
+    assert!(!outside.join("inside.txt").exists());
 }
