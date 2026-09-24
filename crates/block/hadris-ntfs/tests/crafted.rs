@@ -211,7 +211,7 @@ fn cursors_resume_across_index_blocks() {
 #[test]
 fn open_rejects_bad_boot_sectors() {
     type Edit = fn(&mut Vec<u8>);
-    let cases: [(Edit, ErrorKind); 7] = [
+    let cases: [(Edit, ErrorKind); 8] = [
         (|i| i[3] = b'X', ErrorKind::Corrupt),
         (|i| i[510] = 0, ErrorKind::Corrupt),
         (
@@ -225,6 +225,13 @@ fn open_rejects_bad_boot_sectors() {
         ),
         (|i| i[64] = 0, ErrorKind::Corrupt),
         (|i| i[64] = (-13i8) as u8, ErrorKind::Unsupported),
+        (
+            |i| {
+                i[40..48].copy_from_slice(&u64::MAX.to_le_bytes());
+                i[48..56].copy_from_slice(&(1u64 << 60).to_le_bytes());
+            },
+            ErrorKind::Corrupt,
+        ),
     ];
     for (edit, kind) in cases {
         let mut image = base_image();

@@ -130,6 +130,9 @@ impl Geometry {
         if total_clusters == 0 || mft_cluster >= total_clusters {
             return Err(Detail::Geometry);
         }
+        let mft_offset = mft_cluster
+            .checked_mul(cluster_size)
+            .ok_or(Detail::Geometry)?;
         Ok(Self {
             sector_size,
             cluster_size,
@@ -137,7 +140,7 @@ impl Geometry {
             index_record_size: index_record_size as usize,
             total_sectors,
             total_clusters,
-            mft_offset: mft_cluster * cluster_size,
+            mft_offset,
             serial: boot.serial(),
             device_len,
         })
