@@ -13,19 +13,13 @@ categories = ["no-std", "filesystem"]
 include = ["src/**/*", "Cargo.toml"]
 
 [features]
-default = ["bytemuck", "std"]
-sync = ["hadris-io/sync"]
-async = ["hadris-io/async"]
-alloc = ["hadris-io/alloc", "hadris-fs/alloc"]
-std = ["alloc", "hadris-io/std"]
+default = ["bytemuck"]
 bytemuck = ["dep:bytemuck"]
 
 [dependencies]
 bytemuck = { workspace = true, optional = true, features = ["derive"] }
 zerocopy = { workspace = true }
-hadris-io = { workspace = true }
-hadris-fs = { workspace = true }
 
 [dev-dependencies]
-criterion.workspace = true
+bytemuck = { workspace = true, features = ["derive"] }
 static_assertions.workspace = true

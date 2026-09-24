@@ -344,4 +344,23 @@ mod tests {
         assert_eq!(VPath::new("../a").normalize(), Err(PathError::EscapesRoot));
         assert!(split_path("a/../file").is_none());
     }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn split_path_separates_the_last_component() {
+        assert_eq!(
+            split_path("file.txt").unwrap(),
+            ("".into(), "file.txt".into())
+        );
+        assert_eq!(
+            split_path("a/b/c/file.txt").unwrap(),
+            ("a/b/c".into(), "file.txt".into())
+        );
+        assert_eq!(
+            split_path("/root/file.txt").unwrap(),
+            ("root".into(), "file.txt".into())
+        );
+        assert!(split_path("").is_none());
+        assert!(split_path("/").is_none());
+    }
 }

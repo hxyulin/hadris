@@ -286,7 +286,7 @@ pub fn align_up<
     (num + temp) & !temp
 }
 
-#[cfg(all(test, feature = "std"))]
+#[cfg(test)]
 mod tests {
     //! Tests for the number types.
     //!
