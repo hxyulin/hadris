@@ -1,6 +1,6 @@
 use std::fs::{self, File};
 use std::io::BufReader;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result};
 use hadris_cpio::{CpioArchiveReader, FileType};
@@ -20,7 +20,19 @@ pub fn extract(archive: PathBuf, output: PathBuf) -> Result<()> {
         let header = entry.header().clone();
         let ft = entry.file_type();
 
-        let dest = output.join(&name);
+        let Some(dest) = safe_dest(&output, &name) else {
+            eprintln!("warning: skipping {name} (unsafe path)");
+            reader.skip_entry_data_owned(&entry)?;
+            continue;
+        };
+        if matches!(ft, FileType::Directory | FileType::Regular)
+            && dest
+                .symlink_metadata()
+                .is_ok_and(|m| m.file_type().is_symlink())
+        {
+            fs::remove_file(&dest)
+                .with_context(|| format!("Failed to replace symlink: {}", dest.display()))?;
+        }
 
         match ft {
             FileType::Directory => {
@@ -86,4 +98,27 @@ pub fn extract(archive: PathBuf, output: PathBuf) -> Result<()> {
     println!("Extracted {} entries to {}", count, output.display());
 
     Ok(())
+}
+
+/// Resolves an archive entry name under `output`, rejecting names that are
+/// absolute, contain `..`, or pass through an already-extracted symlink.
+fn safe_dest(output: &Path, name: &str) -> Option<PathBuf> {
+    let mut dest = output.to_path_buf();
+    for component in Path::new(name).components() {
+        match component {
+            Component::Normal(part) => {
+                if dest != output
+                    && dest
+                        .symlink_metadata()
+                        .is_ok_and(|m| m.file_type().is_symlink())
+                {
+                    return None;
+                }
+                dest.push(part);
+            }
+            Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+    Some(dest)
 }

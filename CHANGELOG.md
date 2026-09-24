@@ -19,10 +19,19 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-cpio-cli:** `extract` now skips, with a warning, entries whose names
+  are absolute, contain `..`, or lead through a symlink extracted earlier.
+  Before, such entries were written outside the output directory.
 - **hadris-iso:** Write Rock Ridge relocation placeholders compatible with
   libarchive/bsdtar and use only recognized relocation container names. Reject
   relocation when a root `rr_moved` directory would be mistaken for the container
   or both supported names are occupied, instead of producing an unreadable image.
+- **hadris-part:** The `write` feature now enables `crc`. Without it,
+  `GptDisk` wrote GPT headers whose header and entry-array CRC32 fields were
+  zero, which firmware and partitioning tools reject. With `write` enabled,
+  reads now also verify these checksums.
+- **hadris-udf-cli:** `extract` now fails on entry names that are `.`, `..`,
+  or contain a path separator instead of writing outside the output directory.
 
 ## [2.4.0] - 2026-09-08
 

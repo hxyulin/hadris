@@ -22,12 +22,13 @@ This crate provides read and write support for common partition table formats us
 | `sync` | Synchronous I/O traits | - | Yes |
 | `async` | Asynchronous I/O traits | - | - |
 | `alloc` | Heap allocation for `Vec`-based APIs (`GptDisk`, `PartitionTable`) | - | via `std` |
-| `write` | Writing partition tables | `alloc`, `read` | - |
+| `write` | Writing partition tables | `alloc`, `read`, `crc` | - |
 | `crc` | CRC32 verification/calculation for GPT headers | `crc` crate | - |
 | `rand` | Random GUID generation | `rand` crate | - |
 
 > **Note:** GPT header/entry CRC checks run only when the `crc` feature is enabled.
-> Without it, CRC fields are ignored on read.
+> Without it, CRC fields are ignored on read. `write` always enables `crc`, so
+> written GPT headers carry valid checksums.
 
 `std` selects platform integration but does not select an I/O mode. The default
 feature set enables `sync` explicitly; custom configurations should enable
@@ -121,9 +122,7 @@ hadris-part = { version = "2.4.0", default-features = false, features = ["read",
 
 ```toml
 [dependencies]
-hadris-part = { version = "2.4.0", features = ["write"] }  # read is already default
-# Optional GPT CRC verification:
-# hadris-part = { version = "2.4.0", features = ["write", "crc"] }
+hadris-part = { version = "2.4.0", features = ["write"] }  # read is already default; write enables crc
 ```
 
 ## Partition Types

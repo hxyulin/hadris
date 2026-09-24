@@ -1,5 +1,6 @@
 use std::fs::{self, File};
-use std::path::Path;
+use std::io;
+use std::path::{Component, Path, PathBuf};
 
 use hadris_udf::{UdfDir, UdfVolume};
 
@@ -49,9 +50,9 @@ fn extract_dir(
             continue;
         }
 
-        let name = entry.name();
+        let entry_path = safe_entry_path(output_path, entry.name())?;
         if entry.is_dir() {
-            let child_path = output_path.join(name);
+            let child_path = entry_path;
             fs::create_dir_all(&child_path)?;
             if verbose {
                 println!("Creating directory: {}", child_path.display());
@@ -59,7 +60,7 @@ fn extract_dir(
             let child = udf.read_directory(&entry.icb)?;
             extract_dir(udf, &child, &child_path, verbose, count)?;
         } else {
-            let file_path = output_path.join(name);
+            let file_path = entry_path;
             if verbose {
                 println!("Extracting: {} ({} bytes)", file_path.display(), entry.size);
             }
@@ -69,4 +70,19 @@ fn extract_dir(
         }
     }
     Ok(())
+}
+
+fn safe_entry_path(output_path: &Path, name: &str) -> Result<PathBuf> {
+    let path = Path::new(name);
+    let mut components = path.components();
+    match (components.next(), components.next()) {
+        (Some(Component::Normal(component)), None) if component == std::ffi::OsStr::new(name) => {
+            Ok(output_path.join(path))
+        }
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("unsafe filename in UDF image: {name:?}"),
+        )
+        .into()),
+    }
 }

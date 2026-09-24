@@ -540,6 +540,7 @@ dependencies = [
  "clap",
  "hadris-cpio",
  "libc",
+ "tempfile",
 ]
 
 [[package]]
@@ -733,6 +734,7 @@ dependencies = [
  "clap",
  "hadris-udf",
  "libc",
+ "tempfile",
  "tracing",
  "tracing-subscriber",
 ]
