@@ -148,16 +148,10 @@ jobs:
           # hadris-common
           - crate: hadris-common
             tier: no-std
-            features: "sync,bytemuck"
+            features: ""
           - crate: hadris-common
-            tier: alloc
-            features: "alloc,sync,bytemuck"
-          - crate: hadris-common
-            tier: std-without-sync
-            features: "std,bytemuck"
-          - crate: hadris-common
-            tier: std
-            features: "std,sync,bytemuck"
+            tier: bytemuck
+            features: "bytemuck"
 
           # hadris-storage
           - crate: hadris-storage
@@ -256,23 +250,29 @@ jobs:
 
           # hadris-udf
           - crate: hadris-udf
-            tier: no-std
-            features: "sync,read"
+            tier: no-std-sync
+            features: "sync"
           - crate: hadris-udf
-            tier: alloc
-            features: "alloc,sync,read"
+            tier: no-std-async
+            features: "async"
+          - crate: hadris-udf
+            tier: no-std-async-send
+            features: "async-send"
+          - crate: hadris-udf
+            tier: alloc-sync
+            features: "alloc,sync"
+          - crate: hadris-udf
+            tier: alloc-async-send
+            features: "alloc,async-send"
           - crate: hadris-udf
             tier: std
-            features: "std,sync,read,write"
+            features: "std,sync"
           - crate: hadris-udf
-            tier: async-read
-            features: "alloc,async,read"
-          - crate: hadris-udf
-            tier: sync-and-async-read
-            features: "alloc,sync,async,read"
+            tier: hosted-async
+            features: "std,async"
           - crate: hadris-udf
             tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,unstable-streaming"
+            features: "std,alloc,sync,async,async-send"
 
           # hadris-cpio
           - crate: hadris-cpio
@@ -300,13 +300,25 @@ jobs:
             tier: all-capabilities
             features: "std,alloc,sync,async,async-send"
 
-          # hadris-cd (hybrid writer is intentionally sync-only)
+          # hadris-cd
           - crate: hadris-cd
             tier: no-api
             features: ""
           - crate: hadris-cd
-            tier: hosted-sync-writer
+            tier: no-std-sync
+            features: "sync"
+          - crate: hadris-cd
+            tier: no-std-async-send
+            features: "async-send"
+          - crate: hadris-cd
+            tier: std
             features: "std,sync"
+          - crate: hadris-cd
+            tier: hosted-async
+            features: "std,async"
+          - crate: hadris-cd
+            tier: all-capabilities
+            features: "std,sync,async,async-send"
 
           # standalone category facades
           - crate: hadris-block
@@ -480,10 +492,11 @@ jobs:
           HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
         run: "cargo test --manifest-path tests/Cargo.toml iso:: -- --nocapture"
       - name: Run UDF interoperability tests
-        run: >-
-          cargo test -p hadris-udf --all-features --lib integration_external:: -- --nocapture
+        env:
+          HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
+        run: cargo test -p hadris-udf --all-features --test interop -- --nocapture
       - name: Qualify hybrid ISO/UDF images
-        run: cargo test -p hadris-cd --all-features --test bridge_roundtrip -- --nocapture
+        run: cargo test -p hadris-cd --all-features --test bridge -- --nocapture
 
   # CLI --help/--version smoke tests live in crates/tools/hadris-*-cli/tests/cli_smoke.rs
   # and run under the workspace `test` job.
