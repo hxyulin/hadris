@@ -164,3 +164,42 @@ fn create_stores_symbolic_links_with_rock_ridge() {
     assert!(output.status.success());
     assert!(!String::from_utf8_lossy(&output.stderr).contains("/link.txt"));
 }
+
+#[test]
+fn failed_create_leaves_no_output_and_keeps_existing_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("source");
+    std::fs::create_dir_all(source.join("1/2/3/4/5/6/7/8/9")).unwrap();
+    let out = temp.path().join("out");
+    std::fs::create_dir(&out).unwrap();
+    let binary = env!("CARGO_BIN_EXE_hadris-cd");
+
+    let fresh = Command::new(binary)
+        .args([
+            "create",
+            "--no-joliet",
+            source.to_str().unwrap(),
+            "--output",
+        ])
+        .arg(out.join("new.iso"))
+        .output()
+        .unwrap();
+    assert!(!fresh.status.success(), "{fresh:?}");
+    assert_eq!(std::fs::read_dir(&out).unwrap().count(), 0);
+
+    let existing = out.join("keep.iso");
+    std::fs::write(&existing, b"previous").unwrap();
+    let replaced = Command::new(binary)
+        .args([
+            "create",
+            "--no-joliet",
+            source.to_str().unwrap(),
+            "--output",
+        ])
+        .arg(&existing)
+        .output()
+        .unwrap();
+    assert!(!replaced.status.success(), "{replaced:?}");
+    assert_eq!(std::fs::read(&existing).unwrap(), b"previous");
+    assert_eq!(std::fs::read_dir(&out).unwrap().count(), 1);
+}

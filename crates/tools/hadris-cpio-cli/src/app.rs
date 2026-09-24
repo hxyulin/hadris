@@ -2,6 +2,8 @@
 
 #[path = "commands/mod.rs"]
 mod commands;
+#[path = "output.rs"]
+mod output;
 
 use std::path::PathBuf;
 

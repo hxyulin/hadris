@@ -2,6 +2,8 @@
 mod args;
 #[path = "commands/mod.rs"]
 mod commands;
+#[path = "output.rs"]
+mod output;
 
 use args::{Args, Command};
 use clap::Parser;

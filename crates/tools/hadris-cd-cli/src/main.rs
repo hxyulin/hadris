@@ -18,6 +18,10 @@ use hadris_iso::{
 use hadris_udf::UdfRevision;
 use hadris_udf::sync::UdfFs;
 
+mod output;
+
+use output::Output;
+
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 #[derive(Parser)]
@@ -183,8 +187,12 @@ fn create(args: CreateArgs) -> Result<()> {
         .with_udf(udf)
         .with_clock(hadris_fs::SystemClock);
 
-    let mut file = File::create(&args.output)?;
+    let (mut file, pending) = Output::create(&args.output)
+        .map_err(|err| format!("cannot create {}: {err}", args.output.display()))?;
     let report = hadris_cd::sync::write(&mut file, &tree, &options)?;
+    pending
+        .commit(file)
+        .map_err(|err| format!("cannot write {}: {err}", args.output.display()))?;
     for warning in report.warnings() {
         if warning.kind() != WarningKind::IgnoredMetadata {
             eprintln!("warning: {warning}");

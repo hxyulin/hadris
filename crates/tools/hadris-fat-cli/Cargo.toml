@@ -28,6 +28,7 @@ hadris-fs = { workspace = true, features = ["std", "sync"] }
 bytemuck.workspace = true
 clap.workspace = true
 anyhow.workspace = true
+tempfile.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
