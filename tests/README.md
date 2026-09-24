@@ -37,6 +37,14 @@ tests/
       fatfs.rs        rust-fatfs adapter
       mtools.rs       GNU mtools + dosfstools adapter
       native.rs       host formatter, checker, and kernel driver
+    exfat/            exFAT oracle, scenarios, limits and adapters; shares
+                      the FAT model and adapter trait
+      spec.rs         raw-image oracle
+      scenarios.rs    exFAT-only traces and rejections
+      limits.rs       directory growth to a full volume
+      generic.rs      Hadris ExFatFs through the generic FAT adapter
+      native.rs       exfatprogs (local or Docker), newfs_exfat,
+                      fsck_exfat and the macOS kernel driver
     iso/              ISO 9660 model, oracle, scenarios, adapters
       model.rs        IsoState and conformance scenarios
       adapter.rs      IsoProducer / IsoConsumer traits
@@ -49,6 +57,7 @@ tests/
   suite/              the single test binary
     main.rs
     fat/{spec,limits,peers,native}.rs
+    exfat/{spec,limits,native}.rs
     iso/{spec,peers,native,volume_descriptors,directory,multi_extent,
          rock_ridge,boot,hybrid}.rs
 ```
@@ -67,7 +76,7 @@ nix develop -c env HADRIS_REQUIRE_EXTERNAL_TOOLS=1 \
   cargo test --manifest-path tests/Cargo.toml
 ```
 
-FAT and ISO use the same three test tiers. Hosted oracle tests always run.
+FAT, exFAT and ISO use the same three test tiers. Hosted oracle tests always run.
 External-tool interoperability tests skip when their tools are absent, while
 CI sets `HADRIS_REQUIRE_EXTERNAL_TOOLS=1` to make them mandatory. Accuracy
 reports, QEMU checks, and privileged native-mount checks are `#[ignore]`d and
@@ -96,7 +105,7 @@ Reports are written to `tests/target/reports/<format>/`.
   (or `harness::require_or_skip`) so they skip locally and fail when
   `HADRIS_REQUIRE_EXTERNAL_TOOLS=1` is set.
 
-CI runs both format slices with their command-line peer tools installed, and
+CI runs the FAT, exFAT and ISO slices with their command-line peer tools installed, and
 also formats and lints the package. Manual accuracy reports, QEMU checks, and
 privileged native-mount checks remain ignored.
 

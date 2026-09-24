@@ -44,7 +44,9 @@ pub trait Mount {
 }
 
 /// A [`FatAdapter`] over any [`FileSystem`]. Every operation mounts the
-/// image, runs, syncs and unmounts, so each step is committed to disk.
+/// image, runs, syncs and unmounts, so each step is committed to disk. A
+/// failed operation is synced too, as a clean unmount after an error would
+/// be.
 pub struct FsAdapter<M> {
     image: PathBuf,
     mount: M,
@@ -73,8 +75,9 @@ where
         for node in pins {
             fs.forget(node);
         }
+        let synced = fs.sync().map_err(|error| error.to_string());
         result?;
-        fs.sync().map_err(|error| error.to_string())
+        synced
     }
 
     fn snapshot(&mut self) -> Result<FsState, String> {

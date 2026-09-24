@@ -2,5 +2,6 @@
 //! `<format>::<topic>::<name>`, so `cargo test fat::` or
 //! `cargo test iso::boot::` selects a slice of the suite.
 
+mod exfat;
 mod fat;
 mod iso;
