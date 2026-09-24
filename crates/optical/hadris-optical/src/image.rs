@@ -1,8 +1,8 @@
 use crate::detect::OpticalFormats;
 use crate::error::OpticalFormat;
 
-/// Policy used to choose one filesystem from an optical image.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// Which filesystem to open from an image that may hold both.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum OpenPolicy {
     /// Prefer UDF on bridge images, falling back to ISO 9660.

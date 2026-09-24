@@ -1,79 +1,70 @@
 # hadris-block
 
-`hadris-block` is the block-storage facade for Hadris. It groups storage-device
-traits, MBR/GPT partition tables, FAT12/16/32, non-destructive format detection,
-and unified filesystem opening without erasing the
-concrete leaf-crate APIs.
-
-Use the facade when an application needs several block-storage layers. Use
-`hadris-fat`, `hadris-part`, or `hadris-storage` directly when only one layer is
-needed.
+`hadris-block` detects and opens block volumes: FAT12, FAT16, FAT32 and
+NTFS on any `hadris-storage` block device. It sits next to the format
+crates it builds on and re-exports them, so one dependency covers "open
+whatever this disk or partition holds".
 
 ```toml
 [dependencies]
 hadris-block = "2.4.0"
 ```
 
-```rust
-use hadris_block::detect::{BlockFormat, FatVariant, detect_sector};
+```rust,ignore
+use hadris_block::detect::BlockFormat;
+use hadris_block::sync::OpenVolume;
+use hadris_fs::sync::DriverExt;
 
-let mut sector = [0u8; 512];
-// Fill `sector` from a disk or image.
-let detected = detect_sector(&sector);
-if let Some(BlockFormat::Fat(FatVariant::Fat32)) = detected {
-    // Open through hadris_block::sync::OpenVolume or hadris_block::fat.
+// `dev` is any hadris-storage `BlockDevice`, such as a `std::fs::File`.
+let mut volume = match OpenVolume::open(dev) {
+    Ok(volume) => volume,
+    // The error gives the device back, so the caller can try another opener.
+    Err(err) => return Err(err.into_error().into()),
+};
+if volume.format() == BlockFormat::Ntfs {
+    println!("NTFS, read-only");
+}
+for entry in volume.read_dir("/")? {
+    println!("{:?}", entry?.name());
 }
 ```
 
-```rust,ignore
-use hadris_block::part;
-use hadris_block::sync::OpenVolume;
+- `detect` reads the boot sector (and the GPT header) of a device and
+  reports a FAT variant, NTFS, exFAT or a partition table, without an
+  allocator, in each mode.
+- `OpenVolume` detects and mounts once. It implements the `hadris-fs`
+  `FsDriver` trait by delegating to `hadris_fat`'s `FatFs` or
+  `hadris_ntfs`'s `NtfsFs`, so the path helpers, `Volume` and handles work
+  on any volume it opens. NTFS is read-only; its write methods fail with
+  `ReadOnly`. `as_fat` and `into_fat` reach the FAT driver's native API.
+- A partitioned disk is refused with `Detail::PartitionedDisk`; open a
+  partition from `hadris_part` (the `part` re-export), which gives a
+  `hadris-storage` `Slice`.
+- Every failure is an `Error<E>` with a shared `ErrorKind`, a `Detail` and
+  the device's own error, and a failed open gives the device back in an
+  `OpenError`. Both convert into `hadris_fs::Error`, `AnyError` with
+  `alloc`, and `std::io::Error` with `std`.
 
-// `disk` is any hadris-storage `BlockDevice`, such as a `std::fs::File`.
-let table = part::sync::read(&mut disk)?;
-let esp = table.partition(0).expect("the disk has a partition");
-let partition = part::sync::open(&mut disk, &esp)?;
-let volume = match OpenVolume::open(partition) {
-    Ok(volume) => volume,
-    // The error gives the device back, so the caller can try another opener.
-    Err(err) => return Err(err.into_error()),
-};
-let fs = volume.into_fat().ok().unwrap(); // a hadris_fat::sync::FatFs
-```
-
-Detection reads only the identifying metadata of a block device. Opening the
-detected concrete format performs full validation and yields the `FatFs`
-driver, which works with the `hadris-fs` path helpers. Partitioned disks must
-first be narrowed to a partition with `part::sync::open` (or its `r#async` and
-`async_send` forms), which returns a `hadris-storage` slice. A failed
-open returns an `OpenError` that carries the device back to the caller.
-Like `hadris_fs::Error`, `Error` and `OpenError` report a shared
-`ErrorKind` through `kind()` and the device's own error through
-`device_error()`, and convert into `hadris_fs::Error` and, with `std`,
-`std::io::Error`.
+exFAT is detected but not opened while it is a preview in `hadris-fat`.
+NTFS is a preview too: `OpenVolume` always opens it through `FsDriver`, and
+the `unstable-ntfs` feature adds the `ntfs` re-export and `as_ntfs`,
+`as_ntfs_mut` and `into_ntfs` for its native API.
 
 ## Features
 
 | Feature | Default | Purpose |
 |---------|---------|---------|
-| `std` | yes | Hosted support; enables `alloc` |
-| `alloc` | yes | Heap-backed APIs without requiring `std` |
-| `sync` | yes | Synchronous I/O APIs |
-| `async` | no | Asynchronous I/O APIs |
-| `async-send` | no | Asynchronous APIs with `Send` futures in `async_send` modules; enables `async` |
-| `read` | yes | Filesystem reading |
-| `write` | yes | FAT formatting |
-| `detect` | yes | Lightweight block-format detection on a `BlockDevice` |
-| `storage` | yes | Re-export `hadris-storage` |
-| `fat` | yes | Re-export `hadris-fat` and open FAT volumes as `FatFs` |
-| `part` | yes | Re-export `hadris-part` |
+| `std` | yes | Implies `alloc`; `std::io::Error` conversions and `std::fs::File` devices |
+| `alloc` | via `std` | `AnyError` conversions |
+| `sync` | yes | The blocking API in `sync` |
+| `async` | no | The asynchronous API in `r#async` |
+| `async-send` | no | The asynchronous API with `Send` futures in `async_send`; enables `async` |
+| `write` | no | FAT formatting through the `fat` re-export |
+| `part` | no | Re-export `hadris-part` as `part` |
+| `unstable-ntfs` | no | Re-export `hadris-ntfs` as `ntfs` and reach `OpenVolume`'s NTFS driver |
 
-The stable unified opener handles FAT12/16/32. exFAT remains an unstable
-leaf-crate preview and is detected but not opened by this facade. Experimental
-NTFS support likewise remains in the separate `hadris-ntfs` crate.
-
-For `no_std` targets, disable default features and select one I/O mode
-explicitly.
+No feature changes what an item does: detection and `OpenVolume` always
+cover FAT and NTFS, and neither needs an allocator.
 
 ## Documentation
 

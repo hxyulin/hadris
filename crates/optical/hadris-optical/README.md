@@ -1,12 +1,12 @@
 # hadris-optical
 
-`hadris-optical` is the optical-media facade for Hadris. It provides
-non-destructive ISO 9660/UDF detection, policy-based opening, and hybrid
-ISO+UDF image creation while retaining lossless access to the concrete format
-handles.
+`hadris-optical` detects and opens optical images: ISO 9660 and UDF on any
+`hadris-storage` block device. It sits next to the format crates it builds
+on and re-exports them, with the hybrid image writer `hadris-cd` behind the
+`cd` feature.
 
-Detection reports ISO 9660 and UDF independently because bridge images can
-validly contain both filesystems.
+Detection reports ISO 9660 and UDF independently, because a bridge image
+holds both.
 
 ```toml
 [dependencies]
@@ -14,42 +14,43 @@ hadris-optical = "2.4.0"
 ```
 
 ```rust,no_run
-use hadris_io::StdIo;
+use hadris_fs::sync::DriverExt;
 use hadris_optical::{OpenPolicy, sync::OpenOpticalImage};
-use std::fs::File;
 
-let mut image = StdIo::new(File::open("disc.iso")?);
-let opened = OpenOpticalImage::open(&mut image, OpenPolicy::PreferUdf)?;
-
-if let Some(udf) = opened.as_udf() {
-    println!("UDF volume: {}", udf.logical_volume_id());
+let file = std::fs::File::open("disc.iso")?;
+let mut image = OpenOpticalImage::open(file, OpenPolicy::PreferUdf)?;
+println!("{:?}", image.format());
+for entry in image.read_dir("/")? {
+    println!("{:?}", entry?.name());
 }
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-`OpenPolicy` can require one format or express a preference for bridge images.
-The returned enum preserves the underlying `hadris-iso` or `hadris-udf`
-handle.
+- `detect` reads the volume descriptors after byte 32768 on devices with
+  blocks of up to 4096 bytes, without an allocator, in each mode.
+- `OpenOpticalImage` detects and mounts the filesystem an `OpenPolicy`
+  selects: UDF or ISO 9660 first on a bridge image, or one of them only.
+  ISO 9660 opens as an `IsoView` of the preferred namespace. It implements
+  the `hadris-fs` `FsDriver` trait read-only by delegating to the driver,
+  so the path helpers, `Volume` and handles work on either; `as_iso` and
+  `as_udf` reach the drivers' native API.
+- Every failure is an `Error<E>` with a shared `ErrorKind`, a `Detail` and
+  the device's own error, and a failed open gives the device back in an
+  `OpenError`.
 
 ## Features
 
 | Feature | Default | Purpose |
 |---------|---------|---------|
-| `std` | yes | Hosted support; enables `alloc` |
-| `alloc` | yes | Heap-backed APIs without requiring `std` |
-| `sync` | yes | Synchronous I/O APIs |
-| `async` | no | Asynchronous read/open APIs |
-| `async-send` | no | The `async_send` modes of `hadris-iso`, `hadris-udf` and `hadris-cd` |
-| `read` | yes | Kept for compatibility; reading needs no feature |
-| `write` | yes | Kept for compatibility; the writers come with `alloc` |
-| `detect` | via `open` | Non-destructive ISO/UDF detection |
-| `open` | yes | Detection plus policy-based opening |
-| `iso` | via `open` | Re-export `hadris-iso` |
-| `udf` | via `open` | Re-export `hadris-udf` |
-| `cd` | yes | Re-export the hybrid image writer |
+| `std` | yes | Implies `alloc`; `std::io::Error` conversions and `std::fs::File` devices |
+| `alloc` | via `std` | `AnyError` conversions and the ISO 9660 and UDF writers |
+| `sync` | yes | The blocking API in `sync` |
+| `async` | no | The asynchronous API in `r#async` |
+| `async-send` | no | The asynchronous API with `Send` futures in `async_send`; enables `async` |
+| `cd` | no | Re-export `hadris-cd`, the hybrid image writer; implies `alloc` |
 
-For format-specific controls, use the re-exported `iso`, `udf`, and `cd`
-modules directly.
+No feature changes what an item does. For format-specific controls, use the
+re-exported `iso`, `udf` and `cd` crates directly.
 
 ## Documentation
 

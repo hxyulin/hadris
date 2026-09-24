@@ -1,24 +1,13 @@
-#![cfg(feature = "detect")]
+//! Detection of ISO 9660, UDF and bridge images in every mode and on
+//! every block size.
 
-const SECTOR_SIZE: usize = 2048;
+mod common;
 
-fn image_with(ids: &[(usize, &[u8; 5])]) -> Vec<u8> {
-    let mut image = vec![0_u8; 32 * SECTOR_SIZE];
-    for (sector, id) in ids {
-        let offset = sector * SECTOR_SIZE;
-        image[offset + 1..offset + 6].copy_from_slice(*id);
-        image[offset + 6] = 1;
-    }
-    image
-}
+use common::{SECTOR, block_on, device, image_of, image_with};
+use hadris_optical::detect::{UdfVrs, sync::detect};
 
-#[cfg(feature = "sync")]
-#[test]
-fn sync_probe_distinguishes_iso_udf_and_bridge_and_restores_position() {
-    use hadris_optical::detect::{UdfVrs, sync::detect};
-    use std::io::{Seek, SeekFrom};
-
-    let cases = [
+fn cases() -> [(Vec<u8>, bool, Option<UdfVrs>); 4] {
+    [
         (image_with(&[(16, b"CD001")]), true, None),
         (
             image_with(&[(16, b"BEA01"), (17, b"NSR02"), (18, b"TEA01")]),
@@ -35,116 +24,70 @@ fn sync_probe_distinguishes_iso_udf_and_bridge_and_restores_position() {
             true,
             Some(UdfVrs::Nsr03),
         ),
-    ];
+        (
+            image_with(&[(16, b"BEA01"), (18, b"NSR03"), (20, b"TEA01")]),
+            false,
+            Some(UdfVrs::Nsr03),
+        ),
+    ]
+}
 
-    for (image, iso, udf) in cases {
-        let mut source = hadris_io::StdIo::new(std::io::Cursor::new(image));
-        source.get_mut().seek(SeekFrom::Start(37)).unwrap();
-        let formats = detect(&mut source).unwrap().unwrap();
-        assert_eq!(formats.has_iso9660(), iso);
-        assert_eq!(formats.udf(), udf);
-        assert_eq!(formats.is_bridge(), iso && udf.is_some());
-        assert_eq!(source.get_mut().stream_position().unwrap(), 37);
+#[test]
+fn every_block_size_distinguishes_iso_udf_and_bridge() {
+    for block in [512, 1024, 2048, 4096] {
+        for (image, iso, udf) in cases() {
+            let formats = detect(&mut device(image, block)).unwrap().unwrap();
+            assert_eq!(formats.has_iso9660(), iso, "{block}");
+            assert_eq!(formats.udf(), udf, "{block}");
+            assert_eq!(formats.is_bridge(), iso && udf.is_some());
+        }
     }
 }
 
-#[cfg(all(feature = "sync", feature = "cd"))]
 #[test]
-fn detects_images_created_by_optical_writer() {
+fn images_from_the_writers_are_detected() {
     for (iso, udf) in [(true, false), (false, true), (true, true)] {
         let bytes = image_of(iso, udf, &hadris_fs::tree::Tree::new());
-        let mut image = hadris_io::StdIo::new(std::io::Cursor::new(bytes));
-        let formats = hadris_optical::detect::sync::detect(&mut image)
-            .unwrap()
-            .unwrap();
+        let formats = detect(&mut device(bytes, 2048)).unwrap().unwrap();
         assert_eq!(formats.has_iso9660(), iso);
         assert_eq!(formats.udf().is_some(), udf);
-        assert_eq!(formats.is_bridge(), iso && udf);
     }
 }
 
-#[cfg(all(feature = "sync", feature = "cd"))]
-/// An empty image with the ISO 9660 tree, the UDF volume, or both.
-fn image_of(iso: bool, udf: bool, tree: &hadris_fs::tree::Tree) -> Vec<u8> {
-    use hadris_storage::{BlockSize, MemDevice};
-    let block = BlockSize::new(2048).unwrap();
-    let size = 4 * 1024 * 1024;
-    let mut dev = MemDevice::new(vec![0_u8; size], block);
-    match (iso, udf) {
-        (true, false) => {
-            hadris_optical::iso::sync::write(
-                &mut dev,
-                tree,
-                hadris_optical::cd::CdOptions::default().iso(),
-            )
-            .unwrap();
-        }
-        (false, true) => {
-            hadris_optical::udf::sync::write(
-                &mut dev,
-                tree,
-                &hadris_optical::udf::UdfOptions::default(),
-            )
-            .unwrap();
-        }
-        _ => {
-            hadris_optical::cd::sync::write(
-                &mut dev,
-                tree,
-                &hadris_optical::cd::CdOptions::default(),
-            )
-            .unwrap();
-        }
-    }
-    dev.into_inner()
+#[test]
+fn small_blank_and_huge_block_devices_are_not_optical() {
+    assert_eq!(
+        detect(&mut device(vec![0u8; 20 * SECTOR], 2048)).unwrap(),
+        None
+    );
+    assert_eq!(
+        detect(&mut device(vec![0u8; 8 * SECTOR], 512)).unwrap(),
+        None
+    );
+    let image = image_with(&[(16, b"CD001")]);
+    assert_eq!(detect(&mut device(image, 8192)).unwrap(), None);
+    let image = image_with(&[(16, b"BEA01"), (17, b"NSR02")]);
+    assert_eq!(detect(&mut device(image, 2048)).unwrap(), None);
 }
 
-#[cfg(feature = "async")]
-mod asynchronous {
-    use core::future::Future;
-    use core::task::{Context, Poll};
-    use std::sync::Arc;
-    use std::task::{Wake, Waker};
-
-    use hadris_io::SeekFrom;
-    use hadris_io::legacy::r#async::Seek;
-    use hadris_optical::detect::{UdfVrs, r#async::detect};
-
-    struct ThreadWaker(std::thread::Thread);
-    impl Wake for ThreadWaker {
-        fn wake(self: Arc<Self>) {
-            self.0.unpark();
-        }
-    }
-
-    fn block_on<F: Future>(future: F) -> F::Output {
-        let waker = Waker::from(Arc::new(ThreadWaker(std::thread::current())));
-        let mut context = Context::from_waker(&waker);
-        let mut future = std::pin::pin!(future);
-        loop {
-            match future.as_mut().poll(&mut context) {
-                Poll::Ready(output) => return output,
-                Poll::Pending => std::thread::park(),
-            }
-        }
-    }
-
-    #[test]
-    fn async_probe_reports_bridge_and_restores_position() {
-        let image = super::image_with(&[
-            (16, b"CD001"),
-            (17, b"BEA01"),
-            (18, b"NSR03"),
-            (19, b"TEA01"),
-        ]);
-        block_on(async {
-            let mut source = hadris_io::Cursor::new(&image);
-            source.seek(SeekFrom::Start(41)).await.unwrap();
-            let formats = detect(&mut source).await.unwrap().unwrap();
-            assert!(formats.has_iso9660());
-            assert_eq!(formats.udf(), Some(UdfVrs::Nsr03));
-            assert!(formats.is_bridge());
-            assert_eq!(source.stream_position().await.unwrap(), 41);
-        });
-    }
+#[test]
+fn async_modes_detect_bridges() {
+    let image = image_with(&[
+        (16, b"CD001"),
+        (17, b"BEA01"),
+        (18, b"NSR03"),
+        (19, b"TEA01"),
+    ]);
+    block_on(async {
+        let formats = hadris_optical::detect::r#async::detect(&mut device(image.clone(), 512))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(formats.is_bridge());
+        let formats = hadris_optical::detect::async_send::detect(&mut device(image, 4096))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(formats.udf(), Some(UdfVrs::Nsr03));
+    });
 }

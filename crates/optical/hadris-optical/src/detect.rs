@@ -1,11 +1,15 @@
-//! Non-destructive optical-filesystem detection.
+//! Detection of ISO 9660 and UDF volumes.
+//!
+//! Detection reads the volume descriptors of a block device. It does not
+//! validate the volumes; `OpenOpticalImage` or the format crate does that
+//! when it opens them.
 
 const SECTOR_SIZE: usize = 2048;
 const FIRST_DESCRIPTOR_SECTOR: u64 = 16;
 const DESCRIPTORS_TO_SCAN: usize = 16;
 
 /// UDF Volume Recognition Sequence generation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum UdfVrs {
     /// NSR02, used by UDF 1.02 through 1.50.
@@ -15,7 +19,7 @@ pub enum UdfVrs {
 }
 
 /// Filesystems recognized in one optical image.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct OpticalFormats {
     iso9660: bool,
     udf: Option<UdfVrs>,
@@ -76,85 +80,104 @@ impl ScanState {
     }
 }
 
-#[cfg(feature = "sync")]
-/// Synchronous optical-filesystem detection.
-pub mod sync {
-    use super::*;
-    use hadris_io::legacy::sync::{Read, Seek};
-    use hadris_io::legacy::{ErrorKind, Result, SeekFrom};
+/// The largest device block the detectors read.
+#[cfg(any(feature = "sync", feature = "async"))]
+const MAX_BLOCK: usize = 4096;
 
-    /// Detects every recognized optical filesystem and restores source position.
-    pub fn detect<R>(source: &mut R) -> Result<Option<OpticalFormats>>
-    where
-        R: Read + Seek,
-    {
-        let original = source.stream_position()?;
-        let result = detect_at_descriptors(source);
-        source.seek(SeekFrom::Start(original))?;
-        result
-    }
-
-    fn detect_at_descriptors<R>(source: &mut R) -> Result<Option<OpticalFormats>>
-    where
-        R: Read + Seek,
-    {
-        source.seek(SeekFrom::Start(
-            FIRST_DESCRIPTOR_SECTOR * SECTOR_SIZE as u64,
-        ))?;
+#[cfg(any(feature = "sync", feature = "async"))]
+macro_rules! scan {
+    ($dev:ident $(, $aw:tt)?) => {{
+        let block = $dev.block_size().get() as usize;
+        if block > MAX_BLOCK {
+            return Ok(None);
+        }
+        let len = $dev.block_count().saturating_mul(block as u64);
         let mut state = ScanState::default();
-        let mut sector = [0_u8; SECTOR_SIZE];
-        for _ in 0..DESCRIPTORS_TO_SCAN {
-            if let Err(error) = source.read_exact(&mut sector) {
-                if error.kind() == ErrorKind::UnexpectedEof {
-                    break;
-                }
-                return Err(error);
+        let mut buf = [0u8; MAX_BLOCK];
+        let mut sector = [0u8; SECTOR_SIZE];
+        for i in 0..DESCRIPTORS_TO_SCAN as u64 {
+            let at = (FIRST_DESCRIPTOR_SECTOR + i) * SECTOR_SIZE as u64;
+            if at + SECTOR_SIZE as u64 > len {
+                break;
+            }
+            let first = BlockIndex::new(at / block as u64);
+            if block >= SECTOR_SIZE {
+                $dev.read_blocks(first, &mut buf[..block])$(.$aw)??;
+                let within = (at % block as u64) as usize;
+                sector.copy_from_slice(&buf[within..within + SECTOR_SIZE]);
+            } else {
+                $dev.read_blocks(first, &mut sector)$(.$aw)??;
             }
             state.inspect(&sector);
         }
         Ok((!state.formats.is_empty()).then_some(state.formats))
+    }};
+}
+
+#[cfg(feature = "sync")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sync")))]
+/// Blocking detection.
+pub mod sync {
+    use super::{
+        DESCRIPTORS_TO_SCAN, FIRST_DESCRIPTOR_SECTOR, MAX_BLOCK, OpticalFormats, SECTOR_SIZE,
+        ScanState,
+    };
+    use hadris_storage::BlockIndex;
+    use hadris_storage::sync::BlockDevice;
+
+    /// Detects the ISO 9660 and UDF volumes of `dev` from the volume
+    /// descriptors in the 16 sectors of 2048 bytes after byte 32768.
+    ///
+    /// Devices whose blocks are larger than 4096 bytes give `None`.
+    pub fn detect<D: BlockDevice + ?Sized>(
+        dev: &mut D,
+    ) -> Result<Option<OpticalFormats>, D::Error> {
+        scan!(dev)
     }
 }
 
 #[cfg(feature = "async")]
-/// Asynchronous optical-filesystem detection.
+#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
+/// Asynchronous detection.
 pub mod r#async {
-    use super::*;
-    use hadris_io::legacy::r#async::{Read, Seek};
-    use hadris_io::legacy::{ErrorKind, Result, SeekFrom};
+    use super::{
+        DESCRIPTORS_TO_SCAN, FIRST_DESCRIPTOR_SECTOR, MAX_BLOCK, OpticalFormats, SECTOR_SIZE,
+        ScanState,
+    };
+    use hadris_storage::BlockIndex;
+    use hadris_storage::r#async::BlockDevice;
 
-    /// Asynchronously detects all optical filesystems and restores source position.
-    pub async fn detect<R>(source: &mut R) -> Result<Option<OpticalFormats>>
-    where
-        R: Read + Seek,
-    {
-        let original = source.stream_position().await?;
-        let result = detect_at_descriptors(source).await;
-        source.seek(SeekFrom::Start(original)).await?;
-        result
+    /// Detects the ISO 9660 and UDF volumes of `dev` from the volume
+    /// descriptors in the 16 sectors of 2048 bytes after byte 32768.
+    ///
+    /// Devices whose blocks are larger than 4096 bytes give `None`.
+    pub async fn detect<D: BlockDevice + ?Sized>(
+        dev: &mut D,
+    ) -> Result<Option<OpticalFormats>, D::Error> {
+        scan!(dev, await)
     }
+}
 
-    async fn detect_at_descriptors<R>(source: &mut R) -> Result<Option<OpticalFormats>>
-    where
-        R: Read + Seek,
-    {
-        source
-            .seek(SeekFrom::Start(
-                FIRST_DESCRIPTOR_SECTOR * SECTOR_SIZE as u64,
-            ))
-            .await?;
-        let mut state = ScanState::default();
-        let mut sector = [0_u8; SECTOR_SIZE];
-        for _ in 0..DESCRIPTORS_TO_SCAN {
-            if let Err(error) = source.read_exact(&mut sector).await {
-                if error.kind() == ErrorKind::UnexpectedEof {
-                    break;
-                }
-                return Err(error);
-            }
-            state.inspect(&sector);
-        }
-        Ok((!state.formats.is_empty()).then_some(state.formats))
+#[cfg(feature = "async-send")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async-send")))]
+/// Asynchronous detection over the `Send` devices of
+/// `hadris_storage::async_send`.
+pub mod async_send {
+    use super::{
+        DESCRIPTORS_TO_SCAN, FIRST_DESCRIPTOR_SECTOR, MAX_BLOCK, OpticalFormats, SECTOR_SIZE,
+        ScanState,
+    };
+    use hadris_storage::BlockIndex;
+    use hadris_storage::async_send::BlockDevice;
+
+    /// Detects the ISO 9660 and UDF volumes of `dev` from the volume
+    /// descriptors in the 16 sectors of 2048 bytes after byte 32768.
+    ///
+    /// Devices whose blocks are larger than 4096 bytes give `None`.
+    pub async fn detect<D: BlockDevice + ?Sized>(
+        dev: &mut D,
+    ) -> Result<Option<OpticalFormats>, D::Error> {
+        scan!(dev, await)
     }
 }
 

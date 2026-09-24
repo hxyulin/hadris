@@ -9,7 +9,7 @@ use hadris_block::async_send::OpenVolume;
 use hadris_block::detect::{BlockFormat, FatVariant, PartitionTableKind};
 use hadris_block::part::async_send::open;
 use hadris_block::part::{Disk, Mbr, MbrEntry, MbrType, Partition};
-use hadris_block::{Error, OpenError};
+use hadris_block::{Detail, Error, OpenError};
 use hadris_fat::{FatKind, FormatOptions};
 use hadris_fs::async_send::DriverExt;
 use hadris_storage::async_send::BlockDevice;
@@ -82,14 +82,14 @@ fn opens_fat_through_an_mbr_partition() {
             Some(BlockFormat::PartitionTable(PartitionTableKind::Mbr))
         );
         let err = OpenVolume::open(&mut disk).await.err().unwrap();
-        assert!(matches!(
-            err.error(),
-            Error::PartitionedDisk(PartitionTableKind::Mbr)
-        ));
+        assert_eq!(
+            err.error().detail(),
+            Some(Detail::PartitionedDisk(PartitionTableKind::Mbr))
+        );
 
         let partition = open(&mut disk, &entry).unwrap();
         let volume = OpenVolume::open(partition).await.unwrap();
-        assert_eq!(volume.format(), FatVariant::Fat12);
+        assert_eq!(volume.format(), BlockFormat::Fat(FatVariant::Fat12));
         let mut fs = volume.into_fat().ok().unwrap();
         fs.write_file("/HELLO.TXT", b"hello").await.unwrap();
         assert_eq!(fs.read_to_vec("/HELLO.TXT").await.unwrap(), b"hello");
@@ -102,17 +102,18 @@ fn opens_fat_through_an_mbr_partition() {
 fn failures_give_the_device_back() {
     block_on(async {
         let dev = formatted_fat12(device(vec![0_u8; VOLUME_LEN]));
-        let (error, dev) = OpenVolume::open_detected(dev, FatVariant::Fat32)
+        let (error, dev) = OpenVolume::open_detected(dev, BlockFormat::Fat(FatVariant::Fat32))
             .await
             .err()
             .unwrap()
             .into_parts();
         assert!(matches!(
-            error,
-            Error::DetectedFormatMismatch {
+            error.detail(),
+            Some(Detail::FormatMismatch {
                 detected: FatVariant::Fat32,
                 opened: FatVariant::Fat12,
-            }
+                ..
+            })
         ));
         assert_eq!(dev.get_ref().len(), VOLUME_LEN);
 
@@ -121,7 +122,7 @@ fn failures_give_the_device_back() {
             .map_err(OpenError::into_error)
             .err()
             .unwrap();
-        assert!(matches!(error, Error::UnknownFormat));
+        assert_eq!(error.detail(), Some(Detail::UnknownFormat));
 
         let (_, past) = mbr_partition(8192, 4096, 16);
         let mut dev = dev;
@@ -135,7 +136,10 @@ fn failures_give_the_device_back() {
             .err()
             .unwrap()
             .into_parts();
-        assert!(matches!(error, Error::Fat(_)));
+        assert_eq!(
+            error.detail(),
+            Some(Detail::Mount(BlockFormat::Fat(FatVariant::Fat12)))
+        );
         assert_eq!(dev.into_inner(), image);
     });
 }

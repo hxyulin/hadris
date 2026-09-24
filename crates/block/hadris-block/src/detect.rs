@@ -1,21 +1,23 @@
 //! Lightweight block-format detection.
 //!
 //! Detection reads the boot metadata of a block device. It does not validate
-//! an entire filesystem or partition table; callers should open the
-//! corresponding concrete crate to perform full validation.
+//! an entire filesystem or partition table; `OpenVolume` or the format crate
+//! does that when it opens the volume.
 
 /// A recognized block-storage layout.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum BlockFormat {
     /// A FAT filesystem occupying the probed device or bounded partition.
     Fat(FatVariant),
+    /// An NTFS filesystem occupying the probed device or bounded partition.
+    Ntfs,
     /// A disk partition table.
     PartitionTable(PartitionTableKind),
 }
 
 /// FAT family identified from its BIOS parameter block.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum FatVariant {
     /// A FAT12 filesystem.
@@ -24,12 +26,12 @@ pub enum FatVariant {
     Fat16,
     /// A FAT32 filesystem.
     Fat32,
-    /// exFAT was recognized; the stable unified opener does not open it.
+    /// exFAT was recognized; `OpenVolume` does not open it yet.
     ExFat,
 }
 
 /// Partition-table family identified from sector-zero and GPT metadata.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum PartitionTableKind {
     /// A legacy Master Boot Record partition table.
@@ -43,8 +45,17 @@ pub enum PartitionTableKind {
 /// Probe a 512-byte logical sector without performing I/O.
 ///
 /// A protective MBR is reported as GPT based on its partition entries. The
-/// device detectors additionally check for the GPT header signature.
+/// device detectors additionally check for the GPT header signature. The
+/// NTFS and exFAT OEM identifiers are checked first, since their boot code
+/// can look like partition entries.
 pub fn detect_sector(sector: &[u8; 512]) -> Option<BlockFormat> {
+    if sector[510..512] == [0x55, 0xaa] {
+        match &sector[3..11] {
+            b"NTFS    " => return Some(BlockFormat::Ntfs),
+            b"EXFAT   " => return Some(BlockFormat::Fat(FatVariant::ExFat)),
+            _ => {}
+        }
+    }
     if let Some(kind) = partition_kind(sector) {
         return Some(BlockFormat::PartitionTable(kind));
     }
@@ -87,9 +98,6 @@ fn partition_kind(sector: &[u8; 512]) -> Option<PartitionTableKind> {
 fn fat_variant(sector: &[u8; 512]) -> Option<FatVariant> {
     if sector[510..512] != [0x55, 0xaa] {
         return None;
-    }
-    if &sector[3..11] == b"EXFAT   " {
-        return Some(FatVariant::ExFat);
     }
 
     let bytes_per_sector = u16::from_le_bytes([sector[11], sector[12]]) as u32;
@@ -268,6 +276,23 @@ mod tests {
         );
     }
 
+    #[test]
+    fn recognizes_ntfs_and_exfat_before_partition_entries() {
+        let mut sector = [0u8; 512];
+        sector[446 + 4] = 0x07;
+        sector[446 + 12..446 + 16].copy_from_slice(&100u32.to_le_bytes());
+        sector[510..512].copy_from_slice(&[0x55, 0xaa]);
+        sector[3..11].copy_from_slice(b"NTFS    ");
+        assert_eq!(detect_sector(&sector), Some(BlockFormat::Ntfs));
+        sector[3..11].copy_from_slice(b"EXFAT   ");
+        assert_eq!(
+            detect_sector(&sector),
+            Some(BlockFormat::Fat(FatVariant::ExFat))
+        );
+        sector[510] = 0;
+        assert_eq!(detect_sector(&sector), None);
+    }
+
     #[cfg(feature = "sync")]
     #[test]
     fn device_probe_validates_gpt_signature() {
@@ -309,7 +334,7 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "std", feature = "sync", feature = "write", feature = "fat"))]
+    #[cfg(all(feature = "std", feature = "sync", feature = "write"))]
     #[test]
     fn recognizes_volume_created_by_fat_formatter() {
         use hadris_fat::{FatKind, FormatOptions};
