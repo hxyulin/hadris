@@ -1000,6 +1000,11 @@ Each published package owns its version and may be released independently.
   directory's entries or the file's clusters over and over. Detection uses
   Brent's algorithm on every chain walk, including walks that resume from
   a file's remembered position, so it needs no memory per cluster.
+- **hadris-fat (V3):** The default `Ascii` code page reads a short-name
+  byte `b` above `0x7F` as the private-use character `U+F700 + b` instead
+  of U+FFFD, and encodes those characters back to their bytes. Short names
+  without a long name that differed only in such bytes listed as one name,
+  and a lookup of it found only the first.
 - **hadris-iso:** Write Rock Ridge relocation placeholders compatible with
   libarchive/bsdtar and use only recognized relocation container names. Reject
   relocation when a root `rr_moved` directory would be mistaken for the container

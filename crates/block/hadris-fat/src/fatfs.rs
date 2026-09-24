@@ -409,8 +409,10 @@ io_transform! {
 ///   default [`NoClock`] writes 1980-01-01, so images are reproducible;
 ///   `SystemClock` with `std` writes the current UTC time.
 /// - `P`, the [`CodePage`] of short names. The default [`Ascii`] reads
-///   short-name bytes above `0x7F` as U+FFFD and generates `_` for
-///   non-ASCII characters; `Cp437` maps them.
+///   a short-name byte `b` above `0x7F` as the private-use character
+///   `U+F700 + b`, so distinct short names stay distinct and can be looked
+///   up by the name listed, and generates `_` for other non-ASCII
+///   characters; `Cp437` maps them.
 ///
 /// Long names are always read and written. Names compare
 /// case-insensitively, by the long name or by the short name. A new name that is a valid

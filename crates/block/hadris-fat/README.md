@@ -66,8 +66,9 @@ and `FatFs::open_with`:
 - `C`, the `hadris_fs::Clock` for new and modified entries. `NoClock`, the
   default, writes 1980-01-01 so images are reproducible; `SystemClock`
   (`std`) writes the current UTC time.
-- `P`, the `CodePage` of short names. `Ascii`, the default, reads bytes
-  above `0x7F` as U+FFFD; `Cp437` maps them.
+- `P`, the `CodePage` of short names. `Ascii`, the default, reads a byte
+  `b` above `0x7F` as the private-use character `U+F700 + b`, so every
+  short name lists as its own name and is found by it; `Cp437` maps them.
 
 ```rust,no_run
 use hadris_fat::sync::FatFs;

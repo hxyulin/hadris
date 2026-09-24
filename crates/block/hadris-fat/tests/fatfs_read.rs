@@ -595,6 +595,42 @@ fn volume_paths_and_handles() {
     assert_eq!(vol.into_inner().open_nodes(), 1);
 }
 
+#[test]
+fn ascii_short_names_with_high_bytes_stay_distinct() {
+    let case = CASES[0];
+    let mut fs = common::formatted(case, hadris_fat::FormatOptions::new());
+    let root = fs.root();
+    for (text, data) in [("PAT1.TXT", b"first"), ("PAT2.TXT", b"other")] {
+        let node = fs
+            .create(root, name(text), NewNode::File, &SetMetadata::new())
+            .unwrap();
+        fs.write_at(node, 0, data).unwrap();
+        fs.forget(node);
+    }
+    fs.sync().unwrap();
+    let mut image = fs.into_inner().into_inner();
+    for (from, to) in [
+        (b"PAT1    TXT", b"\x82AB     TXT"),
+        (b"PAT2    TXT", b"\x83AB     TXT"),
+    ] {
+        let at = image
+            .chunks_exact(32)
+            .position(|entry| &entry[..11] == from)
+            .unwrap()
+            * 32;
+        image[at..at + 11].copy_from_slice(to);
+    }
+    let mut fs = open(case, image);
+    let root = fs.root();
+    let names: Vec<String> = list(&mut fs, root).into_iter().map(|(n, _)| n).collect();
+    assert_eq!(names, ["\u{F782}AB.TXT", "\u{F783}AB.TXT"]);
+    for (text, data) in [("\u{F782}ab.txt", b"first"), ("\u{F783}AB.TXT", b"other")] {
+        let node = fs.lookup(root, name(text)).unwrap();
+        assert_eq!(read_all(&mut fs, node), data);
+        fs.forget(node);
+    }
+}
+
 fn try_list(fs: &mut Fs, dir: NodeId) -> Result<usize, ErrorKind> {
     let mut cursor = DirCursor::start();
     let mut buf = NameBuf::new();
