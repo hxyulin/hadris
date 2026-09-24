@@ -30,6 +30,9 @@ The NTFS reader (`hadris-ntfs`, and the `unstable-ntfs` feature of
 minor releases. Every stable crate is covered by the public-API snapshots in
 [`api-snapshots/`](api-snapshots/).
 
+Problems that are understood but not fixed yet are listed in
+[`KNOWN_ISSUES.md`](KNOWN_ISSUES.md).
+
 ## Architecture
 
 ![Hadris architecture: applications use the umbrella crate over block, optical, and archive formats backed by shared I/O, paths, and storage](website/static/img/architecture.svg)
