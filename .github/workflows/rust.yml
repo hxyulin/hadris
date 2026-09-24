@@ -503,7 +503,7 @@ jobs:
         run: |
           cargo test -p hadris-fat --features "std,sync,async-send,write" \
             --test exfat_read --test exfat_write --test exfat_format --test exfat_check \
-            --test exfat_contract --test exfat_native -- --nocapture
+            --test exfat_contract --test exfat_native --test exfat_async -- --nocapture
       - name: Run exFAT conformance and interoperability tests
         run: "cargo test --manifest-path tests/Cargo.toml exfat:: -- --nocapture"
 
