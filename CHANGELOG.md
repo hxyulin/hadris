@@ -459,6 +459,14 @@ Each published package owns its version and may be released independently.
   entry set, so an entry set with a wrong `NameHash` (a `check` finding)
   is no longer found by name. Creating 10,000 files in one directory went
   from 18 to 6.5 s on FAT32 and from 24 to 3.7 s on exFAT.
+- **hadris-fat (V3):** `read_at` and `write_at` of `FatFs` and `ExFatFs`
+  read and write each run of clusters that follow one another on disk in
+  one device call instead of one call per cluster. Growing a file by
+  several clusters writes the FAT (and on exFAT the allocation bitmap) a
+  device block at a time, the chain's end first, and freeing a chain
+  clears its entries a block at a time; FAT12 keeps writing entry by
+  entry. Writing 64 MiB with 4 KiB clusters now takes 578 device writes
+  on FAT32 (was 81,922) and 397 on exFAT (was 65,545).
 - **Fuzzing (V3):** `fs_dump` lists every filesystem through one generic
   walk over the `hadris-fs` `FileSystem` node API, with each driver wrapped
   in a `Volume`. Small seeds are committed for `cpio_read` (every format,
