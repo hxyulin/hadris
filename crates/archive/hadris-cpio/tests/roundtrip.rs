@@ -303,6 +303,15 @@ fn reader_rejects_non_nul_filename_terminator() {
 }
 
 #[test]
+fn names_that_are_not_utf8_stay_bytes() {
+    let bytes = newc_entry(b"caf\xE9", 0o100644, b"", None);
+    let mut reader = CpioReader::new(Cursor::new(&bytes));
+    let entry = reader.next_entry().unwrap().unwrap();
+    assert_eq!(entry.name(), b"caf\xE9");
+    assert!(entry.name_str().is_err());
+}
+
+#[test]
 fn alignment_padding_edge_cases() {
     for len in 0..8 {
         let name = "n".repeat(len + 1);
