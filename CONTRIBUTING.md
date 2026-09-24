@@ -275,6 +275,10 @@ python3 scripts/check-docs.py
 cd website
 npm ci
 npm run build
+
+# With every released version (needs full history and tags)
+npm run versions
+npm run build
 ```
 
 Keep the documentation layers focused: the root README is the project

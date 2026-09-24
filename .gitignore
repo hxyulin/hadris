@@ -3,6 +3,10 @@
 /website/node_modules/
 /website/build/
 /website/.docusaurus/
+/website/versioned_docs/
+/website/versioned_sidebars/
+/website/versioned_static/
+/website/versions.json
 /test-images/output/
 
 # Authoritative standards and extracted text are local audit inputs. Their

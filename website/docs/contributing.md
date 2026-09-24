@@ -20,6 +20,23 @@ npm start
 
 Run `npm run build` before submitting a pull request.
 
+The site is versioned. `website/docs` holds the unreleased docs, served
+under `next/`. The docs of each released minor are generated from its
+newest `vX.Y.Z` tag and are not committed; the newest release is served at
+the root. To build the site with every version, from a clone with full
+history and tags:
+
+```bash
+cd website
+npm run versions
+npm run build
+```
+
+`npm run versions` rewrites `versions.json`, `versioned_docs/` and
+`versioned_sidebars/`; delete them to go back to a build of the current
+docs only. A release rebuilds the deployed site, so a new minor appears
+without further changes.
+
 ## Documentation responsibilities
 
 - The root README introduces the project and its architecture.
