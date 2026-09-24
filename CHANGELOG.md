@@ -8,6 +8,15 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Changed
+
+- **Docs site:** The documentation site is versioned. It serves the newest
+  released minor at the root, every earlier released minor under `/X.Y/`
+  and the unreleased docs under `/next/`, with a version dropdown and
+  Docusaurus version banners. Snapshots are generated from the release tags
+  at build time by `npm run versions`, and a published release rebuilds the
+  site.
+
 ### Fixed
 
 - **hadris-iso:** Write Rock Ridge relocation placeholders compatible with

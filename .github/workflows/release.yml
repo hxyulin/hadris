@@ -184,6 +184,7 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     permissions:
+      actions: write
       contents: write
     steps:
       - uses: actions/checkout@v7
@@ -224,3 +225,16 @@ jobs:
               --title "Hadris $VERSION" \
               --notes-file release-notes.md
           fi
+      # Tags and releases made with GITHUB_TOKEN do not trigger workflows,
+      # so rebuild the versioned documentation site explicitly.
+      - name: Rebuild the documentation site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch=main
+          if git ls-remote --exit-code --heads origin next > /dev/null; then
+            branch=next
+          fi
+          gh workflow run docs.yml --ref "$branch"
