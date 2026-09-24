@@ -105,7 +105,7 @@ pub fn hadris_fs::async::File<A>::drop(&mut self)
 impl<A: hadris_fs::async::Access> hadris_io::async::api::Read for hadris_fs::async::File<A>
 pub async fn hadris_fs::async::File<A>::read(&mut self, &mut [u8]) -> hadris_fs::FsResult<usize, <A as hadris_fs::async::Access>::DeviceError>
 impl<A: hadris_fs::async::Access> hadris_io::async::api::Seek for hadris_fs::async::File<A>
-pub async fn hadris_fs::async::File<A>::seek(&mut self, embedded_io::SeekFrom) -> hadris_fs::FsResult<u64, <A as hadris_fs::async::Access>::DeviceError>
+pub async fn hadris_fs::async::File<A>::seek(&mut self, hadris_io::SeekFrom) -> hadris_fs::FsResult<u64, <A as hadris_fs::async::Access>::DeviceError>
 impl<A: hadris_fs::async::Access> hadris_io::async::api::Write for hadris_fs::async::File<A>
 pub async fn hadris_fs::async::File<A>::flush(&mut self) -> hadris_fs::FsResult<(), <A as hadris_fs::async::Access>::DeviceError>
 pub async fn hadris_fs::async::File<A>::write(&mut self, &[u8]) -> hadris_fs::FsResult<usize, <A as hadris_fs::async::Access>::DeviceError>
@@ -126,7 +126,7 @@ pub fn hadris_fs::async::OpenFile::node(&self) -> hadris_fs::NodeId
 pub async fn hadris_fs::async::OpenFile::open<D: hadris_fs::async::FsDriver + ?core::marker::Sized>(&mut D, &str, hadris_fs::OpenOptions) -> hadris_fs::FsResult<Self, <D as hadris_fs::async::FsDriver>::DeviceError>
 pub fn hadris_fs::async::OpenFile::position(&self) -> u64
 pub async fn hadris_fs::async::OpenFile::read<D: hadris_fs::async::FsDriver + ?core::marker::Sized>(&mut self, &mut D, &mut [u8]) -> hadris_fs::FsResult<usize, <D as hadris_fs::async::FsDriver>::DeviceError>
-pub async fn hadris_fs::async::OpenFile::seek<D: hadris_fs::async::FsDriver + ?core::marker::Sized>(&mut self, &mut D, embedded_io::SeekFrom) -> hadris_fs::FsResult<u64, <D as hadris_fs::async::FsDriver>::DeviceError>
+pub async fn hadris_fs::async::OpenFile::seek<D: hadris_fs::async::FsDriver + ?core::marker::Sized>(&mut self, &mut D, hadris_io::SeekFrom) -> hadris_fs::FsResult<u64, <D as hadris_fs::async::FsDriver>::DeviceError>
 pub async fn hadris_fs::async::OpenFile::sync_all<D: hadris_fs::async::FsDriver + ?core::marker::Sized>(&mut self, &mut D) -> hadris_fs::FsResult<(), <D as hadris_fs::async::FsDriver>::DeviceError>
 pub async fn hadris_fs::async::OpenFile::write<D: hadris_fs::async::FsDriver + ?core::marker::Sized>(&mut self, &mut D, &[u8]) -> hadris_fs::FsResult<usize, <D as hadris_fs::async::FsDriver>::DeviceError>
 pub struct hadris_fs::async::Posix<const N: usize>
@@ -703,7 +703,7 @@ pub fn hadris_fs::async_send::File<A>::drop(&mut self)
 impl<A: hadris_fs::async_send::Access> hadris_io::async_send::api::Read for hadris_fs::async_send::File<A>
 pub async fn hadris_fs::async_send::File<A>::read(&mut self, &mut [u8]) -> hadris_fs::FsResult<usize, <A as hadris_fs::async_send::Access>::DeviceError>
 impl<A: hadris_fs::async_send::Access> hadris_io::async_send::api::Seek for hadris_fs::async_send::File<A>
-pub async fn hadris_fs::async_send::File<A>::seek(&mut self, embedded_io::SeekFrom) -> hadris_fs::FsResult<u64, <A as hadris_fs::async_send::Access>::DeviceError>
+pub async fn hadris_fs::async_send::File<A>::seek(&mut self, hadris_io::SeekFrom) -> hadris_fs::FsResult<u64, <A as hadris_fs::async_send::Access>::DeviceError>
 impl<A: hadris_fs::async_send::Access> hadris_io::async_send::api::Write for hadris_fs::async_send::File<A>
 pub async fn hadris_fs::async_send::File<A>::flush(&mut self) -> hadris_fs::FsResult<(), <A as hadris_fs::async_send::Access>::DeviceError>
 pub async fn hadris_fs::async_send::File<A>::write(&mut self, &[u8]) -> hadris_fs::FsResult<usize, <A as hadris_fs::async_send::Access>::DeviceError>
@@ -721,7 +721,7 @@ pub fn hadris_fs::async_send::OpenFile::node(&self) -> hadris_fs::NodeId
 pub async fn hadris_fs::async_send::OpenFile::open<D: hadris_fs::async_send::FsDriver + ?core::marker::Sized>(&mut D, &str, hadris_fs::OpenOptions) -> hadris_fs::FsResult<Self, <D as hadris_fs::async_send::FsDriver>::DeviceError>
 pub fn hadris_fs::async_send::OpenFile::position(&self) -> u64
 pub async fn hadris_fs::async_send::OpenFile::read<D: hadris_fs::async_send::FsDriver + ?core::marker::Sized>(&mut self, &mut D, &mut [u8]) -> hadris_fs::FsResult<usize, <D as hadris_fs::async_send::FsDriver>::DeviceError>
-pub async fn hadris_fs::async_send::OpenFile::seek<D: hadris_fs::async_send::FsDriver + ?core::marker::Sized>(&mut self, &mut D, embedded_io::SeekFrom) -> hadris_fs::FsResult<u64, <D as hadris_fs::async_send::FsDriver>::DeviceError>
+pub async fn hadris_fs::async_send::OpenFile::seek<D: hadris_fs::async_send::FsDriver + ?core::marker::Sized>(&mut self, &mut D, hadris_io::SeekFrom) -> hadris_fs::FsResult<u64, <D as hadris_fs::async_send::FsDriver>::DeviceError>
 pub async fn hadris_fs::async_send::OpenFile::sync_all<D: hadris_fs::async_send::FsDriver + ?core::marker::Sized>(&mut self, &mut D) -> hadris_fs::FsResult<(), <D as hadris_fs::async_send::FsDriver>::DeviceError>
 pub async fn hadris_fs::async_send::OpenFile::write<D: hadris_fs::async_send::FsDriver + ?core::marker::Sized>(&mut self, &mut D, &[u8]) -> hadris_fs::FsResult<usize, <D as hadris_fs::async_send::FsDriver>::DeviceError>
 pub struct hadris_fs::async_send::Posix<const N: usize>
@@ -1339,7 +1339,7 @@ pub type hadris_fs::sync::File<A>::Error = hadris_fs::Error<<A as hadris_fs::syn
 impl<A: hadris_fs::sync::Access> hadris_io::sync::api::Read for hadris_fs::sync::File<A>
 pub fn hadris_fs::sync::File<A>::read(&mut self, &mut [u8]) -> hadris_fs::FsResult<usize, <A as hadris_fs::sync::Access>::DeviceError>
 impl<A: hadris_fs::sync::Access> hadris_io::sync::api::Seek for hadris_fs::sync::File<A>
-pub fn hadris_fs::sync::File<A>::seek(&mut self, embedded_io::SeekFrom) -> hadris_fs::FsResult<u64, <A as hadris_fs::sync::Access>::DeviceError>
+pub fn hadris_fs::sync::File<A>::seek(&mut self, hadris_io::SeekFrom) -> hadris_fs::FsResult<u64, <A as hadris_fs::sync::Access>::DeviceError>
 impl<A: hadris_fs::sync::Access> hadris_io::sync::api::Write for hadris_fs::sync::File<A>
 pub fn hadris_fs::sync::File<A>::flush(&mut self) -> hadris_fs::FsResult<(), <A as hadris_fs::sync::Access>::DeviceError>
 pub fn hadris_fs::sync::File<A>::write(&mut self, &[u8]) -> hadris_fs::FsResult<usize, <A as hadris_fs::sync::Access>::DeviceError>
@@ -1358,7 +1358,7 @@ pub fn hadris_fs::sync::OpenFile::node(&self) -> hadris_fs::NodeId
 pub fn hadris_fs::sync::OpenFile::open<D: hadris_fs::sync::FsDriver + ?core::marker::Sized>(&mut D, &str, hadris_fs::OpenOptions) -> hadris_fs::FsResult<Self, <D as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::OpenFile::position(&self) -> u64
 pub fn hadris_fs::sync::OpenFile::read<D: hadris_fs::sync::FsDriver + ?core::marker::Sized>(&mut self, &mut D, &mut [u8]) -> hadris_fs::FsResult<usize, <D as hadris_fs::sync::FsDriver>::DeviceError>
-pub fn hadris_fs::sync::OpenFile::seek<D: hadris_fs::sync::FsDriver + ?core::marker::Sized>(&mut self, &mut D, embedded_io::SeekFrom) -> hadris_fs::FsResult<u64, <D as hadris_fs::sync::FsDriver>::DeviceError>
+pub fn hadris_fs::sync::OpenFile::seek<D: hadris_fs::sync::FsDriver + ?core::marker::Sized>(&mut self, &mut D, hadris_io::SeekFrom) -> hadris_fs::FsResult<u64, <D as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::OpenFile::sync_all<D: hadris_fs::sync::FsDriver + ?core::marker::Sized>(&mut self, &mut D) -> hadris_fs::FsResult<(), <D as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::OpenFile::write<D: hadris_fs::sync::FsDriver + ?core::marker::Sized>(&mut self, &mut D, &[u8]) -> hadris_fs::FsResult<usize, <D as hadris_fs::sync::FsDriver>::DeviceError>
 pub struct hadris_fs::sync::Posix<const N: usize>

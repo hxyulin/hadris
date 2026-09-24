@@ -43,8 +43,8 @@ hadris-fat = "2.4.0"
 
 Category facades detect a format and open it:
 
-- `hadris-block` detects FAT, NTFS, exFAT and partition tables and opens FAT
-  and NTFS as one `OpenVolume`.
+- `hadris-block` detects FAT, NTFS, exFAT and partition tables and opens FAT,
+  exFAT and NTFS as one `OpenVolume`.
 - `hadris-optical` detects ISO 9660, UDF and bridge images and opens one of
   them as an `OpenOpticalImage`.
 
@@ -85,14 +85,14 @@ points for kernels, firmware, and other storage libraries:
 
 ## Experimental APIs
 
-The `unstable-exfat` feature and `hadris-ntfs` crate are outside the stable
-API promise. They are appropriate for evaluation and compatibility testing,
+The `hadris-ntfs` crate is outside the stable API promise. They are appropriate for evaluation and compatibility testing,
 but callers should expect API and behavior changes.
 
 `hadris-block` opens NTFS through the driver trait in every build; its
 `unstable-ntfs` feature, like the umbrella's, adds the NTFS re-export and
-access to the NTFS driver's native API. exFAT remains an opt-in feature of
-`hadris-fat`.
+access to the NTFS driver's native API. exFAT is stable in 3.0: `ExFatFs`
+lives in `hadris_fat::exfat` in every build, and the 2.x `unstable-exfat`
+feature is gone.
 
 ## Next steps
 

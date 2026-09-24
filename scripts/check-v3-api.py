@@ -77,9 +77,8 @@ PARITY_ALLOWED: dict[str, list[tuple[str, str]]] = {
         (r"^async only: .*\b(alloc::rc::Rc|Rc<)", "Rc is not Send, so async_send has no Rc impls"),
     ],
     "hadris-fat": [
-        (r"hadris_fat::exfat::", "the unstable-exfat preview is sync only until step 12"),
         (
-            r"^async(_send)? only: impl<.*> hadris_fs::api::driver::FsDriver for hadris_fat::FatFs<D, T, C, P>$",
+            r"^async(_send)? only: impl<.*> hadris_fs::api::driver::FsDriver for hadris_fat::(FatFs<D, T, C, P>|exfat::ExFatFs<D, T, C>)$",
             "async_send also bounds the node table's values by Send",
         ),
     ],

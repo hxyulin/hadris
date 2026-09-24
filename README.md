@@ -23,7 +23,8 @@ add backward-compatible functionality, and patch releases are limited to
 correctness fixes, interoperability qualification, and documentation.
 
 The `unstable-exfat` and `unstable-streaming` previews and the experimental
-`hadris-ntfs` reader are explicitly outside this stability promise.
+`hadris-ntfs` reader are explicitly outside this stability promise. From 3.0,
+exFAT is stable as `hadris_fat::exfat::ExFatFs` and `unstable-exfat` is gone.
 Stable FAT12/16/32, partition, ISO 9660, UDF, CPIO, facade, and storage APIs are
 covered by the V2 public-API snapshots.
 
@@ -73,7 +74,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 ### Block Storage
 
-- **[hadris-block](crates/block/hadris-block)** - Detection of FAT, NTFS, exFAT and partition tables on block devices, and `OpenVolume`, which opens FAT12/16/32 and NTFS behind one `hadris-fs` driver
+- **[hadris-block](crates/block/hadris-block)** - Detection of FAT, NTFS, exFAT and partition tables on block devices, and `OpenVolume`, which opens FAT12/16/32, exFAT and NTFS behind one `hadris-fs` driver
 - **[hadris-part](crates/block/hadris-part)** - Partition table support on block devices
   - MBR with extended and logical partitions
   - GPT with backup-copy recovery and UTF-16 names
@@ -85,7 +86,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
   - Long filename support (VFAT/LFN)
   - Formatting and a read-only checker, all without an allocator
   - Analysis and verification tools
-  - exFAT preview (unstable leaf-crate feature; detected but not opened by `hadris-block`)
+  - `ExFatFs`, an allocation-free exFAT driver with its own formatter and checker, in the same three modes; opened by `hadris-block`
 - **[hadris-ntfs](crates/block/hadris-ntfs)** - Read-only NTFS reader
   (preview) on block devices, allocation-free in sync, async and `Send`
   async modes, with attribute lists, named streams and `$UpCase` case

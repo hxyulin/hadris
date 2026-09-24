@@ -5,8 +5,8 @@ io_transform! {
 /// A byte source.
 ///
 /// Implemented for `&mut T` and, with `alloc`, `Box<T>`. Wrap an
-/// `embedded-io` device in [`FromEmbedded`](crate::FromEmbedded) and a `std::io` type in
-/// [`StdIo`](crate::StdIo).
+/// `embedded-io` device in `FromEmbedded` (with the `embedded-io` feature)
+/// and a `std::io` type in `StdIo`.
 pub trait Read: ErrorType {
     /// Reads up to `buf.len()` bytes. Returns 0 only at the end of input or
     /// for an empty `buf`.
@@ -46,6 +46,7 @@ impl<T: Read + ?Sized> Read for alloc::boxed::Box<T> {
 }
 
 local_only! {
+#[cfg(feature = "embedded-io")]
 impl<T: super::base::Read> Read for crate::FromEmbedded<T>
 where
     T::Error: Send + Sync + 'static,
@@ -108,6 +109,7 @@ impl<T: Write + ?Sized> Write for alloc::boxed::Box<T> {
 }
 
 local_only! {
+#[cfg(feature = "embedded-io")]
 impl<T: super::base::Write> Write for crate::FromEmbedded<T>
 where
     T::Error: Send + Sync + 'static,
@@ -163,12 +165,13 @@ impl<T: Seek + ?Sized> Seek for alloc::boxed::Box<T> {
 }
 
 local_only! {
+#[cfg(feature = "embedded-io")]
 impl<T: super::base::Seek> Seek for crate::FromEmbedded<T>
 where
     T::Error: Send + Sync + 'static,
 {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
-        super::base::Seek::seek(&mut self.0, pos).await
+        super::base::Seek::seek(&mut self.0, pos.into()).await
     }
 }
 }

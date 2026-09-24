@@ -26,7 +26,7 @@ pub enum FatVariant {
     Fat16,
     /// A FAT32 filesystem.
     Fat32,
-    /// exFAT was recognized; `OpenVolume` does not open it yet.
+    /// An exFAT filesystem, which `OpenVolume` opens as `ExFatFs`.
     ExFat,
 }
 

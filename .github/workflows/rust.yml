@@ -144,6 +144,9 @@ jobs:
           - crate: hadris-io
             tier: async-send
             features: "async-send"
+          - crate: hadris-io
+            tier: embedded-io
+            features: "sync,async,embedded-io"
 
           # hadris-common
           - crate: hadris-common
@@ -201,26 +204,26 @@ jobs:
             tier: no-std-async
             features: "async"
           - crate: hadris-fat
-            tier: fatfs-no-alloc-sync
+            tier: no-alloc-sync-write
             features: "sync,write"
           - crate: hadris-fat
-            tier: fatfs-no-alloc-async
+            tier: no-alloc-async-write
             features: "async-send,write"
           - crate: hadris-fat
             tier: alloc
-            features: "alloc,sync,unstable-exfat"
+            features: "alloc,sync"
           - crate: hadris-fat
             tier: std
-            features: "std,sync,write,unstable-exfat"
+            features: "std,sync,write"
           - crate: hadris-fat
             tier: hosted-async-write
             features: "std,async,write"
           - crate: hadris-fat
             tier: sync-and-async-write
-            features: "alloc,sync,async,write,unstable-exfat"
+            features: "alloc,sync,async,write"
           - crate: hadris-fat
             tier: all-capabilities
-            features: "std,alloc,sync,async,async-send,write,unstable-exfat,defmt"
+            features: "std,alloc,sync,async,async-send,write,defmt"
 
           # hadris-iso
           - crate: hadris-iso
@@ -471,7 +474,7 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           cargo test --workspace --all-features --tests --exclude hadris-fat
-          cargo test -p hadris-fat --features "std,alloc,sync,async,async-send,write,unstable-exfat" --tests
+          cargo test -p hadris-fat --features "std,alloc,sync,async,async-send,write" --tests
       - name: Run block opening integration tests
         run: cargo test -p hadris-block --all-features --test open_volume --test async_volume --test async_send_volume
       - name: Run optical detection integration tests
@@ -496,10 +499,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y exfatprogs
-      - name: Run exFAT integration tests
+      - name: Run exFAT tests against fsck.exfat and mkfs.exfat
         run: |
-          cargo test -p hadris-fat --features "unstable-exfat,write" --lib integration_exfat:: -- --nocapture
-          cargo test -p hadris-fat --features "unstable-exfat,write" --lib exfat_roundtrip:: -- --nocapture
+          cargo test -p hadris-fat --features "std,sync,async-send,write" \
+            --test exfat_read --test exfat_write --test exfat_format --test exfat_check \
+            --test exfat_contract --test exfat_native -- --nocapture
+      - name: Run exFAT conformance and interoperability tests
+        run: "cargo test --manifest-path tests/Cargo.toml exfat:: -- --nocapture"
 
   test-ntfs:
     name: Test NTFS (with ntfsprogs)
@@ -537,7 +543,7 @@ jobs:
       - name: Run test harness unit tests
         run: "cargo test --manifest-path tests/Cargo.toml --lib"
       - name: Run FAT conformance and interoperability tests
-        run: "cargo test --manifest-path tests/Cargo.toml fat:: -- --nocapture"
+        run: "cargo test --manifest-path tests/Cargo.toml fat:: -- --skip exfat:: --nocapture"
 
   test-optical:
     name: Test optical interoperability

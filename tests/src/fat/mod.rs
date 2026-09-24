@@ -61,6 +61,17 @@ pub const FAT_CASES: [FatCase; 3] = [
     },
 ];
 
+/// Whether two paths name the same entry: FAT long names and exFAT names
+/// compare without case, each character mapped to its single-character
+/// uppercase form.
 pub fn fat_path_eq(left: &str, right: &str) -> bool {
-    left.eq_ignore_ascii_case(right)
+    left.chars().map(fold).eq(right.chars().map(fold))
+}
+
+fn fold(ch: char) -> char {
+    let mut upper = ch.to_uppercase();
+    match (upper.next(), upper.next()) {
+        (Some(single), None) => single,
+        _ => ch,
+    }
 }

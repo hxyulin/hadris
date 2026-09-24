@@ -1,4 +1,4 @@
-#![cfg(all(feature = "std", feature = "sync"))]
+#![cfg(all(feature = "std", feature = "sync", feature = "embedded-io"))]
 
 use hadris_io::sync::{Read, Seek};
 use hadris_io::{ExactError, SeekFrom};

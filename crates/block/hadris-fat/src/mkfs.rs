@@ -1,6 +1,7 @@
 use hadris_fs::{Clock, DateTime, ErrorKind, FixedTable, FsResult, MountError};
 
-use super::fatfs::{BlockBuf, FatFs, MAX_BLOCK_SIZE, write_bytes};
+use super::block_io::{BlockBuf, MAX_BLOCK_SIZE, write_bytes};
+use super::fatfs::FatFs;
 use super::storage::BlockDevice;
 use crate::codec::date;
 use crate::codec::dirent::{ATTR_VOLUME_ID, ShortEntry};

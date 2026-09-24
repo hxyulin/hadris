@@ -1,6 +1,6 @@
 //! # Hadris Block
 //!
-//! Detection and opening of block volumes: FAT12, FAT16, FAT32 and NTFS on
+//! Detection and opening of block volumes: FAT12, FAT16, FAT32, exFAT and NTFS on
 //! any `hadris_storage` block device, next to the format crates it builds
 //! on.
 //!
@@ -36,8 +36,7 @@
 //! A partitioned disk is opened one partition at a time: `hadris_part`
 //! (re-exported as `part` with the `part` feature) reads the table and
 //! turns a partition into a `hadris_storage` `Slice`, which `OpenVolume`
-//! opens. exFAT is detected but not opened while it is a preview in
-//! `hadris-fat`.
+//! opens.
 //!
 //! ## Features
 //!
@@ -52,8 +51,8 @@
 //! | `part` | No | Re-exports `hadris-part` as `part` |
 //! | `unstable-ntfs` | No | Re-exports the `hadris-ntfs` preview as `ntfs` and reaches `OpenVolume`'s NTFS driver |
 //!
-//! No feature changes what an item does: `OpenVolume` always opens FAT and
-//! NTFS.
+//! No feature changes what an item does: `OpenVolume` always opens FAT,
+//! exFAT and NTFS.
 
 #![no_std]
 #![deny(missing_docs)]
@@ -86,6 +85,7 @@ pub mod sync {
     }
 
     use crate::detect::sync::detect;
+    use hadris_fat::exfat::sync::ExFatFs;
     use hadris_fat::sync::FatFs;
     use hadris_ntfs::sync::NtfsFs;
     use hadris_storage::sync::BlockDevice;
@@ -111,6 +111,7 @@ pub mod r#async {
 
     use crate::detect::r#async::detect;
     use hadris_fat::r#async::FatFs;
+    use hadris_fat::exfat::r#async::ExFatFs;
     use hadris_ntfs::r#async::NtfsFs;
     use hadris_storage::r#async::BlockDevice;
 
@@ -136,6 +137,7 @@ pub mod async_send {
 
     use crate::detect::async_send::detect;
     use hadris_fat::async_send::FatFs;
+    use hadris_fat::exfat::async_send::ExFatFs;
     use hadris_ntfs::async_send::NtfsFs;
     use hadris_storage::async_send::BlockDevice;
 
@@ -148,7 +150,8 @@ pub mod async_send {
 /// Block devices and adapters.
 pub use hadris_storage as storage;
 
-/// FAT12, FAT16 and FAT32, which `OpenVolume` opens as `FatFs`.
+/// FAT12, FAT16 and FAT32, which `OpenVolume` opens as `FatFs`, and exFAT,
+/// which it opens as `fat::exfat` `ExFatFs`.
 pub use hadris_fat as fat;
 
 /// MBR, GPT and hybrid partition tables. `part::sync::open` (and its

@@ -36,15 +36,7 @@ trap 'rm -rf "$tmp_dir"' EXIT
 
 for crate in "${crates[@]}"; do
   generated="$tmp_dir/$crate.txt"
-  if [[ "$crate" == "hadris-fat" ]]; then
-    # The unstable exFAT preview is intentionally outside the API stability
-    # promise. Snapshot every stable hadris-fat capability without treating
-    # preview symbols as frozen public API.
-    cargo public-api -p "$crate" \
-      --no-default-features \
-      --features "std,sync,async,async-send,write,defmt" \
-      -sss --color never >"$generated"
-  elif [[ "$crate" == "hadris-block" ]]; then
+  if [[ "$crate" == "hadris-block" ]]; then
     # The NTFS preview (unstable-ntfs) is outside the stability promise.
     cargo public-api -p "$crate" \
       --no-default-features \

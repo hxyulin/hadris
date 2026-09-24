@@ -12,11 +12,8 @@ devices.
 Each trait reports the implementor's own error through the `ErrorType`
 supertrait, as `embedded-io` does. The only requirement on the error is
 `core::error::Error + Send + Sync + 'static`: a kernel uses its own enum,
-`StdIo` and `std::fs::File` report `std::io::Error`, and `FromEmbedded` passes
-an `embedded-io` error through unchanged.
-
-The V2 traits, which return one erased `Error`, live in `hadris_io::legacy`
-while the format crates move over. That module is removed before 3.0.
+`StdIo` and `std::fs::File` report `std::io::Error`, and `FromEmbedded` (with
+the `embedded-io` feature) passes an `embedded-io` error through unchanged.
 
 ## Features
 
@@ -36,6 +33,7 @@ while the format crates move over. That module is removed before 3.0.
 | `async` | Asynchronous traits in `hadris_io::r#async` | No |
 | `async-send` | Asynchronous traits with `Send` futures in `hadris_io::async_send`; implies `async` | No |
 | `alloc` | `Box<T>` and `Vec<u8>` implement the traits | via `std` |
+| `embedded-io` | `FromEmbedded`, the `embedded-io` traits on `StdIo`, and `SeekFrom` conversions | No |
 
 Enabling a feature only adds items; no trait or type changes shape. The
 traits are always named through their mode module (`hadris_io::sync::Read`);
@@ -103,7 +101,15 @@ pub trait Seek: ErrorType {
 }
 
 pub enum ExactError<E> { UnexpectedEof, WriteZero, Io(E) }
+
+#[non_exhaustive]
+pub enum SeekFrom { Start(u64), End(i64), Current(i64) }
 ```
+
+`SeekFrom` is Hadris's own, so no dependency is needed to seek. It converts
+to and from `std::io::SeekFrom` with `std` and `embedded_io::SeekFrom` with
+`embedded-io`, and an implementation of `Seek` resolves it with
+`SeekFrom::resolve(current, len)` rather than matching it.
 
 The async traits in `hadris_io::r#async` have the same shape with `async fn`.
 
@@ -161,7 +167,7 @@ assert_eq!(
 |---------|---------|-------|---------|
 | `StdIo<T>` | `std` | `std::io::Error` | Use a `std::io` reader, writer or seeker |
 | `ToStd<T>` | `std` + `sync` | | Expose a Hadris reader, writer or seeker as `std::io` |
-| `FromEmbedded<T>` | always | `T::Error` | Use an `embedded-io` or `embedded-io-async` device |
+| `FromEmbedded<T>` | `embedded-io` | `T::Error` | Use an `embedded-io` or `embedded-io-async` device |
 
 ```rust
 use hadris_io::sync::Read;

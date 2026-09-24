@@ -1,7 +1,7 @@
 //! # hadris-fat
 //!
 //! A pure Rust, `no_std`-compatible library for reading, writing, and formatting
-//! FAT12, FAT16, and FAT32 filesystems, plus an opt-in unstable exFAT preview.
+//! FAT12, FAT16, FAT32 and exFAT filesystems.
 //! It is suitable for disk-image tools, bootloaders, kernels, firmware,
 //! embedded devices, SD cards, and USB drives.
 //!
@@ -44,6 +44,13 @@
 //! parameters, chosen with [`MountOptions`] and `FatFs::open_with`. A failed
 //! mount returns a [`MountError`](hadris_fs::MountError) that gives the
 //! device back.
+//!
+//! ## exFAT: `ExFatFs`
+//!
+//! [`exfat`] holds `ExFatFs`, a sibling of `FatFs` with the same shape:
+//! `exfat::sync::ExFatFs` and its `r#async` and `async_send` twins, each
+//! with `check`, `check_with` and, with `write`, `format`. It needs no
+//! allocator and implements `FsDriver`.
 //!
 //! ## Formatting with `FatFs`
 //!
@@ -106,21 +113,11 @@
 //! | `sync`   | Yes     | Synchronous API in `sync` |
 //! | `async`  | No      | Asynchronous API in `r#async` |
 //! | `async-send` | No  | Asynchronous API with `Send` futures in `async_send` |
-//! | `write`  | Yes     | `format` in each mode; `FatFs` writes without it |
-//! | `unstable-exfat` | No | Unstable, sync-only exFAT preview in `exfat` |
+//! | `write`  | Yes     | `format` in each mode; `FatFs` and `ExFatFs` write without it |
 //! | `defmt`  | No      | `defmt::Format` for `FatKind` and `Finding` |
 //!
 //! No feature changes what an item does: `FatFs` always reads and writes long
-//! names, and needs no allocator in any mode.
-//!
-//! ## Known Limitations
-//!
-//! - **exFAT:** The `unstable-exfat` preview is outside the API stability
-//!   promise and is not recommended for irreplaceable data. It is sync-only,
-//!   uses the `hadris_io::legacy` stream traits, and does not support
-//!   fragmented allocation bitmap / upcase metadata, directory growth,
-//!   general cross-cluster entry-set placement, TexFAT, or repair workflows.
-//!   Enable the preview and see the `exfat` module for its qualified scope.
+//! names, and neither `FatFs` nor `ExFatFs` needs an allocator in any mode.
 //!
 //! ## Sync, async and `Send` async
 //!
@@ -135,7 +132,8 @@
 //! - `sync::check`, `sync::check_with` and their `async` versions: the
 //!   checker
 //! - `raw`: on-disk boot sector, BPB and FSInfo layouts
-//! - `exfat`: the unstable exFAT preview (requires `unstable-exfat`)
+//! - `exfat`: the exFAT driver, `ExFatFs`, with its own `sync`, `r#async`
+//!   and `async_send` modes, formatter, checker and `raw` layouts
 
 #![cfg_attr(not(test), no_std)]
 #![deny(missing_docs)]
@@ -164,8 +162,7 @@ mod options;
 /// root never re-exports them.
 pub mod raw;
 
-/// Unstable exFAT preview, outside the stability promise.
-#[cfg(feature = "unstable-exfat")]
+/// The exFAT driver, `ExFatFs`, its formatter and checker.
 pub mod exfat;
 
 #[cfg(feature = "sync")]
@@ -183,6 +180,8 @@ pub mod sync {
         ($($t:tt)*) => { hadris_fs::impl_fs_driver!(sync, $($t)*); };
     }
 
+    #[path = "block_io.rs"]
+    pub(crate) mod block_io;
     #[path = "fatfs.rs"]
     mod fatfs;
     pub use fatfs::{FatFs, check, check_with};
@@ -208,6 +207,8 @@ pub mod r#async {
         ($($t:tt)*) => { hadris_fs::impl_fs_driver!(async, $($t)*); };
     }
 
+    #[path = "block_io.rs"]
+    pub(crate) mod block_io;
     #[path = "fatfs.rs"]
     mod fatfs;
     pub use fatfs::{FatFs, check, check_with};
@@ -234,16 +235,3 @@ pub use findings::{CheckReport, Finding, FindingKind};
 #[cfg(feature = "write")]
 pub use options::FormatOptions;
 pub use options::{MountOptions, VolumeLabel};
-
-#[cfg(all(test, feature = "unstable-exfat", feature = "write"))]
-#[path = "../tests/exfat_roundtrip.rs"]
-mod exfat_roundtrip;
-#[cfg(all(test, feature = "unstable-exfat"))]
-#[path = "../tests/integration_exfat.rs"]
-mod integration_exfat;
-#[cfg(all(test, feature = "unstable-exfat", feature = "write", feature = "std"))]
-#[path = "../tests/regression_audit_exfat.rs"]
-mod regression_audit_exfat;
-#[cfg(all(test, feature = "unstable-exfat"))]
-#[path = "../tests/test_exfat.rs"]
-mod test_exfat;

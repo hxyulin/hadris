@@ -12,8 +12,10 @@ checksums.
 
 Known gaps remain explicit in the catalog. FAT32 mounts honor the active-FAT
 selection when mirroring is disabled, but do not recover through the backup
-boot record. exFAT mounts validate only the main boot region, and
-fragmented up-case tables are rejected rather than followed through the FAT.
+boot record. exFAT mounts check the main boot region's checksum and fall back
+to a valid backup region read-only, follow fragmented allocation bitmaps and
+up-case tables through the FAT, and mount read-only when the up-case table
+fails its checksum.
 
 The FAT12/16/32 conformance suite uses a specification-oriented raw image
 oracle rather than another filesystem tool as its ground truth. mtools,
@@ -35,6 +37,24 @@ additionally validates geometry, mirrored FATs, reserved entries, the FAT32
 FSInfo free count against the FAT, cluster chains, cross-links, directory
 records, dot-entry placement, LFN sequences and checksums, the 8.3 alias
 character set, and unique short aliases.
+
+### exFAT
+
+`ExFatFs` is qualified by the same suite with an independent exFAT oracle.
+It runs the shared curated, focused and generated traces plus exFAT's own
+(entry sets across clusters, Unicode names and case twins, sparse growth),
+the shared rejection scenarios plus trailing dots and spaces, backslashes and
+Unicode case twins, and the data region, long extent and directory growth
+limits, on 4 MiB volumes with 512-byte clusters, 16 MiB with 4 KiB, 64 MiB
+with 32 KiB and a 16 MiB TexFAT volume with two FATs. Every Hadris image
+passes exfatprogs 1.2.9 `fsck.exfat -n` (except TexFAT, whose FAT count it
+refuses) and macOS `fsck_exfat -n` (512-byte sectors, the only size
+`hdiutil` attaches); Hadris writes volumes made by `mkfs.exfat` and
+`newfs_exfat` that both checkers then accept; and the macOS kernel driver
+reads Hadris volumes, writes to them, and leaves images the oracle and Hadris
+read back. exfatprogs reads allocation bitmaps and up-case tables as if they
+were contiguous, so volumes with fragmented ones are checked with macOS
+`fsck_exfat` only.
 
 ### Consumers of Hadris images
 

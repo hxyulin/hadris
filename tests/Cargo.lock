@@ -120,6 +120,7 @@ dependencies = [
 name = "hadris-common"
 version = "2.4.0"
 dependencies = [
+ "bytemuck",
  "zerocopy",
 ]
 

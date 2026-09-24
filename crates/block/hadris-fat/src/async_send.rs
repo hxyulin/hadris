@@ -14,6 +14,8 @@ macro_rules! impl_fat_driver {
     };
 }
 
+#[path = "block_io.rs"]
+pub(crate) mod block_io;
 #[path = "fatfs.rs"]
 mod fatfs;
 pub use fatfs::{FatFs, check, check_with};

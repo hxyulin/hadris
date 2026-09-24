@@ -1,9 +1,10 @@
+#[cfg(any(feature = "sync", feature = "embedded-io"))]
 use crate::SeekFrom;
 
 /// Use a `std::io` type as a Hadris device.
 ///
-/// Implements the Hadris sync traits, and the `embedded-io` traits, for
-/// whichever of `std::io::Read`, `BufRead`, `Write` and `Seek` the inner type
+/// Implements the Hadris sync traits, and with the `embedded-io` feature
+/// the `embedded-io` traits, for whichever of `std::io::Read`, `BufRead`, `Write` and `Seek` the inner type
 /// implements. Errors are the `std::io::Error` itself.
 ///
 /// ```rust
@@ -42,6 +43,7 @@ impl<T: ?Sized> StdIo<T> {
     }
 }
 
+#[cfg(feature = "embedded-io")]
 impl<T: ?Sized> embedded_io::ErrorType for StdIo<T> {
     type Error = std::io::Error;
 }
@@ -50,12 +52,14 @@ impl<T: ?Sized> crate::ErrorType for StdIo<T> {
     type Error = std::io::Error;
 }
 
+#[cfg(feature = "embedded-io")]
 impl<T: std::io::Read + ?Sized> embedded_io::Read for StdIo<T> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.0.read(buf)
     }
 }
 
+#[cfg(feature = "embedded-io")]
 impl<T: std::io::BufRead + ?Sized> embedded_io::BufRead for StdIo<T> {
     fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
         self.0.fill_buf()
@@ -66,6 +70,7 @@ impl<T: std::io::BufRead + ?Sized> embedded_io::BufRead for StdIo<T> {
     }
 }
 
+#[cfg(feature = "embedded-io")]
 impl<T: std::io::Write + ?Sized> embedded_io::Write for StdIo<T> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.0.write(buf)
@@ -76,9 +81,10 @@ impl<T: std::io::Write + ?Sized> embedded_io::Write for StdIo<T> {
     }
 }
 
+#[cfg(feature = "embedded-io")]
 impl<T: std::io::Seek + ?Sized> embedded_io::Seek for StdIo<T> {
-    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
-        self.0.seek(pos.into())
+    fn seek(&mut self, pos: embedded_io::SeekFrom) -> std::io::Result<u64> {
+        self.0.seek(SeekFrom::from(pos).into())
     }
 }
 

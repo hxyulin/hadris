@@ -13,7 +13,7 @@ pub enum Detail {
     /// The device holds a partition table, not a volume; open a partition
     /// of it instead.
     PartitionedDisk(PartitionTableKind),
-    /// The format was recognized but has no opener, such as exFAT.
+    /// The format was recognized but has no opener.
     UnsupportedFormat(BlockFormat),
     /// Detection and the driver disagree about the FAT variant.
     #[non_exhaustive]

@@ -6,8 +6,8 @@
 //! report the implementor's own error through the [`ErrorType`]
 //! supertrait, as `embedded-io` does. The error can
 //! be any `core::error::Error + Send + Sync`: a kernel uses its own enum,
-//! [`StdIo`] reports `std::io::Error`, and [`FromEmbedded`] passes an
-//! `embedded-io` error through unchanged. `&mut T` implements each trait
+//! [`StdIo`] reports `std::io::Error`, and `FromEmbedded` (with the
+//! `embedded-io` feature) passes an `embedded-io` error through unchanged. `&mut T` implements each trait
 //! when `T` does. Enabling features only adds items; no trait or type changes
 //! shape.
 //!
@@ -15,9 +15,6 @@
 //! `async_send`. The crate root holds only the mode-independent items, so
 //! `hadris_io::sync::Read` and `hadris_io::r#async::Read` are always named
 //! explicitly.
-//!
-//! The V2 traits with one erased error live in [`legacy`] while the format
-//! crates move over.
 //!
 //! ## Feature Flags
 //!
@@ -28,6 +25,7 @@
 //! | `async` | no      | Asynchronous traits in `r#async` |
 //! | `async-send` | no | Asynchronous traits with `Send` futures in `async_send` (implies `async`) |
 //! | `alloc` | via `std` | `Box<T>` and `Vec<u8>` implement the traits |
+//! | `embedded-io` | no | `FromEmbedded`, the `embedded-io` traits on [`StdIo`] and [`SeekFrom`] conversions |
 //!
 //! ## Quick Start
 //!
@@ -94,8 +92,6 @@ mod error;
 pub use error::into_std_error;
 pub use error::{ErrorType, ExactError, InvalidSeek};
 
-pub mod legacy;
-
 #[cfg(feature = "std")]
 mod std_adapters;
 #[cfg(feature = "std")]
@@ -103,14 +99,91 @@ pub use std_adapters::StdIo;
 #[cfg(all(feature = "std", feature = "sync"))]
 pub use std_adapters::ToStd;
 
-/// Portable seek position, convertible to and from `std::io::SeekFrom`.
-pub use embedded_io::SeekFrom;
+/// A seek position, as in `std::io::SeekFrom`.
+///
+/// Converts to and from `std::io::SeekFrom` with `std`, and
+/// `embedded_io::SeekFrom` with the `embedded-io` feature.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum SeekFrom {
+    /// This many bytes from the start.
+    Start(u64),
+    /// This many bytes from the end, usually negative.
+    End(i64),
+    /// This many bytes from the current position.
+    Current(i64),
+}
+
+impl SeekFrom {
+    /// The position this names in a stream at `current` of `len` bytes, or
+    /// `None` when it is negative or overflows.
+    ///
+    /// ```rust
+    /// use hadris_io::SeekFrom;
+    ///
+    /// assert_eq!(SeekFrom::End(-2).resolve(0, 10), Some(8));
+    /// assert_eq!(SeekFrom::Current(-5).resolve(3, 10), None);
+    /// ```
+    pub const fn resolve(self, current: u64, len: u64) -> Option<u64> {
+        match self {
+            Self::Start(offset) => Some(offset),
+            Self::End(delta) => len.checked_add_signed(delta),
+            Self::Current(delta) => current.checked_add_signed(delta),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl From<SeekFrom> for std::io::SeekFrom {
+    fn from(pos: SeekFrom) -> Self {
+        match pos {
+            SeekFrom::Start(offset) => Self::Start(offset),
+            SeekFrom::End(delta) => Self::End(delta),
+            SeekFrom::Current(delta) => Self::Current(delta),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl From<std::io::SeekFrom> for SeekFrom {
+    fn from(pos: std::io::SeekFrom) -> Self {
+        match pos {
+            std::io::SeekFrom::Start(offset) => Self::Start(offset),
+            std::io::SeekFrom::End(delta) => Self::End(delta),
+            std::io::SeekFrom::Current(delta) => Self::Current(delta),
+        }
+    }
+}
+
+#[cfg(feature = "embedded-io")]
+impl From<SeekFrom> for embedded_io::SeekFrom {
+    fn from(pos: SeekFrom) -> Self {
+        match pos {
+            SeekFrom::Start(offset) => Self::Start(offset),
+            SeekFrom::End(delta) => Self::End(delta),
+            SeekFrom::Current(delta) => Self::Current(delta),
+        }
+    }
+}
+
+#[cfg(feature = "embedded-io")]
+impl From<embedded_io::SeekFrom> for SeekFrom {
+    fn from(pos: embedded_io::SeekFrom) -> Self {
+        match pos {
+            embedded_io::SeekFrom::Start(offset) => Self::Start(offset),
+            embedded_io::SeekFrom::End(delta) => Self::End(delta),
+            embedded_io::SeekFrom::Current(delta) => Self::Current(delta),
+        }
+    }
+}
 
 /// Use an `embedded-io` (or, in async mode, `embedded-io-async`) device with
 /// the Hadris traits. The device's error is used unchanged.
+#[cfg(feature = "embedded-io")]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FromEmbedded<T>(T);
 
+#[cfg(feature = "embedded-io")]
 impl<T> FromEmbedded<T> {
     /// Wrap an `embedded-io` device.
     pub const fn new(inner: T) -> Self {
@@ -133,6 +206,7 @@ impl<T> FromEmbedded<T> {
     }
 }
 
+#[cfg(feature = "embedded-io")]
 impl<T: embedded_io::ErrorType> ErrorType for FromEmbedded<T>
 where
     T::Error: Send + Sync + 'static,
@@ -238,12 +312,9 @@ impl<'a> Cursor<'a> {
 
     #[cfg(any(feature = "sync", feature = "async"))]
     fn seek_to(&mut self, pos: SeekFrom) -> Result<u64, InvalidSeek> {
-        let new_pos = match pos {
-            SeekFrom::Start(offset) => Some(offset),
-            SeekFrom::End(offset) => (self.data.len() as u64).checked_add_signed(offset),
-            SeekFrom::Current(offset) => (self.cursor as u64).checked_add_signed(offset),
-        }
-        .ok_or(InvalidSeek)?;
+        let new_pos = pos
+            .resolve(self.cursor as u64, self.data.len() as u64)
+            .ok_or(InvalidSeek)?;
         self.cursor = usize::try_from(new_pos).map_err(|_| InvalidSeek)?;
         Ok(new_pos)
     }
@@ -314,6 +385,22 @@ mod tests {
         assert_eq!(cursor.stream_position().unwrap(), 12);
         cursor.rewind().unwrap();
         assert_eq!(cursor.position(), 0);
+    }
+
+    #[test]
+    fn seek_positions_resolve_and_convert() {
+        assert_eq!(SeekFrom::Start(7).resolve(3, 10), Some(7));
+        assert_eq!(SeekFrom::Current(2).resolve(3, 10), Some(5));
+        assert_eq!(SeekFrom::End(-11).resolve(3, 10), None);
+        assert_eq!(SeekFrom::Current(i64::MAX).resolve(u64::MAX, 0), None);
+        #[cfg(feature = "std")]
+        for pos in [SeekFrom::Start(1), SeekFrom::End(-2), SeekFrom::Current(3)] {
+            assert_eq!(SeekFrom::from(std::io::SeekFrom::from(pos)), pos);
+        }
+        #[cfg(feature = "embedded-io")]
+        for pos in [SeekFrom::Start(1), SeekFrom::End(-2), SeekFrom::Current(3)] {
+            assert_eq!(SeekFrom::from(embedded_io::SeekFrom::from(pos)), pos);
+        }
     }
 
     #[test]

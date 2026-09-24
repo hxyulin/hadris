@@ -107,6 +107,13 @@ Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 | FAT:FSInfo | `RawFsInfo` | full | `boot::tests::fs_info_signatures`, `fatfs_read::fsinfo_unknown_values_mount_and_count_by_scanning` | `fat_read` | FAT32 free-cluster/next-free tracking |
 | FAT:LFN | `LongEntry` | partial | `lfn::tests::checksum_matches_reference`, `lfn::tests::encoded_orders_entries_last_first`, `lfn::tests::assembler_rejects_broken_sequences`, `fatfs_write::long_names_up_to_255_units` | `fat_read` | Sequence, attributes, checksum, terminator and filler are read and written; names are UTF-16 only, with no legacy ANSI fallback. |
 | FAT:DirEntry | `ShortEntry` | partial | `dirent::tests::decodes_short_fields`, `fatfs_write::short_names_and_case_bits` | `fat_read` | Name/attributes/timestamps/cluster/size and NT case flags (`DIR_NTRes`) are read and written; extended access-time granularity is not modeled. |
+| EXFAT:3.1 | `BootSector` | partial | `exfat_read::mount_rejects_bad_boot_sectors`, `exfat_format::formats_every_sector_size`, `exfat_read::damaged_main_boot_regions_mount_from_the_backup` | `exfat_read` | Every field and the boot checksum are checked at mount except `PartitionOffset` and `DriveSelect`; a valid backup boot region replaces a damaged main one, read-only, and `check` reports any difference. |
+| EXFAT:7.4 | `FileEntry` | partial | `exfat_write::times_and_attributes_round_trip`, `exfat_read::entry_sets_cross_clusters` | `exfat_read` | Attributes and the three timestamps with their 10 ms increments and UTC offsets are read and written; entry sets with benign secondary entries are read and kept. |
+| EXFAT:7.6 | `StreamEntry` | full | `exfat_read::valid_data_length_reads_zeros`, `exfat_write::contiguous_files_grow_into_chains` | `exfat_read` |  |
+| EXFAT:7.7 | `NameEntry` | full | `exfat_write::long_names_up_to_255_units`, `codec::tests::names_are_checked` | `exfat_read` |  |
+| EXFAT:7.1 | `BitmapEntry` | partial | `exfat_read::fragmented_bitmap_and_upcase_table`, `exfat_check::bitmap_mismatches_are_found`, `exfat_write::texfat_keeps_both_fats_and_bitmaps` | `exfat_read` | Bitmaps are read and written through their FAT chains; on TexFAT volumes the bitmap `ActiveFat` selects is read and both are written. TexFAT transactions are not supported. |
+| EXFAT:7.2 | `UpcaseEntry` | full | `exfat_read::fragmented_bitmap_and_upcase_table`, `exfat_check::upcase_checksum_is_checked` | `exfat_read` |  |
+| EXFAT:7.3 | `LabelEntry` | full | `exfat_write::labels_are_set_and_removed` | `exfat_read` |  |
 
 ## hadris-part
 
