@@ -64,6 +64,31 @@ fn content_reader_reads_every_kind() {
     );
 }
 
+/// A disk device read as file content has the device's length, not the 0
+/// that its metadata reports. Uses the device CI attaches at
+/// `HADRIS_TEST_DISK` with `HADRIS_TEST_DISK_LEN` bytes, and skips when it
+/// is unset unless `HADRIS_REQUIRE_TEST_DISK` is set.
+#[test]
+fn content_path_reads_a_disk_device() {
+    let Some(disk) = std::env::var_os("HADRIS_TEST_DISK") else {
+        assert!(
+            std::env::var_os("HADRIS_REQUIRE_TEST_DISK").is_none(),
+            "HADRIS_REQUIRE_TEST_DISK is set but HADRIS_TEST_DISK is not"
+        );
+        eprintln!("skipped: HADRIS_TEST_DISK is not set");
+        return;
+    };
+    let len: u64 = std::env::var("HADRIS_TEST_DISK_LEN")
+        .expect("HADRIS_TEST_DISK_LEN")
+        .parse()
+        .unwrap();
+    let content = Content::path(disk);
+    let mut reader = ContentReader::open(&content).unwrap();
+    assert_eq!(reader.len(), len);
+    let mut block = [0u8; 512];
+    reader.read_exact_at(len - 512, &mut block).unwrap();
+}
+
 #[cfg(feature = "async-send")]
 #[test]
 fn async_writers_read_async_sources() {

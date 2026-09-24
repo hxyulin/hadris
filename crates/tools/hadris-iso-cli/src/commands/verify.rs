@@ -417,7 +417,7 @@ fn check_rrip_fields(
 /// Verify ISO image integrity
 pub fn verify(args: VerifyArgs) -> Result<()> {
     let mut iso = open(&args.input)?;
-    let file_size = hadris_storage::sync::BlockDevice::block_count(iso.device()) * 512;
+    let file_size = hadris_storage::file_len(iso.device())?;
 
     if args.verbose {
         println!("Verifying: {}", args.input.display());

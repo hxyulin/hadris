@@ -17,48 +17,12 @@ fn is_read_only_handle(err: &std::io::Error) -> bool {
     cfg!(windows) && err.kind() == std::io::ErrorKind::PermissionDenied
 }
 
-/// The length of a disk device node on macOS, where `stat` and `lseek`
-/// report 0, from the `DKIOCGETBLOCKCOUNT` and `DKIOCGETBLOCKSIZE` ioctls.
-/// `None` for anything else.
-#[cfg(all(feature = "std", target_vendor = "apple"))]
-fn apple_device_len(file: &std::fs::File) -> Option<u64> {
-    use core::ffi::{c_int, c_ulong};
-    use std::os::fd::AsRawFd;
-    use std::os::unix::fs::FileTypeExt;
-
-    const DKIOCGETBLOCKSIZE: c_ulong = 0x4004_6418;
-    const DKIOCGETBLOCKCOUNT: c_ulong = 0x4008_6419;
-    unsafe extern "C" {
-        fn ioctl(fd: c_int, request: c_ulong, ...) -> c_int;
-    }
-
-    let kind = file.metadata().ok()?.file_type();
-    if !kind.is_block_device() && !kind.is_char_device() {
-        return None;
-    }
-    let fd = file.as_raw_fd();
-    let mut size: u32 = 0;
-    let mut count: u64 = 0;
-    // SAFETY: `fd` is open for the life of `file`, and each request writes
-    // one value of the type its pointer points to.
-    let ok = unsafe {
-        ioctl(fd, DKIOCGETBLOCKSIZE, &mut size as *mut u32) == 0
-            && ioctl(fd, DKIOCGETBLOCKCOUNT, &mut count as *mut u64) == 0
-    };
-    if ok {
-        count.checked_mul(u64::from(size))
-    } else {
-        None
-    }
-}
-
 /// A host file is a block device with 512-byte blocks.
 ///
 /// Errors are the `std::io::Error` itself, so `raw_os_error()` survives. A
-/// file opened read-only fails writes with the OS error. The block count is
-/// measured by seeking to the end, which also works for block device nodes
-/// on Linux. On macOS, where a disk device node such as `/dev/disk4` seeks
-/// to 0, it is asked for its size.
+/// file opened read-only fails writes with the OS error. The block count
+/// comes from [`file_len`](crate::file_len), so disk devices are measured
+/// too; it is 0 when the size cannot be determined.
 #[cfg(feature = "std")]
 impl BlockDevice for std::fs::File {
     fn block_size(&self) -> crate::BlockSize {
@@ -66,19 +30,7 @@ impl BlockDevice for std::fs::File {
     }
 
     fn block_count(&self) -> u64 {
-        let mut file = self;
-        let Ok(here) = std::io::Seek::stream_position(&mut file) else {
-            return 0;
-        };
-        let end = std::io::Seek::seek(&mut file, std::io::SeekFrom::End(0)).unwrap_or(0);
-        let _ = std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(here));
-        #[cfg(target_vendor = "apple")]
-        if end == 0
-            && let Some(len) = apple_device_len(self)
-        {
-            return len / 512;
-        }
-        end / 512
+        crate::file_len(self).map_or(0, |len| len / 512)
     }
 
     fn read_blocks(&mut self, first: crate::BlockIndex, buf: &mut [u8]) -> std::io::Result<()> {
@@ -431,5 +383,60 @@ mod device_tests {
         let (count, block) = measured.unwrap();
         assert_eq!(count, 2048);
         assert_eq!(block, Some([7u8; 512]));
+    }
+
+    /// A regular file measures its length, empty or not; a device that
+    /// seeks to 0 and answers no size request is an error, not 0 bytes.
+    #[test]
+    fn file_len_measures_or_refuses() {
+        let path = std::env::temp_dir().join(std::format!(
+            "hadris-storage-len-{}.img",
+            std::process::id()
+        ));
+        std::fs::write(&path, [1u8; 1000]).unwrap();
+        assert_eq!(
+            crate::file_len(&std::fs::File::open(&path).unwrap()).unwrap(),
+            1000
+        );
+        std::fs::write(&path, []).unwrap();
+        assert_eq!(
+            crate::file_len(&std::fs::File::open(&path).unwrap()).unwrap(),
+            0
+        );
+        std::fs::remove_file(&path).unwrap();
+
+        #[cfg(unix)]
+        {
+            let null = std::fs::File::open("/dev/null").unwrap();
+            let err = crate::file_len(&null).unwrap_err();
+            assert_eq!(err.kind(), std::io::ErrorKind::Unsupported);
+            assert_eq!(null.block_count(), 0);
+        }
+    }
+
+    /// The disk device CI attaches (a loop device on Linux, an `md` device
+    /// on FreeBSD, a VHD on Windows) at `HADRIS_TEST_DISK`, holding
+    /// `HADRIS_TEST_DISK_LEN` bytes. Skips when unset, unless
+    /// `HADRIS_REQUIRE_TEST_DISK` is set.
+    #[test]
+    fn attached_disk_device_is_measured() {
+        let Some(disk) = std::env::var_os("HADRIS_TEST_DISK") else {
+            assert!(
+                std::env::var_os("HADRIS_REQUIRE_TEST_DISK").is_none(),
+                "HADRIS_REQUIRE_TEST_DISK is set but HADRIS_TEST_DISK is not"
+            );
+            std::eprintln!("skipped: HADRIS_TEST_DISK is not set");
+            return;
+        };
+        let len: u64 = std::env::var("HADRIS_TEST_DISK_LEN")
+            .expect("HADRIS_TEST_DISK_LEN")
+            .parse()
+            .unwrap();
+        let mut file = std::fs::File::open(&disk).unwrap();
+        assert_eq!(crate::file_len(&file).unwrap(), len);
+        assert_eq!(file.block_count(), len / 512);
+        let mut block = [0u8; 512];
+        file.read_blocks(BlockIndex::new(len / 512 - 1), &mut block)
+            .unwrap();
     }
 }
