@@ -1074,6 +1074,20 @@ Decided by the user on 2026-09-24 from the V3 review (items D2 to D12):
 | D11 permissions | `Metadata::permissions()` and `SetMetadata::with_permissions()`; the `mode` spellings leave `hadris-fs`. cpio keeps its raw `mode()`. |
 | D12 trait additions | Stay 3.x additions under 4.14 (`link`, `forget_n`, `Metadata::device()` and the rest, orphans). |
 
+### 4.17 Workspace simplifications
+
+Decided by the user on 2026-09-24 after the layering pass (4.15):
+
+| Item | Decision |
+|---|---|
+| S1 CLIs | One `hadris` binary with subcommands (`fat`, `iso`, `udf`, `cpio`, `detect`) replaces the five CLI crates, with one set of flags, overwrite rules and output handling. The 2.x binary names are not installed. |
+| S2 detection | `hadris-block` and `hadris-optical` are removed. Detection and opening move into the umbrella as `hadris::detect` (one format enum for block, partition, optical and archive images) and `hadris::open`, which implements `FsDriver` by delegation. |
+| S3 bridge writer | `hadris-cd` is removed; the ISO and UDF bridge writer becomes `hadris_udf::write_bridge`. |
+| S5 storage errors | `WriteError`, `StorageError` and `OutOfRange` become one storage error type. |
+| S6 path helpers | Path helpers exist on shared volumes and in `host`; the bare-driver tier keeps node-level calls. `DriverExt` and `PathExt` become one trait. |
+| Async naming | In the shared tier `r#async` means futures that are `Send` when the device is (the former `async_send`). The embedded API's `r#async` is non-`Send`. `hadris-io` and `hadris-storage` offer `sync`, `r#async` (`Send`) and `local` (non-`Send`) device traits. Features are `sync` and `async`; `async-send` is removed. |
+| S4 `write` | Undecided: dropping it leaves writers always compiled and shrinks the feature matrix; keeping it makes it stable for 3.x. Settled with the feature rework. |
+
 ---
 
 ## 5. Per-crate changes
