@@ -152,10 +152,19 @@ pub(super) struct Set {
     pub(super) raw: [RawEntry; MAX_SET],
     /// Byte offset of each entry.
     pub(super) at: [u64; MAX_SET],
-    pub(super) name: Units,
 }
 
 impl Set {
+    /// An empty set for a read to fill.
+    pub(super) fn new() -> Self {
+        Self {
+            offset: 0,
+            count: 0,
+            raw: [[0; ENTRY_SIZE]; MAX_SET],
+            at: [0; MAX_SET],
+        }
+    }
+
     pub(super) fn attributes(&self) -> u16 {
         le16(&self.raw[0], 4)
     }
@@ -187,50 +196,60 @@ impl Set {
         }
     }
 
+    /// The name's length in code units, from the Stream Extension entry.
+    fn name_len(&self) -> usize {
+        self.raw[1][3] as usize
+    }
+
+    /// The name's code units, read from its File Name entries.
+    fn name_units(&self) -> impl Iterator<Item = u16> + '_ {
+        (0..self.name_len()).map(|at| {
+            let entry = &self.raw[2 + at / raw::NAME_UNITS_PER_ENTRY];
+            le16(entry, 2 + at % raw::NAME_UNITS_PER_ENTRY * 2)
+        })
+    }
+
     /// Benign secondary entries after the name.
     fn extras(&self) -> &[RawEntry] {
-        &self.raw[2 + self.name.entries()..self.count]
+        &self.raw[2 + self.name_len().div_ceil(raw::NAME_UNITS_PER_ENTRY)..self.count]
     }
 }
 
-/// Checks the entries of a set and returns its name, or `None` when they
-/// do not form a File entry set with a valid checksum.
-pub(super) fn parse_set(entries: &[RawEntry]) -> Option<Units> {
-    let primary = entries.first()?;
+/// Whether the entries form a File entry set with a Stream Extension, the
+/// File Name entries its name length needs, and a valid checksum.
+pub(super) fn parse_set(entries: &[RawEntry]) -> bool {
+    let Some(primary) = entries.first() else {
+        return false;
+    };
     if primary[0] != raw::ENTRY_FILE || !(2..MAX_SET).contains(&(primary[1] as usize)) {
-        return None;
+        return false;
     }
     let count = 1 + primary[1] as usize;
-    let set = entries.get(..count)?;
+    let Some(set) = entries.get(..count) else {
+        return false;
+    };
     let stream = &set[1];
     let len = stream[3] as usize;
     if stream[0] != raw::ENTRY_STREAM || len == 0 {
-        return None;
+        return false;
     }
-    let mut name = Units::new();
-    name.len = len;
     let entries_needed = len.div_ceil(raw::NAME_UNITS_PER_ENTRY);
     if 2 + entries_needed > count {
-        return None;
+        return false;
     }
-    for (index, entry) in set[2..2 + entries_needed].iter().enumerate() {
-        if entry[0] != raw::ENTRY_NAME {
-            return None;
-        }
-        for unit in 0..raw::NAME_UNITS_PER_ENTRY {
-            let at = index * raw::NAME_UNITS_PER_ENTRY + unit;
-            if at < len {
-                name.units[at] = le16(entry, 2 + unit * 2);
-            }
-        }
+    if set[2..2 + entries_needed]
+        .iter()
+        .any(|entry| entry[0] != raw::ENTRY_NAME)
+    {
+        return false;
     }
     if set[2 + entries_needed..]
         .iter()
         .any(|entry| entry[0] & raw::CATEGORY_SECONDARY == 0 || entry[0] & raw::IN_USE == 0)
     {
-        return None;
+        return false;
     }
-    (codec::set_checksum(set) == le16(primary, 2)).then_some(name)
+    codec::set_checksum(set) == le16(primary, 2)
 }
 
 /// A named entry set found by a directory scan.
@@ -239,6 +258,16 @@ struct Located {
     slot: u32,
     /// Whether the query equals the entry's name exactly.
     exact: bool,
+}
+
+impl Located {
+    fn new() -> Self {
+        Self {
+            set: Set::new(),
+            slot: 0,
+            exact: false,
+        }
+    }
 }
 
 /// Where a new entry set goes.
@@ -291,6 +320,24 @@ pub(super) struct Upcase {
 }
 
 impl Upcase {
+    /// An empty table for `index_upcase` to fill.
+    fn new() -> Self {
+        Self {
+            extent: Extent {
+                first: 0,
+                len: 0,
+                contiguous: true,
+            },
+            checksum: 0,
+            stored_checksum: 0,
+            starts: [PageStart::default(); 256],
+            identity: [0xFF; 32],
+            page0: [0; 256],
+            cache: [(0, [0; 256]); UPCASE_CACHE],
+            victim: 0,
+        }
+    }
+
     fn is_identity(&self, page: usize) -> bool {
         self.identity[page / 8] & (1 << (page % 8)) != 0
     }
@@ -375,26 +422,28 @@ fn set_stream(stream: &mut RawEntry, alloc: Alloc, len: u64, valid: u64) {
 }
 
 /// Builds a File entry set for `name` from a primary and stream template
-/// and extra secondary entries. `upcased` is the name in upper case.
+/// and extra secondary entries into the front of `set`, and returns how many
+/// entries it has. `hash` is the name's `NameHash`.
 fn build_set(
     primary: &RawEntry,
     stream: &RawEntry,
     name: &Units,
-    upcased: &Units,
+    hash: u16,
     extras: &[RawEntry],
-) -> Result<([RawEntry; MAX_SET], usize), ErrorKind> {
+    set: &mut [RawEntry; MAX_SET],
+) -> Result<usize, ErrorKind> {
     let count = 2 + name.entries() + extras.len();
     if count > MAX_SET {
         return Err(ErrorKind::NameTooLong);
     }
-    let mut set = [[0u8; ENTRY_SIZE]; MAX_SET];
+    set[..count].fill([0; ENTRY_SIZE]);
     set[0] = *primary;
     set[0][0] = raw::ENTRY_FILE;
     set[0][1] = (count - 1) as u8;
     set[1] = *stream;
     set[1][0] = raw::ENTRY_STREAM;
     set[1][3] = name.len as u8;
-    set[1][4..6].copy_from_slice(&codec::name_hash(upcased.as_slice()).to_le_bytes());
+    set[1][4..6].copy_from_slice(&hash.to_le_bytes());
     for (index, chunk) in name
         .as_slice()
         .chunks(raw::NAME_UNITS_PER_ENTRY)
@@ -408,7 +457,7 @@ fn build_set(
     }
     set[2 + name.entries()..count].copy_from_slice(extras);
     codec::seal(&mut set[..count]);
-    Ok((set, count))
+    Ok(count)
 }
 
 /// The name a query must be, as a string: not `.` or `..`.
@@ -547,17 +596,15 @@ async fn boot_region<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, base: u6
 }
 
 /// Reads the boot region, or the backup boot region when the main one is
-/// damaged, and the root's bitmap and up-case entries. The flag is set when
-/// the backup was used.
-#[allow(clippy::type_complexity)]
-async fn mount<D: BlockDevice>(dev: &mut D) -> FsResult<(Geometry, BlockBuf, [Option<Extent>; 2], Upcase, bool), D::Error> {
-    let size = dev.block_size().get() as usize;
+/// damaged, through `block`, which the caller sized to the device's blocks.
+/// The flag is set when the backup was used.
+async fn boot<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf) -> FsResult<(Geometry, bool), D::Error> {
+    let size = block.size;
     if size > MAX_BLOCK_SIZE {
         return Err(ErrorKind::Unsupported.into());
     }
-    let mut block = BlockBuf::new(size);
     let mut backup = false;
-    let mut geo = boot_region(dev, &mut block, 0).await?;
+    let mut geo = boot_region(dev, block, 0).await?;
     for shift in 9..=12u8 {
         if geo.is_some() {
             break;
@@ -566,7 +613,7 @@ async fn mount<D: BlockDevice>(dev: &mut D) -> FsResult<(Geometry, BlockBuf, [Op
         if base + (raw::BOOT_REGION_SECTORS << shift) > dev.block_count().saturating_mul(size as u64) {
             break;
         }
-        geo = boot_region(dev, &mut block, base).await?.filter(|geo| geo.sector_shift == shift);
+        geo = boot_region(dev, block, base).await?.filter(|geo| geo.sector_shift == shift);
         backup = geo.is_some();
     }
     let geo = geo.ok_or(ErrorKind::Corrupt)?;
@@ -575,7 +622,18 @@ async fn mount<D: BlockDevice>(dev: &mut D) -> FsResult<(Geometry, BlockBuf, [Op
     if geo.volume_len > device_len || heap_end > geo.volume_len {
         return Err(ErrorKind::Corrupt.into());
     }
-    let mut probe = Probe { dev, block: &mut block, geo };
+    Ok((geo, backup))
+}
+
+/// Finds the root's bitmap and up-case entries through `block` and indexes
+/// the up-case table into the empty `upcase`.
+async fn system_structures<D: BlockDevice>(
+    dev: &mut D,
+    block: &mut BlockBuf,
+    geo: Geometry,
+    upcase: &mut Upcase,
+) -> FsResult<[Option<Extent>; 2], D::Error> {
+    let mut probe = Probe { dev, block, geo };
     let (entries, upcase_entry) = probe.system_entries().await?;
     let mut bitmaps = [None; 2];
     for (entry, bitmap) in entries.into_iter().zip(&mut bitmaps) {
@@ -591,8 +649,8 @@ async fn mount<D: BlockDevice>(dev: &mut D) -> FsResult<(Geometry, BlockBuf, [Op
         return Err(ErrorKind::Corrupt.into());
     }
     let extent = probe.extent(first, len).await?;
-    let upcase = probe.index_upcase(extent, stored_checksum).await?;
-    Ok((geo, block, bitmaps, upcase, backup))
+    probe.index_upcase(extent, stored_checksum, upcase).await?;
+    Ok(bitmaps)
 }
 
 }
@@ -683,19 +741,12 @@ impl<D: BlockDevice> Probe<'_, D> {
         Ok(Extent { first, len, contiguous })
     }
 
-    /// Reads the up-case table once: its checksum, where each page starts,
-    /// which pages map every code point to itself, and page 0.
-    async fn index_upcase(&mut self, extent: Extent, stored_checksum: u32) -> FsResult<Upcase, D::Error> {
-        let mut upcase = Upcase {
-            extent,
-            checksum: 0,
-            stored_checksum,
-            starts: [PageStart::default(); 256],
-            identity: [0xFF; 32],
-            page0: [0; 256],
-            cache: [(0, [0; 256]); UPCASE_CACHE],
-            victim: 0,
-        };
+    /// Reads the up-case table once into the empty `upcase`: its checksum,
+    /// where each page starts, which pages map every code point to itself,
+    /// and page 0.
+    async fn index_upcase(&mut self, extent: Extent, stored_checksum: u32, upcase: &mut Upcase) -> FsResult<(), D::Error> {
+        upcase.extent = extent;
+        upcase.stored_checksum = stored_checksum;
         for (code, slot) in upcase.page0.iter_mut().enumerate() {
             *slot = code as u16;
         }
@@ -719,7 +770,7 @@ impl<D: BlockDevice> Probe<'_, D> {
             upcase.checksum = codec::table_checksum(upcase.checksum, &chunk[..n]);
             for pair in chunk[..n].chunks_exact(2) {
                 let unit = u16::from_le_bytes([pair[0], pair[1]]);
-                let Upcase { starts, identity, page0, .. } = &mut upcase;
+                let Upcase { starts, identity, page0, .. } = &mut *upcase;
                 decoder.feed(unit, &mut |code, upper, start| {
                     let page = (code >> 8) as usize;
                     if code & 0xFF == 0 {
@@ -738,7 +789,7 @@ impl<D: BlockDevice> Probe<'_, D> {
         upcase.identity[0] &= !1;
         upcase.cache[0].0 = 0;
         upcase.cache[1].0 = 0;
-        Ok(upcase)
+        Ok(())
     }
 }
 
@@ -776,8 +827,14 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     /// and clock types. Fails as [`open`](ExFatFs::open) does.
     pub async fn open_with(mut dev: D, options: MountOptions<T, C>) -> Result<Self, MountError<D, D::Error>> {
         let MountOptions { read_only, table, clock } = options;
-        let (geo, block, [bitmap, mirror_bitmap], upcase, backup) = match mount(&mut dev).await {
-            Ok(mounted) => mounted,
+        let mut block = BlockBuf::new(dev.block_size().get() as usize);
+        let (geo, backup) = match boot(&mut dev, &mut block).await {
+            Ok(found) => found,
+            Err(error) => return Err(MountError::new(error, dev)),
+        };
+        let mut upcase = Upcase::new();
+        let [bitmap, mirror_bitmap] = match system_structures(&mut dev, &mut block, geo, &mut upcase).await {
+            Ok(bitmaps) => bitmaps,
             Err(error) => return Err(MountError::new(error, dev)),
         };
         let Some(bitmap) = bitmap else {
@@ -907,7 +964,10 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         let Some(query) = name.to_str().ok().and_then(Units::query) else {
             return Err(ErrorKind::NotFound.into());
         };
-        let found = self.find(start, &query).await?.ok_or(ErrorKind::NotFound)?;
+        let mut found = Located::new();
+        if !self.find(start, &query, &mut found).await? {
+            return Err(ErrorKind::NotFound.into());
+        }
         Ok(self.intern(&found.set, dir_entry)?)
     }
 
@@ -918,7 +978,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             return Ok(Metadata::new(FileType::Dir));
         }
         let (_, state) = self.any_node(node).await?;
-        let set = self.set_at(state.entry).await?;
+        let mut set = Set::new();
+        self.set_at(state.entry, &mut set).await?;
         Ok(metadata(&state, &set))
     }
 
@@ -939,15 +1000,16 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         if !start.alloc.contiguous {
             (walk.index, walk.cluster) = self.dir_hint(dir);
         }
-        let next = self.next_set(&mut walk, &mut slot).await?;
+        let mut set = Set::new();
+        let next = self.next_set(&mut walk, &mut slot, &mut set).await?;
         if walk.cluster != 0 {
             self.set_dir_hint(dir, (walk.index, walk.cluster));
         }
-        let Some((at, set)) = next else {
+        let Some(at) = next else {
             *cursor = DirCursor::from_raw(slot as u64);
             return Ok(None);
         };
-        name.fill(|buf| names::utf16_to_utf8(set.name.as_slice(), buf).ok_or(NameError::TooLong))
+        name.fill(|buf| names::utf16_to_utf8(set.name_units(), buf).ok_or(NameError::TooLong))
             .map_err(|_| ErrorKind::LimitExceeded)?;
         let file_type = if set.is_dir() { FileType::Dir } else { FileType::File };
         let node = self.id_at(set.offset);
@@ -1021,7 +1083,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             self.nodes.pin(id);
             return Ok(id);
         }
-        let set = self.set_at(parent).await?;
+        let mut set = Set::new();
+        self.set_at(parent, &mut set).await?;
         Ok(self.intern(&set, UNKNOWN_PARENT)?)
     }
 
@@ -1152,8 +1215,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         let (start, dir_entry) = self.dir_info(dir).await?;
         let text = entry_name(name, ErrorKind::InvalidInput)?;
         let units = Units::encode(text)?;
-        let upcased = self.upcased(&units).await?;
-        let plan = self.plan(start, Some(&upcased), 2 + units.entries() as u32, None).await?;
+        let hash = self.name_hash(&units).await?;
+        let plan = self.plan(start, Some((&units, hash)), 2 + units.entries() as u32, None).await?;
         let placeholder = Node {
             entry: u64::MAX,
             parent: dir_entry,
@@ -1168,7 +1231,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             unlinked: false,
         };
         self.nodes.insert(RESERVED, placeholder).map_err(|_| ErrorKind::LimitExceeded)?;
-        let created = self.create_set(start, dir_entry, &units, &upcased, &plan, is_dir, meta).await;
+        let created = self.create_set(start, dir_entry, &units, hash, &plan, is_dir, meta).await;
         self.nodes.remove(RESERVED);
         let node = created?;
         let id = self.free_id(node.entry).ok_or(ErrorKind::LimitExceeded)?;
@@ -1190,7 +1253,10 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         let (start, _) = self.dir_info(dir).await?;
         let query = entry_name(name, ErrorKind::NotFound)?;
         let query = Units::query(query).ok_or(ErrorKind::NotFound)?;
-        let found = self.find(start, &query).await?.ok_or(ErrorKind::NotFound)?;
+        let mut found = Located::new();
+        if !self.find(start, &query, &mut found).await? {
+            return Err(ErrorKind::NotFound.into());
+        }
         let file_type = if found.set.is_dir() { FileType::Dir } else { FileType::File };
         kind.check(file_type)?;
         let pinned = self.pinned_at(found.set.offset);
@@ -1241,9 +1307,12 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         let from_text = entry_name(from, ErrorKind::NotFound)?;
         let to_text = entry_name(to, ErrorKind::InvalidInput)?;
         let units = Units::encode(to_text)?;
-        let upcased = self.upcased(&units).await?;
+        let hash = self.name_hash(&units).await?;
         let from_query = Units::query(from_text).ok_or(ErrorKind::NotFound)?;
-        let src = self.find(from_start, &from_query).await?.ok_or(ErrorKind::NotFound)?;
+        let mut src = Located::new();
+        if !self.find(from_start, &from_query, &mut src).await? {
+            return Err(ErrorKind::NotFound.into());
+        }
         let src_id = self.pinned_at(src.set.offset);
         let src_node = match src_id.and_then(|id| self.nodes.get(id)) {
             Some(node) => *node,
@@ -1252,23 +1321,24 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         if src_node.dir && self.is_within(to_start, src_node.alloc(), src_node.len).await? {
             return Err(ErrorKind::InvalidInput.into());
         }
-        let target = self.find(to_start, &units).await?;
-        match target {
+        let mut target = Located::new();
+        let exists = self.find(to_start, &units, &mut target).await?;
+        match exists.then_some(&target) {
             Some(target) if target.set.offset == src.set.offset => {
                 if target.exact {
                     return Ok(());
                 }
-                self.rewrite_name(&src.set, &src_node, src_id, &units, &upcased).await
+                self.rewrite_name(&src.set, &src_node, src_id, &units, hash).await
             }
             Some(target) => {
                 if flags.contains(RenameFlags::NO_REPLACE) {
                     return Err(ErrorKind::AlreadyExists.into());
                 }
-                self.replace(&src, &src_node, src_id, to_start, to_entry, &target, &units, &upcased).await
+                self.replace(&src, &src_node, src_id, to_start, to_entry, target, &units, hash).await
             }
             None => {
                 let plan = self.plan(to_start, None, 2 + units.entries() as u32 + src.set.extras().len() as u32, None).await?;
-                self.move_set(&src.set, &src_node, src_id, to_start, to_entry, &plan, &units, &upcased).await
+                self.move_set(&src.set, &src_node, src_id, to_start, to_entry, &plan, &units, hash).await
             }
         }
     }
@@ -1378,7 +1448,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         {
             return Ok(());
         }
-        let mut set = self.set_at(state.entry).await?;
+        let mut set = Set::new();
+        self.set_at(state.entry, &mut set).await?;
         if state.dirty {
             self.touch(&mut set, &state, state.alloc(), state.len, state.valid);
         }
@@ -1588,7 +1659,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         valid: u64,
         hint: (u32, u32),
     ) -> FsResult<(), D::Error> {
-        let mut set = self.set_at(state.entry).await?;
+        let mut set = Set::new();
+        self.set_at(state.entry, &mut set).await?;
         self.touch(&mut set, state, alloc, len, valid);
         self.write_entries(&set, 2).await?;
         if let Some(id) = id {
@@ -1665,7 +1737,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             }
             return Ok((Some(id), *node));
         }
-        let set = self.unpinned(id).await?;
+        let mut set = Set::new();
+        self.unpinned(id, &mut set).await?;
         match self.pinned_at(set.offset) {
             Some(pinned) => Ok((Some(pinned), *self.nodes.get(pinned).ok_or(ErrorKind::Corrupt)?)),
             None => Ok((None, Node::from_set(&set, UNKNOWN_PARENT))),
@@ -1756,9 +1829,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         Ok(id)
     }
 
-    /// The entry set of an id that is not pinned, decoded from its
-    /// location.
-    async fn unpinned(&mut self, id: NodeId) -> FsResult<Set, D::Error> {
+    /// Reads the entry set of an id that is not pinned, decoded from its
+    /// location, into `set`.
+    async fn unpinned(&mut self, id: NodeId, set: &mut Set) -> FsResult<(), D::Error> {
         let raw_id = id.get();
         if raw_id == ROOT.get() || raw_id >= RESERVED.get() {
             return Err(ErrorKind::InvalidHandle.into());
@@ -1767,18 +1840,18 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         if self.geo.cluster_of(offset).is_none() {
             return Err(ErrorKind::InvalidHandle.into());
         }
-        match self.set_at(offset).await {
+        match self.set_at(offset, set).await {
             Err(err) if err.kind() == ErrorKind::Corrupt => Err(ErrorKind::InvalidHandle.into()),
             other => other,
         }
     }
 
-    /// Reads the entry set whose File entry is at `offset`.
+    /// Reads the entry set whose File entry is at `offset` into `set`.
     ///
     /// The directory holding it is not known, so where the set crosses
     /// into another cluster both the FAT's next cluster and the one after
     /// are tried, and the one whose entries make a valid set wins.
-    pub(super) async fn set_at(&mut self, offset: u64) -> FsResult<Set, D::Error> {
+    pub(super) async fn set_at(&mut self, offset: u64, set: &mut Set) -> FsResult<(), D::Error> {
         let mut primary = [0u8; ENTRY_SIZE];
         self.read(offset, &mut primary).await?;
         if primary[0] != raw::ENTRY_FILE || !(2..MAX_SET).contains(&(primary[1] as usize)) {
@@ -1786,13 +1859,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         }
         let count = 1 + primary[1] as usize;
         for contiguous in [false, true] {
-            let mut set = Set {
-                offset,
-                count,
-                raw: [[0; ENTRY_SIZE]; MAX_SET],
-                at: [0; MAX_SET],
-                name: Units::new(),
-            };
+            set.offset = offset;
+            set.count = count;
             set.raw[0] = primary;
             set.at[0] = offset;
             let mut at = offset;
@@ -1816,9 +1884,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
                 set.at[index] = at;
                 self.read(at, &mut set.raw[index]).await?;
             }
-            if ok && let Some(name) = parse_set(&set.raw[..count]) {
-                set.name = name;
-                return Ok(set);
+            if ok && parse_set(&set.raw[..count]) {
+                return Ok(());
             }
             if set.at[1..count].windows(2).all(|pair| pair[1] == pair[0] + ENTRY_SIZE as u64)
                 && set.at[1] == offset + ENTRY_SIZE as u64
@@ -1863,37 +1930,30 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         Ok(Some(self.cluster_at(cluster)? + within))
     }
 
-    /// Reads the entry set whose File entry is directory slot `slot`.
-    async fn read_set(&mut self, walk: &mut Walk, slot: u32, primary: RawEntry, offset: u64) -> FsResult<Option<Set>, D::Error> {
+    /// Reads the entry set whose File entry is directory slot `slot` into
+    /// `set`. False when the entries there are not a valid set.
+    async fn read_set(&mut self, walk: &mut Walk, slot: u32, primary: RawEntry, offset: u64, set: &mut Set) -> FsResult<bool, D::Error> {
         let count = 1 + primary[1] as usize;
         if !(3..=MAX_SET).contains(&count) {
-            return Ok(None);
+            return Ok(false);
         }
-        let mut set = Set {
-            offset,
-            count,
-            raw: [[0; ENTRY_SIZE]; MAX_SET],
-            at: [0; MAX_SET],
-            name: Units::new(),
-        };
+        set.offset = offset;
+        set.count = count;
         set.raw[0] = primary;
         set.at[0] = offset;
         for index in 1..count {
             let Some(at) = self.slot_offset(walk, slot + index as u32).await? else {
-                return Ok(None);
+                return Ok(false);
             };
             set.at[index] = at;
             self.read(at, &mut set.raw[index]).await?;
         }
-        Ok(parse_set(&set.raw[..count]).map(|name| {
-            set.name = name;
-            set
-        }))
+        Ok(parse_set(&set.raw[..count]))
     }
 
-    /// Scans from `slot` to the next valid File entry set, and leaves
-    /// `slot` after it. Returns the set's slot and the set.
-    async fn next_set(&mut self, walk: &mut Walk, slot: &mut u32) -> FsResult<Option<(u32, Set)>, D::Error> {
+    /// Scans from `slot` to the next valid File entry set, reads it into
+    /// `set`, and leaves `slot` after it. Returns the set's slot.
+    async fn next_set(&mut self, walk: &mut Walk, slot: &mut u32, set: &mut Set) -> FsResult<Option<u32>, D::Error> {
         while let Some(offset) = self.slot_offset(walk, *slot).await? {
             let at = *slot;
             let mut entry = [0u8; ENTRY_SIZE];
@@ -1901,9 +1961,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             match entry[0] {
                 raw::ENTRY_END => return Ok(None),
                 raw::ENTRY_FILE => {
-                    if let Some(set) = self.read_set(walk, at, entry, offset).await? {
+                    if self.read_set(walk, at, entry, offset, set).await? {
                         *slot = at + set.count as u32;
-                        return Ok(Some((at, set)));
+                        return Ok(Some(at));
                     }
                 }
                 _ => {}
@@ -1956,32 +2016,33 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         Ok(units[low])
     }
 
-    async fn upcased(&mut self, name: &Units) -> FsResult<Units, D::Error> {
-        let mut out = *name;
-        for unit in &mut out.units[..out.len] {
-            *unit = self.upcase_unit(*unit).await?;
+    /// The `NameHash` of `name`, up-cased through the volume's table.
+    async fn name_hash(&mut self, name: &Units) -> FsResult<u16, D::Error> {
+        let mut hash = 0;
+        for &unit in name.as_slice() {
+            hash = codec::hash_unit(hash, self.upcase_unit(unit).await?);
         }
-        Ok(out)
+        Ok(hash)
     }
 
-    /// Whether `set` is named `upcased` up to case.
-    async fn named(&mut self, set: &Set, upcased: &Units) -> FsResult<bool, D::Error> {
-        if set.name.len != upcased.len {
+    /// Whether `set` is named `name` up to case.
+    async fn named(&mut self, set: &Set, name: &Units) -> FsResult<bool, D::Error> {
+        if set.name_len() != name.len {
             return Ok(false);
         }
-        for index in 0..set.name.len {
-            if self.upcase_unit(set.name.units[index]).await? != upcased.units[index] {
+        for (unit, &other) in set.name_units().zip(name.as_slice()) {
+            if unit != other && self.upcase_unit(unit).await? != self.upcase_unit(other).await? {
                 return Ok(false);
             }
         }
         Ok(true)
     }
 
-    /// Finds the entry set named `query`, up to case. Sets whose stream
-    /// entry records another name length or hash are passed over unread.
-    async fn find(&mut self, start: DirStart, query: &Units) -> FsResult<Option<Located>, D::Error> {
-        let upcased = self.upcased(query).await?;
-        let hash = codec::name_hash(upcased.as_slice());
+    /// Finds the entry set named `query`, up to case, fills `found` and
+    /// returns true when there is one. Sets whose stream entry records
+    /// another name length or hash are passed over unread.
+    async fn find(&mut self, start: DirStart, query: &Units, found: &mut Located) -> FsResult<bool, D::Error> {
+        let hash = self.name_hash(query).await?;
         let mut walk = Walk::new(start);
         let mut slot = 0;
         while let Some(offset) = self.slot_offset(&mut walk, slot).await? {
@@ -1991,32 +2052,33 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             self.read(offset, &mut entry).await?;
             match entry[0] {
                 raw::ENTRY_END => break,
-                raw::ENTRY_FILE if self.may_be_named(&mut walk, at, &upcased, hash).await? => {
-                    let Some(set) = self.read_set(&mut walk, at, entry, offset).await? else {
+                raw::ENTRY_FILE if self.may_be_named(&mut walk, at, query, hash).await? => {
+                    if !self.read_set(&mut walk, at, entry, offset, &mut found.set).await? {
                         continue;
-                    };
-                    if self.named(&set, &upcased).await? {
-                        let exact = set.name.as_slice() == query.as_slice();
-                        return Ok(Some(Located { set, slot: at, exact }));
                     }
-                    slot = at + set.count as u32;
+                    if self.named(&found.set, query).await? {
+                        found.slot = at;
+                        found.exact = found.set.name_units().eq(query.as_slice().iter().copied());
+                        return Ok(true);
+                    }
+                    slot = at + found.set.count as u32;
                 }
                 _ => {}
             }
         }
-        Ok(None)
+        Ok(false)
     }
 
     /// Whether the set whose File entry is slot `slot` may be named
-    /// `upcased`: false only when its stream entry records another name
-    /// length or name hash.
-    async fn may_be_named(&mut self, walk: &mut Walk, slot: u32, upcased: &Units, hash: u16) -> FsResult<bool, D::Error> {
+    /// `name`: false only when its stream entry records another name
+    /// length or name hash. `hash` is the `NameHash` of `name`.
+    async fn may_be_named(&mut self, walk: &mut Walk, slot: u32, name: &Units, hash: u16) -> FsResult<bool, D::Error> {
         let Some(at) = self.slot_offset(walk, slot + 1).await? else {
             return Ok(true);
         };
         let mut stream = [0u8; ENTRY_SIZE];
         self.read(at, &mut stream).await?;
-        Ok(stream[0] != raw::ENTRY_STREAM || (stream[3] as usize == upcased.len && le16(&stream, 4) == hash))
+        Ok(stream[0] != raw::ENTRY_STREAM || (stream[3] as usize == name.len && le16(&stream, 4) == hash))
     }
 
     async fn find_label(&mut self) -> FsResult<Option<(u64, RawEntry)>, D::Error> {
@@ -2060,14 +2122,15 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         let mut stack = [(start, entry, 0u32); MAX_DEPTH];
         let mut depth = 1;
         let mut deeper = false;
+        let mut set = Set::new();
         while depth > 0 {
             let (dir, dir_entry, slot) = stack[depth - 1];
             let mut walk = Walk::new(dir);
             let mut next = slot;
-            let Some((_, set)) = self.next_set(&mut walk, &mut next).await? else {
+            if self.next_set(&mut walk, &mut next, &mut set).await?.is_none() {
                 depth -= 1;
                 continue;
-            };
+            }
             stack[depth - 1].2 = next;
             match target {
                 Target::ParentOf(offset) if set.offset == offset => return Ok(Some(dir_entry)),
@@ -2102,24 +2165,24 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     }
 
     /// Finds room for an entry set of `needed` entries in `dir`. With
-    /// `check`, an entry set named `check` fails with
+    /// `check`, a name and its `NameHash`, an entry set with that name fails with
     /// [`ErrorKind::AlreadyExists`]. The entries of `reuse` count as free.
     async fn plan(
         &mut self,
         dir: DirStart,
-        check: Option<&Units>,
+        check: Option<(&Units, u16)>,
         needed: u32,
         reuse: Option<&Set>,
     ) -> FsResult<Plan, D::Error> {
         if needed as usize > MAX_SET {
             return Err(ErrorKind::NameTooLong.into());
         }
-        let hash = check.map(|query| codec::name_hash(query.as_slice()));
         let mut walk = Walk::new(dir);
         let mut slot = 0u32;
         let mut end = false;
         let (mut run_start, mut run_len) = (0, 0);
         let mut found = None;
+        let mut scanned = Set::new();
         while let Some(offset) = self.slot_offset(&mut walk, slot).await? {
             let reused = reuse.is_some_and(|set| set.at[..set.count].contains(&offset));
             let mut entry = [0u8; ENTRY_SIZE];
@@ -2133,15 +2196,14 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
                 end = true;
                 true
             } else if entry[0] == raw::ENTRY_FILE {
-                if let Some(query) = check
-                    && let Some(hash) = hash
+                if let Some((query, hash)) = check
                     && self.may_be_named(&mut walk, slot, query, hash).await?
-                    && let Some(set) = self.read_set(&mut walk, slot, entry, offset).await?
+                    && self.read_set(&mut walk, slot, entry, offset, &mut scanned).await?
                 {
-                    if self.named(&set, query).await? {
+                    if self.named(&scanned, query).await? {
                         return Err(ErrorKind::AlreadyExists.into());
                     }
-                    advance = set.count as u32;
+                    advance = scanned.count as u32;
                 }
                 false
             } else {
@@ -2243,7 +2305,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             return Ok(DirStart { alloc, size: u64::MAX });
         }
         let len = old_len.div_ceil(cluster_size) * cluster_size + count as u64 * cluster_size;
-        let mut set = self.set_at(dir_entry).await?;
+        let mut set = Set::new();
+        self.set_at(dir_entry, &mut set).await?;
         set_stream(&mut set.raw[1], alloc, len, len);
         codec::seal(&mut set.raw[..set.count]);
         self.write_entries(&set, 2).await?;
@@ -2296,7 +2359,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         dir: DirStart,
         dir_entry: u64,
         name: &Units,
-        upcased: &Units,
+        hash: u16,
         plan: &Plan,
         is_dir: bool,
         meta: &SetMetadata,
@@ -2320,9 +2383,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             len = self.geo.cluster_size();
         }
         set_stream(&mut stream, alloc, len, len);
-        let built = build_set(&primary, &stream, name, upcased, &[]);
-        let inserted = match built {
-            Ok((set, count)) => self.insert(dir, dir_entry, plan, &set[..count]).await,
+        let mut set = [[0; ENTRY_SIZE]; MAX_SET];
+        let inserted = match build_set(&primary, &stream, name, hash, &[], &mut set) {
+            Ok(count) => self.insert(dir, dir_entry, plan, &set[..count]).await,
             Err(kind) => Err(kind.into()),
         };
         match inserted {
@@ -2367,14 +2430,13 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     }
 
     /// Renames in place to a name that differs only in case.
-    async fn rewrite_name(&mut self, set: &Set, node: &Node, id: Option<NodeId>, name: &Units, upcased: &Units) -> FsResult<(), D::Error> {
+    async fn rewrite_name(&mut self, set: &Set, node: &Node, id: Option<NodeId>, name: &Units, hash: u16) -> FsResult<(), D::Error> {
         let (primary, stream) = self.moved_entries(set, node);
-        let (raw, count) = build_set(&primary, &stream, name, upcased, set.extras())?;
+        let mut new = *set;
+        let count = build_set(&primary, &stream, name, hash, set.extras(), &mut new.raw)?;
         if count != set.count {
             return Err(ErrorKind::Corrupt.into());
         }
-        let mut new = *set;
-        new.raw = raw;
         self.write_entries(&new, count).await?;
         if let Some(id) = id {
             self.clean(id);
@@ -2394,10 +2456,11 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         to_entry: u64,
         plan: &Plan,
         name: &Units,
-        upcased: &Units,
+        hash: u16,
     ) -> FsResult<(), D::Error> {
         let (primary, stream) = self.moved_entries(set, node);
-        let (raw, count) = build_set(&primary, &stream, name, upcased, set.extras())?;
+        let mut raw = [[0; ENTRY_SIZE]; MAX_SET];
+        let count = build_set(&primary, &stream, name, hash, set.extras(), &mut raw)?;
         let offset = self.insert(to, to_entry, plan, &raw[..count]).await?;
         if let Err(err) = self.clear_set(set).await {
             let _ = self.clear_new(to, plan, count).await;
@@ -2446,7 +2509,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         to_entry: u64,
         target: &Located,
         name: &Units,
-        upcased: &Units,
+        hash: u16,
     ) -> FsResult<(), D::Error> {
         let target_id = self.pinned_at(target.set.offset);
         if target_id.is_some_and(|id| self.is_open(id)) {
@@ -2467,7 +2530,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         let needed = 2 + name.entries() as u32 + src.set.extras().len() as u32;
         let plan = self.plan(to, None, needed, Some(&target.set)).await?;
         self.clear_set(&target.set).await?;
-        if let Err(err) = self.move_set(&src.set, src_node, src_id, to, to_entry, &plan, name, upcased).await {
+        if let Err(err) = self.move_set(&src.set, src_node, src_id, to, to_entry, &plan, name, hash).await {
             let _ = self.write_entries(&target.set, target.set.count).await;
             return Err(err);
         }

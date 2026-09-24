@@ -57,36 +57,24 @@ pub(crate) fn pack(units: &[u16; UNITS_PER_ENTRY]) -> ([u8; 10], [u8; 12], [u8; 
     (name1, name2, name3)
 }
 
-/// A name encoded as the LFN entries that store it.
-pub(crate) struct Encoded {
-    units: [u16; MAX_ENTRIES * UNITS_PER_ENTRY],
+/// A name as the LFN entries that store it, encoded one entry at a time so
+/// no buffer of the whole name is kept.
+pub(crate) struct Encoded<'a> {
+    name: &'a str,
     entries: usize,
 }
 
-impl Encoded {
-    /// Encodes `name` as UTF-16, followed by a `0x0000` terminator and
-    /// `0xFFFF` filler when it does not fill its last entry. `None` when the
-    /// name is empty or longer than [`MAX_UNITS`].
-    pub(crate) fn new(name: &str) -> Option<Self> {
-        let mut units = [0u16; MAX_ENTRIES * UNITS_PER_ENTRY];
-        let mut len = 0;
-        for unit in name.encode_utf16() {
-            if len >= MAX_UNITS {
-                return None;
-            }
-            units[len] = unit;
-            len += 1;
-        }
-        let entries = len.div_ceil(UNITS_PER_ENTRY);
-        if entries == 0 {
+impl<'a> Encoded<'a> {
+    /// `None` when `name` is empty or longer than [`MAX_UNITS`].
+    pub(crate) fn new(name: &'a str) -> Option<Self> {
+        let len = name.encode_utf16().count();
+        if len == 0 || len > MAX_UNITS {
             return None;
         }
-        let capacity = entries * UNITS_PER_ENTRY;
-        if len < capacity {
-            units[len] = 0x0000;
-            units[len + 1..capacity].fill(0xFFFF);
-        }
-        Some(Self { units, entries })
+        Some(Self {
+            name,
+            entries: len.div_ceil(UNITS_PER_ENTRY),
+        })
     }
 
     /// Number of LFN entries.
@@ -95,7 +83,9 @@ impl Encoded {
     }
 
     /// The sequence byte and code units of the entry at `index` in disk
-    /// order: index 0 comes first and carries [`LAST_ENTRY`].
+    /// order: index 0 comes first and carries [`LAST_ENTRY`]. The last
+    /// entry of the name is padded with a `0x0000` terminator and `0xFFFF`
+    /// filler when the name does not fill it.
     pub(crate) fn entry(&self, index: usize) -> (u8, [u16; UNITS_PER_ENTRY]) {
         let number = self.entries - index;
         let sequence = if index == 0 {
@@ -104,8 +94,15 @@ impl Encoded {
             number as u8
         };
         let start = (number - 1) * UNITS_PER_ENTRY;
-        let mut units = [0u16; UNITS_PER_ENTRY];
-        units.copy_from_slice(&self.units[start..start + UNITS_PER_ENTRY]);
+        let mut units = [0xFFFFu16; UNITS_PER_ENTRY];
+        let mut filled = 0;
+        for (slot, unit) in units.iter_mut().zip(self.name.encode_utf16().skip(start)) {
+            *slot = unit;
+            filled += 1;
+        }
+        if filled < UNITS_PER_ENTRY {
+            units[filled] = 0x0000;
+        }
         (sequence, units)
     }
 }
@@ -245,6 +242,21 @@ mod tests {
         assert_eq!(&units[..4], &[b'n' as u16, b'o' as u16, b'p' as u16, 0]);
         assert!(units[4..].iter().all(|&unit| unit == 0xFFFF));
         assert_eq!(encoded.entry(1).0, 1);
+    }
+
+    #[test]
+    fn encoded_splits_surrogate_pairs_across_entries() {
+        let name = "abcdefghijkl\u{1F600}xyz";
+        let encoded = Encoded::new(name).unwrap();
+        assert_eq!(encoded.entries(), 2);
+        let expected: std::vec::Vec<u16> = name.encode_utf16().collect();
+        let (_, first) = encoded.entry(1);
+        assert_eq!(&first[..], &expected[..13]);
+        let (_, last) = encoded.entry(0);
+        assert_eq!(&last[..4], &expected[13..]);
+        assert_eq!(last[4], 0);
+        assert!(last[5..].iter().all(|&unit| unit == 0xFFFF));
+        assert_eq!(assemble(name), Some(expected));
     }
 
     #[test]

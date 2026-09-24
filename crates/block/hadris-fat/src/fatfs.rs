@@ -147,8 +147,8 @@ struct Located {
 
 /// A name about to be written: its long-name entries and short-name
 /// candidates.
-struct NewName {
-    encoded: Encoded,
+struct NewName<'a> {
+    encoded: Encoded<'a>,
     /// Candidates in on-disk form for tails none, `~1` to `~4`, and the
     /// first hashed tail, so one directory scan checks them all.
     candidates: [[u8; 11]; CANDIDATES],
@@ -159,8 +159,8 @@ struct NewName {
     case_bits: Option<u8>,
 }
 
-impl NewName {
-    fn new(text: &str, code_page: &impl CodePage) -> Result<Self, ErrorKind> {
+impl<'a> NewName<'a> {
+    fn new(text: &'a str, code_page: &impl CodePage) -> Result<Self, ErrorKind> {
         if text.encode_utf16().count() > lfn::MAX_UNITS {
             return Err(ErrorKind::NameTooLong);
         }
@@ -288,7 +288,9 @@ fn matches(
     entry: &ShortEntry,
     code_page: &impl CodePage,
 ) -> bool {
-    if long.is_some_and(|units| names::eq_ignore_case(query.chars(), names::utf16_chars(units))) {
+    if long.is_some_and(|units| {
+        names::eq_ignore_case(query.chars(), names::utf16_chars(units.iter().copied()))
+    }) {
         return true;
     }
     if query.chars().nth(short_name::DISPLAY_CHARS).is_some() {
@@ -315,7 +317,7 @@ fn write_name(
 ) -> Result<usize, ErrorKind> {
     if let Some(units) = long
         && out
-            .fill(|buf| names::utf16_to_utf8(units, buf).ok_or(NameError::TooLong))
+            .fill(|buf| names::utf16_to_utf8(units.iter().copied(), buf).ok_or(NameError::TooLong))
             .is_ok()
     {
         return Ok(out.len());
@@ -342,7 +344,7 @@ fn is_exact(
     code_page: &impl CodePage,
 ) -> bool {
     if let Some(units) = long {
-        return names::utf16_chars(units).eq(query.chars());
+        return names::utf16_chars(units.iter().copied()).eq(query.chars());
     }
     let mut short = [0u8; short_name::DISPLAY_MAX];
     let len = short_name::display(
@@ -498,21 +500,20 @@ struct Mount {
     active_fat: u8,
     mirrored: bool,
     data_end: u64,
-    block: BlockBuf,
     free_clusters: Option<u32>,
     fs_info: Option<u64>,
     next_free: u32,
 }
 
 impl Mount {
-    async fn read<D: BlockDevice>(dev: &mut D) -> FsResult<Self, D::Error> {
-        let size = dev.block_size().get() as usize;
-        if size > MAX_BLOCK_SIZE {
+    /// Reads the boot and FSInfo sectors through `block`, which the caller
+    /// sized to the device's blocks.
+    async fn read<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf) -> FsResult<Self, D::Error> {
+        if block.size > MAX_BLOCK_SIZE {
             return Err(ErrorKind::Unsupported.into());
         }
-        let mut block = BlockBuf::new(size);
         let mut sector = [0u8; BOOT_SECTOR_LEN];
-        read_bytes(dev, &mut block, 0, &mut sector).await?;
+        read_bytes(dev, block, 0, &mut sector).await?;
         let bpb: RawBpb = bytemuck::pod_read_unaligned(&sector[..BPB_LEN]);
         boot::check_bpb(&bpb).map_err(corrupt)?;
         let (geo, active_fat, mirrored, fs_info) = if boot::is_fat32(&bpb) {
@@ -538,7 +539,7 @@ impl Mount {
             return Err(ErrorKind::Corrupt.into());
         }
         let data_end = geo.data_start + (geo.max_cluster - 1) as u64 * geo.cluster_size as u64;
-        let device_len = dev.block_count().saturating_mul(size as u64);
+        let device_len = dev.block_count().saturating_mul(block.size as u64);
         if data_end > device_len {
             return Err(ErrorKind::Corrupt.into());
         }
@@ -546,9 +547,8 @@ impl Mount {
         let mut next_free = FIRST_DATA_CLUSTER;
         let fs_info = match fs_info {
             Some(at) if at != 0 && at < bpb.reserved_sector_count.get() => {
-                let mut sector = [0u8; BOOT_SECTOR_LEN];
                 let offset = at as u64 * geo.sector_size as u64;
-                read_bytes(dev, &mut block, offset, &mut sector).await?;
+                read_bytes(dev, block, offset, &mut sector).await?;
                 let info: RawFsInfo = bytemuck::pod_read_unaligned(&sector);
                 let valid = boot::check_fs_info(&info).is_ok();
                 let free = info.free_count.get();
@@ -568,7 +568,6 @@ impl Mount {
             active_fat,
             mirrored,
             data_end,
-            block,
             free_clusters,
             fs_info,
             next_free,
@@ -610,7 +609,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         options: MountOptions<T, C, P>,
     ) -> Result<Self, MountError<D, D::Error>> {
         let MountOptions { read_only, table, clock, code_page } = options;
-        let mount = match Mount::read(&mut dev).await {
+        let mut block = BlockBuf::new(dev.block_size().get() as usize);
+        let mount = match Mount::read(&mut dev, &mut block).await {
             Ok(mount) => mount,
             Err(error) => return Err(MountError::new(error, dev)),
         };
@@ -621,7 +621,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             mirrored: mount.mirrored,
             data_end: mount.data_end,
             nodes: table.empty(),
-            block: mount.block,
+            block,
             free_clusters: mount.free_clusters,
             fs_info: mount.fs_info,
             fs_info_dirty: false,
@@ -1530,8 +1530,15 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     async fn dir_is_empty(&mut self, first: u32) -> FsResult<bool, D::Error> {
         let mut walk = Walk::new(DirStart::Chain(first));
         let mut slot = 0;
-        let mut long = Assembler::new();
-        Ok(self.next_visible(&mut walk, &mut slot, &mut long).await?.is_none())
+        while let Some(offset) = self.slot_offset(&mut walk, slot).await? {
+            match self.read_slot(offset).await? {
+                Slot::End => break,
+                Slot::Short(entry) if entry.is_visible() => return Ok(false),
+                _ => {}
+            }
+            slot += 1;
+        }
+        Ok(true)
     }
 
     /// Whether `dir` is the directory starting at `ancestor` or below it.
@@ -1563,7 +1570,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         dir: DirStart,
         text: &str,
         check_exists: bool,
-        new: &NewName,
+        new: &NewName<'_>,
         skip: Skip,
     ) -> FsResult<Plan, D::Error> {
         let needed = new.slots();
@@ -1698,7 +1705,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     async fn insert_entry(
         &mut self,
         dir: DirStart,
-        new: &NewName,
+        new: &NewName<'_>,
         plan: &Plan,
         entry: &ShortEntry,
     ) -> FsResult<u64, D::Error> {
@@ -1761,7 +1768,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     async fn create_entry(
         &mut self,
         dir: DirStart,
-        new: &NewName,
+        new: &NewName<'_>,
         plan: &Plan,
         is_dir: bool,
         meta: &SetMetadata,
@@ -1843,7 +1850,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         &mut self,
         src: &Located,
         to: DirStart,
-        new: &NewName,
+        new: &NewName<'_>,
         plan: &Plan,
         moved: ShortEntry,
         dot_dot: Option<(u32, u32, u32)>,
@@ -1894,7 +1901,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         to: DirStart,
         target: &Located,
         text: &str,
-        new: &NewName,
+        new: &NewName<'_>,
         moved: ShortEntry,
         dot_dot: Option<(u32, u32, u32)>,
         src_id: Option<NodeId>,
@@ -1920,7 +1927,12 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             run: Some((target.first, target.slot)),
         };
         let plan = self.plan(to, text, false, new, skip).await?;
-        let saved = self.save_run(to, target.first, target.slot).await?;
+        let mut saved = SavedRun {
+            first: target.first,
+            len: 0,
+            raw: [[0; ENTRY_SIZE as usize]; lfn::MAX_ENTRIES + 1],
+        };
+        self.save_run(to, target.slot, &mut saved).await?;
         if let Err(err) = self.clear_slots(to, target.first, target.slot + 1).await {
             self.restore_run(to, Some(&saved)).await;
             return Err(err);
@@ -1937,23 +1949,20 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         Ok(())
     }
 
-    /// Reads slots `first..=last` of `dir`, at most one long name and its
-    /// short entry.
-    async fn save_run(&mut self, dir: DirStart, first: u32, last: u32) -> FsResult<SavedRun, D::Error> {
-        let mut saved = SavedRun {
-            first,
-            len: last - first + 1,
-            raw: [[0; ENTRY_SIZE as usize]; lfn::MAX_ENTRIES + 1],
-        };
-        if saved.len as usize > saved.raw.len() {
+    /// Reads slots `saved.first..=last` of `dir`, at most one long name and
+    /// its short entry, into `saved`.
+    async fn save_run(&mut self, dir: DirStart, last: u32, saved: &mut SavedRun) -> FsResult<(), D::Error> {
+        let len = last - saved.first + 1;
+        if len as usize > saved.raw.len() {
             return Err(ErrorKind::Corrupt.into());
         }
         let mut walk = Walk::new(dir);
-        for (slot, raw) in (first..=last).zip(saved.raw.iter_mut()) {
+        for (slot, raw) in (saved.first..=last).zip(saved.raw.iter_mut()) {
             let at = self.slot_offset(&mut walk, slot).await?.ok_or(ErrorKind::Corrupt)?;
             read_bytes(&mut self.dev, &mut self.block, at, raw).await?;
         }
-        Ok(saved)
+        saved.len = len;
+        Ok(())
     }
 
     /// Writes back the slots `save_run` read, as far as the device allows.

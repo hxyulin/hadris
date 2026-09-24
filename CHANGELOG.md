@@ -473,6 +473,16 @@ Each published package owns its version and may be released independently.
   id in the node table (logarithmic in `HeapTable`) until a pinned node
   is renamed or removed, instead of a search of every pinned node. 12,000
   lookups with all of them kept pinned went from 144 to 20 ms.
+- **hadris-fat (V3):** `FatFs` and `ExFatFs` use less stack. Mount moves
+  its block buffer (and the exFAT up-case table) into the driver once
+  instead of through nested `Result`s; long names are encoded per entry
+  instead of into copied 520-byte buffers; exFAT entry sets no longer
+  carry a decoded name and scans fill a set the caller owns. On a
+  Cortex-M4 with 512-byte sectors, peak stack beyond the driver itself
+  falls from 10.3 to 9.8 KiB for a FAT32 mount, 4.6 to 1.7 KiB for create
+  and append and 5.7 to 3.3 KiB for a replacing rename; for exFAT from
+  33.7 to 12.8 KiB for a mount, 11.3 to 4.1 KiB for create and append and
+  18.0 to 5.6 KiB for rename. Async futures shrink by up to a half.
 - **Fuzzing (V3):** `fs_dump` lists every filesystem through one generic
   walk over the `hadris-fs` `FileSystem` node API, with each driver wrapped
   in a `Volume`. Small seeds are committed for `cpio_read` (every format,

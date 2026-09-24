@@ -181,11 +181,13 @@ pub(crate) fn seal(entries: &mut [RawEntry]) {
 
 /// The `NameHash` of up-cased code units.
 pub(crate) fn name_hash(upcased: &[u16]) -> u16 {
-    let mut hash = 0u16;
-    for unit in upcased {
-        for byte in unit.to_le_bytes() {
-            hash = hash.rotate_right(1).wrapping_add(byte as u16);
-        }
+    upcased.iter().fold(0, |hash, &unit| hash_unit(hash, unit))
+}
+
+/// Adds one up-cased code unit to a `NameHash` that started at 0.
+pub(crate) fn hash_unit(mut hash: u16, unit: u16) -> u16 {
+    for byte in unit.to_le_bytes() {
+        hash = hash.rotate_right(1).wrapping_add(byte as u16);
     }
     hash
 }
