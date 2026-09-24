@@ -9,8 +9,8 @@ use hadris_fs::tree::{Content, Tree, WarningKind};
 use hadris_fs::{ErrorKind, NodeId};
 use hadris_iso::sync::IsoImage;
 use hadris_iso::{
-    BootEntry, BootInfo, Detail, ElTorito, Emulation, HybridBoot, IsoOptions, Namespace, Platform,
-    Relocation, RockRidge, VolumeIdentifiers,
+    BootEntry, BootInfo, Detail, ElTorito, Emulation, HybridBoot, IsoOptions, NameCase, Namespace,
+    Platform, Relocation, RockRidge, VolumeIdentifiers,
 };
 use hadris_storage::MemDevice;
 
@@ -373,5 +373,51 @@ fn directory_cycles_are_corrupt() {
         let out = tempfile::tempdir().unwrap();
         let err = hadris_fs::sync::extract_to_host(&mut view, "/", out.path()).unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData, "{err}");
+    }
+}
+
+/// libarchive takes the first root directory named `rr_moved` or
+/// `.rr_moved` for the relocation directory, so a tree directory with the
+/// other name that sorts ahead of the real one is refused.
+#[test]
+fn relocation_names_libarchive_would_mistake_are_refused() {
+    let tree = |user: &str| {
+        let mut tree = sample(true, false);
+        tree.add_file(&format!("{user}/user.txt"), Content::bytes("user"))
+            .unwrap();
+        tree
+    };
+    let options = |case: NameCase, container: &str| {
+        IsoOptions::default().with_name_case(case).with_rock_ridge(
+            RockRidge::default().with_relocation(Relocation::Directory(container.into())),
+        )
+    };
+    for (case, container, user) in [
+        (NameCase::Preserve, "rr_moved", ".rr_moved"),
+        (NameCase::Upper, ".rr_moved", "rr_moved"),
+    ] {
+        assert_eq!(
+            refused(&tree(user), &options(case, container)),
+            (ErrorKind::InvalidInput, Some(Detail::Relocation)),
+            "{case:?} {container} {user}"
+        );
+        let shallow = {
+            let mut tree = sample(false, false);
+            tree.add_file(&format!("{user}/user.txt"), Content::bytes("user"))
+                .unwrap();
+            tree
+        };
+        image(&shallow, &options(case, container));
+    }
+    for (case, container, user) in [
+        (NameCase::Upper, "rr_moved", ".rr_moved"),
+        (NameCase::Preserve, ".rr_moved", "rr_moved"),
+    ] {
+        let mut iso = IsoImage::open(image(&tree(user), &options(case, container))).unwrap();
+        let mut view = iso.view(Namespace::RockRidge).unwrap();
+        assert_eq!(
+            view.read_to_vec("/a/b/c/d/e/f/g/h/i/deep.txt").unwrap(),
+            b"deep"
+        );
     }
 }

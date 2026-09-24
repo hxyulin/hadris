@@ -613,6 +613,21 @@ impl<C: Clock> Planner<'_, C> {
         if rr_name.is_empty() || rr_name.contains('/') {
             return Err(invalid(Detail::Relocation));
         }
+        let rules = self.trees[0].1;
+        let other = match rr_name.as_str() {
+            "rr_moved" => Some(".rr_moved"),
+            ".rr_moved" => Some("rr_moved"),
+            _ => None,
+        };
+        if let Some(other) = other
+            && let Some(&dir) = self.dirs[0]
+                .dirs
+                .iter()
+                .find(|&&dir| self.dirs[dir].name == other)
+            && rules.directory(&self.dirs[dir].iso_name) < rules.directory(&rr_name)
+        {
+            return Err(invalid(Detail::Relocation));
+        }
         let existing = self.dirs[0]
             .dirs
             .iter()
