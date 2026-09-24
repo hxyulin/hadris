@@ -12,25 +12,32 @@ hadris-storage = "2.4.0"
 ```
 
 `UdfFs` opens a volume on any `hadris_storage` block device, such as a host
-file, and implements the `hadris-fs` driver traits, so the path helpers,
-handles and host helpers work on it.
+file, and implements the `hadris-fs` `FileSystem` trait, so `Volume`, its
+handles and the host helpers work on it.
 
 ```rust,no_run
-use hadris_fs::sync::DriverExt;
+use std::io::Read;
+
+use hadris_fs::OpenOptions;
+use hadris_fs::sync::Volume;
 use hadris_udf::sync::UdfFs;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut udf = UdfFs::open(hadris_storage::host::FileDevice::open("disc.udf")?)?;
+    let udf = UdfFs::open(hadris_storage::host::FileDevice::open("disc.udf")?)?;
     println!("volume: {}", udf.logical_volume_id());
+    let vol = Volume::new(udf);
 
-    for entry in udf.read_dir("/")? {
+    for entry in vol.read_dir("/")? {
         let entry = entry?;
         let kind = if entry.file_type().is_dir() { "dir " } else { "file" };
-        println!("{kind} {}", String::from_utf8_lossy(entry.name_bytes()));
+        println!("{kind} {}", String::from_utf8_lossy(entry.name().as_bytes()));
     }
 
-    std::fs::write("README.TXT", udf.read_to_vec("/README.TXT")?)?;
-    hadris_fs::sync::extract_to_host(&mut udf, "/", "out")?;
+    let mut readme = Vec::new();
+    vol.open("/README.TXT", OpenOptions::new().read())?
+        .read_to_end(&mut readme)?;
+    std::fs::write("README.TXT", readme)?;
+    hadris_fs::sync::extract_to_host(&mut *vol.lock(), "/", "out")?;
     Ok(())
 }
 ```

@@ -27,8 +27,10 @@ only adds items: none changes what an existing item does, and only
 
 Not every operation can be allocation-free. The image writers (ISO 9660, UDF,
 hybrid CD and CPIO) take a `hadris_fs::tree::Tree` and need `alloc`; `std`
-adds host files as tree content. FAT and exFAT write, format and check
-without an allocator.
+adds host files as tree content. The FAT and exFAT drivers, `FatFs` and
+`ExFatFs`, need `alloc` for their node table, and so does `format`, which
+returns a mounted driver; `check` runs on an unmounted device without an
+allocator.
 
 ## I/O modes
 
@@ -40,7 +42,7 @@ from one source. They may be enabled together.
 hadris-fat = {
   version = "2.4.0",
   default-features = false,
-  features = ["sync", "async", "write"]
+  features = ["alloc", "sync", "async", "write"]
 }
 ```
 
@@ -59,15 +61,15 @@ sync-only because the host side is blocking `std::fs`.
 
 | Crate | Formats or role | Read | Write/create | Sync | Async | Minimum for reading | Stability |
 |---|---|---:|---:|---:|---:|---|---|
-| `hadris-fat` | FAT12/16/32 | Yes | Yes | Yes | Yes | Allocation-free (writing, formatting and checking too) | Stable |
-| `hadris-fat` `exfat` | exFAT, including TexFAT volumes with two FATs | Yes | Yes | Yes | Yes | Allocation-free (writing, formatting and checking too) | Stable |
+| `hadris-fat` | FAT12/16/32 | Yes | Yes | Yes | Yes | `alloc` (checking is allocation-free) | Stable |
+| `hadris-fat` `exfat` | exFAT, including TexFAT volumes with two FATs | Yes | Yes | Yes | Yes | `alloc` (checking is allocation-free) | Stable |
 | `hadris-part` | MBR (with logical partitions), GPT, hybrid MBR | Yes | Yes | Yes | Yes | Allocation-free (`scan`, `open`) | Stable |
 | `hadris-iso` | ISO 9660, Joliet, Rock Ridge, El Torito | Yes | Yes | Yes | Yes | Allocation-free (writing and sessions need `alloc`) | Stable |
 | `hadris-udf` | UDF 1.02 to 2.01, type 1 partitions | Yes | Yes | Yes | Yes | Allocation-free (writing needs `alloc`) | Stable |
 | `hadris-cpio` | CPIO newc, CRC and odc; old binary read | Yes | Yes | Yes | Yes | Allocation-free (writing needs `alloc`) | Stable |
 | `hadris-ntfs` | NTFS | Yes | No | Yes | Yes | Allocation-free | Preview |
 | `hadris-cd` | Hybrid ISO/UDF images | N/A | Yes | Yes | Yes | `alloc` | Stable |
-| `hadris-block` | FAT, exFAT and NTFS detection and opening | Yes | FAT and exFAT | Yes | Yes | Allocation-free | Stable (NTFS native API behind `unstable-ntfs`) |
+| `hadris-block` | FAT, exFAT and NTFS detection and opening | Yes | FAT and exFAT | Yes | Yes | `alloc` (detection is allocation-free) | Stable (NTFS native API behind `unstable-ntfs`) |
 | `hadris-optical` | ISO 9660 and UDF detection and opening | Yes | Through re-exported writers | Yes | Yes | Allocation-free | Stable |
 
 "Allocation-free" means the core parser can operate without a global
@@ -82,12 +84,12 @@ directory trees, or image construction may still require `alloc`.
 hadris-fat = {
   version = "2.4.0",
   default-features = false,
-  features = ["sync"]
+  features = ["alloc", "sync"]
 }
 ```
 
-`hadris-fat` has no `read` feature: reading and writing are always available,
-and `write` adds only the formatter.
+`hadris-fat` has no `read` feature: with `alloc`, reading and writing are
+always available, and `write` adds only the formatter.
 
 ### Kernel with an allocator and async I/O
 
@@ -103,7 +105,7 @@ hadris-iso = {
 
 ```toml
 hadris-fat = "2.4.0"      # std, sync and write
-hadris-fs = "2.4.0"       # path and host helpers
+hadris-fs = "2.4.0"       # Volume, MountOptions and host helpers
 hadris-storage = "2.4.0"  # Cache<D> for block caching
 ```
 

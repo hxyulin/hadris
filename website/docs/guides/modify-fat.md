@@ -15,24 +15,28 @@ hadris-storage = "2.4.0"
 ```
 
 ```rust,no_run
-use hadris_fat::MountOptions;
+use std::io::Write;
+
 use hadris_fat::sync::FatFs;
-use hadris_fs::SystemClock;
-use hadris_fs::sync::DriverExt;
+use hadris_fs::sync::{FileSystem, Volume};
+use hadris_fs::{MountOptions, OpenOptions, SystemClock};
+use hadris_storage::host::FileDevice;
 use hadris_storage::sync::Cache;
-use std::fs::OpenOptions;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let image = OpenOptions::new()
+    let image = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
         .open("disk.img")?;
-    let device = Cache::new(image, 64);
-    let mut volume = FatFs::open_with(device, MountOptions::new().with_clock(SystemClock))?;
+    let device = Cache::new(FileDevice::new(image)?, 64);
+    let fs = FatFs::mount(device, MountOptions::new().with_clock(&SystemClock))?;
+    let vol = Volume::new(fs);
 
-    volume.write_file("/hello.txt", b"Hello from Hadris\n")?;
+    let mut file = vol.open("/hello.txt", OpenOptions::new().write().create().truncate())?;
+    file.write_all(b"Hello from Hadris\n")?;
+    file.close()?;
 
-    volume.sync()?;
+    vol.lock().sync()?;
     Ok(())
 }
 ```
@@ -49,15 +53,16 @@ leftovers without changing the volume.
 
 ## Mutation checklist
 
-- Close `File` handles (or call `publish_node`) so sizes reach the
+- Close `File` handles (or call `close` on the node) so sizes reach the
   directory entry; `sync` writes all of them. Closing does not flush the
-  device: call `File::sync_all` (`sync_node`) or `sync` for durability.
-- `remove` of a file that is still open fails with `ErrorKind::Busy`; close it
+  device: call `File::sync_all` (`fsync`) or `sync` for durability.
+- Removing a file that is still open fails with `ErrorKind::Busy`; close it
   first. A node you only looked up does not block removal; its id answers
   `ErrorKind::NotFound` afterwards until you `forget` it.
 - Call `sync` after writes and before ejecting or closing removable media.
 - Do not mutate an image concurrently through another handle. To share one
-  volume between threads, wrap the `FatFs` in `hadris_fs::sync::Volume`.
+  volume between threads, clone the `hadris_fs::sync::Volume`.
+- `FatFs::unmount` syncs and gives the device back.
 - Validate important generated images with `check` and an independent
   implementation.
 

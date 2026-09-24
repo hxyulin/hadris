@@ -47,7 +47,7 @@ from one source:
 
 ```rust,ignore
 // The trait: node ids, no lock, no allocation.
-let mut fs = FatFs::open(dev)?;
+let mut fs = FatFs::mount(dev, MountOptions::new())?;
 let node = fs.resolve(b"/boot.cfg", Resolve::Lexical)?;
 let meta = fs.stat(node)?;
 fs.forget(node, 1);

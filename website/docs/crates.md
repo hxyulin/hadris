@@ -49,7 +49,7 @@ Category facades detect a format and open it:
 - `hadris-optical` detects ISO 9660, UDF and bridge images and opens one of
   them as an `OpenOpticalImage`.
 
-Both openers implement the `hadris-fs` driver trait by delegating to the
+Both openers implement the `hadris-fs` `FileSystem` trait by delegating to the
 format's driver, and keep that driver reachable for its native API.
 
 ## The umbrella crate
@@ -80,7 +80,7 @@ points for kernels, firmware, and other storage libraries:
 |---|---|
 | `hadris-io` | Sync and async byte-stream traits and adapters |
 | `hadris-storage` | Block devices, geometry, slices, and a block cache |
-| `hadris-fs` | Shared vocabulary, the driver traits, `Volume`, handles, path helpers, and the writer input tree |
+| `hadris-fs` | Shared vocabulary, the `FileSystem` trait, `MountOptions`, `Volume` and its handles, `copy_tree`, and the writer input tree |
 | `hadris-common` | Internal endian integers for on-disk layouts; not for direct use |
 | `hadris-macros` | Internal dual sync/async code-generation support |
 
@@ -90,7 +90,7 @@ The `hadris-ntfs` crate is outside the stable API promise. It is appropriate
 for evaluation and compatibility testing, but callers should expect changes to
 its native API.
 
-`hadris-block` opens NTFS through the driver trait in every build; its
+`hadris-block` opens NTFS through the `FileSystem` trait in every build; its
 `unstable-ntfs` feature, like the umbrella's, adds the NTFS re-export and
 access to the NTFS driver's native API. exFAT is stable in 3.0: `ExFatFs`
 lives in `hadris_fat::exfat` in every build, and the 2.x `unstable-exfat`

@@ -199,7 +199,7 @@ impl BlockDevice for FirmwareDisk {
 }
 
 let disk = FirmwareDisk { blocks: 131_072 };
-let volume = hadris_fat::sync::FatFs::open(disk);
+let volume = hadris_fat::sync::FatFs::mount(disk, hadris_fs::MountOptions::new());
 ```
 
 A byte stream implementing the `hadris-io` traits becomes a block device
@@ -218,7 +218,7 @@ implements `write_blocks`; it may still refuse a write with `ReadOnly`, for
 example when its media become write-protected, and drivers then stop
 writing. A request past the end fails with
 kind `InvalidInput`.
-`flush` must make earlier writes durable, because `sync` and `sync_node`
+`flush` must make earlier writes durable, because `sync` and `fsync`
 rely on it.
 
 Keep the device's block size and the filesystem's logical sector size

@@ -17,11 +17,12 @@ cargo run -p hadris-iso --example create_bootable_iso
 `IsoImage` opens an image on any `hadris-storage` block device, a host file
 included, and `view` picks one of its trees: the primary tree, Rock Ridge over
 it, Joliet or the ISO 9660:1999 enhanced tree. `Namespace::Preferred` takes
-the most capable one. A view implements the `hadris-fs` `FsDriver` trait, so
-the path helpers work on it:
+the most capable one. A view implements the `hadris-fs` `FileSystem` trait, so
+`Volume`, `copy_tree` and the host helpers work on it:
 
 ```rust,no_run
-use hadris_fs::sync::DriverExt;
+use hadris_fs::DirCursor;
+use hadris_fs::sync::FileSystem;
 use hadris_iso::Namespace;
 use hadris_iso::sync::IsoImage;
 
@@ -33,9 +34,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     let mut view = iso.view(Namespace::Preferred)?;
-    for item in view.read_dir("/")? {
-        let item = item?;
-        println!("{}", String::from_utf8_lossy(item.name_bytes()));
+    let root = view.root();
+    let mut cursor = DirCursor::START;
+    while let Some(entry) = view.readdir(root, cursor)? {
+        println!("{}", String::from_utf8_lossy(entry.name().as_bytes()));
+        cursor = entry.next_cursor();
     }
     hadris_fs::sync::extract_to_host(&mut view, "/", "out")?;
     Ok(())

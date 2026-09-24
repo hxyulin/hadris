@@ -7,7 +7,8 @@ title: Create FAT filesystems
 `hadris-fat` formats FAT12, FAT16, and FAT32 volumes and returns the new
 filesystem mounted as a `FatFs`, ready for mutation. It works with any
 `hadris-storage` block device: files, memory buffers, partition slices, and
-custom devices. Formatting needs no allocator.
+custom devices. `FatFs` and `format` need `alloc`, which the default `std`
+feature enables.
 
 ## Dependency
 
@@ -32,6 +33,7 @@ use std::fs::OpenOptions;
 use hadris_fat::sync::format;
 use hadris_fat::{FatKind, FormatOptions, VolumeLabel};
 use hadris_fs::SystemClock;
+use hadris_storage::host::FileDevice;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     const SIZE: u64 = 64 * 1024 * 1024;
@@ -47,10 +49,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = FormatOptions::new()
         .with_kind(FatKind::Fat16)
         .with_label(VolumeLabel::new("HADRIS")?)
-        .with_clock(SystemClock);
+        .with_clock(&SystemClock);
 
-    let mut fs = format(image, options)?;
-    assert_eq!(fs.label()?.map(|l| l.as_str().to_owned()).as_deref(), Some("HADRIS"));
+    let mut fs = format(FileDevice::new(image)?, options)?;
+    assert_eq!(fs.volume_label()?.map(|l| l.as_str().to_owned()).as_deref(), Some("HADRIS"));
     Ok(())
 }
 ```
@@ -64,24 +66,35 @@ sector fields. The default `NoClock` produces the same bytes on every run.
 
 ## Create directories and files
 
-The mounted `FatFs` supports the `hadris-fs` path helpers. Call `sync` before
-closing the device so file sizes and the FAT32 free count reach the disk.
+The mounted `FatFs` implements the `hadris-fs` `FileSystem` trait, so a
+`Volume` gives it paths and file handles. Call `sync` before closing the
+device so file sizes and the FAT32 free count reach the disk.
 
 ```rust
+use std::io::Write;
+
 use hadris_fat::sync::FatFs;
-use hadris_fs::sync::DriverExt;
+use hadris_fs::OpenOptions;
+use hadris_fs::sync::{FileSystem, Volume};
 use hadris_storage::sync::BlockDevice;
 
-fn populate<D: BlockDevice>(fs: &mut FatFs<D>) -> hadris_fs::FsResult<(), D::Error> {
-    fs.create_dir_all("/DOCS")?;
-    fs.write_file("/DOCS/README.TXT", b"Created by Hadris\r\n")?;
-    fs.write_file("/DOCS/A long file name.txt", b"long names are always on")?;
-    fs.sync()
+fn populate<D: BlockDevice>(vol: &Volume<FatFs<D>>) -> Result<(), Box<dyn std::error::Error>> {
+    vol.create_dir_all("/DOCS")?;
+    let create = OpenOptions::new().write().create().truncate();
+    let mut file = vol.open("/DOCS/README.TXT", create)?;
+    file.write_all(b"Created by Hadris\r\n")?;
+    file.close()?;
+    let mut file = vol.open("/DOCS/A long file name.txt", create)?;
+    file.write_all(b"long names are always on")?;
+    file.close()?;
+    vol.lock().sync()?;
+    Ok(())
 }
 ```
 
 To copy a host directory tree into the image, use
-`hadris_fs::sync::import_from_host("./contents", &mut fs, "/")`. Names that fit
+`hadris_fs::sync::import_from_host("./contents", &mut fs, "/")` on the
+`FatFs`, or on `&mut *vol.lock()`. Names that fit
 FAT's short-name rules are stored as 8.3 entries, including the standard
 lowercase case flags; other names get long-name entries.
 
@@ -113,15 +126,19 @@ keep their case and may use up to 11 UTF-16 code units.
 ```rust
 use hadris_fat::exfat::sync::{check, format};
 use hadris_fat::exfat::{FormatOptions, VolumeLabel};
-use hadris_fs::sync::{PathExt, Volume};
+use hadris_fat::exfat::sync::ExFatFs;
+use hadris_fs::sync::Volume;
+use hadris_fs::{MountOptions, OpenOptions};
 use hadris_storage::{BlockSize, MemDevice};
 
 let dev = MemDevice::new(vec![0u8; 16 << 20], BlockSize::new(512).unwrap());
 let label = VolumeLabel::new("Photos").unwrap();
-let mut fs = format(dev, FormatOptions::new().with_label(label))?;
-assert!(check(&mut fs)?.is_clean());
-let vol = Volume::new(fs);
-vol.write_file("/hello.txt", b"hello")?;
+let mut dev = format(dev, FormatOptions::new().with_label(label))?.into_inner();
+assert!(check(&mut dev, &mut [0u8; 4096], |_| {})?.is_clean());
+let vol = Volume::new(ExFatFs::mount(dev, MountOptions::new())?);
+let mut file = vol.open("/hello.txt", OpenOptions::new().write().create())?;
+file.write(b"hello")?;
+file.close()?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
@@ -142,12 +159,16 @@ cannot write outside it.
 ```rust
 use hadris_fat::sync::check;
 
-# fn validate<D: hadris_storage::sync::BlockDevice>(fs: &mut hadris_fat::sync::FatFs<D>) -> hadris_fs::FsResult<(), D::Error> {
-let report = check(fs)?;
+# fn validate<D: hadris_storage::sync::BlockDevice>(dev: &mut D) -> hadris_fs::FsResult<(), D::Error> {
+let mut scratch = [0u8; 4096];
+let report = check(dev, &mut scratch, |finding| eprintln!("{finding}"))?;
 assert!(report.is_clean());
 # Ok(())
 # }
 ```
+
+`check` reads an unmounted device; call `unmount` or `into_inner` on a
+`FatFs` first.
 
 ```bash
 fsck.fat -vn disk.img

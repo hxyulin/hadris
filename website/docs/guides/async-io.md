@@ -18,35 +18,36 @@ the sync traits.
 
 ```toml
 [dependencies]
-hadris-fat = { version = "2.4.0", default-features = false, features = ["async"] }
+hadris-fat = { version = "2.4.0", default-features = false, features = ["alloc", "async"] }
 hadris-fs = { version = "2.4.0", default-features = false, features = ["async"] }
 hadris-storage = { version = "2.4.0", default-features = false, features = ["async"] }
 ```
 
 ```rust
 use hadris_fat::r#async::FatFs;
-use hadris_fs::{DirCursor, FsResult, NameBuf};
+use hadris_fs::r#async::FileSystem;
+use hadris_fs::{DirCursor, FsResult, MountOptions};
 use hadris_storage::{BlockSize, MemDevice};
 
 async fn list_root(image: &[u8]) -> FsResult<(), core::convert::Infallible> {
     let dev = MemDevice::new(image, BlockSize::new(512).unwrap());
-    let mut volume = FatFs::open(dev).await?;
+    let mut volume = FatFs::mount(dev, MountOptions::new()).await?;
     let root = volume.root();
-    let mut cursor = DirCursor::start();
-    let mut name = NameBuf::new();
+    let mut cursor = DirCursor::START;
 
-    while let Some(_entry) = volume.read_dir_entry(root, &mut cursor, &mut name).await? {
-        println!("{}", name.as_name().and_then(|n| n.to_str().ok()).unwrap_or("?"));
+    while let Some(entry) = volume.readdir(root, cursor).await? {
+        println!("{}", entry.name().to_str().unwrap_or("?"));
+        cursor = entry.next_cursor();
     }
 
     Ok(())
 }
 ```
 
-This needs no allocator. `hadris_fs::r#async::DriverExt` adds the path
-helpers (`read_dir`, `metadata`, `write_file` and so on) as async methods, and
-`read_to_vec` with `alloc`. The futures are `Send` when the device is, so
-Tokio and other multi-threaded executors can spawn them from generic code.
+`hadris_fs::r#async::Volume` adds the path methods (`read_dir`, `metadata`,
+`open`, `create_dir` and so on) as async methods, with `File` and `ReadDir`
+handles. The futures are `Send` when the device is, so Tokio and other
+multi-threaded executors can spawn them from generic code.
 
 When several modes are enabled, use explicit namespaces:
 
@@ -62,7 +63,6 @@ use hadris_fat::r#async::FatFs as AsyncFatFs;
 - Filesystem drivers need random access through a block device; network
   streams generally need a buffering or range-request adapter.
 
-Enable `alloc` when directory names or file contents must be returned as owned
-values, and for the image writers. FAT and exFAT reading, writing, formatting
-and checking, ISO 9660, UDF and NTFS reading, CPIO reading and partition
-scanning need no allocator in any mode.
+Enable `alloc` for the FAT and exFAT drivers, the async `Volume`, owned
+values and the image writers. FAT and exFAT checking, ISO 9660, UDF and NTFS
+reading, CPIO reading and partition scanning need no allocator in any mode.

@@ -16,7 +16,7 @@ file, memory, firmware protocol, or device driver
                          |
        format driver (FatFs, IsoView, UdfFs, ...)
                          |
-   hadris-fs node API, path helpers, Volume, handles
+      hadris-fs FileSystem trait, Volume, handles
 ```
 
 Each layer adds validation or interpretation without hiding the layer below it.
@@ -67,26 +67,25 @@ holds, when an application needs both the partition and filesystem layers.
 ## Format handles
 
 Every driver (`FatFs`, `ExFatFs`, `IsoView`, `UdfFs`, `NtfsFs`) implements
-the `hadris-fs` `FsDriver` trait through its own inherent methods, and keeps
-a native API for what the trait does not model, such as FAT attributes, Rock
-Ridge metadata and UDF descriptors. Category facades detect and open formats,
-implement the same trait over whichever driver they opened, and keep that
-driver reachable.
+the `hadris-fs` `FileSystem` trait directly, and keeps a native API for what
+the trait does not model, such as FAT attributes, Rock Ridge metadata and UDF
+descriptors. Category facades detect and open formats, implement the same
+trait over whichever driver they opened, and keep that driver reachable.
 
-## Tiers above the driver
+## The trait and the volume
 
-A driver takes `&mut self` and holds no lock. Each layer above it is opt-in
-and can do every job:
+A driver takes `&mut self`, works on node ids and holds no lock. Two ways of
+using it can each do every job:
 
-| Tier | Build it with | Paths and handles |
+| Use | Build it with | Paths and handles |
 |---|---|---|
-| Raw | `FatFs::open(dev)?` | Node ids through the inherent methods; `DriverExt` path helpers on `&mut self`; `File<&mut FatFs<_>>` borrows the driver |
-| Shared | `Volume::new(fs)`, `Volume::spin(fs)`, `Volume::local(fs)` | `PathExt` helpers on `&self`, any number of `File` handles |
-| Owned | `Arc::new(Volume::new(fs))` | The shared API; handles that move to other threads or tasks |
+| The trait | `FatFs::mount(dev, MountOptions::new())?` | Node ids: `resolve`, `lookup`, `readdir`, `open`, `read`, `close`, `forget` |
+| The volume | `Volume::new(fs)` | Paths named after `std::fs`, any number of `File` and `ReadDir` handles, cloneable and usable from other threads or tasks |
 
-`lookup` pins a node and `forget` unpins it. Directory entries are plain
-values that borrow nothing, and a handle reads its file by offset, so the
-driver keeps no cursor for it. Format-specific calls on a shared volume go through `vol.lock()`.
+`lookup` and `resolve` pin a node and `forget` unpins it. Directory entries
+are plain values that own their names, and a handle reads its file by
+offset, so the driver keeps no cursor for it. Format-specific calls on a
+volume go through `vol.lock()`, which dereferences to the driver.
 
 ## Choosing the boundary
 

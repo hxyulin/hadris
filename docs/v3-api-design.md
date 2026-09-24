@@ -1578,11 +1578,30 @@ into `next` per step, each leaving the workspace building and tested:
 
   Deferred:
   - `format(&mut dev, &opts) -> Geometry` with `FatOptions`, to R6, together with the `disk_offset` default for hidden sectors and the exFAT partition offset (R3's deferral).
-  - Date decoding with a UTC offset, to R5.
+  - Date decoding with a UTC offset, to R5 (done there).
   - `FatFs` still folds names with its own char fold, not `fold_unicode`.
   - `exfat::io` is tested through `ExFatFs`, since the raw crate has no exFAT image of its own.
   - `hadris_fat::raw` re-exports the whole raw crate, and the mode modules re-export its `check`, which ties `hadris-fat`'s API to the raw crate's version.
-- R5. **Trait and volume.** `FileSystem` replaces `FsDriver` and its companions, `FatFs` and `ExFatFs` collapse to one parameter, the node tables go private, the lock kinds and resolvers go, and the `async_send` mode becomes `r#async`.
+- R5. **Trait and volume.** `FileSystem` replaces `FsDriver` and its companions, `FatFs` and `ExFatFs` collapse to one parameter, the node tables go private, the lock kinds and resolvers go, and the `async_send` mode becomes `r#async`. Done in four PRs:
+  - #178: the `async_send` modules become `r#async` and the non-`Send` `r#async` modules and the `async-send` feature go; `local` stays in `hadris-io`, `hadris-storage` and `hadris-fat-raw`.
+  - #179: `FileSystem` (4.3) and `Volume<F>` (4.4) replace `FsDriver`, the `&self` trait, the access tiers, `DriverExt`, `PathExt`, the resolvers, the lock kinds, `impl_fs_driver!` and `path`. The vocabulary follows 4.3: `Name::check`, a non-zero `NodeId`, an inline-named `DirEntry`, `Capabilities::stores`, a `Metadata` builder, `Permissions`, `SetAttr`, `OpenMode`, `RenameMode` and `Resolve`. Every driver implements the trait directly, as do `OpenVolume` and `OpenOpticalImage`.
+  - #180: `FatFs<D>` and `ExFatFs<D>` with `mount(dev, MountOptions)` and `unmount`; `MountOptions`, `CodePage`, `Ascii` and `Cp437` in `hadris-fs`; the node table private with `with_node_limit`; CP437 as the default code page; and the date decoding with a UTC offset that R4 deferred.
+  - A docs PR: the website guides and this entry.
+
+  Decisions where the spec was silent or the code differs from it:
+  - `SetMetadata`, `FileTimes` and `DeviceKind` stay for the writer `Tree` until R6 replaces it; `Mode` became `Permissions` there too.
+  - `copy_tree` and `import_from_host` copy files and directories only. A symlink, device node, FIFO or socket fails with `Unsupported`, since the trait cannot create them.
+  - `File` implements the `hadris-io` `Read`, `Write` and `Seek` in both modes and the `std::io` traits in `sync`. The async `ReadDir` has `next_entry`; the sync one is also an `Iterator`. A dropped async `File` or `ReadDir` is released by the next call on the volume.
+  - The contract kit also checks that invalid names fail with `InvalidInput` and that opening a directory fails with `IsADirectory`, and it keeps a pin on every node it checks.
+  - `MountOptions::with_utc_offset` returns `Result`, failing past a day, so a bad offset never reaches a driver. `utc_offset() == None` is UTC with no offset recorded, which keeps the times earlier builds read.
+  - Only `FatFs` and `ExFatFs` gained `mount` and `unmount` here. `IsoImage`, `UdfFs` and `NtfsFs` keep `open` until R7 brings `IsoFs` and `AnyFs`, and `backup_boot` is stored but no driver reads it yet (exFAT already falls back to its backup boot region).
+  - `FatFs`, `ExFatFs` and `format` need `alloc`. Without it `hadris-fat` keeps `check` and the raw layer, and `hadris-block` keeps detection, until R6's `format` returns `Geometry` and R8's embedded API covers firmware.
+  - The inherent FAT label getter is `volume_label()`, returning the stored `VolumeLabel`, so it does not shadow `FileSystem::label`. R7's `info()` and `set_label` replace it. A FAT label with bytes that are not ASCII reads as `Some("")` through the trait.
+  - An ISO view's `label` decodes the volume identifier of the descriptor it reads (UCS-2 for Joliet, Latin-1 otherwise) without name mangling. UDF's is the logical volume identifier.
+  - ISO and UDF `readdir` read each entry's metadata, so a damaged UDF child entry fails the listing it is in.
+  - A clock or code page is a `&'static dyn` reference, as 4.3 says; a clock with runtime state is a `static` or leaked by the caller.
+
+  Deferred: `hadris_fat::raw` still re-exports the whole raw crate (Q13); `experiments/fuse-prototype`, outside the workspace and CI, still uses the removed API.
 - R6. **Builders.** The new `Tree`, `plan` and `write`, `Report`, `copy_tree`, `read_tree` and the `host` module.
 - R7. **Extras and crate merges.** `detect`, `open` and `AnyFs` in the umbrella, the `info` and `extents` family, `Walk`, the removal of `hadris-cd`, `hadris-block` and `hadris-optical`, and the single `hadris` binary.
 - R8. **Embedded.** `Fat` and `ExFat` on the raw layer, with cross-target CI for size and stack.
@@ -1703,3 +1722,9 @@ NTFS variant in 3.0: `open` fails with `NotRecognized` and the message
 `AnyFs` is non-exhaustive, so the variant is added in the 3.x minor that
 stabilises NTFS. A variant present in every build with a stable payload was
 the rejected alternative.
+
+**Q13. Open points from R5.** Not yet decided by the user:
+
+- Whether `hadris_fat::raw` keeps re-exporting the whole `hadris-fat-raw` crate, which ties `hadris-fat`'s API to the raw crate's version (R4's deferral).
+- Whether `MountOptions::with_utc_offset` should stay fallible or clamp, and whether the host default offset belongs in `host::mount_options()` as D10 says (R6).
+- Whether a FAT label that does not decode should read as `None`, `Some("")` (today) or be decoded through the mount's code page.

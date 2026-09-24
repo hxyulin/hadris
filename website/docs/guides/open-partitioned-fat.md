@@ -19,7 +19,7 @@ hadris-storage = "2.4.0"
 ```rust,no_run
 use anyhow::{Context, Result};
 use hadris_block::{part, sync::OpenVolume};
-use hadris_fs::sync::DriverExt;
+use hadris_fs::sync::Volume;
 use hadris_storage::host::FileDevice;
 
 fn main() -> Result<()> {
@@ -30,13 +30,14 @@ fn main() -> Result<()> {
     let slice = part::sync::open(&mut disk, &partition)?;
     // `MountError` holds the borrowed slice; keep only its error for `anyhow`.
     let opened = OpenVolume::open(slice).map_err(|err| err.into_error())?;
-    let mut fat = opened
+    let fat = opened
         .into_fat()
         .ok()
         .context("the selected partition is not FAT")?;
 
-    for entry in fat.read_dir("/")? {
-        println!("{}", entry?.name_str().unwrap_or("?"));
+    let vol = Volume::new(fat);
+    for entry in vol.read_dir("/")? {
+        println!("{}", entry?.name().to_str().unwrap_or("?"));
     }
 
     Ok(())

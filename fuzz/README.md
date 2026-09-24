@@ -9,8 +9,8 @@ gate).
 | Target      | Entry point                          | Exercises |
 |-------------|--------------------------------------|-----------|
 | `cpio_read` | `CpioReader::next_entry`, partial reads and skips, `continue_after_trailer` | newc, newc-crc, odc and old binary headers, names, sizes, checksums and concatenated archives |
-| `fat_read`  | `check` + `FatFs::open_with` + recursive read | BPB, FAT chain, directory + LFN parsing, lookups, file reads, the checker |
-| `exfat_read`| `check` + `ExFatFs::open_with` + recursive read | boot region, entry sets across clusters, FAT and contiguous allocations, the up-case table, lookups, `parent`, the checker |
+| `fat_read`  | `check` + `FatFs::mount` + recursive read | BPB, FAT chain, directory + LFN parsing, lookups, file reads, the checker |
+| `exfat_read`| `check` + `ExFatFs::mount` + recursive read | boot region, entry sets across clusters, FAT and contiguous allocations, the up-case table, lookups, `parent`, the checker |
 | `ntfs_read` | `NtfsFs::open` + recursive read      | boot sector, MFT records, attributes, index walks |
 | `part_read` | `sync::read` + `scan`, edits, `write` and re-read | MBR, EBR chains, GPT with the backup fallback, hybrid MBR, table edits |
 | `iso_read`  | `IsoImage::open` + recursive read    | volume descriptors, directory records, RRIP, multi-extent reads |
