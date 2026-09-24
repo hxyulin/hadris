@@ -14,5 +14,4 @@ Requirement IDs (`FILE-CLOSE-01`, `NF-CRASH-01`) refer to [`docs/v3/actions.md`]
 
 ## ISO 9660 and UDF
 
-- **Relocation container names other than `rr_moved` and `.rr_moved`.** libarchive and bsdtar only recognize those two names, so an image built with any other `Relocation::Directory` name cannot be extracted by them once directories are relocated. Plan: offer only the two recognized names. (BUILD-ISO-RR-02)
 - **The UDF and cpio CLIs accept `--revision 2.50` and `2.60`,** which the library refuses. Plan: removed with the single `hadris` CLI (design 4.17 S1). (BUILD-UDF-REV-01)

@@ -545,7 +545,7 @@ impl<C: Clock> Planner<'_, C> {
     /// Without Rock Ridge relocation, a tree deeper than ECMA-119 allows
     /// fails.
     fn check_depth(&self) -> PlanResult<()> {
-        if self.rock_ridge && matches!(self.relocation(), Some(Relocation::Directory(_))) {
+        if self.rock_ridge && self.relocation().and_then(Relocation::directory).is_some() {
             return Ok(());
         }
         let mut pending = vec![(0usize, 1usize, 0usize)];
@@ -566,14 +566,14 @@ impl<C: Clock> Planner<'_, C> {
         Ok(())
     }
 
-    fn relocation(&self) -> Option<&Relocation> {
-        self.opts.rock_ridge().map(|rr| rr.relocation())
+    fn relocation(&self) -> Option<Relocation> {
+        self.opts.rock_ridge().map(|rr| *rr.relocation())
     }
 
     /// Moves directories deeper than ECMA-119 allows into the relocation
     /// directory of the primary tree.
     fn relocate(&mut self) -> PlanResult<()> {
-        let Some(Relocation::Directory(rr_name)) = self.relocation().cloned() else {
+        let Some(rr_name) = self.relocation().and_then(Relocation::directory) else {
             return Ok(());
         };
         let mut moved = Vec::new();
@@ -610,21 +610,17 @@ impl<C: Clock> Planner<'_, C> {
         if moved.is_empty() {
             return Ok(());
         }
-        if rr_name.is_empty() || rr_name.contains('/') {
-            return Err(invalid(Detail::Relocation));
-        }
         let rules = self.trees[0].1;
-        let other = match rr_name.as_str() {
-            "rr_moved" => Some(".rr_moved"),
-            ".rr_moved" => Some("rr_moved"),
-            _ => None,
+        let other = if rr_name == "rr_moved" {
+            ".rr_moved"
+        } else {
+            "rr_moved"
         };
-        if let Some(other) = other
-            && let Some(&dir) = self.dirs[0]
-                .dirs
-                .iter()
-                .find(|&&dir| self.dirs[dir].name == other)
-            && rules.directory(&self.dirs[dir].iso_name) < rules.directory(&rr_name)
+        if let Some(&dir) = self.dirs[0]
+            .dirs
+            .iter()
+            .find(|&&dir| self.dirs[dir].name == other)
+            && rules.directory(&self.dirs[dir].iso_name) < rules.directory(rr_name)
         {
             return Err(invalid(Detail::Relocation));
         }
@@ -635,15 +631,15 @@ impl<C: Clock> Planner<'_, C> {
             .find(|&dir| self.dirs[dir].name == rr_name);
         let id = match existing {
             Some(id) => id,
-            None if self.tree.root().child(&rr_name).is_some() => {
+            None if self.tree.root().child(rr_name).is_some() => {
                 return Err(invalid(Detail::Relocation));
             }
             None => {
                 let id = self.dirs.len();
                 self.dirs.push(PDir {
-                    name: rr_name.clone(),
-                    iso_name: rr_name.clone(),
-                    path: join("/", &rr_name),
+                    name: String::from(rr_name),
+                    iso_name: String::from(rr_name),
+                    path: join("/", rr_name),
                     meta: SetMetadata::new(),
                     parent: 0,
                     dirs: Vec::new(),

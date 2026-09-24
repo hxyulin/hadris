@@ -113,8 +113,10 @@ Rock Ridge stores modes, owners, times, symlinks, device nodes and hard links.
 Entries without times get the options' clock: the default `NoClock` writes
 1980-01-01, so images are reproducible, and `with_clock(SystemClock)` stamps
 the current time. Directories nested deeper than ECMA-119 allows move into
-a relocation directory (`rr_moved`); `RockRidge::with_relocation` picks
-another name or rejects such trees.
+a relocation directory, `rr_moved` by default;
+`RockRidge::with_relocation` picks `Relocation::DotRrMoved` for `.rr_moved`
+or `Relocation::Reject` to refuse such trees. libarchive and `bsdtar` read
+relocated directories only from those two names.
 
 ## Create from a host directory
 

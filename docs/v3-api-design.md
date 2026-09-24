@@ -1183,7 +1183,7 @@ let report = hadris_iso::sync::write(&mut out, &tree, &opts)?;
 - `sector_size` is removed.
 - `create_with_allocation_floor` becomes `with_min_blocks`.
 - `ElTorito` holds `Vec<BootEntry>`, each with platform, emulation and an image given as a tree path. `BootSectionOptions` and the tuple list are removed.
-- `RockRidge::with_relocation(Relocation::Directory(name) | Reject)` covers #123 and #124.
+- `RockRidge::with_relocation(Relocation::RrMoved | DotRrMoved | Reject)` covers #123 and #124. Only the two names libarchive recognizes are offered.
 - The writer runs in both modes and without `std` (clock injected, `Content` without paths).
 - The output needs `BlockDevice`. A two-pass `write_stream` that needs only `Write` is 3.x; it computes the layout first and then emits blocks in order.
 

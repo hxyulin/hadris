@@ -170,17 +170,17 @@ data where it is. Unchanged files are never copied.
 ### Rock Ridge relocation
 
 ECMA-119 allows eight directory levels. With Rock Ridge, deeper directories
-move into a relocation directory (`rr_moved` unless
-`RockRidge::with_relocation` names another) and appear in their real place
-to Rock Ridge readers. A root directory with that name is reused and keeps
-its own entries; a root file with that name fails. libarchive (`bsdtar`)
-takes the first root directory named `rr_moved` or `.rr_moved` for the
-relocation directory and reads relocated directories only from it, so keep
-one of those two names. A root directory with the other name that would
-come first in the directory fails with `Detail::Relocation`: `.rr_moved`
-with `NameCase::Preserve`, or `rr_moved` when the relocation directory is
-`.rr_moved`. `Relocation::Reject` fails instead. Joliet and enhanced trees keep the real
-hierarchy.
+move into a relocation directory and appear in their real place to Rock
+Ridge readers. It is `rr_moved` (`Relocation::RrMoved`, the default) or
+`.rr_moved` (`RockRidge::with_relocation(Relocation::DotRrMoved)`), the only
+names libarchive (`bsdtar`) reads relocated directories from. A root
+directory with that name is reused and keeps its own entries; a root file
+with that name fails. libarchive takes the first root directory with either
+name for the relocation directory, so a root directory with the other name
+that would come first in the directory fails with `Detail::Relocation`:
+`.rr_moved` with `NameCase::Preserve`, or `rr_moved` when the relocation
+directory is `.rr_moved`. `Relocation::Reject` fails instead. Joliet and
+enhanced trees keep the real hierarchy.
 
 ## Extension Support
 

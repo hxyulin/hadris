@@ -80,9 +80,8 @@ fn bad_options_are_refused_before_writing() {
         refused(&taken, &relocate),
         (ErrorKind::InvalidInput, Some(Detail::Relocation))
     );
-    let named = IsoOptions::default().with_rock_ridge(
-        RockRidge::default().with_relocation(Relocation::Directory("deep".into())),
-    );
+    let named = IsoOptions::default()
+        .with_rock_ridge(RockRidge::default().with_relocation(Relocation::DotRrMoved));
     let mut iso = IsoImage::open(image(&taken, &named)).unwrap();
     let mut view = iso.view(Namespace::RockRidge).unwrap();
     assert_eq!(
@@ -387,19 +386,19 @@ fn relocation_names_libarchive_would_mistake_are_refused() {
             .unwrap();
         tree
     };
-    let options = |case: NameCase, container: &str| {
-        IsoOptions::default().with_name_case(case).with_rock_ridge(
-            RockRidge::default().with_relocation(Relocation::Directory(container.into())),
-        )
+    let options = |case: NameCase, container: Relocation| {
+        IsoOptions::default()
+            .with_name_case(case)
+            .with_rock_ridge(RockRidge::default().with_relocation(container))
     };
     for (case, container, user) in [
-        (NameCase::Preserve, "rr_moved", ".rr_moved"),
-        (NameCase::Upper, ".rr_moved", "rr_moved"),
+        (NameCase::Preserve, Relocation::RrMoved, ".rr_moved"),
+        (NameCase::Upper, Relocation::DotRrMoved, "rr_moved"),
     ] {
         assert_eq!(
             refused(&tree(user), &options(case, container)),
             (ErrorKind::InvalidInput, Some(Detail::Relocation)),
-            "{case:?} {container} {user}"
+            "{case:?} {container:?} {user}"
         );
         let shallow = {
             let mut tree = sample(false, false);
@@ -410,8 +409,8 @@ fn relocation_names_libarchive_would_mistake_are_refused() {
         image(&shallow, &options(case, container));
     }
     for (case, container, user) in [
-        (NameCase::Upper, "rr_moved", ".rr_moved"),
-        (NameCase::Preserve, ".rr_moved", "rr_moved"),
+        (NameCase::Upper, Relocation::RrMoved, ".rr_moved"),
+        (NameCase::Preserve, Relocation::DotRrMoved, "rr_moved"),
     ] {
         let mut iso = IsoImage::open(image(&tree(user), &options(case, container))).unwrap();
         let mut view = iso.view(Namespace::RockRidge).unwrap();
