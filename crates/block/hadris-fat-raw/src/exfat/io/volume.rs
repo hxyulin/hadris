@@ -1,9 +1,9 @@
-use hadris_fs::{ErrorKind, FsResult};
+use hadris_fs::{Error, ErrorKind, FsResult};
 
 use super::block::{load, read_bytes, store, write_bytes};
 use super::storage::BlockDevice;
 use crate::exfat::io::{BootRegion, ClusterState, Dirty, ExFat, Extent, UPCASE_CACHE, Upcase};
-use crate::exfat::{self as raw, ENTRY_SIZE, Geometry, RawEntry, UpcaseDecoder};
+use crate::exfat::{self as raw, Detail, ENTRY_SIZE, Geometry, RawEntry, UpcaseDecoder};
 use crate::io::{BlockBuf, ChainPos, ClusterGroup, Held};
 
 const BOOT_SECTOR_LEN: usize = 512;
@@ -43,6 +43,15 @@ fn check_cluster(geo: &Geometry, cluster: u32) -> Result<u32, ErrorKind> {
 
 fn cluster_at(geo: &Geometry, cluster: u32) -> Result<u64, ErrorKind> {
     geo.cluster_offset(cluster).ok_or(ErrorKind::Corrupt)
+}
+
+/// `err`, with `detail` when the volume is corrupt.
+fn blame<E>(err: Error<E>, detail: Detail) -> Error<E> {
+    if err.kind() == ErrorKind::Corrupt {
+        err.with_detail(detail.code())
+    } else {
+        err
+    }
 }
 
 io_transform! {
@@ -107,14 +116,14 @@ pub async fn read_boot<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf) -> FsR
         let mut head = [0u8; 11];
         read_bytes(dev, block, 0, &mut head).await?;
         return Err(match head[3..] == raw::FILE_SYSTEM_NAME {
-            true => ErrorKind::Corrupt.into(),
-            false => ErrorKind::NotRecognized.into(),
+            true => Detail::BootSector.corrupt(),
+            false => Detail::BootSector.error(ErrorKind::NotRecognized),
         });
     };
     let device_len = dev.block_count().saturating_mul(size as u64);
     let heap_end = geo.heap_start() + ((geo.cluster_count() as u64) << geo.cluster_shift());
     if geo.volume_len() > device_len || heap_end > geo.volume_len() {
-        return Err(ErrorKind::Corrupt.into());
+        return Err(Detail::BootSector.corrupt());
     }
     Ok((geo, region))
 }
@@ -135,20 +144,20 @@ pub async fn read_volume<D: BlockDevice>(
     let mut bitmaps = [None; 2];
     for (entry, bitmap) in entries.into_iter().zip(&mut bitmaps) {
         let Some((first, len)) = entry else { continue };
-        let extent = extent(dev, block, &geo, first, len).await?;
+        let extent = extent(dev, block, &geo, first, len).await.map_err(|err| blame(err, Detail::Bitmap))?;
         if extent.len < (geo.cluster_count() as u64).div_ceil(8) {
-            return Err(ErrorKind::Corrupt.into());
+            return Err(Detail::Bitmap.corrupt());
         }
         *bitmap = Some(extent);
     }
     let (first, len, stored_checksum) = upcase_entry;
     if !(2..=MAX_UPCASE_LEN).contains(&len) {
-        return Err(ErrorKind::Corrupt.into());
+        return Err(Detail::UpcaseTable.corrupt());
     }
-    let table = extent(dev, block, &geo, first, len).await?;
+    let table = extent(dev, block, &geo, first, len).await.map_err(|err| blame(err, Detail::UpcaseTable))?;
     index_upcase(dev, block, &geo, table, stored_checksum, upcase).await?;
     let [Some(bitmap), mirror] = bitmaps else {
-        return Err(ErrorKind::Corrupt.into());
+        return Err(Detail::Bitmap.corrupt());
     };
     Ok(ExFat::new(geo, bitmap, mirror))
 }
@@ -203,12 +212,13 @@ async fn system_entries<D: BlockDevice>(
         match fat(dev, block, geo, cluster).await? {
             raw::FAT_END => break,
             next if geo.is_cluster(next) => cluster = next,
-            _ => return Err(ErrorKind::Corrupt.into()),
+            _ => return Err(Detail::BrokenChain.corrupt()),
         }
     }
     match (bitmap, upcase) {
         (Some(_), Some(upcase)) => Ok(([bitmap, mirror], upcase)),
-        _ => Err(ErrorKind::Corrupt.into()),
+        (None, _) => Err(Detail::Bitmap.corrupt()),
+        (Some(_), None) => Err(Detail::UpcaseTable.corrupt()),
     }
 }
 
@@ -227,7 +237,7 @@ async fn extent<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, geo: &Geometr
                 contiguous &= next == cluster + 1;
                 cluster = next;
             }
-            _ => return Err(ErrorKind::Corrupt.into()),
+            _ => return Err(Detail::BrokenChain.corrupt()),
         }
     }
     Ok(Extent { first, len, contiguous })
@@ -363,7 +373,7 @@ async fn locate<D: BlockDevice>(
     while at.index() < want {
         let next = next(dev, block, geo, at.cluster()).await?.ok_or(ErrorKind::Corrupt)?;
         if !at.advance(next) {
-            return Err(ErrorKind::Corrupt.into());
+            return Err(Detail::CyclicChain.corrupt());
         }
     }
     Ok(at)
@@ -388,7 +398,8 @@ pub async fn next<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, geo: &Geome
     match fat(dev, block, geo, cluster).await? {
         raw::FAT_END => Ok(None),
         next if geo.is_cluster(next) => Ok(Some(next)),
-        _ => Err(ErrorKind::Corrupt.into()),
+        raw::FAT_BAD => Err(Detail::BadCluster.corrupt()),
+        _ => Err(Detail::BrokenChain.corrupt()),
     }
 }
 

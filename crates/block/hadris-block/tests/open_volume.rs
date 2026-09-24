@@ -173,8 +173,12 @@ fn a_volume_that_fails_to_mount_gives_the_device_back() {
     let (error, dev) = failure(OpenVolume::open_detected(dev, FAT12));
     assert_eq!(error.detail().and_then(Detail::from_code), None);
     assert_eq!(
+        error.detail().and_then(hadris_fat::Detail::from_code),
+        Some(hadris_fat::Detail::BootSector)
+    );
+    assert_eq!(
         format!("{}", failure(OpenVolume::open(dev)).0),
-        "corrupt filesystem data"
+        "volume is larger than the device"
     );
 }
 

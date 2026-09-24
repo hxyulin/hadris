@@ -44,6 +44,19 @@ Each published package owns its version and may be released independently.
   progress in a `Held`), `write_set` (secondary entries before the File
   entry's block) and `clear_set`, and `begin_write`, `clear_dirty` and
   `write_percent_in_use` for `VolumeDirty` and `PercentInUse`.
+- **hadris-fs (V3):** `Finding`, `Severity` and `CheckReport`, what every
+  checker reports. A `Finding` has a static message, the format's detail
+  code, a `Severity` (`Notice`, `Warning`, `Error`, in that order; `Error`
+  unless set), a `Location` and the path of the node it is about, and
+  displays as `message: path (location)`. A `CheckReport` counts the
+  findings and the passes over the tree.
+- **hadris-fat-raw (V3):** `Detail` and `exfat::Detail`, the detail codes of
+  FAT and exFAT volumes, re-exported as `hadris_fat::Detail` and
+  `hadris_fat::exfat::Detail`, with `of`, `from_code` and `code`. Mount
+  errors carry them: a rejected boot sector is `BootSector`, a missing or
+  short Allocation Bitmap `Bitmap`, a bad up-case table entry
+  `UpcaseTable`. Chain walks report `BrokenChain`, `BadCluster` and
+  `CyclicChain`.
 - **hadris-storage (V3):** `BlockDevice` gains `max_block_count` (how many
   blocks a device holds once written past its end, `block_count` by
   default), `disk_offset` (the byte offset of block 0 on the disk a device

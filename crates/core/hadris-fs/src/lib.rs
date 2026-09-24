@@ -3,7 +3,8 @@
 //! The crate root defines the mode-independent types every Hadris filesystem
 //! speaks: node identity, file types, byte names, timestamps and clocks,
 //! metadata, capabilities, errors, directory cursors, open options,
-//! node tables and lexical virtual paths. None of them does I/O.
+//! node tables, lexical virtual paths, and what checkers report
+//! ([`Finding`], [`Severity`], [`CheckReport`]). None of them does I/O.
 //!
 //! The mode modules (`sync`, `r#async`, `async_send`) hold the driver
 //! layer: the `FsDriver` trait that format crates implement, the
@@ -43,6 +44,7 @@ extern crate alloc;
 extern crate std;
 
 mod caps;
+mod check;
 #[cfg(feature = "contract")]
 mod contract;
 mod dir;
@@ -63,6 +65,7 @@ mod time;
 pub mod tree;
 
 pub use caps::{Capabilities, CaseSensitivity, FsStats, NameCharset};
+pub use check::{CheckReport, Finding, Severity};
 #[cfg(feature = "contract")]
 pub use contract::ContractViolation;
 pub use dir::{DirCursor, DirEntry, DirItem};

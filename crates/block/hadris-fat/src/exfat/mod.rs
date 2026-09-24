@@ -45,6 +45,7 @@ mod options;
 pub use hadris_fat_raw::exfat as raw;
 
 pub use findings::{CheckReport, Finding, FindingKind};
+pub use hadris_fat_raw::exfat::Detail;
 
 /// Reads a little-endian `u16` at `at`.
 #[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]

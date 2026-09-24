@@ -29,6 +29,9 @@ needs an allocator:
 - **exFAT** in `exfat`: layouts, `parse_boot`, boot, set and up-case table
   checksums, name hashes, name and time encoding, and an up-case table
   decoder
+- **Detail codes**: `Detail` and `exfat::Detail` say what exactly is wrong
+  with a volume, in the errors of the device primitives and in the
+  findings of a check
 
 The layouts mirror the specifications. They may gain items; the existing
 ones follow the specifications and stay exhaustive.

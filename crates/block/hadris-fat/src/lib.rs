@@ -135,6 +135,8 @@
 //!   FSInfo and directory entry layouts and the codecs
 //! - `exfat`: the exFAT driver, `ExFatFs`, with its own `sync`, `r#async`
 //!   and `async_send` modes, formatter, checker and `raw` layouts
+//! - `Detail` and `exfat::Detail`: what exactly is wrong with a volume, read
+//!   from mount and read errors with `Detail::of`
 
 #![cfg_attr(not(test), no_std)]
 #![deny(missing_docs)]
@@ -234,7 +236,7 @@ pub mod async_send;
 
 pub use code_page::{Ascii, CodePage, Cp437};
 pub use findings::{CheckReport, Finding, FindingKind};
-pub use hadris_fat_raw::FatKind;
+pub use hadris_fat_raw::{Detail, FatKind};
 #[cfg(feature = "write")]
 pub use options::FormatOptions;
 pub use options::{MountOptions, VolumeLabel};

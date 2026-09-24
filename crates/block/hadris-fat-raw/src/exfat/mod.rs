@@ -8,6 +8,7 @@
 //! `io` adds the device primitives.
 
 mod codec;
+mod detail;
 #[cfg(any(feature = "sync", feature = "async"))]
 pub mod io;
 mod layout;
@@ -17,6 +18,7 @@ pub use codec::{
     encode_time, hash_unit, mandatory_upcase, name_hash, parse_boot, seal, set_checksum,
     table_checksum, valid_unit,
 };
+pub use detail::Detail;
 pub use layout::{
     ALLOCATION_POSSIBLE, ATTR_ARCHIVE, ATTR_DIRECTORY, ATTR_HIDDEN, ATTR_READ_ONLY, ATTR_SYSTEM,
     BOOT_REGION_SECTORS, BOOT_SIGNATURE, BitmapEntry, BootSector, CATEGORY_SECONDARY,
