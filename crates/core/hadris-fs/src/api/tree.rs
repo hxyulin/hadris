@@ -25,7 +25,7 @@ impl<'a> ContentReader<'a> {
             Repr::Bytes(bytes) => bytes.len() as u64,
             #[cfg(feature = "sync")]
             Repr::Blocking(source) => source.lock().len(),
-            #[cfg(feature = "async-send")]
+            #[cfg(feature = "async")]
             Repr::Async(source) => async_content_len(source).await?,
             #[cfg(feature = "std")]
             Repr::Path { path, .. } => {
@@ -68,7 +68,7 @@ impl<'a> ContentReader<'a> {
             }
             #[cfg(feature = "sync")]
             Repr::Blocking(source) => source.lock().read_at(offset, buf),
-            #[cfg(feature = "async-send")]
+            #[cfg(feature = "async")]
             Repr::Async(source) => async_content_read(source, offset, buf).await,
             #[cfg(feature = "std")]
             Repr::Path { path, .. } => {
@@ -246,14 +246,14 @@ fn host_error(err: std::io::Error, path: &std::path::Path) -> PathError {
 }
 
 async_only! {
-    #[cfg(feature = "async-send")]
+    #[cfg(feature = "async")]
     async fn async_content_len(
         source: &async_lock::Mutex<alloc::boxed::Box<dyn crate::tree::AsyncSource>>,
     ) -> Result<u64, PathError> {
         Ok(source.lock().await.len())
     }
 
-    #[cfg(feature = "async-send")]
+    #[cfg(feature = "async")]
     async fn async_content_read(
         source: &async_lock::Mutex<alloc::boxed::Box<dyn crate::tree::AsyncSource>>,
         offset: u64,
@@ -264,14 +264,14 @@ async_only! {
 }
 
 sync_only! {
-    #[cfg(feature = "async-send")]
+    #[cfg(feature = "async")]
     fn async_content_len(
         _: &async_lock::Mutex<alloc::boxed::Box<dyn crate::tree::AsyncSource>>,
     ) -> Result<u64, PathError> {
         Err(ErrorKind::Unsupported.into())
     }
 
-    #[cfg(feature = "async-send")]
+    #[cfg(feature = "async")]
     fn async_content_read(
         _: &async_lock::Mutex<alloc::boxed::Box<dyn crate::tree::AsyncSource>>,
         _: u64,

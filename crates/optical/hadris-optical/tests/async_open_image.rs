@@ -46,9 +46,9 @@ fn async_mode_opens_each_filesystem_of_a_bridge() {
 }
 
 #[test]
-fn async_send_mode_shares_an_opened_image() {
-    use hadris_fs::async_send::{PathExt, Volume};
-    use hadris_optical::async_send::OpenOpticalImage;
+fn async_mode_shares_an_opened_image() {
+    use hadris_fs::r#async::{PathExt, Volume};
+    use hadris_optical::r#async::OpenOpticalImage;
 
     let bytes = image_of(true, false, &populated_tree());
     block_on(async {
@@ -57,7 +57,7 @@ fn async_send_mode_shares_an_opened_image() {
             .unwrap();
         let vol = Volume::new(opened);
         assert_eq!(vol.read_to_vec("/DOCS/README.TXT").await.unwrap(), PAYLOAD);
-        hadris_fs::async_send::contract::check_read_only(&mut &vol)
+        hadris_fs::r#async::contract::check_read_only(&mut &vol)
             .await
             .unwrap();
 

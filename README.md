@@ -129,7 +129,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 ### Meta-crate
 
-- **[hadris](crates/core/hadris)** - Optional umbrella that re-exports `hadris-io`, `hadris-storage` and `hadris-fs`, and each format crate at a flat path (`hadris::fat`, `hadris::iso`, `hadris::cpio`, ...), with `hadris::block` and `hadris::optical` for detection. One feature per format; the platform (`std`, `alloc`), mode (`sync`, `async`, `async-send`) and `write` features are forwarded to every enabled crate. The defaults are `std`, `sync`, `write`, `fat`, `iso` and `cpio`.
+- **[hadris](crates/core/hadris)** - Optional umbrella that re-exports `hadris-io`, `hadris-storage` and `hadris-fs`, and each format crate at a flat path (`hadris::fat`, `hadris::iso`, `hadris::cpio`, ...), with `hadris::block` and `hadris::optical` for detection. One feature per format; the platform (`std`, `alloc`), mode (`sync`, `async`) and `write` features are forwarded to every enabled crate. The defaults are `std`, `sync`, `write`, `fat`, `iso` and `cpio`.
 
 ## Key Features
 

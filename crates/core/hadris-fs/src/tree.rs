@@ -62,7 +62,7 @@ impl<S: hadris_io::sync::ByteSource + Send> BlockingSource for S {
 }
 
 /// The future of an [`AsyncSource`] read.
-#[cfg(feature = "async-send")]
+#[cfg(feature = "async")]
 pub(crate) type ReadFuture<'a> = core::pin::Pin<
     alloc::boxed::Box<
         dyn core::future::Future<Output = Result<usize, crate::PathError>> + Send + 'a,
@@ -70,21 +70,21 @@ pub(crate) type ReadFuture<'a> = core::pin::Pin<
 >;
 
 /// A source read with `.await`, read by the asynchronous writers.
-#[cfg(feature = "async-send")]
+#[cfg(feature = "async")]
 pub(crate) trait AsyncSource: Send {
     fn len(&self) -> u64;
     fn read_at<'a>(&'a mut self, offset: u64, buf: &'a mut [u8]) -> ReadFuture<'a>;
 }
 
-#[cfg(feature = "async-send")]
-impl<S: hadris_io::async_send::ByteSource> AsyncSource for S {
+#[cfg(feature = "async")]
+impl<S: hadris_io::r#async::ByteSource> AsyncSource for S {
     fn len(&self) -> u64 {
-        hadris_io::async_send::ByteSource::len(self)
+        hadris_io::r#async::ByteSource::len(self)
     }
 
     fn read_at<'a>(&'a mut self, offset: u64, buf: &'a mut [u8]) -> ReadFuture<'a> {
         alloc::boxed::Box::pin(async move {
-            hadris_io::async_send::ByteSource::read_at(self, offset, buf)
+            hadris_io::r#async::ByteSource::read_at(self, offset, buf)
                 .await
                 .map_err(|err| {
                     crate::PathError::from(Error::device(err, "reading file content failed"))
@@ -97,7 +97,7 @@ pub(crate) enum Repr {
     Bytes(Arc<[u8]>),
     #[cfg(feature = "sync")]
     Blocking(spin::Mutex<alloc::boxed::Box<dyn BlockingSource>>),
-    #[cfg(feature = "async-send")]
+    #[cfg(feature = "async")]
     Async(async_lock::Mutex<alloc::boxed::Box<dyn AsyncSource>>),
     #[cfg(feature = "std")]
     Path {
@@ -136,13 +136,13 @@ impl Content {
         ))))
     }
 
-    /// Bytes from an asynchronous [`ByteSource`](hadris_io::async_send::ByteSource)
+    /// Bytes from an asynchronous [`ByteSource`](hadris_io::r#async::ByteSource)
     /// with `Send` futures, read while the image is written.
     ///
-    /// The `r#async` and `async_send` writers read it; the blocking writers
+    /// The `r#async` writers read it; the blocking writers
     /// fail with [`ErrorKind::Unsupported`].
-    #[cfg(feature = "async-send")]
-    pub fn async_source<S: hadris_io::async_send::ByteSource + 'static>(source: S) -> Self {
+    #[cfg(feature = "async")]
+    pub fn async_source<S: hadris_io::r#async::ByteSource + 'static>(source: S) -> Self {
         Self(Repr::Async(async_lock::Mutex::new(alloc::boxed::Box::new(
             source,
         ))))
@@ -187,7 +187,7 @@ impl Content {
             Repr::Bytes(bytes) => Some(bytes.len() as u64),
             #[cfg(feature = "sync")]
             Repr::Blocking(source) => Some(source.lock().len()),
-            #[cfg(feature = "async-send")]
+            #[cfg(feature = "async")]
             Repr::Async(source) => source.try_lock().map(|source| source.len()),
             #[cfg(feature = "std")]
             Repr::Path { len, .. } => *len,
@@ -225,7 +225,7 @@ impl fmt::Debug for Content {
             Repr::Bytes(bytes) => out.field("bytes", &bytes.len()),
             #[cfg(feature = "sync")]
             Repr::Blocking(_) => out.field("source", &"blocking"),
-            #[cfg(feature = "async-send")]
+            #[cfg(feature = "async")]
             Repr::Async(_) => out.field("source", &"async"),
             #[cfg(feature = "std")]
             Repr::Path { path, .. } => out.field("path", path),

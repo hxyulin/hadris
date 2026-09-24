@@ -3,7 +3,7 @@
 ///
 /// A format crate writes each node method once, as an inherent method, and
 /// raw users call it with no trait import. The first argument is the mode,
-/// `sync`, `async` or `async_send`, which a crate's per-mode module passes.
+/// `sync` or `async`, which a crate's per-mode module passes.
 ///
 /// - The required methods (`capabilities`, `root`, `lookup`,
 ///   `node_metadata`, `read_dir_entry`, `read_at`, `stats`, `forget`) are
@@ -29,9 +29,6 @@ macro_rules! impl_fs_driver {
     };
     (async, $($rest:tt)*) => {
         $crate::impl_fs_driver!(@parse [async] [.await] [$crate::r#async] $($rest)*);
-    };
-    (async_send, $($rest:tt)*) => {
-        $crate::impl_fs_driver!(@parse [async] [.await] [$crate::async_send] $($rest)*);
     };
     (@parse [$($as:tt)*] [$($aw:tt)*] [$($m:tt)*]
         impl[$($g:tt)*] $ty:ty, error = $err:ty $(, $ro:ident)? $(; also = [$($also:ident),* $(,)?])?

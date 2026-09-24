@@ -26,7 +26,6 @@ as block devices for a filesystem driver. It works on any
 | `alloc` | `Disk`, `Mbr`, `Gpt`, `Hybrid`, `DiskLayout`, and `read`, `write` and `create` | via `std` |
 | `sync` | Blocking API in `hadris_part::sync` | Yes |
 | `async` | Asynchronous API in `hadris_part::r#async` | - |
-| `async-send` | Asynchronous API with `Send` futures in `hadris_part::async_send` | - |
 
 No feature changes what an item does. CRCs are always computed and checked,
 and GUIDs are never generated behind your back: constructors take them, and

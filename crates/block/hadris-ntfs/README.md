@@ -63,8 +63,7 @@ references, so they are stable and hard links share one.
 | `std` | Yes | Implies `alloc`; forwards `std` to `hadris-fs` and `hadris-storage` |
 | `alloc` | via `std` | Forwards `alloc` to `hadris-fs` and `hadris-storage` |
 | `sync` | Yes | The blocking API in `sync` |
-| `async` | No | The asynchronous API in `r#async` |
-| `async-send` | No | The asynchronous API with `Send` futures in `async_send` |
+| `async` | No | The asynchronous API with `Send` futures in `r#async` |
 
 Reading needs no allocator in any mode. No feature changes what an item
 does.

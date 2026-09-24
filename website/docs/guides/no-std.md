@@ -36,7 +36,6 @@ kernel, memory, or device-specific readers rather than depending on
 |---|---|
 | Allocation-free synchronous reader | `sync` |
 | Allocation-free asynchronous reader | `async` |
-| `Send` futures for multi-threaded executors | `async-send` |
 | FAT or exFAT formatting | Add `write` |
 | Image writers, owned names or buffers | Add `alloc` |
 | Several I/O modes | Enable each; the APIs live in separate namespaces |

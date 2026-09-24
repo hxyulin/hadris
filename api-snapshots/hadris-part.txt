@@ -5,12 +5,6 @@ pub fn hadris_part::async::open<D: hadris_storage::async::api::BlockDevice>(D, &
 pub async fn hadris_part::async::read<D: hadris_storage::async::api::BlockDevice>(&mut D) -> core::result::Result<hadris_part::Disk, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
 pub async fn hadris_part::async::scan<D: hadris_storage::async::api::BlockDevice>(&mut D, impl core::ops::function::FnMut(hadris_part::Partition) -> core::ops::control_flow::ControlFlow<()>) -> core::result::Result<hadris_part::TableKind, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
 pub async fn hadris_part::async::write<D: hadris_storage::async::api::BlockDevice>(&mut D, &hadris_part::Disk) -> core::result::Result<(), hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub mod hadris_part::async_send
-pub async fn hadris_part::async_send::create<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &hadris_part::DiskLayout) -> core::result::Result<hadris_part::Disk, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub fn hadris_part::async_send::open<D: hadris_storage::async_send::api::BlockDevice>(D, &hadris_part::Partition) -> core::result::Result<hadris_storage::device::Partition<D>, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_part::async_send::read<D: hadris_storage::async_send::api::BlockDevice>(&mut D) -> core::result::Result<hadris_part::Disk, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_part::async_send::scan<D: hadris_storage::async_send::api::BlockDevice>(&mut D, impl core::ops::function::FnMut(hadris_part::Partition) -> core::ops::control_flow::ControlFlow<()>) -> core::result::Result<hadris_part::TableKind, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_part::async_send::write<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &hadris_part::Disk) -> core::result::Result<(), hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
 pub mod hadris_part::gpt
 pub mod hadris_part::gpt::types
 pub const hadris_part::gpt::types::APPLE_APFS: hadris_part::Guid

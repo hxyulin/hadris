@@ -13,7 +13,7 @@ keywords = ["iso9660", "udf", "optical", "cd", "dvd"]
 categories = ["filesystem", "encoding", "no-std"]
 
 [package.metadata.docs.rs]
-features = ["std", "sync", "async", "async-send"]
+features = ["std", "sync", "async"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
@@ -22,8 +22,6 @@ default = ["std", "sync"]
 std = ["hadris-fs/std", "hadris-iso/std", "hadris-udf/std", "hadris-storage/std"]
 sync = ["hadris-fs/sync", "hadris-iso/sync", "hadris-udf/sync", "hadris-storage/sync"]
 async = ["hadris-fs/async", "hadris-iso/async", "hadris-udf/async", "hadris-storage/async"]
-# The asynchronous API a third time, with `Send` futures, in `async_send`.
-async-send = ["async", "hadris-fs/async-send", "hadris-iso/async-send", "hadris-udf/async-send", "hadris-storage/async-send"]
 
 [dependencies]
 hadris-fs = { workspace = true, default-features = false, features = ["alloc"] }
@@ -38,4 +36,4 @@ hadris-storage = { workspace = true, features = ["std", "sync"] }
 
 [[test]]
 name = "bridge"
-required-features = ["std", "sync", "async-send"]
+required-features = ["std", "sync"]

@@ -45,8 +45,8 @@ fn main() -> Result<()> {
 
 `part::sync::open` returns a `hadris_storage` `Partition` of the disk: block 0 of
 the partition is the partition's first block, and requests past its end fail
-before they reach the disk. `part::r#async::open` and
-`part::async_send::open` do the same for async devices, and the table is
+before they reach the disk. `part::r#async::open` does the same for async
+devices, and the table is
 read with `part::r#async::read` there.
 
 Do not seek to the partition offset and then pass the unrestricted disk handle

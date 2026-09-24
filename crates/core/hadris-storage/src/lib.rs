@@ -12,9 +12,9 @@
 //! a [`Partition`], answers an [`ErrorKind`](hadris_io::ErrorKind) with the
 //! block it concerns. Adapters keep the error type of the device underneath.
 //!
-//! The device trait exists once per mode: `sync`, `r#async`,
-//! `async_send` (futures are `Send`) and `local` (futures need not be
-//! `Send`, for single-threaded executors). Mode-independent devices such as
+//! The device trait exists once per mode: `sync`, `r#async` (futures are
+//! `Send`) and `local` (futures need not be `Send`, for single-threaded
+//! executors). Mode-independent devices such as
 //! [`MemDevice`], [`Partition`] and `Vec<u8>` implement every mode's trait.
 //! With `std` and `sync`, `host::FileDevice` is a host image file or disk
 //! device.
@@ -37,13 +37,10 @@ pub mod host;
 mod scratch;
 
 #[cfg(feature = "async")]
-/// Asynchronous adapters.
-pub mod r#async;
-#[cfg(feature = "async-send")]
 /// Asynchronous adapters whose futures are `Send`, generated from the same
-/// source as `r#async`. `BlockDevice` has `Send` as a supertrait here, so
+/// source as `sync`. `BlockDevice` has `Send` as a supertrait here, so
 /// `D: BlockDevice` alone proves a device's futures `Send`.
-pub mod async_send;
+pub mod r#async;
 #[cfg(feature = "async")]
 /// Asynchronous adapters whose futures need not be `Send`, generated from
 /// the same source as `r#async`, for single-threaded executors such as

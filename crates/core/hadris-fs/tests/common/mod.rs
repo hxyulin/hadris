@@ -57,9 +57,5 @@ pub fn block_on<F: core::future::Future>(future: F) -> F::Output {
 pub mod sync;
 
 #[cfg(feature = "async")]
-#[path = "mode_asynch.rs"]
+#[path = "mode_async.rs"]
 pub mod asynch;
-
-#[cfg(feature = "async-send")]
-#[path = "mode_send.rs"]
-pub mod send;

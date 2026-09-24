@@ -283,7 +283,7 @@ fn allocation_wraps_to_the_start_and_fails_cleanly_when_full() {
 
 #[test]
 fn async_multi_cluster_io_matches_sync() {
-    use hadris_fat::async_send::FatFs;
+    use hadris_fat::r#async::FatFs;
     use hadris_fs::HeapTable;
 
     let case = CASES[2];

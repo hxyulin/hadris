@@ -17,7 +17,7 @@ DVD-Video, Blu-ray and many large removable drives.
   with a report of where each file went
 - **Bridge** volumes that share an image and its file data with ISO 9660, as
   `hadris-cd` builds them
-- The same API in `sync`, `r#async` and `async_send`
+- The same API in `sync`, `r#async`
 
 ## Reading
 
@@ -83,8 +83,7 @@ device first.
 | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
 | `alloc` | via `std` | The writer and the tree input |
 | `sync` | Yes | The blocking API in `sync` |
-| `async` | No | The asynchronous API in `r#async` |
-| `async-send` | No | The asynchronous API with `Send` futures in `async_send` |
+| `async` | No | The asynchronous API with `Send` futures in `r#async` |
 
 No feature changes what an item does.
 

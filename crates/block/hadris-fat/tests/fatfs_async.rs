@@ -1,4 +1,4 @@
-//! `FatFs` in the `async` and `async_send` modes.
+//! `FatFs` in the `async` mode.
 
 #[path = "common/fatfs.rs"]
 mod common;
@@ -63,18 +63,18 @@ fn async_mode_reads_through_every_tier() {
     });
 }
 
-fn spawn_read<F: hadris_fs::async_send::FileSystem + 'static>(
+fn spawn_read<F: hadris_fs::r#async::FileSystem + 'static>(
     fs: Arc<F>,
     path: &'static str,
 ) -> std::thread::JoinHandle<Vec<u8>> {
-    use hadris_fs::async_send::PathExt;
+    use hadris_fs::r#async::PathExt;
     std::thread::spawn(move || block_on(async move { fs.read_to_vec(path).await.unwrap() }))
 }
 
 #[test]
-fn async_send_futures_move_to_other_threads() {
-    use hadris_fat::async_send::FatFs;
-    use hadris_fs::async_send::Volume;
+fn async_futures_move_to_other_threads() {
+    use hadris_fat::r#async::FatFs;
+    use hadris_fs::r#async::Volume;
 
     let case = CASES[1];
     let fs = block_on(FatFs::open(common::device(case, common::build(case)))).unwrap();
@@ -100,10 +100,10 @@ fn async_send_futures_move_to_other_threads() {
 }
 
 #[test]
-fn async_send_mounts_with_options() {
-    use hadris_fat::async_send::FatFs;
+fn async_mounts_with_options() {
+    use hadris_fat::r#async::FatFs;
     use hadris_fat::{Cp437, MountOptions};
-    use hadris_fs::async_send::Volume;
+    use hadris_fs::r#async::Volume;
     use hadris_fs::{HeapTable, SystemClock};
 
     let case = CASES[0];
@@ -134,7 +134,7 @@ fn async_failed_opens_give_the_device_back() {
             assert_eq!(err.kind(), ErrorKind::NotRecognized);
             assert_eq!(err.into_device().into_inner(), image);
 
-            let err = hadris_fat::async_send::FatFs::open(common::device(case, image.clone()))
+            let err = hadris_fat::r#async::FatFs::open(common::device(case, image.clone()))
                 .await
                 .unwrap_err();
             let (error, dev) = err.into_parts();
@@ -142,12 +142,10 @@ fn async_failed_opens_give_the_device_back() {
             assert_eq!(dev.into_inner(), image);
 
             let options = hadris_fat::MountOptions::new().with_read_only();
-            let err = hadris_fat::async_send::FatFs::open_with(
-                common::device(case, image.clone()),
-                options,
-            )
-            .await
-            .unwrap_err();
+            let err =
+                hadris_fat::r#async::FatFs::open_with(common::device(case, image.clone()), options)
+                    .await
+                    .unwrap_err();
             assert_eq!(err.into_device().into_inner(), image);
         });
     }
@@ -239,9 +237,9 @@ fn async_mode_writes() {
 }
 
 #[test]
-fn async_send_writers_on_other_threads() {
-    use hadris_fat::async_send::FatFs;
-    use hadris_fs::async_send::{FileSystem, PathExt, Volume};
+fn async_writers_on_other_threads() {
+    use hadris_fat::r#async::FatFs;
+    use hadris_fs::r#async::{FileSystem, PathExt, Volume};
 
     let case = CASES[2];
     let fs = block_on(FatFs::open(common::device(case, common::blank(case)))).unwrap();
@@ -293,7 +291,7 @@ fn async_failed_formats_give_the_device_back() {
         assert_eq!(err.kind(), ErrorKind::NoSpace);
         assert_eq!(err.into_device().into_inner(), vec![0u8; 4 << 20]);
 
-        let (error, dev) = hadris_fat::async_send::format(device(), options())
+        let (error, dev) = hadris_fat::r#async::format(device(), options())
             .await
             .unwrap_err()
             .into_parts();
@@ -333,7 +331,7 @@ fn format_in_the_async_modes() {
         vol.sync().await.unwrap();
         vol.into_inner().into_inner().into_inner()
     });
-    let send = block_on(assert_send(hadris_fat::async_send::format(
+    let send = block_on(assert_send(hadris_fat::r#async::format(
         device(),
         options(),
     )))

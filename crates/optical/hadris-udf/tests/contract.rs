@@ -32,11 +32,11 @@ fn async_modes() {
         hadris_fs::r#async::contract::check_read_only(&mut udf)
             .await
             .unwrap();
-        let udf = hadris_udf::async_send::UdfFs::open(MemDevice::new(bytes, SECTOR))
+        let udf = hadris_udf::r#async::UdfFs::open(MemDevice::new(bytes, SECTOR))
             .await
             .unwrap();
-        let vol = hadris_fs::async_send::Volume::new(udf);
-        hadris_fs::async_send::contract::check_read_only(&mut &vol)
+        let vol = hadris_fs::r#async::Volume::new(udf);
+        hadris_fs::r#async::contract::check_read_only(&mut &vol)
             .await
             .unwrap();
     });

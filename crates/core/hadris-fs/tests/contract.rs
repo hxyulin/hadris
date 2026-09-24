@@ -17,7 +17,7 @@ fn sync_raw_and_shared_tiers() {
     assert_eq!(vol.into_inner().open_nodes(), 1);
 }
 
-#[cfg(feature = "async-send")]
+#[cfg(feature = "async")]
 #[test]
 fn async_modes() {
     use common::block_on;
@@ -26,8 +26,8 @@ fn async_modes() {
         let mut fs = common::asynch::MemFs::new();
         hadris_fs::r#async::contract::check(&mut fs).await.unwrap();
         assert_eq!(fs.open_nodes(), 1);
-        let vol = hadris_fs::async_send::Volume::new(common::send::MemFs::new());
-        hadris_fs::async_send::contract::check(&mut &vol)
+        let vol = hadris_fs::r#async::Volume::new(common::asynch::MemFs::new());
+        hadris_fs::r#async::contract::check(&mut &vol)
             .await
             .unwrap();
     });

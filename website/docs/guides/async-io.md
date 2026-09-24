@@ -45,9 +45,8 @@ async fn list_root(image: &[u8]) -> FsResult<(), core::convert::Infallible> {
 
 This needs no allocator. `hadris_fs::r#async::DriverExt` adds the path
 helpers (`read_dir`, `metadata`, `write_file` and so on) as async methods, and
-`read_to_vec` with `alloc`. Tokio and other multi-threaded executors that need
-`Send` futures from generic code use the `async-send` feature,
-`hadris_fat::async_send::FatFs` and `hadris_fs::async_send`.
+`read_to_vec` with `alloc`. The futures are `Send` when the device is, so
+Tokio and other multi-threaded executors can spawn them from generic code.
 
 When several modes are enabled, use explicit namespaces:
 

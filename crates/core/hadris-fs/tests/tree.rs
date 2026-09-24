@@ -89,15 +89,14 @@ fn content_path_reads_a_disk_device() {
     reader.read_exact_at(len - 512, &mut block).unwrap();
 }
 
-#[cfg(feature = "async-send")]
+#[cfg(feature = "async")]
 #[test]
 fn async_writers_read_async_sources() {
     use hadris_fs::r#async::ContentReader as AsyncReader;
-    use hadris_fs::async_send::ContentReader as SendReader;
 
     let content = Content::async_source(vec![3u8; 10]);
     let mut buf = [0u8; 4];
-    let mut reader = common::block_on(SendReader::open(&content)).unwrap();
+    let mut reader = common::block_on(AsyncReader::open(&content)).unwrap();
     assert_eq!(common::block_on(reader.read_at(8, &mut buf)).unwrap(), 2);
     let reader = common::block_on(AsyncReader::open(&content)).unwrap();
     assert_eq!(reader.len(), 10);

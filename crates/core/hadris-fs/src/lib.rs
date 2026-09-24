@@ -6,7 +6,7 @@
 //! node tables, lexical virtual paths, and what checkers report
 //! ([`Finding`], [`Severity`], [`CheckReport`]). None of them does I/O.
 //!
-//! The mode modules (`sync`, `r#async`, `async_send`) hold the driver
+//! The mode modules (`sync`, `r#async`) hold the driver
 //! layer: the `FsDriver` trait that format crates implement, the
 //! `FileSystem` trait for shared code, `Volume`, the path resolvers, the
 //! `DriverExt` and `PathExt` helpers, and the `File` and `Dir` handles.
@@ -27,9 +27,7 @@
 //! | `alloc` | No | [`OwnedName`], [`PathError`], [`HeapTable`], `copy_tree`, owned path normalization, and the writer input [`tree`] with `ContentReader` and `TreeExt` in each mode |
 //! | `std` | No | Implies `alloc`; adds [`SystemClock`], `extract_to_host` and `import_from_host` in `sync`, `Content::path` and `Tree::from_fs`, and conversions to `std::io::Error` |
 //! | `sync` | No | The blocking driver layer in `sync` |
-//! | `async` | No | The same API with `async fn` in `r#async` |
-//! | `async-send` | No | The async API with `Send` futures in `async_send`; implies `async` |
-//! | `embassy-sync` | No | An allocation-free async `Local` lock for one executor thread |
+//! | `async` | No | The same API with `Send` futures in `r#async` |
 //! | `contract` | No | The driver contract kit, `contract::check` in each mode, and `ContractViolation` |
 //!
 //! No feature changes what an item does.
@@ -94,18 +92,13 @@ pub use time::{CivilDate, CivilTime, Clock, DateTime, DateTimeError, FileTimes, 
 #[cfg(feature = "sync")]
 pub mod sync;
 
-/// The asynchronous driver traits, `Volume`, resolvers,
-/// path helpers and handles, generated from the same source as [`sync`].
+/// The asynchronous driver traits, `Volume`, resolvers, path helpers and
+/// handles, generated from the same source as [`sync`], with `Send`
+/// futures for generic code on multi-threaded executors.
+///
+/// Every trait has `Send` (and `Sync` when it has `&self` async methods) as
+/// a supertrait, so `F: FileSystem + 'static` alone lets a generic function
+/// spawn work over `F`. Implementations are written with `async fn`. `Rc`
+/// has no impls here.
 #[cfg(feature = "async")]
 pub mod r#async;
-
-/// The asynchronous API with `Send` futures, for generic code on
-/// multi-threaded executors.
-///
-/// Generated a third time from the same source. Every trait has `Send` (and
-/// `Sync` when it has `&self` async methods) as a supertrait, so
-/// `F: FileSystem + 'static` alone lets a generic function spawn work over
-/// `F`. Implementations are written exactly as in `r#async`. `Rc` has no
-/// impls here.
-#[cfg(feature = "async-send")]
-pub mod async_send;

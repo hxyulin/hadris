@@ -84,7 +84,7 @@ fn async_modes_detect_bridges() {
             .unwrap()
             .unwrap();
         assert!(formats.is_bridge());
-        let formats = hadris_optical::detect::async_send::detect(&mut device(image, 4096))
+        let formats = hadris_optical::detect::r#async::detect(&mut device(image, 4096))
             .await
             .unwrap()
             .unwrap();

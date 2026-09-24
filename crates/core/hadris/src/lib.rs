@@ -27,7 +27,7 @@
 //! that crate. `block` adds `hadris-block` with `fat` and `part`,
 //! `optical` adds `hadris-optical` with `iso`, `udf` and `cd`, and
 //! `archive` adds `cpio`. The platform (`std`, `alloc`), mode (`sync`,
-//! `async`, `async-send`) and `write` features are forwarded to every
+//! `async`) and `write` features are forwarded to every
 //! enabled crate. `unstable-ntfs` adds the NTFS preview, whose native API
 //! may change in 3.x minors. The default set is `std`, `sync`, `write`,
 //! `fat`, `iso` and `cpio`. No feature changes what an item does.

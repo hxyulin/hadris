@@ -15,15 +15,14 @@ repository.workspace = true
 default = []
 # The device primitives in `io::sync`.
 sync = ["dep:hadris-storage", "dep:hadris-macros", "hadris-storage/sync"]
-# The device primitives in `io::r#async`.
+# The device primitives with `Send` futures in `io::r#async`, and without
+# the `Send` bound in `io::local`.
 async = ["dep:hadris-storage", "dep:hadris-macros", "hadris-storage/async"]
-# The device primitives a third time, with `Send` futures, in `io::async_send`.
-async-send = ["async", "hadris-storage/async-send"]
 # Derives `defmt::Format` on `FatKind`.
 defmt = ["dep:defmt"]
 
 [package.metadata.docs.rs]
-features = ["sync", "async", "async-send"]
+features = ["sync", "async"]
 
 [dependencies]
 hadris-common = { workspace = true, features = ["bytemuck"] }

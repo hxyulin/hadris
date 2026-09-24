@@ -1,10 +1,8 @@
-use hadris_io::r#async::{Read, Seek, Write};
+use hadris_io::r#async::{MaybeSend, Read, Seek, Write};
 
 macro_rules! io_transform {
-    ($($item:tt)*) => { $($item)* };
+    ($($item:tt)*) => { hadris_macros::send_async! { $($item)* } };
 }
-
-use hadris_io::r#async::MaybeSend;
 
 #[allow(clippy::duplicate_mod)]
 #[path = "api.rs"]

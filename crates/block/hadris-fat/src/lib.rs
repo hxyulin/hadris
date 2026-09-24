@@ -8,7 +8,7 @@
 //! ## The driver: `FatFs`
 //!
 //! `FatFs` is the node-based driver, generated for each mode
-//! (`sync::FatFs`, `r#async::FatFs`, `async_send::FatFs`). It mounts any
+//! (`sync::FatFs`, `r#async::FatFs`). It mounts any
 //! `hadris_storage` block device, needs no allocator, and implements the
 //! `hadris_fs` `FsDriver` trait, so the `hadris-fs` path helpers, `Volume`
 //! and handles work on it. It reads and writes files and directories:
@@ -48,7 +48,7 @@
 //! ## exFAT: `ExFatFs`
 //!
 //! [`exfat`] holds `ExFatFs`, a sibling of `FatFs` with the same shape:
-//! `exfat::sync::ExFatFs` and its `r#async` and `async_send` twins, each
+//! `exfat::sync::ExFatFs` and its `r#async` twin, each
 //! with `check` and, with `write`, `format`. It needs no
 //! allocator and implements `FsDriver`.
 //!
@@ -114,29 +114,28 @@
 //! | `std`    | Yes     | Standard library support (enables `alloc`); `hadris_storage::host::FileDevice` and `SystemClock` from the storage and fs crates |
 //! | `alloc`  | No      | Heap-backed conveniences of `hadris-fs`, such as `HeapTable` |
 //! | `sync`   | Yes     | Synchronous API in `sync` |
-//! | `async`  | No      | Asynchronous API in `r#async` |
-//! | `async-send` | No  | Asynchronous API with `Send` futures in `async_send` |
+//! | `async`  | No      | Asynchronous API with `Send` futures in `r#async` |
 //! | `write`  | Yes     | `format` in each mode; `FatFs` and `ExFatFs` write without it |
 //! | `defmt`  | No      | `defmt::Format` for `FatKind` |
 //!
 //! No feature changes what an item does: `FatFs` always reads and writes long
 //! names, and neither `FatFs` nor `ExFatFs` needs an allocator in any mode.
 //!
-//! ## Sync, async and `Send` async
+//! ## Sync and async
 //!
-//! The same source is compiled once per enabled mode: `sync`, `r#async` and
-//! `async_send`. Each holds `FatFs`, `check` and, with `write`, `format`. The crate root holds only the mode-independent types.
+//! The same source is compiled once per enabled mode: `sync` and `r#async`,
+//! whose futures are `Send` when the device is. Each holds `FatFs`, `check` and, with `write`, `format`. The crate root holds only the mode-independent types.
 //!
 //! ## Modules
 //!
-//! - `sync::FatFs`, `r#async::FatFs`, `async_send::FatFs`: the driver
+//! - `sync::FatFs`, `r#async::FatFs`: the driver
 //! - `sync::format` and its `async` versions: the formatter (requires `write`)
 //! - `sync::check` and its `async` versions: the checker, from
 //!   `hadris-fat-raw`
 //! - `raw`: the `hadris-fat-raw` crate, with the on-disk boot sector, BPB,
 //!   FSInfo and directory entry layouts and the codecs
-//! - `exfat`: the exFAT driver, `ExFatFs`, with its own `sync`, `r#async`
-//!   and `async_send` modes, formatter, checker and `raw` layouts
+//! - `exfat`: the exFAT driver, `ExFatFs`, with its own `sync` and
+//!   `r#async` modes, formatter, checker and `raw` layouts
 //! - `Detail` and `exfat::Detail`: what exactly is wrong with a volume, read
 //!   from mount and read errors with `Detail::of`
 
@@ -198,44 +197,14 @@ pub mod sync {
     pub use mkfs::format;
 }
 
-#[cfg(feature = "async")]
-#[path = ""]
-pub mod r#async {
-    //! The asynchronous API.
-
-    macro_rules! io_transform {
-        ($($item:tt)*) => { $($item)* };
-    }
-
-    use hadris_fat_raw::io::r#async as rawio;
-    use hadris_storage::r#async as storage;
-
-    macro_rules! impl_fat_driver {
-        ($($t:tt)*) => { hadris_fs::impl_fs_driver!(async, $($t)*); };
-    }
-
-    #[path = "block_io.rs"]
-    pub(crate) mod block_io;
-    #[path = "fatfs.rs"]
-    mod fatfs;
-    pub use fatfs::FatFs;
-    pub use rawio::check;
-    #[cfg(feature = "write")]
-    #[path = "mkfs.rs"]
-    mod mkfs;
-    #[cfg(feature = "write")]
-    pub use mkfs::format;
-}
-
 /// The asynchronous API with `Send` futures, for generic code on
 /// multi-threaded executors.
 ///
-/// Generated a third time from the same source as `r#async`, following
-/// `hadris_fs::async_send`. Its [`FatFs`](async_send::FatFs) futures are
-/// `Send` when the device is and the node table holds `Send` values, as
-/// `FixedTable` and `HeapTable` do.
-#[cfg(feature = "async-send")]
-pub mod async_send;
+/// Generated from the same source as `sync`, following `hadris_fs::r#async`.
+/// Its [`FatFs`](r#async::FatFs) futures are `Send` when the device is and
+/// the node table holds `Send` values, as `FixedTable` and `HeapTable` do.
+#[cfg(feature = "async")]
+pub mod r#async;
 
 pub use code_page::{Ascii, CodePage, Cp437};
 pub use hadris_fat_raw::{Detail, FatKind};

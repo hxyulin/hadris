@@ -255,7 +255,7 @@ fn allocation_wraps_to_the_start_and_fails_cleanly_when_full() {
 #[test]
 fn async_multi_cluster_io_matches_sync() {
     use hadris_fat::exfat::MountOptions;
-    use hadris_fat::exfat::async_send::ExFatFs;
+    use hadris_fat::exfat::r#async::ExFatFs;
     use hadris_fs::HeapTable;
 
     let data = payload(20 * CLUSTER + 1, 5);

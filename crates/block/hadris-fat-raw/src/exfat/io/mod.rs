@@ -1,7 +1,7 @@
 //! exFAT device primitives, generated for each mode from one source.
 //!
-//! The functions in `sync`, `r#async` and `async_send`, one module for
-//! each mode feature, borrow the caller's [`BlockBuf`](crate::io::BlockBuf)
+//! The functions in `sync`, `r#async` (`Send` futures) and `local`
+//! (futures need not be `Send`) borrow the caller's [`BlockBuf`](crate::io::BlockBuf)
 //! and an [`ExFat`], which holds what a driver tracks about the volume
 //! between calls: its flags, its Allocation Bitmaps and the free count. The
 //! up-case table is an [`Upcase`] index the caller owns.
@@ -311,10 +311,12 @@ pub mod sync {
 #[cfg(feature = "async")]
 #[path = ""]
 pub mod r#async {
-    //! The asynchronous exFAT primitives.
+    //! The asynchronous exFAT primitives with `Send` futures, for devices
+    //! whose futures are `Send`.
 
+    #[allow(unused_macros)]
     macro_rules! io_transform {
-        ($($item:tt)*) => { $($item)* };
+        ($($item:tt)*) => { hadris_macros::send_async! { $($item)* } };
     }
 
     use crate::io::r#async as block;
@@ -334,19 +336,17 @@ pub mod r#async {
     };
 }
 
-#[cfg(feature = "async-send")]
+#[cfg(feature = "async")]
 #[path = ""]
-pub mod async_send {
-    //! The asynchronous exFAT primitives with `Send` futures, for devices
-    //! whose futures are `Send`.
+pub mod local {
+    //! The asynchronous exFAT primitives.
 
-    #[allow(unused_macros)]
     macro_rules! io_transform {
-        ($($item:tt)*) => { hadris_macros::send_async! { $($item)* } };
+        ($($item:tt)*) => { $($item)* };
     }
 
-    use crate::io::async_send as block;
-    use hadris_storage::async_send as storage;
+    use crate::io::local as block;
+    use hadris_storage::local as storage;
 
     #[path = "check.rs"]
     mod check;

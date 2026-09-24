@@ -696,15 +696,11 @@ fn every_mode_reports_the_same() {
         let from_send = block_on(async {
             let mut dev = device(case.image.clone());
             let mut scratch = [0u8; 4096];
-            let report = hadris_fat::async_send::check(&mut dev, &mut scratch, |_| {})
+            let report = hadris_fat::r#async::check(&mut dev, &mut scratch, |_| {})
                 .await
                 .unwrap();
             fn is_send<T: Send>(_: &T) {}
-            is_send(&hadris_fat::async_send::check(
-                &mut dev,
-                &mut scratch,
-                |_| {},
-            ));
+            is_send(&hadris_fat::r#async::check(&mut dev, &mut scratch, |_| {}));
             report
         });
         assert_eq!(

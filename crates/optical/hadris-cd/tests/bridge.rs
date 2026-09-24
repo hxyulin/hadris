@@ -227,9 +227,9 @@ fn reports_devices_and_modes_agree() {
             .unwrap();
         assert_eq!(dev.get_ref(), &expected);
         let mut dev = MemDevice::new(vec![0u8; expected.len()], BlockSize::new(2048).unwrap());
-        let report = hadris_cd::async_send::plan(&tree, &options).await.unwrap();
+        let report = hadris_cd::r#async::plan(&tree, &options).await.unwrap();
         assert_eq!(report.size_bytes(), expected.len() as u64);
-        hadris_cd::async_send::write(&mut dev, &tree, &options)
+        hadris_cd::r#async::write(&mut dev, &tree, &options)
             .await
             .unwrap();
         assert_eq!(dev.get_ref(), &expected);

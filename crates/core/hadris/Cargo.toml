@@ -12,7 +12,7 @@ keywords = ["filesystem", "disk-image", "fat32", "iso9660", "no-std"]
 categories = ["filesystem", "embedded", "no-std"]
 
 [package.metadata.docs.rs]
-features = ["std", "sync", "async", "async-send", "write", "block", "optical", "archive", "unstable-ntfs"]
+features = ["std", "sync", "async", "write", "block", "optical", "archive", "unstable-ntfs"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
@@ -21,8 +21,6 @@ std = ["alloc", "hadris-io/std", "hadris-storage/std", "hadris-fs/std", "hadris-
 alloc = ["hadris-io/alloc", "hadris-storage/alloc", "hadris-fs/alloc", "hadris-fat?/alloc", "hadris-part?/alloc", "hadris-ntfs?/alloc", "hadris-iso?/alloc", "hadris-udf?/alloc", "hadris-cpio?/alloc", "hadris-block?/alloc", "hadris-optical?/alloc"]
 sync = ["hadris-io/sync", "hadris-storage/sync", "hadris-fs/sync", "hadris-fat?/sync", "hadris-part?/sync", "hadris-ntfs?/sync", "hadris-iso?/sync", "hadris-udf?/sync", "hadris-cd?/sync", "hadris-cpio?/sync", "hadris-block?/sync", "hadris-optical?/sync"]
 async = ["hadris-io/async", "hadris-storage/async", "hadris-fs/async", "hadris-fat?/async", "hadris-part?/async", "hadris-ntfs?/async", "hadris-iso?/async", "hadris-udf?/async", "hadris-cd?/async", "hadris-cpio?/async", "hadris-block?/async", "hadris-optical?/async"]
-# The asynchronous API a third time, with `Send` futures, in `async_send`.
-async-send = ["async", "hadris-io/async-send", "hadris-storage/async-send", "hadris-fs/async-send", "hadris-fat?/async-send", "hadris-part?/async-send", "hadris-ntfs?/async-send", "hadris-iso?/async-send", "hadris-udf?/async-send", "hadris-cd?/async-send", "hadris-cpio?/async-send", "hadris-block?/async-send", "hadris-optical?/async-send"]
 # FAT formatting.
 write = ["hadris-fat?/write", "hadris-block?/write"]
 fat = ["dep:hadris-fat"]
