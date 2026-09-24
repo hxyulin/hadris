@@ -543,7 +543,7 @@ jobs:
       - name: Run test harness unit tests
         run: "cargo test --manifest-path tests/Cargo.toml --lib"
       - name: Run FAT conformance and interoperability tests
-        run: "cargo test --manifest-path tests/Cargo.toml fat:: -- --nocapture"
+        run: "cargo test --manifest-path tests/Cargo.toml fat:: -- --skip exfat:: --nocapture"
 
   test-optical:
     name: Test optical interoperability

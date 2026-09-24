@@ -9,7 +9,7 @@ mod common;
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 
-use common::{Device, Fs, Geometry, clean, fsck, le32};
+use common::{Device, Fs, Geometry, Tool, clean, fsck, le32};
 use hadris_fat::exfat::sync::ExFatFs;
 use hadris_fat::exfat::{MountOptions, VolumeLabel};
 use hadris_fs::sync::{DriverExt, FsDriver};
@@ -540,7 +540,14 @@ fn rename_keeps_benign_secondary_entries() {
             .unwrap(),
         b"data"
     );
-    fsck(&image, "vendor entry");
+    // exfatprogs before 1.2.3 takes every secondary entry after the stream
+    // extension as a name entry and rejects the vendor extension entry that
+    // the spec (7.8) allows, so it cannot check this image.
+    let tools: Vec<Tool> = [Tool::Local, Tool::Docker, Tool::MacOs]
+        .into_iter()
+        .filter(|tool| common::exfatprogs_version(tool).is_none_or(|v| v >= (1, 2, 3)))
+        .collect();
+    common::fsck_with(&image, "vendor entry", &tools);
 }
 
 #[test]

@@ -330,6 +330,34 @@ fn available(tool: &Tool) -> bool {
         && (!matches!(tool, Tool::MacOs) || Path::new("/sbin/fsck_exfat").exists())
 }
 
+/// The exfatprogs version `tool` runs, or `None` for other tools.
+pub fn exfatprogs_version(tool: &Tool) -> Option<(u32, u32, u32)> {
+    let output = match tool {
+        Tool::Local => Command::new("fsck.exfat").arg("-V").output().ok()?,
+        Tool::Docker => Command::new("docker")
+            .args(["run", "--rm", "hadris-exfatprogs", "fsck.exfat", "-V"])
+            .output()
+            .ok()?,
+        Tool::MacOs => return None,
+    };
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let version = text
+        .split("exfatprogs version :")
+        .nth(1)?
+        .split_whitespace()
+        .next()?;
+    let mut parts = version.split('.').map(|part| part.parse().ok());
+    Some((
+        parts.next()??,
+        parts.next()??,
+        parts.next().flatten().unwrap_or(0),
+    ))
+}
+
 fn attach(path: &Path) -> Option<String> {
     let out = Command::new("hdiutil")
         .args([
