@@ -11,6 +11,8 @@ enum Kind {
     Dir,
     File(Vec<u8>),
     Link(Vec<u8>),
+    /// A directory entry for another directory, as a corrupt image can hold.
+    Alias(usize),
 }
 
 struct Node {
@@ -64,6 +66,13 @@ impl MemFs {
             _ => Kind::File(data.to_vec()),
         };
         self.nodes.push(Some(Node { name: name.as_bytes().to_vec(), parent, kind }));
+    }
+
+    /// Adds `name` in `parent` as an entry for the directory `target`.
+    pub fn alias(&mut self, parent: &str, name: &str, target: &str) {
+        let parent = self.find(parent).expect("fixture parent exists");
+        let target = self.find(target).expect("fixture target exists");
+        self.nodes.push(Some(Node { name: name.as_bytes().to_vec(), parent, kind: Kind::Alias(target) }));
     }
 
     fn find(&self, path: &str) -> Option<usize> {
@@ -168,7 +177,10 @@ impl MemFs {
     pub async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, MemError> {
         self.device()?;
         let dir = self.dir(dir)?;
-        let found = self.child(dir, name.as_bytes()).ok_or(ErrorKind::NotFound)?;
+        let mut found = self.child(dir, name.as_bytes()).ok_or(ErrorKind::NotFound)?;
+        if let Some(Node { kind: Kind::Alias(target), .. }) = &self.nodes[found] {
+            found = *target;
+        }
         Ok(self.pin(found))
     }
 
@@ -178,6 +190,7 @@ impl MemFs {
             Kind::Dir => Metadata::new(FileType::Dir),
             Kind::File(data) => Metadata::new(FileType::File).with_len(data.len() as u64),
             Kind::Link(target) => Metadata::new(FileType::Symlink).with_len(target.len() as u64),
+            Kind::Alias(_) => return Err(ErrorKind::InvalidHandle.into()),
         })
     }
 
@@ -194,12 +207,13 @@ impl MemFs {
             let Some(node) = node.as_ref().filter(|n| n.parent == dir) else { continue };
             name.set_bytes(&node.name)?;
             *cursor = DirCursor::from_raw(i as u64);
-            let file_type = match node.kind {
-                Kind::Dir => FileType::Dir,
-                Kind::File(_) => FileType::File,
-                Kind::Link(_) => FileType::Symlink,
+            let (index, file_type) = match node.kind {
+                Kind::Dir => (i, FileType::Dir),
+                Kind::File(_) => (i, FileType::File),
+                Kind::Link(_) => (i, FileType::Symlink),
+                Kind::Alias(target) => (target, FileType::Dir),
             };
-            return Ok(Some(DirEntry::new(id(i), file_type, node.name.len())));
+            return Ok(Some(DirEntry::new(id(index), file_type, node.name.len())));
         }
         Ok(None)
     }

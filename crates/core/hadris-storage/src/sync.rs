@@ -17,11 +17,48 @@ fn is_read_only_handle(err: &std::io::Error) -> bool {
     cfg!(windows) && err.kind() == std::io::ErrorKind::PermissionDenied
 }
 
+/// The length of a disk device node on macOS, where `stat` and `lseek`
+/// report 0, from the `DKIOCGETBLOCKCOUNT` and `DKIOCGETBLOCKSIZE` ioctls.
+/// `None` for anything else.
+#[cfg(all(feature = "std", target_vendor = "apple"))]
+fn apple_device_len(file: &std::fs::File) -> Option<u64> {
+    use core::ffi::{c_int, c_ulong};
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::FileTypeExt;
+
+    const DKIOCGETBLOCKSIZE: c_ulong = 0x4004_6418;
+    const DKIOCGETBLOCKCOUNT: c_ulong = 0x4008_6419;
+    unsafe extern "C" {
+        fn ioctl(fd: c_int, request: c_ulong, ...) -> c_int;
+    }
+
+    let kind = file.metadata().ok()?.file_type();
+    if !kind.is_block_device() && !kind.is_char_device() {
+        return None;
+    }
+    let fd = file.as_raw_fd();
+    let mut size: u32 = 0;
+    let mut count: u64 = 0;
+    // SAFETY: `fd` is open for the life of `file`, and each request writes
+    // one value of the type its pointer points to.
+    let ok = unsafe {
+        ioctl(fd, DKIOCGETBLOCKSIZE, &mut size as *mut u32) == 0
+            && ioctl(fd, DKIOCGETBLOCKCOUNT, &mut count as *mut u64) == 0
+    };
+    if ok {
+        count.checked_mul(u64::from(size))
+    } else {
+        None
+    }
+}
+
 /// A host file is a block device with 512-byte blocks.
 ///
 /// Errors are the `std::io::Error` itself, so `raw_os_error()` survives. A
 /// file opened read-only fails writes with the OS error. The block count is
-/// measured by seeking to the end, which also works for block device nodes.
+/// measured by seeking to the end, which also works for block device nodes
+/// on Linux. On macOS, where a disk device node such as `/dev/disk4` seeks
+/// to 0, it is asked for its size.
 #[cfg(feature = "std")]
 impl BlockDevice for std::fs::File {
     fn block_size(&self) -> crate::BlockSize {
@@ -35,6 +72,12 @@ impl BlockDevice for std::fs::File {
         };
         let end = std::io::Seek::seek(&mut file, std::io::SeekFrom::End(0)).unwrap_or(0);
         let _ = std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(here));
+        #[cfg(target_vendor = "apple")]
+        if end == 0
+            && let Some(len) = apple_device_len(self)
+        {
+            return len / 512;
+        }
         end / 512
     }
 
@@ -337,5 +380,56 @@ mod device_tests {
             other => panic!("expected an OS error, got {other:?}"),
         }
         std::fs::remove_file(&path).unwrap();
+    }
+
+    /// A disk image attached with `hdiutil` is a device node whose length
+    /// `stat` and `lseek` report as 0. Skips when it cannot be attached.
+    #[cfg(target_vendor = "apple")]
+    #[test]
+    fn apple_disk_devices_are_measured() {
+        let path = std::env::temp_dir().join(std::format!(
+            "hadris-storage-disk-{}.img",
+            std::process::id()
+        ));
+        let mut image = std::vec![0u8; 1 << 20];
+        image[512..1024].fill(7);
+        std::fs::write(&path, &image).unwrap();
+        let attached = std::process::Command::new("hdiutil")
+            .args([
+                "attach",
+                "-nomount",
+                "-imagekey",
+                "diskimage-class=CRawDiskImage",
+            ])
+            .arg(&path)
+            .output();
+        let device = attached
+            .ok()
+            .filter(|out| out.status.success())
+            .and_then(|out| {
+                std::string::String::from_utf8_lossy(&out.stdout)
+                    .split_whitespace()
+                    .next()
+                    .map(std::string::ToString::to_string)
+            });
+        let Some(device) = device else {
+            std::fs::remove_file(&path).unwrap();
+            std::eprintln!("skipped: hdiutil cannot attach an image");
+            return;
+        };
+        let measured = std::fs::File::open(&device).map(|mut file| {
+            let mut block = [0u8; 512];
+            let read = file
+                .read_blocks(BlockIndex::new(1), &mut block)
+                .map(|()| block);
+            (file.block_count(), read.ok())
+        });
+        let _ = std::process::Command::new("hdiutil")
+            .args(["detach", &device])
+            .output();
+        std::fs::remove_file(&path).unwrap();
+        let (count, block) = measured.unwrap();
+        assert_eq!(count, 2048);
+        assert_eq!(block, Some([7u8; 512]));
     }
 }

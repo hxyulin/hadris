@@ -963,6 +963,23 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-storage (V3):** On macOS a `std::fs::File` opened on a disk
+  device node such as `/dev/disk4` reports its size from the
+  `DKIOCGETBLOCKCOUNT` and `DKIOCGETBLOCKSIZE` ioctls. `stat` and `lseek`
+  give 0 there, so the device had no blocks and every image on it failed to
+  open. The `hadris-iso verify` command measures its input the same way
+  instead of from file metadata, which is 0 for devices on Linux too.
+- **hadris-fs (V3):** `TreeExt::from_filesystem`, `copy_tree` and
+  `extract_to_host` fail with `ErrorKind::Corrupt` when a directory entry
+  leads back to a directory on its own path, as a corrupt ISO 9660 or UDF
+  image can hold, and with `ErrorKind::LimitExceeded` below 1024
+  directories. They walked such a tree without end. A copy of a directory
+  into itself on one volume now stops at the same depth instead of filling
+  the volume.
+- **hadris-fat (V3):** exFAT `remove`, and `rename` when it replaces a
+  node, free the clusters the node's Vendor Allocation entries (and other
+  benign secondary entries with an allocation) hold. They were left
+  allocated, and `check` reported them as lost.
 - **hadris-fs (V3):** Dropping a written `File` without `close` in the
   blocking API publishes its size and times, ignoring errors, so a file
   dropped before a power cut keeps its data reachable. On a `Volume` whose

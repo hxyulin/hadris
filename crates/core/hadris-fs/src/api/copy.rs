@@ -20,6 +20,23 @@ pub(super) fn link_buffer(len: u64) -> Result<Vec<u8>, ErrorKind> {
     }
 }
 
+/// Directories a tree walk descends before [`ErrorKind::LimitExceeded`].
+pub(super) const MAX_TREE_DEPTH: usize = 1024;
+
+/// Checks that a walk may enter the directory `child` below the directories
+/// of `path`, the current path from the top: a directory already on it is a
+/// cycle, which only a corrupt volume holds.
+pub(super) fn enter(path: impl ExactSizeIterator<Item = NodeId>, child: NodeId) -> Result<(), ErrorKind> {
+    if path.len() >= MAX_TREE_DEPTH {
+        return Err(ErrorKind::LimitExceeded);
+    }
+    let mut path = path;
+    if path.any(|node| node == child) {
+        return Err(ErrorKind::Corrupt);
+    }
+    Ok(())
+}
+
 /// A directory being copied: both nodes pinned, and the metadata to apply to
 /// the target once its contents are written (none for the top directory).
 struct Frame {
@@ -165,7 +182,14 @@ where
             let child_name = name.as_name().ok_or(ErrorKind::Corrupt)?;
             let child = src.lookup(from_dir, child_name).await?;
             match copy_node(src, child, dst, to_dir, child_name).await {
-                Ok(Some(frame)) => stack.push(frame),
+                Ok(Some(frame)) => {
+                    if let Err(err) = enter(stack.iter().map(|frame| frame.src), child) {
+                        src.forget(child);
+                        dst.forget(frame.dst);
+                        return Err(err.into());
+                    }
+                    stack.push(frame);
+                }
                 other => {
                     src.forget(child);
                     other?;
@@ -234,9 +258,12 @@ where
 /// permissions, owner and attributes are copied where `dst` can store them.
 /// Device nodes, FIFOs and sockets fail with [`ErrorKind::Unsupported`].
 /// Symlinks are copied as links, never followed; a target longer than 4096
-/// bytes fails with [`ErrorKind::LimitExceeded`]. Copying a directory into
-/// itself on one volume does not end until the volume is full. Each file is
-/// published, not flushed; call `sync` on `dst` to make the copy durable.
+/// bytes fails with [`ErrorKind::LimitExceeded`]. A directory entry that
+/// leads back to a directory on the path being copied fails with
+/// [`ErrorKind::Corrupt`], and a tree more than 1024 directories deep with
+/// [`ErrorKind::LimitExceeded`], which also ends a copy of a directory into
+/// itself on one volume. Each file is published, not flushed; call `sync` on
+/// `dst` to make the copy durable.
 ///
 /// ```rust,ignore
 /// copy_tree(&mut iso, "/EFI", &card, "/EFI")?;

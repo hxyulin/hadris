@@ -212,6 +212,23 @@ impl Set {
     fn extras(&self) -> &[RawEntry] {
         &self.raw[2 + self.name_len().div_ceil(raw::NAME_UNITS_PER_ENTRY)..self.count]
     }
+
+    /// The allocations and lengths that benign secondary entries, such as
+    /// Vendor Allocation entries, hold.
+    fn extra_allocs(&self) -> impl Iterator<Item = (Alloc, u64)> + '_ {
+        self.extras()
+            .iter()
+            .filter(|entry| {
+                entry[0] & raw::IMPORTANCE_BENIGN != 0 && entry[1] & raw::ALLOCATION_POSSIBLE != 0
+            })
+            .map(|entry| {
+                let alloc = Alloc {
+                    first: le32(entry, 20),
+                    contiguous: entry[1] & raw::NO_FAT_CHAIN != 0,
+                };
+                (alloc, le64(entry, 24))
+            })
+    }
 }
 
 /// Whether the entries form a File entry set with a Stream Extension, the
@@ -1330,7 +1347,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     }
 
     /// Removes the file or empty directory `name` from `dir` and frees its
-    /// clusters. `kind` says which of the two is expected.
+    /// clusters, with those its Vendor Allocation entries hold. `kind` says
+    /// which of the two is expected.
     ///
     /// Fails with [`ErrorKind::IsADirectory`] or
     /// [`ErrorKind::NotADirectory`] when the entry is not of `kind`, with
@@ -1367,7 +1385,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         if let Some(id) = pinned {
             self.unlink(id);
         }
-        self.free_alloc(state.alloc(), state.len).await
+        self.free_alloc(state.alloc(), state.len).await?;
+        self.free_extras(&found.set).await
     }
 
     /// Moves `from` in `from_dir` to `to` in `to_dir`. The moved node keeps
@@ -1376,7 +1395,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     ///
     /// An existing `to` is replaced unless `flags` has
     /// [`RenameFlags::NO_REPLACE`] ([`ErrorKind::AlreadyExists`]): a file by
-    /// a file, an empty directory by a directory; an open target fails with
+    /// a file, an empty directory by a directory; the replaced node's
+    /// clusters are freed as by `remove`; an open target fails with
     /// [`ErrorKind::Busy`]. The result is named `to` as given, and takes
     /// the target's entries when it fits them. A rename that changes only
     /// the case rewrites the entry set in place. Moving a directory into
@@ -2968,7 +2988,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             self.unlink(id);
         }
         let _ = target.slot;
-        self.free_alloc(target_node.alloc(), target_node.len).await
+        self.free_alloc(target_node.alloc(), target_node.len).await?;
+        self.free_extras(&target.set).await
     }
 
     /// Stores `value` as the FAT entry of `cluster`.
@@ -3398,7 +3419,16 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         Ok(())
     }
 
-    /// Extends a file's allocation to hold `end` bytes. The new clusters
+    /// Frees the allocations of the benign secondary entries of `set`,
+    /// which is no longer on disk.
+    async fn free_extras(&mut self, set: &Set) -> FsResult<(), D::Error> {
+        for (alloc, len) in set.extra_allocs() {
+            self.free_alloc(alloc, len).await?;
+        }
+        Ok(())
+    }
+
+        /// Extends a file's allocation to hold `end` bytes. The new clusters
     /// are linked but not zeroed, and stay pending until the caller has
     /// recorded the new size.
     async fn cover(&mut self, state: &Node, end: u64) -> FsResult<Growth, D::Error> {
