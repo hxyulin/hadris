@@ -60,7 +60,7 @@ tests/
     fat/{spec,limits,peers,native}.rs
     exfat/{spec,limits,native}.rs
     iso/{spec,peers,native,volume_descriptors,directory,multi_extent,
-         rock_ridge,relocation,boot,hybrid}.rs
+         rock_ridge,relocation,boot,hybrid,session}.rs
 ```
 
 Tests are addressed as `<format>::<topic>::<name>`:

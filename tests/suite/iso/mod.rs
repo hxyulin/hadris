@@ -6,6 +6,7 @@ mod native;
 mod peers;
 mod relocation;
 mod rock_ridge;
+mod session;
 mod spec;
 mod volume_descriptors;
 

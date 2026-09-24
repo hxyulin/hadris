@@ -3,7 +3,7 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use hadris_fs::tree::{Content, Tree, Warning, WarningKind};
+use hadris_fs::tree::{Content, NodeKind, Tree, Warning, WarningKind};
 use hadris_fs::{
     Clock, DirCursor, ErrorKind, Extent, FileType, MountError, NameBuf, NodeId, SetMetadata,
 };
@@ -22,8 +22,11 @@ use crate::raw::{self, SECTOR_SIZE};
 use crate::report::Report;
 
 const SECTOR: u64 = SECTOR_SIZE as u64;
-/// The system area, and the backup GPT region after the data.
-type Tables512 = (Vec<u8>, Option<Vec<u8>>);
+/// The system area, the backup GPT region after the data, and the first
+/// sectors of partitions that kept their size.
+type Tables512 = (Vec<u8>, Option<Vec<u8>>, Vec<u64>);
+/// Sectors of a kept boot catalog read to patch its entries.
+const CATALOG_SECTORS: u64 = 8;
 /// The largest extent a stored file keeps: a multiple of the block size.
 const MAX_EXTENT: u64 = (u32::MAX as u64 / SECTOR) * SECTOR;
 
@@ -103,6 +106,9 @@ pub struct Session<D> {
     tree: Tree,
     volume_blocks: u64,
     catalog: Option<u32>,
+    /// The byte offset in the kept catalog of each entry whose boot image
+    /// is a file of the tree, and that file's path.
+    boot: Vec<(usize, String)>,
     options: IsoOptions,
     warnings: Vec<Warning>,
 }
@@ -123,14 +129,19 @@ impl<D: BlockDevice> Session<D> {
             Ok((tree, options, warnings)) => {
                 let volume_blocks = u64::from(iso.volume_blocks());
                 let catalog = iso.boot_catalog_block();
-                Ok(Self {
+                let mut session = Self {
                     dev: iso.into_inner(),
                     tree,
                     volume_blocks,
                     catalog,
+                    boot: Vec::new(),
                     options,
                     warnings,
-                })
+                };
+                match session.map_boot_images().await {
+                    Ok(()) => Ok(session),
+                    Err(err) => Err(MountError::new(err.into(), session.dev)),
+                }
             }
             Err(err) => Err(MountError::new(err.into(), iso.into_inner())),
         }
@@ -149,7 +160,8 @@ impl<D: BlockDevice> Session<D> {
     /// Options that write the tree back as the image has it: its volume
     /// identifiers, Joliet level, Rock Ridge and enhanced tree, at Level 3.
     /// El Torito is left out: without it in the options, the image's boot
-    /// catalog is kept as it is.
+    /// catalog is kept, and its entries follow their boot images (see
+    /// [`write`](Self::write)).
     pub fn options(&self) -> IsoOptions {
         self.options.clone()
     }
@@ -166,28 +178,52 @@ impl<D: BlockDevice> Session<D> {
 
     /// Writes the tree back as `mode` says and returns the [`Report`].
     ///
-    /// Without El Torito in `opts`, the image's boot catalog is kept; with
-    /// it, a new catalog is written. With hybrid boot in `opts`, new
-    /// partition tables replace the old ones. Afterwards the tree's new
-    /// files point at their new extents, so the session can be written
-    /// again.
+    /// Without El Torito in `opts`, the image's boot catalog is kept, and
+    /// its entries follow the tree paths of their boot images: an entry
+    /// whose image was replaced points at the new content, in place in the
+    /// old catalog, and one whose image was removed fails with
+    /// [`ErrorKind::InvalidInput`] and [`Detail::BootImage`]. Boot
+    /// information tables in replaced images are not written. With El
+    /// Torito in `opts`, a new catalog is written.
+    ///
+    /// New data goes after the old volume and after every partition of
+    /// the image's partition table, so partitions appended after the ISO
+    /// data (`xorriso -append_partition`) are kept. The system area is
+    /// written only by [`SessionMode::Rewrite`]: with hybrid boot in `opts`,
+    /// new partition tables replace the old ones; without, the old tables
+    /// are kept and their partitions that ended with the old volume grow
+    /// with it, unless that would overlap another partition.
+    /// [`SessionMode::Append`] never writes the system area; it warns when
+    /// `opts` has hybrid boot or the image has partition tables, which
+    /// then still describe the previous session.
+    ///
+    /// Afterwards the tree's new files point at their new extents, so the
+    /// session can be written again.
     pub async fn write<C: Clock>(&mut self, opts: &IsoOptions<C>, mode: SessionMode) -> Result<Report, Error<D::Error>> {
         check_block_size(&self.dev)?;
         let contents = measure(&self.tree, true).await.map_err(never)?;
         let old = self.volume_blocks;
+        let existing = self.partition_tables(old).await?;
+        let has_tables = existing.is_some();
+        let mut floor = existing.as_ref().map_or(old, |tables| tables.floor.max(old));
+        if mode == SessionMode::Append {
+            floor = floor.max(existing.as_ref().map_or(0, |tables| tables.backup_end.div_ceil(4)));
+        }
         let tables = match (mode, opts.hybrid()) {
-            (SessionMode::Rewrite, None) => self.partition_tables(old).await?,
+            (SessionMode::Rewrite, None) => existing,
             _ => None,
         };
         let keep_catalog = match opts.el_torito() {
             Some(_) => None,
             None => self.catalog,
         };
-        let floor = tables.as_ref().map_or(old, |tables| tables.floor.max(old));
+        if keep_catalog.is_some() {
+            self.check_boot_images()?;
+        }
         let base = match mode {
             SessionMode::Append => Base {
-                descriptors: old + u64::from(raw::DESCRIPTOR_START),
-                first_block: old,
+                descriptors: floor + u64::from(raw::DESCRIPTOR_START),
+                first_block: floor,
                 fill_gaps: false,
                 system_area: false,
                 keep_catalog,
@@ -215,7 +251,14 @@ impl<D: BlockDevice> Session<D> {
                     data,
                 });
             }
-            if self.has_partition_table().await {
+            if opts.hybrid().is_some() {
+                plan.report.warn(Warning::new(
+                    "/",
+                    WarningKind::IgnoredMetadata,
+                    "an appended session does not write the system area; the hybrid boot options were not applied",
+                ));
+            }
+            if has_tables {
                 plan.report.warn(Warning::new(
                     "/",
                     WarningKind::IgnoredMetadata,
@@ -223,14 +266,28 @@ impl<D: BlockDevice> Session<D> {
                 ));
             }
         }
+        if let Some(block) = keep_catalog
+            && let Some(region) = self.patched_catalog(block, &plan.report).await?
+        {
+            plan.regions.push(region);
+        }
         if let Some(tables) = tables {
-            let (system, tail) = self.updated_tables(tables, old, plan.end_blocks, plan.total_blocks).await?;
+            let (system, tail, kept) = self.updated_tables(tables, plan.end_blocks, plan.total_blocks).await?;
             plan.regions.push(Region::Bytes { block: 0, data: system });
             if let Some(tail) = tail {
                 plan.regions.push(Region::Bytes {
                     block: plan.end_blocks,
                     data: tail,
                 });
+            }
+            for start in kept {
+                plan.report.warn(Warning::new(
+                    "/",
+                    WarningKind::IgnoredMetadata,
+                    alloc::format!(
+                        "the partition at 512-byte sector {start} keeps its size: growing it over the new data would overlap another partition"
+                    ),
+                ));
             }
         }
         plan.regions.sort_by_key(Region::block);
@@ -241,6 +298,7 @@ impl<D: BlockDevice> Session<D> {
         self.volume_blocks = plan.total_blocks;
         if keep_catalog.is_none() {
             self.catalog = None;
+            self.boot.clear();
         }
         self.store_new_files(&plan.report, &contents);
         Ok(plan.report)
@@ -283,14 +341,87 @@ impl<D: BlockDevice> Session<D> {
         }
     }
 
-    async fn has_partition_table(&mut self) -> bool {
-        let len = self.dev.block_count().saturating_mul(u64::from(self.dev.block_size().get()));
-        let mut sectors = Sectors { dev: &mut self.dev, len };
-        super::part::read(&mut sectors).await.is_ok()
+    /// Records, for each entry of the kept boot catalog, the tree path of
+    /// its boot image: the file whose first extent it loads.
+    async fn map_boot_images(&mut self) -> Result<(), Error<D::Error>> {
+        self.boot.clear();
+        let Some(block) = self.catalog else {
+            return Ok(());
+        };
+        let bytes = self.read_catalog(block).await?;
+        let entries = catalog_entries(&bytes);
+        let mut firsts = BTreeMap::new();
+        let mut pending = vec![(String::new(), self.tree.root())];
+        while let Some((prefix, dir)) = pending.pop() {
+            for (name, child) in dir.children() {
+                let path = alloc::format!("{prefix}/{name}");
+                if child.file_type() == FileType::Dir {
+                    pending.push((path, child));
+                } else if let Some(NodeKind::File(content)) = Some(child.kind())
+                    && let Some(first) = content.stored_extents().and_then(|extents| extents.first())
+                {
+                    firsts.entry(first.offset()).or_insert(path);
+                }
+            }
+        }
+        for (at, rba) in entries {
+            if let Some(path) = firsts.get(&(u64::from(rba) * SECTOR)) {
+                self.boot.push((at, path.clone()));
+            }
+        }
+        Ok(())
     }
 
-    /// The partition table of the image, when it has one that `Rewrite`
-    /// can extend.
+    /// Fails when a boot image the kept catalog loads is gone from the tree.
+    fn check_boot_images<E>(&self) -> Result<(), Error<E>> {
+        for (_, path) in &self.boot {
+            match self.tree.get(path).map(|node| node.kind()) {
+                Some(NodeKind::File(content)) if content.len() != Some(0) => {}
+                _ => return Err(Error::invalid(Detail::BootImage)),
+            }
+        }
+        Ok(())
+    }
+
+    /// The sectors of the catalog at `block` that hold its entries.
+    async fn read_catalog(&mut self, block: u32) -> Result<Vec<u8>, Error<D::Error>> {
+        let len = self.dev.block_count().saturating_mul(u64::from(self.dev.block_size().get()));
+        let offset = u64::from(block) * SECTOR;
+        let size = (CATALOG_SECTORS * SECTOR).min(len.saturating_sub(offset));
+        let mut bytes = vec![0u8; size as usize];
+        super::image::read_bytes(&mut self.dev, len, offset, &mut bytes).await?;
+        Ok(bytes)
+    }
+
+    /// The kept catalog at `block` with each entry pointing at where its
+    /// boot image is now, or `None` when none moved.
+    async fn patched_catalog(&mut self, block: u32, report: &Report) -> Result<Option<Region>, Error<D::Error>> {
+        if self.boot.is_empty() {
+            return Ok(None);
+        }
+        let mut bytes = self.read_catalog(block).await?;
+        let mut changed = false;
+        for (at, path) in &self.boot {
+            let extent = report.extent_of(path).ok_or(Error::invalid(Detail::BootImage))?;
+            let rba = u32::try_from(extent.offset() / SECTOR).map_err(|_| Error::invalid(Detail::ImageTooLarge))?;
+            let field = &mut bytes[at + 8..at + 12];
+            if field != rba.to_le_bytes() {
+                field.copy_from_slice(&rba.to_le_bytes());
+                changed = true;
+            }
+        }
+        if !changed {
+            return Ok(None);
+        }
+        let used = self.boot.iter().map(|(at, _)| at + 32).max().unwrap_or(0);
+        bytes.truncate(used.div_ceil(SECTOR_SIZE) * SECTOR_SIZE);
+        Ok(Some(Region::Bytes {
+            block: u64::from(block),
+            data: bytes,
+        }))
+    }
+
+    /// The partition table of the image, when it has one.
     async fn partition_tables(&mut self, old: u64) -> Result<Option<Tables>, Error<D::Error>> {
         let len = self.dev.block_count().saturating_mul(u64::from(self.dev.block_size().get()));
         let mut sectors = Sectors { dev: &mut self.dev, len };
@@ -303,29 +434,48 @@ impl<D: BlockDevice> Session<D> {
             .max()
             .unwrap_or(0);
         let gpt = !matches!(disk.table(), PartitionTable::Mbr(_));
-        let iso_end = match disk.table() {
-            PartitionTable::Gpt(gpt) => backup_array(gpt).min(old * 4),
-            PartitionTable::Hybrid(hybrid) => backup_array(hybrid.gpt()).min(old * 4),
-            _ => old * 4,
+        let (iso_end, backup_end) = match disk.table() {
+            PartitionTable::Gpt(gpt) => (backup_array(gpt).min(old * 4), gpt.backup_lba() + 1),
+            PartitionTable::Hybrid(hybrid) => (
+                backup_array(hybrid.gpt()).min(old * 4),
+                hybrid.gpt().backup_lba() + 1,
+            ),
+            _ => (old * 4, 0),
         };
-        Ok(Some(Tables { disk, floor, gpt, iso_end }))
+        Ok(Some(Tables { disk, floor, gpt, iso_end, backup_end }))
     }
 
-    /// The system area with the tables moved to the new size, and the
-    /// backup GPT region after the data.
+    /// The system area with the tables moved to the new size, the backup
+    /// GPT region after the data, and the first sectors of partitions that
+    /// ended with the old volume but cannot grow with it.
     async fn updated_tables(
         &mut self,
         tables: Tables,
-        _old: u64,
         end: u64,
         total: u64,
     ) -> Result<Tables512, Error<D::Error>> {
         let bad = |_| Error::invalid(Detail::HybridBoot);
         let new_iso_end = end * 4;
-        let extends = |start: u64, len: u64| {
+        let spans: Vec<(u64, u64)> = tables
+            .disk
+            .partitions()
+            .map(|partition| (partition.start(), partition.end()))
+            .collect();
+        let ends_with_volume = |start: u64, len: u64| {
             let last = start + len;
             last <= tables.iso_end && last + 4 >= tables.iso_end
         };
+        let fits = |start: u64| {
+            spans
+                .iter()
+                .all(|&(other, other_end)| other == start || other_end <= start || other >= new_iso_end)
+        };
+        let kept: Vec<u64> = spans
+            .iter()
+            .filter(|&&(start, end)| ends_with_volume(start, end - start) && !fits(start))
+            .map(|&(start, _)| start)
+            .collect();
+        let extends = |start: u64, len: u64| ends_with_volume(start, len) && fits(start);
         let bootstrap = *tables.disk.bootstrap();
         let mut disk = match tables.disk.into_table() {
             PartitionTable::Mbr(mut mbr) => {
@@ -374,7 +524,7 @@ impl<D: BlockDevice> Session<D> {
                 return Err(Error::invalid(Detail::HybridBoot));
             }
         }
-        Ok((system, (!tail.is_empty()).then_some(tail)))
+        Ok((system, (!tail.is_empty()).then_some(tail), kept))
     }
 }
 
@@ -489,6 +639,43 @@ struct Tables {
     gpt: bool,
     /// The 512-byte sector after the old ISO data.
     iso_end: u64,
+    /// The 512-byte sector after the backup GPT, or 0 for an MBR.
+    backup_end: u64,
+}
+
+/// The byte offset and load block of each boot entry in the El Torito
+/// catalog `bytes`: the default entry and the entries of each section.
+fn catalog_entries(bytes: &[u8]) -> Vec<(usize, u32)> {
+    let rba = |at: usize| {
+        u32::from_le_bytes([bytes[at + 8], bytes[at + 9], bytes[at + 10], bytes[at + 11]])
+    };
+    let mut out = Vec::new();
+    if bytes.len() < 64 || bytes[0] != 1 {
+        return out;
+    }
+    out.push((32, rba(32)));
+    let mut pos = 64;
+    while let Some(&kind) = bytes.get(pos) {
+        if kind != raw::HEADER_MORE && kind != raw::HEADER_FINAL || pos + 32 > bytes.len() {
+            break;
+        }
+        let count = u16::from_le_bytes([bytes[pos + 2], bytes[pos + 3]]);
+        pos += 32;
+        for _ in 0..count {
+            if pos + 32 > bytes.len() {
+                return out;
+            }
+            out.push((pos, rba(pos)));
+            pos += 32;
+            while bytes.get(pos) == Some(&0x44) {
+                pos += 32;
+            }
+        }
+        if kind == raw::HEADER_FINAL {
+            break;
+        }
+    }
+    out
 }
 
 fn backup_array(gpt: &Gpt) -> u64 {

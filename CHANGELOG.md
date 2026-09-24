@@ -1005,6 +1005,17 @@ Each published package owns its version and may be released independently.
   require a metadata partition (UDF 2.50 2.2.10), which it does not write.
   It labelled type 1 volumes 2.50 or 2.60 before, which conforming readers
   may refuse.
+- **hadris-iso (V3):** `Session` keeps its boot catalog in step with the
+  tree: an entry whose boot image was replaced points at the new content,
+  patched in the kept catalog, and removing a boot image the catalog loads
+  fails with `Detail::BootImage` instead of leaving the old loader
+  bootable. Sessions start after every partition and backup GPT, so
+  partitions `xorriso -append_partition` put after the ISO data are no
+  longer overwritten by `Append` or refused by `Rewrite` with a misleading
+  `Detail::HybridBoot`; a partition that cannot grow without overlapping
+  another keeps its size and is reported. `Append` warns when the options
+  have hybrid boot it does not apply, and the `Session::write` and
+  `SessionMode` docs say which mode writes the system area.
 
 ## [2.4.0] - 2026-09-08
 
