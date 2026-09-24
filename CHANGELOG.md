@@ -10,6 +10,36 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-fat (V3):** exFAT is stable. `ExFatFs<D, T, C>` in
+  `hadris_fat::exfat::{sync, r#async, async_send}`, a sibling of `FatFs`,
+  replaces the preview. It needs no allocator, implements the writable
+  `FsDriver` through `impl_fs_driver!` (with `parent`, `open_node`,
+  `close_node` and `publish_node`) and passes the contract kit in all three
+  modes. It reads contiguous and chained allocations, fragmented allocation
+  bitmaps and up-case tables, entry sets that cross clusters and benign
+  secondary entries (kept across renames), and writes FAT chains: create,
+  remove, rename with `NO_REPLACE`, `write_at`, `set_len` (reads past
+  `ValidDataLength` return zeros), attributes and the four times, directory
+  growth, `label` and `set_label`, `VolumeDirty` and `PercentInUse`. Mounts
+  check the boot checksum and fall back to a valid backup boot region
+  read-only, and mount read-only when the up-case table fails its checksum.
+  TexFAT
+  volumes with two FATs are mounted through `ActiveFat` and written with
+  both FATs and both bitmaps kept equal. `format` takes
+  `exfat::FormatOptions` (`with_label`, `with_volume_id`,
+  `with_sector_size`, `with_cluster_size`, `with_alignment`,
+  `with_partition_offset`, `with_fat_count`, `with_clock`) and lays out
+  volumes like `mkfs.exfat`; `check` and `check_with` report
+  `exfat::Finding`s without an allocator. `exfat::raw` holds the boot
+  sector, entry layouts and constants. Qualified by the conformance suite
+  against exfatprogs, macOS `newfs_exfat`/`fsck_exfat` and the macOS
+  kernel driver.
+- **hadris-block (V3):** `OpenVolume` opens exFAT as `ExFatFs`, with
+  `as_exfat`, `as_exfat_mut` and `into_exfat`.
+- **hadris-io (V3):** `SeekFrom` is a Hadris `#[non_exhaustive]` enum with
+  `resolve(current, len)`, converting to and from `std::io::SeekFrom` with
+  `std` and the `embedded-io` types with the new `embedded-io` feature.
+
 - **hadris-ntfs (V3):** Rewritten on `hadris-storage` block devices, with
   the same API in `sync`, `r#async` and `async_send` (new `async-send`
   feature). `NtfsFs::open` reads a volume without an allocator: records,
@@ -401,6 +431,15 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fat (V3):** The `unstable-exfat` feature is gone: `exfat` is
+  in every build and covered by semver. Its API is new; see Added and
+  Removed.
+- **hadris-io (V3):** `embedded-io` and `embedded-io-async` are optional,
+  behind the `embedded-io` feature, which also gates `FromEmbedded` and
+  the embedded conversions.
+- **hadris-block (V3):** Opening exFAT no longer fails with
+  `Detail::UnsupportedFormat`.
+
 - **hadris-ntfs (V3):** The whole API is new; see Added and Removed.
   Features are `std`, `alloc`, `sync`, `async` and `async-send`, reading
   needs no allocator, and no feature changes what an item does. The boot
@@ -682,6 +721,14 @@ Each published package owns its version and may be released independently.
 - **hadris (V3):** Re-exports `hadris-io` as `hadris::io`.
 
 ### Removed
+
+- **hadris-fat (V3):** The exFAT preview API: `ExFatVolume`, `ExFatInfo`,
+  `ExFatDir`, `ExFatDirIter`, `ExFatFileEntry`, `ExFatFileReader`,
+  `ExFatFileWriter`, `ExFatFormatOptions`, `ExFatLayoutParams`,
+  `calculate_layout`, `format_exfat`, `exfat::Error` and `Result`, and the
+  public allocation and hashing helpers. Use `ExFatFs`, `exfat::raw` and
+  `exfat::FormatOptions`.
+- **hadris-io (V3):** `hadris_io::legacy`, the last V2 stream traits.
 
 - **hadris-ntfs (V3):** The V2 API: `NtfsFs` over `hadris_io::legacy`
   streams with `root_dir`, `open_path` and `read_mft_record`, `NtfsDir`,
