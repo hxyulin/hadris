@@ -1,95 +1,79 @@
 # hadris-ntfs
 
-`hadris-ntfs` is an experimental, read-only NTFS filesystem reader. It
-supports synchronous and asynchronous I/O and can be used in `no_std`
-environments with an allocator.
+`hadris-ntfs` is a read-only NTFS reader that needs no allocator. It is a
+preview in Hadris 3.0: it implements the `hadris-fs` `FsDriver` trait, whose
+shape is frozen, and its native methods may still change in 3.x minors.
 
-The crate is suitable for inspecting known-good NTFS volumes. It is not yet a
-complete recovery, repair, or forensic implementation.
+`NtfsFs` opens a volume on any `hadris-storage` block device, in blocking,
+asynchronous and `Send` asynchronous forms, so the path helpers, `Volume`
+and file handles of `hadris-fs` work on it.
+
+```rust,no_run
+use hadris_fs::sync::DriverExt;
+use hadris_ntfs::sync::NtfsFs;
+
+let image = std::fs::File::open("disk.img")?;
+let mut ntfs = NtfsFs::open(image)?;
+for entry in ntfs.read_dir("/")? {
+    println!("{:?}", entry?.name());
+}
+let data = ntfs.read_to_vec("/docs/readme.txt")?;
+# let _ = data;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
 
 ## Supported scope
 
-The current reader supports:
+- Boot sector geometry, sector sizes of 256 to 4096 bytes, and clusters of
+  up to 2 MiB.
+- MFT and index records of up to 4096 bytes, protected by update sequence
+  arrays in 512-byte strides.
+- Resident, non-resident, sparse and partly initialized streams.
+- `$ATTRIBUTE_LIST`: streams, names and index roots in extension records,
+  and a `$MFT` of up to 32 extents.
+- Directory indexes, with their allocation bitmaps and resumable cursors.
+- UTF-16 names, with unpaired surrogates shown as U+FFFD; Win32 and DOS
+  names compare through the volume's `$UpCase` table, POSIX names exactly.
+- Times and DOS attributes from `$STANDARD_INFORMATION`, hard link counts,
+  named data streams (`streams`, `read_stream_at`), the volume label, and
+  free space from `$Bitmap`.
 
-- boot-sector signature and geometry validation;
-- MFT records protected by update sequence arrays;
-- resident and non-resident unnamed data streams;
-- sparse data runs and zero-filled uninitialized stream tails;
-- resident directory indexes and active index-allocation buffers selected by
-  the directory bitmap;
-- UTF-16 filenames, including surrogate pairs;
-- POSIX case-sensitive lookup and Win32/DOS lookup using the volume's
-  `$UpCase` table; and
-- MFT sequence-number validation for file references.
-
-See the [NTFS specification coverage matrix](../../../docs/spec-coverage.md#hadris-ntfs)
-for implementation-level coverage and source references.
+Listings leave out DOS 8.3 aliases and the metadata files (MFT records below
+16, such as `$MFT`); a lookup by name still finds them. Node ids are file
+references, so they are stable and hard links share one.
 
 ## Limitations
 
-- The filesystem is read-only. Creating, modifying, deleting, formatting, and
-  repairing volumes are not supported.
-- `$ATTRIBUTE_LIST` records are recognized but not resolved. Attributes stored
-  in extension FILE records are therefore unavailable; fragmented MFT data,
-  files, or indexes that depend on extension records may fail to open or appear
-  incomplete.
-- `$MFTMirr` is not used to recover unreadable MFT records.
-- NTFS-compressed and encrypted data streams are rejected rather than decoded.
-- Only the unnamed `$DATA` stream is exposed; named alternate data streams are
-  not available through the public file API.
-- Reparse-point payloads and their filesystem semantics are not interpreted.
-- `$LogFile` replay, dirty-volume recovery, and consistency checking are not
-  implemented.
-- Security descriptors, timestamps, hard-link metadata, and several other NTFS
-  metadata attributes are not exposed by the high-level API.
-- Directory enumeration scans active index buffers. It does not yet perform a
-  keyed descent through the on-disk B-tree, so large-directory lookup is not
-  optimized.
-
-Do not use this crate as the sole source for recovery or forensic conclusions
-from damaged, dirty, adversarial, compressed, or encrypted volumes.
-
-## Example
-
-```rust,no_run
-use std::fs::File;
-
-use hadris_io::StdIo;
-use hadris_ntfs::sync::{NtfsFs, NtfsFsReadExt};
-
-let image = File::open("disk.img")?;
-let filesystem = NtfsFs::open(StdIo::new(image))?;
-
-for entry in filesystem.root_dir().entries()? {
-    println!(
-        "{} ({})",
-        entry.name(),
-        if entry.is_directory() { "directory" } else { "file" }
-    );
-}
-
-# Ok::<(), Box<dyn std::error::Error>>(())
-```
+- The filesystem is read-only; the write methods of `FsDriver` fail with
+  `ReadOnly`.
+- `$MFTMirr` is not used to recover unreadable MFT records, and the `$Mft`
+  bitmap is not consulted.
+- Compressed and encrypted streams fail with `Unsupported`.
+- Reparse points (symbolic links, junctions) are shown as ordinary files and
+  directories.
+- Security descriptors are not read.
+- Lookups scan the directory index instead of descending its B-tree by key.
+- `$LogFile` is not replayed, so a volume that was not cleanly unmounted may
+  read inconsistently.
 
 ## Feature flags
 
 | Feature | Default | Description |
 | --- | --- | --- |
-| `read` | Yes | Enables filesystem reading and requires `alloc`. |
-| `std` | Yes | Enables standard-library support and `alloc`. |
-| `alloc` | Via `std`/`read` | Enables APIs that allocate. |
-| `sync` | Yes | Enables the synchronous API. |
-| `async` | No | Enables the asynchronous API. |
+| `std` | Yes | Implies `alloc`; `std::io::Error` conversions |
+| `alloc` | via `std` | `AnyError` conversions |
+| `sync` | Yes | The blocking API in `sync` |
+| `async` | No | The asynchronous API in `r#async` |
+| `async-send` | No | The asynchronous API with `Send` futures in `async_send` |
 
-`std` and the I/O mode are independent: disable default features to select
-`std` without `sync`, or to build an async-only reader. With default features,
-the synchronous API is available under `hadris_ntfs::sync` and is also
-re-exported from the crate root. Enable `async` to use `hadris_ntfs::r#async`.
+Reading needs no allocator in any mode. No feature changes what an item
+does.
 
 ## Development
 
-Run the NTFS checks from the repository root in the project development
-container:
+The tests in `tests/read.rs` build volumes with `mkntfs`, `ntfscp` and a
+`ntfs-3g` FUSE mount, and skip when the tools are missing. Run them in the
+project container:
 
 ```console
 scripts/test-ntfs.sh
@@ -103,7 +87,6 @@ scripts/test-ntfs.sh cargo test -p hadris-ntfs --all-features
 
 ## Documentation
 
-- [Feature and capability matrix](https://hxyulin.github.io/hadris/concepts/features)
 - [Specification coverage](../../../docs/spec-coverage.md#hadris-ntfs)
 - [API reference](https://docs.rs/hadris-ntfs)
 

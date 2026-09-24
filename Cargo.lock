@@ -505,13 +505,11 @@ dependencies = [
 name = "hadris-ntfs"
 version = "2.4.0"
 dependencies = [
- "bitflags 2.13.2",
  "bytemuck",
- "hadris-common",
+ "hadris-fs",
  "hadris-io",
  "hadris-macros",
- "spin",
- "static_assertions",
+ "hadris-storage",
  "tempfile",
 ]
 

@@ -13,5 +13,7 @@ areas remain useful, but cannot be labeled source-verified from this document.
 Focused parser evidence verifies that `0xFFFFFFFF` terminates the attribute
 sequence and that exhaustion without the marker is rejected.
 
-The most important source-backed gap is attribute-list processing: files that
-spill attributes into extension MFT records cannot yet be assembled.
+Attribute lists are followed: streams, names and index roots that spill into
+extension MFT records are read from them, and `$MFT` itself may span up to 32
+extents. The remaining source-backed gap is the `$Mft` bitmap, which the reader
+does not consult before loading a record.
