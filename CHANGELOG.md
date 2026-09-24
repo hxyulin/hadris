@@ -10,6 +10,55 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-ntfs (V3):** Rewritten on `hadris-storage` block devices, with
+  the same API in `sync`, `r#async` and `async_send` (new `async-send`
+  feature). `NtfsFs::open` reads a volume without an allocator: records,
+  index blocks and a page cache of `$UpCase` are fixed buffers, and MFT and
+  index records of up to 4096 bytes on device blocks of up to 4096 bytes
+  are supported. `NtfsFs` implements the read-only `FsDriver` through
+  `impl_fs_driver!` (with `parent`), so the `hadris-fs` path helpers,
+  `Volume`, handles and `extract_to_host` work on it, and passes
+  `contract::check_read_only`. Node ids are file references (the record
+  number with the sequence number in the top 16 bits), so hard links share
+  one id and no node table is needed. `$ATTRIBUTE_LIST` entries are
+  followed into extension records for streams, names and index roots, and
+  for a `$MFT` of up to 32 extents. Update sequence arrays are applied in
+  512-byte strides whatever the sector size. Metadata has the four times
+  and DOS attributes of `$STANDARD_INFORMATION` and the number of
+  non-DOS names. Listings leave out DOS aliases and the metadata files
+  (records below 16), which `lookup` still finds; an exact listed name
+  wins over a case-folded match, and names with unpaired surrogates show
+  U+FFFD. `streams` and `read_stream_at` read named data streams, and
+  `label`, `volume_serial`, `cluster_size`, `sector_size`,
+  `total_sectors`, `mft_record_size` and `index_record_size` are native;
+  `stats` counts free clusters from `$Bitmap`. `raw` holds `BootSector`
+  and the attribute, flag, namespace and record codes. `Error<E>` carries
+  an `ErrorKind`, a `Detail` and the device error, converts into
+  `hadris_fs::Error<E>`, `AnyError` and `std::io::Error`, and opening
+  fails with `MountError`. Compressed and encrypted streams fail with
+  `Unsupported`. NTFS stays a preview.
+- **hadris-block (V3):** `detect` recognizes NTFS (`BlockFormat::Ntfs`),
+  checking the NTFS and exFAT OEM identifiers before partition entries.
+  `OpenVolume` opens FAT12/16/32 and NTFS in every build and implements
+  `FsDriver` by delegation (with `parent`, `open_node`, `close_node` and
+  `publish_node`); NTFS answers writes with `ReadOnly`, and the contract
+  kit passes through it. `open_detected` takes a `BlockFormat`, and
+  `format` returns one. The `unstable-ntfs` feature re-exports
+  `hadris-ntfs` as `ntfs` and adds `as_ntfs`, `as_ntfs_mut` and
+  `into_ntfs`. `Error` and `OpenError` convert into `AnyError` with
+  `alloc`.
+- **hadris-optical (V3):** `OpenOpticalImage` owns a block device, opens
+  UDF as `UdfFs` or ISO 9660 as an `IsoView` of the preferred namespace,
+  and implements the read-only `FsDriver` by delegation (with `parent` and
+  `read_link`); `as_iso`, `as_iso_mut`, `into_iso`, `as_udf`, `as_udf_mut`
+  and `into_udf` reach the drivers. A failed open gives the device back in
+  an `OpenError`. Detection and opening exist in `sync`, `r#async` and
+  `async_send` and need no allocator.
+- **hadris (V3):** Re-exports `hadris::storage` and `hadris::fs` always,
+  and each format crate at a flat path behind a feature of the same name:
+  `fat`, `part`, `iso`, `udf`, `cd`, `cpio`, `block`, `optical`, and the
+  NTFS preview as `ntfs` behind `unstable-ntfs`.
+
 - **hadris-udf (V3):** Rewritten on `hadris-storage` block devices, with
   the same API in `sync`, `r#async` and `async_send`. `UdfFs::open` reads
   a volume without an allocator: it finds an anchor at block 256, N-256 or
@@ -352,6 +401,37 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-ntfs (V3):** The whole API is new; see Added and Removed.
+  Features are `std`, `alloc`, `sync`, `async` and `async-send`, reading
+  needs no allocator, and no feature changes what an item does. The boot
+  sector is read from the device's first block instead of the stream's
+  current position. Volumes with 4096-byte sectors now apply their update
+  sequences correctly, and the root directory's `$INDEX_ROOT` in an
+  extension record, which ntfs-3g writes, is followed. `hadris-common`,
+  `bitflags` and `spin` are no longer dependencies.
+- **hadris-block (V3):** `Error<E>` is a struct with `kind`, `detail`
+  (`Detail::{UnknownFormat, PartitionedDisk, UnsupportedFormat,
+  FormatMismatch, Mount}`) and `device_error`, and exists in every feature
+  combination, as does `OpenError`. `OpenVolume` is a struct over a private
+  driver enum instead of an enum with a `Fat` variant. Detection needs no
+  feature, and `hadris-storage`, `hadris-fs`, `hadris-fat` and
+  `hadris-ntfs` are always dependencies. The default features are `std`
+  and `sync`.
+- **hadris-optical (V3):** Detection and opening take a `hadris-storage`
+  `BlockDevice` instead of a `hadris_io::legacy` stream, and detection
+  reads the descriptors of devices with blocks of 512 to 4096 bytes.
+  `Error<E>` is a struct with `kind`, `detail`
+  (`Detail::{UnknownFormat, FormatUnavailable, Mount}`) and
+  `device_error`, and exists in every feature combination. `OpenOpticalImage`
+  is a struct over a private driver enum. `hadris-iso`, `hadris-udf`,
+  `hadris-storage` and `hadris-fs` are always dependencies, and the default
+  features are `std` and `sync`.
+- **hadris (V3):** No longer reaches formats through the facades:
+  `hadris::fat`, `hadris::iso` and the other formats are the format crates
+  themselves. `block` adds `hadris-block` with `fat` and `part`, `optical`
+  adds `hadris-optical` with `iso`, `udf` and `cd`, and `write` forwards
+  FAT formatting. The default features are `std`, `sync`, `write`, `fat`,
+  `iso` and `cpio`.
 - **hadris-udf (V3):** The whole API is new; see Added and Removed.
   Features are `std`, `alloc`, `sync`, `async` and `async-send`, and no
   feature changes what an item does. Volumes are byte for byte those of
@@ -603,6 +683,29 @@ Each published package owns its version and may be released independently.
 
 ### Removed
 
+- **hadris-ntfs (V3):** The V2 API: `NtfsFs` over `hadris_io::legacy`
+  streams with `root_dir`, `open_path` and `read_mft_record`, `NtfsDir`,
+  `NtfsEntry`, `FileReader`, `NtfsFsReadExt`, `NtfsError` and `Result`,
+  the public `attr` module (`AttrIter`, `NtfsAttr`, `AttrBody`, `DataRun`,
+  `DataRunDecoder`, `FileNameInfo`, `IndexEntryInfo`, `parse_file_name`,
+  `parse_index_entries`, `apply_fixups`, `decode_data_runs`,
+  `decode_record_size`, `decode_utf16le`), `RawNtfsBootSector` (now
+  `raw::BootSector`), the glob re-exports of `sync` and `raw` at the root,
+  and the `read` feature. Use `NtfsFs` in a mode module with the node API
+  or the `hadris-fs` path helpers.
+- **hadris-block (V3):** The `Error` enum variants (`Device`,
+  `UnknownFormat`, `PartitionedDisk`, `UnsupportedFormat`,
+  `DetectedFormatMismatch`, `Fat`), the `Result` alias,
+  `OpenVolume::Fat`, and the `read`, `detect`, `storage` and `fat`
+  features.
+- **hadris-optical (V3):** The transitional `StreamBlocks` adapter,
+  `OpenOpticalImage<'a, S>` over borrowed legacy streams with
+  `as_iso9660` and `as_iso9660_mut`, the `Error` enum (`Io`,
+  `UnknownFormat`, `RequestedFormatUnavailable`, `Iso`, `Udf`) and the
+  `Result` alias, and the `read`, `write`, `detect`, `open`, `iso` and
+  `udf` features. `hadris-optical` no longer uses `hadris_io::legacy`.
+- **hadris (V3):** The `read`, `fs` and `storage` features; the formats'
+  `read` features they forwarded are gone.
 - **hadris-udf (V3):** The V2 API: `UdfVolume` over `hadris_io` streams
   with `UdfVolumeInfo`, `UdfDir`, `UdfDirEntry`, `read_file`,
   `read_directory` and `root_dir`, `UdfWriter` and its public descriptor

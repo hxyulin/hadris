@@ -15,15 +15,15 @@ storage categories.
 | Need | Start with | Why |
 |---|---|---|
 | FAT12/16/32 filesystem access | [`hadris-fat`](https://docs.rs/hadris-fat) | Complete FAT API, including formatting and mutation |
-| Experimental read-only NTFS access | [`hadris-ntfs`](https://docs.rs/hadris-ntfs) | NTFS remains a separate experimental leaf crate |
+| Read-only NTFS access (preview) | [`hadris-ntfs`](https://docs.rs/hadris-ntfs) | Allocation-free reader; its native API is a preview |
 | MBR or GPT partition tables | [`hadris-part`](https://docs.rs/hadris-part) | Concrete partition parsing and writing |
-| Block-format detection and partition slices | [`hadris-block`](https://docs.rs/hadris-block) | Combines storage, partitions, and FAT without erasing concrete types |
+| Block-format detection and opening | [`hadris-block`](https://docs.rs/hadris-block) | Detects FAT, NTFS and partition tables and opens FAT and NTFS through one driver |
 | ISO 9660 images | [`hadris-iso`](https://docs.rs/hadris-iso) | ISO, Joliet, Rock Ridge, and El Torito APIs |
 | UDF images | [`hadris-udf`](https://docs.rs/hadris-udf) | UDF descriptors, reading, and image creation |
-| ISO/UDF detection and opening | [`hadris-optical`](https://docs.rs/hadris-optical) | Detects bridge images and applies an explicit open policy |
+| ISO/UDF detection and opening | [`hadris-optical`](https://docs.rs/hadris-optical) | Detects bridge images and opens one filesystem by an explicit policy |
 | Hybrid ISO/UDF authoring | [`hadris-cd`](https://docs.rs/hadris-cd) | Builds images sharing file data between both filesystems |
 | CPIO newc archives or initramfs | [`hadris-cpio`](https://docs.rs/hadris-cpio) | Streaming CPIO reader (newc, CRC, odc, binary) and writer |
-| Several categories through one dependency | [`hadris`](https://docs.rs/hadris) | Re-exports selected category facades |
+| Several categories through one dependency | [`hadris`](https://docs.rs/hadris) | Re-exports every crate at a flat path, one feature per format |
 
 ## Leaf crates
 
@@ -41,13 +41,15 @@ hadris-fat = "2.4.0"
 
 ## Category facades
 
-Category facades combine related layers and add detection or opening policy:
+Category facades detect a format and open it:
 
-- `hadris-block` combines storage traits, partitions, FAT, and block detection.
-- `hadris-optical` combines ISO, UDF, bridge detection, and hybrid authoring.
+- `hadris-block` detects FAT, NTFS, exFAT and partition tables and opens FAT
+  and NTFS as one `OpenVolume`.
+- `hadris-optical` detects ISO 9660, UDF and bridge images and opens one of
+  them as an `OpenOpticalImage`.
 
-Facades preserve the underlying leaf types. They do not force unrelated
-formats behind one generic filesystem interface.
+Both openers implement the `hadris-fs` driver trait by delegating to the
+format's driver, and keep that driver reachable for its native API.
 
 ## The umbrella crate
 
@@ -59,12 +61,14 @@ single dependency declaration.
 hadris = {
   version = "2.4.0",
   default-features = false,
-  features = ["std", "sync", "read", "block", "optical"]
+  features = ["std", "sync", "block", "optical"]
 }
 ```
 
-Using the umbrella does not enable every format automatically. Select category,
-platform, I/O, and capability features explicitly.
+The umbrella always re-exports `hadris::io`, `hadris::storage` and
+`hadris::fs`, and each format at a flat path (`hadris::fat`, `hadris::iso`)
+behind a feature of the same name. Select format, platform and I/O features
+explicitly.
 
 ## Foundation crates
 
@@ -76,17 +80,19 @@ points for kernels, firmware, and other storage libraries:
 | `hadris-io` | Sync and async byte-stream traits and adapters |
 | `hadris-storage` | Logical-block geometry, device traits, and bounded views |
 | `hadris-fs` | Shared filesystem vocabulary and allocation-free lexical paths |
-| `hadris-common` | Internal endian integers for the FAT and NTFS layouts; not for direct use |
+| `hadris-common` | Internal endian integers for the FAT layouts; not for direct use |
 | `hadris-macros` | Internal dual sync/async code-generation support |
 
 ## Experimental APIs
 
-The `unstable-exfat` feature and `hadris-ntfs` crate are outside the stable V2
+The `unstable-exfat` feature and `hadris-ntfs` crate are outside the stable
 API promise. They are appropriate for evaluation and compatibility testing,
 but callers should expect API and behavior changes.
 
-NTFS is intentionally not opened by `hadris-block` or re-exported by the
-`hadris` umbrella. exFAT remains an opt-in feature of `hadris-fat`.
+`hadris-block` opens NTFS through the driver trait in every build; its
+`unstable-ntfs` feature, like the umbrella's, adds the NTFS re-export and
+access to the NTFS driver's native API. exFAT remains an opt-in feature of
+`hadris-fat`.
 
 ## Next steps
 

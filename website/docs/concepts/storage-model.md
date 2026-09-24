@@ -53,18 +53,17 @@ partitions and keeps offsets relative to the filesystem start.
 
 `hadris-part` reads, edits and writes MBR, GPT and hybrid tables on a block
 device, and its `open` turns a partition into such a slice. `hadris-block` adds
-detection on block devices when an application needs both the partition and
-filesystem layers.
+detection on block devices, and opens the FAT or NTFS volume a slice holds,
+when an application needs both the partition and filesystem layers.
 
 ## Format handles
 
 Leaf crates such as `hadris-fat`, `hadris-iso`, and `hadris-udf` expose their
-complete format-specific handles. Category facades detect and open formats but
-return concrete handles rather than a lowest-common-denominator filesystem
-trait.
-
-That preserves format-specific features such as FAT attributes, Rock Ridge
-metadata, UDF descriptors, and partition GUIDs.
+complete format-specific handles. Category facades detect and open formats,
+implement the `hadris-fs` driver trait over whichever driver they opened, and
+keep that driver reachable, so generic code lists and reads any volume while
+format-specific features such as FAT attributes, Rock Ridge metadata and UDF
+descriptors stay available.
 
 ## Entry and content lifetimes
 

@@ -13,25 +13,29 @@ format's full validation.
 ```toml
 [dependencies]
 hadris-block = "2.4.0"
+hadris-fs = "2.4.0"
 ```
 
 ```rust,no_run
-use hadris_block::{detect, sync::OpenVolume};
+use hadris_block::detect::BlockFormat;
+use hadris_block::sync::OpenVolume;
+use hadris_fs::sync::DriverExt;
 use std::fs::File;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut image = File::open("disk.img")?;
-    let format = detect::sync::detect(&mut image)?;
+    let format = hadris_block::detect::sync::detect(&mut image)?;
     println!("detected: {format:?}");
 
     match format {
-        Some(detect::BlockFormat::Fat(_)) => {
-            let opened = OpenVolume::open(&mut image)?;
-            println!("FAT variant: {:?}", opened.format());
-            let fat = opened.into_fat().ok().expect("the detector reported FAT");
-            println!("FAT kind: {:?}", fat.kind());
+        Some(BlockFormat::Fat(_) | BlockFormat::Ntfs) => {
+            let mut volume = OpenVolume::open(image)?;
+            println!("opened {:?}", volume.format());
+            for entry in volume.read_dir("/")? {
+                println!("{:?}", entry?.name());
+            }
         }
-        Some(detect::BlockFormat::PartitionTable(kind)) => {
+        Some(BlockFormat::PartitionTable(kind)) => {
             println!("partitioned disk: {kind:?}");
         }
         Some(other) => println!("other block format: {other:?}"),
@@ -44,9 +48,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 Detection and `OpenVolume` take any `hadris-storage` block device; a
 `std::fs::File` is one with 512-byte blocks, and the device's block size is
-the logical block size used to find a GPT header. The opened FAT volume is a
-`hadris_fat::sync::FatFs`, which works with the `hadris-fs` path helpers.
-Errors are `hadris_block::Error<E>`, carrying the device's error type.
+the logical block size used to find a GPT header. `OpenVolume` opens
+FAT12/16/32 as `hadris_fat`'s `FatFs` and NTFS, read-only, as
+`hadris_ntfs`'s `NtfsFs`, and implements the `hadris-fs` driver trait over
+either, so the path helpers work on the result. `as_fat` and `into_fat`
+reach the FAT driver. Errors are `hadris_block::Error<E>`, carrying the
+device's error type, and a failed open returns the device in an
+`OpenError`.
 
 `OpenVolume` intentionally refuses a whole partitioned disk. Select a partition
 and restrict the device to it before opening its filesystem.
@@ -55,23 +63,26 @@ and restrict the device to it before opening its filesystem.
 
 ```toml
 [dependencies]
-hadris-io = "2.4.0"
+hadris-fs = "2.4.0"
 hadris-optical = "2.4.0"
 ```
 
 ```rust,no_run
-use hadris_io::StdIo;
+use hadris_fs::sync::DriverExt;
 use hadris_optical::{OpenPolicy, sync::OpenOpticalImage};
 use std::fs::File;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut image = StdIo::new(File::open("disc.img")?);
-    let opened = OpenOpticalImage::open(&mut image, OpenPolicy::PreferUdf)?;
+    let image = File::open("disc.img")?;
+    let mut opened = OpenOpticalImage::open(image, OpenPolicy::PreferUdf)?;
 
     if let Some(udf) = opened.as_udf() {
-        println!("UDF volume: {}", udf.info().volume_id);
-    } else if opened.as_iso9660().is_some() {
+        println!("UDF volume: {}", udf.volume_id());
+    } else if opened.as_iso().is_some() {
         println!("ISO 9660 image");
+    }
+    for entry in opened.read_dir("/")? {
+        println!("{:?}", entry?.name());
     }
 
     Ok(())
@@ -80,7 +91,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 Bridge images can contain valid ISO 9660 and UDF filesystems simultaneously.
 Use `PreferUdf` or `PreferIso9660` for fallback behavior, and `Udf` or
-`Iso9660` when the requested format is mandatory.
+`Iso9660` when the requested format is mandatory. ISO 9660 opens with the
+preferred namespace; open `hadris-iso` directly to choose another.
 
 ## Detection is not validation
 
