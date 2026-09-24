@@ -1,34 +1,15 @@
-#![cfg(all(
-    feature = "std",
-    feature = "alloc",
-    feature = "write",
-    feature = "async"
-))]
-
+use core::convert::Infallible;
 use core::future::Future;
 use core::task::{Context, Poll};
 use std::sync::Arc;
 use std::task::{Wake, Waker};
 
-use hadris_cpio::r#async::{
-    CpioArchiveReader, CpioArchiveWriter, CpioWriteOptions, FileNode, FileTree, Write,
-};
-
-#[derive(Default)]
-struct AsyncVec(Vec<u8>);
-
-impl Write for AsyncVec {
-    async fn write(&mut self, bytes: &[u8]) -> hadris_io::legacy::Result<usize> {
-        self.0.extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-
-    async fn flush(&mut self) -> hadris_io::legacy::Result<()> {
-        Ok(())
-    }
-}
+use hadris_cpio::{CpioOptions, Format};
+use hadris_fs::tree::{Content, Tree};
+use hadris_io::{Cursor, StdIo};
 
 struct ThreadWaker(std::thread::Thread);
+
 impl Wake for ThreadWaker {
     fn wake(self: Arc<Self>) {
         self.0.unpark();
@@ -38,7 +19,7 @@ impl Wake for ThreadWaker {
 fn block_on<F: Future>(future: F) -> F::Output {
     let waker = Waker::from(Arc::new(ThreadWaker(std::thread::current())));
     let mut context = Context::from_waker(&waker);
-    let mut future = std::pin::pin!(future);
+    let mut future = core::pin::pin!(future);
     loop {
         match future.as_mut().poll(&mut context) {
             Poll::Ready(output) => return output,
@@ -47,44 +28,87 @@ fn block_on<F: Future>(future: F) -> F::Output {
     }
 }
 
-#[test]
-fn async_finish_recovers_target_and_roundtrips() {
-    block_on(async {
-        let mut tree = FileTree::new();
-        tree.add(FileNode::file("hello", b"async cpio".to_vec(), 0o644));
+#[derive(Default)]
+struct Sink(Vec<u8>);
 
-        let target = CpioArchiveWriter::new(AsyncVec::default(), CpioWriteOptions::default())
-            .finish(&tree)
-            .await
-            .unwrap();
-        assert!(!target.0.is_empty());
+impl hadris_io::ErrorType for Sink {
+    type Error = Infallible;
+}
 
-        let mut reader = CpioArchiveReader::new(hadris_io::Cursor::new(target.0.as_slice()));
-        let entry = reader.next_entry_alloc().await.unwrap().unwrap();
-        assert_eq!(entry.name_str().unwrap(), "hello");
-        assert_eq!(
-            reader.read_entry_data_alloc(&entry).await.unwrap(),
-            b"async cpio"
-        );
-    });
+impl hadris_io::r#async::Write for Sink {
+    async fn write(&mut self, bytes: &[u8]) -> Result<usize, Infallible> {
+        self.0.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    async fn flush(&mut self) -> Result<(), Infallible> {
+        Ok(())
+    }
+}
+
+impl hadris_io::async_send::Write for Sink {
+    fn write(&mut self, bytes: &[u8]) -> impl Future<Output = Result<usize, Infallible>> + Send {
+        self.0.extend_from_slice(bytes);
+        core::future::ready(Ok(bytes.len()))
+    }
+
+    fn flush(&mut self) -> impl Future<Output = Result<(), Infallible>> + Send {
+        core::future::ready(Ok(()))
+    }
+}
+
+fn tree() -> Tree {
+    let mut tree = Tree::new();
+    tree.add_file("bin/busybox", Content::bytes(vec![1u8; 5000]))
+        .unwrap();
+    tree.add_symlink("bin/sh", "busybox").unwrap();
+    tree.add_hard_link("linuxrc", "bin/busybox").unwrap();
+    tree
 }
 
 #[test]
-fn async_reader_rejects_invalid_and_truncated_headers_with_typed_errors() {
-    block_on(async {
-        let mut invalid = [0_u8; 110];
-        invalid[..6].copy_from_slice(b"999999");
-        let mut reader = CpioArchiveReader::new(hadris_io::Cursor::new(invalid.as_slice()));
-        assert!(matches!(
-            reader.next_entry_alloc().await,
-            Err(hadris_cpio::Error::InvalidMagic { found }) if &found == b"999999"
-        ));
+fn every_mode_writes_the_same_bytes() {
+    let options = CpioOptions::default().with_format(Format::NewcCrc);
+    let mut sync = StdIo::new(Vec::new());
+    hadris_cpio::sync::write(&mut sync, &tree(), &options).unwrap();
+    let sync = sync.into_inner();
 
-        let mut reader = CpioArchiveReader::new(hadris_io::Cursor::new(b"07070".as_slice()));
-        assert!(matches!(
-            reader.next_entry_alloc().await,
-            Err(hadris_cpio::Error::Io(error))
-                if error.kind() == hadris_io::legacy::ErrorKind::UnexpectedEof
-        ));
+    let mut local = Sink::default();
+    block_on(hadris_cpio::r#async::write(&mut local, &tree(), &options)).unwrap();
+    assert_eq!(local.0, sync);
+
+    let mut send = Sink::default();
+    let tree = tree();
+    let future = hadris_cpio::async_send::write(&mut send, &tree, &options);
+    fn assert_send<T: Send>(value: T) -> T {
+        value
+    }
+    block_on(assert_send(future)).unwrap();
+    assert_eq!(send.0, sync);
+}
+
+#[test]
+fn the_async_reader_reads_what_was_written() {
+    let mut sync = StdIo::new(Vec::new());
+    hadris_cpio::sync::write(&mut sync, &tree(), &CpioOptions::default()).unwrap();
+    let bytes = sync.into_inner();
+    block_on(async {
+        use hadris_io::r#async::Read;
+        let mut reader = hadris_cpio::r#async::CpioReader::new(Cursor::new(&bytes));
+        let mut names = Vec::new();
+        while let Some(mut entry) = reader.next_entry().await.unwrap() {
+            let mut data = vec![0u8; entry.len() as usize];
+            entry.read_exact(&mut data).await.unwrap();
+            names.push((entry.name_str().unwrap().to_string(), data.len()));
+        }
+        assert_eq!(
+            names,
+            [
+                ("bin".to_string(), 0),
+                ("bin/busybox".to_string(), 0),
+                ("bin/sh".to_string(), 7),
+                ("linuxrc".to_string(), 5000)
+            ]
+        );
     });
 }

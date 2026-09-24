@@ -200,64 +200,43 @@ fn dump_iso(data: &[u8]) -> Vec<String> {
 }
 
 fn dump_udf(data: &[u8]) -> Vec<String> {
-    use hadris_udf::UdfVolume;
+    use hadris_storage::{BlockSize, MemDevice};
+    use hadris_udf::sync::UdfFs;
 
-    let mut lines = Vec::new();
-    let Ok(fs) = UdfVolume::open(Cursor::new(data)) else {
-        return lines;
-    };
-    let Ok(root) = fs.root_dir() else {
-        return lines;
-    };
-    let mut budget = ENTRY_BUDGET;
-    let mut stack = vec![(root, String::from("/"), 0u32)];
-    while let Some((dir, path, depth)) = stack.pop() {
-        if depth > DEPTH_CAP {
-            continue;
-        }
-        for entry in dir.entries() {
-            if budget == 0 {
-                return lines;
-            }
-            budget -= 1;
-            if entry.is_parent() || entry.name().is_empty() {
-                continue;
-            }
-            let child_path = format!("{path}{}", entry.name());
-            if entry.is_dir() {
-                lines.push(format!("dir {child_path}"));
-                if let Ok(child) = fs.read_directory(&entry.icb) {
-                    stack.push((child, format!("{child_path}/"), depth + 1));
-                }
-            } else {
-                let content = fs.read_file(entry).unwrap_or_default();
-                let head = &content[..content.len().min(CONTENT_CAP)];
-                lines.push(file_line(entry.size, head, &child_path));
-            }
-        }
+    let mut bytes = data.to_vec();
+    bytes.resize(bytes.len().next_multiple_of(512), 0);
+    match UdfFs::open(MemDevice::new(bytes, BlockSize::new(512).unwrap())) {
+        Ok(mut fs) => dump_driver(&mut fs),
+        Err(_) => Vec::new(),
     }
-    lines
 }
 
 fn dump_cpio(data: &[u8]) -> Vec<String> {
-    use hadris_cpio::mode::FileType;
-    use hadris_cpio::sync::CpioArchiveReader;
+    use hadris_cpio::sync::CpioReader;
+    use hadris_fs::FileType;
+    use hadris_io::sync::Read;
 
     let mut lines = Vec::new();
     let mut budget = ENTRY_BUDGET;
-    let mut reader = CpioArchiveReader::new(Cursor::new(data));
-    while let Ok(Some(entry)) = reader.next_entry_alloc() {
+    let mut reader = CpioReader::new(Cursor::new(data));
+    while let Ok(Some(mut entry)) = reader.next_entry() {
         if budget == 0 {
             break;
         }
         budget -= 1;
         let name = String::from_utf8_lossy(entry.name()).into_owned();
-        let content = reader.read_entry_data_alloc(&entry).unwrap_or_default();
         match entry.file_type() {
-            FileType::Directory => lines.push(format!("dir {name}")),
+            FileType::Dir => lines.push(format!("dir {name}")),
             _ => {
-                let head = &content[..content.len().min(CONTENT_CAP)];
-                lines.push(file_line(u64::from(entry.file_size()), head, &name));
+                let mut head = vec![0u8; CONTENT_CAP];
+                let mut filled = 0;
+                while filled < head.len() {
+                    match entry.read(&mut head[filled..]) {
+                        Ok(0) | Err(_) => break,
+                        Ok(read) => filled += read,
+                    }
+                }
+                lines.push(file_line(entry.len(), &head[..filled], &name));
             }
         }
     }

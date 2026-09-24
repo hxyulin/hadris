@@ -30,9 +30,12 @@ hadris-cpio info archive.cpio
 # Create an archive from a directory
 hadris-cpio create -o archive.cpio ./my-directory
 hadris-cpio create -o archive.cpio --crc ./my-directory
+hadris-cpio create -o archive.cpio --format odc ./my-directory
+hadris-cpio create -o - ./my-directory | gzip > initramfs.img
 
-# Extract an archive
+# Extract an archive, from a file or standard input
 hadris-cpio extract -o ./output archive.cpio
+zcat initramfs.img | hadris-cpio extract -o ./output -
 
 # Print a file from the archive
 hadris-cpio cat archive.cpio path/to/file.txt
@@ -47,6 +50,10 @@ hadris-cpio cat archive.cpio path/to/file.txt
 | `create` | Create a CPIO archive from a directory |
 | `extract` | Extract an archive to a directory |
 | `cat` | Print a single file's contents to stdout |
+
+Every command that reads an archive takes `-` for standard input, and
+`create -o -` writes to standard output. The reader accepts `newc`,
+`newc` with checksums, `odc` and old binary archives.
 
 ### `list`
 
@@ -86,7 +93,10 @@ Entry Details
 
 ### `create`
 
-Packs a directory into a CPIO archive. Use `--crc` for the `070702` format.
+Packs a directory into a CPIO archive. Use `--crc` (or `--format crc`) for
+the `070702` format and `--format odc` for `070707`. Device nodes and hard
+links are stored; FIFOs and sockets are skipped with a warning. `--verbose`
+also lists the metadata cpio cannot store, such as access times.
 
 ```bash
 $ cpioutil create -o archive.cpio ./my-directory
@@ -98,7 +108,10 @@ Created newc+crc archive: archive.cpio
 
 ### `extract`
 
-Extracts files, directories, and symlinks. Device nodes and FIFOs are skipped with a warning.
+Extracts files, directories, symlinks and hard links. Device nodes and FIFOs
+are skipped with a warning. Names with `..` components, and names that lead
+through an existing symlink, are refused, so an archive cannot write outside
+the output directory.
 
 ```bash
 $ cpioutil extract -o ./output archive.cpio

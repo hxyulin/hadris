@@ -8,42 +8,54 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 readme = "README.md"
-description = "Pure Rust UDF filesystem library for optical media and disk images with no-std support"
+description = "Pure Rust UDF library with allocation-free reading and a writer for standalone and ISO 9660 bridge volumes"
 keywords = ["udf", "disk-image", "optical-disc", "filesystem", "no-std"]
 categories = ["filesystem", "embedded", "no-std"]
 
 [package.metadata.docs.rs]
-features = ["std", "read", "write", "sync", "async", "unstable-streaming"]
+features = ["std", "sync", "async", "async-send"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["std", "read", "sync"]
-# Read support
-read = ["hadris-common/bytemuck"]
-# Heap allocation without full std
-alloc = ["hadris-io/alloc", "hadris-fs/alloc"]
-# Standard library support (includes alloc)
-std = ["hadris-io/std", "hadris-common/std", "hadris-common/bytemuck", "alloc", "dep:thiserror"]
-# Write/format support (requires std)
-write = ["alloc", "std", "read"]
-# Synchronous API
-sync = ["hadris-io/sync", "hadris-common/sync"]
-# Asynchronous API
-async = ["hadris-io/async", "hadris-common/async"]
-# Unstable streaming input for the writer (`SimpleFile::from_source`, `FileSource`).
-# Outside the V2 stability promise; enabling it adds a field to `SimpleFile`.
-unstable-streaming = ["write"]
+default = ["std", "sync"]
+# The writer and the tree input.
+alloc = ["hadris-io/alloc", "hadris-fs/alloc", "hadris-storage/alloc"]
+# Implies `alloc`; `std::io::Error` conversions and host files as tree content.
+std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std"]
+sync = ["hadris-io/sync", "hadris-fs/sync", "hadris-storage/sync"]
+async = ["hadris-io/async", "hadris-fs/async", "hadris-storage/async"]
+# The asynchronous API a third time, with `Send` futures, in `async_send`.
+async-send = ["async", "hadris-io/async-send", "hadris-fs/async-send", "hadris-storage/async-send"]
 
 [dependencies]
-bitflags = { workspace = true, features = ["bytemuck"] }
-bytemuck = { workspace = true, features = ["derive"] }
-thiserror = { workspace = true, optional = true }
-hadris-io = { workspace = true }
-hadris-fs = { workspace = true }
+bitflags = { workspace = true }
+bytemuck = { workspace = true, features = ["derive", "min_const_generics"] }
+hadris-io = { workspace = true, default-features = false }
+hadris-fs = { workspace = true, default-features = false }
+hadris-storage = { workspace = true, default-features = false }
 hadris-macros = { workspace = true }
-hadris-common = { workspace = true, features = ["alloc"] }
-spin.workspace = true
 
 [dev-dependencies]
-static_assertions.workspace = true
+hadris-fs = { workspace = true, features = ["contract"] }
+hadris-storage = { workspace = true, features = ["std", "sync"] }
 tempfile.workspace = true
+
+[[test]]
+name = "roundtrip"
+required-features = ["std", "sync", "async-send"]
+
+[[test]]
+name = "contract"
+required-features = ["std", "sync", "async-send"]
+
+[[test]]
+name = "errors"
+required-features = ["std", "sync"]
+
+[[test]]
+name = "read"
+required-features = ["std", "sync"]
+
+[[test]]
+name = "interop"
+required-features = ["std", "sync"]

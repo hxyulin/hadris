@@ -1,73 +1,32 @@
-use std::fs::{self, File};
-use std::path::Path;
-
-use hadris_io::StdIo;
-use hadris_udf::{UdfDir, UdfVolume};
+use std::fs;
 
 use super::super::args::ExtractArgs;
-
-use super::{Result, navigate_to_path};
+use super::{Result, open};
 
 /// Extract files from a UDF image
 pub fn extract(args: ExtractArgs) -> Result<()> {
-    let file = File::open(&args.input)?;
-    let udf = UdfVolume::open(StdIo::new(file))?;
-
+    let mut udf = open(&args.input)?;
     fs::create_dir_all(&args.output)?;
-
-    let start = if let Some(ref path) = args.path {
-        navigate_to_path(&udf, path)?
-    } else {
-        udf.root_dir()?
-    };
-
-    let mut extracted_count = 0;
-    extract_dir(
-        &udf,
-        &start,
-        &args.output,
-        args.verbose,
-        &mut extracted_count,
-    )?;
-
-    println!(
-        "Extracted {} files to {}",
-        extracted_count,
-        args.output.display()
-    );
+    let from = args.path.as_deref().unwrap_or("/");
+    if args.verbose {
+        println!("Extracting {from} to {}", args.output.display());
+    }
+    hadris_fs::sync::extract_to_host(&mut udf, from, &args.output)?;
+    let count = walkdir_count(&args.output)?;
+    println!("Extracted {count} files to {}", args.output.display());
     Ok(())
 }
 
-fn extract_dir(
-    udf: &UdfVolume<StdIo<File>>,
-    dir: &UdfDir,
-    output_path: &Path,
-    verbose: bool,
-    count: &mut usize,
-) -> Result<()> {
-    for entry in dir.entries() {
-        if entry.is_parent() {
-            continue;
-        }
-
-        let name = entry.name();
-        if entry.is_dir() {
-            let child_path = output_path.join(name);
-            fs::create_dir_all(&child_path)?;
-            if verbose {
-                println!("Creating directory: {}", child_path.display());
-            }
-            let child = udf.read_directory(&entry.icb)?;
-            extract_dir(udf, &child, &child_path, verbose, count)?;
+fn walkdir_count(path: &std::path::Path) -> Result<usize> {
+    let mut count = 0;
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            count += walkdir_count(&entry.path())?;
         } else {
-            let file_path = output_path.join(name);
-            if verbose {
-                println!("Extracting: {} ({} bytes)", file_path.display(), entry.size);
-            }
-            let bytes = udf.read_file(entry)?;
-            fs::write(&file_path, bytes)?;
-            *count += 1;
+            count += 1;
         }
     }
-    Ok(())
+    Ok(count)
 }

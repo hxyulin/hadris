@@ -22,7 +22,7 @@ let mut image = StdIo::new(File::open("disc.iso")?);
 let opened = OpenOpticalImage::open(&mut image, OpenPolicy::PreferUdf)?;
 
 if let Some(udf) = opened.as_udf() {
-    println!("UDF volume: {}", udf.info().volume_id);
+    println!("UDF volume: {}", udf.logical_volume_id());
 }
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -39,17 +39,17 @@ handle.
 | `alloc` | yes | Heap-backed APIs without requiring `std` |
 | `sync` | yes | Synchronous I/O APIs |
 | `async` | no | Asynchronous read/open APIs |
-| `async-send` | no | The `async_send` mode of `hadris-iso` |
-| `read` | yes | UDF reading (ISO reading needs no feature) |
-| `write` | yes | UDF writing (the ISO writer comes with `alloc`) |
+| `async-send` | no | The `async_send` modes of `hadris-iso`, `hadris-udf` and `hadris-cd` |
+| `read` | yes | Kept for compatibility; reading needs no feature |
+| `write` | yes | Kept for compatibility; the writers come with `alloc` |
 | `detect` | via `open` | Non-destructive ISO/UDF detection |
 | `open` | yes | Detection plus policy-based opening |
 | `iso` | via `open` | Re-export `hadris-iso` |
 | `udf` | via `open` | Re-export `hadris-udf` |
-| `cd` | yes | Re-export the synchronous hybrid image writer |
+| `cd` | yes | Re-export the hybrid image writer |
 
-The hybrid `cd` writer is currently synchronous. For format-specific controls,
-use the re-exported `iso`, `udf`, and `cd` modules directly.
+For format-specific controls, use the re-exported `iso`, `udf`, and `cd`
+modules directly.
 
 ## Documentation
 

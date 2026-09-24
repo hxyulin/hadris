@@ -1,39 +1,62 @@
 #![no_main]
 //! Fuzz the CPIO reader: arbitrary bytes must never panic/abort/OOM.
 //!
-//! Drives the full streaming read path — header parse, filename allocation,
-//! entry-data allocation — over attacker-controlled `namesize`/`filesize`.
+//! Drives the streaming read path over every format the reader detects
+//! (newc, newc-crc, odc, old binary): header parse, name checks, reading
+//! part of each entry's data and skipping the rest, and concatenated
+//! archives after a trailer.
 //!
-//! Self-consistency oracle (failures are tagged `ORACLE:`): the archive is
-//! iterated twice from fresh cursors and the (name, size) entry sequence must
-//! be identical across both passes.
+//! Self-consistency oracles (failures are tagged `ORACLE:`): the archive is
+//! iterated twice from fresh cursors and the entry sequence must be
+//! identical, and an entry whose data reads without error yields exactly
+//! its declared length.
 
 use hadris_io::Cursor;
+use hadris_io::sync::Read;
 use libfuzzer_sys::fuzz_target;
 
-use hadris_cpio::sync::CpioArchiveReader;
+use hadris_cpio::sync::CpioReader;
 
-fn pass(data: &[u8]) -> Vec<(Vec<u8>, u32)> {
-    // The cursor is finite, so each entry consumes >= 1 header (110 bytes);
-    // the loop terminates when the input is exhausted (read returns Err).
-    let mut reader = CpioArchiveReader::new(Cursor::new(data));
+fn pass(data: &[u8], read_all: bool) -> Vec<(Vec<u8>, u64, u32)> {
+    let mut reader = CpioReader::new(Cursor::new(data));
     let mut entries = Vec::new();
-    while let Ok(Some(entry)) = reader.next_entry_alloc() {
-        entries.push((entry.name().to_vec(), entry.file_size()));
-        let _ = reader.read_entry_data_alloc(&entry);
+    let mut buf = [0u8; 97];
+    loop {
+        while let Ok(Some(mut entry)) = reader.next_entry() {
+            entries.push((entry.name().to_vec(), entry.len(), entry.mode()));
+            if !read_all {
+                let _ = entry.read(&mut buf);
+                continue;
+            }
+            let mut total = 0u64;
+            let complete = loop {
+                match entry.read(&mut buf) {
+                    Ok(0) => break true,
+                    Ok(read) => total += read as u64,
+                    Err(_) => break false,
+                }
+            };
+            if complete {
+                assert_eq!(
+                    total,
+                    entry.len(),
+                    "ORACLE: a fully read entry yielded a different length"
+                );
+            }
+        }
+        if !reader.at_trailer() {
+            break;
+        }
+        reader.continue_after_trailer();
     }
     entries
 }
 
-fn drive(data: &[u8]) {
-    let first = pass(data);
-    let second = pass(data);
+fuzz_target!(|data: &[u8]| {
+    let first = pass(data, true);
+    let second = pass(data, false);
     assert_eq!(
         first, second,
-        "ORACLE: repeated archive iteration produced a different entry sequence"
+        "ORACLE: reading or skipping the data produced a different entry sequence"
     );
-}
-
-fuzz_target!(|data: &[u8]| {
-    drive(data);
 });

@@ -1,12 +1,9 @@
 use std::fs;
-use std::path::Path;
 
-use hadris_io::StdIo;
-use hadris_udf::UdfRevision;
-use hadris_udf::write::{SimpleDir, SimpleFile, UdfWriteOptions, UdfWriter};
+use hadris_fs::tree::{FromFsOptions, OnError, Tree, WarningKind};
+use hadris_udf::{UdfOptions, UdfRevision};
 
 use super::super::args::CreateArgs;
-
 use super::Result;
 
 /// Create a new UDF image
@@ -18,71 +15,51 @@ pub fn create(args: CreateArgs) -> Result<()> {
         }
     }
 
-    // Parse the UDF revision string
     let revision = parse_revision(&args.revision)?;
-
-    // Build the directory tree from the source directory
-    let mut root = SimpleDir::root();
-    let file_count = build_dir(&args.source, &mut root, args.verbose)?;
-
-    if args.verbose {
-        println!("Found {file_count} files");
+    let tree = Tree::from_fs(
+        &args.source,
+        FromFsOptions::new().with_on_error(OnError::Warn),
+    )?;
+    for warning in tree.warnings() {
+        eprintln!("warning: {warning}");
     }
+    let options = UdfOptions::default()
+        .with_volume_id(args.volume_name.clone())
+        .with_revision(revision)
+        .with_clock(hadris_fs::SystemClock);
 
     if args.dry_run {
+        let report = hadris_udf::sync::plan(&tree, &options)?;
         println!("Dry run: would create UDF image");
         println!("  Volume name: {}", args.volume_name);
         println!("  UDF revision: {revision}");
-        println!("  Files: {file_count}");
+        println!(
+            "  Size: {} sectors ({} bytes)",
+            report.total_blocks(),
+            report.size_bytes()
+        );
         return Ok(());
     }
 
-    let options = UdfWriteOptions {
-        volume_id: args.volume_name.clone(),
-        revision,
-        ..UdfWriteOptions::default()
-    };
-
-    let output_file = fs::File::create(&args.output)?;
-    let sectors = UdfWriter::create(StdIo::new(output_file), &root, options)?.sectors_written;
+    let mut output = fs::File::create(&args.output)?;
+    let report = hadris_udf::sync::write(&mut output, &tree, &options)?;
+    for warning in report.warnings() {
+        if warning.kind() != WarningKind::IgnoredMetadata || args.verbose {
+            eprintln!("warning: {warning}");
+        }
+    }
 
     if args.verbose {
         println!(
             "Created UDF image: {} ({} sectors, {} bytes)",
             args.output.display(),
-            sectors,
-            sectors as u64 * 2048
+            report.total_blocks(),
+            report.size_bytes()
         );
     } else {
         println!("Created: {}", args.output.display());
     }
-
     Ok(())
-}
-
-/// Recursively build a SimpleDir tree from a filesystem path.
-/// Returns the total number of files added.
-fn build_dir(path: &Path, dir: &mut SimpleDir, verbose: bool) -> Result<usize> {
-    let mut count = 0;
-    for entry in fs::read_dir(path)? {
-        let entry = entry?;
-        let file_type = entry.file_type()?;
-        let name = entry.file_name().to_string_lossy().into_owned();
-
-        if file_type.is_dir() {
-            let mut subdir = SimpleDir::new(&name);
-            count += build_dir(&entry.path(), &mut subdir, verbose)?;
-            dir.add_dir(subdir);
-        } else if file_type.is_file() {
-            if verbose {
-                println!("  Adding: {}", entry.path().display());
-            }
-            let data = fs::read(entry.path())?;
-            dir.add_file(SimpleFile::new(name, data));
-            count += 1;
-        }
-    }
-    Ok(count)
 }
 
 /// Parse a UDF revision string like "1.02" into a supported UdfRevision.

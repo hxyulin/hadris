@@ -14,10 +14,10 @@ repository.workspace = true
 
 [features]
 default = ["read", "std", "sync"]
-sync = ["hadris-io/sync", "hadris-common/sync"]
-async = ["hadris-io/async", "hadris-common/async"]
+sync = ["hadris-io/sync"]
+async = ["hadris-io/async"]
 alloc = []
-std = ["alloc", "hadris-io/std", "hadris-common/std"]
+std = ["alloc", "hadris-io/std"]
 read = ["alloc"]
 
 [dependencies]

@@ -22,7 +22,7 @@ storage categories.
 | UDF images | [`hadris-udf`](https://docs.rs/hadris-udf) | UDF descriptors, reading, and image creation |
 | ISO/UDF detection and opening | [`hadris-optical`](https://docs.rs/hadris-optical) | Detects bridge images and applies an explicit open policy |
 | Hybrid ISO/UDF authoring | [`hadris-cd`](https://docs.rs/hadris-cd) | Builds images sharing file data between both filesystems |
-| CPIO newc archives or initramfs | [`hadris-cpio`](https://docs.rs/hadris-cpio) | Complete CPIO reader and writer |
+| CPIO newc archives or initramfs | [`hadris-cpio`](https://docs.rs/hadris-cpio) | Streaming CPIO reader (newc, CRC, odc, binary) and writer |
 | Several categories through one dependency | [`hadris`](https://docs.rs/hadris) | Re-exports selected category facades |
 
 ## Leaf crates
@@ -76,7 +76,7 @@ points for kernels, firmware, and other storage libraries:
 | `hadris-io` | Sync and async byte-stream traits and adapters |
 | `hadris-storage` | Logical-block geometry, device traits, and bounded views |
 | `hadris-fs` | Shared filesystem vocabulary and allocation-free lexical paths |
-| `hadris-common` | Internal endian, fixed-capacity text, and disk-format primitives; not for direct use |
+| `hadris-common` | Internal endian integers for the FAT and NTFS layouts; not for direct use |
 | `hadris-macros` | Internal dual sync/async code-generation support |
 
 ## Experimental APIs

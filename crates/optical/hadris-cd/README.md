@@ -13,29 +13,24 @@ This crate creates images that contain both ISO 9660 and UDF filesystems sharing
 ## Quick Start
 
 ```rust,no_run
-use hadris_cd::{OpticalImageWriter, OpticalImageOptions, FileTree, FileEntry};
-use hadris_io::StdIo;
+use hadris_cd::CdOptions;
+use hadris_fs::tree::{Content, FromFsOptions, Tree};
 
-let mut tree = FileTree::new();
-tree.add_file(FileEntry::from_buffer("readme.txt", b"Hello, World!".to_vec()));
+let mut tree = Tree::from_fs("image-root", FromFsOptions::new()).unwrap();
+tree.add_file("readme.txt", Content::bytes("Hello, World!")).unwrap();
 
-let options = OpticalImageOptions::default()
-    .volume_id("MY_DISC")
-    .joliet(hadris_cd::JolietLevel::L3);
-
-// The writer reads back the ISO structures while finishing the image, so the
-// output file must be opened readable as well as writable.
-let file = std::fs::OpenOptions::new()
-    .read(true)
-    .write(true)
-    .create(true)
-    .truncate(true)
-    .open("output.iso")
-    .unwrap();
-OpticalImageWriter::new(StdIo::new(file), options)
-    .finish(tree)
-    .unwrap();
+let mut out = std::fs::File::create("output.iso").unwrap();
+let report = hadris_cd::sync::write(&mut out, &tree, &CdOptions::default()).unwrap();
+println!("{} blocks", report.total_blocks());
 ```
+
+`CdOptions` holds the `IsoOptions` and `UdfOptions` of the two volumes
+(`with_iso`, `with_udf`, `with_clock`); both crates are re-exported as
+`hadris_cd::iso` and `hadris_cd::udf`. The writer places the ISO 9660
+structures after the UDF metadata, writes the ISO 9660 image, then writes
+the UDF volume in bridge mode pointing at the file extents the ISO report
+gives. Nothing is read back from the output. `plan` returns the report
+without writing, to size a device first.
 
 ## Disk Layout
 
@@ -43,11 +38,14 @@ The UDF Bridge format interleaves ISO 9660 and UDF structures:
 
 ```text
 Sector 0-15:    System area (boot code, partition tables)
-Sector 16-...:  ISO 9660 Volume Descriptors
-Sector 17-19:   UDF Volume Recognition Sequence (BEA01, NSR02, TEA01)
-Sector 256:     UDF Anchor Volume Descriptor Pointer
-Sector 257+:    UDF Volume Descriptor Sequence
-File data:      Shared between ISO and UDF (both point to same sectors)
+Sector 16-...:  ISO 9660 volume descriptors, then the UDF recognition
+                sequence (BEA01, NSR02 or NSR03, TEA01)
+Sector 256:     UDF anchor volume descriptor pointer
+Sector 257-289: UDF volume descriptor sequences and integrity descriptor
+Sector 290-...: UDF file set, file entries and directories
+Then:           ISO 9660 directories, path tables and the file data,
+                shared by both trees
+End:            UDF anchor at N-256 and 256 blocks after it
 ```
 
 ## Features
@@ -57,9 +55,8 @@ File data:      Shared between ISO and UDF (both point to same sectors)
 - **El-Torito** bootable images (BIOS and UEFI)
 - **Hybrid MBR+GPT** for USB booting
 
-Hybrid image creation currently delegates to the synchronous ISO and UDF
-writers. The crate therefore exposes a sync-only writer API. Its default features
-select both `std` and `sync` explicitly.
+The writer runs in `sync`, `r#async` and `async_send` (features `sync`,
+`async`, `async-send`), without `std` but with an allocator.
 
 Revision selection describes mastered Type-1 output; it does not add packet
 writing, VAT, sparing, metadata partitions, or pseudo-overwrite.

@@ -226,7 +226,7 @@ pub trait Endian {
     fn set(&mut self, value: Self::Output);
 }
 
-#[cfg(all(test, feature = "std"))]
+#[cfg(test)]
 mod tests {
     #[test]
     fn test_from_le_bytes() {

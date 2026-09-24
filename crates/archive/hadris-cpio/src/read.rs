@@ -1,481 +1,405 @@
-use super::super::Read;
-use super::entry::CpioEntryHeader;
-use super::header::{CpioMagic, HEADER_SIZE, RawNewcHeader, TRAILER_NAME};
-use crate::error::{Error, Result};
+use hadris_fs::{DateTime, DeviceNumber, FileTimes, FileType, Metadata, Mode};
 
-#[cfg(feature = "alloc")]
-use alloc::vec::Vec;
+use super::io::Read;
+use crate::error::{Detail, Error};
+use crate::header::{self, Header};
+use crate::options::{Format, ReaderOptions};
+use crate::raw::{PATH_MAX, TRAILER_NAME};
 
-/// Compute the number of padding bytes needed to align `offset` to a 4-byte boundary.
-fn align4_padding(offset: u64) -> u64 {
-    (4 - (offset % 4)) % 4
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum State {
+    /// Expecting a header or the end of the input.
+    Entries,
+    /// A trailer was read.
+    Trailer,
+    /// After `continue_after_trailer`: zero padding, then another archive.
+    Between,
+    /// The input ended, or reading failed.
+    Done,
 }
 
-const PATH_MAX: usize = 4096;
-
-fn validate_header(magic: CpioMagic, header: &CpioEntryHeader) -> Result<()> {
-    if magic == CpioMagic::Newc && header.check != 0 {
-        return Err(Error::InvalidHeader {
-            reason: "070701 c_check must be zero",
-        });
-    }
-    Ok(())
-}
-
-fn filename_len(bytes: &[u8]) -> Result<usize> {
-    let end = bytes
-        .iter()
-        .position(|byte| *byte == 0)
-        .unwrap_or(bytes.len());
-    if bytes[end..].iter().any(|byte| *byte != 0) {
-        return Err(Error::InvalidFilename);
-    }
-    Ok(end)
-}
-
-/// A decoded CPIO entry that borrows its filename from a caller-provided buffer.
+/// A streaming cpio archive reader.
 ///
-/// This is the no-alloc variant returned by [`CpioArchiveReader::next_entry_with_buf`].
-/// For an owned variant that allocates, see [`CpioEntryOwned`].
-#[derive(Debug)]
-pub struct CpioEntry<'a> {
-    header: CpioEntryHeader,
-    magic: CpioMagic,
-    name: &'a [u8],
-    entry_offset: u64,
-}
-
-impl<'a> CpioEntry<'a> {
-    /// Returns the decoded header fields.
-    pub fn header(&self) -> &CpioEntryHeader {
-        &self.header
-    }
-
-    /// Returns the archive format (newc or newc+CRC).
-    pub fn magic(&self) -> CpioMagic {
-        self.magic
-    }
-
-    /// Returns the filename as raw bytes.
-    pub fn name(&self) -> &[u8] {
-        self.name
-    }
-
-    /// Returns the filename as a UTF-8 string, if valid.
-    pub fn name_str(&self) -> core::result::Result<&str, core::str::Utf8Error> {
-        core::str::from_utf8(self.name)
-    }
-
-    /// Returns the file type extracted from the mode bits.
-    pub fn file_type(&self) -> crate::mode::FileType {
-        self.header.file_type()
-    }
-
-    /// Byte offset from the start of the archive where this entry's header begins.
-    pub fn entry_offset(&self) -> u64 {
-        self.entry_offset
-    }
-
-    /// Returns the file data size in bytes.
-    pub fn file_size(&self) -> u32 {
-        self.header.filesize
-    }
-}
-
-/// A decoded CPIO entry that owns its filename (requires `alloc`).
+/// It reads `newc`, `newc` with checksums, `odc` and old binary archives,
+/// one entry at a time, from any `hadris_io` `Read` stream, without an
+/// allocator. [`next_entry`](Self::next_entry) returns an [`Entry`] that
+/// borrows the reader and implements `Read` over the entry's data; data
+/// left unread is skipped by the next call. After an error it returns no
+/// more entries.
 ///
-/// This is the allocating variant returned by [`CpioArchiveReader::next_entry_alloc`].
-/// For a zero-alloc variant, see [`CpioEntry`].
-#[cfg(feature = "alloc")]
-#[derive(Debug)]
-pub struct CpioEntryOwned {
-    header: CpioEntryHeader,
-    magic: CpioMagic,
-    name: Vec<u8>,
-    entry_offset: u64,
-}
-
-#[cfg(feature = "alloc")]
-impl CpioEntryOwned {
-    /// Returns the decoded header fields.
-    pub fn header(&self) -> &CpioEntryHeader {
-        &self.header
-    }
-
-    /// Returns the archive format (newc or newc+CRC).
-    pub fn magic(&self) -> CpioMagic {
-        self.magic
-    }
-
-    /// Returns the filename as raw bytes.
-    pub fn name(&self) -> &[u8] {
-        &self.name
-    }
-
-    /// Returns the filename as a UTF-8 string, if valid.
-    pub fn name_str(&self) -> core::result::Result<&str, core::str::Utf8Error> {
-        core::str::from_utf8(&self.name)
-    }
-
-    /// Returns the file type extracted from the mode bits.
-    pub fn file_type(&self) -> crate::mode::FileType {
-        self.header.file_type()
-    }
-
-    /// Byte offset from the start of the archive where this entry's header begins.
-    pub fn entry_offset(&self) -> u64 {
-        self.entry_offset
-    }
-
-    /// Returns the file data size in bytes.
-    pub fn file_size(&self) -> u32 {
-        self.header.filesize
-    }
-}
-
-/// Streaming CPIO archive reader.
-///
-/// Reads entries sequentially from any [`Read`] source. Entries are yielded
-/// one at a time; after obtaining an entry you must either read or skip its
-/// data before advancing to the next entry.
-///
-/// Two iteration APIs are provided:
-/// - [`next_entry_with_buf`](CpioArchiveReader::next_entry_with_buf) — no-alloc, uses a caller-provided buffer
-/// - [`next_entry_alloc`](CpioArchiveReader::next_entry_alloc) — allocates a `Vec` for each filename (requires `alloc`)
-pub struct CpioArchiveReader<R> {
+/// ```rust,ignore
+/// let mut reader = CpioReader::new(input);
+/// while let Some(mut entry) = reader.next_entry()? {
+///     println!("{}", entry.name_str().unwrap_or("?"));
+/// }
+/// ```
+pub struct CpioReader<R> {
     reader: R,
+    options: ReaderOptions,
+    state: State,
     offset: u64,
-    finished: bool,
+    header: Header,
+    name: [u8; PATH_MAX],
+    name_len: usize,
+    remaining: u64,
+    padding: usize,
+    sum: Option<u32>,
 }
 
-io_transform! {
+impl<R> core::fmt::Debug for CpioReader<R> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("CpioReader")
+            .field("offset", &self.offset)
+            .field("state", &self.state)
+            .finish_non_exhaustive()
+    }
+}
 
-impl<R: Read> CpioArchiveReader<R> {
-    /// Create a new reader wrapping the given source.
+impl<R> CpioReader<R> {
+    /// A reader with the default [`ReaderOptions`].
     pub fn new(reader: R) -> Self {
+        Self::with_options(reader, ReaderOptions::new())
+    }
+
+    /// A reader with `options`.
+    pub fn with_options(reader: R, options: ReaderOptions) -> Self {
         Self {
             reader,
+            options,
+            state: State::Entries,
             offset: 0,
-            finished: false,
+            header: Header::EMPTY,
+            name: [0; PATH_MAX],
+            name_len: 0,
+            remaining: 0,
+            padding: 0,
+            sum: None,
         }
     }
 
-    /// Returns the current byte offset in the archive.
+    /// Bytes consumed from the stream so far.
     pub fn offset(&self) -> u64 {
         self.offset
     }
 
-    /// Read the next entry header and name using a caller-provided buffer.
-    ///
-    /// Returns `Ok(None)` when the TRAILER!!! sentinel is reached.
-    /// The `name_buf` must be large enough to hold the filename (without NUL terminator).
-    pub async fn next_entry_with_buf<'buf>(
-        &mut self,
-        name_buf: &'buf mut [u8],
-    ) -> Result<Option<CpioEntry<'buf>>> {
-        if self.finished {
-            return Ok(None);
-        }
-
-        let entry_offset = self.offset;
-
-        // A trailer is optional when input ends at an entry boundary.
-        let Some(raw) = RawNewcHeader::parse_optional(&mut self.reader).await? else {
-            self.finished = true;
-            return Ok(None);
-        };
-        self.offset += HEADER_SIZE as u64;
-
-        let magic = raw.magic().ok_or_else(|| {
-            let mut found = [0u8; 6];
-            found.copy_from_slice(raw.magic_bytes());
-            Error::InvalidMagic { found }
-        })?;
-
-        let header = CpioEntryHeader::from_raw(&raw)?;
-        validate_header(magic, &header)?;
-        let namesize = raw.namesize()? as usize;
-
-        if namesize == 0 || namesize > PATH_MAX {
-            return Err(Error::InvalidFilename);
-        }
-
-        // Read filename (including NUL terminator)
-        let name_with_nul_len = namesize;
-        if name_with_nul_len > name_buf.len() + 1 {
-            return Err(Error::InvalidFilename);
-        }
-
-        // Read name bytes into a stack buffer (namesize includes the NUL)
-        // We need a temporary buffer for the NUL-terminated name, then copy without NUL
-        let name_len = namesize - 1; // without NUL
-        if name_len > name_buf.len() {
-            return Err(Error::InvalidFilename);
-        }
-
-        // Read the name portion
-        self.reader.read_exact(&mut name_buf[..name_len]).await?;
-        self.offset += name_len as u64;
-
-        // Read and discard the NUL terminator
-        let mut nul = [0u8; 1];
-        self.reader.read_exact(&mut nul).await?;
-        self.offset += 1;
-        if nul[0] != 0 {
-            return Err(Error::InvalidFilename);
-        }
-        let name_len = filename_len(&name_buf[..name_len])?;
-
-        // Skip padding to align (header + namesize) to 4-byte boundary
-        let header_plus_name = HEADER_SIZE as u64 + namesize as u64;
-        let pad = align4_padding(header_plus_name);
-        if pad > 0 {
-            self.skip_zero_padding(pad).await?;
-        }
-
-        // Check for TRAILER!!!
-        if &name_buf[..name_len] == TRAILER_NAME {
-            if header.filesize != 0 {
-                return Err(Error::InvalidHeader {
-                    reason: "TRAILER!!! c_filesize must be zero",
-                });
-            }
-            self.finished = true;
-            return Ok(None);
-        }
-
-        Ok(Some(CpioEntry {
-            header,
-            magic,
-            name: &name_buf[..name_len],
-            entry_offset,
-        }))
+    /// Whether the last archive ended with a trailer. Call
+    /// [`continue_after_trailer`](Self::continue_after_trailer) to read an
+    /// archive concatenated after it.
+    pub fn at_trailer(&self) -> bool {
+        self.state == State::Trailer
     }
 
-    /// Read entry data into `buf`. The buffer must be exactly `entry.file_size()` bytes.
-    /// After reading, skips any padding to align to 4-byte boundary.
-    ///
-    /// Returns [`Error::BufferSizeMismatch`] if `buf.len()` differs from the
-    /// entry's file size, before any data is read.
-    pub async fn read_entry_data(&mut self, entry: &CpioEntry<'_>, buf: &mut [u8]) -> Result<()> {
-        let size = entry.file_size() as usize;
-        if buf.len() != size {
-            return Err(Error::BufferSizeMismatch {
-                expected: size,
-                actual: buf.len(),
-            });
+    /// Reads on after a trailer, for concatenated archives such as a
+    /// microcode archive followed by the main initramfs. Zero bytes between
+    /// the archives are skipped; the input may end there. Does nothing when
+    /// no trailer was read.
+    pub fn continue_after_trailer(&mut self) {
+        if self.state == State::Trailer {
+            self.state = State::Between;
         }
-        if size > 0 {
-            self.reader.read_exact(&mut buf[..size]).await?;
-            self.offset += size as u64;
-        }
-        self.verify_checksum(entry.magic, entry.header.check, buf)?;
-        // Skip data padding
-        let pad = align4_padding(entry.file_size() as u64);
-        if pad > 0 {
-            self.skip_zero_padding(pad).await?;
-        }
-        Ok(())
     }
 
-    /// Skip over entry data without reading it.
-    pub async fn skip_entry_data(&mut self, entry: &CpioEntry<'_>) -> Result<()> {
-        self.skip_data_and_verify(entry.magic, entry.header.check, entry.file_size())
-            .await?;
-        Ok(())
-    }
-
-    /// Skip over entry data for an owned entry.
-    #[cfg(feature = "alloc")]
-    pub async fn skip_entry_data_owned(&mut self, entry: &CpioEntryOwned) -> Result<()> {
-        self.skip_data_and_verify(entry.magic, entry.header.check, entry.file_size())
-            .await?;
-        Ok(())
-    }
-
-    async fn skip_zero_padding(&mut self, mut n: u64) -> Result<()> {
-        let mut discard = [0u8; 256];
-        while n > 0 {
-            let chunk = n.min(discard.len() as u64) as usize;
-            self.reader.read_exact(&mut discard[..chunk]).await?;
-            self.offset += chunk as u64;
-            if discard[..chunk].iter().any(|byte| *byte != 0) {
-                return Err(Error::InvalidHeader {
-                    reason: "alignment padding must be zero",
-                });
-            }
-            n -= chunk as u64;
-        }
-        Ok(())
-    }
-
-    fn verify_checksum(&self, magic: CpioMagic, expected: u32, data: &[u8]) -> Result<()> {
-        if magic != CpioMagic::NewcCrc {
-            return Ok(());
-        }
-        let computed = data
-            .iter()
-            .fold(0_u32, |sum, byte| sum.wrapping_add(*byte as u32));
-        if computed != expected {
-            return Err(Error::ChecksumMismatch { expected, computed });
-        }
-        Ok(())
-    }
-
-    async fn skip_data_and_verify(
-        &mut self,
-        magic: CpioMagic,
-        expected: u32,
-        size: u32,
-    ) -> Result<()> {
-        let mut remaining = size as u64;
-        let mut computed = 0_u32;
-        let mut discard = [0_u8; 256];
-        while remaining > 0 {
-            let chunk = remaining.min(discard.len() as u64) as usize;
-            self.reader.read_exact(&mut discard[..chunk]).await?;
-            self.offset += chunk as u64;
-            if magic == CpioMagic::NewcCrc {
-                computed = discard[..chunk]
-                    .iter()
-                    .fold(computed, |sum, byte| sum.wrapping_add(*byte as u32));
-            }
-            remaining -= chunk as u64;
-        }
-        if magic == CpioMagic::NewcCrc && computed != expected {
-            return Err(Error::ChecksumMismatch { expected, computed });
-        }
-        let pad = align4_padding(size as u64);
-        if pad > 0 {
-            self.skip_zero_padding(pad).await?;
-        }
-        Ok(())
-    }
-
-    /// Read exactly `len` bytes into a freshly-allocated `Vec`, without trusting
-    /// `len` to size the allocation up front.
-    ///
-    /// `len` originates from attacker-controlled header fields (`namesize`,
-    /// `filesize`), which can claim up to ~4 GiB from a handful of input bytes.
-    /// Pre-allocating that claim (`vec![0u8; len]`) aborts the process on a
-    /// no-overcommit / embedded target — a DoS from a tiny archive. Instead we
-    /// grow the buffer in bounded chunks, so peak allocation tracks the bytes
-    /// the reader actually delivers: a bogus claim hits EOF after one chunk.
-    #[cfg(feature = "alloc")]
-    async fn read_exact_alloc(&mut self, len: usize) -> Result<Vec<u8>> {
-        // ponytail: 64 KiB cap bounds a bogus huge `len` to one chunk of slack.
-        const CHUNK: usize = 64 * 1024;
-        let mut buf = Vec::new();
-        let mut filled = 0;
-        while filled < len {
-            let want = (len - filled).min(CHUNK);
-            buf.resize(filled + want, 0);
-            self.reader.read_exact(&mut buf[filled..]).await?;
-            self.offset += want as u64;
-            filled += want;
-        }
-        Ok(buf)
-    }
-
-    /// Read the next entry, allocating a `Vec` for the filename.
-    ///
-    /// Returns `Ok(None)` when the `TRAILER!!!` sentinel is reached.
-    /// After obtaining an entry, call [`read_entry_data_alloc`](Self::read_entry_data_alloc)
-    /// or [`skip_entry_data_owned`](Self::skip_entry_data_owned) before calling this again.
-    #[cfg(feature = "alloc")]
-    pub async fn next_entry_alloc(&mut self) -> Result<Option<CpioEntryOwned>> {
-        if self.finished {
-            return Ok(None);
-        }
-
-        let entry_offset = self.offset;
-
-        let Some(raw) = RawNewcHeader::parse_optional(&mut self.reader).await? else {
-            self.finished = true;
-            return Ok(None);
-        };
-        self.offset += HEADER_SIZE as u64;
-
-        let magic = raw.magic().ok_or_else(|| {
-            let mut found = [0u8; 6];
-            found.copy_from_slice(raw.magic_bytes());
-            Error::InvalidMagic { found }
-        })?;
-
-        let header = CpioEntryHeader::from_raw(&raw)?;
-        validate_header(magic, &header)?;
-        let namesize = raw.namesize()? as usize;
-
-        if namesize == 0 || namesize > PATH_MAX {
-            return Err(Error::InvalidFilename);
-        }
-
-        let name_len = namesize - 1;
-        let name = self.read_exact_alloc(name_len).await?;
-
-        // Read and discard NUL
-        let mut nul = [0u8; 1];
-        self.reader.read_exact(&mut nul).await?;
-        self.offset += 1;
-        if nul[0] != 0 {
-            return Err(Error::InvalidFilename);
-        }
-        let name_len = filename_len(&name)?;
-        let mut name = name;
-        name.truncate(name_len);
-
-        // Skip name padding
-        let header_plus_name = HEADER_SIZE as u64 + namesize as u64;
-        let pad = align4_padding(header_plus_name);
-        if pad > 0 {
-            self.skip_zero_padding(pad).await?;
-        }
-
-        // Check for TRAILER!!!
-        if name.as_slice() == TRAILER_NAME {
-            if header.filesize != 0 {
-                return Err(Error::InvalidHeader {
-                    reason: "TRAILER!!! c_filesize must be zero",
-                });
-            }
-            self.finished = true;
-            return Ok(None);
-        }
-
-        Ok(Some(CpioEntryOwned {
-            header,
-            magic,
-            name,
-            entry_offset,
-        }))
-    }
-
-    /// Read the entry's file data into a newly allocated `Vec`.
-    ///
-    /// After reading, the reader is positioned at the next entry's header.
-    #[cfg(feature = "alloc")]
-    pub async fn read_entry_data_alloc(&mut self, entry: &CpioEntryOwned) -> Result<Vec<u8>> {
-        let size = entry.file_size() as usize;
-        let buf = self.read_exact_alloc(size).await?;
-        self.verify_checksum(entry.magic, entry.header.check, &buf)?;
-        let pad = align4_padding(entry.file_size() as u64);
-        if pad > 0 {
-            self.skip_zero_padding(pad).await?;
-        }
-        Ok(buf)
+    /// Returns the stream.
+    pub fn into_inner(self) -> R {
+        self.reader
     }
 }
 
-/// Seek support: when the reader supports seeking, allow jumping to recorded offsets.
-impl<R: Read + super::super::Seek> CpioArchiveReader<R> {
-    /// Seek to a previously-recorded entry offset to re-read that entry.
-    pub async fn seek_to_entry(&mut self, offset: u64) -> Result<()> {
-        use super::super::SeekFrom;
-        self.reader.seek(SeekFrom::Start(offset)).await?;
-        self.offset = offset;
-        self.finished = false;
-        Ok(())
+/// An entry of a cpio archive, borrowing its [`CpioReader`].
+///
+/// It implements `Read` over the entry's data: a file's contents or a
+/// symlink's target. Dropping it leaves the rest of the data for the next
+/// [`CpioReader::next_entry`] to skip.
+pub struct Entry<'a, R> {
+    reader: &'a mut CpioReader<R>,
+}
+
+impl<R> core::fmt::Debug for Entry<'_, R> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Entry")
+            .field("name", &self.name())
+            .field("format", &self.format())
+            .field("mode", &self.mode())
+            .field("len", &self.len())
+            .finish_non_exhaustive()
     }
 }
 
-} // io_transform!
+impl<R> Entry<'_, R> {
+    fn header(&self) -> &Header {
+        &self.reader.header
+    }
+
+    /// The name, as stored: usually a relative path without a leading `/`.
+    pub fn name(&self) -> &[u8] {
+        &self.reader.name[..self.reader.name_len]
+    }
+
+    /// The name as UTF-8.
+    pub fn name_str(&self) -> Result<&str, core::str::Utf8Error> {
+        core::str::from_utf8(self.name())
+    }
+
+    /// The header format of this entry.
+    pub fn format(&self) -> Format {
+        self.header().format
+    }
+
+    /// What the entry is.
+    pub fn file_type(&self) -> FileType {
+        header::file_type(self.header().mode).unwrap_or(FileType::File)
+    }
+
+    /// The whole mode: file type and permission bits.
+    pub fn mode(&self) -> u32 {
+        self.header().mode
+    }
+
+    /// The permission bits.
+    pub fn permissions(&self) -> Mode {
+        Mode::new(self.header().mode)
+    }
+
+    /// The inode number, shared by the names of a hard link group.
+    pub fn ino(&self) -> u64 {
+        self.header().ino
+    }
+
+    /// The owner user id.
+    pub fn uid(&self) -> u32 {
+        self.header().uid
+    }
+
+    /// The owner group id.
+    pub fn gid(&self) -> u32 {
+        self.header().gid
+    }
+
+    /// The number of links.
+    pub fn nlink(&self) -> u32 {
+        self.header().nlink
+    }
+
+    /// The modification time in seconds since the Unix epoch.
+    pub fn mtime(&self) -> u64 {
+        self.header().mtime
+    }
+
+    /// The modification time.
+    pub fn modified(&self) -> Option<DateTime> {
+        DateTime::from_unix_seconds(i64::try_from(self.header().mtime).ok()?).ok()
+    }
+
+    /// The length of the data. Zero for all but one name of a hard link
+    /// group written by GNU cpio or Hadris.
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> u64 {
+        self.header().len
+    }
+
+    /// The device holding the file on the system that wrote the archive.
+    pub fn dev(&self) -> DeviceNumber {
+        self.header().dev
+    }
+
+    /// The device number of a device node.
+    pub fn rdev(&self) -> DeviceNumber {
+        self.header().rdev
+    }
+
+    /// The checksum field: the byte sum of the data for [`Format::NewcCrc`],
+    /// zero otherwise.
+    pub fn check(&self) -> u32 {
+        self.header().check
+    }
+
+    /// Type, length, modification time, permissions, owner and links.
+    pub fn metadata(&self) -> Metadata {
+        Metadata::new(self.file_type())
+            .with_len(self.len())
+            .with_times(FileTimes::new().with_modified(self.modified()))
+            .with_permissions(self.permissions())
+            .with_owner((self.uid(), self.gid()))
+            .with_nlink(u64::from(self.nlink()))
+    }
+
+    /// Bytes of data not read yet.
+    pub fn remaining(&self) -> u64 {
+        self.reader.remaining
+    }
+}
+
+impl<R: hadris_io::ErrorType> hadris_io::ErrorType for Entry<'_, R> {
+    type Error = Error<R::Error>;
+}
+
+io_transform! {
+
+async fn fill<R: Read>(reader: &mut R, offset: &mut u64, buf: &mut [u8]) -> Result<(), Error<R::Error>> {
+    reader.read_exact(buf).await.map_err(Error::read)?;
+    *offset += buf.len() as u64;
+    Ok(())
+}
+
+impl<R: Read> CpioReader<R> {
+    /// The next entry, or `None` after a trailer or at the end of the
+    /// input.
+    ///
+    /// Fails with [`ErrorKind::Corrupt`](hadris_fs::ErrorKind::Corrupt) for a malformed header, name,
+    /// padding or checksum, or an archive cut off inside an entry, and with
+    /// [`Detail::Trailer`] when a trailer is required and missing.
+    pub async fn next_entry(&mut self) -> Result<Option<Entry<'_, R>>, Error<R::Error>> {
+        match self.advance().await {
+            Ok(true) => Ok(Some(Entry { reader: self })),
+            Ok(false) => Ok(None),
+            Err(err) => {
+                self.state = State::Done;
+                Err(err)
+            }
+        }
+    }
+
+    async fn fill(&mut self, buf: &mut [u8]) -> Result<(), Error<R::Error>> {
+        fill(&mut self.reader, &mut self.offset, buf).await
+    }
+
+    async fn first_byte(&mut self) -> Result<Option<u8>, Error<R::Error>> {
+        let mut byte = [0u8; 1];
+        loop {
+            if self.reader.read(&mut byte).await.map_err(Error::device)? == 0 {
+                return Ok(None);
+            }
+            self.offset += 1;
+            if self.state != State::Between || byte[0] != 0 {
+                return Ok(Some(byte[0]));
+            }
+        }
+    }
+
+    async fn skip_padding(&mut self, len: usize) -> Result<(), Error<R::Error>> {
+        let mut pad = [0u8; 3];
+        let pad = &mut pad[..len];
+        self.fill(pad).await?;
+        if pad.iter().any(|byte| *byte != 0) {
+            return Err(Error::corrupt(Detail::Padding));
+        }
+        Ok(())
+    }
+
+    /// Reads the rest of the current entry's data and its padding.
+    async fn finish_entry(&mut self) -> Result<(), Error<R::Error>> {
+        let mut buf = [0u8; 512];
+        while self.remaining > 0 {
+            let take = self.remaining.min(buf.len() as u64) as usize;
+            self.fill(&mut buf[..take]).await?;
+            self.account(&buf[..take])?;
+        }
+        self.verify()?;
+        let padding = core::mem::take(&mut self.padding);
+        self.skip_padding(padding).await
+    }
+
+    fn account(&mut self, data: &[u8]) -> Result<(), Error<R::Error>> {
+        self.remaining -= data.len() as u64;
+        if let Some(sum) = &mut self.sum {
+            *sum = header::checksum(*sum, data);
+        }
+        if self.remaining == 0 {
+            self.verify()?;
+        }
+        Ok(())
+    }
+
+    fn verify(&mut self) -> Result<(), Error<R::Error>> {
+        match self.sum.take() {
+            Some(sum) if sum != self.header.check => Err(Error::corrupt(Detail::Checksum)),
+            _ => Ok(()),
+        }
+    }
+
+    async fn advance(&mut self) -> Result<bool, Error<R::Error>> {
+        if matches!(self.state, State::Entries | State::Between) {
+            self.finish_entry().await?;
+        }
+        if !matches!(self.state, State::Entries | State::Between) {
+            return Ok(false);
+        }
+        let Some(first) = self.first_byte().await? else {
+            if self.state == State::Entries && self.options.strict_trailer() {
+                return Err(Error::corrupt(Detail::Trailer));
+            }
+            self.state = State::Done;
+            return Ok(false);
+        };
+        self.state = State::Entries;
+        let mut raw = [0u8; crate::raw::NEWC_HEADER_LEN];
+        raw[0] = first;
+        self.fill(&mut raw[1..6]).await?;
+        let start: [u8; 6] = [raw[0], raw[1], raw[2], raw[3], raw[4], raw[5]];
+        let format = header::detect(&start).ok_or(Error::corrupt(Detail::Magic))?;
+        let len = header::header_len(format);
+        self.fill(&mut raw[6..len]).await?;
+        let header = header::decode(format, &raw[..len]).ok_or(Error::corrupt(Detail::Field))?;
+        if format == Format::Newc && header.check != 0 {
+            return Err(Error::corrupt(Detail::Check));
+        }
+        if header::file_type(header.mode).is_none() && header.mode != 0 {
+            return Err(Error::corrupt(Detail::Field));
+        }
+        if header.namesize < 2 || header.namesize > PATH_MAX {
+            return Err(Error::corrupt(Detail::Name));
+        }
+        fill(&mut self.reader, &mut self.offset, &mut self.name[..header.namesize]).await?;
+        let name = &self.name[..header.namesize];
+        let name_len = name.iter().position(|byte| *byte == 0).unwrap_or(header.namesize);
+        if name_len == 0 || name_len == header.namesize || name[name_len..].iter().any(|byte| *byte != 0) {
+            return Err(Error::corrupt(Detail::Name));
+        }
+        self.skip_padding(header::name_padding(format, header.namesize)).await?;
+        if &self.name[..name_len] == TRAILER_NAME {
+            if header.len != 0 {
+                return Err(Error::corrupt(Detail::Trailer));
+            }
+            self.state = State::Trailer;
+            return Ok(false);
+        }
+        if header.mode == 0 {
+            return Err(Error::corrupt(Detail::Field));
+        }
+        self.name_len = name_len;
+        self.header = header;
+        self.remaining = header.len;
+        self.padding = header::data_padding(format, header.len);
+        self.sum = (format == Format::NewcCrc).then_some(0);
+        if header.len == 0 {
+            self.verify()?;
+        }
+        Ok(true)
+    }
+
+    async fn read_data(&mut self, buf: &mut [u8]) -> Result<usize, Error<R::Error>> {
+        if self.remaining == 0 || buf.is_empty() {
+            return Ok(0);
+        }
+        let take = usize::try_from(self.remaining).unwrap_or(usize::MAX).min(buf.len());
+        let read = self.reader.read(&mut buf[..take]).await.map_err(Error::device)?;
+        if read == 0 {
+            return Err(Error::corrupt(Detail::Truncated));
+        }
+        self.offset += read as u64;
+        self.account(&buf[..read])?;
+        Ok(read)
+    }
+}
+
+impl<R: Read> Read for Entry<'_, R> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        let result = self.reader.read_data(buf).await;
+        if result.is_err() {
+            self.reader.state = State::Done;
+        }
+        result
+    }
+}
+
+}

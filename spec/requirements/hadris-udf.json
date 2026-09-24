@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "crate": "optical/hadris-udf",
-  "profile": "ECMA-167 base structures with ECMA TR/112-7 UDF 1.02 restrictions",
+  "profile": "ECMA-167 base structures with ECMA TR/112-7 UDF 1.02 restrictions; the reader also accepts UDF 1.50 to 2.01 volumes with type 1 partitions",
   "requirements": [
     {
       "id": "ECMA-167-1997:3/7.2.2#descriptor-versions",
@@ -11,8 +11,8 @@
       "summary": "A receiving system accepts descriptor versions two and three.",
       "direction": "read",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/descriptor/tag.rs", "name": "DescriptorTag::validate"}],
-      "tests": [{"path": "crates/optical/hadris-udf/src/descriptor/tag.rs", "name": "validate_bytes_enforces_version_reserved_location_and_crc", "kind": "unit"}],
+      "symbols": [{"path": "crates/optical/hadris-udf/src/volume.rs", "name": "check_tag"}],
+      "tests": [{"path": "crates/optical/hadris-udf/src/volume.rs", "name": "tags_are_checked_for_version_reserved_byte_location_and_crc", "kind": "unit"}],
       "gap": null
     },
     {
@@ -23,8 +23,8 @@
       "summary": "The tag checksum is the modulo-256 sum of tag bytes zero through three and five through fifteen.",
       "direction": "both",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/descriptor/tag.rs", "name": "DescriptorTag::verify_checksum"}],
-      "tests": [{"path": "crates/optical/hadris-udf/src/descriptor/tag.rs", "name": "validate_reports_stored_and_computed_tag_checksums", "kind": "unit"}],
+      "symbols": [{"path": "crates/optical/hadris-udf/src/raw/mod.rs", "name": "Tag::is_checksum_valid"}],
+      "tests": [{"path": "crates/optical/hadris-udf/src/raw/mod.rs", "name": "tag_seal_and_parse_roundtrip", "kind": "unit"}],
       "gap": null
     },
     {
@@ -35,8 +35,8 @@
       "summary": "The reserved descriptor-tag byte is zero.",
       "direction": "both",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/descriptor/tag.rs", "name": "DescriptorTag::validate"}],
-      "tests": [{"path": "crates/optical/hadris-udf/src/descriptor/tag.rs", "name": "validate_bytes_enforces_version_reserved_location_and_crc", "kind": "unit"}],
+      "symbols": [{"path": "crates/optical/hadris-udf/src/volume.rs", "name": "check_tag"}, {"path": "crates/optical/hadris-udf/src/raw/mod.rs", "name": "Tag::seal"}],
+      "tests": [{"path": "crates/optical/hadris-udf/src/volume.rs", "name": "tags_are_checked_for_version_reserved_byte_location_and_crc", "kind": "unit"}],
       "gap": null
     },
     {
@@ -47,8 +47,8 @@
       "summary": "A nonempty descriptor CRC covers the declared payload length using CRC-ITU-T.",
       "direction": "both",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/descriptor/tag.rs", "name": "DescriptorTag::validate_bytes"}],
-      "tests": [{"path": "crates/optical/hadris-udf/src/descriptor/tag.rs", "name": "validate_bytes_enforces_version_reserved_location_and_crc", "kind": "unit"}],
+      "symbols": [{"path": "crates/optical/hadris-udf/src/raw/mod.rs", "name": "Tag::is_crc_valid"}, {"path": "crates/optical/hadris-udf/src/raw/mod.rs", "name": "Tag::seal"}],
+      "tests": [{"path": "crates/optical/hadris-udf/src/volume.rs", "name": "tags_are_checked_for_version_reserved_byte_location_and_crc", "kind": "unit"}, {"path": "crates/optical/hadris-udf/src/raw/mod.rs", "name": "crc_matches_the_itu_reference", "kind": "unit"}],
       "gap": null
     },
     {
@@ -59,8 +59,8 @@
       "summary": "Tag Location identifies the logical sector containing the descriptor's first byte.",
       "direction": "read",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/descriptor/tag.rs", "name": "DescriptorTag::validate"}],
-      "tests": [{"path": "crates/optical/hadris-udf/src/descriptor/tag.rs", "name": "validate_bytes_enforces_version_reserved_location_and_crc", "kind": "unit"}],
+      "symbols": [{"path": "crates/optical/hadris-udf/src/volume.rs", "name": "check_tag"}],
+      "tests": [{"path": "crates/optical/hadris-udf/src/volume.rs", "name": "tags_are_checked_for_version_reserved_byte_location_and_crc", "kind": "unit"}],
       "gap": null
     },
     {
@@ -70,10 +70,10 @@
       "normativity": "shall",
       "summary": "A receiving implementation interprets all required Part 3 volume descriptors at its interchange level.",
       "direction": "read",
-      "status": "not_implemented",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/fs.rs", "name": "UdfVolume::read_vds"}],
-      "tests": [],
-      "gap": "The reader handles core descriptors but omits IUVD, USD, LVID, descriptor pointers, prevailing-instance selection, and full sequencing semantics."
+      "status": "partial",
+      "symbols": [{"path": "crates/optical/hadris-udf/src/read.rs", "name": "sequence"}, {"path": "crates/optical/hadris-udf/src/read.rs", "name": "mount"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/read.rs", "name": "prevailing_descriptors_win", "kind": "integration"}, {"path": "crates/optical/hadris-udf/tests/errors.rs", "name": "reserve_sequence_and_backup_anchor_are_used", "kind": "integration"}],
+      "gap": "The reader follows volume descriptor pointers, keeps the prevailing primary, logical volume and partition descriptors, and falls back to the reserve sequence, but does not interpret implementation use or unallocated space descriptors, and reads the integrity sequence only for the free space."
     },
     {
       "id": "ECMA-167-1997:4/18.1#read-files",
@@ -83,9 +83,9 @@
       "summary": "A receiving implementation reads files and recorded Part 4 descriptors from a conforming file set.",
       "direction": "read",
       "status": "partial",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/fs.rs", "name": "UdfVolume::read_file"}],
-      "tests": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "test_roundtrip_large_file_read", "kind": "unit"}, {"path": "crates/optical/hadris-udf/tests/async_read.rs", "name": "async_leaf_opens_traverses_and_reads_nested_file", "kind": "integration"}],
-      "gap": "Basic FE/EFE files work; allocation-extent chains, multiple partitions, indirect entries, and many Part 4 descriptors remain unsupported."
+      "symbols": [{"path": "crates/optical/hadris-udf/src/read.rs", "name": "UdfFs::read_at"}, {"path": "crates/optical/hadris-udf/src/read.rs", "name": "read_stream"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/roundtrip.rs", "name": "every_tree_reads_back", "kind": "integration"}, {"path": "crates/optical/hadris-udf/tests/read.rs", "name": "allocation_descriptors_of_every_form_read_back", "kind": "integration"}, {"path": "crates/optical/hadris-udf/tests/read.rs", "name": "extended_file_entries_read", "kind": "integration"}],
+      "gap": "File entries and extended file entries with every allocation descriptor form, continuation extents and type 1 partitions are read; indirect entries, stream directories and virtual, sparable and metadata partitions are not."
     },
     {
       "id": "ECMA-167-1997:4/14.4#file-identifier-format",
@@ -95,9 +95,9 @@
       "summary": "A File Identifier Descriptor uses its defined fixed fields, variable fields, and four-byte padding.",
       "direction": "read",
       "status": "partial",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/dir.rs", "name": "FileIdentifierDescriptor::from_bytes"}],
-      "tests": [{"path": "crates/optical/hadris-udf/tests/comprehensive_udf.rs", "name": "writer_fids_are_aligned_parseable_and_roundtrip_the_filename", "kind": "integration"}],
-      "gap": "Bounds are parsed, but tag checksum, CRC, version, location, reserved flags, and padding contents are not fully validated."
+      "symbols": [{"path": "crates/optical/hadris-udf/src/read.rs", "name": "fid_at"}, {"path": "crates/optical/hadris-udf/src/raw/file.rs", "name": "FileIdentifierDescriptor"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/roundtrip.rs", "name": "every_tree_reads_back", "kind": "integration"}, {"path": "crates/optical/hadris-udf/tests/read.rs", "name": "identifiers_cross_extent_boundaries", "kind": "integration"}, {"path": "crates/optical/hadris-udf/tests/errors.rs", "name": "malformed_volumes_are_refused", "kind": "integration"}],
+      "gap": "The tag checksum, identifier, version and CRC are checked and identifiers are read across extents; the tag location, reserved characteristics and padding contents are not checked."
     },
     {
       "id": "ECMA-TR-112-7-2023:2#volume-recognition-sequence",
@@ -107,8 +107,8 @@
       "summary": "A UDF volume records the ECMA-167 Volume Recognition Sequence.",
       "direction": "both",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/descriptor/mod.rs", "name": "parse_vrs"}],
-      "tests": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "test_roundtrip_basic_verification", "kind": "unit"}],
+      "symbols": [{"path": "crates/optical/hadris-udf/src/read.rs", "name": "recognition"}, {"path": "crates/optical/hadris-udf/src/plan.rs", "name": "plan"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/roundtrip.rs", "name": "every_tree_reads_back", "kind": "integration"}, {"path": "crates/optical/hadris-udf/tests/errors.rs", "name": "malformed_volumes_are_refused", "kind": "integration"}],
       "gap": null
     },
     {
@@ -119,8 +119,8 @@
       "summary": "A UDF file identifier is at most 255 bytes.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "encode_cs0_filename"}],
-      "tests": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "rejects_fid_identifiers_over_255_bytes", "kind": "unit"}],
+      "symbols": [{"path": "crates/optical/hadris-udf/src/plan.rs", "name": "fid_len"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/errors.rs", "name": "the_writer_refuses_what_it_cannot_store", "kind": "integration"}],
       "gap": null
     },
     {
@@ -131,8 +131,8 @@
       "summary": "Anchor descriptors are recorded at exactly two of sector 256, sector N minus 256, and sector N.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "UdfFormatter::format"}],
-      "tests": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "test_format_empty_filesystem", "kind": "unit"}],
+      "symbols": [{"path": "crates/optical/hadris-udf/src/plan.rs", "name": "plan"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/roundtrip.rs", "name": "anchors_sequences_and_directories_follow_udf", "kind": "integration"}],
       "gap": null
     },
     {
@@ -143,8 +143,8 @@
       "summary": "Main and reserve Volume Descriptor Sequence extents are each at least sixteen logical sectors.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "UdfFormatter::format"}],
-      "tests": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "test_format_empty_filesystem", "kind": "unit"}],
+      "symbols": [{"path": "crates/optical/hadris-udf/src/plan.rs", "name": "plan"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/roundtrip.rs", "name": "anchors_sequences_and_directories_follow_udf", "kind": "integration"}],
       "gap": null
     },
     {
@@ -155,8 +155,8 @@
       "summary": "The logical-volume Domain Identifier is *OSTA UDF Compliant with the compatible revision in its suffix.",
       "direction": "both",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/descriptor/logical.rs", "name": "LogicalVolumeDescriptor::is_udf_domain"}],
-      "tests": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "mastered_revision_roundtrips_exactly", "kind": "unit"}],
+      "symbols": [{"path": "crates/optical/hadris-udf/src/read.rs", "name": "domain_revision"}, {"path": "crates/optical/hadris-udf/src/plan.rs", "name": "plan"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/roundtrip.rs", "name": "every_tree_reads_back", "kind": "integration"}],
       "gap": null
     },
     {
@@ -166,10 +166,10 @@
       "normativity": "shall",
       "summary": "UDF 1.02 interchange partition maps are limited to Type 1.",
       "direction": "both",
-      "status": "partial",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/descriptor/logical.rs", "name": "LogicalVolumeDescriptor::type1_partition_maps"}],
-      "tests": [{"path": "crates/optical/hadris-udf/src/descriptor/logical.rs", "name": "type1_partition_maps_parses_embedded_table", "kind": "unit"}],
-      "gap": "The writer emits one Type 1 map; the reader silently skips unknown maps rather than rejecting a non-1.02 profile."
+      "status": "verified",
+      "symbols": [{"path": "crates/optical/hadris-udf/src/read.rs", "name": "mount"}, {"path": "crates/optical/hadris-udf/src/plan.rs", "name": "plan"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/roundtrip.rs", "name": "anchors_sequences_and_directories_follow_udf", "kind": "integration"}, {"path": "crates/optical/hadris-udf/tests/errors.rs", "name": "unsupported_partition_maps_are_refused", "kind": "integration"}],
+      "gap": null
     },
     {
       "id": "ECMA-TR-112-7-2023:2.2.6#logical-volume-integrity",
@@ -179,9 +179,9 @@
       "summary": "A Logical Volume Integrity Descriptor is recorded and updated when logical-volume contents change.",
       "direction": "write",
       "status": "partial",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "UdfWriter::write_lvid"}],
-      "tests": [{"path": "crates/optical/hadris-udf/tests/comprehensive_udf.rs", "name": "writer_closes_lvid_with_partition_size_metadata", "kind": "integration"}],
-      "gap": "Creation records a closed descriptor, but modification lacks open-before-change and close-after-consistency transitions."
+      "symbols": [{"path": "crates/optical/hadris-udf/src/plan.rs", "name": "plan"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/roundtrip.rs", "name": "anchors_sequences_and_directories_follow_udf", "kind": "integration"}],
+      "gap": "Creation records one closed descriptor with the next unique id, the partition size and the file and directory counts; the volume is never modified, so there is no open-before-change transition."
     },
     {
       "id": "ECMA-TR-112-7-2023:2.3.2#single-fileset",
@@ -191,8 +191,8 @@
       "summary": "Rewritable or overwritable media records exactly one File Set Descriptor per logical volume.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "UdfFormatter::format"}],
-      "tests": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "test_roundtrip_basic_verification", "kind": "unit"}],
+      "symbols": [{"path": "crates/optical/hadris-udf/src/plan.rs", "name": "plan"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/roundtrip.rs", "name": "anchors_sequences_and_directories_follow_udf", "kind": "integration"}],
       "gap": null
     },
     {
@@ -202,10 +202,10 @@
       "normativity": "shall",
       "summary": "Every UDF directory begins with a parent-directory File Identifier Descriptor.",
       "direction": "write",
-      "status": "partial",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "UdfWriter::write_fids"}],
-      "tests": [{"path": "crates/optical/hadris-udf/tests/async_read.rs", "name": "async_leaf_opens_traverses_and_reads_nested_file", "kind": "integration"}],
-      "gap": "The writer emits the parent first, but the test proves traversal rather than raw descriptor order."
+      "status": "verified",
+      "symbols": [{"path": "crates/optical/hadris-udf/src/plan.rs", "name": "plan"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/roundtrip.rs", "name": "anchors_sequences_and_directories_follow_udf", "kind": "integration"}],
+      "gap": null
     }
   ]
 }

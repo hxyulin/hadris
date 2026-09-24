@@ -1,26 +1,56 @@
 use std::fs::File;
-use std::io::BufWriter;
+use std::io::{self, BufWriter, Write};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use hadris_cpio::{CpioArchiveWriter, CpioWriteOptions, FileTree};
+use hadris_cpio::{CpioOptions, Format};
+use hadris_fs::tree::{FromFsOptions, OnError, Tree, WarningKind};
 use hadris_io::StdIo;
 
-pub fn create(directory: PathBuf, output: PathBuf, crc: bool) -> Result<()> {
-    let tree = FileTree::from_fs(&directory)
-        .with_context(|| format!("Failed to scan directory: {}", directory.display()))?;
+use crate::app::ArchiveFormat;
 
-    let options = CpioWriteOptions { use_crc: crc };
-    let file = File::create(&output)
-        .with_context(|| format!("Failed to create output file: {}", output.display()))?;
-    let buf = StdIo::new(BufWriter::new(file));
+pub fn create(
+    directory: PathBuf,
+    output: PathBuf,
+    format: ArchiveFormat,
+    verbose: bool,
+) -> Result<()> {
+    let tree = Tree::from_fs(
+        &directory,
+        FromFsOptions::new().with_on_error(OnError::Warn),
+    )
+    .with_context(|| format!("Failed to scan directory: {}", directory.display()))?;
+    for warning in tree.warnings() {
+        eprintln!("warning: skipped {warning}");
+    }
 
-    CpioArchiveWriter::new(buf, options)
-        .finish(&tree)
+    let (format, name) = match format {
+        ArchiveFormat::Newc => (Format::Newc, "newc"),
+        ArchiveFormat::Crc => (Format::NewcCrc, "newc+crc"),
+        ArchiveFormat::Odc => (Format::Odc, "odc"),
+    };
+    let options = CpioOptions::default().with_format(format);
+    let to_stdout = output.as_os_str() == "-";
+    let sink: Box<dyn Write> = if to_stdout {
+        Box::new(io::stdout().lock())
+    } else {
+        Box::new(
+            File::create(&output)
+                .with_context(|| format!("Failed to create output file: {}", output.display()))?,
+        )
+    };
+    let mut out = StdIo::new(BufWriter::new(sink));
+    let report = hadris_cpio::sync::write(&mut out, &tree, &options)
         .context("Failed to write CPIO archive")?;
 
-    let format_name = if crc { "newc+crc" } else { "newc" };
-    println!("Created {} archive: {}", format_name, output.display());
+    for warning in report.warnings() {
+        if verbose || warning.kind() != WarningKind::IgnoredMetadata {
+            eprintln!("warning: {warning}");
+        }
+    }
+    if !to_stdout {
+        println!("Created {name} archive: {}", output.display());
+    }
 
     Ok(())
 }

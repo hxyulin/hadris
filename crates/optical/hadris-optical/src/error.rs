@@ -23,7 +23,7 @@ pub enum Error {
     /// ISO 9660 validation or opening failed.
     Iso(hadris_iso::Error<hadris_io::legacy::Error>),
     /// UDF validation or opening failed.
-    Udf(hadris_udf::Error),
+    Udf(hadris_udf::Error<hadris_io::legacy::Error>),
 }
 
 /// Result type for category-level optical operations.

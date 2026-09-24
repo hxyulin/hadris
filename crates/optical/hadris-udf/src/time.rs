@@ -1,165 +1,97 @@
-//! UDF timestamp handling
+//! Conversions between ECMA-167 timestamps and `hadris_fs::DateTime`.
 
-/// UDF timestamp structure
-///
-/// Represents date and time in UDF format (ECMA-167 1/7.3)
-#[repr(C)]
-#[derive(Debug, Clone, Copy, Default, bytemuck::Zeroable, bytemuck::Pod)]
-pub struct UdfTimestamp {
-    /// Type and timezone
-    /// Bits 0-11: Timezone offset in minutes from UTC (-1440 to 1440)
-    /// Bits 12-15: Type (0=UTC, 1=local, 2=agreement)
-    pub type_and_tz: u16,
-    /// Year (1-9999)
-    pub year: u16,
-    /// Month (1-12)
-    pub month: u8,
-    /// Day (1-31)
-    pub day: u8,
-    /// Hour (0-23)
-    pub hour: u8,
-    /// Minute (0-59)
-    pub minute: u8,
-    /// Second (0-59)
-    pub second: u8,
-    /// Centiseconds (0-99)
-    pub centiseconds: u8,
-    /// Hundreds of microseconds (0-99)
-    pub hundreds_of_microseconds: u8,
-    /// Microseconds (0-99)
-    pub microseconds: u8,
+use hadris_fs::{CivilDate, CivilTime, DateTime};
+
+use crate::raw::Timestamp;
+
+/// The instant a timestamp records, or `None` when it is blank or out of
+/// range. Times without a zone, and agreement times, read as UTC.
+pub(crate) fn to_datetime(ts: &Timestamp) -> Option<DateTime> {
+    let raw = ts.type_and_zone.get();
+    let kind = raw >> 12;
+    let zone = ((raw & 0x0FFF) as i16) << 4 >> 4;
+    let offset =
+        (kind == 1 && zone != Timestamp::NO_ZONE && (-1440..=1440).contains(&zone)).then_some(zone);
+    let year = i32::from(ts.year.get() as i16);
+    let date = CivilDate::new(year, ts.month, ts.day).ok()?;
+    let time = CivilTime::new(ts.hour, ts.minute, ts.second).ok()?;
+    let micros = u32::from(ts.centiseconds.min(99)) * 10_000
+        + u32::from(ts.hundreds_of_microseconds.min(99)) * 100
+        + u32::from(ts.microseconds.min(99));
+    DateTime::from_civil(date, time, offset.filter(|zone| zone.abs() <= 1439))
+        .ok()?
+        .with_nanoseconds(micros * 1000)
+        .ok()
 }
 
-impl UdfTimestamp {
-    #[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
-    pub(crate) fn into_native(mut self) -> Self {
-        self.type_and_tz = self.type_and_tz.to_le();
-        self.year = self.year.to_le();
-        self
+/// The timestamp of an instant: local time with its offset when it has
+/// one, UTC with a zero offset otherwise. `None` outside years 1 to 9999.
+#[cfg(feature = "alloc")]
+pub(crate) fn from_datetime(time: DateTime) -> Option<Timestamp> {
+    let (date, clock) = time.to_civil();
+    if !(1..=9999).contains(&date.year()) {
+        return None;
     }
-
-    /// Get the timezone type
-    pub fn timezone_type(&self) -> TimezoneType {
-        match (self.type_and_tz >> 12) & 0x0F {
-            0 => TimezoneType::Utc,
-            1 => TimezoneType::Local,
-            2 => TimezoneType::Agreement,
-            _ => TimezoneType::Reserved,
-        }
-    }
-
-    /// Get the timezone offset in minutes from UTC
-    ///
-    /// Returns None if the timezone is not specified
-    pub fn timezone_offset(&self) -> Option<i16> {
-        let tz_type = self.timezone_type();
-        if matches!(tz_type, TimezoneType::Utc | TimezoneType::Local) {
-            let offset = (self.type_and_tz & 0x0FFF) as i16;
-            // Sign extend from 12 bits
-            let offset = if offset & 0x0800 != 0 {
-                offset | !0x0FFF
-            } else {
-                offset
-            };
-            Some(offset)
-        } else {
-            None
-        }
-    }
-
-    /// Check if this timestamp is valid
-    pub fn is_valid(&self) -> bool {
-        self.month >= 1
-            && self.month <= 12
-            && self.day >= 1
-            && self.day <= 31
-            && self.hour <= 23
-            && self.minute <= 59
-            && self.second <= 59
-            && self.centiseconds <= 99
-            && self.hundreds_of_microseconds <= 99
-            && self.microseconds <= 99
-    }
+    let offset = time.utc_offset_minutes().unwrap_or(0);
+    let nanos = time.nanoseconds();
+    Some(Timestamp {
+        type_and_zone: crate::raw::U16Le::new(0x1000 | (offset as u16 & 0x0FFF)),
+        year: crate::raw::U16Le::new(date.year() as u16),
+        month: date.month(),
+        day: date.day(),
+        hour: clock.hour(),
+        minute: clock.minute(),
+        second: clock.second(),
+        centiseconds: (nanos / 10_000_000) as u8,
+        hundreds_of_microseconds: (nanos / 100_000 % 100) as u8,
+        microseconds: (nanos / 1_000 % 100) as u8,
+    })
 }
 
-impl core::fmt::Display for UdfTimestamp {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(
-            f,
-            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
-            self.year, self.month, self.day, self.hour, self.minute, self.second
-        )
-    }
-}
-
-/// Timezone type
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TimezoneType {
-    /// Coordinated Universal Time
-    Utc,
-    /// Local time
-    Local,
-    /// Agreed upon by sender and receiver
-    Agreement,
-    /// Reserved for future use
-    Reserved,
-}
-
-impl core::fmt::Display for TimezoneType {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::Utc => write!(f, "UTC"),
-            Self::Local => write!(f, "Local"),
-            Self::Agreement => write!(f, "Agreement"),
-            Self::Reserved => write!(f, "Reserved"),
-        }
-    }
-}
-
-#[cfg(test)]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
 
-    static_assertions::const_assert_eq!(size_of::<UdfTimestamp>(), 12);
-
     #[test]
-    fn test_timestamp_default() {
-        let ts = UdfTimestamp::default();
-        assert!(!ts.is_valid()); // Month and day are 0
+    fn timestamps_round_trip() {
+        let time = DateTime::new(1_700_000_000, 123_456_000).unwrap();
+        let ts = from_datetime(time).unwrap();
+        assert_eq!(ts.type_and_zone.get(), 0x1000);
+        assert_eq!((ts.year.get(), ts.month, ts.day), (2023, 11, 14));
+        assert_eq!(
+            (
+                ts.centiseconds,
+                ts.hundreds_of_microseconds,
+                ts.microseconds
+            ),
+            (12, 34, 56)
+        );
+        assert_eq!(
+            to_datetime(&ts),
+            Some(time.with_utc_offset_minutes(Some(0)).unwrap())
+        );
+
+        let zoned = time.with_utc_offset_minutes(Some(-330)).unwrap();
+        let ts = from_datetime(zoned).unwrap();
+        assert_eq!(ts.type_and_zone.get(), 0x1000 | (-330i16 as u16 & 0x0FFF));
+        assert_eq!(to_datetime(&ts), Some(zoned));
+
+        let epoch = from_datetime(hadris_fs::NoClock::TIME).unwrap();
+        assert_eq!(
+            (epoch.year.get(), epoch.month, epoch.day, epoch.hour),
+            (1980, 1, 1, 0)
+        );
+
+        assert!(to_datetime(&Timestamp::default()).is_none());
+        let far = DateTime::from_unix_seconds(400_000_000_000).unwrap();
+        assert!(from_datetime(far).is_none());
     }
 
     #[test]
-    fn test_timestamp_valid() {
-        let ts = UdfTimestamp {
-            type_and_tz: 0x1000, // UTC
-            year: 2024,
-            month: 1,
-            day: 15,
-            hour: 10,
-            minute: 30,
-            second: 45,
-            centiseconds: 50,
-            hundreds_of_microseconds: 25,
-            microseconds: 10,
-        };
-        assert!(ts.is_valid());
-        assert_eq!(ts.timezone_type(), TimezoneType::Local);
-    }
-
-    #[test]
-    fn test_timezone_offset() {
-        // UTC+0
-        let ts = UdfTimestamp {
-            type_and_tz: 0x0000, // UTC, offset 0
-            ..Default::default()
-        };
-        assert_eq!(ts.timezone_offset(), Some(0));
-
-        // UTC+5:30 (330 minutes)
-        let ts = UdfTimestamp {
-            type_and_tz: 0x014A, // UTC, offset 330
-            ..Default::default()
-        };
-        assert_eq!(ts.timezone_offset(), Some(330));
+    fn unspecified_zones_read_as_utc() {
+        let mut ts = from_datetime(DateTime::from_unix_seconds(0).unwrap()).unwrap();
+        ts.type_and_zone = crate::raw::U16Le::new(0x1000 | (Timestamp::NO_ZONE as u16 & 0x0FFF));
+        assert_eq!(to_datetime(&ts).unwrap().utc_offset_minutes(), None);
+        assert_eq!(to_datetime(&ts).unwrap().unix_seconds(), 0);
     }
 }

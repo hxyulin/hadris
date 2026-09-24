@@ -44,11 +44,6 @@ for crate in "${crates[@]}"; do
       --no-default-features \
       --features "std,sync,async,async-send,write,defmt" \
       -sss --color never >"$generated"
-  elif [[ "$crate" == "hadris-udf" ]]; then
-    cargo public-api -p "$crate" \
-      --no-default-features \
-      --features "std,alloc,sync,async,read,write" \
-      -sss --color never >"$generated"
   else
     cargo public-api -p "$crate" --all-features -sss --color never >"$generated"
   fi

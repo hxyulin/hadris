@@ -47,8 +47,8 @@ PINNED_NIGHTLY = "nightly-2026-09-04"
 MINIMAL_FEATURES = {
     "hadris": "sync",
     "hadris-block": "sync",
-    "hadris-cd": "std,sync",
-    "hadris-common": "sync",
+    "hadris-cd": "sync",
+    "hadris-common": "",
     "hadris-cpio": "sync",
     "hadris-fat": "sync",
     "hadris-fs": "",

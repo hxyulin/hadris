@@ -1,153 +1,86 @@
-//! Configuration options for hybrid CD/DVD image creation
+use hadris_fs::{Clock, NoClock};
+use hadris_iso::{IsoLevel, IsoOptions, JolietLevel, VolumeIdentifiers};
+use hadris_udf::UdfOptions;
 
-pub use hadris_iso::JolietLevel;
-use hadris_iso::{ElTorito, HybridBoot, IsoLevel, NameCase, RockRidge};
-use hadris_udf::UdfRevision;
-
-/// Options for creating a hybrid ISO+UDF image
+/// Options for a hybrid image: the ISO 9660 and the UDF options.
+///
+/// The defaults name both volumes `CDROM` and write a Level 2 primary
+/// tree with Joliet level 3 and an ISO 9660:1999 enhanced tree beside a
+/// UDF 1.02 volume, dated by [`NoClock`].
+///
+/// The writer decides where the ISO 9660 structures start and how long the
+/// UDF volume is: it raises [`IsoOptions::with_min_blocks`] to leave room
+/// for the UDF metadata, and it sets [`UdfOptions::with_bridge`] and
+/// [`UdfOptions::with_min_blocks`] itself.
+///
+/// ```rust
+/// use hadris_cd::iso::{JolietLevel, RockRidge, VolumeIdentifiers};
+/// use hadris_cd::udf::UdfRevision;
+/// use hadris_cd::{CdOptions, IsoOptions, UdfOptions};
+///
+/// let options = CdOptions::default()
+///     .with_iso(
+///         IsoOptions::default()
+///             .with_volume(VolumeIdentifiers::new("MY_DISC"))
+///             .with_joliet(JolietLevel::L3)
+///             .with_rock_ridge(RockRidge::default()),
+///     )
+///     .with_udf(UdfOptions::default().with_volume_id("MY_DISC").with_revision(UdfRevision::V2_01));
+/// assert_eq!(options.udf().volume_id(), "MY_DISC");
+/// ```
 #[derive(Debug, Clone)]
-pub struct OpticalImageOptions {
-    /// Volume identifier (used by both ISO and UDF)
-    pub volume_id: String,
-    /// Sector size (almost always 2048)
-    pub sector_size: usize,
-    /// ISO 9660 options
-    pub iso: IsoOptions,
-    /// UDF options
-    pub udf: UdfOptions,
-    /// El-Torito boot options
-    pub boot: Option<ElTorito>,
-    /// Hybrid boot options (MBR/GPT for USB booting)
-    pub hybrid_boot: Option<HybridBoot>,
+pub struct CdOptions<C = NoClock> {
+    iso: IsoOptions<C>,
+    udf: UdfOptions<C>,
 }
 
-impl Default for OpticalImageOptions {
+impl Default for CdOptions {
     fn default() -> Self {
         Self {
-            volume_id: String::from("CDROM"),
-            sector_size: 2048,
-            iso: IsoOptions::default(),
-            udf: UdfOptions::default(),
-            boot: None,
-            hybrid_boot: None,
+            iso: IsoOptions::default()
+                .with_volume(VolumeIdentifiers::new("CDROM"))
+                .with_level(IsoLevel::L2)
+                .with_joliet(JolietLevel::L3)
+                .with_enhanced_tree(),
+            udf: UdfOptions::default().with_volume_id("CDROM"),
         }
     }
 }
 
-impl OpticalImageOptions {
-    /// Set the volume ID
-    pub fn volume_id(mut self, id: impl Into<String>) -> Self {
-        self.volume_id = id.into();
-        self
-    }
-
-    /// Set the Joliet level used for Windows-compatible long filenames.
-    pub fn joliet(mut self, level: JolietLevel) -> Self {
-        self.iso.joliet = Some(level);
-        self
-    }
-
-    /// Set Rock Ridge options.
-    pub fn rock_ridge(mut self, options: RockRidge) -> Self {
-        self.iso.rock_ridge = Some(options);
-        self
-    }
-
-    /// Set boot options.
-    pub fn boot(mut self, boot: ElTorito) -> Self {
-        self.boot = Some(boot);
-        self
-    }
-
-    /// Set hybrid boot options for USB booting.
-    pub fn hybrid_boot(mut self, hybrid: HybridBoot) -> Self {
-        self.hybrid_boot = Some(hybrid);
-        self
-    }
-
-    /// Disable UDF (create ISO-only image)
-    pub fn iso_only(mut self) -> Self {
-        self.udf.enabled = false;
-        self
-    }
-
-    /// Disable ISO (create UDF-only image)
-    pub fn udf_only(mut self) -> Self {
-        self.iso.enabled = false;
-        self
+impl CdOptions {
+    /// The defaults.
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
-/// ISO 9660 specific options
-#[derive(Debug, Clone)]
-pub struct IsoOptions {
-    /// Enable ISO 9660 (default: true)
-    pub enabled: bool,
-    /// Interchange level of the primary tree (L1 = 8.3, L2 and L3 = 30 chars)
-    pub level: IsoLevel,
-    /// Whether primary names keep lowercase letters
-    pub name_case: NameCase,
-    /// Enable the ISO 9660:1999 enhanced tree (long filenames)
-    pub long_filenames: bool,
-    /// Joliet extension (Windows long filenames)
-    pub joliet: Option<JolietLevel>,
-    /// Rock Ridge extension (POSIX attributes)
-    pub rock_ridge: Option<RockRidge>,
-}
+impl<C: Clock + Clone> CdOptions<C> {
+    /// Replaces the ISO 9660 options.
+    pub fn with_iso(self, iso: IsoOptions<C>) -> Self {
+        Self { iso, ..self }
+    }
 
-impl Default for IsoOptions {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            level: IsoLevel::L2,
-            name_case: NameCase::Upper,
-            long_filenames: true,
-            joliet: Some(JolietLevel::L3),
-            rock_ridge: None,
+    /// Replaces the UDF options.
+    pub fn with_udf(self, udf: UdfOptions<C>) -> Self {
+        Self { udf, ..self }
+    }
+
+    /// Sets the clock that dates both volumes and the entries without
+    /// times.
+    pub fn with_clock<C2: Clock + Clone>(self, clock: C2) -> CdOptions<C2> {
+        CdOptions {
+            iso: self.iso.with_clock(clock.clone()),
+            udf: self.udf.with_clock(clock),
         }
     }
-}
 
-/// UDF specific options
-#[derive(Debug, Clone)]
-pub struct UdfOptions {
-    /// Enable UDF (default: true)
-    pub enabled: bool,
-    /// UDF revision
-    pub revision: UdfRevision,
-}
-
-impl Default for UdfOptions {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            revision: UdfRevision::V1_02,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_default_options() {
-        let opts = OpticalImageOptions::default();
-        assert_eq!(opts.volume_id, "CDROM");
-        assert_eq!(opts.sector_size, 2048);
-        assert!(opts.iso.enabled);
-        assert!(opts.udf.enabled);
+    /// The ISO 9660 options.
+    pub fn iso(&self) -> &IsoOptions<C> {
+        &self.iso
     }
 
-    #[test]
-    fn test_builder_pattern() {
-        let opts = OpticalImageOptions::default()
-            .volume_id("MY_DISC")
-            .joliet(JolietLevel::L3)
-            .rock_ridge(RockRidge::default());
-
-        assert_eq!(opts.volume_id, "MY_DISC");
-        assert!(opts.iso.joliet.is_some());
-        assert!(opts.iso.rock_ridge.is_some());
+    /// The UDF options.
+    pub fn udf(&self) -> &UdfOptions<C> {
+        &self.udf
     }
 }

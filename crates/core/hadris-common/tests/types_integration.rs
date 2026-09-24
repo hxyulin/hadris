@@ -1,7 +1,6 @@
 //! Integration tests for hadris-common types.
 
 use hadris_common::types::endian::*;
-use hadris_common::types::extent::*;
 use hadris_common::types::number::*;
 
 // ---------------------------------------------------------------------------
@@ -100,66 +99,8 @@ fn bytemuck_roundtrip_u32() {
 }
 
 // ---------------------------------------------------------------------------
-// Extent
+// Alignment
 // ---------------------------------------------------------------------------
-
-#[test]
-fn extent_empty() {
-    let e = Extent::new(0, 0);
-    assert!(e.is_empty());
-    assert_eq!(e.sector_count(2048), 0);
-    assert_eq!(e.end_sector(2048), 0);
-}
-
-#[test]
-fn extent_partial_sector() {
-    // 1 byte should still occupy 1 sector
-    let e = Extent::new(10, 1);
-    assert_eq!(e.sector_count(2048), 1);
-    assert_eq!(e.end_sector(2048), 11);
-}
-
-#[test]
-fn extent_exact_sector_boundary() {
-    let e = Extent::new(0, 2048);
-    assert_eq!(e.sector_count(2048), 1);
-    assert_eq!(e.end_sector(2048), 1);
-}
-
-#[test]
-fn extent_display() {
-    let e = Extent::new(100, 4096);
-    assert_eq!(format!("{e}"), "sector 100 (4096 bytes)");
-}
-
-#[test]
-fn extent_overlap_self() {
-    let e = Extent::new(10, 4096);
-    assert!(e.overlaps(&e, 2048));
-}
-
-#[test]
-fn extent_no_overlap_adjacent() {
-    let a = Extent::new(0, 2048); // sector 0
-    let b = Extent::new(1, 2048); // sector 1
-    assert!(!a.overlaps(&b, 2048));
-}
-
-// ---------------------------------------------------------------------------
-// FileType
-// ---------------------------------------------------------------------------
-
-#[test]
-fn file_type_display() {
-    assert_eq!(format!("{}", FileType::RegularFile), "file");
-    assert_eq!(format!("{}", FileType::Directory), "directory");
-    assert_eq!(format!("{}", FileType::Symlink), "symlink");
-}
-
-#[test]
-fn file_type_default() {
-    assert_eq!(FileType::default(), FileType::RegularFile);
-}
 
 #[test]
 fn align_up_already_aligned() {
@@ -170,35 +111,4 @@ fn align_up_already_aligned() {
 fn align_up_needs_alignment() {
     assert_eq!(align_up(1u32, 2048), 2048);
     assert_eq!(align_up(2049u32, 2048), 4096);
-}
-
-// ---------------------------------------------------------------------------
-// Path utilities
-// ---------------------------------------------------------------------------
-
-#[test]
-fn split_path_file_only() {
-    let (dir, file) = hadris_fs::path::split_path("file.txt").unwrap();
-    assert_eq!(dir, "");
-    assert_eq!(file, "file.txt");
-}
-
-#[test]
-fn split_path_nested() {
-    let (dir, file) = hadris_fs::path::split_path("a/b/c/file.txt").unwrap();
-    assert_eq!(dir, "a/b/c");
-    assert_eq!(file, "file.txt");
-}
-
-#[test]
-fn split_path_leading_slash() {
-    let (dir, file) = hadris_fs::path::split_path("/root/file.txt").unwrap();
-    assert_eq!(dir, "root");
-    assert_eq!(file, "file.txt");
-}
-
-#[test]
-fn split_path_empty() {
-    assert!(hadris_fs::path::split_path("").is_none());
-    assert!(hadris_fs::path::split_path("/").is_none());
 }

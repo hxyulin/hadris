@@ -5,6 +5,7 @@ use hadris_io::legacy::sync::{Read, Seek};
 
 /// One opened filesystem selected from an optical image.
 #[non_exhaustive]
+#[allow(clippy::large_enum_variant)]
 pub enum OpenOpticalImage<'a, S>
 where
     S: Read + Seek,
@@ -12,7 +13,7 @@ where
     /// An opened ISO 9660 filesystem.
     Iso9660(hadris_iso::sync::IsoImage<StreamBlocks<&'a mut S>>),
     /// An opened UDF filesystem.
-    Udf(hadris_udf::sync::UdfVolume<&'a mut S>),
+    Udf(hadris_udf::sync::UdfFs<StreamBlocks<&'a mut S>>),
 }
 
 impl<'a, S> OpenOpticalImage<'a, S>
@@ -46,9 +47,12 @@ where
                     .map(Self::Iso9660)
                     .map_err(|err| Error::Iso(err.into_error().into()))
             }
-            OpticalFormat::Udf => hadris_udf::sync::UdfVolume::open(source)
-                .map(Self::Udf)
-                .map_err(Error::Udf),
+            OpticalFormat::Udf => {
+                let blocks = StreamBlocks::new(source).map_err(Error::Io)?;
+                hadris_udf::sync::UdfFs::open(blocks)
+                    .map(Self::Udf)
+                    .map_err(|err| Error::Udf(err.into_error().into()))
+            }
         }
     }
 
@@ -69,7 +73,7 @@ where
     }
 
     /// Borrows the UDF handle when that format was selected.
-    pub fn as_udf(&self) -> Option<&hadris_udf::sync::UdfVolume<&'a mut S>> {
+    pub fn as_udf(&self) -> Option<&hadris_udf::sync::UdfFs<StreamBlocks<&'a mut S>>> {
         match self {
             Self::Udf(image) => Some(image),
             Self::Iso9660(_) => None,
@@ -87,7 +91,7 @@ where
     }
 
     /// Mutably borrows the UDF handle when that format was selected.
-    pub fn as_udf_mut(&mut self) -> Option<&mut hadris_udf::sync::UdfVolume<&'a mut S>> {
+    pub fn as_udf_mut(&mut self) -> Option<&mut hadris_udf::sync::UdfFs<StreamBlocks<&'a mut S>>> {
         match self {
             Self::Udf(image) => Some(image),
             Self::Iso9660(_) => None,
@@ -98,13 +102,13 @@ where
     pub fn into_inner(self) -> &'a mut S {
         match self {
             Self::Iso9660(image) => image.into_inner().into_inner(),
-            Self::Udf(image) => image.into_inner(),
+            Self::Udf(image) => image.into_inner().into_inner(),
         }
     }
 }
 
 /// A legacy byte stream as a block device of 2048-byte blocks, so the
-/// ISO 9660 reader can open it. Transitional until the optical facade moves
+/// ISO 9660 and UDF readers can open it. Transitional until the optical facade moves
 /// to block devices.
 #[derive(Debug)]
 pub struct StreamBlocks<S> {
