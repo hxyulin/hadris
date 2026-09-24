@@ -11,8 +11,8 @@
       "summary": "UDF Bridge logical sectors and logical blocks are 2048 bytes.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-cd/src/options.rs", "name": "OpticalImageOptions::default"}],
-      "tests": [{"path": "crates/optical/hadris-cd/tests/bridge_roundtrip.rs", "name": "bridge_rejects_non_2048_byte_logical_sectors", "kind": "integration"}],
+      "symbols": [{"path": "crates/optical/hadris-cd/src/options.rs", "name": "CdOptions"}, {"path": "crates/optical/hadris-cd/src/write.rs", "name": "write"}],
+      "tests": [{"path": "crates/optical/hadris-cd/tests/bridge.rs", "name": "bridge_layout_follows_udf_and_ecma_119", "kind": "integration"}, {"path": "crates/optical/hadris-cd/tests/bridge.rs", "name": "writer_errors_keep_their_detail", "kind": "integration"}],
       "gap": null
     },
     {
@@ -23,8 +23,8 @@
       "summary": "The recognition sequence follows the CD-ROM descriptors with consecutive BEA01, NSR02, and TEA01 descriptors.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-cd/src/writer.rs", "name": "OpticalImageWriter::write_udf_structures"}],
-      "tests": [{"path": "crates/optical/hadris-cd/tests/bridge_roundtrip.rs", "name": "bridge_descriptor_profile_is_visible_in_raw_sectors", "kind": "integration"}],
+      "symbols": [{"path": "crates/optical/hadris-cd/src/write.rs", "name": "write"}],
+      "tests": [{"path": "crates/optical/hadris-cd/tests/bridge.rs", "name": "bridge_layout_follows_udf_and_ecma_119", "kind": "integration"}],
       "gap": null
     },
     {
@@ -35,8 +35,8 @@
       "summary": "Anchor descriptors occur at sector 256 and at least one of the final sector or final sector minus 256.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-cd/src/writer.rs", "name": "OpticalImageWriter::write_udf_structures"}],
-      "tests": [{"path": "crates/optical/hadris-cd/tests/bridge_roundtrip.rs", "name": "bridge_uses_udf_102_anchor_and_vds_layout", "kind": "integration"}],
+      "symbols": [{"path": "crates/optical/hadris-cd/src/write.rs", "name": "write"}],
+      "tests": [{"path": "crates/optical/hadris-cd/tests/bridge.rs", "name": "bridge_layout_follows_udf_and_ecma_119", "kind": "integration"}],
       "gap": null
     },
     {
@@ -47,8 +47,8 @@
       "summary": "Equivalent main and reserve descriptor sequences contain the required volume descriptors and terminator.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-cd/src/writer.rs", "name": "OpticalImageWriter::write_udf_structures"}],
-      "tests": [{"path": "crates/optical/hadris-cd/tests/bridge_roundtrip.rs", "name": "bridge_descriptor_profile_is_visible_in_raw_sectors", "kind": "integration"}],
+      "symbols": [{"path": "crates/optical/hadris-cd/src/write.rs", "name": "write"}],
+      "tests": [{"path": "crates/optical/hadris-cd/tests/bridge.rs", "name": "bridge_layout_follows_udf_and_ecma_119", "kind": "integration"}],
       "gap": null
     },
     {
@@ -59,8 +59,8 @@
       "summary": "Each main and reserve volume-descriptor-sequence extent occupies at least sixteen logical sectors.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-cd/src/writer.rs", "name": "OpticalImageWriter::write_udf_structures"}],
-      "tests": [{"path": "crates/optical/hadris-cd/tests/bridge_roundtrip.rs", "name": "bridge_uses_udf_102_anchor_and_vds_layout", "kind": "integration"}],
+      "symbols": [{"path": "crates/optical/hadris-cd/src/write.rs", "name": "write"}],
+      "tests": [{"path": "crates/optical/hadris-cd/tests/bridge.rs", "name": "bridge_layout_follows_udf_and_ecma_119", "kind": "integration"}],
       "gap": null
     },
     {
@@ -71,8 +71,8 @@
       "summary": "The integrity sequence contains exactly one closed logical-volume-integrity descriptor and no open descriptor.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-cd/src/writer.rs", "name": "OpticalImageWriter::write_udf_structures"}],
-      "tests": [{"path": "crates/optical/hadris-cd/tests/bridge_roundtrip.rs", "name": "bridge_descriptor_profile_is_visible_in_raw_sectors", "kind": "integration"}],
+      "symbols": [{"path": "crates/optical/hadris-cd/src/write.rs", "name": "write"}],
+      "tests": [{"path": "crates/optical/hadris-cd/tests/bridge.rs", "name": "bridge_layout_follows_udf_and_ecma_119", "kind": "integration"}],
       "gap": null
     },
     {
@@ -83,8 +83,8 @@
       "summary": "The UDF logical volume uses one partition with logical blocks numbered consecutively from its start.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-cd/src/layout.rs", "name": "LayoutInfo::udf_partition_length"}],
-      "tests": [{"path": "crates/optical/hadris-cd/tests/bridge_roundtrip.rs", "name": "bridge_descriptor_profile_is_visible_in_raw_sectors", "kind": "integration"}],
+      "symbols": [{"path": "crates/optical/hadris-cd/src/write.rs", "name": "write"}],
+      "tests": [{"path": "crates/optical/hadris-cd/tests/bridge.rs", "name": "bridge_layout_follows_udf_and_ecma_119", "kind": "integration"}],
       "gap": null
     },
     {
@@ -95,8 +95,8 @@
       "summary": "The UDF and ECMA-119 file structures reference the same file data set.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-cd/src/writer.rs", "name": "OpticalImageWriter::sync_iso_file_extents"}],
-      "tests": [{"path": "crates/optical/hadris-cd/tests/bridge_roundtrip.rs", "name": "bridge_reopens_through_iso_and_udf_and_recovers_source", "kind": "integration"}],
+      "symbols": [{"path": "crates/optical/hadris-cd/src/tree.rs", "name": "stored"}],
+      "tests": [{"path": "crates/optical/hadris-cd/tests/bridge.rs", "name": "bridge_reads_back_through_iso_and_udf", "kind": "integration"}],
       "gap": null
     },
     {
@@ -107,8 +107,8 @@
       "summary": "A bridge disk provides both UDF and ECMA-119 file structures.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-cd/src/writer.rs", "name": "OpticalImageWriter::finish"}],
-      "tests": [{"path": "crates/optical/hadris-cd/tests/bridge_roundtrip.rs", "name": "bridge_reopens_through_iso_and_udf_and_recovers_source", "kind": "integration"}],
+      "symbols": [{"path": "crates/optical/hadris-cd/src/write.rs", "name": "write"}],
+      "tests": [{"path": "crates/optical/hadris-cd/tests/bridge.rs", "name": "bridge_reads_back_through_iso_and_udf", "kind": "integration"}],
       "gap": null
     },
     {
@@ -119,8 +119,8 @@
       "summary": "File Entry allocation descriptors use only Short Allocation Descriptors.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-cd/src/writer.rs", "name": "OpticalImageWriter::write_udf_directory_static"}],
-      "tests": [{"path": "crates/optical/hadris-cd/tests/bridge_roundtrip.rs", "name": "bridge_descriptor_profile_is_visible_in_raw_sectors", "kind": "integration"}],
+      "symbols": [{"path": "crates/optical/hadris-cd/src/write.rs", "name": "write"}],
+      "tests": [{"path": "crates/optical/hadris-cd/tests/bridge.rs", "name": "bridge_layout_follows_udf_and_ecma_119", "kind": "integration"}],
       "gap": null
     }
   ]
