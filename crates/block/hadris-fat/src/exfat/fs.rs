@@ -437,7 +437,9 @@ fn entry_name(name: &Name, invalid: ErrorKind) -> Result<&str, ErrorKind> {
 ///
 /// Names are UTF-16, up to 255 code units, and compare through the
 /// volume's up-case table, so lookups ignore case as the volume defines
-/// it. New names may not hold control characters or `"*/:<>?\|`, be `.`
+/// it. A lookup passes over entry sets whose `NameHash` differs from the
+/// name's, so a set with a wrong `NameHash`, which `check` reports, is not
+/// found by name. New names may not hold control characters or `"*/:<>?\|`, be `.`
 /// or `..`, or end in a dot or space. `parent` finds the directory of a
 /// node from the node table, or by searching the tree from the root when
 /// it is not known; exFAT has no `..` entries.
@@ -1905,18 +1907,46 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         Ok(true)
     }
 
-    /// Finds the entry set named `query`, up to case.
+    /// Finds the entry set named `query`, up to case. Sets whose stream
+    /// entry records another name length or hash are passed over unread.
     async fn find(&mut self, start: DirStart, query: &Units) -> FsResult<Option<Located>, D::Error> {
         let upcased = self.upcased(query).await?;
+        let hash = codec::name_hash(upcased.as_slice());
         let mut walk = Walk::new(start);
         let mut slot = 0;
-        while let Some((at, set)) = self.next_set(&mut walk, &mut slot).await? {
-            if self.named(&set, &upcased).await? {
-                let exact = set.name.as_slice() == query.as_slice();
-                return Ok(Some(Located { set, slot: at, exact }));
+        while let Some(offset) = self.slot_offset(&mut walk, slot).await? {
+            let at = slot;
+            slot += 1;
+            let mut entry = [0u8; ENTRY_SIZE];
+            self.read(offset, &mut entry).await?;
+            match entry[0] {
+                raw::ENTRY_END => break,
+                raw::ENTRY_FILE if self.may_be_named(&mut walk, at, &upcased, hash).await? => {
+                    let Some(set) = self.read_set(&mut walk, at, entry, offset).await? else {
+                        continue;
+                    };
+                    if self.named(&set, &upcased).await? {
+                        let exact = set.name.as_slice() == query.as_slice();
+                        return Ok(Some(Located { set, slot: at, exact }));
+                    }
+                    slot = at + set.count as u32;
+                }
+                _ => {}
             }
         }
         Ok(None)
+    }
+
+    /// Whether the set whose File entry is slot `slot` may be named
+    /// `upcased`: false only when its stream entry records another name
+    /// length or name hash.
+    async fn may_be_named(&mut self, walk: &mut Walk, slot: u32, upcased: &Units, hash: u16) -> FsResult<bool, D::Error> {
+        let Some(at) = self.slot_offset(walk, slot + 1).await? else {
+            return Ok(true);
+        };
+        let mut stream = [0u8; ENTRY_SIZE];
+        self.read(at, &mut stream).await?;
+        Ok(stream[0] != raw::ENTRY_STREAM || (stream[3] as usize == upcased.len && le16(&stream, 4) == hash))
     }
 
     async fn find_label(&mut self) -> FsResult<Option<(u64, RawEntry)>, D::Error> {
@@ -2014,6 +2044,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         if needed as usize > MAX_SET {
             return Err(ErrorKind::NameTooLong.into());
         }
+        let hash = check.map(|query| codec::name_hash(query.as_slice()));
         let mut walk = Walk::new(dir);
         let mut slot = 0u32;
         let mut end = false;
@@ -2033,6 +2064,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
                 true
             } else if entry[0] == raw::ENTRY_FILE {
                 if let Some(query) = check
+                    && let Some(hash) = hash
+                    && self.may_be_named(&mut walk, slot, query, hash).await?
                     && let Some(set) = self.read_set(&mut walk, slot, entry, offset).await?
                 {
                     if self.named(&set, query).await? {

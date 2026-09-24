@@ -24,6 +24,8 @@ pub(crate) fn from_disk(name: &mut [u8; 11]) {
 /// Longest UTF-8 display form of a short name: 11 characters of up to 4
 /// bytes and a dot.
 pub(crate) const DISPLAY_MAX: usize = 11 * 4 + 1;
+/// Most characters a displayed short name has: eight, a dot and three.
+pub(crate) const DISPLAY_CHARS: usize = 12;
 
 /// Writes the display form of a stored short name as UTF-8 and returns its
 /// length: a leading `0x05` read as `0xE5`, padding dropped, the `DIR_NTRes`

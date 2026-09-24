@@ -451,6 +451,14 @@ Each published package owns its version and may be released independently.
   device call, a flush writes each run of consecutive dirty blocks in one
   call, and requests of at least `capacity` blocks go straight to the
   device. Write-back behaviour is unchanged.
+- **hadris-fat (V3):** Directory scans are cheaper. `FatFs` checks the
+  first hashed short-name candidate in the same scan as the duplicate
+  check and the free-slot search, parses slots in place in its block
+  buffer and folds ASCII without Unicode tables. `ExFatFs` lookups and
+  creates compare the stored name length and `NameHash` before reading an
+  entry set, so an entry set with a wrong `NameHash` (a `check` finding)
+  is no longer found by name. Creating 10,000 files in one directory went
+  from 18 to 6.5 s on FAT32 and from 24 to 3.7 s on exFAT.
 - **Fuzzing (V3):** `fs_dump` lists every filesystem through one generic
   walk over the `hadris-fs` `FileSystem` node API, with each driver wrapped
   in a `Volume`. Small seeds are committed for `cpio_read` (every format,

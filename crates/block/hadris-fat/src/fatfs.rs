@@ -7,7 +7,7 @@ use hadris_fs::{
     SetMetadata,
 };
 
-use super::block_io::{BlockBuf, MAX_BLOCK_SIZE, read_bytes, write_bytes};
+use super::block_io::{BlockBuf, MAX_BLOCK_SIZE, load, read_bytes, write_bytes};
 use super::storage::BlockDevice;
 use crate::code_page::{Ascii, CodePage};
 use crate::codec::boot::{self, BootError, Geometry, RootDir};
@@ -44,6 +44,8 @@ const FAT32_ACTIVE_FAT: u16 = 0x0F;
 const FSINFO_FREE_COUNT: u64 = 488;
 const UNKNOWN_FREE: u32 = u32::MAX;
 const MAX_FILE_SIZE: u64 = u32::MAX as u64;
+/// Short-name candidates a directory scan checks at once.
+const CANDIDATES: usize = 6;
 /// The attribute bits [`Attributes`] maps to.
 const ATTR_MAPPED: [(u8, Attributes); 4] = [
     (dirent::ATTR_READ_ONLY, Attributes::READ_ONLY),
@@ -146,8 +148,9 @@ struct Located {
 /// candidates.
 struct NewName {
     encoded: Encoded,
-    /// Candidates in on-disk form for tails none, `~1` to `~4`.
-    candidates: [[u8; 11]; 5],
+    /// Candidates in on-disk form for tails none, `~1` to `~4`, and the
+    /// first hashed tail, so one directory scan checks them all.
+    candidates: [[u8; 11]; CANDIDATES],
     /// The name is its own short name up to case.
     lossless: bool,
     /// Set when the name can be stored as a short entry alone with these
@@ -164,7 +167,7 @@ impl NewName {
             return Err(ErrorKind::InvalidInput);
         }
         let encoded = Encoded::new(text).ok_or(ErrorKind::InvalidInput)?;
-        let mut candidates = [[0u8; 11]; 5];
+        let mut candidates = [[0u8; 11]; CANDIDATES];
         for (suffix, candidate) in candidates.iter_mut().enumerate() {
             if let Some(mut name) =
                 short_name::generate(text, suffix as u8, |ch| code_page.encode(ch))
@@ -286,6 +289,9 @@ fn matches(
 ) -> bool {
     if long.is_some_and(|units| names::eq_ignore_case(query.chars(), names::utf16_chars(units))) {
         return true;
+    }
+    if query.chars().nth(short_name::DISPLAY_CHARS).is_some() {
+        return false;
     }
     let mut short = [0u8; short_name::DISPLAY_MAX];
     let len = short_name::display(
@@ -1521,6 +1527,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         let mut slot = 0;
         let mut end = false;
         let mut taken = 0u8;
+        if new.candidates[CANDIDATES - 1][0] == 0 {
+            taken |= 1 << (CANDIDATES - 1);
+        }
         let (mut run_start, mut run_len) = (0, 0);
         let mut found = None;
         while let Some(offset) = self.slot_offset(&mut walk, slot).await? {
@@ -1610,7 +1619,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
 
     /// A short name with a hashed `HHHH~N` tail that no entry of `dir` has.
     async fn hashed_short(&mut self, dir: DirStart, text: &str, skip: Skip) -> FsResult<[u8; 11], D::Error> {
-        for suffix in 5..=u8::MAX {
+        for suffix in CANDIDATES as u8..=u8::MAX {
             let Some(mut candidate) = short_name::generate(text, suffix, |ch| self.code_page.encode(ch)) else {
                 continue;
             };
@@ -2171,10 +2180,16 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         Ok(id)
     }
 
+    /// Parses the slot at `offset` in place in the block buffer. Slots are
+    /// aligned, so one never crosses a block.
     async fn read_slot(&mut self, offset: u64) -> FsResult<Slot, D::Error> {
-        let mut raw = [0u8; ENTRY_SIZE as usize];
-        read_bytes(&mut self.dev, &mut self.block, offset, &mut raw).await?;
-        Ok(Slot::parse(&raw))
+        let size = self.block.size as u64;
+        load(&mut self.dev, &mut self.block, offset / size).await?;
+        let at = (offset % size) as usize;
+        let raw = self.block.data[at..at + ENTRY_SIZE as usize]
+            .try_into()
+            .map_err(|_| ErrorKind::Corrupt)?;
+        Ok(Slot::parse(raw))
     }
 
     /// The entry of an id that is not pinned, decoded from its location.
