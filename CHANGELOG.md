@@ -621,9 +621,11 @@ Each published package owns its version and may be released independently.
   the parent's attributes. Joliet and enhanced trees keep the real
   hierarchy instead of the relocated one. Without Rock Ridge, symlinks and
   device nodes are left out with a warning instead of failing the write.
-  The relocation directory is named by `RockRidge::with_relocation`
-  (`rr_moved` by default) and a clash at the root fails instead of
-  falling back to `.rr_moved`. Files of 4 GiB or more need `IsoLevel::L3`.
+  The relocation directory is `rr_moved` or `.rr_moved`, chosen with
+  `RockRidge::with_relocation(Relocation::RrMoved)` (the default) or
+  `Relocation::DotRrMoved`, the only names libarchive and `bsdtar` read
+  relocated directories from; a clash at the root fails instead of falling
+  back to the other name. Files of 4 GiB or more need `IsoLevel::L3`.
   `hadris-common` is no longer a dependency.
 - **hadris-optical (V3):** Opens ISO images through `hadris_iso` `IsoImage`
   over a transitional `StreamBlocks` adapter for its `hadris_io::legacy`

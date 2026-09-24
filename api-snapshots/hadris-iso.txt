@@ -970,10 +970,11 @@ impl hadris_iso::Platform
 pub const fn hadris_iso::Platform::from_id(u8) -> Self
 pub const fn hadris_iso::Platform::id(self) -> u8
 #[non_exhaustive] pub enum hadris_iso::Relocation
-pub hadris_iso::Relocation::Directory(alloc::string::String)
+pub hadris_iso::Relocation::DotRrMoved
 pub hadris_iso::Relocation::Reject
-impl core::default::Default for hadris_iso::Relocation
-pub fn hadris_iso::Relocation::default() -> Self
+pub hadris_iso::Relocation::RrMoved
+impl hadris_iso::Relocation
+pub const fn hadris_iso::Relocation::directory(self) -> core::option::Option<&'static str>
 #[non_exhaustive] pub enum hadris_iso::SessionMode
 pub hadris_iso::SessionMode::Append
 pub hadris_iso::SessionMode::Rewrite

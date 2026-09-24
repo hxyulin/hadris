@@ -167,28 +167,38 @@ bitflags::bitflags! {
 }
 
 /// Where Rock Ridge puts directories nested deeper than ISO 9660 allows.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// They move into a directory of the root, as RRIP `CL`, `PL` and `RE`
+/// entries describe. libarchive (`bsdtar`) reads relocated directories only
+/// from a root directory named `rr_moved` or `.rr_moved`, so those are the
+/// two names offered. A directory of the tree with the chosen name is reused
+/// and keeps its own entries; any other entry with that name fails with
+/// [`Detail::Relocation`](crate::Detail::Relocation). libarchive takes the
+/// first root directory with either name, so a tree directory with the other
+/// name whose primary identifier sorts first fails too: `.rr_moved` with
+/// [`NameCase::Preserve`] and [`RrMoved`](Self::RrMoved), or `rr_moved` with
+/// [`DotRrMoved`](Self::DotRrMoved) and [`NameCase::Upper`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Relocation {
-    /// Move them into this directory of the root, as RRIP `CL`, `PL` and
-    /// `RE` entries describe. A directory of the tree with that name is
-    /// reused and keeps its own entries; any other entry with that name
-    /// fails with [`Detail::Relocation`](crate::Detail::Relocation).
-    /// libarchive (`bsdtar`) takes the first root directory named
-    /// `rr_moved` or `.rr_moved` for this directory, so a tree directory
-    /// with the other of the two names whose primary identifier sorts
-    /// first fails too: `.rr_moved` with [`NameCase::Preserve`] and the
-    /// default `rr_moved`, or `rr_moved` with a `.rr_moved` container and
-    /// [`NameCase::Upper`]. libarchive reads relocated directories only
-    /// from a directory with one of those two names.
-    Directory(String),
+    /// Move them into `rr_moved`.
+    #[default]
+    RrMoved,
+    /// Move them into `.rr_moved`.
+    DotRrMoved,
     /// Fail with [`ErrorKind::InvalidInput`](hadris_fs::ErrorKind::InvalidInput).
     Reject,
 }
 
-impl Default for Relocation {
-    fn default() -> Self {
-        Self::Directory(String::from("rr_moved"))
+impl Relocation {
+    /// The relocation directory's name, or `None` for
+    /// [`Reject`](Self::Reject).
+    pub const fn directory(self) -> Option<&'static str> {
+        match self {
+            Self::RrMoved => Some("rr_moved"),
+            Self::DotRrMoved => Some(".rr_moved"),
+            Self::Reject => None,
+        }
     }
 }
 

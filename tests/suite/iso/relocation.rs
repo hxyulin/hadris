@@ -19,10 +19,12 @@ fn bsdtar_extracts_relocated_trees() {
     ];
     for names in paths {
         for (collision, relocation) in [
-            (None, "rr_moved"),
-            (Some(("rr_moved", false)), ".rr_moved"),
-            (Some((".rr_moved", true)), "rr_moved"),
-            (Some(("rr_moved", true)), "rr_moved"),
+            (None, Relocation::RrMoved),
+            (None, Relocation::DotRrMoved),
+            (Some(("rr_moved", false)), Relocation::DotRrMoved),
+            (Some((".rr_moved", true)), Relocation::RrMoved),
+            (Some(("rr_moved", true)), Relocation::RrMoved),
+            (Some((".rr_moved", true)), Relocation::DotRrMoved),
         ] {
             let mut expected = BTreeMap::new();
             let mut path = String::new();
@@ -61,9 +63,7 @@ fn bsdtar_extracts_relocated_trees() {
             }
             let options = IsoOptions::default()
                 .with_volume(VolumeIdentifiers::new("RELOCATION"))
-                .with_rock_ridge(
-                    RockRidge::default().with_relocation(Relocation::Directory(relocation.into())),
-                );
+                .with_rock_ridge(RockRidge::default().with_relocation(relocation));
             let image = write_tree(&tree, &options).unwrap();
             let temp = tempfile::tempdir().unwrap();
             let iso = temp.path().join("image.iso");
@@ -83,7 +83,7 @@ fn bsdtar_extracts_relocated_trees() {
             assert_eq!(
                 snapshot_host(&extracted).unwrap(),
                 expected,
-                "path components: {names:?}, collision: {collision:?}"
+                "path components: {names:?}, collision: {collision:?}, {relocation:?}"
             );
         }
     }
