@@ -45,8 +45,8 @@ enabled; `hadris-fat` has no crate-root re-exports of either mode. Its
 `async-send` feature adds a third namespace, `async_send`, whose futures are
 `Send` for multi-threaded executors.
 
-Some components are intentionally sync-only: the `hadris-fs` host helpers,
-the exFAT preview, and the hybrid ISO/UDF writer. `hadris-iso` has the same
+Some components are intentionally sync-only: the `hadris-fs` host helpers
+and the hybrid ISO/UDF writer. `hadris-iso` has the same
 three namespaces as `hadris-fat`, with its writer and sessions in each.
 
 ## Format capability matrix
@@ -54,7 +54,7 @@ three namespaces as `hadris-fat`, with its writer and sessions in each.
 | Crate | Formats or role | Read | Write/create | Sync | Async | Minimum for reading | Stability |
 |---|---|---:|---:|---:|---:|---|---|
 | `hadris-fat` | FAT12/16/32 | Yes | Yes | Yes | Yes | Allocation-free (writing, formatting and checking too) | Stable |
-| `hadris-fat` `unstable-exfat` | exFAT preview | Partial | Partial | Yes | No | `alloc` | Experimental |
+| `hadris-fat` `exfat` | exFAT, including TexFAT volumes with two FATs | Yes | Yes | Yes | Yes | Allocation-free (writing, formatting and checking too) | Stable |
 | `hadris-part` | MBR (with logical partitions), GPT, hybrid MBR | Yes | Yes | Yes | Yes | Allocation-free (`scan`, `open`) | Stable |
 | `hadris-iso` | ISO 9660, Joliet, Rock Ridge, El Torito | Yes | Yes | Yes | Yes | Allocation-free (writing and sessions need `alloc`) | Stable |
 | `hadris-udf` | UDF 1.02 to 2.01, type 1 partitions | Yes | Yes | Yes | Yes | Allocation-free (writing needs `alloc`) | Stable |
@@ -121,8 +121,8 @@ compiled, and `alloc` adds the writer.
 - Select at least one I/O mode for APIs that access storage.
 - Add `alloc` only when the chosen API returns or stores owned data.
 - Prefer leaf crates when only one format is needed.
-- Treat `unstable-exfat`, `unstable-streaming`, and `hadris-ntfs` as separately
-  versioned experiments.
+- Treat `unstable-streaming` and `hadris-ntfs` as separately versioned
+  experiments.
 
 The workspace CI checks representative allocation-free, `alloc`, `std`, sync,
 async, and combined-mode tiers for every stable format crate.

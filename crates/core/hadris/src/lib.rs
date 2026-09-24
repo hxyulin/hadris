@@ -63,7 +63,7 @@ pub use hadris_storage as storage;
 /// input tree.
 pub use hadris_fs as fs;
 
-/// FAT12, FAT16 and FAT32 (and the exFAT preview of `hadris-fat`).
+/// FAT12, FAT16, FAT32 and exFAT.
 #[cfg(feature = "fat")]
 #[cfg_attr(docsrs, doc(cfg(feature = "fat")))]
 pub use hadris_fat as fat;

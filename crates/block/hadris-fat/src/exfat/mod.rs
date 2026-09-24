@@ -1,8 +1,6 @@
-//! Unstable exFAT preview: the `ExFatFs` driver, its formatter and checker.
+//! The exFAT driver, `ExFatFs`, its formatter and checker.
 //!
-//! This module is enabled by `unstable-exfat` and is outside the Hadris API
-//! stability promise: its items may change in minor releases. It follows
-//! the same shape as `FatFs`. `ExFatFs` is generated for each mode
+//! It follows the same shape as `FatFs`. `ExFatFs` is generated for each mode
 //! (`exfat::sync`, `exfat::r#async`, `exfat::async_send`) with `check`,
 //! `check_with` and, with `write`, `format`; the mode-independent types are
 //! here. It needs no allocator and implements the `hadris_fs` `FsDriver`

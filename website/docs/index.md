@@ -23,6 +23,6 @@ directly to the [use-case guides](./guides/index.md).
 
 `2.4.0` is the current stable V2 release under Semantic Versioning. The
 `unstable-exfat` feature and experimental `hadris-ntfs` crate remain outside
-that stability promise.
+that stability promise; from 3.0, exFAT is stable in `hadris-fat`.
 
 :::

@@ -1,7 +1,7 @@
 # Hadris FAT
 
-A modern Rust FAT12, FAT16, and FAT32 filesystem library with read, write, and
-format support. Hadris FAT handles VFAT long filenames and targets desktop disk
+A modern Rust FAT12, FAT16, FAT32 and exFAT filesystem library with read,
+write, format and check support. Hadris FAT handles VFAT long filenames and targets desktop disk
 image tools as well as `no_std` bootloaders, kernels, firmware, embedded
 systems, SD cards, and USB drives.
 
@@ -14,7 +14,7 @@ systems, SD cards, and USB drives.
 - **No allocator needed** - Read, write, format and check without `alloc`
 - **Sync, async and `Send` async** - One driver generated for each mode
 - **Checker** - A read-only `fsck` that reports each problem it finds
-- **exFAT preview** - Opt-in unstable support for basic exFAT workflows
+- **exFAT** - `ExFatFs` reads, writes, formats and checks exFAT, including TexFAT volumes with two FATs
 
 ## Quick Start
 
@@ -194,8 +194,7 @@ cargo run -p hadris-fat --example shared_volume -- disk.img
 
 | Feature | Description | Dependencies |
 |---------|-------------|--------------|
-| `write` | `format` in each mode; `FatFs` writes without it | None |
-| `unstable-exfat` | Unstable exFAT preview: `ExFatFs`, `format` and `check` in `exfat` | None |
+| `write` | `format` in each mode; `FatFs` and `ExFatFs` write without it | None |
 | `alloc` | `HeapTable` and the other heap-backed `hadris-fs` conveniences | `alloc` crate |
 | `sync` | Synchronous API in `sync` | `hadris-io/sync` |
 | `async` | Asynchronous API in `r#async` | `hadris-io/async` |
@@ -209,13 +208,17 @@ Default features: `write`, `std`, `sync`
 configurations should enable `sync`, `async`, or both explicitly. No feature
 changes what an item does.
 
-### exFAT preview status
+### exFAT
 
-The `unstable-exfat` feature is outside the Hadris API stability promise.
-It adds `exfat::sync::ExFatFs` and its `r#async` and `async_send` twins,
-a sibling of `FatFs` that needs no allocator and implements `FsDriver`,
-with `format`, `check` and `check_with`. TexFAT and repair are not
-supported.
+`exfat::sync::ExFatFs` and its `r#async` and `async_send` twins are a
+sibling of `FatFs` that needs no allocator and implements `FsDriver`, with
+`format`, `check` and `check_with` in each mode. It reads contiguous and
+chained allocations, fragmented bitmaps and up-case tables, and entry sets
+that cross clusters; it writes FAT chains, grows directories, and keeps
+`VolumeDirty` and `PercentInUse`. On TexFAT volumes it follows `ActiveFat`
+and keeps both FATs and bitmaps equal. TexFAT transactions and repair are
+not supported. The conformance suite in `tests/` qualifies it against
+exfatprogs, macOS `newfs_exfat`/`fsck_exfat` and the macOS kernel driver.
 
 ### For Bootloaders and Embedded Systems
 

@@ -31,11 +31,8 @@ std = [
   "hadris-fs/std",
   "hadris-storage/std",
 ]
-# `format` in each mode. `FatFs` reads and writes without it.
+# `format` in each mode. `FatFs` and `ExFatFs` read and write without it.
 write = []
-# Unstable exFAT preview in `exfat`, outside the stability promise. It
-# follows the enabled modes like `FatFs` and needs no allocator.
-unstable-exfat = []
 # Derives `defmt::Format` on `FatKind` and `Finding` so they can be logged
 # through `defmt::info!` etc. without going through `Debug`.
 defmt = ["dep:defmt"]
@@ -87,24 +84,24 @@ required-features = ["std", "sync", "async-send", "write"]
 
 [[test]]
 name = "exfat_contract"
-required-features = ["std", "sync", "async-send", "write", "unstable-exfat"]
+required-features = ["std", "sync", "async-send", "write"]
 
 [[test]]
 name = "exfat_format"
-required-features = ["std", "sync", "write", "unstable-exfat"]
+required-features = ["std", "sync", "write"]
 
 [[test]]
 name = "exfat_read"
-required-features = ["std", "sync", "write", "unstable-exfat"]
+required-features = ["std", "sync", "write"]
 
 [[test]]
 name = "exfat_write"
-required-features = ["std", "sync", "write", "unstable-exfat"]
+required-features = ["std", "sync", "write"]
 
 [[test]]
 name = "exfat_check"
-required-features = ["std", "sync", "write", "unstable-exfat"]
+required-features = ["std", "sync", "write"]
 
 [[test]]
 name = "exfat_native"
-required-features = ["std", "sync", "write", "unstable-exfat"]
+required-features = ["std", "sync", "write"]

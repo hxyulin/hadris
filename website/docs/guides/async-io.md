@@ -58,7 +58,6 @@ use hadris_fat::r#async::FatFs as AsyncFatFs;
 
 - The `hadris-fs` host helpers (`extract_to_host`, `import_from_host`) are
   sync-only.
-- The exFAT preview is sync-only.
 - The underlying reader must support seeking; network streams generally need a
   buffering or range-request adapter.
 

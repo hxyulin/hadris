@@ -1,7 +1,7 @@
 //! # hadris-fat
 //!
 //! A pure Rust, `no_std`-compatible library for reading, writing, and formatting
-//! FAT12, FAT16, and FAT32 filesystems, plus an opt-in unstable exFAT preview.
+//! FAT12, FAT16, FAT32 and exFAT filesystems.
 //! It is suitable for disk-image tools, bootloaders, kernels, firmware,
 //! embedded devices, SD cards, and USB drives.
 //!
@@ -44,6 +44,13 @@
 //! parameters, chosen with [`MountOptions`] and `FatFs::open_with`. A failed
 //! mount returns a [`MountError`](hadris_fs::MountError) that gives the
 //! device back.
+//!
+//! ## exFAT: `ExFatFs`
+//!
+//! [`exfat`] holds `ExFatFs`, a sibling of `FatFs` with the same shape:
+//! `exfat::sync::ExFatFs` and its `r#async` and `async_send` twins, each
+//! with `check`, `check_with` and, with `write`, `format`. It needs no
+//! allocator and implements `FsDriver`.
 //!
 //! ## Formatting with `FatFs`
 //!
@@ -106,12 +113,11 @@
 //! | `sync`   | Yes     | Synchronous API in `sync` |
 //! | `async`  | No      | Asynchronous API in `r#async` |
 //! | `async-send` | No  | Asynchronous API with `Send` futures in `async_send` |
-//! | `write`  | Yes     | `format` in each mode; `FatFs` writes without it |
-//! | `unstable-exfat` | No | Unstable exFAT preview in `exfat`: `ExFatFs`, `format` and `check` in each mode |
+//! | `write`  | Yes     | `format` in each mode; `FatFs` and `ExFatFs` write without it |
 //! | `defmt`  | No      | `defmt::Format` for `FatKind` and `Finding` |
 //!
 //! No feature changes what an item does: `FatFs` always reads and writes long
-//! names, and needs no allocator in any mode.
+//! names, and neither `FatFs` nor `ExFatFs` needs an allocator in any mode.
 //!
 //! ## Sync, async and `Send` async
 //!
@@ -126,7 +132,8 @@
 //! - `sync::check`, `sync::check_with` and their `async` versions: the
 //!   checker
 //! - `raw`: on-disk boot sector, BPB and FSInfo layouts
-//! - `exfat`: the unstable exFAT preview, `ExFatFs` (requires `unstable-exfat`)
+//! - `exfat`: the exFAT driver, `ExFatFs`, with its own `sync`, `r#async`
+//!   and `async_send` modes, formatter, checker and `raw` layouts
 
 #![cfg_attr(not(test), no_std)]
 #![deny(missing_docs)]
@@ -155,8 +162,7 @@ mod options;
 /// root never re-exports them.
 pub mod raw;
 
-/// Unstable exFAT preview, outside the stability promise.
-#[cfg(feature = "unstable-exfat")]
+/// The exFAT driver, `ExFatFs`, its formatter and checker.
 pub mod exfat;
 
 #[cfg(feature = "sync")]

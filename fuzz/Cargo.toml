@@ -22,7 +22,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 hadris-cpio = { path = "../crates/archive/hadris-cpio" }
-hadris-fat = { path = "../crates/block/hadris-fat", features = ["unstable-exfat"] }
+hadris-fat = { path = "../crates/block/hadris-fat" }
 hadris-fs = { path = "../crates/core/hadris-fs" }
 hadris-io = { path = "../crates/core/hadris-io" }
 hadris-storage = { path = "../crates/core/hadris-storage" }
