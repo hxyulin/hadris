@@ -788,6 +788,9 @@ Keep the `strip_async!` code generation and use it everywhere:
 
 ### 4.9 Feature flags
 
+Revised 2026-09-24 (4.15): FAT and exFAT without `alloc` move to the embedded
+API, and the `embassy-sync` feature and `Local` lock kinds are removed.
+
 | Feature | Meaning |
 |---|---|
 | `alloc` | Heap-backed conveniences: owned names, trees, boxed sources, `AnyError`, `read_to_vec`, `Box`/`Rc`/`Arc` forwarding and `Access` impls. |
@@ -891,6 +894,9 @@ another resolver type or an option on `Posix`.
 
 ### 4.13 Known costs and limitations
 
+Revised 2026-09-24 (4.15): the limits of the fixed node table, the 16-entry
+`Volume` queue and `Local` reentry below are removed with those types.
+
 Each row is a deliberate trade, what it buys, and what a user does about it.
 
 | Cost | Why it stays | What users do |
@@ -950,6 +956,123 @@ ask first. None needs a break, so none blocks 3.0.
 | Per-field time resolution in `Capabilities` | The modification time's | FAT (created 10 ms, modified 2 s, accessed 1 day) |
 | `DateTime` conversions to and from `SystemTime` | None | Every std adapter |
 | Orphan tracking: unlink of an open node succeeds | `Busy` | POSIX semantics (Q3) |
+
+### 4.15 Layers per format: raw, shared, host and embedded
+
+The V3 review (2026-09-24) wrote real programs against 3.0 for OS images,
+forensics, firmware, servers, FUSE and conversions. Most friction came from
+one driver serving firmware and hosted code at once: firmware wants a few
+fixed node slots, 512-byte buffers, ASCII folding and two-byte errors, while
+hosted code wants unbounded tables, Unicode, paths in errors and no visible
+generics. Features may not switch behaviour, so one type cannot choose per
+build. A first answer (type-alias profiles over one generic engine) kept the
+firmware generics on the shared type. The user chose instead to build every
+format on a public low-level layer and to give firmware its own API.
+
+```
+hadris-<fmt>-raw      I/O-free codecs (stable) and thin device primitives
+                      (raw::io, sync and async); for anyone building their own
+<fmt>::{sync,async}   FsDriver/FileSystem drivers, Volume, handles; kernels,
+                      host applications, servers, FUSE; requires alloc for FAT
+<fmt>::host (std)     open(path), host::Error, std::fs-named path methods
+<fmt>::embedded       handle-based firmware API over raw; fixed buffers, no
+  ::{sync,asynch}     node table, no Unicode tables unless asked
+```
+
+**Raw crates.** Each format gets a `hadris-<fmt>-raw` crate with its own
+version, so the low-level API can evolve without breaking the format crate's
+major version. Users whose case the higher layers do not cover are pointed
+here.
+
+- The I/O-free part is pure functions and small state machines over byte slices: for FAT, boot sector parsing into `Geometry`, FAT entry encode and decode, `ChainGuard` (cycle detection), free-cluster scans, directory slot parsing and encoding, long-name assembly and checksums, short-name generation, dates with a UTC offset, the format layout planner and boot fields (hidden sectors, CHS geometry), and name folding as a function pointer (`fold_ascii` by default; Unicode tables link only when referenced). exFAT adds entry sets (parse, validate, seal), set checksums, name hashes, the up-case decoder, bitmap helpers and times. Most of this exists today as the private `codec` modules (about 2,900 lines).
+- `raw::io` is a thin layer of device primitives generic over the device only, borrowing a caller buffer: `read_geometry`, FAT `get`/`set` (every copy), `next`, `runs` (contiguous extents, cycle guarded), `allocate`/`free_chain` with FAT writes batched per sector, directory iteration with a cached position, `write_slots`, `mkfs`, and `check` that runs without mounting. exFAT adds the bitmap, a lazy up-case index and `write_set`, which writes a whole entry set per block, secondaries before the primary. Ordering-sensitive sequences live here once, so both the shared driver and the embedded API inherit the same crash ordering.
+- A fully sans-IO design was considered. It works for the codecs, but operations that read, decide and read again (chain walks, directory iteration, allocation) would need a hand-written state machine each on stable Rust. `raw::io` is instead generated per mode from one source.
+
+**Shared drivers.** `FatFs<D>` and `ExFatFs<D>` have one type parameter and
+require `alloc`. The clock and code page are runtime options, and the node
+table is an internal heap table with an optional cap (`with_max_nodes`).
+`NodeTable`, `FixedTable` and `HeapTable` leave the public API. `Volume`
+requires `alloc` and its deferred queue is a `Vec`. The `Local` lock kinds
+and the `embassy-sync` feature are removed; firmware shares the embedded API
+with its own mutex. Drivers without allocation needs (ISO, UDF, NTFS
+readers) keep working without `alloc` at this tier.
+
+**Modes.** The shared tier ships `sync` and `async`, where `async` is today's
+`async_send` (futures are `Send` when the device is). Non-`Send` async
+remains in `hadris-io`, `hadris-storage` and the embedded API. Sync stays
+generated from the async source by macro: a measurement on 2026-09-24 of
+async code driven by `block_on` over an always-ready device, with fat LTO at
+opt-level `s` and `z`, found +40 to 49% code, +70% worst-case stack (26 KB to
+45 KB on thumbv7em), 40 or more poll state machines left in the binary and
+1.3 to 2.5 times slower host throughput, with identical images.
+
+**Host.** `hadris::<fmt>::host` (with `std`) adds `open(path)`,
+`open_device(device)`, `format`, the non-generic `host::Error` (kind,
+context, path, boxed source; it replaces `AnyError`) and path methods named
+after `std::fs` on the shared `Volume`. The FAT code page defaults to
+`Cp437`. `hadris::host::open(path)` detects block, partition, optical and
+archive images.
+
+**Embedded.** `hadris_fat::embedded::{sync, asynch}` is a separate,
+handle-based API built only on the raw crate:
+
+```rust
+pub struct Fat<D, const FILES: usize = 4> { .. }
+impl<D: BlockDevice, const N: usize> Fat<D, N> {
+    pub fn mount(dev: D) -> Result<Self, MountError<D, D::Error>>;
+    pub fn root(&self) -> Dir;
+    pub fn open_dir(&mut self, parent: Dir, name: &str) -> Result<Dir, Error<D::Error>>;
+    pub fn open(&mut self, dir: Dir, name: &str, mode: Mode) -> Result<File, Error<D::Error>>;
+    pub fn read(&mut self, file: &File, buf: &mut [u8]) -> Result<usize, Error<D::Error>>;
+    pub fn write(&mut self, file: &File, buf: &[u8]) -> Result<usize, Error<D::Error>>;
+    pub fn flush(&mut self, file: &File) -> Result<(), Error<D::Error>>;
+    pub fn close(&mut self, file: File) -> Result<(), Error<D::Error>>;
+    pub fn list(&mut self, dir: Dir, each: impl FnMut(&Entry) -> ControlFlow<()>) -> Result<(), Error<D::Error>>;
+    // create_dir, remove, rename, seek, sync, into_inner
+}
+```
+
+512-byte blocks, `File` is move-only, errors are `Error<E>`, and the targets
+are under 2 KB of RAM and under 2 KB of mount stack, checked in CI on
+`thumbv6m`, `thumbv7em` and `riscv32imc`. 3.0 ships FAT12/16/32 read and
+write and exFAT read-only; exFAT write follows in 3.x.
+
+**Errors.** One `hadris_fs::Error<E>` for every crate. Its private context is
+`Copy` and allocation free: a `&'static str` message, an optional location
+(byte, block, cluster) and a detail code, so nothing is dropped at crate
+boundaries. Each crate keeps a `Detail` enum with `Detail::of(&err)`, and the
+per-crate `Error` wrappers are removed. `ErrorKind::NotRecognized` separates
+"not this format" from `Corrupt`. An error either shows its source's text or
+returns it from `source()`, never both.
+
+**Other formats.** ISO and UDF readers already work without allocation and
+need no embedded API. Their raw crates gain, in 3.x, the record and FID
+iterators, the Rock Ridge decoder, CS0 and d-character codecs and descriptor
+selection. NTFS exposes its record layer under `unstable-ntfs`. cpio and
+partitions need little beyond making existing codecs public.
+
+**Other simplifications.** The `contract` kit moves to a `hadris-fs-contract`
+crate outside 3.0 semver. Resolvers and `impl_fs_driver!` stay.
+
+**What this settles from the review.** C1 to C6, D1, D7 and D8, and B5 and B6
+as targets of the embedded API. A1, A2, A5, B3 and B4 move into `raw::io`
+primitives; A4 disappears with the `Vec` queue. Decisions: Q9.
+
+### 4.16 Review decisions on API shape
+
+Decided by the user on 2026-09-24 from the V3 review (items D2 to D12):
+
+| Item | Decision |
+|---|---|
+| D2 labels and serials | Text is always `label()`, a numeric id is always `volume_serial()`, in every crate. `FsDriver` gains a defaulted `volume_label()` so generic code and the openers can show it. UDF keeps `logical_volume_id()` as an extra. |
+| D3 features | `hadris-fs` defaults to `std` and `sync` like every other crate. `write` keeps meaning "can create images" in every crate, documented per crate. |
+| D4 exFAT detection | `BlockFormat::Fat(FatKind)` and a separate `BlockFormat::ExFat`; `FatVariant` is removed. |
+| D5 optical detection | `detect` returns `OpticalFormats`; an empty set means nothing was found. |
+| D6 `OpenFile` | Move-only: `close` consumes it, so a double close does not compile. |
+| D9 directory entries | `DirEntry::metadata()` returns the metadata the directory entry already stores, filled by every current driver. `Dir::driver()` and a node-based, cycle-safe `walk` helper are added. |
+| D10 FAT times | `MountOptions::with_utc_offset`. The engine and embedded profiles default to UTC; the host profile defaults to the system's local offset. exFAT reads and writes its UTC offset fields. |
+| D11 permissions | `Metadata::permissions()` and `SetMetadata::with_permissions()`; the `mode` spellings leave `hadris-fs`. cpio keeps its raw `mode()`. |
+| D12 trait additions | Stay 3.x additions under 4.14 (`link`, `forget_n`, `Metadata::device()` and the rest, orphans). |
 
 ---
 
@@ -1196,6 +1319,8 @@ trait plus a `&self` trait with a shared `Volume` (C), and C with opt-in tiers
 and device-typed errors (D). V3 takes D: 4.1 to 4.4, 4.6, 4.12 and 4.13
 describe it, and scenarios S1 to S16 are its acceptance tests.
 
+**Q2 revised 2026-09-24:** the shared tier keeps two modes, `sync` and `async`, where `async` is the `Send` mode described below; non-`Send` async stays in `hadris-io`, `hadris-storage` and the embedded API (4.15).
+
 **Q2. `Send` futures.** Resolved: V3 ships the `async_send` mode below. `async fn` in traits does not let a generic caller
 require `Send` futures, so tokio code that spawns over a generic
 `F: FileSystem` does not compile (E2 baseline: 25 errors, "`<F as
@@ -1248,6 +1373,8 @@ a `NameCodec`? Still open: `hadris-fs` ships `Capabilities::name_charset()`
 returning a non-exhaustive `NameCharset` (`Bytes`, `Utf8`, `Ucs2`, `Utf16`,
 `DCharacters`, `OemCodePage`) as the interim answer.
 
+**Q8 revised 2026-09-24:** the node table leaves the public API; `FatFs<D>` uses an internal heap table and firmware uses the embedded API (4.15).
+
 **Q8. FAT node table capacity.** Resolved: a `NodeTable` type parameter. Without `alloc` the table is a fixed array
 (E1): `FatFs<D, const N: usize = 64>`, full table gives `LimitExceeded`, and
 `FsDriver`, `Volume` and handles never see `N`. A default const parameter is
@@ -1270,3 +1397,12 @@ shared. The prototype named the FAT driver `FatFs`. Options: rename every
 driver to `<Format>Fs`, or rename the wrapper (`Shared<F, K>`). Decided:
 `<Format>Fs` for drivers (`FatFs`, `ExFatFs`, `IsoFs`, `UdfFs`, `NtfsFs`),
 since `Volume` is what most users type.
+
+**Q9. Layer boundaries.** Resolved 2026-09-24 by the user, in two rounds.
+First: host volumes wrap `Volume` with `StdMutex`, `host::Error` replaces
+`AnyError`, the host FAT code page is `Cp437`, and profiles are modules. Then,
+after an architecture pass: raw layers are separate `hadris-<fmt>-raw` crates;
+`FatFs` and `ExFatFs` collapse to one type parameter and require `alloc`;
+the shared tier ships `sync` and `Send` `async`; firmware gets a separate
+embedded API with exFAT read-only in 3.0. Async-only with a `block_on` sync
+wrapper was measured and rejected (4.15).
