@@ -7,24 +7,28 @@ title: Build a CPIO initramfs
 ```toml
 [dependencies]
 hadris-cpio = "2.4.0"
+hadris-fs = "2.4.0"
 hadris-io = "2.4.0"
 ```
 
 ```rust
-use hadris_cpio::{CpioArchiveWriter, CpioWriteOptions, FileTree};
+use hadris_cpio::CpioOptions;
+use hadris_fs::tree::{FromFsOptions, Tree};
 use hadris_io::StdIo;
-use std::{fs::File, io::BufWriter, path::Path};
+use std::{fs::File, io::BufWriter};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let tree = FileTree::from_fs(Path::new("./initramfs-root"))?;
-    let output = StdIo::new(BufWriter::new(File::create("initramfs.cpio")?));
-    CpioArchiveWriter::new(output, CpioWriteOptions::default()).finish(&tree)?;
+    let tree = Tree::from_fs("./initramfs-root", FromFsOptions::new())?;
+    let mut output = StdIo::new(BufWriter::new(File::create("initramfs.cpio")?));
+    hadris_cpio::sync::write(&mut output, &tree, &CpioOptions::default())?;
     Ok(())
 }
 ```
 
-Hadris writes the newc/SVR4 format used by Linux initramfs images. The reader
-also supports allocation-free entry iteration for constrained consumers.
+Hadris writes the newc/SVR4 format used by Linux initramfs images. Device
+nodes, symlinks and hard links in the source tree are stored; hard link
+groups carry their data on the last name, as GNU cpio writes them. The
+reader iterates entries without an allocator for constrained consumers.
 
 Inspect the result with an independent implementation before booting it:
 

@@ -59,7 +59,7 @@ three namespaces as `hadris-fat`, with its writer and sessions in each.
 | `hadris-iso` | ISO 9660, Joliet, Rock Ridge, El Torito | Yes | Yes | Yes | Yes | Allocation-free (writing and sessions need `alloc`) | Stable |
 | `hadris-udf` | UDF 1.02 | Yes | Yes | Yes | Yes | `alloc` for filesystem traversal | Stable |
 | `hadris-udf` `unstable-streaming` | Streamed file input for the UDF writer | N/A | Yes | Yes | No | `std` | Experimental |
-| `hadris-cpio` | CPIO newc and CRC | Yes | Yes | Yes | Yes | Allocation-free | Stable |
+| `hadris-cpio` | CPIO newc, CRC and odc; old binary read | Yes | Yes | Yes | Yes | Allocation-free (writing needs `alloc`) | Stable |
 | `hadris-ntfs` | NTFS | Yes | No | Yes | Yes | `alloc` | Experimental |
 | `hadris-cd` | Hybrid ISO/UDF images | N/A | Yes | Yes | No | `std` | Stable |
 
@@ -109,9 +109,12 @@ from wrapping the device in `hadris_storage::sync::Cache`.
 hadris-cpio = {
   version = "2.4.0",
   default-features = false,
-  features = ["alloc", "read", "write", "sync"]
+  features = ["alloc", "sync"]
 }
 ```
+
+`hadris-cpio` has no `read` or `write` feature: the reader is always
+compiled, and `alloc` adds the writer.
 
 ## Feature selection rules
 

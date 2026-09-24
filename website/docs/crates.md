@@ -22,7 +22,7 @@ storage categories.
 | UDF images | [`hadris-udf`](https://docs.rs/hadris-udf) | UDF descriptors, reading, and image creation |
 | ISO/UDF detection and opening | [`hadris-optical`](https://docs.rs/hadris-optical) | Detects bridge images and applies an explicit open policy |
 | Hybrid ISO/UDF authoring | [`hadris-cd`](https://docs.rs/hadris-cd) | Builds images sharing file data between both filesystems |
-| CPIO newc archives or initramfs | [`hadris-cpio`](https://docs.rs/hadris-cpio) | Complete CPIO reader and writer |
+| CPIO newc archives or initramfs | [`hadris-cpio`](https://docs.rs/hadris-cpio) | Streaming CPIO reader (newc, CRC, odc, binary) and writer |
 | Several categories through one dependency | [`hadris`](https://docs.rs/hadris) | Re-exports selected category facades |
 
 ## Leaf crates

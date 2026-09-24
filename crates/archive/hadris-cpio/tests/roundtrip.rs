@@ -199,6 +199,47 @@ fn writer_rejects_bad_names_and_fields_before_writing() {
     );
 }
 
+struct Zeros(u64);
+
+impl hadris_io::ErrorType for Zeros {
+    type Error = core::convert::Infallible;
+}
+
+impl hadris_io::sync::ByteSource for Zeros {
+    fn len(&self) -> u64 {
+        self.0
+    }
+
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        let take = self.0.saturating_sub(offset).min(buf.len() as u64) as usize;
+        buf[..take].fill(0);
+        Ok(take)
+    }
+}
+
+#[test]
+fn files_over_the_format_limit_are_too_large() {
+    let meta = SetMetadata::new();
+    let newc = Content::source(Zeros(u64::from(u32::MAX) + 1));
+    let mut writer = CpioWriter::new(StdIo::new(Vec::new()), &CpioOptions::default());
+    let err = writer
+        .append("big", &meta, NewEntry::File(&newc))
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::FileTooLarge);
+    assert_eq!(writer.bytes_written(), 0);
+
+    let odc = Content::source(Zeros(Format::Odc.max_file_size() + 1));
+    let mut writer = CpioWriter::new(
+        StdIo::new(Vec::new()),
+        &CpioOptions::default().with_format(Format::Odc),
+    );
+    let err = writer
+        .append("big", &meta, NewEntry::File(&odc))
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::FileTooLarge);
+    assert_eq!(Format::Newc.max_file_size(), u64::from(u32::MAX));
+}
+
 #[test]
 fn dropped_metadata_is_reported() {
     let mut tree = Tree::new();
