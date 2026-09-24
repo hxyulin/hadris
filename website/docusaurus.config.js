@@ -2,12 +2,20 @@
 
 const {themes: prismThemes} = require("prism-react-renderer");
 
+const siteUrl = process.env.HADRIS_SITE_URL || "https://hxyulin.github.io";
+const baseUrl = process.env.HADRIS_BASE_URL || "/hadris/";
+const channel = process.env.HADRIS_DOCS_CHANNEL || "stable";
+const isNext = channel === "next";
+const stableUrl = process.env.HADRIS_STABLE_URL || `${siteUrl}${baseUrl}`;
+const nextUrl = process.env.HADRIS_NEXT_URL || `${siteUrl}${baseUrl}next/`;
+const apiDocsUrl = isNext ? `${siteUrl}${baseUrl}api/hadris/index.html` : "https://docs.rs/hadris";
+
 const config = {
   title: "Hadris",
   tagline: "The Rust storage stack",
   favicon: "img/favicon.svg",
-  url: "https://hxyulin.github.io",
-  baseUrl: "/hadris/",
+  url: siteUrl,
+  baseUrl,
   organizationName: "hxyulin",
   projectName: "hadris",
   onBrokenLinks: "throw",
@@ -27,7 +35,7 @@ const config = {
         docs: {
           routeBasePath: "/",
           sidebarPath: require.resolve("./sidebars.js"),
-          editUrl: "https://github.com/hxyulin/hadris/edit/main/website/",
+          editUrl: `https://github.com/hxyulin/hadris/edit/${isNext ? "next" : "main"}/website/`,
         },
         blog: false,
         theme: {
@@ -37,6 +45,13 @@ const config = {
     ],
   ],
   themeConfig: {
+    ...(isNext && {
+      announcementBar: {
+        id: "next",
+        content: `These docs follow the unreleased 3.0 API on the <code>next</code> branch. <a href="${stableUrl}">Docs for the released 2.x crates</a>.`,
+        isCloseable: false,
+      },
+    }),
     prism: {
       theme: prismThemes.github,
       darkTheme: prismThemes.dracula,
@@ -49,8 +64,13 @@ const config = {
         {to: "/guides", label: "Use cases", position: "left"},
         {to: "/crates", label: "Crates", position: "left"},
         {
-          href: "https://docs.rs/hadris",
+          href: apiDocsUrl,
           label: "API docs",
+          position: "right",
+        },
+        {
+          href: isNext ? stableUrl : nextUrl,
+          label: isNext ? "2.x docs" : "3.0 preview",
           position: "right",
         },
         {
@@ -73,7 +93,7 @@ const config = {
         {
           title: "Project",
           items: [
-            {label: "API docs", href: "https://docs.rs/hadris"},
+            {label: "API docs", href: apiDocsUrl},
             {label: "Crates.io", href: "https://crates.io/crates/hadris"},
             {label: "GitHub", href: "https://github.com/hxyulin/hadris"},
           ],

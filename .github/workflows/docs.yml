@@ -2,10 +2,10 @@ name: Documentation
 
 on:
   push:
-    branches: [main]
+    branches: [main, next]
     paths:
       - "README.md"
-      - "crates/**/README.md"
+      - "crates/**"
       - "scripts/check-docs.py"
       - "website/**"
       - ".github/workflows/docs.yml"
@@ -22,11 +22,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: pages-${{ github.ref }}
+  group: pages-${{ github.event_name == 'pull_request' && github.ref || 'deploy' }}
   cancel-in-progress: true
 
 jobs:
-  build:
+  check:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -45,11 +46,71 @@ jobs:
       - name: Build documentation
         working-directory: website
         run: npm run build
-      - name: Upload Pages artifact
-        if: github.event_name != 'pull_request'
-        uses: actions/upload-pages-artifact@v5
+
+  # The site holds the released docs from `main` at the root and the
+  # unreleased docs from `next` under `next/`, so a push to either branch
+  # rebuilds both. Set the repository variable DOCS_DOMAIN (for example
+  # docs.example.org) after configuring that custom domain for Pages.
+  build:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      HADRIS_SITE_URL: ${{ vars.DOCS_DOMAIN && format('https://{0}', vars.DOCS_DOMAIN) || 'https://hxyulin.github.io' }}
+      ROOT_BASE: ${{ vars.DOCS_DOMAIN && '/' || '/hadris/' }}
+    steps:
+      - uses: actions/checkout@v7
         with:
-          path: website/build
+          ref: main
+          path: main
+      - uses: actions/checkout@v7
+        with:
+          ref: next
+          path: next
+      - name: Check documentation links and package READMEs
+        run: |
+          (cd main && python3 scripts/check-docs.py)
+          (cd next && python3 scripts/check-docs.py)
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Build the released site
+        working-directory: main/website
+        env:
+          HADRIS_BASE_URL: ${{ env.ROOT_BASE }}
+          HADRIS_DOCS_CHANNEL: stable
+        run: |
+          npm ci
+          npm run build
+      - name: Build the next site
+        working-directory: next/website
+        env:
+          HADRIS_BASE_URL: ${{ env.ROOT_BASE }}next/
+          HADRIS_DOCS_CHANNEL: next
+          HADRIS_STABLE_URL: ${{ env.HADRIS_SITE_URL }}${{ env.ROOT_BASE }}
+        run: |
+          npm ci
+          npm run build
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: next
+      - name: Build the next API docs
+        working-directory: next
+        env:
+          RUSTDOCFLAGS: --cfg docsrs
+          RUSTC_BOOTSTRAP: "1"
+        run: cargo doc --workspace --no-deps --all-features
+      - name: Assemble the site
+        run: |
+          mkdir -p site
+          cp -R main/website/build/. site/
+          mkdir -p site/next
+          cp -R next/website/build/. site/next/
+          cp -R next/target/doc site/next/api
+          if [ -n "${{ vars.DOCS_DOMAIN }}" ]; then echo "${{ vars.DOCS_DOMAIN }}" > site/CNAME; fi
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
 
   deploy:
     if: github.event_name != 'pull_request'
