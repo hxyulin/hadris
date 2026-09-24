@@ -497,6 +497,11 @@ pub struct ExFatFs<D, T: NodeTable = FixedTable<64>, C: Clock = NoClock> {
     dirty: Dirty,
     read_only: bool,
     clock: C,
+    /// Some pinned node is not at the slot its id names, because it was
+    /// renamed or removed. Until the table empties, `pinned_at` searches it.
+    moved: bool,
+    /// A known `(index, cluster)` of the root directory's chain.
+    root_hint: (u32, u32),
 }
 
 impl<D, T: NodeTable, C: Clock> fmt::Debug for ExFatFs<D, T, C> {
@@ -795,6 +800,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             dirty,
             read_only: read_only || backup || !upcase_valid,
             clock,
+            moved: false,
+            root_hint: (0, 0),
         })
     }
 
@@ -929,7 +936,14 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             return Ok(None);
         };
         let mut walk = Walk::new(start);
-        let Some((at, set)) = self.next_set(&mut walk, &mut slot).await? else {
+        if !start.alloc.contiguous {
+            (walk.index, walk.cluster) = self.dir_hint(dir);
+        }
+        let next = self.next_set(&mut walk, &mut slot).await?;
+        if walk.cluster != 0 {
+            self.set_dir_hint(dir, (walk.index, walk.cluster));
+        }
+        let Some((at, set)) = next else {
             *cursor = DirCursor::from_raw(slot as u64);
             return Ok(None);
         };
@@ -1061,6 +1075,29 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         }
         if self.nodes.unpin(node) == Some(0) && self.nodes.get(node).is_some_and(|n| n.unlinked) {
             self.nodes.remove(node);
+        }
+        if self.nodes.is_empty() {
+            self.moved = false;
+        }
+    }
+
+    /// Where the last listing of `dir` left its chain, `(0, 0)` when unknown.
+    fn dir_hint(&self, dir: NodeId) -> (u32, u32) {
+        if dir == ROOT {
+            return self.root_hint;
+        }
+        self.nodes.get(dir).map_or((0, 0), |node| node.hint)
+    }
+
+    /// Records a position in the chain of `dir`, which only ever grows, for
+    /// the next `read_dir_entry` to start from.
+    fn set_dir_hint(&mut self, dir: NodeId, hint: (u32, u32)) {
+        if dir == ROOT {
+            self.root_hint = hint;
+        } else if let Some(node) = self.nodes.get_mut(dir)
+            && node.dir
+        {
+            node.hint = hint;
         }
     }
 
@@ -1424,6 +1461,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         if self.nodes.pins(id) == 0 {
             self.nodes.remove(id);
         } else if let Some(node) = self.nodes.get_mut(id) {
+            self.moved = true;
             node.unlinked = true;
             node.entry = u64::MAX;
             node.first = 0;
@@ -1676,7 +1714,13 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         self.geo.cluster_offset(cluster).ok_or(ErrorKind::Corrupt)
     }
 
+    /// The pinned node whose File entry is at `offset`. Unless a pinned
+    /// node has moved, that is the tier-0 id of the slot, found by key.
     fn pinned_at(&self, offset: u64) -> Option<NodeId> {
+        if !self.moved {
+            let id = NodeId::new(offset / ENTRY_SIZE as u64);
+            return self.nodes.get(id).is_some_and(|node| node.entry == offset).then_some(id);
+        }
         self.nodes.find(&mut |_, node| node.entry == offset)
     }
 
@@ -2369,6 +2413,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             if let Some(state) = self.nodes.get_mut(id) {
                 state.entry = offset;
                 state.parent = to_entry;
+                self.moved = true;
             }
             self.clean(id);
         }

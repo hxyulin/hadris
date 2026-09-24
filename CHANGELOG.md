@@ -467,6 +467,12 @@ Each published package owns its version and may be released independently.
   clears its entries a block at a time; FAT12 keeps writing entry by
   entry. Writing 64 MiB with 4 KiB clusters now takes 578 device writes
   on FAT32 (was 81,922) and 397 on exFAT (was 65,545).
+- **hadris-fat (V3):** `read_dir_entry` resumes from where the last call
+  on that directory left its cluster chain instead of walking the chain
+  from the start, and finding the node pinned at an entry is a lookup by
+  id in the node table (logarithmic in `HeapTable`) until a pinned node
+  is renamed or removed, instead of a search of every pinned node. 12,000
+  lookups with all of them kept pinned went from 144 to 20 ms.
 - **Fuzzing (V3):** `fs_dump` lists every filesystem through one generic
   walk over the `hadris-fs` `FileSystem` node API, with each driver wrapped
   in a `Volume`. Small seeds are committed for `cpio_read` (every format,

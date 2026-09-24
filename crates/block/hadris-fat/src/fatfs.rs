@@ -400,7 +400,10 @@ io_transform! {
 ///   `HeapTable` or a larger `FixedTable<N>` for more open nodes. Ids from
 ///   `read_dir_entry` are not pinned and stay valid until that directory
 ///   changes; until then, and unless a node is forgotten in between, they
-///   are the ids a `lookup` of the same names pins.
+///   are the ids a `lookup` of the same names pins. Finding the node pinned
+///   at an entry is one table lookup by id, logarithmic in `HeapTable`,
+///   except while a renamed or removed node is still pinned: then, until
+///   the table empties, it searches every node.
 /// - `C`, the [`Clock`] that stamps created and modified entries. The
 ///   default [`NoClock`] writes 1980-01-01, so images are reproducible;
 ///   `SystemClock` with `std` writes the current UTC time.
@@ -482,6 +485,11 @@ pub struct FatFs<D, T: NodeTable = FixedTable<64>, C: Clock = NoClock, P: CodePa
     read_only: bool,
     clock: C,
     code_page: P,
+    /// Some pinned node is not at the slot its id names, because it was
+    /// renamed or removed. Until the table empties, `pinned_at` searches it.
+    moved: bool,
+    /// A known `(index, cluster)` of a FAT32 root directory's chain.
+    root_hint: (u32, u32),
 }
 
 /// The state a mount reads from the boot and FSInfo sectors.
@@ -621,6 +629,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             read_only,
             clock,
             code_page,
+            moved: false,
+            root_hint: (0, 0),
         })
     }
 
@@ -728,8 +738,13 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             return Ok(None);
         };
         let mut walk = Walk::new(start);
+        (walk.index, walk.cluster) = self.dir_hint(dir);
         let mut long = Assembler::new();
-        let Some(found) = self.next_visible(&mut walk, &mut slot, &mut long).await? else {
+        let found = self.next_visible(&mut walk, &mut slot, &mut long).await?;
+        if walk.cluster != 0 {
+            self.set_dir_hint(dir, (walk.index, walk.cluster));
+        }
+        let Some(found) = found else {
             *cursor = DirCursor::from_raw(slot as u64);
             return Ok(None);
         };
@@ -884,6 +899,29 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             && self.nodes.get(node).is_some_and(|n| n.unlinked)
         {
             self.nodes.remove(node);
+        }
+        if self.nodes.is_empty() {
+            self.moved = false;
+        }
+    }
+
+    /// Where the last listing of `dir` left its chain, `(0, 0)` when unknown.
+    fn dir_hint(&self, dir: NodeId) -> (u32, u32) {
+        if dir == ROOT {
+            return self.root_hint;
+        }
+        self.nodes.get(dir).map_or((0, 0), |node| node.hint)
+    }
+
+    /// Records a position in the chain of `dir`, which only ever grows, for
+    /// the next `read_dir_entry` to start from.
+    fn set_dir_hint(&mut self, dir: NodeId, hint: (u32, u32)) {
+        if dir == ROOT {
+            self.root_hint = hint;
+        } else if let Some(node) = self.nodes.get_mut(dir)
+            && node.dir
+        {
+            node.hint = hint;
         }
     }
 
@@ -1293,6 +1331,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         if self.nodes.pins(id) == 0 {
             self.nodes.remove(id);
         } else if let Some(node) = self.nodes.get_mut(id) {
+            self.moved = true;
             node.unlinked = true;
             node.entry = u64::MAX;
             node.first = 0;
@@ -1839,6 +1878,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         }
         if let Some(node) = src_id.and_then(|id| self.nodes.get_mut(id)) {
             node.entry = offset;
+            self.moved = true;
         }
         Ok(())
     }
@@ -2347,7 +2387,13 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         self.geo.cluster_offset(cluster).ok_or(ErrorKind::Corrupt)
     }
 
+    /// The pinned node whose short entry is at `offset`. Unless a pinned
+    /// node has moved, that is the tier-0 id of the slot, found by key.
     fn pinned_at(&self, offset: u64) -> Option<NodeId> {
+        if !self.moved {
+            let id = NodeId::new(offset / ENTRY_SIZE);
+            return self.nodes.get(id).is_some_and(|node| node.entry == offset).then_some(id);
+        }
         self.nodes.find(&mut |_, node| node.entry == offset)
     }
 
