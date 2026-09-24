@@ -60,8 +60,6 @@ jobs:
   # it exists and `main` otherwise, so pushes to either branch and releases
   # rebuild the same site. Set the repository variable DOCS_DOMAIN (for
   # example docs.example.org) after configuring that custom domain for Pages.
-  # The job builds a branch other than the one it runs from, so it uses no
-  # caches that a later run on the default branch could restore.
   build:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -78,8 +76,15 @@ jobs:
             echo "name=main" >> "$GITHUB_OUTPUT"
           fi
       - uses: actions/checkout@v7
+        if: steps.branch.outputs.name == 'next'
         with:
-          ref: ${{ steps.branch.outputs.name }}
+          ref: next
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/checkout@v7
+        if: steps.branch.outputs.name == 'main'
+        with:
+          ref: main
           fetch-depth: 0
           fetch-tags: true
       - name: Check documentation links and package READMEs
