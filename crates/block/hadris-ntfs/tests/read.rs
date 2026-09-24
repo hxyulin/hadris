@@ -2,13 +2,16 @@
 //! `ntfs-3g`, read back. Each test is skipped when its tools are missing;
 //! `scripts/test-ntfs.sh` runs them in a container that has them.
 
-use hadris_fs::sync::DriverExt;
+use hadris_fs::sync::FileSystem;
 use hadris_fs::{ErrorKind, FileType, Name};
 use hadris_ntfs::sync::NtfsFs;
 use hadris_storage::host::FileDevice;
 
 mod common;
+#[path = "support/paths.rs"]
+mod paths;
 use common::NtfsTestImage;
+use paths::PathOps;
 
 macro_rules! require_image {
     ($label:expr) => {
@@ -24,14 +27,15 @@ fn open(img: &NtfsTestImage) -> NtfsFs<FileDevice> {
 }
 
 fn names(fs: &mut NtfsFs<FileDevice>, path: &str) -> Vec<String> {
-    fs.read_dir(path)
+    fs.entries(path)
         .unwrap()
-        .map(|entry| entry.unwrap().name().to_str().unwrap().to_string())
+        .iter()
+        .map(|entry| entry.name().to_str().unwrap().to_string())
         .collect()
 }
 
 fn name(s: &str) -> &Name {
-    Name::new(s).unwrap()
+    Name::new(s)
 }
 
 #[test]
@@ -43,9 +47,8 @@ fn open_blank_volume() {
     assert!(fs.total_sectors() > 0);
     assert!(fs.mft_record_size() >= 512);
     let mut label = [0u8; 64];
-    let len = fs.label(&mut label).unwrap();
-    assert_eq!(&label[..len], b"BlankVol");
-    let stats = fs.stats().unwrap();
+    assert_eq!(fs.label(&mut label).unwrap(), Some("BlankVol"));
+    let stats = fs.statfs().unwrap();
     assert!(stats.free_blocks() > 0 && stats.free_blocks() < stats.total_blocks());
     assert!(names(&mut fs, "/").is_empty());
 }
@@ -57,10 +60,10 @@ fn metadata_files_are_hidden_but_found() {
     let root = fs.root();
     for system in ["$MFT", "$MFTMirr", "$Volume", "$Boot", "$Bitmap", "$UpCase"] {
         let node = fs.lookup(root, name(system)).unwrap();
-        assert_eq!(fs.node_metadata(node).unwrap().file_type(), FileType::File);
+        assert_eq!(fs.stat(node).unwrap().file_type(), FileType::File);
     }
     let extend = fs.lookup(root, name("$Extend")).unwrap();
-    assert_eq!(fs.node_metadata(extend).unwrap().file_type(), FileType::Dir);
+    assert_eq!(fs.stat(extend).unwrap().file_type(), FileType::Dir);
     assert!(fs.lookup(root, name("$mft")).is_ok());
     assert!(fs.lookup(root, name("$upcase")).is_ok());
 }
@@ -96,15 +99,15 @@ fn files_read_back() {
     let mut collected = Vec::new();
     let mut buf = [0u8; 137];
     loop {
-        let n = fs.read_at(node, collected.len() as u64, &mut buf).unwrap();
+        let n = fs.read(node, collected.len() as u64, &mut buf).unwrap();
         if n == 0 {
             break;
         }
         collected.extend_from_slice(&buf[..n]);
     }
     assert_eq!(collected, odd);
-    let meta = fs.node_metadata(node).unwrap();
-    assert!(meta.times().modified().is_some());
+    let meta = fs.stat(node).unwrap();
+    assert!(meta.modified().is_some());
     assert_eq!(meta.nlink(), 1);
 }
 

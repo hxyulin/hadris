@@ -4,8 +4,9 @@ use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 
-use hadris_fs::sync::{DriverExt, FsDriver};
+use hadris_fs::sync::FileSystem;
 use hadris_fs::tree::{Content, Tree};
+use hadris_fs::{OpenMode, Resolve};
 use hadris_iso::{IsoLevel, IsoOptions, Namespace, RockRidge};
 use hadris_storage::{BlockIndex, BlockSize};
 use hadris_tests::harness::command::{require_or_skip, run_command};
@@ -242,12 +243,15 @@ fn rock_ridge_covers_every_extent_of_a_large_file() {
     let file = File::open(&path).unwrap();
     let mut iso = hadris_iso::sync::IsoImage::open(SparseFile(file)).unwrap();
     let mut view = iso.view(Namespace::RockRidge).unwrap();
-    let meta = view.metadata("/big.bin").unwrap();
+    let node = view.resolve(b"/big.bin", Resolve::Lexical).unwrap();
+    let meta = view.stat(node).unwrap();
     assert_eq!(meta.len(), len);
-    assert_eq!(meta.permissions().map(|mode| mode.bits()), Some(0o644));
+    assert_eq!(meta.permissions().bits(), 0o644);
     let mut head = [0u8; 4];
-    let node = view.resolve("/big.bin").unwrap();
-    view.read_at(node, 0, &mut head).unwrap();
+    view.open(node, OpenMode::Read).unwrap();
+    view.read(node, 0, &mut head).unwrap();
+    view.close(node).unwrap();
+    view.forget(node, 1);
     assert_eq!(&head, HEAD);
 
     if require_or_skip("bsdtar", "--version") {

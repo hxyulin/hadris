@@ -1,4 +1,4 @@
-use hadris_fs::{DateTime, DeviceNumber, ErrorKind, FileTimes, FileType, Metadata, Mode};
+use hadris_fs::{DateTime, DeviceNumber, ErrorKind, FileType, Metadata, Owner, Permissions};
 
 use super::io::Read;
 use crate::error::{Detail, Error, read_failed};
@@ -156,8 +156,8 @@ impl<R> Entry<'_, R> {
     }
 
     /// The permission bits.
-    pub fn permissions(&self) -> Mode {
-        Mode::new(self.header().mode)
+    pub fn permissions(&self) -> Permissions {
+        Permissions::new(self.header().mode)
     }
 
     /// The inode number, shared by the names of a hard link group.
@@ -215,12 +215,14 @@ impl<R> Entry<'_, R> {
 
     /// Type, length, modification time, permissions, owner and links.
     pub fn metadata(&self) -> Metadata {
-        Metadata::new(self.file_type())
+        let meta = Metadata::new(self.file_type(), self.permissions())
             .with_len(self.len())
-            .with_times(FileTimes::new().with_modified(self.modified()))
-            .with_permissions(self.permissions())
-            .with_owner((self.uid(), self.gid()))
-            .with_nlink(u64::from(self.nlink()))
+            .with_owner(Owner::new(self.uid(), self.gid()))
+            .with_nlink(u64::from(self.nlink()));
+        match self.modified() {
+            Some(time) => meta.with_modified(time),
+            None => meta,
+        }
     }
 
     /// Bytes of data not read yet.

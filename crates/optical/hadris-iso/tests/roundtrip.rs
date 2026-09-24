@@ -2,10 +2,11 @@
 
 mod common;
 
+use common::Paths;
 use common::{image, pattern, sample};
-use hadris_fs::sync::{DriverExt, FsDriver};
+use hadris_fs::sync::FileSystem;
 use hadris_fs::tree::{Content, Tree, WarningKind};
-use hadris_fs::{DeviceNumber, ErrorKind, FileType, Mode, NameBuf};
+use hadris_fs::{DeviceNumber, ErrorKind, FileType, Permissions, Resolve};
 use hadris_iso::sync::IsoImage;
 use hadris_iso::{
     BootEntry, BootInfo, ElTorito, Emulation, IsoLevel, IsoOptions, JolietLevel, NameCase,
@@ -60,43 +61,33 @@ fn every_tree_reads_back() {
         rr.read_to_vec("/Long Name With Spaces é.txt").unwrap(),
         b"long"
     );
-    let readme = rr.resolve("/readme.txt").unwrap();
-    let meta = rr.node_metadata(readme).unwrap();
-    assert_eq!(meta.permissions(), Some(Mode::new(0o600)));
-    assert_eq!(meta.owner(), Some((1000, 100)));
+    let readme = rr.resolve_path("/readme.txt").unwrap();
+    let meta = rr.stat(readme).unwrap();
+    assert_eq!(meta.permissions(), Permissions::new(0o600));
+    assert_eq!(meta.owner(), Some(hadris_fs::Owner::new(1000, 100)));
     assert_eq!(meta.nlink(), 2);
-    assert_eq!(
-        meta.times().modified().unwrap().unix_seconds(),
-        1_700_000_000
-    );
-    let hard = rr.resolve("/docs/hard.txt").unwrap();
+    assert_eq!(meta.modified().unwrap().unix_seconds(), 1_700_000_000);
+    let hard = rr.resolve_path("/docs/hard.txt").unwrap();
     let info = rr.rock_ridge(hard).unwrap().unwrap();
     assert_eq!(
         info.serial(),
         rr.rock_ridge(readme).unwrap().unwrap().serial()
     );
-    let link = rr.resolve("/docs/link").unwrap();
-    assert_eq!(
-        rr.node_metadata(link).unwrap().file_type(),
-        FileType::Symlink
-    );
+    let link = rr.resolve_path("/docs/link").unwrap();
+    assert_eq!(rr.stat(link).unwrap().file_type(), FileType::Symlink);
     let mut target = [0u8; 64];
-    let len = rr.read_link(link, &mut target).unwrap();
-    assert_eq!(&target[..len], b"../readme.txt");
-    let dev = rr.resolve("/dev/null").unwrap();
-    assert_eq!(
-        rr.node_metadata(dev).unwrap().file_type(),
-        FileType::CharDevice
-    );
+    assert_eq!(rr.readlink(link, &mut target).unwrap(), b"../readme.txt");
+    let dev = rr.resolve_path("/dev/null").unwrap();
+    assert_eq!(rr.stat(dev).unwrap().file_type(), FileType::CharDevice);
     assert_eq!(
         rr.rock_ridge(dev).unwrap().unwrap().device(),
         Some(DeviceNumber::new(1, 3))
     );
     assert!(!rr.exists("/rr_moved/RRD000001").unwrap());
 
-    let deep = rr.resolve("/a/b/c/d/e/f/g/h").unwrap();
+    let deep = rr.resolve_path("/a/b/c/d/e/f/g/h").unwrap();
     let parent = rr.parent(deep).unwrap();
-    assert_eq!(parent, rr.resolve("/a/b/c/d/e/f/g").unwrap());
+    assert_eq!(parent, rr.resolve_path("/a/b/c/d/e/f/g").unwrap());
 
     let mut joliet = iso.view(Namespace::Joliet).unwrap();
     assert_eq!(
@@ -116,23 +107,13 @@ fn every_tree_reads_back() {
         b"hello world\n"
     );
     assert_eq!(
-        primary.capabilities().case_sensitivity(),
-        hadris_fs::CaseSensitivity::Insensitive
+        primary.capabilities().case(),
+        hadris_fs::CaseRule::Insensitive
     );
 }
 
-fn names<D: FsDriver>(view: &mut D, path: &str) -> Vec<String> {
-    let dir = view.resolve(path).unwrap();
-    let mut cursor = hadris_fs::DirCursor::start();
-    let mut name = NameBuf::new();
-    let mut names = Vec::new();
-    while view
-        .read_dir_entry(dir, &mut cursor, &mut name)
-        .unwrap()
-        .is_some()
-    {
-        names.push(String::from_utf8(name.as_bytes().to_vec()).unwrap());
-    }
+fn names<D: FileSystem>(view: &mut D, path: &str) -> Vec<String> {
+    let mut names = view.names(path).unwrap();
     names.sort();
     names
 }
@@ -179,15 +160,11 @@ fn listings_resume_and_skip_dots() {
     let mut view = iso.view(Namespace::Preferred).unwrap();
     assert_eq!(view.namespace(), Namespace::Primary);
     let root = view.root();
-    let mut cursor = hadris_fs::DirCursor::start();
-    let mut name = NameBuf::new();
+    let mut cursor = hadris_fs::DirCursor::START;
     let mut names = Vec::new();
-    while view
-        .read_dir_entry(root, &mut cursor, &mut name)
-        .unwrap()
-        .is_some()
-    {
-        names.push(String::from_utf8(name.as_bytes().to_vec()).unwrap());
+    while let Some(entry) = view.readdir(root, cursor).unwrap() {
+        cursor = entry.next_cursor();
+        names.push(String::from_utf8(entry.name().as_bytes().to_vec()).unwrap());
     }
     assert_eq!(
         names,
@@ -195,7 +172,7 @@ fn listings_resume_and_skip_dots() {
     );
     assert_eq!(view.read_to_vec("/docs/empty.txt").unwrap(), b"");
     assert_eq!(
-        view.lookup(root, hadris_fs::Name::new("missing").unwrap())
+        view.lookup(root, hadris_fs::Name::new("missing"))
             .unwrap_err()
             .kind(),
         ErrorKind::NotFound
@@ -215,7 +192,7 @@ fn reports_match_what_the_reader_finds() {
         "/docs/hard.txt",
         "/boot/efi.img",
     ] {
-        let node = view.resolve(path).unwrap();
+        let node = view.resolve_path(path).unwrap();
         let mut extents = Vec::new();
         view.extents(node, |extent| extents.push(extent)).unwrap();
         assert_eq!(report.extent_of(path), Some(extents[0]), "{path}");
@@ -254,7 +231,7 @@ fn lowercase_names_are_kept_on_request() {
     let mut iso = IsoImage::open(image(&tree, &options)).unwrap();
     let mut view = iso.view(Namespace::Primary).unwrap();
     assert!(view.exists("/readme.txt").unwrap());
-    let node = view.resolve("/readme.txt").unwrap();
+    let node = view.resolve_path("/readme.txt").unwrap();
     assert_eq!(view.raw_record(node).unwrap().name(), b"readme.txt;1");
 }
 
@@ -340,14 +317,29 @@ fn async_modes_read_and_write_alike() {
 
         let mut iso = hadris_iso::r#async::IsoImage::open(dev).await.unwrap();
         let mut view = iso.view(Namespace::Preferred).await_view();
-        let data = hadris_fs::r#async::DriverExt::read_to_vec(&mut view, "/docs/big.bin")
+        use hadris_fs::r#async::FileSystem as _;
+        let big = view
+            .resolve(b"/docs/big.bin", Resolve::Lexical)
             .await
             .unwrap();
-        assert_eq!(data, pattern(100_000));
-        let linked = hadris_fs::r#async::FsDriver::resolve(&mut view, "/docs/hard.txt")
+        view.open(big, hadris_fs::OpenMode::Read).await.unwrap();
+        let mut data = vec![0u8; 100_001];
+        let mut len = 0;
+        loop {
+            let n = view.read(big, len as u64, &mut data[len..]).await.unwrap();
+            if n == 0 {
+                break;
+            }
+            len += n;
+        }
+        view.close(big).await.unwrap();
+        assert_eq!(&data[..len], pattern(100_000));
+        let linked = view
+            .resolve(b"/docs/hard.txt", Resolve::Lexical)
             .await
             .unwrap();
-        let target = hadris_fs::r#async::FsDriver::resolve(&mut view, "/readme.txt")
+        let target = view
+            .resolve(b"/readme.txt", Resolve::Lexical)
             .await
             .unwrap();
         assert_eq!(linked, target);
@@ -359,14 +351,14 @@ fn hard_links_share_one_node_id() {
     let tree = sample(true, true);
     let mut iso = IsoImage::open(image(&tree, &full())).unwrap();
     let mut view = iso.view(Namespace::RockRidge).unwrap();
-    let target = view.resolve("/readme.txt").unwrap();
-    assert_eq!(view.resolve("/docs/hard.txt").unwrap(), target);
-    assert_ne!(view.resolve("/docs/big.bin").unwrap(), target);
+    let target = view.resolve_path("/readme.txt").unwrap();
+    assert_eq!(view.resolve_path("/docs/hard.txt").unwrap(), target);
+    assert_ne!(view.resolve_path("/docs/big.bin").unwrap(), target);
     assert_eq!(view.metadata("/docs/hard.txt").unwrap().nlink(), 2);
     let mut primary = iso.view(Namespace::Primary).unwrap();
     assert_ne!(
-        primary.resolve("/README.TXT").unwrap(),
-        primary.resolve("/DOCS/HARD.TXT").unwrap()
+        primary.resolve_path("/README.TXT").unwrap(),
+        primary.resolve_path("/DOCS/HARD.TXT").unwrap()
     );
 }
 
@@ -426,9 +418,9 @@ fn primary_names_keep_the_separator_and_split_at_the_last_dot() {
         let options = IsoOptions::default().with_level(level);
         let mut iso = IsoImage::open(image(&tree, &options)).unwrap();
         let mut view = iso.view(Namespace::Primary).unwrap();
-        let readme = view.resolve("/README").unwrap();
+        let readme = view.resolve_path("/README").unwrap();
         assert_eq!(view.raw_record(readme).unwrap().name(), b"README.;1");
-        let tarball = view.resolve("/X_TAR.GZ").unwrap();
+        let tarball = view.resolve_path("/X_TAR.GZ").unwrap();
         assert_eq!(view.raw_record(tarball).unwrap().name(), b"X_TAR.GZ;1");
         assert_eq!(view.read_to_vec("/README").unwrap(), b"r");
     }

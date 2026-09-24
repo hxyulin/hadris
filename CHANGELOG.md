@@ -556,6 +556,36 @@ Each published package owns its version and may be released independently.
   `hadris-storage` and `hadris-fat-raw` keep the futures that need not be
   `Send` in `local`, which `async` also enables. `hadris-fs` drops the
   `embassy-sync` feature and the async `Local` lock with them.
+- **hadris-fs (V3):** One filesystem trait. `FileSystem` in `sync` and
+  `r#async` takes `&mut self` and node ids: `lookup`, `resolve` (with a
+  `Resolve` policy: `Lexical`, `Follow` or `NoFollow`) and `parent` pin a
+  node, `forget(node, count)` unpins it, `readdir(dir, cursor)` returns a
+  `DirEntry` that holds its name, node, metadata and next cursor, `label`
+  writes the volume label into a caller buffer, `readlink` is required, and
+  `open`/`close` take an `OpenMode` (a directory fails with
+  `IsADirectory`). The write half (`setattr`, `write`, `truncate`, `fsync`,
+  `create`, `mkdir`, `unlink`, `rmdir`, `rename` with `RenameMode`, `sync`)
+  defaults to `ReadOnly`. `&mut F` and `Box<F>` forward every method.
+  `Volume<F>` owns a filesystem behind a lock and shares it between threads
+  and tasks with `std::fs`-style path methods and `File` and `ReadDir`
+  handles; it needs `std` in `sync` and `alloc` in `r#async`. `File`
+  implements the `hadris-io` traits, and `std::io` in `sync`.
+  `copy_tree`, `extract_to_host`, `import_from_host`, `TreeExt` and the
+  contract kit work on the new trait; the kit also checks that invalid
+  names fail with `InvalidInput`. `Name::new` no longer validates; call
+  `Name::check`. `NodeId` wraps a `NonZeroU64`. `Capabilities` is built with
+  `Capabilities::new(CaseRule, Charset, max_name_bytes)` and reports which
+  fields a format stores (`stores(Field) -> Stored`). `Metadata` has a
+  builder, `Permissions` replaces `Mode`, and `SetAttr` describes changes.
+- **hadris-fat, hadris-ntfs, hadris-iso, hadris-udf, hadris-block,
+  hadris-optical (V3):** `FatFs`, `ExFatFs`, `NtfsFs`, `IsoView`, `UdfFs`,
+  `OpenVolume` and `OpenOpticalImage` implement `FileSystem` directly; the
+  core methods moved from inherent methods into the trait. `FatFs` and
+  `ExFatFs` keep the old label getter as `volume_label`. An ISO view's
+  `label` decodes the volume identifier of the descriptor it reads (UCS-2
+  for Joliet), and a UDF volume's is its logical volume identifier. UDF
+  listings read each entry's file entry, so a damaged entry fails the
+  listing.
 - **hadris-fat (V3):** `sync::check`, `r#async::check` and
   `async_send::check` are the `hadris-fat-raw` checker: they take an
   unmounted device and a scratch buffer instead of a `FatFs`, and report
@@ -1016,6 +1046,14 @@ Each published package owns its version and may be released independently.
 
 ### Removed
 
+- **hadris-fs (V3):** `FsDriver`, the `&self` `FileSystem`, `AsDriver`,
+  `Access`, `OpenFile`, the `File<A>` and `Dir<A>` handles, `DirItem`,
+  `DriverExt`, `PathExt`, the `Lexical`, `Posix`, `Resolver` and
+  `WithResolver` resolvers, the lock kinds (`LockKind`, `Lock`,
+  `StdMutex`, `Spin`, `AsyncMutex`), `impl_fs_driver!`, the `path` module,
+  `NewNode`, `RemoveKind`, `RenameFlags`, `Mode`, `CaseSensitivity` and
+  `NameCharset`. Their jobs moved to `FileSystem`, `Volume` and the
+  vocabulary above.
 - **hadris-fat (V3):** `check_with`, the `Finding` enums, `FindingKind` and
   the `CheckReport` types of FAT and exFAT; use `check` and
   `hadris_fs::Finding`. The `defmt` feature no longer derives on findings.

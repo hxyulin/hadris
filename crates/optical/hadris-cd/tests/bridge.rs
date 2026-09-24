@@ -1,12 +1,15 @@
 //! Hybrid images read back through both the ISO 9660 and the UDF reader,
 //! and both trees point at the same file data.
 
+mod common;
+
+use common::Paths;
 use hadris_cd::iso::{Namespace, RockRidge, VolumeIdentifiers};
 use hadris_cd::udf::UdfRevision;
 use hadris_cd::{CdOptions, IsoOptions, UdfOptions};
-use hadris_fs::sync::{DriverExt, FsDriver};
+use hadris_fs::sync::FileSystem;
 use hadris_fs::tree::{Content, Tree};
-use hadris_fs::{ErrorKind, Extent, Mode, SetMetadata};
+use hadris_fs::{ErrorKind, Extent, Permissions, SetMetadata};
 use hadris_storage::{BlockSize, MemDevice};
 
 const SECTOR: usize = 2048;
@@ -31,7 +34,7 @@ fn fixture() -> Tree {
     tree.add_symlink("LINK", "DOCS/NESTED/NOTE.TXT").unwrap();
     tree.set_metadata(
         "DOCS/NESTED/NOTE.TXT",
-        SetMetadata::new().with_mode(Mode::new(0o640)),
+        SetMetadata::new().with_mode(Permissions::new(0o640)),
     )
     .unwrap();
     tree
@@ -76,7 +79,7 @@ fn verify(bytes: &[u8]) {
     assert_eq!(view.read_to_vec("/DOCS/LARGE.BIN").unwrap(), large());
     let mut iso_extents = Vec::new();
     for path in ["/DOCS/LARGE.BIN", "/DOCS/NESTED/NOTE.TXT"] {
-        let node = view.resolve(path).unwrap();
+        let node = view.resolve_path(path).unwrap();
         let mut extents = Vec::new();
         view.extents(node, |extent| extents.push(extent)).unwrap();
         iso_extents.push(extents);
@@ -95,21 +98,21 @@ fn verify(bytes: &[u8]) {
     );
     assert_eq!(
         udf.metadata("/DOCS/NESTED/NOTE.TXT").unwrap().permissions(),
-        Some(Mode::new(0o640))
+        Permissions::new(0o640)
     );
-    let link = udf.resolve("/LINK").unwrap();
+    let link = udf.resolve_path("/LINK").unwrap();
     let mut target = [0u8; 64];
-    let n = udf.read_link(link, &mut target).unwrap();
+    let n = udf.readlink(link, &mut target).unwrap().len();
     assert_eq!(&target[..n], b"DOCS/NESTED/NOTE.TXT");
     assert_eq!(
-        udf.resolve("/DOCS/COPY.BIN").unwrap(),
-        udf.resolve("/DOCS/LARGE.BIN").unwrap()
+        udf.resolve_path("/DOCS/COPY.BIN").unwrap(),
+        udf.resolve_path("/DOCS/LARGE.BIN").unwrap()
     );
     for (path, iso) in ["/DOCS/LARGE.BIN", "/DOCS/NESTED/NOTE.TXT"]
         .into_iter()
         .zip(iso_extents)
     {
-        let node = udf.resolve(path).unwrap();
+        let node = udf.resolve_path(path).unwrap();
         let mut extents: Vec<Extent> = Vec::new();
         udf.extents(node, |extent| extents.push(extent)).unwrap();
         assert_eq!(extents, iso, "{path} shares its data");
@@ -164,7 +167,7 @@ fn bridge_layout_follows_udf_and_ecma_119() {
         BlockSize::new(2048).unwrap(),
     ))
     .unwrap();
-    let large = udf.resolve("/DOCS/LARGE.BIN").unwrap();
+    let large = udf.resolve_path("/DOCS/LARGE.BIN").unwrap();
     let entry = (290 + large.get() - 1) as usize * SECTOR;
     assert_eq!(
         u16::from_le_bytes([bytes[entry + 34], bytes[entry + 35]]) & 7,

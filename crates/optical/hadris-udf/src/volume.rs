@@ -1,7 +1,10 @@
 //! Mode-independent state of an open volume and the decoding of its
 //! structures.
 
-use hadris_fs::{Capabilities, FileTimes, FileType, Metadata, Mode, NameCharset, NodeId};
+use hadris_fs::{
+    Capabilities, CaseRule, Charset, Field, FileTimes, FileType, Metadata, NodeId, Owner,
+    Permissions, Stored,
+};
 
 use crate::UdfRevision;
 use crate::error::{Detail, Error};
@@ -57,6 +60,7 @@ pub(crate) struct Location {
 impl Location {
     pub(crate) fn id(self) -> NodeId {
         NodeId::new(((u64::from(self.partition) << 32) | u64::from(self.block)) + 1)
+            .expect("a 48-bit location plus one is never zero")
     }
 
     pub(crate) fn of(node: NodeId) -> Option<Self> {
@@ -142,13 +146,15 @@ impl Info {
     }
 
     pub(crate) fn capabilities(&self) -> Capabilities {
-        Capabilities::new()
+        Capabilities::new(CaseRule::Sensitive, Charset::Unicode, 508)
             .with_symlinks()
             .with_hard_links()
-            .with_permissions()
-            .with_owners()
-            .with_name_charset(NameCharset::Utf16)
-            .with_max_name_len(508)
+            .with_stored(Field::Created, Stored::Partial)
+            .with_stored(Field::Modified, Stored::Yes)
+            .with_stored(Field::Accessed, Stored::Yes)
+            .with_stored(Field::Changed, Stored::Yes)
+            .with_stored(Field::Permissions, Stored::Yes)
+            .with_stored(Field::Owner, Stored::Yes)
             .with_timestamp_resolution_ns(1000)
     }
 }
@@ -277,13 +283,28 @@ impl Icb {
 
     pub(crate) fn metadata(&self, file_type: FileType) -> Metadata {
         let nlink = u64::from(self.link_count.max(1)) + u64::from(file_type.is_dir());
-        let owner = (self.uid != u32::MAX || self.gid != u32::MAX).then_some((self.uid, self.gid));
-        Metadata::new(file_type)
-            .with_len(self.size)
-            .with_times(self.times)
-            .with_permissions(Some(Mode::new(mode_of(self.permissions, self.flags))))
-            .with_owner(owner)
-            .with_nlink(nlink)
+        let mut meta = Metadata::new(
+            file_type,
+            Permissions::new(mode_of(self.permissions, self.flags)),
+        )
+        .with_len(self.size)
+        .with_nlink(nlink);
+        if self.uid != u32::MAX || self.gid != u32::MAX {
+            meta = meta.with_owner(Owner::new(self.uid, self.gid));
+        }
+        if let Some(time) = self.times.created() {
+            meta = meta.with_created(time);
+        }
+        if let Some(time) = self.times.modified() {
+            meta = meta.with_modified(time);
+        }
+        if let Some(time) = self.times.accessed() {
+            meta = meta.with_accessed(time);
+        }
+        if let Some(time) = self.times.changed() {
+            meta = meta.with_changed(time);
+        }
+        meta
     }
 }
 
@@ -363,7 +384,7 @@ mod tests {
         };
         assert_ne!(at.id().get(), 0);
         assert_eq!(Location::of(at.id()), Some(at));
-        assert_eq!(Location::of(NodeId::new(u64::MAX)), None);
+        assert_eq!(Location::of(NodeId::new(u64::MAX).unwrap()), None);
     }
 
     #[test]

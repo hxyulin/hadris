@@ -13,7 +13,7 @@
 //!
 //! ```rust
 //! use hadris_fs::tree::{Content, NodeKind, Tree};
-//! use hadris_fs::{DeviceKind, DeviceNumber, Mode, SetMetadata};
+//! use hadris_fs::{DeviceKind, DeviceNumber, Permissions, SetMetadata};
 //!
 //! let mut tree = Tree::new();
 //! tree.add_file("boot/grub/grub.cfg", Content::bytes("set timeout=3"))?;
@@ -21,7 +21,7 @@
 //! tree.add_symlink("latest", "releases/3.0")?;
 //! tree.add_device("dev/console", DeviceKind::Char, DeviceNumber::new(5, 1))?;
 //! tree.add_hard_link("boot/grub.cfg", "boot/grub/grub.cfg")?;
-//! tree.set_metadata("latest", SetMetadata::new().with_mode(Mode::new(0o777)))?;
+//! tree.set_metadata("latest", SetMetadata::new().with_mode(Permissions::new(0o777)))?;
 //!
 //! let cfg = tree.get("/boot/grub.cfg").unwrap();
 //! assert_eq!(cfg.links(), 2);
@@ -136,7 +136,7 @@ impl Content {
         ))))
     }
 
-    /// Bytes from an asynchronous [`ByteSource`](hadris_io::r#async::ByteSource)
+    /// Bytes from an asynchronous `hadris_io::r#async::ByteSource`
     /// with `Send` futures, read while the image is written.
     ///
     /// The `r#async` writers read it; the blocking writers
@@ -858,7 +858,7 @@ mod host {
             let changed = crate::DateTime::new(meta.ctime(), meta.ctime_nsec() as u32).ok();
             SetMetadata::new()
                 .with_times(times.with_changed(changed))
-                .with_mode(crate::Mode::new(meta.mode()))
+                .with_mode(crate::Permissions::new(meta.mode()))
                 .with_uid(meta.uid())
                 .with_gid(meta.gid())
         }
@@ -1021,7 +1021,7 @@ mod host {
         /// Files are not read now: each becomes a [`Content::path`] that the
         /// writer opens. Symlinks are stored, never followed; device nodes
         /// keep their numbers; files that share an inode become hard links.
-        /// Mode, owner and times are copied where the host has them, and
+        /// Permissions, owner and times are copied where the host has them, and
         /// `root`'s own metadata goes to the tree root.
         ///
         /// Entries that cannot be read, names that are not UTF-8, FIFOs and
@@ -1052,7 +1052,7 @@ mod host {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DateTime, Mode};
+    use crate::{DateTime, Permissions};
 
     #[test]
     fn parents_are_created_and_names_sorted() {
@@ -1129,12 +1129,12 @@ mod tests {
             SetMetadata::new().with_times(FileTimes::new().with_modified(time)),
         )
         .unwrap();
-        tree.set_metadata("l", SetMetadata::new().with_mode(Mode::new(0o700)))
+        tree.set_metadata("l", SetMetadata::new().with_mode(Permissions::new(0o700)))
             .unwrap();
         let meta = tree.get("l").unwrap().metadata();
         assert_eq!(
             (meta.times().modified(), meta.mode()),
-            (Some(time), Some(Mode::new(0o700)))
+            (Some(time), Some(Permissions::new(0o700)))
         );
         tree.set_metadata("", SetMetadata::new().with_gid(3))
             .unwrap();

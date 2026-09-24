@@ -20,9 +20,9 @@ pub use verify::verify;
 
 use std::path::Path;
 
-use hadris_fs::sync::DriverExt;
+use hadris_fs::sync::FileSystem;
 use hadris_fs::tree::{FromFsOptions, Tree, WarningKind};
-use hadris_fs::{Metadata, NodeId, SystemClock};
+use hadris_fs::{DirCursor, Metadata, NodeId, Resolve, SystemClock};
 use hadris_iso::sync::{IsoImage, IsoView, write};
 use hadris_iso::{IsoOptions, Namespace, Report};
 use hadris_storage::host::FileDevice;
@@ -42,10 +42,14 @@ fn open(path: &Path) -> Result<IsoImage<FileDevice>> {
 /// the primary tree, whose lookups ignore ASCII case, so ISO 9660 paths such
 /// as `/README.TXT` work too.
 fn view_for<'a>(iso: &'a mut IsoImage<FileDevice>, path: &str) -> Result<View<'a>> {
-    let preferred = iso
-        .view(Namespace::Preferred)?
-        .exists(path)
-        .unwrap_or(false);
+    let mut preferred_view = iso.view(Namespace::Preferred)?;
+    let preferred = match preferred_view.resolve(path.as_bytes(), Resolve::Lexical) {
+        Ok(node) => {
+            preferred_view.forget(node, 1);
+            true
+        }
+        Err(_) => false,
+    };
     let namespace = if preferred {
         Namespace::Preferred
     } else {
@@ -71,24 +75,27 @@ struct Entry {
 
 /// The entries of the directory at `path`, in directory order.
 fn list_dir(view: &mut View<'_>, path: &str) -> Result<Vec<Entry>> {
-    let mut items = Vec::new();
-    for item in view
-        .read_dir(path)
-        .map_err(|err| format!("Directory not found: {path}: {err}"))?
-    {
-        let item = item?;
-        items.push((
-            String::from_utf8_lossy(item.name_bytes()).into_owned(),
-            item.entry().node(),
-        ));
-    }
-    items
-        .into_iter()
-        .map(|(name, node)| {
-            let meta = view.node_metadata(node)?;
-            Ok(Entry { name, node, meta })
-        })
-        .collect()
+    let dir = view
+        .resolve(path.as_bytes(), Resolve::Lexical)
+        .map_err(|err| format!("Directory not found: {path}: {err}"))?;
+    let mut entries = Vec::new();
+    let mut cursor = DirCursor::START;
+    let listed = loop {
+        match view.readdir(dir, cursor) {
+            Ok(Some(entry)) => {
+                cursor = entry.next_cursor();
+                entries.push(Entry {
+                    name: String::from_utf8_lossy(entry.name().as_bytes()).into_owned(),
+                    node: entry.node(),
+                    meta: *entry.metadata(),
+                });
+            }
+            Ok(None) => break Ok(entries),
+            Err(err) => break Err(err.into()),
+        }
+    };
+    view.forget(dir, 1);
+    listed
 }
 
 /// The first logical block of a node's data.

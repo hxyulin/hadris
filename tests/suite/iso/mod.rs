@@ -12,7 +12,8 @@ mod volume_descriptors;
 
 use std::path::{Path, PathBuf};
 
-use hadris_fs::sync::DriverExt;
+use hadris_fs::Resolve;
+use hadris_fs::sync::FileSystem;
 use hadris_fs::{Metadata, NodeId};
 use hadris_iso::raw::VolumeDescriptor;
 use hadris_iso::sync::IsoView;
@@ -90,21 +91,20 @@ fn list<D: hadris_storage::sync::BlockDevice>(
     view: &mut IsoView<D>,
     path: &str,
 ) -> Vec<(String, NodeId, Metadata)> {
-    let mut items = Vec::new();
-    for item in view.read_dir(path).unwrap() {
-        let item = item.unwrap();
-        items.push((
-            String::from_utf8_lossy(item.name_bytes()).into_owned(),
-            item.entry().node(),
-        ));
-    }
-    items
+    let dir = view.resolve(path.as_bytes(), Resolve::Lexical).unwrap();
+    let items = hadris_tests::harness::files::entries(view, dir)
+        .unwrap()
         .into_iter()
-        .map(|(name, node)| {
-            let meta = view.node_metadata(node).unwrap();
-            (name, node, meta)
+        .map(|entry| {
+            (
+                String::from_utf8_lossy(entry.name().as_bytes()).into_owned(),
+                entry.node(),
+                *entry.metadata(),
+            )
         })
-        .collect()
+        .collect();
+    view.forget(dir, 1);
+    items
 }
 
 /// The byte range of the first extent of `node`.

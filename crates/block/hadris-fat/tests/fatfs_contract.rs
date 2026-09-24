@@ -1,5 +1,5 @@
-//! `FatFs` passes the `hadris-fs` driver contract kit on every FAT width, in
-//! the raw and shared tiers and in the async modes, and the image is clean
+//! `FatFs` passes the `hadris-fs` driver contract kit on every FAT width,
+//! directly and through a `Volume`, in both modes, and the image is clean
 //! afterwards.
 
 #[path = "common/fatfs.rs"]
@@ -22,7 +22,7 @@ fn sync_raw_tier() {
 }
 
 #[test]
-fn sync_shared_tier() {
+fn sync_through_a_volume() {
     let case = CASES[1];
     let fs = hadris_fat::sync::FatFs::open_with(
         common::device(case, common::blank(case)),
@@ -30,8 +30,8 @@ fn sync_shared_tier() {
     )
     .unwrap();
     let vol = hadris_fs::sync::Volume::new(fs);
-    hadris_fs::sync::contract::check(&mut &vol).unwrap();
-    assert_eq!(vol.into_inner().open_nodes(), 1);
+    hadris_fs::sync::contract::check(&mut *vol.lock()).unwrap();
+    assert_eq!(vol.into_inner().unwrap().open_nodes(), 1);
 }
 
 #[test]
@@ -46,7 +46,7 @@ fn async_modes() {
             .await
             .unwrap();
         let vol = hadris_fs::r#async::Volume::new(fs);
-        hadris_fs::r#async::contract::check(&mut &vol)
+        hadris_fs::r#async::contract::check(&mut *vol.lock().await)
             .await
             .unwrap();
     });

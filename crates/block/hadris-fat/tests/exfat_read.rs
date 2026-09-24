@@ -4,12 +4,13 @@
 
 #[path = "common/exfat.rs"]
 mod common;
+use common::FsPaths;
 
 use common::{Geometry, Tool, clean, fsck, fsck_with, le32, put32};
 use hadris_fat::exfat::Detail;
 use hadris_fat::exfat::sync::ExFatFs;
-use hadris_fs::sync::{DriverExt, FsDriver};
-use hadris_fs::{DirCursor, ErrorKind, FileType, NameBuf};
+use hadris_fs::sync::FileSystem;
+use hadris_fs::{DirCursor, ErrorKind, FileType};
 
 type Patch = Box<dyn Fn(&mut Vec<u8>)>;
 type Damage = fn(&mut [u8]);
@@ -85,7 +86,7 @@ fn damaged_main_boot_regions_mount_from_the_backup() {
     let mut fs = common::small(4 << 20, 4096);
     let root = fs.root();
     let node = common::write(&mut fs, root, "kept.txt", b"backup");
-    fs.forget(node);
+    fs.forget(node, 1);
     fs.sync().unwrap();
     let base = common::image(fs);
     let damages: [(&str, Damage); 3] = [
@@ -102,9 +103,8 @@ fn damaged_main_boot_regions_mount_from_the_backup() {
         let root = fs.root();
         let created = fs.create(
             root,
-            hadris_fs::Name::new("new.txt").unwrap(),
-            hadris_fs::NewNode::File,
-            &hadris_fs::SetMetadata::new(),
+            hadris_fs::Name::new("new.txt"),
+            &hadris_fs::SetAttr::new(),
         );
         assert_eq!(created.unwrap_err().kind(), ErrorKind::ReadOnly, "{what}");
         damage(&mut image[12 * 512..]);
@@ -124,7 +124,7 @@ fn reads_a_macos_image() {
     ))
     .unwrap();
     let mut fs = common::mount(&image);
-    assert_eq!(fs.label().unwrap().unwrap().to_string(), "TESTEXFAT");
+    assert_eq!(fs.label_text().unwrap().unwrap(), "TESTEXFAT");
     assert_eq!(fs.read_to_vec("/hello.txt").unwrap(), b"Hello, exFAT\\!\n");
     assert_eq!(
         fs.read_to_vec("/SUBDIR/Nested.TXT").unwrap(),
@@ -137,13 +137,8 @@ fn reads_a_macos_image() {
     );
     let root = fs.root();
     let node = common::write(&mut fs, root, "added.txt", b"from hadris");
-    fs.forget(node);
-    fs.remove(
-        root,
-        hadris_fs::Name::new("hello.txt").unwrap(),
-        hadris_fs::RemoveKind::File,
-    )
-    .unwrap();
+    fs.forget(node, 1);
+    fs.unlink(root, hadris_fs::Name::new("hello.txt")).unwrap();
     fs.sync().unwrap();
     clean(&mut fs, "macOS image");
     fsck(&common::image(fs), "macOS image");
@@ -155,13 +150,13 @@ fn contiguous_files_are_read() {
     let root = fs.root();
     let data = common::payload(10_000, 7);
     let node = common::write(&mut fs, root, "contig.bin", &data);
-    fs.forget(node);
+    fs.forget(node, 1);
     let dir = common::mkdir(&mut fs, root, "cdir");
     for i in 0..40 {
         let node = common::write(&mut fs, dir, &format!("entry {i:02}"), b"");
-        fs.forget(node);
+        fs.forget(node, 1);
     }
-    fs.forget(dir);
+    fs.forget(dir, 1);
     fs.sync().unwrap();
     let mut image = common::image(fs);
     let geo = Geometry::of(&image);
@@ -186,14 +181,14 @@ fn entry_sets_cross_clusters() {
     for i in 0..60 {
         let name = format!("a name that needs three entries {i:02}");
         let node = common::write(&mut fs, dir, &name, name.as_bytes());
-        fs.forget(node);
+        fs.forget(node, 1);
         names.push(name);
         if i % 7 == 3 {
             let spacer = common::write(&mut fs, root, &format!("spacer {i}"), &[1; 600]);
-            fs.forget(spacer);
+            fs.forget(spacer, 1);
         }
     }
-    fs.forget(dir);
+    fs.forget(dir, 1);
     fs.sync().unwrap();
     let image = common::image(fs);
     let geo = Geometry::of(&image);
@@ -218,16 +213,16 @@ fn entry_sets_cross_clusters() {
 
     let mut fs = common::mount(&image);
     assert_eq!(common::names(&mut fs, "/sets"), names);
-    let dir = fs.resolve("/sets").unwrap();
-    let mut cursor = DirCursor::start();
-    let mut buf = NameBuf::new();
-    while let Some(entry) = fs.read_dir_entry(dir, &mut cursor, &mut buf).unwrap() {
-        let meta = fs.node_metadata(entry.node()).unwrap();
+    let dir = fs.resolve_path("/sets").unwrap();
+    let mut cursor = DirCursor::START;
+    while let Some(entry) = fs.readdir(dir, cursor).unwrap() {
+        cursor = entry.next_cursor();
+        let meta = fs.stat(entry.node()).unwrap();
         assert_eq!(meta.file_type(), FileType::File);
-        assert_eq!(meta.len(), buf.len() as u64);
-        let mut data = vec![0u8; buf.len()];
-        fs.read_at(entry.node(), 0, &mut data).unwrap();
-        assert_eq!(data, buf.as_bytes());
+        assert_eq!(meta.len(), entry.name().len() as u64);
+        let mut data = vec![0u8; entry.name().len()];
+        fs.read(entry.node(), 0, &mut data).unwrap();
+        assert_eq!(data, entry.name().as_bytes());
     }
     for name in &names {
         let upper = name.to_uppercase();
@@ -236,11 +231,11 @@ fn entry_sets_cross_clusters() {
             name.as_bytes()
         );
     }
-    let node = fs.resolve(&format!("/sets/{}", names[40])).unwrap();
+    let node = fs.resolve_path(&format!("/sets/{}", names[40])).unwrap();
     let parent = fs.parent(node);
     assert!(parent.is_err(), "a file has no parent directory to report");
-    fs.forget(node);
-    fs.forget(dir);
+    fs.forget(node, 1);
+    fs.forget(dir, 1);
     clean(&mut fs, "crossing sets");
     fsck(&image, "crossing sets");
 }
@@ -250,9 +245,9 @@ fn valid_data_length_reads_zeros() {
     let mut fs = common::small(4 << 20, 4096);
     let root = fs.root();
     let node = common::write(&mut fs, root, "vdl.bin", &[0xAA; 1000]);
-    fs.set_len(node, 10_000).unwrap();
+    fs.truncate(node, 10_000).unwrap();
     let mut buf = vec![0xFFu8; 10_000];
-    assert_eq!(fs.read_at(node, 0, &mut buf).unwrap(), 10_000);
+    assert_eq!(fs.read(node, 0, &mut buf).unwrap(), 10_000);
     assert!(buf[..1000].iter().all(|&b| b == 0xAA) && buf[1000..].iter().all(|&b| b == 0));
     fs.sync().unwrap();
     let image = common::image(fs);
@@ -270,14 +265,14 @@ fn valid_data_length_reads_zeros() {
     fsck(&image, "short valid data length");
 
     let mut fs = common::mount(&image);
-    let node = fs.resolve("/vdl.bin").unwrap();
-    fs.write_at(node, 5000, b"x").unwrap();
+    let node = fs.resolve_path("/vdl.bin").unwrap();
+    fs.write(node, 5000, b"x").unwrap();
     fs.sync().unwrap();
     let data = fs.read_to_vec("/vdl.bin").unwrap();
     assert_eq!(data.len(), 10_000);
     assert!(data[1000..5000].iter().all(|&b| b == 0));
     assert_eq!(data[5000], b'x');
-    fs.forget(node);
+    fs.forget(node, 1);
     let mut image = common::image(fs);
     let set = geo.set(&image, geo.root, "vdl.bin");
     assert_eq!(
@@ -311,12 +306,12 @@ fn fragmented_bitmap_and_upcase_table() {
     let root = fs.root();
     let greek = "\u{3B1}\u{3B2}\u{3B3} \u{430}\u{431}\u{432} \u{FF41}.txt";
     let node = common::write(&mut fs, root, greek, b"greek");
-    fs.forget(node);
+    fs.forget(node, 1);
     let upper = "\u{391}\u{392}\u{393} \u{410}\u{411}\u{412} \u{FF21}.TXT";
     assert_eq!(fs.read_to_vec(&format!("/{upper}")).unwrap(), b"greek");
     let big = common::payload(5 << 20, 9);
     let node = common::write(&mut fs, root, "big.bin", &big);
-    fs.forget(node);
+    fs.forget(node, 1);
     fs.sync().unwrap();
     assert_eq!(fs.read_to_vec("/big.bin").unwrap(), big);
     clean(&mut fs, "filled");
@@ -339,8 +334,8 @@ fn cyclic_chains_are_corrupt_instead_of_repeating() {
     let geo = Geometry::of(&image);
     let (inner, deep) = {
         let mut fs = common::mount(&image);
-        let inner = fs.resolve("/Nested Dir/inner").unwrap();
-        let deep = fs.resolve("/Nested Dir/inner/deep.bin").unwrap();
+        let inner = fs.resolve_path("/Nested Dir/inner").unwrap();
+        let deep = fs.resolve_path("/Nested Dir/inner/deep.bin").unwrap();
         (common::chain(&mut fs, inner), common::chain(&mut fs, deep))
     };
     assert!(inner.len() > 2 && deep.len() > 4);
@@ -348,12 +343,11 @@ fn cyclic_chains_are_corrupt_instead_of_repeating() {
     let mut dir_image = image.clone();
     geo.set_fat(&mut dir_image, inner[1], inner[0]);
     let mut fs = common::mount(&dir_image);
-    let dir = fs.resolve("/Nested Dir/inner").unwrap();
-    let mut cursor = DirCursor::start();
-    let mut buf = NameBuf::new();
+    let dir = fs.resolve_path("/Nested Dir/inner").unwrap();
+    let mut cursor = DirCursor::START;
     let listed = loop {
-        match fs.read_dir_entry(dir, &mut cursor, &mut buf) {
-            Ok(Some(_)) => {}
+        match fs.readdir(dir, cursor) {
+            Ok(Some(entry)) => cursor = entry.next_cursor(),
             Ok(None) => break Ok(()),
             Err(err) => break Err(err.kind()),
         }
@@ -370,11 +364,11 @@ fn cyclic_chains_are_corrupt_instead_of_repeating() {
     let mut file_image = image.clone();
     geo.set_fat(&mut file_image, deep[3], deep[1]);
     let mut fs = common::mount(&file_image);
-    let file = fs.resolve("/Nested Dir/inner/deep.bin").unwrap();
+    let file = fs.resolve_path("/Nested Dir/inner/deep.bin").unwrap();
     let mut chunk = [0u8; 777];
     let mut at = 0;
     let read = loop {
-        match fs.read_at(file, at, &mut chunk) {
+        match fs.read(file, at, &mut chunk) {
             Ok(0) => break Ok(()),
             Ok(n) => at += n as u64,
             Err(err) => break Err(err.kind()),
@@ -383,7 +377,7 @@ fn cyclic_chains_are_corrupt_instead_of_repeating() {
     assert_eq!(read, Err(ErrorKind::Corrupt));
     let mut all = vec![0u8; 70_000];
     assert_eq!(
-        fs.read_at(file, 0, &mut all).map_err(|err| err.kind()),
+        fs.read(file, 0, &mut all).map_err(|err| err.kind()),
         Err(ErrorKind::Corrupt)
     );
 }

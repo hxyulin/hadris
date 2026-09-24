@@ -6,9 +6,9 @@ use clap::{Parser, Subcommand};
 use hadris_cd::{CdOptions, UdfOptions};
 use std::hash::Hasher;
 
-use hadris_fs::sync::{DriverExt, FsDriver};
+use hadris_fs::sync::FileSystem;
 use hadris_fs::tree::{FromFsOptions, OnError, Tree, WarningKind};
-use hadris_fs::{FileType, OpenOptions};
+use hadris_fs::{DirCursor, FileType, NodeId, OpenMode, Resolve};
 use hadris_iso::sync::IsoImage;
 use hadris_iso::{
     BootEntry, BootInfo, ElTorito, HybridBoot, JolietLevel, Namespace, Platform, RockRidge,
@@ -270,9 +270,11 @@ fn verify(path: &Path) -> Result<()> {
     let namespace = view.namespace();
     let names_match = namespace != Namespace::Primary;
     let mut iso_nodes = BTreeMap::new();
-    collect(&mut view, "", &mut iso_nodes)?;
+    let root = view.root();
+    collect(&mut view, root, "", &mut iso_nodes)?;
     let mut udf_nodes = BTreeMap::new();
-    collect(&mut udf, "", &mut udf_nodes)?;
+    let root = udf.root();
+    collect(&mut udf, root, "", &mut udf_nodes)?;
     if namespace == Namespace::RockRidge {
         for name in relocation_dirs(&mut iso, &iso_nodes, &udf_nodes)? {
             iso_nodes.remove(&name);
@@ -340,53 +342,63 @@ fn relocation_dirs(
     let mut primary = iso.view(Namespace::Primary)?;
     let mut found = Vec::new();
     for path in candidates {
-        let mut children = primary.read_dir(&format!("/{path}"))?;
-        if children.next().is_some() {
+        let dir = primary.resolve(format!("/{path}").as_bytes(), Resolve::Lexical)?;
+        let listed = primary.readdir(dir, DirCursor::START);
+        primary.forget(dir, 1);
+        if listed?.is_some() {
             found.push(path.clone());
         }
     }
     Ok(found)
 }
 
-fn collect<F: FsDriver>(fs: &mut F, prefix: &str, nodes: &mut BTreeMap<String, Node>) -> Result<()>
-where
-    F::DeviceError: std::error::Error + Send + Sync + 'static,
-{
-    let dir = if prefix.is_empty() { "/" } else { prefix };
-    let mut entries = Vec::new();
-    for item in fs.read_dir(dir)? {
-        let item = item?;
-        entries.push((
-            String::from_utf8_lossy(item.name_bytes()).into_owned(),
-            item.file_type(),
-        ));
-    }
-    for (name, file_type) in entries {
-        let path = join(prefix, &name);
-        match file_type {
+fn collect<F: FileSystem>(
+    fs: &mut F,
+    dir: NodeId,
+    prefix: &str,
+    nodes: &mut BTreeMap<String, Node>,
+) -> Result<()> {
+    let mut cursor = DirCursor::START;
+    while let Some(entry) = fs.readdir(dir, cursor)? {
+        cursor = entry.next_cursor();
+        let path = join(prefix, &String::from_utf8_lossy(entry.name().as_bytes()));
+        let node = fs.lookup(dir, entry.name())?;
+        let result = match entry.file_type() {
             FileType::Dir => {
                 nodes.insert(path.clone(), Node::Directory);
-                collect(fs, &path, nodes)?;
+                collect(fs, node, &path, nodes)
             }
-            FileType::File => {
-                let mut file = fs.open(&format!("/{path}"), OpenOptions::read())?;
-                let mut hasher = std::hash::DefaultHasher::new();
-                let mut buf = vec![0u8; 64 * 1024];
-                let mut len = 0u64;
-                loop {
-                    let n = std::io::Read::read(&mut file, &mut buf)?;
-                    if n == 0 {
-                        break;
-                    }
-                    hasher.write(&buf[..n]);
-                    len += n as u64;
-                }
-                nodes.insert(path, Node::File(len, hasher.finish()));
-            }
-            _ => {}
-        }
+            FileType::File => hash_file(fs, node).map(|(len, hash)| {
+                nodes.insert(path, Node::File(len, hash));
+            }),
+            _ => Ok(()),
+        };
+        fs.forget(node, 1);
+        result?;
     }
     Ok(())
+}
+
+/// The length and hash of the contents of the pinned file `node`.
+fn hash_file<F: FileSystem>(fs: &mut F, node: NodeId) -> Result<(u64, u64)> {
+    fs.open(node, OpenMode::Read)?;
+    let mut hasher = std::hash::DefaultHasher::new();
+    let mut buf = vec![0u8; 64 * 1024];
+    let mut len = 0u64;
+    let read = loop {
+        match fs.read(node, len, &mut buf) {
+            Ok(0) => break Ok(()),
+            Ok(n) => {
+                hasher.write(&buf[..n]);
+                len += n as u64;
+            }
+            Err(err) => break Err(err),
+        }
+    };
+    let closed = fs.close(node);
+    read?;
+    closed?;
+    Ok((len, hasher.finish()))
 }
 
 fn join(prefix: &str, name: &str) -> String {

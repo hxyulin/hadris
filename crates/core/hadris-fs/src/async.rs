@@ -1,9 +1,10 @@
+#[allow(unused_imports)]
 use hadris_io::r#async as io;
-
 macro_rules! io_transform {
     ($($item:tt)*) => { hadris_macros::send_async! { $($item)* } };
 }
 
+#[allow(unused_macros)]
 macro_rules! sync_only {
     ($($item:tt)*) => {};
 }
@@ -13,58 +14,34 @@ macro_rules! async_only {
     ($($item:tt)*) => { $($item)* };
 }
 
-#[allow(unused_macros)]
-macro_rules! local_only {
-    ($($item:tt)*) => {};
-}
-
-/// Locks for [`Volume`] whose futures and guards are `Send`.
-#[path = "lock_send.rs"]
-pub mod lock;
-
 #[allow(clippy::duplicate_mod)]
 #[path = "api/mod.rs"]
 mod api;
 pub use api::*;
 
-#[cfg(feature = "alloc")]
-impl<T: Send> lock::Lock<T> for async_lock::Mutex<T> {
-    fn new(value: T) -> Self {
-        async_lock::Mutex::new(value)
-    }
+/// The lock of an async `Volume`: `async_lock::Mutex`, safe to hold across
+/// `.await`, which needs only `alloc`.
+#[cfg(all(feature = "alloc", target_has_atomic = "ptr"))]
+mod lock {
+    pub(crate) type Guard<'a, T> = async_lock::MutexGuard<'a, T>;
 
-    async fn lock(&self) -> impl core::ops::DerefMut<Target = T> + Send + '_ {
-        async_lock::Mutex::lock(self).await
-    }
+    pub(crate) struct Lock<T>(async_lock::Mutex<T>);
 
-    fn try_lock(&self) -> Option<impl core::ops::DerefMut<Target = T> + Send + '_> {
-        async_lock::Mutex::try_lock(self)
-    }
+    impl<T> Lock<T> {
+        pub(crate) fn new(value: T) -> Self {
+            Self(async_lock::Mutex::new(value))
+        }
 
-    fn get_mut(&mut self) -> &mut T {
-        async_lock::Mutex::get_mut(self)
-    }
+        pub(crate) async fn lock(&self) -> Guard<'_, T> {
+            self.0.lock().await
+        }
 
-    fn into_inner(self) -> T {
-        async_lock::Mutex::into_inner(self)
-    }
-}
+        pub(crate) fn try_lock(&self) -> Option<Guard<'_, T>> {
+            self.0.try_lock()
+        }
 
-/// `async_lock::Mutex`, safe to hold across `.await`. Needs `alloc`, which
-/// `async-lock` links even without `std`.
-#[cfg(feature = "alloc")]
-#[derive(Debug)]
-pub struct AsyncMutex;
-
-#[cfg(feature = "alloc")]
-impl lock::LockKind for AsyncMutex {
-    type Lock<T: Send> = async_lock::Mutex<T>;
-}
-
-#[cfg(feature = "alloc")]
-impl<F: FsDriver> Volume<F, AsyncMutex> {
-    /// Shares `driver` behind an async mutex.
-    pub fn new(driver: F) -> Self {
-        Self::with_lock(driver)
+        pub(crate) fn into_inner(self) -> T {
+            self.0.into_inner()
+        }
     }
 }

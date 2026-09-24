@@ -1,4 +1,4 @@
-//! Every tree of an image passes the read-only `FsDriver` contract kit, in
+//! Every tree of an image passes the read-only `FileSystem` contract kit, in
 //! each mode and tier.
 
 mod common;
@@ -29,7 +29,7 @@ fn sync_raw_and_shared_tiers() {
     }
     let view = iso.into_view(Namespace::Preferred).unwrap();
     let vol = hadris_fs::sync::Volume::new(view);
-    hadris_fs::sync::contract::check_read_only(&mut &vol).unwrap();
+    hadris_fs::sync::contract::check_read_only(&mut *vol.lock()).unwrap();
 }
 
 #[test]
@@ -51,7 +51,7 @@ fn async_modes() {
         let iso = hadris_iso::r#async::IsoImage::open(bytes).await.unwrap();
         let view = iso.into_view(Namespace::Joliet).unwrap();
         let vol = hadris_fs::r#async::Volume::new(view);
-        hadris_fs::r#async::contract::check_read_only(&mut &vol)
+        hadris_fs::r#async::contract::check_read_only(&mut *vol.lock().await)
             .await
             .unwrap();
     });

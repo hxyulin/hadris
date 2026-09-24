@@ -1,23 +1,33 @@
 use core::fmt;
 
 use hadris_fs::{
-    Attributes, Capabilities, CaseSensitivity, Clock, DateTime, DirCursor, DirEntry, ErrorKind,
-    FileTimes, FileType, FixedTable, FsResult, FsStats, Metadata, MountError, Name, NameBuf,
-    NameCharset, NameError, NewNode, NoClock, NodeId, NodeTable, RemoveKind, RenameFlags,
-    SetMetadata,
+    Attributes, Capabilities, CaseRule, Charset, Clock, DateTime, DirCursor, DirEntry, ErrorKind,
+    Field, FileType, FixedTable, FsResult, FsStats, Metadata, MountError, Name, NameBuf, NameError,
+    NoClock, NodeId, NodeTable, OpenMode, RenameMode, SetAttr, Stored,
 };
 
 use super::block_io::{BlockBuf, new_block, read_bytes, write_bytes};
 use super::exio;
+use super::fsapi::FileSystem;
+use super::io::MaybeSend;
 use super::storage::BlockDevice;
 use hadris_fat_raw::exfat::io::{BootRegion, ClusterState, DirWalk, ExFat, Extent, Upcase};
 use hadris_fat_raw::exfat::{self as raw, ENTRY_SIZE, MAX_SET, NameUnits, RawEntry};
 use hadris_fat_raw::name as names;
 
 use crate::exfat::{MountOptions, VolumeLabel, le16, le32, le64};
+use crate::{permissions, read_only_bit};
 use hadris_fat_raw::io::{ChainPos, Held};
 
-const ROOT: NodeId = NodeId::new(1);
+/// `NodeId::new` for ids that are not 0 by construction.
+const fn node_id(raw: u64) -> NodeId {
+    match NodeId::new(raw) {
+        Some(id) => id,
+        None => RESERVED,
+    }
+}
+
+const ROOT: NodeId = node_id(1);
 /// A node id holds the slot of its File entry, the entry's byte offset
 /// divided by 32, in its low `SLOT_BITS` bits, and a tier above, as in
 /// `FatFs`. An exFAT heap ends below `2^58` bytes, so slots stay below
@@ -26,7 +36,10 @@ const SLOT_BITS: u32 = 53;
 const SLOT_MASK: u64 = (1 << SLOT_BITS) - 1;
 const MAX_TIER: u64 = (1 << (63 - SLOT_BITS)) - 1;
 /// The id of the table slot `create` reserves before it writes anything.
-const RESERVED: NodeId = NodeId::new(1 << 63);
+const RESERVED: NodeId = match NodeId::new(1 << 63) {
+    Some(id) => id,
+    None => panic!("not 0"),
+};
 /// The entry offset that stands for the root directory, which has none.
 const ROOT_ENTRY: u64 = 0;
 /// A parent not yet known.
@@ -63,7 +76,7 @@ pub(super) struct Node {
     /// holds one pin of the driver's own until it is written.
     dirty: bool,
     opens: u32,
-    /// Removed while pinned: every method but `forget` and `close_node`
+    /// Removed while pinned: every method but `forget` and `close`
     /// answers `NotFound`.
     unlinked: bool,
 }
@@ -349,14 +362,6 @@ impl SetPending {
 
 fn metadata(node: &Node, set: &Set) -> Metadata {
     let primary = &set.raw[0];
-    let times = FileTimes::new()
-        .with_created(raw::decode_time(le32(primary, 8), primary[20], primary[22]))
-        .with_modified(raw::decode_time(
-            le32(primary, 12),
-            primary[21],
-            primary[23],
-        ))
-        .with_accessed(raw::decode_time(le32(primary, 16), 0, primary[24]));
     let mut attributes = Attributes::empty();
     for (bit, flag) in ATTR_MAPPED {
         if set.attributes() & bit != 0 {
@@ -368,10 +373,29 @@ fn metadata(node: &Node, set: &Set) -> Metadata {
     } else {
         (FileType::File, node.len)
     };
-    Metadata::new(file_type)
+    let read_only = attributes.contains(Attributes::READ_ONLY);
+    let mut meta = Metadata::new(file_type, permissions(node.dir, read_only))
         .with_len(len)
-        .with_times(times)
-        .with_attributes(attributes)
+        .with_attributes(attributes);
+    if let Some(time) = raw::decode_time(le32(primary, 8), primary[20], primary[22]) {
+        meta = meta.with_created(time);
+    }
+    if let Some(time) = raw::decode_time(le32(primary, 12), primary[21], primary[23]) {
+        meta = meta.with_modified(time);
+    }
+    if let Some(time) = raw::decode_time(le32(primary, 16), 0, primary[24]) {
+        meta = meta.with_accessed(time);
+    }
+    meta
+}
+
+fn set_read_only(primary: &mut RawEntry, read_only: bool) {
+    let mut value = le16(primary, 4);
+    match read_only {
+        true => value |= raw::ATTR_READ_ONLY,
+        false => value &= !raw::ATTR_READ_ONLY,
+    }
+    primary[4..6].copy_from_slice(&value.to_le_bytes());
 }
 
 fn set_attributes(primary: &mut RawEntry, attributes: Attributes) {
@@ -464,17 +488,17 @@ fn entry_name(name: &Name, invalid: ErrorKind) -> Result<&str, ErrorKind> {
 
 /// An exFAT volume on a block device.
 ///
-/// `ExFatFs` is the sibling of `FatFs` for exFAT: every node method takes
-/// `&mut self`, holds no lock and needs no allocator, and the `FsDriver`
-/// methods forward to inherent methods of the same names. Share it through
-/// `hadris_fs` `Volume`, or call the node methods directly.
+/// `ExFatFs` is the sibling of `FatFs` for exFAT: it implements the
+/// `hadris_fs` `FileSystem` trait, whose methods take `&mut self`, hold no
+/// lock and need no allocator. Share it through `hadris_fs` `Volume`, or
+/// call the trait methods directly.
 ///
 /// Mount with [`open`](ExFatFs::open), or with
 /// [`open_with`](ExFatFs::open_with) and [`MountOptions`] to choose the
 /// node table `T` and the [`Clock`] `C`, as for `FatFs`. Nodes are
 /// identified by the location of their File entry; `lookup`, `create` and
 /// `parent` pin the node they return, `forget` unpins it, and a pinned node
-/// keeps its id across `rename`. Ids from `read_dir_entry` are not pinned
+/// keeps its id across `rename`. Ids from `readdir` are not pinned
 /// and stay valid until that directory changes.
 ///
 /// Names are UTF-16, up to 255 code units, and compare through the
@@ -494,12 +518,12 @@ fn entry_name(name: &Name, invalid: ErrorKind) -> Result<&str, ErrorKind> {
 ///
 /// # Writing
 ///
-/// Writes go to the device at once. As in `FatFs`, `write_at` and
-/// `set_len` keep a pinned file's new sizes and modification time in the
-/// node table until `publish_node`, `sync_node` or `sync`, unless its
+/// Writes go to the device at once. As in `FatFs`, `write` and
+/// `truncate` keep a pinned file's new sizes and modification time in the
+/// node table until `close`, `fsync` or `sync`, unless its
 /// first cluster changes. New allocations always have a FAT chain; a
 /// contiguous (`NoFatChain`) allocation made by another implementation is
-/// given a chain when it grows. `set_len` grows a file by raising its
+/// given a chain when it grows. `truncate` grows a file by raising its
 /// `DataLength` alone, and the bytes past `ValidDataLength` read as zeros,
 /// so growing writes no data. Directories grow a cluster at a time, up to
 /// 256 MiB.
@@ -526,8 +550,8 @@ fn entry_name(name: &Name, invalid: ErrorKind) -> Result<&str, ErrorKind> {
 ///
 /// The driver remembers what an unfinished operation leaves: clusters
 /// allocated but not yet linked or unlinked but not yet freed, and an entry
-/// set it was writing. The next `create`, `remove`, `rename`, `write_at`,
-/// `set_len`, `set_metadata`, `set_label` or `sync` frees the clusters
+/// set it was writing. The next `create`, `mkdir`, `unlink`, `rmdir`,
+/// `rename`, `write`, `truncate`, `setattr`, `set_label` or `sync` frees the clusters
 /// unless the interrupted write linked them, removes a new set that did
 /// not land whole, completes a removal, reseals an updated set so its
 /// checksum and name hash match, and cuts back a chain a dropped write had
@@ -665,40 +689,6 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         self.vol.geometry().cluster_size() as u32
     }
 
-    /// What this volume supports: case-insensitive, case-preserving UTF-16
-    /// names of up to 255 code units (765 bytes of UTF-8) and modification
-    /// times in 10 ms steps. Writable unless
-    /// [`is_read_only`](Self::is_read_only).
-    pub fn capabilities(&self) -> Capabilities {
-        let caps = Capabilities::new()
-            .with_case_sensitivity(CaseSensitivity::InsensitivePreserving)
-            .with_name_charset(NameCharset::Utf16)
-            .with_max_name_len(raw::MAX_NAME_UNITS * 3)
-            .with_timestamp_resolution_ns(10_000_000);
-        if self.read_only { caps } else { caps.with_writable() }
-    }
-
-    /// The root directory. Always pinned.
-    pub fn root(&self) -> NodeId {
-        ROOT
-    }
-
-    /// The volume label: the Volume Label entry of the root directory, or
-    /// `None` when there is none or it is empty.
-    pub async fn label(&mut self) -> FsResult<Option<VolumeLabel>, D::Error> {
-        Ok(self.find_label().await?.and_then(|(_, entry)| {
-            let count = entry[1] as usize;
-            if count == 0 || count > raw::MAX_LABEL_UNITS {
-                return None;
-            }
-            let mut units = [0u16; raw::MAX_LABEL_UNITS];
-            for (index, unit) in units.iter_mut().enumerate().take(count) {
-                *unit = le16(&entry, 2 + index * 2);
-            }
-            Some(VolumeLabel::from_disk(units, count as u8))
-        }))
-    }
-
     /// Sets the volume label, or empties it with `None`. The root
     /// directory's Volume Label entry is rewritten, or created in a free
     /// slot of the root directory, which grows when it has none.
@@ -713,7 +703,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             }
         }
         if let Some((offset, _)) = self.find_label().await? {
-            return self.write(offset, &entry).await;
+            return self.put_bytes(offset, &entry).await;
         }
         if label.is_none() {
             return Ok(());
@@ -724,145 +714,6 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         set[0] = entry;
         self.insert(start, ROOT_ENTRY, &plan, &set[..1]).await?;
         Ok(())
-    }
-
-    /// Finds `name` in `dir` and pins the result. Names compare through
-    /// the up-case table.
-    pub async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
-        let (start, dir_entry) = self.dir_info(dir).await?;
-        let Some(query) = name.to_str().ok().and_then(NameUnits::query) else {
-            return Err(ErrorKind::NotFound.into());
-        };
-        let mut found = Located::new();
-        if !self.find(start, &query, &mut found).await? {
-            return Err(ErrorKind::NotFound.into());
-        }
-        Ok(self.intern(&found.set, dir_entry)?)
-    }
-
-    /// Metadata of a pinned node or of an id just returned by
-    /// `read_dir_entry`. Directories have length 0.
-    pub async fn node_metadata(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
-        if node == ROOT {
-            return Ok(Metadata::new(FileType::Dir));
-        }
-        let (_, state) = self.any_node(node).await?;
-        let mut set = Set::new();
-        self.set_at(state.entry, &mut set).await?;
-        Ok(metadata(&state, &set))
-    }
-
-    /// Writes the entry after `cursor` into `name` and advances `cursor`.
-    /// `None` at the end. The raw cursor is the index of the next directory
-    /// entry. A directory whose cluster chain loops fails with
-    /// [`ErrorKind::Corrupt`] once the walk comes back around.
-    pub async fn read_dir_entry(
-        &mut self,
-        dir: NodeId,
-        cursor: &mut DirCursor,
-        name: &mut NameBuf,
-    ) -> FsResult<Option<DirEntry>, D::Error> {
-        let (start, _) = self.dir_info(dir).await?;
-        let Ok(mut slot) = u32::try_from(cursor.into_raw()) else {
-            return Ok(None);
-        };
-        let mut walk = walk(start);
-        if !start.alloc.contiguous {
-            walk = DirWalk::resume(walk.dir(), self.dir_hint(dir));
-        }
-        let mut set = Set::new();
-        let next = self.next_set(&mut walk, &mut slot, &mut set).await?;
-        if walk.pos().cluster() != 0 {
-            self.set_dir_hint(dir, walk.pos());
-        }
-        let Some(at) = next else {
-            *cursor = DirCursor::from_raw(slot as u64);
-            return Ok(None);
-        };
-        name.fill(|buf| names::utf16_to_utf8(set.name_units(), buf).ok_or(NameError::TooLong))
-            .map_err(|_| ErrorKind::LimitExceeded)?;
-        let file_type = if set.is_dir() { FileType::Dir } else { FileType::File };
-        let node = self.id_at(set.offset);
-        *cursor = DirCursor::from_raw(slot as u64);
-        let _ = at;
-        Ok(Some(DirEntry::new(node, file_type, name.len())))
-    }
-
-    /// Reads from a file at `offset`. Returns 0 at or past the end. Bytes
-    /// past `ValidDataLength` read as zeros. A chain that ends before the
-    /// file's size or loops fails with [`ErrorKind::Corrupt`].
-    pub async fn read_at(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
-        let (_, state) = self.file_node(node).await?;
-        if offset >= state.len || buf.is_empty() {
-            return Ok(0);
-        }
-        let count = (state.len - offset).min(buf.len() as u64) as usize;
-        let cluster_size = self.vol.geometry().cluster_size();
-        let mut index = ChainPos::NONE;
-        let mut hint = state.hint;
-        let mut done = 0;
-        while done < count {
-            let pos = offset + done as u64;
-            let within = pos % cluster_size;
-            let n = ((cluster_size - within) as usize).min(count - done);
-            let out = &mut buf[done..done + n];
-            if pos >= state.valid {
-                out.fill(0);
-                done += n;
-            } else {
-                let valid = (state.valid - pos).min((count - done) as u64) as usize;
-                index = self.locate_cluster(state.alloc(), hint, (pos / cluster_size) as u32).await?;
-                let at = self.cluster_at(index.cluster())? + within;
-                let n = self.run(state.alloc(), &mut index, n.min(valid), valid).await?;
-                hint = index;
-                read_bytes(&mut self.dev, &mut self.block, at, &mut buf[done..done + n]).await?;
-                done += n;
-            }
-        }
-        if index.cluster() != 0
-            && let Some(state) = self.nodes.get_mut(node)
-        {
-            state.hint = index;
-        }
-        Ok(count)
-    }
-
-    /// The directory containing `dir`, pinned. The root is its own parent.
-    ///
-    /// The node table remembers the directory a node was found in; when it
-    /// does not, the tree is searched from the root, to a depth of 64.
-    pub async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
-        if dir == ROOT {
-            return Ok(ROOT);
-        }
-        let (id, state) = self.any_node(dir).await?;
-        if !state.dir {
-            return Err(ErrorKind::NotADirectory.into());
-        }
-        let parent = match state.parent {
-            UNKNOWN_PARENT => self.search(Target::ParentOf(state.entry)).await?.ok_or(ErrorKind::Corrupt)?,
-            parent => parent,
-        };
-        if let Some(node) = id.and_then(|id| self.nodes.get_mut(id)) {
-            node.parent = parent;
-        }
-        if parent == ROOT_ENTRY {
-            return Ok(ROOT);
-        }
-        if let Some(id) = self.pinned_at(parent) {
-            self.nodes.pin(id);
-            return Ok(id);
-        }
-        let mut set = Set::new();
-        self.set_at(parent, &mut set).await?;
-        Ok(self.intern(&set, UNKNOWN_PARENT)?)
-    }
-
-    /// Space usage in clusters. Free space comes from one scan of the
-    /// allocation bitmap, which is then kept up to date.
-    pub async fn stats(&mut self) -> FsResult<FsStats, D::Error> {
-        let free = exio::count_free(&mut self.dev, &mut self.block, &mut self.vol).await?;
-        Ok(FsStats::new(self.vol.geometry().cluster_count() as u64, free as u64, self.vol.geometry().cluster_size() as u32))
     }
 
     /// Passes the clusters of `node`'s allocation to `visit` in order and
@@ -901,19 +752,6 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         }
     }
 
-    /// Unpins a node. Unknown ids and the root are ignored.
-    pub fn forget(&mut self, node: NodeId) {
-        if node == ROOT || self.user_pins(node) == 0 {
-            return;
-        }
-        if self.nodes.unpin(node) == Some(0) && self.nodes.get(node).is_some_and(|n| n.unlinked) {
-            self.nodes.remove(node);
-        }
-        if self.nodes.is_empty() {
-            self.moved = false;
-        }
-    }
-
     /// Where the last listing of `dir` left its chain, [`ChainPos::NONE`] when
     /// unknown.
     fn dir_hint(&self, dir: NodeId) -> ChainPos {
@@ -924,7 +762,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     }
 
     /// Records a position in the chain of `dir`, which only ever grows, for
-    /// the next `read_dir_entry` to start from.
+    /// the next `readdir` to start from.
     fn set_dir_hint(&mut self, dir: NodeId, hint: ChainPos) {
         if dir == ROOT {
             self.root_hint = hint;
@@ -935,54 +773,39 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         }
     }
 
-    /// Marks a pinned node as open: until the matching
-    /// [`close_node`](Self::close_node), `remove` and a replacing `rename`
-    /// of it fail with [`ErrorKind::Busy`].
-    pub async fn open_node(&mut self, node: NodeId) -> FsResult<(), D::Error> {
-        if node == ROOT {
-            return Ok(());
-        }
-        match self.nodes.get_mut(node) {
-            Some(state) if state.unlinked => Err(ErrorKind::NotFound.into()),
-            Some(state) => {
-                state.opens = state.opens.saturating_add(1);
-                Ok(())
+    /// Writes the node's pending sizes and modification time to its entry
+    /// set, without flushing the device.
+    async fn publish_node(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+        if node != ROOT {
+            let (id, _) = self.any_node(node).await?;
+            if let Some(id) = id {
+                self.flush_node(id).await?;
             }
-            None => Err(ErrorKind::InvalidHandle.into()),
         }
+        Ok(())
     }
 
-    /// Ends one [`open_node`](Self::open_node). Unknown ids are ignored.
-    pub fn close_node(&mut self, node: NodeId) {
-        if let Some(state) = self.nodes.get_mut(node) {
-            state.opens = state.opens.saturating_sub(1);
-        }
+    /// The volume label from the Volume Label entry of the root directory,
+    /// or `None` when there is none or it is empty. `FileSystem::label`
+    /// gives the same label as text.
+    pub async fn volume_label(&mut self) -> FsResult<Option<VolumeLabel>, D::Error> {
+        Ok(self.find_label().await?.and_then(|(_, entry)| {
+            let count = entry[1] as usize;
+            if count == 0 || count > raw::MAX_LABEL_UNITS {
+                return None;
+            }
+            let mut units = [0u16; raw::MAX_LABEL_UNITS];
+            for (index, unit) in units.iter_mut().enumerate().take(count) {
+                *unit = le16(&entry, 2 + index * 2);
+            }
+            Some(VolumeLabel::from_disk(units, count as u8))
+        }))
     }
 
-    /// Creates `name` in `dir` and pins the new node. Only files and
-    /// directories exist on exFAT; other kinds fail with
-    /// [`ErrorKind::Unsupported`].
-    ///
-    /// `meta` sets the attributes, which default to archive for a file, and
-    /// the creation, modification and access times, which default to now.
-    /// A new directory gets one zeroed cluster. Fails with
-    /// [`ErrorKind::AlreadyExists`] when a name matches through the up-case
-    /// table, [`ErrorKind::InvalidInput`] or [`ErrorKind::NameTooLong`] for
-    /// a name exFAT cannot hold, and [`ErrorKind::NoSpace`] when the volume
-    /// or a 256 MiB directory is full.
-    pub async fn create(
-        &mut self,
-        dir: NodeId,
-        name: &Name,
-        kind: NewNode<'_>,
-        meta: &SetMetadata,
-    ) -> FsResult<NodeId, D::Error> {
+    /// Creates a file or directory `name` in `dir` and pins it.
+    async fn create_node(&mut self, dir: NodeId, name: &Name, is_dir: bool, attrs: &SetAttr) -> FsResult<NodeId, D::Error> {
         self.prepare().await?;
-        let is_dir = match kind {
-            NewNode::File => false,
-            NewNode::Dir => true,
-            _ => return Err(ErrorKind::Unsupported.into()),
-        };
+        name.check()?;
         let (start, dir_entry) = self.dir_info(dir).await?;
         let text = entry_name(name, ErrorKind::InvalidInput)?;
         let units = NameUnits::encode(text)?;
@@ -1002,7 +825,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             unlinked: false,
         };
         self.nodes.insert(RESERVED, placeholder).map_err(|_| ErrorKind::LimitExceeded)?;
-        let created = self.create_set(start, dir_entry, &units, hash, &plan, is_dir, meta).await;
+        let created = self.create_set(start, dir_entry, &units, hash, &plan, is_dir, attrs).await;
         self.nodes.remove(RESERVED);
         let node = created?;
         let id = self.free_id(node.entry).ok_or(ErrorKind::LimitExceeded)?;
@@ -1010,18 +833,10 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         Ok(id)
     }
 
-    /// Removes the file or empty directory `name` from `dir` and frees its
-    /// clusters, with those its Vendor Allocation entries hold. `kind` says
-    /// which of the two is expected.
-    ///
-    /// Fails with [`ErrorKind::IsADirectory`] or
-    /// [`ErrorKind::NotADirectory`] when the entry is not of `kind`, with
-    /// [`ErrorKind::Busy`] while the node is open, and with
-    /// [`ErrorKind::DirectoryNotEmpty`] for a directory with entries. A
-    /// pinned node that is not open is removed; its id then answers
-    /// [`ErrorKind::NotFound`] until its last `forget`.
-    pub async fn remove(&mut self, dir: NodeId, name: &Name, kind: RemoveKind) -> FsResult<(), D::Error> {
+    /// Removes `name` from `dir`, a directory when `want_dir`.
+    async fn remove_entry(&mut self, dir: NodeId, name: &Name, want_dir: bool) -> FsResult<(), D::Error> {
         self.prepare().await?;
+        name.check()?;
         let (start, _) = self.dir_info(dir).await?;
         let query = entry_name(name, ErrorKind::NotFound)?;
         let query = NameUnits::query(query).ok_or(ErrorKind::NotFound)?;
@@ -1029,8 +844,11 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         if !self.find(start, &query, &mut found).await? {
             return Err(ErrorKind::NotFound.into());
         }
-        let file_type = if found.set.is_dir() { FileType::Dir } else { FileType::File };
-        kind.check(file_type)?;
+        match (want_dir, found.set.is_dir()) {
+            (false, true) => return Err(ErrorKind::IsADirectory.into()),
+            (true, false) => return Err(ErrorKind::NotADirectory.into()),
+            _ => {}
+        }
         let pinned = self.pinned_at(found.set.offset);
         if pinned.is_some_and(|id| self.is_open(id)) {
             return Err(ErrorKind::Busy.into());
@@ -1047,267 +865,10 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         }
         self.clear_set(&found.set).await?;
         if let Some(id) = pinned {
-            self.unlink(id);
+            self.mark_unlinked(id);
         }
         self.free_alloc(state.alloc(), state.len).await?;
         self.free_extras(&found.set).await
-    }
-
-    /// Moves `from` in `from_dir` to `to` in `to_dir`. The moved node keeps
-    /// its `NodeId` when it is pinned. A renamed file gets the archive
-    /// attribute; a directory keeps its attributes.
-    ///
-    /// An existing `to` is replaced unless `flags` has
-    /// [`RenameFlags::NO_REPLACE`] ([`ErrorKind::AlreadyExists`]): a file by
-    /// a file, an empty directory by a directory; the replaced node's
-    /// clusters are freed as by `remove`; an open target fails with
-    /// [`ErrorKind::Busy`]. The result is named `to` as given, and takes
-    /// the target's entries when it fits them. A rename that changes only
-    /// the case rewrites the entry set in place. Moving a directory into
-    /// itself or below, or a `to` that `create` would refuse, fails with
-    /// [`ErrorKind::InvalidInput`], and unknown flags with
-    /// [`ErrorKind::Unsupported`].
-    pub async fn rename(
-        &mut self,
-        from_dir: NodeId,
-        from: &Name,
-        to_dir: NodeId,
-        to: &Name,
-        flags: RenameFlags,
-    ) -> FsResult<(), D::Error> {
-        self.prepare().await?;
-        if flags.bits() & !RenameFlags::NO_REPLACE.bits() != 0 {
-            return Err(ErrorKind::Unsupported.into());
-        }
-        let (from_start, _) = self.dir_info(from_dir).await?;
-        let (to_start, to_entry) = self.dir_info(to_dir).await?;
-        let from_text = entry_name(from, ErrorKind::NotFound)?;
-        let to_text = entry_name(to, ErrorKind::InvalidInput)?;
-        let units = NameUnits::encode(to_text)?;
-        let hash = self.name_hash(&units).await?;
-        let from_query = NameUnits::query(from_text).ok_or(ErrorKind::NotFound)?;
-        let mut src = Located::new();
-        if !self.find(from_start, &from_query, &mut src).await? {
-            return Err(ErrorKind::NotFound.into());
-        }
-        let src_id = self.pinned_at(src.set.offset);
-        let src_node = match src_id.and_then(|id| self.nodes.get(id)) {
-            Some(node) => *node,
-            None => Node::from_set(&src.set, UNKNOWN_PARENT),
-        };
-        if src_node.dir && self.is_within(to_start, src_node.alloc(), src_node.len).await? {
-            return Err(ErrorKind::InvalidInput.into());
-        }
-        let mut target = Located::new();
-        let exists = self.find(to_start, &units, &mut target).await?;
-        match exists.then_some(&target) {
-            Some(target) if target.set.offset == src.set.offset => {
-                if target.exact {
-                    return Ok(());
-                }
-                self.rewrite_name(&src.set, &src_node, src_id, &units, hash).await
-            }
-            Some(target) => {
-                if flags.contains(RenameFlags::NO_REPLACE) {
-                    return Err(ErrorKind::AlreadyExists.into());
-                }
-                self.replace(&src, &src_node, src_id, to_start, to_entry, target, &units, hash).await
-            }
-            None => {
-                let plan = self.plan(to_start, None, 2 + units.entries() as u32 + src.set.extras().len() as u32, None).await?;
-                self.move_set(&src.set, &src_node, src_id, to_start, to_entry, &plan, &units, hash).await
-            }
-        }
-    }
-
-    /// Writes to a file at `offset`, growing it. Bytes between the old
-    /// `ValidDataLength` and `offset` are zeroed first. A volume without
-    /// room for the new clusters fails with [`ErrorKind::NoSpace`] and
-    /// changes nothing, and a write that would end past `u64::MAX` with
-    /// [`ErrorKind::FileTooLarge`].
-    ///
-    /// The new sizes of a pinned file are written by `publish_node`,
-    /// `sync_node` or `sync`, with the modification time and the archive
-    /// attribute.
-    pub async fn write_at(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, D::Error> {
-        self.prepare().await?;
-        let (id, state) = self.file_node(node).await?;
-        if buf.is_empty() {
-            return Ok(0);
-        }
-        let end = offset.checked_add(buf.len() as u64).ok_or(ErrorKind::FileTooLarge)?;
-        let growth = self.cover(&state, end).await?;
-        let hint = if growth.alloc == state.alloc() { state.hint } else { ChainPos::NONE };
-        let filled = if offset > state.valid {
-            self.fill(growth.alloc, hint, state.valid, None, offset - state.valid).await
-        } else {
-            Ok(hint)
-        };
-        let written = match filled {
-            Ok(hint) => self.fill(growth.alloc, hint, offset, Some(buf), buf.len() as u64).await,
-            Err(err) => Err(err),
-        };
-        let hint = match written {
-            Ok(hint) => hint,
-            Err(err) => {
-                self.undo_growth(growth).await;
-                return Err(err);
-            }
-        };
-        let len = state.len.max(end);
-        let valid = state.valid.max(end);
-        if let Err(err) = self.publish(id, &state, growth.alloc, len, valid, hint).await {
-            self.undo_growth(growth).await;
-            return Err(err);
-        }
-        self.pending = None;
-        Ok(buf.len())
-    }
-
-    /// Truncates or extends a file. Growth allocates clusters and raises
-    /// `DataLength` only, so it reads as zeros without writing them.
-    /// Shrinking writes the new sizes at once and frees the clusters past
-    /// them. A changed size sets the archive attribute.
-    pub async fn set_len(&mut self, node: NodeId, len: u64) -> FsResult<(), D::Error> {
-        self.prepare().await?;
-        let (id, state) = self.file_node(node).await?;
-        if len > state.len {
-            let growth = self.cover(&state, len).await?;
-            let hint = if growth.alloc == state.alloc() { state.hint } else { ChainPos::NONE };
-            if let Err(err) = self.publish(id, &state, growth.alloc, len, state.valid, hint).await {
-                self.undo_growth(growth).await;
-                return Err(err);
-            }
-            self.pending = None;
-            return Ok(());
-        }
-        if len == state.len {
-            return Ok(());
-        }
-        let cluster_size = self.vol.geometry().cluster_size();
-        let keep = len.div_ceil(cluster_size) as u32;
-        let had = state.len.div_ceil(cluster_size) as u32;
-        let alloc = if keep == 0 { Alloc { first: 0, contiguous: false } } else { state.alloc() };
-        if keep == 0 && state.first != 0 && !state.contiguous {
-            self.pending = Some(Pending::chain(state.first, Owner::Entry(state.entry)));
-        }
-        self.store(id, &state, alloc, len, state.valid.min(len), ChainPos::NONE).await?;
-        if state.first == 0 || keep == had {
-            return Ok(());
-        }
-        if keep == 0 {
-            return self.free_alloc(state.alloc(), state.len).await;
-        }
-        if state.contiguous {
-            for cluster in state.first + keep..state.first + had {
-                self.set_bit(cluster, ClusterState::Free).await?;
-            }
-            return Ok(());
-        }
-        let last = self.locate_cluster(state.alloc(), ChainPos::NONE, keep - 1).await?.cluster();
-        if let Some(next) = self.next_cluster(last).await? {
-            self.pending = Some(Pending::chain(next, Owner::Cluster(last)));
-            self.set_fat(last, raw::FAT_END).await?;
-            self.free_chain(next).await?;
-        }
-        Ok(())
-    }
-
-    /// Changes attributes and times. `changed` times, mode and owner are
-    /// ignored, since exFAT cannot store them, as are changes to the root.
-    /// A pending size is written too.
-    pub async fn set_metadata(&mut self, node: NodeId, changes: &SetMetadata) -> FsResult<(), D::Error> {
-        self.prepare().await?;
-        if node == ROOT {
-            return Ok(());
-        }
-        let (id, state) = self.any_node(node).await?;
-        let times = changes.times();
-        if !state.dirty
-            && changes.attributes().is_none()
-            && times.created().is_none()
-            && times.modified().is_none()
-            && times.accessed().is_none()
-        {
-            return Ok(());
-        }
-        let mut set = Set::new();
-        self.set_at(state.entry, &mut set).await?;
-        if state.dirty {
-            self.touch(&mut set, &state, state.alloc(), state.len, state.valid);
-        }
-        if let Some(attributes) = changes.attributes() {
-            set_attributes(&mut set.raw[0], attributes);
-        }
-        for (which, time) in [(CREATED, times.created()), (MODIFIED, times.modified()), (ACCESSED, times.accessed())] {
-            if let Some(time) = time {
-                stamp(&mut set.raw[0], which, time);
-            }
-        }
-        raw::seal(&mut set.raw[..set.count]);
-        self.write_set(&set, 2, SetWrite::Update).await?;
-        if let Some(id) = id {
-            self.clean(id);
-        }
-        Ok(())
-    }
-
-    /// Writes the node's pending sizes and modification time, then flushes
-    /// the device.
-    pub async fn sync_node(&mut self, node: NodeId) -> FsResult<(), D::Error> {
-        self.publish_node(node).await?;
-        self.flush_device().await
-    }
-
-    /// Writes the node's pending sizes and modification time to its entry
-    /// set, without flushing the device.
-    pub async fn publish_node(&mut self, node: NodeId) -> FsResult<(), D::Error> {
-        if node != ROOT {
-            let (id, _) = self.any_node(node).await?;
-            if let Some(id) = id {
-                self.flush_node(id).await?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Writes every pending size and modification time and `PercentInUse`,
-    /// clears the `VolumeDirty` flag this driver set, then flushes the
-    /// device.
-    ///
-    /// A node whose entry set cannot be read any more does not stop the
-    /// others: its pending sizes are dropped, the rest is written and the
-    /// device flushed, `VolumeDirty` stays set, and `sync` then fails with
-    /// [`ErrorKind::Corrupt`].
-    pub async fn sync(&mut self) -> FsResult<(), D::Error> {
-        if !self.read_only {
-            self.recover().await?;
-        }
-        let mut corrupt = None;
-        while let Some(id) = self.nodes.find(&mut |_, node| node.dirty) {
-            match self.flush_node(id).await {
-                Err(err) if err.kind() == ErrorKind::Corrupt => {
-                    self.clean(id);
-                    corrupt = Some(err);
-                }
-                other => other?,
-            }
-        }
-        if let Some(err) = corrupt {
-            self.flush_device().await?;
-            return Err(err);
-        }
-        if self.vol.allocation_changed() {
-            exio::count_free(&mut self.dev, &mut self.block, &mut self.vol).await?;
-            self.writable()?;
-            let written = exio::write_percent_in_use(&mut self.dev, &mut self.block, &mut self.vol).await;
-            self.note_refusal(&written);
-            written?;
-        }
-        let cleared = exio::clear_dirty(&mut self.dev, &mut self.block, &mut self.vol).await;
-        self.note_refusal(&cleared);
-        cleared?;
-        self.flush_device().await
     }
 
     fn now(&self) -> DateTime {
@@ -1350,9 +911,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         };
         let mut primary = [0u8; ENTRY_SIZE];
         let mut stream = [0u8; ENTRY_SIZE];
-        self.read(self.pending_at(0), &mut primary).await?;
+        self.get_bytes(self.pending_at(0), &mut primary).await?;
         if count > 1 {
-            self.read(self.pending_at(1), &mut stream).await?;
+            self.get_bytes(self.pending_at(1), &mut stream).await?;
         }
         let whole = primary[0] == raw::ENTRY_FILE && 1 + primary[1] as usize == count;
         let hash = if whole { self.pending_hash(count, &stream).await? } else { None };
@@ -1362,15 +923,15 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
                 for index in 0..count {
                     let at = self.pending_at(index);
                     let mut kind = [0u8; 1];
-                    self.read(at, &mut kind).await?;
+                    self.get_bytes(at, &mut kind).await?;
                     if kind[0] & raw::IN_USE != 0 {
-                        self.write(at, &[kind[0] & !raw::IN_USE]).await?;
+                        self.put_bytes(at, &[kind[0] & !raw::IN_USE]).await?;
                     }
                 }
                 if let SetWrite::Clear = kind
                     && let Some(id) = self.pinned_at(self.pending_at(0))
                 {
-                    self.unlink(id);
+                    self.mark_unlinked(id);
                 }
             }
             SetWrite::Update => {
@@ -1408,7 +969,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         let mut hash = 0;
         for index in 2..count {
             let mut entry = [0u8; ENTRY_SIZE];
-            self.read(self.pending_at(index), &mut entry).await?;
+            self.get_bytes(self.pending_at(index), &mut entry).await?;
             if index < 2 + names {
                 if entry[0] != raw::ENTRY_NAME {
                     return Ok(None);
@@ -1430,7 +991,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         let mut sum = raw::set_checksum(&[*primary, *stream]);
         for index in 2..count {
             let mut entry = [0u8; ENTRY_SIZE];
-            self.read(self.pending_at(index), &mut entry).await?;
+            self.get_bytes(self.pending_at(index), &mut entry).await?;
             sum = entry.iter().fold(sum, |sum, &byte| sum.rotate_right(1).wrapping_add(byte as u16));
         }
         Ok(sum)
@@ -1469,7 +1030,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
                 if let Some(id) = self.pinned_at(offset)
                     && self.nodes.get(id).is_some_and(|node| node.first == head)
                 {
-                    self.unlink(id);
+                    self.mark_unlinked(id);
                 }
             }
             _ => {}
@@ -1566,7 +1127,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         self.nodes.get(id).is_some_and(|node| node.opens > 0)
     }
 
-    fn unlink(&mut self, id: NodeId) {
+    fn mark_unlinked(&mut self, id: NodeId) {
         self.clean(id);
         if self.nodes.pins(id) == 0 {
             self.nodes.remove(id);
@@ -1631,7 +1192,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         result
     }
 
-    async fn write(&mut self, offset: u64, data: &[u8]) -> FsResult<(), D::Error> {
+    async fn put_bytes(&mut self, offset: u64, data: &[u8]) -> FsResult<(), D::Error> {
         self.put(offset, Some(data), data.len() as u64).await
     }
 
@@ -1644,7 +1205,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         result
     }
 
-    pub(super) async fn read(&mut self, offset: u64, out: &mut [u8]) -> FsResult<(), D::Error> {
+    pub(super) async fn get_bytes(&mut self, offset: u64, out: &mut [u8]) -> FsResult<(), D::Error> {
         read_bytes(&mut self.dev, &mut self.block, offset, out).await
     }
 
@@ -1818,7 +1379,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     /// node has moved, that is the tier-0 id of the slot, found by key.
     fn pinned_at(&self, offset: u64) -> Option<NodeId> {
         if !self.moved {
-            let id = NodeId::new(offset / ENTRY_SIZE as u64);
+            let id = node_id(offset / ENTRY_SIZE as u64);
             return self.nodes.get(id).is_some_and(|node| node.entry == offset).then_some(id);
         }
         self.nodes.find(&mut |_, node| node.entry == offset)
@@ -1827,14 +1388,14 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     fn free_id(&self, offset: u64) -> Option<NodeId> {
         let slot = offset / ENTRY_SIZE as u64;
         (0..=MAX_TIER)
-            .map(|tier| NodeId::new(tier << SLOT_BITS | slot))
+            .map(|tier| node_id(tier << SLOT_BITS | slot))
             .find(|&id| self.nodes.get(id).is_none())
     }
 
     fn id_at(&self, offset: u64) -> NodeId {
         self.pinned_at(offset)
             .or_else(|| self.free_id(offset))
-            .unwrap_or(NodeId::new(offset / ENTRY_SIZE as u64))
+            .unwrap_or(node_id(offset / ENTRY_SIZE as u64))
     }
 
     /// Pins the node whose entry set is `set`, found in the directory whose
@@ -1880,7 +1441,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     /// are tried, and the one whose entries make a valid set wins.
     pub(super) async fn set_at(&mut self, offset: u64, set: &mut Set) -> FsResult<(), D::Error> {
         let mut primary = [0u8; ENTRY_SIZE];
-        self.read(offset, &mut primary).await?;
+        self.get_bytes(offset, &mut primary).await?;
         if primary[0] != raw::ENTRY_FILE || !(2..MAX_SET).contains(&(primary[1] as usize)) {
             return Err(ErrorKind::Corrupt.into());
         }
@@ -1909,7 +1470,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
                     at = self.cluster_at(next)?;
                 }
                 set.at[index] = at;
-                self.read(at, &mut set.raw[index]).await?;
+                self.get_bytes(at, &mut set.raw[index]).await?;
             }
             if ok && parse_set(&set.raw[..count]) {
                 return Ok(());
@@ -1944,7 +1505,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
                 return Ok(false);
             };
             set.at[index] = at;
-            self.read(at, &mut set.raw[index]).await?;
+            self.get_bytes(at, &mut set.raw[index]).await?;
         }
         Ok(parse_set(&set.raw[..count]))
     }
@@ -1955,7 +1516,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         while let Some(offset) = self.slot_offset(walk, *slot).await? {
             let at = *slot;
             let mut entry = [0u8; ENTRY_SIZE];
-            self.read(offset, &mut entry).await?;
+            self.get_bytes(offset, &mut entry).await?;
             match entry[0] {
                 raw::ENTRY_END => return Ok(None),
                 raw::ENTRY_FILE => {
@@ -2009,7 +1570,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             let at = slot;
             slot += 1;
             let mut entry = [0u8; ENTRY_SIZE];
-            self.read(offset, &mut entry).await?;
+            self.get_bytes(offset, &mut entry).await?;
             match entry[0] {
                 raw::ENTRY_END => break,
                 raw::ENTRY_FILE if self.may_be_named(&mut walk, at, query, hash).await? => {
@@ -2037,7 +1598,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             return Ok(true);
         };
         let mut stream = [0u8; ENTRY_SIZE];
-        self.read(at, &mut stream).await?;
+        self.get_bytes(at, &mut stream).await?;
         Ok(stream[0] != raw::ENTRY_STREAM || (stream[3] as usize == name.len() && le16(&stream, 4) == hash))
     }
 
@@ -2046,7 +1607,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         let mut slot = 0;
         while let Some(offset) = self.slot_offset(&mut walk, slot).await? {
             let mut entry = [0u8; ENTRY_SIZE];
-            self.read(offset, &mut entry).await?;
+            self.get_bytes(offset, &mut entry).await?;
             match entry[0] {
                 raw::ENTRY_END => break,
                 raw::ENTRY_LABEL => return Ok(Some((offset, entry))),
@@ -2062,7 +1623,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         let mut slot = 0;
         while let Some(offset) = self.slot_offset(&mut walk, slot).await? {
             let mut entry = [0u8; ENTRY_SIZE];
-            self.read(offset, &mut entry).await?;
+            self.get_bytes(offset, &mut entry).await?;
             match entry[0] {
                 raw::ENTRY_END => break,
                 kind if kind & raw::IN_USE != 0 && kind & raw::CATEGORY_SECONDARY == 0 => return Ok(false),
@@ -2147,7 +1708,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             let reused = reuse.is_some_and(|set| set.at[..set.count].contains(&offset));
             let mut entry = [0u8; ENTRY_SIZE];
             if !end && !reused {
-                self.read(offset, &mut entry).await?;
+                self.get_bytes(offset, &mut entry).await?;
             }
             let mut advance = 1;
             let free = if end || reused {
@@ -2340,19 +1901,21 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         hash: u16,
         plan: &Plan,
         is_dir: bool,
-        meta: &SetMetadata,
+        attrs: &SetAttr,
     ) -> FsResult<Node, D::Error> {
         let now = self.now();
-        let times = meta.times();
         let mut primary = [0u8; ENTRY_SIZE];
         let attributes = if is_dir { raw::ATTR_DIRECTORY } else { raw::ATTR_ARCHIVE };
         primary[4..6].copy_from_slice(&attributes.to_le_bytes());
-        if let Some(attributes) = meta.attributes() {
+        if let Some(attributes) = attrs.attributes() {
             set_attributes(&mut primary, attributes);
         }
-        stamp(&mut primary, CREATED, times.created().unwrap_or(now));
-        stamp(&mut primary, MODIFIED, times.modified().unwrap_or(now));
-        stamp(&mut primary, ACCESSED, times.accessed().unwrap_or(now));
+        if attrs.permissions().is_some_and(|mode| mode.bits() & 0o222 == 0) {
+            set_read_only(&mut primary, true);
+        }
+        stamp(&mut primary, CREATED, attrs.created().unwrap_or(now));
+        stamp(&mut primary, MODIFIED, attrs.modified().unwrap_or(now));
+        stamp(&mut primary, ACCESSED, attrs.accessed().unwrap_or(now));
         let mut stream = [0u8; ENTRY_SIZE];
         let mut alloc = Alloc { first: 0, contiguous: false };
         let mut len = 0;
@@ -2480,8 +2043,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         for slot in plan.start..plan.start + count as u32 {
             if let Some(at) = self.slot_offset(&mut walk, slot).await? {
                 let mut entry = [0u8; 1];
-                self.read(at, &mut entry).await?;
-                self.write(at, &[entry[0] & !raw::IN_USE]).await?;
+                self.get_bytes(at, &mut entry).await?;
+                self.put_bytes(at, &[entry[0] & !raw::IN_USE]).await?;
             }
         }
         Ok(())
@@ -2536,7 +2099,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         }
         self.pending = held;
         if let Some(id) = target_id {
-            self.unlink(id);
+            self.mark_unlinked(id);
         }
         let _ = target.slot;
         self.free_alloc(target_node.alloc(), target_node.len).await?;
@@ -2777,6 +2340,532 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     }
 }
 
+impl<D: BlockDevice, T: NodeTable<With<Node>: MaybeSend>, C: Clock> FileSystem for ExFatFs<D, T, C> {
+    type DeviceError = D::Error;
+
+    /// What this volume supports: case-insensitive, case-preserving UTF-16
+    /// names of up to 255 code units (765 bytes of UTF-8), creation,
+    /// modification and access times in 10 ms steps, the DOS attributes
+    /// and, through the read-only attribute, part of the permissions.
+    /// Writable unless [`is_read_only`](ExFatFs::is_read_only).
+    fn capabilities(&self) -> Capabilities {
+        let caps = Capabilities::new(CaseRule::InsensitivePreserving, Charset::Unicode, raw::MAX_NAME_UNITS * 3)
+            .with_stored(Field::Created, Stored::Yes)
+            .with_stored(Field::Modified, Stored::Yes)
+            .with_stored(Field::Accessed, Stored::Yes)
+            .with_stored(Field::Permissions, Stored::Partial)
+            .with_stored(Field::Attributes, Stored::Yes)
+            .with_timestamp_resolution_ns(10_000_000);
+        if self.read_only { caps } else { caps.with_writable() }
+    }
+
+    /// The root directory. Always pinned.
+    fn root(&self) -> NodeId {
+        ROOT
+    }
+
+    /// Space usage in clusters. Free space comes from one scan of the
+    /// allocation bitmap, which is then kept up to date.
+    async fn statfs(&mut self) -> FsResult<FsStats, D::Error> {
+        let free = exio::count_free(&mut self.dev, &mut self.block, &mut self.vol).await?;
+        Ok(FsStats::new(self.vol.geometry().cluster_count() as u64, free as u64, self.vol.geometry().cluster_size() as u32))
+    }
+
+    /// The volume label from the Volume Label entry of the root directory,
+    /// or `None` when there is none or it is empty. Unpaired surrogates
+    /// read as U+FFFD. Fails with [`ErrorKind::LimitExceeded`] when `buf` is
+    /// too small; 33 bytes hold any label.
+    async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
+        let Some(label) = self.volume_label().await? else {
+            return Ok(None);
+        };
+        let len = names::utf16_to_utf8(label.as_utf16().iter().copied(), buf).ok_or(ErrorKind::LimitExceeded)?;
+        Ok(core::str::from_utf8(&buf[..len]).ok())
+    }
+
+    /// Finds `name` in `dir` and pins the result. Names compare through
+    /// the up-case table.
+    async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
+        name.check()?;
+        let (start, dir_entry) = self.dir_info(dir).await?;
+        let Some(query) = name.to_str().ok().and_then(NameUnits::query) else {
+            return Err(ErrorKind::NotFound.into());
+        };
+        let mut found = Located::new();
+        if !self.find(start, &query, &mut found).await? {
+            return Err(ErrorKind::NotFound.into());
+        }
+        Ok(self.intern(&found.set, dir_entry)?)
+    }
+
+    /// Drops `count` pins of a node. Unknown ids and the root are ignored.
+    /// A node whose sizes are not yet written stays in the table until
+    /// `close`, `fsync` or `sync`; a removed node leaves the table with its
+    /// last pin.
+    fn forget(&mut self, node: NodeId, count: u64) {
+        if node == ROOT {
+            return;
+        }
+        for _ in 0..count.min(u64::from(self.user_pins(node))) {
+            if self.nodes.unpin(node) == Some(0) && self.nodes.get(node).is_some_and(|n| n.unlinked) {
+                self.nodes.remove(node);
+                break;
+            }
+        }
+        if self.nodes.is_empty() {
+            self.moved = false;
+        }
+    }
+
+    /// The directory containing `dir`, pinned. The root is its own parent.
+    ///
+    /// The node table remembers the directory a node was found in; when it
+    /// does not, the tree is searched from the root, to a depth of 64.
+    async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
+        if dir == ROOT {
+            return Ok(ROOT);
+        }
+        let (id, state) = self.any_node(dir).await?;
+        if !state.dir {
+            return Err(ErrorKind::NotADirectory.into());
+        }
+        let parent = match state.parent {
+            UNKNOWN_PARENT => self.search(Target::ParentOf(state.entry)).await?.ok_or(ErrorKind::Corrupt)?,
+            parent => parent,
+        };
+        if let Some(node) = id.and_then(|id| self.nodes.get_mut(id)) {
+            node.parent = parent;
+        }
+        if parent == ROOT_ENTRY {
+            return Ok(ROOT);
+        }
+        if let Some(id) = self.pinned_at(parent) {
+            self.nodes.pin(id);
+            return Ok(id);
+        }
+        let mut set = Set::new();
+        self.set_at(parent, &mut set).await?;
+        Ok(self.intern(&set, UNKNOWN_PARENT)?)
+    }
+
+    /// Metadata of a pinned node or of an id just returned by `readdir`.
+    /// Directories have length 0.
+    async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
+        if node == ROOT {
+            return Ok(Metadata::new(FileType::Dir, permissions(true, false)));
+        }
+        let (_, state) = self.any_node(node).await?;
+        let mut set = Set::new();
+        self.set_at(state.entry, &mut set).await?;
+        Ok(metadata(&state, &set))
+    }
+
+    /// The entry at or after `from`, or `None` at the end. The raw cursor
+    /// is the index of a directory entry. A directory whose cluster chain
+    /// loops fails with [`ErrorKind::Corrupt`] once the walk comes back
+    /// around.
+    async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
+        let (start, dir_entry) = self.dir_info(dir).await?;
+        let Ok(mut slot) = u32::try_from(from.into_raw()) else {
+            return Ok(None);
+        };
+        let mut walk = walk(start);
+        if !start.alloc.contiguous {
+            walk = DirWalk::resume(walk.dir(), self.dir_hint(dir));
+        }
+        let mut set = Set::new();
+        let next = self.next_set(&mut walk, &mut slot, &mut set).await?;
+        if walk.pos().cluster() != 0 {
+            self.set_dir_hint(dir, walk.pos());
+        }
+        if next.is_none() {
+            return Ok(None);
+        }
+        let mut name: NameBuf = NameBuf::new();
+        name.fill(|buf| names::utf16_to_utf8(set.name_units(), buf).ok_or(NameError::TooLong))
+            .map_err(|_| ErrorKind::Corrupt)?;
+        let node = self.id_at(set.offset);
+        let state = match self.pinned_at(set.offset).and_then(|id| self.nodes.get(id)) {
+            Some(state) => *state,
+            None => Node::from_set(&set, dir_entry),
+        };
+        let name = name.as_name().ok_or(ErrorKind::Corrupt)?;
+        let entry = DirEntry::new(name, node, metadata(&state, &set), DirCursor::from_raw(slot as u64))
+            .map_err(|_| ErrorKind::Corrupt)?;
+        Ok(Some(entry))
+    }
+
+    /// exFAT has no symlinks: fails with [`ErrorKind::InvalidInput`] for
+    /// any node that exists.
+    async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
+        let _ = buf;
+        if node != ROOT {
+            self.any_node(node).await?;
+        }
+        Err(ErrorKind::InvalidInput.into())
+    }
+
+    /// Opens a pinned file: until the matching `close`, `unlink` and a
+    /// replacing `rename` of it fail with [`ErrorKind::Busy`]. Fails with
+    /// [`ErrorKind::IsADirectory`] for a directory, [`ErrorKind::ReadOnly`]
+    /// for [`OpenMode::Write`] on a read-only volume,
+    /// [`ErrorKind::InvalidHandle`] for an id that is not pinned, and
+    /// [`ErrorKind::NotFound`] for a removed node.
+    async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
+        if node == ROOT {
+            return Err(ErrorKind::IsADirectory.into());
+        }
+        let read_only = self.read_only;
+        match self.nodes.get_mut(node) {
+            Some(state) if state.unlinked => Err(ErrorKind::NotFound.into()),
+            Some(state) if state.dir => Err(ErrorKind::IsADirectory.into()),
+            Some(_) if mode == OpenMode::Write && read_only => Err(ErrorKind::ReadOnly.into()),
+            Some(state) => {
+                state.opens = state.opens.saturating_add(1);
+                Ok(())
+            }
+            None => Err(ErrorKind::InvalidHandle.into()),
+        }
+    }
+
+    /// Ends one `open` and writes the node's pending sizes and modification
+    /// time to its entry set, without flushing the device.
+    async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+        if let Some(state) = self.nodes.get_mut(node) {
+            state.opens = state.opens.saturating_sub(1);
+        }
+        self.publish_node(node).await
+    }
+
+    /// Reads from a file at `offset`. Returns 0 at or past the end. Bytes
+    /// past `ValidDataLength` read as zeros. A chain that ends before the
+    /// file's size or loops fails with [`ErrorKind::Corrupt`].
+    async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
+        let (_, state) = self.file_node(node).await?;
+        if offset >= state.len || buf.is_empty() {
+            return Ok(0);
+        }
+        let count = (state.len - offset).min(buf.len() as u64) as usize;
+        let cluster_size = self.vol.geometry().cluster_size();
+        let mut index = ChainPos::NONE;
+        let mut hint = state.hint;
+        let mut done = 0;
+        while done < count {
+            let pos = offset + done as u64;
+            let within = pos % cluster_size;
+            let n = ((cluster_size - within) as usize).min(count - done);
+            let out = &mut buf[done..done + n];
+            if pos >= state.valid {
+                out.fill(0);
+                done += n;
+            } else {
+                let valid = (state.valid - pos).min((count - done) as u64) as usize;
+                index = self.locate_cluster(state.alloc(), hint, (pos / cluster_size) as u32).await?;
+                let at = self.cluster_at(index.cluster())? + within;
+                let n = self.run(state.alloc(), &mut index, n.min(valid), valid).await?;
+                hint = index;
+                read_bytes(&mut self.dev, &mut self.block, at, &mut buf[done..done + n]).await?;
+                done += n;
+            }
+        }
+        if index.cluster() != 0
+            && let Some(state) = self.nodes.get_mut(node)
+        {
+            state.hint = index;
+        }
+        Ok(count)
+    }
+
+    /// Changes attributes, times and permissions. Permissions are stored
+    /// only as the read-only attribute, so only the values exFAT reports
+    /// (see `stat`) are accepted; others and an owner fail with
+    /// [`ErrorKind::Unsupported`], as does any change to the root, which has
+    /// no entry set. A pending size is written too.
+    async fn setattr(&mut self, node: NodeId, changes: &SetAttr) -> FsResult<(), D::Error> {
+        self.prepare().await?;
+        if changes.owner().is_some() {
+            return Err(ErrorKind::Unsupported.into());
+        }
+        if node == ROOT {
+            return match changes.is_empty() {
+                true => Ok(()),
+                false => Err(ErrorKind::Unsupported.into()),
+            };
+        }
+        let (id, state) = self.any_node(node).await?;
+        let read_only = match changes.permissions() {
+            Some(wanted) => Some(read_only_bit(state.dir, wanted).ok_or(ErrorKind::Unsupported)?),
+            None => None,
+        };
+        if !state.dirty && changes.is_empty() {
+            return Ok(());
+        }
+        let mut set = Set::new();
+        self.set_at(state.entry, &mut set).await?;
+        if state.dirty {
+            self.touch(&mut set, &state, state.alloc(), state.len, state.valid);
+        }
+        if let Some(attributes) = changes.attributes() {
+            set_attributes(&mut set.raw[0], attributes);
+        }
+        if let Some(read_only) = read_only {
+            set_read_only(&mut set.raw[0], read_only);
+        }
+        for (which, time) in [(CREATED, changes.created()), (MODIFIED, changes.modified()), (ACCESSED, changes.accessed())] {
+            if let Some(time) = time {
+                stamp(&mut set.raw[0], which, time);
+            }
+        }
+        raw::seal(&mut set.raw[..set.count]);
+        self.write_set(&set, 2, SetWrite::Update).await?;
+        if let Some(id) = id {
+            self.clean(id);
+        }
+        Ok(())
+    }
+
+    /// Writes to a file at `offset`, growing it. Bytes between the old
+    /// `ValidDataLength` and `offset` are zeroed first. A volume without
+    /// room for the new clusters fails with [`ErrorKind::NoSpace`] and
+    /// changes nothing, and a write that would end past `u64::MAX` with
+    /// [`ErrorKind::FileTooLarge`].
+    ///
+    /// The new sizes of a pinned file are written by `close`, `fsync`
+    /// or `sync`, with the modification time and the archive
+    /// attribute.
+    async fn write(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, D::Error> {
+        self.prepare().await?;
+        let (id, state) = self.file_node(node).await?;
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        let end = offset.checked_add(buf.len() as u64).ok_or(ErrorKind::FileTooLarge)?;
+        let growth = self.cover(&state, end).await?;
+        let hint = if growth.alloc == state.alloc() { state.hint } else { ChainPos::NONE };
+        let filled = if offset > state.valid {
+            self.fill(growth.alloc, hint, state.valid, None, offset - state.valid).await
+        } else {
+            Ok(hint)
+        };
+        let written = match filled {
+            Ok(hint) => self.fill(growth.alloc, hint, offset, Some(buf), buf.len() as u64).await,
+            Err(err) => Err(err),
+        };
+        let hint = match written {
+            Ok(hint) => hint,
+            Err(err) => {
+                self.undo_growth(growth).await;
+                return Err(err);
+            }
+        };
+        let len = state.len.max(end);
+        let valid = state.valid.max(end);
+        if let Err(err) = self.publish(id, &state, growth.alloc, len, valid, hint).await {
+            self.undo_growth(growth).await;
+            return Err(err);
+        }
+        self.pending = None;
+        Ok(buf.len())
+    }
+
+    /// Truncates or extends a file. Growth allocates clusters and raises
+    /// `DataLength` only, so it reads as zeros without writing them.
+    /// Shrinking writes the new sizes at once and frees the clusters past
+    /// them. A changed size sets the archive attribute.
+    async fn truncate(&mut self, node: NodeId, len: u64) -> FsResult<(), D::Error> {
+        self.prepare().await?;
+        let (id, state) = self.file_node(node).await?;
+        if len > state.len {
+            let growth = self.cover(&state, len).await?;
+            let hint = if growth.alloc == state.alloc() { state.hint } else { ChainPos::NONE };
+            if let Err(err) = self.publish(id, &state, growth.alloc, len, state.valid, hint).await {
+                self.undo_growth(growth).await;
+                return Err(err);
+            }
+            self.pending = None;
+            return Ok(());
+        }
+        if len == state.len {
+            return Ok(());
+        }
+        let cluster_size = self.vol.geometry().cluster_size();
+        let keep = len.div_ceil(cluster_size) as u32;
+        let had = state.len.div_ceil(cluster_size) as u32;
+        let alloc = if keep == 0 { Alloc { first: 0, contiguous: false } } else { state.alloc() };
+        if keep == 0 && state.first != 0 && !state.contiguous {
+            self.pending = Some(Pending::chain(state.first, Owner::Entry(state.entry)));
+        }
+        self.store(id, &state, alloc, len, state.valid.min(len), ChainPos::NONE).await?;
+        if state.first == 0 || keep == had {
+            return Ok(());
+        }
+        if keep == 0 {
+            return self.free_alloc(state.alloc(), state.len).await;
+        }
+        if state.contiguous {
+            for cluster in state.first + keep..state.first + had {
+                self.set_bit(cluster, ClusterState::Free).await?;
+            }
+            return Ok(());
+        }
+        let last = self.locate_cluster(state.alloc(), ChainPos::NONE, keep - 1).await?.cluster();
+        if let Some(next) = self.next_cluster(last).await? {
+            self.pending = Some(Pending::chain(next, Owner::Cluster(last)));
+            self.set_fat(last, raw::FAT_END).await?;
+            self.free_chain(next).await?;
+        }
+        Ok(())
+    }
+
+    /// Writes the node's pending sizes and modification time, then flushes
+    /// the device.
+    async fn fsync(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+        self.publish_node(node).await?;
+        self.flush_device().await
+    }
+
+    /// Creates the empty file `name` in `dir` and pins it.
+    ///
+    /// `attrs` sets the attributes, which default to archive, the creation,
+    /// modification and access times, which default to now, and, when it
+    /// has no write bits, the read-only attribute; owners and other
+    /// permissions are ignored. Fails with [`ErrorKind::AlreadyExists`]
+    /// when a name matches through the up-case table,
+    /// [`ErrorKind::InvalidInput`] or [`ErrorKind::NameTooLong`] for a name
+    /// exFAT cannot hold, and [`ErrorKind::NoSpace`] when the volume or a
+    /// 256 MiB directory is full.
+    async fn create(&mut self, dir: NodeId, name: &Name, attrs: &SetAttr) -> FsResult<NodeId, D::Error> {
+        self.create_node(dir, name, false, attrs).await
+    }
+
+    /// Creates the empty directory `name` in `dir` with one zeroed cluster
+    /// and pins it, as `create` does for a file.
+    async fn mkdir(&mut self, dir: NodeId, name: &Name, attrs: &SetAttr) -> FsResult<NodeId, D::Error> {
+        self.create_node(dir, name, true, attrs).await
+    }
+
+    /// Removes the file `name` from `dir` and frees its clusters, with
+    /// those its Vendor Allocation entries hold. Fails with
+    /// [`ErrorKind::IsADirectory`] for a directory and with
+    /// [`ErrorKind::Busy`] while the node is open. A pinned node that is
+    /// not open is removed; its id then answers [`ErrorKind::NotFound`]
+    /// until its last `forget`.
+    async fn unlink(&mut self, dir: NodeId, name: &Name) -> FsResult<(), D::Error> {
+        self.remove_entry(dir, name, false).await
+    }
+
+    /// Removes the empty directory `name` from `dir`, as `unlink` does a
+    /// file. Fails with [`ErrorKind::NotADirectory`] for anything else and
+    /// [`ErrorKind::DirectoryNotEmpty`] for a directory with entries.
+    async fn rmdir(&mut self, dir: NodeId, name: &Name) -> FsResult<(), D::Error> {
+        self.remove_entry(dir, name, true).await
+    }
+
+    /// Moves `from` in `from_dir` to `to` in `to_dir`. The moved node keeps
+    /// its `NodeId` when it is pinned. A renamed file gets the archive
+    /// attribute; a directory keeps its attributes.
+    ///
+    /// An existing `to` is replaced unless `mode` is
+    /// [`RenameMode::NoReplace`] ([`ErrorKind::AlreadyExists`]): a file by
+    /// a file, an empty directory by a directory; the replaced node's
+    /// clusters are freed as by `unlink`; an open target fails with
+    /// [`ErrorKind::Busy`]. The result is named `to` as given, and takes
+    /// the target's entries when it fits them. A rename that changes only
+    /// the case rewrites the entry set in place. Moving a directory into
+    /// itself or below, or a `to` that `create` would refuse, fails with
+    /// [`ErrorKind::InvalidInput`].
+    async fn rename(
+        &mut self,
+        from_dir: NodeId,
+        from: &Name,
+        to_dir: NodeId,
+        to: &Name,
+        mode: RenameMode,
+    ) -> FsResult<(), D::Error> {
+        self.prepare().await?;
+        from.check()?;
+        to.check()?;
+        let (from_start, _) = self.dir_info(from_dir).await?;
+        let (to_start, to_entry) = self.dir_info(to_dir).await?;
+        let from_text = entry_name(from, ErrorKind::NotFound)?;
+        let to_text = entry_name(to, ErrorKind::InvalidInput)?;
+        let units = NameUnits::encode(to_text)?;
+        let hash = self.name_hash(&units).await?;
+        let from_query = NameUnits::query(from_text).ok_or(ErrorKind::NotFound)?;
+        let mut src = Located::new();
+        if !self.find(from_start, &from_query, &mut src).await? {
+            return Err(ErrorKind::NotFound.into());
+        }
+        let src_id = self.pinned_at(src.set.offset);
+        let src_node = match src_id.and_then(|id| self.nodes.get(id)) {
+            Some(node) => *node,
+            None => Node::from_set(&src.set, UNKNOWN_PARENT),
+        };
+        if src_node.dir && self.is_within(to_start, src_node.alloc(), src_node.len).await? {
+            return Err(ErrorKind::InvalidInput.into());
+        }
+        let mut target = Located::new();
+        let exists = self.find(to_start, &units, &mut target).await?;
+        match exists.then_some(&target) {
+            Some(target) if target.set.offset == src.set.offset => {
+                if target.exact {
+                    return Ok(());
+                }
+                self.rewrite_name(&src.set, &src_node, src_id, &units, hash).await
+            }
+            Some(target) => {
+                if mode == RenameMode::NoReplace {
+                    return Err(ErrorKind::AlreadyExists.into());
+                }
+                self.replace(&src, &src_node, src_id, to_start, to_entry, target, &units, hash).await
+            }
+            None => {
+                let plan = self.plan(to_start, None, 2 + units.entries() as u32 + src.set.extras().len() as u32, None).await?;
+                self.move_set(&src.set, &src_node, src_id, to_start, to_entry, &plan, &units, hash).await
+            }
+        }
+    }
+
+    /// Writes every pending size and modification time and `PercentInUse`,
+    /// clears the `VolumeDirty` flag this driver set, then flushes the
+    /// device.
+    ///
+    /// A node whose entry set cannot be read any more does not stop the
+    /// others: its pending sizes are dropped, the rest is written and the
+    /// device flushed, `VolumeDirty` stays set, and `sync` then fails with
+    /// [`ErrorKind::Corrupt`].
+    async fn sync(&mut self) -> FsResult<(), D::Error> {
+        if !self.read_only {
+            self.recover().await?;
+        }
+        let mut corrupt = None;
+        while let Some(id) = self.nodes.find(&mut |_, node| node.dirty) {
+            match self.flush_node(id).await {
+                Err(err) if err.kind() == ErrorKind::Corrupt => {
+                    self.clean(id);
+                    corrupt = Some(err);
+                }
+                other => other?,
+            }
+        }
+        if let Some(err) = corrupt {
+            self.flush_device().await?;
+            return Err(err);
+        }
+        if self.vol.allocation_changed() {
+            exio::count_free(&mut self.dev, &mut self.block, &mut self.vol).await?;
+            self.writable()?;
+            let written = exio::write_percent_in_use(&mut self.dev, &mut self.block, &mut self.vol).await;
+            self.note_refusal(&written);
+            written?;
+        }
+        let cleared = exio::clear_dirty(&mut self.dev, &mut self.block, &mut self.vol).await;
+        self.note_refusal(&cleared);
+        cleared?;
+        self.flush_device().await
+    }
+}
+
 }
 
 /// What a tree search looks for.
@@ -2787,5 +2876,3 @@ enum Target {
     /// A directory with this first cluster, below the given directory.
     Below(DirStart, u32),
 }
-
-impl_exfat_driver!(impl[D: BlockDevice, T: NodeTable, C: Clock] ExFatFs<D, T, C>, error = D::Error; also = [parent, open_node, close_node, publish_node]);

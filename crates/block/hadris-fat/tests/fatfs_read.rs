@@ -2,6 +2,7 @@
 
 #[path = "common/fatfs.rs"]
 mod common;
+use common::{FsPaths, VolumePaths};
 
 use std::collections::BTreeMap;
 use std::io::Read as _;
@@ -9,10 +10,10 @@ use std::io::Read as _;
 use common::{CASES, Case, Device, INNER, INNER_FILES, KANJI_NAME, LONG_NAME, UNICODE_NAME};
 use hadris_fat::sync::FatFs;
 use hadris_fat::{FatKind, MountOptions};
-use hadris_fs::sync::{DriverExt, File, FsDriver, PathExt, Volume};
+use hadris_fs::sync::{FileSystem, Volume};
 use hadris_fs::{
-    Attributes, CaseSensitivity, DirCursor, ErrorKind, FileType, FixedTable, HeapTable, Name,
-    NameBuf, NameCharset, NewNode, NodeId, NodeTable, OpenOptions, SetMetadata,
+    Attributes, CaseRule, Charset, DirCursor, ErrorKind, FileType, FixedTable, HeapTable, Name,
+    NodeId, NodeTable, OpenOptions, SetAttr,
 };
 use hadris_storage::{BlockSize, MemDevice};
 
@@ -27,7 +28,7 @@ fn open(case: Case, image: Vec<u8>) -> Fs {
 }
 
 fn name(text: &str) -> &Name {
-    Name::new(text).unwrap()
+    Name::new(text)
 }
 
 fn swap_case(text: &str) -> String {
@@ -43,12 +44,11 @@ fn swap_case(text: &str) -> String {
 }
 
 fn list<T: NodeTable>(fs: &mut Fs<T>, dir: NodeId) -> Vec<(String, hadris_fs::DirEntry)> {
-    let mut cursor = DirCursor::start();
-    let mut buf = NameBuf::new();
+    let mut cursor = DirCursor::START;
     let mut out = Vec::new();
-    while let Some(entry) = fs.read_dir_entry(dir, &mut cursor, &mut buf).unwrap() {
-        assert_eq!(entry.name_len(), buf.len());
-        out.push((buf.as_name().unwrap().to_str().unwrap().to_owned(), entry));
+    while let Some(entry) = fs.readdir(dir, cursor).unwrap() {
+        cursor = entry.next_cursor();
+        out.push((entry.name().to_str().unwrap().to_owned(), entry));
     }
     out
 }
@@ -57,7 +57,7 @@ fn read_all<T: NodeTable>(fs: &mut Fs<T>, node: NodeId) -> Vec<u8> {
     let mut out = Vec::new();
     let mut chunk = [0u8; 777];
     loop {
-        let n = fs.read_at(node, out.len() as u64, &mut chunk).unwrap();
+        let n = fs.read(node, out.len() as u64, &mut chunk).unwrap();
         if n == 0 {
             return out;
         }
@@ -104,8 +104,8 @@ fn walk(
     for (text, entry) in &listed {
         let context = format!("{}: {path}{text}", case.name);
         let child_path = format!("{path}{text}");
-        let meta = fs.node_metadata(entry.node()).unwrap();
-        assert_eq!(meta.file_type(), entry.file_type(), "{context}");
+        let meta = fs.stat(entry.node()).unwrap();
+        assert_eq!(meta, *entry.metadata(), "{context}");
         let expected_attrs = if text == "hidden.sys" {
             Attributes::HIDDEN | Attributes::SYSTEM | Attributes::READ_ONLY
         } else if entry.file_type() == FileType::File {
@@ -114,18 +114,18 @@ fn walk(
             Attributes::empty()
         };
         assert_eq!(meta.attributes(), expected_attrs, "{context}");
-        assert!(meta.times().modified().is_some(), "{context}");
+        assert!(meta.modified().is_some(), "{context}");
 
         let node = fs.lookup(dir, name(&swap_case(text))).unwrap();
         assert_eq!(node, entry.node(), "{context}");
-        assert_eq!(fs.node_metadata(node).unwrap(), meta, "{context}");
+        assert_eq!(fs.stat(node).unwrap(), meta, "{context}");
 
         if entry.file_type() == FileType::Dir {
             assert_eq!(meta.len(), 0, "{context}");
             seen += walk(case, fs, node, &format!("{child_path}/"), files);
             let parent = fs.parent(node).unwrap();
             assert_eq!(parent, dir, "{context}");
-            fs.forget(parent);
+            fs.forget(parent, 1);
         } else {
             let data = files
                 .get(&child_path)
@@ -133,7 +133,7 @@ fn walk(
             assert_eq!(meta.len(), data.len() as u64, "{context}");
             assert_eq!(&read_all(fs, node), data, "{context}");
         }
-        fs.forget(node);
+        fs.forget(node, 1);
         seen += 1;
     }
     seen
@@ -238,7 +238,7 @@ fn reads_at_offsets_across_clusters_and_fragments() {
 
         let mut buf = vec![0u8; 5000];
         for offset in [39_999u64, 12_345, 0, 33_000, 99] {
-            let n = fs.read_at(frag, offset, &mut buf).unwrap();
+            let n = fs.read(frag, offset, &mut buf).unwrap();
             let start = offset as usize;
             let end = (start + buf.len()).min(expected.len());
             assert_eq!(
@@ -248,12 +248,12 @@ fn reads_at_offsets_across_clusters_and_fragments() {
                 case.name
             );
         }
-        assert_eq!(fs.read_at(frag, 40_100, &mut buf).unwrap(), 0);
-        assert_eq!(fs.read_at(frag, u64::MAX, &mut buf).unwrap(), 0);
-        assert_eq!(fs.read_at(frag, 0, &mut []).unwrap(), 0);
+        assert_eq!(fs.read(frag, 40_100, &mut buf).unwrap(), 0);
+        assert_eq!(fs.read(frag, u64::MAX, &mut buf).unwrap(), 0);
+        assert_eq!(fs.read(frag, 0, &mut []).unwrap(), 0);
 
         let empty = fs.lookup(root, name("empty.dat")).unwrap();
-        assert_eq!(fs.read_at(empty, 0, &mut buf).unwrap(), 0);
+        assert_eq!(fs.read(empty, 0, &mut buf).unwrap(), 0);
     }
 }
 
@@ -268,21 +268,21 @@ fn parent_walks_up_to_the_root() {
         assert_eq!(fs.parent(nested).unwrap(), root, "{}", case.name);
         let up = fs.parent(inner).unwrap();
         assert_eq!(up, nested, "{}", case.name);
-        fs.forget(up);
+        fs.forget(up, 1);
         let file = fs.lookup(inner, name("deep.bin")).unwrap();
         assert_eq!(
             fs.parent(file).unwrap_err().kind(),
             ErrorKind::NotADirectory
         );
         for node in [file, inner, nested] {
-            fs.forget(node);
+            fs.forget(node, 1);
         }
         assert_eq!(fs.open_nodes(), 1);
 
-        let inner = fs.resolve(INNER).unwrap();
+        let inner = fs.resolve_path(INNER).unwrap();
         let listed = list(&mut fs, inner);
         assert_eq!(listed.len(), INNER_FILES, "{}", case.name);
-        fs.forget(inner);
+        fs.forget(inner, 1);
     }
 }
 
@@ -290,7 +290,7 @@ fn parent_walks_up_to_the_root() {
 fn stats_count_clusters() {
     for case in CASES {
         let mut fs = FatFs::open(common::device(case, common::blank(case))).unwrap();
-        let empty = fs.stats().unwrap();
+        let empty = fs.statfs().unwrap();
         let reserved = u64::from(case.kind == FatKind::Fat32);
         assert_eq!(
             empty.free_blocks(),
@@ -303,14 +303,14 @@ fn stats_count_clusters() {
         let image = common::build(case);
         let free = common::scan_free(&mut common::device(case, image.clone()));
         let mut fs = open(case, image);
-        let stats = fs.stats().unwrap();
+        let stats = fs.statfs().unwrap();
         assert_eq!(stats.total_blocks(), empty.total_blocks());
         assert_eq!(stats.block_size(), empty.block_size());
         let used = empty.free_blocks() - stats.free_blocks();
         let min_used = (40_100 + 70_000) / u64::from(stats.block_size());
         assert!(used > min_used, "{}: {used} clusters used", case.name);
         assert_eq!(stats.free_blocks(), u64::from(free), "{}", case.name);
-        assert_eq!(fs.stats().unwrap(), stats);
+        assert_eq!(fs.statfs().unwrap(), stats);
     }
 }
 
@@ -337,19 +337,19 @@ fn full_table_limits_pins_without_touching_the_disk() {
     assert_eq!(fs.open_nodes(), 3);
     assert_eq!(fs.lookup(root, name("README.TXT")).unwrap(), a);
 
-    fs.forget(a);
-    fs.forget(a);
+    fs.forget(a, 1);
+    fs.forget(a, 1);
     assert_eq!(fs.open_nodes(), 3, "one pin on README.TXT is left");
-    fs.forget(a);
+    fs.forget(a, 1);
     assert_eq!(fs.open_nodes(), 2);
     let c = fs.lookup(root, name("empty.dat")).unwrap();
-    assert_eq!(fs.node_metadata(c).unwrap().len(), 0);
+    assert_eq!(fs.stat(c).unwrap().len(), 0);
 
-    fs.forget(root);
-    fs.forget(NodeId::new(12_345));
-    fs.forget(a);
+    fs.forget(root, 1);
+    fs.forget(NodeId::new(12_345).unwrap(), 1);
+    fs.forget(a, 1);
     for node in [b, c] {
-        fs.forget(node);
+        fs.forget(node, 1);
     }
     assert_eq!(fs.open_nodes(), 1);
     assert_eq!(fs.into_inner().into_inner(), image);
@@ -365,79 +365,65 @@ fn unpinned_ids_from_listings_and_bad_handles() {
         .find(|(n, _)| n == "frag.bin")
         .unwrap();
     assert_eq!(fs.open_nodes(), 1);
-    assert_eq!(fs.node_metadata(entry.node()).unwrap().len(), 40_100);
+    assert_eq!(fs.stat(entry.node()).unwrap().len(), 40_100);
     let mut buf = [0u8; 4];
-    assert_eq!(fs.read_at(entry.node(), 0, &mut buf).unwrap(), 4);
+    assert_eq!(fs.read(entry.node(), 0, &mut buf).unwrap(), 4);
     assert_eq!(buf[..], common::payload(4, 2)[..]);
 
     for bad in [
-        NodeId::new(0),
-        NodeId::new(2),
-        NodeId::new(1 << 59),
-        NodeId::new(1 << 63),
-        NodeId::new(u64::MAX),
+        NodeId::new(2).unwrap(),
+        NodeId::new(1 << 59).unwrap(),
+        NodeId::new(1 << 63).unwrap(),
+        NodeId::new(u64::MAX).unwrap(),
     ] {
+        assert_eq!(fs.stat(bad).unwrap_err().kind(), ErrorKind::InvalidHandle);
         assert_eq!(
-            fs.node_metadata(bad).unwrap_err().kind(),
-            ErrorKind::InvalidHandle
-        );
-        assert_eq!(
-            fs.read_at(bad, 0, &mut buf).unwrap_err().kind(),
+            fs.read(bad, 0, &mut buf).unwrap_err().kind(),
             ErrorKind::InvalidHandle
         );
     }
-    let mut cursor = DirCursor::start();
-    let mut text = NameBuf::new();
     let file = fs.lookup(root, name("README.TXT")).unwrap();
     assert_eq!(
-        fs.read_dir_entry(file, &mut cursor, &mut text)
-            .unwrap_err()
-            .kind(),
+        fs.readdir(file, DirCursor::START).unwrap_err().kind(),
         ErrorKind::NotADirectory
     );
-    assert!(cursor.is_start());
     assert_eq!(
         fs.lookup(file, name("x")).unwrap_err().kind(),
         ErrorKind::NotADirectory
     );
     assert_eq!(
-        fs.read_at(root, 0, &mut buf).unwrap_err().kind(),
+        fs.read(root, 0, &mut buf).unwrap_err().kind(),
         ErrorKind::IsADirectory
     );
     let dir = fs.lookup(root, name("Nested Dir")).unwrap();
     assert_eq!(
-        fs.read_at(dir, 0, &mut buf).unwrap_err().kind(),
+        fs.read(dir, 0, &mut buf).unwrap_err().kind(),
         ErrorKind::IsADirectory
     );
-    assert_eq!(fs.node_metadata(root).unwrap().file_type(), FileType::Dir);
+    assert_eq!(fs.stat(root).unwrap().file_type(), FileType::Dir);
 }
 
 #[test]
 fn cursors_resume_and_stay_at_the_end() {
     let case = CASES[0];
     let mut fs = open(case, common::build(case));
-    let inner = fs.resolve(INNER).unwrap();
+    let inner = fs.resolve_path(INNER).unwrap();
     let all = list(&mut fs, inner);
-    let mut cursor = DirCursor::start();
-    let mut text = NameBuf::new();
+    let mut cursor = DirCursor::START;
     for _ in 0..7 {
-        fs.read_dir_entry(inner, &mut cursor, &mut text)
-            .unwrap()
-            .unwrap();
+        cursor = fs.readdir(inner, cursor).unwrap().unwrap().next_cursor();
     }
     let mut resumed = DirCursor::from_raw(cursor.into_raw());
     let mut rest = Vec::new();
-    while let Some(entry) = fs.read_dir_entry(inner, &mut resumed, &mut text).unwrap() {
+    while let Some(entry) = fs.readdir(inner, resumed).unwrap() {
+        resumed = entry.next_cursor();
         rest.push(entry);
     }
     let tail: Vec<_> = all[7..].iter().map(|(_, entry)| *entry).collect();
     assert_eq!(rest, tail);
-    assert_eq!(
-        fs.read_dir_entry(inner, &mut resumed, &mut text).unwrap(),
-        None
-    );
-    let mut far = DirCursor::from_raw(u64::MAX);
-    assert_eq!(fs.read_dir_entry(inner, &mut far, &mut text).unwrap(), None);
+    assert_eq!(fs.readdir(inner, resumed).unwrap(), None);
+    let far = DirCursor::from_raw(u64::MAX);
+    assert_eq!(fs.readdir(inner, far).unwrap(), None);
 }
 
 #[test]
@@ -450,34 +436,31 @@ fn capabilities_and_write_methods_are_read_only() {
     )
     .unwrap();
     assert!(fs.is_read_only());
-    let caps = FsDriver::capabilities(&fs);
-    assert!(!caps.is_writable());
-    assert_eq!(
-        caps.case_sensitivity(),
-        CaseSensitivity::InsensitivePreserving
-    );
-    assert_eq!(caps.name_charset(), NameCharset::Utf16);
-    assert_eq!(caps.max_name_len(), 765);
+    let caps = FileSystem::capabilities(&fs);
+    assert!(!caps.writable());
+    assert_eq!(caps.case(), CaseRule::InsensitivePreserving);
+    assert_eq!(caps.charset(), Charset::Unicode);
+    assert_eq!(caps.max_name_bytes(), 765);
     assert_eq!(caps.timestamp_resolution_ns(), 2_000_000_000);
 
-    let root = FsDriver::root(&fs);
-    let file = FsDriver::lookup(&mut fs, root, name("README.TXT")).unwrap();
-    let meta = SetMetadata::new();
+    let root = FileSystem::root(&fs);
+    let file = FileSystem::lookup(&mut fs, root, name("README.TXT")).unwrap();
+    let meta = SetAttr::new();
     let kinds = [
-        FsDriver::create(&mut fs, root, name("new"), NewNode::File, &meta).map(|_| ()),
-        FsDriver::remove(
-            &mut fs,
-            root,
-            name("README.TXT"),
-            hadris_fs::RemoveKind::Any,
-        ),
-        FsDriver::write_at(&mut fs, file, 0, b"x").map(|_| ()),
-        FsDriver::set_len(&mut fs, file, 0),
-        FsDriver::set_metadata(&mut fs, file, &meta),
+        FileSystem::create(&mut fs, root, name("new"), &meta).map(|_| ()),
+        FileSystem::mkdir(&mut fs, root, name("new"), &meta).map(|_| ()),
+        FileSystem::unlink(&mut fs, root, name("README.TXT")),
+        FileSystem::rmdir(&mut fs, root, name("Nested Dir")),
+        FileSystem::write(&mut fs, file, 0, b"x").map(|_| ()),
+        FileSystem::truncate(&mut fs, file, 0),
+        FileSystem::setattr(&mut fs, file, &meta),
+        FileSystem::open(&mut fs, file, hadris_fs::OpenMode::Write),
     ]
     .map(|result| result.unwrap_err().kind());
-    assert_eq!(kinds, [ErrorKind::ReadOnly; 5]);
-    FsDriver::forget(&mut fs, file);
+    assert_eq!(kinds, [ErrorKind::ReadOnly; 8]);
+    FileSystem::open(&mut fs, file, hadris_fs::OpenMode::Read).unwrap();
+    FileSystem::close(&mut fs, file).unwrap();
+    FileSystem::forget(&mut fs, file, 1);
     assert_eq!(fs.into_inner().into_inner(), image);
 
     let fs = FatFs::open(common::device(case, common::build(case))).unwrap();
@@ -585,7 +568,9 @@ fn volume_paths_and_handles() {
     assert_eq!(vol.read_to_vec("/Nested Dir/inner/deep.bin").unwrap(), deep);
     assert_eq!(vol.metadata("/frag.bin").unwrap().len(), 40_100);
 
-    let mut file = File::open(&vol, "/nested dir/inner/deep.bin", OpenOptions::read()).unwrap();
+    let mut file = vol
+        .open("/nested dir/inner/deep.bin", OpenOptions::new().read())
+        .unwrap();
     let mut data = Vec::new();
     file.read_to_end(&mut data).unwrap();
     assert_eq!(data, deep);
@@ -594,15 +579,15 @@ fn volume_paths_and_handles() {
     let names: Vec<String> = vol
         .read_dir(INNER)
         .unwrap()
-        .map(|item| item.unwrap().name_str().unwrap().to_owned())
+        .map(|item| item.unwrap().name().to_str().unwrap().to_owned())
         .collect();
     assert_eq!(names.len(), INNER_FILES);
     assert!(names.contains(&"file number 07.txt".to_owned()));
-    vol.open("/README.TXT", OpenOptions::write())
+    vol.open("/README.TXT", OpenOptions::new().write())
         .unwrap()
         .close()
         .unwrap();
-    assert_eq!(vol.into_inner().open_nodes(), 1);
+    assert_eq!(vol.into_inner().unwrap().open_nodes(), 1);
 }
 
 #[test]
@@ -611,11 +596,9 @@ fn ascii_short_names_with_high_bytes_stay_distinct() {
     let mut fs = common::formatted(case, hadris_fat::FormatOptions::new());
     let root = fs.root();
     for (text, data) in [("PAT1.TXT", b"first"), ("PAT2.TXT", b"other")] {
-        let node = fs
-            .create(root, name(text), NewNode::File, &SetMetadata::new())
-            .unwrap();
-        fs.write_at(node, 0, data).unwrap();
-        fs.forget(node);
+        let node = fs.create(root, name(text), &SetAttr::new()).unwrap();
+        fs.write(node, 0, data).unwrap();
+        fs.forget(node, 1);
     }
     fs.sync().unwrap();
     let mut image = fs.into_inner().into_inner();
@@ -637,19 +620,15 @@ fn ascii_short_names_with_high_bytes_stay_distinct() {
     for (text, data) in [("\u{F782}ab.txt", b"first"), ("\u{F783}AB.TXT", b"other")] {
         let node = fs.lookup(root, name(text)).unwrap();
         assert_eq!(read_all(&mut fs, node), data);
-        fs.forget(node);
+        fs.forget(node, 1);
     }
 }
 
 fn try_list(fs: &mut Fs, dir: NodeId) -> Result<usize, ErrorKind> {
-    let mut cursor = DirCursor::start();
-    let mut buf = NameBuf::new();
+    let mut cursor = DirCursor::START;
     let mut count = 0;
-    while fs
-        .read_dir_entry(dir, &mut cursor, &mut buf)
-        .map_err(|err| err.kind())?
-        .is_some()
-    {
+    while let Some(entry) = fs.readdir(dir, cursor).map_err(|err| err.kind())? {
+        cursor = entry.next_cursor();
         count += 1;
     }
     Ok(count)
@@ -660,7 +639,7 @@ fn try_read(fs: &mut Fs, node: NodeId) -> Result<usize, ErrorKind> {
     let mut chunk = [0u8; 777];
     loop {
         match fs
-            .read_at(node, done as u64, &mut chunk)
+            .read(node, done as u64, &mut chunk)
             .map_err(|err| err.kind())?
         {
             0 => return Ok(done),
@@ -675,7 +654,7 @@ fn cyclic_chains_are_corrupt_instead_of_repeating() {
     let image = common::build(case);
     let (inner, deep) = {
         let mut fs = common::mount(case, &image);
-        let inner = fs.resolve(INNER).unwrap();
+        let inner = fs.resolve_path(INNER).unwrap();
         let deep = fs.lookup(inner, name("deep.bin")).unwrap();
         (common::chain(&mut fs, inner), common::chain(&mut fs, deep))
     };
@@ -697,17 +676,17 @@ fn cyclic_chains_are_corrupt_instead_of_repeating() {
         let mut dir_image = image.clone();
         link(&mut dir_image, dir_from, dir_to);
         let mut fs = open(case, dir_image);
-        let inner = fs.resolve(INNER).unwrap();
+        let inner = fs.resolve_path(INNER).unwrap();
         assert_eq!(try_list(&mut fs, inner), Err(ErrorKind::Corrupt));
 
         let mut file_image = image.clone();
         link(&mut file_image, file_from, file_to);
         let mut fs = open(case, file_image);
-        let file = fs.resolve(&format!("{INNER}/deep.bin")).unwrap();
+        let file = fs.resolve_path(&format!("{INNER}/deep.bin")).unwrap();
         assert_eq!(try_read(&mut fs, file), Err(ErrorKind::Corrupt));
         let mut all = vec![0u8; 70_000];
         assert_eq!(
-            fs.read_at(file, 0, &mut all).map_err(|err| err.kind()),
+            fs.read(file, 0, &mut all).map_err(|err| err.kind()),
             Err(ErrorKind::Corrupt)
         );
     }
@@ -734,8 +713,8 @@ fn fsinfo_unknown_values_mount_and_count_by_scanning() {
     let (_, _, fs_info, _) = fat32_layout(&image);
     image[fs_info + 488..fs_info + 496].fill(0xFF);
     let mut fs = open(case, image);
-    assert_eq!(fs.stats().unwrap().free_blocks(), u64::from(free));
-    let file = fs.resolve("/README.TXT").unwrap();
+    assert_eq!(fs.statfs().unwrap().free_blocks(), u64::from(free));
+    let file = fs.resolve_path("/README.TXT").unwrap();
     assert_eq!(read_all(&mut fs, file), b"hello fat");
 }
 
@@ -750,15 +729,13 @@ fn fat32_uses_only_the_active_fat_when_mirroring_is_disabled() {
     image[fat_start + 8..fat_start + fat_len].fill(0);
 
     let mut fs = open(case, image);
-    let file = fs.resolve(&format!("/{LONG_NAME}")).unwrap();
+    let file = fs.resolve_path(&format!("/{LONG_NAME}")).unwrap();
     assert_eq!(read_all(&mut fs, file), common::payload(5000, 1));
-    fs.forget(file);
+    fs.forget(file, 1);
     let root = fs.root();
-    let node = fs
-        .create(root, name("new.bin"), NewNode::File, &SetMetadata::new())
-        .unwrap();
-    assert_eq!(fs.write_at(node, 0, &[7u8; 5000]).unwrap(), 5000);
-    fs.forget(node);
+    let node = fs.create(root, name("new.bin"), &SetAttr::new()).unwrap();
+    assert_eq!(fs.write(node, 0, &[7u8; 5000]).unwrap(), 5000);
+    fs.forget(node, 1);
     fs.sync().unwrap();
 
     let image = fs.into_inner().into_inner();
@@ -769,7 +746,7 @@ fn fat32_uses_only_the_active_fat_when_mirroring_is_disabled() {
             .all(|&b| b == 0)
     );
     let mut fs = open(case, image);
-    let node = fs.resolve("/new.bin").unwrap();
+    let node = fs.resolve_path("/new.bin").unwrap();
     assert_eq!(read_all(&mut fs, node), [7u8; 5000]);
 }
 
@@ -801,10 +778,10 @@ fn fat16_layouts_are_limited_to_what_fat16_addresses() {
     let device = |image| MemDevice::new(image, BlockSize::new(512).unwrap());
     let mut fs = FatFs::open(device(fat16_layout(65_524))).unwrap();
     assert_eq!(fs.kind(), FatKind::Fat16);
-    assert_eq!(fs.stats().unwrap().total_blocks(), 65_524);
+    assert_eq!(fs.statfs().unwrap().total_blocks(), 65_524);
     let mut fs = FatFs::open(device(fat16_layout(4_084))).unwrap();
     assert_eq!(fs.kind(), FatKind::Fat12);
-    assert_eq!(fs.stats().unwrap().total_blocks(), 4_084);
+    assert_eq!(fs.statfs().unwrap().total_blocks(), 4_084);
     for clusters in [65_525, 65_600] {
         assert_eq!(
             FatFs::open(device(fat16_layout(clusters)))

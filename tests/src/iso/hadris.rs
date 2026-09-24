@@ -2,7 +2,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-use hadris_fs::sync::DriverExt;
+use hadris_fs::NodeId;
+use hadris_fs::sync::FileSystem;
 use hadris_fs::tree::{Content, Tree};
 use hadris_iso::sync::{IsoImage, IsoView, plan};
 use hadris_iso::{Charset, IsoOptions, Namespace, VolumeIdentifiers};
@@ -11,6 +12,7 @@ use hadris_storage::{BlockSize, MemDevice};
 use super::adapter::{IsoConsumer, IsoProducer};
 use super::model::{IsoState, compare_state, strip_version};
 use super::spec;
+use crate::harness::files::{entries, read_node};
 use crate::harness::join_path;
 use crate::harness::tree::EntryData;
 
@@ -97,7 +99,8 @@ pub fn snapshot(bytes: Vec<u8>) -> Result<IsoState, String> {
         .view(Namespace::Primary)
         .map_err(|error| error.to_string())?;
     let mut entries = BTreeMap::new();
-    snapshot_dir(&mut view, "/", &mut entries)?;
+    let root = view.root();
+    snapshot_dir(&mut view, root, "/", &mut entries)?;
     Ok(IsoState { volume_id, entries })
 }
 
@@ -109,31 +112,32 @@ pub fn verify_image(label: &str, bytes: Vec<u8>, expected: &IsoState) -> Result<
     compare_state(&format!("Hadris reading {label}"), expected, &hadris)
 }
 
-/// Every entry of the directory `path` of `view`, keyed by path, with the
-/// version suffix of each name removed.
+/// Every entry of the directory `dir` at `path` of `view`, keyed by path,
+/// with the version suffix of each name removed.
 pub fn snapshot_dir<D: hadris_storage::sync::BlockDevice>(
     view: &mut IsoView<D>,
+    dir: NodeId,
     path: &str,
-    entries: &mut BTreeMap<String, EntryData>,
+    out: &mut BTreeMap<String, EntryData>,
 ) -> Result<(), String> {
-    let mut children = Vec::new();
-    for item in view.read_dir(path).map_err(|error| error.to_string())? {
-        let item = item.map_err(|error| error.to_string())?;
-        let name = String::from_utf8_lossy(item.name_bytes()).into_owned();
-        children.push((name, item.file_type().is_dir()));
-    }
-    for (name, is_dir) in children {
+    for entry in entries(view, dir).map_err(|error| error.to_string())? {
+        let name = String::from_utf8_lossy(entry.name().as_bytes()).into_owned();
         let child_path = join_path(path, strip_version(&name));
-        let source = join_path(path, &name);
-        if is_dir {
-            entries.insert(child_path.clone(), EntryData::Directory);
-            snapshot_dir(view, &source, entries)?;
+        let node = view
+            .lookup(dir, entry.name())
+            .map_err(|error| error.to_string())?;
+        let result = if entry.file_type().is_dir() {
+            out.insert(child_path.clone(), EntryData::Directory);
+            snapshot_dir(view, node, &child_path, out)
         } else {
-            let contents = view
-                .read_to_vec(&source)
-                .map_err(|error| error.to_string())?;
-            entries.insert(child_path, EntryData::File(contents));
-        }
+            read_node(view, node)
+                .map(|contents| {
+                    out.insert(child_path, EntryData::File(contents));
+                })
+                .map_err(|error| error.to_string())
+        };
+        view.forget(node, 1);
+        result?;
     }
     Ok(())
 }

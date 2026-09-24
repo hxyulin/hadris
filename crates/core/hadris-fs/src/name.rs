@@ -78,31 +78,31 @@ const fn validate(bytes: &[u8]) -> Result<(), NameError> {
 /// A single directory-entry name, as bytes.
 ///
 /// Like [`str`] or `std::path::Path`, `Name` is unsized and used behind a
-/// reference. A valid name is non-empty, is not `.` or `..`, and contains no
-/// `/` or NUL byte. The encoding is filesystem-defined, so the bytes need not
-/// be UTF-8.
+/// reference. [`Name::new`] accepts any bytes; a filesystem rejects a name
+/// that is empty, is `.` or `..`, or contains `/` or NUL with
+/// [`ErrorKind::InvalidInput`], and [`check`](Self::check) is how it tells.
+/// The encoding is filesystem-defined, so the bytes need not be UTF-8.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct Name([u8]);
 
 impl Name {
-    /// Validates `bytes` as a name.
-    pub fn new<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> Result<&Name, NameError> {
+    /// Views `bytes` as a name.
+    pub fn new<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> &Name {
         Self::from_bytes(bytes.as_ref())
     }
 
-    /// Validates `bytes` as a name in a `const` context.
-    pub const fn from_bytes(bytes: &[u8]) -> Result<&Name, NameError> {
-        match validate(bytes) {
-            Ok(()) => Ok(Self::from_bytes_unchecked(bytes)),
-            Err(err) => Err(err),
-        }
-    }
-
-    const fn from_bytes_unchecked(bytes: &[u8]) -> &Name {
+    /// Views `bytes` as a name in a `const` context.
+    pub const fn from_bytes(bytes: &[u8]) -> &Name {
         // SAFETY: `Name` is `repr(transparent)` over `[u8]`, so the pointer
         // cast preserves layout, metadata and lifetime.
         unsafe { &*(bytes as *const [u8] as *const Name) }
+    }
+
+    /// Checks that the name can name a directory entry: it is not empty,
+    /// `.` or `..`, and holds no `/` or NUL byte.
+    pub const fn check(&self) -> Result<(), NameError> {
+        validate(&self.0)
     }
 
     /// Returns the name's bytes.
@@ -115,7 +115,7 @@ impl Name {
         core::str::from_utf8(&self.0)
     }
 
-    /// Returns the length in bytes. Always non-zero.
+    /// Returns the length in bytes.
     #[allow(clippy::len_without_is_empty)]
     pub const fn len(&self) -> usize {
         self.0.len()
@@ -146,22 +146,6 @@ impl AsRef<[u8]> for Name {
 impl AsRef<Name> for Name {
     fn as_ref(&self) -> &Name {
         self
-    }
-}
-
-impl<'a> TryFrom<&'a str> for &'a Name {
-    type Error = NameError;
-
-    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-        Name::new(value)
-    }
-}
-
-impl<'a> TryFrom<&'a [u8]> for &'a Name {
-    type Error = NameError;
-
-    fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
-        Name::new(value)
     }
 }
 
@@ -200,8 +184,10 @@ impl<const N: usize> NameBuf<N> {
         Ok(buf)
     }
 
-    /// Replaces the contents with `name`. On error the buffer is unchanged.
+    /// Checks `name` and replaces the contents. On error the buffer is
+    /// unchanged.
     pub fn set(&mut self, name: &Name) -> Result<(), NameError> {
+        name.check()?;
         let bytes = name.as_bytes();
         let dst = self.buf.get_mut(..bytes.len()).ok_or(NameError::TooLong)?;
         dst.copy_from_slice(bytes);
@@ -211,7 +197,7 @@ impl<const N: usize> NameBuf<N> {
 
     /// Validates `bytes` and replaces the contents. On error the buffer is unchanged.
     pub fn set_bytes(&mut self, bytes: &[u8]) -> Result<(), NameError> {
-        self.set(Name::new(bytes)?)
+        self.set(Name::new(bytes))
     }
 
     /// Lets `write` fill the buffer in place, then validates the result.
@@ -259,7 +245,7 @@ impl<const N: usize> NameBuf<N> {
         if self.len == 0 {
             None
         } else {
-            Some(Name::from_bytes_unchecked(&self.buf[..self.len]))
+            Some(Name::from_bytes(&self.buf[..self.len]))
         }
     }
 
@@ -337,7 +323,7 @@ mod owned {
 
         /// Returns the borrowed name.
         pub fn as_name(&self) -> &Name {
-            Name::from_bytes_unchecked(&self.0)
+            Name::from_bytes(&self.0)
         }
 
         /// Returns the name's bytes.
@@ -419,38 +405,41 @@ mod tests {
 
     #[test]
     fn name_accepts_ordinary_bytes() {
-        let name = Name::new("readme.md").unwrap();
+        let name = Name::new("readme.md");
         assert_eq!(name.as_bytes(), b"readme.md");
         assert_eq!(name.to_str(), Ok("readme.md"));
         assert_eq!(name.len(), 9);
-        assert!(Name::new("...").is_ok());
-        assert!(Name::new(".hidden").is_ok());
-        assert!(Name::new("a\\b").is_ok());
+        assert_eq!(name.check(), Ok(()));
+        assert!(Name::new("...").check().is_ok());
+        assert!(Name::new(".hidden").check().is_ok());
+        assert!(Name::new("a\\b").check().is_ok());
     }
 
     #[test]
     fn name_rejects_invalid_input() {
-        assert_eq!(Name::new(""), Err(NameError::Empty));
-        assert_eq!(Name::new("."), Err(NameError::CurrentDir));
-        assert_eq!(Name::new(".."), Err(NameError::ParentDir));
-        assert_eq!(Name::new("a/b"), Err(NameError::Separator));
-        assert_eq!(Name::new("/"), Err(NameError::Separator));
-        assert_eq!(Name::new(b"a\0b"), Err(NameError::Nul));
+        assert_eq!(Name::new("").check(), Err(NameError::Empty));
+        assert_eq!(Name::new(".").check(), Err(NameError::CurrentDir));
+        assert_eq!(Name::new("..").check(), Err(NameError::ParentDir));
+        assert_eq!(Name::new("a/b").check(), Err(NameError::Separator));
+        assert_eq!(Name::new("/").check(), Err(NameError::Separator));
+        assert_eq!(Name::new(b"a\0b").check(), Err(NameError::Nul));
+        let mut buf = NameBuf::<8>::new();
+        assert_eq!(buf.set(Name::new("..")), Err(NameError::ParentDir));
         assert_eq!(NameError::Nul.kind(), ErrorKind::InvalidInput);
         assert_eq!(NameError::TooLong.kind(), ErrorKind::NameTooLong);
     }
 
     #[test]
     fn name_allows_non_utf8() {
-        let name = Name::new(&[0xff, b'a']).unwrap();
+        let name = Name::new(&[0xff, b'a']);
         assert!(name.to_str().is_err());
         assert_eq!(format!("{name:?}"), "\"\\xffa\"");
     }
 
     #[test]
     fn name_const_constructor() {
-        const NAME: Result<&Name, NameError> = Name::from_bytes(b"boot");
-        assert_eq!(NAME.unwrap().as_bytes(), b"boot");
+        const NAME: &Name = Name::from_bytes(b"boot");
+        assert_eq!(NAME.as_bytes(), b"boot");
     }
 
     #[test]
@@ -459,7 +448,7 @@ mod tests {
         assert!(buf.is_empty());
         assert_eq!(buf.as_name(), None);
         assert_eq!(buf.capacity(), 8);
-        buf.set(Name::new("kernel").unwrap()).unwrap();
+        buf.set(Name::new("kernel")).unwrap();
         assert_eq!(buf.as_name().unwrap().as_bytes(), b"kernel");
         assert_eq!(buf.len(), 6);
         assert_eq!(buf.set_bytes(b"too-long-name"), Err(NameError::TooLong));
@@ -473,7 +462,7 @@ mod tests {
 
     #[test]
     fn name_buf_default_capacity() {
-        let buf = NameBuf::<255>::from_name(Name::new(&[b'x'; 255]).unwrap()).unwrap();
+        let buf = NameBuf::<255>::from_name(Name::new(&[b'x'; 255])).unwrap();
         assert_eq!(buf.len(), 255);
         assert_eq!(NameBuf::<255>::CAPACITY, 255);
         let mut buf: NameBuf = NameBuf::default();
@@ -486,7 +475,7 @@ mod tests {
     #[test]
     fn owned_name() {
         use alloc::borrow::ToOwned;
-        let owned = Name::new("a.txt").unwrap().to_owned();
+        let owned = Name::new("a.txt").to_owned();
         assert_eq!(owned.as_bytes(), b"a.txt");
         assert_eq!(OwnedName::new(b"a/b".to_vec()), Err(NameError::Separator));
         assert_eq!(owned.into_bytes(), b"a.txt");

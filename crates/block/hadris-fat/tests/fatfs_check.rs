@@ -3,6 +3,7 @@
 
 #[path = "common/fatfs.rs"]
 mod common;
+use common::{FsPaths, VolumePaths};
 
 use std::path::Path;
 use std::process::Command;
@@ -10,11 +11,8 @@ use std::process::Command;
 use common::{CASES, Found, block_on, check_dev};
 use hadris_fat::sync::{FatFs, check, format};
 use hadris_fat::{Detail, FatKind, FormatOptions, MountOptions, VolumeLabel};
-use hadris_fs::sync::{FileSystem, FsDriver, PathExt, Volume};
-use hadris_fs::{
-    CheckReport, ErrorKind, HeapTable, Location, Name, NewNode, RemoveKind, RenameFlags,
-    SetMetadata, Severity,
-};
+use hadris_fs::sync::{FileSystem, Volume};
+use hadris_fs::{CheckReport, ErrorKind, HeapTable, Location, Name, RenameMode, SetAttr, Severity};
 use hadris_io::Error;
 use hadris_storage::sync::BlockDevice;
 use hadris_storage::{BlockIndex, BlockSize, MemDevice};
@@ -265,7 +263,7 @@ fn fixture(kind: FatKind, size: u64) -> Vec<u8> {
     )
     .unwrap();
     let vol = Volume::new(fs);
-    let cluster = vol.stats().unwrap().block_size() as usize;
+    let cluster = vol.lock().statfs().unwrap().block_size() as usize;
     vol.write_file("/A.BIN", &common::payload(3 * cluster - 10, 1))
         .unwrap();
     vol.write_file("/B.BIN", &common::payload(2 * cluster, 2))
@@ -277,8 +275,8 @@ fn fixture(kind: FatKind, size: u64) -> Vec<u8> {
     vol.write_file("/SUB/D.BIN", &common::payload(cluster + 1, 4))
         .unwrap();
     vol.write_file("/SUB/DEEP/E.BIN", b"deep").unwrap();
-    vol.sync().unwrap();
-    vol.into_inner().into_inner().into_inner()
+    vol.lock().sync().unwrap();
+    vol.into_inner().unwrap().into_inner().into_inner()
 }
 
 const A: &[u8; 11] = b"A       BIN";
@@ -741,8 +739,8 @@ fn deep_trees_are_walked_without_a_stack() {
                 .unwrap();
         }
     }
-    vol.sync().unwrap();
-    let image = vol.into_inner().into_inner().into_inner();
+    vol.lock().sync().unwrap();
+    let image = vol.into_inner().unwrap().into_inner().into_inner();
     let (report, found) = findings_with(&image, 512);
     assert_eq!(found, []);
     assert!(report.passes() > 10);
@@ -793,7 +791,7 @@ fn fault() -> Error<std::io::Error> {
 }
 
 fn name(text: &str) -> &Name {
-    Name::new(text).unwrap()
+    Name::new(text)
 }
 
 /// Interrupting each operation after each of its writes leaves only the
@@ -823,26 +821,24 @@ fn interrupted_operations_leave_only_repairable_leftovers() {
                     FatFs::open_with(dev, MountOptions::new().with_table(HeapTable::<()>::new()))
                         .unwrap();
                 let root = fs.root();
-                let meta = SetMetadata::new();
+                let meta = SetAttr::new();
                 let result = match op {
-                    0 => fs
-                        .create(root, name("a new directory"), NewNode::Dir, &meta)
-                        .map(|_| ()),
-                    1 => fs.remove(root, name("Long name file.txt"), RemoveKind::Any),
+                    0 => fs.mkdir(root, name("a new directory"), &meta).map(|_| ()),
+                    1 => fs.remove_any(root, name("Long name file.txt")),
                     2 => fs.rename(
                         root,
                         name("Long name file.txt"),
                         root,
                         name("Renamed file.txt"),
-                        RenameFlags::empty(),
+                        RenameMode::Replace,
                     ),
-                    3 => fs.resolve("/SUB").and_then(|sub| {
+                    3 => fs.resolve_path("/SUB").and_then(|sub| {
                         fs.rename(
                             sub,
                             name("DEEP"),
                             root,
                             name("Moved Deep"),
-                            RenameFlags::empty(),
+                            RenameMode::Replace,
                         )
                     }),
                     4 => fs.rename(
@@ -850,15 +846,17 @@ fn interrupted_operations_leave_only_repairable_leftovers() {
                         name("C.BIN"),
                         root,
                         name("B.BIN"),
-                        RenameFlags::empty(),
+                        RenameMode::Replace,
                     ),
                     5 => fs
-                        .resolve("/A.BIN")
-                        .and_then(|node| fs.write_at(node, 50_000, &[3u8; 20_000]).map(|_| ())),
-                    6 => fs.resolve("/A.BIN").and_then(|node| fs.set_len(node, 1)),
+                        .resolve_path("/A.BIN")
+                        .and_then(|node| fs.write(node, 50_000, &[3u8; 20_000]).map(|_| ())),
+                    6 => fs
+                        .resolve_path("/A.BIN")
+                        .and_then(|node| fs.truncate(node, 1)),
                     _ => fs
-                        .resolve("/C.BIN")
-                        .and_then(|node| fs.set_len(node, 30_000)),
+                        .resolve_path("/C.BIN")
+                        .and_then(|node| fs.truncate(node, 30_000)),
                 };
                 let finished = result.is_ok();
                 let context = format!("{kind:?} op {op} budget {budget}");
@@ -892,19 +890,21 @@ fn interrupted_operations_leave_only_repairable_leftovers() {
 fn the_label_is_read_from_the_root() {
     let image = fixture(FatKind::Fat16, 16 << 20);
     let mut fs = mount(image.clone());
-    assert_eq!(fs.label().unwrap().unwrap().as_str(), "CHECK");
+    assert_eq!(fs.label_text().unwrap().unwrap(), "CHECK");
     let mut odd = image;
     let at = entry(&odd, b"CHECK      ");
     odd[at + 1] = 0xFF;
-    let label = mount(odd).label().unwrap().unwrap();
+    let mut odd = mount(odd);
+    let label = odd.volume_label().unwrap().unwrap();
     assert_eq!(label.as_bytes()[..2], [b'C', 0xFF]);
     assert_eq!(label.as_str(), "");
+    assert_eq!(odd.label_text().unwrap().unwrap(), "");
     let mut blank = format(
         MemDevice::new(vec![0; 2 << 20], BlockSize::new(512).unwrap()),
         FormatOptions::new(),
     )
     .unwrap();
-    assert_eq!(blank.label().unwrap(), None);
+    assert_eq!(blank.label_text().unwrap(), None);
 }
 
 /// Writes an LFN fragment with `units` into the slot at `at`.
@@ -933,8 +933,8 @@ fn overlong_long_name_runs_fall_back_to_the_short_name() {
         let vol = Volume::new(fs);
         vol.write_file("/P", b"").unwrap();
         vol.write_file(&format!("/{long}"), b"data").unwrap();
-        vol.sync().unwrap();
-        let clean = vol.into_inner().into_inner().into_inner();
+        vol.lock().sync().unwrap();
+        let clean = vol.into_inner().unwrap().into_inner().into_inner();
         let short = *b"XXXXXX~1   ";
         let sum = short
             .iter()
@@ -1036,8 +1036,8 @@ fn findings_name_the_path_of_their_entry() {
             .unwrap();
         dirs.push(path.clone());
     }
-    vol.sync().unwrap();
-    let mut image = vol.into_inner().into_inner().into_inner();
+    vol.lock().sync().unwrap();
+    let mut image = vol.into_inner().unwrap().into_inner().into_inner();
     let short = |at: usize| image[at + 11] & 0x3F != 0x0F && image[at] != 0xE5;
     let files: Vec<usize> = (0..image.len())
         .step_by(32)

@@ -10,7 +10,7 @@ DVD-Video, Blu-ray and many large removable drives.
 ## Features
 
 - **Read** UDF 1.02 to 2.01 volumes with type 1 partitions, without an
-  allocator, through the `hadris-fs` `FsDriver` node API: path lookup,
+  allocator, through the `hadris-fs` `FileSystem` trait: path lookup,
   streaming reads, metadata with times, permissions and owners, symlinks and
   hard links
 - **Write** standalone volumes from a `hadris_fs::tree::Tree`, reproducibly,
@@ -28,24 +28,32 @@ hadris-fs = { version = "2.4.0", features = ["std", "sync"] }
 ```
 
 ```rust,no_run
-use hadris_fs::sync::DriverExt;
+use std::io::Read;
+
+use hadris_fs::OpenOptions;
+use hadris_fs::sync::Volume;
 use hadris_udf::sync::UdfFs;
 
 let file = hadris_storage::host::FileDevice::open("movie.udf").unwrap();
-let mut udf = UdfFs::open(file).unwrap();
+let udf = UdfFs::open(file).unwrap();
 println!("Volume: {} (UDF {})", udf.logical_volume_id(), udf.revision());
 
-for entry in udf.read_dir("/").unwrap() {
-    println!("{}", String::from_utf8_lossy(entry.unwrap().name_bytes()));
+let vol = Volume::new(udf);
+for entry in vol.read_dir("/").unwrap() {
+    println!("{}", String::from_utf8_lossy(entry.unwrap().name().as_bytes()));
 }
-let readme = udf.read_to_vec("/README.TXT").unwrap();
+let mut readme = Vec::new();
+vol.open("/README.TXT", OpenOptions::new().read())
+    .unwrap()
+    .read_to_end(&mut readme)
+    .unwrap();
 ```
 
 `UdfFs` opens any `hadris_storage` block device: a host `FileDevice`, a
 `MemDevice`, a `Partition` of a disk. It finds the anchor at block 256, N-256
 or N-1 for logical blocks of 512 to 4096 bytes, uses the prevailing
-descriptors and falls back to the reserve sequence. Wrap it in
-`hadris_fs::sync::Volume` for shared access and `File` handles.
+descriptors and falls back to the reserve sequence. `hadris_fs::sync::Volume`
+gives it paths, shared access and `File` handles.
 
 ## Writing
 
@@ -95,7 +103,7 @@ structures. Packet writing, virtual allocation tables, sparing tables,
 metadata partitions and named streams are not implemented; the reader
 refuses such partitions as unsupported, and the writer refuses UDF 2.50
 and 2.60, which require a metadata partition. Writing to a mounted volume
-(`FsDriver` write methods) reports read-only for now.
+(`FileSystem` write methods) reports read-only for now.
 
 ## Documentation
 

@@ -2,15 +2,17 @@
 //!
 //! It follows the same shape as `FatFs`. `ExFatFs` is generated for each mode
 //! (`exfat::sync`, `exfat::r#async`) with `check`
-//! and, with `write`, `format`; the mode-independent types are here. It needs no allocator and implements the `hadris_fs` `FsDriver`
-//! trait, so `Volume` and the path helpers work on it.
+//! and, with `write`, `format`; the mode-independent types are here. It
+//! needs no allocator and implements the `hadris_fs` `FileSystem` trait, so
+//! `Volume` and its handles work on it.
 //!
 //! ```rust
 //! # #[cfg(all(feature = "sync", feature = "write", feature = "std"))]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use hadris_fat::exfat::FormatOptions;
 //! use hadris_fat::exfat::sync::{check, format};
-//! use hadris_fs::sync::{PathExt, Volume};
+//! use hadris_fs::OpenOptions;
+//! use hadris_fs::sync::Volume;
 //! use hadris_storage::{BlockSize, MemDevice};
 //!
 //! let dev = MemDevice::new(vec![0u8; 16 << 20], BlockSize::new(512).unwrap());
@@ -18,8 +20,10 @@
 //! assert!(check(&mut dev, &mut [0u8; 4096], |_| {})?.is_clean());
 //! let vol = Volume::new(hadris_fat::exfat::sync::ExFatFs::open(dev)?);
 //! vol.create_dir_all("/Photos")?;
-//! vol.write_file("/Photos/Été.txt", b"hello")?;
-//! assert_eq!(vol.read_to_vec("/photos/ÉTÉ.TXT")?, b"hello");
+//! let mut file = vol.open("/Photos/Été.txt", OpenOptions::new().write().create())?;
+//! file.write(b"hello")?;
+//! file.close()?;
+//! assert_eq!(vol.metadata("/photos/ÉTÉ.TXT")?.len(), 5);
 //! # Ok(())
 //! # }
 //! # #[cfg(not(all(feature = "sync", feature = "write", feature = "std")))]
@@ -80,9 +84,8 @@ pub mod sync {
     use hadris_fat_raw::exfat::io::sync as exio;
     use hadris_storage::sync as storage;
 
-    macro_rules! impl_exfat_driver {
-        ($($t:tt)*) => { hadris_fs::impl_fs_driver!(sync, $($t)*); };
-    }
+    use hadris_fs::sync as fsapi;
+    use hadris_io::sync as io;
 
     #[path = "fs.rs"]
     mod fs;
@@ -110,14 +113,8 @@ pub mod r#async {
     use hadris_fat_raw::exfat::io::r#async as exio;
     use hadris_storage::r#async as storage;
 
-    macro_rules! impl_exfat_driver {
-        (impl[D: BlockDevice, T: NodeTable, C: Clock] $($rest:tt)*) => {
-            hadris_fs::impl_fs_driver!(
-                async,
-                impl[D: BlockDevice, T: NodeTable<With<Node>: Send>, C: Clock + Send] $($rest)*
-            );
-        };
-    }
+    use hadris_fs::r#async as fsapi;
+    use hadris_io::r#async as io;
 
     #[path = "fs.rs"]
     mod fs;

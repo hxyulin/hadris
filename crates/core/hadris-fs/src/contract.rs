@@ -2,7 +2,7 @@ use core::fmt;
 
 use crate::ErrorKind;
 
-/// A rule of the `FsDriver` contract that a driver broke, as reported by
+/// A rule of the `FileSystem` contract that a driver broke, as reported by
 /// the contract kit (`sync::contract::check` and its async twins).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ContractViolation {

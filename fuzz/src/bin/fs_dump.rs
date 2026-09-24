@@ -11,7 +11,7 @@
 //! On mount/parse failure (or panic) print nothing and exit 0 — differential
 //! testing only compares images both sides can mount.
 
-use hadris_fs::sync::{FileSystem, FsDriver, Volume};
+use hadris_fs::sync::FileSystem;
 use hadris_io::Cursor;
 
 const DEPTH_CAP: u32 = 64;
@@ -31,57 +31,65 @@ fn file_line(size: u64, content: &[u8], path: &str) -> String {
     format!("file {} {:016x} {}", size, fnv1a64(content), path)
 }
 
-/// Lists any filesystem through the shared `FileSystem` node API. Every
-/// format below is opened with its own driver and wrapped in a `Volume`, so
-/// this one walk serves all of them.
-fn dump<F: FileSystem>(fs: &F) -> Vec<String> {
-    use hadris_fs::{DirCursor, FileType, NameBuf};
+/// Lists any filesystem through the shared `FileSystem` node API, so this
+/// one walk serves every format below.
+fn dump<F: FileSystem>(fs: &mut F) -> Vec<String> {
+    use hadris_fs::{DirCursor, FileType, OpenMode};
 
     let mut lines = Vec::new();
     let mut budget = ENTRY_BUDGET;
     let mut stack = vec![(fs.root(), String::from("/"), 0u32)];
     while let Some((dir, path, depth)) = stack.pop() {
-        if depth > DEPTH_CAP {
-            continue;
-        }
-        let mut cursor = DirCursor::start();
-        let mut name = NameBuf::new();
-        while let Ok(Some(entry)) = fs.read_dir_entry(dir, &mut cursor, &mut name) {
+        let mut cursor = DirCursor::START;
+        while depth <= DEPTH_CAP {
+            let Ok(Some(entry)) = fs.readdir(dir, cursor) else {
+                break;
+            };
+            cursor = entry.next_cursor();
             if budget == 0 {
                 return lines;
             }
             budget -= 1;
-            let Some(text) = name.as_name().and_then(|n| n.to_str().ok()) else {
+            let Ok(text) = entry.name().to_str() else {
                 continue;
             };
             let child_path = format!("{path}{text}");
+            let Ok(child) = fs.lookup(dir, entry.name()) else {
+                continue;
+            };
             match entry.file_type() {
                 FileType::Dir => {
                     lines.push(format!("dir {child_path}"));
-                    stack.push((entry.node(), format!("{child_path}/"), depth + 1));
+                    stack.push((child, format!("{child_path}/"), depth + 1));
+                    continue;
                 }
                 FileType::File => {
-                    let size = fs.node_metadata(entry.node()).map_or(0, |meta| meta.len());
+                    let size = entry.metadata().len();
                     let mut buf = [0u8; CONTENT_CAP];
                     let mut filled = 0usize;
-                    while filled < CONTENT_CAP {
-                        match fs.read_at(entry.node(), filled as u64, &mut buf[filled..]) {
-                            Ok(0) | Err(_) => break,
-                            Ok(n) => filled += n,
+                    if fs.open(child, OpenMode::Read).is_ok() {
+                        while filled < CONTENT_CAP {
+                            match fs.read(child, filled as u64, &mut buf[filled..]) {
+                                Ok(0) | Err(_) => break,
+                                Ok(n) => filled += n,
+                            }
                         }
+                        let _ = fs.close(child);
                     }
                     lines.push(file_line(size, &buf[..filled], &child_path));
                 }
                 _ => {}
             }
+            fs.forget(child, 1);
         }
+        fs.forget(dir, 1);
     }
     lines
 }
 
-/// Mounts `driver` behind a `Volume` and lists it with [`dump`].
-fn dump_driver<D: FsDriver>(driver: D) -> Vec<String> {
-    dump(&Volume::new(driver))
+/// Lists a mounted filesystem with [`dump`].
+fn dump_driver<F: FileSystem>(mut fs: F) -> Vec<String> {
+    dump(&mut fs)
 }
 
 fn dump_fat(data: &[u8]) -> Vec<String> {

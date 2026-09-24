@@ -1,10 +1,10 @@
 use hadris_fat::FatKind;
 use hadris_fs::{
     Capabilities, DirCursor, DirEntry, ErrorKind, FsResult, FsStats, Metadata, MountError, Name,
-    NameBuf, NewNode, NodeId, RemoveKind, RenameFlags, SetMetadata,
+    NodeId, OpenMode, RenameMode, Resolve, SetAttr,
 };
 
-use super::{BlockDevice, ExFatFs, FatFs, NtfsFs, detect};
+use super::{BlockDevice, ExFatFs, FatFs, FileSystem, NtfsFs, detect};
 use crate::Detail;
 use crate::detect::{BlockFormat, FatVariant};
 use crate::error::Error;
@@ -18,8 +18,15 @@ fn fat_variant(kind: FatKind) -> Option<FatVariant> {
     }
 }
 
-fn read_only<T, E>() -> FsResult<T, E> {
-    Err(ErrorKind::ReadOnly.into())
+/// Runs `$e` on whichever driver the volume opened, bound to `$fs`.
+macro_rules! each {
+    ($inner:expr, $fs:ident => $e:expr) => {
+        match $inner {
+            Inner::Fat($fs) => $e,
+            Inner::ExFat($fs) => $e,
+            Inner::Ntfs($fs) => $e,
+        }
+    };
 }
 
 io_transform! {
@@ -35,7 +42,7 @@ enum Inner<D> {
 /// A block filesystem opened by detection: FAT12, FAT16, FAT32, exFAT or
 /// NTFS.
 ///
-/// It implements `hadris_fs::FsDriver` by delegating to the driver it
+/// It implements `hadris_fs` `FileSystem` by delegating to the driver it
 /// opened, so generic code lists and reads any of them the same way. NTFS
 /// is read-only, so its write methods fail with [`ErrorKind::ReadOnly`].
 /// [`as_fat`](Self::as_fat), [`into_fat`](Self::into_fat),
@@ -44,8 +51,8 @@ enum Inner<D> {
 /// same way only with the `unstable-ntfs` feature.
 ///
 /// ```rust,ignore
-/// let mut volume = OpenVolume::open(dev)?;
-/// for entry in hadris_fs::sync::DriverExt::read_dir(&mut volume, "/")? {
+/// let vol = Volume::new(OpenVolume::open(dev)?);
+/// for entry in vol.read_dir("/")? {
 ///     println!("{:?}", entry?.name());
 /// }
 /// ```
@@ -205,7 +212,7 @@ impl<D: BlockDevice> OpenVolume<D> {
     }
 
     /// Closes the filesystem and returns the device. What `FatFs` or
-    /// `ExFatFs` has not written yet is lost; call [`sync`](Self::sync) first.
+    /// `ExFatFs` has not written yet is lost; call `sync` first.
     pub fn into_inner(self) -> D {
         match self.inner {
             Inner::Fat(fat) => fat.into_inner(),
@@ -213,206 +220,113 @@ impl<D: BlockDevice> OpenVolume<D> {
             Inner::Ntfs(ntfs) => ntfs.into_inner(),
         }
     }
+}
 
-    /// The opened driver's capabilities.
-    pub fn capabilities(&self) -> Capabilities {
-        match &self.inner {
-            Inner::Fat(fat) => fat.capabilities(),
-            Inner::ExFat(fat) => fat.capabilities(),
-            Inner::Ntfs(ntfs) => ntfs.capabilities(),
-        }
+impl<D: BlockDevice> FileSystem for OpenVolume<D> {
+    type DeviceError = D::Error;
+
+    fn capabilities(&self) -> Capabilities {
+        each!(&self.inner, fs => fs.capabilities())
     }
 
-    /// The root directory.
-    pub fn root(&self) -> NodeId {
-        match &self.inner {
-            Inner::Fat(fat) => fat.root(),
-            Inner::ExFat(fat) => fat.root(),
-            Inner::Ntfs(ntfs) => ntfs.root(),
-        }
+    fn root(&self) -> NodeId {
+        each!(&self.inner, fs => fs.root())
     }
 
-    /// Finds `name` in `dir` and pins the result.
-    pub async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
-        match &mut self.inner {
-            Inner::Fat(fat) => fat.lookup(dir, name).await,
-            Inner::ExFat(fat) => fat.lookup(dir, name).await,
-            Inner::Ntfs(ntfs) => ntfs.lookup(dir, name).await,
-        }
+    async fn statfs(&mut self) -> FsResult<FsStats, D::Error> {
+        each!(&mut self.inner, fs => fs.statfs().await)
     }
 
-    /// Metadata of a node.
-    pub async fn node_metadata(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
-        match &mut self.inner {
-            Inner::Fat(fat) => fat.node_metadata(node).await,
-            Inner::ExFat(fat) => fat.node_metadata(node).await,
-            Inner::Ntfs(ntfs) => ntfs.node_metadata(node).await,
-        }
+    async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
+        each!(&mut self.inner, fs => fs.label(buf).await)
     }
 
-    /// Writes the entry after `cursor` into `name` and advances `cursor`.
-    pub async fn read_dir_entry(
-        &mut self,
-        dir: NodeId,
-        cursor: &mut DirCursor,
-        name: &mut NameBuf,
-    ) -> FsResult<Option<DirEntry>, D::Error> {
-        match &mut self.inner {
-            Inner::Fat(fat) => fat.read_dir_entry(dir, cursor, name).await,
-            Inner::ExFat(fat) => fat.read_dir_entry(dir, cursor, name).await,
-            Inner::Ntfs(ntfs) => ntfs.read_dir_entry(dir, cursor, name).await,
-        }
+    async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
+        each!(&mut self.inner, fs => fs.lookup(dir, name).await)
     }
 
-    /// Reads from a file at `offset`.
-    pub async fn read_at(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
-        match &mut self.inner {
-            Inner::Fat(fat) => fat.read_at(node, offset, buf).await,
-            Inner::ExFat(fat) => fat.read_at(node, offset, buf).await,
-            Inner::Ntfs(ntfs) => ntfs.read_at(node, offset, buf).await,
-        }
+    fn forget(&mut self, node: NodeId, count: u64) {
+        each!(&mut self.inner, fs => fs.forget(node, count))
     }
 
-    /// Size and free space of the volume.
-    pub async fn stats(&mut self) -> FsResult<FsStats, D::Error> {
-        match &mut self.inner {
-            Inner::Fat(fat) => fat.stats().await,
-            Inner::ExFat(fat) => fat.stats().await,
-            Inner::Ntfs(ntfs) => ntfs.stats().await,
-        }
+    async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
+        each!(&mut self.inner, fs => fs.parent(dir).await)
     }
 
-    /// Unpins a node.
-    pub fn forget(&mut self, node: NodeId) {
-        match &mut self.inner {
-            Inner::Fat(fat) => fat.forget(node),
-            Inner::ExFat(fat) => fat.forget(node),
-            Inner::Ntfs(ntfs) => ntfs.forget(node),
-        }
+    async fn resolve(&mut self, path: &[u8], how: Resolve) -> FsResult<NodeId, D::Error> {
+        each!(&mut self.inner, fs => fs.resolve(path, how).await)
     }
 
-    /// The directory containing `dir`.
-    pub async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
-        match &mut self.inner {
-            Inner::Fat(fat) => fat.parent(dir).await,
-            Inner::ExFat(fat) => fat.parent(dir).await,
-            Inner::Ntfs(ntfs) => ntfs.parent(dir).await,
-        }
+    async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
+        each!(&mut self.inner, fs => fs.stat(node).await)
     }
 
-    /// Marks a pinned node open.
-    pub async fn open_node(&mut self, node: NodeId) -> FsResult<(), D::Error> {
-        match &mut self.inner {
-            Inner::Fat(fat) => fat.open_node(node).await,
-            Inner::ExFat(fat) => fat.open_node(node).await,
-            Inner::Ntfs(_) => Ok(()),
-        }
+    async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
+        each!(&mut self.inner, fs => fs.readdir(dir, from).await)
     }
 
-    /// Ends an [`open_node`](Self::open_node).
-    pub fn close_node(&mut self, node: NodeId) {
-        match &mut self.inner {
-            Inner::Fat(fat) => fat.close_node(node),
-            Inner::ExFat(fat) => fat.close_node(node),
-            Inner::Ntfs(_) => {}
-        }
+    async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
+        each!(&mut self.inner, fs => fs.readlink(node, buf).await)
     }
 
-    /// Writes a node's pending metadata without flushing the device.
-    pub async fn publish_node(&mut self, node: NodeId) -> FsResult<(), D::Error> {
-        match &mut self.inner {
-            Inner::Fat(fat) => fat.publish_node(node).await,
-            Inner::ExFat(fat) => fat.publish_node(node).await,
-            Inner::Ntfs(_) => Ok(()),
-        }
+    async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
+        each!(&mut self.inner, fs => fs.open(node, mode).await)
     }
 
-    /// Creates `name` in `dir` and pins it.
-    pub async fn create(
-        &mut self,
-        dir: NodeId,
-        name: &Name,
-        kind: NewNode<'_>,
-        meta: &SetMetadata,
-    ) -> FsResult<NodeId, D::Error> {
-        match &mut self.inner {
-            Inner::Fat(fat) => fat.create(dir, name, kind, meta).await,
-            Inner::ExFat(fat) => fat.create(dir, name, kind, meta).await,
-            Inner::Ntfs(_) => read_only(),
-        }
+    async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+        each!(&mut self.inner, fs => fs.close(node).await)
     }
 
-    /// Removes `name` from `dir`.
-    pub async fn remove(&mut self, dir: NodeId, name: &Name, kind: RemoveKind) -> FsResult<(), D::Error> {
-        match &mut self.inner {
-            Inner::Fat(fat) => fat.remove(dir, name, kind).await,
-            Inner::ExFat(fat) => fat.remove(dir, name, kind).await,
-            Inner::Ntfs(_) => read_only(),
-        }
+    async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
+        each!(&mut self.inner, fs => fs.read(node, offset, buf).await)
     }
 
-    /// Moves `from` in `from_dir` to `to` in `to_dir`.
-    pub async fn rename(
+    async fn setattr(&mut self, node: NodeId, changes: &SetAttr) -> FsResult<(), D::Error> {
+        each!(&mut self.inner, fs => fs.setattr(node, changes).await)
+    }
+
+    async fn write(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, D::Error> {
+        each!(&mut self.inner, fs => fs.write(node, offset, buf).await)
+    }
+
+    async fn truncate(&mut self, node: NodeId, len: u64) -> FsResult<(), D::Error> {
+        each!(&mut self.inner, fs => fs.truncate(node, len).await)
+    }
+
+    async fn fsync(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+        each!(&mut self.inner, fs => fs.fsync(node).await)
+    }
+
+    async fn create(&mut self, dir: NodeId, name: &Name, attrs: &SetAttr) -> FsResult<NodeId, D::Error> {
+        each!(&mut self.inner, fs => fs.create(dir, name, attrs).await)
+    }
+
+    async fn mkdir(&mut self, dir: NodeId, name: &Name, attrs: &SetAttr) -> FsResult<NodeId, D::Error> {
+        each!(&mut self.inner, fs => fs.mkdir(dir, name, attrs).await)
+    }
+
+    async fn unlink(&mut self, dir: NodeId, name: &Name) -> FsResult<(), D::Error> {
+        each!(&mut self.inner, fs => fs.unlink(dir, name).await)
+    }
+
+    async fn rmdir(&mut self, dir: NodeId, name: &Name) -> FsResult<(), D::Error> {
+        each!(&mut self.inner, fs => fs.rmdir(dir, name).await)
+    }
+
+    async fn rename(
         &mut self,
         from_dir: NodeId,
         from: &Name,
         to_dir: NodeId,
         to: &Name,
-        flags: RenameFlags,
+        mode: RenameMode,
     ) -> FsResult<(), D::Error> {
-        match &mut self.inner {
-            Inner::Fat(fat) => fat.rename(from_dir, from, to_dir, to, flags).await,
-            Inner::ExFat(fat) => fat.rename(from_dir, from, to_dir, to, flags).await,
-            Inner::Ntfs(_) => read_only(),
-        }
+        each!(&mut self.inner, fs => fs.rename(from_dir, from, to_dir, to, mode).await)
     }
 
-    /// Writes to a file at `offset`.
-    pub async fn write_at(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, D::Error> {
-        match &mut self.inner {
-            Inner::Fat(fat) => fat.write_at(node, offset, buf).await,
-            Inner::ExFat(fat) => fat.write_at(node, offset, buf).await,
-            Inner::Ntfs(_) => read_only(),
-        }
-    }
-
-    /// Sets a file's length.
-    pub async fn set_len(&mut self, node: NodeId, len: u64) -> FsResult<(), D::Error> {
-        match &mut self.inner {
-            Inner::Fat(fat) => fat.set_len(node, len).await,
-            Inner::ExFat(fat) => fat.set_len(node, len).await,
-            Inner::Ntfs(_) => read_only(),
-        }
-    }
-
-    /// Changes a node's metadata.
-    pub async fn set_metadata(&mut self, node: NodeId, changes: &SetMetadata) -> FsResult<(), D::Error> {
-        match &mut self.inner {
-            Inner::Fat(fat) => fat.set_metadata(node, changes).await,
-            Inner::ExFat(fat) => fat.set_metadata(node, changes).await,
-            Inner::Ntfs(_) => read_only(),
-        }
-    }
-
-    /// Makes one node durable.
-    pub async fn sync_node(&mut self, node: NodeId) -> FsResult<(), D::Error> {
-        match &mut self.inner {
-            Inner::Fat(fat) => fat.sync_node(node).await,
-            Inner::ExFat(fat) => fat.sync_node(node).await,
-            Inner::Ntfs(_) => Ok(()),
-        }
-    }
-
-    /// Writes every piece of cached metadata and flushes the device.
-    pub async fn sync(&mut self) -> FsResult<(), D::Error> {
-        match &mut self.inner {
-            Inner::Fat(fat) => fat.sync().await,
-            Inner::ExFat(fat) => fat.sync().await,
-            Inner::Ntfs(_) => Ok(()),
-        }
+    async fn sync(&mut self) -> FsResult<(), D::Error> {
+        each!(&mut self.inner, fs => fs.sync().await)
     }
 }
 
 }
-
-impl_block_driver!(impl[D: BlockDevice] OpenVolume<D>, error = D::Error; also = [parent, open_node, close_node, publish_node]);

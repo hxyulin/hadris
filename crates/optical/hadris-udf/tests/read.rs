@@ -4,8 +4,8 @@
 
 mod common;
 
+use common::Paths;
 use common::{image, open, pattern, reseal};
-use hadris_fs::sync::{DriverExt, FsDriver};
 use hadris_fs::tree::{Content, Tree};
 use hadris_udf::UdfOptions;
 use hadris_udf::raw::{ExtendedFileEntry, FileEntry, Tag, Timestamp, U16Le, U32Le, U64Le, tag};
@@ -28,7 +28,7 @@ fn volume() -> (Vec<u8>, u64, u64, u64) {
     let report = hadris_udf::sync::plan(&tree, &options).unwrap();
     let bytes = image(&tree, &options);
     let mut udf = open(bytes.clone());
-    let f = udf.resolve("/f.bin").unwrap();
+    let f = udf.resolve_path("/f.bin").unwrap();
     let icb = PARTITION + f.get() - 1;
     let data = report.extent_of("f.bin").unwrap().offset() / 2048;
     (bytes, icb, data, report.allocated_end() + 8)
@@ -112,7 +112,7 @@ fn allocation_descriptors_of_every_form_read_back() {
     set_ads(&mut bytes, icb, 3, 100, &expected[..100]);
     let mut udf = open(bytes);
     assert_eq!(udf.read_to_vec("/f.bin").unwrap(), &expected[..100]);
-    let f = udf.resolve("/f.bin").unwrap();
+    let f = udf.resolve_path("/f.bin").unwrap();
     let mut extents = 0;
     udf.extents(f, |_| extents += 1).unwrap();
     assert_eq!(extents, 0);
@@ -189,7 +189,7 @@ fn extended_file_entries_read() {
     );
     let mut udf = open(bytes);
     assert_eq!(udf.read_to_vec("/f.bin").unwrap(), pattern(5000, 7));
-    let created = udf.metadata("/f.bin").unwrap().times().created().unwrap();
+    let created = udf.metadata("/f.bin").unwrap().created().unwrap();
     assert_eq!(created.unix_seconds(), 981_173_106);
 }
 
@@ -197,7 +197,7 @@ fn extended_file_entries_read() {
 fn identifiers_cross_extent_boundaries() {
     let (mut bytes, _, _, free) = volume();
     let mut udf = open(bytes.clone());
-    let many = udf.resolve("/many").unwrap();
+    let many = udf.resolve_path("/many").unwrap();
     let icb = PARTITION + many.get() - 1;
     let fe = sector(&mut bytes, icb).to_vec();
     let len = u32::from_le_bytes(fe[176..180].try_into().unwrap());
@@ -216,10 +216,7 @@ fn identifiers_cross_extent_boundaries() {
         &[ad(2048, 0, start), ad(len - 2048, 0, free)].concat(),
     );
     let mut udf = open(bytes);
-    let dir = udf.read_dir("/many").unwrap();
-    let names: Vec<_> = dir
-        .map(|entry| entry.unwrap().name_str().unwrap().to_string())
-        .collect();
+    let names = udf.names("/many").unwrap();
     assert_eq!(names.len(), 80);
     assert_eq!(names[79], "file-079.txt");
     assert_eq!(udf.read_to_vec("/many/file-050.txt").unwrap(), b"file 50");

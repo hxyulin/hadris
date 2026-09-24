@@ -10,23 +10,25 @@ use std::collections::BTreeSet;
 use common::{CASES, Case, Device, Fs, block_on, formatted, payload};
 use hadris_fat::FormatOptions;
 use hadris_fat::sync::FatFs;
-use hadris_fs::{
-    DirCursor, ErrorKind, Name, NameBuf, NewNode, NodeId, NodeTable, RemoveKind, RenameFlags,
-    SetMetadata,
-};
+use hadris_fs::r#async::FileSystem as _;
+use hadris_fs::sync::FileSystem;
+use hadris_fs::{DirCursor, ErrorKind, FileType, Name, NodeId, NodeTable, RenameMode, SetAttr};
 
 fn name(text: &str) -> &Name {
-    Name::new(text).unwrap()
+    Name::new(text)
 }
 
-fn create(fs: &mut Fs, dir: NodeId, text: &str, kind: NewNode<'_>) -> NodeId {
-    fs.create(dir, name(text), kind, &SetMetadata::new())
-        .unwrap()
+fn create(fs: &mut Fs, dir: NodeId, text: &str, kind: FileType) -> NodeId {
+    match kind {
+        FileType::Dir => fs.mkdir(dir, name(text), &SetAttr::new()),
+        _ => fs.create(dir, name(text), &SetAttr::new()),
+    }
+    .unwrap()
 }
 
 fn write(fs: &mut Fs, node: NodeId, mut at: u64, mut data: &[u8]) {
     while !data.is_empty() {
-        let n = fs.write_at(node, at, data).unwrap();
+        let n = fs.write(node, at, data).unwrap();
         at += n as u64;
         data = &data[n..];
     }
@@ -36,7 +38,7 @@ fn read(fs: &mut Fs, node: NodeId, len: usize) -> Vec<u8> {
     let mut out = vec![0u8; len];
     let mut done = 0;
     while done < len {
-        let n = fs.read_at(node, done as u64, &mut out[done..]).unwrap();
+        let n = fs.read(node, done as u64, &mut out[done..]).unwrap();
         assert!(n > 0);
         done += n;
     }
@@ -44,7 +46,7 @@ fn read(fs: &mut Fs, node: NodeId, len: usize) -> Vec<u8> {
 }
 
 fn free(fs: &mut Fs) -> u64 {
-    fs.stats().unwrap().free_blocks()
+    fs.statfs().unwrap().free_blocks()
 }
 
 /// Checks the volume `fs` has written, and mounts it again.
@@ -60,15 +62,11 @@ fn assert_clean(fs: &mut Fs, what: &str) {
 }
 
 fn list(fs: &mut Fs, dir: NodeId) -> Vec<String> {
-    let mut cursor = DirCursor::start();
-    let mut buf = NameBuf::new();
+    let mut cursor = DirCursor::START;
     let mut out = Vec::new();
-    while fs
-        .read_dir_entry(dir, &mut cursor, &mut buf)
-        .unwrap()
-        .is_some()
-    {
-        out.push(buf.as_name().unwrap().to_str().unwrap().to_owned());
+    while let Some(entry) = fs.readdir(dir, cursor).unwrap() {
+        cursor = entry.next_cursor();
+        out.push(entry.name().to_str().unwrap().to_owned());
     }
     out
 }
@@ -87,7 +85,7 @@ fn names_sharing_a_prefix_get_distinct_short_names() {
     for case in [CASES[1], CASES[2]] {
         let mut fs = formatted(case, FormatOptions::new());
         let root = fs.root();
-        let dir = create(&mut fs, root, "reports", NewNode::Dir);
+        let dir = create(&mut fs, root, "reports", FileType::Dir);
         let count = 40;
         let mut nodes = BTreeSet::new();
         for i in 0..count {
@@ -95,16 +93,14 @@ fn names_sharing_a_prefix_get_distinct_short_names() {
                 &mut fs,
                 dir,
                 &format!("Quarterly report {i:02}.txt"),
-                NewNode::File,
+                FileType::File,
             );
             assert!(nodes.insert(node));
-            fs.forget(node);
+            fs.forget(node, 1);
         }
         for i in 0..count {
             let text = format!("QUARTERLY REPORT {i:02}.TXT");
-            let err = fs
-                .create(dir, name(&text), NewNode::File, &SetMetadata::new())
-                .unwrap_err();
+            let err = fs.create(dir, name(&text), &SetAttr::new()).unwrap_err();
             assert_eq!(
                 err.kind(),
                 ErrorKind::AlreadyExists,
@@ -119,16 +115,14 @@ fn names_sharing_a_prefix_get_distinct_short_names() {
                 .lookup(dir, name(&format!("quarterly report {:02}.txt", tail - 1)))
                 .unwrap();
             assert_eq!(node, long, "{}: {alias}", case.name);
-            fs.forget(node);
-            fs.forget(long);
-            let err = fs
-                .create(dir, name(&alias), NewNode::File, &SetMetadata::new())
-                .unwrap_err();
+            fs.forget(node, 1);
+            fs.forget(long, 1);
+            let err = fs.create(dir, name(&alias), &SetAttr::new()).unwrap_err();
             assert_eq!(err.kind(), ErrorKind::AlreadyExists);
         }
         assert_eq!(list(&mut fs, dir).len(), count);
         assert_clean(&mut fs, case.name);
-        fs.forget(dir);
+        fs.forget(dir, 1);
         let image = fs.into_inner().into_inner();
         let shorts = short_names(&image, b"QU");
         assert_eq!(shorts.len(), count, "{}", case.name);
@@ -148,28 +142,28 @@ fn names_sharing_a_prefix_get_distinct_short_names() {
 /// to the start and takes the holes.
 fn fragment(fs: &mut Fs, cluster: usize) -> Vec<u8> {
     let root = fs.root();
-    let runs = create(fs, root, "interleaved.bin", NewNode::File);
-    let gaps = create(fs, root, "gaps.bin", NewNode::File);
+    let runs = create(fs, root, "interleaved.bin", FileType::File);
+    let gaps = create(fs, root, "gaps.bin", FileType::File);
     let data = payload(30 * cluster, 7);
     for i in 0..10 {
         let at = 3 * i * cluster;
         write(fs, runs, at as u64, &data[at..at + 3 * cluster]);
         write(fs, gaps, (i * cluster) as u64, &payload(cluster, 1));
     }
-    fs.forget(runs);
-    fs.forget(gaps);
-    fs.remove(root, name("gaps.bin"), RemoveKind::File).unwrap();
+    fs.forget(runs, 1);
+    fs.forget(gaps, 1);
+    fs.unlink(root, name("gaps.bin")).unwrap();
     let tail = free(fs) as usize - 10;
-    let filler = create(fs, root, "filler.bin", NewNode::File);
+    let filler = create(fs, root, "filler.bin", FileType::File);
     write(fs, filler, 0, &payload(tail * cluster, 2));
-    fs.forget(filler);
+    fs.forget(filler, 1);
     assert_eq!(free(fs), 10);
     data
 }
 
 fn cluster_size(case: Case) -> usize {
     formatted(case, FormatOptions::new())
-        .stats()
+        .statfs()
         .unwrap()
         .block_size() as usize
 }
@@ -187,17 +181,17 @@ fn multi_cluster_io_over_fragmented_free_space() {
         assert_eq!(read(&mut small, node, size), runs, "{}", case.name);
         let mut odd = vec![0u8; 5 * cluster + 7];
         let at = cluster as u64 / 2;
-        assert_eq!(small.read_at(node, at, &mut odd).unwrap(), odd.len());
+        assert_eq!(small.read(node, at, &mut odd).unwrap(), odd.len());
         assert_eq!(odd[..], runs[at as usize..at as usize + odd.len()]);
         let patch = payload(7 * cluster, 3);
         write(&mut small, node, 2 * cluster as u64 + 9, &patch);
         let mut expected = runs.clone();
         expected[2 * cluster + 9..9 * cluster + 9].copy_from_slice(&patch);
         assert_eq!(read(&mut small, node, size), expected, "{}", case.name);
-        small.forget(node);
+        small.forget(node, 1);
 
         let data = payload(10 * cluster, 9);
-        let node = create(&mut small, root, "big.bin", NewNode::File);
+        let node = create(&mut small, root, "big.bin", FileType::File);
         write(&mut small, node, 0, &data);
         assert_eq!(free(&mut small), 0, "{}", case.name);
         let chain = common::chain(&mut small, node);
@@ -208,7 +202,7 @@ fn multi_cluster_io_over_fragmented_free_space() {
             case.name
         );
         assert_eq!(read(&mut small, node, data.len()), data, "{}", case.name);
-        small.forget(node);
+        small.forget(node, 1);
         assert_clean(&mut small, case.name);
 
         let image = small.into_inner().into_inner();
@@ -220,11 +214,10 @@ fn multi_cluster_io_over_fragmented_free_space() {
             "{}: remounted",
             case.name
         );
-        fs.forget(node);
+        fs.forget(node, 1);
         let root = fs.root();
-        fs.remove(root, name("big.bin"), RemoveKind::File).unwrap();
-        fs.remove(root, name("filler.bin"), RemoveKind::File)
-            .unwrap();
+        fs.unlink(root, name("big.bin")).unwrap();
+        fs.unlink(root, name("filler.bin")).unwrap();
         assert_eq!(
             free(&mut fs),
             free(&mut formatted(case, FormatOptions::new())) - 30,
@@ -243,15 +236,14 @@ fn allocation_wraps_to_the_start_and_fails_cleanly_when_full() {
     let mut fs = formatted(case, FormatOptions::new());
     let root = fs.root();
     let total = free(&mut fs) as usize;
-    let first = create(&mut fs, root, "first.bin", NewNode::File);
+    let first = create(&mut fs, root, "first.bin", FileType::File);
     write(&mut fs, first, 0, &payload(total / 2 * cluster, 1));
-    let second = create(&mut fs, root, "second.bin", NewNode::File);
+    let second = create(&mut fs, root, "second.bin", FileType::File);
     write(&mut fs, second, 0, &payload(total / 4 * cluster, 2));
-    fs.forget(first);
-    fs.remove(root, name("first.bin"), RemoveKind::File)
-        .unwrap();
+    fs.forget(first, 1);
+    fs.unlink(root, name("first.bin")).unwrap();
     let left = free(&mut fs) as usize;
-    let wrap = create(&mut fs, root, "wrap.bin", NewNode::File);
+    let wrap = create(&mut fs, root, "wrap.bin", FileType::File);
     let data = payload((left - 8) * cluster, 3);
     write(&mut fs, wrap, 0, &data);
     let chain = common::chain(&mut fs, wrap);
@@ -264,7 +256,7 @@ fn allocation_wraps_to_the_start_and_fails_cleanly_when_full() {
 
     let before = free(&mut fs);
     let err = fs
-        .write_at(
+        .write(
             second,
             (total / 4 * cluster) as u64,
             &payload(9 * cluster, 4),
@@ -272,13 +264,10 @@ fn allocation_wraps_to_the_start_and_fails_cleanly_when_full() {
         .unwrap_err();
     assert_eq!(err.kind(), ErrorKind::NoSpace);
     assert_eq!(free(&mut fs), before);
-    assert_eq!(
-        fs.node_metadata(second).unwrap().len(),
-        (total / 4 * cluster) as u64
-    );
+    assert_eq!(fs.stat(second).unwrap().len(), (total / 4 * cluster) as u64);
     assert_clean(&mut fs, "full");
-    fs.forget(second);
-    fs.forget(wrap);
+    fs.forget(second, 1);
+    fs.forget(wrap, 1);
 }
 
 #[test]
@@ -292,15 +281,13 @@ fn async_multi_cluster_io_matches_sync() {
     let mut sync_fs = formatted(case, FormatOptions::new());
     let root = sync_fs.root();
     fragment(&mut sync_fs, cluster);
-    sync_fs
-        .remove(root, name("filler.bin"), RemoveKind::File)
-        .unwrap();
+    sync_fs.unlink(root, name("filler.bin")).unwrap();
     let image = sync_fs.into_inner().into_inner();
     let mut sync_fs = common::mount(case, &image);
     let root = sync_fs.root();
-    let node = create(&mut sync_fs, root, "x.bin", NewNode::File);
+    let node = create(&mut sync_fs, root, "x.bin", FileType::File);
     write(&mut sync_fs, node, 0, &data);
-    sync_fs.forget(node);
+    sync_fs.forget(node, 1);
     sync_fs.sync().unwrap();
     let expected = sync_fs.into_inner().into_inner();
 
@@ -310,23 +297,20 @@ fn async_multi_cluster_io_matches_sync() {
         let mut fs = FatFs::open_with(dev, options).await.unwrap();
         let root = fs.root();
         let node = fs
-            .create(root, name("x.bin"), NewNode::File, &SetMetadata::new())
+            .create(root, name("x.bin"), &SetAttr::new())
             .await
             .unwrap();
         let mut at = 0;
         while at < data.len() {
-            at += fs.write_at(node, at as u64, &data[at..]).await.unwrap();
+            at += fs.write(node, at as u64, &data[at..]).await.unwrap();
         }
         let mut back = vec![0u8; data.len()];
         let mut done = 0;
         while done < back.len() {
-            done += fs
-                .read_at(node, done as u64, &mut back[done..])
-                .await
-                .unwrap();
+            done += fs.read(node, done as u64, &mut back[done..]).await.unwrap();
         }
         assert_eq!(back, data);
-        fs.forget(node);
+        fs.forget(node, 1);
         fs.sync().await.unwrap();
         fs.into_inner().into_inner()
     });
@@ -340,30 +324,26 @@ fn listing_resumes_while_the_directory_grows() {
         let root = fs.root();
         for dir in [None, Some("sub")] {
             let dir = match dir {
-                Some(text) => create(&mut fs, root, text, NewNode::Dir),
+                Some(text) => create(&mut fs, root, text, FileType::Dir),
                 None => root,
             };
             let mut expected = BTreeSet::new();
             for i in 0..20 {
                 let text = format!("before {i:03} long");
-                let node = create(&mut fs, dir, &text, NewNode::File);
-                fs.forget(node);
+                let node = create(&mut fs, dir, &text, FileType::File);
+                fs.forget(node, 1);
                 expected.insert(text);
             }
-            let mut cursor = DirCursor::start();
-            let mut buf = NameBuf::new();
+            let mut cursor = DirCursor::START;
             let mut seen = Vec::new();
             let mut added = 0;
-            while fs
-                .read_dir_entry(dir, &mut cursor, &mut buf)
-                .unwrap()
-                .is_some()
-            {
-                seen.push(buf.as_name().unwrap().to_str().unwrap().to_owned());
+            while let Some(entry) = fs.readdir(dir, cursor).unwrap() {
+                cursor = entry.next_cursor();
+                seen.push(entry.name().to_str().unwrap().to_owned());
                 if added < 30 {
                     let text = format!("during {added:03} long");
-                    let node = create(&mut fs, dir, &text, NewNode::File);
-                    fs.forget(node);
+                    let node = create(&mut fs, dir, &text, FileType::File);
+                    fs.forget(node, 1);
                     expected.insert(text);
                     added += 1;
                 }
@@ -371,13 +351,10 @@ fn listing_resumes_while_the_directory_grows() {
             let unique: BTreeSet<_> = seen.iter().cloned().collect();
             assert_eq!(unique.len(), seen.len(), "{}: a name repeats", case.name);
             assert_eq!(unique, expected, "{}", case.name);
-            let mut again = DirCursor::from_raw(0);
-            fs.read_dir_entry(dir, &mut again, &mut buf)
-                .unwrap()
-                .unwrap();
-            assert_eq!(buf.as_name().unwrap().to_str().unwrap(), seen[0]);
+            let first = fs.readdir(dir, DirCursor::from_raw(0)).unwrap().unwrap();
+            assert_eq!(first.name().to_str().unwrap(), seen[0]);
             if dir != root {
-                fs.forget(dir);
+                fs.forget(dir, 1);
             }
         }
         assert_clean(&mut fs, case.name);
@@ -386,52 +363,45 @@ fn listing_resumes_while_the_directory_grows() {
 
 fn pins_follow_renames_and_removals<T: NodeTable>(mut fs: FatFs<Device, T>, count: usize) {
     let root = fs.root();
-    let new = SetMetadata::new();
-    let dir = fs.create(root, name("pins"), NewNode::Dir, &new).unwrap();
+    let new = SetAttr::new();
+    let dir = fs.mkdir(root, name("pins"), &new).unwrap();
     let mut pinned = Vec::new();
     for i in 0..count {
-        let node = fs
-            .create(dir, name(&format!("f{i}")), NewNode::File, &new)
-            .unwrap();
+        let node = fs.create(dir, name(&format!("f{i}")), &new).unwrap();
         pinned.push(node);
     }
     for (i, &node) in pinned.iter().enumerate() {
         let again = fs.lookup(dir, name(&format!("f{i}"))).unwrap();
         assert_eq!(again, node);
-        fs.forget(again);
+        fs.forget(again, 1);
     }
     fs.rename(
         dir,
         name("f7"),
         dir,
         name("renamed seven"),
-        RenameFlags::empty(),
+        RenameMode::Replace,
     )
     .unwrap();
     assert_eq!(fs.lookup(dir, name("renamed seven")).unwrap(), pinned[7]);
-    fs.forget(pinned[7]);
-    let fresh = fs.create(dir, name("f7"), NewNode::File, &new).unwrap();
+    fs.forget(pinned[7], 1);
+    let fresh = fs.create(dir, name("f7"), &new).unwrap();
     assert_ne!(fresh, pinned[7]);
     assert_eq!(fs.lookup(dir, name("f7")).unwrap(), fresh);
-    fs.forget(fresh);
-    fs.remove(dir, name("f8"), RemoveKind::File).unwrap();
-    assert_eq!(
-        fs.node_metadata(pinned[8]).unwrap_err().kind(),
-        ErrorKind::NotFound
-    );
-    let over = fs
-        .create(dir, name("f8 again"), NewNode::File, &new)
-        .unwrap();
+    fs.forget(fresh, 1);
+    fs.unlink(dir, name("f8")).unwrap();
+    assert_eq!(fs.stat(pinned[8]).unwrap_err().kind(), ErrorKind::NotFound);
+    let over = fs.create(dir, name("f8 again"), &new).unwrap();
     assert_ne!(over, pinned[8]);
     for i in [0, 9, count - 1] {
         let again = fs.lookup(dir, name(&format!("f{i}"))).unwrap();
         assert_eq!(again, pinned[i]);
-        fs.forget(again);
+        fs.forget(again, 1);
     }
     for node in pinned.into_iter().chain([fresh, over]) {
-        fs.forget(node);
+        fs.forget(node, 1);
     }
-    fs.forget(dir);
+    fs.forget(dir, 1);
     assert_eq!(fs.open_nodes(), 1);
     let dir = fs.lookup(root, name("pins")).unwrap();
     let a = fs.lookup(dir, name("f1")).unwrap();
@@ -439,7 +409,7 @@ fn pins_follow_renames_and_removals<T: NodeTable>(mut fs: FatFs<Device, T>, coun
     assert_ne!(a, b);
     assert_eq!(fs.lookup(dir, name("f1")).unwrap(), a);
     for node in [a, a, b, dir] {
-        fs.forget(node);
+        fs.forget(node, 1);
     }
     assert_eq!(fs.open_nodes(), 1);
     fs.sync().unwrap();

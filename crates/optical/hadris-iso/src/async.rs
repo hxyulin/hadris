@@ -9,9 +9,7 @@ use hadris_fs::r#async as fs;
 use hadris_part::r#async as part;
 use hadris_storage::r#async as storage;
 
-macro_rules! impl_iso_driver {
-    ($($t:tt)*) => { hadris_fs::impl_fs_driver!(async, $($t)*); };
-}
+use hadris_fs::r#async::FileSystem;
 
 #[path = "image.rs"]
 mod image;

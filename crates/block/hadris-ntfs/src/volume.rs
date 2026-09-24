@@ -1,6 +1,6 @@
 //! Volume state read at mount time, shared by the modes.
 
-use hadris_fs::{Capabilities, CaseSensitivity, NameCharset, NodeId};
+use hadris_fs::{Capabilities, CaseRule, Charset, Field, NodeId, Stored};
 
 use crate::error::Detail;
 use crate::raw;
@@ -173,11 +173,14 @@ impl Info {
     }
 
     pub(crate) fn capabilities(&self) -> Capabilities {
-        Capabilities::new()
+        Capabilities::new(CaseRule::InsensitivePreserving, Charset::Unicode, 765)
             .with_hard_links()
-            .with_case_sensitivity(CaseSensitivity::InsensitivePreserving)
-            .with_max_name_len(765)
-            .with_name_charset(NameCharset::Utf16)
+            .with_stored(Field::Created, Stored::Yes)
+            .with_stored(Field::Modified, Stored::Yes)
+            .with_stored(Field::Accessed, Stored::Yes)
+            .with_stored(Field::Changed, Stored::Yes)
+            .with_stored(Field::Permissions, Stored::Partial)
+            .with_stored(Field::Attributes, Stored::Yes)
             .with_timestamp_resolution_ns(100)
     }
 }
@@ -185,7 +188,10 @@ impl Info {
 /// The node id of a file reference: the record number, with the sequence
 /// number in the top 16 bits.
 pub(crate) const fn node_id(record: u64, sequence: u16) -> NodeId {
-    NodeId::new(record | (sequence as u64) << 48)
+    match NodeId::new(record | (sequence as u64) << 48) {
+        Some(id) => id,
+        None => panic!("record 0 with sequence 0 is never a node id"),
+    }
 }
 
 /// The `$INDEX_ROOT` of a directory's `$I30` index, borrowed from its

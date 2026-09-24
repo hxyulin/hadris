@@ -1,19 +1,18 @@
 # hadris-fs
 
-Shared filesystem vocabulary and driver traits for the Hadris crates.
+Shared filesystem vocabulary and the filesystem trait for the Hadris crates.
 
 The vocabulary is mode-independent and performs no I/O:
 
 - `NodeId` and `FileType`
-- `Name`, `NameBuf` and `OwnedName`: validated byte names that need no allocator (`NameBuf` holds 1024 bytes by default)
-- `DateTime`, `FileTimes` and `Clock`, with civil-time conversions for on-disk encodings
-- `Metadata`, `SetMetadata`, `Mode` and `Attributes`
-- `Capabilities` and `FsStats`
+- `Name`, `NameBuf` and `OwnedName`: byte names that need no allocator (`NameBuf` holds 1024 bytes by default), checked with `Name::check`
+- `DateTime`, `Clock` and `FileTimes`, with civil-time conversions for on-disk encodings
+- `Metadata`, `Permissions`, `Owner`, `Attributes` and `SetAttr`, the changes `setattr`, `create` and `mkdir` apply
+- `Capabilities` (with `CaseRule`, `Charset`, `Field` and `Stored`) and `FsStats`
 - `ErrorKind`, the error categories shared by every crate, with `ErrorKind::errno()` and `Errno`
 - `Error<E>`, the error of every device and filesystem operation, re-exported from `hadris-io`: a kind, a static message, an optional `Location` and `DetailCode`, and the device's own error `E` without allocation; and `PathError` (`alloc`), which erases `E` and names the tree or host path that failed, for writers and code that mixes devices
-- `DirCursor` and `DirEntry` for resumable directory reads
-- `OpenOptions`, `RenameFlags`, `RemoveKind` and `NewNode`
-- `path`: allocation-free lexical virtual paths (formerly `hadris-path`)
+- `DirCursor` and `DirEntry` for resumable directory reads; an entry holds its name inline
+- `OpenMode`, `OpenOptions`, `RenameMode` and `Resolve`
 - `FuseOnError`, an iterator adapter that ends after the first `Err`
 - `NodeTable`, per-node driver state with pin counts for formats without
   stable inode numbers: `FixedTable<N>` needs no allocator, `HeapTable`
@@ -25,46 +24,37 @@ The vocabulary is mode-independent and performs no I/O:
   `Tree::from_fs` (`std`) imports a host directory, and `Warning` is the
   shape writers use to report what they could not store
 
-The `sync` and `async` features add the driver layer, each
-generated from one source:
+The `sync` and `async` features add the API that does I/O, each generated
+from one source:
 
-- `FsDriver`, which format crates implement on `&mut self`, usually through
-  `impl_fs_driver!` over inherent methods, and `FileSystem`, the same node
-  API on `&self` for shared code. `lookup` pins a node and `forget` unpins
-  it; `open_node` and `close_node` mark it open, and only the last name of
-  an open node refuses removal (`ErrorKind::Busy`). `sync_node` is durable,
-  `publish_node` writes pending metadata without a device flush. The trait
-  docs hold the full contract and the rules for adding methods after 3.0
-- `Volume<F, K>`, a driver behind a lock picked by type (`Volume::new`,
-  `Volume::spin`, `Volume::local`), opt-in
-- `Lexical` (default) and `Posix<N>` path resolvers, chosen per call, per
-  driver (`with_resolver`) or per volume; neither allocates
-- `DriverExt` and `PathExt` path helpers, `OpenFile` for kernel file tables,
-  and `File<A>`/`Dir<A>` handles for every tier, with `std::io` on `File` in
-  sync builds
+- `FileSystem`, which every format implements on node ids and `&mut self`.
+  `lookup` and `resolve` pin a node and `forget` unpins it; `open` and
+  `close` mark it open, and only the last name of an open node refuses
+  removal (`ErrorKind::Busy`). `close` publishes size and times, `fsync`
+  and `sync` are durable. The write half defaults to
+  `ErrorKind::ReadOnly`. The trait docs hold the full contract and the
+  rules for adding methods after 3.0
+- `Volume<F>` (`std` in `sync`, `alloc` in `r#async`), which owns a
+  filesystem behind a lock and shares it between threads and tasks, with
+  paths and `File` and `ReadDir` handles named after `std::fs`
 - `ContentReader`, which reads a `Content` in that mode, and `TreeExt`,
-  whose `Tree::from_filesystem` builds a tree from any mounted filesystem
-  (`alloc`)
+  whose `Tree::from_filesystem` builds a tree from any filesystem (`alloc`)
 - `copy_tree` (`alloc`), which copies a file or directory tree between any
-  two filesystems on any tier and returns `PathError`, and in the sync API
-  with `std`, `extract_to_host` and `import_from_host`, which copy between a
+  two filesystems and returns `PathError`, and in the sync API with `std`,
+  `extract_to_host` and `import_from_host`, which copy between a
   filesystem and a host directory and refuse entry names or host symlinks
   that would leave the target directory
 
-Every tier does every job:
-
 ```rust,ignore
-// Raw: no lock, no allocation.
+// The trait: node ids, no lock, no allocation.
 let mut fs = FatFs::open(dev)?;
-fs.write_file("/boot.cfg", b"timeout=3")?;
+let node = fs.resolve(b"/boot.cfg", Resolve::Lexical)?;
+let meta = fs.stat(node)?;
+fs.forget(node, 1);
 
-// Shared: any number of handles.
-let vol = Volume::new(FatFs::open(file)?);
-let mut log = vol.open("/log.txt", OpenOptions::write().create().append())?;
-
-// Owned: handles that move to other threads.
-let vol = Arc::new(Volume::new(FatFs::open(file)?));
-let file = File::open(Arc::clone(&vol), "/big.bin", OpenOptions::read())?;
+// The volume: paths and any number of handles, on any thread.
+let vol = Volume::new(fs);
+let mut log = vol.open("/log.txt", OpenOptions::new().write().create().append())?;
 ```
 
 `r#async` has the same API with `Send` futures, so generic code over
@@ -75,25 +65,25 @@ let file = File::open(Arc::clone(&vol), "/big.bin", OpenOptions::read())?;
 ```rust
 use hadris_fs::{CivilDate, CivilTime, DateTime, Name, OpenOptions};
 
-assert_eq!(Name::new("kernel.efi").unwrap().len(), 10);
-assert!(Name::new("a/b").is_err());
+assert_eq!(Name::new("kernel.efi").len(), 10);
+assert!(Name::new("a/b").check().is_err());
 
 let date = CivilDate::new(2024, 2, 29).unwrap();
 let time = DateTime::from_civil(date, CivilTime::MIDNIGHT, None).unwrap();
 assert_eq!(time.unix_seconds(), 1_709_164_800);
 
-assert!(OpenOptions::write().create().append().validate().is_ok());
+assert!(OpenOptions::new().write().create().append().validate().is_ok());
 ```
 
 ## Features
 
 | Feature | Default | Purpose |
 |---|---:|---|
-| `alloc` | No | `OwnedName`, `PathError`, `read_to_vec`, `copy_tree`, `Box`/`Rc`/`Arc` impls, owned path normalization, and `tree` with `ContentReader` and `TreeExt` |
-| `std` | No | Implies `alloc`; adds `SystemClock`, `StdMutex`, `std::io` on handles, the sync host helpers, `Content::path`, `Tree::from_fs` and conversions to `std::io::Error` |
-| `sync` | No | Blocking driver traits, `Volume`, resolvers, helpers and handles in `sync` |
-| `async` | No | The same API with `Send` futures in `r#async`; `AsyncMutex` with `alloc` |
-| `contract` | No | The driver contract kit: `contract::check` in each mode, for testing a format against the `FsDriver` contract |
+| `alloc` | No | `OwnedName`, `PathError`, `HeapTable`, `copy_tree`, the async `Volume`, `Box` forwarding, and `tree` with `ContentReader` and `TreeExt` |
+| `std` | No | Implies `alloc`; adds `SystemClock`, the sync `Volume` and its `std::io` handles, the sync host helpers, `Content::path`, `Tree::from_fs` and conversions to `std::io::Error` |
+| `sync` | No | The blocking API in `sync` |
+| `async` | No | The same API with `Send` futures in `r#async` |
+| `contract` | No | The driver contract kit: `contract::check` in each mode, for testing a format against the `FileSystem` contract |
 
 ## Documentation
 

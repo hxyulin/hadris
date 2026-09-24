@@ -13,7 +13,8 @@ use std::collections::HashSet;
 
 use hadris_fat::exfat::sync::{check, ExFatFs};
 use hadris_fat::exfat::MountOptions;
-use hadris_fs::{DirCursor, FileType, HeapTable, NameBuf, NodeId};
+use hadris_fs::sync::FileSystem;
+use hadris_fs::{DirCursor, FileType, HeapTable, NodeId};
 use hadris_storage::{BlockSize, MemDevice};
 use libfuzzer_sys::fuzz_target;
 
@@ -68,7 +69,7 @@ fn read_pass(fs: &mut Fs<'_>, node: NodeId) -> (Vec<u8>, bool) {
     let mut buf = [0u8; 64 * 1024];
     let mut out = Vec::new();
     loop {
-        match fs.read_at(node, out.len() as u64, &mut buf) {
+        match fs.read(node, out.len() as u64, &mut buf) {
             Ok(0) => return (out, false),
             Err(_) => return (out, true),
             Ok(n) => {
@@ -114,8 +115,8 @@ fn drive(data: &[u8]) {
     let Ok(mut fs) = ExFatFs::open_with(dev, options) else {
         return;
     };
-    let _ = fs.label();
-    let _ = fs.stats();
+    let _ = fs.label(&mut [0u8; 64]);
+    let _ = fs.statfs();
 
     // Depth-guarded worklist with a flat work budget: a corrupt directory
     // graph has a path count that grows like branching^depth, so bound the
@@ -128,21 +129,19 @@ fn drive(data: &[u8]) {
         }
         let mut lookups = 0usize;
         let mut seen_names: HashSet<String> = HashSet::new();
-        let mut cursor = DirCursor::start();
-        let mut name = NameBuf::new();
+        let mut cursor = DirCursor::START;
         loop {
             if budget == 0 {
                 break 'walk;
             }
             budget -= 1;
-            let entry = match fs.read_dir_entry(dir, &mut cursor, &mut name) {
+            let entry = match fs.readdir(dir, cursor) {
                 Ok(Some(entry)) => entry,
                 Ok(None) | Err(_) => break,
             };
+            cursor = entry.next_cursor();
             let node = entry.node();
-            let Some(child_name) = name.as_name() else {
-                continue;
-            };
+            let child_name = entry.name();
             let Ok(text) = child_name.to_str().map(str::to_owned) else {
                 continue;
             };
@@ -157,15 +156,15 @@ fn drive(data: &[u8]) {
                 };
                 if is_new_name && found == node {
                     assert!(
-                        fs.node_metadata(found).is_ok(),
+                        fs.stat(found).is_ok(),
                         "ORACLE: lookup({text:?}) returned a node without metadata"
                     );
                 }
-                fs.forget(found);
+                fs.forget(found, 1);
             }
 
             if entry.file_type() == FileType::Dir {
-                let _ = fs.parent(node).map(|parent| fs.forget(parent));
+                let _ = fs.parent(node).map(|parent| fs.forget(parent, 1));
                 stack.push((node, depth + 1));
                 continue;
             }

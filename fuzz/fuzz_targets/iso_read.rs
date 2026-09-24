@@ -10,7 +10,8 @@
 
 use std::collections::HashSet;
 
-use hadris_fs::{DirCursor, ErrorKind, FileType, NameBuf, NodeId};
+use hadris_fs::sync::FileSystem;
+use hadris_fs::{DirCursor, ErrorKind, FileType, NodeId};
 use hadris_iso::sync::{IsoImage, IsoView};
 use hadris_storage::{BlockSize, MemDevice};
 use libfuzzer_sys::fuzz_target;
@@ -29,7 +30,7 @@ fn read_pass(view: &mut View<'_>, node: NodeId) -> (Vec<u8>, bool) {
     let mut buf = [0u8; 64 * 1024];
     let mut out = Vec::new();
     loop {
-        match view.read_at(node, out.len() as u64, &mut buf) {
+        match view.read(node, out.len() as u64, &mut buf) {
             Ok(0) => return (out, false),
             Err(_) => return (out, true),
             Ok(n) => {
@@ -46,7 +47,8 @@ fn read_pass(view: &mut View<'_>, node: NodeId) -> (Vec<u8>, bool) {
 /// or ancestor directories) has a path count that grows like
 /// branching^depth, so a flat work budget bounds the entries processed.
 fn walk(view: &mut View<'_>, budget: &mut u32) {
-    let _ = view.stats();
+    let _ = view.statfs();
+    let _ = view.label(&mut [0u8; 384]);
     let mut stack = vec![(view.root(), 0u32)];
     'walk: while let Some((dir, depth)) = stack.pop() {
         if depth > 64 {
@@ -57,21 +59,19 @@ fn walk(view: &mut View<'_>, budget: &mut u32) {
         let _ = view.raw_record(dir);
         let mut lookups = 0usize;
         let mut seen_names: HashSet<Vec<u8>> = HashSet::new();
-        let mut cursor = DirCursor::start();
-        let mut name = NameBuf::new();
+        let mut cursor = DirCursor::START;
         loop {
             if *budget == 0 {
                 break 'walk;
             }
             *budget -= 1;
-            let entry = match view.read_dir_entry(dir, &mut cursor, &mut name) {
+            let entry = match view.readdir(dir, cursor) {
                 Ok(Some(entry)) => entry,
                 Ok(None) | Err(_) => break,
             };
+            cursor = entry.next_cursor();
             let node = entry.node();
-            let Some(child_name) = name.as_name() else {
-                continue;
-            };
+            let child_name = entry.name();
             let bytes = child_name.as_bytes().to_vec();
             let is_new_name = seen_names.insert(bytes.clone());
 
@@ -84,7 +84,7 @@ fn walk(view: &mut View<'_>, budget: &mut u32) {
                 // a corrupt image can place anywhere; any other node's comes
                 // from the record just listed.
                 if is_new_name && found == node && entry.file_type() != FileType::Dir {
-                    if let Err(err) = view.node_metadata(found) {
+                    if let Err(err) = view.stat(found) {
                         assert_ne!(
                             err.kind(),
                             ErrorKind::InvalidHandle,
@@ -92,7 +92,7 @@ fn walk(view: &mut View<'_>, budget: &mut u32) {
                         );
                     }
                 }
-                view.forget(found);
+                view.forget(found, 1);
             }
 
             let _ = view.rock_ridge(node);
@@ -102,7 +102,7 @@ fn walk(view: &mut View<'_>, budget: &mut u32) {
                 FileType::Dir => stack.push((node, depth + 1)),
                 FileType::Symlink => {
                     let mut target = [0u8; 4096];
-                    let _ = view.read_link(node, &mut target);
+                    let _ = view.readlink(node, &mut target);
                 }
                 _ => {
                     let first = read_pass(view, node);

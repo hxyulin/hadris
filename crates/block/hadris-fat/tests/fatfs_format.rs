@@ -2,11 +2,12 @@
 
 #[path = "common/fatfs.rs"]
 mod common;
+use common::{FsPaths, VolumePaths};
 
 use common::{CASES, fsck};
 use hadris_fat::sync::{FatFs, format};
 use hadris_fat::{FatKind, FormatOptions, MountOptions, VolumeLabel};
-use hadris_fs::sync::{DriverExt, FileSystem, PathExt, Volume};
+use hadris_fs::sync::{FileSystem, Volume};
 use hadris_fs::{Clock, DateTime, ErrorKind, HeapTable, NoClock};
 use hadris_storage::{BlockSize, MemDevice};
 
@@ -43,8 +44,8 @@ fn exercise(image: Vec<u8>, block: u32, expected: FatKind, name: &str) -> Vec<u8
     vol.write_file("/Some Dir/inner/data.bin", &payload)
         .unwrap();
     vol.write_file("/README.TXT", b"formatted").unwrap();
-    vol.sync().unwrap();
-    let image = vol.into_inner().into_inner().into_inner();
+    vol.lock().sync().unwrap();
+    let image = vol.into_inner().unwrap().into_inner().into_inner();
     let dev = MemDevice::new(image.clone(), BlockSize::new(block).unwrap());
     let mut fs = FatFs::open_with(dev, MountOptions::new().with_table(HeapTable::new())).unwrap();
     assert!(
@@ -127,8 +128,8 @@ fn formats_every_kind_that_mounts_and_passes_fsck() {
         let image = formatted(bytes, block, options.with_label(label("hadris")));
         assert_eq!(bpb_label(&image), b"HADRIS     ", "{name}");
         let dev = MemDevice::new(image.clone(), BlockSize::new(block).unwrap());
-        let label = FatFs::open(dev).unwrap().label().unwrap().unwrap();
-        assert_eq!(label.as_str(), "HADRIS", "{name}");
+        let label = FatFs::open(dev).unwrap().label_text().unwrap().unwrap();
+        assert_eq!(label, "HADRIS", "{name}");
         exercise(image, block, kind, name);
     }
 }
@@ -222,7 +223,7 @@ fn boot_sector_fats_and_fsinfo_are_consistent() {
             assert_eq!(&info[484..488], b"rrAa", "FSInfo");
             assert_eq!(info[508..512], [0, 0, 0x55, 0xAA], "FSInfo");
             let dev = MemDevice::new(image.clone(), BlockSize::new(case.block).unwrap());
-            let free = FatFs::open(dev).unwrap().stats().unwrap().free_blocks();
+            let free = FatFs::open(dev).unwrap().statfs().unwrap().free_blocks();
             assert_eq!(
                 u32::from_le_bytes(info[488..492].try_into().unwrap()) as u64,
                 free,
@@ -347,14 +348,14 @@ fn smallest_volumes_and_kind_boundaries() {
         BlockSize::new(512).unwrap(),
     );
     let vol = Volume::new(FatFs::open(dev).unwrap());
-    assert_eq!(vol.stats().unwrap().free_blocks(), 1);
+    assert_eq!(vol.lock().statfs().unwrap().free_blocks(), 1);
     vol.write_file("/ONE.TXT", b"1").unwrap();
     assert_eq!(
         vol.write_file("/TWO.TXT", b"2").unwrap_err().kind(),
         ErrorKind::NoSpace
     );
-    vol.sync().unwrap();
-    let image = vol.into_inner().into_inner().into_inner();
+    vol.lock().sync().unwrap();
+    let image = vol.into_inner().unwrap().into_inner().into_inner();
     assert_eq!(bpb_label(&image), b"NO NAME    ");
     fsck(&image, "smallest");
     let tiny = FormatOptions::new().with_root_entries(16);
@@ -526,7 +527,7 @@ fn formats_a_partition_slice() {
         .with_hidden_sectors(first as u32)
         .with_label(label("PART"));
     let mut fs = format(slice, options).unwrap();
-    assert!(fs.stats().unwrap().total_blocks() > 0);
+    assert!(fs.statfs().unwrap().total_blocks() > 0);
     let _ = fs.into_inner();
     let bytes = disk.into_inner();
     let start = first as usize * 512;

@@ -1,10 +1,9 @@
 use std::io;
 
-use hadris_fs::sync::DriverExt;
-use hadris_fs::{FileType, OpenOptions};
+use hadris_fs::FileType;
 
 use super::super::args::VerifyArgs;
-use super::{Result, Udf, entries, join};
+use super::{Result, Udf, copy_file, entries, join};
 
 /// Verify UDF image structural integrity: open the volume, then walk the
 /// whole tree and read every file.
@@ -58,7 +57,7 @@ fn walk(udf: &mut Udf, path: &str, verbose: bool, tally: &mut Tally) {
         }
     };
     for item in items {
-        let child = join(path, &String::from_utf8_lossy(item.name_bytes()));
+        let child = join(path, &String::from_utf8_lossy(item.name().as_bytes()));
         if verbose {
             println!("  {child}");
         }
@@ -69,10 +68,7 @@ fn walk(udf: &mut Udf, path: &str, verbose: bool, tally: &mut Tally) {
             }
             FileType::File => {
                 tally.files += 1;
-                let read = udf
-                    .open(&child, OpenOptions::read())
-                    .map_err(io::Error::from)
-                    .and_then(|mut file| io::copy(&mut file, &mut io::sink()));
+                let read = copy_file(udf, &child, &mut io::sink());
                 if let Err(e) = read {
                     tally.errors.push(format!("{child}: {e}"));
                 }

@@ -1,4 +1,4 @@
-//! Volumes pass the read-only `FsDriver` contract kit, in each mode and
+//! Volumes pass the read-only `FileSystem` contract kit, in each mode and
 //! tier.
 
 mod common;
@@ -17,7 +17,7 @@ fn sync_raw_and_shared_tiers() {
         let vol = hadris_fs::sync::Volume::new(
             hadris_udf::sync::UdfFs::open(MemDevice::new(bytes, SECTOR)).unwrap(),
         );
-        hadris_fs::sync::contract::check_read_only(&mut &vol).unwrap();
+        hadris_fs::sync::contract::check_read_only(&mut *vol.lock()).unwrap();
     }
 }
 
@@ -36,7 +36,7 @@ fn async_modes() {
             .await
             .unwrap();
         let vol = hadris_fs::r#async::Volume::new(udf);
-        hadris_fs::r#async::contract::check_read_only(&mut &vol)
+        hadris_fs::r#async::contract::check_read_only(&mut *vol.lock().await)
             .await
             .unwrap();
     });

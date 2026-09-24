@@ -3,12 +3,13 @@
 
 #[path = "common/exfat.rs"]
 mod common;
+use common::FsPaths;
+use hadris_fs::sync::FileSystem;
 
 use common::{Geometry, clean, fsck};
 use hadris_fat::exfat::sync::{ExFatFs, format};
 use hadris_fat::exfat::{FormatOptions, VolumeLabel};
 use hadris_fs::ErrorKind;
-use hadris_fs::sync::DriverExt;
 
 #[test]
 fn formats_every_sector_size() {
@@ -23,7 +24,7 @@ fn formats_every_sector_size() {
             let mut fs = ExFatFs::open(dev).unwrap();
             let root = fs.root();
             let node = common::write_any(&mut fs, root, "a.txt", b"sector");
-            fs.forget(node);
+            fs.forget(node, 1);
             fs.sync().unwrap();
             let image = fs.into_inner().into_inner();
             assert_eq!(1usize << image[108], sector as usize);
@@ -99,7 +100,7 @@ fn labels_serials_and_offsets_are_written() {
         .with_volume_id(0xDEAD_BEEF)
         .with_partition_offset(2048);
     let mut fs = common::formatted(8 << 20, options);
-    assert_eq!(fs.label().unwrap().unwrap().to_string(), "Données");
+    assert_eq!(fs.label_text().unwrap().unwrap(), "Données");
     assert_eq!(fs.volume_id(), 0xDEAD_BEEF);
     let image = common::image(fs);
     assert_eq!(u64::from_le_bytes(image[64..72].try_into().unwrap()), 2048);

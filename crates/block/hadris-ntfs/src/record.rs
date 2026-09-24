@@ -466,16 +466,9 @@ impl Iterator for Runs<'_> {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FileName<'a> {
     pub(crate) parent: u64,
-    pub(crate) flags: u32,
     pub(crate) namespace: u8,
     /// UTF-16LE name.
     pub(crate) name: &'a [u8],
-}
-
-impl FileName<'_> {
-    pub(crate) fn is_dir(&self) -> bool {
-        self.flags & raw::FILE_NAME_INDEX_PRESENT != 0
-    }
 }
 
 /// Parses a `$FILE_NAME` value.
@@ -484,7 +477,7 @@ impl FileName<'_> {
 /// @hadris-compliance partial
 /// @hadris-tests record::tests::file_names_parse_and_bound_the_name
 /// @hadris-fuzz ntfs_read
-/// @hadris-note Parses the parent reference, flags, namespace and full UTF-16 name; the copies of times and sizes and the reparse tag are not used.
+/// @hadris-note Parses the parent reference, namespace and full UTF-16 name; the flags, the copies of times and sizes and the reparse tag are not used.
 pub(crate) fn file_name(value: &[u8]) -> Result<FileName<'_>, Detail> {
     if value.len() < 0x42 {
         return Err(Detail::FileName);
@@ -496,7 +489,6 @@ pub(crate) fn file_name(value: &[u8]) -> Result<FileName<'_>, Detail> {
     }
     Ok(FileName {
         parent: u64_at(value, 0),
-        flags: u32_at(value, 0x38),
         namespace: value[0x41],
         name,
     })

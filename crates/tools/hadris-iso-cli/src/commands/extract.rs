@@ -1,7 +1,7 @@
 use std::fs;
 
-use hadris_fs::sync::{FsDriver, extract_to_host};
-use hadris_fs::{DirCursor, NameBuf, NodeId};
+use hadris_fs::sync::{FileSystem, extract_to_host};
+use hadris_fs::{DirCursor, NodeId, Resolve};
 
 use super::super::args::ExtractArgs;
 
@@ -38,14 +38,14 @@ pub fn extract(args: ExtractArgs) -> Result<()> {
 /// root. Fails on names that are not one plain host path component.
 fn stored_name(view: &mut View<'_>, path: &str) -> Result<Option<String>> {
     let node = view
-        .resolve(path)
+        .resolve(path.as_bytes(), Resolve::Lexical)
         .map_err(|err| format!("Not found: {path}: {err}"))?;
     if node == view.root() {
-        view.forget(node);
+        view.forget(node, 1);
         return Ok(None);
     }
     let found = find_name(view, path, node);
-    view.forget(node);
+    view.forget(node, 1);
     let name = found?;
     if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
         return Err(format!(
@@ -58,19 +58,18 @@ fn stored_name(view: &mut View<'_>, path: &str) -> Result<Option<String>> {
 
 /// Scans the parent of `path` for the entry listed with id `node`.
 fn find_name(view: &mut View<'_>, path: &str, node: NodeId) -> Result<String> {
-    let parent = view.resolve(&format!("{path}/.."))?;
-    let mut cursor = DirCursor::start();
-    let mut name = NameBuf::new();
+    let parent = view.resolve(format!("{path}/..").as_bytes(), Resolve::Lexical)?;
+    let mut cursor = DirCursor::START;
     let found = loop {
-        match view.read_dir_entry(parent, &mut cursor, &mut name) {
+        match view.readdir(parent, cursor) {
             Ok(Some(entry)) if entry.node() == node => {
-                break Ok(String::from_utf8_lossy(name.as_bytes()).into_owned());
+                break Ok(String::from_utf8_lossy(entry.name().as_bytes()).into_owned());
             }
-            Ok(Some(_)) => {}
+            Ok(Some(entry)) => cursor = entry.next_cursor(),
             Ok(None) => break Err(format!("{path} is not listed in its directory").into()),
             Err(err) => break Err(err.into()),
         }
     };
-    view.forget(parent);
+    view.forget(parent, 1);
     found
 }

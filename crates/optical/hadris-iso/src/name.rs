@@ -68,6 +68,33 @@ pub(crate) fn decode_ucs2(raw: &[u8], out: &mut [u8]) -> Option<usize> {
     Some(len)
 }
 
+/// Decodes big-endian UCS-2 into UTF-8 in `out`, returning its length.
+/// Unpaired surrogates become U+FFFD. `None` when `out` is too small.
+pub(crate) fn label_ucs2(raw: &[u8], out: &mut [u8]) -> Option<usize> {
+    let units = raw
+        .chunks_exact(2)
+        .map(|pair| u16::from_be_bytes([pair[0], pair[1]]));
+    let mut len = 0;
+    for ch in char::decode_utf16(units) {
+        let ch = ch.unwrap_or(char::REPLACEMENT_CHARACTER);
+        ch.encode_utf8(out.get_mut(len..len + ch.len_utf8())?);
+        len += ch.len_utf8();
+    }
+    Some(len)
+}
+
+/// Decodes Latin-1 into UTF-8 in `out`, returning its length. `None` when
+/// `out` is too small.
+pub(crate) fn label_latin1(bytes: &[u8], out: &mut [u8]) -> Option<usize> {
+    let mut len = 0;
+    for &byte in bytes {
+        let ch = char::from(byte);
+        ch.encode_utf8(out.get_mut(len..len + ch.len_utf8())?);
+        len += ch.len_utf8();
+    }
+    Some(len)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -103,5 +130,20 @@ mod tests {
         let lone = [0xD8, 0x00, 0x00, b'a'];
         let len = decode_ucs2(&lone, &mut out).unwrap();
         assert_eq!(&out[..len], "\u{fffd}a".as_bytes());
+    }
+
+    #[test]
+    fn labels_decode_without_name_rules() {
+        let mut out = [0u8; 16];
+        let raw: Vec<u8> = "A/B;1".encode_utf16().flat_map(u16::to_be_bytes).collect();
+        let len = label_ucs2(&raw, &mut out).unwrap();
+        assert_eq!(&out[..len], b"A/B;1");
+        assert_eq!(label_ucs2(&[], &mut out), Some(0));
+        let len = label_ucs2(&[0xD8, 0x00, 0x00, 0x41], &mut out).unwrap();
+        assert_eq!(core::str::from_utf8(&out[..len]).unwrap(), "\u{FFFD}A");
+        let len = label_latin1(b"CAF\xC9", &mut out).unwrap();
+        assert_eq!(core::str::from_utf8(&out[..len]).unwrap(), "CAF\u{C9}");
+        assert_eq!(label_latin1(&[0xFF; 9], &mut out), None);
+        assert_eq!(label_ucs2(&[0x00, 0x41, 0x00], &mut out), Some(1));
     }
 }

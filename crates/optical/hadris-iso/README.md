@@ -9,8 +9,8 @@ desktop tools as well as `no_std` bootloaders, kernels and firmware.
 
 - **One reader for every tree.** `IsoImage` opens an image and `view` picks
   the primary tree, Rock Ridge names and metadata over it, the Joliet tree or
-  the ISO 9660:1999 enhanced tree. A view is a `hadris-fs` `FsDriver`, so
-  the shared path helpers, handles and `extract_to_host` work on it.
+  the ISO 9660:1999 enhanced tree. A view is a `hadris-fs` `FileSystem`, so
+  `Volume`, its handles and `extract_to_host` work on it.
 - **No allocator needed to read.** Views, lookups, listings and file reads
   use fixed buffers; only the boot catalog listing needs `alloc`.
 - **A writer driven by a shared tree.** `write` lays out a
@@ -40,23 +40,26 @@ enhanced tree are always available.
 ### Reading an image
 
 ```rust,no_run
-use hadris_fs::sync::DriverExt;
+use std::io::Read;
+
+use hadris_fs::OpenOptions;
+use hadris_fs::sync::Volume;
 use hadris_iso::Namespace;
 use hadris_iso::sync::IsoImage;
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
-let mut iso = IsoImage::open(hadris_storage::host::FileDevice::open("image.iso")?)?;
+let iso = IsoImage::open(hadris_storage::host::FileDevice::open("image.iso")?)?;
 println!("trees: {:?}", iso.namespaces().iter().collect::<Vec<_>>());
 
 // Rock Ridge if present, then Joliet, the enhanced tree, the primary tree.
-let mut view = iso.view(Namespace::Preferred)?;
-for item in view.read_dir("/")? {
+let vol = Volume::new(iso.into_view(Namespace::Preferred)?);
+for item in vol.read_dir("/")? {
     let item = item?;
-    println!("{:?} {}", item.file_type(), String::from_utf8_lossy(item.name_bytes()));
+    println!("{:?} {}", item.file_type(), String::from_utf8_lossy(item.name().as_bytes()));
 }
-let config = view.read_to_vec("/boot/grub/grub.cfg")?;
-hadris_fs::sync::extract_to_host(&mut view, "/", "out")?;
-# let _ = config;
+let mut config = String::new();
+vol.open("/boot/grub/grub.cfg", OpenOptions::new().read())?.read_to_string(&mut config)?;
+hadris_fs::sync::extract_to_host(&mut *vol.lock(), "/", "out")?;
 # Ok(())
 # }
 ```

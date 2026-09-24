@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use hadris_block::detect::BlockFormat;
 use hadris_block::sync::OpenVolume;
-use hadris_fs::FileType;
-use hadris_fs::sync::{DriverExt, FsDriver};
+use hadris_fs::sync::FileSystem;
+use hadris_fs::{DirCursor, NodeId};
 use hadris_storage::host::FileDevice;
 
 fn main() -> Result<()> {
@@ -25,25 +25,26 @@ fn main() -> Result<()> {
     }
     let mut volume = OpenVolume::open(image).map_err(|err| err.into_error())?;
     println!("{:?}", volume.format());
-    print_tree(&mut volume, "/", 1)
+    let root = volume.root();
+    print_tree(&mut volume, root, 1)
 }
 
-/// Prints the directory at `path` and everything below it. `D` is any
-/// `hadris-fs` driver: `OpenVolume` here, or a `FatFs`, `IsoView` or `UdfFs`.
-fn print_tree<D: FsDriver>(fs: &mut D, path: &str, depth: usize) -> Result<()> {
-    let mut children = Vec::new();
-    for entry in fs.read_dir(path)? {
-        let entry = entry?;
-        let name = String::from_utf8_lossy(entry.name_bytes()).into_owned();
-        children.push((name, entry.file_type()));
-    }
-    for (name, file_type) in children {
-        let child = format!("{}/{name}", path.trim_end_matches('/'));
-        if file_type == FileType::Dir {
+/// Prints the directory `dir` and everything below it. `F` is any
+/// `hadris-fs` filesystem: `OpenVolume` here, or a `FatFs`, `IsoView` or
+/// `UdfFs`.
+fn print_tree<F: FileSystem>(fs: &mut F, dir: NodeId, depth: usize) -> Result<()> {
+    let mut cursor = DirCursor::START;
+    while let Some(entry) = fs.readdir(dir, cursor)? {
+        cursor = entry.next_cursor();
+        let name = String::from_utf8_lossy(entry.name().as_bytes()).into_owned();
+        if entry.file_type().is_dir() {
             println!("{:indent$}{name}/", "", indent = depth * 2);
-            print_tree(fs, &child, depth + 1)?;
+            let child = fs.lookup(dir, entry.name())?;
+            let printed = print_tree(fs, child, depth + 1);
+            fs.forget(child, 1);
+            printed?;
         } else {
-            let len = fs.metadata(&child)?.len();
+            let len = entry.metadata().len();
             println!("{:indent$}{name} ({len} bytes)", "", indent = depth * 2);
         }
     }

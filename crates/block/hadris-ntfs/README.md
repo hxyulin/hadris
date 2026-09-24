@@ -1,24 +1,28 @@
 # hadris-ntfs
 
 `hadris-ntfs` is a read-only NTFS reader that needs no allocator. It is a
-preview in Hadris 3.0: it implements the `hadris-fs` `FsDriver` trait, whose
-shape is frozen, and its native methods may still change in 3.x minors.
+preview in Hadris 3.0: it implements the `hadris-fs` `FileSystem` trait,
+whose shape is frozen, and its native methods may still change in 3.x
+minors.
 
-`NtfsFs` opens a volume on any `hadris-storage` block device, in blocking,
-asynchronous and `Send` asynchronous forms, so the path helpers, `Volume`
-and file handles of `hadris-fs` work on it.
+`NtfsFs` opens a volume on any `hadris-storage` block device, in blocking
+and asynchronous forms, so `Volume` and the file handles of `hadris-fs`
+work on it.
 
 ```rust,no_run
-use hadris_fs::sync::DriverExt;
+use std::io::Read;
+
+use hadris_fs::OpenOptions;
+use hadris_fs::sync::Volume;
 use hadris_ntfs::sync::NtfsFs;
 
 let image = hadris_storage::host::FileDevice::open("disk.img")?;
-let mut ntfs = NtfsFs::open(image)?;
-for entry in ntfs.read_dir("/")? {
+let vol = Volume::new(NtfsFs::open(image)?);
+for entry in vol.read_dir("/")? {
     println!("{:?}", entry?.name());
 }
-let data = ntfs.read_to_vec("/docs/readme.txt")?;
-# let _ = data;
+let mut data = Vec::new();
+vol.open("/docs/readme.txt", OpenOptions::new().read())?.read_to_end(&mut data)?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
@@ -44,7 +48,7 @@ references, so they are stable and hard links share one.
 
 ## Limitations
 
-- The filesystem is read-only; the write methods of `FsDriver` fail with
+- The filesystem is read-only; the write methods of `FileSystem` fail with
   `ReadOnly`.
 - `$MFTMirr` is not used to recover unreadable MFT records, and the `$Mft`
   bitmap is not consulted.

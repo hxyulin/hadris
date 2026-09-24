@@ -1,9 +1,10 @@
 use hadris_fs::{
-    Capabilities, CaseSensitivity, DirCursor, DirEntry, ErrorKind, FileTimes, FileType, FsResult,
-    FsStats, Metadata, Mode, MountError, Name, NameBuf, NameCharset, NodeId,
+    Capabilities, CaseRule, Charset, DirCursor, DirEntry, ErrorKind, Field, FileType, FsResult,
+    FsStats, Metadata, MountError, Name, NodeId, OpenMode, Owner, Permissions, Stored,
 };
 use hadris_storage::BlockIndex;
 
+use super::FileSystem;
 use super::storage::BlockDevice;
 use crate::error::{Detail, Error};
 use crate::info::{DescriptorScan, Info, Root};
@@ -97,7 +98,9 @@ async fn read_info<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>>
 /// ```rust,ignore
 /// let mut iso = IsoImage::open(dev)?;
 /// let mut view = iso.view(Namespace::Preferred)?;
-/// let data = hadris_fs::sync::DriverExt::read_to_vec(&mut view, "/boot/grub/grub.cfg")?;
+/// let node = view.resolve(b"/boot/grub/grub.cfg", Resolve::Lexical)?;
+/// view.open(node, OpenMode::Read)?;
+/// let n = view.read(node, 0, &mut buf)?;
 /// ```
 #[derive(Debug)]
 pub struct IsoImage<D> {
@@ -245,8 +248,8 @@ impl<D: BlockDevice> IsoImage<D> {
     }
 }
 
-/// One directory tree of an [`IsoImage`], with the node API of
-/// `hadris_fs::FsDriver`.
+/// One directory tree of an [`IsoImage`], which implements the read-only
+/// `hadris_fs` `FileSystem` trait.
 ///
 /// Node ids are byte offsets of directory records: a directory's is its
 /// `.` record, so a relocated directory has one id, and a file's is its
@@ -254,8 +257,7 @@ impl<D: BlockDevice> IsoImage<D> {
 /// link share one id, that of the first record in path table order with
 /// the same `PX` serial number (or, without one, the same data): listing a
 /// file with more than one link scans the directories before it. Every id
-/// is stable, so [`forget`](Self::forget)
-/// does nothing. An id no record can have (zero, odd, or past the volume
+/// is stable, so `forget` does nothing. An id no record can have (zero, odd, or past the volume
 /// and the device) fails with [`ErrorKind::InvalidHandle`]; any other id is
 /// read as a record, and a damaged one fails with [`ErrorKind::Corrupt`].
 /// The view is read-only; write methods fail with [`ErrorKind::ReadOnly`].
@@ -321,10 +323,9 @@ enum LinkKey {
     Extent(u64),
 }
 
-/// A listed entry: its id, type and name length.
+/// A listed entry: its id and name length.
 struct Listed {
     node: NodeId,
-    file_type: FileType,
     len: usize,
 }
 
@@ -363,7 +364,11 @@ impl View {
     }
 
     fn root_id(&self) -> NodeId {
-        NodeId::new(u64::from(self.root.extent) * self.bs())
+        const FIRST: NodeId = match NodeId::new(1) {
+            Some(node) => node,
+            None => panic!(),
+        };
+        NodeId::new(u64::from(self.root.extent) * self.bs()).unwrap_or(FIRST)
     }
 
     fn extent_start(&self, record: &DirectoryRecord) -> Option<u64> {
@@ -587,7 +592,7 @@ impl View {
         let is_dir = header.is_directory();
         let end = self.len.max(u64::from(self.info.volume_blocks) * self.bs());
         let dir_id = |start: Option<u64>| match start {
-            Some(start) if start != 0 && start < end => Ok(NodeId::new(start)),
+            Some(start) if start != 0 && start < end => NodeId::new(start).ok_or(Detail::DirectoryRecord.corrupt()),
             Some(start) if start != 0 => Err(Detail::OutsideImage.corrupt()),
             _ => Err(Detail::DirectoryRecord.corrupt()),
         };
@@ -606,27 +611,27 @@ impl View {
             let info = scan.info;
             if let Some(block) = info.child_link() {
                 let start = u64::from(block).checked_mul(self.bs());
-                return Ok(Some(Listed { node: dir_id(start)?, file_type: FileType::Dir, len }));
+                return Ok(Some(Listed { node: dir_id(start)?, len }));
             }
-            let (node, file_type) = if is_dir {
-                (dir_id(self.extent_start(record))?, FileType::Dir)
+            let node = if is_dir {
+                dir_id(self.extent_start(record))?
             } else {
                 let node = self.link_id(dev, found.offset, record, &info, skip).await?;
-                (NodeId::new(node), info.file_type().unwrap_or(FileType::File))
+                NodeId::new(node).ok_or(Detail::DirectoryRecord.corrupt())?
             };
-            return Ok(Some(Listed { node, file_type, len }));
+            return Ok(Some(Listed { node, len }));
         }
         let len = match self.namespace {
             Namespace::Joliet => crate::name::decode_ucs2(record.name(), out),
             _ => crate::name::sanitize(crate::name::strip_version(record.name()), out),
         }
         .ok_or(Error::from(ErrorKind::NameTooLong))?;
-        let (node, file_type) = if is_dir {
-            (dir_id(self.extent_start(record))?, FileType::Dir)
+        let node = if is_dir {
+            dir_id(self.extent_start(record))?
         } else {
-            (NodeId::new(found.offset), FileType::File)
+            NodeId::new(found.offset).ok_or(Detail::DirectoryRecord.corrupt())?
         };
-        Ok(Some(Listed { node, file_type, len }))
+        Ok(Some(Listed { node, len }))
     }
 
     fn case_insensitive(&self) -> bool {
@@ -635,25 +640,60 @@ impl View {
 
     fn capabilities(&self) -> Capabilities {
         match self.namespace {
-            Namespace::RockRidge => Capabilities::new()
+            Namespace::RockRidge => Capabilities::new(CaseRule::Sensitive, Charset::Bytes, 255)
                 .with_symlinks()
                 .with_hard_links()
-                .with_permissions()
-                .with_owners(),
-            Namespace::Joliet => Capabilities::new()
-                .with_name_charset(NameCharset::Ucs2)
-                .with_max_name_len(309),
-            Namespace::Enhanced => Capabilities::new()
-                .with_case_sensitivity(CaseSensitivity::InsensitivePreserving)
-                .with_max_name_len(207),
-            _ => Capabilities::new()
-                .with_case_sensitivity(CaseSensitivity::Insensitive)
-                .with_name_charset(NameCharset::DCharacters)
-                .with_max_name_len(207),
+                .with_stored(Field::Created, Stored::Partial)
+                .with_stored(Field::Accessed, Stored::Partial)
+                .with_stored(Field::Changed, Stored::Partial)
+                .with_stored(Field::Permissions, Stored::Yes)
+                .with_stored(Field::Owner, Stored::Yes)
+                .with_stored(Field::Device, Stored::Yes),
+            Namespace::Joliet => Capabilities::new(CaseRule::Sensitive, Charset::Unicode, 309),
+            Namespace::Enhanced => Capabilities::new(CaseRule::InsensitivePreserving, Charset::Bytes, 207),
+            _ => Capabilities::new(CaseRule::Insensitive, Charset::Bytes, 207),
+        }
+        .with_stored(Field::Modified, Stored::Yes)
+    }
+
+    /// Writes the volume identifier of this view's descriptor into `buf`.
+    async fn label<'b, D: BlockDevice>(&self, dev: &mut D, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
+        let mut sector = [0u8; SECTOR_SIZE];
+        let mut len = None;
+        for index in 0..self.info.descriptors {
+            let offset = u64::from(raw::DESCRIPTOR_START + index) * SECTOR_SIZE as u64;
+            read_bytes(dev, self.len, offset, &mut sector).await?;
+            let (root, id, ucs2) = match raw::VolumeDescriptor::from_bytes(sector) {
+                raw::VolumeDescriptor::Primary(pvd) => (pvd.root, pvd.volume_identifier, false),
+                raw::VolumeDescriptor::Supplementary(svd) => {
+                    (svd.root, svd.volume_identifier, self.namespace == Namespace::Joliet)
+                }
+                _ => continue,
+            };
+            let header = &root.header;
+            if header.extent.get().checked_add(u32::from(header.extended_attr_record)) != Some(self.root.extent) {
+                continue;
+            }
+            len = Some(if ucs2 {
+                let raw = id.as_bytes();
+                let mut end = raw.len() / 2;
+                while end > 0 && matches!([raw[2 * end - 2], raw[2 * end - 1]], [0, b' ' | 0]) {
+                    end -= 1;
+                }
+                crate::name::label_ucs2(&raw[..2 * end], buf).ok_or(ErrorKind::LimitExceeded)?
+            } else {
+                crate::name::label_latin1(id.trimmed(), buf).ok_or(ErrorKind::LimitExceeded)?
+            });
+            break;
+        }
+        match len {
+            Some(0) | None => Ok(None),
+            Some(len) => Ok(core::str::from_utf8(&buf[..len]).ok()),
         }
     }
 
     async fn lookup<D: BlockDevice>(&self, dev: &mut D, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
+        name.check()?;
         let dir = self.dir_of(dev, dir).await?;
         let mut pos = 0;
         let mut block = Block::new();
@@ -676,15 +716,9 @@ impl View {
         folded.ok_or(ErrorKind::NotFound.into())
     }
 
-    async fn read_dir_entry<D: BlockDevice>(
-        &self,
-        dev: &mut D,
-        dir: NodeId,
-        cursor: &mut DirCursor,
-        name: &mut NameBuf,
-    ) -> FsResult<Option<DirEntry>, D::Error> {
+    async fn readdir<D: BlockDevice>(&self, dev: &mut D, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
         let dir = self.dir_of(dev, dir).await?;
-        let Ok(mut pos) = u32::try_from(cursor.into_raw()) else {
+        let Ok(mut pos) = u32::try_from(from.into_raw()) else {
             return Ok(None);
         };
         let mut block = Block::new();
@@ -693,19 +727,17 @@ impl View {
             let listed = self.list(dev, &found, &mut out).await?;
             self.skip_continuations(dev, dir, &mut pos, &mut block, &found.record).await?;
             if let Some(listed) = listed {
-                name.set_bytes(&out[..listed.len])?;
-                *cursor = DirCursor::from_raw(u64::from(pos));
-                return Ok(Some(DirEntry::new(listed.node, listed.file_type, listed.len)));
+                let meta = self.stat(dev, listed.node).await?;
+                let next = DirCursor::from_raw(u64::from(pos));
+                return Ok(Some(DirEntry::new(Name::new(&out[..listed.len]), listed.node, meta, next)?));
             }
         }
-        *cursor = DirCursor::from_raw(u64::from(pos));
         Ok(None)
     }
 
-    async fn node_metadata<D: BlockDevice>(&self, dev: &mut D, node: NodeId) -> FsResult<Metadata, D::Error> {
+    async fn stat<D: BlockDevice>(&self, dev: &mut D, node: NodeId) -> FsResult<Metadata, D::Error> {
         let record = self.record_at(dev, node.get()).await.map_err(|err| handle(err, node, self))?;
         let header = *record.header();
-        let mut times = FileTimes::new().with_modified(header.date_time.to_datetime());
         let rr = match self.rock_ridge() {
             Some(skip) => {
                 let mut scan = Scan::new();
@@ -714,30 +746,56 @@ impl View {
             }
             None => None,
         };
-        let mut meta = if header.is_directory() {
-            Metadata::new(FileType::Dir).with_len(u64::from(header.data_len.get()))
+        let (mut file_type, mut len) = if header.is_directory() {
+            (FileType::Dir, u64::from(header.data_len.get()))
         } else {
             let file_type = rr.and_then(|rr| rr.file_type()).unwrap_or(FileType::File);
-            let len = self.file_len(dev, node.get(), &record).await?;
-            Metadata::new(file_type).with_len(len)
+            (file_type, self.file_len(dev, node.get(), &record).await?)
         };
+        let mut times = hadris_fs::FileTimes::new().with_modified(header.date_time.to_datetime());
+        let mut permissions = Permissions::new(if file_type.is_dir() { 0o555 } else { 0o444 });
+        let mut owner = None;
+        let mut nlink = 1;
+        let mut device = None;
         if let Some(rr) = rr {
             let rr_times = rr.times();
             if !rr_times.is_empty() {
                 times = rr_times;
             }
-            meta = meta
-                .with_permissions(rr.mode().map(Mode::new))
-                .with_owner(rr.owner())
-                .with_nlink(u64::from(rr.links().unwrap_or(1)));
+            if let Some(mode) = rr.mode() {
+                permissions = Permissions::new(mode);
+            }
+            owner = rr.owner().map(|(uid, gid)| Owner::new(uid, gid));
+            nlink = u64::from(rr.links().unwrap_or(1));
+            device = rr.device();
             if rr.is_symlink() {
                 let mut target = [0u8; 4096];
                 let mut scan = Scan::new().with_link(&mut target);
                 self.scan(dev, &record, self.rock_ridge().unwrap_or(0), &mut scan).await?;
-                meta = meta.with_file_type(FileType::Symlink).with_len(scan.link_len()? as u64);
+                file_type = FileType::Symlink;
+                len = scan.link_len()? as u64;
             }
         }
-        Ok(meta.with_times(times))
+        let mut meta = Metadata::new(file_type, permissions).with_len(len).with_nlink(nlink);
+        if let Some(owner) = owner {
+            meta = meta.with_owner(owner);
+        }
+        if let Some(device) = device.filter(|_| matches!(file_type, FileType::CharDevice | FileType::BlockDevice)) {
+            meta = meta.with_device(device);
+        }
+        if let Some(time) = times.created() {
+            meta = meta.with_created(time);
+        }
+        if let Some(time) = times.modified() {
+            meta = meta.with_modified(time);
+        }
+        if let Some(time) = times.accessed() {
+            meta = meta.with_accessed(time);
+        }
+        if let Some(time) = times.changed() {
+            meta = meta.with_changed(time);
+        }
+        Ok(meta)
     }
 
     /// The whole length of the file whose first record is `record`.
@@ -773,7 +831,7 @@ impl View {
         Ok((next, self.record_at(dev, next).await?))
     }
 
-    async fn read_at<D: BlockDevice>(&self, dev: &mut D, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
+    async fn read<D: BlockDevice>(&self, dev: &mut D, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         let record = self.record_at(dev, node.get()).await.map_err(|err| handle(err, node, self))?;
         if record.header().is_directory() {
             return Err(ErrorKind::IsADirectory.into());
@@ -814,14 +872,14 @@ impl View {
             let mut scan = Scan::new();
             self.scan(dev, &dotdot, skip, &mut scan).await?;
             if let Some(block) = scan.info.parent_link() {
-                return Ok(NodeId::new(u64::from(block) * self.bs()));
+                return NodeId::new(u64::from(block) * self.bs()).ok_or(ErrorKind::Corrupt.into());
             }
         }
         match self.extent_start(&dotdot) {
             Some(start) if start == dir.start && start != self.root_id().get() => {
-                Ok(NodeId::new(self.path_table_parent(dev, dir.start).await?))
+                NodeId::new(self.path_table_parent(dev, dir.start).await?).ok_or(ErrorKind::Corrupt.into())
             }
-            Some(start) if start != 0 => Ok(NodeId::new(start)),
+            Some(start) => NodeId::new(start).ok_or(ErrorKind::Corrupt.into()),
             _ => Err(ErrorKind::Corrupt.into()),
         }
     }
@@ -859,7 +917,7 @@ impl View {
         Err(Detail::DirectoryRecord.corrupt())
     }
 
-    async fn read_link<D: BlockDevice>(&self, dev: &mut D, link: NodeId, buf: &mut [u8]) -> FsResult<usize, D::Error> {
+    async fn readlink<D: BlockDevice>(&self, dev: &mut D, link: NodeId, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         let Some(skip) = self.rock_ridge() else {
             return Err(ErrorKind::InvalidInput.into());
         };
@@ -898,74 +956,6 @@ impl<D: BlockDevice> IsoView<D> {
     /// Returns the device.
     pub fn into_inner(self) -> D {
         self.dev
-    }
-
-    /// What this tree supports: symlinks, hard links, permissions and
-    /// owners with Rock Ridge; case-insensitive lookups in the primary
-    /// tree. Never writable.
-    pub fn capabilities(&self) -> Capabilities {
-        self.view.capabilities()
-    }
-
-    /// The root directory: the id of its `.` record.
-    pub fn root(&self) -> NodeId {
-        self.view.root_id()
-    }
-
-    /// Finds `name` in `dir`.
-    pub async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
-        self.view.lookup(&mut self.dev, dir, name).await
-    }
-
-    /// Metadata of a node: Rock Ridge mode, owner, links and times when the
-    /// view reads Rock Ridge, the record's time as the modification time
-    /// otherwise.
-    pub async fn node_metadata(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
-        self.view.node_metadata(&mut self.dev, node).await
-    }
-
-    /// Writes the entry after `cursor` into `name` and advances `cursor`.
-    /// The cursor is the byte offset of the next record in the directory.
-    pub async fn read_dir_entry(
-        &mut self,
-        dir: NodeId,
-        cursor: &mut DirCursor,
-        name: &mut NameBuf,
-    ) -> FsResult<Option<DirEntry>, D::Error> {
-        self.view.read_dir_entry(&mut self.dev, dir, cursor, name).await
-    }
-
-    /// Reads from a file at `offset`, following multi-extent records. A
-    /// call reads from one extent at most.
-    pub async fn read_at(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
-        self.view.read_at(&mut self.dev, node, offset, buf).await
-    }
-
-    /// The volume's size; an ISO image has no free blocks.
-    pub async fn stats(&mut self) -> FsResult<FsStats, D::Error> {
-        Ok(FsStats::new(
-            u64::from(self.view.info.volume_blocks),
-            0,
-            self.view.info.block_size,
-        ))
-    }
-
-    /// Does nothing: ISO node ids are stable.
-    pub fn forget(&mut self, node: NodeId) {
-        let _ = node;
-    }
-
-    /// The directory containing `dir`, from its `..` record, or its Rock
-    /// Ridge `PL` entry when it was relocated.
-    pub async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
-        self.view.parent(&mut self.dev, dir).await
-    }
-
-    /// Writes a Rock Ridge symlink's target into `buf`.
-    /// [`ErrorKind::InvalidInput`] for other nodes and outside the Rock
-    /// Ridge view, [`ErrorKind::LimitExceeded`] when `buf` is too small.
-    pub async fn read_link(&mut self, link: NodeId, buf: &mut [u8]) -> FsResult<usize, D::Error> {
-        self.view.read_link(&mut self.dev, link, buf).await
     }
 
     /// The Rock Ridge entries of a node in the primary tree, or `None` when
@@ -1029,6 +1019,84 @@ impl<D: BlockDevice> IsoView<D> {
     }
 }
 
-}
 
-impl_iso_driver!(impl[D: BlockDevice] IsoView<D>, error = D::Error, read_only; also = [parent, read_link]);
+impl<D: BlockDevice> FileSystem for IsoView<D> {
+    type DeviceError = D::Error;
+
+    /// Symlinks, hard links, permissions and owners with Rock Ridge;
+    /// case-insensitive lookups in the primary and enhanced trees. Never
+    /// writable.
+    fn capabilities(&self) -> Capabilities {
+        self.view.capabilities()
+    }
+
+    /// The id of the root's `.` record.
+    fn root(&self) -> NodeId {
+        self.view.root_id()
+    }
+
+    /// The volume's size; an ISO image has no free blocks.
+    async fn statfs(&mut self) -> FsResult<FsStats, D::Error> {
+        Ok(FsStats::new(u64::from(self.view.info.volume_blocks), 0, self.view.info.block_size))
+    }
+
+    /// The volume identifier of the descriptor this view reads: UCS-2 in
+    /// the Joliet view, bytes read as Latin-1 otherwise.
+    async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
+        self.view.label(&mut self.dev, buf).await
+    }
+
+    async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
+        self.view.lookup(&mut self.dev, dir, name).await
+    }
+
+    /// Does nothing: ISO node ids are stable.
+    fn forget(&mut self, node: NodeId, count: u64) {
+        let _ = (node, count);
+    }
+
+    /// The directory containing `dir`, from its `..` record, or its Rock
+    /// Ridge `PL` entry when it was relocated.
+    async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
+        self.view.parent(&mut self.dev, dir).await
+    }
+
+    /// Rock Ridge mode, owner, links and times when the view reads Rock
+    /// Ridge, the record's time as the modification time otherwise.
+    async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
+        self.view.stat(&mut self.dev, node).await
+    }
+
+    /// The cursor is the byte offset of the next record in the directory.
+    async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
+        self.view.readdir(&mut self.dev, dir, from).await
+    }
+
+    /// [`ErrorKind::InvalidInput`] for other nodes and outside the Rock
+    /// Ridge view.
+    async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
+        let len = self.view.readlink(&mut self.dev, node, buf).await?;
+        Ok(&buf[..len])
+    }
+
+    async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
+        let meta = self.view.stat(&mut self.dev, node).await?;
+        match meta.file_type() {
+            FileType::Dir => Err(ErrorKind::IsADirectory.into()),
+            FileType::Symlink => Err(ErrorKind::Symlink.into()),
+            _ if mode == OpenMode::Write => Err(ErrorKind::ReadOnly.into()),
+            _ => Ok(()),
+        }
+    }
+
+    async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+        let _ = node;
+        Ok(())
+    }
+
+    /// Follows multi-extent records; a call reads from one extent at most.
+    async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
+        self.view.read(&mut self.dev, node, offset, buf).await
+    }
+}
+}

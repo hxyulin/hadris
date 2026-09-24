@@ -76,6 +76,7 @@ fn root_of(
         .extent
         .get()
         .checked_add(u32::from(header.extended_attr_record))
+        .filter(|&extent| extent != 0)
         .ok_or(Detail::DirectoryRecord)?;
     Ok(Root {
         extent,

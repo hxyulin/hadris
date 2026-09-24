@@ -6,15 +6,17 @@
 //! [`detect`] reports ISO 9660 and UDF independently, because a bridge
 //! image holds both. `OpenOpticalImage`, in each mode
 //! (`sync::OpenOpticalImage`, `r#async::OpenOpticalImage`), detects and mounts the filesystem an
-//! [`OpenPolicy`] selects and implements the `hadris_fs` `FsDriver` trait
-//! read-only by delegating to it. A failed open gives the device back in
+//! [`OpenPolicy`] selects and implements the `hadris_fs` `FileSystem`
+//! trait read-only by delegating to it. A failed open gives the device back in
 //! a `hadris_fs::MountError`. Neither needs an allocator.
 //!
 //! ```rust
 //! # #[cfg(all(feature = "sync", feature = "std"))]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use hadris_fs::sync::DriverExt;
+//! use hadris_fs::OpenOptions;
+//! use hadris_fs::sync::Volume;
 //! use hadris_fs::tree::{Content, Tree};
+//! use std::io::Read;
 //! use hadris_optical::sync::OpenOpticalImage;
 //! use hadris_optical::{OpenPolicy, OpticalFormat};
 //! use hadris_storage::{BlockSize, MemDevice};
@@ -26,9 +28,12 @@
 //! let mut dev = MemDevice::new(vec![0u8; size as usize], BlockSize::new(2048).unwrap());
 //! hadris_optical::udf::sync::write(&mut dev, &tree, &options)?;
 //!
-//! let mut image = OpenOpticalImage::open(dev, OpenPolicy::PreferUdf)?;
+//! let image = OpenOpticalImage::open(dev, OpenPolicy::PreferUdf)?;
 //! assert_eq!(image.format(), OpticalFormat::Udf);
-//! assert_eq!(image.read_to_vec("/readme.txt")?, b"hello");
+//! let vol = Volume::new(image);
+//! let mut text = String::new();
+//! vol.open("/readme.txt", OpenOptions::new().read())?.read_to_string(&mut text)?;
+//! assert_eq!(text, "hello");
 //! # Ok(())
 //! # }
 //! # #[cfg(not(all(feature = "sync", feature = "std")))]
@@ -79,11 +84,8 @@ pub mod sync {
         ($($item:tt)*) => { hadris_macros::strip_async! { $($item)* } };
     }
 
-    macro_rules! impl_optical_driver {
-        ($($t:tt)*) => { hadris_fs::impl_fs_driver!(sync, $($t)*); };
-    }
-
     use crate::detect::sync::detect;
+    use hadris_fs::sync::FileSystem;
     use hadris_iso::sync::{IsoImage, IsoView};
     use hadris_storage::sync::BlockDevice;
     use hadris_udf::sync::UdfFs;
@@ -103,11 +105,8 @@ pub mod r#async {
         ($($item:tt)*) => { $($item)* };
     }
 
-    macro_rules! impl_optical_driver {
-        ($($t:tt)*) => { hadris_fs::impl_fs_driver!(async, $($t)*); };
-    }
-
     use crate::detect::r#async::detect;
+    use hadris_fs::r#async::FileSystem;
     use hadris_iso::r#async::{IsoImage, IsoView};
     use hadris_storage::r#async::BlockDevice;
     use hadris_udf::r#async::UdfFs;

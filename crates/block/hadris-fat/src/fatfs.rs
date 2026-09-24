@@ -1,6 +1,8 @@
 use core::fmt;
 
 use super::block_io::{BlockBuf, new_block, read_bytes, write_bytes};
+use super::fsapi::FileSystem;
+use super::io::MaybeSend;
 use super::rawio;
 use super::storage::BlockDevice;
 use hadris_fat_raw::io::{ChainPos, DirStart, DirWalk, Fat, Held};
@@ -9,16 +11,23 @@ use hadris_fat_raw::{
     self as raw, LongEntry, RootLocation, ShortEntry, Slot, date, name as names, short_name,
 };
 use hadris_fs::{
-    Attributes, Capabilities, CaseSensitivity, Clock, DateTime, DirCursor, DirEntry, ErrorKind,
-    FileTimes, FileType, FixedTable, FsResult, FsStats, Metadata, MountError, Name, NameBuf,
-    NameCharset, NameError, NewNode, NoClock, NodeId, NodeTable, RemoveKind, RenameFlags,
-    SetMetadata,
+    Attributes, Capabilities, CaseRule, Charset, Clock, DateTime, DirCursor, DirEntry, ErrorKind,
+    Field, FileType, FixedTable, FsResult, FsStats, Metadata, MountError, Name, NameBuf, NameError,
+    NoClock, NodeId, NodeTable, OpenMode, RenameMode, SetAttr, Stored,
 };
 
 use crate::code_page::{Ascii, CodePage};
-use crate::{FatKind, MountOptions, VolumeLabel};
+use crate::{FatKind, MountOptions, VolumeLabel, permissions, read_only_bit};
 
-const ROOT: NodeId = NodeId::new(1);
+/// `NodeId::new` for ids that are not 0 by construction.
+const fn node_id(raw: u64) -> NodeId {
+    match NodeId::new(raw) {
+        Some(id) => id,
+        None => RESERVED,
+    }
+}
+
+const ROOT: NodeId = node_id(1);
 /// A node id holds the slot of its short entry, the entry's byte offset
 /// divided by 32, in its low `SLOT_BITS` bits. The bits above, the tier,
 /// count up when that id is taken by a pinned node that has since moved
@@ -31,7 +40,10 @@ const SLOT_MASK: u64 = (1 << SLOT_BITS) - 1;
 const MAX_TIER: u64 = (1 << (63 - SLOT_BITS)) - 1;
 /// The id of the table slot `create` reserves before it writes anything.
 /// Never handed out.
-const RESERVED: NodeId = NodeId::new(1 << 63);
+const RESERVED: NodeId = match NodeId::new(1 << 63) {
+    Some(id) => id,
+    None => panic!("not 0"),
+};
 /// Size of one directory entry.
 const ENTRY_SIZE: u64 = raw::ENTRY_SIZE as u64;
 const MAX_FILE_SIZE: u64 = u32::MAX as u64;
@@ -59,11 +71,11 @@ struct Node {
     /// The directory entry lacks the size and modification time. A dirty
     /// node holds one pin of the driver's own until it is written.
     dirty: bool,
-    /// Opens not yet closed; `remove` and a replacing `rename` refuse the
+    /// Opens not yet closed; `unlink` and a replacing `rename` refuse the
     /// node while there are any.
     opens: u32,
     /// The node was removed while pinned. Its entry is gone and every
-    /// method but `forget` and `close_node` answers `NotFound`.
+    /// method but `forget` and `close` answers `NotFound`.
     unlinked: bool,
 }
 
@@ -267,10 +279,6 @@ impl Run {
 fn metadata(node: &Node, entry: &ShortEntry) -> Metadata {
     let (created_date, created_time, created_tenths) = entry.created();
     let (modified_date, modified_time) = entry.modified();
-    let times = FileTimes::new()
-        .with_created(date::decode(created_date, created_time, created_tenths))
-        .with_modified(date::decode(modified_date, modified_time, 0))
-        .with_accessed(date::decode(entry.accessed_date(), 0, 0));
     let mut attributes = Attributes::empty();
     for (bit, flag) in ATTR_MAPPED {
         if entry.attributes() & bit != 0 {
@@ -282,10 +290,22 @@ fn metadata(node: &Node, entry: &ShortEntry) -> Metadata {
     } else {
         (FileType::File, node.size as u64)
     };
-    Metadata::new(file_type)
-        .with_len(len)
-        .with_times(times)
-        .with_attributes(attributes)
+    let mut meta = Metadata::new(
+        file_type,
+        permissions(node.dir, attributes.contains(Attributes::READ_ONLY)),
+    )
+    .with_len(len)
+    .with_attributes(attributes);
+    if let Some(time) = date::decode(created_date, created_time, created_tenths) {
+        meta = meta.with_created(time);
+    }
+    if let Some(time) = date::decode(modified_date, modified_time, 0) {
+        meta = meta.with_modified(time);
+    }
+    if let Some(time) = date::decode(entry.accessed_date(), 0, 0) {
+        meta = meta.with_accessed(time);
+    }
+    meta
 }
 
 /// Whether `query` names the entry, by its long name or its short name,
@@ -373,6 +393,13 @@ fn stamp(entry: &mut ShortEntry, created: DateTime, modified: DateTime, accessed
     entry.set_accessed_date(date::encode(accessed).0);
 }
 
+fn set_read_only(entry: &mut ShortEntry, read_only: bool) {
+    match read_only {
+        true => entry.set_attributes(entry.attributes() | raw::ATTR_READ_ONLY),
+        false => entry.set_attributes(entry.attributes() & !raw::ATTR_READ_ONLY),
+    }
+}
+
 fn apply_attributes(entry: &mut ShortEntry, attributes: Attributes) {
     for (bit, flag) in ATTR_MAPPED {
         if attributes.contains(flag) {
@@ -396,10 +423,9 @@ io_transform! {
 
 /// A FAT12, FAT16 or FAT32 volume on a block device.
 ///
-/// `FatFs` is the V3 driver: every node method takes `&mut self`, holds no
-/// lock, and needs no allocator. Share it through `hadris_fs` `Volume`, or
-/// call the node methods directly; they have the same names and signatures
-/// as the `FsDriver` methods, which forward to them.
+/// `FatFs` implements the `hadris_fs` `FileSystem` trait, whose methods
+/// take `&mut self`, hold no lock and need no allocator. Share it through
+/// `hadris_fs` `Volume`, or call the trait methods directly.
 ///
 /// Mount with [`open`](FatFs::open), or with [`open_with`](FatFs::open_with)
 /// and [`MountOptions`] to choose the type parameters:
@@ -410,7 +436,7 @@ io_transform! {
 ///   id across `rename`. A full table makes `lookup` and `create` fail with
 ///   [`ErrorKind::LimitExceeded`] before anything is written; name
 ///   `HeapTable` or a larger `FixedTable<N>` for more open nodes. Ids from
-///   `read_dir_entry` are not pinned and stay valid until that directory
+///   `readdir` are not pinned and stay valid until that directory
 ///   changes; until then, and unless a node is forgotten in between, they
 ///   are the ids a `lookup` of the same names pins. Finding the node pinned
 ///   at an entry is one table lookup by id, logarithmic in `HeapTable`,
@@ -444,13 +470,13 @@ io_transform! {
 ///
 /// Writes go to the device at once; the driver caches no data. What it
 /// defers is the size and modification time in the directory entry of a
-/// pinned file: `write_at` and growing `set_len` keep them in the node table,
-/// so every handle on the node sees one size, and `publish_node`,
-/// `sync_node` or `sync` writes them. `publish_node` (what closing a `File`
-/// calls) does not flush the device; `sync_node` and `sync` do. Until then the node stays in the table under a pin of the
+/// pinned file: `write` and growing `truncate` keep them in the node table,
+/// so every handle on the node sees one size, and `close`, `fsync` or
+/// `sync` writes them. `close` does not flush the device; `fsync` and
+/// `sync` do. Until then the node stays in the table under a pin of the
 /// driver's own, even after the last `forget`, and counts towards
 /// [`open_nodes`](Self::open_nodes) and the table's capacity. Writes through
-/// an unpinned id, shrinking `set_len`, and a file's first cluster are
+/// an unpinned id, shrinking `truncate`, and a file's first cluster are
 /// written to the entry at once. `sync` also writes the FAT32 FSInfo free
 /// count and flushes the device.
 ///
@@ -473,20 +499,20 @@ io_transform! {
 ///   but not yet freed, and the next writing operation or `sync` frees
 ///   them unless the interrupted write did link them. Lost clusters remain
 ///   only when the process stops, or the driver is dropped, in between.
-/// - `write_at` and `set_len` link new clusters before they publish the new
+/// - `write` and `truncate` link new clusters before they publish the new
 ///   size, so an interrupted write leaves a chain longer than the size;
-///   the next writing operation cuts it back. A shrinking `set_len` writes
+///   the next writing operation cuts it back. A shrinking `truncate` writes
 ///   the new size before it frees clusters.
 /// - `create` prepares a new directory's cluster, then writes the name
-///   entries, the short entry last. `remove` clears the short entry first.
+///   entries, the short entry last. `unlink` and `rmdir` clear the short entry first.
 ///   Long-name entries an interruption leaves without their short entry
 ///   are cleared by the next writing operation.
 /// - `rename` writes the new entry, then the moved directory's `..`, then
 ///   clears the old entry, so an interruption can leave the node under both
 ///   names.
 ///
-/// That clean-up runs at the start of the next `create`, `remove`,
-/// `rename`, `write_at`, `set_len`, `set_metadata` or `sync`. What it
+/// That clean-up runs at the start of the next `create`, `mkdir`,
+/// `unlink`, `rmdir`, `rename`, `write`, `truncate`, `setattr` or `sync`. What it
 /// cannot finish because the volume turns out to be corrupt is dropped,
 /// and `check` reports it as lost clusters.
 /// - FAT copies are written active copy first. An entry whose mirrors an
@@ -494,7 +520,7 @@ io_transform! {
 ///   `sync`, so after `sync` the copies match. The FSInfo free count is a
 ///   hint and is written by `sync`.
 ///
-/// Data written by an interrupted `write_at` may be partly on disk.
+/// Data written by an interrupted `write` may be partly on disk.
 pub struct FatFs<D, T: NodeTable = FixedTable<64>, C: Clock = NoClock, P: CodePage = Ascii> {
     dev: D,
     fat: Fat,
@@ -608,181 +634,11 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         self.fat.geometry().kind()
     }
 
-    /// The volume label: the label entry of the root directory, or `None`
-    /// when it has none. The copy in the boot sector is not read.
-    pub async fn label(&mut self) -> FsResult<Option<VolumeLabel>, D::Error> {
-        let mut walk = DirWalk::new(self.fat.root());
-        let mut slot = 0;
-        while let Some(offset) = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot).await? {
-            match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
-                Slot::End => break,
-                Slot::Short(entry) if entry.is_label() => {
-                    return Ok(Some(VolumeLabel::from_disk(entry.name())));
-                }
-                _ => {}
-            }
-            slot += 1;
-        }
-        Ok(None)
-    }
-
     /// Number of nodes in the node table, plus one for the root, which is
     /// always pinned. Nodes whose size is not yet written count until
-    /// `publish_node`, `sync_node` or `sync`.
+    /// `close`, `fsync` or `sync`.
     pub fn open_nodes(&self) -> usize {
         self.nodes.len() + 1
-    }
-
-    /// What this volume supports: case-insensitive, case-preserving UTF-16
-    /// names of up to 255 code units (765 bytes of UTF-8) and two-second
-    /// modification times. Writable unless [`is_read_only`](Self::is_read_only).
-    pub fn capabilities(&self) -> Capabilities {
-        let caps = Capabilities::new()
-            .with_case_sensitivity(CaseSensitivity::InsensitivePreserving)
-            .with_name_charset(NameCharset::Utf16)
-            .with_max_name_len(lfn::MAX_UNITS * 3)
-            .with_timestamp_resolution_ns(2_000_000_000);
-        if self.read_only { caps } else { caps.with_writable() }
-    }
-
-    /// The root directory. Always pinned.
-    pub fn root(&self) -> NodeId {
-        ROOT
-    }
-
-    /// Finds `name` in `dir` and pins the result. Case is ignored, and the
-    /// short name of an entry with a long name matches too.
-    pub async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
-        let start = self.dir_start(dir).await?;
-        let Ok(query) = name.to_str() else {
-            return Err(ErrorKind::NotFound.into());
-        };
-        let found = self.find_entry(start, query).await?.ok_or(ErrorKind::NotFound)?;
-        Ok(self.intern(found.offset, &found.entry)?)
-    }
-
-    /// Metadata of a pinned node or of an id just returned by
-    /// `read_dir_entry`. Directories have length 0.
-    pub async fn node_metadata(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
-        if node == ROOT {
-            return Ok(Metadata::new(FileType::Dir));
-        }
-        let (state, entry) = self.node_entry(node).await?;
-        Ok(metadata(&state, &entry))
-    }
-
-    /// Writes the entry after `cursor` into `name` and advances `cursor`.
-    /// `None` at the end. `.`, `..`, the volume label and deleted entries
-    /// are skipped. The raw cursor is the index of the next directory slot.
-    /// A directory whose cluster chain loops fails with
-    /// [`ErrorKind::Corrupt`] once the walk comes back around.
-    pub async fn read_dir_entry(
-        &mut self,
-        dir: NodeId,
-        cursor: &mut DirCursor,
-        name: &mut NameBuf,
-    ) -> FsResult<Option<DirEntry>, D::Error> {
-        let start = self.dir_start(dir).await?;
-        let Ok(mut slot) = u32::try_from(cursor.into_raw()) else {
-            return Ok(None);
-        };
-        let mut walk = DirWalk::resume(start, self.dir_hint(dir));
-        let mut long = Assembler::new();
-        let found = self.next_visible(&mut walk, &mut slot, &mut long).await?;
-        if walk.pos().is_known() {
-            self.set_dir_hint(dir, walk.pos());
-        }
-        let Some(found) = found else {
-            *cursor = DirCursor::from_raw(slot as u64);
-            return Ok(None);
-        };
-        let units = long.finish(found.entry.lfn_checksum());
-        let len = write_name(name, units.filter(|units| !units.is_empty()), &found.entry, &self.code_page)?;
-        let file_type = if found.entry.is_dir() { FileType::Dir } else { FileType::File };
-        let node = self.id_at(found.offset);
-        *cursor = DirCursor::from_raw(found.slot as u64 + 1);
-        Ok(Some(DirEntry::new(node, file_type, len)))
-    }
-
-    /// Reads from a file at `offset`. Returns 0 at or past the end. A chain
-    /// that ends before the file's size or loops fails with
-    /// [`ErrorKind::Corrupt`].
-    pub async fn read_at(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
-        if node == ROOT {
-            return Err(ErrorKind::IsADirectory.into());
-        }
-        let state = self.node(node).await?;
-        if state.dir {
-            return Err(ErrorKind::IsADirectory.into());
-        }
-        let size = state.size as u64;
-        if offset >= size || buf.is_empty() {
-            return Ok(0);
-        }
-        let count = (size - offset).min(buf.len() as u64) as usize;
-        let cluster_size = self.fat.geometry().cluster_size() as u64;
-        let mut hint = state.hint;
-        let mut done = 0;
-        while done < count {
-            let pos = offset + done as u64;
-            let want = (pos / cluster_size) as u32;
-            hint = rawio::walk(&mut self.dev, &mut self.block, &self.fat, state.first, hint, want).await?;
-            if hint.index() < want {
-                return Err(ErrorKind::Corrupt.into());
-            }
-            let within = pos % cluster_size;
-            let at = self.cluster_at(hint.cluster())? + within;
-            let n = ((cluster_size - within) as usize).min(count - done);
-            let n = rawio::run(&mut self.dev, &mut self.block, &self.fat, &mut hint, n, count - done).await?;
-            read_bytes(&mut self.dev, &mut self.block, at, &mut buf[done..done + n]).await?;
-            done += n;
-        }
-        if let Some(state) = self.nodes.get_mut(node) {
-            state.hint = hint;
-        }
-        Ok(count)
-    }
-
-    /// The directory containing `dir`, pinned. The root is its own parent.
-    ///
-    /// Found through `..` entries: the parent's first cluster, then the
-    /// grandparent, which is scanned for the parent's entry.
-    pub async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
-        if dir == ROOT {
-            return Ok(ROOT);
-        }
-        let DirStart::Chain(first) = self.dir_start(dir).await? else {
-            return Ok(ROOT);
-        };
-        let Some(up) = self.dot_dot(first).await? else {
-            return Ok(ROOT);
-        };
-        let grand = match self.dot_dot(up).await? {
-            Some(cluster) => DirStart::Chain(cluster),
-            None => self.fat.root(),
-        };
-        let mut walk = DirWalk::new(grand);
-        let mut slot = 0;
-        let mut long = Assembler::new();
-        while let Some(found) = self.next_visible(&mut walk, &mut slot, &mut long).await? {
-            if found.entry.is_dir() && found.entry.first_cluster(self.fat.geometry().kind()) == up {
-                return Ok(self.intern(found.offset, &found.entry)?);
-            }
-        }
-        Err(ErrorKind::Corrupt.into())
-    }
-
-    /// Space usage in clusters. Free space comes from the FAT32 FSInfo
-    /// sector when it is valid, and otherwise from one scan of the FAT,
-    /// which is then kept. The FSInfo count is a hint: allocation scans the
-    /// FAT regardless, and one that finds it wrong drops it.
-    pub async fn stats(&mut self) -> FsResult<FsStats, D::Error> {
-        let free = match self.fat.free_clusters() {
-            Some(free) => free,
-            None => rawio::count_free(&mut self.dev, &mut self.block, &mut self.fat).await?,
-        };
-        let total = self.fat.geometry().max_cluster() - 1;
-        Ok(FsStats::new(total as u64, free as u64, self.fat.geometry().cluster_size()))
     }
 
     /// Passes the clusters of the chain of `node` to `visit` in order and
@@ -821,24 +677,6 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         }
     }
 
-    /// Unpins a node. Unknown ids and the root are ignored. A node whose
-    /// size is not yet written stays in the table until `sync_node`,
-    /// `publish_node` or `sync`; a removed node leaves the table with its
-    /// last pin.
-    pub fn forget(&mut self, node: NodeId) {
-        if node == ROOT || self.user_pins(node) == 0 {
-            return;
-        }
-        if self.nodes.unpin(node) == Some(0)
-            && self.nodes.get(node).is_some_and(|n| n.unlinked)
-        {
-            self.nodes.remove(node);
-        }
-        if self.nodes.is_empty() {
-            self.moved = false;
-        }
-    }
-
     /// Where the last listing of `dir` left its chain, [`ChainPos::NONE`] when
     /// unknown.
     fn dir_hint(&self, dir: NodeId) -> ChainPos {
@@ -849,7 +687,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     }
 
     /// Records a position in the chain of `dir` for the next
-    /// `read_dir_entry` to start from. Shrinking a directory chain resets
+    /// `readdir` to start from. Shrinking a directory chain resets
     /// the positions.
     fn set_dir_hint(&mut self, dir: NodeId, hint: ChainPos) {
         if dir == ROOT {
@@ -861,57 +699,47 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         }
     }
 
-    /// Marks a pinned node as open: until the matching
-    /// [`close_node`](Self::close_node), `remove` and a replacing `rename`
-    /// of it fail with [`ErrorKind::Busy`]. Fails with
-    /// [`ErrorKind::InvalidHandle`] for an id that is not pinned, and with
-    /// [`ErrorKind::NotFound`] for a removed node.
-    pub async fn open_node(&mut self, node: NodeId) -> FsResult<(), D::Error> {
-        if node == ROOT {
-            return Ok(());
-        }
-        match self.nodes.get_mut(node) {
-            Some(state) if state.unlinked => Err(ErrorKind::NotFound.into()),
-            Some(state) => {
-                state.opens = state.opens.saturating_add(1);
-                Ok(())
+    /// The volume label as stored in the label entry of the root directory,
+    /// or `None` when it has none. The copy in the boot sector is not read.
+    /// `FileSystem::label` gives the same label as text.
+    pub async fn volume_label(&mut self) -> FsResult<Option<VolumeLabel>, D::Error> {
+        let mut walk = DirWalk::new(self.fat.root());
+        let mut slot = 0;
+        while let Some(offset) = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot).await? {
+            match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
+                Slot::End => break,
+                Slot::Short(entry) if entry.is_label() => {
+                    return Ok(Some(VolumeLabel::from_disk(entry.name())));
+                }
+                _ => {}
             }
-            None => Err(ErrorKind::InvalidHandle.into()),
+            slot += 1;
         }
+        Ok(None)
     }
 
-    /// Ends one [`open_node`](Self::open_node). Unknown ids are ignored.
-    pub fn close_node(&mut self, node: NodeId) {
-        if let Some(state) = self.nodes.get_mut(node) {
-            state.opens = state.opens.saturating_sub(1);
+    /// Writes the node's pending size and modification time to its
+    /// directory entry, without flushing the device.
+    async fn publish_node(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+        if node != ROOT {
+            let (id, _) = self.any_node(node).await?;
+            if let Some(id) = id {
+                self.flush_node(id).await?;
+            }
         }
+        Ok(())
     }
 
-    /// Creates `name` in `dir` and pins the new node. Only files and
-    /// directories exist on FAT; other kinds fail with
-    /// [`ErrorKind::Unsupported`].
-    ///
-    /// `meta` sets the attributes, which default to archive for a file, and
-    /// the creation, modification and access times, which default to now.
-    /// Mode and owner are ignored, as for `set_metadata`. Fails with [`ErrorKind::AlreadyExists`]
-    /// when a long or short name matches, [`ErrorKind::InvalidInput`] for a
-    /// name FAT cannot hold (control characters, `"*/:<>?\|`, or a trailing
-    /// dot or space, refused rather than stripped so a created name is the
-    /// name listed), and [`ErrorKind::NoSpace`] when a FAT12/16 root
-    /// directory is full or a directory would pass 65536 entries.
-    pub async fn create(
+    /// Creates `name` in `dir` as a file or directory and pins it.
+    async fn create_node(
         &mut self,
         dir: NodeId,
         name: &Name,
-        kind: NewNode<'_>,
-        meta: &SetMetadata,
+        is_dir: bool,
+        attrs: &SetAttr,
     ) -> FsResult<NodeId, D::Error> {
         self.prepare().await?;
-        let is_dir = match kind {
-            NewNode::File => false,
-            NewNode::Dir => true,
-            _ => return Err(ErrorKind::Unsupported.into()),
-        };
+        name.check()?;
         let start = self.dir_start(dir).await?;
         let text = entry_name(name, ErrorKind::InvalidInput)?;
         let new = NewName::new(text, &self.code_page)?;
@@ -930,7 +758,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         self.nodes
             .insert(reserved, placeholder)
             .map_err(|_| ErrorKind::LimitExceeded)?;
-        let node = match self.create_entry(start, &new, &plan, is_dir, meta).await {
+        let node = match self.create_entry(start, &new, &plan, is_dir, attrs).await {
             Ok(node) => node,
             Err(err) => {
                 self.nodes.remove(reserved);
@@ -945,23 +773,19 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         Ok(id)
     }
 
-    /// Removes the file or empty directory `name` from `dir` and frees its
-    /// clusters. `kind` says which of the two is expected.
-    ///
-    /// Fails with [`ErrorKind::IsADirectory`] or
-    /// [`ErrorKind::NotADirectory`] when the entry is not of `kind`, with
-    /// [`ErrorKind::Busy`] while the node is open, and with
-    /// [`ErrorKind::DirectoryNotEmpty`] for a directory with entries.
-    ///
-    /// A node that is pinned but not open is removed; its id then answers
-    /// [`ErrorKind::NotFound`] until its last `forget`.
-    pub async fn remove(&mut self, dir: NodeId, name: &Name, kind: RemoveKind) -> FsResult<(), D::Error> {
+    /// Removes the file (or, with `want_dir`, the empty directory) `name`
+    /// from `dir` and frees its clusters.
+    async fn remove_entry(&mut self, dir: NodeId, name: &Name, want_dir: bool) -> FsResult<(), D::Error> {
         self.prepare().await?;
+        name.check()?;
         let start = self.dir_start(dir).await?;
         let query = entry_name(name, ErrorKind::NotFound)?;
         let found = self.find_entry(start, query).await?.ok_or(ErrorKind::NotFound)?;
-        let file_type = if found.entry.is_dir() { FileType::Dir } else { FileType::File };
-        kind.check(file_type)?;
+        match (want_dir, found.entry.is_dir()) {
+            (false, true) => return Err(ErrorKind::IsADirectory.into()),
+            (true, false) => return Err(ErrorKind::NotADirectory.into()),
+            _ => {}
+        }
         let pinned = self.pinned_at(found.offset);
         if pinned.is_some_and(|id| self.is_open(id)) {
             return Err(ErrorKind::Busy.into());
@@ -977,9 +801,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             self.pending = Some(Pending::chain(first, Owner::Removed(found.offset)));
         }
         self.run = Run::of(start, found.first, found.slot);
-        self.write(found.offset, &[raw::ENTRY_FREE]).await?;
+        self.put_bytes(found.offset, &[raw::ENTRY_FREE]).await?;
         if let Some(id) = pinned {
-            self.unlink(id);
+            self.mark_unlinked(id);
         }
         self.clear_slots(start, found.first, found.slot).await?;
         self.run = None;
@@ -987,282 +811,6 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             self.free_chain(first).await?;
         }
         Ok(())
-    }
-
-    /// Moves `from` in `from_dir` to `to` in `to_dir`. The moved node keeps
-    /// its `NodeId` when it is pinned. A renamed file gets the archive
-    /// attribute, as the FAT specification and Windows do; a directory
-    /// keeps its attributes.
-    ///
-    /// An existing `to` is replaced unless `flags` has
-    /// [`RenameFlags::NO_REPLACE`] ([`ErrorKind::AlreadyExists`]): a file by
-    /// a file, an empty directory by a directory. The result is named `to`
-    /// as given, even when `to` matches the target in another case or by its
-    /// short alias, and the new name takes the target's slots when it fits
-    /// them, so a full FAT12/16 root directory still allows the replace. A
-    /// pinned target fails with [`ErrorKind::Busy`].
-    /// Moving a directory into itself or below, or a `to` that `create`
-    /// would refuse, fails with [`ErrorKind::InvalidInput`], and unknown
-    /// flags with
-    /// [`ErrorKind::Unsupported`].
-    pub async fn rename(
-        &mut self,
-        from_dir: NodeId,
-        from: &Name,
-        to_dir: NodeId,
-        to: &Name,
-        flags: RenameFlags,
-    ) -> FsResult<(), D::Error> {
-        self.prepare().await?;
-        if flags.bits() & !RenameFlags::NO_REPLACE.bits() != 0 {
-            return Err(ErrorKind::Unsupported.into());
-        }
-        let from_start = self.dir_start(from_dir).await?;
-        let to_start = self.dir_start(to_dir).await?;
-        let from_text = entry_name(from, ErrorKind::NotFound)?;
-        let to_text = entry_name(to, ErrorKind::InvalidInput)?;
-        let new = NewName::new(to_text, &self.code_page)?;
-        let src = self
-            .find_entry(from_start, from_text)
-            .await?
-            .ok_or(ErrorKind::NotFound)?;
-        let src_id = self.pinned_at(src.offset);
-        let src_node = match src_id.and_then(|id| self.nodes.get(id)) {
-            Some(node) => *node,
-            None => Node::new(src.offset, &src.entry, self.fat.geometry().kind()),
-        };
-        if src_node.dir {
-            self.check_cluster(src_node.first)?;
-        }
-        if src_node.dir && self.is_within(to_start, src_node.first).await? {
-            return Err(ErrorKind::InvalidInput.into());
-        }
-        let mut moved = src.entry;
-        moved.set_first_cluster(self.fat.geometry().kind(), src_node.first);
-        if !src_node.dir {
-            moved.set_size(src_node.size);
-            moved.set_attributes(moved.attributes() | raw::ATTR_ARCHIVE);
-        }
-        let dot_dot = (src_node.dir && self.parent_cluster(from_start) != self.parent_cluster(to_start))
-            .then(|| (src_node.first, self.parent_cluster(from_start), self.parent_cluster(to_start)));
-        match self.find_entry(to_start, to_text).await? {
-            Some(target) if target.offset == src.offset && target.exact => return Ok(()),
-            Some(target) if target.offset != src.offset => {
-                if flags.contains(RenameFlags::NO_REPLACE) {
-                    return Err(ErrorKind::AlreadyExists.into());
-                }
-                return self
-                    .replace_entry(from_start, &src, to_start, &target, to_text, &new, moved, dot_dot, src_id)
-                    .await;
-            }
-            _ => {
-                let skip = Skip {
-                    entry: (from_start == to_start).then_some(src.offset),
-                    run: None,
-                };
-                let plan = self.plan(to_start, to_text, false, &new, skip).await?;
-                let grown = self.grow(&plan).await?;
-                self.move_entry(from_start, &src, to_start, &new, &plan, grown, moved, dot_dot, src_id, None)
-                    .await?;
-            }
-        }
-        self.clear_slots(from_start, src.first, src.slot).await?;
-        self.run = None;
-        Ok(())
-    }
-
-    /// Writes to a file at `offset`, growing it and zero-filling any gap
-    /// past the old end. Returns the bytes written, fewer than `buf.len()`
-    /// only at the 4 GiB - 1 FAT size limit; an `offset` at or past it fails
-    /// with [`ErrorKind::FileTooLarge`], and a volume without room for the
-    /// new clusters fails with [`ErrorKind::NoSpace`] and changes nothing.
-    ///
-    /// The new size of a pinned file is written by `publish_node`,
-    /// `sync_node` or `sync`, with the modification time and the archive
-    /// attribute.
-    pub async fn write_at(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, D::Error> {
-        self.prepare().await?;
-        let (id, state) = self.file_node(node).await?;
-        if buf.is_empty() {
-            return Ok(0);
-        }
-        if offset >= MAX_FILE_SIZE {
-            return Err(ErrorKind::FileTooLarge.into());
-        }
-        let count = (MAX_FILE_SIZE - offset).min(buf.len() as u64) as usize;
-        let end = offset + count as u64;
-        let growth = self.cover(&state, end).await?;
-        let old = state.size as u64;
-        let hint = if growth.first == state.first { state.hint } else { ChainPos::NONE };
-        let filled = if offset > old {
-            self.fill(growth.first, hint, old, None, (offset - old) as usize).await
-        } else {
-            Ok(hint)
-        };
-        let written = match filled {
-            Ok(hint) => self.fill(growth.first, hint, offset, Some(&buf[..count]), count).await,
-            Err(err) => Err(err),
-        };
-        let hint = match written {
-            Ok(hint) => hint,
-            Err(err) => {
-                self.undo_growth(growth).await;
-                return Err(err);
-            }
-        };
-        let size = old.max(end) as u32;
-        if let Err(err) = self.publish(id, &state, growth.first, size, hint).await {
-            self.undo_growth(growth).await;
-            return Err(err);
-        }
-        self.pending = None;
-        Ok(count)
-    }
-
-    /// Truncates or extends a file. Growth reads as zeros. Shrinking writes
-    /// the new size to the directory entry at once and frees the clusters
-    /// past it. A changed size sets the archive attribute; the same size
-    /// changes nothing. A length past 4 GiB - 1 fails with
-    /// [`ErrorKind::FileTooLarge`].
-    pub async fn set_len(&mut self, node: NodeId, len: u64) -> FsResult<(), D::Error> {
-        self.prepare().await?;
-        let (id, state) = self.file_node(node).await?;
-        if len > MAX_FILE_SIZE {
-            return Err(ErrorKind::FileTooLarge.into());
-        }
-        let old = state.size as u64;
-        if len > old {
-            let growth = self.cover(&state, len).await?;
-            let hint = if growth.first == state.first { state.hint } else { ChainPos::NONE };
-            let published = match self.fill(growth.first, hint, old, None, (len - old) as usize).await {
-                Ok(hint) => self.publish(id, &state, growth.first, len as u32, hint).await,
-                Err(err) => Err(err),
-            };
-            if let Err(err) = published {
-                self.undo_growth(growth).await;
-                return Err(err);
-            }
-            self.pending = None;
-            return Ok(());
-        }
-        if len == old {
-            return Ok(());
-        }
-        let keep = len.div_ceil(self.fat.geometry().cluster_size() as u64) as u32;
-        let first = if keep == 0 { 0 } else { state.first };
-        if keep == 0 && state.first != 0 {
-            self.pending = Some(Pending::chain(state.first, Owner::Entry(state.entry)));
-        }
-        self.store(id, &state, first, len as u32, ChainPos::NONE).await?;
-        if state.first == 0 {
-            return Ok(());
-        }
-        if keep == 0 {
-            return self.free_chain(state.first).await;
-        }
-        let reached = rawio::walk(&mut self.dev, &mut self.block, &self.fat, state.first, ChainPos::NONE, keep - 1).await?;
-        let last = reached.cluster();
-        if reached.index() == keep - 1
-            && let Some(next) = rawio::next(&mut self.dev, &mut self.block, &self.fat, last).await?
-        {
-            self.pending = Some(Pending::chain(next, Owner::Cluster(last)));
-            self.set_fat(last, self.fat.geometry().kind().end_of_chain()).await?;
-            self.free_chain(next).await?;
-        }
-        Ok(())
-    }
-
-    /// Changes attributes and times. `changed` times, mode and owner are
-    /// ignored, since FAT cannot store them, as are changes to the root. A
-    /// pending size is written too.
-    ///
-    /// Ignoring them is the `FsDriver` contract, which `copy_tree` and
-    /// `import_from_host` rely on when they copy a mode onto FAT;
-    /// [`capabilities`](Self::capabilities) reports neither permissions nor
-    /// owners, so a caller that needs them can check first.
-    pub async fn set_metadata(&mut self, node: NodeId, changes: &SetMetadata) -> FsResult<(), D::Error> {
-        self.prepare().await?;
-        if node == ROOT {
-            return Ok(());
-        }
-        let (id, state) = self.any_node(node).await?;
-        let times = changes.times();
-        if !state.dirty
-            && changes.attributes().is_none()
-            && times.created().is_none()
-            && times.modified().is_none()
-            && times.accessed().is_none()
-        {
-            return Ok(());
-        }
-        let mut entry = self.read_short(state.entry).await?;
-        if state.dirty {
-            self.touch(&mut entry, &state);
-        }
-        if let Some(attributes) = changes.attributes() {
-            apply_attributes(&mut entry, attributes);
-        }
-        if let Some(time) = times.created() {
-            let (date, time, tenths) = date::encode(time);
-            entry.set_created(date, time, tenths);
-        }
-        if let Some(time) = times.modified() {
-            let (date, time, _) = date::encode(time);
-            entry.set_modified(date, time);
-        }
-        if let Some(time) = times.accessed() {
-            entry.set_accessed_date(date::encode(time).0);
-        }
-        self.write(state.entry, &entry.encode()).await?;
-        if let Some(id) = id {
-            self.clean(id);
-        }
-        Ok(())
-    }
-
-    /// Writes the node's pending size and modification time, then flushes
-    /// the device.
-    pub async fn sync_node(&mut self, node: NodeId) -> FsResult<(), D::Error> {
-        self.publish_node(node).await?;
-        self.flush_device().await
-    }
-
-    /// Writes the node's pending size and modification time to its
-    /// directory entry, without flushing the device.
-    pub async fn publish_node(&mut self, node: NodeId) -> FsResult<(), D::Error> {
-        if node != ROOT {
-            let (id, _) = self.any_node(node).await?;
-            if let Some(id) = id {
-                self.flush_node(id).await?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Writes every pending size and modification time and the FAT32
-    /// FSInfo free count, then flushes the device.
-    ///
-    /// A node whose short entry cannot be read any more does not stop the
-    /// others: its pending size is dropped, the rest is written, and `sync`
-    /// then fails with [`ErrorKind::Corrupt`].
-    pub async fn sync(&mut self) -> FsResult<(), D::Error> {
-        if !self.read_only {
-            self.recover().await?;
-        }
-        let mut corrupt = None;
-        while let Some(id) = self.nodes.find(&mut |_, node| node.dirty) {
-            match self.flush_node(id).await {
-                Err(err) if err.kind() == ErrorKind::Corrupt => {
-                    self.clean(id);
-                    corrupt = Some(err);
-                }
-                other => other?,
-            }
-        }
-        let written = rawio::write_fs_info(&mut self.dev, &mut self.block, &mut self.fat).await;
-        self.note(written)?;
-        self.flush_device().await?;
-        corrupt.map_or(Ok(()), Err)
     }
 
     fn now(&self) -> DateTime {
@@ -1333,7 +881,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
                 if let Some(id) = self.pinned_at(offset)
                     && self.nodes.get(id).is_some_and(|node| node.first == head)
                 {
-                    self.unlink(id);
+                    self.mark_unlinked(id);
                 }
             }
             _ => {}
@@ -1433,7 +981,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// Drops the table state of a node whose entry was just removed. A node
     /// callers still pin stays, marked unlinked, so its id answers
     /// `NotFound` until the last `forget`.
-    fn unlink(&mut self, id: NodeId) {
+    fn mark_unlinked(&mut self, id: NodeId) {
         self.clean(id);
         if self.nodes.pins(id) == 0 {
             self.nodes.remove(id);
@@ -1495,7 +1043,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         result
     }
 
-    async fn write(&mut self, offset: u64, data: &[u8]) -> FsResult<(), D::Error> {
+    async fn put_bytes(&mut self, offset: u64, data: &[u8]) -> FsResult<(), D::Error> {
         self.put(offset, Some(data), data.len()).await
     }
 
@@ -1545,7 +1093,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         let next = Node { first, size, hint, ..*state };
         let mut entry = self.read_short(state.entry).await?;
         self.touch(&mut entry, &next);
-        self.write(state.entry, &entry.encode()).await?;
+        self.put_bytes(state.entry, &entry.encode()).await?;
         if let Some(id) = id {
             if let Some(node) = self.nodes.get_mut(id) {
                 node.first = first;
@@ -1918,22 +1466,24 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         new: &NewName<'_>,
         plan: &Plan,
         is_dir: bool,
-        meta: &SetMetadata,
+        attrs: &SetAttr,
     ) -> FsResult<Node, D::Error> {
         let kind = self.fat.geometry().kind();
         let now = self.now();
-        let times = meta.times();
         let attr = if is_dir { raw::ATTR_DIRECTORY } else { raw::ATTR_ARCHIVE };
         let mut entry = ShortEntry::new(plan.short, attr);
         entry.set_nt_case(plan.nt_case);
-        if let Some(attributes) = meta.attributes() {
+        if let Some(attributes) = attrs.attributes() {
             apply_attributes(&mut entry, attributes);
+        }
+        if attrs.permissions().is_some_and(|mode| mode.bits() & 0o222 == 0) {
+            set_read_only(&mut entry, true);
         }
         stamp(
             &mut entry,
-            times.created().unwrap_or(now),
-            times.modified().unwrap_or(now),
-            times.accessed().unwrap_or(now),
+            attrs.created().unwrap_or(now),
+            attrs.modified().unwrap_or(now),
+            attrs.accessed().unwrap_or(now),
         );
         let grown = self.grow(plan).await?;
         let mut first = 0;
@@ -1957,7 +1507,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             raw[..32].copy_from_slice(&dot.encode());
             raw[32..].copy_from_slice(&dot_dot.encode());
             let written = match self.cluster_at(first) {
-                Ok(at) => self.write(at, &raw).await,
+                Ok(at) => self.put_bytes(at, &raw).await,
                 Err(kind) => Err(kind.into()),
             };
             if let Err(err) = written {
@@ -1993,7 +1543,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             return Err(ErrorKind::Corrupt.into());
         }
         entry.set_first_cluster(self.fat.geometry().kind(), parent);
-        self.write(at, &entry.encode()).await
+        self.put_bytes(at, &entry.encode()).await
     }
 
     /// Writes `moved` under the name `new` where `plan` found room in `to`,
@@ -2034,7 +1584,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             return Err(err);
         }
         self.run = Run::of(from, src.first, src.slot);
-        if let Err(err) = self.write(src.offset, &[raw::ENTRY_FREE]).await {
+        if let Err(err) = self.put_bytes(src.offset, &[raw::ENTRY_FREE]).await {
             self.run = None;
             if let Some((dir, old, _)) = dot_dot {
                 let _ = self.set_dot_dot(dir, old).await;
@@ -2097,7 +1647,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         let held = (target_first != 0).then(|| Pending::chain(target_first, Owner::Removed(target.offset)));
         self.pending = held;
         self.run = Run::of(to, target.first, target.slot);
-        let cleared = match self.write(target.offset, &[raw::ENTRY_FREE]).await {
+        let cleared = match self.put_bytes(target.offset, &[raw::ENTRY_FREE]).await {
             Ok(()) => self.clear_slots(to, target.first, target.slot).await,
             Err(err) => Err(err),
         };
@@ -2117,7 +1667,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         }
         self.pending = held;
         if let Some(id) = target_id {
-            self.unlink(id);
+            self.mark_unlinked(id);
         }
         self.clear_slots(from, src.first, src.slot).await?;
         self.run = None;
@@ -2151,7 +1701,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         let mut walk = DirWalk::new(dir);
         for (slot, raw) in (saved.first..).zip(&saved.raw[..saved.len as usize]) {
             if let Ok(Some(at)) = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot).await {
-                let _ = self.write(at, raw).await;
+                let _ = self.put_bytes(at, raw).await;
             }
         }
     }
@@ -2305,7 +1855,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// node has moved, that is the tier-0 id of the slot, found by key.
     fn pinned_at(&self, offset: u64) -> Option<NodeId> {
         if !self.moved {
-            let id = NodeId::new(offset / ENTRY_SIZE);
+            let id = node_id(offset / ENTRY_SIZE);
             return self.nodes.get(id).is_some_and(|node| node.entry == offset).then_some(id);
         }
         self.nodes.find(&mut |_, node| node.entry == offset)
@@ -2316,7 +1866,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     fn free_id(&self, offset: u64) -> Option<NodeId> {
         let slot = offset / ENTRY_SIZE;
         (0..=MAX_TIER)
-            .map(|tier| NodeId::new(tier << SLOT_BITS | slot))
+            .map(|tier| node_id(tier << SLOT_BITS | slot))
             .find(|&id| self.nodes.get(id).is_none())
     }
 
@@ -2325,7 +1875,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     fn id_at(&self, offset: u64) -> NodeId {
         self.pinned_at(offset)
             .or_else(|| self.free_id(offset))
-            .unwrap_or(NodeId::new(offset / ENTRY_SIZE))
+            .unwrap_or(node_id(offset / ENTRY_SIZE))
     }
 
     /// Pins the node whose short entry is at `offset`.
@@ -2439,6 +1989,545 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     }
 }
 
+impl<D: BlockDevice, T: NodeTable<With<Node>: MaybeSend>, C: Clock, P: CodePage + MaybeSend> FileSystem
+    for FatFs<D, T, C, P>
+{
+    type DeviceError = D::Error;
+
+    /// What this volume supports: case-insensitive, case-preserving UTF-16
+    /// names of up to 255 code units (765 bytes of UTF-8), two-second
+    /// modification times, creation times, access dates, the DOS attributes
+    /// and, through the read-only attribute, part of the permissions.
+    /// Writable unless [`is_read_only`](FatFs::is_read_only).
+    fn capabilities(&self) -> Capabilities {
+        let caps = Capabilities::new(CaseRule::InsensitivePreserving, Charset::Unicode, lfn::MAX_UNITS * 3)
+            .with_stored(Field::Created, Stored::Yes)
+            .with_stored(Field::Modified, Stored::Yes)
+            .with_stored(Field::Accessed, Stored::Partial)
+            .with_stored(Field::Permissions, Stored::Partial)
+            .with_stored(Field::Attributes, Stored::Yes)
+            .with_timestamp_resolution_ns(2_000_000_000);
+        if self.read_only { caps } else { caps.with_writable() }
+    }
+
+    /// The root directory. Always pinned.
+    fn root(&self) -> NodeId {
+        ROOT
+    }
+
+    /// Space usage in clusters. Free space comes from the FAT32 FSInfo
+    /// sector when it is valid, and otherwise from one scan of the FAT,
+    /// which is then kept. The FSInfo count is a hint: allocation scans the
+    /// FAT regardless, and one that finds it wrong drops it.
+    async fn statfs(&mut self) -> FsResult<FsStats, D::Error> {
+        let free = match self.fat.free_clusters() {
+            Some(free) => free,
+            None => rawio::count_free(&mut self.dev, &mut self.block, &mut self.fat).await?,
+        };
+        let total = self.fat.geometry().max_cluster() - 1;
+        Ok(FsStats::new(total as u64, free as u64, self.fat.geometry().cluster_size()))
+    }
+
+    /// The volume label from the label entry of the root directory, or
+    /// `None` when it has none. The copy in the boot sector is not read.
+    async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
+        let Some(label) = self.volume_label().await? else {
+            return Ok(None);
+        };
+        let text = label.as_str().as_bytes();
+        let out = buf.get_mut(..text.len()).ok_or(ErrorKind::LimitExceeded)?;
+        out.copy_from_slice(text);
+        Ok(core::str::from_utf8(out).ok())
+    }
+
+    /// Finds `name` in `dir` and pins the result. Case is ignored, and the
+    /// short name of an entry with a long name matches too.
+    async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
+        name.check()?;
+        let start = self.dir_start(dir).await?;
+        let Ok(query) = name.to_str() else {
+            return Err(ErrorKind::NotFound.into());
+        };
+        let found = self.find_entry(start, query).await?.ok_or(ErrorKind::NotFound)?;
+        Ok(self.intern(found.offset, &found.entry)?)
+    }
+
+    /// Drops `count` pins of a node. Unknown ids and the root are ignored.
+    /// A node whose size is not yet written stays in the table until
+    /// `close`, `fsync` or `sync`; a removed node leaves the table with its
+    /// last pin.
+    fn forget(&mut self, node: NodeId, count: u64) {
+        if node == ROOT {
+            return;
+        }
+        for _ in 0..count.min(u64::from(self.user_pins(node))) {
+            if self.nodes.unpin(node) == Some(0)
+                && self.nodes.get(node).is_some_and(|n| n.unlinked)
+            {
+                self.nodes.remove(node);
+                break;
+            }
+        }
+        if self.nodes.is_empty() {
+            self.moved = false;
+        }
+    }
+
+    /// The directory containing `dir`, pinned. The root is its own parent.
+    ///
+    /// Found through `..` entries: the parent's first cluster, then the
+    /// grandparent, which is scanned for the parent's entry.
+    async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
+        if dir == ROOT {
+            return Ok(ROOT);
+        }
+        let DirStart::Chain(first) = self.dir_start(dir).await? else {
+            return Ok(ROOT);
+        };
+        let Some(up) = self.dot_dot(first).await? else {
+            return Ok(ROOT);
+        };
+        let grand = match self.dot_dot(up).await? {
+            Some(cluster) => DirStart::Chain(cluster),
+            None => self.fat.root(),
+        };
+        let mut walk = DirWalk::new(grand);
+        let mut slot = 0;
+        let mut long = Assembler::new();
+        while let Some(found) = self.next_visible(&mut walk, &mut slot, &mut long).await? {
+            if found.entry.is_dir() && found.entry.first_cluster(self.fat.geometry().kind()) == up {
+                return Ok(self.intern(found.offset, &found.entry)?);
+            }
+        }
+        Err(ErrorKind::Corrupt.into())
+    }
+
+    /// Metadata of a pinned node or of an id just returned by
+    /// `readdir`. Directories have length 0.
+    async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
+        if node == ROOT {
+            return Ok(Metadata::new(FileType::Dir, permissions(true, false)));
+        }
+        let (state, entry) = self.node_entry(node).await?;
+        Ok(metadata(&state, &entry))
+    }
+
+    /// The entry at or after `from`, or `None` at the end. `.`, `..`, the
+    /// volume label and deleted entries are skipped. The raw cursor is the
+    /// index of a directory slot. A directory whose cluster chain loops
+    /// fails with [`ErrorKind::Corrupt`] once the walk comes back around.
+    async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
+        let start = self.dir_start(dir).await?;
+        let Ok(mut slot) = u32::try_from(from.into_raw()) else {
+            return Ok(None);
+        };
+        let mut walk = DirWalk::resume(start, self.dir_hint(dir));
+        let mut long = Assembler::new();
+        let found = self.next_visible(&mut walk, &mut slot, &mut long).await?;
+        if walk.pos().is_known() {
+            self.set_dir_hint(dir, walk.pos());
+        }
+        let Some(found) = found else {
+            return Ok(None);
+        };
+        let units = long.finish(found.entry.lfn_checksum());
+        let mut name = NameBuf::new();
+        write_name(&mut name, units.filter(|units| !units.is_empty()), &found.entry, &self.code_page)?;
+        let node = self.id_at(found.offset);
+        let state = match self.pinned_at(found.offset).and_then(|id| self.nodes.get(id)) {
+            Some(state) => *state,
+            None => Node::new(found.offset, &found.entry, self.fat.geometry().kind()),
+        };
+        let name = name.as_name().ok_or(ErrorKind::Corrupt)?;
+        let next = DirCursor::from_raw(found.slot as u64 + 1);
+        let entry = DirEntry::new(name, node, metadata(&state, &found.entry), next)
+            .map_err(|_| ErrorKind::Corrupt)?;
+        Ok(Some(entry))
+    }
+
+    /// FAT has no symlinks: fails with [`ErrorKind::InvalidInput`] for any
+    /// node that exists.
+    async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
+        let _ = buf;
+        if node != ROOT {
+            self.node(node).await?;
+        }
+        Err(ErrorKind::InvalidInput.into())
+    }
+
+    /// Opens a pinned file: until the matching `close`, `unlink` and a
+    /// replacing `rename` of it fail with [`ErrorKind::Busy`]. Fails with
+    /// [`ErrorKind::IsADirectory`] for a directory, [`ErrorKind::ReadOnly`]
+    /// for [`OpenMode::Write`] on a read-only volume,
+    /// [`ErrorKind::InvalidHandle`] for an id that is not pinned, and
+    /// [`ErrorKind::NotFound`] for a removed node.
+    async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
+        if node == ROOT {
+            return Err(ErrorKind::IsADirectory.into());
+        }
+        let read_only = self.read_only;
+        match self.nodes.get_mut(node) {
+            Some(state) if state.unlinked => Err(ErrorKind::NotFound.into()),
+            Some(state) if state.dir => Err(ErrorKind::IsADirectory.into()),
+            Some(_) if mode == OpenMode::Write && read_only => Err(ErrorKind::ReadOnly.into()),
+            Some(state) => {
+                state.opens = state.opens.saturating_add(1);
+                Ok(())
+            }
+            None => Err(ErrorKind::InvalidHandle.into()),
+        }
+    }
+
+    /// Ends one `open` and writes the node's pending size and modification
+    /// time to its directory entry, without flushing the device.
+    async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+        if let Some(state) = self.nodes.get_mut(node) {
+            state.opens = state.opens.saturating_sub(1);
+        }
+        self.publish_node(node).await
+    }
+
+    /// Reads from a file at `offset`. Returns 0 at or past the end. A chain
+    /// that ends before the file's size or loops fails with
+    /// [`ErrorKind::Corrupt`].
+    async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
+        if node == ROOT {
+            return Err(ErrorKind::IsADirectory.into());
+        }
+        let state = self.node(node).await?;
+        if state.dir {
+            return Err(ErrorKind::IsADirectory.into());
+        }
+        let size = state.size as u64;
+        if offset >= size || buf.is_empty() {
+            return Ok(0);
+        }
+        let count = (size - offset).min(buf.len() as u64) as usize;
+        let cluster_size = self.fat.geometry().cluster_size() as u64;
+        let mut hint = state.hint;
+        let mut done = 0;
+        while done < count {
+            let pos = offset + done as u64;
+            let want = (pos / cluster_size) as u32;
+            hint = rawio::walk(&mut self.dev, &mut self.block, &self.fat, state.first, hint, want).await?;
+            if hint.index() < want {
+                return Err(ErrorKind::Corrupt.into());
+            }
+            let within = pos % cluster_size;
+            let at = self.cluster_at(hint.cluster())? + within;
+            let n = ((cluster_size - within) as usize).min(count - done);
+            let n = rawio::run(&mut self.dev, &mut self.block, &self.fat, &mut hint, n, count - done).await?;
+            read_bytes(&mut self.dev, &mut self.block, at, &mut buf[done..done + n]).await?;
+            done += n;
+        }
+        if let Some(state) = self.nodes.get_mut(node) {
+            state.hint = hint;
+        }
+        Ok(count)
+    }
+
+    /// Changes attributes, times and permissions. Permissions are stored
+    /// only as the read-only attribute, so only the values FAT reports (see
+    /// `stat`) are accepted; others and an owner fail with
+    /// [`ErrorKind::Unsupported`], as does any change to the root, which has
+    /// no entry.
+    /// A pending size is written too.
+    async fn setattr(&mut self, node: NodeId, changes: &SetAttr) -> FsResult<(), D::Error> {
+        self.prepare().await?;
+        if changes.owner().is_some() {
+            return Err(ErrorKind::Unsupported.into());
+        }
+        if node == ROOT {
+            return match changes.is_empty() {
+                true => Ok(()),
+                false => Err(ErrorKind::Unsupported.into()),
+            };
+        }
+        let (id, state) = self.any_node(node).await?;
+        let read_only = match changes.permissions() {
+            Some(wanted) => Some(read_only_bit(state.dir, wanted).ok_or(ErrorKind::Unsupported)?),
+            None => None,
+        };
+        if !state.dirty && changes.is_empty() {
+            return Ok(());
+        }
+        let mut entry = self.read_short(state.entry).await?;
+        if state.dirty {
+            self.touch(&mut entry, &state);
+        }
+        if let Some(attributes) = changes.attributes() {
+            apply_attributes(&mut entry, attributes);
+        }
+        if let Some(read_only) = read_only {
+            set_read_only(&mut entry, read_only);
+        }
+        if let Some(time) = changes.created() {
+            let (date, time, tenths) = date::encode(time);
+            entry.set_created(date, time, tenths);
+        }
+        if let Some(time) = changes.modified() {
+            let (date, time, _) = date::encode(time);
+            entry.set_modified(date, time);
+        }
+        if let Some(time) = changes.accessed() {
+            entry.set_accessed_date(date::encode(time).0);
+        }
+        self.put_bytes(state.entry, &entry.encode()).await?;
+        if let Some(id) = id {
+            self.clean(id);
+        }
+        Ok(())
+    }
+
+    /// Writes to a file at `offset`, growing it and zero-filling any gap
+    /// past the old end. Returns the bytes written, fewer than `buf.len()`
+    /// only at the 4 GiB - 1 FAT size limit; an `offset` at or past it fails
+    /// with [`ErrorKind::FileTooLarge`], and a volume without room for the
+    /// new clusters fails with [`ErrorKind::NoSpace`] and changes nothing.
+    ///
+    /// The new size of a pinned file is written by `close`,
+    /// `fsync` or `sync`, with the modification time and the archive
+    /// attribute.
+    async fn write(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, D::Error> {
+        self.prepare().await?;
+        let (id, state) = self.file_node(node).await?;
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        if offset >= MAX_FILE_SIZE {
+            return Err(ErrorKind::FileTooLarge.into());
+        }
+        let count = (MAX_FILE_SIZE - offset).min(buf.len() as u64) as usize;
+        let end = offset + count as u64;
+        let growth = self.cover(&state, end).await?;
+        let old = state.size as u64;
+        let hint = if growth.first == state.first { state.hint } else { ChainPos::NONE };
+        let filled = if offset > old {
+            self.fill(growth.first, hint, old, None, (offset - old) as usize).await
+        } else {
+            Ok(hint)
+        };
+        let written = match filled {
+            Ok(hint) => self.fill(growth.first, hint, offset, Some(&buf[..count]), count).await,
+            Err(err) => Err(err),
+        };
+        let hint = match written {
+            Ok(hint) => hint,
+            Err(err) => {
+                self.undo_growth(growth).await;
+                return Err(err);
+            }
+        };
+        let size = old.max(end) as u32;
+        if let Err(err) = self.publish(id, &state, growth.first, size, hint).await {
+            self.undo_growth(growth).await;
+            return Err(err);
+        }
+        self.pending = None;
+        Ok(count)
+    }
+
+    /// Truncates or extends a file. Growth reads as zeros. Shrinking writes
+    /// the new size to the directory entry at once and frees the clusters
+    /// past it. A changed size sets the archive attribute; the same size
+    /// changes nothing. A length past 4 GiB - 1 fails with
+    /// [`ErrorKind::FileTooLarge`].
+    async fn truncate(&mut self, node: NodeId, len: u64) -> FsResult<(), D::Error> {
+        self.prepare().await?;
+        let (id, state) = self.file_node(node).await?;
+        if len > MAX_FILE_SIZE {
+            return Err(ErrorKind::FileTooLarge.into());
+        }
+        let old = state.size as u64;
+        if len > old {
+            let growth = self.cover(&state, len).await?;
+            let hint = if growth.first == state.first { state.hint } else { ChainPos::NONE };
+            let published = match self.fill(growth.first, hint, old, None, (len - old) as usize).await {
+                Ok(hint) => self.publish(id, &state, growth.first, len as u32, hint).await,
+                Err(err) => Err(err),
+            };
+            if let Err(err) = published {
+                self.undo_growth(growth).await;
+                return Err(err);
+            }
+            self.pending = None;
+            return Ok(());
+        }
+        if len == old {
+            return Ok(());
+        }
+        let keep = len.div_ceil(self.fat.geometry().cluster_size() as u64) as u32;
+        let first = if keep == 0 { 0 } else { state.first };
+        if keep == 0 && state.first != 0 {
+            self.pending = Some(Pending::chain(state.first, Owner::Entry(state.entry)));
+        }
+        self.store(id, &state, first, len as u32, ChainPos::NONE).await?;
+        if state.first == 0 {
+            return Ok(());
+        }
+        if keep == 0 {
+            return self.free_chain(state.first).await;
+        }
+        let reached = rawio::walk(&mut self.dev, &mut self.block, &self.fat, state.first, ChainPos::NONE, keep - 1).await?;
+        let last = reached.cluster();
+        if reached.index() == keep - 1
+            && let Some(next) = rawio::next(&mut self.dev, &mut self.block, &self.fat, last).await?
+        {
+            self.pending = Some(Pending::chain(next, Owner::Cluster(last)));
+            self.set_fat(last, self.fat.geometry().kind().end_of_chain()).await?;
+            self.free_chain(next).await?;
+        }
+        Ok(())
+    }
+
+    /// Writes the node's pending size and modification time, then flushes
+    /// the device.
+    async fn fsync(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+        self.publish_node(node).await?;
+        self.flush_device().await
+    }
+
+    /// Creates the empty file `name` in `dir` and pins it.
+    ///
+    /// `attrs` sets the attributes, which default to archive, the creation,
+    /// modification and access times, which default to now, and, when it
+    /// has no write bits, the read-only attribute; owners and other
+    /// permissions are ignored. Fails with [`ErrorKind::AlreadyExists`]
+    /// when a long or short name matches, [`ErrorKind::InvalidInput`] for a
+    /// name FAT cannot hold (control characters, `"*/:<>?\|`, or a trailing
+    /// dot or space, refused rather than stripped so a created name is the
+    /// name listed), and [`ErrorKind::NoSpace`] when a FAT12/16 root
+    /// directory is full or a directory would pass 65536 entries.
+    async fn create(&mut self, dir: NodeId, name: &Name, attrs: &SetAttr) -> FsResult<NodeId, D::Error> {
+        self.create_node(dir, name, false, attrs).await
+    }
+
+    /// Creates the empty directory `name` in `dir` and pins it, as `create`
+    /// does for a file.
+    async fn mkdir(&mut self, dir: NodeId, name: &Name, attrs: &SetAttr) -> FsResult<NodeId, D::Error> {
+        self.create_node(dir, name, true, attrs).await
+    }
+
+    /// Removes the file `name` from `dir` and frees its clusters. Fails with
+    /// [`ErrorKind::IsADirectory`] for a directory and with
+    /// [`ErrorKind::Busy`] while the node is open. A node that is pinned but
+    /// not open is removed; its id then answers [`ErrorKind::NotFound`]
+    /// until its last `forget`.
+    async fn unlink(&mut self, dir: NodeId, name: &Name) -> FsResult<(), D::Error> {
+        self.remove_entry(dir, name, false).await
+    }
+
+    /// Removes the empty directory `name` from `dir`, as `unlink` does a
+    /// file. Fails with [`ErrorKind::NotADirectory`] for anything else and
+    /// [`ErrorKind::DirectoryNotEmpty`] for a directory with entries.
+    async fn rmdir(&mut self, dir: NodeId, name: &Name) -> FsResult<(), D::Error> {
+        self.remove_entry(dir, name, true).await
+    }
+
+    /// Moves `from` in `from_dir` to `to` in `to_dir`. The moved node keeps
+    /// its `NodeId` when it is pinned. A renamed file gets the archive
+    /// attribute, as the FAT specification and Windows do; a directory
+    /// keeps its attributes.
+    ///
+    /// An existing `to` is replaced unless `mode` is
+    /// [`RenameMode::NoReplace`] ([`ErrorKind::AlreadyExists`]): a file by
+    /// a file, an empty directory by a directory. The result is named `to`
+    /// as given, even when `to` matches the target in another case or by its
+    /// short alias, and the new name takes the target's slots when it fits
+    /// them, so a full FAT12/16 root directory still allows the replace. A
+    /// pinned target fails with [`ErrorKind::Busy`].
+    /// Moving a directory into itself or below, or a `to` that `create`
+    /// would refuse, fails with [`ErrorKind::InvalidInput`].
+    async fn rename(
+        &mut self,
+        from_dir: NodeId,
+        from: &Name,
+        to_dir: NodeId,
+        to: &Name,
+        mode: RenameMode,
+    ) -> FsResult<(), D::Error> {
+        self.prepare().await?;
+        from.check()?;
+        to.check()?;
+        let from_start = self.dir_start(from_dir).await?;
+        let to_start = self.dir_start(to_dir).await?;
+        let from_text = entry_name(from, ErrorKind::NotFound)?;
+        let to_text = entry_name(to, ErrorKind::InvalidInput)?;
+        let new = NewName::new(to_text, &self.code_page)?;
+        let src = self
+            .find_entry(from_start, from_text)
+            .await?
+            .ok_or(ErrorKind::NotFound)?;
+        let src_id = self.pinned_at(src.offset);
+        let src_node = match src_id.and_then(|id| self.nodes.get(id)) {
+            Some(node) => *node,
+            None => Node::new(src.offset, &src.entry, self.fat.geometry().kind()),
+        };
+        if src_node.dir {
+            self.check_cluster(src_node.first)?;
+        }
+        if src_node.dir && self.is_within(to_start, src_node.first).await? {
+            return Err(ErrorKind::InvalidInput.into());
+        }
+        let mut moved = src.entry;
+        moved.set_first_cluster(self.fat.geometry().kind(), src_node.first);
+        if !src_node.dir {
+            moved.set_size(src_node.size);
+            moved.set_attributes(moved.attributes() | raw::ATTR_ARCHIVE);
+        }
+        let dot_dot = (src_node.dir && self.parent_cluster(from_start) != self.parent_cluster(to_start))
+            .then(|| (src_node.first, self.parent_cluster(from_start), self.parent_cluster(to_start)));
+        match self.find_entry(to_start, to_text).await? {
+            Some(target) if target.offset == src.offset && target.exact => return Ok(()),
+            Some(target) if target.offset != src.offset => {
+                if mode == RenameMode::NoReplace {
+                    return Err(ErrorKind::AlreadyExists.into());
+                }
+                return self
+                    .replace_entry(from_start, &src, to_start, &target, to_text, &new, moved, dot_dot, src_id)
+                    .await;
+            }
+            _ => {
+                let skip = Skip {
+                    entry: (from_start == to_start).then_some(src.offset),
+                    run: None,
+                };
+                let plan = self.plan(to_start, to_text, false, &new, skip).await?;
+                let grown = self.grow(&plan).await?;
+                self.move_entry(from_start, &src, to_start, &new, &plan, grown, moved, dot_dot, src_id, None)
+                    .await?;
+            }
+        }
+        self.clear_slots(from_start, src.first, src.slot).await?;
+        self.run = None;
+        Ok(())
+    }
+
+    /// Writes every pending size and modification time and the FAT32
+    /// FSInfo free count, then flushes the device.
+    ///
+    /// A node whose short entry cannot be read any more does not stop the
+    /// others: its pending size is dropped, the rest is written, and `sync`
+    /// then fails with [`ErrorKind::Corrupt`].
+    async fn sync(&mut self) -> FsResult<(), D::Error> {
+        if !self.read_only {
+            self.recover().await?;
+        }
+        let mut corrupt = None;
+        while let Some(id) = self.nodes.find(&mut |_, node| node.dirty) {
+            match self.flush_node(id).await {
+                Err(err) if err.kind() == ErrorKind::Corrupt => {
+                    self.clean(id);
+                    corrupt = Some(err);
+                }
+                other => other?,
+            }
+        }
+        let written = rawio::write_fs_info(&mut self.dev, &mut self.block, &mut self.fat).await;
+        self.note(written)?;
+        self.flush_device().await?;
+        corrupt.map_or(Ok(()), Err)
+    }
 }
 
-impl_fat_driver!(impl[D: BlockDevice, T: NodeTable, C: Clock, P: CodePage] FatFs<D, T, C, P>, error = D::Error; also = [parent, open_node, close_node, publish_node]);
+}

@@ -13,10 +13,10 @@ hadris-block = "2.4.0"
 ```rust,ignore
 use hadris_block::detect::BlockFormat;
 use hadris_block::sync::OpenVolume;
-use hadris_fs::sync::DriverExt;
+use hadris_fs::sync::Volume;
 
 // `dev` is any hadris-storage `BlockDevice`, such as a `host::FileDevice`.
-let mut volume = match OpenVolume::open(dev) {
+let volume = match OpenVolume::open(dev) {
     Ok(volume) => volume,
     // The error gives the device back, so the caller can try another opener.
     Err(err) => return Err(err.into_error().into()),
@@ -24,7 +24,8 @@ let mut volume = match OpenVolume::open(dev) {
 if volume.format() == BlockFormat::Ntfs {
     println!("NTFS, read-only");
 }
-for entry in volume.read_dir("/")? {
+let vol = Volume::new(volume);
+for entry in vol.read_dir("/")? {
     println!("{:?}", entry?.name());
 }
 ```
@@ -33,8 +34,8 @@ for entry in volume.read_dir("/")? {
   reports a FAT variant, NTFS, exFAT or a partition table, without an
   allocator, in each mode.
 - `OpenVolume` detects and mounts once. It implements the `hadris-fs`
-  `FsDriver` trait by delegating to `hadris_fat`'s `FatFs` or `ExFatFs` or
-  `hadris_ntfs`'s `NtfsFs`, so the path helpers, `Volume` and handles work
+  `FileSystem` trait by delegating to `hadris_fat`'s `FatFs` or `ExFatFs` or
+  `hadris_ntfs`'s `NtfsFs`, so `Volume`, its handles and `copy_tree` work
   on any volume it opens. NTFS is read-only; its write methods fail with
   `ReadOnly`. `as_fat`, `into_fat`, `as_exfat` and `into_exfat` reach the
   FAT and exFAT drivers' native APIs.
@@ -47,7 +48,7 @@ for entry in volume.read_dir("/")? {
   `NotRecognized`; a driver that refuses the volume returns its own error.
   `Detail::of(&err)` reads this crate's detail code.
 
-NTFS is a preview: `OpenVolume` always opens it through `FsDriver`, and
+NTFS is a preview: `OpenVolume` always opens it through `FileSystem`, and
 the `unstable-ntfs` feature adds the `ntfs` re-export and `as_ntfs`,
 `as_ntfs_mut` and `into_ntfs` for its native API.
 

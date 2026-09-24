@@ -7,8 +7,8 @@
 //! [`detect`] reads the boot sector of a device and names its format, or
 //! the partition table it holds. `OpenVolume`, in each mode
 //! (`sync::OpenVolume`, `r#async::OpenVolume`),
-//! detects and mounts in one step and implements the `hadris_fs` `FsDriver`
-//! trait by delegating to the driver it opened, so one generic function
+//! detects and mounts in one step and implements the `hadris_fs`
+//! `FileSystem` trait by delegating to the driver it opened, so one generic function
 //! lists any volume. A failed open gives the device back in a
 //! `hadris_fs::MountError`. Neither needs an allocator.
 //!
@@ -17,16 +17,23 @@
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use hadris_block::detect::{BlockFormat, FatVariant};
 //! use hadris_block::sync::OpenVolume;
-//! use hadris_fs::sync::DriverExt;
+//! use hadris_fs::OpenOptions;
+//! use hadris_fs::sync::Volume;
 //! use hadris_storage::{BlockSize, MemDevice};
+//! use std::io::{Read, Write};
 //!
 //! let dev = MemDevice::new(vec![0u8; 2 << 20], BlockSize::new(512).unwrap());
 //! let dev = hadris_fat::sync::format(dev, hadris_fat::FormatOptions::new())?.into_inner();
 //!
-//! let mut volume = OpenVolume::open(dev)?;
+//! let volume = OpenVolume::open(dev)?;
 //! assert_eq!(volume.format(), BlockFormat::Fat(FatVariant::Fat12));
-//! volume.write_file("/hello.txt", b"hi")?;
-//! assert_eq!(volume.read_to_vec("/hello.txt")?, b"hi");
+//! let vol = Volume::new(volume);
+//! let mut file = vol.open("/hello.txt", OpenOptions::new().write().create())?;
+//! file.write_all(b"hi")?;
+//! file.close()?;
+//! let mut text = String::new();
+//! vol.open("/hello.txt", OpenOptions::new().read())?.read_to_string(&mut text)?;
+//! assert_eq!(text, "hi");
 //! # Ok(())
 //! # }
 //! # #[cfg(not(all(feature = "sync", feature = "write")))]
@@ -79,13 +86,10 @@ pub mod sync {
         ($($item:tt)*) => { hadris_macros::strip_async! { $($item)* } };
     }
 
-    macro_rules! impl_block_driver {
-        ($($t:tt)*) => { hadris_fs::impl_fs_driver!(sync, $($t)*); };
-    }
-
     use crate::detect::sync::detect;
     use hadris_fat::exfat::sync::ExFatFs;
     use hadris_fat::sync::FatFs;
+    use hadris_fs::sync::FileSystem;
     use hadris_ntfs::sync::NtfsFs;
     use hadris_storage::sync::BlockDevice;
 
@@ -104,13 +108,10 @@ pub mod r#async {
         ($($item:tt)*) => { $($item)* };
     }
 
-    macro_rules! impl_block_driver {
-        ($($t:tt)*) => { hadris_fs::impl_fs_driver!(async, $($t)*); };
-    }
-
     use crate::detect::r#async::detect;
     use hadris_fat::r#async::FatFs;
     use hadris_fat::exfat::r#async::ExFatFs;
+    use hadris_fs::r#async::FileSystem;
     use hadris_ntfs::r#async::NtfsFs;
     use hadris_storage::r#async::BlockDevice;
 

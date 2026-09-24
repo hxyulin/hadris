@@ -1,8 +1,10 @@
-//! `ExFatFs` passes the `hadris-fs` driver contract kit in the raw and
-//! shared tiers and in the async modes, and the image is clean afterwards.
+//! `ExFatFs` passes the `hadris-fs` driver contract kit directly and
+//! through a `Volume`, in both modes, and the image is clean afterwards.
 
 #[path = "common/exfat.rs"]
 mod common;
+use hadris_fs::r#async::FileSystem as _;
+use hadris_fs::sync::FileSystem;
 
 use common::{block_on, clean, fsck};
 use hadris_fat::exfat::{FormatOptions, MountOptions};
@@ -25,15 +27,15 @@ fn sync_raw_tier() {
 }
 
 #[test]
-fn sync_shared_tier() {
+fn sync_through_a_volume() {
     let fs = hadris_fat::exfat::sync::ExFatFs::open_with(
         common::device(blank(8 << 20, 4096), 512),
         MountOptions::new().with_table(HeapTable::new()),
     )
     .unwrap();
     let vol = hadris_fs::sync::Volume::new(fs);
-    hadris_fs::sync::contract::check(&mut &vol).unwrap();
-    assert_eq!(vol.into_inner().open_nodes(), 1);
+    hadris_fs::sync::contract::check(&mut *vol.lock()).unwrap();
+    assert_eq!(vol.into_inner().unwrap().open_nodes(), 1);
 }
 
 #[test]
@@ -62,7 +64,7 @@ fn async_modes() {
                 .await
                 .unwrap();
         let vol = hadris_fs::r#async::Volume::new(fs);
-        hadris_fs::r#async::contract::check(&mut &vol)
+        hadris_fs::r#async::contract::check(&mut *vol.lock().await)
             .await
             .unwrap();
     });
@@ -70,8 +72,8 @@ fn async_modes() {
 
 #[test]
 fn every_mode_writes_the_same_bytes() {
-    use hadris_fs::{Name, NewNode, SetMetadata};
-    let name = |text| Name::new(text).unwrap();
+    use hadris_fs::{Name, SetAttr};
+    let name = |text| Name::new(text);
     let sync = {
         let mut fs = hadris_fat::exfat::sync::format(
             common::device(vec![0u8; 4 << 20], 512),
@@ -79,13 +81,9 @@ fn every_mode_writes_the_same_bytes() {
         )
         .unwrap();
         let root = fs.root();
-        let dir = fs
-            .create(root, name("dir"), NewNode::Dir, &SetMetadata::new())
-            .unwrap();
-        let file = fs
-            .create(dir, name("file.txt"), NewNode::File, &SetMetadata::new())
-            .unwrap();
-        fs.write_at(file, 0, &common::payload(9000, 3)).unwrap();
+        let dir = fs.mkdir(root, name("dir"), &SetAttr::new()).unwrap();
+        let file = fs.create(dir, name("file.txt"), &SetAttr::new()).unwrap();
+        fs.write(file, 0, &common::payload(9000, 3)).unwrap();
         fs.sync().unwrap();
         let mut dev = fs.into_inner();
         let (_, found) = common::check_dev(&mut dev, 4096);
@@ -101,17 +99,12 @@ fn every_mode_writes_the_same_bytes() {
         .await
         .unwrap();
         let root = fs.root();
-        let dir = fs
-            .create(root, name("dir"), NewNode::Dir, &SetMetadata::new())
-            .await
-            .unwrap();
+        let dir = fs.mkdir(root, name("dir"), &SetAttr::new()).await.unwrap();
         let file = fs
-            .create(dir, name("file.txt"), NewNode::File, &SetMetadata::new())
+            .create(dir, name("file.txt"), &SetAttr::new())
             .await
             .unwrap();
-        fs.write_at(file, 0, &common::payload(9000, 3))
-            .await
-            .unwrap();
+        fs.write(file, 0, &common::payload(9000, 3)).await.unwrap();
         fs.sync().await.unwrap();
         let mut dev = fs.into_inner();
         let report = asynch::check(&mut dev, &mut [0u8; 4096], |_| {})
@@ -133,7 +126,7 @@ fn async_futures_are_send() {
     )))
     .unwrap();
     let root = fs.root();
-    assert_send(&fs.stats());
+    assert_send(&fs.statfs());
     let _ = root;
     let mut dev = fs.into_inner();
     let mut scratch = [0u8; 1536];

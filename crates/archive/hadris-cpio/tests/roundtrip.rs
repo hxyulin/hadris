@@ -5,7 +5,8 @@ use hadris_cpio::sync::{CpioReader, CpioWriter};
 use hadris_cpio::{CpioOptions, Detail, Format, NewEntry, ReaderOptions};
 use hadris_fs::tree::{Content, Tree, WarningKind};
 use hadris_fs::{
-    DateTime, DeviceKind, DeviceNumber, ErrorKind, FileTimes, FileType, Mode, SetMetadata,
+    DateTime, DeviceKind, DeviceNumber, ErrorKind, FileTimes, FileType, Owner, Permissions,
+    SetMetadata,
 };
 use hadris_io::{Cursor, StdIo};
 
@@ -16,7 +17,7 @@ fn sample_tree() -> Tree {
     tree.set_metadata(
         "init",
         SetMetadata::new()
-            .with_mode(Mode::new(0o755))
+            .with_mode(Permissions::new(0o755))
             .with_uid(1000)
             .with_gid(100)
             .with_times(
@@ -585,10 +586,10 @@ fn metadata_of_an_entry() {
             let meta = entry.metadata();
             assert_eq!(meta.file_type(), FileType::File);
             assert_eq!(meta.len(), 10);
-            assert_eq!(meta.permissions(), Some(Mode::new(0o755)));
-            assert_eq!(meta.owner(), Some((1000, 100)));
+            assert_eq!(meta.permissions(), Permissions::new(0o755));
+            assert_eq!(meta.owner(), Some(Owner::new(1000, 100)));
             assert_eq!(
-                meta.times().modified(),
+                meta.modified(),
                 Some(DateTime::from_unix_seconds(1_700_000_000).unwrap())
             );
         }

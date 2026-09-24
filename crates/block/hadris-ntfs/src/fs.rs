@@ -1,9 +1,10 @@
 use hadris_fs::{
-    Attributes, Capabilities, DirCursor, DirEntry, ErrorKind, FileTimes, FileType, FsResult,
-    FsStats, Metadata, MountError, Name, NameBuf, NodeId,
+    Attributes, Capabilities, DirCursor, DirEntry, ErrorKind, FileType, FsResult, FsStats,
+    Metadata, MountError, Name, NodeId, OpenMode, Permissions,
 };
 use hadris_storage::BlockIndex;
 
+use super::FileSystem;
 use super::storage::BlockDevice;
 use crate::error::{Detail, Error};
 use crate::raw;
@@ -42,6 +43,16 @@ fn unsupported_list<E>() -> Error<E> {
     Detail::AttributeList.error(ErrorKind::Unsupported)
 }
 
+/// POSIX permissions derived from the type and the DOS read-only bit.
+fn permissions(file_type: FileType, attributes: Attributes) -> Permissions {
+    let bits = if file_type.is_dir() { 0o755 } else { 0o644 };
+    if attributes.contains(Attributes::READ_ONLY) {
+        Permissions::new(bits & !0o222)
+    } else {
+        Permissions::new(bits)
+    }
+}
+
 /// How a stored name matches a query.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Match {
@@ -54,15 +65,6 @@ enum Match {
 /// names, and the metadata files, as other NTFS drivers do.
 fn hidden(reference: u64, name: &FileName<'_>) -> bool {
     name.namespace == raw::FILE_NAME_DOS || reference_record(reference) < raw::RECORD_FIRST_USER
-}
-
-/// The type an index entry lists.
-fn listed_type(name: &FileName<'_>) -> FileType {
-    if name.is_dir() {
-        FileType::Dir
-    } else {
-        FileType::File
-    }
 }
 
 /// Where an attribute's value is.
@@ -714,20 +716,20 @@ async fn mount<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>> {
 ///
 /// It reads the boot sector, the location of `$MFT` and the first page of
 /// `$UpCase` when opened, and needs no allocator. It implements
-/// `hadris_fs::FsDriver` read-only through its inherent methods: node ids
-/// are file references (the MFT record number, with the sequence number in
-/// the top 16 bits), so they are stable and [`forget`](Self::forget) does
-/// nothing. Hard links share one id. Write methods fail with
-/// [`ErrorKind::ReadOnly`].
+/// `hadris_fs` `FileSystem` read-only: node ids are file references (the
+/// MFT record number, with the sequence number in the top 16 bits), so they
+/// are stable and `forget` does nothing. Hard links share one id. Write
+/// methods fail with [`ErrorKind::ReadOnly`].
 ///
 /// Listings leave out DOS 8.3 aliases and the metadata files (MFT records
-/// below 16, such as `$MFT`), which [`lookup`](Self::lookup) still finds.
+/// below 16, such as `$MFT`), which `lookup` still finds.
 /// Names in the Win32 namespace compare case-insensitively through the
 /// volume's `$UpCase` table, names in the POSIX namespace exactly.
 ///
 /// ```rust,ignore
 /// let mut ntfs = NtfsFs::open(dev)?;
-/// let data = hadris_fs::sync::DriverExt::read_to_vec(&mut ntfs, "/docs/readme.txt")?;
+/// let node = ntfs.resolve(b"/docs/readme.txt", Resolve::Lexical)?;
+/// let n = ntfs.read(node, 0, &mut buf)?;
 /// ```
 #[derive(Debug)]
 pub struct NtfsFs<D> {
@@ -786,20 +788,35 @@ impl<D: BlockDevice> NtfsFs<D> {
         self.info.geo.index_record_size as u32
     }
 
-    /// Writes the volume label, the `$VOLUME_NAME` of `$Volume`, into `buf`
-    /// as UTF-8 and returns its length. [`ErrorKind::LimitExceeded`] when
-    /// `buf` is too small; 384 bytes always suffice.
-    pub async fn label(&mut self, buf: &mut [u8]) -> Result<usize, Error<D::Error>> {
+    async fn count_free(&mut self) -> Result<u64, Error<D::Error>> {
         let mut rec = [0u8; MAX_RECORD];
-        read_record(&mut self.dev, &self.info, raw::RECORD_VOLUME, &mut rec).await?;
+        read_record(&mut self.dev, &self.info, raw::RECORD_BITMAP, &mut rec).await?;
         let rec = &rec[..self.info.geo.mft_record_size];
-        let base = raw::RECORD_VOLUME;
-        let Some(head) = stream_head(&mut self.dev, &self.info, rec, base, raw::ATTR_VOLUME_NAME, &[]).await? else {
-            return Ok(0);
-        };
-        let mut name = [0u8; NAME_BYTES];
-        let n = stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_VOLUME_NAME, &[], &head, 0, &mut name).await?;
-        record::utf16_to_utf8(&name[..n & !1], buf).ok_or(ErrorKind::LimitExceeded.into())
+        let base = raw::RECORD_BITMAP;
+        let head = stream_head(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &[])
+            .await?
+            .ok_or(Detail::Attribute)?;
+        let total = self.info.geo.total_clusters;
+        let mut used = 0u64;
+        let mut chunk = [0u8; 512];
+        let mut offset = 0u64;
+        while offset * 8 < total {
+            let n = stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &[], &head, offset, &mut chunk).await?;
+            if n == 0 {
+                return Err(Detail::Attribute.into());
+            }
+            for (i, byte) in chunk[..n].iter().enumerate() {
+                let first = (offset + i as u64) * 8;
+                if first >= total {
+                    break;
+                }
+                let bits = (total - first).min(8) as u32;
+                let mask = if bits == 8 { 0xFF } else { (1u8 << bits) - 1 };
+                used += u64::from((byte & mask).count_ones());
+            }
+            offset += n as u64;
+        }
+        Ok(total.saturating_sub(used))
     }
 
     /// Borrows the device.
@@ -904,14 +921,82 @@ impl<D: BlockDevice> NtfsFs<D> {
         Ok(())
     }
 
+    /// Calls `visit` with the name and length of each named data stream of
+    /// a node, the alternate data streams.
+    ///
+    /// @hadris-spec NTFS:Named-Streams
+    /// @hadris-compliance partial
+    /// @hadris-tests crafted::named_streams_are_listed_and_read, read::named_streams_read_back
+    /// @hadris-fuzz ntfs_read
+    /// @hadris-note Lists and reads named `$DATA` attributes; other attribute types are not exposed as streams.
+    pub async fn streams(&mut self, node: NodeId, mut visit: impl FnMut(&str, u64)) -> FsResult<(), D::Error> {
+        let mut rec = [0u8; MAX_RECORD];
+        self.node_record(node, &mut rec).await?;
+        let rec = &rec[..self.info.geo.mft_record_size];
+        let base = reference_record(node.get());
+        let mut pos = 0;
+        let mut found_name = [0u8; NAME_BYTES];
+        let mut ext = [0u8; MAX_RECORD];
+        let mut text = [0u8; 1024];
+        while let Some(found) = next_attr(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &mut pos, &mut found_name).await? {
+            if found.name_len == 0 || found.start_vcn != 0 {
+                continue;
+            }
+            let stream = &found_name[..found.name_len];
+            let len = load(&mut self.dev, &self.info, rec, &mut ext, raw::ATTR_DATA, &found).await?.len();
+            let n = record::utf16_to_utf8(stream, &mut text).ok_or(ErrorKind::LimitExceeded)?;
+            let name = core::str::from_utf8(&text[..n]).map_err(|_| Error::<D::Error>::from(Detail::Attribute))?;
+            visit(name, len);
+        }
+        Ok(())
+    }
+
+    /// Reads from the named data stream `stream` of a node at `offset`.
+    /// Stream names compare case-insensitively. [`ErrorKind::NotFound`]
+    /// when the node has no such stream.
+    pub async fn read_stream_at(
+        &mut self,
+        node: NodeId,
+        stream: &str,
+        offset: u64,
+        buf: &mut [u8],
+    ) -> FsResult<usize, D::Error> {
+        let mut rec = [0u8; MAX_RECORD];
+        self.node_record(node, &mut rec).await?;
+        let rec = &rec[..self.info.geo.mft_record_size];
+        let base = reference_record(node.get());
+        let mut pos = 0;
+        let mut found_name = [0u8; NAME_BYTES];
+        while let Some(found) = next_attr(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &mut pos, &mut found_name).await? {
+            if found.name_len == 0 || found.start_vcn != 0 {
+                continue;
+            }
+            let stored = &found_name[..found.name_len];
+            let Info { geo, upcase, .. } = &mut self.info;
+            if name_match(&mut self.dev, geo, upcase, stored, stream, true).await? == Match::No {
+                continue;
+            }
+            let head = stream_head(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, stored)
+                .await?
+                .ok_or(Error::<D::Error>::from(Detail::Attribute))?;
+            return stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, stored, &head, offset, buf).await;
+        }
+        Err(ErrorKind::NotFound.into())
+    }
+}
+
+
+impl<D: BlockDevice> FileSystem for NtfsFs<D> {
+    type DeviceError = D::Error;
+
     /// Read-only, with hard links; names are UTF-16 and compared as Win32
     /// does.
-    pub fn capabilities(&self) -> Capabilities {
+    fn capabilities(&self) -> Capabilities {
         self.info.capabilities()
     }
 
     /// The root directory, MFT record 5.
-    pub fn root(&self) -> NodeId {
+    fn root(&self) -> NodeId {
         self.info.root()
     }
 
@@ -929,7 +1014,8 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// @hadris-tests crafted::names_fold_case_through_upcase, read::large_directory_lists_every_entry
     /// @hadris-fuzz ntfs_read
     /// @hadris-note Walks every index node instead of descending the B-tree by key.
-    pub async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
+    async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
+        name.check()?;
         let Ok(query) = name.to_str() else {
             return Err(ErrorKind::NotFound.into());
         };
@@ -997,20 +1083,15 @@ impl<D: BlockDevice> NtfsFs<D> {
         }
         match best {
             Some((_, reference)) if reference_record(reference) == raw::RECORD_ROOT => Ok(self.root()),
-            Some((_, reference)) => Ok(NodeId::new(reference)),
+            Some((_, reference)) => Ok(NodeId::new(reference).ok_or(Detail::Index)?),
             None => Err(ErrorKind::NotFound.into()),
         }
     }
 
-    /// Writes the entry after `cursor` into `name` and advances `cursor`.
-    /// The cursor holds the index node and the byte offset of the next
-    /// entry in it.
-    pub async fn read_dir_entry(
-        &mut self,
-        dir: NodeId,
-        cursor: &mut DirCursor,
-        name: &mut NameBuf,
-    ) -> FsResult<Option<DirEntry>, D::Error> {
+    /// The entry at or after `from`, with the metadata `stat` gives. A
+    /// cursor holds the index node and the byte offset of the next entry in
+    /// it.
+    async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         self.dir_record(dir, &mut rec).await?;
         let rec = &rec[..self.info.geo.mft_record_size];
@@ -1023,10 +1104,10 @@ impl<D: BlockDevice> NtfsFs<D> {
             blocks,
         } = self.dir_index(rec, base, &mut ext).await?;
         let mut block = [0u8; MAX_RECORD];
-        let mut raw_cursor = cursor.into_raw();
-        loop {
+        let mut raw_cursor = from.into_raw();
+        let mut name = [0u8; DirEntry::MAX_NAME];
+        let (reference, len, next) = 'found: loop {
             if raw_cursor >= CURSOR_END {
-                *cursor = DirCursor::from_raw(CURSOR_END);
                 return Ok(None);
             }
             let node = raw_cursor >> CURSOR_SHIFT;
@@ -1059,30 +1140,28 @@ impl<D: BlockDevice> NtfsFs<D> {
                 if hidden(reference, &file_name) {
                     continue;
                 }
-                name.fill(|out| record::utf16_to_utf8(file_name.name, out).ok_or(hadris_fs::NameError::TooLong))
-                    .map_err(|_| Error::<D::Error>::from(Detail::FileName))?;
-                *cursor = DirCursor::from_raw(node << CURSOR_SHIFT | pos as u64);
-                return Ok(Some(DirEntry::new(NodeId::new(reference), listed_type(&file_name), name.len())));
+                let len = record::utf16_to_utf8(file_name.name, &mut name).ok_or(Detail::FileName)?;
+                break 'found (reference, len, DirCursor::from_raw(node << CURSOR_SHIFT | pos as u64));
             }
-        }
+        };
+        let node = NodeId::new(reference).ok_or(Detail::Index)?;
+        let meta = self.stat(node).await?;
+        let entry = DirEntry::new(Name::new(&name[..len]), node, meta, next).map_err(|_| Detail::FileName)?;
+        Ok(Some(entry))
     }
 
     /// Metadata of a node: type, size, the four times and the DOS
     /// attributes of `$STANDARD_INFORMATION`, and the number of names that
     /// are not DOS aliases. A directory's size is 0.
-    pub async fn node_metadata(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
+    async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         let header = self.node_record(node, &mut rec).await?;
         let rec = &rec[..self.info.geo.mft_record_size];
         let base = reference_record(node.get());
-        let mut meta = Metadata::new(if header.is_dir() { FileType::Dir } else { FileType::File });
+        let file_type = if header.is_dir() { FileType::Dir } else { FileType::File };
+        let mut meta = Metadata::new(file_type, permissions(file_type, Attributes::NONE));
         if let Some(Attr { body: Body::Resident(value), .. }) = fs(record::find_attr(rec, raw::ATTR_STANDARD_INFORMATION, &[]))? {
             if value.len() >= 0x24 {
-                let times = FileTimes::new()
-                    .with_created(record::nt_time(record::u64_at(value, 0)))
-                    .with_modified(record::nt_time(record::u64_at(value, 8)))
-                    .with_changed(record::nt_time(record::u64_at(value, 0x10)))
-                    .with_accessed(record::nt_time(record::u64_at(value, 0x18)));
                 let bits = record::u32_at(value, 0x20);
                 let mut attributes = Attributes::empty();
                 for (flag, attribute) in [
@@ -1095,7 +1174,20 @@ impl<D: BlockDevice> NtfsFs<D> {
                         attributes |= attribute;
                     }
                 }
-                meta = meta.with_times(times).with_attributes(attributes);
+                meta = Metadata::new(file_type, permissions(file_type, attributes)).with_attributes(attributes);
+                let time = |at| record::nt_time(record::u64_at(value, at));
+                if let Some(time) = time(0) {
+                    meta = meta.with_created(time);
+                }
+                if let Some(time) = time(8) {
+                    meta = meta.with_modified(time);
+                }
+                if let Some(time) = time(0x10) {
+                    meta = meta.with_changed(time);
+                }
+                if let Some(time) = time(0x18) {
+                    meta = meta.with_accessed(time);
+                }
             }
         }
         let mut names = 0u64;
@@ -1128,7 +1220,7 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// @hadris-tests read::files_read_back, crafted::streams_past_the_volume_fail, crafted::attribute_lists_join_extension_records
     /// @hadris-fuzz ntfs_read
     /// @hadris-note Reads resident, non-resident, sparse and partly initialized streams, also across extension records; compressed and encrypted streams are unsupported.
-    pub async fn read_at(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
+    async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         if self.node_record(node, &mut rec).await?.is_dir() {
             return Err(ErrorKind::IsADirectory.into());
@@ -1143,7 +1235,7 @@ impl<D: BlockDevice> NtfsFs<D> {
 
     /// The volume's clusters and the free ones, counted from `$Bitmap`
     /// once and then kept.
-    pub async fn stats(&mut self) -> FsResult<FsStats, D::Error> {
+    async fn statfs(&mut self) -> FsResult<FsStats, D::Error> {
         let total = self.info.geo.total_clusters;
         let free = match self.info.free_clusters {
             Some(free) => free,
@@ -1157,45 +1249,14 @@ impl<D: BlockDevice> NtfsFs<D> {
         Ok(FsStats::new(total, free, block))
     }
 
-    async fn count_free(&mut self) -> Result<u64, Error<D::Error>> {
-        let mut rec = [0u8; MAX_RECORD];
-        read_record(&mut self.dev, &self.info, raw::RECORD_BITMAP, &mut rec).await?;
-        let rec = &rec[..self.info.geo.mft_record_size];
-        let base = raw::RECORD_BITMAP;
-        let head = stream_head(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &[])
-            .await?
-            .ok_or(Detail::Attribute)?;
-        let total = self.info.geo.total_clusters;
-        let mut used = 0u64;
-        let mut chunk = [0u8; 512];
-        let mut offset = 0u64;
-        while offset * 8 < total {
-            let n = stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &[], &head, offset, &mut chunk).await?;
-            if n == 0 {
-                return Err(Detail::Attribute.into());
-            }
-            for (i, byte) in chunk[..n].iter().enumerate() {
-                let first = (offset + i as u64) * 8;
-                if first >= total {
-                    break;
-                }
-                let bits = (total - first).min(8) as u32;
-                let mask = if bits == 8 { 0xFF } else { (1u8 << bits) - 1 };
-                used += u64::from((byte & mask).count_ones());
-            }
-            offset += n as u64;
-        }
-        Ok(total.saturating_sub(used))
-    }
-
     /// Does nothing: NTFS node ids are stable.
-    pub fn forget(&mut self, node: NodeId) {
-        let _ = node;
+    fn forget(&mut self, node: NodeId, count: u64) {
+        let _ = (node, count);
     }
 
     /// The directory containing `dir`, from its `$FILE_NAME`. The root is
     /// its own parent.
-    pub async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
+    async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         self.dir_record(dir, &mut rec).await?;
         let base = reference_record(dir.get());
@@ -1217,73 +1278,53 @@ impl<D: BlockDevice> NtfsFs<D> {
         if reference_record(parent) == raw::RECORD_ROOT {
             return Ok(self.root());
         }
-        Ok(NodeId::new(parent))
+        Ok(NodeId::new(parent).ok_or(Detail::FileName)?)
     }
 
-    /// Calls `visit` with the name and length of each named data stream of
-    /// a node, the alternate data streams.
-    ///
-    /// @hadris-spec NTFS:Named-Streams
-    /// @hadris-compliance partial
-    /// @hadris-tests crafted::named_streams_are_listed_and_read, read::named_streams_read_back
-    /// @hadris-fuzz ntfs_read
-    /// @hadris-note Lists and reads named `$DATA` attributes; other attribute types are not exposed as streams.
-    pub async fn streams(&mut self, node: NodeId, mut visit: impl FnMut(&str, u64)) -> FsResult<(), D::Error> {
+    /// The `$VOLUME_NAME` of `$Volume`, or `None` when it is missing or
+    /// empty.
+    async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
         let mut rec = [0u8; MAX_RECORD];
-        self.node_record(node, &mut rec).await?;
+        read_record(&mut self.dev, &self.info, raw::RECORD_VOLUME, &mut rec).await?;
         let rec = &rec[..self.info.geo.mft_record_size];
-        let base = reference_record(node.get());
-        let mut pos = 0;
-        let mut found_name = [0u8; NAME_BYTES];
-        let mut ext = [0u8; MAX_RECORD];
-        let mut text = [0u8; 1024];
-        while let Some(found) = next_attr(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &mut pos, &mut found_name).await? {
-            if found.name_len == 0 || found.start_vcn != 0 {
-                continue;
-            }
-            let stream = &found_name[..found.name_len];
-            let len = load(&mut self.dev, &self.info, rec, &mut ext, raw::ATTR_DATA, &found).await?.len();
-            let n = record::utf16_to_utf8(stream, &mut text).ok_or(ErrorKind::LimitExceeded)?;
-            let name = core::str::from_utf8(&text[..n]).map_err(|_| Error::<D::Error>::from(Detail::Attribute))?;
-            visit(name, len);
+        let base = raw::RECORD_VOLUME;
+        let Some(head) = stream_head(&mut self.dev, &self.info, rec, base, raw::ATTR_VOLUME_NAME, &[]).await? else {
+            return Ok(None);
+        };
+        let mut name = [0u8; NAME_BYTES];
+        let n = stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_VOLUME_NAME, &[], &head, 0, &mut name).await?;
+        let len = record::utf16_to_utf8(&name[..n & !1], buf).ok_or(ErrorKind::LimitExceeded)?;
+        if len == 0 {
+            return Ok(None);
+        }
+        Ok(Some(core::str::from_utf8(&buf[..len]).map_err(|_| Detail::Attribute)?))
+    }
+
+    /// Opens a file for reading. Directories fail with
+    /// [`ErrorKind::IsADirectory`], writing with [`ErrorKind::ReadOnly`].
+    async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
+        let mut rec = [0u8; MAX_RECORD];
+        if self.node_record(node, &mut rec).await?.is_dir() {
+            return Err(ErrorKind::IsADirectory.into());
+        }
+        if mode == OpenMode::Write {
+            return Err(ErrorKind::ReadOnly.into());
         }
         Ok(())
     }
 
-    /// Reads from the named data stream `stream` of a node at `offset`.
-    /// Stream names compare case-insensitively. [`ErrorKind::NotFound`]
-    /// when the node has no such stream.
-    pub async fn read_stream_at(
-        &mut self,
-        node: NodeId,
-        stream: &str,
-        offset: u64,
-        buf: &mut [u8],
-    ) -> FsResult<usize, D::Error> {
+    async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+        let _ = node;
+        Ok(())
+    }
+
+    /// NTFS here has no symlinks: every node fails with
+    /// [`ErrorKind::InvalidInput`].
+    async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         self.node_record(node, &mut rec).await?;
-        let rec = &rec[..self.info.geo.mft_record_size];
-        let base = reference_record(node.get());
-        let mut pos = 0;
-        let mut found_name = [0u8; NAME_BYTES];
-        while let Some(found) = next_attr(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &mut pos, &mut found_name).await? {
-            if found.name_len == 0 || found.start_vcn != 0 {
-                continue;
-            }
-            let stored = &found_name[..found.name_len];
-            let Info { geo, upcase, .. } = &mut self.info;
-            if name_match(&mut self.dev, geo, upcase, stored, stream, true).await? == Match::No {
-                continue;
-            }
-            let head = stream_head(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, stored)
-                .await?
-                .ok_or(Error::<D::Error>::from(Detail::Attribute))?;
-            return stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, stored, &head, offset, buf).await;
-        }
-        Err(ErrorKind::NotFound.into())
+        let _ = buf;
+        Err(ErrorKind::InvalidInput.into())
     }
 }
-
 }
-
-impl_ntfs_driver!(impl[D: BlockDevice] NtfsFs<D>, error = D::Error, read_only; also = [parent]);

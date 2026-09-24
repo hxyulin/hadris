@@ -72,3 +72,64 @@ pub fn block_on<F: core::future::Future>(future: F) -> F::Output {
         }
     }
 }
+
+/// Whole-file reads over the bare `FileSystem` trait.
+pub mod sync {
+    use hadris_fs::sync::FileSystem;
+    use hadris_fs::{FsResult, OpenMode, Resolve};
+
+    /// The contents of the file at `path`.
+    pub fn get<F: FileSystem>(fs: &mut F, path: &str) -> FsResult<Vec<u8>, F::DeviceError> {
+        let node = fs.resolve(path.as_bytes(), Resolve::Lexical)?;
+        let mut out = Vec::new();
+        let mut read = fs.open(node, OpenMode::Read);
+        if read.is_ok() {
+            let mut chunk = [0u8; 4096];
+            loop {
+                match fs.read(node, out.len() as u64, &mut chunk) {
+                    Ok(0) => break,
+                    Ok(n) => out.extend_from_slice(&chunk[..n]),
+                    Err(err) => {
+                        read = Err(err);
+                        break;
+                    }
+                }
+            }
+            let closed = fs.close(node);
+            read = read.and(closed);
+        }
+        fs.forget(node, 1);
+        read.map(|()| out)
+    }
+}
+
+/// Whole-file reads over the bare async `FileSystem` trait.
+#[cfg(feature = "async")]
+pub mod asynch {
+    use hadris_fs::r#async::FileSystem;
+    use hadris_fs::{FsResult, OpenMode, Resolve};
+
+    /// The contents of the file at `path`.
+    pub async fn get<F: FileSystem>(fs: &mut F, path: &str) -> FsResult<Vec<u8>, F::DeviceError> {
+        let node = fs.resolve(path.as_bytes(), Resolve::Lexical).await?;
+        let mut out = Vec::new();
+        let mut read = fs.open(node, OpenMode::Read).await;
+        if read.is_ok() {
+            let mut chunk = [0u8; 4096];
+            loop {
+                match fs.read(node, out.len() as u64, &mut chunk).await {
+                    Ok(0) => break,
+                    Ok(n) => out.extend_from_slice(&chunk[..n]),
+                    Err(err) => {
+                        read = Err(err);
+                        break;
+                    }
+                }
+            }
+            let closed = fs.close(node).await;
+            read = read.and(closed);
+        }
+        fs.forget(node, 1);
+        read.map(|()| out)
+    }
+}

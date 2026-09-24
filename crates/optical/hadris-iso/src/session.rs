@@ -6,12 +6,13 @@ use core::convert::Infallible;
 
 use hadris_fs::tree::{Content, NodeKind, Tree, Warning, WarningKind};
 use hadris_fs::{
-    Clock, DirCursor, ErrorKind, Extent, FileType, MountError, NameBuf, NodeId, SetMetadata,
+    Clock, DirCursor, ErrorKind, Extent, FileTimes, FileType, MountError, NodeId, SetMetadata,
 };
 use hadris_io::ErrorType;
 use hadris_part::{Disk, Gpt, GptEntry, Hybrid, HybridMbr, PartitionKind, PartitionTable};
 use hadris_storage::{BlockIndex, BlockSize};
 
+use super::FileSystem;
 use super::image::IsoImage;
 use super::storage::BlockDevice;
 use super::write::{check_block_size, emit, measure};
@@ -37,12 +38,19 @@ fn text<const N: usize>(field: &raw::IsoStr<N>) -> Option<String> {
     (!bytes.is_empty()).then(|| String::from_utf8_lossy(bytes).into_owned())
 }
 
-fn set_metadata(meta: &hadris_fs::Metadata) -> SetMetadata {
+/// The metadata a tree node keeps of `meta`. Permissions are kept only
+/// when Rock Ridge stored them.
+fn set_metadata(meta: &hadris_fs::Metadata, rock_ridge: bool) -> SetMetadata {
+    let times = FileTimes::new()
+        .with_created(meta.created())
+        .with_modified(meta.modified())
+        .with_accessed(meta.accessed())
+        .with_changed(meta.changed());
     let set = SetMetadata::new()
-        .with_times(meta.times())
-        .with_mode(meta.permissions());
+        .with_times(times)
+        .with_mode(rock_ridge.then(|| meta.permissions()));
     match meta.owner() {
-        Some((uid, gid)) => set.with_uid(uid).with_gid(gid),
+        Some(owner) => set.with_uid(owner.uid()).with_gid(owner.gid()),
         None => set,
     }
 }
@@ -641,17 +649,18 @@ async fn read_session<D: BlockDevice>(iso: &mut IsoImage<D>) -> Result<(Tree, Is
     let mut tree = Tree::new();
     let mut warnings = Vec::new();
     let root = view.root();
-    let meta = view.node_metadata(root).await?;
-    tree.set_metadata("/", set_metadata(&meta)).map_err(Error::from)?;
+    let rock_ridge = view.namespace() == Namespace::RockRidge;
+    let meta = view.stat(root).await?;
+    tree.set_metadata("/", set_metadata(&meta, rock_ridge)).map_err(Error::from)?;
     let mut links: BTreeMap<u64, String> = BTreeMap::new();
     let mut pending: Vec<(NodeId, String)> = vec![(root, String::new())];
-    let mut name = NameBuf::new();
     while let Some((dir, prefix)) = pending.pop() {
-        let mut cursor = DirCursor::start();
-        while let Some(entry) = view.read_dir_entry(dir, &mut cursor, &mut name).await? {
-            let path = alloc::format!("{prefix}/{}", String::from_utf8_lossy(name.as_bytes()));
+        let mut cursor = DirCursor::START;
+        while let Some(entry) = view.readdir(dir, cursor).await? {
+            cursor = entry.next_cursor();
+            let path = alloc::format!("{prefix}/{}", String::from_utf8_lossy(entry.name().as_bytes()));
             let node = entry.node();
-            let meta = view.node_metadata(node).await?;
+            let meta = *entry.metadata();
             match meta.file_type() {
                 FileType::Dir => {
                     if dir == root && view.is_relocation_dir(node).await? {
@@ -681,7 +690,7 @@ async fn read_session<D: BlockDevice>(iso: &mut IsoImage<D>) -> Result<(Tree, Is
                 }
                 FileType::Symlink => {
                     let mut target = vec![0u8; 4096];
-                    let len = view.read_link(node, &mut target).await?;
+                    let len = view.readlink(node, &mut target).await?.len();
                     tree.add_symlink(&path, &target[..len]).map_err(Error::from)?;
                 }
                 FileType::CharDevice | FileType::BlockDevice => {
@@ -701,7 +710,7 @@ async fn read_session<D: BlockDevice>(iso: &mut IsoImage<D>) -> Result<(Tree, Is
                     continue;
                 }
             }
-            tree.set_metadata(&path, set_metadata(&meta)).map_err(Error::from)?;
+            tree.set_metadata(&path, set_metadata(&meta, rock_ridge)).map_err(Error::from)?;
         }
     }
     Ok((tree, options, warnings))
