@@ -1,4 +1,3 @@
-use hadris_common::types::endian::Endian;
 use hadris_fs::{Clock, ErrorKind, FsResult, NodeTable};
 
 use super::super::block_io::read_bytes;

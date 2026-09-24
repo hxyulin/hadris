@@ -2,7 +2,6 @@
 
 use super::entry::FatKind;
 use super::lfn::{self, UNITS_PER_ENTRY};
-use hadris_common::types::endian::Endian;
 use hadris_common::types::number::{U16, U32};
 
 /// Size of one directory entry.

@@ -1,4 +1,4 @@
-use hadris_common::types::endian::{Endian, LittleEndian};
+use hadris_common::types::endian::LittleEndian;
 use hadris_common::types::number::{U16, U32, U64};
 use hadris_fs::{Clock, DateTime, ErrorKind, FixedTable, FsResult, MountError};
 

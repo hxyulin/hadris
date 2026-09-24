@@ -1,7 +1,7 @@
 //! Volume layout for formatting: FAT variant, cluster size and FAT size
 //! from the volume size.
 
-use hadris_common::types::endian::{Endian, LittleEndian};
+use hadris_common::types::endian::LittleEndian;
 use hadris_common::types::number::{U16, U32};
 
 use super::boot::{BOOT_SIGNATURE, FSINFO_LEAD_SIG, FSINFO_STRUC_SIG, FSINFO_TRAIL_SIG};

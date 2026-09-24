@@ -1,6 +1,5 @@
 use core::fmt;
 
-use hadris_common::types::endian::Endian;
 use hadris_fs::{
     Attributes, Capabilities, CaseSensitivity, Clock, DateTime, DirCursor, DirEntry, Error,
     ErrorKind, FileTimes, FileType, FixedTable, FsResult, FsStats, Metadata, MountError, Name,

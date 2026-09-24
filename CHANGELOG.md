@@ -10,6 +10,10 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-common (V3):** `U16`, `U32` and `U64` have inherent `new`,
+  `get` and `set`, so the `raw` layouts of `hadris-fat`, `hadris-ntfs` and
+  the exFAT module can be read and built without importing the `Endian`
+  trait of this internal crate.
 - **hadris-fat (V3):** `raw` holds the directory entry layouts:
   `RawDirEntry` (short entries, with `lfn_checksum`) and `RawLfnEntry`,
   with the `DIR_Attr`, `DIR_NTRes` and `LDIR_Ord` bits and the end, free

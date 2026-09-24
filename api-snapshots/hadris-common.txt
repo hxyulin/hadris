@@ -129,6 +129,10 @@ pub use hadris_common::types::number::U32Le
 pub use hadris_common::types::number::U64Be
 pub use hadris_common::types::number::U64Le
 #[repr(transparent)] pub struct hadris_common::types::number::U16<E> where E: hadris_common::types::endian::Endianness
+impl<E: hadris_common::types::endian::Endianness> hadris_common::types::number::U16<E>
+pub fn hadris_common::types::number::U16<E>::get(&self) -> u16
+pub fn hadris_common::types::number::U16<E>::new(u16) -> Self
+pub fn hadris_common::types::number::U16<E>::set(&mut self, u16)
 impl<E: hadris_common::types::endian::Endianness> core::fmt::Debug for hadris_common::types::number::U16<E>
 pub fn hadris_common::types::number::U16<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<E: hadris_common::types::endian::Endianness> core::fmt::Display for hadris_common::types::number::U16<E>
@@ -167,6 +171,10 @@ pub fn hadris_common::types::number::U24<E>::set(&mut self, u32)
 impl<E> bytemuck::pod::Pod for hadris_common::types::number::U24<E> where E: hadris_common::types::endian::Endianness + bytemuck::pod::Pod
 impl<E> bytemuck::zeroable::Zeroable for hadris_common::types::number::U24<E> where E: hadris_common::types::endian::Endianness + bytemuck::zeroable::Zeroable
 #[repr(transparent)] pub struct hadris_common::types::number::U32<E> where E: hadris_common::types::endian::Endianness
+impl<E: hadris_common::types::endian::Endianness> hadris_common::types::number::U32<E>
+pub fn hadris_common::types::number::U32<E>::get(&self) -> u32
+pub fn hadris_common::types::number::U32<E>::new(u32) -> Self
+pub fn hadris_common::types::number::U32<E>::set(&mut self, u32)
 impl<E: hadris_common::types::endian::Endianness> core::fmt::Debug for hadris_common::types::number::U32<E>
 pub fn hadris_common::types::number::U32<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<E: hadris_common::types::endian::Endianness> core::fmt::Display for hadris_common::types::number::U32<E>
@@ -185,6 +193,10 @@ pub fn hadris_common::types::number::U32<E>::set(&mut self, u32)
 impl<E> bytemuck::pod::Pod for hadris_common::types::number::U32<E> where E: hadris_common::types::endian::Endianness + bytemuck::pod::Pod
 impl<E> bytemuck::zeroable::Zeroable for hadris_common::types::number::U32<E> where E: hadris_common::types::endian::Endianness + bytemuck::zeroable::Zeroable
 #[repr(transparent)] pub struct hadris_common::types::number::U64<E> where E: hadris_common::types::endian::Endianness
+impl<E: hadris_common::types::endian::Endianness> hadris_common::types::number::U64<E>
+pub fn hadris_common::types::number::U64<E>::get(&self) -> u64
+pub fn hadris_common::types::number::U64<E>::new(u64) -> Self
+pub fn hadris_common::types::number::U64<E>::set(&mut self, u64)
 impl<E: hadris_common::types::endian::Endianness> core::fmt::Debug for hadris_common::types::number::U64<E>
 pub fn hadris_common::types::number::U64<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<E: hadris_common::types::endian::Endianness> core::fmt::Display for hadris_common::types::number::U64<E>
