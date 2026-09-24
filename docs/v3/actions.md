@@ -182,7 +182,7 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 | LINK-HARD-01 | Read hard links: names that share one node, with nlink and the data readable through every name (cpio newc stores data only on the last name) | core | N | N | Y (RR) | Y | Y | insp, bld | 3.0 |
 | LINK-HARD-02 | Create a hard link on a mounted volume | core | N | N | - | Y (rw) | - | ker | 3.x: design 4.14 `link` |
 | LINK-SPECIAL-01 | Read the type of char and block devices, FIFOs and sockets (RR PX and PN, UDF file type, cpio mode) | core | N | N | Y | Y | Y | ker, insp | 3.0 |
-| LINK-SPECIAL-02 | Create a device node, FIFO or socket on a mounted volume (mknod) | core | N | N | - | Y (rw) | - | ker | 3.x: design 4.14 `NewNode::Fifo`, `Socket` |
+| LINK-SPECIAL-02 | Create a device node, FIFO or socket on a mounted volume (mknod) | core | N | N | - | Y (rw) | - | ker | 3.x: design 4.14 `mknod` |
 
 ### 1.7 XATTR: extended attributes, named streams, ACLs
 
