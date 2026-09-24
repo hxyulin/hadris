@@ -10,6 +10,10 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **Examples (V3):** A `volume-list` example detects a FAT12/16/32, exFAT
+  or NTFS image, opens it with `hadris-block`'s `OpenVolume` and prints its
+  tree through one function generic over `FsDriver`. `examples/README.md`
+  lists the crate examples, and the detect-and-open guide links to it.
 - **hadris-common (V3):** `U16`, `U32` and `U64` have inherent `new`,
   `get` and `set`, so the `raw` layouts of `hadris-fat` and its exFAT
   module can be read and built without importing the `Endian` trait of

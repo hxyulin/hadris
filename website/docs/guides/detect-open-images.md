@@ -57,6 +57,10 @@ trait over each, so the path helpers work on the result. `as_fat`,
 `hadris_block::Error<E>`, carrying the device's error type, and a failed open
 returns the device in an `OpenError`.
 
+The [`volume-list` example](https://github.com/hxyulin/hadris/tree/next/examples/volume-list)
+is a complete program: it detects the format, opens it, and prints the tree
+with one function generic over the driver trait.
+
 `OpenVolume` intentionally refuses a whole partitioned disk. Select a partition
 and restrict the device to it before opening its filesystem.
 

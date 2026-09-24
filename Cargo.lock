@@ -420,6 +420,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hadris-example-volume-list"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "hadris-block",
+ "hadris-fs",
+]
+
+[[package]]
 name = "hadris-fat"
 version = "2.4.0"
 dependencies = [
