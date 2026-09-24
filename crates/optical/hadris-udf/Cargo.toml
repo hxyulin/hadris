@@ -55,3 +55,7 @@ required-features = ["std", "sync"]
 [[test]]
 name = "read"
 required-features = ["std", "sync"]
+
+[[test]]
+name = "interop"
+required-features = ["std", "sync"]
