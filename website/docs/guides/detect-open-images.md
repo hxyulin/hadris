@@ -20,7 +20,7 @@ hadris-storage = "2.4.0"
 ```rust,no_run
 use hadris_block::detect::BlockFormat;
 use hadris_block::sync::OpenVolume;
-use hadris_fs::sync::DriverExt;
+use hadris_fs::sync::Volume;
 use hadris_storage::host::FileDevice;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -30,9 +30,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match format {
         Some(BlockFormat::Fat(_) | BlockFormat::Ntfs) => {
-            let mut volume = OpenVolume::open(image)?;
+            let volume = OpenVolume::open(image)?;
             println!("opened {:?}", volume.format());
-            for entry in volume.read_dir("/")? {
+            let vol = Volume::new(volume);
+            for entry in vol.read_dir("/")? {
                 println!("{:?}", entry?.name());
             }
         }
@@ -51,8 +52,8 @@ Detection and `OpenVolume` take any `hadris-storage` block device; a
 `host::FileDevice` is one with 512-byte blocks, and the device's block size is
 the logical block size used to find a GPT header. `OpenVolume` opens
 FAT12/16/32 as `hadris_fat`'s `FatFs`, exFAT as its `ExFatFs`, and NTFS,
-read-only, as `hadris_ntfs`'s `NtfsFs`, and implements the `hadris-fs` driver
-trait over each, so the path helpers work on the result. `as_fat`,
+read-only, as `hadris_ntfs`'s `NtfsFs`, and implements the `hadris-fs`
+`FileSystem` trait over each, so `Volume` and its handles work on the result. `as_fat`,
 `into_fat`, `as_exfat` and `into_exfat` reach the FAT and exFAT drivers; the
 `unstable-ntfs` feature adds `as_ntfs` and `into_ntfs`. Errors are
 `hadris_fs::Error<E>`, carrying the device's error type, and a failed open
@@ -61,7 +62,7 @@ with `ErrorKind::NotRecognized`.
 
 The [`volume-list` example](https://github.com/hxyulin/hadris/tree/next/examples/volume-list)
 is a complete program: it detects the format, opens it, and prints the tree
-with one function generic over the driver trait.
+with one function generic over the `FileSystem` trait.
 
 `OpenVolume` intentionally refuses a whole partitioned disk. Select a partition
 and restrict the device to it before opening its filesystem.
@@ -76,20 +77,21 @@ hadris-storage = "2.4.0"
 ```
 
 ```rust,no_run
-use hadris_fs::sync::DriverExt;
+use hadris_fs::sync::Volume;
 use hadris_optical::{OpenPolicy, sync::OpenOpticalImage};
 use hadris_storage::host::FileDevice;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let image = FileDevice::open("disc.img")?;
-    let mut opened = OpenOpticalImage::open(image, OpenPolicy::PreferUdf)?;
+    let opened = OpenOpticalImage::open(image, OpenPolicy::PreferUdf)?;
 
     if let Some(udf) = opened.as_udf() {
         println!("UDF volume: {}", udf.volume_id());
     } else if opened.as_iso().is_some() {
         println!("ISO 9660 image");
     }
-    for entry in opened.read_dir("/")? {
+    let vol = Volume::new(opened);
+    for entry in vol.read_dir("/")? {
         println!("{:?}", entry?.name());
     }
 
