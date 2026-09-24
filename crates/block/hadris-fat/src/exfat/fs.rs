@@ -509,18 +509,58 @@ impl<D, T: NodeTable, C: Clock> fmt::Debug for ExFatFs<D, T, C> {
 
 io_transform! {
 
-/// Reads the boot sector and the root's bitmap and up-case entries.
+/// The geometry of the boot region at `base`, if its boot sector is valid
+/// and its checksum matches.
+async fn boot_region<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, base: u64) -> FsResult<Option<Geometry>, D::Error> {
+    let mut sector = [0u8; BOOT_SECTOR_LEN];
+    read_bytes(dev, block, base, &mut sector).await?;
+    let boot: raw::BootSector = bytemuck::pod_read_unaligned(&sector);
+    let Ok(geo) = codec::parse_boot(&boot) else {
+        return Ok(None);
+    };
+    let size = geo.sector_size();
+    let mut chunk = [0u8; 128];
+    let mut sum = 0u32;
+    let mut at = 0;
+    while at < (raw::BOOT_REGION_SECTORS - 1) * size {
+        read_bytes(dev, block, base + at, &mut chunk).await?;
+        sum = codec::boot_checksum(sum, at.min(1), &chunk);
+        at += chunk.len() as u64;
+    }
+    while at < raw::BOOT_REGION_SECTORS * size {
+        read_bytes(dev, block, base + at, &mut chunk).await?;
+        if chunk.chunks_exact(4).any(|word| le32(word, 0) != sum) {
+            return Ok(None);
+        }
+        at += chunk.len() as u64;
+    }
+    Ok(Some(geo))
+}
+
+/// Reads the boot region, or the backup boot region when the main one is
+/// damaged, and the root's bitmap and up-case entries. The flag is set when
+/// the backup was used.
 #[allow(clippy::type_complexity)]
-async fn mount<D: BlockDevice>(dev: &mut D) -> FsResult<(Geometry, BlockBuf, [Option<Extent>; 2], Upcase), D::Error> {
+async fn mount<D: BlockDevice>(dev: &mut D) -> FsResult<(Geometry, BlockBuf, [Option<Extent>; 2], Upcase, bool), D::Error> {
     let size = dev.block_size().get() as usize;
     if size > MAX_BLOCK_SIZE {
         return Err(ErrorKind::Unsupported.into());
     }
     let mut block = BlockBuf::new(size);
-    let mut sector = [0u8; BOOT_SECTOR_LEN];
-    read_bytes(dev, &mut block, 0, &mut sector).await?;
-    let boot: raw::BootSector = bytemuck::pod_read_unaligned(&sector);
-    let geo = codec::parse_boot(&boot).map_err(|_| ErrorKind::Corrupt)?;
+    let mut backup = false;
+    let mut geo = boot_region(dev, &mut block, 0).await?;
+    for shift in 9..=12u8 {
+        if geo.is_some() {
+            break;
+        }
+        let base = raw::BOOT_REGION_SECTORS << shift;
+        if base + (raw::BOOT_REGION_SECTORS << shift) > dev.block_count().saturating_mul(size as u64) {
+            break;
+        }
+        geo = boot_region(dev, &mut block, base).await?.filter(|geo| geo.sector_shift == shift);
+        backup = geo.is_some();
+    }
+    let geo = geo.ok_or(ErrorKind::Corrupt)?;
     let device_len = dev.block_count().saturating_mul(size as u64);
     let heap_end = geo.heap_start + ((geo.cluster_count as u64) << geo.cluster_shift);
     if geo.volume_len > device_len || heap_end > geo.volume_len {
@@ -543,7 +583,7 @@ async fn mount<D: BlockDevice>(dev: &mut D) -> FsResult<(Geometry, BlockBuf, [Op
     }
     let extent = probe.extent(first, len).await?;
     let upcase = probe.index_upcase(extent, stored_checksum).await?;
-    Ok((geo, block, bitmaps, upcase))
+    Ok((geo, block, bitmaps, upcase, backup))
 }
 
 }
@@ -701,13 +741,22 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// Mounts the volume on `dev` with the defaults of
     /// [`MountOptions::new`]: writable, a `FixedTable<64>` and [`NoClock`].
     ///
-    /// Fails with [`ErrorKind::Corrupt`] when the boot sector is not a valid
-    /// exFAT boot sector, describes a volume larger than the device, or the
-    /// root directory lacks an Allocation Bitmap or Up-case Table entry
-    /// whose chain holds it; and with [`ErrorKind::Unsupported`] when the
-    /// device's blocks are larger than 4096 bytes. On a TexFAT volume with
-    /// two FATs the FAT and Allocation Bitmap that `ActiveFat` selects are
-    /// read, and every change is written to both FATs and both bitmaps. The [`MountError`] gives `dev` back.
+    /// A main boot region whose boot sector or checksum is bad is replaced by
+    /// a valid backup boot region, and the volume is then mounted read-only,
+    /// as it is when the up-case table does not match its `TableChecksum`
+    /// or maps the first 128 code points wrongly; [`check`](super::check)
+    /// reports both.
+    ///
+    /// On a TexFAT volume with two FATs the FAT and Allocation Bitmap that
+    /// `ActiveFat` selects are read, and every change is written to both
+    /// FATs and both bitmaps.
+    ///
+    /// Fails with [`ErrorKind::Corrupt`] when neither boot region holds a
+    /// valid exFAT boot sector and checksum, the boot sector describes a
+    /// volume larger than the device, or the root directory lacks an
+    /// Allocation Bitmap or Up-case Table entry whose chain holds it; and
+    /// with [`ErrorKind::Unsupported`] when the device's blocks are larger
+    /// than 4096 bytes. The [`MountError`] gives `dev` back.
     pub async fn open(dev: D) -> Result<Self, MountError<D, D::Error>> {
         Self::open_with(dev, MountOptions::new()).await
     }
@@ -718,13 +767,14 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     /// and clock types. Fails as [`open`](ExFatFs::open) does.
     pub async fn open_with(mut dev: D, options: MountOptions<T, C>) -> Result<Self, MountError<D, D::Error>> {
         let MountOptions { read_only, table, clock } = options;
-        let (geo, block, [bitmap, mirror_bitmap], upcase) = match mount(&mut dev).await {
+        let (geo, block, [bitmap, mirror_bitmap], upcase, backup) = match mount(&mut dev).await {
             Ok(mounted) => mounted,
             Err(error) => return Err(MountError::new(error, dev)),
         };
         let Some(bitmap) = bitmap else {
             return Err(MountError::new(ErrorKind::Corrupt.into(), dev));
         };
+        let upcase_valid = upcase.is_valid();
         let dirty = if geo.flags & raw::VOLUME_DIRTY != 0 { Dirty::Inherited } else { Dirty::Clean };
         Ok(Self {
             dev,
@@ -739,7 +789,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             next_free: raw::FIRST_CLUSTER,
             allocation_changed: false,
             dirty,
-            read_only,
+            read_only: read_only || backup || !upcase_valid,
             clock,
         })
     }
@@ -750,8 +800,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     }
 
     /// Whether the volume was mounted with
-    /// [`MountOptions::with_read_only`], or the device has refused a write
-    /// since.
+    /// [`MountOptions::with_read_only`], from its backup boot region or with
+    /// an up-case table that fails its checksum, or the device has refused a
+    /// write since.
     pub fn is_read_only(&self) -> bool {
         self.read_only
     }

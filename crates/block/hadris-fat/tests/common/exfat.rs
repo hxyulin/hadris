@@ -192,6 +192,26 @@ pub fn le64(image: &[u8], at: usize) -> u64 {
     u64::from_le_bytes(image[at..at + 8].try_into().unwrap())
 }
 
+/// Copies the main boot region of a volume with `sector`-byte sectors
+/// over the backup and gives both a matching checksum.
+pub fn seal_boot(image: &mut [u8], sector: usize) {
+    let region = 12 * sector;
+    let (main, rest) = image.split_at_mut(region);
+    rest[..region].copy_from_slice(main);
+    for base in [0, region] {
+        let mut sum = 0u32;
+        for (at, &byte) in image[base..base + 11 * sector].iter().enumerate() {
+            if matches!(at, 106 | 107 | 112) {
+                continue;
+            }
+            sum = sum.rotate_right(1).wrapping_add(byte as u32);
+        }
+        for word in image[base + 11 * sector..base + region].chunks_exact_mut(4) {
+            word.copy_from_slice(&sum.to_le_bytes());
+        }
+    }
+}
+
 pub fn put32(image: &mut [u8], at: usize, value: u32) {
     image[at..at + 4].copy_from_slice(&value.to_le_bytes());
 }

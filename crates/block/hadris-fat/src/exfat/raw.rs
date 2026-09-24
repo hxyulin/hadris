@@ -115,8 +115,8 @@ pub const RECOMMENDED_UPCASE_TABLE: &[u8; 5836] = include_bytes!("upcase.bin");
 ///
 /// @hadris-spec EXFAT:3.1
 /// @hadris-compliance partial
-/// @hadris-note Every field is checked at mount except `PartitionOffset` and `DriveSelect`; the backup boot region is compared by `check` but never used to mount.
-/// @hadris-tests exfat_read::mount_rejects_bad_boot_sectors, exfat_format::formats_every_sector_size
+/// @hadris-note Every field and the boot checksum are checked at mount except `PartitionOffset` and `DriveSelect`; a valid backup boot region replaces a damaged main one, read-only, and `check` reports any difference.
+/// @hadris-tests exfat_read::mount_rejects_bad_boot_sectors, exfat_format::formats_every_sector_size, exfat_read::damaged_main_boot_regions_mount_from_the_backup
 /// @hadris-fuzz exfat_read
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -258,8 +258,8 @@ pub struct NameEntry {
 ///
 /// @hadris-spec EXFAT:7.1
 /// @hadris-compliance partial
-/// @hadris-note The first bitmap is read and written through its FAT chain; the second bitmap of TexFAT volumes is not supported.
-/// @hadris-tests exfat_read::fragmented_bitmap_and_upcase_table, exfat_check::bitmap_mismatches_are_found
+/// @hadris-note Bitmaps are read and written through their FAT chains; on TexFAT volumes the bitmap `ActiveFat` selects is read and both are written. TexFAT transactions are not supported.
+/// @hadris-tests exfat_read::fragmented_bitmap_and_upcase_table, exfat_check::bitmap_mismatches_are_found, exfat_write::texfat_keeps_both_fats_and_bitmaps
 /// @hadris-fuzz exfat_read
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]

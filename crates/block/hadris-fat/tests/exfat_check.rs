@@ -83,6 +83,7 @@ fn upcase_checksum_is_checked() {
     let geo = Geometry::of(&image);
     let at = geo.root_entries(&image, 0x82)[0];
     put32(&mut image, at + 4, 0x1234_5678);
+    assert!(common::mount(&image).is_read_only());
     assert_eq!(kinds(&image), [FindingKind::UpcaseTable]);
 }
 

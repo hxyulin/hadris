@@ -1,7 +1,8 @@
 #![no_main]
 //! Fuzz the exFAT reader: mount an arbitrary image with `ExFatFs`, walk every
 //! directory, read every file and run `check_with`. Arbitrary bytes must
-//! never panic, abort or OOM.
+//! never panic, abort or OOM. The main boot checksum is recomputed before
+//! mounting, so mutations reach past the boot region.
 //!
 //! Self-consistency oracles (failures are tagged `ORACLE:`): every file is
 //! read twice and the bytes must match, and listed entries must re-resolve
@@ -39,6 +40,27 @@ fn declared_len(data: &[u8]) -> usize {
     usize::try_from(sectors.saturating_mul(1 << shift)).unwrap_or(usize::MAX)
 }
 
+/// Stores the checksum of the main boot region, so the mount does not stop
+/// at a checksum the fuzzer cannot guess.
+fn seal_boot(image: &mut [u8]) {
+    let Some(&shift) = image.get(108) else {
+        return;
+    };
+    let sector = 1usize << shift.clamp(9, 12);
+    let Some(region) = image.get_mut(..12 * sector) else {
+        return;
+    };
+    let mut sum = 0u32;
+    for (at, &byte) in region[..11 * sector].iter().enumerate() {
+        if !matches!(at, 106 | 107 | 112) {
+            sum = sum.rotate_right(1).wrapping_add(byte as u32);
+        }
+    }
+    for word in region[11 * sector..].chunks_exact_mut(4) {
+        word.copy_from_slice(&sum.to_le_bytes());
+    }
+}
+
 /// Reads a file in chunks with a byte cap: the size is fuzz-controlled and a
 /// corrupt FAT can serve the same clusters over and over. Returns the bytes
 /// and whether the read ended in an error.
@@ -66,6 +88,7 @@ fn drive(data: &[u8]) {
         image.resize(len, 0);
     }
     image.resize(image.len().next_multiple_of(512), 0);
+    seal_boot(&mut image);
     let dev = MemDevice::new(&image[..], BlockSize::new(512).unwrap());
     let options = MountOptions::new()
         .with_read_only()

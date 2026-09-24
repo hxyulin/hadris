@@ -11,6 +11,7 @@ use hadris_fs::sync::{DriverExt, FsDriver};
 use hadris_fs::{DirCursor, ErrorKind, FileType, NameBuf};
 
 type Patch = Box<dyn Fn(&mut Vec<u8>)>;
+type Damage = fn(&mut [u8]);
 
 fn mount_err(image: Vec<u8>) -> ErrorKind {
     let err = ExFatFs::open(common::device(image, 512)).unwrap_err();
@@ -46,6 +47,7 @@ fn mount_rejects_bad_boot_sectors() {
     for (what, patch) in patches {
         let mut image = base.clone();
         patch(&mut image);
+        common::seal_boot(&mut image, 512);
         assert_eq!(mount_err(image), ErrorKind::Corrupt, "{what}");
     }
     let mut image = base.clone();
@@ -58,6 +60,38 @@ fn mount_rejects_bad_boot_sectors() {
         1 << 20,
         "the device comes back"
     );
+}
+
+#[test]
+fn damaged_main_boot_regions_mount_from_the_backup() {
+    let mut fs = common::small(4 << 20, 4096);
+    let root = fs.root();
+    let node = common::write(&mut fs, root, "kept.txt", b"backup");
+    fs.forget(node);
+    fs.sync().unwrap();
+    let base = common::image(fs);
+    let damages: [(&str, Damage); 3] = [
+        ("checksum", |i| i[11 * 512] ^= 1),
+        ("boot code", |i| i[200] ^= 1),
+        ("name", |i| i[3] = b'F'),
+    ];
+    for (what, damage) in damages {
+        let mut image = base.clone();
+        damage(&mut image);
+        let mut fs = ExFatFs::open(common::device(image.clone(), 512)).unwrap();
+        assert!(fs.is_read_only(), "{what}");
+        assert_eq!(fs.read_to_vec("/kept.txt").unwrap(), b"backup", "{what}");
+        let root = fs.root();
+        let created = fs.create(
+            root,
+            hadris_fs::Name::new("new.txt").unwrap(),
+            hadris_fs::NewNode::File,
+            &hadris_fs::SetMetadata::new(),
+        );
+        assert_eq!(created.unwrap_err().kind(), ErrorKind::ReadOnly, "{what}");
+        damage(&mut image[12 * 512..]);
+        assert_eq!(mount_err(image), ErrorKind::Corrupt, "{what} in both");
+    }
 }
 
 #[test]
