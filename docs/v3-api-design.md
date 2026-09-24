@@ -1037,6 +1037,22 @@ defaults), D8 (the host alias has path methods without a trait import) and
 most of D1 (host path names follow `std::fs`; the engine's node-level names
 stay). Decisions: Q9.
 
+### 4.16 Review decisions on API shape
+
+Decided by the user on 2026-09-24 from the V3 review (items D2 to D12):
+
+| Item | Decision |
+|---|---|
+| D2 labels and serials | Text is always `label()`, a numeric id is always `volume_serial()`, in every crate. `FsDriver` gains a defaulted `volume_label()` so generic code and the openers can show it. UDF keeps `logical_volume_id()` as an extra. |
+| D3 features | `hadris-fs` defaults to `std` and `sync` like every other crate. `write` keeps meaning "can create images" in every crate, documented per crate. |
+| D4 exFAT detection | `BlockFormat::Fat(FatKind)` and a separate `BlockFormat::ExFat`; `FatVariant` is removed. |
+| D5 optical detection | `detect` returns `OpticalFormats`; an empty set means nothing was found. |
+| D6 `OpenFile` | Move-only: `close` consumes it, so a double close does not compile. |
+| D9 directory entries | `DirEntry::metadata()` returns the metadata the directory entry already stores, filled by every current driver. `Dir::driver()` and a node-based, cycle-safe `walk` helper are added. |
+| D10 FAT times | `MountOptions::with_utc_offset`. The engine and embedded profiles default to UTC; the host profile defaults to the system's local offset. exFAT reads and writes its UTC offset fields. |
+| D11 permissions | `Metadata::permissions()` and `SetMetadata::with_permissions()`; the `mode` spellings leave `hadris-fs`. cpio keeps its raw `mode()`. |
+| D12 trait additions | Stay 3.x additions under 4.14 (`link`, `forget_n`, `Metadata::device()` and the rest, orphans). |
+
 ---
 
 ## 5. Per-crate changes
