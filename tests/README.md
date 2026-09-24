@@ -26,7 +26,7 @@ tests/
   Cargo.toml          detached package `hadris-tests`
   src/                harness library (`hadris_tests`)
     harness/          format-agnostic: commands, workspaces, scorecards,
-                      tree diffing, native mounts, RNG, QEMU
+                      tree diffing, path helpers, native mounts, RNG, QEMU
     fat/              FAT model, oracle, scenarios, adapters
       model.rs        FsState / Operation reference model
       adapter.rs      FatAdapter trait and trace drivers
@@ -41,7 +41,8 @@ tests/
                       the FAT model and adapter trait
       spec.rs         raw-image oracle
       scenarios.rs    exFAT-only traces and rejections
-      limits.rs       directory growth to a full volume
+      limits.rs       data-region exhaustion, directory growth to a full
+                      volume, and long extents
       generic.rs      Hadris ExFatFs through the generic FAT adapter
       native.rs       exfatprogs (local or Docker), newfs_exfat,
                       fsck_exfat and the macOS kernel driver
@@ -59,14 +60,15 @@ tests/
     fat/{spec,limits,peers,native}.rs
     exfat/{spec,limits,native}.rs
     iso/{spec,peers,native,volume_descriptors,directory,multi_extent,
-         rock_ridge,boot,hybrid}.rs
+         rock_ridge,relocation,boot,hybrid}.rs
 ```
 
 Tests are addressed as `<format>::<topic>::<name>`:
 
 ```bash
 cargo test --manifest-path tests/Cargo.toml              # hosted suite
-cargo test --manifest-path tests/Cargo.toml fat::        # one format
+cargo test --manifest-path tests/Cargo.toml exfat::      # one format
+cargo test --manifest-path tests/Cargo.toml fat:: -- --skip exfat::
 cargo test --manifest-path tests/Cargo.toml iso::boot::  # one topic
 cargo test --manifest-path tests/Cargo.toml -- --ignored # manual peer reports
 cargo test --manifest-path tests/Cargo.toml iso::boot::test_qemu_boot -- --ignored # QEMU boot checks
@@ -75,6 +77,10 @@ cargo test --manifest-path tests/Cargo.toml iso::boot::test_qemu_boot -- --ignor
 nix develop -c env HADRIS_REQUIRE_EXTERNAL_TOOLS=1 \
   cargo test --manifest-path tests/Cargo.toml
 ```
+
+A filter is a substring match on the test path, so `fat::` also selects the
+`exfat::` tests. CI runs `fat:: -- --skip exfat::` and `exfat::` as separate
+jobs.
 
 FAT, exFAT and ISO use the same three test tiers. Hosted oracle tests always run.
 External-tool interoperability tests skip when their tools are absent, while
@@ -92,12 +98,13 @@ Reports are written to `tests/target/reports/<format>/`.
 - Put a new check under `suite/<format>/<topic>.rs`, adding the module to
   `suite/<format>/mod.rs`. Start a new topic file rather than growing an
   unrelated one.
-- Put reusable scenario data in `src/<format>/scenarios.rs` (FAT) or
-  `src/<format>/model.rs` (ISO) so every adapter can run it. FAT scenarios
-  come in three shapes: operation traces every implementation must complete,
-  rejection scenarios whose final operation every implementation must refuse
-  while leaving the image untouched, and geometry-sized limit exercises in
-  `src/fat/limits.rs` that fill the root directory or the data region.
+- Put reusable scenario data in `src/<format>/scenarios.rs` (FAT and exFAT)
+  or `src/<format>/model.rs` (ISO) so every adapter can run it. FAT and exFAT
+  scenarios come in three shapes: operation traces every implementation must
+  complete, rejection scenarios whose final operation every implementation
+  must refuse while leaving the image untouched, and geometry-sized limit
+  exercises in `src/<format>/limits.rs` that fill a directory or the data
+  region.
 - Add a new implementation by implementing the format's adapter trait in
   `src/<format>/<peer>.rs`; the existing measurement drivers then score it
   without further changes.
@@ -105,13 +112,13 @@ Reports are written to `tests/target/reports/<format>/`.
   (or `harness::require_or_skip`) so they skip locally and fail when
   `HADRIS_REQUIRE_EXTERNAL_TOOLS=1` is set.
 
-CI runs the FAT, exFAT and ISO slices with their command-line peer tools installed, and
-also formats and lints the package. Manual accuracy reports, QEMU checks, and
-privileged native-mount checks remain ignored.
-
 - When a test is cited as compliance evidence, reference it as
   `<format>::<topic>::<name>` in `@hadris-tests` annotations and
   `docs/spec-coverage.md`, and by file path in `spec/requirements/*.json`.
+
+CI runs the FAT, exFAT and ISO slices with their command-line peer tools
+installed, and also formats and lints the package. Manual accuracy reports,
+QEMU checks, and privileged native-mount checks remain ignored.
 
 Rock Ridge relocation extraction is checked with `bsdtar` under
 `iso::relocation::`. It compares every extracted path, entry kind, and file byte

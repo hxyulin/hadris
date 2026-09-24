@@ -54,12 +54,12 @@ hadris-udf verify image.udf --verbose
 | Command  | Description                                      |
 |----------|--------------------------------------------------|
 | `info`   | Display volume information (ID, revision, size)  |
-| `ls`     | List directory contents                          |
+| `ls` (alias `list`) | List directory contents; `-a` adds `.` and `..` |
 | `tree`   | Display directory tree structure                 |
 | `cat`    | Print file contents to stdout                    |
-| `extract`| Extract files from the image                     |
+| `extract`| Extract one path (to `<output>/<name>`) or the whole image (into `<output>`, default `.`) |
 | `create` | Create a new UDF image from a local directory    |
-| `verify` | Verify UDF image structural integrity            |
+| `verify` (alias `check`) | Open the volume, walk the tree and read every file; exits with an error on failures |
 
 ## Supported UDF Revisions
 

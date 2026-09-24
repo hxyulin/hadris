@@ -20,7 +20,7 @@ it, Joliet or the ISO 9660:1999 enhanced tree. `Namespace::Preferred` takes
 the most capable one. A view implements the `hadris-fs` `FsDriver` trait, so
 the path helpers work on it:
 
-```rust
+```rust,no_run
 use hadris_fs::sync::DriverExt;
 use hadris_iso::Namespace;
 use hadris_iso::sync::IsoImage;

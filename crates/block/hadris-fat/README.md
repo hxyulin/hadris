@@ -210,9 +210,12 @@ changes what an item does.
 
 ### exFAT
 
-`exfat::sync::ExFatFs` and its `r#async` and `async_send` twins are a
-sibling of `FatFs` that needs no allocator and implements `FsDriver`, with
-`format`, `check` and `check_with` in each mode. It reads contiguous and
+`hadris_fat::exfat::sync::ExFatFs` and its `r#async` and `async_send` twins
+are a sibling of `FatFs` that needs no allocator and implements `FsDriver`,
+with `format` (the `write` feature), `check` and `check_with` in each mode.
+exFAT is stable and needs no feature flag. Its options, label, findings and
+on-disk layouts are in `hadris_fat::exfat` (`exfat::FormatOptions`,
+`exfat::MountOptions`, `exfat::raw`), since their names match FAT's. It reads contiguous and
 chained allocations, fragmented bitmaps and up-case tables, and entry sets
 that cross clusters; it writes FAT chains, grows directories, and keeps
 `VolumeDirty` and `PercentInUse`. On TexFAT volumes it follows `ActiveFat`
@@ -243,7 +246,7 @@ hadris-fat = "2.4.0"  # Uses default features
 | FAT12 | 32 MB | 32 MB | 512B - 8KB | Supported |
 | FAT16 | 2 GB | 2 GB | 2KB - 32KB | Supported |
 | FAT32 | 2 TB | 4 GB | 4KB - 32KB | Supported |
-| ExFAT | 128 PB | 128 PB | 4KB - 32MB | Experimental |
+| exFAT | 128 PB | 128 PB | 512B - 32MB | Supported |
 
 ## Long Filename Support
 
@@ -267,7 +270,7 @@ Implements the following specifications:
 
 - Microsoft FAT specification
 - VFAT (Long Filename) extension
-- exFAT specification (partial, experimental)
+- exFAT specification (TexFAT transactions not supported)
 
 ## Documentation
 

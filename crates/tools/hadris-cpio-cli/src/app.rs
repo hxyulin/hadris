@@ -65,7 +65,7 @@ enum Commands {
         /// Path to the CPIO archive, or - for standard input
         archive: PathBuf,
         /// Output directory
-        #[arg(short, long)]
+        #[arg(short, long, default_value = ".")]
         output: PathBuf,
     },
     /// Print a file's contents from the archive to stdout

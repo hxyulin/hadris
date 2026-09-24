@@ -23,7 +23,7 @@ The default features (`std`, `sync`) include the writer. Without `std`,
 
 ## Create a basic image
 
-```rust
+```rust,no_run
 use hadris_fs::tree::{Content, Tree};
 use hadris_iso::{Charset, IsoOptions, VolumeIdentifiers};
 
@@ -118,7 +118,7 @@ another name or rejects such trees.
 
 ## Create from a host directory
 
-```rust
+```rust,no_run
 use hadris_fs::tree::{FromFsOptions, OnError, Tree};
 
 let tree = Tree::from_fs("image-root", FromFsOptions::new().with_on_error(OnError::Warn))?;

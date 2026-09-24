@@ -98,7 +98,7 @@ pub use hadris_cd as cd;
 #[cfg_attr(docsrs, doc(cfg(feature = "cpio")))]
 pub use hadris_cpio as cpio;
 
-/// Detection and opening of FAT and NTFS volumes.
+/// Detection and opening of FAT, exFAT and NTFS volumes.
 #[cfg(feature = "block")]
 #[cfg_attr(docsrs, doc(cfg(feature = "block")))]
 pub use hadris_block as block;

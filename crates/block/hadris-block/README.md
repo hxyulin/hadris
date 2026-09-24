@@ -1,7 +1,7 @@
 # hadris-block
 
-`hadris-block` detects and opens block volumes: FAT12, FAT16, FAT32 and
-NTFS on any `hadris-storage` block device. It sits next to the format
+`hadris-block` detects and opens block volumes: FAT12, FAT16, FAT32, exFAT
+and NTFS on any `hadris-storage` block device. It sits next to the format
 crates it builds on and re-exports them, so one dependency covers "open
 whatever this disk or partition holds".
 
@@ -64,7 +64,7 @@ the `unstable-ntfs` feature adds the `ntfs` re-export and `as_ntfs`,
 | `unstable-ntfs` | no | Re-export `hadris-ntfs` as `ntfs` and reach `OpenVolume`'s NTFS driver |
 
 No feature changes what an item does: detection and `OpenVolume` always
-cover FAT and NTFS, and neither needs an allocator.
+cover FAT, exFAT and NTFS, and neither needs an allocator.
 
 ## Documentation
 

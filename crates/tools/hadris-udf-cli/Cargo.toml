@@ -30,5 +30,8 @@ hadris-udf = { workspace = true, features = ["std", "sync"] }
 tracing.workspace = true
 tracing-subscriber = "0.3.20"
 
+[dev-dependencies]
+tempfile.workspace = true
+
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true

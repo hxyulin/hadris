@@ -23,6 +23,7 @@ path = "src/bin/hadris-iso-cli.rs"
 doc = false
 
 [dependencies]
+bytemuck.workspace = true
 clap.workspace = true
 
 hadris-fs = { workspace = true, features = ["std", "sync"] }

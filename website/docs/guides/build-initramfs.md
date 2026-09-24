@@ -11,7 +11,7 @@ hadris-fs = "2.4.0"
 hadris-io = "2.4.0"
 ```
 
-```rust
+```rust,no_run
 use hadris_cpio::CpioOptions;
 use hadris_fs::tree::{FromFsOptions, Tree};
 use hadris_io::StdIo;

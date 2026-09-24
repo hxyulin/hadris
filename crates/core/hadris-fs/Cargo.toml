@@ -12,6 +12,10 @@ keywords = ["filesystem", "no-std", "path", "metadata"]
 categories = ["no-std", "filesystem"]
 include = ["src/**/*", "Cargo.toml", "README.md"]
 
+# docs.rs builds with default features only, which would hide the modes.
+[package.metadata.docs.rs]
+features = ["std", "sync", "async", "async-send", "contract"]
+
 [features]
 default = []
 alloc = ["hadris-io/alloc", "hadris-storage/alloc", "dep:async-lock"]

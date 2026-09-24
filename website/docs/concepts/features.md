@@ -7,12 +7,15 @@ title: Features and capabilities
 Hadris separates three decisions that many crates combine:
 
 1. **Platform support:** allocation-free, `alloc`, or `std`
-2. **I/O mode:** `sync`, `async`, or both
-3. **Capability:** `read`, `write`, detection, or formatting
+2. **I/O mode:** `sync`, `async`, `async-send`, or several
+3. **Capability:** `write` (FAT formatting), and in the umbrella crate one
+   feature per format
 
-Choose each dimension explicitly when disabling default features. Enabling
-`std` provides heap allocation, but it does not implicitly select `sync` or
-`async`.
+Reading is always compiled; there is no `read` feature. Choose each dimension
+explicitly when disabling default features. Enabling `std` provides heap
+allocation, but it does not implicitly select `sync` or `async`. A feature
+only adds items: none changes what an existing item does, and only
+`unstable-*` features add APIs outside the stability promise.
 
 ## Platform features
 
@@ -22,14 +25,15 @@ Choose each dimension explicitly when disabling default features. Enabling
 | `alloc` | `Vec`, `String`, owned paths and trees | Kernels and firmware with a global allocator |
 | `std` | Hosted files, clocks, OS errors, and `alloc` | CLI tools, desktop applications, build systems |
 
-Not every operation can be allocation-free. Creating filesystem images and
-holding arbitrary directory trees generally requires `alloc`; ISO and UDF
-authoring currently require `std`.
+Not every operation can be allocation-free. The image writers (ISO 9660, UDF,
+hybrid CD and CPIO) take a `hadris_fs::tree::Tree` and need `alloc`; `std`
+adds host files as tree content. FAT and exFAT write, format and check
+without an allocator.
 
 ## I/O modes
 
-The `sync` and `async` features select parallel API namespaces backed by
-`hadris-io` traits. They may be enabled together.
+The `sync`, `async` and `async-send` features select parallel API
+namespaces generated from one source. They may be enabled together.
 
 ```toml
 [dependencies]
@@ -40,14 +44,14 @@ hadris-fat = {
 }
 ```
 
-Use `hadris_fat::sync` and `hadris_fat::r#async` explicitly when both modes are
-enabled; `hadris-fat` has no crate-root re-exports of either mode. Its
+Name I/O types through their mode module, `hadris_fat::sync` or
+`hadris_fat::r#async`; no crate re-exports a mode at its root. The
 `async-send` feature adds a third namespace, `async_send`, whose futures are
 `Send` for multi-threaded executors.
 
-Some components are intentionally sync-only: the `hadris-fs` host helpers
-and the hybrid ISO/UDF writer. `hadris-iso` has the same
-three namespaces as `hadris-fat`, with its writer and sessions in each.
+Every crate has the same public items in each mode. The exceptions are the
+`hadris-fs` host helpers (`extract_to_host`, `import_from_host`), which are
+sync-only because the host side is blocking `std::fs`.
 
 ## Format capability matrix
 
@@ -59,10 +63,12 @@ three namespaces as `hadris-fat`, with its writer and sessions in each.
 | `hadris-iso` | ISO 9660, Joliet, Rock Ridge, El Torito | Yes | Yes | Yes | Yes | Allocation-free (writing and sessions need `alloc`) | Stable |
 | `hadris-udf` | UDF 1.02 to 2.01, type 1 partitions | Yes | Yes | Yes | Yes | Allocation-free (writing needs `alloc`) | Stable |
 | `hadris-cpio` | CPIO newc, CRC and odc; old binary read | Yes | Yes | Yes | Yes | Allocation-free (writing needs `alloc`) | Stable |
-| `hadris-ntfs` | NTFS | Yes | No | Yes | Yes | Allocation-free | Experimental |
+| `hadris-ntfs` | NTFS | Yes | No | Yes | Yes | Allocation-free | Preview |
 | `hadris-cd` | Hybrid ISO/UDF images | N/A | Yes | Yes | Yes | `alloc` | Stable |
+| `hadris-block` | FAT, exFAT and NTFS detection and opening | Yes | FAT and exFAT | Yes | Yes | Allocation-free | Stable (NTFS native API behind `unstable-ntfs`) |
+| `hadris-optical` | ISO 9660 and UDF detection and opening | Yes | Through re-exported writers | Yes | Yes | Allocation-free | Stable |
 
-“Allocation-free” means the core parser can operate without a global
+"Allocation-free" means the core parser can operate without a global
 allocator. Higher-level conveniences such as owned filenames, collected
 directory trees, or image construction may still require `alloc`.
 
@@ -121,8 +127,8 @@ compiled, and `alloc` adds the writer.
 - Select at least one I/O mode for APIs that access storage.
 - Add `alloc` only when the chosen API returns or stores owned data.
 - Prefer leaf crates when only one format is needed.
-- Treat `unstable-streaming` and `hadris-ntfs` as separately versioned
-  experiments.
+- Treat `hadris-ntfs` and `unstable-ntfs` as a preview whose native API may
+  change in minor releases.
 
 The workspace CI checks representative allocation-free, `alloc`, `std`, sync,
 async, and combined-mode tiers for every stable format crate.

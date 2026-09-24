@@ -8,15 +8,15 @@ Hadris keeps storage access separate from format parsing. A typical operation
 passes through these layers:
 
 ```text
-file, memory, firmware protocol, or block device
-                         │
-                  hadris-io traits
-                         │
-          bounded device or partition view
-                         │
-             filesystem or archive parser
-                         │
-          directory entry and content reader
+file, memory, firmware protocol, or device driver
+                         |
+      hadris-io streams / hadris-storage block devices
+                         |
+          partition slice (hadris-part, Slice)
+                         |
+       format driver (FatFs, IsoView, UdfFs, ...)
+                         |
+   hadris-fs node API, path helpers, Volume, handles
 ```
 
 Each layer adds validation or interpretation without hiding the layer below it.
@@ -24,24 +24,27 @@ Applications can use only the pieces they need.
 
 ## Byte streams with `hadris-io`
 
-Format crates use Hadris `Read`, `Write`, and `Seek` abstractions instead of
-depending directly on `std::io`. The crate supplies sync and async traits and
-explicit adapters: `StdIo` for `std::io` types and `FromEmbedded` for
-`embedded-io` devices. Firmware and kernels can implement the same traits for
-their own device handles.
+`hadris-io` defines `Read`, `Write` and `Seek` in each mode
+(`hadris_io::sync::Read`, `hadris_io::r#async::Read`), each reporting the
+implementor's own error through `ErrorType`. It supplies explicit adapters:
+`StdIo` for `std::io` types, `ToStd` for the other direction, and
+`FromEmbedded` for `embedded-io` devices. Firmware and kernels implement the
+same traits for their own device handles.
 
-This is why the same parser code can run over a host file, a memory cursor, or
-a custom device without changing the filesystem API.
+The CPIO reader and writer work on these streams directly, so they run over
+pipes.
 
 ## Block geometry with `hadris-storage`
 
-`hadris-storage` adds checked logical-block addressing and block-device
-capability traits. It does not assume 512-byte sectors. Use it when an
-application naturally addresses storage by logical blocks rather than a raw
-byte cursor.
+Every filesystem driver reads a `hadris-storage` `BlockDevice`, which reads
+and writes whole logical blocks of an explicit size. It does not assume
+512-byte sectors. `std::fs::File` is a device with 512-byte blocks,
+`MemDevice` wraps bytes in memory, `StreamDevice` turns any seekable stream
+into a device with the block size you give it, and `Cache` adds a write-back
+block cache. A device refuses writes by returning `WriteError::ReadOnly`.
 
-Seekable byte streams and block devices can be adapted at this boundary. The
-format crates continue to validate their own sector and filesystem geometry.
+The format crates validate their own sector and filesystem geometry on top of
+the device's block size.
 
 ## Partition boundaries
 
@@ -53,24 +56,32 @@ partitions and keeps offsets relative to the filesystem start.
 
 `hadris-part` reads, edits and writes MBR, GPT and hybrid tables on a block
 device, and its `open` turns a partition into such a slice. `hadris-block` adds
-detection on block devices, and opens the FAT or NTFS volume a slice holds,
-when an application needs both the partition and filesystem layers.
+detection on block devices, and opens the FAT, exFAT or NTFS volume a slice
+holds, when an application needs both the partition and filesystem layers.
 
 ## Format handles
 
-Leaf crates such as `hadris-fat`, `hadris-iso`, and `hadris-udf` expose their
-complete format-specific handles. Category facades detect and open formats,
-implement the `hadris-fs` driver trait over whichever driver they opened, and
-keep that driver reachable, so generic code lists and reads any volume while
-format-specific features such as FAT attributes, Rock Ridge metadata and UDF
-descriptors stay available.
+Every driver (`FatFs`, `ExFatFs`, `IsoView`, `UdfFs`, `NtfsFs`) implements
+the `hadris-fs` `FsDriver` trait through its own inherent methods, and keeps
+a native API for what the trait does not model, such as FAT attributes, Rock
+Ridge metadata and UDF descriptors. Category facades detect and open formats,
+implement the same trait over whichever driver they opened, and keep that
+driver reachable.
 
-## Entry and content lifetimes
+## Tiers above the driver
 
-Directory entries are metadata values. Content readers borrow the mounted
-filesystem or volume and track their own position through a file's extents or
-cluster chain. Keep the volume alive while reading content; clone owned entry
-metadata when it must outlive an iterator or intermediate lookup.
+A driver takes `&mut self` and holds no lock. Each layer above it is opt-in
+and can do every job:
+
+| Tier | Build it with | Paths and handles |
+|---|---|---|
+| Raw | `FatFs::open(dev)?` | Node ids through the inherent methods; `DriverExt` path helpers on `&mut self`; `File<&mut FatFs<_>>` borrows the driver |
+| Shared | `Volume::new(fs)`, `Volume::spin(fs)`, `Volume::local(fs)` | `PathExt` helpers on `&self`, any number of `File` handles |
+| Owned | `Arc::new(Volume::new(fs))` | The shared API; handles that move to other threads or tasks |
+
+`lookup` pins a node and `forget` unpins it. Directory entries are plain
+values that borrow nothing, and a handle reads its file by offset, so the
+driver keeps no cursor for it. Format-specific calls on a shared volume go through `vol.lock()`.
 
 ## Choosing the boundary
 

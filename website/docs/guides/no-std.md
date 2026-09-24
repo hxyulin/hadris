@@ -16,31 +16,32 @@ hadris-fat = {
 }
 ```
 
-`hadris-fat` needs no `read` feature and no allocator: `FatFs` reads, writes,
-and with `write` formats and checks, using one device block of buffer. Other
-format crates still select `read` explicitly.
+No crate has a `read` feature: reading is always compiled. `FatFs` and
+`ExFatFs` read, write and check without an allocator, using one device block
+of buffer, and the `write` feature adds `format`. The ISO 9660, UDF and NTFS
+readers and the CPIO reader need no allocator either.
 
-Add `alloc` for APIs backed by `Vec`, `String`, or owned trees. Add `write`
-only when mutation or image creation is required. `std` implies allocation but
-does not implicitly select `sync` or `async`.
+Add `alloc` for the image writers (ISO 9660, UDF, hybrid CD, CPIO), which take
+a `hadris_fs::tree::Tree`, and for owned names, `HeapTable` and `read_to_vec`.
+`std` implies `alloc` but does not select `sync` or `async`.
 
-All storage I/O flows through `hadris-io` streams or `hadris-storage` block
-devices (which `hadris-fat` uses), allowing callers to adapt firmware, kernel,
-memory, or device-specific readers rather than depending on `std::io`.
+All storage I/O flows through `hadris-storage` block devices (every
+filesystem driver) or `hadris-io` streams (CPIO), so callers adapt firmware,
+kernel, memory, or device-specific readers rather than depending on
+`std::io`.
 
 ## Choose the narrowest tier
 
 | Need | Features |
 |---|---|
-| Allocation-free synchronous reader | `read,sync` |
-| Allocation-free asynchronous reader | `read,async` |
-| Owned names or buffers | Add `alloc` |
-| Filesystem mutation | Add `write` and its required platform tier |
-| Both I/O modes | Enable `sync,async` and use explicit namespaces |
+| Allocation-free synchronous reader | `sync` |
+| Allocation-free asynchronous reader | `async` |
+| `Send` futures for multi-threaded executors | `async-send` |
+| FAT or exFAT formatting | Add `write` |
+| Image writers, owned names or buffers | Add `alloc` |
+| Several I/O modes | Enable each; the APIs live in separate namespaces |
 
-The exact minimum differs by format. NTFS reading requires `alloc`; ISO and UDF
-image creation require `std`. See the complete
-[feature and capability matrix](../concepts/features.md).
+See the complete [feature and capability matrix](../concepts/features.md).
 
 For integration examples, see [Adapt a custom device](./custom-io.md) and
 [Use asynchronous I/O](./async-io.md).

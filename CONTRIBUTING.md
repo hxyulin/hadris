@@ -1,7 +1,8 @@
 # Contributing to Hadris
 
 Thanks for contributing. This document covers the day-to-day workflow for
-library and CLI changes. Deeper architecture notes live in [CLAUDE.md](CLAUDE.md).
+library and CLI changes. The V3 API rules and layering are in
+[`docs/v3-api-design.md`](docs/v3-api-design.md).
 
 ## Prerequisites
 
@@ -29,7 +30,8 @@ RUSTFLAGS="-D warnings" cargo check -p hadris-fat --no-default-features --featur
 RUSTFLAGS="-D warnings" cargo check -p hadris-iso --no-default-features --features "sync"
 ```
 
-See [CLAUDE.md](CLAUDE.md) for the full per-crate feature matrix used in CI.
+The full per-crate feature matrix used in CI is the `check-features` job in
+[`.github/workflows/rust.yml`](.github/workflows/rust.yml).
 
 ### Conformance and interoperability suite
 
@@ -49,8 +51,10 @@ peers, and a Hadris-to-Hadris round trip is never evidence on its own.
 # Hosted suite. Missing command-line peer tools are skipped locally.
 cargo test --manifest-path tests/Cargo.toml
 
-# One format or topic
-cargo test --manifest-path tests/Cargo.toml fat::
+# One format or topic. Filters match substrings, so `fat::` also selects
+# `exfat::`; CI runs the two separately.
+cargo test --manifest-path tests/Cargo.toml fat:: -- --skip exfat::
+cargo test --manifest-path tests/Cargo.toml exfat::
 cargo test --manifest-path tests/Cargo.toml iso::boot::
 
 # Strict tool-backed suite through the repository flake
@@ -133,6 +137,25 @@ unmount them during cleanup. macOS AppleDouble `._*` files remain structurally
 validated but are excluded from the semantic tree comparison as platform
 metadata.
 
+#### exFAT conformance
+
+The exFAT slice reuses the FAT operation model and adapter trait with its own
+raw-image oracle, and runs the Hadris driver through the same generic
+`FileSystem` adapter. The hosted tests are under `exfat::spec::` and
+`exfat::limits::`. `exfat::native::` checks Hadris images with exfatprogs
+`fsck.exfat` (from the `PATH`, or the `hadris-exfatprogs` Docker image) and
+macOS `fsck_exfat`, and writes to volumes made by `mkfs.exfat` and
+`newfs_exfat`. The tests skip when no checker is available, unless
+`HADRIS_REQUIRE_EXTERNAL_TOOLS=1` is set.
+
+```bash
+cargo test --manifest-path tests/Cargo.toml exfat::
+
+# macOS kernel driver, on temporary image copies
+HADRIS_TESTS_NATIVE_MOUNT=1 cargo test --manifest-path tests/Cargo.toml \
+  exfat::native::native_mount_roundtrip -- --ignored --nocapture
+```
+
 #### ISO conformance
 
 The ISO suite uses a test-only raw-image oracle derived from the ECMA-119:1987
@@ -202,12 +225,22 @@ crates.io publication.
 3. Add a `[Unreleased]` note in [CHANGELOG.md](CHANGELOG.md) for user-visible work.
 4. Do not commit secrets or large binary fixtures unless they are intentional
    corpus seeds under `fuzz/corpus/`.
-5. PRs to `main` also run the report-only V3 guardrails in `.github/workflows/v3-guardrails.yml` (`scripts/check-semver.sh`, `scripts/check-non-exhaustive.py`, `scripts/check-v3-api.py subset|parity`); run them locally to see the findings.
+5. PRs to `main` and `next` also run the report-only V3 guardrails in `.github/workflows/v3-guardrails.yml` (`scripts/check-semver.sh`, `scripts/check-non-exhaustive.py`, `scripts/check-v3-api.py subset|parity`); run them locally to see the findings.
 
 ## Safety and fuzzing
 
-- When touching `unsafe`, LFN/UTF-16, or disk-byte → `&str` paths, run the
-  targeted Miri jobs documented in [CLAUDE.md](CLAUDE.md).
+- When touching `unsafe`, LFN/UTF-16, or disk-byte to `&str` paths, add a
+  regression test and run the targeted Miri job from the `miri` job in
+  [`.github/workflows/rust.yml`](.github/workflows/rust.yml):
+
+  ```bash
+  cargo +nightly miri test -p hadris-common --lib
+  cargo +nightly miri test -p hadris-fat --lib codec::
+  cargo +nightly miri test -p hadris-iso --lib -- raw:: name:: rock_ridge::
+  cargo +nightly miri test -p hadris-part --lib
+  cargo +nightly miri test -p hadris-ntfs --lib
+  ```
+
 - Fuzz harnesses under [`fuzz/`](fuzz/) are **local tools** (not part of PR CI).
   Replay corpora with `cargo +nightly fuzz run <target> -- -runs=0` after
   parser fixes; prefer a normal unit/integration test for PR-gating regressions.
@@ -234,7 +267,8 @@ python3 scripts/check-compliance-catalog.py
 ## Docs
 
 ```bash
-cargo doc --workspace --no-deps --document-private-items
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
+cargo test --workspace --all-features --doc
 python3 scripts/check-docs.py
 
 # Task-oriented documentation site
@@ -257,11 +291,11 @@ scripts/check-public-api.sh update
 ```
 
 The snapshot is a review aid, not a feature freeze. Backward-compatible APIs
-are welcome in the 2.x series when their documentation, feature-matrix tier,
+are welcome in a minor release when their documentation, feature-matrix tier,
 and tests land with them.
 
 Feature-gated items should use `#[cfg_attr(docsrs, doc(cfg(...)))]` where the
-crate already enables `docsrs` (see `hadris-part`, `hadris-fat`).
+crate already enables `docsrs` (see `hadris-part`, `hadris-block`).
 
 ## License
 

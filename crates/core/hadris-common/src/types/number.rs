@@ -286,6 +286,34 @@ pub fn align_up<
     (num + temp) & !temp
 }
 
+/// Inherent forms of the [`Endian`] methods, so on-disk layouts that use
+/// these types can be read and built without importing the trait.
+macro_rules! inherent_endian {
+    ($($ty:ident => $out:ty),* $(,)?) => {$(
+        impl<E: Endianness> $ty<E> {
+            /// Stores `value` in byte order `E`.
+            #[inline]
+            pub fn new(value: $out) -> Self {
+                <Self as Endian>::new(value)
+            }
+
+            /// The stored value.
+            #[inline]
+            pub fn get(&self) -> $out {
+                <Self as Endian>::get(self)
+            }
+
+            /// Replaces the stored value.
+            #[inline]
+            pub fn set(&mut self, value: $out) {
+                <Self as Endian>::set(self, value)
+            }
+        }
+    )*};
+}
+
+inherent_endian!(U16 => u16, U32 => u32, U64 => u64);
+
 #[cfg(test)]
 mod tests {
     //! Tests for the number types.

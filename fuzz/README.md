@@ -1,14 +1,14 @@
 # Fuzzing
 
 Coverage-guided fuzz harnesses for the untrusted-input parsers, one per reader,
-plus one stateful writer harness. These are **local / developer tools** — they
+plus one stateful writer harness per writable driver. These are **local / developer tools**; they
 are intentionally **not** run in CI (nightly + long-running; corpus replay
 belongs in a developer workflow or a separate scheduled job outside the PR
 gate).
 
 | Target      | Entry point                          | Exercises |
 |-------------|--------------------------------------|-----------|
-| `cpio_read` | `CpioReader::next_entry_alloc` + data | newc header / `namesize` / `filesize` parsing |
+| `cpio_read` | `CpioReader::next_entry`, partial reads and skips, `continue_after_trailer` | newc, newc-crc, odc and old binary headers, names, sizes, checksums and concatenated archives |
 | `fat_read`  | `FatFs::open_with` + recursive read + `check_with` | BPB, FAT chain, directory + LFN parsing, lookups, file reads, the checker |
 | `exfat_read`| `ExFatFs::open_with` + recursive read + `check_with` | boot region, entry sets across clusters, FAT and contiguous allocations, the up-case table, lookups, `parent`, the checker |
 | `ntfs_read` | `NtfsFs::open` + recursive read      | boot sector, MFT records, attributes, index walks |
@@ -19,7 +19,7 @@ gate).
 | `exfat_ops` | `format` + the same op stream on `ExFatFs` with 512-byte clusters | exFAT write path, directory growth and entry sets across clusters vs a shadow model, `check` after sync, verified after remount |
 
 **The invariant:** feeding *arbitrary bytes* into a reader must only ever return
-an `Err` or succeed — never panic, abort, or OOM. A crash found here is a bug in
+an `Err` or succeed, and never panic, abort, or OOM. A crash found here is a bug in
 the reader, not the harness. The read harnesses also carry self-consistency
 oracles (failures tagged `ORACLE:`): re-resolved names must match, repeated
 reads must agree, and re-iterated listings must be stable. `fat_ops` asserts
@@ -70,6 +70,20 @@ or backup) are committed. They are under the target's 64 KiB `max_len`, so
 the fuzzer sees whole disks, backup GPT included; `gen-seeds.sh` rewrites
 them byte for byte.
 
+These seeds are committed as well, and `gen-seeds.sh` does not rewrite them:
+
+- `corpus/cpio_read/seed-*.cpio`: newc, newc-crc and odc archives written by
+  `hadris-cpio`, an old binary archive and a newc archive with a `.` entry
+  written by `bsdcpio`, and a newc archive followed by an odc one. The source
+  tree has a directory, an empty directory, a symlink and a hard link.
+- `corpus/exfat_read/seed-hadris-1mib.img`: a 1 MiB exFAT volume with
+  512-byte clusters, nested directories, a long Unicode name and an empty
+  file, cut after its last non-zero sector; the target zero-extends it.
+- `corpus/udf_read/seed-mkudffs-*-512.udf`: empty UDF 1.02 and 2.01 volumes
+  with 512-byte blocks made by `mkudffs`.
+- `corpus/exfat_ops/seed-ops-*`: op streams taken from the `fat_ops` corpus,
+  which uses the same encoding.
+
 ## Fuzzing fleet
 
 ```bash
@@ -85,10 +99,13 @@ and replaces the session. Attach with `tmux attach -t fuzz`; crashes land in
 ## Differential testing
 
 `src/bin/fs_dump.rs` is a normal binary (auto-discovered, not a fuzz target)
-that prints a canonical, sorted listing of an image —
+that prints a canonical, sorted listing of an image:
 `file <size> <fnv1a64-of-first-4KiB> <path>`, `dir <path>`, or
-`<index> <start> <len>` (in blocks) for partition tables — and prints nothing
-(exit 0) when the image does not mount:
+`<index> <start> <len>` (in blocks) for partition tables, and prints nothing
+(exit 0) when the image does not mount. Each filesystem is opened with its own
+driver, wrapped in a `Volume`, and listed by one generic walk over the
+`hadris-fs` `FileSystem` node API; cpio archives and partition tables, which
+are not filesystems, have their own listings:
 
 ```bash
 cargo +nightly build --bin fs_dump
@@ -100,7 +117,7 @@ cargo +nightly build --bin fs_dump
 reference tool: `ntfsls -R` for NTFS, `cpio -itv` for cpio, `mdir -b -i` for
 FAT/exFAT (root only), `bsdtar -tf` for ISO. Missing reference tools are
 skipped with one notice; UDF/partition have no adapter and are skipped
-silently. Mismatches — and reference-tool crashes on inputs we parsed fine —
+silently. Mismatches, and reference-tool crashes on inputs we parsed fine,
 are written to `artifacts/differential/<target>/`, deduplicated by the sha1 of
 the (hadris, reference) output pair.
 
@@ -122,7 +139,7 @@ cargo-fuzz writes the crashing input to `artifacts/<target>/crash-<hash>`.
 ## Notes
 
 - The directory walks are depth-guarded (64 levels) with a flat work budget so
-  a self-referential directory graph terminates instead of fanning out — that
+  a self-referential directory graph terminates instead of fanning out; that
   guard lives in the harnesses, not the libraries.
 - Prefer adding a focused unit/integration regression under `crates/*/tests`
   for crashes that should gate PRs; keep fuzzing for discovery.

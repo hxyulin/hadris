@@ -10,6 +10,19 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **Examples (V3):** A `volume-list` example detects a FAT12/16/32, exFAT
+  or NTFS image, opens it with `hadris-block`'s `OpenVolume` and prints its
+  tree through one function generic over `FsDriver`. `examples/README.md`
+  lists the crate examples, and the detect-and-open guide links to it.
+- **hadris-common (V3):** `U16`, `U32` and `U64` have inherent `new`,
+  `get` and `set`, so the `raw` layouts of `hadris-fat` and its exFAT
+  module can be read and built without importing the `Endian` trait of
+  this internal crate.
+- **hadris-fat (V3):** `raw` holds the directory entry layouts:
+  `RawDirEntry` (short entries, with `lfn_checksum`) and `RawLfnEntry`,
+  with the `DIR_Attr`, `DIR_NTRes` and `LDIR_Ord` bits and the end, free
+  and `0x05` name markers. The driver decodes and encodes entries through
+  them.
 - **hadris-fat (V3):** exFAT is stable. `ExFatFs<D, T, C>` in
   `hadris_fat::exfat::{sync, r#async, async_send}`, a sibling of `FatFs`,
   replaces the preview. It needs no allocator, implements the writable
@@ -431,6 +444,45 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **Fuzzing (V3):** `fs_dump` lists every filesystem through one generic
+  walk over the `hadris-fs` `FileSystem` node API, with each driver wrapped
+  in a `Volume`. Small seeds are committed for `cpio_read` (every format,
+  a `.` entry, concatenated archives), `exfat_read` (a populated volume,
+  which raises its coverage from 280 to over 1200 edges in a minute),
+  `udf_read` (`mkudffs` volumes with 512-byte blocks) and `exfat_ops`.
+- **Docs (V3):** The root README, crate READMEs, crate-level rustdoc,
+  CONTRIBUTING, `tests/README.md` and the website describe the V3 API:
+  exFAT is stable, NTFS is a preview, the `read`, `cache`, `lfn`,
+  `unstable-streaming` and V2 type names are gone, and every Rust snippet
+  compiles against the V3 crates. The website gains an exFAT formatting
+  section, and CONTRIBUTING runs the FAT conformance filter as CI does
+  (`fat:: -- --skip exfat::`). `hadris-fs`, `hadris-io` and
+  `hadris-storage` build their docs.rs pages with every mode.
+- **hadris-iso-cli, hadris-udf-cli, hadris-cpio-cli, hadris-cd-cli (V3):**
+  The commands that do the same job share names and flags: `ls` has the
+  alias `list` and `verify` the alias `check` in every CLI, and `extract
+  --output` defaults to `.`. `extract --path` in the ISO and UDF CLIs
+  writes a path other than the root to `<output>/<name>` as the FAT CLI
+  does, through `extract_to_host` (the UDF CLI failed on a single file,
+  and the ISO CLI merged the directory's contents into `--output`); ISO
+  device nodes now stop the extraction with an error instead of a warning.
+  `cat` streams through a `hadris-fs` `File` instead of reading the whole
+  file first. `hadris-iso verify --strict` reads the path table through
+  `raw::PathTableHeader`. `hadris-udf verify` walks the tree and reads
+  every file, failing on errors, and `ls -a` adds `.` and `..` as in the
+  ISO CLI. `hadris-cd verify` hashes file contents while it streams them
+  instead of holding both trees in memory. `hadris-cpio extract` accepts
+  the `.` entry that `find . | cpio -o` writes.
+- **hadris-fat-cli (V3):** Supports exFAT. Every command detects exFAT
+  from the boot sector through `exfat::raw::BootSector` and runs on
+  `ExFatFs`: `info` shows the revision, sector and cluster size, FAT count
+  and dirty flag, `ls`, `tree`, `cat`, `extract`, `stat`, `chain`,
+  `fragmentation` and `verify` work as on FAT, and `create --fat-type
+  exfat` formats with `exfat::sync::format`. `create` reads the source
+  with `Tree::from_fs` before it formats. `verify` exits with an error when
+  `check_with` reports findings (it exited 0 before), `extract --output`
+  defaults to `.`, `ls` has the alias `list`, `verify` the alias `check`,
+  and `--volume-label` the alias `--volume-name`.
 - **hadris-fat (V3):** The `unstable-exfat` feature is gone: `exfat` is
   in every build and covered by semver. Its API is new; see Added and
   Removed.
@@ -866,6 +918,10 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-iso (V3):** Joliet and enhanced volume descriptors pad their
+  escape sequence field with zeros, as ECMA-119 8.5.6 requires, instead of
+  spaces. libarchive (`bsdtar`) refused every image with an enhanced tree,
+  including every `hadris-cd` image, and listed it as an empty archive.
 - **hadris-macros:** `send_async!` no longer panics on a trait without a
   body or an `async fn` with neither a body nor a semicolon, and no longer
   takes the next item's body for a trait alias. It passes such tokens

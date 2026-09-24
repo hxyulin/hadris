@@ -42,9 +42,10 @@ impl JolietLevel {
         }
     }
 
-    /// The escape sequence field for this level.
+    /// The escape sequence field for this level, with the unused bytes set
+    /// to zero as ECMA-119 8.5.6 requires.
     pub fn escape_sequences(self) -> [u8; 32] {
-        let mut out = [b' '; 32];
+        let mut out = [0; 32];
         let index = match self {
             Self::L1 => 0,
             Self::L2 => 1,

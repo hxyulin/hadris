@@ -1,7 +1,5 @@
 //! BIOS parameter block validation and volume geometry.
 
-use hadris_common::types::endian::Endian;
-
 use super::entry::{
     FAT12_MAX_CLUSTERS, FAT16_MAX_CLUSTERS, FAT32_MAX_CLUSTERS, FIRST_DATA_CLUSTER, FatKind,
 };

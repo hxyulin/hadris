@@ -8,8 +8,8 @@ This is an internal support crate for the other Hadris crates and is not meant
 for direct use. Its API can change in any release; depend on `hadris` or a
 format crate instead.
 
-It provides endian-aware integer types, which the FAT and NTFS crates use
-for their on-disk layouts. It needs neither `std` nor an allocator.
+It provides endian-aware integer types, which `hadris-fat` uses for its
+on-disk layouts. It needs neither `std` nor an allocator.
 
 ## Feature Flags
 

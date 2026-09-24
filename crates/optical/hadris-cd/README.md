@@ -55,8 +55,17 @@ End:            UDF anchor at N-256 and 256 blocks after it
 - **El-Torito** bootable images (BIOS and UEFI)
 - **Hybrid MBR+GPT** for USB booting
 
-The writer runs in `sync`, `r#async` and `async_send` (features `sync`,
-`async`, `async-send`), without `std` but with an allocator.
+## Feature Flags
+
+| Feature | Default | Description |
+|---------|---------|-------------|
+| `std` | Yes | `std::io::Error` conversions and host files as tree content |
+| `sync` | Yes | The blocking API in `sync` |
+| `async` | No | The asynchronous API in `r#async` |
+| `async-send` | No | The asynchronous API with `Send` futures in `async_send` |
+
+The crate needs an allocator but not `std`. No feature changes what an item
+does.
 
 Revision selection describes mastered Type-1 output; it does not add packet
 writing, VAT, sparing, metadata partitions, or pseudo-overwrite.

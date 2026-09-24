@@ -420,6 +420,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hadris-example-volume-list"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "hadris-block",
+ "hadris-fs",
+]
+
+[[package]]
 name = "hadris-fat"
 version = "2.4.0"
 dependencies = [
@@ -491,6 +500,7 @@ dependencies = [
 name = "hadris-iso-cli"
 version = "2.4.0"
 dependencies = [
+ "bytemuck",
  "clap",
  "hadris-fs",
  "hadris-iso",
@@ -572,6 +582,7 @@ dependencies = [
  "hadris-fs",
  "hadris-udf",
  "libc",
+ "tempfile",
  "tracing",
  "tracing-subscriber",
 ]

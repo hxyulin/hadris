@@ -78,7 +78,7 @@ hadris-cd verify bridge.iso
 ```bash
 udfinfo volume.udf
 7z l volume.udf
-hadris-udf info volume.udf
+hadris-udf verify volume.udf
 ```
 
 7-Zip does not open volumes that contain symlinks. For interoperability

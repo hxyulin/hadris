@@ -6,7 +6,17 @@ use super::{Result, entries, join, open, type_char};
 /// List directory contents
 pub fn ls(args: LsArgs) -> Result<()> {
     let mut udf = open(&args.input)?;
-    for item in entries(&mut udf, &args.path)? {
+    let items = entries(&mut udf, &args.path)?;
+    if args.all {
+        for name in [".", ".."] {
+            if args.long {
+                println!("d  {:>10}  {name}", "");
+            } else {
+                println!("{name}/");
+            }
+        }
+    }
+    for item in items {
         let name = String::from_utf8_lossy(item.name_bytes()).into_owned();
         if args.long {
             let meta = udf.metadata(&join(&args.path, &name))?;

@@ -1,18 +1,19 @@
+use std::io;
+
 use hadris_fs::sync::DriverExt;
+use hadris_fs::{FileType, OpenOptions};
 
 use super::super::args::VerifyArgs;
 use super::{Result, Udf, entries, join};
 
-/// Verify UDF image structural integrity
+/// Verify UDF image structural integrity: open the volume, then walk the
+/// whole tree and read every file.
 pub fn verify(args: VerifyArgs) -> Result<()> {
     println!("Verifying: {}", args.input.display());
 
     let mut udf = match super::open(&args.input) {
         Ok(udf) => {
-            println!("  [OK] Anchor Volume Descriptor Pointer");
-            println!("  [OK] Volume Recognition Sequence");
-            println!("  [OK] Volume Descriptor Sequence");
-            println!("  [OK] File Set Descriptor");
+            println!("  [OK] Anchor, volume descriptors and file set descriptor");
             udf
         }
         Err(e) => {
@@ -20,45 +21,63 @@ pub fn verify(args: VerifyArgs) -> Result<()> {
             return Err(e);
         }
     };
-    println!("  Volume ID:   {}", udf.volume_id());
+    println!("  Volume ID:    {}", udf.volume_id());
     println!("  UDF revision: {}", udf.revision());
 
-    if let Err(e) = entries(&mut udf, "/") {
-        println!("  [FAIL] Root directory: {e}");
-        return Err(e);
+    let mut tally = Tally::default();
+    walk(&mut udf, "/", args.verbose, &mut tally);
+    println!(
+        "  Directory tree: {} files, {} directories, {} errors",
+        tally.files,
+        tally.dirs,
+        tally.errors.len()
+    );
+    if tally.errors.is_empty() {
+        println!("Verification passed: No issues found");
+        return Ok(());
     }
-    println!("  [OK] Root directory readable");
-
-    if args.verbose {
-        let (mut files, mut dirs, mut errors) = (0usize, 0usize, 0usize);
-        walk(&mut udf, "/", &mut files, &mut dirs, &mut errors);
-        println!("  Directory tree: {files} files, {dirs} directories, {errors} errors");
-        if errors > 0 {
-            println!("  [WARN] {errors} entries could not be read");
-        } else {
-            println!("  [OK] Directory tree fully traversable");
-        }
+    for error in &tally.errors {
+        println!("  [FAIL] {error}");
     }
-
-    println!("Verification complete.");
-    Ok(())
+    Err(format!("{} error(s) found", tally.errors.len()).into())
 }
 
-fn walk(udf: &mut Udf, path: &str, files: &mut usize, dirs: &mut usize, errors: &mut usize) {
-    let Ok(items) = entries(udf, path) else {
-        *errors += 1;
-        return;
+#[derive(Default)]
+struct Tally {
+    files: usize,
+    dirs: usize,
+    errors: Vec<String>,
+}
+
+fn walk(udf: &mut Udf, path: &str, verbose: bool, tally: &mut Tally) {
+    let items = match entries(udf, path) {
+        Ok(items) => items,
+        Err(e) => {
+            tally.errors.push(format!("{path}: {e}"));
+            return;
+        }
     };
     for item in items {
         let child = join(path, &String::from_utf8_lossy(item.name_bytes()));
-        if item.file_type().is_dir() {
-            *dirs += 1;
-            walk(udf, &child, files, dirs, errors);
-        } else {
-            *files += 1;
-            if item.file_type() == hadris_fs::FileType::File && udf.read_to_vec(&child).is_err() {
-                *errors += 1;
+        if verbose {
+            println!("  {child}");
+        }
+        match item.file_type() {
+            FileType::Dir => {
+                tally.dirs += 1;
+                walk(udf, &child, verbose, tally);
             }
+            FileType::File => {
+                tally.files += 1;
+                let read = udf
+                    .open(&child, OpenOptions::read())
+                    .map_err(io::Error::from)
+                    .and_then(|mut file| io::copy(&mut file, &mut io::sink()));
+                if let Err(e) = read {
+                    tally.errors.push(format!("{child}: {e}"));
+                }
+            }
+            _ => tally.files += 1,
         }
     }
 }

@@ -45,10 +45,10 @@ hadris-cpio cat archive.cpio path/to/file.txt
 
 | Command | Description |
 |---------|-------------|
-| `ls` | List archive entries (legacy alias: `list`) |
+| `ls` (alias `list`) | List archive entries |
 | `info` | Display archive format, entry count, and per-entry metadata |
 | `create` | Create a CPIO archive from a directory |
-| `extract` | Extract an archive to a directory |
+| `extract` | Extract an archive to a directory (`-o`, default `.`) |
 | `cat` | Print a single file's contents to stdout |
 
 Every command that reads an archive takes `-` for standard input, and

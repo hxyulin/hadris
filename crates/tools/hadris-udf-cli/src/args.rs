@@ -14,6 +14,7 @@ pub enum Command {
     /// Display information about a UDF image
     Info(InfoArgs),
     /// List directory contents
+    #[command(alias = "list")]
     Ls(LsArgs),
     /// Display directory tree
     Tree(TreeArgs),
@@ -24,6 +25,7 @@ pub enum Command {
     /// Create a new UDF image
     Create(CreateArgs),
     /// Verify UDF image structural integrity
+    #[command(alias = "check")]
     Verify(VerifyArgs),
 }
 
@@ -48,7 +50,7 @@ pub struct LsArgs {
     /// Use long listing format
     #[arg(short, long)]
     pub long: bool,
-    /// Show all entries including hidden
+    /// Show all entries including . and ..
     #[arg(short, long)]
     pub all: bool,
 }
@@ -83,7 +85,8 @@ pub struct ExtractArgs {
     /// Output directory for extracted files
     #[arg(short, long, default_value = ".")]
     pub output: PathBuf,
-    /// Path within the image to extract (default: extract all)
+    /// Path within the image to extract (default: extract all); a path
+    /// other than the root is written to `<output>/<name>`
     #[arg(short, long)]
     pub path: Option<String>,
     /// Verbose output
@@ -118,7 +121,7 @@ pub struct CreateArgs {
 pub struct VerifyArgs {
     /// Path to UDF image
     pub input: PathBuf,
-    /// Show detailed information including full directory tree walk
+    /// Print every path as it is checked
     #[arg(short, long)]
     pub verbose: bool,
 }

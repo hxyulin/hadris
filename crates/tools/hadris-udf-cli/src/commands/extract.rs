@@ -1,32 +1,69 @@
 use std::fs;
 
-use super::super::args::ExtractArgs;
-use super::{Result, open};
+use hadris_fs::sync::{FsDriver, extract_to_host};
+use hadris_fs::{DirCursor, NameBuf, NodeId};
 
-/// Extract files from a UDF image
+use super::super::args::ExtractArgs;
+use super::{Result, Udf, open};
+
+/// Extract files from a UDF image. The root is merged into the output
+/// directory; any other path lands at `<output>/<name>`.
 pub fn extract(args: ExtractArgs) -> Result<()> {
     let mut udf = open(&args.input)?;
-    fs::create_dir_all(&args.output)?;
     let from = args.path.as_deref().unwrap_or("/");
+    let destination = match stored_name(&mut udf, from)? {
+        None => args.output.clone(),
+        Some(name) => {
+            fs::create_dir_all(&args.output)?;
+            args.output.join(name)
+        }
+    };
     if args.verbose {
-        println!("Extracting {from} to {}", args.output.display());
+        println!("Extracting {from} to {}", destination.display());
     }
-    hadris_fs::sync::extract_to_host(&mut udf, from, &args.output)?;
-    let count = walkdir_count(&args.output)?;
-    println!("Extracted {count} files to {}", args.output.display());
+    extract_to_host(&mut udf, from, &destination)
+        .map_err(|err| format!("Failed to extract {from}: {err}"))?;
+    println!("Extracted {from} to {}", destination.display());
     Ok(())
 }
 
-fn walkdir_count(path: &std::path::Path) -> Result<usize> {
-    let mut count = 0;
-    for entry in fs::read_dir(path)? {
-        let entry = entry?;
-        let kind = entry.file_type()?;
-        if kind.is_dir() {
-            count += walkdir_count(&entry.path())?;
-        } else {
-            count += 1;
-        }
+/// The name `path` is listed under in its directory, or `None` for the
+/// root. Fails on names that are not one plain host path component.
+fn stored_name(udf: &mut Udf, path: &str) -> Result<Option<String>> {
+    let node = udf
+        .resolve(path)
+        .map_err(|err| format!("Not found: {path}: {err}"))?;
+    if node == udf.root() {
+        udf.forget(node);
+        return Ok(None);
     }
-    Ok(count)
+    let found = find_name(udf, path, node);
+    udf.forget(node);
+    let name = found?;
+    if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
+        return Err(format!(
+            "Refusing to extract {path}: its name {name:?} is not a plain file name"
+        )
+        .into());
+    }
+    Ok(Some(name))
+}
+
+/// Scans the parent of `path` for the entry listed with id `node`.
+fn find_name(udf: &mut Udf, path: &str, node: NodeId) -> Result<String> {
+    let parent = udf.resolve(&format!("{path}/.."))?;
+    let mut cursor = DirCursor::start();
+    let mut name = NameBuf::new();
+    let found = loop {
+        match udf.read_dir_entry(parent, &mut cursor, &mut name) {
+            Ok(Some(entry)) if entry.node() == node => {
+                break Ok(String::from_utf8_lossy(name.as_bytes()).into_owned());
+            }
+            Ok(Some(_)) => {}
+            Ok(None) => break Err(format!("{path} is not listed in its directory").into()),
+            Err(err) => break Err(err.into()),
+        }
+    };
+    udf.forget(parent);
+    found
 }

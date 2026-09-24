@@ -318,3 +318,24 @@ fn smaller_device_blocks_hold_images() {
     let mut view = iso.view(Namespace::Primary).unwrap();
     assert_eq!(view.read_to_vec("/docs/big.bin").unwrap(), pattern(100_000));
 }
+
+#[test]
+fn supplementary_escape_sequences_are_zero_padded() {
+    let tree = sample(true, true);
+    let mut iso = IsoImage::open(image(&tree, &full())).unwrap();
+    let mut index = 0;
+    let mut seen = 0;
+    while let Some(descriptor) = iso.descriptor(index).unwrap() {
+        index += 1;
+        if let hadris_iso::raw::VolumeDescriptor::Supplementary(svd) = descriptor {
+            let escapes = svd.escape_sequences;
+            let used = if svd.is_enhanced() { 0 } else { 3 };
+            assert!(
+                escapes[used..].iter().all(|&byte| byte == 0),
+                "ECMA-119 8.5.6 sets unused escape bytes to (00): {escapes:?}"
+            );
+            seen += 1;
+        }
+    }
+    assert_eq!(seen, 2, "a Joliet and an enhanced descriptor");
+}

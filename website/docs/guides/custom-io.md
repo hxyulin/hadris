@@ -4,66 +4,89 @@ title: Adapt a custom device
 
 # Adapt a custom device or firmware reader
 
-Format crates consume `hadris-io` traits rather than requiring `std::io`.
-There are two ways to connect a device: implement the Hadris traits directly,
-or wrap a device that already implements `embedded-io` in `FromEmbedded`.
-Hosted `std::io` types are wrapped in `StdIo` instead.
+Every Hadris filesystem driver reads a `hadris-storage` block device, and the
+CPIO reader and writer read `hadris-io` streams. Neither needs `std::io`.
+There are three ways to connect a device: implement `BlockDevice` for it,
+implement the `hadris-io` stream traits and wrap the stream in a
+`StreamDevice`, or wrap a device that already implements `embedded-io` in
+`FromEmbedded`. Hosted `std::io` types are wrapped in `StdIo` instead.
+
+For a filesystem, [implement a block device](#implement-a-block-device-for-fat)
+directly when the hardware addresses whole blocks.
+
+## Implement the stream traits
 
 ```toml
 [dependencies]
 hadris-io = { version = "2.4.0", default-features = false, features = ["sync"] }
 ```
 
-`hadris-fat` reads a block device rather than a stream; see
-[Implement a block device for FAT](#implement-a-block-device-for-fat) below.
-
-## Implement the Hadris traits
-
-`hadris_io::Read`, `Write`, and `Seek` have no associated error type. Each
-method returns `hadris_io::Result<T>`. Implement only `read`, `write` and
-`flush`, and `seek`; the other methods have defaults.
+`hadris_io::sync::Read`, `Write` and `Seek` report the implementor's own error
+through the `ErrorType` supertrait, which can be any
+`core::error::Error + Send + Sync + 'static`. Implement only `read`, `write`
+and `flush`, and `seek`; the other methods have defaults.
 
 ```rust,no_run
-use hadris_io::{Error, ErrorKind, Read, Result, Seek, SeekFrom};
+use core::fmt;
+
+use hadris_io::sync::{Read, Seek};
+use hadris_io::{ErrorType, SeekFrom};
+
+#[derive(Debug)]
+enum DiskError {
+    Io,
+    BadSeek,
+}
+
+impl fmt::Display for DiskError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            DiskError::Io => "firmware read failed",
+            DiskError::BadSeek => "seek outside the device",
+        })
+    }
+}
+
+impl core::error::Error for DiskError {}
 
 struct FirmwareDisk {
     position: u64,
     len: u64,
 }
 
+impl ErrorType for FirmwareDisk {
+    type Error = DiskError;
+}
+
 impl Read for FirmwareDisk {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, DiskError> {
         // Read from the firmware or device protocol into `buf`, then advance
-        // `self.position`. Report failures as a `hadris_io::Error`.
+        // `self.position`.
         let _ = buf;
-        Err(Error::new(ErrorKind::Unsupported, "firmware read not implemented"))
+        Err(DiskError::Io)
     }
 }
 
 impl Seek for FirmwareDisk {
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
-        let target = match pos {
-            SeekFrom::Start(offset) => Some(offset),
-            SeekFrom::End(offset) => self.len.checked_add_signed(offset),
-            SeekFrom::Current(offset) => self.position.checked_add_signed(offset),
-        };
-        match target {
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64, DiskError> {
+        match pos.resolve(self.position, self.len) {
             Some(position) if position <= self.len => {
                 self.position = position;
                 Ok(position)
             }
-            _ => Err(Error::new(ErrorKind::InvalidInput, "seek outside the device")),
+            _ => Err(DiskError::BadSeek),
         }
     }
 }
 
 let disk = FirmwareDisk { position: 0, len: 64 * 1024 * 1024 };
-// Pass `disk` to a format crate that reads streams.
+// Pass `disk` to a stream consumer, or to `StreamDevice::new` for a filesystem.
 ```
 
-`Error::new` takes a portable `ErrorKind` and a static message, so it works
-without an allocator. With `alloc`, `Error::with_source(kind, err)` keeps a
-device-specific error as the source, and `downcast_source` recovers it.
+The device's error reaches the caller unchanged, inside
+`hadris_io::ExactError` or the format crate's error, with no allocation.
+`SeekFrom` is `#[non_exhaustive]`, so resolve it with `SeekFrom::resolve`
+rather than matching it.
 
 `&mut FirmwareDisk` implements the same traits, so a caller can pass
 `&mut disk` to a format crate and keep ownership of the device.
@@ -71,12 +94,13 @@ device-specific error as the source, and `downcast_source` recovers it.
 ## Wrap an `embedded-io` device
 
 A device that already implements the `embedded-io` traits is wrapped in
-`FromEmbedded`. Its error becomes the source of the `hadris_io::Error`, and its
-`embedded_io::ErrorKind` maps to the matching `hadris_io::ErrorKind`.
+`FromEmbedded`, which needs the `embedded-io` feature. Its error passes
+through unchanged.
 
 ```toml
 [dependencies]
 embedded-io = "0.7"
+hadris-io = { version = "2.4.0", default-features = false, features = ["sync", "embedded-io"] }
 ```
 
 ```rust,no_run
@@ -106,7 +130,7 @@ impl Seek for FirmwareDisk {
 }
 
 let disk = FromEmbedded::new(FirmwareDisk { /* ... */ });
-// Pass `disk` to a format crate that reads streams.
+// Pass `disk` to a stream consumer, or to `StreamDevice::new` for a filesystem.
 ```
 
 The device error type can be any `embedded_io::Error` that is
@@ -181,14 +205,16 @@ through `hadris_storage::sync::StreamDevice`, and `std::fs::File` and
 
 ## Device requirements
 
-The device must provide the access pattern required by the format. Mounted
-filesystems generally need `Read + Seek`; mutation adds `Write`. Return short
-reads only when the device genuinely has fewer bytes available, and reject
-seeks outside the device rather than wrapping arithmetic.
+Report the device's real block size and count, read and write whole blocks
+only, and fail requests past the end rather than wrapping. A device that
+cannot write leaves `write_blocks` to its default, which returns
+`WriteError::ReadOnly`; drivers report that as `ErrorKind::ReadOnly`.
+`flush` must make earlier writes durable, because `sync` and `sync_node`
+rely on it.
 
-For logical-block-native hardware, implement the traits in `hadris-storage`
-and use its seekable block-device adapter. Keep the physical block size and the
-filesystem's logical sector size distinct.
+Keep the device's block size and the filesystem's logical sector size
+distinct: the drivers read whole device blocks and take their own sector
+size from the on-disk metadata.
 
-For memory-backed parsing without `std`, use `hadris_io::Cursor` over a caller
-provided byte slice.
+For memory-backed parsing without `std`, use `hadris_storage::MemDevice` over
+a caller-provided byte slice, or `hadris_io::Cursor` for a stream.

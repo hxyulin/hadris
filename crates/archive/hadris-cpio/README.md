@@ -18,21 +18,24 @@ the shared `hadris_fs::tree::Tree` input of the other Hadris writers.
 
 ## Reading an archive
 
-```rust
+```rust,no_run
 use std::fs::File;
 use std::io::BufReader;
 use hadris_cpio::sync::CpioReader;
 use hadris_io::StdIo;
 use hadris_io::sync::Read;
 
-let file = File::open("initramfs.cpio")?;
-let mut reader = CpioReader::new(StdIo::new(BufReader::new(file)));
-while let Some(mut entry) = reader.next_entry()? {
-    println!("{} ({} bytes)", entry.name_str().unwrap_or("?"), entry.len());
-    if entry.name() == b"etc/hostname" {
-        let mut data = vec![0; entry.len() as usize];
-        entry.read_exact(&mut data)?;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let file = File::open("initramfs.cpio")?;
+    let mut reader = CpioReader::new(StdIo::new(BufReader::new(file)));
+    while let Some(mut entry) = reader.next_entry()? {
+        println!("{} ({} bytes)", entry.name_str().unwrap_or("?"), entry.len());
+        if entry.name() == b"etc/hostname" {
+            let mut data = vec![0; entry.len() as usize];
+            entry.read_exact(&mut data)?;
+        }
     }
+    Ok(())
 }
 ```
 
@@ -45,18 +48,22 @@ before the main initramfs.
 
 ## Writing an archive
 
-```rust
+```rust,no_run
 use std::fs::File;
 use std::io::BufWriter;
 use hadris_cpio::{CpioOptions, Format};
 use hadris_fs::tree::{FromFsOptions, Tree};
 use hadris_io::StdIo;
 
-let tree = Tree::from_fs("./rootfs", FromFsOptions::new())?;
-let mut out = StdIo::new(BufWriter::new(File::create("initramfs.cpio")?));
-let report = hadris_cpio::sync::write(&mut out, &tree, &CpioOptions::default())?;
-for warning in report.warnings() {
-    eprintln!("{warning}");
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let tree = Tree::from_fs("./rootfs", FromFsOptions::new())?;
+    let mut out = StdIo::new(BufWriter::new(File::create("initramfs.cpio")?));
+    let options = CpioOptions::default().with_format(Format::Newc);
+    let report = hadris_cpio::sync::write(&mut out, &tree, &options)?;
+    for warning in report.warnings() {
+        eprintln!("{warning}");
+    }
+    Ok(())
 }
 ```
 

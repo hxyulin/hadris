@@ -13,8 +13,7 @@ license.workspace = true
 repository.workspace = true
 
 # docs.rs builds with default features only, which would hide the async
-# modes. Build every stable mode; the unstable exFAT preview remains
-# deliberately opt-in.
+# modes. Build every mode.
 [package.metadata.docs.rs]
 features = ["std", "sync", "async", "async-send", "write"]
 

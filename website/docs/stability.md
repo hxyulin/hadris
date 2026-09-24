@@ -4,29 +4,34 @@ title: Stability and compatibility
 
 # Stability and compatibility
 
-Hadris 2.4.0 is the current stable release of the V2 API, first stabilized in
-2.0.0. The public surface frozen during the release-candidate series follows
-Semantic Versioning: within the `2.x` series, breaking changes require a new
-major version, minor releases add backward-compatible functionality, and patch
-releases carry correctness fixes, interoperability qualification, and
-documentation.
+Hadris 3.0 is developed on the `next` branch and is not released yet. Hadris
+2.4.0 is the current stable release of the V2 API, and the 2.x series
+continues on `main`. Both follow Semantic Versioning: within a major series,
+breaking changes require a new major version, minor releases add
+backward-compatible functionality, and patch releases carry correctness
+fixes, interoperability qualification, and documentation.
 
-Read the [2.4.0 changelog](https://github.com/hxyulin/hadris/blob/main/CHANGELOG.md#240---2026-09-08)
-or the [V2 upgrade notes](https://github.com/hxyulin/hadris/blob/main/docs/hadris-2.0.0-release-notes.md),
+Read the [unreleased changes](https://github.com/hxyulin/hadris/blob/next/CHANGELOG.md),
+the [3.0 API design](https://github.com/hxyulin/hadris/blob/next/docs/v3-api-design.md)
+or the [2.4.0 changelog](https://github.com/hxyulin/hadris/blob/main/CHANGELOG.md#240---2026-09-08),
 and report real-world compatibility findings through
 [GitHub Issues](https://github.com/hxyulin/hadris/issues).
 
-The `unstable-exfat` and `unstable-streaming` previews and the experimental
-`hadris-ntfs` reader are explicitly outside the V2 stability promise. 3.0
-makes exFAT stable as `hadris_fat::exfat::ExFatFs` and removes
-`unstable-exfat`.
+In 3.0, exFAT is stable as `hadris_fat::exfat::ExFatFs`, with no feature
+flag; in 2.x it was the `unstable-exfat` preview. The `hadris-ntfs` reader,
+and the `unstable-ntfs` feature of `hadris-block` and `hadris` that exposes
+its native API, stay outside the stability promise: its `FsDriver`
+implementation follows the frozen trait, but its native methods may change in
+3.x minor releases.
 
 ## Compatibility policy
 
-- Stable crates follow Semantic Versioning within the `2.x` series.
-- New format support and additive APIs may arrive in minor releases.
+- Stable crates follow Semantic Versioning within a major series.
+- New format support and additive APIs may arrive in minor releases. Traits
+  that users implement grow only through methods with default bodies.
 - Correctness and interoperability fixes may arrive in patch releases.
-- Feature-gated experimental APIs can change before they are declared stable.
+- APIs behind an `unstable-*` feature can change before they are declared
+  stable. No other feature changes what an item does.
 - On-disk compatibility fixes take priority over preserving incorrect output.
 
 Public API snapshots cover every stable crate and run in CI. Format behavior is

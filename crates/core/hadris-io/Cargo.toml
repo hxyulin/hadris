@@ -11,6 +11,10 @@ readme = "README.md"
 keywords = ["io", "no-std", "read", "write", "seek"]
 categories = ["no-std", "filesystem"]
 
+# docs.rs builds with default features only, which would hide the modes.
+[package.metadata.docs.rs]
+features = ["std", "sync", "async", "async-send"]
+
 [features]
 default = ["sync", "std"]
 sync = []

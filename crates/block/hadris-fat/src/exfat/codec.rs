@@ -1,6 +1,5 @@
 //! Mode-independent encoding and decoding of exFAT on-disk values.
 
-use hadris_common::types::endian::Endian;
 use hadris_fs::{DateTime, ErrorKind};
 
 use super::raw::{

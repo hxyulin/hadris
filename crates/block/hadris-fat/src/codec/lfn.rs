@@ -1,12 +1,9 @@
 //! VFAT long file names: checksums, entry packing and assembly.
 
-/// Set in the sequence byte of the first LFN entry on disk, which holds the
-/// last part of the name.
-pub(crate) const LAST_ENTRY: u8 = 0x40;
-/// Bits of the sequence byte that hold the 1-based entry number.
-pub(crate) const SEQUENCE_MASK: u8 = 0x3F;
-/// UTF-16 code units stored per LFN entry.
-pub(crate) const UNITS_PER_ENTRY: usize = 13;
+pub(crate) use crate::raw::{
+    LFN_LAST_ENTRY as LAST_ENTRY, LFN_SEQUENCE_MASK as SEQUENCE_MASK,
+    LFN_UNITS_PER_ENTRY as UNITS_PER_ENTRY,
+};
 /// The longest name in UTF-16 code units.
 pub(crate) const MAX_UNITS: usize = 255;
 /// The most LFN entries one name can use.

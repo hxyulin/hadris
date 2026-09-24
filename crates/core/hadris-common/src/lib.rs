@@ -4,8 +4,8 @@
 //! for direct use: its API follows the needs of the other Hadris crates and
 //! can change in any release. Depend on `hadris` or a format crate instead.
 //!
-//! It provides endian-aware integers, which the FAT and NTFS crates use
-//! for their on-disk layouts.
+//! It provides endian-aware integers, which `hadris-fat` uses for its
+//! on-disk layouts.
 //!
 //! ## Feature Flags
 //!
