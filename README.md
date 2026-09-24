@@ -88,6 +88,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
   - GPT with backup-copy recovery and UTF-16 names
   - Hybrid MBR (Combined MBR+GPT for dual BIOS/UEFI boot)
   - `DiskLayout` builder for whole-disk images
+- **[hadris-fat-raw](crates/block/hadris-fat-raw)** - FAT12/16/32 and exFAT on-disk layouts and I/O-free codecs, for tools and custom drivers
 - **[hadris-fat](crates/block/hadris-fat)** - FAT filesystem implementation
   - FAT12, FAT16, FAT32 support
   - `FatFs`, a node-based `hadris-fs` driver in sync, async and `Send` async modes

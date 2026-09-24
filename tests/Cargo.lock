@@ -130,10 +130,20 @@ version = "2.4.0"
 dependencies = [
  "bytemuck",
  "hadris-common",
+ "hadris-fat-raw",
  "hadris-fs",
  "hadris-io",
  "hadris-macros",
  "hadris-storage",
+]
+
+[[package]]
+name = "hadris-fat-raw"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "hadris-common",
+ "hadris-fs",
 ]
 
 [[package]]

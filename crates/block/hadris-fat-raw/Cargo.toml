@@ -1,0 +1,27 @@
+[package]
+name = "hadris-fat-raw"
+version = "0.1.0"
+description = "FAT12/16/32 and exFAT on-disk layouts and I/O-free codecs for Hadris and custom drivers"
+readme = "README.md"
+keywords = ["fat", "exfat", "filesystem", "no-std"]
+categories = ["no-std", "filesystem", "parser-implementations"]
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+# Derives `defmt::Format` on `FatKind`.
+defmt = ["dep:defmt"]
+
+[dependencies]
+hadris-common = { workspace = true, features = ["bytemuck"] }
+hadris-fs = { workspace = true }
+
+bytemuck = { workspace = true, features = [
+  "derive",
+  "min_const_generics",
+] }
+defmt = { version = "1.0", optional = true }

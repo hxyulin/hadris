@@ -5,8 +5,8 @@ use hadris_fs::{Clock, DateTime, ErrorKind, FixedTable, FsResult, MountError};
 use super::block_io::{BlockBuf, MAX_BLOCK_SIZE, write_bytes};
 use super::fs::ExFatFs;
 use super::storage::BlockDevice;
-use crate::exfat::codec::{self, RawEntry};
-use crate::exfat::raw::{self, BootSector, ENTRY_SIZE};
+use hadris_fat_raw::exfat::{self as raw, BootSector, ENTRY_SIZE, RawEntry};
+
 use crate::exfat::{FormatOptions, MountOptions};
 
 /// The smallest volume `format` lays out.
@@ -310,7 +310,7 @@ async fn write_volume<D: BlockDevice, C: Clock>(
     let boot = boot_sector(&layout, options, serial);
     let boot = bytemuck::bytes_of(&boot);
     let signature = raw::EXTENDED_BOOT_SIGNATURE.to_le_bytes();
-    let mut sum = codec::boot_checksum(0, 0, boot);
+    let mut sum = raw::boot_checksum(0, 0, boot);
     let zeros = [0u8; CHUNK];
     for index in 0..raw::BOOT_REGION_SECTORS - 1 {
         let mut left = if index == 0 { sector as usize - boot.len() } else { sector as usize };
@@ -320,7 +320,7 @@ async fn write_volume<D: BlockDevice, C: Clock>(
             if (1..=8).contains(&index) && n == left {
                 bytes[n - 4..n].copy_from_slice(&signature);
             }
-            sum = codec::boot_checksum(sum, index.max(1), &bytes[..n]);
+            sum = raw::boot_checksum(sum, index.max(1), &bytes[..n]);
             left -= n;
         }
     }

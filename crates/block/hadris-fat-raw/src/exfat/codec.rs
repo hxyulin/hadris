@@ -2,64 +2,130 @@
 
 use hadris_fs::{DateTime, ErrorKind};
 
-use super::raw::{
-    self, BootSector, ENTRY_SIZE, MAX_NAME_UNITS, NAME_UNITS_PER_ENTRY, UTC_OFFSET_VALID,
+use super::layout::{
+    self as raw, BootSector, ENTRY_SIZE, MAX_NAME_UNITS, NAME_UNITS_PER_ENTRY, UTC_OFFSET_VALID,
 };
-use crate::codec::date;
+use crate::date;
 
 /// One directory entry.
-pub(crate) type RawEntry = [u8; ENTRY_SIZE];
+pub type RawEntry = [u8; ENTRY_SIZE];
 
 /// The most entries a File entry set can have.
-pub(crate) const MAX_SET: usize = 19;
+pub const MAX_SET: usize = 19;
 
-/// Where the volume's structures are, from a checked boot sector.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Geometry {
-    pub(crate) sector_shift: u8,
-    pub(crate) cluster_shift: u8,
-    pub(crate) volume_len: u64,
+/// Where the volume's structures are, from a boot sector [`parse_boot`]
+/// accepted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Geometry {
+    sector_shift: u8,
+    cluster_shift: u8,
+    volume_len: u64,
     /// Byte offset of the active FAT.
-    pub(crate) fat_start: u64,
+    fat_start: u64,
     /// Byte offset of the second FAT of a TexFAT volume that is not active.
-    pub(crate) mirror_fat: Option<u64>,
+    mirror_fat: Option<u64>,
     /// The Allocation Bitmap entries use this BitmapIdentifier.
-    pub(crate) active: u8,
-    pub(crate) heap_start: u64,
-    pub(crate) cluster_count: u32,
-    pub(crate) root: u32,
-    pub(crate) serial: u32,
-    pub(crate) flags: u16,
-    pub(crate) percent_in_use: u8,
+    active: u8,
+    heap_start: u64,
+    cluster_count: u32,
+    root: u32,
+    serial: u32,
+    flags: u16,
+    percent_in_use: u8,
 }
 
 impl Geometry {
-    pub(crate) const fn sector_size(&self) -> u64 {
+    /// `BytesPerSectorShift`: log2 of the sector size.
+    pub const fn sector_shift(&self) -> u8 {
+        self.sector_shift
+    }
+
+    /// Log2 of the cluster size.
+    pub const fn cluster_shift(&self) -> u8 {
+        self.cluster_shift
+    }
+
+    /// The volume's length in bytes.
+    pub const fn volume_len(&self) -> u64 {
+        self.volume_len
+    }
+
+    /// Byte offset of the active FAT.
+    pub const fn fat_start(&self) -> u64 {
+        self.fat_start
+    }
+
+    /// Byte offset of the second FAT of a TexFAT volume, the one that is
+    /// not active.
+    pub const fn mirror_fat(&self) -> Option<u64> {
+        self.mirror_fat
+    }
+
+    /// The `BitmapIdentifier` of the active Allocation Bitmap: 1 when
+    /// `VolumeFlags` names the second FAT active, else 0.
+    pub const fn active(&self) -> u8 {
+        self.active
+    }
+
+    /// Byte offset of the cluster heap.
+    pub const fn heap_start(&self) -> u64 {
+        self.heap_start
+    }
+
+    /// `ClusterCount`.
+    pub const fn cluster_count(&self) -> u32 {
+        self.cluster_count
+    }
+
+    /// `FirstClusterOfRootDirectory`.
+    pub const fn root(&self) -> u32 {
+        self.root
+    }
+
+    /// `VolumeSerialNumber`.
+    pub const fn serial(&self) -> u32 {
+        self.serial
+    }
+
+    /// `VolumeFlags` as the boot sector holds them.
+    pub const fn flags(&self) -> u16 {
+        self.flags
+    }
+
+    /// `PercentInUse` as the boot sector holds it.
+    pub const fn percent_in_use(&self) -> u8 {
+        self.percent_in_use
+    }
+
+    /// Bytes per sector.
+    pub const fn sector_size(&self) -> u64 {
         1 << self.sector_shift
     }
 
-    pub(crate) const fn cluster_size(&self) -> u64 {
+    /// Bytes per cluster.
+    pub const fn cluster_size(&self) -> u64 {
         1 << self.cluster_shift
     }
 
     /// The highest cluster number.
-    pub(crate) const fn max_cluster(&self) -> u32 {
+    pub const fn max_cluster(&self) -> u32 {
         self.cluster_count + 1
     }
 
-    pub(crate) const fn is_cluster(&self, cluster: u32) -> bool {
+    /// Whether `cluster` is a heap cluster.
+    pub const fn is_cluster(&self, cluster: u32) -> bool {
         cluster >= raw::FIRST_CLUSTER && cluster <= self.max_cluster()
     }
 
     /// Byte offset of a heap cluster.
-    pub(crate) fn cluster_offset(&self, cluster: u32) -> Option<u64> {
+    pub fn cluster_offset(&self, cluster: u32) -> Option<u64> {
         self.is_cluster(cluster).then(|| {
             self.heap_start + (((cluster - raw::FIRST_CLUSTER) as u64) << self.cluster_shift)
         })
     }
 
     /// The heap cluster holding byte `offset`.
-    pub(crate) fn cluster_of(&self, offset: u64) -> Option<u32> {
+    pub fn cluster_of(&self, offset: u64) -> Option<u32> {
         let rel = offset.checked_sub(self.heap_start)? >> self.cluster_shift;
         let cluster = u32::try_from(rel).ok()?.checked_add(raw::FIRST_CLUSTER)?;
         self.is_cluster(cluster).then_some(cluster)
@@ -68,7 +134,7 @@ impl Geometry {
 
 /// Checks a boot sector and returns its geometry, or the name of the first
 /// field that is wrong.
-pub(crate) fn parse_boot(boot: &BootSector) -> Result<Geometry, &'static str> {
+pub fn parse_boot(boot: &BootSector) -> Result<Geometry, &'static str> {
     if boot.file_system_name != raw::FILE_SYSTEM_NAME {
         return Err("FileSystemName");
     }
@@ -141,7 +207,7 @@ pub(crate) fn parse_boot(boot: &BootSector) -> Result<Geometry, &'static str> {
 }
 
 /// Adds `bytes` of sector `index` of a boot region to a boot checksum.
-pub(crate) fn boot_checksum(mut sum: u32, index: u64, bytes: &[u8]) -> u32 {
+pub fn boot_checksum(mut sum: u32, index: u64, bytes: &[u8]) -> u32 {
     for (at, &byte) in bytes.iter().enumerate() {
         if index == 0 && raw::CHECKSUM_SKIPPED.contains(&at) {
             continue;
@@ -152,7 +218,7 @@ pub(crate) fn boot_checksum(mut sum: u32, index: u64, bytes: &[u8]) -> u32 {
 }
 
 /// Adds `bytes` to an up-case table checksum.
-pub(crate) fn table_checksum(mut sum: u32, bytes: &[u8]) -> u32 {
+pub fn table_checksum(mut sum: u32, bytes: &[u8]) -> u32 {
     for &byte in bytes {
         sum = sum.rotate_right(1).wrapping_add(byte as u32);
     }
@@ -160,7 +226,7 @@ pub(crate) fn table_checksum(mut sum: u32, bytes: &[u8]) -> u32 {
 }
 
 /// The `SetChecksum` of an entry set.
-pub(crate) fn set_checksum(entries: &[RawEntry]) -> u16 {
+pub fn set_checksum(entries: &[RawEntry]) -> u16 {
     let mut sum = 0u16;
     for (index, entry) in entries.iter().enumerate() {
         for (at, &byte) in entry.iter().enumerate() {
@@ -174,18 +240,18 @@ pub(crate) fn set_checksum(entries: &[RawEntry]) -> u16 {
 }
 
 /// Stores the checksum of `entries` in its primary entry.
-pub(crate) fn seal(entries: &mut [RawEntry]) {
+pub fn seal(entries: &mut [RawEntry]) {
     let sum = set_checksum(entries);
     entries[0][2..4].copy_from_slice(&sum.to_le_bytes());
 }
 
 /// The `NameHash` of up-cased code units.
-pub(crate) fn name_hash(upcased: &[u16]) -> u16 {
+pub fn name_hash(upcased: &[u16]) -> u16 {
     upcased.iter().fold(0, |hash, &unit| hash_unit(hash, unit))
 }
 
 /// Adds one up-cased code unit to a `NameHash` that started at 0.
-pub(crate) fn hash_unit(mut hash: u16, unit: u16) -> u16 {
+pub fn hash_unit(mut hash: u16, unit: u16) -> u16 {
     for byte in unit.to_le_bytes() {
         hash = hash.rotate_right(1).wrapping_add(byte as u16);
     }
@@ -193,7 +259,7 @@ pub(crate) fn hash_unit(mut hash: u16, unit: u16) -> u16 {
 }
 
 /// Whether `unit` may appear in a file name or label.
-pub(crate) fn valid_unit(unit: u16) -> bool {
+pub fn valid_unit(unit: u16) -> bool {
     unit >= 0x20
         && !matches!(
             unit,
@@ -201,29 +267,62 @@ pub(crate) fn valid_unit(unit: u16) -> bool {
         )
 }
 
-/// A name in UTF-16 code units.
+/// A name in UTF-16 code units, at most 255 of them.
 #[derive(Clone, Copy)]
-pub(crate) struct Units {
-    pub(crate) units: [u16; MAX_NAME_UNITS],
-    pub(crate) len: usize,
+pub struct NameUnits {
+    units: [u16; MAX_NAME_UNITS],
+    len: usize,
 }
 
-impl Units {
-    pub(crate) const fn new() -> Self {
+impl Default for NameUnits {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl NameUnits {
+    /// The empty name.
+    pub const fn new() -> Self {
         Self {
             units: [0; MAX_NAME_UNITS],
             len: 0,
         }
     }
 
-    pub(crate) fn as_slice(&self) -> &[u16] {
+    /// Appends `unit`; `false` when the name already holds 255.
+    pub fn push(&mut self, unit: u16) -> bool {
+        if self.len == MAX_NAME_UNITS {
+            return false;
+        }
+        self.units[self.len] = unit;
+        self.len += 1;
+        true
+    }
+
+    /// The number of code units.
+    pub const fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Whether the name is empty.
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// The code units, to change in place.
+    pub fn as_mut_slice(&mut self) -> &mut [u16] {
+        &mut self.units[..self.len]
+    }
+
+    /// The code units.
+    pub fn as_slice(&self) -> &[u16] {
         &self.units[..self.len]
     }
 
     /// Encodes a name for a new entry. Fails with `NameTooLong` above 255
     /// units, and with `InvalidInput` for an empty name, `.`, `..`, a
     /// character exFAT forbids, or a trailing dot or space.
-    pub(crate) fn encode(text: &str) -> Result<Self, ErrorKind> {
+    pub fn encode(text: &str) -> Result<Self, ErrorKind> {
         if text.is_empty() || text == "." || text == ".." || text.ends_with(['.', ' ']) {
             return Err(ErrorKind::InvalidInput);
         }
@@ -242,7 +341,7 @@ impl Units {
     }
 
     /// Converts a lookup query; `None` when it cannot name an entry.
-    pub(crate) fn query(text: &str) -> Option<Self> {
+    pub fn query(text: &str) -> Option<Self> {
         let mut name = Self::new();
         for unit in text.encode_utf16() {
             if name.len == MAX_NAME_UNITS {
@@ -255,7 +354,7 @@ impl Units {
     }
 
     /// File Name entries the name needs.
-    pub(crate) fn entries(&self) -> usize {
+    pub fn entries(&self) -> usize {
         self.len.div_ceil(NAME_UNITS_PER_ENTRY)
     }
 }
@@ -263,7 +362,7 @@ impl Units {
 /// Encodes a time as `(Timestamp, 10msIncrement, UtcOffset)`. A zone-less
 /// time is stored with no valid offset; an offset that is not a whole
 /// number of quarter hours in range is stored as UTC.
-pub(crate) fn encode_time(time: DateTime) -> (u32, u8, u8) {
+pub fn encode_time(time: DateTime) -> (u32, u8, u8) {
     let (time, offset) = match time.utc_offset_minutes() {
         None => (time, 0),
         Some(minutes) if minutes % 15 == 0 && (-64 * 15..=63 * 15).contains(&minutes) => {
@@ -283,7 +382,7 @@ pub(crate) fn encode_time(time: DateTime) -> (u32, u8, u8) {
 }
 
 /// Decodes a stored time; `None` when its fields are out of range.
-pub(crate) fn decode_time(stamp: u32, increment: u8, offset: u8) -> Option<DateTime> {
+pub fn decode_time(stamp: u32, increment: u8, offset: u8) -> Option<DateTime> {
     let local = date::decode((stamp >> 16) as u16, stamp as u16, increment)?;
     if offset & UTC_OFFSET_VALID == 0 {
         return Some(local);
@@ -298,48 +397,31 @@ pub(crate) fn decode_time(stamp: u32, increment: u8, offset: u8) -> Option<DateT
     .ok()
 }
 
-/// Reads a little-endian `u16` at `at`.
-pub(crate) fn le16(bytes: &[u8], at: usize) -> u16 {
-    u16::from_le_bytes([bytes[at], bytes[at + 1]])
-}
-
-/// Reads a little-endian `u32` at `at`.
-pub(crate) fn le32(bytes: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
-}
-
-/// Reads a little-endian `u64` at `at`.
-pub(crate) fn le64(bytes: &[u8], at: usize) -> u64 {
-    let mut value = [0u8; 8];
-    value.copy_from_slice(&bytes[at..at + 8]);
-    u64::from_le_bytes(value)
-}
-
 /// Where the decoding of one 256-unit page of the up-case table starts.
-#[derive(Clone, Copy, Default)]
-pub(crate) struct PageStart {
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PageStart {
     /// The table unit to continue from.
-    pub(crate) unit: u32,
+    unit: u32,
     /// Identity mappings left from a run that began in an earlier page.
-    pub(crate) run: u16,
+    run: u16,
 }
 
 /// Decodes a compressed or plain up-case table one unit at a time.
-#[derive(Clone, Copy, Default)]
-pub(crate) struct UpcaseDecoder {
+#[derive(Debug, Clone, Copy, Default)]
+pub struct UpcaseDecoder {
     /// The next code point to map.
-    pub(crate) code: u32,
+    code: u32,
     /// The last unit was an identity-run marker.
     marker: bool,
     /// Identity mappings left in the current run.
     run: u32,
     /// The index of the next table unit.
-    pub(crate) next: u32,
+    next: u32,
 }
 
 impl UpcaseDecoder {
     /// The state that continues at `start`, the start of code point `code`.
-    pub(crate) const fn resume(start: PageStart, code: u32) -> Self {
+    pub const fn resume(start: PageStart, code: u32) -> Self {
         Self {
             code,
             marker: false,
@@ -350,7 +432,7 @@ impl UpcaseDecoder {
 
     /// Takes the table unit at index `next` and passes each mapping it
     /// completes to `emit`, with the state that resumes at that mapping.
-    pub(crate) fn feed(&mut self, unit: u16, emit: &mut impl FnMut(u32, u16, PageStart)) {
+    pub fn feed(&mut self, unit: u16, emit: &mut impl FnMut(u32, u16, PageStart)) {
         let index = self.next;
         self.next += 1;
         if self.marker {
@@ -377,8 +459,18 @@ impl UpcaseDecoder {
         self.code += 1;
     }
 
+    /// The next code point to map.
+    pub const fn code(&self) -> u32 {
+        self.code
+    }
+
+    /// The index of the next table unit to feed.
+    pub const fn next(&self) -> u32 {
+        self.next
+    }
+
     /// Emits the identity mappings left in the current run.
-    pub(crate) fn drain(&mut self, emit: &mut impl FnMut(u32, u16, PageStart)) {
+    pub fn drain(&mut self, emit: &mut impl FnMut(u32, u16, PageStart)) {
         while self.run > 0 && self.code <= 0xFFFF {
             let start = PageStart {
                 unit: self.next,
@@ -393,7 +485,7 @@ impl UpcaseDecoder {
 }
 
 /// The mandatory mapping of the first 128 code points.
-pub(crate) const fn mandatory_upcase(code: u16) -> u16 {
+pub const fn mandatory_upcase(code: u16) -> u16 {
     if code >= b'a' as u16 && code <= b'z' as u16 {
         code - 0x20
     } else {
@@ -473,20 +565,20 @@ mod tests {
 
     #[test]
     fn names_are_checked() {
-        assert_eq!(Units::encode("a.txt").unwrap().len, 5);
-        assert_eq!(Units::encode("\u{1F600}").unwrap().len, 2);
+        assert_eq!(NameUnits::encode("a.txt").unwrap().len, 5);
+        assert_eq!(NameUnits::encode("\u{1F600}").unwrap().len, 2);
         for bad in [
             "", ".", "..", "a:b", "a*", "tail.", "tail ", "a\u{1}b", "a\\b",
         ] {
             assert_eq!(
-                Units::encode(bad).err(),
+                NameUnits::encode(bad).err(),
                 Some(ErrorKind::InvalidInput),
                 "{bad:?}"
             );
         }
         let long: std::string::String = "e".repeat(256);
-        assert_eq!(Units::encode(&long).err(), Some(ErrorKind::NameTooLong));
-        assert_eq!(Units::encode(&long[..255]).unwrap().entries(), 17);
+        assert_eq!(NameUnits::encode(&long).err(), Some(ErrorKind::NameTooLong));
+        assert_eq!(NameUnits::encode(&long[..255]).unwrap().entries(), 17);
     }
 
     #[test]
@@ -540,7 +632,7 @@ mod tests {
         entries[1][0] = raw::ENTRY_STREAM;
         entries[2][0] = raw::ENTRY_NAME;
         seal(&mut entries);
-        let sum = le16(&entries[0], 2);
+        let sum = u16::from_le_bytes([entries[0][2], entries[0][3]]);
         entries[0][2] ^= 0xFF;
         assert_eq!(set_checksum(&entries), sum);
         let mut sector = [0u8; 512];

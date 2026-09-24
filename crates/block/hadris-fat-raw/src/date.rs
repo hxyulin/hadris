@@ -9,9 +9,9 @@ use hadris_fs::{CivilDate, CivilTime, DateTime};
 const NANOS_PER_TENTH: u32 = 10_000_000;
 
 /// The earliest encodable instant, 1980-01-01 00:00:00.
-pub(crate) const MIN: (u16, u16, u8) = ((1 << 5) | 1, 0, 0);
+pub const MIN: (u16, u16, u8) = ((1 << 5) | 1, 0, 0);
 /// The latest encodable instant, 2107-12-31 23:59:59.99.
-pub(crate) const MAX: (u16, u16, u8) = (
+pub const MAX: (u16, u16, u8) = (
     (127 << 9) | (12 << 5) | 31,
     (23 << 11) | (59 << 5) | 29,
     199,
@@ -19,14 +19,7 @@ pub(crate) const MAX: (u16, u16, u8) = (
 
 /// Packs calendar fields into `(date, time)`. Years outside 1980 to 2107
 /// are clamped; other fields are masked, not validated.
-pub(crate) const fn pack(
-    year: u16,
-    month: u8,
-    day: u8,
-    hour: u8,
-    minute: u8,
-    second: u8,
-) -> (u16, u16) {
+pub const fn pack(year: u16, month: u8, day: u8, hour: u8, minute: u8, second: u8) -> (u16, u16) {
     let year_offset = if year < 1980 {
         0
     } else if year - 1980 > 127 {
@@ -43,7 +36,7 @@ pub(crate) const fn pack(
 /// Decodes a stored timestamp. `None` when the date or time fields are out
 /// of range, which includes the all-zero "not set" value. A `tenths` value
 /// above 199 is ignored.
-pub(crate) fn decode(date: u16, time: u16, tenths: u8) -> Option<DateTime> {
+pub fn decode(date: u16, time: u16, tenths: u8) -> Option<DateTime> {
     let civil_date = CivilDate::new(
         1980 + (date >> 9) as i32,
         ((date >> 5) & 0x0F) as u8,
@@ -67,7 +60,7 @@ pub(crate) fn decode(date: u16, time: u16, tenths: u8) -> Option<DateTime> {
 
 /// Encodes `time` as `(date, time, tenths)` in its recorded local time,
 /// clamped to [`MIN`] and [`MAX`].
-pub(crate) fn encode(time: DateTime) -> (u16, u16, u8) {
+pub fn encode(time: DateTime) -> (u16, u16, u8) {
     let (date, clock) = time.to_civil();
     if date.year() < 1980 {
         return MIN;

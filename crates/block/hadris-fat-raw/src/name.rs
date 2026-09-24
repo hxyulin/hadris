@@ -1,8 +1,37 @@
-//! Name comparison and UTF-16 decoding.
+//! Name comparison, case folding and UTF-16 decoding.
+
+/// Folds one UTF-16 code unit to upper case for name comparison, ASCII
+/// letters only. Needs no Unicode tables.
+pub const fn fold_ascii(unit: u16) -> u16 {
+    if unit >= b'a' as u16 && unit <= b'z' as u16 {
+        unit - 0x20
+    } else {
+        unit
+    }
+}
+
+/// Folds one UTF-16 code unit to upper case for name comparison, as
+/// Windows does: a character of the Basic Multilingual Plane with a
+/// one-character uppercase form in the plane becomes that form, and every
+/// other unit, surrogates included, stays as it is. Links the Unicode case
+/// tables of `core`.
+pub fn fold_unicode(unit: u16) -> u16 {
+    if unit < 0x80 {
+        return fold_ascii(unit);
+    }
+    let Some(ch) = char::from_u32(unit as u32) else {
+        return unit;
+    };
+    let mut upper = ch.to_uppercase();
+    match (upper.next(), upper.next()) {
+        (Some(single), None) => u16::try_from(single as u32).unwrap_or(unit),
+        _ => unit,
+    }
+}
 
 /// The case folding lookups use: the one-character uppercase mapping, or the
 /// character itself when its uppercase form has several characters.
-pub(crate) fn fold(ch: char) -> char {
+pub fn fold(ch: char) -> char {
     if ch.is_ascii() {
         return ch.to_ascii_uppercase();
     }
@@ -14,7 +43,7 @@ pub(crate) fn fold(ch: char) -> char {
 }
 
 /// Whether two names are equal after [`fold`].
-pub(crate) fn eq_ignore_case(
+pub fn eq_ignore_case(
     a: impl IntoIterator<Item = char>,
     b: impl IntoIterator<Item = char>,
 ) -> bool {
@@ -23,13 +52,13 @@ pub(crate) fn eq_ignore_case(
 
 /// The characters of UTF-16 code units, with unpaired surrogates replaced by
 /// U+FFFD.
-pub(crate) fn utf16_chars(units: impl IntoIterator<Item = u16>) -> impl Iterator<Item = char> {
+pub fn utf16_chars(units: impl IntoIterator<Item = u16>) -> impl Iterator<Item = char> {
     char::decode_utf16(units).map(|ch| ch.unwrap_or(char::REPLACEMENT_CHARACTER))
 }
 
 /// Writes `units` as UTF-8 into `out` and returns the length, or `None` when
 /// `out` is too small.
-pub(crate) fn utf16_to_utf8(units: impl IntoIterator<Item = u16>, out: &mut [u8]) -> Option<usize> {
+pub fn utf16_to_utf8(units: impl IntoIterator<Item = u16>, out: &mut [u8]) -> Option<usize> {
     let mut len = 0;
     for ch in utf16_chars(units) {
         let end = len + ch.len_utf8();
@@ -42,6 +71,17 @@ pub(crate) fn utf16_to_utf8(units: impl IntoIterator<Item = u16>, out: &mut [u8]
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn folds_code_units() {
+        assert_eq!(fold_ascii(b'a' as u16), b'A' as u16);
+        assert_eq!(fold_ascii(0xE9), 0xE9);
+        assert_eq!(fold_unicode(b'z' as u16), b'Z' as u16);
+        assert_eq!(fold_unicode(0xE9), 0xC9);
+        assert_eq!(fold_unicode(0xDF), 0xDF);
+        assert_eq!(fold_unicode(0xD801), 0xD801);
+        assert_eq!(fold_unicode(0x0149), 0x0149);
+    }
 
     #[test]
     fn folds_case() {

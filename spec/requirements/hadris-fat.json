@@ -13,22 +13,22 @@
       "status": "verified",
       "symbols": [
         {
-          "path": "crates/block/hadris-fat/src/codec/boot.rs",
+          "path": "crates/block/hadris-fat-raw/src/boot.rs",
           "name": "check_bpb"
         },
         {
-          "path": "crates/block/hadris-fat/src/codec/layout.rs",
+          "path": "crates/block/hadris-fat-raw/src/layout.rs",
           "name": "plan"
         }
       ],
       "tests": [
         {
-          "path": "crates/block/hadris-fat/src/codec/boot.rs",
+          "path": "crates/block/hadris-fat-raw/src/boot.rs",
           "name": "check_bpb_rejects_bad_sizes",
           "kind": "unit"
         },
         {
-          "path": "crates/block/hadris-fat/src/codec/layout.rs",
+          "path": "crates/block/hadris-fat-raw/src/layout.rs",
           "name": "rejects_bad_options",
           "kind": "unit"
         },
@@ -50,18 +50,18 @@
       "status": "verified",
       "symbols": [
         {
-          "path": "crates/block/hadris-fat/src/codec/boot.rs",
+          "path": "crates/block/hadris-fat-raw/src/boot.rs",
           "name": "geometry16"
         }
       ],
       "tests": [
         {
-          "path": "crates/block/hadris-fat/src/codec/boot.rs",
+          "path": "crates/block/hadris-fat-raw/src/boot.rs",
           "name": "floppy_is_fat12",
           "kind": "unit"
         },
         {
-          "path": "crates/block/hadris-fat/src/codec/boot.rs",
+          "path": "crates/block/hadris-fat-raw/src/boot.rs",
           "name": "many_clusters_is_fat16",
           "kind": "unit"
         },
@@ -83,7 +83,7 @@
       "status": "verified",
       "symbols": [
         {
-          "path": "crates/block/hadris-fat/src/codec/boot.rs",
+          "path": "crates/block/hadris-fat-raw/src/boot.rs",
           "name": "check_ext32"
         },
         {
@@ -93,7 +93,7 @@
       ],
       "tests": [
         {
-          "path": "crates/block/hadris-fat/src/codec/boot.rs",
+          "path": "crates/block/hadris-fat-raw/src/boot.rs",
           "name": "fat32_geometry_and_root_cluster",
           "kind": "unit"
         }
@@ -110,7 +110,7 @@
       "status": "verified",
       "symbols": [
         {
-          "path": "crates/block/hadris-fat/src/raw/boot.rs",
+          "path": "crates/block/hadris-fat-raw/src/bpb.rs",
           "name": "BpbExt32Flags"
         },
         {
@@ -137,7 +137,7 @@
       "status": "verified",
       "symbols": [
         {
-          "path": "crates/block/hadris-fat/src/codec/entry.rs",
+          "path": "crates/block/hadris-fat-raw/src/entry.rs",
           "name": "FatKind::encode"
         },
         {
@@ -147,7 +147,7 @@
       ],
       "tests": [
         {
-          "path": "crates/block/hadris-fat/src/codec/entry.rs",
+          "path": "crates/block/hadris-fat-raw/src/entry.rs",
           "name": "fat32_keeps_reserved_nibble",
           "kind": "unit"
         }
@@ -164,13 +164,13 @@
       "status": "verified",
       "symbols": [
         {
-          "path": "crates/block/hadris-fat/src/codec/entry.rs",
+          "path": "crates/block/hadris-fat-raw/src/entry.rs",
           "name": "FatKind::next"
         }
       ],
       "tests": [
         {
-          "path": "crates/block/hadris-fat/src/codec/entry.rs",
+          "path": "crates/block/hadris-fat-raw/src/entry.rs",
           "name": "next_classifies_markers_and_bounds",
           "kind": "unit"
         },
@@ -192,7 +192,7 @@
       "status": "verified",
       "symbols": [
         {
-          "path": "crates/block/hadris-fat/src/codec/boot.rs",
+          "path": "crates/block/hadris-fat-raw/src/boot.rs",
           "name": "check_fs_info"
         },
         {
@@ -206,7 +206,7 @@
       ],
       "tests": [
         {
-          "path": "crates/block/hadris-fat/src/codec/boot.rs",
+          "path": "crates/block/hadris-fat-raw/src/boot.rs",
           "name": "fs_info_signatures",
           "kind": "unit"
         },
@@ -261,7 +261,7 @@
       "status": "verified",
       "symbols": [
         {
-          "path": "crates/block/hadris-fat/src/codec/dirent.rs",
+          "path": "crates/block/hadris-fat-raw/src/slot.rs",
           "name": "Slot::parse"
         },
         {
@@ -271,7 +271,7 @@
       ],
       "tests": [
         {
-          "path": "crates/block/hadris-fat/src/codec/dirent.rs",
+          "path": "crates/block/hadris-fat-raw/src/slot.rs",
           "name": "classifies_slots",
           "kind": "unit"
         },
@@ -293,31 +293,31 @@
       "status": "verified",
       "symbols": [
         {
-          "path": "crates/block/hadris-fat/src/codec/lfn.rs",
+          "path": "crates/block/hadris-fat-raw/src/lfn.rs",
           "name": "Encoded"
         },
         {
-          "path": "crates/block/hadris-fat/src/codec/lfn.rs",
+          "path": "crates/block/hadris-fat-raw/src/lfn.rs",
           "name": "Assembler"
         },
         {
-          "path": "crates/block/hadris-fat/src/codec/dirent.rs",
-          "name": "encode_long"
+          "path": "crates/block/hadris-fat-raw/src/slot.rs",
+          "name": "LongEntry::encode"
         }
       ],
       "tests": [
         {
-          "path": "crates/block/hadris-fat/src/codec/lfn.rs",
+          "path": "crates/block/hadris-fat-raw/src/lfn.rs",
           "name": "checksum_matches_reference",
           "kind": "unit"
         },
         {
-          "path": "crates/block/hadris-fat/src/codec/lfn.rs",
+          "path": "crates/block/hadris-fat-raw/src/lfn.rs",
           "name": "encoded_orders_entries_last_first",
           "kind": "unit"
         },
         {
-          "path": "crates/block/hadris-fat/src/codec/lfn.rs",
+          "path": "crates/block/hadris-fat-raw/src/lfn.rs",
           "name": "assembler_rejects_broken_sequences",
           "kind": "unit"
         },
@@ -343,7 +343,7 @@
           "name": "boot_region"
         },
         {
-          "path": "crates/block/hadris-fat/src/exfat/codec.rs",
+          "path": "crates/block/hadris-fat-raw/src/exfat/codec.rs",
           "name": "boot_checksum"
         },
         {
@@ -363,7 +363,7 @@
           "kind": "integration"
         },
         {
-          "path": "crates/block/hadris-fat/src/exfat/codec.rs",
+          "path": "crates/block/hadris-fat-raw/src/exfat/codec.rs",
           "name": "checksums_skip_their_own_fields",
           "kind": "unit"
         }
@@ -494,7 +494,7 @@
           "name": "parse_set"
         },
         {
-          "path": "crates/block/hadris-fat/src/exfat/codec.rs",
+          "path": "crates/block/hadris-fat-raw/src/exfat/codec.rs",
           "name": "set_checksum"
         }
       ],
@@ -505,7 +505,7 @@
           "kind": "integration"
         },
         {
-          "path": "crates/block/hadris-fat/src/exfat/codec.rs",
+          "path": "crates/block/hadris-fat-raw/src/exfat/codec.rs",
           "name": "checksums_skip_their_own_fields",
           "kind": "unit"
         }

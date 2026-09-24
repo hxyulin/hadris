@@ -433,6 +433,7 @@ dependencies = [
  "bytemuck",
  "defmt",
  "hadris-common",
+ "hadris-fat-raw",
  "hadris-fs",
  "hadris-io",
  "hadris-macros",
@@ -454,6 +455,16 @@ dependencies = [
  "hadris-storage",
  "libc",
  "tempfile",
+]
+
+[[package]]
+name = "hadris-fat-raw"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "defmt",
+ "hadris-common",
+ "hadris-fs",
 ]
 
 [[package]]

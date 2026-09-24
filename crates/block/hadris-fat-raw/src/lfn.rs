@@ -1,16 +1,17 @@
 //! VFAT long file names: checksums, entry packing and assembly.
 
-pub(crate) use crate::raw::{
+use crate::dirent::{
     LFN_LAST_ENTRY as LAST_ENTRY, LFN_SEQUENCE_MASK as SEQUENCE_MASK,
     LFN_UNITS_PER_ENTRY as UNITS_PER_ENTRY,
 };
+use crate::slot::LongEntry;
 /// The longest name in UTF-16 code units.
-pub(crate) const MAX_UNITS: usize = 255;
+pub const MAX_UNITS: usize = 255;
 /// The most LFN entries one name can use.
-pub(crate) const MAX_ENTRIES: usize = 20;
+pub const MAX_ENTRIES: usize = 20;
 
 /// The checksum of an 11-byte short name that ties LFN entries to it.
-pub(crate) const fn checksum(short: &[u8; 11]) -> u8 {
+pub const fn checksum(short: &[u8; 11]) -> u8 {
     let mut sum: u8 = 0;
     let mut i = 0;
     while i < short.len() {
@@ -22,7 +23,7 @@ pub(crate) const fn checksum(short: &[u8; 11]) -> u8 {
 
 /// The code units of one LFN entry and how many of them precede the
 /// `0x0000` terminator or `0xFFFF` filler.
-pub(crate) fn unpack(
+pub fn unpack(
     name1: &[u8; 10],
     name2: &[u8; 12],
     name3: &[u8; 4],
@@ -43,7 +44,7 @@ pub(crate) fn unpack(
 }
 
 /// Splits 13 code units into the three name fields of an LFN entry.
-pub(crate) fn pack(units: &[u16; UNITS_PER_ENTRY]) -> ([u8; 10], [u8; 12], [u8; 4]) {
+pub fn pack(units: &[u16; UNITS_PER_ENTRY]) -> ([u8; 10], [u8; 12], [u8; 4]) {
     let mut name1 = [0u8; 10];
     let mut name2 = [0u8; 12];
     let mut name3 = [0u8; 4];
@@ -59,14 +60,14 @@ pub(crate) fn pack(units: &[u16; UNITS_PER_ENTRY]) -> ([u8; 10], [u8; 12], [u8; 
 
 /// A name as the LFN entries that store it, encoded one entry at a time so
 /// no buffer of the whole name is kept.
-pub(crate) struct Encoded<'a> {
+pub struct Encoded<'a> {
     name: &'a str,
     entries: usize,
 }
 
 impl<'a> Encoded<'a> {
     /// `None` when `name` is empty or longer than [`MAX_UNITS`].
-    pub(crate) fn new(name: &'a str) -> Option<Self> {
+    pub fn new(name: &'a str) -> Option<Self> {
         let len = name.encode_utf16().count();
         if len == 0 || len > MAX_UNITS {
             return None;
@@ -78,7 +79,7 @@ impl<'a> Encoded<'a> {
     }
 
     /// Number of LFN entries.
-    pub(crate) fn entries(&self) -> usize {
+    pub fn entries(&self) -> usize {
         self.entries
     }
 
@@ -86,7 +87,7 @@ impl<'a> Encoded<'a> {
     /// order: index 0 comes first and carries [`LAST_ENTRY`]. The last
     /// entry of the name is padded with a `0x0000` terminator and `0xFFFF`
     /// filler when the name does not fill it.
-    pub(crate) fn entry(&self, index: usize) -> (u8, [u16; UNITS_PER_ENTRY]) {
+    pub fn entry(&self, index: usize) -> (u8, [u16; UNITS_PER_ENTRY]) {
         let number = self.entries - index;
         let sequence = if index == 0 {
             number as u8 | LAST_ENTRY
@@ -112,7 +113,7 @@ impl<'a> Encoded<'a> {
 /// A sequence that skips a number, changes checksum, has more than
 /// [`MAX_ENTRIES`] entries or [`MAX_UNITS`] code units, or does not match
 /// the short entry that follows it yields no name.
-pub(crate) struct Assembler {
+pub struct Assembler {
     units: [u16; MAX_UNITS],
     len: usize,
     checksum: u8,
@@ -127,7 +128,8 @@ impl Default for Assembler {
 }
 
 impl Assembler {
-    pub(crate) const fn new() -> Self {
+    /// An assembler with no name started.
+    pub const fn new() -> Self {
         Self {
             units: [0; MAX_UNITS],
             len: 0,
@@ -138,7 +140,7 @@ impl Assembler {
     }
 
     /// Drops any partial name, for example after a deleted or foreign entry.
-    pub(crate) fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.len = 0;
         self.checksum = 0;
         self.expected = 0;
@@ -146,14 +148,8 @@ impl Assembler {
     }
 
     /// Feeds one LFN entry. An entry with [`LAST_ENTRY`] starts a new name.
-    pub(crate) fn push(
-        &mut self,
-        sequence: u8,
-        checksum: u8,
-        name1: &[u8; 10],
-        name2: &[u8; 12],
-        name3: &[u8; 4],
-    ) {
+    pub fn push(&mut self, entry: &LongEntry) {
+        let (sequence, checksum) = (entry.sequence(), entry.checksum());
         if sequence & LAST_ENTRY != 0 {
             self.reset();
             let count = sequence & SEQUENCE_MASK;
@@ -172,7 +168,7 @@ impl Assembler {
             self.reset();
             return;
         }
-        let (units, len) = unpack(name1, name2, name3);
+        let (units, len) = entry.units();
         if self.len + len > MAX_UNITS {
             self.reset();
             return;
@@ -185,7 +181,7 @@ impl Assembler {
 
     /// Ends the name at a short entry whose name has checksum `short`, and
     /// returns its code units if the sequence was complete and matches.
-    pub(crate) fn finish(&mut self, short: u8) -> Option<&[u16]> {
+    pub fn finish(&mut self, short: u8) -> Option<&[u16]> {
         let complete = self.building && self.expected == 0 && self.checksum == short;
         let len = self.len;
         self.reset();
@@ -204,8 +200,8 @@ mod tests {
     fn feed(assembler: &mut Assembler, encoded: &Encoded, sum: u8) {
         for index in 0..encoded.entries() {
             let (sequence, units) = encoded.entry(index);
-            let (name1, name2, name3) = pack(&units);
-            assembler.push(sequence, sum, &name1, &name2, &name3);
+            let raw = &units;
+            assembler.push(&LongEntry::new(sequence, sum, raw));
         }
     }
 
@@ -289,7 +285,7 @@ mod tests {
         let mut units = [0xFFFFu16; UNITS_PER_ENTRY];
         units[0] = b'a' as u16;
         units[1] = 0;
-        let (name1, name2, name3) = pack(&units);
+        let raw = &units;
         let mut assembler = Assembler::new();
         for number in (1..=21u8).rev() {
             let sequence = if number == 21 {
@@ -297,18 +293,18 @@ mod tests {
             } else {
                 number
             };
-            assembler.push(sequence, 7, &name1, &name2, &name3);
+            assembler.push(&LongEntry::new(sequence, 7, raw));
         }
         assert!(assembler.finish(7).is_none());
 
-        let (name1, name2, name3) = pack(&[b'b' as u16; UNITS_PER_ENTRY]);
+        let raw = &[b'b' as u16; UNITS_PER_ENTRY];
         for number in (1..=MAX_ENTRIES as u8).rev() {
             let sequence = if number == MAX_ENTRIES as u8 {
                 number | LAST_ENTRY
             } else {
                 number
             };
-            assembler.push(sequence, 7, &name1, &name2, &name3);
+            assembler.push(&LongEntry::new(sequence, 7, raw));
         }
         assert!(assembler.finish(7).is_none());
 
@@ -324,16 +320,16 @@ mod tests {
         assert!(assembler.finish(2).is_none());
 
         let (sequence, units) = encoded.entry(1);
-        let (name1, name2, name3) = pack(&units);
-        assembler.push(sequence, 1, &name1, &name2, &name3);
+        let raw = &units;
+        assembler.push(&LongEntry::new(sequence, 1, raw));
         assert!(assembler.finish(1).is_none());
 
-        assembler.push(LAST_ENTRY, 1, &name1, &name2, &name3);
+        assembler.push(&LongEntry::new(LAST_ENTRY, 1, raw));
         assert!(assembler.finish(1).is_none());
 
         let (sequence, units) = encoded.entry(0);
-        let (name1, name2, name3) = pack(&units);
-        assembler.push(sequence, 1, &name1, &name2, &name3);
+        let raw = &units;
+        assembler.push(&LongEntry::new(sequence, 1, raw));
         assert!(assembler.finish(1).is_none());
     }
 }

@@ -2,20 +2,20 @@
 //! validation.
 
 /// Punctuation allowed in a short name besides letters and digits.
-pub(crate) const ALLOWED_SYMBOLS: &[u8] = b"$%'-_@~`!(){}^#&";
+pub const ALLOWED_SYMBOLS: &[u8] = b"$%'-_@~`!(){}^#&";
 
-use crate::raw::{ENTRY_FREE as DELETED, ENTRY_KANJI_E5 as KANJI_LEAD};
-pub(crate) use crate::raw::{NT_LOWER_BASE as LOWER_BASE, NT_LOWER_EXTENSION as LOWER_EXT};
+use crate::dirent::{ENTRY_FREE as DELETED, ENTRY_KANJI_E5 as KANJI_LEAD};
+use crate::dirent::{NT_LOWER_BASE as LOWER_BASE, NT_LOWER_EXTENSION as LOWER_EXT};
 
 /// Replaces a leading `0xE5` with `0x05` before the name is written.
-pub(crate) fn to_disk(name: &mut [u8; 11]) {
+pub fn to_disk(name: &mut [u8; 11]) {
     if name[0] == DELETED {
         name[0] = KANJI_LEAD;
     }
 }
 
 /// Restores a leading `0xE5` stored as `0x05`.
-pub(crate) fn from_disk(name: &mut [u8; 11]) {
+pub fn from_disk(name: &mut [u8; 11]) {
     if name[0] == KANJI_LEAD {
         name[0] = DELETED;
     }
@@ -23,14 +23,14 @@ pub(crate) fn from_disk(name: &mut [u8; 11]) {
 
 /// Longest UTF-8 display form of a short name: 11 characters of up to 4
 /// bytes and a dot.
-pub(crate) const DISPLAY_MAX: usize = 11 * 4 + 1;
+pub const DISPLAY_MAX: usize = 11 * 4 + 1;
 /// Most characters a displayed short name has: eight, a dot and three.
-pub(crate) const DISPLAY_CHARS: usize = 12;
+pub const DISPLAY_CHARS: usize = 12;
 
 /// Writes the display form of a stored short name as UTF-8 and returns its
 /// length: a leading `0x05` read as `0xE5`, padding dropped, the `DIR_NTRes`
 /// case bits applied, and bytes above `0x7F` decoded with `decode`.
-pub(crate) fn display(
+pub fn display(
     stored: &[u8; 11],
     nt_case: u8,
     decode: impl Fn(u8) -> char,
@@ -69,11 +69,11 @@ pub(crate) fn display(
 
 /// Whether `name` is a valid long name: not empty, `.` or `..`, at most 255
 /// UTF-16 code units, and free of control characters and `"*/:<>?\|`.
-pub(crate) fn is_valid_long_name(name: &str) -> bool {
+pub fn is_valid_long_name(name: &str) -> bool {
     !name.is_empty()
         && name != "."
         && name != ".."
-        && name.encode_utf16().count() <= super::lfn::MAX_UNITS
+        && name.encode_utf16().count() <= crate::lfn::MAX_UNITS
         && !name.chars().any(|ch| {
             ch <= '\u{1f}' || matches!(ch, '"' | '*' | '/' | ':' | '<' | '>' | '?' | '\\' | '|')
         })
@@ -116,11 +116,7 @@ fn hash(name: &str, suffix: u8) -> u16 {
 /// go through `encode`, the OEM code page, and become
 /// `_` when it has no byte above `0x7F` for them. `None` when nothing representable
 /// remains.
-pub(crate) fn generate(
-    name: &str,
-    suffix: u8,
-    encode: impl Fn(char) -> Option<u8>,
-) -> Option<[u8; 11]> {
+pub fn generate(name: &str, suffix: u8, encode: impl Fn(char) -> Option<u8>) -> Option<[u8; 11]> {
     let (base, ext) = match name.rfind('.') {
         Some(pos) if pos > 0 => (&name[..pos], &name[pos + 1..]),
         _ => (name, ""),
@@ -193,7 +189,7 @@ pub(crate) fn generate(
 /// alone, or `None` when it needs LFN entries: too long, several dots,
 /// mixed case within the base or extension, or characters outside the
 /// short-name set. An uppercase 8.3 name gives `Some(0)`.
-pub(crate) fn case_bits(name: &str) -> Option<u8> {
+pub fn case_bits(name: &str) -> Option<u8> {
     let (base, ext) = match name.rfind('.') {
         Some(pos) if pos > 0 => (&name[..pos], &name[pos + 1..]),
         _ => (name, ""),

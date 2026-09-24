@@ -16,6 +16,7 @@ storage categories.
 |---|---|---|
 | FAT12/16/32 or exFAT filesystem access | [`hadris-fat`](https://docs.rs/hadris-fat) | `FatFs` and `ExFatFs`, including formatting, checking and mutation |
 | Read-only NTFS access (preview) | [`hadris-ntfs`](https://docs.rs/hadris-ntfs) | Allocation-free reader; its native API is a preview |
+| FAT or exFAT on-disk structures without a driver | [`hadris-fat-raw`](https://docs.rs/hadris-fat-raw) | Layouts and I/O-free codecs that `hadris-fat` is built on |
 | MBR or GPT partition tables | [`hadris-part`](https://docs.rs/hadris-part) | Concrete partition parsing and writing |
 | Block-format detection and opening | [`hadris-block`](https://docs.rs/hadris-block) | Detects FAT, exFAT, NTFS and partition tables and opens the filesystems through one driver |
 | ISO 9660 images | [`hadris-iso`](https://docs.rs/hadris-iso) | ISO, Joliet, Rock Ridge, and El Torito APIs |

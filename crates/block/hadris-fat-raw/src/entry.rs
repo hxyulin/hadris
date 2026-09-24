@@ -13,9 +13,10 @@ pub enum FatKind {
     Fat32,
 }
 
-/// Why a FAT entry does not name a next cluster.
+/// Why a FAT entry does not name a next cluster. These are the only two
+/// cases, so the enum is exhaustive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ChainError {
+pub enum ChainError {
     /// The entry holds the bad-cluster marker.
     Bad,
     /// The entry holds a cluster number outside `2..=max_cluster`.
@@ -23,18 +24,18 @@ pub(crate) enum ChainError {
 }
 
 /// The first data cluster; clusters 0 and 1 are reserved.
-pub(crate) const FIRST_DATA_CLUSTER: u32 = 2;
+pub const FIRST_DATA_CLUSTER: u32 = 2;
 /// The most data clusters of a FAT12 volume; more make it FAT16.
-pub(crate) const FAT12_MAX_CLUSTERS: u32 = 4084;
+pub const FAT12_MAX_CLUSTERS: u32 = 4084;
 /// The most data clusters of a FAT16 volume; more make it FAT32.
-pub(crate) const FAT16_MAX_CLUSTERS: u32 = 65524;
+pub const FAT16_MAX_CLUSTERS: u32 = 65524;
 /// The most data clusters of a FAT32 volume, keeping cluster numbers below
 /// the bad-cluster marker.
-pub(crate) const FAT32_MAX_CLUSTERS: u32 = 0x0FFF_FFF5;
+pub const FAT32_MAX_CLUSTERS: u32 = 0x0FFF_FFF5;
 
 impl FatKind {
     /// Bits of an entry that hold the cluster value.
-    pub(crate) const fn mask(self) -> u32 {
+    pub const fn mask(self) -> u32 {
         match self {
             Self::Fat12 => 0x0FFF,
             Self::Fat16 => 0xFFFF,
@@ -44,7 +45,7 @@ impl FatKind {
 
     /// The end-of-chain marker written by Hadris, and the lowest value read
     /// as end of chain.
-    pub(crate) const fn end_of_chain(self) -> u32 {
+    pub const fn end_of_chain(self) -> u32 {
         match self {
             Self::Fat12 => 0x0FF8,
             Self::Fat16 => 0xFFF8,
@@ -53,7 +54,7 @@ impl FatKind {
     }
 
     /// The bad-cluster marker.
-    pub(crate) const fn bad_cluster(self) -> u32 {
+    pub const fn bad_cluster(self) -> u32 {
         match self {
             Self::Fat12 => 0x0FF7,
             Self::Fat16 => 0xFFF7,
@@ -62,7 +63,7 @@ impl FatKind {
     }
 
     /// Byte offset of `cluster`'s entry within one FAT copy.
-    pub(crate) const fn entry_offset(self, cluster: u64) -> u64 {
+    pub const fn entry_offset(self, cluster: u64) -> u64 {
         match self {
             Self::Fat12 => cluster * 3 / 2,
             Self::Fat16 => cluster * 2,
@@ -72,7 +73,7 @@ impl FatKind {
 
     /// Number of bytes read at [`entry_offset`](Self::entry_offset) to decode
     /// one entry.
-    pub(crate) const fn entry_len(self) -> usize {
+    pub const fn entry_len(self) -> usize {
         match self {
             Self::Fat12 | Self::Fat16 => 2,
             Self::Fat32 => 4,
@@ -80,18 +81,22 @@ impl FatKind {
     }
 
     /// Whether a masked entry value ends a chain.
-    pub(crate) const fn is_end_of_chain(self, value: u32) -> bool {
+    pub const fn is_end_of_chain(self, value: u32) -> bool {
         value >= self.end_of_chain()
     }
 
     /// Whether a masked entry value marks a bad cluster.
-    pub(crate) const fn is_bad(self, value: u32) -> bool {
+    pub const fn is_bad(self, value: u32) -> bool {
         value == self.bad_cluster()
     }
 
     /// Decodes the stored entry of `cluster` from the [`entry_len`](Self::entry_len)
     /// bytes at its offset. FAT32's reserved high nibble is kept.
-    pub(crate) fn decode(self, cluster: u64, bytes: &[u8]) -> u32 {
+    ///
+    /// # Panics
+    ///
+    /// When `bytes` is shorter than [`entry_len`](Self::entry_len).
+    pub fn decode(self, cluster: u64, bytes: &[u8]) -> u32 {
         match self {
             Self::Fat12 if cluster % 2 == 0 => {
                 u32::from(bytes[0]) | (u32::from(bytes[1] & 0x0F) << 8)
@@ -104,7 +109,11 @@ impl FatKind {
 
     /// Stores `value` as the entry of `cluster` into the bytes at its offset,
     /// keeping the neighbouring FAT12 nibble and FAT32's reserved high nibble.
-    pub(crate) fn encode(self, cluster: u64, value: u32, bytes: &mut [u8]) {
+    ///
+    /// # Panics
+    ///
+    /// When `bytes` is shorter than [`entry_len`](Self::entry_len).
+    pub fn encode(self, cluster: u64, value: u32, bytes: &mut [u8]) {
         match self {
             Self::Fat12 if cluster % 2 == 0 => {
                 bytes[0] = value as u8;
@@ -123,13 +132,33 @@ impl FatKind {
         }
     }
 
+    /// Bits of one entry on disk: 12, 16 or 32.
+    pub const fn entry_bits(self) -> u64 {
+        match self {
+            Self::Fat12 => 12,
+            Self::Fat16 => 16,
+            Self::Fat32 => 32,
+        }
+    }
+
+    /// Whether the first two stored entries of a FAT hold what the
+    /// specification requires: the media byte in entry 0 and an
+    /// end-of-chain marker in entry 1. The FAT16 and FAT32 dirty bits in
+    /// entry 1 are ignored.
+    pub const fn reserved_entries_valid(self, media: u8, first: u32, second: u32) -> bool {
+        let mask = self.mask();
+        let flags = match self {
+            Self::Fat12 => 0,
+            Self::Fat16 => 0xC000,
+            Self::Fat32 => 0x0C00_0000,
+        };
+        (first & mask) == ((mask & !0xFF) | media as u32)
+            && ((second & mask) | flags) >= self.end_of_chain()
+    }
+
     /// Interprets a stored entry as the link to the next cluster: `None` at
     /// the end of the chain.
-    pub(crate) const fn next(
-        self,
-        stored: u32,
-        max_cluster: u32,
-    ) -> Result<Option<u32>, ChainError> {
+    pub const fn next(self, stored: u32, max_cluster: u32) -> Result<Option<u32>, ChainError> {
         let value = stored & self.mask();
         if self.is_end_of_chain(value) {
             Ok(None)

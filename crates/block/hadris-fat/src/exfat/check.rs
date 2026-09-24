@@ -3,9 +3,10 @@ use hadris_fs::{Clock, ErrorKind, FsResult, NodeTable};
 use super::super::block_io::read_bytes;
 use super::super::storage::BlockDevice;
 use super::{Alloc, DirStart, ExFatFs, MAX_DEPTH, ROOT_ENTRY, Walk};
-use crate::exfat::codec::{self, RawEntry, Units, le16, le32, le64};
+use hadris_fat_raw::exfat::{self as raw, ENTRY_SIZE, NameUnits, RawEntry};
+
 use crate::exfat::findings::{CheckReport, Finding};
-use crate::exfat::raw::{self, ENTRY_SIZE};
+use crate::exfat::{le16, le32, le64};
 
 /// The bitmap [`check`] uses: 32768 clusters a pass.
 const DEFAULT_BITMAP: usize = 4096;
@@ -166,7 +167,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, F: FnMut(Finding)> Checker<'_, D, T
         let mut recorded = [0u8; 1];
         self.read(112, &mut recorded).await?;
         let recorded = recorded[0];
-        let count = self.fs.geo.cluster_count as u64;
+        let count = self.fs.geo.cluster_count() as u64;
         let used = self.report.used as u64;
         let floor = (used * 100 / count) as u8;
         let ceil = (used * 100).div_ceil(count) as u8;
@@ -207,7 +208,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, F: FnMut(Finding)> Checker<'_, D, T
                         }
                     }
                 } else {
-                    sum = codec::table_checksum(sum, &chunk);
+                    sum = raw::table_checksum(sum, &chunk);
                 }
                 if (1..=8).contains(&index) && within as u64 + CHUNK as u64 == sector && le32(&chunk, CHUNK - 4) != raw::EXTENDED_BOOT_SIGNATURE {
                     self.report(Finding::BootSector("ExtendedBootSignature"));
@@ -376,7 +377,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, F: FnMut(Finding)> Checker<'_, D, T
     }
 
     async fn walk_tree(&mut self) -> FsResult<(), D::Error> {
-        let root = self.fs.geo.root;
+        let root = self.fs.geo.root();
         let Some(claim) = self.claim(ROOT_ENTRY, root, u64::MAX, false).await? else {
             return Ok(());
         };
@@ -412,7 +413,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, F: FnMut(Finding)> Checker<'_, D, T
                     let second_bitmap = kind == raw::ENTRY_BITMAP && entry[1] & 1 != 0;
                     let which = if second_bitmap { 3 } else { (kind - raw::ENTRY_BITMAP) as usize };
                     let bad_label = kind == raw::ENTRY_LABEL && entry[1] as usize > raw::MAX_LABEL_UNITS;
-                    let one_fat = second_bitmap && self.fs.geo.mirror_fat.is_none();
+                    let one_fat = second_bitmap && self.fs.geo.mirror_fat().is_none();
                     if !is_root || self.seen[which] || bad_label || one_fat {
                         self.once(Finding::RootEntry { entry: at });
                     }
@@ -451,10 +452,10 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, F: FnMut(Finding)> Checker<'_, D, T
     /// its entries are.
     async fn file_set(&mut self, dir: &mut Dir, slot: u32, at: u64, primary: RawEntry) -> FsResult<(u32, Option<Dir>), D::Error> {
         let count = 1 + primary[1] as usize;
-        let mut set = [[0u8; ENTRY_SIZE]; codec::MAX_SET];
+        let mut set = [[0u8; ENTRY_SIZE]; raw::MAX_SET];
         set[0] = primary;
         let mut read = 1;
-        while read < count.min(codec::MAX_SET) {
+        while read < count.min(raw::MAX_SET) {
             let Some((_, entry)) = self.entry_at(dir, slot + read as u32).await? else {
                 break;
             };
@@ -467,7 +468,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, F: FnMut(Finding)> Checker<'_, D, T
         let stream = set[1];
         let name_len = stream[3] as usize;
         let name_entries = name_len.div_ceil(raw::NAME_UNITS_PER_ENTRY);
-        let complete = (3..=codec::MAX_SET).contains(&count)
+        let complete = (3..=raw::MAX_SET).contains(&count)
             && read == count
             && stream[0] == raw::ENTRY_STREAM
             && name_len > 0
@@ -477,25 +478,24 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, F: FnMut(Finding)> Checker<'_, D, T
             self.once(Finding::EntrySet { entry: at });
             return Ok((read as u32, None));
         }
-        if codec::set_checksum(&set[..count]) != le16(&primary, 2) {
+        if raw::set_checksum(&set[..count]) != le16(&primary, 2) {
             self.once(Finding::SetChecksum { entry: at });
         }
-        let mut name = Units::new();
-        name.len = name_len;
+        let mut name = NameUnits::new();
         for index in 0..name_len {
             let entry = &set[2 + index / raw::NAME_UNITS_PER_ENTRY];
-            name.units[index] = le16(entry, 2 + (index % raw::NAME_UNITS_PER_ENTRY) * 2);
+            name.push(le16(entry, 2 + (index % raw::NAME_UNITS_PER_ENTRY) * 2));
         }
         let units = name.as_slice();
-        if units.iter().any(|&unit| !codec::valid_unit(unit)) || units == [0x2E] || units == [0x2E, 0x2E] {
+        if units.iter().any(|&unit| !raw::valid_unit(unit)) || units == [0x2E] || units == [0x2E, 0x2E] {
             self.once(Finding::BadName { entry: at });
         }
         if self.first_pass {
             let mut upcased = name;
-            for unit in &mut upcased.units[..name_len] {
+            for unit in upcased.as_mut_slice() {
                 *unit = self.fs.upcase_unit(*unit).await?;
             }
-            if codec::name_hash(upcased.as_slice()) != le16(&stream, 4) {
+            if raw::name_hash(upcased.as_slice()) != le16(&stream, 4) {
                 self.report(Finding::NameHash { entry: at });
             }
         }
