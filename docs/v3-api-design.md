@@ -230,9 +230,9 @@ flag that defaults to off. Traits that only Hadris implements are sealed.
 Growing `FsDriver` and `FileSystem` has two more rules, both stated in the
 trait docs:
 
-- `impl_fs_driver!` forwards a new method only when a format names it in
-  `also = [..]`. Adding it to the macro's write list would require every
-  third-party format to have an inherent method of that name.
+- `impl_fs_driver!` is dropped (4.17): `FileSystem`'s write methods have
+  defaults, so a read-only format implements the read half and there is no
+  forwarding left to generate.
 - A method is added to both traits and forwarded by every Hadris wrapper
   (`&mut F`, `Box<F>`, `&F`, `Arc<F>`, `Rc<F>`, `AsDriver`, `Volume`,
   `WithResolver`). `tests/sync_forwarding.rs` in `hadris-fs` reads the method
@@ -1133,7 +1133,7 @@ updated to the API prototype (4.18):
 | D5 detection result | `detect` returns a `Detection` listing every format found, each with the error a mount would give; an empty one means nothing was found. |
 | D6 `OpenFile` | Removed. The bare tier opens and closes nodes with `open(node, mode)` and `close(node)`; the shared tier's `File` has `close(self)`, so a double close does not compile. |
 | D9 directory entries | `DirEntry::metadata()` returns the metadata the directory entry already stores, filled by every current driver. The node-based, cycle-safe walk is `Walk`; node calls on a shared volume go through `vol.lock()`. |
-| D10 FAT times | `MountOptions::with_utc_offset`. The shared and embedded options default to UTC. exFAT reads and writes its UTC offset fields. |
+| D10 FAT times | `MountOptions::with_utc_offset`. The host tier defaults to the host's local UTC offset, as Windows and Linux vfat assume for FAT; the embedded API defaults to UTC. Both are overridable. The host default comes from the host module (`host::mount_options()`, which `host::open` uses), not from a feature switch: `MountOptions::new()` is UTC on every target. exFAT reads and writes its UTC offset fields. |
 | D11 permissions | `Metadata::permissions()` and `SetAttr::with_permissions()`; the `mode` spellings leave `hadris-fs`. cpio keeps its raw `mode()`. |
 | D12 trait additions | Settled by the catalog: `forget(node, count)`, `Metadata::generation()`, `allocated()` and `device()` are 3.0. `link`, orphans and the rest of 4.14 stay 3.x additions. |
 
@@ -1147,7 +1147,8 @@ updated to the API prototype (4.18):
 | S1 CLIs | One `hadris` binary with subcommands (`fat`, `iso`, `udf`, `cpio`, `detect`) replaces the five CLI crates, with one set of flags, overwrite rules and output handling. The 2.x binary names are not installed. |
 | S2 detection | `hadris-block` and `hadris-optical` are removed. Detection and opening move into the umbrella as `detect` (one `ImageFormat` enum for block, partition, optical and archive images) and `open`, in `sync` and `async`. `open` returns the `AnyFs` enum, which implements `FileSystem` and reaches format extras by `match`. |
 | S3 bridge writer | `hadris-cd` is removed; the ISO and UDF bridge writer becomes `hadris_udf::plan_bridge` and `hadris_udf::{sync,async}::write_bridge`. |
-| S5 storage errors | `WriteError`, `StorageError` and `OutOfRange` become one storage error type. |
+| S5 storage errors | `WriteError`, `StorageError` and `OutOfRange` become one storage error type, and that type is the crate-wide `Error<E>`. `BlockDevice::write_blocks` and `flush` return `Error<E>`: a device that refuses writes returns kind `ReadOnly`, any other failure `Error::device`. The `WriteError` in 4.2 is superseded. |
+| `impl_fs_driver!` | Dropped. `FileSystem`'s write methods default to `ReadOnly`, which removes the macro's job. The redesign brings it back only for duplication it can name. |
 | S6 path helpers | Path methods exist only on the shared `Volume`, as inherent methods named after `std::fs`; the bare-driver tier keeps node-level calls. `DriverExt` and `PathExt` are removed, with no extension trait in their place. |
 | Async naming | In the shared tier `r#async` means futures that are `Send` when the device is (the former `async_send`). The embedded API's `r#async` is non-`Send`. `hadris-io` and `hadris-storage` offer `sync`, `r#async` (`Send`) and `local` (non-`Send`) device traits. Features are `sync` and `async`; `async-send` is removed. |
 | S4 `write` | Undecided: dropping it leaves writers always compiled and shrinks the feature matrix; keeping it makes it stable for 3.x. Settled with the feature rework. |
