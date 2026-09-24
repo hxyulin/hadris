@@ -1114,6 +1114,18 @@ Pass 2 (builders), accepted on 2026-09-24:
 - Pass 1 changes: `BlockDevice` gains a defaulted `max_block_count` for growable outputs, and a fallible `host::FileDevice::new(File)` replaces `impl BlockDevice for File`, since `block_count` cannot fail.
 - Open: `Content::source` for user lazy content is added later; the cpio stream entry has no dev/ino accessor yet; `copy_tree` fails with `AlreadyExists` on an existing name; `FatOptions` and `ExFatOptions` merge with the format pass's `FormatOptions`; cpio writing without alloc is 3.x.
 
+Pass 3 (per-format extras), accepted on 2026-09-24:
+
+- `format(&mut dev, &opts)` returns the geometry and needs no allocator; the caller then mounts with its own `MountOptions`. `FatOptions` and `ExFatOptions` are also the format options. The partition offset defaults to a new `BlockDevice::disk_offset`, and `with_partition_offset` overrides it.
+- Checks are free functions on an unmounted device: `check(&mut dev, scratch, on_finding)` with a caller-lent scratch buffer and a callback per finding. Every format reports one shared `Finding` with a `Severity` (`Error`, `Warning`, `Notice`) and a per-format `Detail`, which uses the same codes as mount errors.
+- Extras are inherent methods with the same name on every driver (`info`, `extents`, `records`, `read_raw`); the shared trait stays closed. The serial is read through `info()`. `Extent` is reused for file maps and record locations and gains a file offset and an unwritten flag.
+- `detect` lists every format found, each with the error mount would give. `open` returns an `AnyFs` enum, which reaches extras by `match`.
+- `Walk` stops at 1024 levels with `LimitExceeded`. It uses a heap stack under `alloc` and a caller-lent stack without it, through distinct constructors, not a feature switch.
+- Extraction is `host::write_tree(dir, &tree)`, with no options until 3.x.
+- Pass 1 changes: `BlockDevice::disk_offset`; `SetAttr` sets attributes; `MountOptions` gains `with_node_limit` and `backup_boot`; `Error` is `Clone` and `Copy` when the device error is; the trait contract gives a directory one id however it is reached.
+- Pass 2 changes: format modules are no longer alloc-only, and builder items are gated one by one instead; `Tree` rejects `..`; `FileDevice` tracks whether its file is writable.
+- Open: `FileDevice` does not know a partition's start offset for `/dev/sdb1`; `SystemArea` and `Guid` belong in the partition crate; the async module shows a subset; cpio extraction builds the whole tree in memory.
+
 ---
 
 ## 5. Per-crate changes

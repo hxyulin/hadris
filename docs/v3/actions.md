@@ -39,7 +39,7 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 | IO-GROW-01 | Write an image to a growable target (in-memory `Vec`, host file) with no presizing | builder | Y (the size comes from the options) | Y (same) | Y | Y | Y | bld, host | 3.0: integrate-28, every test and in-memory builder needs it |
 | IO-SPARSE-01 | Leave long zero runs as holes when writing an image to a host file | builder | Y | Y | Y | Y | N | bld, host | 3.x: disk use only; output bytes do not change |
 | IO-DETECT-01 | Detect the format of an unknown device: FAT12/16/32, exFAT, ISO, UDF, ISO+UDF bridge, cpio (each variant), partition table, NTFS. Tell "not this format" apart from "this format but damaged" | extra | Y | Y | Y | Y | Y (magic) | insp, host, ker | 3.0: open-anything tools and CLI errors depend on it (dx-10, inspect-6) |
-| IO-DETECT-02 | Open whatever the detector found as one generic read-only filesystem and list it | extra | Y | Y | Y | Y | Y (needs index) | insp, host | 3.0 for F/X/I/U (decision S2, `hadris::open`); cpio 3.x (read-only cpio driver deferred, decided 2026-09-24) |
+| IO-DETECT-02 | Open whatever the detector found as one generic filesystem and list it. It mounts with the caller's options; the host opener mounts read-only | extra | Y | Y | Y | Y | Y (needs index) | insp, host | 3.0 for F/X/I/U (decision S2, `hadris::open`); cpio 3.x (read-only cpio driver deferred, decided 2026-09-24) |
 | IO-DETECT-03 | Detect compressed input (gzip, zstd, xz, lz4) and name it in the error, without decompressing | extra | - | - | - | - | Y | host, insp | 3.x: better error text only; decompression stays out of scope |
 | IO-TRUNC-01 | Open a truncated image leniently: read what is present, report "truncated" as its own error kind, not a raw I/O error | extra | Y | Y | Y | Y | Y | insp | 3.x: forensics; strict open stays the default (inspect-16) |
 | IO-INTO-01 | Get the device back after unmount or after a failed mount, so the caller can try another format | core | Y | Y | Y | Y | Y | all | 3.0: fallback probing (dx UC3) |
@@ -51,13 +51,13 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 
 | ID | Action (edge case that matters) | Class | F | X | I | U | C | Users | Want |
 |---|---|---|---|---|---|---|---|---|---|
-| VOL-FORMAT-01 | Format a whole device with automatic choice of FAT type and cluster size by size (FAT12 below 16 MiB, FAT16 below 512 MiB, FAT32 above; Microsoft tables) | extra | Y | Y | - | Y (mkudffs) | - | emb, bld, host | 3.0: mkfs is the entry point for every FAT user |
+| VOL-FORMAT-01 | Format a whole device with automatic choice of FAT type and cluster size by size (FAT12 below 16 MiB, FAT16 below 512 MiB, FAT32 above; Microsoft tables) | extra | Y | Y | - | Y (mkudffs) | - | emb, bld, host | 3.0 for F and X (exFAT: cluster size from the size): mkfs is the entry point for every FAT user; U 3.x (UDF writes are 3.x, VOL-FORMAT-06) |
 | VOL-FORMAT-02 | Format with explicit parameters (type, cluster size, sector size, reserved sectors, FAT count, root entries, media byte, OEM name, label, serial) and reject impossible combinations before writing anything | extra | Y | Y (no root entries or media byte; adds alignment, FAT count 1 or 2) | - | - | - | bld, emb | 3.0: osdev images and SD card conformance need fixed layouts |
 | VOL-FORMAT-03 | Format inside a partition and record the partition start: FAT hidden sectors, exFAT PartitionOffset, taken from the partition window | extra | Y | Y | - | - | - | bld | 3.0: Windows and some firmware refuse ESPs with hidden sectors = 0 (osdev-11) |
 | VOL-FORMAT-04 | Format with legacy CHS geometry and floppy presets (360K to 2.88M: sectors per track, heads, media byte, root entries) | extra | Y | N | - | - | - | bld | 3.x: floppy boot images (osdev-12); additive option |
 | VOL-FORMAT-05 | Format with the data area and clusters aligned to a given boundary (flash erase block, SD Association layout) | extra | Y | Y | - | - | - | emb, bld | 3.0 for FAT and exFAT: one format option, SD cards are the main embedded target (decided 2026-09-24) |
 | VOL-FORMAT-06 | Format an empty UDF filesystem (Type 1 partition) on a rewritable device for later read-write use, as mkudffs does | extra | - | - | - | Y | - | host | 3.x: only useful once UDF write mount (VOL-MOUNT-05) exists |
-| VOL-FORMAT-07 | Format and get back a mounted volume with caller-chosen mount options (clock, node limit, UTC offset, code page), not a fixed default | extra | Y | Y | - | - | - | emb, host, ker | 3.0: server-13, embedded-9, integrate-18 |
+| VOL-FORMAT-07 | Format, then mount with caller-chosen mount options (clock, node limit, UTC offset, code page), with no fixed defaults in between. Format returns the geometry and needs no allocator | extra | Y | Y | - | - | - | emb, host, ker | 3.0: server-13, embedded-9, integrate-18 |
 | VOL-FORMAT-08 | Full format: zero or discard the data area, or scan for bad blocks (mkfs.fat -c) | extra | Y | Y | - | Y | - | host | no: device-level job, and slow; the user zeroes the device |
 | VOL-MOUNT-01 | Mount read-write with default options and a caller clock | core | Y | Y | - | Y (Type 1) | - | all | 3.0 for F/X; UDF see VOL-MOUNT-05 |
 | VOL-MOUNT-02 | Mount read-only on purpose: no byte written, including dirty flags and FSInfo | core | Y | Y | Y | Y | Y | insp, ker | 3.0: forensic integrity |
@@ -70,7 +70,7 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 | VOL-LABEL-01 | Read the volume label as text. FAT: the root label entry, falling back to the BPB. exFAT: UTF-16 label entry. ISO: PVD volume id, or the Joliet SVD id when a Joliet SVD exists and its id is not empty. UDF: logical volume id | core | Y | Y | Y | Y | N | all | 3.0: decision D2 (`label()` everywhere, defaulted `volume_label()` on the trait) |
 | VOL-LABEL-02 | Set or remove the label. FAT writes both the root entry and the BPB and creates the root entry when missing, validating characters. exFAT: 11 UTF-16 units, may grow the root | extra | Y | Y | B | B (Y with rw) | - | host, bld | 3.0 for F/X (fatlabel, exfatlabel); ISO/UDF only at build time |
 | VOL-SERIAL-01 | Read the numeric volume serial (FAT BPB volume id, exFAT VolumeSerialNumber) | extra | Y | Y | N | Y (volume set id prefix) | - | insp, ker, host | 3.0: decision D2 (`volume_serial()`); blkid UUID |
-| VOL-SERIAL-02 | Change the serial of an existing volume (fatlabel -i, tune.exfat -I) | extra | Y | Y | - | Y | - | host, bld | 3.0: decided 2026-09-24; cheap, fatlabel -i and tune.exfat -I parity |
+| VOL-SERIAL-02 | Change the serial of an existing volume (fatlabel -i, tune.exfat -I) | extra | Y | Y | - | B (Y with rw) | - | host, bld | 3.0 for F/X: decided 2026-09-24; cheap, fatlabel -i and tune.exfat -I parity. U 3.x (UDF writes are 3.x; the serial is set at build time) |
 | VOL-SERIAL-03 | Build UDF images with a unique volume set identifier, derived from the clock or a caller seed, reproducible under a fixed clock | builder | - | - | - | Y | - | bld | 3.0: every Hadris UDF image has the same blkid UUID today (dx-23) |
 | VOL-STAT-01 | statfs: total, free and used blocks and the block size. FAT12/16 count free by scanning; FAT32 checks the FSInfo hint before trusting it; UDF uses the LVID free space table | core | Y | Y | Y (free = 0) | Y | N | all | 3.0 |
 | VOL-STAT-02 | statfs extras: blocks available to the caller, free file slots (FAT12/16 fixed root entries), file count | core | Y | Y | Y | Y | - | ker | 3.x: FUSE bavail and ffree; design 4.14 |
@@ -128,7 +128,7 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 | FILE-TRUNC-02 | Grow a file with set_len: new bytes read as zeros. FAT writes zeros; exFAT raises DataLength without writing | core | Y | Y | - | Y (rw) | - | all | 3.0 |
 | FILE-ALLOC-01 | Preallocate space without changing the size and without writing zeros (fallocate KEEP_SIZE; exFAT allocation past VDL) | extra | Y (clusters past size; fsck sees them) | Y | - | Y | - | emb, host | 3.x: loggers and video recorders; additive |
 | FILE-ALLOC-02 | Create a file in one contiguous run of clusters or fail; exFAT marks it NoFatChain | extra | Y | Y | Y (always) | Y | - | bld, emb | 3.x: stage2 loaders and swap files need it (osdev), additive |
-| FILE-EXTENT-01 | Map a file to its device extents (FIEMAP): cluster runs converted to device LBAs; ISO and UDF extents; offset of a cpio entry's data | extra | Y | Y | Y | Y | Y | bld, insp | 3.0: bootloader patching and forensics; cluster chains exist today |
+| FILE-EXTENT-01 | Map a file to its device extents (FIEMAP): cluster runs converted to LBAs relative to the device the filesystem was mounted from; ISO and UDF extents; offset of a cpio entry's data | extra | Y | Y | Y | Y | Y | bld, insp | 3.0: bootloader patching and forensics; cluster chains exist today |
 | FILE-CREATE-01 | Create an empty file. Invalid names are refused with a detail naming the bad character. Short alias generated (`~1` to `~4`, then hash tails) with the NT lowercase flags where possible | core | Y | Y | B | Y (rw) B | B | all | 3.0 |
 | FILE-CREATE-02 | Create a file exclusively (create_new): AlreadyExists if any name matches, including case-only and short-alias matches | core | Y | Y | - | Y (rw) | - | all | 3.0 |
 | FILE-UNLINK-01 | Remove a file and free its clusters; unlink of a directory gives IsADirectory; exFAT also frees clusters owned by vendor allocation entries | core | Y | Y | B | Y (rw) | - | all | 3.0 |
@@ -169,7 +169,7 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 | META-NAME-02 | FAT 8.3 names: decode through an OEM code page (CP437 by default on the host; others possible), keep names with high bytes distinct, set NT lowercase flags when the long name is only a case change | core | Y | - | - | - | - | all | 3.0: ASCII and CP437 built in, plus a public code page trait so users add their own (decided 2026-09-24) |
 | META-NAME-03 | Read the 8.3 alias of a long-named file | extra | Y | N | Y (primary name vs RR/Joliet name) | - | - | insp, host | 3.x: mdir-style listings, and seeing the ISO primary name under an RR view |
 | META-NAME-04 | Set a chosen 8.3 alias for a new file | extra | Y | - | - | - | - | bld | no: Windows cannot either; generated aliases are enough |
-| META-RAW-01 | Locate the on-disk record of a node (block, byte offset, length) for the FAT entry and LFN slots, exFAT entry set, ISO directory record, UDF FE/EFE, cpio header; decoding is done with the raw crates | extra | Y | Y | Y | Y | Y | insp | 3.0: location only; decoding through the raw crates (decided 2026-09-24) |
+| META-RAW-01 | Locate the on-disk record of a node (block, byte offset, length) for the FAT entry and LFN slots, exFAT entry set, ISO directory record, UDF FE/EFE, cpio header, and read its bytes | extra | Y | Y | Y | Y | Y | insp | 3.0 through driver methods (`records`, `read_raw`) for every format (decided 2026-09-24); the ISO and UDF raw decoders are 3.x (design 4.15) |
 
 ### 1.6 LINK: symlinks, hard links, special files
 
@@ -213,7 +213,7 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 | BOOT-HYB-06 | Write MIPS, SPARC, HPPA or Alpha boot blocks | builder | - | - | Y | - | - | bld | no: dead platforms |
 | BOOT-VBR-01 | Install boot code into a FAT or exFAT volume boot record while keeping the BPB (syslinux-style), with exFAT boot checksum recomputed | extra | Y | Y | - | - | - | bld | 3.x: osdev feature idea (S); additive option |
 | BOOT-VBR-02 | Write a payload into the FAT reserved sectors or exFAT extended boot sectors (stage 2 loader) | extra | Y | Y | - | - | - | bld | 3.x: osdev feature idea; additive |
-| BOOT-VBR-03 | Read the raw boot sector and boot code of a volume | extra | Y | Y | Y (system area) | - | - | insp | 3.0 through the raw crates |
+| BOOT-VBR-03 | Read the raw boot sector and boot code of a volume | extra | Y | Y | Y (system area) | - | - | insp | 3.0 through the driver's `read_raw`; the ISO raw decoders are 3.x (design 4.15) |
 | BOOT-UDF-01 | Write or read the UDF boot descriptor | extra | - | - | - | Y | - | bld | no: no known firmware uses it |
 
 ### 1.9 BUILD: image construction
@@ -277,9 +277,9 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 | ID | Action (edge case that matters) | Class | F | X | I | U | C | Users | Want |
 |---|---|---|---|---|---|---|---|---|---|
 | CHECK-FSCK-01 | Read-only check with findings. FAT: boot sector, backup, reserved entries, FSInfo, free count, FAT copies, invalid/broken/cyclic chains, size mismatches, cross-links, lost clusters, dot entries, names, LFN checksum, orphan LFN, dirty flag. exFAT adds boot checksum, up-case table, set checksums, name hash, VDL, bitmap | extra | Y | Y | - | - | - | host, insp, emb | 3.0 |
-| CHECK-FSCK-02 | Findings name their location as a path, print with Display, and cross-links come as runs with the other owner named | extra | Y | Y | Y | Y | Y | insp, host | 3.0 for Display and path (inspect-13, dx-117); owner coalescing 3.x (inspect-14) |
+| CHECK-FSCK-02 | Findings name their location as a path, print with Display, and cross-links come as runs with the other owner named | extra | Y | Y | Y | Y | Y | insp, host | 3.0 for Display and path on F/X/I/C (inspect-13, dx-117); U 3.x with CHECK-UDF-01; owner coalescing 3.x (inspect-14) |
 | CHECK-FSCK-03 | Check with bounded memory and no allocator (caller bitmap window, several passes) | extra | Y | Y | - | - | - | emb | 3.0 |
-| CHECK-FSCK-04 | Check a volume that will not mount (damaged boot sector, bad root) and explain why | extra | Y | Y | Y | Y | - | insp | 3.0: check runs on the raw I/O layer without mounting, and the error detail explains why mount fails (decided 2026-09-24) |
+| CHECK-FSCK-04 | Check a volume that will not mount (damaged boot sector, bad root) and explain why | extra | Y | Y | Y | Y | - | insp | 3.0 for F/X/I: check runs on the raw I/O layer without mounting, and the error detail explains why mount fails (decided 2026-09-24); U 3.x with CHECK-UDF-01 |
 | CHECK-REPAIR-01 | Repair: free or recover lost chains (FSCK0000.REC), cut cross-links, fix sizes, copy the good FAT over the others, fix FSInfo and PercentInUse, fix set checksums, clear dirty; fsck.fat -a and fsck.exfat -y parity | extra | Y | Y | - | - | - | host, emb | 3.x: design 5.1; large and risky |
 | CHECK-REPAIR-02 | Restore the boot sector from the backup (FAT32 sector 6, exFAT backup region) | extra | Y | Y | - | Y (reserve VDS) | - | host | 3.x: goes with repair |
 | CHECK-ISO-01 | Verify an ISO: descriptors, both-endian fields, path tables against directories, extents inside the volume, SUSP and RR structure, catalog checksum and entries, load sizes, truncation | extra | - | - | Y | - | - | bld, insp | 3.0 as a library call (CI of image builders) |
@@ -293,7 +293,7 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 
 | ID | Action (edge case that matters) | Class | F | X | I | U | C | Users | Want |
 |---|---|---|---|---|---|---|---|---|---|
-| HOST-EXTRACT-01 | Extract a whole image to a host directory, safe against absolute names, `..`, drive prefixes and writing through existing symlinks; keep modes and times; errors name the path | extra | Y | Y | Y | Y | Y | host, insp, bld | 3.0 |
+| HOST-EXTRACT-01 | Extract a whole image to a host directory, safe against absolute names, `..`, drive prefixes and writing through existing symlinks; keep modes and times; errors name the path. An existing file fails with AlreadyExists | extra | Y | Y | Y | Y | Y | host, insp, bld | 3.0 |
 | HOST-EXTRACT-02 | Extraction policy: skip or report per-entry failures, overwrite policy, restore owners when privileged, create device nodes when privileged | extra | Y | Y | Y | Y | Y | host, insp | 3.x: defaults decided in 3.0 (skip devices with a warning) |
 | HOST-EXTRACT-03 | Extract one path (file or subtree) | extra | Y | Y | Y | Y | Y | host | 3.0 |
 | HOST-ERRNO-01 | Map every error kind to an errno (Unsupported maps to EOPNOTSUPP, never ENOSYS, which FUSE reads as "never call again"; EROFS, ENOTEMPTY, ELOOP, ENAMETOOLONG) | core | Y | Y | Y | Y | Y | ker | 3.0: integrate-17, promised in docs |
