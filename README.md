@@ -3,38 +3,43 @@
 **The Rust storage stack.**
 
 Hadris is a collection of pure Rust storage and filesystem libraries for block
-devices, GPT and MBR partition tables, FAT12/16/32, ISO 9660, UDF, CPIO, and
-disk images, plus an experimental read-only NTFS reader. It supports desktop
+devices, GPT and MBR partition tables, FAT12/16/32, exFAT, ISO 9660, UDF,
+CPIO, and disk images, plus a read-only NTFS reader in preview. It supports desktop
 applications as well as `no_std` bootloaders, operating-system kernels,
 firmware, and embedded devices.
 
 Use a focused format crate such as `hadris-fat` or `hadris-iso`, a category
 facade such as `hadris-block`, or the `hadris` umbrella crate as an application
-grows. Shared I/O, storage, path, feature, and API conventions keep those
-layers coherent without hiding format-specific capabilities.
+grows. Shared I/O, storage, filesystem, feature, and API conventions keep
+those layers coherent without hiding format-specific capabilities.
 
 ## Stability and Versioning
 
-Hadris follows [Semantic Versioning](https://semver.org/). The
-release-candidate series completed the V2 feature and public-API freeze, and
-`2.4.0` is the current stable release of that API. Within the `2.x` series,
-breaking changes to the public API require a new major version; minor releases
-add backward-compatible functionality, and patch releases are limited to
-correctness fixes, interoperability qualification, and documentation.
+Hadris follows [Semantic Versioning](https://semver.org/). `2.4.0` is the
+current stable release, and the 2.x series continues on `main`. The 3.0 API
+described here is developed on the `next` branch and is not released yet; its
+design and stability rules are in [`docs/v3-api-design.md`](docs/v3-api-design.md).
+Within a major series, breaking changes to the public API require a new major
+version; minor releases add backward-compatible functionality, and patch
+releases are limited to correctness fixes, interoperability qualification, and
+documentation.
 
-The `unstable-exfat` and `unstable-streaming` previews and the experimental
-`hadris-ntfs` reader are explicitly outside this stability promise. From 3.0,
-exFAT is stable as `hadris_fat::exfat::ExFatFs` and `unstable-exfat` is gone.
-Stable FAT12/16/32, partition, ISO 9660, UDF, CPIO, facade, and storage APIs are
-covered by the V2 public-API snapshots.
+In 3.0, exFAT is stable as `hadris_fat::exfat::ExFatFs`, with no feature flag.
+The NTFS reader (`hadris-ntfs`, and the `unstable-ntfs` feature of
+`hadris-block` and `hadris`) is a preview whose native API may change in 3.x
+minor releases. Every stable crate is covered by the public-API snapshots in
+[`api-snapshots/`](api-snapshots/).
 
 ## Architecture
 
 ![Hadris architecture: applications use the umbrella crate over block, optical, and archive formats backed by shared I/O, paths, and storage](website/static/img/architecture.svg)
 
-Hadris uses category-level detection and opening APIs while preserving the
-concrete APIs of each filesystem. It does not force unlike formats behind one
-lowest-common-denominator filesystem trait.
+Every filesystem driver implements the `FsDriver` trait of `hadris-fs`, so
+the path helpers, file handles and generic code work on any of them. Each
+format keeps a native API for what the trait does not model: formatting,
+checking, FAT attributes, ISO namespaces and boot catalogs, NTFS streams.
+Image writers share one input tree instead of a trait. The category facades
+detect a format and open it behind the same driver trait.
 
 ## Why Hadris?
 
@@ -67,9 +72,9 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 ### Core Libraries
 
 - **[hadris-io](crates/core/hadris-io)** - No-std I/O abstraction layer (`Read`, `Write`, `Seek`)
-- **[hadris-fs](crates/core/hadris-fs)** - Shared filesystem vocabulary (names, times, metadata, error kinds) and allocation-free lexical paths
-- **[hadris-common](crates/core/hadris-common)** - Internal shared utilities (endian types, fixed-capacity byte and text types, CRC, optical helpers); not for direct use
-- **[hadris-storage](crates/core/hadris-storage)** - Format-neutral block geometry, device traits, and seekable-stream adapters
+- **[hadris-fs](crates/core/hadris-fs)** - Shared filesystem vocabulary (names, times, metadata, error kinds), the `FsDriver` and `FileSystem` traits, `Volume`, handles, path helpers, and the input tree of the image writers
+- **[hadris-common](crates/core/hadris-common)** - Internal endian-aware integer types for on-disk layouts; not for direct use
+- **[hadris-storage](crates/core/hadris-storage)** - Format-neutral block devices, geometry, slices, a block cache, and seekable-stream adapters
 - **[hadris-macros](crates/core/hadris-macros)** - Proc macros for dual sync/async code generation
 
 ### Block Storage
@@ -85,7 +90,6 @@ organizational only: published package names such as `hadris-fat` are unchanged.
   - `FatFs`, a node-based `hadris-fs` driver in sync, async and `Send` async modes
   - Long filename support (VFAT/LFN)
   - Formatting and a read-only checker, all without an allocator
-  - Analysis and verification tools
   - `ExFatFs`, an allocation-free exFAT driver with its own formatter and checker, in the same three modes; opened by `hadris-block`
 - **[hadris-ntfs](crates/block/hadris-ntfs)** - Read-only NTFS reader
   (preview) on block devices, allocation-free in sync, async and `Send`
@@ -96,39 +100,44 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 - **[hadris-optical](crates/optical/hadris-optical)** - Detection of ISO 9660, UDF and bridge images on block devices, and `OpenOpticalImage`, which opens one of them behind one `hadris-fs` driver
 - **[hadris-iso](crates/optical/hadris-iso)** - ISO 9660 filesystem implementation
-  - Allocation-free sync/async ISO 9660 and Joliet navigation with caller-buffered file streaming
+  - Allocation-free reader for the primary, Rock Ridge, Joliet and enhanced trees, in sync, async and `Send` async modes
+  - Writer and multi-session updates driven by the shared input tree
   - ISO 9660 Level 1-3 and ISO 9660:1999 (long filenames)
   - Joliet extension (UTF-16 Unicode filenames)
   - Rock Ridge (RRIP) and SUSP (POSIX semantics, symlinks)
-  - El-Torito bootable CD/DVD images
-- **[hadris-udf](crates/optical/hadris-udf)** - Universal Disk Format (UDF) for DVD/Blu-ray
+  - El Torito bootable CD/DVD images and hybrid MBR/GPT boot
+- **[hadris-udf](crates/optical/hadris-udf)** - Universal Disk Format (UDF) for DVD/Blu-ray: an allocation-free reader and a writer
 - **[hadris-cd](crates/optical/hadris-cd)** - Hybrid ISO+UDF optical disc image creation
 
 ### Archives
 
-- **[hadris-cpio](crates/archive/hadris-cpio)** - CPIO newc/SVR4 archives (initramfs)
+- **[hadris-cpio](crates/archive/hadris-cpio)** - CPIO archives (initramfs): streaming newc, CRC and odc reader and writer, old binary read
 
 ### CLI Tools
 
 | Crate | Binary | Notes |
 |-------|--------|-------|
 | [hadris-iso-cli](crates/tools/hadris-iso-cli) | `hadris-iso` | ISO create/inspect/extract; legacy alias: `hadris-iso-cli` |
-| [hadris-fat-cli](crates/tools/hadris-fat-cli) | `hadris-fat` | FAT create/read/extract/analyze; legacy alias: `fatutil` |
+| [hadris-fat-cli](crates/tools/hadris-fat-cli) | `hadris-fat` | FAT12/16/32 and exFAT create/read/extract/check/analyze; legacy alias: `fatutil` |
 | [hadris-cpio-cli](crates/tools/hadris-cpio-cli) | `hadris-cpio` | CPIO create/read/extract; legacy alias: `cpioutil` |
 | [hadris-udf-cli](crates/tools/hadris-udf-cli) | `hadris-udf` | UDF create/inspect/extract; legacy alias: `hadris-udf-cli` |
 | [hadris-cd-cli](crates/tools/hadris-cd-cli) | `hadris-cd` | Create, inspect, and verify hybrid ISO 9660/UDF images |
 
 ### Meta-crate
 
-- **[hadris](crates/core/hadris)** - Optional umbrella built on the block and optical category facades and `hadris-cpio`, plus `path` utilities, with grouped APIs: `block::{storage, fat, part}`, `optical::{iso, udf, cd}`, and `cpio`. Platform, I/O-mode, capability, leaf, and category features are forwarded independently; the hosted synchronous read/write configuration with `path`, `iso`, `fat`, and `cpio` is enabled by default. The hybrid `cd` writer is currently sync-only.
+- **[hadris](crates/core/hadris)** - Optional umbrella that re-exports `hadris-io`, `hadris-storage` and `hadris-fs`, and each format crate at a flat path (`hadris::fat`, `hadris::iso`, `hadris::cpio`, ...), with `hadris::block` and `hadris::optical` for detection. One feature per format; the platform (`std`, `alloc`), mode (`sync`, `async`, `async-send`) and `write` features are forwarded to every enabled crate. The defaults are `std`, `sync`, `write`, `fat`, `iso` and `cpio`.
 
 ## Key Features
 
 - **No-std compatible** - Use in bootloaders, kernels, firmware, and embedded systems
-- **Allocation-free ISO reading** - Navigate ISO 9660/Joliet paths and stream
-  multi-extent files with caller-owned buffers in sync or async builds
-- **Configurable** - Feature flags for read-only, write support, and extensions
-- **Dual sync/async** - Shared implementations via `hadris-macros`
+- **Allocation-free reading** - FAT, exFAT, ISO 9660, UDF, NTFS and CPIO read
+  without a heap allocator; FAT and exFAT also write, format and check
+- **One driver trait** - Path helpers, handles, `Volume` sharing and host
+  import and extraction work on every filesystem
+- **Additive features** - Platform, I/O mode and `write` features only add
+  items; no feature changes what an existing item does
+- **Sync, async and `Send` async** - One source per crate, generated for each
+  mode via `hadris-macros`
 - **Standards oriented** - ECMA-119, IEEE P1282 / Rock Ridge, El-Torito, Microsoft FAT, ECMA-167 / UDF, CPIO newc
 
 ## FAT Interoperability
@@ -147,7 +156,7 @@ the 2.4.0 hosted suite.
 | Rust `fatfs` master (`2aefc2a`) reader | Pass (16/16) | Pass (16/16) | Pass (16/16) |
 | macOS `fsck_msdos` | Pass (2/2) | Pass (2/2) | Pass (2/2) |
 
-“Pass” means that the consumer read the expected semantic tree or that the
+"Pass" means that the consumer read the expected semantic tree or that the
 checker accepted the completed image; the two mtools read failures per width
 are names outside the Basic Multilingual Plane, which mtools transliterates.
 See the
@@ -187,7 +196,9 @@ The umbrella crate re-exports `hadris::io`, `hadris::storage` and
 `hadris::fs`, and each format crate at a flat path (`hadris::fat`,
 `hadris::iso`, `hadris::cpio`, and `hadris::block` and `hadris::optical` for
 detection), so applications can grow into partition detection or additional
-disk-image formats without replacing their filesystem implementation.
+disk-image formats without replacing their filesystem implementation. The
+umbrella's crate documentation has a quick start, and the compiled programs
+in [`examples/`](examples/) show each crate in use.
 
 Each package now owns its version; all current packages target **2.4.0**:
 
@@ -203,7 +214,8 @@ For allocation-free `no_std` ISO reading and FAT reading and writing:
 
 ```toml
 [dependencies]
-# No heap allocator: every ISO tree, Rock Ridge metadata and file reads.
+# No heap allocator: every ISO tree, Rock Ridge metadata and file reads, and
+# FAT reads and writes.
 hadris-iso = { version = "2.4.0", default-features = false, features = ["sync"] }
 hadris-fat = { version = "2.4.0", default-features = false, features = ["sync"] }
 ```
@@ -224,13 +236,13 @@ cargo test --workspace
 cargo build -p hadris-fat --no-default-features --features "sync"
 ```
 
-See [CLAUDE.md](CLAUDE.md) for detailed build instructions and architecture notes, and [CONTRIBUTING.md](CONTRIBUTING.md) for PR workflow.
-See the [`2.4.0` changelog](CHANGELOG.md#240---2026-09-08) for the current
-release summary and the [`2.0.0` release notes](docs/hadris-2.0.0-release-notes.md)
-for the V2 upgrade guide.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the test, feature-tier and PR
+workflow, and [`docs/v3-api-design.md`](docs/v3-api-design.md) for the 3.0
+architecture. The [changelog](CHANGELOG.md) lists the unreleased 3.0 changes
+and the [`2.4.0` release](CHANGELOG.md#240---2026-09-08).
 The Docusaurus source for the task-oriented documentation site lives in
 [`website/`](website/); it includes getting-started, crate-selection, and
-FAT, partition, ISO, CPIO, and `no_std` use-case guides.
+FAT, partition, ISO, UDF, CPIO, async, and `no_std` use-case guides.
 Runnable application examples live in [`examples/`](examples/) and are compiled
 as part of the Cargo workspace.
 

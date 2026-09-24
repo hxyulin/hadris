@@ -7,8 +7,8 @@ hide_title: true
 # The Rust storage stack
 
 Hadris is a collection of pure Rust libraries for block devices, partition
-tables, FAT filesystems, ISO 9660, UDF, CPIO archives, and disk images, plus an
-experimental read-only NTFS reader.
+tables, FAT and exFAT filesystems, ISO 9660, UDF, CPIO archives, and disk
+images, plus a read-only NTFS reader in preview.
 
 It works across desktop applications, bootloaders, kernels, firmware, and
 embedded systems, with explicit `std`, `alloc`, allocation-free, synchronous,
@@ -21,8 +21,9 @@ directly to the [use-case guides](./guides/index.md).
 
 :::note Stability
 
-`2.4.0` is the current stable V2 release under Semantic Versioning. The
-`unstable-exfat` feature and experimental `hadris-ntfs` crate remain outside
-that stability promise; from 3.0, exFAT is stable in `hadris-fat`.
+These pages describe the 3.0 API, which is not released yet; `2.4.0` is the
+current stable release. In 3.0, exFAT is stable in `hadris-fat`, and the
+`hadris-ntfs` reader stays a preview outside the stability promise. See
+[Stability and compatibility](./stability.md).
 
 :::

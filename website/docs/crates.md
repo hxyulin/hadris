@@ -14,10 +14,10 @@ storage categories.
 
 | Need | Start with | Why |
 |---|---|---|
-| FAT12/16/32 filesystem access | [`hadris-fat`](https://docs.rs/hadris-fat) | Complete FAT API, including formatting and mutation |
+| FAT12/16/32 or exFAT filesystem access | [`hadris-fat`](https://docs.rs/hadris-fat) | `FatFs` and `ExFatFs`, including formatting, checking and mutation |
 | Read-only NTFS access (preview) | [`hadris-ntfs`](https://docs.rs/hadris-ntfs) | Allocation-free reader; its native API is a preview |
 | MBR or GPT partition tables | [`hadris-part`](https://docs.rs/hadris-part) | Concrete partition parsing and writing |
-| Block-format detection and opening | [`hadris-block`](https://docs.rs/hadris-block) | Detects FAT, NTFS and partition tables and opens FAT and NTFS through one driver |
+| Block-format detection and opening | [`hadris-block`](https://docs.rs/hadris-block) | Detects FAT, exFAT, NTFS and partition tables and opens the filesystems through one driver |
 | ISO 9660 images | [`hadris-iso`](https://docs.rs/hadris-iso) | ISO, Joliet, Rock Ridge, and El Torito APIs |
 | UDF images | [`hadris-udf`](https://docs.rs/hadris-udf) | UDF descriptors, reading, and image creation |
 | ISO/UDF detection and opening | [`hadris-optical`](https://docs.rs/hadris-optical) | Detects bridge images and opens one filesystem by an explicit policy |
@@ -78,15 +78,16 @@ points for kernels, firmware, and other storage libraries:
 | Crate | Role |
 |---|---|
 | `hadris-io` | Sync and async byte-stream traits and adapters |
-| `hadris-storage` | Logical-block geometry, device traits, and bounded views |
-| `hadris-fs` | Shared filesystem vocabulary and allocation-free lexical paths |
-| `hadris-common` | Internal endian integers for the FAT layouts; not for direct use |
+| `hadris-storage` | Block devices, geometry, slices, and a block cache |
+| `hadris-fs` | Shared vocabulary, the driver traits, `Volume`, handles, path helpers, and the writer input tree |
+| `hadris-common` | Internal endian integers for on-disk layouts; not for direct use |
 | `hadris-macros` | Internal dual sync/async code-generation support |
 
-## Experimental APIs
+## Preview APIs
 
-The `hadris-ntfs` crate is outside the stable API promise. They are appropriate for evaluation and compatibility testing,
-but callers should expect API and behavior changes.
+The `hadris-ntfs` crate is outside the stable API promise. It is appropriate
+for evaluation and compatibility testing, but callers should expect changes to
+its native API.
 
 `hadris-block` opens NTFS through the driver trait in every build; its
 `unstable-ntfs` feature, like the umbrella's, adds the NTFS re-export and

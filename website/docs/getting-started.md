@@ -19,7 +19,8 @@ hadris = { version = "2.4.0", features = ["block", "optical"] }
 ```
 
 Hadris separates platform support, I/O mode, and capabilities. For a
-freestanding FAT consumer, which reads and writes without an allocator:
+freestanding FAT or exFAT consumer, which reads and writes without an
+allocator:
 
 ```toml
 [dependencies]
@@ -30,13 +31,18 @@ hadris-fat = {
 }
 ```
 
-For hosted applications, default features provide the ergonomic synchronous
-configuration. Use explicit `sync` or `async` namespaces in new code when an
-application enables both modes.
+For hosted applications, the default features provide the synchronous API
+with `std`. Every I/O type is named through its mode module
+(`hadris_fat::sync::FatFs`, `hadris_iso::r#async::IsoImage`), so the same code
+reads the same way whichever modes are enabled.
 
-The NTFS reader is an experimental leaf crate and is outside the V2 stability
-freeze. Its crate README documents the supported read-only scope and known
-gaps.
+Every filesystem driver implements the `hadris-fs` `FsDriver` trait. Import
+`hadris_fs::sync::DriverExt` for path helpers such as `read_dir`,
+`read_to_vec` and `write_file`, or wrap a driver in `hadris_fs::sync::Volume`
+to share it between handles and threads.
+
+The NTFS reader is a preview and is outside the stability promise. Its crate
+README documents the supported read-only scope and known gaps.
 
 For the complete support table and feature recipes, see
 [Features and capabilities](./concepts/features.md).

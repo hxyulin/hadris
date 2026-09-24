@@ -49,12 +49,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 Detection and `OpenVolume` take any `hadris-storage` block device; a
 `std::fs::File` is one with 512-byte blocks, and the device's block size is
 the logical block size used to find a GPT header. `OpenVolume` opens
-FAT12/16/32 as `hadris_fat`'s `FatFs` and NTFS, read-only, as
-`hadris_ntfs`'s `NtfsFs`, and implements the `hadris-fs` driver trait over
-either, so the path helpers work on the result. `as_fat` and `into_fat`
-reach the FAT driver. Errors are `hadris_block::Error<E>`, carrying the
-device's error type, and a failed open returns the device in an
-`OpenError`.
+FAT12/16/32 as `hadris_fat`'s `FatFs`, exFAT as its `ExFatFs`, and NTFS,
+read-only, as `hadris_ntfs`'s `NtfsFs`, and implements the `hadris-fs` driver
+trait over each, so the path helpers work on the result. `as_fat`,
+`into_fat`, `as_exfat` and `into_exfat` reach the FAT and exFAT drivers; the
+`unstable-ntfs` feature adds `as_ntfs` and `into_ntfs`. Errors are
+`hadris_block::Error<E>`, carrying the device's error type, and a failed open
+returns the device in an `OpenError`.
 
 `OpenVolume` intentionally refuses a whole partitioned disk. Select a partition
 and restrict the device to it before opening its filesystem.
@@ -96,7 +97,7 @@ preferred namespace; open `hadris-iso` directly to choose another.
 
 ## Detection is not validation
 
-Detection answers “what does this look like?” using signatures and geometry.
+Detection answers "what does this look like?" using signatures and geometry.
 Always open the returned concrete format before trusting offsets, sizes, or
 directory data. Treat `None` as an unknown format rather than as proof that the
 input is unformatted.

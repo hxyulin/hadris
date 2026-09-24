@@ -1,9 +1,14 @@
-//! Shared filesystem vocabulary for the Hadris crates.
+//! Shared filesystem vocabulary and driver traits for the Hadris crates.
 //!
-//! This crate defines the mode-independent types every Hadris filesystem
+//! The crate root defines the mode-independent types every Hadris filesystem
 //! speaks: node identity, file types, byte names, timestamps and clocks,
 //! metadata, capabilities, errors, directory cursors, open options,
-//! node tables and lexical virtual paths. It performs no I/O.
+//! node tables and lexical virtual paths. None of them does I/O.
+//!
+//! The mode modules (`sync`, `r#async`, `async_send`) hold the driver
+//! layer: the `FsDriver` trait that format crates implement, the
+//! `FileSystem` trait for shared code, `Volume`, the path resolvers, the
+//! `DriverExt` and `PathExt` helpers, and the `File` and `Dir` handles.
 //!
 //! [`Error<E>`] is the error of every filesystem operation. `E` is the
 //! device's own error, so it survives without allocation; [`AnyError`]
@@ -17,7 +22,13 @@
 //! |---|---:|---|
 //! | `alloc` | No | [`OwnedName`], [`AnyError`], [`HeapTable`], `copy_tree`, owned path normalization, and the writer input [`tree`] with `ContentReader` and `TreeExt` in each mode |
 //! | `std` | No | Implies `alloc`; adds [`SystemClock`], `extract_to_host` and `import_from_host` in `sync`, `Content::path` and `Tree::from_fs`, and conversions to `std::io::Error` |
+//! | `sync` | No | The blocking driver layer in `sync` |
+//! | `async` | No | The same API with `async fn` in `r#async` |
+//! | `async-send` | No | The async API with `Send` futures in `async_send`; implies `async` |
+//! | `embassy-sync` | No | An allocation-free async `Local` lock for one executor thread |
 //! | `contract` | No | The driver contract kit, `contract::check` in each mode, and `ContractViolation` |
+//!
+//! No feature changes what an item does.
 
 #![no_std]
 #![deny(missing_docs)]

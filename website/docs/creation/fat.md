@@ -26,7 +26,7 @@ length. Without `with_kind`, volumes below 16 MiB are FAT12, below 512 MiB
 FAT16, and larger ones FAT32; use `with_kind` when the variant is part of an
 external contract.
 
-```rust
+```rust,no_run
 use std::fs::OpenOptions;
 
 use hadris_fat::sync::format;
@@ -104,6 +104,31 @@ The same `format` exists in `hadris_fat::r#async` and `hadris_fat::async_send`
 when the crate is built with `async` or `async-send`. Enable exactly the I/O
 mode your application uses; `std` does not implicitly select `sync`.
 
+## Format exFAT
+
+exFAT has its own driver, `ExFatFs`, with the same node API, and its own
+`FormatOptions`, `VolumeLabel` and `format` in `hadris_fat::exfat`. Labels
+keep their case and may use up to 11 UTF-16 code units.
+
+```rust
+use hadris_fat::exfat::sync::{check, format};
+use hadris_fat::exfat::{FormatOptions, VolumeLabel};
+use hadris_fs::sync::{PathExt, Volume};
+use hadris_storage::{BlockSize, MemDevice};
+
+let dev = MemDevice::new(vec![0u8; 16 << 20], BlockSize::new(512).unwrap());
+let label = VolumeLabel::new("Photos").unwrap();
+let mut fs = format(dev, FormatOptions::new().with_label(label))?;
+assert!(check(&mut fs)?.is_clean());
+let vol = Volume::new(fs);
+vol.write_file("/hello.txt", b"hello")?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+`FormatOptions::with_fat_count(2)` formats a TexFAT volume. From the command
+line, `hadris-fat create ./contents -o card.img --fat-type exfat` does the
+same for a host directory.
+
 ## Format a partition rather than a whole disk
 
 Create or read the partition table with `hadris-part` (`DiskLayout` and
@@ -129,6 +154,10 @@ fsck.fat -vn disk.img
 7z l disk.img
 hadris-fat verify disk.img
 ```
+
+For exFAT, `fsck.exfat -n` from exfatprogs and macOS `fsck_exfat -n` on an
+attached raw device check the image, and `hadris-fat verify` runs the exFAT
+checker.
 
 Use read-only validation first. Do not allow a repair tool to modify a release
 artifact until its original image has been preserved.

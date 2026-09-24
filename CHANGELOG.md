@@ -11,9 +11,9 @@ Each published package owns its version and may be released independently.
 ### Added
 
 - **hadris-common (V3):** `U16`, `U32` and `U64` have inherent `new`,
-  `get` and `set`, so the `raw` layouts of `hadris-fat`, `hadris-ntfs` and
-  the exFAT module can be read and built without importing the `Endian`
-  trait of this internal crate.
+  `get` and `set`, so the `raw` layouts of `hadris-fat` and its exFAT
+  module can be read and built without importing the `Endian` trait of
+  this internal crate.
 - **hadris-fat (V3):** `raw` holds the directory entry layouts:
   `RawDirEntry` (short entries, with `lfn_checksum`) and `RawLfnEntry`,
   with the `DIR_Attr`, `DIR_NTRes` and `LDIR_Ord` bits and the end, free
@@ -440,6 +440,14 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **Docs (V3):** The root README, crate READMEs, crate-level rustdoc,
+  CONTRIBUTING, `tests/README.md` and the website describe the V3 API:
+  exFAT is stable, NTFS is a preview, the `read`, `cache`, `lfn`,
+  `unstable-streaming` and V2 type names are gone, and every Rust snippet
+  compiles against the V3 crates. The website gains an exFAT formatting
+  section, and CONTRIBUTING runs the FAT conformance filter as CI does
+  (`fat:: -- --skip exfat::`). `hadris-fs`, `hadris-io` and
+  `hadris-storage` build their docs.rs pages with every mode.
 - **hadris-iso-cli, hadris-udf-cli, hadris-cpio-cli, hadris-cd-cli (V3):**
   The commands that do the same job share names and flags: `ls` has the
   alias `list` and `verify` the alias `check` in every CLI, and `extract

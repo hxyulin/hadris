@@ -1,10 +1,10 @@
 //! Proc macros for dual sync/async code generation in Hadris.
-
-#![deny(missing_docs)]
 //!
 //! Provides `strip_async!`, which removes `async`/`.await` from token streams
 //! so the same source compiles as sync code, and `send_async!`, which makes
 //! the futures of async trait methods `Send` for a third, `Send` mode.
+
+#![deny(missing_docs)]
 
 extern crate proc_macro;
 
@@ -64,7 +64,7 @@ fn strip_async_from_stream(input: TokenStream2) -> TokenStream2 {
                         continue;
                     }
                 }
-                // `async` not followed by `fn`/`move`/`unsafe` — keep it
+                // `async` not followed by `fn`/`move`/`unsafe`: keep it
                 // (shouldn't normally happen in our codebase, but be safe)
                 output.extend(core::iter::once(token));
             }
