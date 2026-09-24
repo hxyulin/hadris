@@ -99,12 +99,8 @@ impl OpenFile {
         fs: &mut D,
         pos: SeekFrom,
     ) -> FsResult<u64, D::DeviceError> {
-        let (base, delta) = match pos {
-            SeekFrom::Start(n) => (n, 0),
-            SeekFrom::Current(n) => (self.pos, n),
-            SeekFrom::End(n) => (self.len(fs).await?, n),
-        };
-        self.pos = base.checked_add_signed(delta).ok_or(ErrorKind::InvalidInput)?;
+        let len = if matches!(pos, SeekFrom::End(_)) { self.len(fs).await? } else { 0 };
+        self.pos = pos.resolve(self.pos, len).ok_or(ErrorKind::InvalidInput)?;
         Ok(self.pos)
     }
 

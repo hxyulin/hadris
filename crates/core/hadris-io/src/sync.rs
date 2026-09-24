@@ -1,3 +1,4 @@
+#[cfg(feature = "embedded-io")]
 use embedded_io as base;
 
 macro_rules! io_transform {

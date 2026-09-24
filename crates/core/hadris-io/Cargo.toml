@@ -14,13 +14,16 @@ categories = ["no-std", "filesystem"]
 [features]
 default = ["sync", "std"]
 sync = []
-async = ["dep:embedded-io-async"]
+async = []
 async-send = ["async"]
-alloc = ["embedded-io/alloc", "embedded-io-async?/alloc"]
-std = ["alloc", "embedded-io/std", "embedded-io-async?/std"]
+alloc = ["embedded-io?/alloc", "embedded-io-async?/alloc"]
+std = ["alloc", "embedded-io?/std", "embedded-io-async?/std"]
+# `FromEmbedded`, the `embedded-io` traits on `StdIo`, and conversions
+# between `SeekFrom` and `embedded_io::SeekFrom`.
+embedded-io = ["dep:embedded-io", "dep:embedded-io-async"]
 
 [dependencies]
 hadris-macros.workspace = true
 bytemuck.workspace = true
-embedded-io.workspace = true
+embedded-io = { workspace = true, optional = true }
 embedded-io-async = { workspace = true, optional = true }

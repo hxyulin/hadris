@@ -618,12 +618,9 @@ impl<D: BlockDevice> Write for ByteView<D> {
 
 impl<D: BlockDevice> Seek for ByteView<D> {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
-        let position = match pos {
-            SeekFrom::Start(position) => Some(position),
-            SeekFrom::Current(delta) => self.position.checked_add_signed(delta),
-            SeekFrom::End(delta) => self.len().checked_add_signed(delta),
-        }
-        .ok_or(StorageError::OutOfRange)?;
+        let position = pos
+            .resolve(self.position, self.len())
+            .ok_or(StorageError::OutOfRange)?;
         self.position = position;
         Ok(position)
     }

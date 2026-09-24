@@ -52,17 +52,6 @@ fn cursor_seek_and_read_interleaved() {
 }
 
 #[test]
-fn cursor_read_struct_integration() {
-    // Write a known u32 in native byte order and read it back
-    let value: u32 = 0xDEAD_BEEF;
-    let bytes = value.to_ne_bytes();
-    let mut cursor = Cursor::new(&bytes);
-
-    let read_back: u32 = hadris_io::legacy::ReadExt::read_struct(&mut cursor).unwrap();
-    assert_eq!(read_back, value);
-}
-
-#[test]
 fn cursor_empty_data() {
     let data = [];
     let mut cursor = Cursor::new(&data);

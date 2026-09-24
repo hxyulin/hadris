@@ -144,6 +144,9 @@ jobs:
           - crate: hadris-io
             tier: async-send
             features: "async-send"
+          - crate: hadris-io
+            tier: embedded-io
+            features: "sync,async,embedded-io"
 
           # hadris-common
           - crate: hadris-common
