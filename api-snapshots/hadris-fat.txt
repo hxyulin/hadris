@@ -614,6 +614,23 @@ pub hadris_fat::raw::RawBpbExt32::volume_label: [u8; 11]
 impl bytemuck::anybitpattern::AnyBitPattern for hadris_fat::raw::RawBpbExt32
 impl bytemuck::no_uninit::NoUninit for hadris_fat::raw::RawBpbExt32
 impl bytemuck::zeroable::Zeroable for hadris_fat::raw::RawBpbExt32
+#[repr(C)] pub struct hadris_fat::raw::RawDirEntry
+pub hadris_fat::raw::RawDirEntry::accessed_date: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat::raw::RawDirEntry::attributes: u8
+pub hadris_fat::raw::RawDirEntry::created_date: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat::raw::RawDirEntry::created_tenths: u8
+pub hadris_fat::raw::RawDirEntry::created_time: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat::raw::RawDirEntry::first_cluster_high: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat::raw::RawDirEntry::first_cluster_low: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat::raw::RawDirEntry::modified_date: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat::raw::RawDirEntry::modified_time: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat::raw::RawDirEntry::name: [u8; 11]
+pub hadris_fat::raw::RawDirEntry::nt_reserved: u8
+pub hadris_fat::raw::RawDirEntry::size: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
+impl hadris_fat::raw::RawDirEntry
+pub const fn hadris_fat::raw::RawDirEntry::lfn_checksum(&self) -> u8
+impl bytemuck::pod::Pod for hadris_fat::raw::RawDirEntry
+impl bytemuck::zeroable::Zeroable for hadris_fat::raw::RawDirEntry
 #[repr(C, packed(1))] pub struct hadris_fat::raw::RawFsInfo
 pub hadris_fat::raw::RawFsInfo::free_count: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
 pub hadris_fat::raw::RawFsInfo::next_free: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
@@ -625,6 +642,34 @@ pub hadris_fat::raw::RawFsInfo::trail_signature: hadris_common::types::number::U
 impl bytemuck::anybitpattern::AnyBitPattern for hadris_fat::raw::RawFsInfo
 impl bytemuck::no_uninit::NoUninit for hadris_fat::raw::RawFsInfo
 impl bytemuck::zeroable::Zeroable for hadris_fat::raw::RawFsInfo
+#[repr(C)] pub struct hadris_fat::raw::RawLfnEntry
+pub hadris_fat::raw::RawLfnEntry::attributes: u8
+pub hadris_fat::raw::RawLfnEntry::checksum: u8
+pub hadris_fat::raw::RawLfnEntry::first_cluster_low: [u8; 2]
+pub hadris_fat::raw::RawLfnEntry::kind: u8
+pub hadris_fat::raw::RawLfnEntry::name1: [u8; 10]
+pub hadris_fat::raw::RawLfnEntry::name2: [u8; 12]
+pub hadris_fat::raw::RawLfnEntry::name3: [u8; 4]
+pub hadris_fat::raw::RawLfnEntry::sequence: u8
+impl bytemuck::pod::Pod for hadris_fat::raw::RawLfnEntry
+impl bytemuck::zeroable::Zeroable for hadris_fat::raw::RawLfnEntry
+pub const hadris_fat::raw::ATTR_ARCHIVE: u8
+pub const hadris_fat::raw::ATTR_DIRECTORY: u8
+pub const hadris_fat::raw::ATTR_HIDDEN: u8
+pub const hadris_fat::raw::ATTR_LONG_NAME: u8
+pub const hadris_fat::raw::ATTR_LONG_NAME_MASK: u8
+pub const hadris_fat::raw::ATTR_READ_ONLY: u8
+pub const hadris_fat::raw::ATTR_SYSTEM: u8
+pub const hadris_fat::raw::ATTR_VOLUME_ID: u8
+pub const hadris_fat::raw::ENTRY_END: u8
+pub const hadris_fat::raw::ENTRY_FREE: u8
+pub const hadris_fat::raw::ENTRY_KANJI_E5: u8
+pub const hadris_fat::raw::ENTRY_SIZE: usize
+pub const hadris_fat::raw::LFN_LAST_ENTRY: u8
+pub const hadris_fat::raw::LFN_SEQUENCE_MASK: u8
+pub const hadris_fat::raw::LFN_UNITS_PER_ENTRY: usize
+pub const hadris_fat::raw::NT_LOWER_BASE: u8
+pub const hadris_fat::raw::NT_LOWER_EXTENSION: u8
 pub mod hadris_fat::sync
 pub struct hadris_fat::sync::FatFs<D, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock, P: hadris_fat::CodePage>
 impl<D: hadris_storage::sync::api::BlockDevice, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock, P: hadris_fat::CodePage> hadris_fat::sync::FatFs<D, T, C, P>

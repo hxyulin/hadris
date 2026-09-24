@@ -2,23 +2,19 @@
 
 use super::entry::FatKind;
 use super::lfn::{self, UNITS_PER_ENTRY};
+use hadris_common::types::endian::Endian;
+use hadris_common::types::number::{U16, U32};
 
 /// Size of one directory entry.
 pub(crate) const ENTRY_SIZE: u64 = 32;
 /// The most entries one directory may hold.
 pub(crate) const MAX_ENTRIES: u32 = 65_536;
 
-pub(crate) const ATTR_READ_ONLY: u8 = 0x01;
-pub(crate) const ATTR_HIDDEN: u8 = 0x02;
-pub(crate) const ATTR_SYSTEM: u8 = 0x04;
-pub(crate) const ATTR_VOLUME_ID: u8 = 0x08;
-pub(crate) const ATTR_DIRECTORY: u8 = 0x10;
-pub(crate) const ATTR_ARCHIVE: u8 = 0x20;
-pub(crate) const ATTR_LONG_NAME: u8 = 0x0F;
-
-const END: u8 = 0x00;
-/// First name byte of a deleted entry.
-pub(crate) const FREE: u8 = 0xE5;
+pub(crate) use crate::raw::{
+    ATTR_ARCHIVE, ATTR_DIRECTORY, ATTR_HIDDEN, ATTR_LONG_NAME, ATTR_READ_ONLY, ATTR_SYSTEM,
+    ATTR_VOLUME_ID, ENTRY_FREE as FREE,
+};
+use crate::raw::{ATTR_LONG_NAME_MASK, ENTRY_END as END, RawDirEntry, RawLfnEntry};
 
 /// What a directory slot holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,13 +29,7 @@ pub(crate) enum Slot {
     Short(ShortEntry),
 }
 
-/// One long-name fragment.
-///
-/// @hadris-spec FAT:LFN
-/// @hadris-compliance partial
-/// @hadris-note Sequence, attributes, checksum, terminator and filler are read and written; names are UTF-16 only, with no legacy ANSI fallback.
-/// @hadris-tests lfn::tests::checksum_matches_reference, lfn::tests::encoded_orders_entries_last_first, lfn::tests::assembler_rejects_broken_sequences, fatfs_write::long_names_up_to_255_units
-/// @hadris-fuzz fat_read
+/// One long-name fragment, decoded from a [`RawLfnEntry`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct LongEntry {
     pub(crate) sequence: u8,
@@ -49,13 +39,7 @@ pub(crate) struct LongEntry {
     pub(crate) name3: [u8; 4],
 }
 
-/// The fields of a short entry.
-///
-/// @hadris-spec FAT:DirEntry
-/// @hadris-compliance partial
-/// @hadris-note Name/attributes/timestamps/cluster/size and NT case flags (`DIR_NTRes`) are read and written; extended access-time granularity is not modeled.
-/// @hadris-tests dirent::tests::decodes_short_fields, fatfs_write::short_names_and_case_bits
-/// @hadris-fuzz fat_read
+/// The fields of a short entry, decoded from a [`RawDirEntry`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ShortEntry {
     /// The 11 name bytes as stored, so a leading `0xE5` reads `0x05`.
@@ -73,10 +57,6 @@ pub(crate) struct ShortEntry {
     pub(crate) size: u32,
 }
 
-fn u16_at(raw: &[u8; 32], at: usize) -> u16 {
-    u16::from_le_bytes([raw[at], raw[at + 1]])
-}
-
 impl Slot {
     pub(crate) fn parse(raw: &[u8; 32]) -> Self {
         match raw[0] {
@@ -84,34 +64,30 @@ impl Slot {
             FREE => return Self::Free,
             _ => {}
         }
-        if raw[11] & 0x3F == ATTR_LONG_NAME {
-            let mut long = LongEntry {
-                sequence: raw[0],
-                checksum: raw[13],
-                name1: [0; 10],
-                name2: [0; 12],
-                name3: [0; 4],
-            };
-            long.name1.copy_from_slice(&raw[1..11]);
-            long.name2.copy_from_slice(&raw[14..26]);
-            long.name3.copy_from_slice(&raw[28..32]);
-            return Self::Long(long);
+        if raw[11] & ATTR_LONG_NAME_MASK == ATTR_LONG_NAME {
+            let long: RawLfnEntry = bytemuck::cast(*raw);
+            return Self::Long(LongEntry {
+                sequence: long.sequence,
+                checksum: long.checksum,
+                name1: long.name1,
+                name2: long.name2,
+                name3: long.name3,
+            });
         }
-        let mut name = [0; 11];
-        name.copy_from_slice(&raw[..11]);
+        let short: RawDirEntry = bytemuck::cast(*raw);
         Self::Short(ShortEntry {
-            name,
-            attr: raw[11],
-            nt_case: raw[12],
-            created_tenths: raw[13],
-            created_time: u16_at(raw, 14),
-            created_date: u16_at(raw, 16),
-            accessed_date: u16_at(raw, 18),
-            cluster_high: u16_at(raw, 20),
-            modified_time: u16_at(raw, 22),
-            modified_date: u16_at(raw, 24),
-            cluster_low: u16_at(raw, 26),
-            size: u32::from_le_bytes([raw[28], raw[29], raw[30], raw[31]]),
+            name: short.name,
+            attr: short.attributes,
+            nt_case: short.nt_reserved,
+            created_tenths: short.created_tenths,
+            created_time: short.created_time.get(),
+            created_date: short.created_date.get(),
+            accessed_date: short.accessed_date.get(),
+            cluster_high: short.first_cluster_high.get(),
+            modified_time: short.modified_time.get(),
+            modified_date: short.modified_date.get(),
+            cluster_low: short.first_cluster_low.get(),
+            size: short.size.get(),
         })
     }
 }
@@ -119,14 +95,16 @@ impl Slot {
 /// Encodes one long-name fragment as a directory slot.
 pub(crate) fn encode_long(sequence: u8, checksum: u8, units: &[u16; UNITS_PER_ENTRY]) -> [u8; 32] {
     let (name1, name2, name3) = lfn::pack(units);
-    let mut raw = [0u8; 32];
-    raw[0] = sequence;
-    raw[1..11].copy_from_slice(&name1);
-    raw[11] = ATTR_LONG_NAME;
-    raw[13] = checksum;
-    raw[14..26].copy_from_slice(&name2);
-    raw[28..32].copy_from_slice(&name3);
-    raw
+    bytemuck::cast(RawLfnEntry {
+        sequence,
+        name1,
+        attributes: ATTR_LONG_NAME,
+        kind: 0,
+        checksum,
+        name2,
+        first_cluster_low: [0; 2],
+        name3,
+    })
 }
 
 impl ShortEntry {
@@ -151,24 +129,20 @@ impl ShortEntry {
 
     /// Encodes the entry as a directory slot.
     pub(crate) fn encode(&self) -> [u8; 32] {
-        let mut raw = [0u8; 32];
-        raw[..11].copy_from_slice(&self.name);
-        raw[11] = self.attr;
-        raw[12] = self.nt_case;
-        raw[13] = self.created_tenths;
-        for (at, value) in [
-            (14, self.created_time),
-            (16, self.created_date),
-            (18, self.accessed_date),
-            (20, self.cluster_high),
-            (22, self.modified_time),
-            (24, self.modified_date),
-            (26, self.cluster_low),
-        ] {
-            raw[at..at + 2].copy_from_slice(&value.to_le_bytes());
-        }
-        raw[28..32].copy_from_slice(&self.size.to_le_bytes());
-        raw
+        bytemuck::cast(RawDirEntry {
+            name: self.name,
+            attributes: self.attr,
+            nt_reserved: self.nt_case,
+            created_tenths: self.created_tenths,
+            created_time: U16::new(self.created_time),
+            created_date: U16::new(self.created_date),
+            accessed_date: U16::new(self.accessed_date),
+            first_cluster_high: U16::new(self.cluster_high),
+            modified_time: U16::new(self.modified_time),
+            modified_date: U16::new(self.modified_date),
+            first_cluster_low: U16::new(self.cluster_low),
+            size: U32::new(self.size),
+        })
     }
 
     /// Sets the first cluster. FAT12/16 keep whatever the high word held.

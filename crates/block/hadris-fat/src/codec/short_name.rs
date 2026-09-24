@@ -4,15 +4,8 @@
 /// Punctuation allowed in a short name besides letters and digits.
 pub(crate) const ALLOWED_SYMBOLS: &[u8] = b"$%'-_@~`!(){}^#&";
 
-/// `DIR_NTRes` bit: the base name is stored uppercase but displayed lowercase.
-pub(crate) const LOWER_BASE: u8 = 0x08;
-/// `DIR_NTRes` bit: the extension is stored uppercase but displayed lowercase.
-pub(crate) const LOWER_EXT: u8 = 0x10;
-
-/// Byte that stands for a leading `0xE5` on disk, since `0xE5` marks a
-/// deleted entry.
-const KANJI_LEAD: u8 = 0x05;
-const DELETED: u8 = 0xE5;
+use crate::raw::{ENTRY_FREE as DELETED, ENTRY_KANJI_E5 as KANJI_LEAD};
+pub(crate) use crate::raw::{NT_LOWER_BASE as LOWER_BASE, NT_LOWER_EXTENSION as LOWER_EXT};
 
 /// Replaces a leading `0xE5` with `0x05` before the name is written.
 pub(crate) fn to_disk(name: &mut [u8; 11]) {

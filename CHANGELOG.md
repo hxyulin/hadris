@@ -10,6 +10,11 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-fat (V3):** `raw` holds the directory entry layouts:
+  `RawDirEntry` (short entries, with `lfn_checksum`) and `RawLfnEntry`,
+  with the `DIR_Attr`, `DIR_NTRes` and `LDIR_Ord` bits and the end, free
+  and `0x05` name markers. The driver decodes and encodes entries through
+  them.
 - **hadris-fat (V3):** exFAT is stable. `ExFatFs<D, T, C>` in
   `hadris_fat::exfat::{sync, r#async, async_send}`, a sibling of `FatFs`,
   replaces the preview. It needs no allocator, implements the writable

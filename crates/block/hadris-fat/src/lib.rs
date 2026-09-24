@@ -131,7 +131,7 @@
 //! - `sync::format` and its `async` versions: the formatter (requires `write`)
 //! - `sync::check`, `sync::check_with` and their `async` versions: the
 //!   checker
-//! - `raw`: on-disk boot sector, BPB and FSInfo layouts
+//! - `raw`: on-disk boot sector, BPB, FSInfo and directory entry layouts
 //! - `exfat`: the exFAT driver, `ExFatFs`, with its own `sync`, `r#async`
 //!   and `async_send` modes, formatter, checker and `raw` layouts
 
@@ -155,7 +155,8 @@ mod code_page;
 mod codec;
 mod findings;
 mod options;
-/// Raw on-disk FAT boot sector, BPB and FSInfo layouts.
+/// Raw on-disk FAT layouts: the boot sector, BPB, FSInfo and the short and
+/// long-name directory entries, with their constants.
 ///
 /// The items mirror the FAT specification. The module may gain items; the
 /// existing ones follow the specification and stay exhaustive. The crate
