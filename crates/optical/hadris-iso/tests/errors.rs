@@ -5,12 +5,12 @@ mod common;
 
 use common::{image, sample};
 use hadris_fs::sync::{DriverExt, FsDriver};
-use hadris_fs::tree::{Content, Tree};
+use hadris_fs::tree::{Content, Tree, WarningKind};
 use hadris_fs::{ErrorKind, NodeId};
 use hadris_iso::sync::IsoImage;
 use hadris_iso::{
-    BootEntry, BootInfo, Detail, ElTorito, HybridBoot, IsoOptions, Namespace, Relocation,
-    RockRidge, VolumeIdentifiers,
+    BootEntry, BootInfo, Detail, ElTorito, Emulation, HybridBoot, IsoOptions, Namespace, Platform,
+    Relocation, RockRidge, VolumeIdentifiers,
 };
 use hadris_storage::MemDevice;
 
@@ -88,6 +88,100 @@ fn bad_options_are_refused_before_writing() {
     assert_eq!(
         view.read_to_vec("/a/b/c/d/e/f/g/h/i/deep.txt").unwrap(),
         b"deep"
+    );
+}
+
+#[test]
+fn boot_options_are_checked_against_the_images() {
+    let tree = sample(false, false);
+    let el_torito = || ElTorito::new(BootEntry::new("boot/boot.img").with_load_size(4));
+    let bootstrap = IsoOptions::default()
+        .with_el_torito(el_torito())
+        .with_hybrid(HybridBoot::mbr().with_bootstrap(vec![0x90u8; 447]));
+    assert_eq!(
+        refused(&tree, &bootstrap),
+        (ErrorKind::LimitExceeded, Some(Detail::HybridBoot))
+    );
+    let fits = IsoOptions::default()
+        .with_el_torito(el_torito())
+        .with_hybrid(HybridBoot::mbr().with_bootstrap(vec![0x90u8; 446]));
+    let mut iso = IsoImage::open(image(&tree, &fits)).unwrap();
+    let mut mbr = [0u8; 512];
+    iso.read_bytes(0, &mut mbr).unwrap();
+    assert!(mbr[..446].iter().all(|&byte| byte == 0x90));
+
+    let zero = IsoOptions::default().with_el_torito(ElTorito::new(
+        BootEntry::new("boot/boot.img").with_load_size(0),
+    ));
+    assert_eq!(
+        refused(&tree, &zero),
+        (ErrorKind::InvalidInput, Some(Detail::BootImage))
+    );
+    let floppy = IsoOptions::default().with_el_torito(ElTorito::new(
+        BootEntry::new("boot/boot.img").with_emulation(Emulation::Floppy144),
+    ));
+    assert_eq!(
+        refused(&tree, &floppy),
+        (ErrorKind::InvalidInput, Some(Detail::BootImage))
+    );
+    let mut disk = sample(false, false);
+    disk.add_file("floppy.img", Content::bytes(vec![0u8; 1_474_560]))
+        .unwrap();
+    let floppy = IsoOptions::default().with_el_torito(ElTorito::new(
+        BootEntry::new("floppy.img").with_emulation(Emulation::Floppy144),
+    ));
+    assert!(hadris_iso::sync::plan(&disk, &floppy).is_ok());
+
+    let past = IsoOptions::default().with_el_torito(ElTorito::new(
+        BootEntry::new("boot/boot.img").with_load_size(9),
+    ));
+    let report = hadris_iso::sync::plan(&tree, &past).unwrap();
+    assert!(
+        report
+            .warnings()
+            .iter()
+            .any(|w| w.path() == "/boot/boot.img" && w.kind() == WarningKind::IgnoredMetadata),
+        "{:?}",
+        report.warnings()
+    );
+    let exact = IsoOptions::default().with_el_torito(el_torito());
+    assert!(
+        hadris_iso::sync::plan(&tree, &exact)
+            .unwrap()
+            .warnings()
+            .iter()
+            .all(|w| w.path() != "/boot/boot.img")
+    );
+
+    let two_efi = IsoOptions::default()
+        .with_el_torito(
+            el_torito()
+                .with_entry(BootEntry::new("boot/efi.img").with_platform(Platform::Efi))
+                .with_entry(BootEntry::new("boot/boot.img").with_platform(Platform::Efi)),
+        )
+        .with_hybrid(HybridBoot::gpt());
+    let report = hadris_iso::sync::plan(&tree, &two_efi).unwrap();
+    assert!(
+        report
+            .warnings()
+            .iter()
+            .any(|w| w.path() == "/boot/efi.img" && w.kind() == WarningKind::Skipped),
+        "{:?}",
+        report.warnings()
+    );
+    let named = IsoOptions::default()
+        .with_el_torito(
+            el_torito()
+                .with_entry(BootEntry::new("boot/efi.img").with_platform(Platform::Efi))
+                .with_entry(BootEntry::new("boot/boot.img").with_platform(Platform::Efi)),
+        )
+        .with_hybrid(HybridBoot::gpt().with_efi_partition("boot/efi.img"));
+    assert!(
+        hadris_iso::sync::plan(&tree, &named)
+            .unwrap()
+            .warnings()
+            .iter()
+            .all(|w| w.kind() != WarningKind::Skipped)
     );
 }
 

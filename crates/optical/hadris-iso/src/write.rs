@@ -72,8 +72,10 @@ pub async fn plan<C: Clock>(tree: &Tree, opts: &IsoOptions<C>) -> Result<Report,
 /// block size must divide 2048 ([`Detail::OutputBlockSize`]).
 ///
 /// Fails before writing anything when the options do not fit the tree:
-/// [`ErrorKind::InvalidInput`] for a missing boot image, an identifier that
-/// does not fit, a relocation clash or a tree too deep without Rock Ridge;
+/// [`ErrorKind::InvalidInput`] for a missing boot image, a diskette image
+/// of the wrong size, a load size of zero, an identifier that does not
+/// fit, a relocation clash or a tree too deep without Rock Ridge;
+/// [`ErrorKind::LimitExceeded`] for MBR boot code over 446 bytes;
 /// [`ErrorKind::FileTooLarge`] for a file of 4 GiB or more below Level 3.
 /// A content that cannot be read fails with [`Detail::Content`].
 pub async fn write<D: BlockDevice, C: Clock>(mut out: D, tree: &Tree, opts: &IsoOptions<C>) -> Result<Report, Error<D::Error>> {

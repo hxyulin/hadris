@@ -110,7 +110,7 @@ fn test_hadris_multisection_boot_catalog() {
 #[test]
 fn test_floppy_emulation_media_type_and_default_load_size() {
     let mut tree = Tree::new();
-    tree.add_file("floppy.img", Content::bytes(vec![0x44u8; 2048]))
+    tree.add_file("floppy.img", Content::bytes(vec![0x44u8; 1_474_560]))
         .unwrap();
     let options = IsoOptions::default()
         .with_volume(VolumeIdentifiers::new("FLOPPYBOOT"))

@@ -37,7 +37,8 @@ pub enum Detail {
     BootCatalog,
     /// The image has no tree for the requested namespace.
     NoNamespace,
-    /// A boot image named in the options is not a file in the tree.
+    /// A boot image named in the options is not a file in the tree, a
+    /// diskette image is not the diskette's size, or a load size is zero.
     BootImage,
     /// A boot image is too small for the requested boot information table.
     BootInfoTable,
@@ -82,7 +83,7 @@ impl Detail {
             Self::SystemUse => "invalid system use area",
             Self::BootCatalog => "invalid El Torito boot catalog",
             Self::NoNamespace => "the image has no tree for this namespace",
-            Self::BootImage => "boot image is not a file in the tree",
+            Self::BootImage => "boot image missing or unfit for its entry",
             Self::BootInfoTable => "boot image too small for a boot information table",
             Self::CatalogPath => "invalid boot catalog path",
             Self::Relocation => "directory tree too deep or relocation directory clashes",

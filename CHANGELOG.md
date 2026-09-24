@@ -985,6 +985,15 @@ Each published package owns its version and may be released independently.
   in the volume space size, as xorriso and `mkisofs -pad` write by
   default. `isoinfo` refused images shorter than 48 blocks ("Short read on
   old image").
+- **hadris-iso (V3):** `HybridBoot::with_bootstrap` code over 446 bytes
+  fails with `ErrorKind::LimitExceeded` and `Detail::HybridBoot` instead of
+  being cut. El Torito entries are checked before writing: a load size of
+  zero and a diskette image that is not exactly its diskette's size fail
+  with `Detail::BootImage`, as `mkisofs` refuses them; a no-emulation load
+  size past the image is written and reported as a warning. A GPT or
+  hybrid table with several UEFI entries and no
+  `HybridBoot::with_efi_partition` warns that it has no EFI system
+  partition.
 
 ## [2.4.0] - 2026-09-08
 

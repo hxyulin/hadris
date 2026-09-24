@@ -309,6 +309,7 @@ pub(crate) fn plan<C: Clock>(
         dir_refs: BTreeMap::new(),
     };
     planner.gather()?;
+    planner.check_boot()?;
     planner.insert_catalog()?;
     planner.check_depth()?;
     planner.relocate()?;
@@ -416,6 +417,68 @@ impl<C: Clock> Planner<'_, C> {
         self.dirs
             .iter_mut()
             .for_each(|dir| dir.physical = dir.dirs.clone());
+        Ok(())
+    }
+
+    /// Checks the boot options against the tree before anything is laid
+    /// out: boot images exist and fit their emulation, a load size is not
+    /// zero, and the MBR boot code fits. Warns about load sizes past the
+    /// image and a hybrid table that gets no EFI system partition.
+    fn check_boot(&mut self) -> PlanResult<()> {
+        if let Some(code) = self.opts.hybrid().and_then(HybridBoot::bootstrap)
+            && code.len() > 446
+        {
+            return Err(Error::new(ErrorKind::LimitExceeded, Detail::HybridBoot));
+        }
+        let Some(el_torito) = self.opts.el_torito() else {
+            return Ok(());
+        };
+        for entry in el_torito.entries() {
+            let node = self
+                .tree
+                .get(entry.image())
+                .filter(|node| matches!(node.kind(), NodeKind::File(_)))
+                .ok_or(invalid(Detail::BootImage))?;
+            let len = self.contents.get(&node.id()).map_or(0, |info| info.len);
+            let floppy = match entry.emulation() {
+                crate::Emulation::Floppy12 => Some(1_228_800),
+                crate::Emulation::Floppy144 => Some(1_474_560),
+                crate::Emulation::Floppy288 => Some(2_949_120),
+                _ => None,
+            };
+            if floppy.is_some_and(|size| size != len) || entry.load_size() == Some(0) {
+                return Err(invalid(Detail::BootImage));
+            }
+            if entry.emulation() == crate::Emulation::NoEmulation
+                && let Some(load) = entry.load_size()
+                && u64::from(load) > len.div_ceil(512)
+            {
+                self.warnings.push(Warning::new(
+                    normalize(entry.image()),
+                    WarningKind::IgnoredMetadata,
+                    alloc::format!(
+                        "the load size of {load} sectors runs past the {len}-byte boot image; firmware loads the bytes after it too"
+                    ),
+                ));
+            }
+        }
+        if let Some(hybrid) = self.opts.hybrid()
+            && hybrid.scheme() != PartitionScheme::Mbr
+            && hybrid.efi_partition().is_none()
+        {
+            let mut uefi = el_torito
+                .entries()
+                .iter()
+                .skip(1)
+                .filter(|entry| entry.platform() == Platform::Efi);
+            if let (Some(first), Some(_)) = (uefi.next(), uefi.next()) {
+                self.warnings.push(Warning::new(
+                    normalize(first.image()),
+                    WarningKind::Skipped,
+                    "several UEFI boot entries and no HybridBoot::with_efi_partition: the partition table has no EFI system partition",
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -1489,8 +1552,7 @@ impl<C: Clock> Planner<'_, C> {
         if hybrid.scheme() != PartitionScheme::Gpt
             && let Some(code) = hybrid.bootstrap()
         {
-            disk.set_bootstrap(&code[..code.len().min(446)])
-                .map_err(part_error)?;
+            disk.set_bootstrap(code).map_err(part_error)?;
         }
         Ok(disk)
     }
