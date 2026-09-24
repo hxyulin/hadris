@@ -420,10 +420,13 @@ pub mod sync {
 
     #[path = "block.rs"]
     mod block;
+    #[path = "check.rs"]
+    mod check;
     #[path = "fat.rs"]
     mod fat;
 
     pub use block::{load, read_bytes, store, write_bytes, write_zeros};
+    pub use check::check;
     pub use fat::{
         allocate, allocate_run, clear_slots, count_free, free_chain, get, get_copy, mirror, mkfs,
         next, read_fat, read_geometry, read_slot, run, set, slot_offset, walk, write_fs_info,
@@ -444,10 +447,13 @@ pub mod r#async {
 
     #[path = "block.rs"]
     mod block;
+    #[path = "check.rs"]
+    mod check;
     #[path = "fat.rs"]
     mod fat;
 
     pub use block::{load, read_bytes, store, write_bytes, write_zeros};
+    pub use check::check;
     pub use fat::{
         allocate, allocate_run, clear_slots, count_free, free_chain, get, get_copy, mirror, mkfs,
         next, read_fat, read_geometry, read_slot, run, set, slot_offset, walk, write_fs_info,
@@ -470,10 +476,13 @@ pub mod async_send {
 
     #[path = "block.rs"]
     mod block;
+    #[path = "check.rs"]
+    mod check;
     #[path = "fat.rs"]
     mod fat;
 
     pub use block::{load, read_bytes, store, write_bytes, write_zeros};
+    pub use check::check;
     pub use fat::{
         allocate, allocate_run, clear_slots, count_free, free_chain, get, get_copy, mirror, mkfs,
         next, read_fat, read_geometry, read_slot, run, set, slot_offset, walk, write_fs_info,

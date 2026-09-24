@@ -1,6 +1,8 @@
 use hadris_fat_raw::io::{BlockBuf, ChainPos, DirStart, DirWalk, Held, sync as io};
 use hadris_fat_raw::layout::{self, BootFields, Request};
-use hadris_fat_raw::{ENTRY_FREE, FatKind, ShortEntry, Slot};
+use hadris_fat_raw::{
+    Detail, ENTRY_FREE, FatKind, LongEntry, NT_LOWER_BASE, ShortEntry, Slot, lfn_checksum,
+};
 use hadris_fs::{DateTime, ErrorKind};
 use hadris_storage::{BlockSize, MemDevice};
 
@@ -138,4 +140,62 @@ fn slots_round_trip() {
         io::slot_offset(&mut dev, &mut block, &fat, &mut walk, 512).unwrap(),
         None
     );
+}
+
+#[test]
+fn check_paths_decode_stored_names() {
+    let mut image = vec![0u8; 2 * MIB];
+    let (mut dev, mut block) = format(&mut image, FatKind::Fat12);
+    let geo = io::read_geometry(&mut dev, &mut block).unwrap();
+    let fat = io::read_fat(&mut dev, &mut block, geo).unwrap();
+    let short = *b"A~1     TXT";
+    let mut units = [0xFFFFu16; 13];
+    units[..4].copy_from_slice(&[u16::from(b'a'), 0xD800, u16::from(b'b'), 0]);
+    let long = LongEntry::new(0x41, lfn_checksum(&short), &units);
+    let sized = |name: [u8; 11], case: u8| {
+        let mut entry = ShortEntry::new(name, 0);
+        entry.set_size(1);
+        entry.set_nt_case(case);
+        entry.encode()
+    };
+    let slots = [
+        long.encode(),
+        sized(short, 0),
+        sized(*b"\xE9T      TXT", 0),
+        sized(*b"LOW     TXT", NT_LOWER_BASE),
+    ];
+    let mut walk = DirWalk::new(fat.root());
+    let mut written = 0;
+    io::write_slots(
+        &mut dev,
+        &mut block,
+        &fat,
+        &mut walk,
+        1,
+        4,
+        |i| slots[i as usize],
+        &mut written,
+    )
+    .unwrap();
+
+    let mut found = Vec::new();
+    let mut scratch = [0u8; 1536];
+    let report = io::check(&mut dev, &mut scratch, |finding| {
+        let detail = Detail::from_code(finding.detail()).unwrap();
+        found.push((
+            detail,
+            finding.path().unwrap().to_vec(),
+            finding.to_string(),
+        ));
+    })
+    .unwrap();
+    assert_eq!(report.findings(), 3);
+    let paths: Vec<&[u8]> = found.iter().map(|(_, path, _)| path.as_slice()).collect();
+    assert_eq!(paths, [&b"/a\xEF\xBF\xBDb"[..], b"/\xE9T.TXT", b"/low.TXT"]);
+    assert!(
+        found
+            .iter()
+            .all(|(detail, ..)| *detail == Detail::SizeMismatch)
+    );
+    assert!(found[1].2.contains("/\\xe9T.TXT"), "{}", found[1].2);
 }

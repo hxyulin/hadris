@@ -18,10 +18,6 @@ use hadris_fs::{
 use crate::code_page::{Ascii, CodePage};
 use crate::{FatKind, MountOptions, VolumeLabel};
 
-#[path = "check.rs"]
-mod fsck;
-pub use fsck::{check, check_with};
-
 const ROOT: NodeId = NodeId::new(1);
 /// A node id holds the slot of its short entry, the entry's byte offset
 /// divided by 32, in its low `SLOT_BITS` bits. The bits above, the tier,
@@ -38,7 +34,6 @@ const MAX_TIER: u64 = (1 << (63 - SLOT_BITS)) - 1;
 const RESERVED: NodeId = NodeId::new(1 << 63);
 /// Size of one directory entry.
 const ENTRY_SIZE: u64 = raw::ENTRY_SIZE as u64;
-const UNKNOWN_FREE: u32 = u32::MAX;
 const MAX_FILE_SIZE: u64 = u32::MAX as u64;
 /// Short-name candidates a directory scan checks at once.
 const CANDIDATES: usize = 6;

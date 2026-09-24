@@ -105,7 +105,7 @@ hadris-fs = "2.4.0"       # path and host helpers
 hadris-storage = "2.4.0"  # Cache<D> for block caching
 ```
 
-The checker (`check`, `check_with`) is always compiled; block caching comes
+The checker (`check`) is always compiled; block caching comes
 from wrapping the device in `hadris_storage::sync::Cache`.
 
 ### Allocation-only CPIO writer

@@ -80,13 +80,14 @@
 //! # fn main() {}
 //! ```
 //!
-//! ## Checking with `FatFs`
+//! ## Checking
 //!
-//! `check` and `check_with` (in each mode, no allocator) read the volume
-//! without changing it and report [`Finding`]s and a [`CheckReport`]: boot
-//! sector, FSInfo and FAT copy problems, broken, cyclic, cross-linked and
-//! lost chains, chains that do not fit their file, bad names, dot entries,
-//! misplaced labels and broken long-name runs.
+//! `check` (in each mode, no allocator) reads an unmounted volume without
+//! changing it and passes each `hadris_fs::Finding` to a callback: boot
+//! sector, FSInfo and FAT copy problems, a dirty volume, broken, cyclic,
+//! cross-linked and lost chains, chains that do not fit their file, bad
+//! names, dot entries, misplaced labels and broken long-name runs. Each
+//! finding has a [`Detail`] code and the path of its entry.
 //!
 //! ```rust
 //! # #[cfg(all(feature = "sync", feature = "write", feature = "std"))]
@@ -96,8 +97,10 @@
 //! use hadris_storage::{BlockSize, MemDevice};
 //!
 //! let dev = MemDevice::new(vec![0u8; 8 << 20], BlockSize::new(512).unwrap());
-//! let mut fs = format(dev, FormatOptions::new())?;
-//! assert!(check(&mut fs)?.is_clean());
+//! let mut dev = format(dev, FormatOptions::new())?.into_inner();
+//! let mut scratch = [0u8; 4096];
+//! let report = check(&mut dev, &mut scratch, |finding| println!("{finding}"))?;
+//! assert!(report.is_clean());
 //! # Ok(())
 //! # }
 //! # #[cfg(not(all(feature = "sync", feature = "write", feature = "std")))]
@@ -114,7 +117,7 @@
 //! | `async`  | No      | Asynchronous API in `r#async` |
 //! | `async-send` | No  | Asynchronous API with `Send` futures in `async_send` |
 //! | `write`  | Yes     | `format` in each mode; `FatFs` and `ExFatFs` write without it |
-//! | `defmt`  | No      | `defmt::Format` for `FatKind` and `Finding` |
+//! | `defmt`  | No      | `defmt::Format` for `FatKind` and the exFAT `Finding` |
 //!
 //! No feature changes what an item does: `FatFs` always reads and writes long
 //! names, and neither `FatFs` nor `ExFatFs` needs an allocator in any mode.
@@ -122,15 +125,14 @@
 //! ## Sync, async and `Send` async
 //!
 //! The same source is compiled once per enabled mode: `sync`, `r#async` and
-//! `async_send`. Each holds `FatFs`, `check`, `check_with` and, with `write`,
-//! `format`. The crate root holds only the mode-independent types.
+//! `async_send`. Each holds `FatFs`, `check` and, with `write`, `format`. The crate root holds only the mode-independent types.
 //!
 //! ## Modules
 //!
 //! - `sync::FatFs`, `r#async::FatFs`, `async_send::FatFs`: the driver
 //! - `sync::format` and its `async` versions: the formatter (requires `write`)
-//! - `sync::check`, `sync::check_with` and their `async` versions: the
-//!   checker
+//! - `sync::check` and its `async` versions: the checker, from
+//!   `hadris-fat-raw`
 //! - `raw`: the `hadris-fat-raw` crate, with the on-disk boot sector, BPB,
 //!   FSInfo and directory entry layouts and the codecs
 //! - `exfat`: the exFAT driver, `ExFatFs`, with its own `sync`, `r#async`
@@ -154,7 +156,6 @@ extern crate self as hadris_fat;
 extern crate alloc;
 
 mod code_page;
-mod findings;
 mod options;
 /// The on-disk layer, the `hadris-fat-raw` crate: the boot sector, BPB,
 /// FSInfo and directory entry layouts with their constants, and the
@@ -188,7 +189,8 @@ pub mod sync {
     pub(crate) mod block_io;
     #[path = "fatfs.rs"]
     mod fatfs;
-    pub use fatfs::{FatFs, check, check_with};
+    pub use fatfs::FatFs;
+    pub use rawio::check;
     #[cfg(feature = "write")]
     #[path = "mkfs.rs"]
     mod mkfs;
@@ -216,7 +218,8 @@ pub mod r#async {
     pub(crate) mod block_io;
     #[path = "fatfs.rs"]
     mod fatfs;
-    pub use fatfs::{FatFs, check, check_with};
+    pub use fatfs::FatFs;
+    pub use rawio::check;
     #[cfg(feature = "write")]
     #[path = "mkfs.rs"]
     mod mkfs;
@@ -235,7 +238,6 @@ pub mod r#async {
 pub mod async_send;
 
 pub use code_page::{Ascii, CodePage, Cp437};
-pub use findings::{CheckReport, Finding, FindingKind};
 pub use hadris_fat_raw::{Detail, FatKind};
 #[cfg(feature = "write")]
 pub use options::FormatOptions;

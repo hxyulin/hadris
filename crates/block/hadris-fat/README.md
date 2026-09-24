@@ -144,35 +144,39 @@ bytes on every run. A device too small for the variant gives
 `ErrorKind::NoSpace`, one too large gives `ErrorKind::LimitExceeded`, and a
 bad option gives `ErrorKind::InvalidInput` before anything is written.
 
-### Checking with `FatFs`
+### Checking
 
-`check` (every mode, no allocator) reads the whole volume without changing
-it and reports what `fsck` would: boot sector and FSInfo problems, FAT
-copies that differ, chains that are broken, cyclic, cross-linked, lost or
-the wrong length for their file, bad names and dot entries, labels out of
-place, and long-name runs that are orphaned or fail their checksum.
-`check_with` passes each `Finding` to a callback and takes the bitmap it
-marks clusters in; the tree is walked once per bitmap's worth of clusters,
-so a smaller bitmap costs time, never accuracy. `Finding` and its variants
-with fields are `#[non_exhaustive]`, so match them with `..`. Repair is not
-implemented.
+`check(&mut dev, scratch, on_finding)` (every mode, no allocator) reads an
+unmounted volume without changing it and reports what `fsck` would: boot
+sector and FSInfo problems, FAT copies that differ, a dirty volume, chains
+that are broken, cyclic, cross-linked, lost or the wrong length for their
+file, bad names and dot entries, labels out of place, and long-name runs
+that are orphaned or fail their checksum. Each `hadris_fs::Finding` has a
+message, a `hadris_fat::Detail` code (the one mount errors use), a
+severity, a location and the path of its entry. A damaged FAT32 boot
+sector is a finding, and the check goes on from the backup.
+
+The first 1 KiB of `scratch` holds the path of each finding and the rest
+a bitmap of one bit per cluster; the tree is walked once per bitmap's worth
+of clusters, so a smaller buffer costs time, never accuracy. It must be at
+least 1536 bytes. Repair is not implemented.
 
 ```rust,no_run
-use hadris_fat::sync::{FatFs, check_with};
+use hadris_fat::sync::check;
 use hadris_storage::{BlockSize, MemDevice};
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 let image = std::fs::read("disk.img")?;
-let mut fs = FatFs::open(MemDevice::new(image, BlockSize::new(512).unwrap()))?;
-let mut bitmap = [0u8; 4096];
-let report = check_with(&mut fs, &mut bitmap, |finding| println!("{finding:?}"))?;
-println!("{} findings, {} lost clusters", report.findings(), report.lost_clusters());
+let mut dev = MemDevice::new(image, BlockSize::new(512).unwrap());
+let mut scratch = [0u8; 4096];
+let report = check(&mut dev, &mut scratch, |finding| println!("{finding}"))?;
+println!("{} findings in {} passes", report.findings(), report.passes());
 # Ok(())
 # }
 ```
 
-The device is read as it is, so call `sync` first on a volume you have
-written to. A volume left by an interrupted `FatFs` operation shows only
+Unmount a volume you have written to, with `sync` and `into_inner`, before
+checking its device. A volume left by an interrupted `FatFs` operation shows only
 what the crash-safety rules allow: lost clusters, chains longer than their
 file, a renamed node under both names, orphaned long-name fragments, FAT
 copies that lag the active one and a stale FSInfo free count.
@@ -201,7 +205,7 @@ cargo run -p hadris-fat --example shared_volume -- disk.img
 | `async` | Asynchronous API in `r#async` | `hadris-io/async` |
 | `async-send` | Asynchronous API with `Send` futures, in `async_send` | `async` |
 | `std` | `hadris_storage::host::FileDevice` for image files and `SystemClock` | `std`, `alloc` |
-| `defmt` | `defmt::Format` for `FatKind` and `Finding` | `defmt` |
+| `defmt` | `defmt::Format` for `FatKind` and the exFAT `Finding` | `defmt` |
 
 Default features: `write`, `std`, `sync`
 

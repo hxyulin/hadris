@@ -57,6 +57,14 @@ Each published package owns its version and may be released independently.
   short Allocation Bitmap `Bitmap`, a bad up-case table entry
   `UpcaseTable`. Chain walks report `BrokenChain`, `BadCluster` and
   `CyclicChain`.
+- **hadris-fat-raw (V3):** `io::{sync, r#async, async_send}::check(&mut
+  dev, scratch, on_finding)`, the FAT checker, now on an unmounted device
+  and allocation-free. It reports each `hadris_fs::Finding` with a
+  `Detail` code, a severity, a location and the path of its entry (the
+  first 1 KiB of `scratch`; the rest is the cluster bitmap, at least 512
+  bytes), and returns a `hadris_fs::CheckReport`. A damaged FAT32 boot
+  sector is a finding and the check goes on from the backup boot sector.
+  A clear FAT16 or FAT32 clean-shutdown bit is a new `Dirty` notice.
 - **hadris-storage (V3):** `BlockDevice` gains `max_block_count` (how many
   blocks a device holds once written past its end, `block_count` by
   default), `disk_offset` (the byte offset of block 0 on the disk a device
@@ -536,6 +544,16 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fat (V3):** `sync::check`, `r#async::check` and
+  `async_send::check` are the `hadris-fat-raw` checker: they take an
+  unmounted device and a scratch buffer instead of a `FatFs`, and report
+  `hadris_fs::Finding`s, whose `detail` is a `hadris_fat::Detail`, instead
+  of the `Finding` enum. `CheckReport` counts findings and passes; the
+  file, directory and cluster counts are gone (use `FatFs::stats`).
+- **hadris-fat-cli:** `verify` prints each finding as `message: path
+  (location)` with its severity, and `stat` counts files and directories
+  by walking the tree. `stat` no longer prints bad clusters, and `verify`
+  no longer prints file, directory, bad and lost cluster counts.
 - **hadris-fat (V3):** `hadris_fat::raw` is the `hadris-fat-raw` crate and
   `hadris_fat::exfat::raw` its `exfat` module. The layouts keep their
   names; `FatKind` is re-exported from there.
@@ -984,6 +1002,8 @@ Each published package owns its version and may be released independently.
 
 ### Removed
 
+- **hadris-fat (V3):** `check_with`, the FAT `Finding` enum, `FindingKind`
+  and the FAT `CheckReport`; use `check` and `hadris_fs::Finding`.
 - **hadris-storage (V3):** `impl BlockDevice for std::fs::File`, since
   `block_count` cannot fail and a `File` cannot tell how it was opened;
   use `host::FileDevice`. `Slice` is replaced by `Partition`.

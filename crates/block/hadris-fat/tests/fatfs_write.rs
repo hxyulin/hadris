@@ -276,7 +276,7 @@ fn written_trees_read_back_through_a_fresh_mount() {
             common::read(&mut fresh, "/Nested Dir/inner/deep.bin"),
             common::payload(33_333, 5)
         );
-        let free = hadris_fat::sync::check(&mut fresh).unwrap().free_clusters();
+        let free = common::scan_free(&mut common::device(case, image.clone()));
         assert_eq!(u64::from(free), fs.stats().unwrap().free_blocks());
         fsck(&image, case.name);
     }

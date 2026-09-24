@@ -301,9 +301,7 @@ fn stats_count_clusters() {
         assert!(empty.block_size() >= 512);
 
         let image = common::build(case);
-        let free = hadris_fat::sync::check(&mut common::mount(case, &image))
-            .unwrap()
-            .free_clusters();
+        let free = common::scan_free(&mut common::device(case, image.clone()));
         let mut fs = open(case, image);
         let stats = fs.stats().unwrap();
         assert_eq!(stats.total_blocks(), empty.total_blocks());
@@ -732,9 +730,7 @@ fn fsinfo_unknown_values_mount_and_count_by_scanning() {
     let case = CASES[2];
     assert_eq!(case.kind, FatKind::Fat32);
     let mut image = common::build(case);
-    let free = hadris_fat::sync::check(&mut common::mount(case, &image))
-        .unwrap()
-        .free_clusters();
+    let free = common::scan_free(&mut common::device(case, image.clone()));
     let (_, _, fs_info, _) = fat32_layout(&image);
     image[fs_info + 488..fs_info + 496].fill(0xFF);
     let mut fs = open(case, image);

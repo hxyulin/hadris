@@ -47,11 +47,16 @@ fn free(fs: &mut Fs) -> u64 {
     fs.stats().unwrap().free_blocks()
 }
 
+/// Checks the volume `fs` has written, and mounts it again.
 fn assert_clean(fs: &mut Fs, what: &str) {
     fs.sync().unwrap();
-    let report = hadris_fat::sync::check(fs).unwrap();
-    assert!(report.is_clean(), "{what}: {report:?}");
-    assert_eq!(u64::from(report.free_clusters()), free(fs), "{what}");
+    let expected = free(fs);
+    let placeholder = common::mount(CASES[0], &common::blank(CASES[0]));
+    let mut dev = std::mem::replace(fs, placeholder).into_inner();
+    let (_, found) = common::check_dev(&mut dev, 8192);
+    assert_eq!(found, [], "{what}");
+    assert_eq!(u64::from(common::scan_free(&mut dev)), expected, "{what}");
+    *fs = common::mount_dev(dev);
 }
 
 fn list(fs: &mut Fs, dir: NodeId) -> Vec<String> {
@@ -438,7 +443,8 @@ fn pins_follow_renames_and_removals<T: NodeTable>(mut fs: FatFs<Device, T>, coun
     }
     assert_eq!(fs.open_nodes(), 1);
     fs.sync().unwrap();
-    assert!(hadris_fat::sync::check(&mut fs).unwrap().is_clean());
+    let (_, found) = common::check_dev(&mut fs.into_inner(), 8192);
+    assert_eq!(found, []);
 }
 
 #[test]

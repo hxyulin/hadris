@@ -339,32 +339,40 @@ fn percent(part: u64, total: u64) -> f64 {
     }
 }
 
-/// The counts a check reports, for either kind of volume.
-struct Counts {
-    files: u32,
-    directories: u32,
-    used: u32,
-    free: u32,
-    bad: u32,
-    lost: u32,
-    findings: u32,
-    clean: bool,
+/// Files and directories below `path`, counting `path` as a directory.
+fn count_tree<D: FsDriver>(fs: &mut D, path: &str, files: &mut u64, dirs: &mut u64) -> Result<()> {
+    *dirs += 1;
+    for (name, meta) in list_dir(fs, path)? {
+        match meta.file_type() {
+            FileType::Dir => count_tree(fs, &join(path, &name), files, dirs)?,
+            _ => *files += 1,
+        }
+    }
+    Ok(())
 }
 
-/// The [`Counts`] of a `check` or `check_with` result, keeping its error.
-macro_rules! counts {
-    ($report:expr) => {
-        $report.map(|report| Counts {
-            files: report.files(),
-            directories: report.directories(),
-            used: report.used_clusters(),
-            free: report.free_clusters(),
-            bad: report.bad_clusters(),
-            lost: report.lost_clusters(),
-            findings: report.findings(),
-            clean: report.is_clean(),
-        })
-    };
+/// Checks the image with the checker of its kind, and returns each finding
+/// as text.
+fn check_image(image: &Path, volume: &mut Volume, clusters: u64) -> Result<Vec<String>> {
+    let bitmap = (clusters.div_ceil(8) as usize).max(512);
+    let mut findings = Vec::new();
+    match volume {
+        Volume::Fat(_) => {
+            let mut dev = FileDevice::open(image)
+                .with_context(|| format!("Failed to open image file: {}", image.display()))?;
+            let mut scratch = vec![0u8; 1024 + bitmap];
+            hadris_fat::sync::check(&mut dev, &mut scratch, |finding| {
+                findings.push(format!("{finding} [{:?}]", finding.severity()))
+            })?;
+        }
+        Volume::ExFat(fs) => {
+            let mut scratch = vec![0u8; bitmap];
+            exfat::sync::check_with(fs, &mut scratch, |finding| {
+                findings.push(format!("{finding:?}"))
+            })?;
+        }
+    }
+    Ok(findings)
 }
 
 fn cmd_stat(image: &Path) -> Result<()> {
@@ -372,15 +380,13 @@ fn cmd_stat(image: &Path) -> Result<()> {
     let mut volume = open(image)?;
     let label = volume_label(&mut volume, &sector)?;
     let stats = with_fs!(&mut volume, fs => fs.stats()).context("Failed to gather statistics")?;
-    let report = match &mut volume {
-        Volume::Fat(fs) => counts!(hadris_fat::sync::check(fs)),
-        Volume::ExFat(fs) => counts!(exfat::sync::check(fs)),
-    }
-    .context("Failed to scan the filesystem")?;
+    let (mut files, mut directories) = (0, 0);
+    with_fs!(&mut volume, fs => count_tree(fs, "/", &mut files, &mut directories))
+        .context("Failed to scan the filesystem")?;
     let cluster_size = u64::from(stats.block_size());
     let total = stats.total_bytes();
-    let used = u64::from(report.used) * cluster_size;
-    let free = u64::from(report.free) * cluster_size;
+    let used = stats.used_blocks() * cluster_size;
+    let free = stats.free_blocks() * cluster_size;
     let kind = type_name(&volume);
 
     println!("{kind} Filesystem Statistics");
@@ -391,9 +397,8 @@ fn cmd_stat(image: &Path) -> Result<()> {
     println!("Cluster Information:");
     println!("  Cluster Size:      {cluster_size} bytes");
     println!("  Total Clusters:    {}", stats.total_blocks());
-    println!("  Used Clusters:     {}", report.used);
-    println!("  Free Clusters:     {}", report.free);
-    println!("  Bad Clusters:      {}", report.bad);
+    println!("  Used Clusters:     {}", stats.used_blocks());
+    println!("  Free Clusters:     {}", stats.free_blocks());
     println!();
     println!("Space Usage:");
     println!(
@@ -412,8 +417,8 @@ fn cmd_stat(image: &Path) -> Result<()> {
     );
     println!();
     println!("File System Contents:");
-    println!("  Files:             {}", report.files);
-    println!("  Directories:       {}", report.directories);
+    println!("  Files:             {files}");
+    println!("  Directories:       {directories}");
 
     Ok(())
 }
@@ -630,46 +635,31 @@ fn cmd_fragmentation(image: &Path, top: usize) -> Result<()> {
 
 fn cmd_verify(image: &Path, verbose: bool) -> Result<()> {
     let mut volume = open(image)?;
-    let clusters = with_fs!(&mut volume, fs => fs.stats())
-        .context("Failed to read the allocation table")?
-        .total_blocks()
-        + 2;
-    let mut bitmap = vec![0u8; clusters.div_ceil(8) as usize];
-    let mut findings = Vec::new();
-    let report = match &mut volume {
-        Volume::Fat(fs) => counts!(hadris_fat::sync::check_with(fs, &mut bitmap, |finding| {
-            findings.push(format!("{finding:?}"))
-        })),
-        Volume::ExFat(fs) => counts!(exfat::sync::check_with(fs, &mut bitmap, |finding| {
-            findings.push(format!("{finding:?}"))
-        })),
-    }
-    .context("Failed to verify filesystem")?;
+    let stats =
+        with_fs!(&mut volume, fs => fs.stats()).context("Failed to read the allocation table")?;
+    let findings = check_image(image, &mut volume, stats.total_blocks() + 2)
+        .context("Failed to verify filesystem")?;
 
     println!("Filesystem Verification");
     println!("=======================");
     println!("Filesystem Type:     {}", type_name(&volume));
-    println!("Files Checked:       {}", report.files);
-    println!("Directories Checked: {}", report.directories);
-    println!("Clusters In Use:     {}", report.used);
+    println!("Clusters In Use:     {}", stats.used_blocks());
     if verbose {
-        println!("Free Clusters:       {}", report.free);
-        println!("Bad Clusters:        {}", report.bad);
-        println!("Lost Clusters:       {}", report.lost);
+        println!("Free Clusters:       {}", stats.free_blocks());
     }
     println!();
 
-    if report.clean {
+    if findings.is_empty() {
         println!("Result: PASS - No issues found");
         Ok(())
     } else {
-        println!("Result: FAIL - {} issue(s) found", report.findings);
+        println!("Result: FAIL - {} issue(s) found", findings.len());
         println!();
         println!("Issues:");
         for finding in &findings {
             println!("  - {finding}");
         }
-        bail!("{} issue(s) found", report.findings)
+        bail!("{} issue(s) found", findings.len())
     }
 }
 
