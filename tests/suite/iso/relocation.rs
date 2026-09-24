@@ -18,7 +18,12 @@ fn bsdtar_extracts_relocated_trees() {
         (0..5).map(|i| format!("{i}_{}", "x".repeat(58))).collect(),
     ];
     for names in paths {
-        for collision in [None, Some(("rr_moved", false)), Some((".rr_moved", true))] {
+        for (collision, relocation) in [
+            (None, "rr_moved"),
+            (Some(("rr_moved", false)), ".rr_moved"),
+            (Some((".rr_moved", true)), "rr_moved"),
+            (Some(("rr_moved", true)), "rr_moved"),
+        ] {
             let mut expected = BTreeMap::new();
             let mut path = String::new();
             for name in &names {
@@ -37,20 +42,23 @@ fn bsdtar_extracts_relocated_trees() {
                 if directory {
                     tree.add_file(&format!("{name}/user.txt"), Content::bytes("user"))
                         .unwrap();
+                    tree.add_file(&format!("{name}/RRD000001/own.txt"), Content::bytes("own"))
+                        .unwrap();
                     expected.insert(format!("/{name}"), EntryData::Directory);
                     expected.insert(
                         format!("/{name}/user.txt"),
                         EntryData::File(b"user".to_vec()),
+                    );
+                    expected.insert(format!("/{name}/RRD000001"), EntryData::Directory);
+                    expected.insert(
+                        format!("/{name}/RRD000001/own.txt"),
+                        EntryData::File(b"own".to_vec()),
                     );
                 } else {
                     tree.add_file(name, Content::bytes("user")).unwrap();
                     expected.insert(format!("/{name}"), EntryData::File(b"user".to_vec()));
                 }
             }
-            let relocation = match collision {
-                Some(("rr_moved", _)) => ".rr_moved",
-                _ => "rr_moved",
-            };
             let options = IsoOptions::default()
                 .with_volume(VolumeIdentifiers::new("RELOCATION"))
                 .with_rock_ridge(

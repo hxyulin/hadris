@@ -171,7 +171,9 @@ bitflags::bitflags! {
 #[non_exhaustive]
 pub enum Relocation {
     /// Move them into this directory of the root, as RRIP `CL`, `PL` and
-    /// `RE` entries describe. The name must not be taken.
+    /// `RE` entries describe. A directory of the tree with that name is
+    /// reused and keeps its own entries; any other entry with that name
+    /// fails with [`Detail::Relocation`](crate::Detail::Relocation).
     Directory(String),
     /// Fail with [`ErrorKind::InvalidInput`](hadris_fs::ErrorKind::InvalidInput).
     Reject,

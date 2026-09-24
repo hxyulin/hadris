@@ -1098,6 +1098,12 @@ Each published package owns its version and may be released independently.
   `PX` serial number, or without one, the same data extent. They had one
   id per name while reporting two links, so `Tree::from_filesystem` and
   FUSE adapters split them into separate files.
+- **hadris-iso (V3):** When deep directories need Rock Ridge relocation and
+  the root already holds a directory with the relocation name (`rr_moved`
+  by default), that directory is reused as the container and keeps its own
+  entries, instead of failing with `Detail::Relocation`. It is laid out
+  first, as for a new container, so libarchive/bsdtar can extract it. A
+  root file with that name still fails.
 
 ## [2.4.0] - 2026-09-08
 
