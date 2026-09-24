@@ -461,6 +461,33 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-iso, hadris-udf, hadris-cpio, hadris-part, hadris-ntfs,
+  hadris-cd, hadris-block, hadris-optical (V3):** Each crate returns
+  `hadris_fs::Error<E>` and keeps a `Detail` enum of fieldless, numbered
+  codes. `Detail::of(&err)` reads the detail of an `Error`,
+  `Detail::from_code(code)` that of a `PathError` or any `DetailCode`, and
+  `Detail::code()` gives the stable code in the crate's domain (such as
+  `hadris-iso`). `hadris-part`'s `Overlap`, `OutOfBounds` and
+  `NoSuchPartition` lose their fields; `TableError::index()` and
+  `other()` keep the partition numbers.
+- **hadris-iso, hadris-udf, hadris-cpio, hadris-cd (V3):** The writers
+  (`plan`, `write`, `Session::write`, `CpioWriter`) return `PathError`,
+  and an error from a file's content, or from an entry, carries the file's
+  path in the tree. `hadris-cd` keeps the detail code of the ISO 9660 or
+  UDF writer that failed, readable with that crate's
+  `Detail::from_code`.
+- **hadris-iso, hadris-udf, hadris-cpio, hadris-part, hadris-ntfs,
+  hadris-fat (V3):** Bytes that are not the format at all fail with
+  `ErrorKind::NotRecognized` instead of `Corrupt` or `NotFound`: an ISO
+  9660 image whose first volume descriptor lacks `CD001`, a UDF volume
+  without an NSR descriptor, a cpio archive whose first header has no
+  magic, a disk with no MBR or GPT, a device without an NTFS boot sector,
+  a FAT boot sector whose sector or cluster size FAT does not allow, and an
+  exFAT first sector that does not name exFAT.
+- **hadris-block, hadris-optical (V3):** `open` and `open_detected` return
+  `hadris_fs::MountError`. A device with no known format fails with
+  `ErrorKind::NotRecognized`, and a driver that refuses the volume returns
+  its own error, with its own detail code.
 - **hadris-fs (V3):** `AnyError` is now `PathError`, the error of writers,
   tree edits, `copy_tree` and code that mixes devices. It keeps the whole
   context of an `Error` (kind, message, location, detail), the path that
@@ -870,6 +897,13 @@ Each published package owns its version and may be released independently.
 
 ### Removed
 
+- **hadris-iso, hadris-udf, hadris-cpio, hadris-part, hadris-ntfs,
+  hadris-cd, hadris-block, hadris-optical (V3):** The per-crate `Error<E>`
+  wrappers and their `content_error`; use `hadris_fs::Error`,
+  `hadris_fs::PathError` and `Detail::of`. `hadris-block` and
+  `hadris-optical` lose `OpenError` (use `MountError`) and the
+  `UnknownFormat` and `Mount` details; `hadris-cd` loses `Detail::Iso` and
+  `Detail::Udf`; `hadris-cpio` loses `Detail::Content`.
 - **hadris-storage (V3):** `WriteError`, `StorageError` and `OutOfRange`.
   Every block operation returns `hadris_io::Error`; see Changed.
 - **hadris-fs (V3):** `Error::from_device`; use `Error::device(err,

@@ -71,7 +71,7 @@ struct Fid {
 /// The id of the entry `fid` names, when its ICB lies inside a partition.
 fn fid_node<E>(info: &Info, fid: &Fid) -> Result<NodeId, Error<E>> {
     info.offset::<E>(fid.icb.partition, fid.icb.block, 1)
-        .map_err(|_| Error::corrupt(Detail::FileIdentifier))?;
+        .map_err(|_| Detail::FileIdentifier.corrupt())?;
     Ok(fid.icb.id())
 }
 
@@ -109,9 +109,9 @@ async fn read_bytes<D: BlockDevice>(
 ) -> Result<(), Error<D::Error>> {
     let end = offset
         .checked_add(buf.len() as u64)
-        .ok_or(Error::corrupt(Detail::OutsideImage))?;
+        .ok_or(Detail::OutsideImage.corrupt())?;
     if end > len {
-        return Err(Error::corrupt(Detail::OutsideImage));
+        return Err(Detail::OutsideImage.corrupt());
     }
     let bs = u64::from(dev.block_size().get());
     let mut done = 0;
@@ -123,14 +123,13 @@ async fn read_bytes<D: BlockDevice>(
         if within == 0 && left as u64 >= bs {
             let whole = left - left % bs as usize;
             dev.read_blocks(block, &mut buf[done..done + whole])
-                .await
-                .map_err(Error::from)?;
+                .await?;
             done += whole;
             pos += whole as u64;
         } else {
             let mut scratch = [0u8; MAX_BLOCK];
             let scratch = &mut scratch[..bs as usize];
-            dev.read_blocks(block, scratch).await.map_err(Error::from)?;
+            dev.read_blocks(block, scratch).await?;
             let take = (bs as usize - within).min(left);
             buf[done..done + take].copy_from_slice(&scratch[within..within + take]);
             done += take;
@@ -174,7 +173,7 @@ async fn find_anchor<D: BlockDevice>(
             }
         }
     }
-    Err(Error::corrupt(Detail::Anchor))
+    Err(Detail::Anchor.corrupt())
 }
 
 /// Whether the recognition sequence holds NSR03 rather than NSR02.
@@ -205,7 +204,7 @@ async fn recognition<D: BlockDevice>(dev: &mut D, len: u64, block_size: u32) -> 
             _ => break,
         }
     }
-    nsr.ok_or(Error::corrupt(Detail::RecognitionSequence))
+    nsr.ok_or(Detail::RecognitionSequence.error(ErrorKind::NotRecognized))
 }
 
 /// Reads one volume descriptor sequence, keeping the descriptors with the
@@ -235,7 +234,7 @@ async fn sequence<D: BlockDevice>(
         if data[..Tag::SIZE].iter().all(|&b| b == 0) {
             break;
         }
-        let tag = check_tag(data, None, block).map_err(|()| Error::corrupt(Detail::Descriptor))?;
+        let tag = check_tag(data, None, block).map_err(|()| Detail::Descriptor.corrupt())?;
         let number = u32::from_le_bytes([data[16], data[17], data[18], data[19]]);
         match tag.identifier.get() {
             tag::PRIMARY_VOLUME => {
@@ -261,7 +260,7 @@ async fn sequence<D: BlockDevice>(
                         found.partitions[count] = (part.number(), number, part);
                         found.partition_count += 1;
                     }
-                    None => return Err(Error::new(ErrorKind::Unsupported, Detail::PartitionMap)),
+                    None => return Err(Detail::PartitionMap.error(ErrorKind::Unsupported)),
                 }
             }
             tag::VOLUME_POINTER => {
@@ -273,10 +272,10 @@ async fn sequence<D: BlockDevice>(
             tag::TERMINATING => break,
             _ => {}
         }
-        block = block.checked_add(1).ok_or(Error::corrupt(Detail::DescriptorSequence))?;
+        block = block.checked_add(1).ok_or(Detail::DescriptorSequence.corrupt())?;
     }
     if found.volume_id.is_none() || found.logical.is_none() || found.partition_count == 0 {
-        return Err(Error::corrupt(Detail::DescriptorSequence));
+        return Err(Detail::DescriptorSequence.corrupt());
     }
     Ok(found)
 }
@@ -320,7 +319,7 @@ async fn free_blocks<D: BlockDevice>(
 async fn mount<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>> {
     let device_block = dev.block_size().get();
     if device_block as usize > MAX_BLOCK {
-        return Err(Error::new(ErrorKind::Unsupported, Detail::BlockSize));
+        return Err(Detail::BlockSize.error(ErrorKind::Unsupported));
     }
     let len = dev.block_count().saturating_mul(u64::from(device_block));
     let (block_size, anchor) = find_anchor(dev, len, device_block).await?;
@@ -332,48 +331,48 @@ async fn mount<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>> {
     };
 
     let Some((_, lvd_block)) = found.logical else {
-        return Err(Error::corrupt(Detail::DescriptorSequence));
+        return Err(Detail::DescriptorSequence.corrupt());
     };
     let lvd: LogicalVolumeDescriptor = bytemuck::pod_read_unaligned(&lvd_block[..440]);
     if lvd.block_size.get() != block_size {
-        return Err(Error::corrupt(Detail::BlockSize));
+        return Err(Detail::BlockSize.corrupt());
     }
     let table_len = lvd.map_table_length.get() as usize;
     let maps = lvd_block
         .get(440..440 + table_len)
         .filter(|_| 440 + table_len <= block_size as usize)
-        .ok_or(Error::corrupt(Detail::Descriptor))?;
+        .ok_or(Detail::Descriptor.corrupt())?;
     let mut partitions = [Partition::default(); MAX_PARTITIONS];
     let mut count = 0;
     let mut at = 0;
     for _ in 0..lvd.map_count.get() {
         let (kind, map_len) = match maps.get(at..at + 2) {
             Some(head) => (head[0], usize::from(head[1])),
-            None => return Err(Error::corrupt(Detail::Descriptor)),
+            None => return Err(Detail::Descriptor.corrupt()),
         };
         let map = maps
             .get(at..at + map_len)
             .filter(|_| map_len >= 2)
-            .ok_or(Error::corrupt(Detail::Descriptor))?;
+            .ok_or(Detail::Descriptor.corrupt())?;
         match (kind, map_len) {
             (1, 6) => {
                 if count == MAX_PARTITIONS {
-                    return Err(Error::new(ErrorKind::Unsupported, Detail::PartitionMap));
+                    return Err(Detail::PartitionMap.error(ErrorKind::Unsupported));
                 }
                 let number = u16::from_le_bytes([map[4], map[5]]);
                 let (_, _, part) = found.partitions[..found.partition_count]
                     .iter()
                     .find(|(n, _, _)| *n == number)
-                    .ok_or(Error::corrupt(Detail::Partition))?;
+                    .ok_or(Detail::Partition.corrupt())?;
                 partitions[count] = *part;
                 count += 1;
             }
-            (2, _) => return Err(Error::new(ErrorKind::Unsupported, Detail::PartitionMap)),
-            _ => return Err(Error::corrupt(Detail::Descriptor)),
+            (2, _) => return Err(Detail::PartitionMap.error(ErrorKind::Unsupported)),
+            _ => return Err(Detail::Descriptor.corrupt()),
         }
         at += map_len;
     }
-    let (_, volume_id) = found.volume_id.ok_or(Error::corrupt(Detail::DescriptorSequence))?;
+    let (_, volume_id) = found.volume_id.ok_or(Detail::DescriptorSequence.corrupt())?;
     let revision = domain_revision(&lvd.domain, nsr03).unwrap_or(if nsr03 {
         UdfRevision::V2_01
     } else {
@@ -397,17 +396,17 @@ async fn mount<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>> {
     let data = &mut buf[..block_size as usize];
     let offset = info
         .offset::<D::Error>(fsd_at.partition, fsd_at.block, u64::from(block_size))
-        .map_err(|_| Error::corrupt(Detail::FileSet))?;
+        .map_err(|_| Detail::FileSet.corrupt())?;
     read_bytes(dev, len, offset, data).await?;
-    check_tag(data, Some(tag::FILE_SET), fsd_at.block).map_err(|()| Error::corrupt(Detail::FileSet))?;
+    check_tag(data, Some(tag::FILE_SET), fsd_at.block).map_err(|()| Detail::FileSet.corrupt())?;
     let fsd: FileSetDescriptor = bytemuck::pod_read_unaligned(&data[..512]);
     info.root = Location::from_long(&fsd.root);
     let root = icb_at(&info, dev, info.root).await.map_err(|err| match err.kind() {
         ErrorKind::Io => err,
-        _ => Error::corrupt(Detail::FileSet),
+        _ => Detail::FileSet.corrupt(),
     })?;
     if !root.is_dir() {
-        return Err(Error::corrupt(Detail::FileSet));
+        return Err(Detail::FileSet.corrupt());
     }
     info.free_blocks = free_blocks(dev, len, block_size, lvd.integrity_sequence, count).await;
     Ok(info)
@@ -437,7 +436,7 @@ impl Walk {
 
     /// The next stretch of data, or `None` after the last descriptor.
     async fn next<D: BlockDevice>(&mut self, info: &Info, dev: &mut D, icb: &Icb) -> Result<Option<Piece>, Error<D::Error>> {
-        let bad = || Error::corrupt(Detail::AllocationDescriptor);
+        let bad = || Detail::AllocationDescriptor.corrupt();
         loop {
             if self.done {
                 return Ok(None);
@@ -535,7 +534,7 @@ async fn read_stream<D: BlockDevice>(
     let mut done = 0usize;
     while done < want {
         let Some(piece) = walk.next(info, dev, icb).await? else {
-            return Err(Error::corrupt(Detail::AllocationDescriptor));
+            return Err(Detail::AllocationDescriptor.corrupt());
         };
         let len = piece.len();
         let at = offset + done as u64;
@@ -569,14 +568,14 @@ async fn read_exact<D: BlockDevice>(
     bad: Detail,
 ) -> Result<(), Error<D::Error>> {
     if read_stream(info, dev, icb, offset, buf).await? != buf.len() {
-        return Err(Error::corrupt(bad));
+        return Err(bad.corrupt());
     }
     Ok(())
 }
 
 /// The file identifier at `pos` in directory `dir`.
 async fn fid_at<D: BlockDevice>(info: &Info, dev: &mut D, dir: &Icb, pos: u64) -> Result<Fid, Error<D::Error>> {
-    let bad = || Error::corrupt(Detail::FileIdentifier);
+    let bad = || Detail::FileIdentifier.corrupt();
     let mut buf = [0u8; FID_BUFFER];
     read_exact(info, dev, dir, pos, &mut buf[..38], Detail::FileIdentifier).await?;
     let fid: FileIdentifierDescriptor = bytemuck::pod_read_unaligned(&buf[..38]);
@@ -621,12 +620,12 @@ async fn fid_name<D: BlockDevice>(
     out: &mut [u8],
 ) -> Result<usize, Error<D::Error>> {
     if fid.name_len == 0 {
-        return Err(Error::corrupt(Detail::FileIdentifier));
+        return Err(Detail::FileIdentifier.corrupt());
     }
     let mut raw = [0u8; 255];
     let raw = &mut raw[..fid.name_len];
     read_exact(info, dev, dir, fid.name_at, raw, Detail::FileIdentifier).await?;
-    crate::name::decode_name(raw, out).ok_or(Error::corrupt(Detail::FileIdentifier))
+    crate::name::decode_name(raw, out).ok_or(Detail::FileIdentifier.corrupt())
 }
 
 /// Writes the target of the symlink `icb` into `out`.
@@ -664,10 +663,10 @@ async fn link_target<D: BlockDevice>(info: &Info, dev: &mut D, icb: &Icb, out: &
                 let mut name = [0u8; 1024];
                 let n = crate::name::decode_cs0(ident, &mut name)
                     .filter(|&n| n > 0)
-                    .ok_or(Error::corrupt(Detail::PathComponent))?;
+                    .ok_or(Detail::PathComponent.corrupt())?;
                 push(out, &mut len, &name[..n])?;
             }
-            _ => return Err(Error::corrupt(Detail::PathComponent).into()),
+            _ => return Err(Detail::PathComponent.corrupt()),
         }
     }
     Ok(len)
@@ -706,7 +705,7 @@ impl<D: BlockDevice> UdfFs<D> {
     pub async fn open(mut dev: D) -> Result<Self, MountError<D, D::Error>> {
         match mount(&mut dev).await {
             Ok(info) => Ok(Self { dev, info }),
-            Err(err) => Err(MountError::new(err.into(), dev)),
+            Err(err) => Err(MountError::new(err, dev)),
         }
     }
 
@@ -756,7 +755,7 @@ impl<D: BlockDevice> UdfFs<D> {
         let at = Location::of(node)
             .filter(|at| self.info.offset::<D::Error>(at.partition, at.block, 1).is_ok())
             .ok_or(ErrorKind::InvalidHandle)?;
-        Ok(icb_at(&self.info, &mut self.dev, at).await?)
+        icb_at(&self.info, &mut self.dev, at).await
     }
 
     async fn dir(&mut self, node: NodeId) -> FsResult<Icb, D::Error> {
@@ -791,7 +790,7 @@ impl<D: BlockDevice> UdfFs<D> {
             }
             let len = fid_name(&self.info, &mut self.dev, &icb, &fid, &mut buf).await?;
             if &buf[..len] == name.as_bytes() {
-                return Ok(fid_node(&self.info, &fid)?);
+                return fid_node(&self.info, &fid);
             }
         }
         Err(ErrorKind::NotFound.into())
@@ -820,7 +819,7 @@ impl<D: BlockDevice> UdfFs<D> {
                 FileType::Dir
             } else {
                 let child = icb_at(&self.info, &mut self.dev, fid.icb).await?;
-                child.fs_type().ok_or(Error::corrupt(Detail::Icb))?
+                child.fs_type().ok_or(Detail::Icb.corrupt())?
             };
             name.set_bytes(&buf[..len])?;
             *cursor = DirCursor::from_raw(pos);
@@ -857,7 +856,7 @@ impl<D: BlockDevice> UdfFs<D> {
             None => return Err(ErrorKind::Corrupt.into()),
             _ => {}
         }
-        Ok(read_stream(&self.info, &mut self.dev, &icb, offset, buf).await?)
+        read_stream(&self.info, &mut self.dev, &icb, offset, buf).await
     }
 
     /// The partitions' size, and the free space a closed integrity
@@ -880,11 +879,11 @@ impl<D: BlockDevice> UdfFs<D> {
         while pos < icb.size {
             let fid = fid_at(&self.info, &mut self.dev, &icb, pos).await?;
             if fid.characteristics.contains(FileCharacteristics::PARENT) {
-                return Ok(fid_node(&self.info, &fid)?);
+                return fid_node(&self.info, &fid);
             }
             pos = fid.next;
         }
-        Err(Error::corrupt(Detail::FileIdentifier).into())
+        Err(Detail::FileIdentifier.corrupt())
     }
 
     /// Writes a symlink's target into `buf`, its path components joined
@@ -907,7 +906,7 @@ impl<D: BlockDevice> UdfFs<D> {
         let mut pos = 0u64;
         while pos < icb.size {
             let Some(piece) = walk.next(&self.info, &mut self.dev, &icb).await? else {
-                return Err(Error::corrupt(Detail::AllocationDescriptor).into());
+                return Err(Detail::AllocationDescriptor.corrupt());
             };
             let len = piece.len().min(icb.size - pos);
             if let Piece::Disk { offset, .. } = piece {

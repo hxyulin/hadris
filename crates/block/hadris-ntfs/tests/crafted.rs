@@ -1,9 +1,10 @@
 //! Crafted images: the driver contract, every mode, and malformed
 //! structures that must fail with an error, never a panic.
 
+use hadris_fs::Error;
 use hadris_fs::sync::DriverExt;
 use hadris_fs::{DirCursor, ErrorKind, FileType, Name, NameBuf, NodeId};
-use hadris_ntfs::Error;
+use hadris_ntfs::Detail;
 use hadris_ntfs::raw;
 use hadris_ntfs::sync::NtfsFs;
 use hadris_storage::{BlockSize, MemDevice};
@@ -23,7 +24,7 @@ fn open(image: Vec<u8>) -> NtfsFs<MemDevice<Vec<u8>>> {
 fn open_err(image: Vec<u8>) -> Error<core::convert::Infallible> {
     match NtfsFs::open(device(image)) {
         Ok(_) => panic!("the image mounted"),
-        Err(err) => Error::from(hadris_fs::Error::from(err)),
+        Err(err) => err.into(),
     }
 }
 fn list(fs: &mut NtfsFs<MemDevice<Vec<u8>>>, path: &str) -> Vec<String> {
@@ -252,8 +253,8 @@ fn cursors_resume_across_index_blocks() {
 fn open_rejects_bad_boot_sectors() {
     type Edit = fn(&mut Vec<u8>);
     let cases: [(Edit, ErrorKind); 8] = [
-        (|i| i[3] = b'X', ErrorKind::Corrupt),
-        (|i| i[510] = 0, ErrorKind::Corrupt),
+        (|i| i[3] = b'X', ErrorKind::NotRecognized),
+        (|i| i[510] = 0, ErrorKind::NotRecognized),
         (
             |i| i[11..13].copy_from_slice(&1000u16.to_le_bytes()),
             ErrorKind::Corrupt,
@@ -278,7 +279,9 @@ fn open_rejects_bad_boot_sectors() {
         edit(&mut image);
         assert_eq!(open_err(image).kind(), kind);
     }
-    assert_eq!(open_err(vec![0u8; 100]).kind(), ErrorKind::Corrupt);
+    let err = open_err(vec![0u8; 100]);
+    assert_eq!(err.kind(), ErrorKind::NotRecognized);
+    assert_eq!(Detail::of(&err), Some(Detail::BootSector));
     assert_eq!(open_err(boot_sector()).kind(), ErrorKind::Corrupt);
 }
 

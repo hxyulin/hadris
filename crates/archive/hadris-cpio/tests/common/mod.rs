@@ -2,7 +2,8 @@
 
 use hadris_cpio::raw::{NewcFields, NewcHeader};
 use hadris_cpio::sync::{CpioReader, write};
-use hadris_cpio::{CpioOptions, Error, Format, ReaderOptions};
+use hadris_cpio::{CpioOptions, Format, ReaderOptions};
+use hadris_fs::Error;
 use hadris_fs::FileType;
 use hadris_fs::tree::Tree;
 use hadris_io::sync::Read;

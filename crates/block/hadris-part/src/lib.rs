@@ -175,7 +175,7 @@ pub mod async_send {
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub use disk::{Disk, PartitionTable, Partitions, Run, Runs};
-pub use error::{Detail, Error, TableError};
+pub use error::{Detail, TableError};
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub use gpt_table::{Gpt, GptEntry};

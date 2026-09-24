@@ -3,7 +3,7 @@
 
 use hadris_cd::iso::{Namespace, RockRidge, VolumeIdentifiers};
 use hadris_cd::udf::UdfRevision;
-use hadris_cd::{CdOptions, Detail, IsoOptions, UdfOptions};
+use hadris_cd::{CdOptions, IsoOptions, UdfOptions};
 use hadris_fs::sync::{DriverExt, FsDriver};
 use hadris_fs::tree::{Content, Tree};
 use hadris_fs::{ErrorKind, Extent, Mode, SetMetadata};
@@ -256,9 +256,10 @@ fn writer_errors_keep_their_detail() {
     let err = hadris_cd::sync::write(&mut dev, &tree, &CdOptions::default()).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Unsupported);
     assert_eq!(
-        err.detail(),
-        Some(Detail::Iso(hadris_cd::iso::Detail::OutputBlockSize))
+        err.detail().and_then(hadris_cd::iso::Detail::from_code),
+        Some(hadris_cd::iso::Detail::OutputBlockSize)
     );
+    assert_eq!(err.detail().and_then(hadris_cd::Detail::from_code), None);
 
     let mut long = Tree::new();
     long.add_file(&"n".repeat(255), Content::empty()).unwrap();

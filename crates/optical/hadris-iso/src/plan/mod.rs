@@ -252,15 +252,15 @@ struct Planner<'a, C> {
 const CATALOG: usize = usize::MAX;
 
 fn invalid(detail: Detail) -> PlanError {
-    Error::invalid(detail)
+    detail.invalid()
 }
 
 fn too_large() -> PlanError {
-    Error::invalid(Detail::ImageTooLarge)
+    Detail::ImageTooLarge.invalid()
 }
 
 fn part_error(_: TableError) -> PlanError {
-    Error::invalid(Detail::HybridBoot)
+    Detail::HybridBoot.invalid()
 }
 
 fn block_of(offset: u64) -> PlanResult<u32> {
@@ -370,7 +370,7 @@ impl<C: Clock> Planner<'_, C> {
                             None => content.len().unwrap_or(0),
                         };
                         if len >= MAX_EXTENT && !matches!(self.opts.level(), IsoLevel::L3) {
-                            return Err(Error::new(ErrorKind::FileTooLarge, Detail::ImageTooLarge));
+                            return Err(Detail::ImageTooLarge.error(ErrorKind::FileTooLarge));
                         }
                         FileKind::Data {
                             node: child.id(),
@@ -428,7 +428,7 @@ impl<C: Clock> Planner<'_, C> {
         if let Some(code) = self.opts.hybrid().and_then(HybridBoot::bootstrap)
             && code.len() > 446
         {
-            return Err(Error::new(ErrorKind::LimitExceeded, Detail::HybridBoot));
+            return Err(Detail::HybridBoot.error(ErrorKind::LimitExceeded));
         }
         let Some(el_torito) = self.opts.el_torito() else {
             return Ok(());

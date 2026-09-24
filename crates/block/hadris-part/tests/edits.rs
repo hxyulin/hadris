@@ -41,14 +41,14 @@ fn gpt_edits_reject_overlap_and_bounds_and_change_nothing() {
     let err = table
         .add(GptEntry::new(types::LINUX_SWAP, guid(3), 150, 10))
         .unwrap_err();
-    assert_eq!(err.detail(), Detail::Overlap { index: 2, other: 0 });
     assert_eq!(
-        table
-            .add(GptEntry::new(types::LINUX_SWAP, guid(3), 9_960, 10))
-            .unwrap_err()
-            .detail(),
-        Detail::OutOfBounds { index: 2 }
+        (err.detail(), err.index(), err.other()),
+        (Detail::Overlap, Some(2), Some(0))
     );
+    let err = table
+        .add(GptEntry::new(types::LINUX_SWAP, guid(3), 9_960, 10))
+        .unwrap_err();
+    assert_eq!((err.detail(), err.index()), (Detail::OutOfBounds, Some(2)));
     assert_eq!(
         table
             .add(GptEntry::new(types::UNUSED, guid(3), 500, 10))
@@ -63,14 +63,13 @@ fn gpt_edits_reject_overlap_and_bounds_and_change_nothing() {
             .detail(),
         Detail::Size
     );
+    let err = table.resize(a, 201).unwrap_err();
     assert_eq!(
-        table.resize(a, 201).unwrap_err().detail(),
-        Detail::Overlap { index: 0, other: 1 }
+        (err.detail(), err.index(), err.other()),
+        (Detail::Overlap, Some(0), Some(1))
     );
-    assert_eq!(
-        table.resize(b, 10_000).unwrap_err().detail(),
-        Detail::OutOfBounds { index: 1 }
-    );
+    let err = table.resize(b, 10_000).unwrap_err();
+    assert_eq!((err.detail(), err.index()), (Detail::OutOfBounds, Some(1)));
     assert_eq!(table.resize(7, 1).unwrap_err().kind(), ErrorKind::NotFound);
     assert_eq!(
         table.set_type(a, types::UNUSED).unwrap_err().detail(),
@@ -155,30 +154,36 @@ fn mbr_edits_cover_primaries_and_logicals() {
     let err = mbr
         .add_logical(MbrEntry::new(MbrType::LINUX, 10_500, 100))
         .unwrap_err();
-    assert_eq!(err.detail(), Detail::Overlap { index: 5, other: 4 });
+    assert_eq!(
+        (err.detail(), err.index(), err.other()),
+        (Detail::Overlap, Some(5), Some(4))
+    );
     let err = mbr
         .add_logical(MbrEntry::new(MbrType::LINUX, 11_000, 1000))
         .unwrap_err();
-    assert_eq!(err.detail(), Detail::Overlap { index: 5, other: 4 });
     assert_eq!(
-        mbr.add_logical(MbrEntry::new(MbrType::LINUX, 27_000, 2000))
-            .unwrap_err()
-            .detail(),
-        Detail::OutOfBounds { index: 6 }
+        (err.detail(), err.index(), err.other()),
+        (Detail::Overlap, Some(5), Some(4))
     );
+    let err = mbr
+        .add_logical(MbrEntry::new(MbrType::LINUX, 27_000, 2000))
+        .unwrap_err();
+    assert_eq!((err.detail(), err.index()), (Detail::OutOfBounds, Some(6)));
+    let err = mbr
+        .add(MbrEntry::new(MbrType::LINUX, 20_000, 100))
+        .unwrap_err();
     assert_eq!(
-        mbr.add(MbrEntry::new(MbrType::LINUX, 20_000, 100))
-            .unwrap_err()
-            .detail(),
-        Detail::Overlap { index: 2, other: 1 }
+        (err.detail(), err.index(), err.other()),
+        (Detail::Overlap, Some(2), Some(1))
     );
     assert_eq!(
         mbr.resize(ext, 3000).unwrap_err().kind(),
         ErrorKind::InvalidInput
     );
+    let err = mbr.resize(first, 2000).unwrap_err();
     assert_eq!(
-        mbr.resize(first, 2000).unwrap_err().detail(),
-        Detail::Overlap { index: 5, other: 4 }
+        (err.detail(), err.index(), err.other()),
+        (Detail::Overlap, Some(5), Some(4))
     );
     assert_eq!(mbr.remove(ext).unwrap_err().detail(), Detail::ExtendedInUse);
     assert_eq!(
@@ -356,7 +361,10 @@ fn layout_builder_rules() {
         .partition(PartitionSpec::new(types::BASIC_DATA, Size::MiB(1)).with_start(2100))
         .build(1 << 16, bs)
         .unwrap_err();
-    assert_eq!(err.detail(), Detail::Overlap { index: 1, other: 0 });
+    assert_eq!(
+        (err.detail(), err.index(), err.other()),
+        (Detail::Overlap, Some(1), Some(0))
+    );
     let err = gpt
         .clone()
         .partition(PartitionSpec::new(types::BASIC_DATA, Size::Blocks(0)))
@@ -451,8 +459,8 @@ fn layout_logicals_placed_by_the_caller_are_checked_without_overflow() {
         .build(100_000, B512)
         .unwrap_err();
     assert_eq!(
-        (early.kind(), early.detail()),
-        (ErrorKind::InvalidInput, Detail::OutOfBounds { index: 4 })
+        (early.kind(), early.detail(), early.index()),
+        (ErrorKind::InvalidInput, Detail::OutOfBounds, Some(4))
     );
 
     let at_the_end = three_primaries()

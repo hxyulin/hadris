@@ -19,8 +19,8 @@ pub fn hadris_block::async::OpenVolume<D>::into_fat(self) -> core::result::Resul
 pub fn hadris_block::async::OpenVolume<D>::into_inner(self) -> D
 pub async fn hadris_block::async::OpenVolume<D>::lookup(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
 pub async fn hadris_block::async::OpenVolume<D>::node_metadata(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::meta::Metadata, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async::OpenVolume<D>::open(D) -> core::result::Result<Self, hadris_block::OpenError<D, <D as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_block::async::OpenVolume<D>::open_detected(D, hadris_block::detect::BlockFormat) -> core::result::Result<Self, hadris_block::OpenError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_block::async::OpenVolume<D>::open(D) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_block::async::OpenVolume<D>::open_detected(D, hadris_block::detect::BlockFormat) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
 pub async fn hadris_block::async::OpenVolume<D>::open_node(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
 pub async fn hadris_block::async::OpenVolume<D>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
 pub async fn hadris_block::async::OpenVolume<D>::publish_node(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
@@ -76,8 +76,8 @@ pub fn hadris_block::async_send::OpenVolume<D>::into_fat(self) -> core::result::
 pub fn hadris_block::async_send::OpenVolume<D>::into_inner(self) -> D
 pub async fn hadris_block::async_send::OpenVolume<D>::lookup(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
 pub async fn hadris_block::async_send::OpenVolume<D>::node_metadata(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::meta::Metadata, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::open(D) -> core::result::Result<Self, hadris_block::OpenError<D, <D as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_block::async_send::OpenVolume<D>::open_detected(D, hadris_block::detect::BlockFormat) -> core::result::Result<Self, hadris_block::OpenError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_block::async_send::OpenVolume<D>::open(D) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_block::async_send::OpenVolume<D>::open_detected(D, hadris_block::detect::BlockFormat) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
 pub async fn hadris_block::async_send::OpenVolume<D>::open_node(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
 pub async fn hadris_block::async_send::OpenVolume<D>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
 pub async fn hadris_block::async_send::OpenVolume<D>::publish_node(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
@@ -154,8 +154,8 @@ pub fn hadris_block::sync::OpenVolume<D>::into_fat(self) -> core::result::Result
 pub fn hadris_block::sync::OpenVolume<D>::into_inner(self) -> D
 pub fn hadris_block::sync::OpenVolume<D>::lookup(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris_block::sync::OpenVolume<D>::node_metadata(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::meta::Metadata, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_block::sync::OpenVolume<D>::open(D) -> core::result::Result<Self, hadris_block::OpenError<D, <D as hadris_io::error::ErrorType>::Error>>
-pub fn hadris_block::sync::OpenVolume<D>::open_detected(D, hadris_block::detect::BlockFormat) -> core::result::Result<Self, hadris_block::OpenError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_block::sync::OpenVolume<D>::open(D) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_block::sync::OpenVolume<D>::open_detected(D, hadris_block::detect::BlockFormat) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
 pub fn hadris_block::sync::OpenVolume<D>::open_node(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris_block::sync::OpenVolume<D>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris_block::sync::OpenVolume<D>::publish_node(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
@@ -195,58 +195,14 @@ pub fn hadris_block::sync::OpenVolume<D>::sync(&mut self) -> hadris_io::fs_error
 pub fn hadris_block::sync::OpenVolume<D>::sync_node(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris_block::sync::OpenVolume<D>::write_at(&mut self, hadris_fs::node::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
 #[non_exhaustive] pub enum hadris_block::Detail
-#[non_exhaustive] pub hadris_block::Detail::FormatMismatch
-pub hadris_block::Detail::FormatMismatch::detected: hadris_block::detect::FatVariant
-pub hadris_block::Detail::FormatMismatch::opened: hadris_block::detect::FatVariant
-pub hadris_block::Detail::Mount(hadris_block::detect::BlockFormat)
-pub hadris_block::Detail::PartitionedDisk(hadris_block::detect::PartitionTableKind)
-pub hadris_block::Detail::UnknownFormat
-pub hadris_block::Detail::UnsupportedFormat(hadris_block::detect::BlockFormat)
+pub hadris_block::Detail::FormatMismatch = 3
+pub hadris_block::Detail::PartitionedDisk = 1
+pub hadris_block::Detail::UnsupportedFormat = 2
+impl hadris_block::Detail
+pub const fn hadris_block::Detail::code(self) -> hadris_io::fs_error::DetailCode
+pub fn hadris_block::Detail::from_code(hadris_io::fs_error::DetailCode) -> core::option::Option<Self>
+pub fn hadris_block::Detail::of<E>(&hadris_io::fs_error::Error<E>) -> core::option::Option<Self>
+impl core::convert::From<hadris_block::Detail> for hadris_io::fs_error::DetailCode
+pub fn hadris_io::fs_error::DetailCode::from(hadris_block::Detail) -> Self
 impl core::fmt::Display for hadris_block::Detail
 pub fn hadris_block::Detail::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub struct hadris_block::Error<E>
-impl<E> hadris_block::Error<E>
-pub const fn hadris_block::Error<E>::detail(&self) -> core::option::Option<hadris_block::Detail>
-pub const fn hadris_block::Error<E>::device_error(&self) -> core::option::Option<&E>
-pub fn hadris_block::Error<E>::into_device_error(self) -> core::option::Option<E>
-pub const fn hadris_block::Error<E>::kind(&self) -> hadris_io::kind::ErrorKind
-pub fn hadris_block::Error<E>::map_device<F>(self, impl core::ops::function::FnOnce(E) -> F) -> hadris_block::Error<F>
-impl<D, E> core::convert::From<hadris_block::OpenError<D, E>> for hadris_block::Error<E>
-pub fn hadris_block::Error<E>::from(hadris_block::OpenError<D, E>) -> Self
-impl<E: core::cmp::Eq> core::cmp::Eq for hadris_block::Error<E>
-impl<E: core::cmp::PartialEq> core::cmp::PartialEq for hadris_block::Error<E>
-pub fn hadris_block::Error<E>::eq(&self, &Self) -> bool
-impl<E: core::error::Error + 'static> core::error::Error for hadris_block::Error<E>
-pub fn hadris_block::Error<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
-impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_block::Error<E>> for core::io::error::Error
-pub fn core::io::error::Error::from(hadris_block::Error<E>) -> Self
-impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_block::Error<E>> for hadris_fs::error::PathError
-pub fn hadris_fs::error::PathError::from(hadris_block::Error<E>) -> Self
-impl<E: core::fmt::Display> core::fmt::Display for hadris_block::Error<E>
-pub fn hadris_block::Error<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<E> core::convert::From<hadris_block::Error<E>> for hadris_io::fs_error::Error<E>
-pub fn hadris_io::fs_error::Error<E>::from(hadris_block::Error<E>) -> Self
-impl<E> core::convert::From<hadris_io::fs_error::Error<E>> for hadris_block::Error<E>
-pub fn hadris_block::Error<E>::from(hadris_io::fs_error::Error<E>) -> Self
-pub struct hadris_block::OpenError<D, E>
-impl<D, E> hadris_block::OpenError<D, E>
-pub fn hadris_block::OpenError<D, E>::device(&self) -> &D
-pub fn hadris_block::OpenError<D, E>::error(&self) -> &hadris_block::Error<E>
-pub fn hadris_block::OpenError<D, E>::into_device(self) -> D
-pub fn hadris_block::OpenError<D, E>::into_error(self) -> hadris_block::Error<E>
-pub fn hadris_block::OpenError<D, E>::into_parts(self) -> (hadris_block::Error<E>, D)
-pub fn hadris_block::OpenError<D, E>::kind(&self) -> hadris_io::kind::ErrorKind
-impl<D, E: core::error::Error + 'static> core::error::Error for hadris_block::OpenError<D, E>
-pub fn hadris_block::OpenError<D, E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
-impl<D, E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_block::OpenError<D, E>> for core::io::error::Error
-pub fn core::io::error::Error::from(hadris_block::OpenError<D, E>) -> Self
-impl<D, E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_block::OpenError<D, E>> for hadris_fs::error::PathError
-pub fn hadris_fs::error::PathError::from(hadris_block::OpenError<D, E>) -> Self
-impl<D, E: core::fmt::Debug> core::fmt::Debug for hadris_block::OpenError<D, E>
-pub fn hadris_block::OpenError<D, E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<D, E: core::fmt::Display> core::fmt::Display for hadris_block::OpenError<D, E>
-pub fn hadris_block::OpenError<D, E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<D, E> core::convert::From<hadris_block::OpenError<D, E>> for hadris_block::Error<E>
-pub fn hadris_block::Error<E>::from(hadris_block::OpenError<D, E>) -> Self
-impl<D, E> core::convert::From<hadris_block::OpenError<D, E>> for hadris_io::fs_error::Error<E>
-pub fn hadris_io::fs_error::Error<E>::from(hadris_block::OpenError<D, E>) -> Self

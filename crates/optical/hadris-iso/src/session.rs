@@ -2,6 +2,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::convert::Infallible;
 
 use hadris_fs::tree::{Content, NodeKind, Tree, Warning, WarningKind};
 use hadris_fs::{
@@ -20,6 +21,7 @@ use crate::options::{BootInfo, IsoLevel, IsoOptions, RockRidge, SessionMode, Vol
 use crate::plan::{self, Base, InfoTable, Region};
 use crate::raw::{self, SECTOR_SIZE};
 use crate::report::Report;
+use hadris_fs::PathError;
 
 const SECTOR: u64 = SECTOR_SIZE as u64;
 /// The system area, the backup GPT region after the data, and the first
@@ -29,10 +31,6 @@ type Tables512 = (Vec<u8>, Option<Vec<u8>>, Vec<u64>);
 const CATALOG_SECTORS: u64 = 8;
 /// The largest extent a stored file keeps: a multiple of the block size.
 const MAX_EXTENT: u64 = (u32::MAX as u64 / SECTOR) * SECTOR;
-
-fn never<E>(err: Error<core::convert::Infallible>) -> Error<E> {
-    err.map_device(|never| match never {})
-}
 
 fn text<const N: usize>(field: &raw::IsoStr<N>) -> Option<String> {
     let bytes = field.trimmed();
@@ -92,7 +90,7 @@ impl<D: BlockDevice> BlockDevice for Sectors<'_, D> {
             return Err(past_end());
         }
         let len = self.len;
-        Ok(super::image::read_bytes(self.dev, len, offset, buf).await?)
+        super::image::read_bytes(self.dev, len, offset, buf).await
     }
 }
 
@@ -151,10 +149,10 @@ impl<D: BlockDevice> Session<D> {
                 };
                 match session.map_boot_images().await {
                     Ok(()) => Ok(session),
-                    Err(err) => Err(MountError::new(err.into(), session.dev)),
+                    Err(err) => Err(MountError::new(err, session.dev)),
                 }
             }
-            Err(err) => Err(MountError::new(err.into(), iso.into_inner())),
+            Err(err) => Err(MountError::new(err, iso.into_inner())),
         }
     }
 
@@ -216,9 +214,9 @@ impl<D: BlockDevice> Session<D> {
     ///
     /// Afterwards the tree's new files point at their new extents, so the
     /// session can be written again.
-    pub async fn write<C: Clock>(&mut self, opts: &IsoOptions<C>, mode: SessionMode) -> Result<Report, Error<D::Error>> {
+    pub async fn write<C: Clock>(&mut self, opts: &IsoOptions<C>, mode: SessionMode) -> Result<Report, PathError> {
         check_block_size(&self.dev)?;
-        let contents = measure(&self.tree, true).await.map_err(never)?;
+        let contents = measure(&self.tree, true).await?;
         let old = self.volume_blocks;
         let existing = self.partition_tables(old).await?;
         let has_tables = existing.is_some();
@@ -256,7 +254,7 @@ impl<D: BlockDevice> Session<D> {
             },
         };
         let descriptors = base.descriptors;
-        let mut plan = plan::plan(&self.tree, opts, &contents, base).map_err(never)?;
+        let mut plan = plan::plan(&self.tree, opts, &contents, base)?;
         if mode == SessionMode::Append {
             let copy = plan.regions.iter().find_map(|region| match region {
                 Region::Bytes { block, data } if *block == descriptors => Some(data.clone()),
@@ -412,7 +410,7 @@ impl<D: BlockDevice> Session<D> {
 
     /// Gives the replaced boot images that held a boot information table a
     /// new one.
-    fn add_info_tables<E>(&self, regions: &mut [Region]) -> Result<(), Error<E>> {
+    fn add_info_tables(&self, regions: &mut [Region]) -> Result<(), PathError> {
         for boot in &self.boot {
             if boot.table == BootInfo::None {
                 continue;
@@ -425,11 +423,12 @@ impl<D: BlockDevice> Session<D> {
                 if path.trim_start_matches('/') != want {
                     continue;
                 }
+                let fail = |detail: Detail| PathError::from(detail.invalid::<Infallible>()).with_path(boot.path.as_str());
                 if *len < 64 {
-                    return Err(Error::invalid(Detail::BootInfoTable));
+                    return Err(fail(Detail::BootInfoTable));
                 }
-                let block = u32::try_from(*block).map_err(|_| Error::invalid(Detail::ImageTooLarge))?;
-                let len = u32::try_from(*len).map_err(|_| Error::invalid(Detail::BootInfoTable))?;
+                let block = u32::try_from(*block).map_err(|_| fail(Detail::ImageTooLarge))?;
+                let len = u32::try_from(*len).map_err(|_| fail(Detail::BootInfoTable))?;
                 *info = Some(InfoTable {
                     kind: boot.table,
                     block,
@@ -441,11 +440,11 @@ impl<D: BlockDevice> Session<D> {
     }
 
     /// Fails when a boot image the kept catalog loads is gone from the tree.
-    fn check_boot_images<E>(&self) -> Result<(), Error<E>> {
+    fn check_boot_images(&self) -> Result<(), PathError> {
         for boot in &self.boot {
             match self.tree.get(&boot.path).map(|node| node.kind()) {
                 Some(NodeKind::File(content)) if content.len() != Some(0) => {}
-                _ => return Err(Error::invalid(Detail::BootImage)),
+                _ => return Err(PathError::from(Detail::BootImage.invalid::<Infallible>()).with_path(boot.path.as_str())),
             }
         }
         Ok(())
@@ -471,8 +470,8 @@ impl<D: BlockDevice> Session<D> {
         let mut changed = false;
         for boot in &self.boot {
             let at = boot.at;
-            let extent = report.extent_of(&boot.path).ok_or(Error::invalid(Detail::BootImage))?;
-            let rba = u32::try_from(extent.offset() / SECTOR).map_err(|_| Error::invalid(Detail::ImageTooLarge))?;
+            let extent = report.extent_of(&boot.path).ok_or(Detail::BootImage.invalid())?;
+            let rba = u32::try_from(extent.offset() / SECTOR).map_err(|_| Detail::ImageTooLarge.invalid())?;
             if bytes[at + 8..at + 12] == rba.to_le_bytes() {
                 continue;
             }
@@ -533,7 +532,7 @@ impl<D: BlockDevice> Session<D> {
         end: u64,
         total: u64,
     ) -> Result<Tables512, Error<D::Error>> {
-        let bad = |_| Error::invalid(Detail::HybridBoot);
+        let bad = |_| Detail::HybridBoot.invalid();
         let new_iso_end = end * 4;
         let spans: Vec<(u64, u64)> = tables
             .disk
@@ -582,7 +581,7 @@ impl<D: BlockDevice> Session<D> {
                 }
                 Disk::new(Hybrid::new(gpt, &config).map_err(bad)?)
             }
-            _ => return Err(Error::invalid(Detail::HybridBoot)),
+            _ => return Err(Detail::HybridBoot.invalid()),
         };
         disk.set_bootstrap(&bootstrap).map_err(bad)?;
         let mut system = vec![0u8; 16 * SECTOR_SIZE];
@@ -597,10 +596,10 @@ impl<D: BlockDevice> Session<D> {
             } else if offset >= end * SECTOR {
                 let at = (offset - end * SECTOR) as usize;
                 tail.get_mut(at..at + bytes.len())
-                    .ok_or(Error::invalid(Detail::HybridBoot))?
+                    .ok_or(Detail::HybridBoot.invalid())?
                     .copy_from_slice(bytes);
             } else {
-                return Err(Error::invalid(Detail::HybridBoot));
+                return Err(Detail::HybridBoot.invalid());
             }
         }
         Ok((system, (!tail.is_empty()).then_some(tail), kept))

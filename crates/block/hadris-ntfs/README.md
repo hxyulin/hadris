@@ -60,8 +60,8 @@ references, so they are stable and hard links share one.
 
 | Feature | Default | Description |
 | --- | --- | --- |
-| `std` | Yes | Implies `alloc`; `std::io::Error` conversions |
-| `alloc` | via `std` | `PathError` conversions |
+| `std` | Yes | Implies `alloc`; forwards `std` to `hadris-fs` and `hadris-storage` |
+| `alloc` | via `std` | Forwards `alloc` to `hadris-fs` and `hadris-storage` |
 | `sync` | Yes | The blocking API in `sync` |
 | `async` | No | The asynchronous API in `r#async` |
 | `async-send` | No | The asynchronous API with `Send` futures in `async_send` |

@@ -1,12 +1,13 @@
 use hadris_fat::FatKind;
 use hadris_fs::{
-    Capabilities, DirCursor, DirEntry, ErrorKind, FsResult, FsStats, Metadata, Name, NameBuf,
-    NewNode, NodeId, RemoveKind, RenameFlags, SetMetadata,
+    Capabilities, DirCursor, DirEntry, ErrorKind, FsResult, FsStats, Metadata, MountError, Name,
+    NameBuf, NewNode, NodeId, RemoveKind, RenameFlags, SetMetadata,
 };
 
 use super::{BlockDevice, ExFatFs, FatFs, NtfsFs, detect};
+use crate::Detail;
 use crate::detect::{BlockFormat, FatVariant};
-use crate::{Detail, Error, OpenError};
+use crate::error::Error;
 
 fn fat_variant(kind: FatKind) -> Option<FatVariant> {
     match kind {
@@ -63,66 +64,49 @@ impl<D: BlockDevice> core::fmt::Debug for OpenVolume<D> {
 impl<D: BlockDevice> OpenVolume<D> {
     /// Detects and opens the filesystem on `dev`.
     ///
-    /// A partitioned disk fails with [`Detail::PartitionedDisk`]; open a
-    /// partition of it, from `hadris_part`, instead. On failure the
-    /// [`OpenError`] gives `dev` back.
-    pub async fn open(mut dev: D) -> Result<Self, OpenError<D, D::Error>> {
+    /// A device with no known format fails with
+    /// [`ErrorKind::NotRecognized`]. A partitioned disk fails with
+    /// [`Detail::PartitionedDisk`]; open a partition of it, from
+    /// `hadris_part`, instead. On failure the [`MountError`] gives `dev`
+    /// back.
+    pub async fn open(mut dev: D) -> Result<Self, MountError<D, D::Error>> {
         match detect(&mut dev).await {
             Ok(Some(format)) => Self::open_detected(dev, format).await,
-            Ok(None) => Err(OpenError::new(
-                Error::new(ErrorKind::Unsupported, Detail::UnknownFormat),
+            Ok(None) => Err(MountError::new(
+                Error::new(ErrorKind::NotRecognized, "unknown block volume format"),
                 dev,
             )),
-            Err(err) => Err(OpenError::new(err.into(), dev)),
+            Err(err) => Err(MountError::new(err, dev)),
         }
     }
 
     /// Opens `dev` as a previously detected format.
     ///
     /// The volume is mounted once. On failure, including a FAT variant
-    /// other than `detected`, the [`OpenError`] gives `dev` back.
-    pub async fn open_detected(dev: D, detected: BlockFormat) -> Result<Self, OpenError<D, D::Error>> {
-        let unsupported = Error::new(ErrorKind::Unsupported, Detail::UnsupportedFormat(detected));
+    /// other than `detected`, the [`MountError`] gives `dev` back. A driver
+    /// that refuses the volume returns its own error.
+    pub async fn open_detected(dev: D, detected: BlockFormat) -> Result<Self, MountError<D, D::Error>> {
+        let unsupported = Detail::UnsupportedFormat.error(ErrorKind::Unsupported);
         match detected {
-            BlockFormat::Fat(FatVariant::ExFat) => match ExFatFs::open(dev).await {
-                Ok(exfat) => Ok(Self { inner: Inner::ExFat(exfat) }),
-                Err(err) => {
-                    let (err, dev) = err.into_parts();
-                    Err(OpenError::new(Error::mount(err, detected), dev))
-                }
-            },
+            BlockFormat::Fat(FatVariant::ExFat) => {
+                ExFatFs::open(dev).await.map(|exfat| Self { inner: Inner::ExFat(exfat) })
+            }
             BlockFormat::Fat(variant) => {
-                let fat = match FatFs::open(dev).await {
-                    Ok(fat) => fat,
-                    Err(err) => {
-                        let (err, dev) = err.into_parts();
-                        return Err(OpenError::new(Error::mount(err, detected), dev));
-                    }
-                };
+                let fat = FatFs::open(dev).await?;
                 match fat_variant(fat.kind()) {
                     Some(opened) if opened == variant => Ok(Self { inner: Inner::Fat(fat) }),
-                    Some(opened) => Err(OpenError::new(
-                        Error::new(
-                            ErrorKind::Corrupt,
-                            Detail::FormatMismatch {
-                                detected: variant,
-                                opened,
-                            },
-                        ),
+                    Some(_) => Err(MountError::new(
+                        Detail::FormatMismatch.error(ErrorKind::Corrupt),
                         fat.into_inner(),
                     )),
-                    None => Err(OpenError::new(unsupported, fat.into_inner())),
+                    None => Err(MountError::new(unsupported, fat.into_inner())),
                 }
             }
-            BlockFormat::Ntfs => match NtfsFs::open(dev).await {
-                Ok(ntfs) => Ok(Self { inner: Inner::Ntfs(ntfs) }),
-                Err(err) => {
-                    let (err, dev) = err.into_parts();
-                    Err(OpenError::new(Error::mount(err, detected), dev))
-                }
-            },
-            BlockFormat::PartitionTable(kind) => Err(OpenError::new(
-                Error::new(ErrorKind::InvalidInput, Detail::PartitionedDisk(kind)),
+            BlockFormat::Ntfs => {
+                NtfsFs::open(dev).await.map(|ntfs| Self { inner: Inner::Ntfs(ntfs) })
+            }
+            BlockFormat::PartitionTable(_) => Err(MountError::new(
+                Detail::PartitionedDisk.error(ErrorKind::InvalidInput),
                 dev,
             )),
         }

@@ -54,10 +54,7 @@ fn exact_requests_are_checked_and_give_the_device_back() {
         .map(|_| ())
         .unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Unsupported);
-    assert_eq!(
-        err.error().detail(),
-        Some(Detail::FormatUnavailable(OpticalFormat::Udf))
-    );
+    assert_eq!(Detail::of(err.error()), Some(Detail::FormatUnavailable));
     assert_eq!(err.into_device().into_inner().len(), len);
 }
 
@@ -66,7 +63,8 @@ fn malformed_images_use_category_errors() {
     let err = OpenOpticalImage::open(device(vec![0xA5; 64 * 2048], 2048), OpenPolicy::default())
         .map(|_| ())
         .unwrap_err();
-    assert_eq!(err.error().detail(), Some(Detail::UnknownFormat));
+    assert_eq!(err.kind(), ErrorKind::NotRecognized);
+    assert_eq!(err.error().detail(), None);
 
     let mut corrupt = vec![0u8; 18 * 2048];
     corrupt[16 * 2048] = 1;
@@ -76,7 +74,7 @@ fn malformed_images_use_category_errors() {
         .map(|_| ())
         .unwrap_err()
         .into_parts();
-    assert_eq!(error.detail(), Some(Detail::Mount(OpticalFormat::Iso9660)));
+    assert_eq!(error.detail().map(|code| code.domain()), Some("hadris-iso"));
     assert_eq!(error.kind(), ErrorKind::Corrupt);
     assert_eq!(dev.into_inner(), corrupt);
     let io: std::io::Error = error.into();

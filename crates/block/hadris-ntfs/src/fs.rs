@@ -24,22 +24,22 @@ const NAME_BYTES: usize = 510;
 
 /// A node id the caller gave that names nothing valid is an invalid handle,
 /// unless the device failed or the volume is cut short.
-fn handle<E>(err: Error<E>) -> hadris_fs::Error<E> {
-    match (err.kind(), err.detail()) {
-        (ErrorKind::Io, _) | (_, Some(Detail::OutsideVolume)) => err.into(),
-        (ErrorKind::Unsupported, _) => err.into(),
+fn handle<E>(err: Error<E>) -> Error<E> {
+    match (err.kind(), Detail::of(&err)) {
+        (ErrorKind::Io, _) | (_, Some(Detail::OutsideVolume)) => err,
+        (ErrorKind::Unsupported, _) => err,
         _ => ErrorKind::InvalidHandle.into(),
     }
 }
 
 /// A parsing failure as a filesystem error.
 fn fs<T, E>(result: Result<T, Detail>) -> FsResult<T, E> {
-    result.map_err(|detail| Error::from(detail).into())
+    result.map_err(Error::from)
 }
 
 /// A `$MFT` in more extents than the reader keeps.
 fn unsupported_list<E>() -> Error<E> {
-    Error::new(ErrorKind::Unsupported, Detail::AttributeList)
+    Detail::AttributeList.error(ErrorKind::Unsupported)
 }
 
 /// How a stored name matches a query.
@@ -156,14 +156,13 @@ async fn read_bytes<D: BlockDevice>(
         if within == 0 && left as u64 >= bs {
             let whole = left - left % bs as usize;
             dev.read_blocks(block, &mut buf[done..done + whole])
-                .await
-                .map_err(Error::from)?;
+                .await?;
             done += whole;
             pos += whole as u64;
         } else {
             let mut scratch = [0u8; MAX_BLOCK];
             let scratch = &mut scratch[..bs as usize];
-            dev.read_blocks(block, scratch).await.map_err(Error::from)?;
+            dev.read_blocks(block, scratch).await?;
             let n = (bs as usize - within).min(left);
             buf[done..done + n].copy_from_slice(&scratch[within..within + n]);
             done += n;
@@ -753,7 +752,7 @@ impl<D: BlockDevice> NtfsFs<D> {
     pub async fn open(mut dev: D) -> Result<Self, MountError<D, D::Error>> {
         match mount(&mut dev).await {
             Ok(info) => Ok(Self { dev, info }),
-            Err(err) => Err(MountError::new(err.into(), dev)),
+            Err(err) => Err(MountError::new(err, dev)),
         }
     }
 
@@ -993,7 +992,7 @@ impl<D: BlockDevice> NtfsFs<D> {
         }
         if let Some(err) = deferred {
             if best.is_none_or(|(rank, _)| rank > 0) {
-                return Err(err.into());
+                return Err(err);
             }
         }
         match best {
@@ -1106,7 +1105,7 @@ impl<D: BlockDevice> NtfsFs<D> {
         while let Some(found) = next_attr(&mut self.dev, &self.info, rec, base, raw::ATTR_FILE_NAME, &mut pos, &mut found_name).await? {
             let attr = load(&mut self.dev, &self.info, rec, &mut ext, raw::ATTR_FILE_NAME, &found).await?;
             let Body::Resident(value) = attr.body else {
-                return Err(Error::<D::Error>::from(Detail::FileName).into());
+                return Err(Error::<D::Error>::from(Detail::FileName));
             };
             if fs(record::file_name(value))?.namespace != raw::FILE_NAME_DOS {
                 names += 1;
@@ -1139,7 +1138,7 @@ impl<D: BlockDevice> NtfsFs<D> {
         let head = stream_head(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &[])
             .await?
             .ok_or(Error::<D::Error>::from(Detail::Attribute))?;
-        Ok(stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &[], &head, offset, buf).await?)
+        stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &[], &head, offset, buf).await
     }
 
     /// The volume's clusters and the free ones, counted from `$Bitmap`
@@ -1208,11 +1207,11 @@ impl<D: BlockDevice> NtfsFs<D> {
         let mut found_name = [0u8; NAME_BYTES];
         let mut ext = [0u8; MAX_RECORD];
         let Some(found) = next_attr(&mut self.dev, &self.info, rec, base, raw::ATTR_FILE_NAME, &mut pos, &mut found_name).await? else {
-            return Err(Error::<D::Error>::from(Detail::FileName).into());
+            return Err(Error::<D::Error>::from(Detail::FileName));
         };
         let attr = load(&mut self.dev, &self.info, rec, &mut ext, raw::ATTR_FILE_NAME, &found).await?;
         let Body::Resident(value) = attr.body else {
-            return Err(Error::<D::Error>::from(Detail::FileName).into());
+            return Err(Error::<D::Error>::from(Detail::FileName));
         };
         let parent = fs(record::file_name(value))?.parent;
         if reference_record(parent) == raw::RECORD_ROOT {
@@ -1279,7 +1278,7 @@ impl<D: BlockDevice> NtfsFs<D> {
             let head = stream_head(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, stored)
                 .await?
                 .ok_or(Error::<D::Error>::from(Detail::Attribute))?;
-            return Ok(stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, stored, &head, offset, buf).await?);
+            return stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, stored, &head, offset, buf).await;
         }
         Err(ErrorKind::NotFound.into())
     }

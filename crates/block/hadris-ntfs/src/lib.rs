@@ -51,12 +51,16 @@
 //! follows the frozen trait, the native methods may still change. The
 //! on-disk layouts are in [`raw`].
 //!
+//! Errors are [`hadris_fs::Error`]; [`Detail::of`] names the structure at
+//! fault. A device without an NTFS boot sector fails with
+//! [`ErrorKind::NotRecognized`](hadris_fs::ErrorKind::NotRecognized).
+//!
 //! ## Features
 //!
 //! | Feature | Default | Description |
 //! |---|---|---|
-//! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions |
-//! | `alloc` | via `std` | `PathError` conversions |
+//! | `std` | Yes | Implies `alloc`; forwards `std` to `hadris-fs` and `hadris-storage` |
+//! | `alloc` | via `std` | Forwards `alloc` to `hadris-fs` and `hadris-storage` |
 //! | `sync` | Yes | The blocking API in `sync` |
 //! | `async` | No | The asynchronous API in `r#async` |
 //! | `async-send` | No | The asynchronous API with `Send` futures in `async_send` |
@@ -131,4 +135,4 @@ pub mod r#async {
 #[cfg_attr(docsrs, doc(cfg(feature = "async-send")))]
 pub mod async_send;
 
-pub use error::{Detail, Error};
+pub use error::Detail;

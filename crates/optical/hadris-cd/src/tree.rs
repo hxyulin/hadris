@@ -6,13 +6,15 @@ use alloc::vec::Vec;
 use hadris_fs::ErrorKind;
 use hadris_fs::tree::{Content, NodeKind, Tree};
 
-use crate::error::{Detail, Error};
+use hadris_fs::PathError;
+
+use crate::error::Detail;
 
 /// The files of `tree` as the extents the ISO 9660 writer stored them in,
 /// with the same directories, symlinks, device nodes, hard links and
 /// metadata, for the UDF writer. Also returns the block after the last
 /// file.
-pub(crate) fn stored<E>(tree: &Tree, iso: &hadris_iso::Report) -> Result<(Tree, u64), Error<E>> {
+pub(crate) fn stored(tree: &Tree, iso: &hadris_iso::Report) -> Result<(Tree, u64), PathError> {
     let mut out = Tree::new();
     out.set_metadata("/", *tree.root().metadata())?;
     let mut end = 0u64;
@@ -38,7 +40,11 @@ pub(crate) fn stored<E>(tree: &Tree, iso: &hadris_iso::Report) -> Result<(Tree, 
                             Content::stored(vec![extent])
                         }
                         None if content.len().is_none_or(|len| len == 0) => Content::empty(),
-                        None => return Err(Error::new(ErrorKind::Corrupt, Detail::MissingExtent)),
+                        None => {
+                            let err = Detail::MissingExtent
+                                .error::<core::convert::Infallible>(ErrorKind::Corrupt);
+                            return Err(PathError::from(err).with_path(path));
+                        }
                     };
                     out.add_file(&path, stored)?;
                 }

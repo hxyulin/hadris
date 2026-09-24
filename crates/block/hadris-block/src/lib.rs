@@ -9,8 +9,8 @@
 //! (`sync::OpenVolume`, `r#async::OpenVolume`, `async_send::OpenVolume`),
 //! detects and mounts in one step and implements the `hadris_fs` `FsDriver`
 //! trait by delegating to the driver it opened, so one generic function
-//! lists any volume. A failed open gives the device back in an
-//! [`OpenError`]. Neither needs an allocator.
+//! lists any volume. A failed open gives the device back in a
+//! `hadris_fs::MountError`. Neither needs an allocator.
 //!
 //! ```rust
 //! # #[cfg(all(feature = "sync", feature = "write"))]
@@ -68,7 +68,7 @@ extern crate std;
 pub mod detect;
 mod error;
 
-pub use error::{Detail, Error, OpenError};
+pub use error::Detail;
 
 #[cfg(feature = "sync")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sync")))]

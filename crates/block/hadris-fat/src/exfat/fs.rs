@@ -719,7 +719,14 @@ async fn boot<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf) -> FsResult<(Ge
         geo = boot_region(dev, block, base).await?.filter(|geo| geo.sector_shift == shift);
         backup = geo.is_some();
     }
-    let geo = geo.ok_or(ErrorKind::Corrupt)?;
+    let Some(geo) = geo else {
+        let mut head = [0u8; 11];
+        read_bytes(dev, block, 0, &mut head).await?;
+        return Err(match head[3..] == raw::FILE_SYSTEM_NAME {
+            true => ErrorKind::Corrupt.into(),
+            false => ErrorKind::NotRecognized.into(),
+        });
+    };
     let device_len = dev.block_count().saturating_mul(size as u64);
     let heap_end = geo.heap_start + ((geo.cluster_count as u64) << geo.cluster_shift);
     if geo.volume_len > device_len || heap_end > geo.volume_len {
@@ -914,8 +921,9 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// `ActiveFat` selects are read, and every change is written to both
     /// FATs and both bitmaps.
     ///
-    /// Fails with [`ErrorKind::Corrupt`] when neither boot region holds a
-    /// valid exFAT boot sector and checksum, the boot sector describes a
+    /// Fails with [`ErrorKind::NotRecognized`] when the first sector does not
+    /// name exFAT, and with [`ErrorKind::Corrupt`] when neither boot region
+    /// holds a valid exFAT boot sector and checksum, the boot sector describes a
     /// volume larger than the device, or the root directory lacks an
     /// Allocation Bitmap or Up-case Table entry whose chain holds it; and
     /// with [`ErrorKind::Unsupported`] when the device's blocks are larger

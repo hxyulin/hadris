@@ -27,7 +27,7 @@ fn main() -> Result<()> {
     let partition = table.partition(0).context("the disk has no partitions")?;
 
     let slice = part::sync::open(&mut disk, &partition)?;
-    // `OpenError` holds the borrowed slice; keep only its error for `anyhow`.
+    // `MountError` holds the borrowed slice; keep only its error for `anyhow`.
     let opened = OpenVolume::open(slice).map_err(|err| err.into_error())?;
     let mut fat = opened
         .into_fat()

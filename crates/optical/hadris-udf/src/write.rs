@@ -1,9 +1,11 @@
 use alloc::collections::BTreeMap;
+use alloc::format;
+use alloc::string::String;
 use alloc::vec;
 use core::convert::Infallible;
 
 use hadris_fs::tree::{NodeKind, Tree};
-use hadris_fs::{Clock, ErrorKind};
+use hadris_fs::{Clock, ErrorKind, PathError};
 use hadris_storage::BlockIndex;
 
 use super::fs::ContentReader;
@@ -16,23 +18,20 @@ use crate::report::Report;
 /// Bytes read from a content per request.
 const CHUNK: usize = 64 * 1024;
 
-fn never<E>(err: Error<Infallible>) -> Error<E> {
-    err.map_device(|never| match never {})
-}
-
 io_transform! {
 
 /// Measures every file of `tree`: the length of content to write, or the
 /// extents of stored content in a bridge volume. With `strict`, a bridge
 /// file whose content is neither stored nor empty fails; without, it is
 /// left out.
-async fn measure(tree: &Tree, bridge: bool, strict: bool) -> Result<BTreeMap<usize, ContentInfo>, Error<Infallible>> {
+async fn measure(tree: &Tree, bridge: bool, strict: bool) -> Result<BTreeMap<usize, ContentInfo>, PathError> {
     let mut out = BTreeMap::new();
-    let mut pending = vec![tree.root()];
-    while let Some(dir) = pending.pop() {
-        for (_, child) in dir.children() {
+    let mut pending = vec![(String::new(), tree.root())];
+    while let Some((dir_path, dir)) = pending.pop() {
+        for (name, child) in dir.children() {
+            let path = format!("{dir_path}/{name}");
             match child.kind() {
-                NodeKind::Dir => pending.push(child),
+                NodeKind::Dir => pending.push((path, child)),
                 NodeKind::File(content) if !out.contains_key(&child.id()) => {
                     let info = match content.stored_extents() {
                         Some(extents) if bridge => ContentInfo {
@@ -42,10 +41,10 @@ async fn measure(tree: &Tree, bridge: bool, strict: bool) -> Result<BTreeMap<usi
                         None if bridge && content.len() == Some(0) => ContentInfo { len: 0, stored: None },
                         None if bridge && !strict => continue,
                         None if !bridge => {
-                            let reader = ContentReader::open(content).await.map_err(Error::content)?;
+                            let reader = ContentReader::open(content).await.map_err(|err| err.with_path(path))?;
                             ContentInfo { len: reader.len(), stored: None }
                         }
-                        _ => return Err(Error::new(ErrorKind::Unsupported, Detail::StoredContent)),
+                        _ => return Err(PathError::from(Detail::StoredContent.error::<Infallible>(ErrorKind::Unsupported)).with_path(path)),
                     };
                     out.insert(child.id(), info);
                 }
@@ -64,7 +63,7 @@ async fn measure(tree: &Tree, bridge: bool, strict: bool) -> Result<BTreeMap<usi
 /// whose content is not stored yet are planned without data, so the
 /// ISO 9660 structures can be placed at [`Report::allocated_end`] before
 /// the stored extents are known.
-pub async fn plan<C: Clock>(tree: &Tree, opts: &UdfOptions<C>) -> Result<Report, Error<Infallible>> {
+pub async fn plan<C: Clock>(tree: &Tree, opts: &UdfOptions<C>) -> Result<Report, PathError> {
     let bridge = opts.bridge().is_some();
     let contents = measure(tree, bridge, false).await?;
     Ok(plan::plan(tree, opts, &contents, !bridge)?.report)
@@ -88,15 +87,16 @@ pub async fn plan<C: Clock>(tree: &Tree, opts: &UdfOptions<C>) -> Result<Report,
 /// volume identifier over 126 bytes or a time outside the years 1 to 9999,
 /// [`ErrorKind::NameTooLong`] for a name over 254 bytes of OSTA Compressed
 /// Unicode, and [`ErrorKind::FileTooLarge`] for a file of more than 234
-/// GiB. A content that cannot be read fails with [`Detail::Content`].
-pub async fn write<D: BlockDevice, C: Clock>(mut out: D, tree: &Tree, opts: &UdfOptions<C>) -> Result<Report, Error<D::Error>> {
+/// GiB. An error from a file's content carries the file's path
+/// ([`PathError::path`]).
+pub async fn write<D: BlockDevice, C: Clock>(mut out: D, tree: &Tree, opts: &UdfOptions<C>) -> Result<Report, PathError> {
     let block = out.block_size().get() as usize;
     if block > SECTOR || SECTOR % block != 0 {
-        return Err(Error::new(ErrorKind::Unsupported, Detail::OutputBlockSize));
+        return Err(Detail::OutputBlockSize.error::<Infallible>(ErrorKind::Unsupported).into());
     }
     let bridge = opts.bridge().is_some();
-    let contents = measure(tree, bridge, true).await.map_err(never)?;
-    let plan = plan::plan(tree, opts, &contents, true).map_err(never)?;
+    let contents = measure(tree, bridge, true).await?;
+    let plan = plan::plan(tree, opts, &contents, true)?;
     emit(&mut out, tree, &plan).await?;
     Ok(plan.report)
 }
@@ -120,7 +120,7 @@ async fn zero<D: BlockDevice>(out: &mut D, from: u64, to: u64, buf: &mut [u8]) -
 
 /// Writes the regions of `plan` in order, zero-filling the gaps when the
 /// plan asks for it, and flushes.
-async fn emit<D: BlockDevice>(out: &mut D, tree: &Tree, plan: &Plan) -> Result<(), Error<D::Error>> {
+async fn emit<D: BlockDevice>(out: &mut D, tree: &Tree, plan: &Plan) -> Result<(), PathError> {
     let mut next = 0;
     let mut buf = vec![0u8; CHUNK];
     for region in &plan.regions {
@@ -157,19 +157,20 @@ async fn file<D: BlockDevice>(
     path: &str,
     len: u64,
     buf: &mut [u8],
-) -> Result<(), Error<D::Error>> {
+) -> Result<(), PathError> {
+    let changed = || PathError::from(Detail::Content.corrupt::<Infallible>()).with_path(path);
     let Some(NodeKind::File(content)) = tree.get(path).map(|node| node.kind()) else {
-        return Err(Error::corrupt(Detail::Content));
+        return Err(changed());
     };
-    let mut reader = ContentReader::open(content).await.map_err(Error::content)?;
+    let mut reader = ContentReader::open(content).await.map_err(|err| err.with_path(path))?;
     if reader.len() != len {
-        return Err(Error::content(ErrorKind::Corrupt.into()));
+        return Err(changed());
     }
     let mut offset = 0u64;
     let mut sector = block;
     while offset < len {
         let take = (len - offset).min(buf.len() as u64) as usize;
-        reader.read_exact_at(offset, &mut buf[..take]).await.map_err(Error::content)?;
+        reader.read_exact_at(offset, &mut buf[..take]).await.map_err(|err| err.with_path(path))?;
         let padded = take.div_ceil(SECTOR) * SECTOR;
         buf[take..padded].fill(0);
         write_sectors(out, sector, &buf[..padded]).await?;

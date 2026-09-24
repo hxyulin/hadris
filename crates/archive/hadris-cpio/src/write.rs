@@ -9,7 +9,9 @@ use hadris_fs::{DeviceKind, DeviceNumber, ErrorKind, SetMetadata};
 use super::fs::ContentReader;
 use super::io::Write;
 use crate::entry::{NewEntry, Report, dropped};
-use crate::error::{Detail, Error};
+use hadris_fs::PathError;
+
+use crate::error::{Detail, Error, write_failed};
 use crate::header;
 use crate::options::{CpioOptions, Format};
 use crate::raw::{self, NewcFields, NewcHeader, OdcFields, OdcHeader, PATH_MAX, TRAILER_NAME};
@@ -120,7 +122,7 @@ impl<W> CpioWriter<W> {
 fn base_fields<E>(meta: &SetMetadata, kind: u32, default_mode: u32) -> Result<Fields, Error<E>> {
     let mtime = match meta.times().modified() {
         Some(time) => u64::try_from(time.unix_seconds())
-            .map_err(|_| Error::new(ErrorKind::LimitExceeded, Detail::Field))?,
+            .map_err(|_| Detail::Field.error(ErrorKind::LimitExceeded))?,
         None => 0,
     };
     Ok(Fields {
@@ -144,9 +146,9 @@ fn encode<E>(
     out: &mut [u8; raw::NEWC_HEADER_LEN],
 ) -> Result<usize, Error<E>> {
     if fields.len > format.max_file_size() {
-        return Err(Error::new(ErrorKind::FileTooLarge, Detail::Field));
+        return Err(Detail::Field.error(ErrorKind::FileTooLarge));
     }
-    let limit = || Error::new(ErrorKind::LimitExceeded, Detail::Field);
+    let limit = || Detail::Field.error(ErrorKind::LimitExceeded);
     let small = |value: u64| u32::try_from(value).map_err(|_| limit());
     match format {
         Format::Newc | Format::NewcCrc => {
@@ -188,7 +190,7 @@ fn encode<E>(
             out[..raw::ODC_HEADER_LEN].copy_from_slice(&header.0);
             Ok(raw::ODC_HEADER_LEN)
         }
-        _ => Err(Error::new(ErrorKind::Unsupported, Detail::Format)),
+        _ => Err(Detail::Format.error(ErrorKind::Unsupported)),
     }
 }
 
@@ -207,7 +209,7 @@ io_transform! {
 /// children, children in the tree's name order; the root itself is not an
 /// entry. The names of a hard link share one inode, and the last of them
 /// in that order carries the data, as GNU cpio writes them.
-pub async fn write<W: Write>(out: W, tree: &Tree, options: &CpioOptions) -> Result<Report, Error<W::Error>> {
+pub async fn write<W: Write>(out: W, tree: &Tree, options: &CpioOptions) -> Result<Report, PathError> {
     let mut writer = CpioWriter::new(out, options);
     writer.write_tree(tree).await?;
     writer.write_trailer().await?;
@@ -216,13 +218,15 @@ pub async fn write<W: Write>(out: W, tree: &Tree, options: &CpioOptions) -> Resu
 
 impl<W: Write> CpioWriter<W> {
     async fn put(&mut self, data: &[u8]) -> Result<(), Error<W::Error>> {
-        self.out.write_all(data).await.map_err(Error::write)?;
+        self.out.write_all(data).await.map_err(write_failed)?;
         self.bytes += data.len() as u64;
         Ok(())
     }
 
-    async fn emit(&mut self, path: &str, mut fields: Fields, mut data: Option<Data<'_, '_>>) -> Result<(), Error<W::Error>> {
-        let namesize = self.check_name(path).map_err(|kind| Error::new(kind, Detail::Name))?;
+    async fn emit(&mut self, path: &str, mut fields: Fields, mut data: Option<Data<'_, '_>>) -> Result<(), PathError> {
+        let namesize = self
+            .check_name(path)
+            .map_err(|kind| PathError::from(Detail::Name.error::<W::Error>(kind)).with_path(path))?;
         if self.buf.len() < CHUNK {
             self.buf = vec![0u8; CHUNK];
         }
@@ -234,13 +238,13 @@ impl<W: Write> CpioWriter<W> {
                     let mut buf = core::mem::take(&mut self.buf);
                     let sum = checksum(reader, len, &mut buf).await;
                     self.buf = buf;
-                    sum.map_err(Error::content)?
+                    sum.map_err(|err| err.with_path(path))?
                 }
                 None => 0,
             };
         }
         let mut raw = [0u8; raw::NEWC_HEADER_LEN];
-        let len = encode(self.format, &fields, namesize, &mut raw)?;
+        let len = encode::<W::Error>(self.format, &fields, namesize, &mut raw)?;
         self.put(&raw[..len]).await?;
         self.put(path.as_bytes()).await?;
         self.put(&[0]).await?;
@@ -251,7 +255,7 @@ impl<W: Write> CpioWriter<W> {
                 let mut buf = core::mem::take(&mut self.buf);
                 let copied = self.copy(reader, fields.len, &mut buf).await;
                 self.buf = buf;
-                copied?;
+                copied.map_err(|err| err.with_path(path))?;
             }
             None => {}
         }
@@ -260,11 +264,11 @@ impl<W: Write> CpioWriter<W> {
         Ok(())
     }
 
-    async fn copy(&mut self, reader: &mut ContentReader<'_>, len: u64, buf: &mut [u8]) -> Result<(), Error<W::Error>> {
+    async fn copy(&mut self, reader: &mut ContentReader<'_>, len: u64, buf: &mut [u8]) -> Result<(), PathError> {
         let mut offset = 0u64;
         while offset < len {
             let take = (len - offset).min(buf.len() as u64) as usize;
-            reader.read_exact_at(offset, &mut buf[..take]).await.map_err(Error::content)?;
+            reader.read_exact_at(offset, &mut buf[..take]).await?;
             self.put(&buf[..take]).await?;
             offset += take as u64;
         }
@@ -284,19 +288,19 @@ impl<W: Write> CpioWriter<W> {
     /// bytes; [`ErrorKind::FileTooLarge`] for data the format cannot size;
     /// [`ErrorKind::LimitExceeded`] for another value that does not fit its
     /// field; [`ErrorKind::Unsupported`] for [`Format::Binary`].
-    pub async fn append(&mut self, path: &str, meta: &SetMetadata, entry: NewEntry<'_>) -> Result<(), Error<W::Error>> {
+    pub async fn append(&mut self, path: &str, meta: &SetMetadata, entry: NewEntry<'_>) -> Result<(), PathError> {
         match entry {
             NewEntry::File(content) => self.append_hard_links(&[path], meta, content).await,
             NewEntry::Dir => {
-                let mut fields = base_fields(meta, raw::S_IFDIR, 0o755)?;
+                let mut fields = base_fields::<W::Error>(meta, raw::S_IFDIR, 0o755)?;
                 fields.nlink = 2;
                 self.append_fields(path, meta, fields, None).await
             }
             NewEntry::Symlink(target) => {
                 if target.is_empty() {
-                    return Err(Error::invalid(Detail::Entry));
+                    return Err(Detail::Entry.invalid::<W::Error>().into());
                 }
-                let mut fields = base_fields(meta, raw::S_IFLNK, 0o777)?;
+                let mut fields = base_fields::<W::Error>(meta, raw::S_IFLNK, 0o777)?;
                 fields.len = target.len() as u64;
                 self.append_fields(path, meta, fields, Some(Data::Bytes(target))).await
             }
@@ -304,24 +308,24 @@ impl<W: Write> CpioWriter<W> {
                 let bits = match kind {
                     DeviceKind::Block => raw::S_IFBLK,
                     DeviceKind::Char => raw::S_IFCHR,
-                    _ => return Err(Error::new(ErrorKind::Unsupported, Detail::Entry)),
+                    _ => return Err(Detail::Entry.error::<W::Error>(ErrorKind::Unsupported).into()),
                 };
-                let mut fields = base_fields(meta, bits, 0o644)?;
+                let mut fields = base_fields::<W::Error>(meta, bits, 0o644)?;
                 fields.rdev = number;
                 self.append_fields(path, meta, fields, None).await
             }
             NewEntry::Fifo => {
-                let fields = base_fields(meta, raw::S_IFIFO, 0o644)?;
+                let fields = base_fields::<W::Error>(meta, raw::S_IFIFO, 0o644)?;
                 self.append_fields(path, meta, fields, None).await
             }
             NewEntry::Socket => {
-                let fields = base_fields(meta, raw::S_IFSOCK, 0o755)?;
+                let fields = base_fields::<W::Error>(meta, raw::S_IFSOCK, 0o755)?;
                 self.append_fields(path, meta, fields, None).await
             }
         }
     }
 
-    async fn append_fields(&mut self, path: &str, meta: &SetMetadata, mut fields: Fields, data: Option<Data<'_, '_>>) -> Result<(), Error<W::Error>> {
+    async fn append_fields(&mut self, path: &str, meta: &SetMetadata, mut fields: Fields, data: Option<Data<'_, '_>>) -> Result<(), PathError> {
         fields.ino = self.next_ino;
         self.emit(path, fields, data).await?;
         self.take_ino();
@@ -334,16 +338,17 @@ impl<W: Write> CpioWriter<W> {
     /// last name only, as GNU cpio writes them. Every name carries `meta`.
     ///
     /// Fails like [`append`](Self::append), and with
-    /// [`ErrorKind::InvalidInput`] when `paths` is empty. A content that
-    /// cannot be read fails with [`Detail::Content`].
-    pub async fn append_hard_links(&mut self, paths: &[&str], meta: &SetMetadata, content: &Content) -> Result<(), Error<W::Error>> {
+    /// [`ErrorKind::InvalidInput`] when `paths` is empty. An error from the
+    /// content carries the last name ([`PathError::path`]).
+    pub async fn append_hard_links(&mut self, paths: &[&str], meta: &SetMetadata, content: &Content) -> Result<(), PathError> {
         let Some((last, first)) = paths.split_last() else {
-            return Err(Error::invalid(Detail::Entry));
+            return Err(Detail::Entry.invalid::<W::Error>().into());
         };
         for path in paths {
-            self.check_name(path).map_err(|kind| Error::new(kind, Detail::Name))?;
+            self.check_name(path)
+                .map_err(|kind| PathError::from(Detail::Name.error::<W::Error>(kind)).with_path(*path))?;
         }
-        let mut fields = base_fields(meta, raw::S_IFREG, 0o644)?;
+        let mut fields = base_fields::<W::Error>(meta, raw::S_IFREG, 0o644)?;
         fields.ino = self.next_ino;
         fields.nlink = paths.len() as u64;
         for path in first {
@@ -355,8 +360,8 @@ impl<W: Write> CpioWriter<W> {
         Ok(())
     }
 
-    async fn file(&mut self, path: &str, mut fields: Fields, meta: &SetMetadata, content: &Content) -> Result<(), Error<W::Error>> {
-        let mut reader = ContentReader::open(content).await.map_err(Error::content)?;
+    async fn file(&mut self, path: &str, mut fields: Fields, meta: &SetMetadata, content: &Content) -> Result<(), PathError> {
+        let mut reader = ContentReader::open(content).await.map_err(|err| err.with_path(path))?;
         fields.len = reader.len();
         self.emit(path, fields, Some(Data::Content(&mut reader))).await?;
         self.warn(path, meta);
@@ -365,7 +370,7 @@ impl<W: Write> CpioWriter<W> {
 
     /// Appends every entry of `tree`, as [`write()`] orders them, and
     /// returns what this call wrote. The trailer is not written.
-    pub async fn write_tree(&mut self, tree: &Tree) -> Result<Report, Error<W::Error>> {
+    pub async fn write_tree(&mut self, tree: &Tree) -> Result<Report, PathError> {
         let (entries, bytes, warnings) = (self.entries, self.bytes, self.warnings.len());
         let mut links: BTreeMap<usize, (u64, usize)> = BTreeMap::new();
         for (path, node) in preorder(tree) {
@@ -378,7 +383,7 @@ impl<W: Write> CpioWriter<W> {
                     };
                     let seen = links.get(&node.id()).map_or(0, |&(_, seen)| seen) + 1;
                     links.insert(node.id(), (ino, seen));
-                    let mut fields = base_fields(meta, raw::S_IFREG, 0o644)?;
+                    let mut fields = base_fields::<W::Error>(meta, raw::S_IFREG, 0o644)?;
                     fields.ino = ino;
                     fields.nlink = node.links() as u64;
                     if seen == node.links() {
@@ -392,26 +397,29 @@ impl<W: Write> CpioWriter<W> {
                 NodeKind::Dir => self.append(&path, meta, NewEntry::Dir).await?,
                 NodeKind::Symlink(target) => self.append(&path, meta, NewEntry::Symlink(target)).await?,
                 NodeKind::Device(kind, number) => self.append(&path, meta, NewEntry::Device(kind, number)).await?,
-                _ => return Err(Error::new(ErrorKind::Unsupported, Detail::Entry)),
+                _ => return Err(Detail::Entry.error::<W::Error>(ErrorKind::Unsupported).into()),
             }
         }
         Ok(Report::new(self.entries - entries, self.bytes - bytes, self.warnings[warnings..].to_vec()))
     }
 
-    async fn write_trailer(&mut self) -> Result<(), Error<W::Error>> {
+    async fn write_trailer(&mut self) -> Result<(), PathError> {
         let fields = Fields { ino: 0, mode: 0, uid: 0, gid: 0, nlink: 1, mtime: 0, len: 0, rdev: DeviceNumber::new(0, 0), check: 0 };
         let namesize = TRAILER_NAME.len() + 1;
         let mut raw = [0u8; raw::NEWC_HEADER_LEN];
-        let len = encode(self.format, &fields, namesize, &mut raw)?;
+        let len = encode::<W::Error>(self.format, &fields, namesize, &mut raw)?;
         self.put(&raw[..len]).await?;
         self.put(TRAILER_NAME).await?;
         self.put(&[0]).await?;
         self.put(&[0u8; 3][..header::name_padding(self.format, namesize)]).await?;
-        self.out.flush().await.map_err(Error::device)
+        self.out
+            .flush()
+            .await
+            .map_err(|err| Error::device(err, "flushing the archive failed").into())
     }
 
     /// Writes the trailer, flushes and returns the stream.
-    pub async fn finish(mut self) -> Result<W, Error<W::Error>> {
+    pub async fn finish(mut self) -> Result<W, PathError> {
         self.write_trailer().await?;
         Ok(self.out)
     }

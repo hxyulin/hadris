@@ -320,7 +320,7 @@ impl DiskLayout {
             let start = spec.start.unwrap_or(align_up(ebr.saturating_add(1), align));
             if start <= ext_start {
                 let index = FIRST_LOGICAL + k;
-                return Err(TableError::invalid(Detail::OutOfBounds { index }));
+                return Err(TableError::invalid(Detail::OutOfBounds).at(index));
             }
             let len = length(spec.size, block_size, start, end)?;
             let len = match spec.size {
@@ -382,9 +382,7 @@ fn length(size: Size, block_size: BlockSize, start: u64, end: u64) -> Result<u64
 fn fit(spec: &PartitionSpec) -> impl Fn(TableError) -> TableError {
     let placed = spec.start.is_none();
     move |err| match err.detail() {
-        Detail::OutOfBounds { .. } if placed => {
-            TableError::new(ErrorKind::NoSpace, Detail::DiskTooSmall)
-        }
+        Detail::OutOfBounds if placed => TableError::new(ErrorKind::NoSpace, Detail::DiskTooSmall),
         _ => err,
     }
 }

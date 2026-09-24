@@ -34,7 +34,7 @@ pub(crate) const fn blocks_for(bytes: u64, size: BlockSize) -> u64 {
 /// Which table block 0 describes.
 pub(crate) fn classify(record: &RawMbr) -> Result<TableKind, TableError> {
     if !record.has_signature() {
-        return Err(TableError::new(ErrorKind::NotFound, Detail::NoTable));
+        return Err(TableError::new(ErrorKind::NotRecognized, Detail::NoTable));
     }
     let mut protective = false;
     let mut other = false;

@@ -592,7 +592,7 @@ impl Mount {
         let mut sector = [0u8; BOOT_SECTOR_LEN];
         read_bytes(dev, block, 0, &mut sector).await?;
         let bpb: RawBpb = bytemuck::pod_read_unaligned(&sector[..BPB_LEN]);
-        boot::check_bpb(&bpb).map_err(corrupt)?;
+        boot::check_bpb(&bpb).map_err(|_| ErrorKind::NotRecognized)?;
         let (geo, active_fat, mirrored, fs_info) = if boot::is_fat32(&bpb) {
             let ext: RawBpbExt32 =
                 bytemuck::pod_read_unaligned(&sector[BPB_LEN..BPB_LEN + size_of::<RawBpbExt32>()]);
@@ -668,9 +668,11 @@ impl<D: BlockDevice> FatFs<D> {
     /// Mounts the volume on `dev` with the defaults of [`MountOptions::new`]:
     /// writable, a `FixedTable<64>`, [`NoClock`] and [`Ascii`].
     ///
-    /// Fails with [`ErrorKind::Corrupt`] when the boot sector is not a valid
-    /// FAT12, FAT16 or FAT32 boot sector or describes a volume larger than
-    /// the device, and with [`ErrorKind::Unsupported`] when the device's
+    /// Fails with [`ErrorKind::NotRecognized`] when the first sector has no
+    /// FAT BIOS parameter block (its sector and cluster sizes are not ones
+    /// FAT allows), with [`ErrorKind::Corrupt`] when the boot sector is not a
+    /// valid FAT12, FAT16 or FAT32 boot sector or describes a volume larger
+    /// than the device, and with [`ErrorKind::Unsupported`] when the device's
     /// blocks are larger than 4096 bytes. The [`MountError`] gives `dev`
     /// back.
     pub async fn open(dev: D) -> Result<Self, MountError<D, D::Error>> {

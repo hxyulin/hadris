@@ -136,7 +136,7 @@ fn writer_rejects_empty_symlink_target() {
         .append("link", &SetMetadata::new(), NewEntry::Symlink(b""))
         .unwrap_err();
     assert_eq!(
-        (err.kind(), err.detail()),
+        (err.kind(), err.detail().and_then(Detail::from_code)),
         (ErrorKind::InvalidInput, Some(Detail::Entry))
     );
     assert_eq!(writer.bytes_written(), 0);
@@ -269,7 +269,7 @@ fn crc_reader_rejects_corrupt_data() {
     bytes[at] ^= 1;
     let err = read_all(&bytes).unwrap_err();
     assert_eq!(
-        (err.kind(), err.detail()),
+        (err.kind(), err.detail().and_then(Detail::from_code)),
         (ErrorKind::Corrupt, Some(Detail::Checksum))
     );
 
@@ -281,7 +281,10 @@ fn crc_reader_rejects_corrupt_data() {
             Err(err) => break err,
         }
     };
-    assert_eq!(err.detail(), Some(Detail::Checksum));
+    assert_eq!(
+        err.detail().and_then(Detail::from_code),
+        Some(Detail::Checksum)
+    );
     assert!(reader.next_entry().unwrap().is_none());
 }
 
@@ -289,15 +292,28 @@ fn crc_reader_rejects_corrupt_data() {
 fn reader_rejects_non_nul_filename_terminator() {
     let mut bytes = newc_entry(b"ab", 0o100644, b"", None);
     bytes[112] = b'c';
-    assert_eq!(read_all(&bytes).unwrap_err().detail(), Some(Detail::Name));
+    assert_eq!(
+        read_all(&bytes)
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
+        Some(Detail::Name)
+    );
 
     let mut garbage = newc_entry(b"a\0b", 0o100644, b"", None);
     garbage[110..114].copy_from_slice(b"a\0b\0");
-    assert_eq!(read_all(&garbage).unwrap_err().detail(), Some(Detail::Name));
+    assert_eq!(
+        read_all(&garbage)
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
+        Some(Detail::Name)
+    );
     assert_eq!(
         read_all(&newc_entry(b"", 0o100644, b"", None))
             .unwrap_err()
-            .detail(),
+            .detail()
+            .and_then(Detail::from_code),
         Some(Detail::Name)
     );
 }
@@ -331,14 +347,20 @@ fn reader_rejects_nonzero_name_and_data_padding() {
     let mut name_pad = newc_entry(b"xy", 0o100644, b"abc", None);
     name_pad[113] = 1;
     assert_eq!(
-        read_all(&name_pad).unwrap_err().detail(),
+        read_all(&name_pad)
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
         Some(Detail::Padding)
     );
     let mut data_pad = newc_entry(b"x", 0o100644, b"abc", None);
     let last = data_pad.len() - 1;
     data_pad[last] = 1;
     assert_eq!(
-        read_all(&data_pad).unwrap_err().detail(),
+        read_all(&data_pad)
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
         Some(Detail::Padding)
     );
 }
@@ -359,7 +381,10 @@ fn trailer_detection() {
 fn reader_rejects_trailer_with_nonzero_filesize() {
     let bytes = newc_entry(b"TRAILER!!!", 0, b"x", None);
     assert_eq!(
-        read_all(&bytes).unwrap_err().detail(),
+        read_all(&bytes)
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
         Some(Detail::Trailer)
     );
 }
@@ -371,19 +396,25 @@ fn reader_accepts_aligned_eof_without_trailer() {
     let strict = ReaderOptions::new().with_strict_trailer();
     let err = read_all_with(&bytes, strict).unwrap_err();
     assert_eq!(
-        (err.kind(), err.detail()),
+        (err.kind(), err.detail().and_then(Detail::from_code)),
         (ErrorKind::Corrupt, Some(Detail::Trailer))
     );
 
     let mut cut = bytes.clone();
     cut.extend_from_slice(&trailer()[..60]);
     assert_eq!(
-        read_all(&cut).unwrap_err().detail(),
+        read_all(&cut)
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
         Some(Detail::Truncated)
     );
     let data_cut = &bytes[..bytes.len() - 5];
     assert_eq!(
-        read_all(data_cut).unwrap_err().detail(),
+        read_all(data_cut)
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
         Some(Detail::Truncated)
     );
 }
@@ -413,23 +444,61 @@ fn concatenated_archives_read_on_request() {
 fn malformed_headers_are_corrupt() {
     let mut magic = newc_entry(b"a", 0o100644, b"", None);
     magic[5] = b'9';
-    assert_eq!(read_all(&magic).unwrap_err().detail(), Some(Detail::Magic));
+    let err = read_all(&magic).unwrap_err();
+    assert_eq!(
+        (err.kind(), Detail::of(&err)),
+        (ErrorKind::NotRecognized, Some(Detail::Magic))
+    );
+    let mut second = newc_entry(b"a", 0o100644, b"", None);
+    second.extend_from_slice(&magic);
+    let err = read_all(&second).unwrap_err();
+    assert_eq!(
+        (err.kind(), Detail::of(&err)),
+        (ErrorKind::Corrupt, Some(Detail::Magic))
+    );
     let mut hex = newc_entry(b"a", 0o100644, b"", None);
     assert_eq!(
-        read_all(&hex[..50]).unwrap_err().detail(),
+        read_all(&hex[..50])
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
         Some(Detail::Truncated)
     );
     hex[20] = b'z';
-    assert_eq!(read_all(&hex).unwrap_err().detail(), Some(Detail::Field));
+    assert_eq!(
+        read_all(&hex)
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
+        Some(Detail::Field)
+    );
     let mut check = newc_entry(b"a", 0o100644, b"", None);
     check[109] = b'1';
-    assert_eq!(read_all(&check).unwrap_err().detail(), Some(Detail::Check));
+    assert_eq!(
+        read_all(&check)
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
+        Some(Detail::Check)
+    );
     let mut kind = newc_entry(b"a", 0o100644, b"", None);
     kind[14..22].copy_from_slice(b"000F01A4");
-    assert_eq!(read_all(&kind).unwrap_err().detail(), Some(Detail::Field));
+    assert_eq!(
+        read_all(&kind)
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
+        Some(Detail::Field)
+    );
     let mut name = newc_entry(b"a", 0o100644, b"", None);
     name[94..102].copy_from_slice(b"00001001");
-    assert_eq!(read_all(&name).unwrap_err().detail(), Some(Detail::Name));
+    assert_eq!(
+        read_all(&name)
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
+        Some(Detail::Name)
+    );
 }
 
 #[test]
@@ -441,7 +510,11 @@ fn huge_claimed_sizes_end_with_an_error() {
     assert_eq!(entry.len(), u64::from(u32::MAX));
     let _ = entry;
     assert_eq!(
-        reader.next_entry().unwrap_err().detail(),
+        reader
+            .next_entry()
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
         Some(Detail::Truncated)
     );
 }

@@ -41,10 +41,11 @@ for entry in volume.read_dir("/")? {
 - A partitioned disk is refused with `Detail::PartitionedDisk`; open a
   partition from `hadris_part` (the `part` re-export), which gives a
   `hadris-storage` `Slice`.
-- Every failure is an `Error<E>` with a shared `ErrorKind`, a `Detail` and
-  the device's own error, and a failed open gives the device back in an
-  `OpenError`. Both convert into `hadris_fs::Error`, `PathError` with
-  `alloc`, and `std::io::Error` with `std`.
+- Every failure is a `hadris_fs::Error<E>` with a shared `ErrorKind` and
+  the device's own error, and a failed open gives the device back in a
+  `hadris_fs::MountError`. A device with no known format fails with
+  `NotRecognized`; a driver that refuses the volume returns its own error.
+  `Detail::of(&err)` reads this crate's detail code.
 
 NTFS is a preview: `OpenVolume` always opens it through `FsDriver`, and
 the `unstable-ntfs` feature adds the `ntfs` re-export and `as_ntfs`,

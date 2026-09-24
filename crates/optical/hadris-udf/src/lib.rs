@@ -57,6 +57,13 @@
 //! [`Bridge`], the volume shares an image with ISO 9660 and points at file
 //! data already on the device, as `hadris-cd` does.
 //!
+//! Reading fails with [`hadris_fs::Error`]; [`Detail::of`] names the
+//! structure or option at fault, and a device without a UDF recognition
+//! sequence fails with
+//! [`ErrorKind::NotRecognized`](hadris_fs::ErrorKind::NotRecognized).
+//! Writing fails with [`hadris_fs::PathError`], which carries the path of
+//! the file whose content failed; [`Detail::from_code`] reads its detail.
+//!
 //! ## Features
 //!
 //! | Feature | Default | Description |
@@ -162,7 +169,7 @@ pub mod r#async {
 #[cfg_attr(docsrs, doc(cfg(feature = "async-send")))]
 pub mod async_send;
 
-pub use error::{Detail, Error};
+pub use error::Detail;
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub use options::{Bridge, UdfOptions};

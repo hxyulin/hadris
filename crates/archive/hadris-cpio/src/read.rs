@@ -1,7 +1,7 @@
-use hadris_fs::{DateTime, DeviceNumber, FileTimes, FileType, Metadata, Mode};
+use hadris_fs::{DateTime, DeviceNumber, ErrorKind, FileTimes, FileType, Metadata, Mode};
 
 use super::io::Read;
-use crate::error::{Detail, Error};
+use crate::error::{Detail, Error, read_failed};
 use crate::header::{self, Header};
 use crate::options::{Format, ReaderOptions};
 use crate::raw::{PATH_MAX, TRAILER_NAME};
@@ -236,7 +236,7 @@ impl<R: hadris_io::ErrorType> hadris_io::ErrorType for Entry<'_, R> {
 io_transform! {
 
 async fn fill<R: Read>(reader: &mut R, offset: &mut u64, buf: &mut [u8]) -> Result<(), Error<R::Error>> {
-    reader.read_exact(buf).await.map_err(Error::read)?;
+    reader.read_exact(buf).await.map_err(read_failed)?;
     *offset += buf.len() as u64;
     Ok(())
 }
@@ -266,7 +266,7 @@ impl<R: Read> CpioReader<R> {
     async fn first_byte(&mut self) -> Result<Option<u8>, Error<R::Error>> {
         let mut byte = [0u8; 1];
         loop {
-            if self.reader.read(&mut byte).await.map_err(Error::device)? == 0 {
+            if self.reader.read(&mut byte).await.map_err(|err| Error::device(err, "reading the archive failed"))? == 0 {
                 return Ok(None);
             }
             self.offset += 1;
@@ -281,7 +281,7 @@ impl<R: Read> CpioReader<R> {
         let pad = &mut pad[..len];
         self.fill(pad).await?;
         if pad.iter().any(|byte| *byte != 0) {
-            return Err(Error::corrupt(Detail::Padding));
+            return Err(Detail::Padding.corrupt());
         }
         Ok(())
     }
@@ -312,7 +312,7 @@ impl<R: Read> CpioReader<R> {
 
     fn verify(&mut self) -> Result<(), Error<R::Error>> {
         match self.sum.take() {
-            Some(sum) if sum != self.header.check => Err(Error::corrupt(Detail::Checksum)),
+            Some(sum) if sum != self.header.check => Err(Detail::Checksum.corrupt()),
             _ => Ok(()),
         }
     }
@@ -324,9 +324,10 @@ impl<R: Read> CpioReader<R> {
         if !matches!(self.state, State::Entries | State::Between) {
             return Ok(false);
         }
+        let at_start = self.offset == 0;
         let Some(first) = self.first_byte().await? else {
             if self.state == State::Entries && self.options.strict_trailer() {
-                return Err(Error::corrupt(Detail::Trailer));
+                return Err(Detail::Trailer.corrupt());
             }
             self.state = State::Done;
             return Ok(false);
@@ -336,35 +337,39 @@ impl<R: Read> CpioReader<R> {
         raw[0] = first;
         self.fill(&mut raw[1..6]).await?;
         let start: [u8; 6] = [raw[0], raw[1], raw[2], raw[3], raw[4], raw[5]];
-        let format = header::detect(&start).ok_or(Error::corrupt(Detail::Magic))?;
+        let not_cpio = match at_start {
+            true => ErrorKind::NotRecognized,
+            false => ErrorKind::Corrupt,
+        };
+        let format = header::detect(&start).ok_or(Detail::Magic.error(not_cpio))?;
         let len = header::header_len(format);
         self.fill(&mut raw[6..len]).await?;
-        let header = header::decode(format, &raw[..len]).ok_or(Error::corrupt(Detail::Field))?;
+        let header = header::decode(format, &raw[..len]).ok_or(Detail::Field.corrupt())?;
         if format == Format::Newc && header.check != 0 {
-            return Err(Error::corrupt(Detail::Check));
+            return Err(Detail::Check.corrupt());
         }
         if header::file_type(header.mode).is_none() && header.mode != 0 {
-            return Err(Error::corrupt(Detail::Field));
+            return Err(Detail::Field.corrupt());
         }
         if header.namesize < 2 || header.namesize > PATH_MAX {
-            return Err(Error::corrupt(Detail::Name));
+            return Err(Detail::Name.corrupt());
         }
         fill(&mut self.reader, &mut self.offset, &mut self.name[..header.namesize]).await?;
         let name = &self.name[..header.namesize];
         let name_len = name.iter().position(|byte| *byte == 0).unwrap_or(header.namesize);
         if name_len == 0 || name_len == header.namesize || name[name_len..].iter().any(|byte| *byte != 0) {
-            return Err(Error::corrupt(Detail::Name));
+            return Err(Detail::Name.corrupt());
         }
         self.skip_padding(header::name_padding(format, header.namesize)).await?;
         if &self.name[..name_len] == TRAILER_NAME {
             if header.len != 0 {
-                return Err(Error::corrupt(Detail::Trailer));
+                return Err(Detail::Trailer.corrupt());
             }
             self.state = State::Trailer;
             return Ok(false);
         }
         if header.mode == 0 {
-            return Err(Error::corrupt(Detail::Field));
+            return Err(Detail::Field.corrupt());
         }
         self.name_len = name_len;
         self.header = header;
@@ -382,9 +387,9 @@ impl<R: Read> CpioReader<R> {
             return Ok(0);
         }
         let take = usize::try_from(self.remaining).unwrap_or(usize::MAX).min(buf.len());
-        let read = self.reader.read(&mut buf[..take]).await.map_err(Error::device)?;
+        let read = self.reader.read(&mut buf[..take]).await.map_err(|err| Error::device(err, "reading the archive failed"))?;
         if read == 0 {
-            return Err(Error::corrupt(Detail::Truncated));
+            return Err(Detail::Truncated.corrupt());
         }
         self.offset += read as u64;
         self.account(&buf[..read])?;

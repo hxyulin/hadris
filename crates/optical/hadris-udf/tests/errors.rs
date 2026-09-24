@@ -28,7 +28,7 @@ fn malformed_volumes_are_refused() {
 
     let mut bad = good.clone();
     bad[17 * 2048 + 1..17 * 2048 + 6].copy_from_slice(b"XXXXX");
-    assert_eq!(open_err(bad), ErrorKind::Corrupt);
+    assert_eq!(open_err(bad), ErrorKind::NotRecognized);
 
     let mut bad = good.clone();
     bad[290 * 2048 + 100] ^= 1;
@@ -169,7 +169,10 @@ fn the_writer_refuses_what_it_cannot_store() {
     )
     .unwrap_err();
     assert_eq!(
-        (err.kind(), err.detail()),
+        (
+            err.kind(),
+            err.detail().and_then(hadris_udf::Detail::from_code)
+        ),
         (ErrorKind::InvalidInput, Some(Detail::Identifier))
     );
 
@@ -177,13 +180,19 @@ fn the_writer_refuses_what_it_cannot_store() {
         let options = UdfOptions::default().with_revision(revision);
         let err = hadris_udf::sync::plan(&tree, &options).unwrap_err();
         assert_eq!(
-            (err.kind(), err.detail()),
+            (
+                err.kind(),
+                err.detail().and_then(hadris_udf::Detail::from_code)
+            ),
             (ErrorKind::Unsupported, Some(Detail::PartitionMap)),
             "UDF {revision} needs a metadata partition"
         );
         let mut dev = MemDevice::new(vec![0u8; 1 << 20], SECTOR);
         let err = hadris_udf::sync::write(&mut dev, &tree, &options).unwrap_err();
-        assert_eq!(err.detail(), Some(Detail::PartitionMap));
+        assert_eq!(
+            err.detail().and_then(hadris_udf::Detail::from_code),
+            Some(Detail::PartitionMap)
+        );
         assert!(dev.get_ref().iter().all(|&byte| byte == 0));
     }
 
@@ -201,7 +210,10 @@ fn the_writer_refuses_what_it_cannot_store() {
     )
     .unwrap();
     let err = hadris_udf::sync::plan(&late, &UdfOptions::default()).unwrap_err();
-    assert_eq!(err.detail(), Some(Detail::Timestamp));
+    assert_eq!(
+        err.detail().and_then(hadris_udf::Detail::from_code),
+        Some(Detail::Timestamp)
+    );
 
     let mut stored = Tree::new();
     stored
@@ -209,13 +221,19 @@ fn the_writer_refuses_what_it_cannot_store() {
         .unwrap();
     let err = hadris_udf::sync::plan(&stored, &UdfOptions::default()).unwrap_err();
     assert_eq!(
-        (err.kind(), err.detail()),
+        (
+            err.kind(),
+            err.detail().and_then(hadris_udf::Detail::from_code)
+        ),
         (ErrorKind::Unsupported, Some(Detail::StoredContent))
     );
 
     let mut dev = MemDevice::new(vec![0u8; 4 << 20], BlockSize::new(4096).unwrap());
     let err = hadris_udf::sync::write(&mut dev, &tree, &UdfOptions::default()).unwrap_err();
-    assert_eq!(err.detail(), Some(Detail::OutputBlockSize));
+    assert_eq!(
+        err.detail().and_then(hadris_udf::Detail::from_code),
+        Some(Detail::OutputBlockSize)
+    );
     assert!(dev.get_ref().iter().all(|&b| b == 0));
 }
 
@@ -228,7 +246,10 @@ fn bridge_volumes_take_only_stored_content() {
     bytes.add_file("f", Content::bytes("data")).unwrap();
     let err = hadris_udf::sync::write(&mut dev, &bytes, &bridge).unwrap_err();
     assert_eq!(
-        (err.kind(), err.detail()),
+        (
+            err.kind(),
+            err.detail().and_then(hadris_udf::Detail::from_code)
+        ),
         (ErrorKind::Unsupported, Some(Detail::StoredContent))
     );
 
@@ -238,7 +259,10 @@ fn bridge_volumes_take_only_stored_content() {
         .unwrap();
     let err = hadris_udf::sync::write(&mut dev, &unaligned, &bridge).unwrap_err();
     assert_eq!(
-        (err.kind(), err.detail()),
+        (
+            err.kind(),
+            err.detail().and_then(hadris_udf::Detail::from_code)
+        ),
         (ErrorKind::InvalidInput, Some(Detail::StoredContent))
     );
 
@@ -248,7 +272,10 @@ fn bridge_volumes_take_only_stored_content() {
         .unwrap();
     let err = hadris_udf::sync::write(&mut dev, &early, &bridge).unwrap_err();
     assert_eq!(
-        (err.kind(), err.detail()),
+        (
+            err.kind(),
+            err.detail().and_then(hadris_udf::Detail::from_code)
+        ),
         (ErrorKind::InvalidInput, Some(Detail::StoredContent))
     );
     assert!(dev.get_ref().iter().all(|&b| b == 0));

@@ -18,12 +18,24 @@ fn refused(tree: &Tree, options: &IsoOptions) -> (ErrorKind, Option<Detail>) {
     let err = hadris_iso::sync::plan(tree, options).unwrap_err();
     let mut dev = MemDevice::new(vec![0u8; 1 << 20], common::SECTOR);
     let write = hadris_iso::sync::write(&mut dev, tree, options).unwrap_err();
-    assert_eq!((write.kind(), write.detail()), (err.kind(), err.detail()));
+    assert_eq!(
+        (
+            write.kind(),
+            write.detail().and_then(hadris_iso::Detail::from_code)
+        ),
+        (
+            err.kind(),
+            err.detail().and_then(hadris_iso::Detail::from_code)
+        )
+    );
     assert!(
         dev.get_ref().iter().all(|&b| b == 0),
         "a refused write writes nothing"
     );
-    (err.kind(), err.detail())
+    (
+        err.kind(),
+        err.detail().and_then(hadris_iso::Detail::from_code),
+    )
 }
 
 #[test]
@@ -193,7 +205,10 @@ fn output_blocks_must_divide_2048() {
     );
     let err = hadris_iso::sync::write(dev, &tree, &IsoOptions::default()).unwrap_err();
     assert_eq!(
-        (err.kind(), err.detail()),
+        (
+            err.kind(),
+            err.detail().and_then(hadris_iso::Detail::from_code)
+        ),
         (ErrorKind::Unsupported, Some(Detail::OutputBlockSize))
     );
 }
@@ -206,7 +221,14 @@ fn malformed_images_are_refused() {
     let mut bad = good.clone();
     bad[16 * 2048 + 1] = b'X';
     let err = IsoImage::open(MemDevice::new(bad, common::SECTOR)).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::NotRecognized);
+    assert_eq!(Detail::of(err.error()), Some(Detail::DescriptorHeader));
+
+    let mut bad = good.clone();
+    bad[17 * 2048 + 1] = b'X';
+    let err = IsoImage::open(MemDevice::new(bad, common::SECTOR)).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Corrupt);
+    assert_eq!(Detail::of(err.error()), Some(Detail::DescriptorHeader));
 
     let mut bad = good.clone();
     bad[16 * 2048 + 128] = 0x05;
@@ -309,7 +331,10 @@ fn missing_namespaces_are_reported() {
     let mut iso = IsoImage::open(image(&tree, &IsoOptions::default())).unwrap();
     let err = iso.view(Namespace::Joliet).unwrap_err();
     assert_eq!(
-        (err.kind(), err.detail()),
+        (
+            err.kind(),
+            err.detail().and_then(hadris_iso::Detail::from_code)
+        ),
         (ErrorKind::NotFound, Some(Detail::NoNamespace))
     );
     assert!(iso.boot_catalog().unwrap().is_none());

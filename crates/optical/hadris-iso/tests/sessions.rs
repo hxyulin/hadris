@@ -180,7 +180,10 @@ fn kept_catalogs_follow_replaced_boot_images() {
     let before = session.volume_blocks();
     let err = session.write(&opts, SessionMode::Rewrite).unwrap_err();
     assert_eq!(
-        (err.kind(), err.detail()),
+        (
+            err.kind(),
+            err.detail().and_then(hadris_iso::Detail::from_code)
+        ),
         (
             hadris_fs::ErrorKind::InvalidInput,
             Some(hadris_iso::Detail::BootImage)
