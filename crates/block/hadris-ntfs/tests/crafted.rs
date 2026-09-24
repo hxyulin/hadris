@@ -112,6 +112,46 @@ fn names_fold_case_through_upcase() {
 }
 
 #[test]
+fn an_unreadable_upcase_page_fails_only_folded_lookups() {
+    let mut image = base_image();
+    let runs = [
+        0x11,
+        0x01,
+        UPCASE_LCN as u8,
+        0x31,
+        0x01,
+        0xFF,
+        0xFF,
+        0x0F,
+        0x02,
+        0xFE,
+        0x00,
+        0x00,
+    ];
+    let upcase = non_resident(raw::ATTR_DATA, &[], 255, 131_072, 131_072, &runs);
+    put(
+        &mut image,
+        raw::RECORD_UPCASE,
+        &file_record(FILE, &[upcase]),
+    );
+    let mut entries = index_entry(20, "\u{100}BC.TXT", false, raw::FILE_NAME_WIN32);
+    entries.extend(index_entry(16, "HELLO.TXT", false, raw::FILE_NAME_WIN32));
+    entries.extend(last_entry());
+    put(
+        &mut image,
+        raw::RECORD_ROOT,
+        &file_record(DIR, &[named(5, ".", true), index_root(&entries, 1024)]),
+    );
+    let mut fs = open(image);
+    let root = fs.root();
+    assert!(fs.lookup(root, name("HELLO.TXT")).is_ok());
+    assert_eq!(
+        fs.lookup(root, name("hello.txt")).unwrap_err().kind(),
+        ErrorKind::Corrupt
+    );
+}
+
+#[test]
 fn metadata_reports_times_attributes_and_links() {
     let mut fs = open(base_image());
     let meta = fs.metadata("/HELLO.TXT").unwrap();

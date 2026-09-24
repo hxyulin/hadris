@@ -921,7 +921,9 @@ impl<D: BlockDevice> NtfsFs<D> {
     ///
     /// A listed entry whose name is exactly `name` wins; otherwise the
     /// first entry that matches with case folded, as Windows does for
-    /// Win32 and DOS names. POSIX names match only exactly.
+    /// Win32 and DOS names. POSIX names match only exactly. A `$UpCase`
+    /// page that cannot be read fails the lookup only when no entry
+    /// matches exactly.
     ///
     /// @hadris-spec NTFS:Directory-Index
     /// @hadris-compliance partial
@@ -945,6 +947,7 @@ impl<D: BlockDevice> NtfsFs<D> {
         } = self.dir_index(rec, base, &mut ext).await?;
         let mut block = [0u8; MAX_RECORD];
         let mut best: Option<(u8, u64)> = None;
+        let mut deferred = None;
         let mut node = 0u64;
         'nodes: while node <= blocks {
             let (buf, header) = if node == 0 {
@@ -967,7 +970,14 @@ impl<D: BlockDevice> NtfsFs<D> {
                 };
                 let fold = file_name.namespace != raw::FILE_NAME_POSIX;
                 let Info { geo, upcase, .. } = &mut self.info;
-                let rank = match name_match(&mut self.dev, geo, upcase, file_name.name, query, fold).await? {
+                let matched = match name_match(&mut self.dev, geo, upcase, file_name.name, query, fold).await {
+                    Ok(matched) => matched,
+                    Err(err) => {
+                        deferred.get_or_insert(err);
+                        continue;
+                    }
+                };
+                let rank = match matched {
                     Match::No => continue,
                     Match::Exact => 0,
                     Match::Folded => 2,
@@ -980,6 +990,11 @@ impl<D: BlockDevice> NtfsFs<D> {
                 }
             }
             node += 1;
+        }
+        if let Some(err) = deferred {
+            if best.is_none_or(|(rank, _)| rank > 0) {
+                return Err(err.into());
+            }
         }
         match best {
             Some((_, reference)) if reference_record(reference) == raw::RECORD_ROOT => Ok(self.root()),
