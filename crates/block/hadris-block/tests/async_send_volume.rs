@@ -99,6 +99,24 @@ fn opens_fat_through_an_mbr_partition() {
 }
 
 #[test]
+fn opens_exfat() {
+    block_on(async {
+        let dev = device(vec![0_u8; VOLUME_LEN]);
+        let options = hadris_fat::exfat::FormatOptions::new();
+        let dev = hadris_fat::exfat::async_send::format(dev, options)
+            .await
+            .unwrap()
+            .into_inner();
+        let volume = OpenVolume::open(dev).await.unwrap();
+        assert_eq!(volume.format(), BlockFormat::Fat(FatVariant::ExFat));
+        let mut fs = volume.into_exfat().ok().unwrap();
+        fs.write_file("/a.txt", b"exfat").await.unwrap();
+        assert_eq!(fs.read_to_vec("/a.txt").await.unwrap(), b"exfat");
+        fs.sync().await.unwrap();
+    });
+}
+
+#[test]
 fn failures_give_the_device_back() {
     block_on(async {
         let dev = formatted_fat12(device(vec![0_u8; VOLUME_LEN]));

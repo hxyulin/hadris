@@ -182,19 +182,40 @@ fn a_volume_that_fails_to_mount_gives_the_device_back() {
     );
 }
 
+const EXFAT: BlockFormat = BlockFormat::Fat(FatVariant::ExFat);
+
 #[test]
-fn detects_exfat_but_rejects_unified_opening() {
+fn opens_detected_exfat() {
+    let dev = device(vec![0_u8; VOLUME_LEN]);
+    let options = hadris_fat::exfat::FormatOptions::new();
+    let dev = hadris_fat::exfat::sync::format(dev, options)
+        .unwrap()
+        .into_inner();
+
+    let mut volume = OpenVolume::open(dev).unwrap();
+    assert_eq!(volume.format(), EXFAT);
+    assert!(volume.as_fat().is_none());
+    assert!(volume.as_exfat_mut().is_some());
+    volume.write_file("/Données.txt", b"exfat").unwrap();
+    assert_eq!(volume.read_to_vec("/DONNÉES.TXT").unwrap(), b"exfat");
+    volume.sync().unwrap();
+    let mut exfat = volume.into_exfat().ok().unwrap();
+    assert!(
+        hadris_fat::exfat::sync::check(&mut exfat)
+            .unwrap()
+            .is_clean()
+    );
+}
+
+#[test]
+fn a_bad_exfat_volume_gives_the_device_back() {
     let mut image = vec![0_u8; 512];
     image[3..11].copy_from_slice(b"EXFAT   ");
     image[510..512].copy_from_slice(&[0x55, 0xaa]);
 
     let (error, dev) = failure(OpenVolume::open(device(image)));
-    assert_eq!(
-        error.detail(),
-        Some(Detail::UnsupportedFormat(BlockFormat::Fat(
-            FatVariant::ExFat
-        )))
-    );
+    assert_eq!(error.detail(), Some(Detail::Mount(EXFAT)));
+    assert_eq!(error.kind(), ErrorKind::Corrupt);
     assert_eq!(dev.get_ref().len(), 512);
 }
 

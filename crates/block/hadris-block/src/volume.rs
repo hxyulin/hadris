@@ -4,7 +4,7 @@ use hadris_fs::{
     NewNode, NodeId, RemoveKind, RenameFlags, SetMetadata,
 };
 
-use super::{BlockDevice, FatFs, NtfsFs, detect};
+use super::{BlockDevice, ExFatFs, FatFs, NtfsFs, detect};
 use crate::detect::{BlockFormat, FatVariant};
 use crate::{Detail, Error, OpenError};
 
@@ -27,16 +27,19 @@ io_transform! {
 #[allow(clippy::large_enum_variant)]
 enum Inner<D> {
     Fat(FatFs<D>),
+    ExFat(ExFatFs<D>),
     Ntfs(NtfsFs<D>),
 }
 
-/// A block filesystem opened by detection: FAT12, FAT16, FAT32 or NTFS.
+/// A block filesystem opened by detection: FAT12, FAT16, FAT32, exFAT or
+/// NTFS.
 ///
 /// It implements `hadris_fs::FsDriver` by delegating to the driver it
 /// opened, so generic code lists and reads any of them the same way. NTFS
 /// is read-only, so its write methods fail with [`ErrorKind::ReadOnly`].
-/// [`as_fat`](Self::as_fat) and [`into_fat`](Self::into_fat) reach the FAT
-/// driver's native API; the NTFS driver is a preview and is reached the
+/// [`as_fat`](Self::as_fat), [`into_fat`](Self::into_fat),
+/// [`as_exfat`](Self::as_exfat) and [`into_exfat`](Self::into_exfat) reach
+/// the FAT and exFAT drivers' native APIs; the NTFS driver is a preview and is reached the
 /// same way only with the `unstable-ntfs` feature.
 ///
 /// ```rust,ignore
@@ -81,7 +84,13 @@ impl<D: BlockDevice> OpenVolume<D> {
     pub async fn open_detected(dev: D, detected: BlockFormat) -> Result<Self, OpenError<D, D::Error>> {
         let unsupported = Error::new(ErrorKind::Unsupported, Detail::UnsupportedFormat(detected));
         match detected {
-            BlockFormat::Fat(FatVariant::ExFat) => Err(OpenError::new(unsupported, dev)),
+            BlockFormat::Fat(FatVariant::ExFat) => match ExFatFs::open(dev).await {
+                Ok(exfat) => Ok(Self { inner: Inner::ExFat(exfat) }),
+                Err(err) => {
+                    let (err, dev) = err.into_parts();
+                    Err(OpenError::new(Error::mount(err, detected), dev))
+                }
+            },
             BlockFormat::Fat(variant) => {
                 let fat = match FatFs::open(dev).await {
                     Ok(fat) => fat,
@@ -123,6 +132,7 @@ impl<D: BlockDevice> OpenVolume<D> {
     pub fn format(&self) -> BlockFormat {
         match &self.inner {
             Inner::Fat(fat) => BlockFormat::Fat(fat_variant(fat.kind()).unwrap_or(FatVariant::Fat32)),
+            Inner::ExFat(_) => BlockFormat::Fat(FatVariant::ExFat),
             Inner::Ntfs(_) => BlockFormat::Ntfs,
         }
     }
@@ -148,6 +158,32 @@ impl<D: BlockDevice> OpenVolume<D> {
     pub fn into_fat(self) -> Result<FatFs<D>, Self> {
         match self.inner {
             Inner::Fat(fat) => Ok(fat),
+            inner => Err(Self { inner }),
+        }
+    }
+
+    /// Borrows the exFAT driver, if the volume is exFAT.
+    pub fn as_exfat(&self) -> Option<&ExFatFs<D>> {
+        match &self.inner {
+            Inner::ExFat(exfat) => Some(exfat),
+            _ => None,
+        }
+    }
+
+    /// Mutably borrows the exFAT driver, if the volume is exFAT.
+    pub fn as_exfat_mut(&mut self) -> Option<&mut ExFatFs<D>> {
+        match &mut self.inner {
+            Inner::ExFat(exfat) => Some(exfat),
+            _ => None,
+        }
+    }
+
+    /// Takes the exFAT driver, or gives `self` back if the volume is not
+    /// exFAT.
+    #[allow(clippy::result_large_err)]
+    pub fn into_exfat(self) -> Result<ExFatFs<D>, Self> {
+        match self.inner {
+            Inner::ExFat(exfat) => Ok(exfat),
             inner => Err(Self { inner }),
         }
     }
@@ -184,11 +220,12 @@ impl<D: BlockDevice> OpenVolume<D> {
         }
     }
 
-    /// Closes the filesystem and returns the device. What `FatFs` has not
-    /// written yet is lost; call [`sync`](Self::sync) first.
+    /// Closes the filesystem and returns the device. What `FatFs` or
+    /// `ExFatFs` has not written yet is lost; call [`sync`](Self::sync) first.
     pub fn into_inner(self) -> D {
         match self.inner {
             Inner::Fat(fat) => fat.into_inner(),
+            Inner::ExFat(fat) => fat.into_inner(),
             Inner::Ntfs(ntfs) => ntfs.into_inner(),
         }
     }
@@ -197,6 +234,7 @@ impl<D: BlockDevice> OpenVolume<D> {
     pub fn capabilities(&self) -> Capabilities {
         match &self.inner {
             Inner::Fat(fat) => fat.capabilities(),
+            Inner::ExFat(fat) => fat.capabilities(),
             Inner::Ntfs(ntfs) => ntfs.capabilities(),
         }
     }
@@ -205,6 +243,7 @@ impl<D: BlockDevice> OpenVolume<D> {
     pub fn root(&self) -> NodeId {
         match &self.inner {
             Inner::Fat(fat) => fat.root(),
+            Inner::ExFat(fat) => fat.root(),
             Inner::Ntfs(ntfs) => ntfs.root(),
         }
     }
@@ -213,6 +252,7 @@ impl<D: BlockDevice> OpenVolume<D> {
     pub async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
         match &mut self.inner {
             Inner::Fat(fat) => fat.lookup(dir, name).await,
+            Inner::ExFat(fat) => fat.lookup(dir, name).await,
             Inner::Ntfs(ntfs) => ntfs.lookup(dir, name).await,
         }
     }
@@ -221,6 +261,7 @@ impl<D: BlockDevice> OpenVolume<D> {
     pub async fn node_metadata(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
         match &mut self.inner {
             Inner::Fat(fat) => fat.node_metadata(node).await,
+            Inner::ExFat(fat) => fat.node_metadata(node).await,
             Inner::Ntfs(ntfs) => ntfs.node_metadata(node).await,
         }
     }
@@ -234,6 +275,7 @@ impl<D: BlockDevice> OpenVolume<D> {
     ) -> FsResult<Option<DirEntry>, D::Error> {
         match &mut self.inner {
             Inner::Fat(fat) => fat.read_dir_entry(dir, cursor, name).await,
+            Inner::ExFat(fat) => fat.read_dir_entry(dir, cursor, name).await,
             Inner::Ntfs(ntfs) => ntfs.read_dir_entry(dir, cursor, name).await,
         }
     }
@@ -242,6 +284,7 @@ impl<D: BlockDevice> OpenVolume<D> {
     pub async fn read_at(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         match &mut self.inner {
             Inner::Fat(fat) => fat.read_at(node, offset, buf).await,
+            Inner::ExFat(fat) => fat.read_at(node, offset, buf).await,
             Inner::Ntfs(ntfs) => ntfs.read_at(node, offset, buf).await,
         }
     }
@@ -250,6 +293,7 @@ impl<D: BlockDevice> OpenVolume<D> {
     pub async fn stats(&mut self) -> FsResult<FsStats, D::Error> {
         match &mut self.inner {
             Inner::Fat(fat) => fat.stats().await,
+            Inner::ExFat(fat) => fat.stats().await,
             Inner::Ntfs(ntfs) => ntfs.stats().await,
         }
     }
@@ -258,6 +302,7 @@ impl<D: BlockDevice> OpenVolume<D> {
     pub fn forget(&mut self, node: NodeId) {
         match &mut self.inner {
             Inner::Fat(fat) => fat.forget(node),
+            Inner::ExFat(fat) => fat.forget(node),
             Inner::Ntfs(ntfs) => ntfs.forget(node),
         }
     }
@@ -266,6 +311,7 @@ impl<D: BlockDevice> OpenVolume<D> {
     pub async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
         match &mut self.inner {
             Inner::Fat(fat) => fat.parent(dir).await,
+            Inner::ExFat(fat) => fat.parent(dir).await,
             Inner::Ntfs(ntfs) => ntfs.parent(dir).await,
         }
     }
@@ -274,14 +320,17 @@ impl<D: BlockDevice> OpenVolume<D> {
     pub async fn open_node(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         match &mut self.inner {
             Inner::Fat(fat) => fat.open_node(node).await,
+            Inner::ExFat(fat) => fat.open_node(node).await,
             Inner::Ntfs(_) => Ok(()),
         }
     }
 
     /// Ends an [`open_node`](Self::open_node).
     pub fn close_node(&mut self, node: NodeId) {
-        if let Inner::Fat(fat) = &mut self.inner {
-            fat.close_node(node);
+        match &mut self.inner {
+            Inner::Fat(fat) => fat.close_node(node),
+            Inner::ExFat(fat) => fat.close_node(node),
+            Inner::Ntfs(_) => {}
         }
     }
 
@@ -289,6 +338,7 @@ impl<D: BlockDevice> OpenVolume<D> {
     pub async fn publish_node(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         match &mut self.inner {
             Inner::Fat(fat) => fat.publish_node(node).await,
+            Inner::ExFat(fat) => fat.publish_node(node).await,
             Inner::Ntfs(_) => Ok(()),
         }
     }
@@ -303,6 +353,7 @@ impl<D: BlockDevice> OpenVolume<D> {
     ) -> FsResult<NodeId, D::Error> {
         match &mut self.inner {
             Inner::Fat(fat) => fat.create(dir, name, kind, meta).await,
+            Inner::ExFat(fat) => fat.create(dir, name, kind, meta).await,
             Inner::Ntfs(_) => read_only(),
         }
     }
@@ -311,6 +362,7 @@ impl<D: BlockDevice> OpenVolume<D> {
     pub async fn remove(&mut self, dir: NodeId, name: &Name, kind: RemoveKind) -> FsResult<(), D::Error> {
         match &mut self.inner {
             Inner::Fat(fat) => fat.remove(dir, name, kind).await,
+            Inner::ExFat(fat) => fat.remove(dir, name, kind).await,
             Inner::Ntfs(_) => read_only(),
         }
     }
@@ -326,6 +378,7 @@ impl<D: BlockDevice> OpenVolume<D> {
     ) -> FsResult<(), D::Error> {
         match &mut self.inner {
             Inner::Fat(fat) => fat.rename(from_dir, from, to_dir, to, flags).await,
+            Inner::ExFat(fat) => fat.rename(from_dir, from, to_dir, to, flags).await,
             Inner::Ntfs(_) => read_only(),
         }
     }
@@ -334,6 +387,7 @@ impl<D: BlockDevice> OpenVolume<D> {
     pub async fn write_at(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, D::Error> {
         match &mut self.inner {
             Inner::Fat(fat) => fat.write_at(node, offset, buf).await,
+            Inner::ExFat(fat) => fat.write_at(node, offset, buf).await,
             Inner::Ntfs(_) => read_only(),
         }
     }
@@ -342,6 +396,7 @@ impl<D: BlockDevice> OpenVolume<D> {
     pub async fn set_len(&mut self, node: NodeId, len: u64) -> FsResult<(), D::Error> {
         match &mut self.inner {
             Inner::Fat(fat) => fat.set_len(node, len).await,
+            Inner::ExFat(fat) => fat.set_len(node, len).await,
             Inner::Ntfs(_) => read_only(),
         }
     }
@@ -350,6 +405,7 @@ impl<D: BlockDevice> OpenVolume<D> {
     pub async fn set_metadata(&mut self, node: NodeId, changes: &SetMetadata) -> FsResult<(), D::Error> {
         match &mut self.inner {
             Inner::Fat(fat) => fat.set_metadata(node, changes).await,
+            Inner::ExFat(fat) => fat.set_metadata(node, changes).await,
             Inner::Ntfs(_) => read_only(),
         }
     }
@@ -358,6 +414,7 @@ impl<D: BlockDevice> OpenVolume<D> {
     pub async fn sync_node(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         match &mut self.inner {
             Inner::Fat(fat) => fat.sync_node(node).await,
+            Inner::ExFat(fat) => fat.sync_node(node).await,
             Inner::Ntfs(_) => Ok(()),
         }
     }
@@ -366,6 +423,7 @@ impl<D: BlockDevice> OpenVolume<D> {
     pub async fn sync(&mut self) -> FsResult<(), D::Error> {
         match &mut self.inner {
             Inner::Fat(fat) => fat.sync().await,
+            Inner::ExFat(fat) => fat.sync().await,
             Inner::Ntfs(_) => Ok(()),
         }
     }

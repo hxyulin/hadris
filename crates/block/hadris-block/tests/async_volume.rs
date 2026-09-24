@@ -113,12 +113,23 @@ fn async_partition_slices_enforce_their_bounds() {
 }
 
 #[test]
-fn async_detects_exfat_but_rejects_unified_opening() {
+fn async_opens_detected_exfat() {
     block_on(async {
+        let dev = device(vec![0_u8; 2 << 20]);
+        let options = hadris_fat::exfat::FormatOptions::new();
+        let dev = hadris_fat::exfat::r#async::format(dev, options)
+            .await
+            .unwrap()
+            .into_inner();
+        let mut volume = OpenVolume::open(dev).await.unwrap();
+        assert_eq!(volume.format(), BlockFormat::Fat(FatVariant::ExFat));
+        volume.write_file("/a.txt", b"exfat").await.unwrap();
+        assert_eq!(volume.read_to_vec("/A.TXT").await.unwrap(), b"exfat");
+        volume.sync().await.unwrap();
+
         let mut image = vec![0_u8; 512];
         image[3..11].copy_from_slice(b"EXFAT   ");
         image[510..512].copy_from_slice(&[0x55, 0xaa]);
-
         let error = OpenVolume::open(device(image))
             .await
             .map(|_| ())
@@ -126,9 +137,7 @@ fn async_detects_exfat_but_rejects_unified_opening() {
             .unwrap_err();
         assert_eq!(
             error.detail(),
-            Some(Detail::UnsupportedFormat(BlockFormat::Fat(
-                FatVariant::ExFat
-            )))
+            Some(Detail::Mount(BlockFormat::Fat(FatVariant::ExFat)))
         );
     });
 }

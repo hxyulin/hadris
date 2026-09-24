@@ -33,10 +33,11 @@ for entry in volume.read_dir("/")? {
   reports a FAT variant, NTFS, exFAT or a partition table, without an
   allocator, in each mode.
 - `OpenVolume` detects and mounts once. It implements the `hadris-fs`
-  `FsDriver` trait by delegating to `hadris_fat`'s `FatFs` or
+  `FsDriver` trait by delegating to `hadris_fat`'s `FatFs` or `ExFatFs` or
   `hadris_ntfs`'s `NtfsFs`, so the path helpers, `Volume` and handles work
   on any volume it opens. NTFS is read-only; its write methods fail with
-  `ReadOnly`. `as_fat` and `into_fat` reach the FAT driver's native API.
+  `ReadOnly`. `as_fat`, `into_fat`, `as_exfat` and `into_exfat` reach the
+  FAT and exFAT drivers' native APIs.
 - A partitioned disk is refused with `Detail::PartitionedDisk`; open a
   partition from `hadris_part` (the `part` re-export), which gives a
   `hadris-storage` `Slice`.
@@ -45,8 +46,7 @@ for entry in volume.read_dir("/")? {
   `OpenError`. Both convert into `hadris_fs::Error`, `AnyError` with
   `alloc`, and `std::io::Error` with `std`.
 
-exFAT is detected but not opened while it is a preview in `hadris-fat`.
-NTFS is a preview too: `OpenVolume` always opens it through `FsDriver`, and
+NTFS is a preview: `OpenVolume` always opens it through `FsDriver`, and
 the `unstable-ntfs` feature adds the `ntfs` re-export and `as_ntfs`,
 `as_ntfs_mut` and `into_ntfs` for its native API.
 
