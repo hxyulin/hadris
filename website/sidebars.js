@@ -1,3 +1,6 @@
+const siteUrl = process.env.HADRIS_SITE_URL || "https://hxyulin.github.io";
+const baseUrl = process.env.HADRIS_BASE_URL || "/hadris/";
+
 module.exports = {
   docs: [
     "index",
@@ -42,5 +45,10 @@ module.exports = {
     },
     "stability",
     "contributing",
+    {
+      type: "link",
+      label: "API reference",
+      href: `${siteUrl}${baseUrl}next/api/hadris/index.html`,
+    },
   ],
 };

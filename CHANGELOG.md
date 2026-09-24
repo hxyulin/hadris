@@ -458,6 +458,12 @@ Each published package owns its version and may be released independently.
   section, and CONTRIBUTING runs the FAT conformance filter as CI does
   (`fat:: -- --skip exfat::`). `hadris-fs`, `hadris-io` and
   `hadris-storage` build their docs.rs pages with every mode.
+- **Docs site:** The documentation site is versioned. It serves the newest
+  released minor at the root, every earlier released minor under `/X.Y/`
+  and the unreleased docs under `/next/`, with a version dropdown and
+  Docusaurus version banners. Snapshots are generated from the release tags
+  at build time by `npm run versions`, and a published release rebuilds the
+  site.
 - **hadris-iso-cli, hadris-udf-cli, hadris-cpio-cli, hadris-cd-cli (V3):**
   The commands that do the same job share names and flags: `ls` has the
   alias `list` and `verify` the alias `check` in every CLI, and `extract
