@@ -85,9 +85,7 @@ fn convert_long(name: &str, case: NameCase, max: usize, separator: bool) -> Vec<
 }
 
 /// A Level 2 file identifier: 30 bytes, then `.` when the name has no
-/// extension, and `;1`.
-///
-/// @hadris-spec ECMA-119:7.5.1
+/// extension (ECMA-119 7.5.1), and `;1`.
 pub(crate) fn convert_l2(name: &str, case: NameCase) -> Vec<u8> {
     let mut out = convert_long(name, case, 30, true);
     out.extend_from_slice(b";1");
