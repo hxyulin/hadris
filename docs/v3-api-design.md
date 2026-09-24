@@ -951,6 +951,92 @@ ask first. None needs a break, so none blocks 3.0.
 | `DateTime` conversions to and from `SystemTime` | None | Every std adapter |
 | Orphan tracking: unlink of an open node succeeds | `Busy` | POSIX semantics (Q3) |
 
+### 4.15 Profiles: engine, host and embedded
+
+The V3 review (2026-09-24) wrote real programs against 3.0 for OS images,
+forensics, firmware, servers, FUSE and conversions. Most friction came from
+one type serving two audiences that want different things, where the rule
+that features never change behaviour forbids choosing per build:
+
+| Concern | Firmware wants | Hosted code wants |
+|---|---|---|
+| Node table | A few fixed slots | Unbounded (the 64-slot default failed a server and a FUSE mount) |
+| Block buffer | 512 bytes | 4 KiB or larger |
+| Name folding | ASCII (Unicode tables cost 12 KB of flash) | Unicode |
+| Clock | None or an RTC | System time |
+| Errors | Two bytes, the device error kept | Paths, messages, one type across devices, `?` into anyhow |
+| Generics | Explicit | Invisible |
+
+Each format therefore has one engine and two thin profiles over it. A profile
+is a set of new items: type aliases with its defaults, openers and an error
+type. It adds items and changes none, so enabling it anywhere in a build is
+additive. There is one implementation of the on-disk logic per format; fixes
+and the conformance suite apply to every profile at once.
+
+**Engine.** The mode modules as they are today
+(`hadris_fat::{sync, r#async, async_send}::FatFs<D, T, C, P>`). Every
+parameter is a type, no allocation is required, errors are `Error<E>`. The
+engine is the integration layer for kernels, custom node tables, custom
+clocks and the conformance suite. Its generics may grow (block buffer size,
+folding policy) as long as each new parameter has a default that keeps
+behaviour identical.
+
+**Host profile** (`std`). For applications, tools and servers. Users see at
+most one generic parameter, the device, defaulting to `std::fs::File`:
+
+```rust
+// hadris::fat::host
+pub type FatFs<D = File> = Volume<sync::FatFs<D, HeapTable, SystemClock, Cp437>, StdMutex>;
+pub fn open(path: impl AsRef<Path>) -> host::Result<FatFs>;
+pub fn open_device<D: BlockDevice>(device: D) -> host::Result<FatFs<D>>;
+pub fn format(path: impl AsRef<Path>, options: &FormatOptions) -> host::Result<FatFs>;
+```
+
+- Path operations mirror `std::fs` names (`read`, `write`, `create_dir`, `create_dir_all`, `remove_file`, `remove_dir`, `remove_dir_all`, `rename`, `metadata`, `read_dir`, `walk`) through one `hadris_fs::host` trait implemented for every host alias, so no trait import is needed beyond the prelude.
+- Errors are one non-generic `hadris_fs::host::Error`: kind, context, the path the operation was working on, and the device error boxed as the source. `?` goes into `anyhow`, `Box<dyn Error>` and `io::Error`. It replaces `AnyError`.
+- A failed open returns `host::Error`, not `MountError`; the device is dropped. Code that needs the device back uses the engine.
+- Writers get the same treatment: `hadris::iso::host::write(path, &tree, &options) -> host::Result<Report>`, with the tree path of a failing entry in the error.
+- Detection lives here too: `hadris::host::open(path)` detects block, partition, optical and archive images and returns a host volume (the `open_any` idea).
+- An async host profile over tokio follows the tokio device (3.x); its shape mirrors the sync one inside `host::tokio`.
+
+**Embedded profile** (always available, no `alloc`). For firmware. Defaults
+are small and nothing pulls in Unicode tables:
+
+```rust
+// hadris::fat::embedded
+pub type FatFs<D, const N: usize = 8> = sync::FatFs<D, FixedTable<N>, NoClock, Ascii /* , 512-byte buffer */>;
+// hadris::fat::embedded::asynch: the same over the async mode
+```
+
+- Errors stay `Error<E>`: the kind, a `&'static str` context with an optional location, and the device error. No allocation, no boxing.
+- Stack and flash budgets are measured and published per release (CI builds for `thumbv6m`, `thumbv7em` and `riscv32imc`).
+
+**Errors across profiles.** `hadris_fs::Error<E>` keeps the design of 4.6 and
+gains the context field it already reserved:
+
+- `Context` is `Copy` and allocation free: a `&'static str` message and an optional location (byte offset, block, cluster). Each crate fills it from its `Detail` when converting, so detail is no longer dropped at the crate boundary. Accessors: `context()`, `message()`, `location()`. Context never takes part in equality.
+- `ErrorKind::NotRecognized` separates "not this format" (no signature) from `Corrupt` (recognised but damaged), so openers and fallbacks can tell them apart.
+- An error either shows its source's text or returns it from `source()`, never both, so `{:#}` chains print each message once.
+- The host error adds the path and `errno()` (host numbering via `libc`).
+
+**Umbrella.** No new features. `hadris::<format>::host` exists with `std`,
+`hadris::<format>::embedded` always, the engine modules with their modes as
+today. Per format:
+
+| Format | Engine | Host | Embedded |
+|---|---|---|---|
+| FAT, exFAT | Yes | Yes | Yes |
+| ISO, UDF readers | Yes | Yes | Yes (boot loaders read ISO) |
+| NTFS reader | Yes (unstable) | Yes (unstable) | No |
+| ISO, UDF, CD, cpio writers | Yes (`alloc`) | Yes | No |
+| cpio reader | Yes | Yes | Yes |
+| Partitions | Yes | Yes | Yes |
+
+**What this settles from the review.** C1 to C6 (errors), D7 (node table
+defaults), D8 (the host alias has path methods without a trait import) and
+most of D1 (host path names follow `std::fs`; the engine's node-level names
+stay). Decisions: Q9.
+
 ---
 
 ## 5. Per-crate changes
@@ -1270,3 +1356,11 @@ shared. The prototype named the FAT driver `FatFs`. Options: rename every
 driver to `<Format>Fs`, or rename the wrapper (`Shared<F, K>`). Decided:
 `<Format>Fs` for drivers (`FatFs`, `ExFatFs`, `IsoFs`, `UdfFs`, `NtfsFs`),
 since `Volume` is what most users type.
+
+**Q9. Profile boundaries.** Resolved 2026-09-24 by the user. The host alias
+wraps `Volume` with `StdMutex`, so host volumes are shared and take `&self`.
+`host::Error` replaces `AnyError`. The host FAT code page defaults to `Cp437`,
+as Windows and mtools do. Profiles are modules inside each format crate; the
+umbrella paths let them move to crates later without a break. The embedded
+table defaults to 8 slots, revisited once the stack and footprint work (B5,
+B6) is measured.
