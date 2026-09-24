@@ -320,75 +320,122 @@ jobs:
             tier: all-capabilities
             features: "std,sync,async,async-send"
 
-          # standalone category facades
+          # hadris-ntfs
+          - crate: hadris-ntfs
+            tier: no-std-sync
+            features: "sync"
+          - crate: hadris-ntfs
+            tier: no-std-async
+            features: "async"
+          - crate: hadris-ntfs
+            tier: no-std-async-send
+            features: "async-send"
+          - crate: hadris-ntfs
+            tier: alloc-sync
+            features: "alloc,sync"
+          - crate: hadris-ntfs
+            tier: std
+            features: "std,sync"
+          - crate: hadris-ntfs
+            tier: hosted-async
+            features: "std,async"
+          - crate: hadris-ntfs
+            tier: all-capabilities
+            features: "std,alloc,sync,async,async-send"
+
+          # detection and opening facades
           - crate: hadris-block
-            tier: no-formats
+            tier: no-api
             features: ""
+          - crate: hadris-block
+            tier: no-std-sync
+            features: "sync"
           - crate: hadris-block
             tier: no-std-async
-            features: "alloc,async,read,detect,storage,fat,part"
+            features: "async"
           - crate: hadris-block
             tier: no-alloc-async-send
-            features: "async-send,read,detect,storage,fat,part"
+            features: "async-send,write,part"
+          - crate: hadris-block
+            tier: alloc-async
+            features: "alloc,async,part"
+          - crate: hadris-block
+            tier: std
+            features: "std,sync,write,part"
+          - crate: hadris-block
+            tier: unstable-ntfs
+            features: "sync,unstable-ntfs"
           - crate: hadris-block
             tier: all-capabilities
-            features: "std,alloc,sync,async,async-send,read,write,detect,storage,fat,part"
+            features: "std,alloc,sync,async,async-send,write,part,unstable-ntfs"
           - crate: hadris-optical
-            tier: no-formats
+            tier: no-api
             features: ""
+          - crate: hadris-optical
+            tier: no-std-sync
+            features: "sync"
+          - crate: hadris-optical
+            tier: no-std-async
+            features: "async"
+          - crate: hadris-optical
+            tier: no-std-async-send
+            features: "async-send"
+          - crate: hadris-optical
+            tier: alloc-sync
+            features: "alloc,sync"
+          - crate: hadris-optical
+            tier: std
+            features: "std,sync"
           - crate: hadris-optical
             tier: hosted-async-with-cd
-            features: "std,async,read,open,cd"
-          - crate: hadris-optical
-            tier: iso-only
-            features: "iso,sync"
+            features: "std,async,cd"
           - crate: hadris-optical
             tier: all-capabilities
-            features: "std,alloc,sync,async,async-send,read,write,open,cd"
+            features: "std,alloc,sync,async,async-send,cd"
 
-          # hadris umbrella/category forwarding
+          # hadris umbrella forwarding
           - crate: hadris
             tier: no-formats
             features: ""
           - crate: hadris
+            tier: no-std-sync-core
+            features: "sync"
+          - crate: hadris
             tier: leaf-fat
-            features: "std,sync,read,write,fat"
-          - crate: hadris
-            tier: leaf-storage
-            features: "std,sync,storage"
-          - crate: hadris
-            tier: leaf-fs
-            features: "alloc,fs"
+            features: "std,sync,write,fat"
           - crate: hadris
             tier: leaf-part
-            features: "std,sync,read,write,part"
+            features: "std,sync,part"
+          - crate: hadris
+            tier: leaf-ntfs
+            features: "sync,unstable-ntfs"
           - crate: hadris
             tier: leaf-iso
-            features: "std,sync,read,write,iso"
+            features: "std,sync,iso"
           - crate: hadris
             tier: leaf-udf
-            features: "std,sync,read,write,udf"
+            features: "std,sync,udf"
           - crate: hadris
             tier: leaf-cd
             features: "std,cd"
           - crate: hadris
             tier: leaf-cpio
-            features: "std,sync,read,write,cpio"
+            features: "std,sync,cpio"
           - crate: hadris
-            tier: no-std-async-block
-            features: "alloc,async,read,block"
+            tier: no-std-block
+            features: "sync,block"
           - crate: hadris
             tier: no-std-async-send-block
-            features: "alloc,async-send,read,block,fs"
+            features: "async-send,block"
           - crate: hadris
             tier: hosted-async-optical
-            features: "std,async,read,optical"
+            features: "std,async,optical"
           - crate: hadris
             tier: dual-mode-archive
-            features: "alloc,sync,async,read,write,archive"
+            features: "alloc,sync,async,archive"
           - crate: hadris
             tier: all-capabilities
-            features: "std,alloc,sync,async,async-send,read,write,block,optical,archive,fs"
+            features: "std,alloc,sync,async,async-send,write,block,optical,archive,unstable-ntfs"
 
     steps:
       - uses: actions/checkout@v7
@@ -425,8 +472,8 @@ jobs:
         run: |
           cargo test --workspace --all-features --tests --exclude hadris-fat
           cargo test -p hadris-fat --features "std,alloc,sync,async,async-send,write,unstable-exfat" --tests
-      - name: Run block async integration tests
-        run: cargo test -p hadris-block --all-features --test async_volume --test async_send_volume
+      - name: Run block opening integration tests
+        run: cargo test -p hadris-block --all-features --test open_volume --test async_volume --test async_send_volume
       - name: Run optical detection integration tests
         run: cargo test -p hadris-optical --all-features --test detect
       - name: Run optical opening integration tests
@@ -453,6 +500,24 @@ jobs:
         run: |
           cargo test -p hadris-fat --features "unstable-exfat,write" --lib integration_exfat:: -- --nocapture
           cargo test -p hadris-fat --features "unstable-exfat,write" --lib exfat_roundtrip:: -- --nocapture
+
+  test-ntfs:
+    name: Test NTFS (with ntfsprogs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.88.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Install ntfsprogs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ntfs-3g
+      # Tests that populate a volume through an ntfs-3g FUSE mount skip
+      # without FUSE permissions; scripts/test-ntfs.sh runs them all.
+      - name: Run NTFS tests against mkntfs volumes
+        run: cargo test -p hadris-ntfs --all-features -- --nocapture
 
   test-fat-conformance:
     name: Test FAT conformance and interoperability
@@ -577,3 +642,5 @@ jobs:
         run: "cargo +nightly miri test -p hadris-iso --lib -- raw:: name:: rock_ridge::"
       - name: Miri - hadris-part (on-disk layouts, CRC, UTF-16 partition names)
         run: cargo +nightly miri test -p hadris-part --lib
+      - name: Miri - hadris-ntfs (records, mapping pairs, UTF-16 names)
+        run: cargo +nightly miri test -p hadris-ntfs --lib

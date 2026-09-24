@@ -24,7 +24,6 @@ license = "MIT"
 repository = "https://github.com/hxyulin/hadris"
 
 [workspace.dependencies]
-log = "0.4.26"
 bytemuck = { version = "1.22.0", default-features = false }
 zerocopy = { version = "0.8", default-features = false, features = ["derive"] }
 bitflags = "2.9.0"

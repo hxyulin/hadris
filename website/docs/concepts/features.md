@@ -59,7 +59,7 @@ three namespaces as `hadris-fat`, with its writer and sessions in each.
 | `hadris-iso` | ISO 9660, Joliet, Rock Ridge, El Torito | Yes | Yes | Yes | Yes | Allocation-free (writing and sessions need `alloc`) | Stable |
 | `hadris-udf` | UDF 1.02 to 2.01, type 1 partitions | Yes | Yes | Yes | Yes | Allocation-free (writing needs `alloc`) | Stable |
 | `hadris-cpio` | CPIO newc, CRC and odc; old binary read | Yes | Yes | Yes | Yes | Allocation-free (writing needs `alloc`) | Stable |
-| `hadris-ntfs` | NTFS | Yes | No | Yes | Yes | `alloc` | Experimental |
+| `hadris-ntfs` | NTFS | Yes | No | Yes | Yes | Allocation-free | Experimental |
 | `hadris-cd` | Hybrid ISO/UDF images | N/A | Yes | Yes | Yes | `alloc` | Stable |
 
 “Allocation-free” means the core parser can operate without a global

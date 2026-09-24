@@ -146,40 +146,15 @@ fn dump_exfat(data: &[u8]) -> Vec<String> {
 }
 
 fn dump_ntfs(data: &[u8]) -> Vec<String> {
-    use hadris_ntfs::sync::{NtfsFs, NtfsFsReadExt};
+    use hadris_ntfs::sync::NtfsFs;
+    use hadris_storage::{BlockSize, MemDevice};
 
-    let mut lines = Vec::new();
-    let Ok(fs) = NtfsFs::open(Cursor::new(data)) else {
-        return lines;
-    };
-    let mut budget = ENTRY_BUDGET;
-    let mut stack = vec![(fs.root_dir(), String::from("/"), 0u32)];
-    while let Some((dir, path, depth)) = stack.pop() {
-        if depth > DEPTH_CAP {
-            continue;
-        }
-        let Ok(entries) = dir.entries() else { continue };
-        for entry in entries {
-            if budget == 0 {
-                return lines;
-            }
-            budget -= 1;
-            let child_path = format!("{path}{}", entry.name());
-            if entry.is_directory() {
-                lines.push(format!("dir {child_path}"));
-                if let Ok(child) = dir.open_dir(entry.name()) {
-                    stack.push((child, format!("{child_path}/"), depth + 1));
-                }
-            } else {
-                let content = match fs.read_file(&entry) {
-                    Ok(mut reader) => read_head!(reader),
-                    Err(_) => Vec::new(),
-                };
-                lines.push(file_line(entry.size(), &content, &child_path));
-            }
-        }
+    let mut bytes = data.to_vec();
+    bytes.resize(bytes.len().next_multiple_of(512), 0);
+    match NtfsFs::open(MemDevice::new(bytes, BlockSize::new(512).unwrap())) {
+        Ok(mut fs) => dump_driver(&mut fs),
+        Err(_) => Vec::new(),
     }
-    lines
 }
 
 fn dump_iso(data: &[u8]) -> Vec<String> {

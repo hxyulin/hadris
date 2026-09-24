@@ -44,6 +44,17 @@ for crate in "${crates[@]}"; do
       --no-default-features \
       --features "std,sync,async,async-send,write,defmt" \
       -sss --color never >"$generated"
+  elif [[ "$crate" == "hadris-block" ]]; then
+    # The NTFS preview (unstable-ntfs) is outside the stability promise.
+    cargo public-api -p "$crate" \
+      --no-default-features \
+      --features "std,alloc,sync,async,async-send,write,part" \
+      -sss --color never >"$generated"
+  elif [[ "$crate" == "hadris" ]]; then
+    cargo public-api -p "$crate" \
+      --no-default-features \
+      --features "std,alloc,sync,async,async-send,write,block,optical,archive" \
+      -sss --color never >"$generated"
   else
     cargo public-api -p "$crate" --all-features -sss --color never >"$generated"
   fi

@@ -11,7 +11,7 @@ Choose the narrowest crate that covers your application:
 # A single filesystem:
 hadris-fat = "2.4.0"
 
-# Experimental read-only NTFS:
+# Read-only NTFS (preview):
 hadris-ntfs = "2.4.0"
 
 # Or several storage categories:

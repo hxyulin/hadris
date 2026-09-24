@@ -7,34 +7,53 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 readme = "README.md"
-description = "Rust block-storage facade for devices, sectors, partitions, and FAT filesystems"
+description = "Detection and opening of FAT and NTFS volumes on Hadris block devices"
 keywords = ["block-device", "storage", "partition", "filesystem", "no-std"]
 categories = ["no-std", "filesystem"]
 
 [package.metadata.docs.rs]
-all-features = true
+features = ["std", "sync", "async", "async-send", "write", "part", "unstable-ntfs"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["std", "sync", "read", "write", "detect", "storage", "fat", "part"]
-std = ["alloc", "hadris-storage?/std", "hadris-fs?/std", "hadris-fat?/std", "hadris-part?/std"]
-alloc = ["hadris-storage?/alloc", "hadris-fs?/alloc", "hadris-fat?/alloc", "hadris-part?/alloc"]
-sync = ["hadris-storage?/sync", "hadris-fs?/sync", "hadris-fat?/sync", "hadris-part?/sync"]
-async = ["hadris-storage?/async", "hadris-fs?/async", "hadris-fat?/async", "hadris-part?/async"]
-async-send = ["async", "hadris-storage?/async-send", "hadris-fs?/async-send", "hadris-fat?/async-send", "hadris-part?/async-send"]
-read = []
-write = ["alloc", "read", "hadris-fat?/write"]
-detect = ["read", "dep:hadris-storage"]
-storage = ["dep:hadris-storage"]
-fat = ["dep:hadris-fat", "dep:hadris-fs", "dep:hadris-storage"]
+default = ["std", "sync"]
+# `AnyError` conversions.
+alloc = ["hadris-storage/alloc", "hadris-fs/alloc", "hadris-fat/alloc", "hadris-ntfs/alloc", "hadris-part?/alloc"]
+# Implies `alloc`; `std::io::Error` conversions.
+std = ["alloc", "hadris-storage/std", "hadris-fs/std", "hadris-fat/std", "hadris-ntfs/std", "hadris-part?/std"]
+sync = ["hadris-storage/sync", "hadris-fs/sync", "hadris-fat/sync", "hadris-ntfs/sync", "hadris-part?/sync"]
+async = ["hadris-storage/async", "hadris-fs/async", "hadris-fat/async", "hadris-ntfs/async", "hadris-part?/async"]
+# The asynchronous API a third time, with `Send` futures, in `async_send`.
+async-send = ["async", "hadris-storage/async-send", "hadris-fs/async-send", "hadris-fat/async-send", "hadris-ntfs/async-send", "hadris-part?/async-send"]
+# FAT formatting through the `fat` re-export.
+write = ["hadris-fat/write"]
+# The `part` re-export.
 part = ["dep:hadris-part"]
+# The `ntfs` re-export and `OpenVolume`'s NTFS driver; NTFS is a preview.
+unstable-ntfs = []
 
 [dependencies]
-hadris-storage = { workspace = true, optional = true, default-features = false }
-hadris-fs = { workspace = true, optional = true, default-features = false }
-hadris-fat = { workspace = true, optional = true, default-features = false }
+hadris-storage = { workspace = true, default-features = false }
+hadris-fs = { workspace = true, default-features = false }
+hadris-fat = { workspace = true, default-features = false }
+hadris-ntfs = { workspace = true, default-features = false }
 hadris-part = { workspace = true, optional = true, default-features = false }
 hadris-macros = { workspace = true }
 
 [dev-dependencies]
-hadris-io = { workspace = true, features = ["std", "sync", "async"] }
+hadris-fs = { workspace = true, features = ["std", "sync", "async", "contract"] }
+hadris-fat = { workspace = true, features = ["write"] }
+hadris-storage = { workspace = true, features = ["std", "sync"] }
+hadris-ntfs = { workspace = true }
+
+[[test]]
+name = "open_volume"
+required-features = ["std", "sync", "write", "part"]
+
+[[test]]
+name = "async_volume"
+required-features = ["std", "async", "write", "part"]
+
+[[test]]
+name = "async_send_volume"
+required-features = ["std", "async-send", "write", "part"]

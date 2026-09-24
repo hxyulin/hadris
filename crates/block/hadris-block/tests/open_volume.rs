@@ -2,8 +2,10 @@ use hadris_block::detect::{BlockFormat, FatVariant, PartitionTableKind};
 use hadris_block::part::sync::open;
 use hadris_block::part::{self, MbrEntry, MbrType};
 use hadris_block::sync::OpenVolume;
-use hadris_block::{Error, OpenError};
+use hadris_block::{Detail, Error, OpenError};
 use hadris_fat::{FatKind, FormatOptions};
+use hadris_fs::ErrorKind;
+use hadris_fs::sync::DriverExt;
 use hadris_storage::sync::{BlockDevice, Slice};
 use hadris_storage::{BlockIndex, BlockSize, MemDevice};
 
@@ -31,13 +33,21 @@ fn format_fat12<D: BlockDevice>(dev: D) -> D {
     hadris_fat::sync::format(dev, options).unwrap().into_inner()
 }
 
+#[path = "../../hadris-ntfs/tests/support/image.rs"]
+mod ntfs_image;
+
+const FAT12: BlockFormat = BlockFormat::Fat(FatVariant::Fat12);
+
 #[test]
 fn opens_detected_fat_and_returns_the_device() {
     let mut dev = format_fat12(device(vec![0_u8; VOLUME_LEN]));
 
-    let volume = OpenVolume::open(&mut dev).unwrap();
-    assert_eq!(volume.format(), FatVariant::Fat12);
+    let mut volume = OpenVolume::open(&mut dev).unwrap();
+    assert_eq!(volume.format(), FAT12);
     assert!(volume.as_fat().is_some());
+    volume.write_file("/a.txt", b"fat").unwrap();
+    assert_eq!(volume.read_to_vec("/a.txt").unwrap(), b"fat");
+    volume.sync().unwrap();
     let dev = volume.into_inner();
     assert_eq!(dev.get_ref().len(), VOLUME_LEN);
 }
@@ -60,14 +70,15 @@ fn opens_fat_inside_mbr_partition() {
         Some(BlockFormat::PartitionTable(PartitionTableKind::Mbr))
     );
     let (error, _) = failure(OpenVolume::open(&mut disk));
-    assert!(matches!(
-        error,
-        Error::PartitionedDisk(PartitionTableKind::Mbr)
-    ));
+    assert_eq!(
+        error.detail(),
+        Some(Detail::PartitionedDisk(PartitionTableKind::Mbr))
+    );
+    assert_eq!(error.kind(), ErrorKind::InvalidInput);
 
     let entry = part::sync::read(&mut disk).unwrap().partition(0).unwrap();
     let volume = OpenVolume::open(open(&mut disk, &entry).unwrap()).unwrap();
-    assert_eq!(volume.format(), FatVariant::Fat12);
+    assert_eq!(volume.format(), FAT12);
 }
 
 #[test]
@@ -94,7 +105,7 @@ fn opens_fat_inside_gpt_partition() {
         Some(BlockFormat::PartitionTable(PartitionTableKind::Gpt))
     );
     let volume = OpenVolume::open(open(&mut disk, &entry).unwrap()).unwrap();
-    assert_eq!(volume.format(), FatVariant::Fat12);
+    assert_eq!(volume.format(), FAT12);
     let slice: Slice<_> = volume.into_inner();
     assert_eq!(slice.first(), BlockIndex::new(start_lba));
 }
@@ -111,24 +122,28 @@ fn partitions_past_the_disk_are_refused() {
 #[test]
 fn rejects_unknown_and_mismatched_formats() {
     let (error, dev) = failure(OpenVolume::open(device(vec![0_u8; 1024])));
-    assert!(matches!(error, Error::UnknownFormat));
-    assert_eq!(error.kind(), hadris_fs::ErrorKind::Unsupported);
+    assert_eq!(error.detail(), Some(Detail::UnknownFormat));
+    assert_eq!(error.kind(), ErrorKind::Unsupported);
     assert_eq!(dev.get_ref().len(), 1024);
 
     let dev = format_fat12(device(vec![0_u8; VOLUME_LEN]));
-    let (error, dev) = failure(OpenVolume::open_detected(dev, FatVariant::Fat16));
-    assert_eq!(error.kind(), hadris_fs::ErrorKind::Corrupt);
+    let (error, dev) = failure(OpenVolume::open_detected(
+        dev,
+        BlockFormat::Fat(FatVariant::Fat16),
+    ));
+    assert_eq!(error.kind(), ErrorKind::Corrupt);
     assert!(matches!(
-        error,
-        Error::DetectedFormatMismatch {
+        error.detail(),
+        Some(Detail::FormatMismatch {
             detected: FatVariant::Fat16,
             opened: FatVariant::Fat12,
-        }
+            ..
+        })
     ));
     assert_eq!(dev.get_ref().len(), VOLUME_LEN);
     assert_eq!(
         OpenVolume::open(dev).unwrap().format(),
-        FatVariant::Fat12,
+        FAT12,
         "the returned device is untouched"
     );
 }
@@ -144,7 +159,7 @@ fn a_volume_that_fails_to_mount_gives_the_device_back() {
     );
 
     let err = OpenVolume::open(dev).map(|_| ()).unwrap_err();
-    assert_eq!(err.kind(), hadris_fs::ErrorKind::Corrupt);
+    assert_eq!(err.kind(), ErrorKind::Corrupt);
     assert_eq!(err.device().get_ref().len(), VOLUME_LEN / 2);
     let io: std::io::Error = OpenVolume::open(err.into_device())
         .map(|_| ())
@@ -156,16 +171,14 @@ fn a_volume_that_fails_to_mount_gives_the_device_back() {
     image.truncate(VOLUME_LEN / 2);
     let (error, dev) = failure(OpenVolume::open(device(image)));
     assert_eq!(error.device_error(), None);
-    let Error::Fat(error) = error else {
-        panic!("{error:?}");
-    };
-    assert_eq!(error.kind(), hadris_fs::ErrorKind::Corrupt);
+    assert_eq!(error.detail(), Some(Detail::Mount(FAT12)));
+    assert_eq!(error.kind(), ErrorKind::Corrupt);
     assert_eq!(dev.get_ref().len(), VOLUME_LEN / 2);
-    let (error, dev) = failure(OpenVolume::open_detected(dev, FatVariant::Fat12));
-    assert!(matches!(error, Error::Fat(_)));
+    let (error, dev) = failure(OpenVolume::open_detected(dev, FAT12));
+    assert_eq!(error.detail(), Some(Detail::Mount(FAT12)));
     assert_eq!(
         format!("{}", failure(OpenVolume::open(dev)).0),
-        "FAT open failed: corrupt filesystem data"
+        "corrupt filesystem data: mounting Fat(Fat12) failed"
     );
 }
 
@@ -176,10 +189,12 @@ fn detects_exfat_but_rejects_unified_opening() {
     image[510..512].copy_from_slice(&[0x55, 0xaa]);
 
     let (error, dev) = failure(OpenVolume::open(device(image)));
-    assert!(matches!(
-        error,
-        Error::UnsupportedFormat(BlockFormat::Fat(FatVariant::ExFat))
-    ));
+    assert_eq!(
+        error.detail(),
+        Some(Detail::UnsupportedFormat(BlockFormat::Fat(
+            FatVariant::ExFat
+        )))
+    );
     assert_eq!(dev.get_ref().len(), 512);
 }
 
@@ -187,7 +202,7 @@ fn detects_exfat_but_rejects_unified_opening() {
 fn devices_smaller_than_a_block_are_unknown() {
     let dev = MemDevice::new(vec![0_u8; 512], BlockSize::new(4096).unwrap());
     let (error, _) = failure(OpenVolume::open(dev));
-    assert!(matches!(error, Error::UnknownFormat));
+    assert_eq!(error.detail(), Some(Detail::UnknownFormat));
 }
 
 #[test]
@@ -212,8 +227,49 @@ fn detects_gpt_on_4096_byte_blocks() {
         Some(BlockFormat::PartitionTable(PartitionTableKind::Gpt))
     );
     let (error, _) = failure(OpenVolume::open(dev));
-    assert!(matches!(
-        error,
-        Error::PartitionedDisk(PartitionTableKind::Gpt)
-    ));
+    assert_eq!(
+        error.detail(),
+        Some(Detail::PartitionedDisk(PartitionTableKind::Gpt))
+    );
+}
+
+#[test]
+fn opens_ntfs_read_only() {
+    let mut dev = device(ntfs_image::base_image());
+    assert_eq!(
+        hadris_block::detect::sync::detect(&mut dev).unwrap(),
+        Some(BlockFormat::Ntfs)
+    );
+    let mut volume = OpenVolume::open(dev).unwrap();
+    assert_eq!(volume.format(), BlockFormat::Ntfs);
+    assert!(volume.as_fat().is_none());
+    assert!(!volume.capabilities().is_writable());
+    assert_eq!(volume.read_to_vec("/HELLO.TXT").unwrap(), b"hello ntfs");
+    assert_eq!(
+        volume.write_file("/new.txt", b"x").unwrap_err().kind(),
+        ErrorKind::ReadOnly
+    );
+    hadris_fs::sync::contract::check_read_only(&mut volume).unwrap();
+    let volume = volume.into_fat().map(|_| ()).unwrap_err();
+    assert_eq!(
+        volume.into_inner().into_inner().len(),
+        ntfs_image::IMAGE_LEN
+    );
+}
+
+#[test]
+fn fat_passes_the_contract_through_the_opener() {
+    let dev = format_fat12(device(vec![0_u8; VOLUME_LEN]));
+    let mut volume = OpenVolume::open(dev).unwrap();
+    hadris_fs::sync::contract::check(&mut volume).unwrap();
+}
+
+#[test]
+fn a_corrupt_ntfs_volume_gives_the_device_back() {
+    let mut image = ntfs_image::base_image();
+    image[11..13].copy_from_slice(&1000u16.to_le_bytes());
+    let (error, dev) = failure(OpenVolume::open(device(image)));
+    assert_eq!(error.detail(), Some(Detail::Mount(BlockFormat::Ntfs)));
+    assert_eq!(error.kind(), ErrorKind::Corrupt);
+    assert_eq!(dev.into_inner().len(), ntfs_image::IMAGE_LEN);
 }

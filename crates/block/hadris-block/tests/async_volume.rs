@@ -7,7 +7,7 @@ use std::task::{Wake, Waker};
 
 use hadris_block::r#async::OpenVolume;
 use hadris_block::detect::{BlockFormat, FatVariant};
-use hadris_block::{Error, OpenError};
+use hadris_block::{Detail, OpenError};
 use hadris_fat::{FatKind, FormatOptions};
 use hadris_fs::r#async::DriverExt;
 use hadris_fs::{ErrorKind, OpenOptions};
@@ -119,14 +119,17 @@ fn async_detects_exfat_but_rejects_unified_opening() {
         image[3..11].copy_from_slice(b"EXFAT   ");
         image[510..512].copy_from_slice(&[0x55, 0xaa]);
 
-        assert!(matches!(
-            OpenVolume::open(device(image))
-                .await
-                .map_err(OpenError::into_error),
-            Err(Error::UnsupportedFormat(BlockFormat::Fat(
+        let error = OpenVolume::open(device(image))
+            .await
+            .map(|_| ())
+            .map_err(OpenError::into_error)
+            .unwrap_err();
+        assert_eq!(
+            error.detail(),
+            Some(Detail::UnsupportedFormat(BlockFormat::Fat(
                 FatVariant::ExFat
             )))
-        ));
+        );
     });
 }
 
@@ -144,7 +147,7 @@ fn async_detection_and_open_release_the_device() {
         );
 
         let volume = OpenVolume::open(&mut dev).await.unwrap();
-        assert_eq!(volume.format(), FatVariant::Fat12);
+        assert_eq!(volume.format(), BlockFormat::Fat(FatVariant::Fat12));
         assert!(volume.as_fat().is_some());
         let dev = volume.into_inner();
         assert_eq!(dev.get_ref().len(), 2 * 1024 * 1024);
@@ -155,13 +158,13 @@ fn async_detection_and_open_release_the_device() {
 fn async_open_reports_mismatch() {
     let image = formatted_fat12();
     block_on(async {
-        let err = OpenVolume::open_detected(device(image), FatVariant::Fat16)
+        let err = OpenVolume::open_detected(device(image), BlockFormat::Fat(FatVariant::Fat16))
             .await
             .err()
             .unwrap();
         assert!(matches!(
-            err.error(),
-            hadris_block::Error::DetectedFormatMismatch { .. }
+            err.error().detail(),
+            Some(Detail::FormatMismatch { .. })
         ));
         let dev = err.into_device();
         assert_eq!(dev.get_ref().len(), 2 * 1024 * 1024);
@@ -181,17 +184,13 @@ fn async_detected_volume_that_fails_to_mount_gives_the_device_back() {
             Some(BlockFormat::Fat(FatVariant::Fat12))
         );
         let (error, dev) = OpenVolume::open(dev).await.err().unwrap().into_parts();
-        let Error::Fat(error) = error else {
-            panic!("{error:?}");
-        };
+        let fat12 = BlockFormat::Fat(FatVariant::Fat12);
+        assert_eq!(error.detail(), Some(Detail::Mount(fat12)));
         assert_eq!(error.kind(), ErrorKind::Corrupt);
         assert_eq!(dev.get_ref(), &image);
 
-        let err = OpenVolume::open_detected(dev, FatVariant::Fat12)
-            .await
-            .err()
-            .unwrap();
-        assert!(matches!(err.error(), Error::Fat(_)));
+        let err = OpenVolume::open_detected(dev, fat12).await.err().unwrap();
+        assert_eq!(err.error().detail(), Some(Detail::Mount(fat12)));
         assert_eq!(err.into_device().into_inner(), image);
     });
 }
@@ -330,7 +329,7 @@ fn async_partition_table_opens_fat_through_a_gpt_view() {
         let entry = table.partition(0).unwrap();
         let partition = open(&mut disk, &entry).unwrap();
         let volume = OpenVolume::open(partition).await.unwrap();
-        assert_eq!(volume.format(), FatVariant::Fat12);
+        assert_eq!(volume.format(), BlockFormat::Fat(FatVariant::Fat12));
         let mut fs = volume.into_fat().ok().unwrap();
         assert!(fs.read_dir("/").await.unwrap().next_entry().await.is_none());
     });
@@ -372,7 +371,27 @@ fn async_unknown_block_input_is_category_typed() {
             None
         );
         let (error, dev) = OpenVolume::open(dev).await.err().unwrap().into_parts();
-        assert!(matches!(error, hadris_block::Error::UnknownFormat));
+        assert_eq!(error.detail(), Some(Detail::UnknownFormat));
         assert_eq!(dev.get_ref().len(), 4096);
+    });
+}
+
+#[path = "../../hadris-ntfs/tests/support/image.rs"]
+mod ntfs_image;
+
+#[test]
+fn async_opens_ntfs_and_passes_the_contract() {
+    block_on(async {
+        let mut volume = OpenVolume::open(device(ntfs_image::base_image()))
+            .await
+            .unwrap();
+        assert_eq!(volume.format(), BlockFormat::Ntfs);
+        assert_eq!(
+            volume.read_to_vec("/HELLO.TXT").await.unwrap(),
+            b"hello ntfs"
+        );
+        hadris_fs::r#async::contract::check_read_only(&mut volume)
+            .await
+            .unwrap();
     });
 }

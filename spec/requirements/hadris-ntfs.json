@@ -11,9 +11,9 @@
       "summary": "The MFT stores information used to retrieve files from an NTFS partition.",
       "direction": "read",
       "status": "partial",
-      "symbols": [{"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "NtfsFs::open"}, {"path": "crates/block/hadris-ntfs/src/read.rs", "name": "FileReader"}],
-      "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "read_small_resident_file", "kind": "interop"}, {"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "read_large_nonresident_file", "kind": "interop"}],
-      "gap": "Common unnamed streams are retrievable; attribute-list extents, named streams, compression, encryption, and mirror recovery are unsupported."
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "NtfsFs::open"}, {"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "NtfsFs::read_at"}],
+      "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "files_read_back", "kind": "interop"}, {"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "attribute_lists_on_a_real_volume", "kind": "interop"}],
+      "gap": "Resident, non-resident, sparse and listed streams are retrievable; compressed and encrypted streams and $MFTMirr recovery are unsupported."
     },
     {
       "id": "MICROSOFT-NTFS-MFT:file-records#multiple-segments",
@@ -22,10 +22,10 @@
       "normativity": "informative",
       "summary": "A file may occupy one or more MFT record segments.",
       "direction": "read",
-      "status": "not_implemented",
-      "symbols": [{"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "NtfsFs::read_mft_record_ref"}],
-      "tests": [],
-      "gap": "Only a base record is loaded; extension records referenced by an attribute list are not resolved."
+      "status": "partial",
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "read_listed"}, {"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "next_attr"}],
+      "tests": [{"path": "crates/block/hadris-ntfs/tests/crafted.rs", "name": "attribute_lists_join_extension_records", "kind": "integration"}, {"path": "crates/block/hadris-ntfs/tests/crafted.rs", "name": "fragmented_mft_is_followed", "kind": "integration"}, {"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "attribute_lists_on_a_real_volume", "kind": "interop"}],
+      "gap": "Files of any number of segments are read; $MFT itself may span at most 32 extents."
     },
     {
       "id": "MICROSOFT-NTFS-MFT:file-records#multiple-attributes",
@@ -35,8 +35,8 @@
       "summary": "A file record may contain multiple attributes.",
       "direction": "read",
       "status": "verified",
-      "symbols": [{"path": "crates/block/hadris-ntfs/src/attr.rs", "name": "AttrIter"}],
-      "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "read_small_resident_file", "kind": "interop"}, {"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "large_directory_uses_index_allocation", "kind": "interop"}],
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/record.rs", "name": "Attrs"}],
+      "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "files_read_back", "kind": "interop"}, {"path": "crates/block/hadris-ntfs/tests/crafted.rs", "name": "named_streams_are_listed_and_read", "kind": "integration"}],
       "gap": null
     },
     {
@@ -46,10 +46,10 @@
       "normativity": "informative",
       "summary": "A file reference identifies its base file record through an MFT segment reference.",
       "direction": "read",
-      "status": "partial",
-      "symbols": [{"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "NtfsFs::read_mft_record_ref"}],
-      "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "nested_directories_and_open_path", "kind": "interop"}],
-      "gap": "Directory references and sequence numbers are checked, but extension-record references are not followed."
+      "status": "verified",
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "read_reference"}],
+      "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "nested_directories", "kind": "interop"}, {"path": "crates/block/hadris-ntfs/tests/crafted.rs", "name": "forged_ids_are_invalid_handles", "kind": "integration"}],
+      "gap": null
     },
     {
       "id": "MICROSOFT-NTFS-MFT:reserved-records#mft-zero",
@@ -59,7 +59,7 @@
       "summary": "MFT record zero is reserved for the $Mft metadata file.",
       "direction": "read",
       "status": "verified",
-      "symbols": [{"path": "crates/block/hadris-ntfs/src/attr.rs", "name": "MFT_RECORD_MFT"}],
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/raw.rs", "name": "RECORD_MFT"}],
       "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "open_blank_volume", "kind": "interop"}],
       "gap": null
     },
@@ -71,8 +71,8 @@
       "summary": "MFT record five is reserved for the root directory.",
       "direction": "read",
       "status": "verified",
-      "symbols": [{"path": "crates/block/hadris-ntfs/src/attr.rs", "name": "MFT_RECORD_ROOT_DIR"}],
-      "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "root_dir_lists_system_metafiles", "kind": "interop"}],
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/raw.rs", "name": "RECORD_ROOT"}],
+      "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "metadata_files_are_hidden_but_found", "kind": "interop"}],
       "gap": null
     },
     {
@@ -83,8 +83,8 @@
       "summary": "An attribute record contains a type, an optional name, and a value.",
       "direction": "read",
       "status": "verified",
-      "symbols": [{"path": "crates/block/hadris-ntfs/src/attr.rs", "name": "NtfsAttr"}, {"path": "crates/block/hadris-ntfs/src/attr.rs", "name": "AttrIter::next"}],
-      "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "read_small_resident_file", "kind": "interop"}],
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/record.rs", "name": "Attr"}, {"path": "crates/block/hadris-ntfs/src/record.rs", "name": "Attrs::next"}],
+      "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "files_read_back", "kind": "interop"}],
       "gap": null
     },
     {
@@ -95,11 +95,8 @@
       "summary": "The attribute sequence terminates with the value 0xFFFFFFFF.",
       "direction": "read",
       "status": "verified",
-      "symbols": [{"path": "crates/block/hadris-ntfs/src/attr.rs", "name": "ATTR_END"}],
-      "tests": [
-        {"path": "crates/block/hadris-ntfs/tests/compliance.rs", "name": "attributes_stop_at_end_marker", "kind": "integration"},
-        {"path": "crates/block/hadris-ntfs/tests/compliance.rs", "name": "attributes_reject_a_missing_end_marker", "kind": "integration"}
-      ],
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/raw.rs", "name": "ATTR_END"}],
+      "tests": [{"path": "crates/block/hadris-ntfs/src/record.rs", "name": "attributes_stop_at_the_end_marker", "kind": "unit"}, {"path": "crates/block/hadris-ntfs/src/record.rs", "name": "attributes_need_an_end_marker", "kind": "unit"}],
       "gap": null
     },
     {
@@ -110,9 +107,9 @@
       "summary": "User data and other file streams are represented as attributes.",
       "direction": "read",
       "status": "partial",
-      "symbols": [{"path": "crates/block/hadris-ntfs/src/read.rs", "name": "FileReader"}],
-      "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "read_large_nonresident_file", "kind": "interop"}],
-      "gap": "Only the unnamed $DATA stream is exposed; alternate named and encoded streams are unsupported."
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "NtfsFs::streams"}, {"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "NtfsFs::read_stream_at"}],
+      "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "named_streams_read_back", "kind": "interop"}, {"path": "crates/block/hadris-ntfs/tests/crafted.rs", "name": "named_streams_are_listed_and_read", "kind": "integration"}],
+      "gap": "The unnamed and named $DATA streams are exposed; compressed and encrypted streams are unsupported."
     },
     {
       "id": "MICROSOFT-NTFS-MFT:mft-data#ordered-records",
@@ -122,8 +119,8 @@
       "summary": "The unnamed $DATA attribute of $Mft is the ordered sequence of MFT records.",
       "direction": "read",
       "status": "verified",
-      "symbols": [{"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "NtfsFs::read_mft_record_ref"}],
-      "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "multiple_files_in_root", "kind": "interop"}],
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "read_record"}],
+      "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "files_read_back", "kind": "interop"}],
       "gap": null
     },
     {
@@ -134,7 +131,7 @@
       "summary": "The unnamed $BITMAP attribute of $Mft identifies which MFT records are in use.",
       "direction": "read",
       "status": "not_implemented",
-      "symbols": [{"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "NtfsFs::read_mft_record_ref"}],
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "read_record"}],
       "tests": [],
       "gap": "The reader checks record flags but does not consult the $Mft bitmap before loading a record."
     },
@@ -145,10 +142,10 @@
       "normativity": "informative",
       "summary": "An attribute list identifies attributes stored in base and extension records when one record is insufficient.",
       "direction": "read",
-      "status": "not_implemented",
-      "symbols": [{"path": "crates/block/hadris-ntfs/src/attr.rs", "name": "ATTR_ATTRIBUTE_LIST"}],
-      "tests": [],
-      "gap": "The type code exists, but list entries are neither parsed nor followed."
+      "status": "verified",
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/record.rs", "name": "list_entry"}, {"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "read_listed"}],
+      "tests": [{"path": "crates/block/hadris-ntfs/src/record.rs", "name": "list_entries_are_bounded", "kind": "unit"}, {"path": "crates/block/hadris-ntfs/tests/crafted.rs", "name": "attribute_lists_join_extension_records", "kind": "integration"}, {"path": "crates/block/hadris-ntfs/tests/crafted.rs", "name": "index_roots_in_extension_records_are_followed", "kind": "integration"}, {"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "attribute_lists_on_a_real_volume", "kind": "interop"}],
+      "gap": null
     }
   ]
 }

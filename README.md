@@ -73,7 +73,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 ### Block Storage
 
-- **[hadris-block](crates/block/hadris-block)** - Category facade for storage traits, partitions, and block filesystems, with lightweight detection on block devices, partition slices, and unified FAT opening as `FatFs`
+- **[hadris-block](crates/block/hadris-block)** - Detection of FAT, NTFS, exFAT and partition tables on block devices, and `OpenVolume`, which opens FAT12/16/32 and NTFS behind one `hadris-fs` driver
 - **[hadris-part](crates/block/hadris-part)** - Partition table support on block devices
   - MBR with extended and logical partitions
   - GPT with backup-copy recovery and UTF-16 names
@@ -85,14 +85,15 @@ organizational only: published package names such as `hadris-fat` are unchanged.
   - Long filename support (VFAT/LFN)
   - Formatting and a read-only checker, all without an allocator
   - Analysis and verification tools
-  - exFAT preview (unstable leaf-crate feature; not opened by the block facade)
-- **[hadris-ntfs](crates/block/hadris-ntfs)** - Experimental read-only NTFS
-  reader with sync/async and `no_std` support; currently a leaf crate rather
-  than part of the stable block facade
+  - exFAT preview (unstable leaf-crate feature; detected but not opened by `hadris-block`)
+- **[hadris-ntfs](crates/block/hadris-ntfs)** - Read-only NTFS reader
+  (preview) on block devices, allocation-free in sync, async and `Send`
+  async modes, with attribute lists, named streams and `$UpCase` case
+  folding; opened by `hadris-block`
 
 ### Optical Media
 
-- **[hadris-optical](crates/optical/hadris-optical)** - Category facade with multi-format ISO/UDF/bridge detection and image composition
+- **[hadris-optical](crates/optical/hadris-optical)** - Detection of ISO 9660, UDF and bridge images on block devices, and `OpenOpticalImage`, which opens one of them behind one `hadris-fs` driver
 - **[hadris-iso](crates/optical/hadris-iso)** - ISO 9660 filesystem implementation
   - Allocation-free sync/async ISO 9660 and Joliet navigation with caller-buffered file streaming
   - ISO 9660 Level 1-3 and ISO 9660:1999 (long filenames)
@@ -181,10 +182,11 @@ hadris-fat = "2.4.0"
 hadris = { version = "2.4.0", features = ["block", "optical"] }
 ```
 
-The umbrella crate re-exports the same underlying format crates through
-`hadris::block`, `hadris::optical`, and `hadris::cpio`, so applications can
-grow into partition detection or additional disk-image formats without
-replacing their filesystem implementation.
+The umbrella crate re-exports `hadris::io`, `hadris::storage` and
+`hadris::fs`, and each format crate at a flat path (`hadris::fat`,
+`hadris::iso`, `hadris::cpio`, and `hadris::block` and `hadris::optical` for
+detection), so applications can grow into partition detection or additional
+disk-image formats without replacing their filesystem implementation.
 
 Each package now owns its version; all current packages target **2.4.0**:
 

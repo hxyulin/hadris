@@ -301,10 +301,17 @@ name = "hadris"
 version = "2.4.0"
 dependencies = [
  "hadris-block",
+ "hadris-cd",
  "hadris-cpio",
+ "hadris-fat",
  "hadris-fs",
  "hadris-io",
+ "hadris-iso",
+ "hadris-ntfs",
  "hadris-optical",
+ "hadris-part",
+ "hadris-storage",
+ "hadris-udf",
 ]
 
 [[package]]
@@ -313,8 +320,8 @@ version = "2.4.0"
 dependencies = [
  "hadris-fat",
  "hadris-fs",
- "hadris-io",
  "hadris-macros",
+ "hadris-ntfs",
  "hadris-part",
  "hadris-storage",
 ]
@@ -399,7 +406,6 @@ name = "hadris-example-optical-detect"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "hadris-io",
  "hadris-optical",
 ]
 
@@ -505,13 +511,11 @@ dependencies = [
 name = "hadris-ntfs"
 version = "2.4.0"
 dependencies = [
- "bitflags 2.13.2",
  "bytemuck",
- "hadris-common",
+ "hadris-fs",
  "hadris-io",
  "hadris-macros",
- "spin",
- "static_assertions",
+ "hadris-storage",
  "tempfile",
 ]
 
@@ -521,8 +525,8 @@ version = "2.4.0"
 dependencies = [
  "hadris-cd",
  "hadris-fs",
- "hadris-io",
  "hadris-iso",
+ "hadris-macros",
  "hadris-storage",
  "hadris-udf",
 ]

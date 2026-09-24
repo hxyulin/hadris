@@ -42,15 +42,18 @@ Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 
 | Spec | Item | Compliance | Tests | Fuzz | Notes |
 |------|------|------------|-------|------|-------|
-| NTFS:Boot-Sector | `RawNtfsBootSector` | partial | `compliance::open_rejects_invalid_sector_size` | | Core geometry and locations are validated; reserved fields, checksum, and backup-boot recovery are not. |
-| NTFS:Update-Sequence-Array | `apply_fixups` | unknown | `compliance::fixups_restore_each_sector_trailer` | | Behavior is tested, but authoritative source text was unavailable for this audit. |
-| NTFS:Attribute-Record | `AttrIter` | partial | `compliance::attributes_are_bounded_by_the_file_record_used_size` | | Resident and non-resident headers are validated; attribute-list extension records are not resolved. |
-| NTFS:Mapping-Pairs | `DataRunDecoder` | unknown | `compliance::data_runs_decode_relative_and_sparse_extents` | | Behavior is tested, but authoritative source text was unavailable for this audit. |
-| NTFS:File-Name | `parse_file_name` | partial | `compliance::filenames_decode_utf16_surrogate_pairs` | | Parses references, sizes, flags, namespace, and full UTF-16 names; timestamps and reparse/EA data are not exposed. |
-| NTFS:Index-Entry | `parse_index_entries` | partial | `read::large_directory_uses_index_allocation` | | Enumerates filename-index entries but does not expose child-node VCN pointers for keyed B-tree descent. |
-| NTFS:Master-File-Table | `NtfsFs::open` | partial | `read::open_blank_volume` | | Reads the base `$MFT` extent and validates file references; attribute-list extents and `$MFTMirr` recovery are not supported. |
-| NTFS:Directory-Index | `NtfsDir::entries` | partial | `read::large_directory_uses_index_allocation` | | Honors `$BITMAP`, update sequences, namespaces, and `$UpCase`; attribute-list index extents are not resolved. |
-| NTFS:Data-Stream | `FileReader` | partial | `read::read_large_nonresident_file` | | Reads resident, non-resident, sparse, and uninitialized unnamed data; compressed, encrypted, named, and attribute-list streams are unsupported. |
+| NTFS:Boot-Sector | `BootSector` | partial | `crafted::open_rejects_bad_boot_sectors`, `raw::tests::boot_sector_reads_its_fields` | `ntfs_read` | Geometry and locations are validated; the checksum and the backup boot sector are not used. |
+| NTFS:Boot-Sector | `record_size` | partial | `record::tests::record_sizes_decode_both_encodings` | `ntfs_read` | Sizes above 4096 bytes are refused as unsupported. |
+| NTFS:Update-Sequence-Array | `apply_fixups` | unknown | `record::tests::fixups_restore_each_stride`, `record::tests::fixups_reject_a_short_count`, `record::tests::fixups_use_512_byte_strides_on_4k_records` | `ntfs_read` | Behavior is tested, but authoritative source text was unavailable for this audit. |
+| NTFS:Attribute-Record | `Attrs` | partial | `record::tests::attributes_are_bounded_by_the_used_size`, `record::tests::attributes_stop_at_the_end_marker`, `record::tests::attributes_need_an_end_marker` | `ntfs_read` | Resident and non-resident headers are validated within one record; the attributes of extension records are reached through `$ATTRIBUTE_LIST`. |
+| NTFS:Attribute-List | `list_entry` | partial | `record::tests::list_entries_are_bounded`, `crafted::attribute_lists_join_extension_records`, `crafted::attribute_list_gaps_fail`, `crafted::index_roots_in_extension_records_are_followed`, `read::attribute_lists_on_a_real_volume` | `ntfs_read` | Streams, names and indexes are followed into extension records; `$MFT` may have at most 32 extents. |
+| NTFS:Mapping-Pairs | `Runs` | unknown | `record::tests::runs_decode_relative_and_sparse_extents`, `record::tests::runs_reject_malformed_encodings` | `ntfs_read` | Behavior is tested, but authoritative source text was unavailable for this audit. |
+| NTFS:File-Name | `file_name` | partial | `record::tests::file_names_parse_and_bound_the_name` | `ntfs_read` | Parses the parent reference, flags, namespace and full UTF-16 name; the copies of times and sizes and the reparse tag are not used. |
+| NTFS:Index-Entry | `index_entry` | partial | `record::tests::index_entries_are_bounded_by_the_node`, `read::large_directory_lists_every_entry` | `ntfs_read` | Every node is enumerated; child-node pointers are not followed for a keyed descent. |
+| NTFS:Master-File-Table | `NtfsFs::open` | partial | `read::open_blank_volume`, `crafted::open_rejects_bad_boot_sectors`, `crafted::fragmented_mft_is_followed` | `ntfs_read` | Reads `$MFT` from its base record and extension records and checks file references; `$MFTMirr` recovery is not supported. |
+| NTFS:Directory-Index | `NtfsFs::lookup` | partial | `crafted::names_fold_case_through_upcase`, `read::large_directory_lists_every_entry` | `ntfs_read` | Walks every index node instead of descending the B-tree by key. |
+| NTFS:Data-Stream | `NtfsFs::read_at` | partial | `read::files_read_back`, `crafted::streams_past_the_volume_fail`, `crafted::attribute_lists_join_extension_records` | `ntfs_read` | Reads resident, non-resident, sparse and partly initialized streams, also across extension records; compressed and encrypted streams are unsupported. |
+| NTFS:Named-Streams | `NtfsFs::streams` | partial | `crafted::named_streams_are_listed_and_read`, `read::named_streams_read_back` | `ntfs_read` | Lists and reads named `$DATA` attributes; other attribute types are not exposed as streams. |
 
 ## hadris-udf
 

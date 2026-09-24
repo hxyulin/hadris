@@ -1,86 +1,93 @@
-#![cfg(all(feature = "open", feature = "sync", feature = "cd"))]
+//! Opening ISO 9660, UDF and bridge images through `OpenOpticalImage`.
 
-use hadris_io::StdIo;
-use hadris_optical::{OpenPolicy, OpticalFormat, sync::OpenOpticalImage};
+mod common;
 
-fn create_image(iso: bool, udf: bool) -> StdIo<std::io::Cursor<Vec<u8>>> {
-    StdIo::new(std::io::Cursor::new(image_of(
-        iso,
-        udf,
-        &hadris_fs::tree::Tree::new(),
-    )))
-}
-
-/// An empty image with the ISO 9660 tree, the UDF volume, or both.
-fn image_of(iso: bool, udf: bool, tree: &hadris_fs::tree::Tree) -> Vec<u8> {
-    use hadris_storage::{BlockSize, MemDevice};
-    let block = BlockSize::new(2048).unwrap();
-    let size = 4 * 1024 * 1024;
-    let mut dev = MemDevice::new(vec![0_u8; size], block);
-    match (iso, udf) {
-        (true, false) => {
-            hadris_optical::iso::sync::write(
-                &mut dev,
-                tree,
-                hadris_optical::cd::CdOptions::default().iso(),
-            )
-            .unwrap();
-        }
-        (false, true) => {
-            hadris_optical::udf::sync::write(
-                &mut dev,
-                tree,
-                &hadris_optical::udf::UdfOptions::default(),
-            )
-            .unwrap();
-        }
-        _ => {
-            hadris_optical::cd::sync::write(
-                &mut dev,
-                tree,
-                &hadris_optical::cd::CdOptions::default(),
-            )
-            .unwrap();
-        }
-    }
-    dev.into_inner()
-}
+use common::{PAYLOAD, device, image_of, populated_tree};
+use hadris_fs::ErrorKind;
+use hadris_fs::sync::DriverExt;
+use hadris_optical::sync::OpenOpticalImage;
+use hadris_optical::{Detail, OpenPolicy, OpticalFormat};
 
 #[test]
-fn opens_single_format_images_and_recovers_source() {
-    let cases = [
-        (create_image(true, false), OpticalFormat::Iso9660),
-        (create_image(false, true), OpticalFormat::Udf),
-    ];
-    for (mut source, expected) in cases {
-        let opened = OpenOpticalImage::open(&mut source, OpenPolicy::default()).unwrap();
+fn opens_single_format_images_and_gives_the_device_back() {
+    for (iso, udf, expected) in [
+        (true, false, OpticalFormat::Iso9660),
+        (false, true, OpticalFormat::Udf),
+    ] {
+        let bytes = image_of(iso, udf, &populated_tree());
+        let len = bytes.len();
+        let mut opened =
+            OpenOpticalImage::open(device(bytes, 2048), OpenPolicy::default()).unwrap();
         assert_eq!(opened.format(), expected);
-        let source = opened.into_inner();
-        assert!(!source.get_ref().get_ref().is_empty());
+        assert_eq!(opened.as_iso().is_some(), iso);
+        assert_eq!(opened.as_udf().is_some(), udf);
+        assert_eq!(opened.read_to_vec("/DOCS/README.TXT").unwrap(), PAYLOAD);
+        assert!(!opened.capabilities().is_writable());
+        hadris_fs::sync::contract::check_read_only(&mut opened).unwrap();
+        assert_eq!(opened.into_inner().into_inner().len(), len);
     }
 }
 
 #[test]
-fn exact_requests_are_checked() {
-    let mut iso = create_image(true, false);
-    let error = match OpenOpticalImage::open(&mut iso, OpenPolicy::Udf) {
-        Ok(_) => panic!("ISO-only image unexpectedly opened as UDF"),
-        Err(error) => error,
-    };
-    assert!(matches!(
-        error,
-        hadris_optical::Error::RequestedFormatUnavailable(OpticalFormat::Udf)
-    ));
+fn bridge_images_open_as_either_filesystem() {
+    let bytes = image_of(true, true, &populated_tree());
+    let mut opened = OpenOpticalImage::open(device(bytes, 2048), OpenPolicy::PreferUdf).unwrap();
+    assert_eq!(opened.format(), OpticalFormat::Udf);
+    assert_eq!(
+        opened.read_to_vec("/DOCS/R\u{e9}sum\u{e9}.txt").unwrap(),
+        PAYLOAD
+    );
+    let udf = opened.into_udf().map_err(|_| ()).unwrap();
+
+    let mut opened = OpenOpticalImage::open(udf.into_inner(), OpenPolicy::PreferIso9660).unwrap();
+    assert_eq!(opened.format(), OpticalFormat::Iso9660);
+    assert_eq!(opened.read_to_vec("/DOCS/README.TXT").unwrap(), PAYLOAD);
+    let view = opened.into_iso().map_err(|_| ()).unwrap();
+    assert!(!view.into_inner().into_inner().is_empty());
 }
 
 #[test]
-fn bridge_image_opens_as_either_filesystem() {
-    let mut source = create_image(true, true);
-    let opened = OpenOpticalImage::open(&mut source, OpenPolicy::Udf).unwrap();
-    assert_eq!(opened.format(), OpticalFormat::Udf);
-    let source = opened.into_inner();
+fn exact_requests_are_checked_and_give_the_device_back() {
+    let bytes = image_of(true, false, &populated_tree());
+    let len = bytes.len();
+    let err = OpenOpticalImage::open(device(bytes, 2048), OpenPolicy::Udf)
+        .map(|_| ())
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Unsupported);
+    assert_eq!(
+        err.error().detail(),
+        Some(Detail::FormatUnavailable(OpticalFormat::Udf))
+    );
+    assert_eq!(err.into_device().into_inner().len(), len);
+}
 
-    let opened = OpenOpticalImage::open(source, OpenPolicy::Iso9660).unwrap();
-    assert_eq!(opened.format(), OpticalFormat::Iso9660);
-    let _ = opened.into_inner();
+#[test]
+fn malformed_images_use_category_errors() {
+    let err = OpenOpticalImage::open(device(vec![0xA5; 64 * 2048], 2048), OpenPolicy::default())
+        .map(|_| ())
+        .unwrap_err();
+    assert_eq!(err.error().detail(), Some(Detail::UnknownFormat));
+
+    let mut corrupt = vec![0u8; 18 * 2048];
+    corrupt[16 * 2048] = 1;
+    corrupt[16 * 2048 + 1..16 * 2048 + 6].copy_from_slice(b"CD001");
+    corrupt[16 * 2048 + 6] = 1;
+    let (error, dev) = OpenOpticalImage::open(device(corrupt.clone(), 2048), OpenPolicy::Iso9660)
+        .map(|_| ())
+        .unwrap_err()
+        .into_parts();
+    assert_eq!(error.detail(), Some(Detail::Mount(OpticalFormat::Iso9660)));
+    assert_eq!(error.kind(), ErrorKind::Corrupt);
+    assert_eq!(dev.into_inner(), corrupt);
+    let io: std::io::Error = error.into();
+    assert_eq!(io.kind(), std::io::ErrorKind::InvalidData);
+}
+
+#[test]
+fn smaller_device_blocks_open_too() {
+    let bytes = image_of(true, true, &populated_tree());
+    for policy in [OpenPolicy::Udf, OpenPolicy::Iso9660] {
+        let mut opened = OpenOpticalImage::open(device(bytes.clone(), 512), policy).unwrap();
+        assert_eq!(opened.read_to_vec("/DOCS/README.TXT").unwrap(), PAYLOAD);
+    }
 }
