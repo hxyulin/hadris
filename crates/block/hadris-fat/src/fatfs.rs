@@ -288,7 +288,9 @@ fn matches(
     entry: &ShortEntry,
     code_page: &impl CodePage,
 ) -> bool {
-    if long.is_some_and(|units| names::eq_ignore_case(query.chars(), names::utf16_chars(units))) {
+    if long.is_some_and(|units| {
+        names::eq_ignore_case(query.chars(), names::utf16_chars(units.iter().copied()))
+    }) {
         return true;
     }
     if query.chars().nth(short_name::DISPLAY_CHARS).is_some() {
@@ -315,7 +317,7 @@ fn write_name(
 ) -> Result<usize, ErrorKind> {
     if let Some(units) = long
         && out
-            .fill(|buf| names::utf16_to_utf8(units, buf).ok_or(NameError::TooLong))
+            .fill(|buf| names::utf16_to_utf8(units.iter().copied(), buf).ok_or(NameError::TooLong))
             .is_ok()
     {
         return Ok(out.len());
@@ -342,7 +344,7 @@ fn is_exact(
     code_page: &impl CodePage,
 ) -> bool {
     if let Some(units) = long {
-        return names::utf16_chars(units).eq(query.chars());
+        return names::utf16_chars(units.iter().copied()).eq(query.chars());
     }
     let mut short = [0u8; short_name::DISPLAY_MAX];
     let len = short_name::display(
