@@ -13,9 +13,11 @@ impl UdfRevision {
     pub const V2_00: Self = Self(0x0200);
     /// UDF 2.01: DVD-RW and DVD+RW.
     pub const V2_01: Self = Self(0x0201);
-    /// UDF 2.50: Blu-ray.
+    /// UDF 2.50: Blu-ray. The writer refuses it: it needs a metadata
+    /// partition.
     pub const V2_50: Self = Self(0x0250);
-    /// UDF 2.60: Blu-ray pseudo-overwrite.
+    /// UDF 2.60: Blu-ray pseudo-overwrite. The writer refuses it: it needs
+    /// a metadata partition.
     pub const V2_60: Self = Self(0x0260);
 
     /// A revision from its binary-coded value.

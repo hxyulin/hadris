@@ -666,6 +666,9 @@ pub(crate) fn plan<C: Clock>(
     contents: &BTreeMap<usize, ContentInfo>,
     measured: bool,
 ) -> PlanResult<Plan> {
+    if opts.revision() >= crate::UdfRevision::V2_50 {
+        return Err(Error::new(ErrorKind::Unsupported, Detail::PartitionMap));
+    }
     let mut encoded = [0u8; 256];
     if write_dstring(&mut encoded[..128], opts.volume_id()) {
         return Err(Error::invalid(Detail::Identifier));

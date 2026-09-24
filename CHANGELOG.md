@@ -1000,6 +1000,11 @@ Each published package owns its version and may be released independently.
   have: for ISO zero, odd or past the volume and the device, for UDF
   outside every partition. A directory record or file identifier that
   points outside the image fails the listing as corrupt.
+- **hadris-udf (V3):** The writer refuses UDF 2.50 and 2.60 with
+  `ErrorKind::Unsupported` and `Detail::PartitionMap`: those revisions
+  require a metadata partition (UDF 2.50 2.2.10), which it does not write.
+  It labelled type 1 volumes 2.50 or 2.60 before, which conforming readers
+  may refuse.
 
 ## [2.4.0] - 2026-09-08
 

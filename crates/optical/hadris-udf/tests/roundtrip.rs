@@ -31,8 +31,8 @@ fn every_tree_reads_back() {
     for revision in [
         UdfRevision::V1_02,
         UdfRevision::V1_50,
+        UdfRevision::V2_00,
         UdfRevision::V2_01,
-        UdfRevision::V2_60,
     ] {
         let tree = sample();
         let options = UdfOptions::default()

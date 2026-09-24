@@ -9,7 +9,7 @@ use hadris_fs::tree::{Content, Tree};
 use hadris_fs::{ErrorKind, Extent, FileTimes, NodeId, SetMetadata};
 use hadris_storage::{BlockSize, MemDevice};
 use hadris_udf::sync::UdfFs;
-use hadris_udf::{Bridge, Detail, UdfOptions};
+use hadris_udf::{Bridge, Detail, UdfOptions, UdfRevision};
 
 fn good() -> Vec<u8> {
     image(&sample(), &UdfOptions::default())
@@ -172,6 +172,20 @@ fn the_writer_refuses_what_it_cannot_store() {
         (err.kind(), err.detail()),
         (ErrorKind::InvalidInput, Some(Detail::Identifier))
     );
+
+    for revision in [UdfRevision::V2_50, UdfRevision::V2_60] {
+        let options = UdfOptions::default().with_revision(revision);
+        let err = hadris_udf::sync::plan(&tree, &options).unwrap_err();
+        assert_eq!(
+            (err.kind(), err.detail()),
+            (ErrorKind::Unsupported, Some(Detail::PartitionMap)),
+            "UDF {revision} needs a metadata partition"
+        );
+        let mut dev = MemDevice::new(vec![0u8; 1 << 20], SECTOR);
+        let err = hadris_udf::sync::write(&mut dev, &tree, &options).unwrap_err();
+        assert_eq!(err.detail(), Some(Detail::PartitionMap));
+        assert!(dev.get_ref().iter().all(|&byte| byte == 0));
+    }
 
     let mut long = Tree::new();
     long.add_file(&"n".repeat(255), Content::empty()).unwrap();

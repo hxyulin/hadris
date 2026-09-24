@@ -91,10 +91,11 @@ No feature changes what an item does.
 ## UDF scope
 
 The writer produces mastered, read-only type 1 volumes and can label them
-UDF 1.02, 1.50, 2.00, 2.01, 2.50 or 2.60; 2.00 and later use ECMA-167 3rd
-edition structures. Packet writing, virtual allocation tables, sparing
-tables, metadata partitions and named streams are not implemented; the
-reader refuses such partitions as unsupported. Writing to a mounted volume
+UDF 1.02, 1.50, 2.00 or 2.01; 2.00 and later use ECMA-167 3rd edition
+structures. Packet writing, virtual allocation tables, sparing tables,
+metadata partitions and named streams are not implemented; the reader
+refuses such partitions as unsupported, and the writer refuses UDF 2.50
+and 2.60, which require a metadata partition. Writing to a mounted volume
 (`FsDriver` write methods) reports read-only for now.
 
 ## Documentation

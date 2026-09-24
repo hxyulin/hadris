@@ -24,7 +24,8 @@ pub enum Detail {
     /// disagrees with the anchor, or the device block is larger.
     BlockSize,
     /// A partition map other than type 1 (virtual, sparable or metadata
-    /// partitions).
+    /// partitions), or, when writing, a revision that needs one: UDF 2.50
+    /// and later require a metadata partition.
     PartitionMap,
     /// A partition reference names no partition, or an extent runs past its
     /// partition.
