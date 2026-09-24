@@ -151,7 +151,10 @@ extern crate self as hadris_fat;
 extern crate alloc;
 
 mod code_page;
-#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
+#[cfg_attr(
+    not(any(feature = "sync", feature = "async")),
+    allow(dead_code, unused_imports)
+)]
 mod codec;
 mod findings;
 mod options;
