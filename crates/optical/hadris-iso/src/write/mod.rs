@@ -654,7 +654,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         walker.walk(&mut self.written_files);
 
         if self.ops.has_rock_ridge_deep_dirs() {
-            relocate_deep_directories(&mut self.written_files)?;
+            relocate_deep_directories(&mut self.written_files, self.ops.features.filenames.into())?;
         }
 
         let root_id = self.written_files.root_dir();

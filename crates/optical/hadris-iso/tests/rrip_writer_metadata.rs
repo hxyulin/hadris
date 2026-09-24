@@ -1,9 +1,10 @@
+use std::collections::BTreeSet;
 use std::io::Cursor;
 
-use hadris_iso::directory::DirectoryRecordHeader;
+use hadris_iso::directory::{DirectoryRecord, DirectoryRecordHeader};
 use hadris_iso::read::{IsoImage, PathSeparator};
 use hadris_iso::rrip::RripOptions;
-use hadris_iso::write::options::{CreationFeatures, IsoFormatOptions};
+use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, IsoFormatOptions};
 use hadris_iso::write::{InputEntry, InputMetadata, InputTree, IsoImageWriter};
 
 fn options(rrip: RripOptions) -> IsoFormatOptions {
@@ -193,6 +194,105 @@ fn nested_directory(depth: usize) -> InputEntry {
     children.pop().unwrap()
 }
 
+fn root_names(image: &IsoImage<Cursor<Vec<u8>>>) -> Vec<String> {
+    image
+        .root_dir()
+        .iter(image)
+        .entries()
+        .filter_map(Result::ok)
+        .filter(|entry| !entry.is_special())
+        .map(|entry| entry.display_name().into_owned())
+        .collect()
+}
+
+fn directory_names(image: &IsoImage<Cursor<Vec<u8>>>, name: &str) -> Vec<String> {
+    let entry = image
+        .root_dir()
+        .iter(image)
+        .entries()
+        .filter_map(Result::ok)
+        .find(|entry| entry.matches_name(name))
+        .unwrap();
+    let directory = entry.as_dir_ref(image).unwrap();
+    image
+        .open_dir(directory)
+        .entries()
+        .filter_map(Result::ok)
+        .filter(|entry| !entry.is_special())
+        .map(|entry| entry.display_name().into_owned())
+        .collect()
+}
+
+fn assert_logical_leaf(image: &IsoImage<Cursor<Vec<u8>>>, depth: usize) {
+    let mut directory = image.root_dir().dir_ref();
+    let mut saw_child_link = false;
+    for level in 1..=depth {
+        let entry = image
+            .open_dir(directory)
+            .entries()
+            .filter_map(Result::ok)
+            .find(|entry| entry.matches_name(&format!("level{level}")))
+            .unwrap();
+        if entry.rrip.as_ref().unwrap().child_link.is_some() {
+            saw_child_link = true;
+            assert!(!entry.record.is_directory());
+            assert!(entry.is_directory());
+        }
+        directory = entry.as_dir_ref(image).unwrap();
+    }
+    assert!(saw_child_link);
+    assert!(
+        image
+            .open_dir(directory)
+            .entries()
+            .filter_map(Result::ok)
+            .any(|entry| entry.matches_name("leaf.txt"))
+    );
+}
+
+fn record_has_re(record: &DirectoryRecord) -> bool {
+    let su = record.system_use();
+    let mut offset = 0;
+    while offset + 4 <= su.len() {
+        let length = su[offset + 2] as usize;
+        if length < 4 || offset + length > su.len() {
+            break;
+        }
+        if &su[offset..offset + 2] == b"RE" {
+            return true;
+        }
+        offset += length;
+    }
+    false
+}
+
+fn container_has_relocated_child(image: &IsoImage<Cursor<Vec<u8>>>, name: &str) -> bool {
+    let entry = image
+        .root_dir()
+        .iter(image)
+        .entries()
+        .filter_map(Result::ok)
+        .find(|entry| entry.matches_name(name))
+        .unwrap();
+    let parent_extent = entry.record.header().extent.read();
+    let directory = entry.as_dir_ref(image).unwrap();
+    let mut saw_re = false;
+    for record in image
+        .open_dir(directory)
+        .raw_entries()
+        .filter_map(Result::ok)
+    {
+        if record_has_re(&record) {
+            assert!(
+                record.header().extent.read() > parent_extent,
+                "relocated directory extent must follow its container"
+            );
+            saw_re = true;
+        }
+    }
+    saw_re
+}
+
 #[test]
 fn relocates_a_ninth_level_directory_and_preserves_the_rrip_view() {
     let image = write(vec![nested_directory(9)], RripOptions::default());
@@ -232,24 +332,52 @@ fn relocates_a_ninth_level_directory_and_preserves_the_rrip_view() {
 }
 
 #[test]
-fn relocation_rejects_an_ambiguous_user_directory() {
-    let tree = InputTree::new(
-        PathSeparator::ForwardSlash,
+fn relocation_reuses_user_rr_moved_directory() {
+    let metadata = InputMetadata {
+        mode: Some(0o700),
+        uid: Some(5),
+        gid: Some(6),
+        modified: Some(946_684_800),
+        ..InputMetadata::default()
+    };
+    let image = write(
         vec![
-            InputEntry::directory("rr_moved", Vec::new()),
+            InputEntry::directory(
+                "rr_moved",
+                vec![InputEntry::file("user.txt", b"user".to_vec())],
+            )
+            .with_metadata(metadata),
             nested_directory(9),
         ],
+        RripOptions::default(),
     );
-    let error = IsoImageWriter::create(
-        Cursor::new(Vec::new()),
-        tree,
-        options(RripOptions::default()),
-    )
-    .unwrap_err();
-    assert!(
-        matches!(&error, hadris_iso::write::IsoCreationError::Io(inner) if inner.kind() == hadris_io::ErrorKind::InvalidInput)
+    let names = root_names(&image);
+    assert!(names.contains(&"rr_moved".to_string()));
+    assert!(!names.contains(&".rr_moved".to_string()));
+    assert_eq!(
+        directory_names(&image, "rr_moved"),
+        vec!["user.txt".to_string()]
     );
-    assert!(error.to_string().contains("root rr_moved directory"));
+    assert_logical_leaf(&image, 9);
+    assert!(container_has_relocated_child(&image, "rr_moved"));
+
+    let rr_moved = image
+        .root_dir()
+        .iter(&image)
+        .entries()
+        .filter_map(Result::ok)
+        .find(|entry| entry.matches_name("rr_moved"))
+        .unwrap();
+    let px = rr_moved
+        .rrip
+        .as_ref()
+        .unwrap()
+        .posix_attributes
+        .as_ref()
+        .unwrap();
+    assert_eq!(px.file_mode.read(), 0o040700);
+    assert_eq!(px.file_uid.read(), 5);
+    assert_eq!(px.file_gid.read(), 6);
 }
 
 #[test]
@@ -261,14 +389,203 @@ fn relocation_uses_dot_name_when_a_file_occupies_rr_moved() {
         ],
         RripOptions::default(),
     );
-    let names: Vec<_> = image
+    let names = root_names(&image);
+    assert!(names.contains(&"rr_moved".to_string()));
+    assert!(names.contains(&".rr_moved".to_string()));
+    assert_logical_leaf(&image, 9);
+}
+
+#[test]
+fn relocation_reuses_iso_first_directory_when_both_names_exist() {
+    let image = write(
+        vec![
+            InputEntry::directory(
+                "rr_moved",
+                vec![InputEntry::file("plain.txt", b"plain".to_vec())],
+            ),
+            InputEntry::directory(
+                ".rr_moved",
+                vec![InputEntry::file("dot.txt", b"dot".to_vec())],
+            ),
+            nested_directory(15),
+        ],
+        RripOptions::default(),
+    );
+    let names = root_names(&image);
+    assert!(names.contains(&"rr_moved".to_string()));
+    assert!(names.contains(&".rr_moved".to_string()));
+    assert_eq!(
+        directory_names(&image, "rr_moved"),
+        vec!["plain.txt".to_string()]
+    );
+    assert_eq!(
+        directory_names(&image, ".rr_moved"),
+        vec!["dot.txt".to_string()]
+    );
+    assert_logical_leaf(&image, 15);
+    assert!(container_has_relocated_child(&image, "rr_moved"));
+    assert!(!container_has_relocated_child(&image, ".rr_moved"));
+}
+
+#[test]
+fn relocation_avoids_physical_name_collisions_in_user_container() {
+    let image = write(
+        vec![
+            InputEntry::directory(
+                "rr_moved",
+                vec![
+                    InputEntry::file("RRD000001", b"taken".to_vec()),
+                    InputEntry::file("user.txt", b"user".to_vec()),
+                ],
+            ),
+            nested_directory(9),
+        ],
+        RripOptions::default(),
+    );
+    let names = directory_names(&image, "rr_moved");
+    assert!(names.contains(&"RRD000001".to_string()));
+    assert!(names.contains(&"user.txt".to_string()));
+    assert_logical_leaf(&image, 9);
+    assert!(container_has_relocated_child(&image, "rr_moved"));
+}
+
+#[test]
+fn relocation_preserves_user_tree_inside_reused_container() {
+    let mut nested = vec![InputEntry::file("inside.txt", b"inside".to_vec())];
+    for level in (1..=8).rev() {
+        nested = vec![InputEntry::directory(format!("d{level}"), nested)];
+    }
+    let image = write(
+        vec![
+            InputEntry::directory(
+                "rr_moved",
+                vec![
+                    InputEntry::file("user.txt", b"user".to_vec()),
+                    nested.pop().unwrap(),
+                ],
+            ),
+            nested_directory(9),
+        ],
+        RripOptions::default(),
+    );
+    assert!(directory_names(&image, "rr_moved").contains(&"user.txt".to_string()));
+    assert_logical_leaf(&image, 9);
+
+    let rr_moved = image
         .root_dir()
         .iter(&image)
         .entries()
-        .map(|entry| entry.unwrap().display_name().into_owned())
-        .collect();
+        .filter_map(Result::ok)
+        .find(|entry| entry.matches_name("rr_moved"))
+        .unwrap()
+        .as_dir_ref(&image)
+        .unwrap();
+    let mut directory = rr_moved;
+    for level in 1..=8 {
+        let entry = image
+            .open_dir(directory)
+            .entries()
+            .filter_map(Result::ok)
+            .find(|entry| entry.matches_name(&format!("d{level}")))
+            .unwrap();
+        directory = entry.as_dir_ref(&image).unwrap();
+    }
+    assert!(
+        image
+            .open_dir(directory)
+            .entries()
+            .filter_map(Result::ok)
+            .any(|entry| entry.matches_name("inside.txt"))
+    );
+}
+
+#[test]
+fn lowercase_creates_dot_container_ahead_of_user_rr_moved() {
+    let mut features = CreationFeatures::rock_ridge();
+    features.filenames = BaseIsoLevel::Level1 {
+        supports_lowercase: true,
+        supports_rrip: true,
+    };
+    let tree = InputTree::new(
+        PathSeparator::ForwardSlash,
+        vec![
+            InputEntry::directory(
+                "rr_moved",
+                vec![InputEntry::file("user.txt", b"user".to_vec())],
+            ),
+            nested_directory(9),
+        ],
+    );
+    let data = IsoImageWriter::create(
+        Cursor::new(vec![0; 4 * 1024 * 1024]),
+        tree,
+        IsoFormatOptions {
+            features,
+            ..options(RripOptions::default())
+        },
+    )
+    .unwrap();
+    let image = IsoImage::open(data).unwrap();
+    let names = root_names(&image);
     assert!(names.contains(&"rr_moved".to_string()));
     assert!(names.contains(&".rr_moved".to_string()));
+    assert_eq!(
+        directory_names(&image, "rr_moved"),
+        vec!["user.txt".to_string()]
+    );
+    assert_logical_leaf(&image, 9);
+    assert!(container_has_relocated_child(&image, ".rr_moved"));
+}
+
+#[test]
+fn relocation_path_table_parents_relocated_dirs_under_container() {
+    let image = write(
+        vec![
+            InputEntry::directory(
+                "rr_moved",
+                vec![InputEntry::file("user.txt", b"user".to_vec())],
+            ),
+            nested_directory(9),
+        ],
+        RripOptions::default(),
+    );
+    let entries: Vec<_> = image
+        .path_table()
+        .entries(&image)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    let names: Vec<_> = entries
+        .iter()
+        .map(|entry| String::from_utf8_lossy(entry.name.as_bytes()).into_owned())
+        .collect();
+    let rr_moved = names
+        .iter()
+        .position(|name| name == "RR_MOVED")
+        .expect("path table should include the reused container");
+    let relocated = names
+        .iter()
+        .position(|name| name.starts_with("RRD"))
+        .expect("path table should include relocated directories");
+    assert_eq!(entries[relocated].parent_index as usize, rr_moved + 1);
+    for (index, entry) in entries.iter().enumerate().skip(1) {
+        assert!(
+            (1..=index).contains(&(entry.parent_index as usize)),
+            "invalid parent index {index}: {}",
+            entry.parent_index
+        );
+    }
+    let container_number = (rr_moved + 1) as u16;
+    let child_ids: Vec<_> = entries
+        .iter()
+        .filter(|entry| entry.parent_index == container_number)
+        .map(|entry| entry.name.as_bytes().to_vec())
+        .collect();
+    let unique = child_ids.iter().cloned().collect::<BTreeSet<_>>();
+    assert_eq!(
+        child_ids.len(),
+        unique.len(),
+        "relocated path-table children should have unique ISO identifiers"
+    );
 }
 
 #[test]
@@ -289,6 +606,11 @@ fn relocation_rejects_two_occupied_names() {
     .unwrap_err();
     assert!(
         matches!(&error, hadris_iso::write::IsoCreationError::Io(inner) if inner.kind() == hadris_io::ErrorKind::InvalidInput)
+    );
+    assert!(
+        error
+            .to_string()
+            .contains("available rr_moved or .rr_moved directory")
     );
 }
 
