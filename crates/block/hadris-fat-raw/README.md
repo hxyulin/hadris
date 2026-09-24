@@ -53,6 +53,9 @@ allocator:
 - `slot_offset` with a `DirWalk` that keeps its chain position,
   `read_slot`, `write_slots` and `clear_slots` for directories
 - `mkfs` writes a volume that `layout::plan` planned
+- `check` checks an unmounted volume without changing it, passing each
+  `hadris_fs::Finding` to a callback, with a caller-lent scratch buffer for
+  the paths of findings and a window of the cluster bitmap
 
 `exfat::io` does the same for exFAT: `read_boot` and `read_volume` mount
 the boot region and system structures into an `ExFat` state and an

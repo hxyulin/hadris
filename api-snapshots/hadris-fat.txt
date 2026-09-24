@@ -3,6 +3,7 @@ pub use hadris_fat::Detail
 pub use hadris_fat::FatKind
 pub use hadris_fat::raw
 pub mod hadris_fat::async
+pub use hadris_fat::async::check
 pub struct hadris_fat::async::FatFs<D, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock, P: hadris_fat::CodePage>
 impl<D: hadris_storage::async::api::BlockDevice, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock, P: hadris_fat::CodePage> hadris_fat::async::FatFs<D, T, C, P>
 pub fn hadris_fat::async::FatFs<D, T, C, P>::capabilities(&self) -> hadris_fs::caps::Capabilities
@@ -60,10 +61,9 @@ pub async fn hadris_fat::async::FatFs<D, T, C, P>::stats(&mut self) -> hadris_io
 pub async fn hadris_fat::async::FatFs<D, T, C, P>::sync(&mut self) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
 pub async fn hadris_fat::async::FatFs<D, T, C, P>::sync_node(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
 pub async fn hadris_fat::async::FatFs<D, T, C, P>::write_at(&mut self, hadris_fs::node::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::async::check<D: hadris_storage::async::api::BlockDevice, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock, P: hadris_fat::CodePage>(&mut hadris_fat::async::FatFs<D, T, C, P>) -> hadris_io::fs_error::FsResult<hadris_fat::CheckReport, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::async::check_with<D: hadris_storage::async::api::BlockDevice, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock, P: hadris_fat::CodePage, F: core::ops::function::FnMut(hadris_fat::Finding)>(&mut hadris_fat::async::FatFs<D, T, C, P>, &mut [u8], F) -> hadris_io::fs_error::FsResult<hadris_fat::CheckReport, <D as hadris_io::error::ErrorType>::Error>
 pub async fn hadris_fat::async::format<D: hadris_storage::async::api::BlockDevice, C: hadris_fs::time::Clock>(D, hadris_fat::FormatOptions<C>) -> core::result::Result<hadris_fat::async::FatFs<D, hadris_fs::table::FixedTable<64>, C>, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
 pub mod hadris_fat::async_send
+pub use hadris_fat::async_send::check
 pub struct hadris_fat::async_send::FatFs<D, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock, P: hadris_fat::CodePage>
 impl<D: hadris_storage::async_send::api::BlockDevice, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock, P: hadris_fat::CodePage> hadris_fat::async_send::FatFs<D, T, C, P>
 pub fn hadris_fat::async_send::FatFs<D, T, C, P>::capabilities(&self) -> hadris_fs::caps::Capabilities
@@ -121,8 +121,6 @@ pub async fn hadris_fat::async_send::FatFs<D, T, C, P>::stats(&mut self) -> hadr
 pub async fn hadris_fat::async_send::FatFs<D, T, C, P>::sync(&mut self) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
 pub async fn hadris_fat::async_send::FatFs<D, T, C, P>::sync_node(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
 pub async fn hadris_fat::async_send::FatFs<D, T, C, P>::write_at(&mut self, hadris_fs::node::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::async_send::check<D: hadris_storage::async_send::api::BlockDevice, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock, P: hadris_fat::CodePage>(&mut hadris_fat::async_send::FatFs<D, T, C, P>) -> hadris_io::fs_error::FsResult<hadris_fat::CheckReport, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::async_send::check_with<D: hadris_storage::async_send::api::BlockDevice, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock, P: hadris_fat::CodePage, F: core::ops::function::FnMut(hadris_fat::Finding)>(&mut hadris_fat::async_send::FatFs<D, T, C, P>, &mut [u8], F) -> hadris_io::fs_error::FsResult<hadris_fat::CheckReport, <D as hadris_io::error::ErrorType>::Error>
 pub async fn hadris_fat::async_send::format<D: hadris_storage::async_send::api::BlockDevice, C: hadris_fs::time::Clock>(D, hadris_fat::FormatOptions<C>) -> core::result::Result<hadris_fat::async_send::FatFs<D, hadris_fs::table::FixedTable<64>, C>, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
 pub mod hadris_fat::exfat
 pub use hadris_fat::exfat::Detail
@@ -441,6 +439,7 @@ pub fn hadris_fat::exfat::VolumeLabel::fmt(&self, &mut core::fmt::Formatter<'_>)
 impl core::fmt::Display for hadris_fat::exfat::VolumeLabel
 pub fn hadris_fat::exfat::VolumeLabel::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub mod hadris_fat::sync
+pub use hadris_fat::sync::check
 pub struct hadris_fat::sync::FatFs<D, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock, P: hadris_fat::CodePage>
 impl<D: hadris_storage::sync::api::BlockDevice, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock, P: hadris_fat::CodePage> hadris_fat::sync::FatFs<D, T, C, P>
 pub fn hadris_fat::sync::FatFs<D, T, C, P>::capabilities(&self) -> hadris_fs::caps::Capabilities
@@ -498,99 +497,11 @@ pub fn hadris_fat::sync::FatFs<D, T, C, P>::stats(&mut self) -> hadris_io::fs_er
 pub fn hadris_fat::sync::FatFs<D, T, C, P>::sync(&mut self) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris_fat::sync::FatFs<D, T, C, P>::sync_node(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris_fat::sync::FatFs<D, T, C, P>::write_at(&mut self, hadris_fs::node::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::sync::check<D: hadris_storage::sync::api::BlockDevice, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock, P: hadris_fat::CodePage>(&mut hadris_fat::sync::FatFs<D, T, C, P>) -> hadris_io::fs_error::FsResult<hadris_fat::CheckReport, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::sync::check_with<D: hadris_storage::sync::api::BlockDevice, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock, P: hadris_fat::CodePage, F: core::ops::function::FnMut(hadris_fat::Finding)>(&mut hadris_fat::sync::FatFs<D, T, C, P>, &mut [u8], F) -> hadris_io::fs_error::FsResult<hadris_fat::CheckReport, <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris_fat::sync::format<D: hadris_storage::sync::api::BlockDevice, C: hadris_fs::time::Clock>(D, hadris_fat::FormatOptions<C>) -> core::result::Result<hadris_fat::sync::FatFs<D, hadris_fs::table::FixedTable<64>, C>, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
-#[non_exhaustive] pub enum hadris_fat::Finding
-pub hadris_fat::Finding::BackupBootSector
-#[non_exhaustive] pub hadris_fat::Finding::BadCluster
-pub hadris_fat::Finding::BadCluster::cluster: u32
-pub hadris_fat::Finding::BadCluster::entry: u64
-#[non_exhaustive] pub hadris_fat::Finding::BadName
-pub hadris_fat::Finding::BadName::entry: u64
-pub hadris_fat::Finding::BootSector(&'static str)
-#[non_exhaustive] pub hadris_fat::Finding::BrokenChain
-pub hadris_fat::Finding::BrokenChain::cluster: u32
-pub hadris_fat::Finding::BrokenChain::entry: u64
-pub hadris_fat::Finding::BrokenChain::next: u32
-#[non_exhaustive] pub hadris_fat::Finding::ChainTooLong
-pub hadris_fat::Finding::ChainTooLong::clusters: u32
-pub hadris_fat::Finding::ChainTooLong::entry: u64
-pub hadris_fat::Finding::ChainTooLong::size: u32
-#[non_exhaustive] pub hadris_fat::Finding::ChainTooShort
-pub hadris_fat::Finding::ChainTooShort::clusters: u32
-pub hadris_fat::Finding::ChainTooShort::entry: u64
-pub hadris_fat::Finding::ChainTooShort::size: u32
-#[non_exhaustive] pub hadris_fat::Finding::CrossLinked
-pub hadris_fat::Finding::CrossLinked::cluster: u32
-pub hadris_fat::Finding::CrossLinked::entry: u64
-#[non_exhaustive] pub hadris_fat::Finding::CyclicChain
-pub hadris_fat::Finding::CyclicChain::cluster: u32
-pub hadris_fat::Finding::CyclicChain::entry: u64
-#[non_exhaustive] pub hadris_fat::Finding::DirectorySize
-pub hadris_fat::Finding::DirectorySize::entry: u64
-#[non_exhaustive] pub hadris_fat::Finding::DotEntry
-pub hadris_fat::Finding::DotEntry::entry: u64
-#[non_exhaustive] pub hadris_fat::Finding::FatCopy
-pub hadris_fat::Finding::FatCopy::copy: u8
-pub hadris_fat::Finding::FatCopy::entries: u32
-pub hadris_fat::Finding::FatCopy::first: u32
-#[non_exhaustive] pub hadris_fat::Finding::FreeCount
-pub hadris_fat::Finding::FreeCount::actual: u32
-pub hadris_fat::Finding::FreeCount::recorded: u32
-pub hadris_fat::Finding::FsInfo
-#[non_exhaustive] pub hadris_fat::Finding::InvalidCluster
-pub hadris_fat::Finding::InvalidCluster::cluster: u32
-pub hadris_fat::Finding::InvalidCluster::entry: u64
-#[non_exhaustive] pub hadris_fat::Finding::Label
-pub hadris_fat::Finding::Label::entry: u64
-#[non_exhaustive] pub hadris_fat::Finding::LfnChecksum
-pub hadris_fat::Finding::LfnChecksum::entry: u64
-#[non_exhaustive] pub hadris_fat::Finding::LostClusters
-pub hadris_fat::Finding::LostClusters::count: u32
-pub hadris_fat::Finding::LostClusters::first: u32
-#[non_exhaustive] pub hadris_fat::Finding::OrphanLfn
-pub hadris_fat::Finding::OrphanLfn::entry: u64
-pub hadris_fat::Finding::ReservedEntries
-impl hadris_fat::Finding
-pub const fn hadris_fat::Finding::kind(&self) -> hadris_fat::FindingKind
-#[non_exhaustive] pub enum hadris_fat::FindingKind
-pub hadris_fat::FindingKind::BackupBootSector
-pub hadris_fat::FindingKind::BadCluster
-pub hadris_fat::FindingKind::BadName
-pub hadris_fat::FindingKind::BootSector
-pub hadris_fat::FindingKind::BrokenChain
-pub hadris_fat::FindingKind::ChainTooLong
-pub hadris_fat::FindingKind::ChainTooShort
-pub hadris_fat::FindingKind::CrossLinked
-pub hadris_fat::FindingKind::CyclicChain
-pub hadris_fat::FindingKind::DirectorySize
-pub hadris_fat::FindingKind::DotEntry
-pub hadris_fat::FindingKind::FatCopy
-pub hadris_fat::FindingKind::FreeCount
-pub hadris_fat::FindingKind::FsInfo
-pub hadris_fat::FindingKind::InvalidCluster
-pub hadris_fat::FindingKind::Label
-pub hadris_fat::FindingKind::LfnChecksum
-pub hadris_fat::FindingKind::LostClusters
-pub hadris_fat::FindingKind::OrphanLfn
-pub hadris_fat::FindingKind::ReservedEntries
 pub struct hadris_fat::Ascii
 impl hadris_fat::CodePage for hadris_fat::Ascii
 pub fn hadris_fat::Ascii::decode(&self, u8) -> char
 pub fn hadris_fat::Ascii::encode(&self, char) -> core::option::Option<u8>
-pub struct hadris_fat::CheckReport
-impl hadris_fat::CheckReport
-pub fn hadris_fat::CheckReport::bad_clusters(&self) -> u32
-pub fn hadris_fat::CheckReport::count(&self, hadris_fat::FindingKind) -> u32
-pub fn hadris_fat::CheckReport::directories(&self) -> u32
-pub fn hadris_fat::CheckReport::files(&self) -> u32
-pub fn hadris_fat::CheckReport::findings(&self) -> u32
-pub fn hadris_fat::CheckReport::free_clusters(&self) -> u32
-pub fn hadris_fat::CheckReport::is_clean(&self) -> bool
-pub fn hadris_fat::CheckReport::lost_clusters(&self) -> u32
-pub fn hadris_fat::CheckReport::passes(&self) -> u32
-pub fn hadris_fat::CheckReport::used_clusters(&self) -> u32
 pub struct hadris_fat::Cp437
 impl hadris_fat::CodePage for hadris_fat::Cp437
 pub fn hadris_fat::Cp437::decode(&self, u8) -> char

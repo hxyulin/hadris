@@ -4,10 +4,11 @@ use std::path::Path;
 use std::process::Command;
 
 use hadris_fat::sync::{FatFs, format};
-use hadris_fat::{CodePage, FatKind, FormatOptions, MountOptions, VolumeLabel};
+use hadris_fat::{CodePage, Detail, FatKind, FormatOptions, MountOptions, VolumeLabel};
 use hadris_fs::sync::{DriverExt, FsDriver};
 use hadris_fs::{
-    Attributes, Clock, DirCursor, HeapTable, Name, NameBuf, NewNode, NodeId, NodeTable, SetMetadata,
+    Attributes, CheckReport, Clock, DirCursor, Finding, HeapTable, Location, Name, NameBuf,
+    NewNode, NodeId, NodeTable, SetMetadata, Severity,
 };
 use hadris_storage::sync::BlockDevice;
 use hadris_storage::{BlockSize, MemDevice};
@@ -247,8 +248,66 @@ pub fn read(fs: &mut Fs, path: &str) -> Vec<u8> {
     fs.read_to_vec(path).unwrap()
 }
 
+/// Mounts `dev` with a heap node table.
+pub fn mount_dev(dev: Device) -> Fs {
+    FatFs::open_with(dev, MountOptions::new().with_table(HeapTable::new())).unwrap()
+}
+
 pub fn device(case: Case, image: Vec<u8>) -> Device {
     MemDevice::new(image, BlockSize::new(case.block).unwrap())
+}
+
+/// A finding copied out of the `check` callback.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Found {
+    pub detail: Detail,
+    pub severity: Severity,
+    pub location: Option<Location>,
+    pub path: Option<String>,
+    pub message: &'static str,
+}
+
+impl Found {
+    pub fn new(finding: &Finding<'_>) -> Self {
+        Self {
+            detail: Detail::from_code(finding.detail()).unwrap(),
+            severity: finding.severity(),
+            location: finding.location(),
+            path: finding
+                .path()
+                .map(|path| String::from_utf8_lossy(path).into_owned()),
+            message: finding.message(),
+        }
+    }
+}
+
+/// Checks `dev` with `scratch` bytes of scratch space and returns every
+/// finding.
+pub fn check_dev<D: BlockDevice>(dev: &mut D, scratch: usize) -> (CheckReport, Vec<Found>) {
+    let mut found = Vec::new();
+    let mut scratch = vec![0u8; scratch];
+    let report =
+        hadris_fat::sync::check(dev, &mut scratch, |finding| found.push(Found::new(finding)))
+            .unwrap();
+    assert_eq!(report.findings() as usize, found.len());
+    (report, found)
+}
+
+/// The free clusters of the volume on `dev`, counted by scanning its FAT.
+pub fn scan_free<D: BlockDevice>(dev: &mut D) -> u32 {
+    use hadris_fat::raw::io::{BlockBuf, Fat, sync as rawio};
+    let mut block = BlockBuf::<[u8; 4096]>::new(dev.block_size().get() as usize).unwrap();
+    let geo = rawio::read_geometry(dev, &mut block).unwrap();
+    rawio::count_free(dev, &mut block, &mut Fat::new(geo)).unwrap()
+}
+
+/// Asserts that `check` finds nothing on `image`, and returns the free
+/// clusters its FAT holds.
+pub fn assert_checks_clean(case: Case, image: &[u8], what: &str) -> u32 {
+    let mut dev = device(case, image.to_vec());
+    let (_, found) = check_dev(&mut dev, 8192);
+    assert_eq!(found, [], "{what}");
+    scan_free(&mut dev)
 }
 
 pub fn block_on<F: core::future::Future>(future: F) -> F::Output {

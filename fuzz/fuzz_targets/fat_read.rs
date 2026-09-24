@@ -1,6 +1,6 @@
 #![no_main]
-//! Fuzz the FAT reader: mount an arbitrary image with `FatFs`, walk every
-//! directory, read every file and run `check_with`. Arbitrary bytes must
+//! Fuzz the FAT reader: run `check` on an arbitrary image, mount it with
+//! `FatFs`, walk every directory and read every file. Arbitrary bytes must
 //! never panic, abort or OOM.
 //!
 //! Self-consistency oracles (failures are tagged `ORACLE:`): every file is
@@ -10,7 +10,7 @@
 
 use std::collections::HashSet;
 
-use hadris_fat::sync::{check_with, FatFs};
+use hadris_fat::sync::{check, FatFs};
 use hadris_fat::MountOptions;
 use hadris_fs::{DirCursor, FileType, HeapTable, NameBuf, NodeId};
 use hadris_storage::{BlockSize, MemDevice};
@@ -71,6 +71,24 @@ fn drive(data: &[u8]) {
     let options = MountOptions::new()
         .with_read_only()
         .with_table(HeapTable::new());
+    let clusters = (image.len() / 512) as u64;
+    let mut scratch = vec![0u8; 1024 + clusters.div_ceil(8).clamp(512, MAX_BITMAP) as usize];
+    let mut findings = 0u64;
+    let report = check(
+        &mut MemDevice::new(&image[..], BlockSize::new(512).unwrap()),
+        &mut scratch,
+        |f| {
+            findings += 1;
+            let _ = f.to_string();
+        },
+    );
+    if let Ok(report) = report {
+        assert_eq!(
+            report.findings(),
+            findings,
+            "ORACLE: the report counts every finding"
+        );
+    }
     let Ok(mut fs) = FatFs::open_with(dev, options) else {
         return;
     };
@@ -144,10 +162,6 @@ fn drive(data: &[u8]) {
             let _ = fs.cluster_chain(node, |_| {});
         }
     }
-
-    let clusters = fs.stats().map(|stats| stats.total_blocks()).unwrap_or(0) + 2;
-    let mut bitmap = vec![0u8; clusters.div_ceil(8).clamp(1, MAX_BITMAP) as usize];
-    let _ = check_with(&mut fs, &mut bitmap, |_| {});
 }
 
 fuzz_target!(|data: &[u8]| {

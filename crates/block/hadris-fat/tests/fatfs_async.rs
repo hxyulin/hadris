@@ -414,7 +414,7 @@ mod cancel;
 #[test]
 fn dropped_operations_leave_no_lost_clusters_or_unequal_fats() {
     use hadris_fat::MountOptions;
-    use hadris_fat::r#async::{FatFs, check_with};
+    use hadris_fat::r#async::{FatFs, check};
     use hadris_fs::HeapTable;
 
     for case in [CASES[0], CASES[2]] {
@@ -438,14 +438,17 @@ fn dropped_operations_leave_no_lost_clusters_or_unequal_fats() {
         }
         assert!(dropped > 50, "{}: {dropped} dropped", case.name);
         cancel::run_for(fs.sync(), usize::MAX).unwrap().unwrap();
+        let mut dev = fs.into_inner();
         let mut findings = Vec::new();
         let report = cancel::run_for(
-            check_with(&mut fs, &mut [0u8; 8192], |finding| findings.push(finding)),
+            check(&mut dev, &mut [0u8; 8192], |finding| {
+                findings.push(finding.to_string())
+            }),
             usize::MAX,
         )
         .unwrap()
         .unwrap();
         assert!(report.is_clean(), "{}: {findings:?}", case.name);
-        common::fsck(&fs.into_inner().0.into_inner(), "dropped operations");
+        common::fsck(&dev.0.into_inner(), "dropped operations");
     }
 }

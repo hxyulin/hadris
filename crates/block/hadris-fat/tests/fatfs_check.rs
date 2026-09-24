@@ -7,13 +7,14 @@ mod common;
 use std::path::Path;
 use std::process::Command;
 
-use common::{CASES, block_on};
-use hadris_fat::sync::{FatFs, check, check_with, format};
-use hadris_fat::{
-    CheckReport, FatKind, Finding, FindingKind, FormatOptions, MountOptions, VolumeLabel,
-};
+use common::{CASES, Found, block_on, check_dev};
+use hadris_fat::sync::{FatFs, check, format};
+use hadris_fat::{Detail, FatKind, FormatOptions, MountOptions, VolumeLabel};
 use hadris_fs::sync::{FileSystem, FsDriver, PathExt, Volume};
-use hadris_fs::{ErrorKind, HeapTable, Name, NewNode, RemoveKind, RenameFlags, SetMetadata};
+use hadris_fs::{
+    CheckReport, ErrorKind, HeapTable, Location, Name, NewNode, RemoveKind, RenameFlags,
+    SetMetadata, Severity,
+};
 use hadris_io::Error;
 use hadris_storage::sync::BlockDevice;
 use hadris_storage::{BlockIndex, BlockSize, MemDevice};
@@ -38,28 +39,23 @@ fn mount(image: Vec<u8>) -> FatFs<Device, HeapTable> {
     .unwrap()
 }
 
-/// Every finding, with a bitmap of `bitmap` bytes.
-fn findings_with(image: &[u8], bitmap: usize) -> (CheckReport, Vec<Finding>) {
-    let mut fs = mount(image.to_vec());
-    let mut found = Vec::new();
-    let mut bits = vec![0u8; bitmap];
-    let report = check_with(&mut fs, &mut bits, |finding| found.push(finding)).unwrap();
-    assert_eq!(report.findings() as usize, found.len());
-    (report, found)
+/// Every finding, with a cluster bitmap of `bitmap` bytes.
+fn findings_with(image: &[u8], bitmap: usize) -> (CheckReport, Vec<Found>) {
+    check_dev(&mut device(image.to_vec()), 1024 + bitmap)
 }
 
-fn findings(image: &[u8]) -> Vec<Finding> {
+fn findings(image: &[u8]) -> Vec<Found> {
     findings_with(image, 1 << 16).1
 }
 
-fn kinds(found: &[Finding]) -> Vec<FindingKind> {
-    let mut kinds: Vec<_> = found.iter().map(Finding::kind).collect();
+fn kinds(found: &[Found]) -> Vec<Detail> {
+    let mut kinds: Vec<_> = found.iter().map(|found| found.detail).collect();
     kinds.sort_by_key(|kind| format!("{kind:?}"));
     kinds.dedup();
     kinds
 }
 
-fn sorted(found: &[Finding]) -> Vec<String> {
+fn sorted(found: &[Found]) -> Vec<String> {
     let mut all: Vec<_> = found.iter().map(|finding| format!("{finding:?}")).collect();
     all.sort();
     all
@@ -288,30 +284,27 @@ fn fixture(kind: FatKind, size: u64) -> Vec<u8> {
 const A: &[u8; 11] = b"A       BIN";
 const B: &[u8; 11] = b"B       BIN";
 const C: &[u8; 11] = b"C       BIN";
-/// The `Debug` text of a finding, which tests cannot construct.
-macro_rules! finding {
-    ($variant:ident { $($field:ident: $value:expr),+ $(,)? }) => {{
-        let fields: Vec<String> = vec![$(format!("{}: {:?}", stringify!($field), $value)),+];
-        format!("{} {{ {} }}", stringify!($variant), fields.join(", "))
-    }};
-}
 
 const LONG: &[u8; 11] = b"LONGNA~1TXT";
 const SUB: &[u8; 11] = b"SUB        ";
 const DEEP: &[u8; 11] = b"DEEP       ";
 
-/// One corruption: its name, the image, and the finding kinds it must
+/// A finding that must be among those reported: its detail, location and
+/// path.
+type Exact = (Detail, Location, Option<&'static str>);
+
+/// One corruption: its name, the image, and the finding details it must
 /// produce, nothing else.
 struct Corruption {
     name: &'static str,
     image: Vec<u8>,
-    expected: Vec<FindingKind>,
-    /// The `Debug` text of a finding that must be among those reported.
-    exact: Option<String>,
+    expected: Vec<Detail>,
+    exact: Option<Exact>,
 }
 
 fn corruptions(kind: FatKind, size: u64) -> Vec<Corruption> {
-    use FindingKind as K;
+    use Detail as K;
+    use Location::{Byte, Cluster};
     let clean = fixture(kind, size);
     let g = geo(&clean);
     let fat32 = kind == FatKind::Fat32;
@@ -327,7 +320,7 @@ fn corruptions(kind: FatKind, size: u64) -> Vec<Corruption> {
     let deep_cluster = g.first(&clean, deep);
     assert_eq!((a_chain.len(), b_chain.len()), (3, 2));
     let mut out = Vec::new();
-    let mut add = |name, change: &dyn Fn(&mut Vec<u8>), mut expected: Vec<FindingKind>, exact| {
+    let mut add = |name, change: &dyn Fn(&mut Vec<u8>), mut expected: Vec<Detail>, exact| {
         let mut image = clean.clone();
         change(&mut image);
         expected.sort_by_key(|kind| format!("{kind:?}"));
@@ -354,20 +347,20 @@ fn corruptions(kind: FatKind, size: u64) -> Vec<Corruption> {
         "media descriptor",
         &media,
         expected,
-        Some(format!("{:?}", Finding::BootSector("media descriptor"))),
+        Some((K::BootSector, Byte(0), None)),
     );
     add(
         "reserved FAT entries",
         &|img| g.fat_set_all(img, 1, 0x12),
         vec![K::ReservedEntries],
-        Some(format!("{:?}", Finding::ReservedEntries)),
+        Some((K::ReservedEntries, Byte(g.fat_start), None)),
     );
     if fat32 {
         add(
             "backup boot sector",
             &|img| img[6 * 512 + 3] ^= 1,
             vec![K::BackupBootSector],
-            Some(format!("{:?}", Finding::BackupBootSector)),
+            Some((K::BackupBootSector, Byte(6 * 512), None)),
         );
         add(
             "FSInfo signature",
@@ -376,7 +369,7 @@ fn corruptions(kind: FatKind, size: u64) -> Vec<Corruption> {
                 img[at] ^= 1;
             },
             vec![K::FsInfo],
-            Some(format!("{:?}", Finding::FsInfo)),
+            Some((K::FsInfo, Byte(g.fs_info(&clean) as u64), None)),
         );
         let recorded = u32_at(&clean, g.fs_info(&clean) + 488);
         add(
@@ -386,30 +379,20 @@ fn corruptions(kind: FatKind, size: u64) -> Vec<Corruption> {
                 img[at..at + 4].copy_from_slice(&(recorded + 5).to_le_bytes());
             },
             vec![K::FreeCount],
-            Some(finding!(FreeCount {
-                recorded: recorded + 5,
-                actual: recorded,
-            })),
+            Some((K::FreeCount, Byte(g.fs_info(&clean) as u64 + 488), None)),
         );
     }
     add(
         "FAT copy mismatch",
         &|img| g.fat_set(img, 1, a_chain[1], 1),
-        vec![K::FatCopy],
-        Some(finding!(FatCopy {
-            copy: 1,
-            first: a_chain[1],
-            entries: 1,
-        })),
+        vec![K::FatCopiesDiffer],
+        Some((K::FatCopiesDiffer, Cluster(a_chain[1] as u64), None)),
     );
     add(
         "cross-linked chains",
         &|img| g.set_first(img, b, a_chain[0]),
-        vec![K::CrossLinked, K::ChainTooLong, K::LostClusters],
-        Some(finding!(CrossLinked {
-            entry: b as u64,
-            cluster: a_chain[1],
-        })),
+        vec![K::CrossLink, K::SizeMismatch, K::LostClusters],
+        Some((K::CrossLink, Cluster(a_chain[1] as u64), Some("/B.BIN"))),
     );
     let mut expected = vec![K::LostClusters];
     if fat32 {
@@ -419,77 +402,50 @@ fn corruptions(kind: FatKind, size: u64) -> Vec<Corruption> {
         "lost cluster",
         &|img| g.fat_set_all(img, g.max, g.eoc()),
         expected,
-        Some(finding!(LostClusters {
-            first: g.max,
-            count: 1,
-        })),
+        Some((K::LostClusters, Cluster(g.max as u64), None)),
     );
     add(
         "chain longer than size",
         &|img| img[a + 28..a + 32].copy_from_slice(&1u32.to_le_bytes()),
-        vec![K::ChainTooLong],
-        Some(finding!(ChainTooLong {
-            entry: a as u64,
-            size: 1,
-            clusters: 3,
-        })),
+        vec![K::SizeMismatch],
+        Some((K::SizeMismatch, Byte(a as u64), Some("/A.BIN"))),
     );
     let too_big = 5 * g.cluster as u32;
     add(
         "chain shorter than size",
         &|img| img[b + 28..b + 32].copy_from_slice(&too_big.to_le_bytes()),
-        vec![K::ChainTooShort],
-        Some(finding!(ChainTooShort {
-            entry: b as u64,
-            size: too_big,
-            clusters: 2,
-        })),
+        vec![K::SizeMismatch],
+        Some((K::SizeMismatch, Byte(b as u64), Some("/B.BIN"))),
     );
     add(
         "first cluster out of range",
         &|img| g.set_first(img, c, g.max + 1),
         vec![K::InvalidCluster, K::LostClusters],
-        Some(finding!(InvalidCluster {
-            entry: c as u64,
-            cluster: g.max + 1,
-        })),
+        Some((K::InvalidCluster, Cluster(g.max as u64 + 1), Some("/C.BIN"))),
     );
     add(
         "broken link",
         &|img| g.fat_set_all(img, a_chain[1], 1),
         vec![K::BrokenChain, K::LostClusters],
-        Some(finding!(BrokenChain {
-            entry: a as u64,
-            cluster: a_chain[1],
-            next: 1,
-        })),
+        Some((K::BrokenChain, Cluster(a_chain[1] as u64), Some("/A.BIN"))),
     );
     add(
         "cyclic chain",
         &|img| g.fat_set_all(img, a_chain[2], a_chain[0]),
         vec![K::CyclicChain],
-        Some(finding!(CyclicChain {
-            entry: a as u64,
-            cluster: a_chain[2],
-        })),
+        Some((K::CyclicChain, Cluster(a_chain[2] as u64), Some("/A.BIN"))),
     );
     add(
         "cycle into the middle",
         &|img| g.fat_set_all(img, a_chain[2], a_chain[1]),
         vec![K::CyclicChain],
-        Some(finding!(CyclicChain {
-            entry: a as u64,
-            cluster: a_chain[2],
-        })),
+        Some((K::CyclicChain, Cluster(a_chain[2] as u64), Some("/A.BIN"))),
     );
     add(
         "bad cluster in a chain",
         &|img| g.fat_set_all(img, a_chain[1], g.bad()),
         vec![K::BadCluster, K::LostClusters],
-        Some(finding!(BadCluster {
-            entry: a as u64,
-            cluster: a_chain[1],
-        })),
+        Some((K::BadCluster, Cluster(a_chain[1] as u64), Some("/A.BIN"))),
     );
     add(
         "wrong dot-dot",
@@ -497,8 +453,12 @@ fn corruptions(kind: FatKind, size: u64) -> Vec<Corruption> {
             let at = g.offset(sub_cluster) + 32;
             g.set_first(img, at, deep_cluster);
         },
-        vec![K::DotEntry, K::LostClusters],
-        Some(finding!(DotEntry { entry: sub as u64 })),
+        vec![K::DotEntries, K::LostClusters],
+        Some((
+            K::DotEntries,
+            Byte(g.offset(sub_cluster) as u64),
+            Some("/SUB"),
+        )),
     );
     add(
         "wrong dot",
@@ -506,8 +466,12 @@ fn corruptions(kind: FatKind, size: u64) -> Vec<Corruption> {
             let at = g.offset(sub_cluster);
             g.set_first(img, at, deep_cluster);
         },
-        vec![K::DotEntry],
-        Some(finding!(DotEntry { entry: sub as u64 })),
+        vec![K::DotEntries],
+        Some((
+            K::DotEntries,
+            Byte(g.offset(sub_cluster) as u64),
+            Some("/SUB"),
+        )),
     );
     add(
         "stray dot entry",
@@ -515,30 +479,30 @@ fn corruptions(kind: FatKind, size: u64) -> Vec<Corruption> {
             let at = g.end_slot(img, None);
             img[at..at + 32].copy_from_slice(&short_entry(b".          ", 0x10, 0, 0));
         },
-        vec![K::DotEntry],
+        vec![K::DotEntries],
         None,
     );
     add(
         "invalid short name",
         &|img| img[a + 1] = b'*',
         vec![K::BadName],
-        Some(finding!(BadName { entry: a as u64 })),
+        Some((K::BadName, Byte(a as u64), Some("/A*.BIN"))),
     );
     add(
         "long name checksum",
         &|img| img[long + 10] = b'X',
         vec![K::LfnChecksum],
-        Some(finding!(LfnChecksum {
-            entry: long as u64 - 64,
-        })),
+        Some((
+            K::LfnChecksum,
+            Byte(long as u64 - 64),
+            Some("/LONGNA~1.TXX"),
+        )),
     );
     add(
         "long name without its short entry",
         &|img| img[long] = 0xE5,
         vec![K::OrphanLfn, K::LostClusters],
-        Some(finding!(OrphanLfn {
-            entry: long as u64 - 64,
-        })),
+        Some((K::OrphanLfn, Byte(long as u64 - 64), Some("/"))),
     );
     add(
         "stray long-name fragment",
@@ -555,7 +519,7 @@ fn corruptions(kind: FatKind, size: u64) -> Vec<Corruption> {
         "directory with a size",
         &|img| img[sub + 28] = 1,
         vec![K::DirectorySize],
-        Some(finding!(DirectorySize { entry: sub as u64 })),
+        Some((K::DirectorySize, Byte(sub as u64), Some("/SUB"))),
     );
     add(
         "label in a subdirectory",
@@ -572,7 +536,7 @@ fn corruptions(kind: FatKind, size: u64) -> Vec<Corruption> {
             let at = g.end_slot(img, None);
             img[at..at + 32].copy_from_slice(&short_entry(b"SUB2       ", 0x10, sub_cluster, 0));
         },
-        vec![K::CrossLinked],
+        vec![K::CrossLink],
         None,
     );
     add(
@@ -581,7 +545,7 @@ fn corruptions(kind: FatKind, size: u64) -> Vec<Corruption> {
             let at = g.end_slot(img, Some(deep_cluster));
             img[at..at + 32].copy_from_slice(&short_entry(b"LOOP       ", 0x10, sub_cluster, 0));
         },
-        vec![K::CrossLinked, K::DotEntry],
+        vec![K::CrossLink, K::DotEntries],
         None,
     );
     if fat32 {
@@ -589,10 +553,11 @@ fn corruptions(kind: FatKind, size: u64) -> Vec<Corruption> {
             "directory at the root cluster",
             &|img| g.set_first(img, deep, g.root_cluster),
             vec![K::InvalidCluster, K::LostClusters],
-            Some(finding!(InvalidCluster {
-                entry: deep as u64,
-                cluster: g.root_cluster,
-            })),
+            Some((
+                K::InvalidCluster,
+                Cluster(g.root_cluster as u64),
+                Some("/SUB/DEEP"),
+            )),
         );
     }
     out
@@ -623,13 +588,7 @@ fn clean_volumes_report_nothing() {
         let (report, found) = findings_with(&image, 1 << 16);
         assert_eq!(found, [], "{kind:?}");
         assert!(report.is_clean());
-        assert_eq!(report.files(), 7, "{kind:?}");
-        assert_eq!(report.directories(), 3, "{kind:?}");
-        assert_eq!(report.lost_clusters(), 0);
         assert_eq!(report.passes(), 1);
-        let stats = mount(image.clone()).stats().unwrap();
-        assert_eq!(report.free_clusters() as u64, stats.free_blocks());
-        assert_eq!(report.used_clusters() as u64, stats.used_blocks());
         assert_ne!(host_clean(&image), Some(false), "{kind:?}");
     }
 }
@@ -638,14 +597,11 @@ fn clean_volumes_report_nothing() {
 fn clean_images_from_other_writers_report_nothing() {
     for case in CASES {
         let image = common::build(case);
-        let mut fs = FatFs::open(common::device(case, image)).unwrap();
-        let mut found = Vec::new();
-        let mut bits = [0u8; 64];
-        check_with(&mut fs, &mut bits, |finding| found.push(finding)).unwrap();
+        let (_, found) = check_dev(&mut common::device(case, image), 1024 + 512);
         assert_eq!(found, [], "{}", case.name);
         let blank = common::blank(case);
-        let mut fs = FatFs::open(common::device(case, blank)).unwrap();
-        assert!(check(&mut fs).unwrap().is_clean(), "{}", case.name);
+        let (report, _) = check_dev(&mut common::device(case, blank), 4096);
+        assert!(report.is_clean(), "{}", case.name);
     }
     for bits in ["12", "16", "32"] {
         let dir = tempfile::tempdir().unwrap();
@@ -673,14 +629,17 @@ fn corruptions_report_their_findings() {
             let context = format!("{kind:?} {}", case.name);
             let found = findings(&case.image);
             assert_eq!(kinds(&found), case.expected, "{context}: {found:?}");
-            if let Some(exact) = case.exact {
+            if let Some((detail, location, path)) = case.exact {
                 assert!(
-                    found.iter().any(|finding| format!("{finding:?}") == exact),
-                    "{context}: {exact:?} not in {found:?}"
+                    found.iter().any(|finding| finding.detail == detail
+                        && finding.location == Some(location)
+                        && finding.path.as_deref() == path),
+                    "{context}: {:?} not in {found:?}",
+                    case.exact
                 );
             }
             assert_eq!(
-                sorted(&findings_with(&case.image, 1).1),
+                sorted(&findings_with(&case.image, 512).1),
                 sorted(&found),
                 "{context}: a one-byte bitmap"
             );
@@ -725,24 +684,27 @@ fn every_mode_reports_the_same() {
     for case in corruptions(kind, size).into_iter().take(8) {
         let expected = sorted(&findings(&case.image));
         let from_async = block_on(async {
-            let mut fs = hadris_fat::r#async::FatFs::open(device(case.image.clone()))
-                .await
-                .unwrap();
+            let mut dev = device(case.image.clone());
             let mut found = Vec::new();
-            let mut bits = [0u8; 4096];
-            hadris_fat::r#async::check_with(&mut fs, &mut bits, |f| found.push(f))
+            let mut scratch = [0u8; 4096];
+            hadris_fat::r#async::check(&mut dev, &mut scratch, |f| found.push(Found::new(f)))
                 .await
                 .unwrap();
             found
         });
         assert_eq!(sorted(&from_async), expected, "{}", case.name);
         let from_send = block_on(async {
-            let mut fs = hadris_fat::async_send::FatFs::open(device(case.image.clone()))
+            let mut dev = device(case.image.clone());
+            let mut scratch = [0u8; 4096];
+            let report = hadris_fat::async_send::check(&mut dev, &mut scratch, |_| {})
                 .await
                 .unwrap();
-            let report = hadris_fat::async_send::check(&mut fs).await.unwrap();
             fn is_send<T: Send>(_: &T) {}
-            is_send(&hadris_fat::async_send::check(&mut fs));
+            is_send(&hadris_fat::async_send::check(
+                &mut dev,
+                &mut scratch,
+                |_| {},
+            ));
             report
         });
         assert_eq!(
@@ -755,10 +717,15 @@ fn every_mode_reports_the_same() {
 }
 
 #[test]
-fn empty_bitmap_is_invalid() {
-    let mut fs = mount(fixture(FatKind::Fat12, 2 << 20));
-    let err = check_with(&mut fs, &mut [], |_| {}).unwrap_err();
-    assert_eq!(err.kind(), ErrorKind::InvalidInput);
+fn short_scratch_is_refused() {
+    let mut dev = device(fixture(FatKind::Fat12, 2 << 20));
+    let err = check(&mut dev, &mut [0u8; 1535], |_| {}).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::LimitExceeded);
+    assert!(
+        check(&mut dev, &mut [0u8; 1536], |_| {})
+            .unwrap()
+            .is_clean()
+    );
 }
 
 #[test]
@@ -780,11 +747,9 @@ fn deep_trees_are_walked_without_a_stack() {
     }
     vol.sync().unwrap();
     let image = vol.into_inner().into_inner().into_inner();
-    let (report, found) = findings_with(&image, 64);
+    let (report, found) = findings_with(&image, 512);
     assert_eq!(found, []);
-    assert_eq!(report.directories(), 41);
-    assert_eq!(report.files(), 120);
-    assert!(report.passes() > 100);
+    assert!(report.passes() > 10);
 }
 
 /// A device that fails writes with a device error after `budget` writes.
@@ -840,16 +805,16 @@ fn name(text: &str) -> &Name {
 /// followed by `sync` leaves a clean volume.
 #[test]
 fn interrupted_operations_leave_only_repairable_leftovers() {
-    use FindingKind as K;
-    let common_leftovers = [K::FatCopy, K::FreeCount];
+    use Detail as K;
+    let common_leftovers = [K::FatCopiesDiffer, K::FreeCount];
     for (kind, size) in [KINDS[0], KINDS[2]] {
         let before = fixture(kind, size);
         for op in 0..8 {
-            let allowed: &[FindingKind] = match op {
+            let allowed: &[Detail] = match op {
                 0 | 1 => &[K::LostClusters, K::OrphanLfn],
-                2 | 3 => &[K::CrossLinked, K::OrphanLfn, K::DotEntry, K::LostClusters],
-                4 => &[K::CrossLinked, K::OrphanLfn, K::LostClusters],
-                _ => &[K::LostClusters, K::ChainTooLong],
+                2 | 3 => &[K::CrossLink, K::OrphanLfn, K::DotEntries, K::LostClusters],
+                4 => &[K::CrossLink, K::OrphanLfn, K::LostClusters],
+                _ => &[K::LostClusters, K::SizeMismatch],
             };
             let mut seen = Vec::new();
             for budget in 0.. {
@@ -912,7 +877,7 @@ fn interrupted_operations_leave_only_repairable_leftovers() {
                     break;
                 }
                 for finding in &found {
-                    let k = finding.kind();
+                    let k = finding.detail;
                     assert!(
                         allowed.contains(&k) || common_leftovers.contains(&k),
                         "{context}: {finding:?}"
@@ -1006,7 +971,7 @@ fn overlong_long_name_runs_fall_back_to_the_short_name() {
         ];
         for (what, image, expected) in cases {
             let found = findings(&image);
-            assert_eq!(kinds(&found), [FindingKind::OrphanLfn], "{kind:?} {what}");
+            assert_eq!(kinds(&found), [Detail::OrphanLfn], "{kind:?} {what}");
             let vol = Volume::new(mount(image));
             let names: Vec<String> = vol
                 .read_dir("/")
@@ -1016,5 +981,95 @@ fn overlong_long_name_runs_fall_back_to_the_short_name() {
             assert_eq!(names, expected, "{kind:?} {what}");
             assert_eq!(vol.read_to_vec("/XXXXXX~1").unwrap(), b"data");
         }
+    }
+}
+
+#[test]
+fn a_damaged_fat32_boot_sector_is_checked_from_the_backup() {
+    let (kind, size) = KINDS[2];
+    let mut image = fixture(kind, size);
+    image[..512].fill(0);
+    let found = findings(&image);
+    assert_eq!(kinds(&found), [Detail::BootSector], "{found:?}");
+    assert_eq!(found[0].location, Some(Location::Byte(0)));
+
+    for (kind, size) in &KINDS[..2] {
+        let mut image = fixture(*kind, *size);
+        image[..512].fill(0);
+        let err = check(&mut device(image), &mut [0u8; 4096], |_| {}).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::NotRecognized, "{kind:?}");
+        assert_eq!(Detail::of(&err), Some(Detail::BootSector), "{kind:?}");
+    }
+}
+
+#[test]
+fn a_clear_clean_shutdown_bit_is_a_notice() {
+    for (kind, size) in &KINDS[1..] {
+        let clean = fixture(*kind, size.to_owned());
+        let g = geo(&clean);
+        let mut image = clean.clone();
+        let bit = if *kind == FatKind::Fat16 {
+            0x8000
+        } else {
+            0x0800_0000
+        };
+        let value = g.fat_get(&image, 0, 1) & !bit;
+        g.fat_set_all(&mut image, 1, value);
+        let found = findings(&image);
+        assert_eq!(kinds(&found), [Detail::Dirty], "{kind:?}");
+        assert_eq!(found[0].severity, Severity::Notice);
+        assert_eq!(found[0].location, Some(Location::Byte(g.fat_start)));
+    }
+}
+
+#[test]
+fn findings_name_the_path_of_their_entry() {
+    let fs = format(
+        MemDevice::new(vec![0; 40 << 20], BlockSize::new(512).unwrap()),
+        FormatOptions::new().with_kind(FatKind::Fat32),
+    )
+    .unwrap();
+    let vol = Volume::new(fs);
+    let segment = "d".repeat(100);
+    let mut path = String::new();
+    let mut dirs = Vec::new();
+    for depth in 0..12 {
+        path.push_str(&format!("/{depth:02}{segment}"));
+        vol.create_dir_all(&path).unwrap();
+        vol.write_file(&format!("{path}/\u{e9}t\u{e9}.txt"), b"x")
+            .unwrap();
+        dirs.push(path.clone());
+    }
+    vol.sync().unwrap();
+    let mut image = vol.into_inner().into_inner().into_inner();
+    let short = |at: usize| image[at + 11] & 0x3F != 0x0F && image[at] != 0xE5;
+    let files: Vec<usize> = (0..image.len())
+        .step_by(32)
+        .filter(|&at| &image[at + 8..at + 11] == b"TXT" && short(at))
+        .collect();
+    assert_eq!(files.len(), 12);
+    for &at in &files {
+        image[at + 28..at + 32].copy_from_slice(&0u32.to_le_bytes());
+    }
+    let found = findings(&image);
+    let paths: Vec<&str> = found
+        .iter()
+        .filter_map(|found| found.path.as_deref())
+        .collect();
+    assert_eq!(found.len(), 12, "{found:?}");
+    let fits: Vec<String> = dirs
+        .iter()
+        .filter(|dir| dir.len() + "/\u{e9}t\u{e9}.txt".len() <= 1024)
+        .map(|dir| format!("{dir}/\u{e9}t\u{e9}.txt"))
+        .collect();
+    assert_eq!(fits.len(), 9);
+    for want in &fits {
+        assert!(paths.contains(&want.as_str()), "{want} not in {paths:?}");
+    }
+    for path in &paths[fits.len()..] {
+        assert_eq!(
+            *path, dirs[8],
+            "a path that does not fit ends at a whole name"
+        );
     }
 }
