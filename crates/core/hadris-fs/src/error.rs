@@ -301,8 +301,6 @@ mod tests {
         assert_eq!(err.kind(), ErrorKind::LimitExceeded);
         let err: Error<Ata> = crate::OpenOptionsError::RequiresWrite.into();
         assert_eq!(err.kind(), ErrorKind::InvalidInput);
-        let err: Error<Ata> = crate::TableFull::new(3u8).into();
-        assert_eq!(err.kind(), ErrorKind::LimitExceeded);
     }
 
     #[test]

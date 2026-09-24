@@ -6,14 +6,16 @@
 mod common;
 
 use common::{CASES, block_on, fsck};
-use hadris_fat::MountOptions;
-use hadris_fs::HeapTable;
+use hadris_fs::MountOptions;
 
 #[test]
 fn sync_raw_tier() {
     for case in CASES {
-        let mut fs =
-            hadris_fat::sync::FatFs::open(common::device(case, common::blank(case))).unwrap();
+        let mut fs = hadris_fat::sync::FatFs::mount(
+            common::device(case, common::blank(case)),
+            MountOptions::new(),
+        )
+        .unwrap();
         hadris_fs::sync::contract::check(&mut fs)
             .unwrap_or_else(|err| panic!("{}: {err}", case.name));
         assert_eq!(fs.open_nodes(), 1, "{}", case.name);
@@ -24,9 +26,9 @@ fn sync_raw_tier() {
 #[test]
 fn sync_through_a_volume() {
     let case = CASES[1];
-    let fs = hadris_fat::sync::FatFs::open_with(
+    let fs = hadris_fat::sync::FatFs::mount(
         common::device(case, common::blank(case)),
-        MountOptions::new().with_table(HeapTable::new()),
+        MountOptions::new(),
     )
     .unwrap();
     let vol = hadris_fs::sync::Volume::new(fs);
@@ -38,13 +40,19 @@ fn sync_through_a_volume() {
 fn async_modes() {
     let case = CASES[2];
     block_on(async {
-        let mut fs = hadris_fat::r#async::FatFs::open(common::device(case, common::blank(case)))
-            .await
-            .unwrap();
+        let mut fs = hadris_fat::r#async::FatFs::mount(
+            common::device(case, common::blank(case)),
+            MountOptions::new(),
+        )
+        .await
+        .unwrap();
         hadris_fs::r#async::contract::check(&mut fs).await.unwrap();
-        let fs = hadris_fat::r#async::FatFs::open(common::device(case, common::blank(case)))
-            .await
-            .unwrap();
+        let fs = hadris_fat::r#async::FatFs::mount(
+            common::device(case, common::blank(case)),
+            MountOptions::new(),
+        )
+        .await
+        .unwrap();
         let vol = hadris_fs::r#async::Volume::new(fs);
         hadris_fs::r#async::contract::check(&mut *vol.lock().await)
             .await

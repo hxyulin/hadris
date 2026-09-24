@@ -7,17 +7,17 @@ use hadris_fs::r#async::FileSystem;
 #[path = "common/cancel.rs"]
 mod cancel;
 
-use hadris_fat::exfat::MountOptions;
 use hadris_fat::exfat::r#async::{ExFatFs, check};
-use hadris_fs::{ErrorKind, HeapTable};
+use hadris_fs::ErrorKind;
+use hadris_fs::MountOptions;
 
 #[test]
 fn dropped_operations_leave_whole_entry_sets_and_no_lost_clusters() {
     for (size, cluster) in [(8 << 20, 512), (16 << 20, 4096)] {
         let image = common::image(common::small(size, cluster));
         let dev = cancel::YieldDev(common::device(image, 512));
-        let options = MountOptions::new().with_table(HeapTable::new());
-        let mut fs = cancel::run_for(ExFatFs::open_with(dev, options), usize::MAX)
+        let options = MountOptions::new();
+        let mut fs = cancel::run_for(ExFatFs::mount(dev, options), usize::MAX)
             .unwrap()
             .unwrap();
         let mut rng = cancel::Rng(11);

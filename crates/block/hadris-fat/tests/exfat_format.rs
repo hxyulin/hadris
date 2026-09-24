@@ -4,6 +4,7 @@
 #[path = "common/exfat.rs"]
 mod common;
 use common::FsPaths;
+use hadris_fs::MountOptions;
 use hadris_fs::sync::FileSystem;
 
 use common::{Geometry, clean, fsck};
@@ -21,14 +22,15 @@ fn formats_every_sector_size() {
             let mut dev = fs.into_inner();
             let (_, found) = common::check_dev(&mut dev, 4096);
             assert_eq!(found, [], "{sector}");
-            let mut fs = ExFatFs::open(dev).unwrap();
+            let mut fs = ExFatFs::mount(dev, MountOptions::new()).unwrap();
             let root = fs.root();
             let node = common::write_any(&mut fs, root, "a.txt", b"sector");
             fs.forget(node, 1);
             fs.sync().unwrap();
             let image = fs.into_inner().into_inner();
             assert_eq!(1usize << image[108], sector as usize);
-            let mut fs = ExFatFs::open(common::device(image.clone(), block)).unwrap();
+            let mut fs =
+                ExFatFs::mount(common::device(image.clone(), block), MountOptions::new()).unwrap();
             assert_eq!(fs.read_to_vec("/A.TXT").unwrap(), b"sector");
             fsck(&image, &format!("{sector}-byte sectors"));
         }

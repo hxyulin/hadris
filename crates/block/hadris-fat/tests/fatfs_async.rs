@@ -5,6 +5,7 @@ mod common;
 use common::FsPaths;
 use common::paths::r#async::{FsPaths as _, VolumePaths as _};
 use hadris_fs::r#async::FileSystem;
+use hadris_fs::{Cp437, MountOptions};
 
 use std::sync::Arc;
 
@@ -19,9 +20,12 @@ fn async_mode_reads_through_every_tier() {
 
     let case = CASES[2];
     block_on(async {
-        let mut fs = FatFs::open(common::device(case, common::build(case)))
-            .await
-            .unwrap();
+        let mut fs = FatFs::mount(
+            common::device(case, common::build(case)),
+            MountOptions::new(),
+        )
+        .await
+        .unwrap();
         let root = fs.root();
         let long = fs
             .lookup(root, Name::new("a LONG file name.TXT"))
@@ -74,7 +78,11 @@ fn async_futures_move_to_other_threads() {
     use hadris_fs::r#async::Volume;
 
     let case = CASES[1];
-    let fs = block_on(FatFs::open(common::device(case, common::build(case)))).unwrap();
+    let fs = block_on(FatFs::mount(
+        common::device(case, common::build(case)),
+        MountOptions::new(),
+    ))
+    .unwrap();
     let vol = Arc::new(Volume::new(fs));
     let deep = spawn_read(Arc::clone(&vol), "/nested dir/inner/deep.bin");
     let long = spawn_read(Arc::clone(&vol), "/A long file name.txt");
@@ -99,16 +107,14 @@ fn async_futures_move_to_other_threads() {
 #[test]
 fn async_mounts_with_options() {
     use hadris_fat::r#async::FatFs;
-    use hadris_fat::{Cp437, MountOptions};
+    use hadris_fs::SystemClock;
     use hadris_fs::r#async::Volume;
-    use hadris_fs::{HeapTable, SystemClock};
 
     let case = CASES[0];
     let options = MountOptions::new()
-        .with_table(HeapTable::new())
-        .with_clock(SystemClock)
-        .with_code_page(Cp437);
-    let fs = block_on(FatFs::open_with(
+        .with_clock(&SystemClock)
+        .with_code_page(&Cp437);
+    let fs = block_on(FatFs::mount(
         common::device(case, common::build(case)),
         options,
     ))
@@ -125,22 +131,28 @@ fn async_failed_opens_give_the_device_back() {
     corrupt[11..13].copy_from_slice(&0u16.to_le_bytes());
     for image in [vec![0u8; 64 * 1024], corrupt] {
         block_on(async {
-            let err = hadris_fat::r#async::FatFs::open(common::device(case, image.clone()))
-                .await
-                .unwrap_err();
+            let err = hadris_fat::r#async::FatFs::mount(
+                common::device(case, image.clone()),
+                MountOptions::new(),
+            )
+            .await
+            .unwrap_err();
             assert_eq!(err.kind(), ErrorKind::NotRecognized);
             assert_eq!(err.into_device().into_inner(), image);
 
-            let err = hadris_fat::r#async::FatFs::open(common::device(case, image.clone()))
-                .await
-                .unwrap_err();
+            let err = hadris_fat::r#async::FatFs::mount(
+                common::device(case, image.clone()),
+                MountOptions::new(),
+            )
+            .await
+            .unwrap_err();
             let (error, dev) = err.into_parts();
             assert_eq!(error.kind(), ErrorKind::NotRecognized);
             assert_eq!(dev.into_inner(), image);
 
-            let options = hadris_fat::MountOptions::new().with_read_only();
+            let options = hadris_fs::MountOptions::new().read_only();
             let err =
-                hadris_fat::r#async::FatFs::open_with(common::device(case, image.clone()), options)
+                hadris_fat::r#async::FatFs::mount(common::device(case, image.clone()), options)
                     .await
                     .unwrap_err();
             assert_eq!(err.into_device().into_inner(), image);
@@ -156,9 +168,12 @@ fn async_mode_writes() {
 
     let case = CASES[0];
     let image = block_on(async {
-        let mut fs = FatFs::open(common::device(case, common::blank(case)))
-            .await
-            .unwrap();
+        let mut fs = FatFs::mount(
+            common::device(case, common::blank(case)),
+            MountOptions::new(),
+        )
+        .await
+        .unwrap();
         let root = fs.root();
         let meta = SetAttr::new();
         let dir = fs
@@ -231,7 +246,11 @@ fn async_writers_on_other_threads() {
     use hadris_fs::r#async::Volume;
 
     let case = CASES[2];
-    let fs = block_on(FatFs::open(common::device(case, common::blank(case)))).unwrap();
+    let fs = block_on(FatFs::mount(
+        common::device(case, common::blank(case)),
+        MountOptions::new(),
+    ))
+    .unwrap();
     let vol = Arc::new(Volume::new(fs));
     let writers: Vec<_> = (0..4u8)
         .map(|i| {
@@ -328,9 +347,11 @@ fn format_in_the_async_modes() {
     .into_inner()
     .into_inner();
     assert_eq!(sync, send);
-    let mut fs =
-        hadris_fat::sync::FatFs::open(MemDevice::new(image.clone(), BlockSize::new(512).unwrap()))
-            .unwrap();
+    let mut fs = hadris_fat::sync::FatFs::mount(
+        MemDevice::new(image.clone(), BlockSize::new(512).unwrap()),
+        MountOptions::new(),
+    )
+    .unwrap();
     assert_eq!(fs.label_text().unwrap().unwrap(), "ASYNC");
     assert_eq!(fs.read_to_vec("/async.txt").unwrap(), b"async");
     common::fsck(&image, "async format");
@@ -347,7 +368,6 @@ fn assert_below<F: core::future::Future>(what: &str, future: F, limit: usize) {
 fn async_futures_stay_small() {
     use hadris_fat::r#async::FatFs;
     use hadris_fat::exfat::r#async::ExFatFs;
-    use hadris_fs::FixedTable;
     use hadris_storage::{BlockSize, MemDevice};
 
     const BLOCK: usize = 4096;
@@ -357,9 +377,13 @@ fn async_futures_stay_small() {
     let meta = SetAttr::new();
     let empty = || MemDevice::new(Vec::new(), BlockSize::new(512).unwrap());
 
-    let options = hadris_fat::MountOptions::new().with_table(FixedTable::<1>::new());
-    assert_below("FatFs mount", FatFs::open_with(empty(), options), 2 * BLOCK);
-    let mut fat = block_on(FatFs::open(common::device(case, common::build(case)))).unwrap();
+    let options = hadris_fs::MountOptions::new();
+    assert_below("FatFs mount", FatFs::mount(empty(), options), 2 * BLOCK);
+    let mut fat = block_on(FatFs::mount(
+        common::device(case, common::build(case)),
+        MountOptions::new(),
+    ))
+    .unwrap();
     let root = fat.root();
     assert_below(
         "FatFs rename",
@@ -368,12 +392,8 @@ fn async_futures_stay_small() {
     );
     assert_below("FatFs create", fat.create(root, name, &meta), 2240);
 
-    let options = hadris_fat::exfat::MountOptions::new().with_table(FixedTable::<1>::new());
-    assert_below(
-        "ExFatFs mount",
-        ExFatFs::open_with(empty(), options),
-        3 * BLOCK,
-    );
+    let options = hadris_fs::MountOptions::new();
+    assert_below("ExFatFs mount", ExFatFs::mount(empty(), options), 3 * BLOCK);
     let dev = MemDevice::new(vec![0u8; 4 << 20], BlockSize::new(512).unwrap());
     let formatted =
         hadris_fat::exfat::r#async::format(dev, hadris_fat::exfat::FormatOptions::new());
@@ -392,14 +412,13 @@ mod cancel;
 
 #[test]
 fn dropped_operations_leave_no_lost_clusters_or_unequal_fats() {
-    use hadris_fat::MountOptions;
     use hadris_fat::r#async::{FatFs, check};
-    use hadris_fs::HeapTable;
+    use hadris_fs::MountOptions;
 
     for case in [CASES[0], CASES[2]] {
         let dev = cancel::YieldDev(common::device(case, common::blank(case)));
-        let options = MountOptions::new().with_table(HeapTable::new());
-        let mut fs = cancel::run_for(FatFs::open_with(dev, options), usize::MAX)
+        let options = MountOptions::new();
+        let mut fs = cancel::run_for(FatFs::mount(dev, options), usize::MAX)
             .unwrap()
             .unwrap();
         let mut rng = cancel::Rng(7);

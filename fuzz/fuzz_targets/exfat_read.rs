@@ -12,13 +12,12 @@
 use std::collections::HashSet;
 
 use hadris_fat::exfat::sync::{check, ExFatFs};
-use hadris_fat::exfat::MountOptions;
 use hadris_fs::sync::FileSystem;
-use hadris_fs::{DirCursor, FileType, HeapTable, NodeId};
+use hadris_fs::{DirCursor, FileType, MountOptions, NodeId};
 use hadris_storage::{BlockSize, MemDevice};
 use libfuzzer_sys::fuzz_target;
 
-type Fs<'a> = ExFatFs<MemDevice<&'a [u8]>, HeapTable>;
+type Fs<'a> = ExFatFs<MemDevice<&'a [u8]>>;
 
 /// `lookup` re-scans a directory from the start, so cap name re-resolution
 /// lookups per directory to keep the walk from going quadratic under the
@@ -109,10 +108,8 @@ fn drive(data: &[u8]) {
         );
     }
     let dev = MemDevice::new(&image[..], BlockSize::new(512).unwrap());
-    let options = MountOptions::new()
-        .with_read_only()
-        .with_table(HeapTable::new());
-    let Ok(mut fs) = ExFatFs::open_with(dev, options) else {
+    let options = MountOptions::new().read_only();
+    let Ok(mut fs) = ExFatFs::mount(dev, options) else {
         return;
     };
     let _ = fs.label(&mut [0u8; 64]);

@@ -54,7 +54,7 @@ impl Detail {
         DetailCode::new(DOMAIN, self as u16)
     }
 
-    #[cfg(any(feature = "sync", feature = "async"))]
+    #[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
     pub(crate) fn error<E>(self, kind: hadris_fs::ErrorKind) -> Error<E> {
         Error::new(kind, self.description()).with_detail(self.code())
     }

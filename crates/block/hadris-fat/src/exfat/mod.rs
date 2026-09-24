@@ -3,7 +3,7 @@
 //! It follows the same shape as `FatFs`. `ExFatFs` is generated for each mode
 //! (`exfat::sync`, `exfat::r#async`) with `check`
 //! and, with `write`, `format`; the mode-independent types are here. It
-//! needs no allocator and implements the `hadris_fs` `FileSystem` trait, so
+//! needs `alloc` and implements the `hadris_fs` `FileSystem` trait, so
 //! `Volume` and its handles work on it.
 //!
 //! ```rust
@@ -11,14 +11,14 @@
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use hadris_fat::exfat::FormatOptions;
 //! use hadris_fat::exfat::sync::{check, format};
-//! use hadris_fs::OpenOptions;
 //! use hadris_fs::sync::Volume;
+//! use hadris_fs::{MountOptions, OpenOptions};
 //! use hadris_storage::{BlockSize, MemDevice};
 //!
 //! let dev = MemDevice::new(vec![0u8; 16 << 20], BlockSize::new(512).unwrap());
 //! let mut dev = format(dev, FormatOptions::new())?.into_inner();
 //! assert!(check(&mut dev, &mut [0u8; 4096], |_| {})?.is_clean());
-//! let vol = Volume::new(hadris_fat::exfat::sync::ExFatFs::open(dev)?);
+//! let vol = Volume::new(hadris_fat::exfat::sync::ExFatFs::mount(dev, MountOptions::new())?);
 //! vol.create_dir_all("/Photos")?;
 //! let mut file = vol.open("/Photos/Été.txt", OpenOptions::new().write().create())?;
 //! file.write(b"hello")?;
@@ -49,19 +49,28 @@ pub use hadris_fat_raw::exfat as raw;
 pub use hadris_fat_raw::exfat::Detail;
 
 /// Reads a little-endian `u16` at `at`.
-#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
+#[cfg_attr(
+    not(all(feature = "alloc", any(feature = "sync", feature = "async"))),
+    allow(dead_code)
+)]
 pub(crate) fn le16(bytes: &[u8], at: usize) -> u16 {
     u16::from_le_bytes([bytes[at], bytes[at + 1]])
 }
 
 /// Reads a little-endian `u32` at `at`.
-#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
+#[cfg_attr(
+    not(all(feature = "alloc", any(feature = "sync", feature = "async"))),
+    allow(dead_code)
+)]
 pub(crate) fn le32(bytes: &[u8], at: usize) -> u32 {
     u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
 }
 
 /// Reads a little-endian `u64` at `at`.
-#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
+#[cfg_attr(
+    not(all(feature = "alloc", any(feature = "sync", feature = "async"))),
+    allow(dead_code)
+)]
 pub(crate) fn le64(bytes: &[u8], at: usize) -> u64 {
     let mut value = [0u8; 8];
     value.copy_from_slice(&bytes[at..at + 8]);
@@ -69,32 +78,37 @@ pub(crate) fn le64(bytes: &[u8], at: usize) -> u64 {
 }
 #[cfg(feature = "write")]
 pub use options::FormatOptions;
-pub use options::{MountOptions, VolumeLabel};
+pub use options::VolumeLabel;
 
 #[cfg(feature = "sync")]
 #[path = ""]
 pub mod sync {
     //! The synchronous exFAT API.
 
+    #[allow(unused_macros)]
     macro_rules! io_transform {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
     }
 
+    #[cfg(feature = "alloc")]
     use crate::sync::block_io;
     use hadris_fat_raw::exfat::io::sync as exio;
+    #[cfg(feature = "alloc")]
     use hadris_storage::sync as storage;
 
+    #[cfg(feature = "alloc")]
     use hadris_fs::sync as fsapi;
-    use hadris_io::sync as io;
 
+    #[cfg(feature = "alloc")]
     #[path = "fs.rs"]
     mod fs;
     pub use exio::check;
+    #[cfg(feature = "alloc")]
     pub use fs::ExFatFs;
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "alloc", feature = "write"))]
     #[path = "mkfs.rs"]
     mod mkfs;
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "alloc", feature = "write"))]
     pub use mkfs::format;
 }
 
@@ -102,27 +116,31 @@ pub mod sync {
 #[path = ""]
 pub mod r#async {
     //! The asynchronous exFAT API with `Send` futures. Its futures are
-    //! `Send` when the device is and the node table holds `Send` values.
+    //! `Send` when the device is.
 
     #[allow(unused_macros)]
     macro_rules! io_transform {
         ($($item:tt)*) => { hadris_macros::send_async! { $($item)* } };
     }
 
+    #[cfg(feature = "alloc")]
     use crate::r#async::block_io;
     use hadris_fat_raw::exfat::io::r#async as exio;
+    #[cfg(feature = "alloc")]
     use hadris_storage::r#async as storage;
 
+    #[cfg(feature = "alloc")]
     use hadris_fs::r#async as fsapi;
-    use hadris_io::r#async as io;
 
+    #[cfg(feature = "alloc")]
     #[path = "fs.rs"]
     mod fs;
     pub use exio::check;
+    #[cfg(feature = "alloc")]
     pub use fs::ExFatFs;
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "alloc", feature = "write"))]
     #[path = "mkfs.rs"]
     mod mkfs;
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "alloc", feature = "write"))]
     pub use mkfs::format;
 }

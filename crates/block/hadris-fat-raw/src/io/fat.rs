@@ -689,7 +689,7 @@ pub async fn mkfs<D: BlockDevice>(
     }
     if let Some(label) = fields.label() {
         let mut entry = ShortEntry::new(label, ATTR_VOLUME_ID);
-        let (date, time, tenths) = date::encode(now);
+        let (date, time, tenths) = date::encode(now, None);
         entry.set_created(date, time, tenths);
         entry.set_modified(date, time);
         entry.set_accessed_date(date);

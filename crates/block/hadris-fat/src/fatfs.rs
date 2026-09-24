@@ -2,7 +2,6 @@ use core::fmt;
 
 use super::block_io::{BlockBuf, new_block, read_bytes, write_bytes};
 use super::fsapi::FileSystem;
-use super::io::MaybeSend;
 use super::rawio;
 use super::storage::BlockDevice;
 use hadris_fat_raw::io::{ChainPos, DirStart, DirWalk, Fat, Held};
@@ -11,13 +10,13 @@ use hadris_fat_raw::{
     self as raw, LongEntry, RootLocation, ShortEntry, Slot, date, name as names, short_name,
 };
 use hadris_fs::{
-    Attributes, Capabilities, CaseRule, Charset, Clock, DateTime, DirCursor, DirEntry, ErrorKind,
-    Field, FileType, FixedTable, FsResult, FsStats, Metadata, MountError, Name, NameBuf, NameError,
-    NoClock, NodeId, NodeTable, OpenMode, RenameMode, SetAttr, Stored,
+    Attributes, Capabilities, CaseRule, Charset, Clock, CodePage, DateTime, DirCursor, DirEntry,
+    ErrorKind, Field, FileType, FsResult, FsStats, Metadata, MountError, MountOptions, Name,
+    NameBuf, NameError, NodeId, OpenMode, RenameMode, SetAttr, Stored,
 };
 
-use crate::code_page::{Ascii, CodePage};
-use crate::{FatKind, MountOptions, VolumeLabel, permissions, read_only_bit};
+use crate::table::Table;
+use crate::{FatKind, VolumeLabel, permissions, read_only_bit};
 
 /// `NodeId::new` for ids that are not 0 by construction.
 const fn node_id(raw: u64) -> NodeId {
@@ -131,7 +130,7 @@ struct NewName<'a> {
 }
 
 impl<'a> NewName<'a> {
-    fn new(text: &'a str, code_page: &impl CodePage) -> Result<Self, ErrorKind> {
+    fn new(text: &'a str, code_page: &dyn CodePage) -> Result<Self, ErrorKind> {
         if text.encode_utf16().count() > lfn::MAX_UNITS {
             return Err(ErrorKind::NameTooLong);
         }
@@ -276,7 +275,7 @@ impl Run {
     }
 }
 
-fn metadata(node: &Node, entry: &ShortEntry) -> Metadata {
+fn metadata(node: &Node, entry: &ShortEntry, zone: Option<i16>) -> Metadata {
     let (created_date, created_time, created_tenths) = entry.created();
     let (modified_date, modified_time) = entry.modified();
     let mut attributes = Attributes::empty();
@@ -296,13 +295,13 @@ fn metadata(node: &Node, entry: &ShortEntry) -> Metadata {
     )
     .with_len(len)
     .with_attributes(attributes);
-    if let Some(time) = date::decode(created_date, created_time, created_tenths) {
+    if let Some(time) = date::decode(created_date, created_time, created_tenths, zone) {
         meta = meta.with_created(time);
     }
-    if let Some(time) = date::decode(modified_date, modified_time, 0) {
+    if let Some(time) = date::decode(modified_date, modified_time, 0, zone) {
         meta = meta.with_modified(time);
     }
-    if let Some(time) = date::decode(entry.accessed_date(), 0, 0) {
+    if let Some(time) = date::decode(entry.accessed_date(), 0, 0, zone) {
         meta = meta.with_accessed(time);
     }
     meta
@@ -314,7 +313,7 @@ fn matches(
     query: &str,
     long: Option<&[u16]>,
     entry: &ShortEntry,
-    code_page: &impl CodePage,
+    code_page: &dyn CodePage,
 ) -> bool {
     if long.is_some_and(|units| {
         names::eq_ignore_case(query.chars(), names::utf16_chars(units.iter().copied()))
@@ -341,7 +340,7 @@ fn write_name(
     out: &mut NameBuf,
     long: Option<&[u16]>,
     entry: &ShortEntry,
-    code_page: &impl CodePage,
+    code_page: &dyn CodePage,
 ) -> Result<usize, ErrorKind> {
     if let Some(units) = long
         && out
@@ -369,7 +368,7 @@ fn is_exact(
     query: &str,
     long: Option<&[u16]>,
     entry: &ShortEntry,
-    code_page: &impl CodePage,
+    code_page: &dyn CodePage,
 ) -> bool {
     if let Some(units) = long {
         return names::utf16_chars(units.iter().copied()).eq(query.chars());
@@ -385,12 +384,18 @@ fn is_exact(
 }
 
 /// Sets the entry's creation time and the modification and access times.
-fn stamp(entry: &mut ShortEntry, created: DateTime, modified: DateTime, accessed: DateTime) {
-    let (date, time, tenths) = date::encode(created);
+fn stamp(
+    entry: &mut ShortEntry,
+    created: DateTime,
+    modified: DateTime,
+    accessed: DateTime,
+    zone: Option<i16>,
+) {
+    let (date, time, tenths) = date::encode(created, zone);
     entry.set_created(date, time, tenths);
-    let (date, time, _) = date::encode(modified);
+    let (date, time, _) = date::encode(modified, zone);
     entry.set_modified(date, time);
-    entry.set_accessed_date(date::encode(accessed).0);
+    entry.set_accessed_date(date::encode(accessed, zone).0);
 }
 
 fn set_read_only(entry: &mut ShortEntry, read_only: bool) {
@@ -427,29 +432,26 @@ io_transform! {
 /// take `&mut self`, hold no lock and need no allocator. Share it through
 /// `hadris_fs` `Volume`, or call the trait methods directly.
 ///
-/// Mount with [`open`](FatFs::open), or with [`open_with`](FatFs::open_with)
-/// and [`MountOptions`] to choose the type parameters:
+/// Mount with [`mount`](FatFs::mount) and [`MountOptions`]:
 ///
-/// - `T`, the node table. Nodes are identified by the location of their
-///   directory entry. `lookup`, `create` and `parent` pin the node they
-///   return in the table, and `forget` unpins it. A pinned node keeps its
-///   id across `rename`. A full table makes `lookup` and `create` fail with
-///   [`ErrorKind::LimitExceeded`] before anything is written; name
-///   `HeapTable` or a larger `FixedTable<N>` for more open nodes. Ids from
-///   `readdir` are not pinned and stay valid until that directory
-///   changes; until then, and unless a node is forgotten in between, they
-///   are the ids a `lookup` of the same names pins. Finding the node pinned
-///   at an entry is one table lookup by id, logarithmic in `HeapTable`,
-///   except while a renamed or removed node is still pinned: then, until
-///   the table empties, it searches every node.
-/// - `C`, the [`Clock`] that stamps created and modified entries. The
-///   default [`NoClock`] writes 1980-01-01, so images are reproducible;
-///   `SystemClock` with `std` writes the current UTC time.
-/// - `P`, the [`CodePage`] of short names. The default [`Ascii`] reads
-///   a short-name byte `b` above `0x7F` as the private-use character
-///   `U+F700 + b`, so distinct short names stay distinct and can be looked
-///   up by the name listed, and generates `_` for other non-ASCII
-///   characters; `Cp437` maps them.
+/// - Nodes are identified by the location of their directory entry.
+///   `lookup`, `create` and `parent` pin the node they return in a table
+///   on the heap, and `forget` unpins it. A pinned node keeps its id across
+///   `rename`. The table grows without a limit unless
+///   [`MountOptions::with_node_limit`] caps it; past the cap `lookup` and
+///   `create` fail with [`ErrorKind::LimitExceeded`] before anything is
+///   written. Ids from `readdir` are not pinned and stay valid until that
+///   directory changes; until then, and unless a node is forgotten in
+///   between, they are the ids a `lookup` of the same names pins.
+/// - The [`Clock`] stamps created and modified entries. The default
+///   `NoClock` writes 1980-01-01, so images are reproducible; `SystemClock`
+///   with `std` writes the current time.
+/// - FAT stores local time with no zone. Timestamps are read and written
+///   as UTC unless [`MountOptions::with_utc_offset`] names the zone.
+/// - The [`CodePage`] maps short-name bytes above `0x7F`. The default is
+///   `Cp437`; `Ascii` reads a byte `b` above `0x7F` as the private-use
+///   character `U+F700 + b`, so distinct short names stay distinct and can
+///   be looked up by the name listed.
 ///
 /// Long names are always read and written. Names compare
 /// case-insensitively, by the long name or by the short name. A new name that is a valid
@@ -521,10 +523,10 @@ io_transform! {
 ///   hint and is written by `sync`.
 ///
 /// Data written by an interrupted `write` may be partly on disk.
-pub struct FatFs<D, T: NodeTable = FixedTable<64>, C: Clock = NoClock, P: CodePage = Ascii> {
+pub struct FatFs<D> {
     dev: D,
     fat: Fat,
-    nodes: T::With<Node>,
+    nodes: Table<Node>,
     block: BlockBuf,
     /// Clusters an interrupted operation left to free.
     pending: Option<Pending>,
@@ -532,8 +534,10 @@ pub struct FatFs<D, T: NodeTable = FixedTable<64>, C: Clock = NoClock, P: CodePa
     /// their short entry.
     run: Option<Run>,
     read_only: bool,
-    clock: C,
-    code_page: P,
+    clock: &'static dyn Clock,
+    code_page: &'static dyn CodePage,
+    /// The UTC offset of the volume's timestamps, `None` for UTC.
+    zone: Option<i16>,
     /// Some pinned node is not at the slot its id names, because it was
     /// renamed or removed. Until the table empties, `pinned_at` searches it.
     moved: bool,
@@ -541,7 +545,7 @@ pub struct FatFs<D, T: NodeTable = FixedTable<64>, C: Clock = NoClock, P: CodePa
     root_hint: ChainPos,
 }
 
-impl<D, T: NodeTable, C: Clock, P: CodePage> fmt::Debug for FatFs<D, T, C, P> {
+impl<D> fmt::Debug for FatFs<D> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FatFs")
             .field("kind", &self.fat.geometry().kind())
@@ -554,8 +558,9 @@ impl<D, T: NodeTable, C: Clock, P: CodePage> fmt::Debug for FatFs<D, T, C, P> {
 }
 
 impl<D: BlockDevice> FatFs<D> {
-    /// Mounts the volume on `dev` with the defaults of [`MountOptions::new`]:
-    /// writable, a `FixedTable<64>`, [`NoClock`] and [`Ascii`].
+    /// Mounts the volume on `dev`. `options` set read-only, the clock, the
+    /// UTC offset of the volume's timestamps, the code page of short names
+    /// and the node cap.
     ///
     /// Fails with [`ErrorKind::NotRecognized`] when the first sector has no
     /// FAT BIOS parameter block (its sector and cluster sizes are not ones
@@ -564,55 +569,56 @@ impl<D: BlockDevice> FatFs<D> {
     /// than the device, and with [`ErrorKind::Unsupported`] when the device's
     /// blocks are larger than 4096 bytes. The [`MountError`] gives `dev`
     /// back.
-    pub async fn open(dev: D) -> Result<Self, MountError<D, D::Error>> {
-        Self::open_with(dev, MountOptions::new()).await
-    }
-}
-
-impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
-    /// Mounts the volume on `dev` with `options`, which set the node table,
-    /// clock and code page types. Fails as [`open`](FatFs::open) does.
-    pub async fn open_with(
-        mut dev: D,
-        options: MountOptions<T, C, P>,
-    ) -> Result<Self, MountError<D, D::Error>> {
-        let MountOptions { read_only, table, clock, code_page } = options;
-        let read_only = read_only || !dev.writable();
+    pub async fn mount(mut dev: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
+        let read_only = options.is_read_only() || !dev.writable();
         let mut block = match new_block(dev.block_size().get() as usize) {
             Ok(block) => block,
             Err(error) => return Err(MountError::new(error.into(), dev)),
         };
-        let fat = match Self::mount(&mut dev, &mut block).await {
+        let fat = match Self::read_volume(&mut dev, &mut block).await {
             Ok(fat) => fat,
             Err(error) => return Err(MountError::new(error, dev)),
         };
         Ok(Self {
             dev,
             fat,
-            nodes: table.empty(),
+            nodes: Table::new(options.node_limit()),
             block,
             pending: None,
             run: None,
             read_only,
-            clock,
-            code_page,
+            clock: options.clock(),
+            code_page: options.code_page(),
+            zone: options.utc_offset(),
             moved: false,
             root_hint: ChainPos::NONE,
         })
     }
 
-    async fn mount(dev: &mut D, block: &mut BlockBuf) -> FsResult<Fat, D::Error> {
+    /// Syncs the volume, as `FileSystem::sync` does, and gives the device
+    /// back. When the sync fails the [`MountError`] holds its error and the
+    /// device.
+    pub async fn unmount(mut self) -> Result<D, MountError<D, D::Error>> {
+        let synced = if self.read_only { Ok(()) } else { FileSystem::sync(&mut self).await };
+        match synced {
+            Ok(()) => Ok(self.dev),
+            Err(error) => Err(MountError::new(error, self.dev)),
+        }
+    }
+
+    async fn read_volume(dev: &mut D, block: &mut BlockBuf) -> FsResult<Fat, D::Error> {
         let geo = rawio::read_geometry(dev, block).await?;
         rawio::read_fat(dev, block, geo).await
     }
 
-    /// Returns the device.
+    /// Returns the device without syncing; [`unmount`](Self::unmount)
+    /// syncs first.
     pub fn into_inner(self) -> D {
         self.dev
     }
 
     /// Whether the volume was mounted with
-    /// [`MountOptions::with_read_only`] or on a device that is not
+    /// [`MountOptions::read_only`] or on a device that is not
     /// [`writable`](BlockDevice::writable), or the device has refused a
     /// write since.
     pub fn is_read_only(&self) -> bool {
@@ -620,13 +626,19 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     }
 
     /// The clock that stamps new and modified entries.
-    pub fn clock(&self) -> &C {
-        &self.clock
+    pub fn clock(&self) -> &'static dyn Clock {
+        self.clock
     }
 
     /// The code page of short names.
-    pub fn code_page(&self) -> &P {
-        &self.code_page
+    pub fn code_page(&self) -> &'static dyn CodePage {
+        self.code_page
+    }
+
+    /// The UTC offset of the volume's timestamps in minutes, `None` for
+    /// UTC.
+    pub fn utc_offset(&self) -> Option<i16> {
+        self.zone
     }
 
     /// The FAT variant of the volume.
@@ -742,7 +754,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         name.check()?;
         let start = self.dir_start(dir).await?;
         let text = entry_name(name, ErrorKind::InvalidInput)?;
-        let new = NewName::new(text, &self.code_page)?;
+        let new = NewName::new(text, self.code_page)?;
         let plan = self.plan(start, text, true, &new, Skip::default()).await?;
         let reserved = RESERVED;
         let placeholder = Node {
@@ -1074,7 +1086,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             entry.set_size(node.size);
         }
         entry.set_first_cluster(self.fat.geometry().kind(), node.first);
-        let (date, time, _) = date::encode(self.now());
+        let (date, time, _) = date::encode(self.now(), self.zone);
         entry.set_modified(date, time);
         entry.set_accessed_date(date);
         entry.set_attributes(entry.attributes() | raw::ATTR_ARCHIVE);
@@ -1173,12 +1185,12 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             let units = long.finish(found.entry.lfn_checksum());
             let named = units.is_some();
             let units = units.filter(|units| !units.is_empty());
-            if matches(query, units, &found.entry, &self.code_page) {
+            if matches(query, units, &found.entry, self.code_page) {
                 return Ok(Some(Located {
                     first: if named { found.long_start } else { found.slot },
                     slot: found.slot,
                     offset: found.offset,
-                    exact: is_exact(query, units, &found.entry, &self.code_page),
+                    exact: is_exact(query, units, &found.entry, self.code_page),
                     entry: found.entry,
                 }));
             }
@@ -1268,7 +1280,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
                             .finish(entry.lfn_checksum())
                             .filter(|units| !units.is_empty());
                         if !skip.covers(slot, offset) {
-                            if check_exists && entry.is_visible() && matches(text, units, &entry, &self.code_page) {
+                            if check_exists && entry.is_visible() && matches(text, units, &entry, self.code_page) {
                                 return Err(ErrorKind::AlreadyExists.into());
                             }
                             for (bit, candidate) in new.candidates.iter().enumerate() {
@@ -1382,7 +1394,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         let held = self.pending.replace(Pending::chain(grown, Owner::Cluster(plan.tail)));
         let _ = self.set_fat(plan.tail, self.fat.geometry().kind().end_of_chain()).await;
         self.root_hint = ChainPos::NONE;
-        while let Some(id) = self.nodes.find(&mut |_, node| node.dir && node.hint.is_known()) {
+        while let Some(id) = self.nodes.find(|_, node| node.dir && node.hint.is_known()) {
             if let Some(node) = self.nodes.get_mut(id) {
                 node.hint = ChainPos::NONE;
             }
@@ -1484,6 +1496,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             attrs.created().unwrap_or(now),
             attrs.modified().unwrap_or(now),
             attrs.accessed().unwrap_or(now),
+            self.zone,
         );
         let grown = self.grow(plan).await?;
         let mut first = 0;
@@ -1858,7 +1871,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             let id = node_id(offset / ENTRY_SIZE);
             return self.nodes.get(id).is_some_and(|node| node.entry == offset).then_some(id);
         }
-        self.nodes.find(&mut |_, node| node.entry == offset)
+        self.nodes.find(|_, node| node.entry == offset)
     }
 
     /// The first id for the entry at `offset` that no node in the table
@@ -1989,9 +2002,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     }
 }
 
-impl<D: BlockDevice, T: NodeTable<With<Node>: MaybeSend>, C: Clock, P: CodePage + MaybeSend> FileSystem
-    for FatFs<D, T, C, P>
-{
+impl<D: BlockDevice> FileSystem for FatFs<D> {
     type DeviceError = D::Error;
 
     /// What this volume supports: case-insensitive, case-preserving UTF-16
@@ -2109,7 +2120,7 @@ impl<D: BlockDevice, T: NodeTable<With<Node>: MaybeSend>, C: Clock, P: CodePage 
             return Ok(Metadata::new(FileType::Dir, permissions(true, false)));
         }
         let (state, entry) = self.node_entry(node).await?;
-        Ok(metadata(&state, &entry))
+        Ok(metadata(&state, &entry, self.zone))
     }
 
     /// The entry at or after `from`, or `None` at the end. `.`, `..`, the
@@ -2132,7 +2143,7 @@ impl<D: BlockDevice, T: NodeTable<With<Node>: MaybeSend>, C: Clock, P: CodePage 
         };
         let units = long.finish(found.entry.lfn_checksum());
         let mut name = NameBuf::new();
-        write_name(&mut name, units.filter(|units| !units.is_empty()), &found.entry, &self.code_page)?;
+        write_name(&mut name, units.filter(|units| !units.is_empty()), &found.entry, self.code_page)?;
         let node = self.id_at(found.offset);
         let state = match self.pinned_at(found.offset).and_then(|id| self.nodes.get(id)) {
             Some(state) => *state,
@@ -2140,7 +2151,7 @@ impl<D: BlockDevice, T: NodeTable<With<Node>: MaybeSend>, C: Clock, P: CodePage 
         };
         let name = name.as_name().ok_or(ErrorKind::Corrupt)?;
         let next = DirCursor::from_raw(found.slot as u64 + 1);
-        let entry = DirEntry::new(name, node, metadata(&state, &found.entry), next)
+        let entry = DirEntry::new(name, node, metadata(&state, &found.entry, self.zone), next)
             .map_err(|_| ErrorKind::Corrupt)?;
         Ok(Some(entry))
     }
@@ -2262,15 +2273,15 @@ impl<D: BlockDevice, T: NodeTable<With<Node>: MaybeSend>, C: Clock, P: CodePage 
             set_read_only(&mut entry, read_only);
         }
         if let Some(time) = changes.created() {
-            let (date, time, tenths) = date::encode(time);
+            let (date, time, tenths) = date::encode(time, self.zone);
             entry.set_created(date, time, tenths);
         }
         if let Some(time) = changes.modified() {
-            let (date, time, _) = date::encode(time);
+            let (date, time, _) = date::encode(time, self.zone);
             entry.set_modified(date, time);
         }
         if let Some(time) = changes.accessed() {
-            entry.set_accessed_date(date::encode(time).0);
+            entry.set_accessed_date(date::encode(time, self.zone).0);
         }
         self.put_bytes(state.entry, &entry.encode()).await?;
         if let Some(id) = id {
@@ -2453,7 +2464,7 @@ impl<D: BlockDevice, T: NodeTable<With<Node>: MaybeSend>, C: Clock, P: CodePage 
         let to_start = self.dir_start(to_dir).await?;
         let from_text = entry_name(from, ErrorKind::NotFound)?;
         let to_text = entry_name(to, ErrorKind::InvalidInput)?;
-        let new = NewName::new(to_text, &self.code_page)?;
+        let new = NewName::new(to_text, self.code_page)?;
         let src = self
             .find_entry(from_start, from_text)
             .await?
@@ -2514,7 +2525,7 @@ impl<D: BlockDevice, T: NodeTable<With<Node>: MaybeSend>, C: Clock, P: CodePage 
             self.recover().await?;
         }
         let mut corrupt = None;
-        while let Some(id) = self.nodes.find(&mut |_, node| node.dirty) {
+        while let Some(id) = self.nodes.find(|_, node| node.dirty) {
             match self.flush_node(id).await {
                 Err(err) if err.kind() == ErrorKind::Corrupt => {
                     self.clean(id);

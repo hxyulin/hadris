@@ -1,14 +1,13 @@
 #![allow(dead_code)]
 
+use hadris_fs::MountOptions;
 use std::path::Path;
 use std::process::Command;
 
 use hadris_fat::exfat::sync::{ExFatFs, format};
-use hadris_fat::exfat::{Detail, FormatOptions, MountOptions, VolumeLabel};
+use hadris_fat::exfat::{Detail, FormatOptions, VolumeLabel};
 use hadris_fs::sync::FileSystem;
-use hadris_fs::{
-    CheckReport, DirCursor, Finding, HeapTable, Location, Name, NodeId, SetAttr, Severity,
-};
+use hadris_fs::{CheckReport, DirCursor, Finding, Location, Name, NodeId, SetAttr, Severity};
 
 #[path = "paths.rs"]
 pub mod paths;
@@ -16,7 +15,7 @@ use hadris_storage::{BlockSize, MemDevice};
 pub use paths::sync::{FsPaths, VolumePaths};
 
 pub type Device = MemDevice<Vec<u8>>;
-pub type Fs = ExFatFs<Device, HeapTable>;
+pub type Fs = ExFatFs<Device>;
 
 pub const SECTOR: usize = 512;
 
@@ -43,11 +42,7 @@ pub fn small(size: usize, cluster: u32) -> Fs {
 }
 
 pub fn mount(image: &[u8]) -> Fs {
-    ExFatFs::open_with(
-        device(image.to_vec(), 512),
-        MountOptions::new().with_table(HeapTable::new()),
-    )
-    .unwrap()
+    ExFatFs::mount(device(image.to_vec(), 512), MountOptions::new()).unwrap()
 }
 
 pub fn image(fs: Fs) -> Vec<u8> {
@@ -60,12 +55,8 @@ pub fn write(fs: &mut Fs, dir: NodeId, text: &str, data: &[u8]) -> NodeId {
     node
 }
 
-pub fn write_any<
-    D: hadris_storage::sync::BlockDevice,
-    T: hadris_fs::NodeTable,
-    C: hadris_fs::Clock,
->(
-    fs: &mut ExFatFs<D, T, C>,
+pub fn write_any<D: hadris_storage::sync::BlockDevice>(
+    fs: &mut ExFatFs<D>,
     dir: NodeId,
     text: &str,
     data: &[u8],
@@ -159,7 +150,7 @@ pub fn clean(fs: &mut Fs, what: &str) {
     let mut dev = std::mem::replace(fs, mount(placeholder)).into_inner();
     let (_, found) = check_dev(&mut dev, 4096);
     assert_eq!(found, [], "{what}");
-    *fs = ExFatFs::open_with(dev, MountOptions::new().with_table(HeapTable::new())).unwrap();
+    *fs = ExFatFs::mount(dev, MountOptions::new()).unwrap();
 }
 
 /// Formats a volume and fills it: nested directories, long and Unicode

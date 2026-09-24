@@ -9,7 +9,7 @@
 //!
 //! `FatFs` is the node-based driver, generated for each mode
 //! (`sync::FatFs`, `r#async::FatFs`). It mounts any
-//! `hadris_storage` block device, needs no allocator, and implements the
+//! `hadris_storage` block device, needs `alloc` for its node table, and implements the
 //! `hadris_fs` `FileSystem` trait, so `Volume`, its handles and the
 //! `hadris-fs` tree helpers work on it. It reads and writes files and
 //! directories: `create`, `mkdir`, `unlink`, `rmdir`, `rename`, `write`,
@@ -23,12 +23,13 @@
 //! use std::io::{Read, Write};
 //!
 //! use hadris_fat::sync::FatFs;
-//! use hadris_fs::OpenOptions;
 //! use hadris_fs::sync::{FileSystem, Volume};
+//! use hadris_fs::{MountOptions, OpenOptions};
 //! use hadris_storage::{BlockSize, MemDevice};
 //!
 //! let image = std::fs::read("disk.img")?;
-//! let fs = FatFs::open(MemDevice::new(image, BlockSize::new(512).unwrap()))?;
+//! let dev = MemDevice::new(image, BlockSize::new(512).unwrap());
+//! let fs = FatFs::mount(dev, MountOptions::new())?;
 //! let vol = Volume::new(fs);
 //! for entry in vol.read_dir("/EFI")? {
 //!     println!("{:?}", entry?.name());
@@ -49,24 +50,25 @@
 //! # fn main() {}
 //! ```
 //!
-//! `FatFs<D, T, C, P>` also takes the node table, the [`Clock`](hadris_fs::Clock)
-//! that stamps entries and the [`CodePage`] of short names as type
-//! parameters, chosen with [`MountOptions`] and `FatFs::open_with`. A failed
-//! mount returns a [`MountError`](hadris_fs::MountError) that gives the
-//! device back.
+//! [`MountOptions`](hadris_fs::MountOptions) choose read-only, the
+//! [`Clock`](hadris_fs::Clock) that stamps entries, the UTC offset of the
+//! volume's timestamps, the [`CodePage`](hadris_fs::CodePage) of short
+//! names (CP437 by default) and a cap on pinned nodes. A failed mount
+//! returns a [`MountError`](hadris_fs::MountError) that gives the device
+//! back, and `unmount` syncs and gives it back too.
 //!
 //! ## exFAT: `ExFatFs`
 //!
 //! [`exfat`] holds `ExFatFs`, a sibling of `FatFs` with the same shape:
 //! `exfat::sync::ExFatFs` and its `r#async` twin, each
-//! with `check` and, with `write`, `format`. It needs no
-//! allocator and implements `FileSystem`.
+//! with `check` and, with `write`, `format`. It needs `alloc`
+//! and implements `FileSystem`.
 //!
 //! ## Formatting with `FatFs`
 //!
 //! With the `write` feature, `format` (in each mode) lays out a FAT12,
-//! FAT16 or FAT32 volume that fills a block device and mounts it. It needs
-//! no allocator. [`FormatOptions`] sets the variant, label, volume id,
+//! FAT16 or FAT32 volume that fills a block device and mounts it, so it
+//! needs `alloc`. [`FormatOptions`] sets the variant, label, volume id,
 //! sector and cluster size and the other boot sector fields; everything
 //! defaults from the device's size. A failed format also returns a
 //! [`MountError`](hadris_fs::MountError) with the device.
@@ -125,14 +127,14 @@
 //! | Feature  | Default | Description |
 //! |----------|---------|-------------|
 //! | `std`    | Yes     | Standard library support (enables `alloc`); `hadris_storage::host::FileDevice` and `SystemClock` from the storage and fs crates |
-//! | `alloc`  | No      | Heap-backed conveniences of `hadris-fs`, such as `HeapTable` |
+//! | `alloc`  | No      | `FatFs`, `ExFatFs` and `format`; without it only `check` and the raw layer |
 //! | `sync`   | Yes     | Synchronous API in `sync` |
 //! | `async`  | No      | Asynchronous API with `Send` futures in `r#async` |
 //! | `write`  | Yes     | `format` in each mode; `FatFs` and `ExFatFs` write without it |
 //! | `defmt`  | No      | `defmt::Format` for `FatKind` |
 //!
 //! No feature changes what an item does: `FatFs` always reads and writes long
-//! names, and neither `FatFs` nor `ExFatFs` needs an allocator in any mode.
+//! names.
 //!
 //! ## Sync and async
 //!
@@ -167,8 +169,9 @@ extern crate self as hadris_fat;
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-mod code_page;
 mod options;
+#[cfg(feature = "alloc")]
+mod table;
 /// The on-disk layer, the `hadris-fat-raw` crate: the boot sector, BPB,
 /// FSInfo and directory entry layouts with their constants, and the
 /// I/O-free codecs the drivers are built on.
@@ -186,25 +189,30 @@ pub mod exfat;
 pub mod sync {
     //! The synchronous API.
 
+    #[allow(unused_macros)]
     macro_rules! io_transform {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
     }
 
     use hadris_fat_raw::io::sync as rawio;
+    #[cfg(feature = "alloc")]
     use hadris_fs::sync as fsapi;
-    use hadris_io::sync as io;
+    #[cfg(feature = "alloc")]
     use hadris_storage::sync as storage;
 
+    #[cfg(feature = "alloc")]
     #[path = "block_io.rs"]
     pub(crate) mod block_io;
+    #[cfg(feature = "alloc")]
     #[path = "fatfs.rs"]
     mod fatfs;
+    #[cfg(feature = "alloc")]
     pub use fatfs::FatFs;
     pub use rawio::check;
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "alloc", feature = "write"))]
     #[path = "mkfs.rs"]
     mod mkfs;
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "alloc", feature = "write"))]
     pub use mkfs::format;
 }
 
@@ -212,14 +220,13 @@ pub mod sync {
 /// multi-threaded executors.
 ///
 /// Generated from the same source as `sync`, following `hadris_fs::r#async`.
-/// Its `FatFs` futures are `Send` when the device is and
-/// the node table holds `Send` values, as `FixedTable` and `HeapTable` do.
+/// Its `FatFs` futures are `Send` when the device is.
 #[cfg(feature = "async")]
 pub mod r#async;
 
 /// The permissions FAT and exFAT derive: `rwx` for directories, `rw` for
 /// files, and no write bits when the entry is read-only.
-#[cfg(any(feature = "sync", feature = "async"))]
+#[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
 fn permissions(dir: bool, read_only: bool) -> hadris_fs::Permissions {
     let mode = if dir { 0o755 } else { 0o644 };
     hadris_fs::Permissions::new(if read_only { mode & !0o222 } else { mode })
@@ -227,14 +234,13 @@ fn permissions(dir: bool, read_only: bool) -> hadris_fs::Permissions {
 
 /// The read-only bit `wanted` stands for: `None` when the volume cannot
 /// report those permissions for a node of this kind.
-#[cfg(any(feature = "sync", feature = "async"))]
+#[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
 fn read_only_bit(dir: bool, wanted: hadris_fs::Permissions) -> Option<bool> {
     let read_only = wanted.bits() & 0o222 == 0;
     (permissions(dir, read_only) == wanted).then_some(read_only)
 }
 
-pub use code_page::{Ascii, CodePage, Cp437};
 pub use hadris_fat_raw::{Detail, FatKind};
 #[cfg(feature = "write")]
 pub use options::FormatOptions;
-pub use options::{MountOptions, VolumeLabel};
+pub use options::VolumeLabel;

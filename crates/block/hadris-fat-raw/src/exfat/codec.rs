@@ -373,7 +373,7 @@ pub fn encode_time(time: DateTime) -> (u32, u8, u8) {
             UTC_OFFSET_VALID,
         ),
     };
-    let (packed_date, packed_time, tenths) = date::encode(time);
+    let (packed_date, packed_time, tenths) = date::encode(time, None);
     (
         (packed_date as u32) << 16 | packed_time as u32,
         tenths,
@@ -381,12 +381,14 @@ pub fn encode_time(time: DateTime) -> (u32, u8, u8) {
     )
 }
 
-/// Decodes a stored time; `None` when its fields are out of range.
-pub fn decode_time(stamp: u32, increment: u8, offset: u8) -> Option<DateTime> {
-    let local = date::decode((stamp >> 16) as u16, stamp as u16, increment)?;
+/// Decodes a stored time; `None` when its fields are out of range. A time
+/// with no valid offset is read as local time in `zone`, minutes east of
+/// UTC, as [`date::decode`] reads it.
+pub fn decode_time(stamp: u32, increment: u8, offset: u8, zone: Option<i16>) -> Option<DateTime> {
     if offset & UTC_OFFSET_VALID == 0 {
-        return Some(local);
+        return date::decode((stamp >> 16) as u16, stamp as u16, increment, zone);
     }
+    let local = date::decode((stamp >> 16) as u16, stamp as u16, increment, None)?;
     let minutes = (((offset << 1) as i8) >> 1) as i16 * 15;
     DateTime::new(
         local.unix_seconds() - minutes as i64 * 60,
@@ -611,17 +613,20 @@ mod tests {
         let (stamp, increment, offset) = encode_time(time);
         assert_eq!(offset, UTC_OFFSET_VALID | ((-10i8) as u8 & 0x7F));
         assert_eq!(increment, 156);
-        assert_eq!(decode_time(stamp, increment, offset), Some(time));
+        assert_eq!(decode_time(stamp, increment, offset, None), Some(time));
         let odd = time.with_utc_offset_minutes(Some(7)).unwrap();
         let (stamp, increment, offset) = encode_time(odd);
         assert_eq!(offset, UTC_OFFSET_VALID);
-        let back = decode_time(stamp, increment, offset).unwrap();
+        let back = decode_time(stamp, increment, offset, None).unwrap();
         assert_eq!(back.unix_seconds(), odd.unix_seconds());
         let plain = DateTime::from_unix_seconds(1_000_000_000).unwrap();
         let (stamp, increment, offset) = encode_time(plain);
         assert_eq!(offset, 0);
-        assert_eq!(decode_time(stamp, increment, offset), Some(plain));
-        assert_eq!(decode_time(0, 0, 0), None);
+        assert_eq!(decode_time(stamp, increment, offset, None), Some(plain));
+        assert_eq!(decode_time(0, 0, 0, None), None);
+        let zoned = decode_time(stamp, increment, 0, Some(60)).unwrap();
+        assert_eq!(zoned.unix_seconds(), plain.unix_seconds() - 3600);
+        assert_eq!(zoned.utc_offset_minutes(), Some(60));
     }
 
     #[test]

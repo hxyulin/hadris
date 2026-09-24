@@ -11,13 +11,12 @@
 use std::collections::HashSet;
 
 use hadris_fat::sync::{check, FatFs};
-use hadris_fat::MountOptions;
 use hadris_fs::sync::FileSystem;
-use hadris_fs::{DirCursor, FileType, HeapTable, NodeId};
+use hadris_fs::{DirCursor, FileType, MountOptions, NodeId};
 use hadris_storage::{BlockSize, MemDevice};
 use libfuzzer_sys::fuzz_target;
 
-type Fs<'a> = FatFs<MemDevice<&'a [u8]>, HeapTable>;
+type Fs<'a> = FatFs<MemDevice<&'a [u8]>>;
 
 /// `lookup` re-scans a directory from the start, so cap name re-resolution
 /// lookups per directory to keep the walk from going quadratic under the
@@ -69,9 +68,7 @@ fn drive(data: &[u8]) {
         image.resize(len, 0);
     }
     let dev = MemDevice::new(&image[..], BlockSize::new(512).unwrap());
-    let options = MountOptions::new()
-        .with_read_only()
-        .with_table(HeapTable::new());
+    let options = MountOptions::new().read_only();
     let clusters = (image.len() / 512) as u64;
     let mut scratch = vec![0u8; 1024 + clusters.div_ceil(8).clamp(512, MAX_BITMAP) as usize];
     let mut findings = 0u64;
@@ -90,7 +87,7 @@ fn drive(data: &[u8]) {
             "ORACLE: the report counts every finding"
         );
     }
-    let Ok(mut fs) = FatFs::open_with(dev, options) else {
+    let Ok(mut fs) = FatFs::mount(dev, options) else {
         return;
     };
     let _ = fs.label(&mut [0u8; 64]);

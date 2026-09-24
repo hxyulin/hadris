@@ -3,12 +3,12 @@
 
 #[path = "common/exfat.rs"]
 mod common;
+use hadris_fs::MountOptions;
 use hadris_fs::r#async::FileSystem as _;
 use hadris_fs::sync::FileSystem;
 
 use common::{block_on, clean, fsck};
-use hadris_fat::exfat::{FormatOptions, MountOptions};
-use hadris_fs::HeapTable;
+use hadris_fat::exfat::FormatOptions;
 
 fn blank(size: usize, cluster: u32) -> Vec<u8> {
     common::image(common::small(size, cluster))
@@ -28,9 +28,9 @@ fn sync_raw_tier() {
 
 #[test]
 fn sync_through_a_volume() {
-    let fs = hadris_fat::exfat::sync::ExFatFs::open_with(
+    let fs = hadris_fat::exfat::sync::ExFatFs::mount(
         common::device(blank(8 << 20, 4096), 512),
-        MountOptions::new().with_table(HeapTable::new()),
+        MountOptions::new(),
     )
     .unwrap();
     let vol = hadris_fs::sync::Volume::new(fs);
@@ -59,10 +59,12 @@ fn async_modes() {
                 .all(|f| f.detail == hadris_fat::exfat::Detail::Dirty),
             "{findings:?}"
         );
-        let fs =
-            hadris_fat::exfat::r#async::ExFatFs::open(common::device(blank(8 << 20, 4096), 512))
-                .await
-                .unwrap();
+        let fs = hadris_fat::exfat::r#async::ExFatFs::mount(
+            common::device(blank(8 << 20, 4096), 512),
+            MountOptions::new(),
+        )
+        .await
+        .unwrap();
         let vol = hadris_fs::r#async::Volume::new(fs);
         hadris_fs::r#async::contract::check(&mut *vol.lock().await)
             .await
@@ -120,10 +122,10 @@ fn assert_send<T: Send>(_: &T) {}
 
 #[test]
 fn async_futures_are_send() {
-    let mut fs = block_on(hadris_fat::exfat::r#async::ExFatFs::open(common::device(
-        blank(4 << 20, 4096),
-        512,
-    )))
+    let mut fs = block_on(hadris_fat::exfat::r#async::ExFatFs::mount(
+        common::device(blank(4 << 20, 4096), 512),
+        MountOptions::new(),
+    ))
     .unwrap();
     let root = fs.root();
     assert_send(&fs.statfs());

@@ -94,15 +94,12 @@ fn dump_driver<F: FileSystem>(mut fs: F) -> Vec<String> {
 
 fn dump_fat(data: &[u8]) -> Vec<String> {
     use hadris_fat::sync::FatFs;
-    use hadris_fat::MountOptions;
-    use hadris_fs::HeapTable;
+    use hadris_fs::MountOptions;
     use hadris_storage::{BlockSize, MemDevice};
 
     let dev = MemDevice::new(data, BlockSize::new(512).unwrap());
-    let options = MountOptions::new()
-        .with_read_only()
-        .with_table(HeapTable::new());
-    match FatFs::open_with(dev, options) {
+    let options = MountOptions::new().read_only();
+    match FatFs::mount(dev, options) {
         Ok(fs) => dump_driver(fs),
         Err(_) => Vec::new(),
     }
@@ -110,17 +107,14 @@ fn dump_fat(data: &[u8]) -> Vec<String> {
 
 fn dump_exfat(data: &[u8]) -> Vec<String> {
     use hadris_fat::exfat::sync::ExFatFs;
-    use hadris_fat::exfat::MountOptions;
-    use hadris_fs::HeapTable;
+    use hadris_fs::MountOptions;
     use hadris_storage::{BlockSize, MemDevice};
 
     let mut bytes = data.to_vec();
     bytes.resize(bytes.len().next_multiple_of(512), 0);
     let dev = MemDevice::new(bytes, BlockSize::new(512).unwrap());
-    let options = MountOptions::new()
-        .with_read_only()
-        .with_table(HeapTable::new());
-    match ExFatFs::open_with(dev, options) {
+    let options = MountOptions::new().read_only();
+    match ExFatFs::mount(dev, options) {
         Ok(fs) => dump_driver(fs),
         Err(_) => Vec::new(),
     }

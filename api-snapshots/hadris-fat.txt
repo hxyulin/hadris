@@ -4,162 +4,154 @@ pub use hadris_fat::FatKind
 pub use hadris_fat::raw
 pub mod hadris_fat::async
 pub use hadris_fat::async::check
-pub struct hadris_fat::async::FatFs<D, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock, P: hadris_fat::CodePage>
-impl<D: hadris_storage::async::api::BlockDevice, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock, P: hadris_fat::CodePage> hadris_fat::async::FatFs<D, T, C, P>
-pub fn hadris_fat::async::FatFs<D, T, C, P>::clock(&self) -> &C
-pub async fn hadris_fat::async::FatFs<D, T, C, P>::cluster_chain(&mut self, hadris_fs::node::NodeId, impl core::ops::function::FnMut(u32)) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::async::FatFs<D, T, C, P>::code_page(&self) -> &P
-pub fn hadris_fat::async::FatFs<D, T, C, P>::into_inner(self) -> D
-pub fn hadris_fat::async::FatFs<D, T, C, P>::is_read_only(&self) -> bool
-pub fn hadris_fat::async::FatFs<D, T, C, P>::kind(&self) -> hadris_fat_raw::entry::FatKind
-pub fn hadris_fat::async::FatFs<D, T, C, P>::open_nodes(&self) -> usize
-pub async fn hadris_fat::async::FatFs<D, T, C, P>::open_with(D, hadris_fat::MountOptions<T, C, P>) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_fat::async::FatFs<D, T, C, P>::volume_label(&mut self) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fat::VolumeLabel>, <D as hadris_io::error::ErrorType>::Error>
+pub struct hadris_fat::async::FatFs<D>
 impl<D: hadris_storage::async::api::BlockDevice> hadris_fat::async::FatFs<D>
-pub async fn hadris_fat::async::FatFs<D>::open(D) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
-impl<D, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock, P: hadris_fat::CodePage> core::fmt::Debug for hadris_fat::async::FatFs<D, T, C, P>
-pub fn hadris_fat::async::FatFs<D, T, C, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<D: hadris_storage::async::api::BlockDevice, T: hadris_fs::table::NodeTable<With<Node>hadris_io::async::MaybeSend>, C: hadris_fs::time::Clock, P: hadris_fat::CodePage + hadris_io::async::MaybeSend> hadris_fs::async::api::filesystem::FileSystem for hadris_fat::async::FatFs<D, T, C, P>
-pub type hadris_fat::async::FatFs<D, T, C, P>::DeviceError = <D as hadris_io::error::ErrorType>::Error
-pub fn hadris_fat::async::FatFs<D, T, C, P>::capabilities(&self) -> hadris_fs::caps::Capabilities
-pub async fn hadris_fat::async::FatFs<D, T, C, P>::close(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::async::FatFs<D, T, C, P>::create(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::async::FatFs<D, T, C, P>::forget(&mut self, hadris_fs::node::NodeId, u64)
-pub async fn hadris_fat::async::FatFs<D, T, C, P>::fsync(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::async::FatFs<D, T, C, P>::label<'b>(&mut self, &'b mut [u8]) -> hadris_io::fs_error::FsResult<core::option::Option<&'b str>, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::async::FatFs<D, T, C, P>::lookup(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::async::FatFs<D, T, C, P>::mkdir(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::async::FatFs<D, T, C, P>::open(&mut self, hadris_fs::node::NodeId, hadris_fs::ops::OpenMode) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::async::FatFs<D, T, C, P>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::async::FatFs<D, T, C, P>::read(&mut self, hadris_fs::node::NodeId, u64, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::async::FatFs<D, T, C, P>::readdir(&mut self, hadris_fs::node::NodeId, hadris_fs::dir::DirCursor) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fs::dir::DirEntry>, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::async::FatFs<D, T, C, P>::readlink<'b>(&mut self, hadris_fs::node::NodeId, &'b mut [u8]) -> hadris_io::fs_error::FsResult<&'b [u8], <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::async::FatFs<D, T, C, P>::rename(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::ops::RenameMode) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::async::FatFs<D, T, C, P>::rmdir(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::async::FatFs<D, T, C, P>::root(&self) -> hadris_fs::node::NodeId
-pub async fn hadris_fat::async::FatFs<D, T, C, P>::setattr(&mut self, hadris_fs::node::NodeId, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::async::FatFs<D, T, C, P>::stat(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::meta::Metadata, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::async::FatFs<D, T, C, P>::statfs(&mut self) -> hadris_io::fs_error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::async::FatFs<D, T, C, P>::sync(&mut self) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::async::FatFs<D, T, C, P>::truncate(&mut self, hadris_fs::node::NodeId, u64) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::async::FatFs<D, T, C, P>::unlink(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::async::FatFs<D, T, C, P>::write(&mut self, hadris_fs::node::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::async::format<D: hadris_storage::async::api::BlockDevice, C: hadris_fs::time::Clock>(D, hadris_fat::FormatOptions<C>) -> core::result::Result<hadris_fat::async::FatFs<D, hadris_fs::table::FixedTable<64>, C>, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_fat::async::FatFs<D>::clock(&self) -> &'static dyn hadris_fs::time::Clock
+pub async fn hadris_fat::async::FatFs<D>::cluster_chain(&mut self, hadris_fs::node::NodeId, impl core::ops::function::FnMut(u32)) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::async::FatFs<D>::code_page(&self) -> &'static dyn hadris_fs::code_page::CodePage
+pub fn hadris_fat::async::FatFs<D>::into_inner(self) -> D
+pub fn hadris_fat::async::FatFs<D>::is_read_only(&self) -> bool
+pub fn hadris_fat::async::FatFs<D>::kind(&self) -> hadris_fat_raw::entry::FatKind
+pub async fn hadris_fat::async::FatFs<D>::mount(D, hadris_fs::mount::MountOptions) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_fat::async::FatFs<D>::open_nodes(&self) -> usize
+pub async fn hadris_fat::async::FatFs<D>::unmount(self) -> core::result::Result<D, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_fat::async::FatFs<D>::utc_offset(&self) -> core::option::Option<i16>
+pub async fn hadris_fat::async::FatFs<D>::volume_label(&mut self) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fat::VolumeLabel>, <D as hadris_io::error::ErrorType>::Error>
+impl<D: hadris_storage::async::api::BlockDevice> hadris_fs::async::api::filesystem::FileSystem for hadris_fat::async::FatFs<D>
+pub type hadris_fat::async::FatFs<D>::DeviceError = <D as hadris_io::error::ErrorType>::Error
+pub fn hadris_fat::async::FatFs<D>::capabilities(&self) -> hadris_fs::caps::Capabilities
+pub async fn hadris_fat::async::FatFs<D>::close(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::async::FatFs<D>::create(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::async::FatFs<D>::forget(&mut self, hadris_fs::node::NodeId, u64)
+pub async fn hadris_fat::async::FatFs<D>::fsync(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::async::FatFs<D>::label<'b>(&mut self, &'b mut [u8]) -> hadris_io::fs_error::FsResult<core::option::Option<&'b str>, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::async::FatFs<D>::lookup(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::async::FatFs<D>::mkdir(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::async::FatFs<D>::open(&mut self, hadris_fs::node::NodeId, hadris_fs::ops::OpenMode) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::async::FatFs<D>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::async::FatFs<D>::read(&mut self, hadris_fs::node::NodeId, u64, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::async::FatFs<D>::readdir(&mut self, hadris_fs::node::NodeId, hadris_fs::dir::DirCursor) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fs::dir::DirEntry>, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::async::FatFs<D>::readlink<'b>(&mut self, hadris_fs::node::NodeId, &'b mut [u8]) -> hadris_io::fs_error::FsResult<&'b [u8], <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::async::FatFs<D>::rename(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::ops::RenameMode) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::async::FatFs<D>::rmdir(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::async::FatFs<D>::root(&self) -> hadris_fs::node::NodeId
+pub async fn hadris_fat::async::FatFs<D>::setattr(&mut self, hadris_fs::node::NodeId, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::async::FatFs<D>::stat(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::meta::Metadata, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::async::FatFs<D>::statfs(&mut self) -> hadris_io::fs_error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::async::FatFs<D>::sync(&mut self) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::async::FatFs<D>::truncate(&mut self, hadris_fs::node::NodeId, u64) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::async::FatFs<D>::unlink(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::async::FatFs<D>::write(&mut self, hadris_fs::node::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+impl<D> core::fmt::Debug for hadris_fat::async::FatFs<D>
+pub fn hadris_fat::async::FatFs<D>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub async fn hadris_fat::async::format<D: hadris_storage::async::api::BlockDevice>(D, hadris_fat::FormatOptions) -> core::result::Result<hadris_fat::async::FatFs<D>, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
 pub mod hadris_fat::exfat
 pub use hadris_fat::exfat::Detail
 pub use hadris_fat::exfat::raw
 pub mod hadris_fat::exfat::async
 pub use hadris_fat::exfat::async::check
-pub struct hadris_fat::exfat::async::ExFatFs<D, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock>
-impl<D: hadris_storage::async::api::BlockDevice, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock> hadris_fat::exfat::async::ExFatFs<D, T, C>
-pub fn hadris_fat::exfat::async::ExFatFs<D, T, C>::clock(&self) -> &C
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::cluster_chain(&mut self, hadris_fs::node::NodeId, impl core::ops::function::FnMut(u32)) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::async::ExFatFs<D, T, C>::cluster_size(&self) -> u32
-pub fn hadris_fat::exfat::async::ExFatFs<D, T, C>::into_inner(self) -> D
-pub fn hadris_fat::exfat::async::ExFatFs<D, T, C>::is_read_only(&self) -> bool
-pub fn hadris_fat::exfat::async::ExFatFs<D, T, C>::open_nodes(&self) -> usize
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::open_with(D, hadris_fat::exfat::MountOptions<T, C>) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::set_label(&mut self, core::option::Option<hadris_fat::exfat::VolumeLabel>) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::async::ExFatFs<D, T, C>::volume_id(&self) -> u32
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::volume_label(&mut self) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fat::exfat::VolumeLabel>, <D as hadris_io::error::ErrorType>::Error>
+pub struct hadris_fat::exfat::async::ExFatFs<D>
 impl<D: hadris_storage::async::api::BlockDevice> hadris_fat::exfat::async::ExFatFs<D>
-pub async fn hadris_fat::exfat::async::ExFatFs<D>::open(D) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
-impl<D, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock> core::fmt::Debug for hadris_fat::exfat::async::ExFatFs<D, T, C>
-pub fn hadris_fat::exfat::async::ExFatFs<D, T, C>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<D: hadris_storage::async::api::BlockDevice, T: hadris_fs::table::NodeTable<With<Node>hadris_io::async::MaybeSend>, C: hadris_fs::time::Clock> hadris_fs::async::api::filesystem::FileSystem for hadris_fat::exfat::async::ExFatFs<D, T, C>
-pub type hadris_fat::exfat::async::ExFatFs<D, T, C>::DeviceError = <D as hadris_io::error::ErrorType>::Error
-pub fn hadris_fat::exfat::async::ExFatFs<D, T, C>::capabilities(&self) -> hadris_fs::caps::Capabilities
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::close(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::create(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::async::ExFatFs<D, T, C>::forget(&mut self, hadris_fs::node::NodeId, u64)
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::fsync(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::label<'b>(&mut self, &'b mut [u8]) -> hadris_io::fs_error::FsResult<core::option::Option<&'b str>, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::lookup(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::mkdir(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::open(&mut self, hadris_fs::node::NodeId, hadris_fs::ops::OpenMode) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::read(&mut self, hadris_fs::node::NodeId, u64, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::readdir(&mut self, hadris_fs::node::NodeId, hadris_fs::dir::DirCursor) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fs::dir::DirEntry>, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::readlink<'b>(&mut self, hadris_fs::node::NodeId, &'b mut [u8]) -> hadris_io::fs_error::FsResult<&'b [u8], <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::rename(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::ops::RenameMode) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::rmdir(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::async::ExFatFs<D, T, C>::root(&self) -> hadris_fs::node::NodeId
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::setattr(&mut self, hadris_fs::node::NodeId, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::stat(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::meta::Metadata, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::statfs(&mut self) -> hadris_io::fs_error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::sync(&mut self) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::truncate(&mut self, hadris_fs::node::NodeId, u64) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::unlink(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::write(&mut self, hadris_fs::node::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::exfat::async::format<D: hadris_storage::async::api::BlockDevice, C: hadris_fs::time::Clock>(D, hadris_fat::exfat::FormatOptions<C>) -> core::result::Result<hadris_fat::exfat::async::ExFatFs<D, hadris_fs::table::FixedTable<64>, C>, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_fat::exfat::async::ExFatFs<D>::clock(&self) -> &'static dyn hadris_fs::time::Clock
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::cluster_chain(&mut self, hadris_fs::node::NodeId, impl core::ops::function::FnMut(u32)) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::async::ExFatFs<D>::cluster_size(&self) -> u32
+pub fn hadris_fat::exfat::async::ExFatFs<D>::into_inner(self) -> D
+pub fn hadris_fat::exfat::async::ExFatFs<D>::is_read_only(&self) -> bool
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::mount(D, hadris_fs::mount::MountOptions) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_fat::exfat::async::ExFatFs<D>::open_nodes(&self) -> usize
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::set_label(&mut self, core::option::Option<hadris_fat::exfat::VolumeLabel>) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::unmount(self) -> core::result::Result<D, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_fat::exfat::async::ExFatFs<D>::utc_offset(&self) -> core::option::Option<i16>
+pub fn hadris_fat::exfat::async::ExFatFs<D>::volume_id(&self) -> u32
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::volume_label(&mut self) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fat::exfat::VolumeLabel>, <D as hadris_io::error::ErrorType>::Error>
+impl<D: hadris_storage::async::api::BlockDevice> hadris_fs::async::api::filesystem::FileSystem for hadris_fat::exfat::async::ExFatFs<D>
+pub type hadris_fat::exfat::async::ExFatFs<D>::DeviceError = <D as hadris_io::error::ErrorType>::Error
+pub fn hadris_fat::exfat::async::ExFatFs<D>::capabilities(&self) -> hadris_fs::caps::Capabilities
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::close(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::create(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::async::ExFatFs<D>::forget(&mut self, hadris_fs::node::NodeId, u64)
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::fsync(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::label<'b>(&mut self, &'b mut [u8]) -> hadris_io::fs_error::FsResult<core::option::Option<&'b str>, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::lookup(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::mkdir(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::open(&mut self, hadris_fs::node::NodeId, hadris_fs::ops::OpenMode) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::read(&mut self, hadris_fs::node::NodeId, u64, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::readdir(&mut self, hadris_fs::node::NodeId, hadris_fs::dir::DirCursor) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fs::dir::DirEntry>, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::readlink<'b>(&mut self, hadris_fs::node::NodeId, &'b mut [u8]) -> hadris_io::fs_error::FsResult<&'b [u8], <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::rename(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::ops::RenameMode) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::rmdir(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::async::ExFatFs<D>::root(&self) -> hadris_fs::node::NodeId
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::setattr(&mut self, hadris_fs::node::NodeId, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::stat(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::meta::Metadata, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::statfs(&mut self) -> hadris_io::fs_error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::sync(&mut self) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::truncate(&mut self, hadris_fs::node::NodeId, u64) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::unlink(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::async::ExFatFs<D>::write(&mut self, hadris_fs::node::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+impl<D> core::fmt::Debug for hadris_fat::exfat::async::ExFatFs<D>
+pub fn hadris_fat::exfat::async::ExFatFs<D>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub async fn hadris_fat::exfat::async::format<D: hadris_storage::async::api::BlockDevice>(D, hadris_fat::exfat::FormatOptions) -> core::result::Result<hadris_fat::exfat::async::ExFatFs<D>, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
 pub mod hadris_fat::exfat::sync
 pub use hadris_fat::exfat::sync::check
-pub struct hadris_fat::exfat::sync::ExFatFs<D, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock>
-impl<D: hadris_storage::sync::api::BlockDevice, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock> hadris_fat::exfat::sync::ExFatFs<D, T, C>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::clock(&self) -> &C
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::cluster_chain(&mut self, hadris_fs::node::NodeId, impl core::ops::function::FnMut(u32)) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::cluster_size(&self) -> u32
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::into_inner(self) -> D
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::is_read_only(&self) -> bool
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::open_nodes(&self) -> usize
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::open_with(D, hadris_fat::exfat::MountOptions<T, C>) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::set_label(&mut self, core::option::Option<hadris_fat::exfat::VolumeLabel>) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::volume_id(&self) -> u32
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::volume_label(&mut self) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fat::exfat::VolumeLabel>, <D as hadris_io::error::ErrorType>::Error>
+pub struct hadris_fat::exfat::sync::ExFatFs<D>
 impl<D: hadris_storage::sync::api::BlockDevice> hadris_fat::exfat::sync::ExFatFs<D>
-pub fn hadris_fat::exfat::sync::ExFatFs<D>::open(D) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
-impl<D, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock> core::fmt::Debug for hadris_fat::exfat::sync::ExFatFs<D, T, C>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<D: hadris_storage::sync::api::BlockDevice, T: hadris_fs::table::NodeTable<With<Node>hadris_io::sync::MaybeSend>, C: hadris_fs::time::Clock> hadris_fs::sync::api::filesystem::FileSystem for hadris_fat::exfat::sync::ExFatFs<D, T, C>
-pub type hadris_fat::exfat::sync::ExFatFs<D, T, C>::DeviceError = <D as hadris_io::error::ErrorType>::Error
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::capabilities(&self) -> hadris_fs::caps::Capabilities
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::close(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::create(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::forget(&mut self, hadris_fs::node::NodeId, u64)
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::fsync(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::label<'b>(&mut self, &'b mut [u8]) -> hadris_io::fs_error::FsResult<core::option::Option<&'b str>, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::lookup(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::mkdir(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::open(&mut self, hadris_fs::node::NodeId, hadris_fs::ops::OpenMode) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::read(&mut self, hadris_fs::node::NodeId, u64, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::readdir(&mut self, hadris_fs::node::NodeId, hadris_fs::dir::DirCursor) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fs::dir::DirEntry>, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::readlink<'b>(&mut self, hadris_fs::node::NodeId, &'b mut [u8]) -> hadris_io::fs_error::FsResult<&'b [u8], <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::rename(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::ops::RenameMode) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::rmdir(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::root(&self) -> hadris_fs::node::NodeId
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::setattr(&mut self, hadris_fs::node::NodeId, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::stat(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::meta::Metadata, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::statfs(&mut self) -> hadris_io::fs_error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::sync(&mut self) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::truncate(&mut self, hadris_fs::node::NodeId, u64) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::unlink(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::write(&mut self, hadris_fs::node::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::format<D: hadris_storage::sync::api::BlockDevice, C: hadris_fs::time::Clock>(D, hadris_fat::exfat::FormatOptions<C>) -> core::result::Result<hadris_fat::exfat::sync::ExFatFs<D, hadris_fs::table::FixedTable<64>, C>, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
-pub struct hadris_fat::exfat::FormatOptions<C>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::clock(&self) -> &'static dyn hadris_fs::time::Clock
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::cluster_chain(&mut self, hadris_fs::node::NodeId, impl core::ops::function::FnMut(u32)) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::cluster_size(&self) -> u32
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::into_inner(self) -> D
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::is_read_only(&self) -> bool
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::mount(D, hadris_fs::mount::MountOptions) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::open_nodes(&self) -> usize
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::set_label(&mut self, core::option::Option<hadris_fat::exfat::VolumeLabel>) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::unmount(self) -> core::result::Result<D, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::utc_offset(&self) -> core::option::Option<i16>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::volume_id(&self) -> u32
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::volume_label(&mut self) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fat::exfat::VolumeLabel>, <D as hadris_io::error::ErrorType>::Error>
+impl<D: hadris_storage::sync::api::BlockDevice> hadris_fs::sync::api::filesystem::FileSystem for hadris_fat::exfat::sync::ExFatFs<D>
+pub type hadris_fat::exfat::sync::ExFatFs<D>::DeviceError = <D as hadris_io::error::ErrorType>::Error
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::capabilities(&self) -> hadris_fs::caps::Capabilities
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::close(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::create(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::forget(&mut self, hadris_fs::node::NodeId, u64)
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::fsync(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::label<'b>(&mut self, &'b mut [u8]) -> hadris_io::fs_error::FsResult<core::option::Option<&'b str>, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::lookup(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::mkdir(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::open(&mut self, hadris_fs::node::NodeId, hadris_fs::ops::OpenMode) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::read(&mut self, hadris_fs::node::NodeId, u64, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::readdir(&mut self, hadris_fs::node::NodeId, hadris_fs::dir::DirCursor) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fs::dir::DirEntry>, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::readlink<'b>(&mut self, hadris_fs::node::NodeId, &'b mut [u8]) -> hadris_io::fs_error::FsResult<&'b [u8], <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::rename(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::ops::RenameMode) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::rmdir(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::root(&self) -> hadris_fs::node::NodeId
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::setattr(&mut self, hadris_fs::node::NodeId, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::stat(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::meta::Metadata, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::statfs(&mut self) -> hadris_io::fs_error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::sync(&mut self) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::truncate(&mut self, hadris_fs::node::NodeId, u64) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::unlink(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::write(&mut self, hadris_fs::node::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+impl<D> core::fmt::Debug for hadris_fat::exfat::sync::ExFatFs<D>
+pub fn hadris_fat::exfat::sync::ExFatFs<D>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn hadris_fat::exfat::sync::format<D: hadris_storage::sync::api::BlockDevice>(D, hadris_fat::exfat::FormatOptions) -> core::result::Result<hadris_fat::exfat::sync::ExFatFs<D>, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub struct hadris_fat::exfat::FormatOptions
 impl hadris_fat::exfat::FormatOptions
 pub const fn hadris_fat::exfat::FormatOptions::new() -> Self
-impl<C> hadris_fat::exfat::FormatOptions<C>
-pub fn hadris_fat::exfat::FormatOptions<C>::with_alignment(self, u32) -> Self
-pub fn hadris_fat::exfat::FormatOptions<C>::with_clock<K: hadris_fs::time::Clock>(self, K) -> hadris_fat::exfat::FormatOptions<K>
-pub fn hadris_fat::exfat::FormatOptions<C>::with_cluster_size(self, u32) -> Self
-pub fn hadris_fat::exfat::FormatOptions<C>::with_fat_count(self, u8) -> Self
-pub fn hadris_fat::exfat::FormatOptions<C>::with_label(self, hadris_fat::exfat::VolumeLabel) -> Self
-pub fn hadris_fat::exfat::FormatOptions<C>::with_partition_offset(self, u64) -> Self
-pub fn hadris_fat::exfat::FormatOptions<C>::with_sector_size(self, u32) -> Self
-pub fn hadris_fat::exfat::FormatOptions<C>::with_volume_id(self, u32) -> Self
+impl hadris_fat::exfat::FormatOptions
+pub fn hadris_fat::exfat::FormatOptions::with_alignment(self, u32) -> Self
+pub fn hadris_fat::exfat::FormatOptions::with_clock(self, &'static dyn hadris_fs::time::Clock) -> Self
+pub fn hadris_fat::exfat::FormatOptions::with_cluster_size(self, u32) -> Self
+pub fn hadris_fat::exfat::FormatOptions::with_fat_count(self, u8) -> Self
+pub fn hadris_fat::exfat::FormatOptions::with_label(self, hadris_fat::exfat::VolumeLabel) -> Self
+pub fn hadris_fat::exfat::FormatOptions::with_partition_offset(self, u64) -> Self
+pub fn hadris_fat::exfat::FormatOptions::with_sector_size(self, u32) -> Self
+pub fn hadris_fat::exfat::FormatOptions::with_volume_id(self, u32) -> Self
 impl core::default::Default for hadris_fat::exfat::FormatOptions
 pub fn hadris_fat::exfat::FormatOptions::default() -> Self
-pub struct hadris_fat::exfat::MountOptions<T, C>
-impl hadris_fat::exfat::MountOptions
-pub const fn hadris_fat::exfat::MountOptions::new() -> Self
-impl<T, C> hadris_fat::exfat::MountOptions<T, C>
-pub fn hadris_fat::exfat::MountOptions<T, C>::is_read_only(&self) -> bool
-pub fn hadris_fat::exfat::MountOptions<T, C>::with_clock<K: hadris_fs::time::Clock>(self, K) -> hadris_fat::exfat::MountOptions<T, K>
-pub fn hadris_fat::exfat::MountOptions<T, C>::with_read_only(self) -> Self
-pub fn hadris_fat::exfat::MountOptions<T, C>::with_table<U: hadris_fs::table::NodeTable<Value = ()>>(self, U) -> hadris_fat::exfat::MountOptions<U, C>
-impl core::default::Default for hadris_fat::exfat::MountOptions
-pub fn hadris_fat::exfat::MountOptions::default() -> Self
+impl core::fmt::Debug for hadris_fat::exfat::FormatOptions
+pub fn hadris_fat::exfat::FormatOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_fat::exfat::VolumeLabel
 impl hadris_fat::exfat::VolumeLabel
 pub fn hadris_fat::exfat::VolumeLabel::as_utf16(&self) -> &[u16]
@@ -170,98 +162,69 @@ impl core::fmt::Display for hadris_fat::exfat::VolumeLabel
 pub fn hadris_fat::exfat::VolumeLabel::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub mod hadris_fat::sync
 pub use hadris_fat::sync::check
-pub struct hadris_fat::sync::FatFs<D, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock, P: hadris_fat::CodePage>
-impl<D: hadris_storage::sync::api::BlockDevice, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock, P: hadris_fat::CodePage> hadris_fat::sync::FatFs<D, T, C, P>
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::clock(&self) -> &C
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::cluster_chain(&mut self, hadris_fs::node::NodeId, impl core::ops::function::FnMut(u32)) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::code_page(&self) -> &P
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::into_inner(self) -> D
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::is_read_only(&self) -> bool
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::kind(&self) -> hadris_fat_raw::entry::FatKind
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::open_nodes(&self) -> usize
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::open_with(D, hadris_fat::MountOptions<T, C, P>) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::volume_label(&mut self) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fat::VolumeLabel>, <D as hadris_io::error::ErrorType>::Error>
+pub struct hadris_fat::sync::FatFs<D>
 impl<D: hadris_storage::sync::api::BlockDevice> hadris_fat::sync::FatFs<D>
-pub fn hadris_fat::sync::FatFs<D>::open(D) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
-impl<D, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock, P: hadris_fat::CodePage> core::fmt::Debug for hadris_fat::sync::FatFs<D, T, C, P>
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<D: hadris_storage::sync::api::BlockDevice, T: hadris_fs::table::NodeTable<With<Node>hadris_io::sync::MaybeSend>, C: hadris_fs::time::Clock, P: hadris_fat::CodePage + hadris_io::sync::MaybeSend> hadris_fs::sync::api::filesystem::FileSystem for hadris_fat::sync::FatFs<D, T, C, P>
-pub type hadris_fat::sync::FatFs<D, T, C, P>::DeviceError = <D as hadris_io::error::ErrorType>::Error
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::capabilities(&self) -> hadris_fs::caps::Capabilities
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::close(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::create(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::forget(&mut self, hadris_fs::node::NodeId, u64)
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::fsync(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::label<'b>(&mut self, &'b mut [u8]) -> hadris_io::fs_error::FsResult<core::option::Option<&'b str>, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::lookup(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::mkdir(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::open(&mut self, hadris_fs::node::NodeId, hadris_fs::ops::OpenMode) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::read(&mut self, hadris_fs::node::NodeId, u64, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::readdir(&mut self, hadris_fs::node::NodeId, hadris_fs::dir::DirCursor) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fs::dir::DirEntry>, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::readlink<'b>(&mut self, hadris_fs::node::NodeId, &'b mut [u8]) -> hadris_io::fs_error::FsResult<&'b [u8], <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::rename(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::ops::RenameMode) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::rmdir(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::root(&self) -> hadris_fs::node::NodeId
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::setattr(&mut self, hadris_fs::node::NodeId, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::stat(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::meta::Metadata, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::statfs(&mut self) -> hadris_io::fs_error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::sync(&mut self) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::truncate(&mut self, hadris_fs::node::NodeId, u64) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::unlink(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::sync::FatFs<D, T, C, P>::write(&mut self, hadris_fs::node::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::sync::format<D: hadris_storage::sync::api::BlockDevice, C: hadris_fs::time::Clock>(D, hadris_fat::FormatOptions<C>) -> core::result::Result<hadris_fat::sync::FatFs<D, hadris_fs::table::FixedTable<64>, C>, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
-pub struct hadris_fat::Ascii
-impl hadris_fat::CodePage for hadris_fat::Ascii
-pub fn hadris_fat::Ascii::decode(&self, u8) -> char
-pub fn hadris_fat::Ascii::encode(&self, char) -> core::option::Option<u8>
-pub struct hadris_fat::Cp437
-impl hadris_fat::CodePage for hadris_fat::Cp437
-pub fn hadris_fat::Cp437::decode(&self, u8) -> char
-pub fn hadris_fat::Cp437::encode(&self, char) -> core::option::Option<u8>
-pub struct hadris_fat::FormatOptions<C>
+pub fn hadris_fat::sync::FatFs<D>::clock(&self) -> &'static dyn hadris_fs::time::Clock
+pub fn hadris_fat::sync::FatFs<D>::cluster_chain(&mut self, hadris_fs::node::NodeId, impl core::ops::function::FnMut(u32)) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::sync::FatFs<D>::code_page(&self) -> &'static dyn hadris_fs::code_page::CodePage
+pub fn hadris_fat::sync::FatFs<D>::into_inner(self) -> D
+pub fn hadris_fat::sync::FatFs<D>::is_read_only(&self) -> bool
+pub fn hadris_fat::sync::FatFs<D>::kind(&self) -> hadris_fat_raw::entry::FatKind
+pub fn hadris_fat::sync::FatFs<D>::mount(D, hadris_fs::mount::MountOptions) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_fat::sync::FatFs<D>::open_nodes(&self) -> usize
+pub fn hadris_fat::sync::FatFs<D>::unmount(self) -> core::result::Result<D, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_fat::sync::FatFs<D>::utc_offset(&self) -> core::option::Option<i16>
+pub fn hadris_fat::sync::FatFs<D>::volume_label(&mut self) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fat::VolumeLabel>, <D as hadris_io::error::ErrorType>::Error>
+impl<D: hadris_storage::sync::api::BlockDevice> hadris_fs::sync::api::filesystem::FileSystem for hadris_fat::sync::FatFs<D>
+pub type hadris_fat::sync::FatFs<D>::DeviceError = <D as hadris_io::error::ErrorType>::Error
+pub fn hadris_fat::sync::FatFs<D>::capabilities(&self) -> hadris_fs::caps::Capabilities
+pub fn hadris_fat::sync::FatFs<D>::close(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::sync::FatFs<D>::create(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::sync::FatFs<D>::forget(&mut self, hadris_fs::node::NodeId, u64)
+pub fn hadris_fat::sync::FatFs<D>::fsync(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::sync::FatFs<D>::label<'b>(&mut self, &'b mut [u8]) -> hadris_io::fs_error::FsResult<core::option::Option<&'b str>, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::sync::FatFs<D>::lookup(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::sync::FatFs<D>::mkdir(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::sync::FatFs<D>::open(&mut self, hadris_fs::node::NodeId, hadris_fs::ops::OpenMode) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::sync::FatFs<D>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::sync::FatFs<D>::read(&mut self, hadris_fs::node::NodeId, u64, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::sync::FatFs<D>::readdir(&mut self, hadris_fs::node::NodeId, hadris_fs::dir::DirCursor) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fs::dir::DirEntry>, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::sync::FatFs<D>::readlink<'b>(&mut self, hadris_fs::node::NodeId, &'b mut [u8]) -> hadris_io::fs_error::FsResult<&'b [u8], <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::sync::FatFs<D>::rename(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::ops::RenameMode) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::sync::FatFs<D>::rmdir(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::sync::FatFs<D>::root(&self) -> hadris_fs::node::NodeId
+pub fn hadris_fat::sync::FatFs<D>::setattr(&mut self, hadris_fs::node::NodeId, &hadris_fs::meta::SetAttr) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::sync::FatFs<D>::stat(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::meta::Metadata, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::sync::FatFs<D>::statfs(&mut self) -> hadris_io::fs_error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::sync::FatFs<D>::sync(&mut self) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::sync::FatFs<D>::truncate(&mut self, hadris_fs::node::NodeId, u64) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::sync::FatFs<D>::unlink(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::sync::FatFs<D>::write(&mut self, hadris_fs::node::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+impl<D> core::fmt::Debug for hadris_fat::sync::FatFs<D>
+pub fn hadris_fat::sync::FatFs<D>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn hadris_fat::sync::format<D: hadris_storage::sync::api::BlockDevice>(D, hadris_fat::FormatOptions) -> core::result::Result<hadris_fat::sync::FatFs<D>, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub struct hadris_fat::FormatOptions
 impl hadris_fat::FormatOptions
 pub const fn hadris_fat::FormatOptions::new() -> Self
-impl<C> hadris_fat::FormatOptions<C>
-pub fn hadris_fat::FormatOptions<C>::with_clock<K: hadris_fs::time::Clock>(self, K) -> hadris_fat::FormatOptions<K>
-pub fn hadris_fat::FormatOptions<C>::with_cluster_size(self, u32) -> Self
-pub fn hadris_fat::FormatOptions<C>::with_fat_count(self, u8) -> Self
-pub fn hadris_fat::FormatOptions<C>::with_hidden_sectors(self, u32) -> Self
-pub fn hadris_fat::FormatOptions<C>::with_kind(self, hadris_fat_raw::entry::FatKind) -> Self
-pub fn hadris_fat::FormatOptions<C>::with_label(self, hadris_fat::VolumeLabel) -> Self
-pub fn hadris_fat::FormatOptions<C>::with_media(self, u8) -> Self
-pub fn hadris_fat::FormatOptions<C>::with_oem_name(self, [u8; 8]) -> Self
-pub fn hadris_fat::FormatOptions<C>::with_reserved_sectors(self, u16) -> Self
-pub fn hadris_fat::FormatOptions<C>::with_root_entries(self, u16) -> Self
-pub fn hadris_fat::FormatOptions<C>::with_sector_size(self, u32) -> Self
-pub fn hadris_fat::FormatOptions<C>::with_volume_id(self, u32) -> Self
+impl hadris_fat::FormatOptions
+pub fn hadris_fat::FormatOptions::with_clock(self, &'static dyn hadris_fs::time::Clock) -> Self
+pub fn hadris_fat::FormatOptions::with_cluster_size(self, u32) -> Self
+pub fn hadris_fat::FormatOptions::with_fat_count(self, u8) -> Self
+pub fn hadris_fat::FormatOptions::with_hidden_sectors(self, u32) -> Self
+pub fn hadris_fat::FormatOptions::with_kind(self, hadris_fat_raw::entry::FatKind) -> Self
+pub fn hadris_fat::FormatOptions::with_label(self, hadris_fat::VolumeLabel) -> Self
+pub fn hadris_fat::FormatOptions::with_media(self, u8) -> Self
+pub fn hadris_fat::FormatOptions::with_oem_name(self, [u8; 8]) -> Self
+pub fn hadris_fat::FormatOptions::with_reserved_sectors(self, u16) -> Self
+pub fn hadris_fat::FormatOptions::with_root_entries(self, u16) -> Self
+pub fn hadris_fat::FormatOptions::with_sector_size(self, u32) -> Self
+pub fn hadris_fat::FormatOptions::with_volume_id(self, u32) -> Self
 impl core::default::Default for hadris_fat::FormatOptions
 pub fn hadris_fat::FormatOptions::default() -> Self
-pub struct hadris_fat::MountOptions<T, C, P>
-impl hadris_fat::MountOptions
-pub const fn hadris_fat::MountOptions::new() -> Self
-impl<T, C, P> hadris_fat::MountOptions<T, C, P>
-pub fn hadris_fat::MountOptions<T, C, P>::is_read_only(&self) -> bool
-pub fn hadris_fat::MountOptions<T, C, P>::with_clock<K: hadris_fs::time::Clock>(self, K) -> hadris_fat::MountOptions<T, K, P>
-pub fn hadris_fat::MountOptions<T, C, P>::with_code_page<Q: hadris_fat::CodePage>(self, Q) -> hadris_fat::MountOptions<T, C, Q>
-pub fn hadris_fat::MountOptions<T, C, P>::with_read_only(self) -> Self
-pub fn hadris_fat::MountOptions<T, C, P>::with_table<U: hadris_fs::table::NodeTable<Value = ()>>(self, U) -> hadris_fat::MountOptions<U, C, P>
-impl core::default::Default for hadris_fat::MountOptions
-pub fn hadris_fat::MountOptions::default() -> Self
+impl core::fmt::Debug for hadris_fat::FormatOptions
+pub fn hadris_fat::FormatOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_fat::VolumeLabel(_)
 impl hadris_fat::VolumeLabel
 pub fn hadris_fat::VolumeLabel::as_bytes(&self) -> &[u8; 11]
 pub fn hadris_fat::VolumeLabel::as_str(&self) -> &str
 pub fn hadris_fat::VolumeLabel::new(&str) -> core::result::Result<Self, hadris_io::kind::ErrorKind>
-pub trait hadris_fat::CodePage
-pub fn hadris_fat::CodePage::decode(&self, u8) -> char
-pub fn hadris_fat::CodePage::encode(&self, char) -> core::option::Option<u8>
-impl hadris_fat::CodePage for hadris_fat::Ascii
-pub fn hadris_fat::Ascii::decode(&self, u8) -> char
-pub fn hadris_fat::Ascii::encode(&self, char) -> core::option::Option<u8>
-impl hadris_fat::CodePage for hadris_fat::Cp437
-pub fn hadris_fat::Cp437::decode(&self, u8) -> char
-pub fn hadris_fat::Cp437::encode(&self, char) -> core::option::Option<u8>
-impl<P: hadris_fat::CodePage + ?core::marker::Sized> hadris_fat::CodePage for &P
-pub fn &P::decode(&self, u8) -> char
-pub fn &P::encode(&self, char) -> core::option::Option<u8>

@@ -5,6 +5,7 @@
 #[path = "common/exfat.rs"]
 mod common;
 use common::FsPaths;
+use hadris_fs::MountOptions;
 
 use common::{Geometry, Tool, clean, fsck, fsck_with, le32, put32};
 use hadris_fat::exfat::Detail;
@@ -20,7 +21,7 @@ fn mount_err(image: Vec<u8>) -> ErrorKind {
 }
 
 fn mount_detail(image: Vec<u8>) -> (ErrorKind, Option<Detail>) {
-    let err = ExFatFs::open(common::device(image, 512)).unwrap_err();
+    let err = ExFatFs::mount(common::device(image, 512), MountOptions::new()).unwrap_err();
     (err.kind(), Detail::of(err.error()))
 }
 
@@ -72,7 +73,8 @@ fn mount_rejects_bad_boot_sectors() {
         (ErrorKind::Corrupt, Some(Detail::UpcaseTable)),
         "up-case table"
     );
-    let err = ExFatFs::open(common::device(vec![0u8; 1 << 20], 512)).unwrap_err();
+    let err =
+        ExFatFs::mount(common::device(vec![0u8; 1 << 20], 512), MountOptions::new()).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::NotRecognized);
     assert_eq!(
         err.into_device().into_inner().len(),
@@ -97,7 +99,8 @@ fn damaged_main_boot_regions_mount_from_the_backup() {
     for (what, damage) in damages {
         let mut image = base.clone();
         damage(&mut image);
-        let mut fs = ExFatFs::open(common::device(image.clone(), 512)).unwrap();
+        let mut fs =
+            ExFatFs::mount(common::device(image.clone(), 512), MountOptions::new()).unwrap();
         assert!(fs.is_read_only(), "{what}");
         assert_eq!(fs.read_to_vec("/kept.txt").unwrap(), b"backup", "{what}");
         let root = fs.root();

@@ -4,15 +4,16 @@
 #[path = "common/fatfs.rs"]
 mod common;
 use common::{FsPaths, VolumePaths};
+use hadris_fs::MountOptions;
 
 use std::path::Path;
 use std::process::Command;
 
 use common::{CASES, Found, block_on, check_dev};
 use hadris_fat::sync::{FatFs, check, format};
-use hadris_fat::{Detail, FatKind, FormatOptions, MountOptions, VolumeLabel};
+use hadris_fat::{Detail, FatKind, FormatOptions, VolumeLabel};
 use hadris_fs::sync::{FileSystem, Volume};
-use hadris_fs::{CheckReport, ErrorKind, HeapTable, Location, Name, RenameMode, SetAttr, Severity};
+use hadris_fs::{CheckReport, ErrorKind, Location, Name, RenameMode, SetAttr, Severity};
 use hadris_io::Error;
 use hadris_storage::sync::BlockDevice;
 use hadris_storage::{BlockIndex, BlockSize, MemDevice};
@@ -29,12 +30,8 @@ fn device(image: Vec<u8>) -> Device {
     MemDevice::new(image, BlockSize::new(512).unwrap())
 }
 
-fn mount(image: Vec<u8>) -> FatFs<Device, HeapTable> {
-    FatFs::open_with(
-        device(image),
-        MountOptions::new().with_table(HeapTable::new()),
-    )
-    .unwrap()
+fn mount(image: Vec<u8>) -> FatFs<Device> {
+    FatFs::mount(device(image), MountOptions::new()).unwrap()
 }
 
 /// Every finding, with a cluster bitmap of `bitmap` bytes.
@@ -817,9 +814,7 @@ fn interrupted_operations_leave_only_repairable_leftovers() {
                     inner: device(before.clone()),
                     budget: left.clone(),
                 };
-                let mut fs =
-                    FatFs::open_with(dev, MountOptions::new().with_table(HeapTable::<()>::new()))
-                        .unwrap();
+                let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
                 let root = fs.root();
                 let meta = SetAttr::new();
                 let result = match op {

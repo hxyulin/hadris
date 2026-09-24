@@ -1,4 +1,4 @@
-use hadris_fs::{Clock, DateTime, ErrorKind, FixedTable, FsResult, MountError};
+use hadris_fs::{DateTime, ErrorKind, FsResult, MountError, MountOptions};
 
 use super::block_io::new_block;
 use super::fatfs::FatFs;
@@ -6,7 +6,7 @@ use super::rawio;
 use super::storage::BlockDevice;
 use hadris_fat_raw::layout::{self, BootFields, LayoutError, Request};
 
-use crate::{FormatOptions, MountOptions};
+use crate::FormatOptions;
 
 fn layout_error(err: LayoutError) -> ErrorKind {
     match err {
@@ -25,7 +25,7 @@ fn volume_id(now: DateTime) -> u32 {
 io_transform! {
 
 /// Formats `dev` as a FAT12, FAT16 or FAT32 volume that fills it, and mounts
-/// it with the default node table and code page and the options' clock.
+/// it with the default [`MountOptions`] and the options' clock.
 ///
 /// The volume uses every whole sector of the device; pass a
 /// `hadris_storage` `Partition` to format a partition. Everything before the
@@ -43,19 +43,19 @@ io_transform! {
 /// written unless the options are valid; a format that fails later, or is
 /// interrupted, leaves a device that does not mount. On any failure,
 /// including the final mount, the [`MountError`] gives `dev` back.
-pub async fn format<D: BlockDevice, C: Clock>(
+pub async fn format<D: BlockDevice>(
     mut dev: D,
-    options: FormatOptions<C>,
-) -> Result<FatFs<D, FixedTable<64>, C>, MountError<D, D::Error>> {
+    options: FormatOptions,
+) -> Result<FatFs<D>, MountError<D, D::Error>> {
     if let Err(error) = write_volume(&mut dev, &options).await {
         return Err(MountError::new(error, dev));
     }
-    FatFs::open_with(dev, MountOptions::new().with_clock(options.clock)).await
+    FatFs::mount(dev, MountOptions::new().with_clock(options.clock)).await
 }
 
-async fn write_volume<D: BlockDevice, C: Clock>(
+async fn write_volume<D: BlockDevice>(
     dev: &mut D,
-    options: &FormatOptions<C>,
+    options: &FormatOptions,
 ) -> FsResult<(), D::Error> {
     let block_size = dev.block_size().get() as usize;
     let mut block = new_block(block_size)?;

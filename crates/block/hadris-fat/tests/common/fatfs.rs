@@ -1,14 +1,14 @@
 #![allow(dead_code)]
 
+use hadris_fs::MountOptions;
 use std::path::Path;
 use std::process::Command;
 
 use hadris_fat::sync::{FatFs, format};
-use hadris_fat::{CodePage, Detail, FatKind, FormatOptions, MountOptions, VolumeLabel};
+use hadris_fat::{Detail, FatKind, FormatOptions, VolumeLabel};
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{
-    Attributes, CheckReport, Clock, DirCursor, Finding, HeapTable, Location, Name, NodeId,
-    NodeTable, SetAttr, Severity,
+    Attributes, CheckReport, DirCursor, Finding, Location, Name, NodeId, SetAttr, Severity,
 };
 
 #[path = "paths.rs"]
@@ -18,7 +18,7 @@ use hadris_storage::{BlockSize, MemDevice};
 pub use paths::sync::{FsPaths, VolumePaths};
 
 pub type Device = MemDevice<Vec<u8>>;
-pub type Fs = FatFs<Device, HeapTable>;
+pub type Fs = FatFs<Device>;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Case {
@@ -74,8 +74,10 @@ pub const INNER: &str = "/Nested Dir/inner";
 pub const INNER_FILES: usize = 40;
 /// A short entry whose name starts with `0xE5`, stored as `0x05`.
 pub const KANJI_STORED: &[u8; 11] = b"XABC    TXT";
+/// Read through the default `Cp437`, where `0xE5` is U+03C3.
+pub const KANJI_NAME: &str = "\u{3C3}ABC.TXT";
 /// Read through `Ascii`, which escapes `0xE5` as U+F7E5.
-pub const KANJI_NAME: &str = "\u{F7E5}ABC.TXT";
+pub const KANJI_ASCII: &str = "\u{F7E5}ABC.TXT";
 
 /// 204 UTF-16 units, 404 bytes of UTF-8.
 pub fn huge_name() -> String {
@@ -107,10 +109,7 @@ fn mkdir(fs: &mut Fs, dir: NodeId, text: &str) -> NodeId {
 }
 
 /// The clusters of `node`'s chain.
-pub fn chain<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage>(
-    fs: &mut FatFs<D, T, C, P>,
-    node: NodeId,
-) -> Vec<u32> {
+pub fn chain<D: BlockDevice>(fs: &mut FatFs<D>, node: NodeId) -> Vec<u32> {
     let mut clusters = Vec::new();
     fs.cluster_chain(node, |cluster| clusters.push(cluster))
         .unwrap();
@@ -194,9 +193,9 @@ pub fn build(case: Case) -> Vec<u8> {
 pub fn formatted(case: Case, options: FormatOptions) -> Fs {
     let dev = device(case, vec![0u8; case.size as usize]);
     let options = options.with_kind(case.kind).with_sector_size(case.sector);
-    FatFs::open_with(
+    FatFs::mount(
         format(dev, options).unwrap().into_inner(),
-        MountOptions::new().with_table(HeapTable::new()),
+        MountOptions::new(),
     )
     .unwrap()
 }
@@ -210,11 +209,7 @@ pub fn blank(case: Case) -> Vec<u8> {
 
 /// Mounts a copy of `image` afresh, to read back what was written.
 pub fn mount(case: Case, image: &[u8]) -> Fs {
-    FatFs::open_with(
-        device(case, image.to_vec()),
-        MountOptions::new().with_table(HeapTable::new()),
-    )
-    .unwrap()
+    FatFs::mount(device(case, image.to_vec()), MountOptions::new()).unwrap()
 }
 
 /// The names in the directory at `path`, in directory order.
@@ -237,7 +232,7 @@ pub fn read(fs: &mut Fs, path: &str) -> Vec<u8> {
 
 /// Mounts `dev` with a heap node table.
 pub fn mount_dev(dev: Device) -> Fs {
-    FatFs::open_with(dev, MountOptions::new().with_table(HeapTable::new())).unwrap()
+    FatFs::mount(dev, MountOptions::new()).unwrap()
 }
 
 pub fn device(case: Case, image: Vec<u8>) -> Device {

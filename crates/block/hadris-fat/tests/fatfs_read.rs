@@ -3,28 +3,25 @@
 #[path = "common/fatfs.rs"]
 mod common;
 use common::{FsPaths, VolumePaths};
+use hadris_fs::{Ascii, MountOptions};
 
 use std::collections::BTreeMap;
 use std::io::Read as _;
 
 use common::{CASES, Case, Device, INNER, INNER_FILES, KANJI_NAME, LONG_NAME, UNICODE_NAME};
+use hadris_fat::FatKind;
 use hadris_fat::sync::FatFs;
-use hadris_fat::{FatKind, MountOptions};
 use hadris_fs::sync::{FileSystem, Volume};
 use hadris_fs::{
-    Attributes, CaseRule, Charset, DirCursor, ErrorKind, FileType, FixedTable, HeapTable, Name,
-    NodeId, NodeTable, OpenOptions, SetAttr,
+    Attributes, CaseRule, Charset, DirCursor, ErrorKind, FileType, Name, NodeId, OpenOptions,
+    SetAttr,
 };
 use hadris_storage::{BlockSize, MemDevice};
 
-type Fs<T = HeapTable> = FatFs<Device, T>;
+type Fs = FatFs<Device>;
 
 fn open(case: Case, image: Vec<u8>) -> Fs {
-    FatFs::open_with(
-        common::device(case, image),
-        MountOptions::new().with_table(HeapTable::new()),
-    )
-    .unwrap()
+    FatFs::mount(common::device(case, image), MountOptions::new()).unwrap()
 }
 
 fn name(text: &str) -> &Name {
@@ -43,7 +40,7 @@ fn swap_case(text: &str) -> String {
         .collect()
 }
 
-fn list<T: NodeTable>(fs: &mut Fs<T>, dir: NodeId) -> Vec<(String, hadris_fs::DirEntry)> {
+fn list(fs: &mut Fs, dir: NodeId) -> Vec<(String, hadris_fs::DirEntry)> {
     let mut cursor = DirCursor::START;
     let mut out = Vec::new();
     while let Some(entry) = fs.readdir(dir, cursor).unwrap() {
@@ -53,7 +50,7 @@ fn list<T: NodeTable>(fs: &mut Fs<T>, dir: NodeId) -> Vec<(String, hadris_fs::Di
     out
 }
 
-fn read_all<T: NodeTable>(fs: &mut Fs<T>, node: NodeId) -> Vec<u8> {
+fn read_all(fs: &mut Fs, node: NodeId) -> Vec<u8> {
     let mut out = Vec::new();
     let mut chunk = [0u8; 777];
     loop {
@@ -289,7 +286,11 @@ fn parent_walks_up_to_the_root() {
 #[test]
 fn stats_count_clusters() {
     for case in CASES {
-        let mut fs = FatFs::open(common::device(case, common::blank(case))).unwrap();
+        let mut fs = FatFs::mount(
+            common::device(case, common::blank(case)),
+            MountOptions::new(),
+        )
+        .unwrap();
         let empty = fs.statfs().unwrap();
         let reserved = u64::from(case.kind == FatKind::Fat32);
         assert_eq!(
@@ -318,9 +319,9 @@ fn stats_count_clusters() {
 fn full_table_limits_pins_without_touching_the_disk() {
     let case = CASES[1];
     let image = common::build(case);
-    let mut fs: Fs<FixedTable<2>> = FatFs::open_with(
+    let mut fs: Fs = FatFs::mount(
         common::device(case, image.clone()),
-        MountOptions::new().with_table(FixedTable::new()),
+        MountOptions::new().with_node_limit(2),
     )
     .unwrap();
     let root = fs.root();
@@ -430,9 +431,9 @@ fn cursors_resume_and_stay_at_the_end() {
 fn capabilities_and_write_methods_are_read_only() {
     let case = CASES[0];
     let image = common::build(case);
-    let mut fs = FatFs::open_with(
+    let mut fs = FatFs::mount(
         common::device(case, image.clone()),
-        MountOptions::new().with_read_only(),
+        MountOptions::new().read_only(),
     )
     .unwrap();
     assert!(fs.is_read_only());
@@ -463,7 +464,11 @@ fn capabilities_and_write_methods_are_read_only() {
     FileSystem::forget(&mut fs, file, 1);
     assert_eq!(fs.into_inner().into_inner(), image);
 
-    let fs = FatFs::open(common::device(case, common::build(case))).unwrap();
+    let fs = FatFs::mount(
+        common::device(case, common::build(case)),
+        MountOptions::new(),
+    )
+    .unwrap();
     assert!(!fs.is_read_only());
     assert!(format!("{fs:?}").contains("Fat12"));
 }
@@ -474,21 +479,25 @@ fn rejects_what_it_cannot_mount() {
     let image = common::build(case);
     let big_blocks = MemDevice::new(image.clone(), BlockSize::new(8192).unwrap());
     assert_eq!(
-        FatFs::open(big_blocks).unwrap_err().kind(),
+        FatFs::mount(big_blocks, MountOptions::new())
+            .unwrap_err()
+            .kind(),
         ErrorKind::Unsupported
     );
     let blank = common::device(case, vec![0u8; 64 * 1024]);
     assert_eq!(
-        FatFs::open(blank).unwrap_err().kind(),
+        FatFs::mount(blank, MountOptions::new()).unwrap_err().kind(),
         ErrorKind::NotRecognized
     );
     let truncated = common::device(case, image[..image.len() / 2].to_vec());
     assert_eq!(
-        FatFs::open(truncated).unwrap_err().kind(),
+        FatFs::mount(truncated, MountOptions::new())
+            .unwrap_err()
+            .kind(),
         ErrorKind::Corrupt
     );
     let short = common::device(case, image[..512].to_vec());
-    let err = FatFs::open(short).unwrap_err();
+    let err = FatFs::mount(short, MountOptions::new()).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Corrupt);
     assert_eq!(
         hadris_fat::Detail::of(err.error()),
@@ -503,19 +512,20 @@ fn failed_opens_give_the_device_back() {
     corrupt[11..13].copy_from_slice(&0u16.to_le_bytes());
     let images = [vec![0u8; 64 * 1024], corrupt];
     for image in images {
-        let err = FatFs::open(common::device(case, image.clone())).unwrap_err();
+        let err =
+            FatFs::mount(common::device(case, image.clone()), MountOptions::new()).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::NotRecognized);
         assert_eq!(err.device().get_ref(), &image);
         let (error, dev) = err.into_parts();
         assert_eq!(error.kind(), ErrorKind::NotRecognized);
         assert_eq!(dev.into_inner(), image);
 
-        let options = MountOptions::new().with_read_only();
-        let err = FatFs::open_with(common::device(case, image.clone()), options).unwrap_err();
+        let options = MountOptions::new().read_only();
+        let err = FatFs::mount(common::device(case, image.clone()), options).unwrap_err();
         assert_eq!(err.into_device().into_inner(), image);
     }
     let big_blocks = MemDevice::new(common::build(case), BlockSize::new(8192).unwrap());
-    let err = FatFs::open(big_blocks).unwrap_err();
+    let err = FatFs::mount(big_blocks, MountOptions::new()).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Unsupported);
     assert_eq!(err.into_device().get_ref(), &common::build(case));
 }
@@ -523,17 +533,14 @@ fn failed_opens_give_the_device_back() {
 #[test]
 fn mount_errors_convert_with_the_question_mark() {
     fn plain(dev: Device) -> hadris_fs::FsResult<Fs, core::convert::Infallible> {
-        Ok(FatFs::open_with(
-            dev,
-            MountOptions::new().with_table(HeapTable::new()),
-        )?)
+        Ok(FatFs::mount(dev, MountOptions::new())?)
     }
     fn io(dev: Device) -> std::io::Result<()> {
-        FatFs::open(dev)?;
+        FatFs::mount(dev, MountOptions::new())?;
         Ok(())
     }
     fn boxed(dev: Device) -> Result<(), Box<dyn std::error::Error>> {
-        FatFs::open(dev)?;
+        FatFs::mount(dev, MountOptions::new())?;
         Ok(())
     }
     let case = CASES[0];
@@ -549,7 +556,13 @@ fn mount_errors_convert_with_the_question_mark() {
         Some(hadris_fat::Detail::BootSector)
     );
     assert_eq!(boxed(blank()).unwrap_err().to_string(), err.to_string());
-    assert!(format!("{:?}", FatFs::open(blank()).unwrap_err()).starts_with("MountError"));
+    assert!(
+        format!(
+            "{:?}",
+            FatFs::mount(blank(), MountOptions::new()).unwrap_err()
+        )
+        .starts_with("MountError")
+    );
 }
 
 #[test]
@@ -613,7 +626,8 @@ fn ascii_short_names_with_high_bytes_stay_distinct() {
             * 32;
         image[at..at + 11].copy_from_slice(to);
     }
-    let mut fs = open(case, image);
+    let options = MountOptions::new().with_code_page(&Ascii);
+    let mut fs = FatFs::mount(common::device(case, image), options).unwrap();
     let root = fs.root();
     let names: Vec<String> = list(&mut fs, root).into_iter().map(|(n, _)| n).collect();
     assert_eq!(names, ["\u{F782}AB.TXT", "\u{F783}AB.TXT"]);
@@ -776,15 +790,15 @@ fn fat16_layout(clusters: u32) -> Vec<u8> {
 #[test]
 fn fat16_layouts_are_limited_to_what_fat16_addresses() {
     let device = |image| MemDevice::new(image, BlockSize::new(512).unwrap());
-    let mut fs = FatFs::open(device(fat16_layout(65_524))).unwrap();
+    let mut fs = FatFs::mount(device(fat16_layout(65_524)), MountOptions::new()).unwrap();
     assert_eq!(fs.kind(), FatKind::Fat16);
     assert_eq!(fs.statfs().unwrap().total_blocks(), 65_524);
-    let mut fs = FatFs::open(device(fat16_layout(4_084))).unwrap();
+    let mut fs = FatFs::mount(device(fat16_layout(4_084)), MountOptions::new()).unwrap();
     assert_eq!(fs.kind(), FatKind::Fat12);
     assert_eq!(fs.statfs().unwrap().total_blocks(), 4_084);
     for clusters in [65_525, 65_600] {
         assert_eq!(
-            FatFs::open(device(fat16_layout(clusters)))
+            FatFs::mount(device(fat16_layout(clusters)), MountOptions::new())
                 .unwrap_err()
                 .kind(),
             ErrorKind::Corrupt,

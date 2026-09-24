@@ -4,7 +4,7 @@
 //! The crate root defines the mode-independent types every Hadris filesystem
 //! speaks: node identity, file types, byte names, timestamps and clocks,
 //! metadata and attribute changes, capabilities, errors, directory entries
-//! and cursors, open options, path policies, node tables, and what checkers
+//! and cursors, open and mount options, path policies, FAT code pages, and what checkers
 //! report ([`Finding`], [`Severity`], [`CheckReport`]). None of them does
 //! I/O.
 //!
@@ -26,7 +26,7 @@
 //!
 //! | Feature | Default | Purpose |
 //! |---|---:|---|
-//! | `alloc` | No | [`OwnedName`], [`PathError`], [`HeapTable`], `copy_tree`, the async `Volume`, and the writer input [`tree`] with `ContentReader` and `TreeExt` in each mode |
+//! | `alloc` | No | [`OwnedName`], [`PathError`], `copy_tree`, the async `Volume`, and the writer input [`tree`] with `ContentReader` and `TreeExt` in each mode |
 //! | `std` | No | Implies `alloc`; adds [`SystemClock`], the sync `Volume` and its `std::io` handles, `extract_to_host` and `import_from_host` in `sync`, `Content::path` and `Tree::from_fs`, and conversions to `std::io::Error` |
 //! | `sync` | No | The blocking API in `sync` |
 //! | `async` | No | The same API with `Send` futures in `r#async` |
@@ -45,6 +45,7 @@ extern crate std;
 
 mod caps;
 mod check;
+mod code_page;
 #[cfg(feature = "contract")]
 mod contract;
 mod dir;
@@ -52,16 +53,17 @@ mod error;
 mod extent;
 mod fuse;
 mod meta;
+mod mount;
 mod name;
 mod node;
 mod ops;
-mod table;
 mod time;
 #[cfg(feature = "alloc")]
 pub mod tree;
 
 pub use caps::{Capabilities, CaseRule, Charset, Field, FsStats, Stored};
 pub use check::{CheckReport, Finding, Severity};
+pub use code_page::{Ascii, CodePage, Cp437};
 #[cfg(feature = "contract")]
 pub use contract::ContractViolation;
 pub use dir::{DirCursor, DirEntry};
@@ -72,6 +74,7 @@ pub use extent::Extent;
 pub use fuse::FuseOnError;
 pub use hadris_io::SeekFrom;
 pub use meta::{Attributes, Metadata, Owner, Permissions, SetAttr, SetMetadata};
+pub use mount::MountOptions;
 #[cfg(feature = "alloc")]
 pub use name::OwnedName;
 pub use name::{Name, NameBuf, NameError};
@@ -79,9 +82,6 @@ pub use node::{FileType, NodeId};
 pub use ops::{
     DeviceKind, DeviceNumber, OpenMode, OpenOptions, OpenOptionsError, RenameMode, Resolve,
 };
-#[cfg(feature = "alloc")]
-pub use table::HeapTable;
-pub use table::{FixedTable, NodeTable, TableFull};
 #[cfg(feature = "std")]
 pub use time::SystemClock;
 pub use time::{CivilDate, CivilTime, Clock, DateTime, DateTimeError, FileTimes, NoClock};

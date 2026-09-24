@@ -10,6 +10,12 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-fs (V3):** `MountOptions`, one mount configuration for every
+  format: `read_only`, `with_clock`, `with_utc_offset`, `with_code_page`,
+  `with_node_limit` and `backup_boot`, with matching getters. The default
+  is read-write, `NoClock`, UTC, CP437 and no node cap on every target.
+  `CodePage` (now `Send + Sync`), `Ascii` and `Cp437` moved here from
+  `hadris-fat`.
 - **hadris-fat-raw (V3):** New crate, version 0.1.0: the on-disk layer of
   FAT12/16/32 and exFAT, `no_std` and allocation-free, with its own
   version. It holds the boot sector, BPB, FSInfo and directory entry
@@ -586,6 +592,23 @@ Each published package owns its version and may be released independently.
   for Joliet), and a UDF volume's is its logical volume identifier. UDF
   listings read each entry's file entry, so a damaged entry fails the
   listing.
+- **hadris-fat (V3):** `FatFs<D>` and `ExFatFs<D>` have one type
+  parameter and need `alloc`. They mount with `mount(dev, MountOptions)`
+  and give the device back with `unmount`, which syncs first; `open` and
+  `open_with` are removed. The node table is private and unbounded unless
+  `MountOptions::with_node_limit` caps it. The clock, code page and UTC
+  offset are runtime options, and `clock()` and `code_page()` return
+  `&'static dyn` references. Short names default to CP437 instead of
+  `Ascii`. `FormatOptions::with_clock` (FAT and exFAT) takes a
+  `&'static dyn Clock`, and `FormatOptions` is `Copy` with no type
+  parameter. Without `alloc` the crate keeps `check` and the raw layer.
+- **hadris-fat (V3):** FAT timestamps are read and written as local time
+  in the zone `MountOptions::with_utc_offset` names, and carry that offset.
+  exFAT reads times without a valid offset field in that zone and stamps
+  new times with it. `hadris_fat_raw::date::{decode, encode}` and
+  `exfat::decode_time` take the zone.
+- **hadris-block (V3):** `OpenVolume` needs `alloc`, as the FAT drivers do;
+  detection does not.
 - **hadris-fat (V3):** `sync::check`, `r#async::check` and
   `async_send::check` are the `hadris-fat-raw` checker: they take an
   unmounted device and a scratch buffer instead of a `FatFs`, and report
@@ -1046,6 +1069,11 @@ Each published package owns its version and may be released independently.
 
 ### Removed
 
+- **hadris-fs (V3):** `NodeTable`, `FixedTable`, `HeapTable` and
+  `TableFull`; drivers keep their node tables private.
+- **hadris-fat (V3):** `MountOptions` and `exfat::MountOptions`, replaced by
+  `hadris_fs::MountOptions`, and `CodePage`, `Ascii` and `Cp437`, which
+  moved to `hadris-fs`.
 - **hadris-fs (V3):** `FsDriver`, the `&self` `FileSystem`, `AsDriver`,
   `Access`, `OpenFile`, the `File<A>` and `Dir<A>` handles, `DirItem`,
   `DriverExt`, `PathExt`, the `Lexical`, `Posix`, `Resolver` and
