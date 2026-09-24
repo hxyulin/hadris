@@ -963,6 +963,12 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-storage (V3):** On macOS a `std::fs::File` opened on a disk
+  device node such as `/dev/disk4` reports its size from the
+  `DKIOCGETBLOCKCOUNT` and `DKIOCGETBLOCKSIZE` ioctls. `stat` and `lseek`
+  give 0 there, so the device had no blocks and every image on it failed to
+  open. The `hadris-iso verify` command measures its input the same way
+  instead of from file metadata, which is 0 for devices on Linux too.
 - **hadris-fs (V3):** `TreeExt::from_filesystem`, `copy_tree` and
   `extract_to_host` fail with `ErrorKind::Corrupt` when a directory entry
   leads back to a directory on its own path, as a corrupt ISO 9660 or UDF

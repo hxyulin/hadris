@@ -496,6 +496,7 @@ dependencies = [
  "clap",
  "hadris-fs",
  "hadris-iso",
+ "hadris-storage",
  "libc",
  "tempfile",
  "tracing",
