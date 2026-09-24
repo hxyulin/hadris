@@ -30,21 +30,6 @@ fn file_line(size: u64, content: &[u8], path: &str) -> String {
     format!("file {} {:016x} {}", size, fnv1a64(content), path)
 }
 
-// Read up to CONTENT_CAP bytes via a sync reader's inherent `read`.
-macro_rules! read_head {
-    ($reader:expr) => {{
-        let mut buf = [0u8; CONTENT_CAP];
-        let mut filled = 0usize;
-        while filled < CONTENT_CAP {
-            match $reader.read(&mut buf[filled..]) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => filled += n,
-            }
-        }
-        buf[..filled].to_vec()
-    }};
-}
-
 /// Lists any `hadris-fs` driver through the node API.
 fn dump_driver<D: hadris_fs::sync::FsDriver>(fs: &mut D) -> Vec<String> {
     use hadris_fs::{DirCursor, FileType, NameBuf};
@@ -108,41 +93,21 @@ fn dump_fat(data: &[u8]) -> Vec<String> {
 }
 
 fn dump_exfat(data: &[u8]) -> Vec<String> {
-    use hadris_fat::exfat::{ExFatFileReader, ExFatVolume};
-    use hadris_io::legacy::sync::Read;
+    use hadris_fat::exfat::sync::ExFatFs;
+    use hadris_fat::exfat::MountOptions;
+    use hadris_fs::HeapTable;
+    use hadris_storage::{BlockSize, MemDevice};
 
-    let mut lines = Vec::new();
-    let Ok(fs) = ExFatVolume::open(Cursor::new(data)) else {
-        return lines;
-    };
-    let mut budget = ENTRY_BUDGET;
-    let mut stack = vec![(fs.root_dir(), String::from("/"), 0u32)];
-    while let Some((dir, path, depth)) = stack.pop() {
-        if depth > DEPTH_CAP {
-            continue;
-        }
-        for item in dir.entries() {
-            if budget == 0 {
-                return lines;
-            }
-            budget -= 1;
-            let Ok(entry) = item else { continue };
-            let child_path = format!("{path}{}", entry.name);
-            if entry.is_directory() {
-                lines.push(format!("dir {child_path}"));
-                if let Ok(child) = dir.open_dir(&entry.name) {
-                    stack.push((child, format!("{child_path}/"), depth + 1));
-                }
-            } else {
-                let content = match ExFatFileReader::new(&fs, &entry) {
-                    Ok(mut reader) => read_head!(reader),
-                    Err(_) => Vec::new(),
-                };
-                lines.push(file_line(entry.size(), &content, &child_path));
-            }
-        }
+    let mut bytes = data.to_vec();
+    bytes.resize(bytes.len().next_multiple_of(512), 0);
+    let dev = MemDevice::new(bytes, BlockSize::new(512).unwrap());
+    let options = MountOptions::new()
+        .with_read_only()
+        .with_table(HeapTable::new());
+    match ExFatFs::open_with(dev, options) {
+        Ok(mut fs) => dump_driver(&mut fs),
+        Err(_) => Vec::new(),
     }
-    lines
 }
 
 fn dump_ntfs(data: &[u8]) -> Vec<String> {

@@ -10,12 +10,13 @@ gate).
 |-------------|--------------------------------------|-----------|
 | `cpio_read` | `CpioReader::next_entry_alloc` + data | newc header / `namesize` / `filesize` parsing |
 | `fat_read`  | `FatFs::open_with` + recursive read + `check_with` | BPB, FAT chain, directory + LFN parsing, lookups, file reads, the checker |
-| `exfat_read`| `ExFatVolume::open` + recursive read | boot region, entry sets, FAT/no-FAT chains, upcase |
+| `exfat_read`| `ExFatFs::open_with` + recursive read + `check_with` | boot region, entry sets across clusters, FAT and contiguous allocations, the up-case table, lookups, `parent`, the checker |
 | `ntfs_read` | `NtfsFs::open` + recursive read      | boot sector, MFT records, attributes, index walks |
 | `part_read` | `sync::read` + `scan`, edits, `write` and re-read | MBR, EBR chains, GPT with the backup fallback, hybrid MBR, table edits |
 | `iso_read`  | `IsoImage::open` + recursive read    | volume descriptors, directory records, RRIP, multi-extent reads |
 | `udf_read`  | `UdfFs::open` + node API walk        | anchor/VDS/FSD, File Entry, allocation descriptors, FIDs |
 | `fat_ops`   | `format` + fuzz-driven create/write/delete/rename/write-at/set-len ops on `FatFs` | FAT write path vs a shadow model, `check` after sync, verified after remount |
+| `exfat_ops` | `format` + the same op stream on `ExFatFs` with 512-byte clusters | exFAT write path, directory growth and entry sets across clusters vs a shadow model, `check` after sync, verified after remount |
 
 **The invariant:** feeding *arbitrary bytes* into a reader must only ever return
 an `Err` or succeed — never panic, abort, or OOM. A crash found here is a bug in
@@ -23,9 +24,10 @@ the reader, not the harness. The read harnesses also carry self-consistency
 oracles (failures tagged `ORACLE:`): re-resolved names must match, repeated
 reads must agree, and re-iterated listings must be stable. `fat_ops` asserts
 that `check` finds nothing on the synced volume and that the on-disk tree after
-a remount matches a shadow model of every successful operation. `fat_read`
-zero-extends an input to the volume size its boot sector declares (up to
-8 MiB), because `FatFs` refuses a volume larger than its device.
+a remount matches a shadow model of every successful operation, and
+`exfat_ops` does the same for exFAT. `fat_read` and `exfat_read` zero-extend
+an input to the volume size its boot sector declares (up to 8 MiB), because
+the drivers refuse a volume larger than their device.
 
 ## Running
 
@@ -41,7 +43,7 @@ cargo +nightly fuzz run cpio_read -- -runs=0           # replay corpus only, the
 Replay every corpus after pulling or before a release:
 
 ```bash
-for t in cpio_read fat_read exfat_read ntfs_read part_read iso_read udf_read fat_ops; do
+for t in cpio_read fat_read exfat_read ntfs_read part_read iso_read udf_read fat_ops exfat_ops; do
   cargo +nightly fuzz run "$t" -- -runs=0
 done
 ```

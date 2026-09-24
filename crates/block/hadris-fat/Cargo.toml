@@ -33,15 +33,15 @@ std = [
 ]
 # `format` in each mode. `FatFs` reads and writes without it.
 write = []
-# Unstable exFAT preview. It is outside the stability promise, uses the
-# synchronous legacy I/O traits, and therefore selects the sync API.
-unstable-exfat = ["alloc", "sync"]
+# Unstable exFAT preview in `exfat`, outside the stability promise. It
+# follows the enabled modes like `FatFs` and needs no allocator.
+unstable-exfat = []
 # Derives `defmt::Format` on `FatKind` and `Finding` so they can be logged
 # through `defmt::info!` etc. without going through `Debug`.
 defmt = ["dep:defmt"]
 
 [dependencies]
-hadris-common = { workspace = true }
+hadris-common = { workspace = true, features = ["bytemuck"] }
 hadris-io = { workspace = true }
 hadris-fs = { workspace = true }
 hadris-storage = { workspace = true }
@@ -60,14 +60,6 @@ hadris-fs = { workspace = true, features = ["contract"] }
 pretty_assertions = "1.4.1"
 static_assertions = "1.1.0"
 tempfile = "3"
-
-[[test]]
-name = "exfat_upcase_dos"
-required-features = ["unstable-exfat"]
-
-[[test]]
-name = "exfat_roundtrip"
-required-features = ["unstable-exfat", "write"]
 
 [[test]]
 name = "fatfs_read"
@@ -92,3 +84,27 @@ required-features = ["std", "sync", "async-send", "write"]
 [[test]]
 name = "fatfs_contract"
 required-features = ["std", "sync", "async-send", "write"]
+
+[[test]]
+name = "exfat_contract"
+required-features = ["std", "sync", "async-send", "write", "unstable-exfat"]
+
+[[test]]
+name = "exfat_format"
+required-features = ["std", "sync", "write", "unstable-exfat"]
+
+[[test]]
+name = "exfat_read"
+required-features = ["std", "sync", "write", "unstable-exfat"]
+
+[[test]]
+name = "exfat_write"
+required-features = ["std", "sync", "write", "unstable-exfat"]
+
+[[test]]
+name = "exfat_check"
+required-features = ["std", "sync", "write", "unstable-exfat"]
+
+[[test]]
+name = "exfat_native"
+required-features = ["std", "sync", "write", "unstable-exfat"]

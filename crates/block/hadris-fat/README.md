@@ -195,7 +195,7 @@ cargo run -p hadris-fat --example shared_volume -- disk.img
 | Feature | Description | Dependencies |
 |---------|-------------|--------------|
 | `write` | `format` in each mode; `FatFs` writes without it | None |
-| `unstable-exfat` | Unstable, sync-only exFAT preview | `alloc`, `sync` |
+| `unstable-exfat` | Unstable exFAT preview: `ExFatFs`, `format` and `check` in `exfat` | None |
 | `alloc` | `HeapTable` and the other heap-backed `hadris-fs` conveniences | `alloc` crate |
 | `sync` | Synchronous API in `sync` | `hadris-io/sync` |
 | `async` | Asynchronous API in `r#async` | `hadris-io/async` |
@@ -212,13 +212,10 @@ changes what an item does.
 ### exFAT preview status
 
 The `unstable-exfat` feature is outside the Hadris API stability promise.
-It provides basic formatting, reading, traversal, and simple mutation on
-conventional layouts through `exfat::ExFatVolume` over the
-`hadris_io::legacy` stream traits, but is not recommended for irreplaceable
-data. The preview does not support fragmented allocation bitmap or up-case
-metadata, directory growth, general cross-cluster directory entry-set
-placement, async operation, TexFAT, or repair workflows. It becomes the
-`ExFatFs` driver in a later release.
+It adds `exfat::sync::ExFatFs` and its `r#async` and `async_send` twins,
+a sibling of `FatFs` that needs no allocator and implements `FsDriver`,
+with `format`, `check` and `check_with`. TexFAT and repair are not
+supported.
 
 ### For Bootloaders and Embedded Systems
 

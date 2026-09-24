@@ -13,7 +13,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$REPO_ROOT"
 
 CORPUS="fuzz/corpus"
-TARGETS="fat_read exfat_read ntfs_read iso_read udf_read cpio_read part_read fat_ops"
+TARGETS="fat_read exfat_read ntfs_read iso_read udf_read cpio_read part_read fat_ops exfat_ops"
 for t in $TARGETS; do
     mkdir -p "$CORPUS/$t"
 done

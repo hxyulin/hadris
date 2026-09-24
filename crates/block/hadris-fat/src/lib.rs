@@ -107,20 +107,11 @@
 //! | `async`  | No      | Asynchronous API in `r#async` |
 //! | `async-send` | No  | Asynchronous API with `Send` futures in `async_send` |
 //! | `write`  | Yes     | `format` in each mode; `FatFs` writes without it |
-//! | `unstable-exfat` | No | Unstable, sync-only exFAT preview in `exfat` |
+//! | `unstable-exfat` | No | Unstable exFAT preview in `exfat`: `ExFatFs`, `format` and `check` in each mode |
 //! | `defmt`  | No      | `defmt::Format` for `FatKind` and `Finding` |
 //!
 //! No feature changes what an item does: `FatFs` always reads and writes long
 //! names, and needs no allocator in any mode.
-//!
-//! ## Known Limitations
-//!
-//! - **exFAT:** The `unstable-exfat` preview is outside the API stability
-//!   promise and is not recommended for irreplaceable data. It is sync-only,
-//!   uses the `hadris_io::legacy` stream traits, and does not support
-//!   fragmented allocation bitmap / upcase metadata, directory growth,
-//!   general cross-cluster entry-set placement, TexFAT, or repair workflows.
-//!   Enable the preview and see the `exfat` module for its qualified scope.
 //!
 //! ## Sync, async and `Send` async
 //!
@@ -135,7 +126,7 @@
 //! - `sync::check`, `sync::check_with` and their `async` versions: the
 //!   checker
 //! - `raw`: on-disk boot sector, BPB and FSInfo layouts
-//! - `exfat`: the unstable exFAT preview (requires `unstable-exfat`)
+//! - `exfat`: the unstable exFAT preview, `ExFatFs` (requires `unstable-exfat`)
 
 #![cfg_attr(not(test), no_std)]
 #![deny(missing_docs)]
@@ -238,16 +229,3 @@ pub use findings::{CheckReport, Finding, FindingKind};
 #[cfg(feature = "write")]
 pub use options::FormatOptions;
 pub use options::{MountOptions, VolumeLabel};
-
-#[cfg(all(test, feature = "unstable-exfat", feature = "write"))]
-#[path = "../tests/exfat_roundtrip.rs"]
-mod exfat_roundtrip;
-#[cfg(all(test, feature = "unstable-exfat"))]
-#[path = "../tests/integration_exfat.rs"]
-mod integration_exfat;
-#[cfg(all(test, feature = "unstable-exfat", feature = "write", feature = "std"))]
-#[path = "../tests/regression_audit_exfat.rs"]
-mod regression_audit_exfat;
-#[cfg(all(test, feature = "unstable-exfat"))]
-#[path = "../tests/test_exfat.rs"]
-mod test_exfat;

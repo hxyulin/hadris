@@ -207,6 +207,9 @@ jobs:
             tier: fatfs-no-alloc-async
             features: "async-send,write"
           - crate: hadris-fat
+            tier: exfat-no-alloc
+            features: "async-send,write,unstable-exfat"
+          - crate: hadris-fat
             tier: alloc
             features: "alloc,sync,unstable-exfat"
           - crate: hadris-fat
@@ -496,10 +499,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y exfatprogs
-      - name: Run exFAT integration tests
+      - name: Run exFAT tests against fsck.exfat and mkfs.exfat
         run: |
-          cargo test -p hadris-fat --features "unstable-exfat,write" --lib integration_exfat:: -- --nocapture
-          cargo test -p hadris-fat --features "unstable-exfat,write" --lib exfat_roundtrip:: -- --nocapture
+          cargo test -p hadris-fat --features "std,sync,async-send,write,unstable-exfat" \
+            --test exfat_read --test exfat_write --test exfat_format --test exfat_check \
+            --test exfat_contract --test exfat_native -- --nocapture
 
   test-ntfs:
     name: Test NTFS (with ntfsprogs)
