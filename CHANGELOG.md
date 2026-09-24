@@ -924,6 +924,25 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-fs (V3):** Dropping a written `File` without `close` in the
+  blocking API publishes its size and times, ignoring errors, so a file
+  dropped before a power cut keeps its data reachable. On a `Volume` whose
+  lock is held, the publish waits in the queue with the close. The async
+  APIs cannot await in `Drop`; there a dropped file's metadata stays
+  pending in the driver until the next `publish_node`, `sync_node` or
+  `sync`, as the `File` docs say.
+- **hadris-fs (V3):** `Volume` no longer deadlocks (`StdMutex`, `Spin`) or
+  spins forever (`Local`) when handles to more than 16 distinct nodes are
+  dropped while `lock()` is held. With `alloc` the deferred queue grows;
+  without it, the 17th node panics with a message naming the cause. A call
+  on a `Local` volume while its `lock()` guard is held panics with a
+  message naming the cause instead of a bare `RefCell` borrow error.
+- **hadris-fs, hadris-fat (V3):** `hadris-fat` builds for targets without
+  atomic compare-and-swap, such as `thumbv6m-none-eabi` and
+  `riscv32imc-unknown-none-elf`. It no longer depends on `spin` or
+  `bitflags`, which it did not use. `hadris-fs` uses the volume's own lock
+  for its queue, so `spin` is needed only by the `Spin` lock, which exists
+  on targets with `target_has_atomic = "ptr"`.
 - **hadris-iso (V3):** Joliet and enhanced volume descriptors pad their
   escape sequence field with zeros, as ECMA-119 8.5.6 requires, instead of
   spaces. libarchive (`bsdtar`) refused every image with an enhanced tree,

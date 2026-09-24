@@ -21,7 +21,7 @@ default = []
 alloc = ["hadris-io/alloc", "hadris-storage/alloc", "dep:async-lock"]
 std = ["alloc", "hadris-io/std", "hadris-storage/std", "async-lock?/std"]
 sync = ["hadris-io/sync", "dep:spin", "dep:hadris-macros"]
-async = ["hadris-io/async", "dep:spin"]
+async = ["hadris-io/async"]
 async-send = ["async", "hadris-io/async-send", "dep:hadris-macros"]
 embassy-sync = ["async", "dep:embassy-sync"]
 # The driver contract kit: `contract::check` in each enabled mode.
@@ -32,9 +32,13 @@ bitflags = { workspace = true }
 hadris-io = { workspace = true, default-features = false }
 hadris-storage = { workspace = true, default-features = false }
 hadris-macros = { workspace = true, optional = true }
-spin = { version = "0.12", default-features = false, features = ["mutex", "spin_mutex"], optional = true }
 async-lock = { version = "3", default-features = false, optional = true }
 embassy-sync = { version = "0.8", optional = true }
+
+# `spin` needs atomic compare-and-swap, so the `Spin` lock exists only where
+# the target has it.
+[target.'cfg(target_has_atomic = "ptr")'.dependencies]
+spin = { version = "0.12", default-features = false, features = ["mutex", "spin_mutex"], optional = true }
 
 [dev-dependencies]
 hadris-macros = { workspace = true }

@@ -8,7 +8,10 @@ use std::io::{Read as _, Write as _};
 use std::sync::Arc;
 
 use common::sync::{MemFs, fixture};
-use hadris_fs::sync::{DriverExt, File, FileSystem, OpenFile, PathExt, Volume};
+use hadris_fs::sync::lock::LockKind;
+use hadris_fs::sync::{
+    DriverExt, File, FileSystem, Local, OpenFile, PathExt, Spin, StdMutex, Volume,
+};
 use hadris_fs::{ErrorKind, OpenOptions};
 
 fn names<A: hadris_fs::sync::Access>(dir: hadris_fs::sync::Dir<A>) -> Vec<String> {
@@ -163,4 +166,70 @@ fn into_inner_applies_queued_forgets() {
     drop(file);
     drop(guard);
     assert_eq!(vol.into_inner().open_nodes(), 1);
+}
+
+#[test]
+fn dropping_a_written_file_publishes_it() {
+    let mut fs = fixture();
+    let mut file = fs.open("/log", OpenOptions::write().create()).unwrap();
+    file.write_all(b"entry").unwrap();
+    drop(file);
+    assert_eq!(fs.publishes(), 1);
+    drop(fs.open("/log", OpenOptions::read()).unwrap());
+    assert_eq!(fs.publishes(), 1);
+    let mut file = fs.open("/log", OpenOptions::write().append()).unwrap();
+    file.write_all(b" more").unwrap();
+    file.close().unwrap();
+    assert_eq!(fs.publishes(), 2);
+    assert_eq!(fs.open_nodes(), 1);
+}
+
+#[test]
+fn a_file_dropped_under_the_lock_publishes_with_its_queued_close() {
+    let vol = Volume::local(fixture());
+    let mut file = vol.open("/log", OpenOptions::write().create()).unwrap();
+    file.write_all(b"entry").unwrap();
+    {
+        let guard = vol.lock();
+        drop(file);
+        assert_eq!(guard.publishes(), 0);
+    }
+    assert_eq!(vol.lock().publishes(), 1);
+    assert_eq!(vol.into_inner().open_nodes(), 1);
+
+    let vol = Volume::new(fixture());
+    let mut file = vol.open("/log", OpenOptions::write().create()).unwrap();
+    file.write_all(b"entry").unwrap();
+    drop(file);
+    assert_eq!(vol.lock().publishes(), 1);
+}
+
+fn drop_many_under_the_lock<K: LockKind>() {
+    let mut fs = fixture();
+    for i in 0..40 {
+        fs.write_file(&format!("/h{i}"), b"x").unwrap();
+    }
+    let vol = Volume::<_, K>::with_lock(fs);
+    let files: Vec<_> = (0..40)
+        .map(|i| vol.open(&format!("/h{i}"), OpenOptions::read()).unwrap())
+        .collect();
+    let guard = vol.lock();
+    drop(files);
+    drop(guard);
+    assert_eq!(vol.into_inner().open_nodes(), 1);
+}
+
+#[test]
+fn many_handles_dropped_under_the_lock_are_queued() {
+    drop_many_under_the_lock::<StdMutex>();
+    drop_many_under_the_lock::<Spin>();
+    drop_many_under_the_lock::<Local>();
+}
+
+#[test]
+#[should_panic(expected = "while its `lock()` guard is")]
+fn a_local_call_under_the_lock_names_the_cause() {
+    let vol = Volume::local(fixture());
+    let _guard = vol.lock();
+    let _ = vol.metadata("/a.txt");
 }

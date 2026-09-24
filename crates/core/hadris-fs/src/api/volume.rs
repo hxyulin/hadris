@@ -16,13 +16,14 @@ io_transform! {
 /// ```
 ///
 /// Handles dropped while another call holds the lock queue their
-/// `close_node` and `forget` for the next lock holder, without allocating.
-/// The queue holds 16 distinct nodes; when it is full, the call waits for
-/// the lock.
+/// `close_node` and `forget` for the next lock holder. With `alloc` the
+/// queue grows as needed. Without it, the queue holds 16 distinct nodes,
+/// and closing or forgetting a 17th while the lock is held panics, since
+/// waiting for the lock would never end if this thread or task holds it.
 pub struct Volume<F: FsDriver, K: LockKind> {
     driver: K::Lock<F>,
-    pending: spin::Mutex<ForgetQueue>,
-    caps: spin::Mutex<Capabilities>,
+    pending: K::Lock<ForgetQueue>,
+    caps: K::Lock<Capabilities>,
     root: NodeId,
 }
 
@@ -30,10 +31,10 @@ impl<F: FsDriver, K: LockKind> Volume<F, K> {
     /// Shares `driver` behind lock `K`.
     pub fn with_lock(driver: F) -> Self {
         let root = driver.root();
-        let caps = spin::Mutex::new(driver.capabilities());
+        let caps = Lock::new(driver.capabilities());
         Self {
             driver: Lock::new(driver),
-            pending: spin::Mutex::new(ForgetQueue::new()),
+            pending: Lock::new(ForgetQueue::new()),
             caps,
             root,
         }
@@ -43,7 +44,8 @@ impl<F: FsDriver, K: LockKind> Volume<F, K> {
     ///
     /// Calling a [`FileSystem`] method on this volume while holding the
     /// guard deadlocks, or panics with a `Local` lock. Dropping handles while
-    /// holding it is fine.
+    /// holding it is fine; without `alloc`, for handles to at most 16
+    /// distinct nodes (see [`Volume`]).
     pub async fn lock(&self) -> impl core::ops::DerefMut<Target = F> + '_ {
         let mut guard = self.driver.lock().await;
         self.drain(&mut guard);
@@ -60,48 +62,85 @@ impl<F: FsDriver, K: LockKind> Volume<F, K> {
     pub fn into_inner(self) -> F {
         let mut this = core::mem::ManuallyDrop::new(self);
         this.drain_mut();
-        // SAFETY: `this` is never used or dropped again, so the lock is moved
-        // out exactly once. The other fields have no drop glue.
-        let driver = unsafe { core::ptr::read(&this.driver) };
+        // SAFETY: `this` is never used or dropped again, so each field is
+        // moved out exactly once.
+        let (driver, pending, caps) = unsafe {
+            (
+                core::ptr::read(&this.driver),
+                core::ptr::read(&this.pending),
+                core::ptr::read(&this.caps),
+            )
+        };
+        drop((pending, caps));
         driver.into_inner()
     }
 
-    fn drain(&self, driver: &mut F) {
-        *self.caps.lock() = driver.capabilities();
-        let mut pending = self.pending.lock();
-        if !pending.is_empty() {
-            let driver = core::cell::RefCell::new(driver);
-            pending.drain(
-                |node| driver.borrow_mut().close_node(node),
-                |node| driver.borrow_mut().forget(node),
-            );
-        }
-    }
-
-    fn drain_mut(&mut self) {
-        let driver = core::cell::RefCell::new(self.driver.get_mut());
-        self.pending.get_mut().drain(
-            |node| driver.borrow_mut().close_node(node),
-            |node| driver.borrow_mut().forget(node),
-        );
-    }
-
-    /// Runs `call` on the driver now if the lock is free, else queues it
-    /// with `queue` for the next lock holder, waiting for the lock only when
-    /// the queue is full.
-    fn deferred(&self, node: NodeId, call: impl Fn(&mut F, NodeId), queue: impl Fn(&mut ForgetQueue, NodeId) -> bool) {
+    /// Locks the queue, which is held only briefly and never across a
+    /// driver call.
+    fn queue(&self) -> impl core::ops::DerefMut<Target = ForgetQueue> + '_ {
         loop {
-            if let Some(mut driver) = self.driver.try_lock() {
-                self.drain(&mut driver);
-                call(&mut driver, node);
-                return;
-            }
-            if queue(&mut self.pending.lock(), node) {
-                return;
+            if let Some(queue) = self.pending.try_lock() {
+                return queue;
             }
             core::hint::spin_loop();
         }
     }
+
+    fn drain(&self, driver: &mut F) {
+        let caps = driver.capabilities();
+        loop {
+            if let Some(mut slot) = self.caps.try_lock() {
+                *slot = caps;
+                break;
+            }
+            core::hint::spin_loop();
+        }
+        let mut batch = self.queue().take();
+        run_queued(&mut batch, driver);
+    }
+
+    fn drain_mut(&mut self) {
+        let mut batch = self.pending.get_mut().take();
+        run_queued(&mut batch, self.driver.get_mut());
+    }
+
+    /// Runs `call` on the driver now if the lock is free, else queues it
+    /// with `queue` for the next lock holder.
+    fn deferred(&self, node: NodeId, call: impl Fn(&mut F, NodeId), queue: impl Fn(&mut ForgetQueue, NodeId) -> bool) {
+        if let Some(mut driver) = self.driver.try_lock() {
+            self.drain(&mut driver);
+            call(&mut driver, node);
+            return;
+        }
+        if queue(&mut self.queue(), node) {
+            return;
+        }
+        if let Some(mut driver) = self.driver.try_lock() {
+            self.drain(&mut driver);
+            call(&mut driver, node);
+            return;
+        }
+        panic!(
+            "hadris-fs Volume: a handle was dropped while the driver lock was held and 16 other \
+             nodes were already waiting; without the `alloc` feature the queue is full. Drop \
+             the `Volume::lock()` guard before dropping handles, or enable `alloc`"
+        );
+    }
+}
+
+/// Runs a batch of queued calls in order. Publishes are queued only in the
+/// blocking API, where they can run here; their errors are ignored, as in
+/// the `Drop` that queued them.
+fn run_queued<F: FsDriver + ?Sized>(batch: &mut ForgetQueue, driver: &mut F) {
+    batch.drain(|op, node| match op {
+        Op::Publish => {
+            sync_only! {
+                let _ = driver.publish_node(node);
+            }
+        }
+        Op::Close => driver.close_node(node),
+        Op::Forget => driver.forget(node),
+    });
 }
 
 impl<F: FsDriver, K: LockKind> core::fmt::Debug for Volume<F, K> {
@@ -122,12 +161,15 @@ impl<F: FsDriver, K: LockKind> FileSystem for Volume<F, K> {
     /// The driver's capabilities, or the value seen by the last lock holder
     /// when another call holds the lock.
     fn capabilities(&self) -> Capabilities {
-        match self.driver.try_lock() {
-            Some(mut driver) => {
-                self.drain(&mut driver);
-                driver.capabilities()
+        if let Some(mut driver) = self.driver.try_lock() {
+            self.drain(&mut driver);
+            return driver.capabilities();
+        }
+        loop {
+            if let Some(caps) = self.caps.try_lock() {
+                return *caps;
             }
-            None => *self.caps.lock(),
+            core::hint::spin_loop();
         }
     }
 
@@ -161,8 +203,8 @@ impl<F: FsDriver, K: LockKind> FileSystem for Volume<F, K> {
     }
 
     /// Forgets now if the lock is free, else queues the node for the next
-    /// lock holder. If the queue is full it waits for the lock, which never
-    /// comes if this thread, or a suspended task on it, holds the lock.
+    /// lock holder. Panics if the queue is full, which needs a build
+    /// without `alloc` (see [`Volume`]).
     fn forget(&self, node: NodeId) {
         self.deferred(node, |driver, node| driver.forget(node), ForgetQueue::push);
     }
@@ -231,7 +273,16 @@ impl<F: FsDriver, K: LockKind> FileSystem for Volume<F, K> {
         self.lock().await.sync_node(node).await
     }
 
+    /// Publishes under the lock. In the blocking API, when the lock is held
+    /// and a close of `node` is queued, as when a written [`File`] is
+    /// dropped while [`lock`](Volume::lock) is held, the publish joins the
+    /// queue and this returns `Ok(())` without waiting.
     async fn publish_node(&self, node: NodeId) -> FsResult<(), F::DeviceError> {
+        sync_only! {
+            if self.driver.try_lock().is_none() && self.queue().push_publish(node) {
+                return Ok(());
+            }
+        }
         self.lock().await.publish_node(node).await
     }
 

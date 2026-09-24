@@ -28,6 +28,7 @@ pub mod lock;
 mod api;
 pub use api::*;
 
+#[cfg(target_has_atomic = "ptr")]
 impl<T> lock::Lock<T> for spin::Mutex<T> {
     type Guard<'a>
         = spin::MutexGuard<'a, T>
@@ -97,8 +98,16 @@ impl<T> lock::Lock<T> for core::cell::RefCell<T> {
         core::cell::RefCell::new(value)
     }
 
+    /// Panics if the value is already borrowed, which for a `Local`
+    /// [`Volume`] means a call on it while its `lock()` guard is held.
     fn lock(&self) -> Self::Guard<'_> {
-        self.borrow_mut()
+        match self.try_borrow_mut() {
+            Ok(guard) => guard,
+            Err(_) => panic!(
+                "hadris-fs Volume::local: the volume was called while its `lock()` guard is \
+                 held on this thread; drop the guard first"
+            ),
+        }
     }
 
     fn try_lock(&self) -> Option<Self::Guard<'_>> {
@@ -125,10 +134,14 @@ impl lock::LockKind for StdMutex {
     type Lock<T> = std::sync::Mutex<T>;
 }
 
-/// `spin::Mutex`, for `no_std` code on several cores.
+/// `spin::Mutex`, for `no_std` code on several cores. Exists on targets with
+/// atomic compare-and-swap (`target_has_atomic = "ptr"`); single-core
+/// targets without it, such as `thumbv6m-none-eabi`, use `Local`.
+#[cfg(target_has_atomic = "ptr")]
 #[derive(Debug)]
 pub struct Spin;
 
+#[cfg(target_has_atomic = "ptr")]
 impl lock::LockKind for Spin {
     type Lock<T> = spin::Mutex<T>;
 }
@@ -150,6 +163,7 @@ impl<F: FsDriver> Volume<F, StdMutex> {
     }
 }
 
+#[cfg(target_has_atomic = "ptr")]
 impl<F: FsDriver> Volume<F, Spin> {
     /// Shares `driver` behind a spin lock.
     pub fn spin(driver: F) -> Self {

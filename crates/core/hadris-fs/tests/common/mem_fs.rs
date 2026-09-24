@@ -26,6 +26,7 @@ pub struct MemFs {
     nodes: Vec<Option<Node>>,
     pins: HashMap<u64, u32>,
     opens: HashMap<u64, u32>,
+    publishes: u32,
     writable: bool,
     fail_next: Option<MemError>,
 }
@@ -43,6 +44,7 @@ impl MemFs {
             nodes: vec![Some(root)],
             pins: HashMap::new(),
             opens: HashMap::new(),
+            publishes: 0,
             writable: true,
             fail_next: None,
         }
@@ -81,6 +83,11 @@ impl MemFs {
     /// Distinct pinned nodes, the root included.
     pub fn open_nodes(&self) -> usize {
         1 + self.pins.values().filter(|&&n| n > 0).count()
+    }
+
+    /// `publish_node` calls that succeeded.
+    pub fn publishes(&self) -> u32 {
+        self.publishes
     }
 
     /// Makes the next device access fail with `err`.
@@ -370,7 +377,9 @@ impl MemFs {
 
     pub async fn publish_node(&mut self, node: NodeId) -> FsResult<(), MemError> {
         self.node(node)?;
-        self.device()
+        self.device()?;
+        self.publishes += 1;
+        Ok(())
     }
 
     pub async fn sync(&mut self) -> FsResult<(), MemError> {
