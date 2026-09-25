@@ -686,6 +686,11 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fat (V3):** `FatFs` compares names by folding each UTF-16 unit
+  with `hadris_fat_raw::fold_unicode`, as Windows does, instead of folding
+  characters. Letters outside the Basic Multilingual Plane now match only
+  in the same case. `hadris_fat_raw::name::eq_folded` takes the fold as a
+  `fn(u16) -> u16` and replaces `name::fold` and `name::eq_ignore_case`.
 - **hadris-cli (V3):** One `hadris` binary replaces the five CLI crates,
   with the subcommands `fat`, `iso`, `udf`, `cpio` and `detect`. The
   bridge commands of `hadris-cd` are `hadris udf bridge` and `hadris udf

@@ -1601,7 +1601,7 @@ into `next` per step, each leaving the workspace building and tested:
   Deferred:
   - `format(&mut dev, &opts) -> Geometry` with `FatOptions`, to R6, together with the `disk_offset` default for hidden sectors and the exFAT partition offset (R3's deferral).
   - Date decoding with a UTC offset, to R5 (done there).
-  - `FatFs` still folds names with its own char fold, not `fold_unicode`.
+  - `FatFs` still folds names with its own char fold, not `fold_unicode` (R8 changed this: both tiers compare UTF-16 units through `hadris_fat_raw::name::eq_folded`, and `FatFs` passes `fold_unicode`).
   - `exfat::io` is tested through `ExFatFs`, since the raw crate has no exFAT image of its own.
   - `hadris_fat::raw` re-exports the whole raw crate, and the mode modules re-export its `check`, which ties `hadris-fat`'s API to the raw crate's version.
 - R5. **Trait and volume.** `FileSystem` replaces `FsDriver` and its companions, `FatFs` and `ExFatFs` collapse to one parameter, the node tables go private, the lock kinds and resolvers go, and the `async_send` mode becomes `r#async`. Done in four PRs:
