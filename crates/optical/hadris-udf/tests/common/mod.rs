@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 
-use hadris_fs::tree::{Content, Tree};
-use hadris_fs::{DateTime, DeviceKind, DeviceNumber, FileTimes, Permissions, SetMetadata};
+use hadris_fs::{
+    Content, DateTime, DeviceNumber, FileType, Node, Owner, Permissions, SetAttr, Tree,
+};
 use hadris_storage::{BlockSize, MemDevice};
 use hadris_udf::UdfOptions;
 
@@ -17,28 +18,34 @@ pub fn pattern(len: usize, seed: u32) -> Vec<u8> {
 /// need 8-bit and 16-bit CS0, symlinks and a hard link.
 pub fn sample() -> Tree {
     let mut tree = Tree::new();
-    tree.add_file("readme.txt", Content::bytes("hello"))
+    tree.insert("readme.txt", Node::file(Content::bytes("hello")))
         .unwrap();
-    tree.add_file("empty.txt", Content::empty()).unwrap();
-    tree.add_file("caf\u{e9}.txt", Content::bytes("latin1"))
+    tree.insert("empty.txt", Node::file(Content::empty()))
         .unwrap();
-    tree.add_file("emoji-\u{1F600}.bin", Content::bytes("wide"))
+    tree.insert("caf\u{e9}.txt", Node::file(Content::bytes("latin1")))
         .unwrap();
-    tree.add_file("docs/big.bin", Content::bytes(pattern(70_000, 1)))
+    tree.insert("emoji-\u{1F600}.bin", Node::file(Content::bytes("wide")))
         .unwrap();
-    tree.add_file("docs/sub/deep.txt", Content::bytes("deep"))
+    tree.insert(
+        "docs/big.bin",
+        Node::file(Content::bytes(pattern(70_000, 1))),
+    )
+    .unwrap();
+    tree.insert("docs/sub/deep.txt", Node::file(Content::bytes("deep")))
         .unwrap();
-    tree.add_dir("emptydir").unwrap();
+    tree.insert("emptydir", Node::dir()).unwrap();
     for i in 0..80 {
-        tree.add_file(
-            &format!("many/file-{i:03}.txt"),
-            Content::bytes(format!("file {i}")),
+        tree.insert(
+            format!("many/file-{i:03}.txt"),
+            Node::file(Content::bytes(format!("file {i}"))),
         )
         .unwrap();
     }
-    tree.add_symlink("abs", "/docs/sub/deep.txt").unwrap();
-    tree.add_symlink("docs/rel", "../readme.txt").unwrap();
-    tree.add_hard_link("docs/link.txt", "readme.txt").unwrap();
+    tree.insert("abs", Node::symlink("/docs/sub/deep.txt"))
+        .unwrap();
+    tree.insert("docs/rel", Node::symlink("../readme.txt"))
+        .unwrap();
+    tree.link("readme.txt", "docs/link.txt").unwrap();
     tree
 }
 
@@ -47,33 +54,34 @@ pub fn time(seconds: i64) -> DateTime {
 }
 
 pub fn with_metadata(tree: &mut Tree) {
-    tree.set_metadata(
+    let attrs = SetAttr::new()
+        .with_permissions(Permissions::new(0o4751))
+        .with_owner(Owner::new(1000, 100))
+        .with_modified(time(1_700_000_000))
+        .with_accessed(time(1_700_000_100));
+    tree.remove("docs/link.txt").unwrap();
+    tree.replace(
         "readme.txt",
-        SetMetadata::new()
-            .with_mode(Permissions::new(0o4751))
-            .with_uid(1000)
-            .with_gid(100)
-            .with_times(
-                FileTimes::new()
-                    .with_modified(time(1_700_000_000))
-                    .with_accessed(time(1_700_000_100))
-                    .with_changed(time(1_700_000_200)),
-            ),
+        Node::file(Content::bytes("hello")).with_attrs(attrs),
     )
     .unwrap();
-    tree.set_metadata(
+    tree.link("readme.txt", "docs/link.txt").unwrap();
+    tree.replace(
         "docs",
-        SetMetadata::new().with_mode(Permissions::new(0o750)),
+        Node::dir().with_attrs(SetAttr::new().with_permissions(Permissions::new(0o750))),
     )
     .unwrap();
-    tree.add_device("dev/null", DeviceKind::Char, DeviceNumber::new(1, 3))
-        .unwrap();
+    tree.insert(
+        "dev/null",
+        Node::special(FileType::CharDevice, Some(DeviceNumber::new(1, 3))),
+    )
+    .unwrap();
 }
 
 /// Writes `tree` with `options` to a device of exactly the planned size.
-pub fn image<C: hadris_fs::Clock>(tree: &Tree, options: &UdfOptions<C>) -> Vec<u8> {
-    let report = hadris_udf::sync::plan(tree, options).unwrap();
-    let mut dev = MemDevice::new(vec![0xAAu8; report.size_bytes() as usize], SECTOR);
+pub fn image(tree: &Tree, options: &UdfOptions) -> Vec<u8> {
+    let report = hadris_udf::plan(tree, options).unwrap();
+    let mut dev = MemDevice::new(vec![0xAAu8; report.size() as usize], SECTOR);
     let written = hadris_udf::sync::write(&mut dev, tree, options).unwrap();
     assert_eq!(written, report);
     dev.into_inner()

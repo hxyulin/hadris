@@ -1,303 +1,254 @@
-use super::paths::{create_dir_all, resolve_parent, write_all_at};
+use super::paths::write_all_at;
+use super::tree::ContentReader;
 use super::*;
-use crate::{Field, PathError, Stored};
+use crate::{Field, Node, PathError, Report, Stored, Tree, TreeEntry, Warning, WarningKind};
 use alloc::vec::Vec;
 
 /// Bytes moved per read.
-pub(super) const CHUNK: usize = 4096;
+const CHUNK: usize = 64 * 1024;
 
-/// The longest symlink target read, as Linux `PATH_MAX`.
-pub(super) const MAX_LINK_TARGET: usize = 4096;
+/// How many nodes lost each field.
+#[derive(Default)]
+struct Dropped([u64; 5]);
 
-/// A buffer for the target of a symlink whose metadata reports `len` bytes.
-/// [`ErrorKind::LimitExceeded`] above [`MAX_LINK_TARGET`].
-pub(super) fn link_buffer(len: u64) -> Result<Vec<u8>, ErrorKind> {
-    match usize::try_from(len) {
-        Ok(0) => Ok(alloc::vec![0u8; MAX_LINK_TARGET]),
-        Ok(len) if len <= MAX_LINK_TARGET => Ok(alloc::vec![0u8; len]),
-        _ => Err(ErrorKind::LimitExceeded),
+const DROPPABLE: [Field; 5] = [
+    Field::Created,
+    Field::Modified,
+    Field::Accessed,
+    Field::Permissions,
+    Field::Owner,
+];
+
+impl Dropped {
+    fn add(&mut self, field: Field) {
+        if let Some(index) = DROPPABLE.iter().position(|&f| f == field) {
+            self.0[index] += 1;
+        }
+    }
+
+    fn report(&self, report: &mut Report) {
+        for (field, &count) in DROPPABLE.iter().zip(&self.0) {
+            if count > 0 {
+                report.push_warning(
+                    Warning::new(WarningKind::Dropped(*field), "not stored by the target")
+                        .with_count(count),
+                );
+            }
+        }
     }
 }
 
-/// Directories a tree walk descends before [`ErrorKind::LimitExceeded`].
-pub(super) const MAX_TREE_DEPTH: usize = 1024;
-
-/// Checks that a walk may enter the directory `child` below the directories
-/// of `path`, the current path from the top: a directory already on it is a
-/// cycle, which only a corrupt volume holds.
-pub(super) fn enter(
-    path: impl ExactSizeIterator<Item = NodeId>,
-    child: NodeId,
-) -> Result<(), ErrorKind> {
-    if path.len() >= MAX_TREE_DEPTH {
-        return Err(ErrorKind::LimitExceeded);
-    }
-    let mut path = path;
-    if path.any(|node| node == child) {
-        return Err(ErrorKind::Corrupt);
-    }
-    Ok(())
-}
-
-/// The fields of `meta` a filesystem with `caps` stores, as changes.
-/// Permissions and owner are copied only where fully stored.
-pub(super) fn settable(meta: &Metadata, caps: &Capabilities) -> SetAttr {
+/// The attributes a filesystem with `caps` keeps from `attrs`, split into
+/// what creation takes and the times and attribute bits, which are set once
+/// the data is written, since writing sets bits such as FAT's archive bit. Permissions the format stores only in part come back separately,
+/// to be tried on their own. Fields the target drops are counted.
+fn split_attrs(
+    attrs: &SetAttr,
+    caps: &Capabilities,
+    dropped: &mut Dropped,
+) -> (SetAttr, SetAttr, Option<SetAttr>) {
+    let mut create = SetAttr::new();
+    let mut times = SetAttr::new();
+    let mut partial = None;
     let stored = |field| caps.stores(field) != Stored::No;
-    let mut set = SetAttr::new();
-    if let Some(time) = meta.created().filter(|_| stored(Field::Created)) {
-        set = set.with_created(time);
+    for (field, time) in [
+        (Field::Created, attrs.created()),
+        (Field::Modified, attrs.modified()),
+        (Field::Accessed, attrs.accessed()),
+    ] {
+        let Some(time) = time else { continue };
+        if !stored(field) {
+            dropped.add(field);
+            continue;
+        }
+        times = match field {
+            Field::Created => times.with_created(time),
+            Field::Modified => times.with_modified(time),
+            _ => times.with_accessed(time),
+        };
     }
-    if let Some(time) = meta.modified().filter(|_| stored(Field::Modified)) {
-        set = set.with_modified(time);
+    if let Some(permissions) = attrs.permissions() {
+        match caps.stores(Field::Permissions) {
+            Stored::Yes => create = create.with_permissions(permissions),
+            Stored::No => dropped.add(Field::Permissions),
+            _ => partial = Some(SetAttr::new().with_permissions(permissions)),
+        }
     }
-    if let Some(time) = meta.accessed().filter(|_| stored(Field::Accessed)) {
-        set = set.with_accessed(time);
+    if let Some(owner) = attrs.owner() {
+        match caps.stores(Field::Owner) {
+            Stored::Yes => create = create.with_owner(owner),
+            _ => dropped.add(Field::Owner),
+        }
     }
-    if caps.stores(Field::Permissions) == Stored::Yes {
-        set = set.with_permissions(meta.permissions());
-    }
-    if let Some(owner) = meta
-        .owner()
-        .filter(|_| caps.stores(Field::Owner) == Stored::Yes)
+    if let Some(attributes) = attrs.attributes()
+        && stored(Field::Attributes)
     {
-        set = set.with_owner(owner);
+        times = times.with_attributes(attributes);
     }
-    if stored(Field::Attributes) {
-        set = set.with_attributes(meta.attributes());
-    }
-    set
+    (create, times, partial)
 }
 
-/// A directory being copied: both nodes pinned, and the changes to apply to
-/// the target once its contents are written (none for the top directory).
-struct Frame {
-    src: NodeId,
+/// A directory being copied: its children in the tree, the next one to
+/// copy, the target directory (pinned unless it is the top) and the times
+/// to set once its children are written.
+struct Frame<'t> {
+    children: Vec<(&'t Name, TreeEntry<'t>)>,
+    next: usize,
     dst: NodeId,
-    cursor: DirCursor,
-    attrs: Option<SetAttr>,
+    path: Vec<u8>,
+    times: Option<SetAttr>,
 }
 
 io_transform! {
 
-/// Finds `name` in `dir`, or makes it as a directory (`dir_kind`) or a
-/// file, and pins it. An existing node must have the same type
-/// ([`ErrorKind::AlreadyExists`] otherwise, and always for a symlink); an
-/// existing file is truncated.
-pub(super) async fn target_child<F: FileSystem + ?Sized>(
+/// Sets `partial`, permissions the target stores only in part; a value it
+/// cannot hold is counted as dropped.
+async fn try_partial<F: FileSystem + ?Sized>(
+    fs: &mut F,
+    node: NodeId,
+    partial: Option<SetAttr>,
+    dropped: &mut Dropped,
+) -> FsResult<(), F::DeviceError> {
+    let Some(partial) = partial else { return Ok(()) };
+    match fs.setattr(node, &partial).await {
+        Err(err) if err.kind() == ErrorKind::Unsupported => {
+            dropped.add(Field::Permissions);
+            Ok(())
+        }
+        other => other,
+    }
+}
+
+/// Writes the content of `node` into the open file `to`.
+async fn copy_data<F: FileSystem + ?Sized>(fs: &mut F, node: &Node, to: NodeId, buf: &mut [u8]) -> Result<(), PathError> {
+    let Some(content) = node.content() else { return Ok(()) };
+    let mut reader = ContentReader::open(content).await?;
+    let mut offset = 0;
+    while offset < reader.len() {
+        let n = reader.read_at(offset, buf).await?;
+        if n == 0 {
+            return Err(PathError::new(ErrorKind::Corrupt, "file content ended early"));
+        }
+        write_all_at(fs, to, offset, &buf[..n]).await?;
+        offset += n as u64;
+    }
+    Ok(())
+}
+
+/// Creates the file `name` in `dir` from `node`: its data, then its times.
+async fn copy_file<F: FileSystem + ?Sized>(
     fs: &mut F,
     dir: NodeId,
     name: &Name,
-    kind: FileType,
-) -> FsResult<NodeId, F::DeviceError> {
-    let node = match fs.lookup(dir, name).await {
-        Err(err) if err.kind() == ErrorKind::NotFound => {
-            return match kind {
-                FileType::Dir => fs.mkdir(dir, name, &SetAttr::new()).await,
-                _ => fs.create(dir, name, &SetAttr::new()).await,
-            };
-        }
-        other => other?,
-    };
-    let checked = match fs.stat(node).await {
-        Ok(meta) if meta.file_type() != kind || meta.file_type().is_symlink() => {
-            Err(ErrorKind::AlreadyExists.into())
-        }
-        Ok(meta) if meta.file_type().is_file() && meta.len() > 0 => fs.truncate(node, 0).await,
-        Ok(_) => Ok(()),
-        Err(err) => Err(err),
-    };
-    match checked {
-        Ok(()) => Ok(node),
-        Err(err) => {
-            fs.forget(node, 1);
-            Err(err)
-        }
-    }
-}
-
-async fn copy_file<S, D>(
-    src: &mut S,
-    from: NodeId,
-    dst: &mut D,
-    to: NodeId,
-    attrs: &SetAttr,
-) -> Result<(), PathError>
-where
-    S: FileSystem + ?Sized,
-    D: FileSystem + ?Sized,
-{
-    src.open(from, OpenMode::Read).await?;
-    if let Err(err) = dst.open(to, OpenMode::Write).await {
-        let _ = src.close(from).await;
-        return Err(err.into());
-    }
-    let mut buf = [0u8; CHUNK];
-    let mut offset = 0;
-    let copied: Result<(), PathError> = loop {
-        let n = match src.read(from, offset, &mut buf).await {
-            Ok(0) => break Ok(()),
-            Ok(n) => n,
-            Err(err) => break Err(err.into()),
-        };
-        if let Err(err) = write_all_at(dst, to, offset, &buf[..n]).await {
-            break Err(err.into());
-        }
-        offset += n as u64;
-    };
-    let _ = src.close(from).await;
-    let set = match copied {
-        Ok(()) if !attrs.is_empty() => dst.setattr(to, attrs).await.map_err(PathError::from),
-        other => other,
-    };
-    let closed = dst.close(to).await;
-    set?;
-    Ok(closed?)
-}
-
-/// Copies the pinned `node` to `name` in `dir`. A directory comes back as a
-/// frame to walk; anything else is copied whole.
-async fn copy_node<S, D>(
-    src: &mut S,
-    node: NodeId,
-    dst: &mut D,
-    dir: NodeId,
-    name: &Name,
-) -> Result<Option<Frame>, PathError>
-where
-    S: FileSystem + ?Sized,
-    D: FileSystem + ?Sized,
-{
-    let meta = src.stat(node).await?;
-    let attrs = settable(&meta, &dst.capabilities());
-    match meta.file_type() {
-        FileType::Dir => {
-            let to = target_child(dst, dir, name, FileType::Dir).await?;
-            Ok(Some(Frame { src: node, dst: to, cursor: DirCursor::START, attrs: Some(attrs) }))
-        }
-        FileType::File => {
-            let to = target_child(dst, dir, name, FileType::File).await?;
-            let copied = copy_file(src, node, dst, to, &attrs).await;
-            dst.forget(to, 1);
-            copied.map(|()| None)
-        }
-        _ => Err(ErrorKind::Unsupported.into()),
-    }
-}
-
-async fn walk<S, D>(src: &mut S, dst: &mut D, stack: &mut Vec<Frame>) -> Result<(), PathError>
-where
-    S: FileSystem + ?Sized,
-    D: FileSystem + ?Sized,
-{
-    while let Some(top) = stack.last_mut() {
-        let (from_dir, to_dir) = (top.src, top.dst);
-        if let Some(entry) = src.readdir(from_dir, top.cursor).await? {
-            top.cursor = entry.next_cursor();
-            let child = src.lookup(from_dir, entry.name()).await?;
-            match copy_node(src, child, dst, to_dir, entry.name()).await {
-                Ok(Some(frame)) => {
-                    if let Err(err) = enter(stack.iter().map(|frame| frame.src), child) {
-                        src.forget(child, 1);
-                        dst.forget(frame.dst, 1);
-                        return Err(err.into());
-                    }
-                    stack.push(frame);
-                }
-                other => {
-                    src.forget(child, 1);
-                    other?;
-                }
+    node: &Node,
+    dropped: &mut Dropped,
+    buf: &mut [u8],
+) -> Result<(), PathError> {
+    let (create, times, partial) = split_attrs(node.attrs(), &fs.capabilities(), dropped);
+    let to = fs.create(dir, name, &create).await?;
+    let result = match fs.open(to, OpenMode::Write).await {
+        Ok(()) => {
+            let mut done = copy_data(fs, node, to, buf).await;
+            if done.is_ok() && !times.is_empty() {
+                done = fs.setattr(to, &times).await.map_err(PathError::from);
             }
-        } else if let Some(frame) = stack.pop() {
-            let applied = match frame.attrs {
-                Some(attrs) if !attrs.is_empty() => dst.setattr(frame.dst, &attrs).await,
+            if done.is_ok() {
+                done = try_partial(fs, to, partial, dropped).await.map_err(PathError::from);
+            }
+            let closed = fs.close(to).await;
+            done.and(closed.map_err(PathError::from))
+        }
+        Err(err) => Err(err.into()),
+    };
+    fs.forget(to, 1);
+    result
+}
+
+async fn walk<'t, F: FileSystem + ?Sized>(
+    fs: &mut F,
+    stack: &mut Vec<Frame<'t>>,
+    report: &mut Report,
+    dropped: &mut Dropped,
+    copied: &mut Vec<usize>,
+    buf: &mut [u8],
+) -> Result<(), PathError> {
+    while let Some(top) = stack.last_mut() {
+        let Some(&(name, entry)) = top.children.get(top.next) else {
+            let Some(frame) = stack.pop() else { break };
+            let applied = match frame.times {
+                Some(times) if !times.is_empty() => fs.setattr(frame.dst, &times).await,
                 _ => Ok(()),
             };
-            src.forget(frame.src, 1);
-            dst.forget(frame.dst, 1);
-            applied?;
+            if !stack.is_empty() {
+                fs.forget(frame.dst, 1);
+            }
+            applied.map_err(|err| PathError::from(err).with_path(&frame.path))?;
+            continue;
+        };
+        top.next += 1;
+        let dir = top.dst;
+        let mut path = top.path.clone();
+        path.push(b'/');
+        path.extend_from_slice(name.as_bytes());
+        let node = entry.node();
+        match node.file_type() {
+            FileType::Dir => {
+                let (create, times, partial) = split_attrs(node.attrs(), &fs.capabilities(), dropped);
+                let to = fs.mkdir(dir, name, &create).await.map_err(|err| PathError::from(err).with_path(&path))?;
+                if let Err(err) = try_partial(fs, to, partial, dropped).await {
+                    fs.forget(to, 1);
+                    return Err(PathError::from(err).with_path(&path));
+                }
+                stack.push(Frame { children: entry.children().collect(), next: 0, dst: to, path, times: Some(times) });
+            }
+            FileType::File if entry.links() > 1 && copied.contains(&entry.id()) => {
+                report.push_warning(Warning::new(WarningKind::Skipped, "hard links cannot be created through the filesystem trait").with_path(&path));
+            }
+            FileType::File => {
+                copy_file(fs, dir, name, node, dropped, buf).await.map_err(|err| err.with_path(&path))?;
+                if entry.links() > 1 {
+                    copied.push(entry.id());
+                }
+            }
+            _ => {
+                report.push_warning(Warning::new(WarningKind::Skipped, "symlinks and special files cannot be created through the filesystem trait").with_path(&path));
+            }
         }
     }
     Ok(())
 }
 
-async fn copy_dir<S, D>(src: &mut S, node: NodeId, dst: &mut D, to: &[u8]) -> Result<(), PathError>
-where
-    S: FileSystem + ?Sized,
-    D: FileSystem + ?Sized,
-{
-    let top = match create_dir_all(dst, to, Resolve::Lexical).await {
-        Ok(()) => dst.resolve(to, Resolve::Lexical).await,
-        Err(err) => Err(err),
-    };
-    let top = match top {
-        Ok(top) => top,
-        Err(err) => {
-            src.forget(node, 1);
-            return Err(err.into());
-        }
-    };
-    let mut stack = Vec::new();
-    stack.push(Frame { src: node, dst: top, cursor: DirCursor::START, attrs: None });
-    let result = walk(src, dst, &mut stack).await;
-    for frame in stack {
-        src.forget(frame.src, 1);
-        dst.forget(frame.dst, 1);
-    }
-    result
-}
-
-/// Copies the file or directory tree at `from` on `src` to `to` on `dst`,
-/// which may be different filesystems on different devices. Paths resolve
-/// lexically, and errors from either device come back as [`PathError`].
+/// Copies the contents of `tree` into the directory `dir` of `fs`, a
+/// mounted filesystem of any format.
 ///
-/// A directory is merged into `to`, which is created with its parents when
-/// missing. Existing files are overwritten; an existing node of another
-/// type, or an existing symlink, fails with [`ErrorKind::AlreadyExists`].
-/// Times, attributes and, where `dst` stores them fully, permissions and
-/// owner are copied. Symlinks, device nodes, FIFOs and sockets fail with
-/// [`ErrorKind::Unsupported`], since the shared trait cannot create them. A
-/// directory entry that leads back to a directory on the path being copied
-/// fails with [`ErrorKind::Corrupt`], and a tree more than 1024 directories
-/// deep with [`ErrorKind::LimitExceeded`], which also ends a copy of a
-/// directory into itself on one volume. Each file is closed, not flushed;
-/// call `sync` on `dst` to make the copy durable.
+/// Directories and files are created with the attributes their nodes set
+/// where `fs` stores them; each directory's times are set after its
+/// children are written, so they survive. Fields `fs` does not store are
+/// dropped and reported once per field with the number of nodes. Nodes
+/// the filesystem trait cannot create (symlinks, special files and the
+/// extra names of a hard-linked file) are skipped, each reported with its
+/// path. The attributes of the tree's root are not applied to `dir`.
 ///
-/// ```rust,ignore
-/// copy_tree(&mut iso, "/EFI", &mut fat, "/EFI")?;
-/// ```
-pub async fn copy_tree<S, D>(
-    src: &mut S,
-    from: impl AsRef<[u8]>,
-    dst: &mut D,
-    to: impl AsRef<[u8]>,
-) -> Result<(), PathError>
-where
-    S: FileSystem + ?Sized,
-    D: FileSystem + ?Sized,
-{
-    let to = to.as_ref();
-    let node = src.resolve(from.as_ref(), Resolve::Lexical).await?;
-    let is_dir = match src.stat(node).await {
-        Ok(meta) => meta.file_type().is_dir(),
-        Err(err) => {
-            src.forget(node, 1);
-            return Err(err.into());
-        }
-    };
-    if is_dir {
-        return copy_dir(src, node, dst, to).await;
+/// An existing name fails with [`ErrorKind::AlreadyExists`]; errors carry
+/// the tree path of the node that failed. File content is read in this
+/// mode, so the other mode's lazy content fails with
+/// [`ErrorKind::Unsupported`]. Files are closed, not flushed; call `sync`
+/// to make the copy durable. The report's size is 0 and it lists no
+/// extents.
+pub async fn copy_tree<F: FileSystem + ?Sized>(tree: &Tree, fs: &mut F, dir: NodeId) -> Result<Report, PathError> {
+    let mut report = Report::new();
+    let mut dropped = Dropped::default();
+    let mut copied = Vec::new();
+    let mut buf = alloc::vec![0u8; CHUNK];
+    let root = tree.root();
+    let mut stack = alloc::vec![Frame { children: root.children().collect(), next: 0, dst: dir, path: Vec::new(), times: None }];
+    let result = walk(fs, &mut stack, &mut report, &mut dropped, &mut copied, &mut buf).await;
+    for frame in stack.into_iter().skip(1) {
+        fs.forget(frame.dst, 1);
     }
-    let copied = match resolve_parent(dst, to, Resolve::Lexical).await {
-        Ok((dir, name)) => {
-            let copied = copy_node(src, node, dst, dir, name).await;
-            dst.forget(dir, 1);
-            copied.map(|_| ())
-        }
-        Err(err) => Err(err.into()),
-    };
-    src.forget(node, 1);
-    copied
+    result?;
+    dropped.report(&mut report);
+    Ok(report)
 }
 
 }

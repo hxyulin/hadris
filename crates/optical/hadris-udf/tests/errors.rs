@@ -6,11 +6,11 @@ mod common;
 use common::Paths;
 use common::{SECTOR, image, open, reseal, sample};
 use hadris_fs::sync::FileSystem;
-use hadris_fs::tree::{Content, Tree};
-use hadris_fs::{ErrorKind, Extent, FileTimes, NodeId, SetMetadata};
+use hadris_fs::{Content, Node, Tree};
+use hadris_fs::{ErrorKind, Extent, NodeId, SetAttr};
 use hadris_storage::{BlockSize, MemDevice};
 use hadris_udf::sync::UdfFs;
-use hadris_udf::{Bridge, Detail, UdfOptions, UdfRevision};
+use hadris_udf::{Detail, UdfOptions, UdfRevision};
 
 fn good() -> Vec<u8> {
     image(&sample(), &UdfOptions::default())
@@ -160,7 +160,7 @@ fn unsupported_partition_maps_are_refused() {
 #[test]
 fn the_writer_refuses_what_it_cannot_store() {
     let tree = sample();
-    let err = hadris_udf::sync::plan(
+    let err = hadris_udf::plan(
         &tree,
         &UdfOptions::default().with_volume_id("x".repeat(127)),
     )
@@ -175,7 +175,7 @@ fn the_writer_refuses_what_it_cannot_store() {
 
     for revision in [UdfRevision::V2_50, UdfRevision::V2_60] {
         let options = UdfOptions::default().with_revision(revision);
-        let err = hadris_udf::sync::plan(&tree, &options).unwrap_err();
+        let err = hadris_udf::plan(&tree, &options).unwrap_err();
         assert_eq!(
             (
                 err.kind(),
@@ -194,19 +194,19 @@ fn the_writer_refuses_what_it_cannot_store() {
     }
 
     let mut long = Tree::new();
-    long.add_file(&"n".repeat(255), Content::empty()).unwrap();
-    let err = hadris_udf::sync::plan(&long, &UdfOptions::default()).unwrap_err();
+    long.insert("n".repeat(255), Node::file(Content::empty()))
+        .unwrap();
+    let err = hadris_udf::plan(&long, &UdfOptions::default()).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::NameTooLong);
 
     let mut late = Tree::new();
-    late.add_file("f", Content::empty()).unwrap();
     let far = hadris_fs::DateTime::from_unix_seconds(253_402_300_800).unwrap();
-    late.set_metadata(
+    late.insert(
         "f",
-        SetMetadata::new().with_times(FileTimes::new().with_modified(far)),
+        Node::file(Content::empty()).with_attrs(SetAttr::new().with_modified(far)),
     )
     .unwrap();
-    let err = hadris_udf::sync::plan(&late, &UdfOptions::default()).unwrap_err();
+    let err = hadris_udf::plan(&late, &UdfOptions::default()).unwrap_err();
     assert_eq!(
         err.detail().and_then(hadris_udf::Detail::from_code),
         Some(Detail::Timestamp)
@@ -214,9 +214,12 @@ fn the_writer_refuses_what_it_cannot_store() {
 
     let mut stored = Tree::new();
     stored
-        .add_file("f", Content::stored([Extent::new(2048 * 400, 10)]))
+        .insert(
+            "f",
+            Node::file(Content::stored([Extent::new(2048 * 400, 10)])),
+        )
         .unwrap();
-    let err = hadris_udf::sync::plan(&stored, &UdfOptions::default()).unwrap_err();
+    let err = hadris_udf::plan(&stored, &UdfOptions::default()).unwrap_err();
     assert_eq!(
         (
             err.kind(),
@@ -230,50 +233,6 @@ fn the_writer_refuses_what_it_cannot_store() {
     assert_eq!(
         err.detail().and_then(hadris_udf::Detail::from_code),
         Some(Detail::OutputBlockSize)
-    );
-    assert!(dev.get_ref().iter().all(|&b| b == 0));
-}
-
-#[test]
-fn bridge_volumes_take_only_stored_content() {
-    let bridge = UdfOptions::default().with_bridge(Bridge::new(3));
-    let mut dev = MemDevice::new(vec![0u8; 4 << 20], SECTOR);
-
-    let mut bytes = Tree::new();
-    bytes.add_file("f", Content::bytes("data")).unwrap();
-    let err = hadris_udf::sync::write(&mut dev, &bytes, &bridge).unwrap_err();
-    assert_eq!(
-        (
-            err.kind(),
-            err.detail().and_then(hadris_udf::Detail::from_code)
-        ),
-        (ErrorKind::Unsupported, Some(Detail::StoredContent))
-    );
-
-    let mut unaligned = Tree::new();
-    unaligned
-        .add_file("f", Content::stored([Extent::new(2048 * 400 + 1, 10)]))
-        .unwrap();
-    let err = hadris_udf::sync::write(&mut dev, &unaligned, &bridge).unwrap_err();
-    assert_eq!(
-        (
-            err.kind(),
-            err.detail().and_then(hadris_udf::Detail::from_code)
-        ),
-        (ErrorKind::InvalidInput, Some(Detail::StoredContent))
-    );
-
-    let mut early = Tree::new();
-    early
-        .add_file("f", Content::stored([Extent::new(2048 * 291, 10)]))
-        .unwrap();
-    let err = hadris_udf::sync::write(&mut dev, &early, &bridge).unwrap_err();
-    assert_eq!(
-        (
-            err.kind(),
-            err.detail().and_then(hadris_udf::Detail::from_code)
-        ),
-        (ErrorKind::InvalidInput, Some(Detail::StoredContent))
     );
     assert!(dev.get_ref().iter().all(|&b| b == 0));
 }

@@ -1,5 +1,3 @@
-use hadris_fs::SystemClock;
-use hadris_iso::sync::plan;
 use hadris_iso::{
     BootEntry, BootInfo, Charset, ElTorito, HybridBoot, IsoOptions, JolietLevel, Platform,
     RockRidge, VolumeIdentifiers,
@@ -7,7 +5,7 @@ use hadris_iso::{
 
 use super::super::args::CreateArgs;
 
-use super::{Result, normalize_path, print_warnings, read_source, write_image};
+use super::{Result, build_time, normalize_path, print_warnings, read_source, write_image};
 
 /// The path of the visible boot catalog in created images.
 pub(super) const CATALOG_PATH: &str = "boot.catalog";
@@ -42,7 +40,7 @@ pub fn create(args: CreateArgs) -> Result<()> {
         .with_volume(volume)
         .with_level(args.level.level)
         .with_name_case(args.level.name_case)
-        .with_clock(SystemClock);
+        .with_time(build_time()?);
     if args.strict_charset {
         options = options.with_charset(Charset::Strict);
     }
@@ -80,11 +78,11 @@ pub fn create(args: CreateArgs) -> Result<()> {
     }
 
     if args.dry_run {
-        let report = plan(&tree, &options)?;
+        let report = hadris_iso::plan(&tree, &options)?;
         println!(
             "Estimated size: {} bytes ({} sectors)",
-            report.size_bytes(),
-            report.total_blocks()
+            report.size(),
+            report.size() / 2048
         );
         print_warnings(&report, args.verbose);
         return Ok(());
@@ -96,7 +94,7 @@ pub fn create(args: CreateArgs) -> Result<()> {
         println!(
             "Created ISO: {} ({} bytes)",
             args.output.display(),
-            report.size_bytes()
+            report.size()
         );
     } else {
         println!("Created: {}", args.output.display());

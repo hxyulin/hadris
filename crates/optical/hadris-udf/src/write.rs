@@ -1,104 +1,120 @@
-use alloc::collections::BTreeMap;
-use alloc::format;
-use alloc::string::String;
 use alloc::vec;
 use core::convert::Infallible;
 
-use hadris_fs::tree::{NodeKind, Tree};
-use hadris_fs::{Clock, ErrorKind, PathError};
+use hadris_fs::{ErrorKind, PathError, Report, Tree};
+use hadris_iso::IsoOptions;
 use hadris_storage::BlockIndex;
 
 use super::fs::ContentReader;
 use super::storage::BlockDevice;
+use crate::bridge;
 use crate::error::{Detail, Error};
 use crate::options::UdfOptions;
-use crate::plan::{self, ContentInfo, Plan, Region, SECTOR};
-use crate::report::Report;
+use crate::plan::{self, Plan, Region, SECTOR};
 
 /// Bytes read from a content per request.
 const CHUNK: usize = 64 * 1024;
 
-io_transform! {
-
-/// Measures every file of `tree`: the length of content to write, or the
-/// extents of stored content in a bridge volume. With `strict`, a bridge
-/// file whose content is neither stored nor empty fails; without, it is
-/// left out.
-async fn measure(tree: &Tree, bridge: bool, strict: bool) -> Result<BTreeMap<usize, ContentInfo>, PathError> {
-    let mut out = BTreeMap::new();
-    let mut pending = vec![(String::new(), tree.root())];
-    while let Some((dir_path, dir)) = pending.pop() {
-        for (name, child) in dir.children() {
-            let path = format!("{dir_path}/{name}");
-            match child.kind() {
-                NodeKind::Dir => pending.push((path, child)),
-                NodeKind::File(content) if !out.contains_key(&child.id()) => {
-                    let info = match content.stored_extents() {
-                        Some(extents) if bridge => ContentInfo {
-                            len: extents.iter().map(|extent| extent.len()).sum(),
-                            stored: Some(extents.to_vec()),
-                        },
-                        None if bridge && content.len() == Some(0) => ContentInfo { len: 0, stored: None },
-                        None if bridge && !strict => continue,
-                        None if !bridge => {
-                            let reader = ContentReader::open(content).await.map_err(|err| err.with_path(path))?;
-                            ContentInfo { len: reader.len(), stored: None }
-                        }
-                        _ => return Err(PathError::from(Detail::StoredContent.error::<Infallible>(ErrorKind::Unsupported)).with_path(path)),
-                    };
-                    out.insert(child.id(), info);
-                }
-                _ => {}
-            }
-        }
-    }
-    Ok(out)
-}
-
-/// The [`Report`] [`write()`] would return, without writing: the volume
-/// size, where each file goes, and the warnings.
-///
-/// Size an output device with [`Report::size_bytes`]. Host files are
-/// opened and measured; nothing else is read. For a bridge volume, files
-/// whose content is not stored yet are planned without data, so the
-/// ISO 9660 structures can be placed at [`Report::allocated_end`] before
-/// the stored extents are known.
-pub async fn plan<C: Clock>(tree: &Tree, opts: &UdfOptions<C>) -> Result<Report, PathError> {
-    let bridge = opts.bridge().is_some();
-    let contents = measure(tree, bridge, false).await?;
-    Ok(plan::plan(tree, opts, &contents, !bridge)?.report)
-}
-
-/// Writes `tree` as a UDF volume on `out`, as `opts` says, and returns the
-/// [`Report`].
-///
-/// A standalone volume is written from block 0, every block once, in
-/// ascending order, gaps as zeros; then the device is flushed. The device
-/// must hold [`Report::size_bytes`] (see [`plan`]); a device that grows on
-/// write, such as a host file, needs no sizing. Its block size must divide
-/// 2048 ([`Detail::OutputBlockSize`]).
-///
-/// A bridge volume ([`UdfOptions::with_bridge`]) writes only its own
-/// structures and points at the stored extents of each file, which must be
-/// whole blocks after [`Report::allocated_end`]
-/// ([`Detail::StoredContent`]).
-///
-/// Fails before writing anything with [`ErrorKind::InvalidInput`] for a
-/// volume identifier over 126 bytes or a time outside the years 1 to 9999,
-/// [`ErrorKind::NameTooLong`] for a name over 254 bytes of OSTA Compressed
-/// Unicode, and [`ErrorKind::FileTooLarge`] for a file of more than 234
-/// GiB. An error from a file's content carries the file's path
-/// ([`PathError::path`]).
-pub async fn write<D: BlockDevice, C: Clock>(mut out: D, tree: &Tree, opts: &UdfOptions<C>) -> Result<Report, PathError> {
+fn check_block_size<D: BlockDevice>(out: &D) -> Result<(), PathError> {
     let block = out.block_size().get() as usize;
     if block > SECTOR || SECTOR % block != 0 {
-        return Err(Detail::OutputBlockSize.error::<Infallible>(ErrorKind::Unsupported).into());
+        return Err(Detail::OutputBlockSize
+            .error::<Infallible>(ErrorKind::Unsupported)
+            .into());
     }
-    let bridge = opts.bridge().is_some();
-    let contents = measure(tree, bridge, true).await?;
-    let plan = plan::plan(tree, opts, &contents, true)?;
+    Ok(())
+}
+
+/// Checks that `out` can hold `blocks` 2048-byte blocks.
+fn check_output<D: BlockDevice>(out: &D, blocks: u64) -> Result<(), PathError> {
+    let per_sector = (SECTOR / out.block_size().get() as usize) as u64;
+    if blocks.saturating_mul(per_sector) > out.max_block_count() {
+        return Err(PathError::new(
+            ErrorKind::NoSpace,
+            "the output device is smaller than the volume",
+        ));
+    }
+    Ok(())
+}
+
+/// Checks that this mode can read every file the plan writes.
+fn check_contents(tree: &Tree, plan: &Plan) -> Result<(), PathError> {
+    for region in &plan.regions {
+        if let Region::File { path, .. } = region
+            && let Some(content) = tree.get(path).and_then(|node| node.content())
+        {
+            ContentReader::check(content).map_err(|err| err.with_path(path))?;
+        }
+    }
+    Ok(())
+}
+
+io_transform! {
+
+/// Writes `tree` as a UDF volume on `out`, as `opts` says, from block 0,
+/// and returns the report [`plan`](crate::plan) returns.
+///
+/// Every block is written once, in ascending order, gaps as zeros; then the
+/// device is flushed. Its block size must divide 2048
+/// ([`Detail::OutputBlockSize`]).
+///
+/// Fails before writing anything as [`plan`](crate::plan) does, with
+/// [`ErrorKind::NoSpace`] when the device cannot hold [`Report::size`] (a
+/// device that grows on write, such as a host file, needs no sizing), and
+/// with [`ErrorKind::Unsupported`] naming the file whose content this mode
+/// cannot read. An error from a file's content carries the file's path
+/// ([`PathError::path`]).
+pub async fn write<D: BlockDevice>(mut out: D, tree: &Tree, opts: &UdfOptions) -> Result<Report, PathError> {
+    check_block_size(&out)?;
+    let contents = plan::measure(tree, false, true)?;
+    let plan = plan::lay_out(tree, opts, &contents, true, None)?;
+    check_output(&out, plan.total_blocks)?;
+    check_contents(tree, &plan)?;
     emit(&mut out, tree, &plan).await?;
     Ok(plan.report)
+}
+
+/// Writes `tree` as an ISO 9660 and UDF bridge image on `out` and returns
+/// the report [`plan_bridge`](crate::plan_bridge) returns.
+///
+/// The ISO 9660 image is written first, from block 0 in ascending order,
+/// with its directories after the UDF metadata; then the UDF structures,
+/// pointing at the ISO 9660 file extents, and the last block of the image.
+/// Last, the volume space size of each ISO 9660 volume descriptor is set to
+/// the whole image, UDF structures included (ECMA-119 8.4.8). Nothing is
+/// read back from the device except those descriptors.
+///
+/// Fails before writing anything as [`plan_bridge`](crate::plan_bridge)
+/// does, and like [`write()`] for the device. Errors of either writer keep
+/// their kind, detail code and path.
+pub async fn write_bridge<D: BlockDevice>(mut out: D, tree: &Tree, iso: &IsoOptions, udf: &UdfOptions) -> Result<Report, PathError> {
+    check_block_size(&out)?;
+    let plan = bridge::plan_both(tree, iso, udf)?;
+    check_output(&out, plan.udf.total_blocks)?;
+    super::iso::write(&mut out, tree, &plan.iso).await?;
+    emit(&mut out, &plan.stored, &plan.udf).await?;
+    cover(&mut out, plan.descriptors, plan.udf.total_blocks).await?;
+    Ok(plan.report())
+}
+
+/// Sets the volume space size of the first `descriptors` ISO 9660 volume
+/// descriptors to `blocks`, the whole image, so the ISO 9660 volume also
+/// covers the UDF structures after its own end.
+async fn cover<D: BlockDevice>(out: &mut D, descriptors: u32, blocks: u64) -> Result<(), Error<D::Error>> {
+    let blocks = u32::try_from(blocks).unwrap_or(u32::MAX);
+    let per_sector = SECTOR as u64 / u64::from(out.block_size().get());
+    let mut sector = [0u8; SECTOR];
+    for index in 16..16 + u64::from(descriptors) {
+        let first = BlockIndex::new(index * per_sector);
+        out.read_blocks(first, &mut sector).await?;
+        if !matches!(sector[0], 1 | 2) || &sector[1..6] != b"CD001" {
+            continue;
+        }
+        sector[80..84].copy_from_slice(&blocks.to_le_bytes());
+        sector[84..88].copy_from_slice(&blocks.to_be_bytes());
+        out.write_blocks(first, &sector).await?;
+    }
+    out.flush().await
 }
 
 async fn write_sectors<D: BlockDevice>(out: &mut D, sector: u64, data: &[u8]) -> Result<(), Error<D::Error>> {
@@ -159,7 +175,7 @@ async fn file<D: BlockDevice>(
     buf: &mut [u8],
 ) -> Result<(), PathError> {
     let changed = || PathError::from(Detail::Content.corrupt::<Infallible>()).with_path(path);
-    let Some(NodeKind::File(content)) = tree.get(path).map(|node| node.kind()) else {
+    let Some(content) = tree.get(path).and_then(|node| node.content()) else {
         return Err(changed());
     };
     let mut reader = ContentReader::open(content).await.map_err(|err| err.with_path(path))?;

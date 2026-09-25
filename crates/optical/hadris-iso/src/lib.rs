@@ -18,20 +18,19 @@
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use std::io::Read;
 //!
-//! use hadris_fs::OpenOptions;
 //! use hadris_fs::sync::Volume;
-//! use hadris_fs::tree::{Content, Tree};
-//! use hadris_iso::sync::{IsoImage, plan, write};
-//! use hadris_iso::{IsoOptions, Namespace};
+//! use hadris_fs::{Content, Node, OpenOptions, Tree};
+//! use hadris_iso::sync::{IsoImage, write};
+//! use hadris_iso::{IsoOptions, Namespace, plan};
 //! use hadris_storage::{BlockSize, MemDevice};
 //!
 //! let mut tree = Tree::new();
-//! tree.add_file("boot/grub/grub.cfg", Content::bytes("set timeout=3"))?;
+//! tree.insert("boot/grub/grub.cfg", Node::file(Content::bytes("set timeout=3")))?;
 //! let options = IsoOptions::default();
-//! let size = plan(&tree, &options)?.size_bytes();
+//! let size = plan(&tree, &options)?.size();
 //! let mut dev = MemDevice::new(vec![0u8; size as usize], BlockSize::new(2048).unwrap());
 //! let report = write(&mut dev, &tree, &options)?;
-//! assert_eq!(report.size_bytes(), size);
+//! assert_eq!(report.size(), size);
 //!
 //! let iso = IsoImage::open(dev)?;
 //! let vol = Volume::new(iso.into_view(Namespace::Preferred)?);
@@ -51,12 +50,13 @@
 //!
 //! ## Writing
 //!
-//! `write` (in each mode, with `alloc`) lays out a `hadris_fs::tree::Tree`
-//! as an image on a block device, as [`IsoOptions`] says, and returns a
-//! [`Report`] of its size, where each file went, and what it could not
-//! store. `plan` returns the same report without writing, so the device can
-//! be sized first. The output is reproducible: the clock is injected, and
-//! the default [`NoClock`](hadris_fs::NoClock) writes 1980-01-01.
+//! `write` (in each mode, with `alloc`) lays out a `hadris_fs::Tree` as an
+//! image on a block device, as [`IsoOptions`] says, and returns a
+//! `hadris_fs::Report` of its size, where each file went, and what it could
+//! not store. [`plan`] returns the same report without I/O, so the device
+//! can be sized first. The output is reproducible: the writer reads no
+//! clock, and dates the volume with [`IsoOptions::with_time`], 1980-01-01
+//! by default.
 //!
 //! ## Sessions
 //!
@@ -109,8 +109,6 @@ mod namespace;
 mod options;
 #[cfg(feature = "alloc")]
 mod plan;
-#[cfg(feature = "alloc")]
-mod report;
 mod rock_ridge;
 
 pub mod raw;
@@ -140,7 +138,7 @@ pub mod sync {
     #[path = "write.rs"]
     mod write;
     #[cfg(feature = "alloc")]
-    pub use write::{plan, write};
+    pub use write::write;
     #[cfg(feature = "alloc")]
     #[path = "session.rs"]
     mod session;
@@ -168,7 +166,7 @@ pub use options::{
 };
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-pub use report::Report;
+pub use plan::plan;
 pub use rock_ridge::RockRidgeInfo;
 
 #[cfg(test)]

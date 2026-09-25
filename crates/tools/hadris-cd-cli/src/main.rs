@@ -6,9 +6,9 @@ use clap::{Parser, Subcommand};
 use hadris_cd::{CdOptions, UdfOptions};
 use std::hash::Hasher;
 
+use hadris_fs::host::{self, OnError, TreeOptions};
 use hadris_fs::sync::FileSystem;
-use hadris_fs::tree::{FromFsOptions, OnError, Tree, WarningKind};
-use hadris_fs::{DirCursor, FileType, NodeId, OpenMode, Resolve};
+use hadris_fs::{Clock, DirCursor, FileType, NodeId, OpenMode, Resolve, SystemClock, WarningKind};
 use hadris_iso::sync::IsoImage;
 use hadris_iso::{
     BootEntry, BootInfo, ElTorito, HybridBoot, JolietLevel, Namespace, Platform, RockRidge,
@@ -146,12 +146,12 @@ fn create(args: CreateArgs) -> Result<()> {
     if !args.source.is_dir() {
         return Err(format!("source is not a directory: {}", args.source.display()).into());
     }
-    let tree = Tree::from_fs(
+    let (tree, skipped) = host::read_tree(
         &args.source,
-        FromFsOptions::new().with_on_error(OnError::Warn),
+        &TreeOptions::new().with_on_error(OnError::Skip),
     )?;
-    for warning in tree.warnings() {
-        eprintln!("warning: {warning}");
+    for err in skipped {
+        eprintln!("warning: skipped {err}");
     }
 
     let defaults = CdOptions::default();
@@ -185,7 +185,7 @@ fn create(args: CreateArgs) -> Result<()> {
     let options = CdOptions::default()
         .with_iso(iso)
         .with_udf(udf)
-        .with_clock(hadris_fs::SystemClock);
+        .with_time(host::source_date_epoch()?.unwrap_or_else(|| SystemClock.now()));
 
     let (file, pending) = Output::create(&args.output)
         .map_err(|err| format!("cannot create {}: {err}", args.output.display()))?;
@@ -196,7 +196,7 @@ fn create(args: CreateArgs) -> Result<()> {
         .commit(dev.into_inner())
         .map_err(|err| format!("cannot write {}: {err}", args.output.display()))?;
     for warning in report.warnings() {
-        if warning.kind() != WarningKind::IgnoredMetadata {
+        if !matches!(warning.kind(), WarningKind::Dropped(_)) {
             eprintln!("warning: {warning}");
         }
     }

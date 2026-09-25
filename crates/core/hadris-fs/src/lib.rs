@@ -11,7 +11,14 @@
 //! The mode modules (`sync`, `r#async`) hold what does: the `FileSystem`
 //! trait every format implements, on node ids and `&mut self`; `Volume`,
 //! which shares a filesystem between threads and tasks with paths and
-//! `File` and `ReadDir` handles named after `std::fs`; and `copy_tree`.
+//! `File` and `ReadDir` handles named after `std::fs`; `copy_tree`, which
+//! writes a [`Tree`] into any filesystem; and `read_tree`, which reads a
+//! mounted volume into one.
+//!
+//! [`Tree`], [`Node`] and [`Content`] (`alloc`) are the input of every
+//! image writer, and [`Report`] is what every writer, planner and
+//! `copy_tree` returns. [`host`] (`std` and `sync`) moves trees between host
+//! directories and writers.
 //!
 //! [`Error<E>`] is the error of every filesystem operation, re-exported from
 //! `hadris-io` with [`ErrorKind`], [`Location`], [`DetailCode`] and
@@ -26,8 +33,8 @@
 //!
 //! | Feature | Default | Purpose |
 //! |---|---:|---|
-//! | `alloc` | No | [`OwnedName`], [`PathError`], `copy_tree`, the async `Volume`, and the writer input [`tree`] with `ContentReader` and `TreeExt` in each mode |
-//! | `std` | No | Implies `alloc`; adds [`SystemClock`], the sync `Volume` and its `std::io` handles, `extract_to_host` and `import_from_host` in `sync`, `Content::path` and `Tree::from_fs`, and conversions to `std::io::Error` |
+//! | `alloc` | No | [`OwnedName`], [`PathError`], [`Tree`], [`Report`], `copy_tree` and `ContentReader` in each mode, and the async `Volume` with its `read_tree` |
+//! | `std` | No | Implies `alloc`; adds [`SystemClock`], the sync `Volume` with its `std::io` handles and `read_tree`, [`host`] with `sync`, and conversions to `std::io::Error` |
 //! | `sync` | No | The blocking API in `sync` |
 //! | `async` | No | The same API with `Send` futures in `r#async` |
 //! | `contract` | No | The driver contract kit, `contract::check` in each mode, and `ContractViolation` |
@@ -52,14 +59,18 @@ mod dir;
 mod error;
 mod extent;
 mod fuse;
+#[cfg(all(feature = "std", feature = "sync"))]
+pub mod host;
 mod meta;
 mod mount;
 mod name;
 mod node;
 mod ops;
+#[cfg(feature = "alloc")]
+mod report;
 mod time;
 #[cfg(feature = "alloc")]
-pub mod tree;
+mod tree;
 
 pub use caps::{Capabilities, CaseRule, Charset, Field, FsStats, Stored};
 pub use check::{CheckReport, Finding, Severity};
@@ -73,18 +84,20 @@ pub use error::{DetailCode, Errno, Error, ErrorKind, FsResult, Location, MountEr
 pub use extent::Extent;
 pub use fuse::FuseOnError;
 pub use hadris_io::SeekFrom;
-pub use meta::{Attributes, Metadata, Owner, Permissions, SetAttr, SetMetadata};
+pub use meta::{Attributes, Metadata, Owner, Permissions, SetAttr};
 pub use mount::MountOptions;
 #[cfg(feature = "alloc")]
 pub use name::OwnedName;
 pub use name::{Name, NameBuf, NameError};
 pub use node::{FileType, NodeId};
-pub use ops::{
-    DeviceKind, DeviceNumber, OpenMode, OpenOptions, OpenOptionsError, RenameMode, Resolve,
-};
+pub use ops::{DeviceNumber, OpenMode, OpenOptions, OpenOptionsError, RenameMode, Resolve};
+#[cfg(feature = "alloc")]
+pub use report::{Report, Warning, WarningKind};
 #[cfg(feature = "std")]
 pub use time::SystemClock;
-pub use time::{CivilDate, CivilTime, Clock, DateTime, DateTimeError, FileTimes, NoClock};
+pub use time::{CivilDate, CivilTime, Clock, DateTime, DateTimeError, NoClock};
+#[cfg(feature = "alloc")]
+pub use tree::{Content, Node, Tree, TreeEntry};
 
 /// The blocking API: the `FileSystem` trait, and with `std` the `Volume`
 /// with its `File` and `ReadDir` handles.

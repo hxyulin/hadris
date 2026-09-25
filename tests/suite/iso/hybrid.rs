@@ -1,6 +1,6 @@
 //! Hybrid MBR/GPT boot sectors written alongside the ISO 9660 image.
 
-use hadris_fs::tree::{Content, Tree};
+use hadris_fs::{Content, Node, Tree};
 use hadris_iso::{BootEntry, ElTorito, HybridBoot, IsoOptions, VolumeIdentifiers};
 use hadris_tests::iso::hadris::write_tree;
 
@@ -9,7 +9,7 @@ fn hybrid_image(volume_name: &str, hybrid_boot: HybridBoot) -> Vec<u8> {
     boot_image[0] = 0xEB;
     boot_image[1] = 0xFE;
     let mut tree = Tree::new();
-    tree.add_file("boot.bin", Content::bytes(boot_image))
+    tree.insert("boot.bin", Node::file(Content::bytes(boot_image)))
         .unwrap();
     let options = IsoOptions::default()
         .with_volume(VolumeIdentifiers::new(volume_name))

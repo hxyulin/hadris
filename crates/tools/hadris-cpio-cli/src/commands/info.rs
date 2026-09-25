@@ -38,7 +38,7 @@ pub fn info(archive: PathBuf) -> Result<()> {
 
     let format_str = match format {
         Some(Format::Newc) => "newc (070701)",
-        Some(Format::NewcCrc) => "newc+crc (070702)",
+        Some(Format::Crc) => "newc+crc (070702)",
         Some(Format::Odc) => "odc (070707)",
         Some(Format::Binary) => "old binary",
         Some(_) => "unknown",

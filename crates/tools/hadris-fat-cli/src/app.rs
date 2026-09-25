@@ -16,12 +16,13 @@ use hadris_fat_raw::{RawBpb, RawBpbExt16, RawBpbExt32};
 use hadris_storage::host::FileDevice;
 use output::Output;
 
-use hadris_fs::sync::{FileSystem, extract_to_host, import_from_host};
-use hadris_fs::tree::{FromFsOptions, NodeKind, Tree, TreeNode};
+use hadris_fs::host::{self, TreeOptions};
+use hadris_fs::sync::{FileSystem, copy_tree, read_tree};
 use hadris_fs::{
     Attributes, DirCursor, FileType, Finding, Metadata, MountOptions, NodeId, OpenMode, Resolve,
     SystemClock,
 };
+use hadris_fs::{Tree, TreeEntry};
 
 #[derive(Parser)]
 #[command(name = "hadris-fat")]
@@ -159,7 +160,10 @@ pub fn run() -> Result<()> {
             image,
             output,
             path,
-        } => with_fs!(&mut open(&image)?, fs => cmd_extract(fs, &output, path.as_deref())),
+        } => match open(&image)? {
+            Volume::Fat(fs) => cmd_extract(*fs, &output, path.as_deref()),
+            Volume::ExFat(fs) => cmd_extract(*fs, &output, path.as_deref()),
+        },
         Commands::Create {
             source,
             output,
@@ -743,19 +747,43 @@ fn copy_to_stdout<D: FileSystem>(fs: &mut D, node: NodeId) -> Result<()> {
 
 /// Extracts `path` (the root when `None`) below `output`. The root is merged
 /// into `output`; anything else lands at `output/<stored name>`.
-fn cmd_extract<D: FileSystem>(fs: &mut D, output: &Path, path: Option<&str>) -> Result<()> {
+fn cmd_extract<D: FileSystem + Send + 'static>(
+    mut fs: D,
+    output: &Path,
+    path: Option<&str>,
+) -> Result<()> {
     let from = path.unwrap_or("/");
-    let destination = match stored_name(fs, from)? {
-        None => output.to_path_buf(),
-        Some(name) => {
-            fs::create_dir_all(output).with_context(|| {
-                format!("Failed to create output directory: {}", output.display())
-            })?;
-            output.join(name)
-        }
+    let name = stored_name(&mut fs, from)?;
+    let node = resolve(&mut fs, from)?;
+    let is_dir = fs.stat(node).map(|meta| meta.file_type().is_dir());
+    fs.forget(node, 1);
+    let is_dir = is_dir?;
+    let target = match &name {
+        Some(name) if is_dir => output.join(name),
+        _ => output.to_path_buf(),
     };
-    extract_to_host(&mut *fs, from, &destination)
-        .with_context(|| format!("Failed to extract {from} to {}", destination.display()))
+    fs::create_dir_all(&target)
+        .with_context(|| format!("Failed to create output directory: {}", target.display()))?;
+    let vol = hadris_fs::sync::Volume::new(fs);
+    let mut tree = read_tree(&vol, from).with_context(|| format!("Failed to read {from}"))?;
+    if let (Some(name), false) = (&name, is_dir) {
+        tree = stored_file(&tree, name)?;
+    }
+    let report = host::write_tree(&target, &tree)
+        .with_context(|| format!("Failed to extract {from} to {}", target.display()))?;
+    for warning in report.warnings() {
+        eprintln!("warning: {warning}");
+    }
+    Ok(())
+}
+
+/// The one-file `tree` of `read_tree` with its file under `name`.
+fn stored_file(tree: &Tree, name: &str) -> Result<Tree> {
+    let mut out = Tree::new();
+    if let Some((_, entry)) = tree.root().children().next() {
+        out.insert(name, entry.node().clone())?;
+    }
+    Ok(out)
 }
 
 /// The name `path` is stored under in its directory, or `None` for the root.
@@ -796,16 +824,17 @@ fn find_name<D: FileSystem>(fs: &mut D, path: &str, node: NodeId) -> Result<Stri
 
 /// Total file bytes and entry count below `node`. Fails on entries FAT and
 /// exFAT cannot store.
-fn inventory(node: TreeNode<'_>, path: &str, bytes: &mut u64, entries: &mut u64) -> Result<()> {
+fn inventory(node: TreeEntry<'_>, path: &str, bytes: &mut u64, entries: &mut u64) -> Result<()> {
     for (name, child) in node.children() {
         let child_path = format!("{path}/{name}");
         *entries += 1;
-        match child.kind() {
-            NodeKind::Dir => inventory(child, &child_path, bytes, entries)?,
-            NodeKind::File(content) => {
-                *bytes = bytes.saturating_add(content.len().unwrap_or(0));
+        match child.node().file_type() {
+            FileType::Dir => inventory(child, &child_path, bytes, entries)?,
+            FileType::File => {
+                let len = child.node().content().map_or(0, |content| content.len());
+                *bytes = bytes.saturating_add(len);
             }
-            NodeKind::Symlink(_) => bail!("Symbolic links are not supported: {child_path}"),
+            FileType::Symlink => bail!("Symbolic links are not supported: {child_path}"),
             _ => bail!("Unsupported host entry type: {child_path}"),
         }
     }
@@ -874,7 +903,7 @@ fn cmd_create(
     if !metadata.is_dir() {
         bail!("Source must be a directory: {}", source.display());
     }
-    let tree = Tree::from_fs(source, FromFsOptions::new())
+    let (tree, _) = host::read_tree(source, &TreeOptions::new())
         .with_context(|| format!("Failed to scan source: {}", source.display()))?;
     let (mut bytes, mut entries) = (0, 0);
     inventory(tree.root(), "", &mut bytes, &mut entries)?;
@@ -897,7 +926,8 @@ fn cmd_create(
     })?;
     let kind = type_name(&volume);
     with_fs!(&mut volume, fs => {
-        import_from_host(source, &mut *fs, "/").with_context(
+        let root = fs.root();
+        copy_tree(&tree, &mut *fs, root).with_context(
             || "Failed to import source tree; increase --size if the image is out of space",
         )?;
         fs.sync().context("Failed to write the image")?;

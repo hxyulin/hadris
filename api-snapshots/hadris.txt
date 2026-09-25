@@ -18,3 +18,15 @@ pub use hadris::optical
 pub use hadris::part
 pub use hadris::storage
 pub use hadris::udf
+pub mod hadris::host
+pub use hadris::host::FileDevice
+pub use hadris::host::OnError
+pub use hadris::host::StdIo
+pub use hadris::host::Symlinks
+pub use hadris::host::TreeOptions
+pub use hadris::host::file
+pub use hadris::host::local_utc_offset
+pub use hadris::host::mount_options
+pub use hadris::host::read_tree
+pub use hadris::host::source_date_epoch
+pub use hadris::host::write_tree

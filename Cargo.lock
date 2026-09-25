@@ -440,6 +440,7 @@ dependencies = [
  "hadris-io",
  "hadris-macros",
  "hadris-storage",
+ "libc",
  "spin",
 ]
 
@@ -541,6 +542,7 @@ dependencies = [
  "bytemuck",
  "hadris-fs",
  "hadris-io",
+ "hadris-iso",
  "hadris-macros",
  "hadris-storage",
  "tempfile",

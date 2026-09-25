@@ -5,7 +5,7 @@ use hadris_cpio::sync::{CpioReader, write};
 use hadris_cpio::{CpioOptions, Format, ReaderOptions};
 use hadris_fs::Error;
 use hadris_fs::FileType;
-use hadris_fs::tree::Tree;
+use hadris_fs::Tree;
 use hadris_io::sync::Read;
 use hadris_io::{Cursor, StdIo};
 
@@ -30,7 +30,7 @@ pub fn archive(tree: &Tree, format: Format) -> Vec<u8> {
     let mut out = StdIo::new(Vec::new());
     let report = write(&mut out, tree, &CpioOptions::default().with_format(format)).unwrap();
     let bytes = out.into_inner();
-    assert_eq!(report.size_bytes(), bytes.len() as u64);
+    assert_eq!(report.size(), bytes.len() as u64);
     bytes
 }
 

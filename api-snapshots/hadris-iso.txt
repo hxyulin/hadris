@@ -46,10 +46,8 @@ pub fn hadris_iso::async::Session<D>::options(&self) -> hadris_iso::IsoOptions
 pub fn hadris_iso::async::Session<D>::tree(&self) -> &hadris_fs::tree::Tree
 pub fn hadris_iso::async::Session<D>::tree_mut(&mut self) -> &mut hadris_fs::tree::Tree
 pub fn hadris_iso::async::Session<D>::volume_blocks(&self) -> u64
-pub fn hadris_iso::async::Session<D>::warnings(&self) -> &[hadris_fs::tree::Warning]
-pub async fn hadris_iso::async::Session<D>::write<C: hadris_fs::time::Clock>(&mut self, &hadris_iso::IsoOptions<C>, hadris_iso::SessionMode) -> core::result::Result<hadris_iso::Report, hadris_fs::error::PathError>
-pub async fn hadris_iso::async::plan<C: hadris_fs::time::Clock>(&hadris_fs::tree::Tree, &hadris_iso::IsoOptions<C>) -> core::result::Result<hadris_iso::Report, hadris_fs::error::PathError>
-pub async fn hadris_iso::async::write<D: hadris_storage::async::api::BlockDevice, C: hadris_fs::time::Clock>(D, &hadris_fs::tree::Tree, &hadris_iso::IsoOptions<C>) -> core::result::Result<hadris_iso::Report, hadris_fs::error::PathError>
+pub async fn hadris_iso::async::Session<D>::write(&mut self, &hadris_iso::IsoOptions, hadris_iso::SessionMode) -> core::result::Result<hadris_fs::report::Report, hadris_fs::error::PathError>
+pub async fn hadris_iso::async::write<D: hadris_storage::async::api::BlockDevice>(D, &hadris_fs::tree::Tree, &hadris_iso::IsoOptions) -> core::result::Result<hadris_fs::report::Report, hadris_fs::error::PathError>
 pub mod hadris_iso::raw
 pub enum hadris_iso::raw::DescriptorType
 pub hadris_iso::raw::DescriptorType::BootRecord
@@ -818,10 +816,8 @@ pub fn hadris_iso::sync::Session<D>::options(&self) -> hadris_iso::IsoOptions
 pub fn hadris_iso::sync::Session<D>::tree(&self) -> &hadris_fs::tree::Tree
 pub fn hadris_iso::sync::Session<D>::tree_mut(&mut self) -> &mut hadris_fs::tree::Tree
 pub fn hadris_iso::sync::Session<D>::volume_blocks(&self) -> u64
-pub fn hadris_iso::sync::Session<D>::warnings(&self) -> &[hadris_fs::tree::Warning]
-pub fn hadris_iso::sync::Session<D>::write<C: hadris_fs::time::Clock>(&mut self, &hadris_iso::IsoOptions<C>, hadris_iso::SessionMode) -> core::result::Result<hadris_iso::Report, hadris_fs::error::PathError>
-pub fn hadris_iso::sync::plan<C: hadris_fs::time::Clock>(&hadris_fs::tree::Tree, &hadris_iso::IsoOptions<C>) -> core::result::Result<hadris_iso::Report, hadris_fs::error::PathError>
-pub fn hadris_iso::sync::write<D: hadris_storage::sync::api::BlockDevice, C: hadris_fs::time::Clock>(D, &hadris_fs::tree::Tree, &hadris_iso::IsoOptions<C>) -> core::result::Result<hadris_iso::Report, hadris_fs::error::PathError>
+pub fn hadris_iso::sync::Session<D>::write(&mut self, &hadris_iso::IsoOptions, hadris_iso::SessionMode) -> core::result::Result<hadris_fs::report::Report, hadris_fs::error::PathError>
+pub fn hadris_iso::sync::write<D: hadris_storage::sync::api::BlockDevice>(D, &hadris_fs::tree::Tree, &hadris_iso::IsoOptions) -> core::result::Result<hadris_fs::report::Report, hadris_fs::error::PathError>
 #[non_exhaustive] pub enum hadris_iso::BootInfo
 pub hadris_iso::BootInfo::Grub2
 pub hadris_iso::BootInfo::None
@@ -963,32 +959,33 @@ pub fn hadris_iso::HybridBoot::scheme(&self) -> hadris_iso::PartitionScheme
 pub fn hadris_iso::HybridBoot::with_bootstrap(self, impl core::convert::Into<alloc::vec::Vec<u8>>) -> Self
 pub fn hadris_iso::HybridBoot::with_efi_partition(self, impl core::convert::Into<alloc::string::String>) -> Self
 pub fn hadris_iso::HybridBoot::with_flags(self, hadris_part::partition::PartitionFlags) -> Self
-pub struct hadris_iso::IsoOptions<C>
+pub struct hadris_iso::IsoOptions
 impl hadris_iso::IsoOptions
+pub fn hadris_iso::IsoOptions::charset(&self) -> hadris_iso::Charset
+pub fn hadris_iso::IsoOptions::el_torito(&self) -> core::option::Option<&hadris_iso::ElTorito>
+pub fn hadris_iso::IsoOptions::has_enhanced_tree(&self) -> bool
+pub fn hadris_iso::IsoOptions::hybrid(&self) -> core::option::Option<&hadris_iso::HybridBoot>
+pub fn hadris_iso::IsoOptions::joliet(&self) -> core::option::Option<hadris_iso::JolietLevel>
+pub fn hadris_iso::IsoOptions::level(&self) -> hadris_iso::IsoLevel
+pub fn hadris_iso::IsoOptions::min_blocks(&self) -> u64
+pub fn hadris_iso::IsoOptions::name_case(&self) -> hadris_iso::NameCase
 pub fn hadris_iso::IsoOptions::new() -> Self
-impl<C: hadris_fs::time::Clock> hadris_iso::IsoOptions<C>
-pub fn hadris_iso::IsoOptions<C>::charset(&self) -> hadris_iso::Charset
-pub fn hadris_iso::IsoOptions<C>::clock(&self) -> &C
-pub fn hadris_iso::IsoOptions<C>::el_torito(&self) -> core::option::Option<&hadris_iso::ElTorito>
-pub fn hadris_iso::IsoOptions<C>::has_enhanced_tree(&self) -> bool
-pub fn hadris_iso::IsoOptions<C>::hybrid(&self) -> core::option::Option<&hadris_iso::HybridBoot>
-pub fn hadris_iso::IsoOptions<C>::joliet(&self) -> core::option::Option<hadris_iso::JolietLevel>
-pub fn hadris_iso::IsoOptions<C>::level(&self) -> hadris_iso::IsoLevel
-pub fn hadris_iso::IsoOptions<C>::min_blocks(&self) -> u64
-pub fn hadris_iso::IsoOptions<C>::name_case(&self) -> hadris_iso::NameCase
-pub fn hadris_iso::IsoOptions<C>::rock_ridge(&self) -> core::option::Option<&hadris_iso::RockRidge>
-pub fn hadris_iso::IsoOptions<C>::volume(&self) -> &hadris_iso::VolumeIdentifiers
-pub fn hadris_iso::IsoOptions<C>::with_charset(self, hadris_iso::Charset) -> Self
-pub fn hadris_iso::IsoOptions<C>::with_clock<C2: hadris_fs::time::Clock>(self, C2) -> hadris_iso::IsoOptions<C2>
-pub fn hadris_iso::IsoOptions<C>::with_el_torito(self, hadris_iso::ElTorito) -> Self
-pub fn hadris_iso::IsoOptions<C>::with_enhanced_tree(self) -> Self
-pub fn hadris_iso::IsoOptions<C>::with_hybrid(self, hadris_iso::HybridBoot) -> Self
-pub fn hadris_iso::IsoOptions<C>::with_joliet(self, hadris_iso::JolietLevel) -> Self
-pub fn hadris_iso::IsoOptions<C>::with_level(self, hadris_iso::IsoLevel) -> Self
-pub fn hadris_iso::IsoOptions<C>::with_min_blocks(self, u64) -> Self
-pub fn hadris_iso::IsoOptions<C>::with_name_case(self, hadris_iso::NameCase) -> Self
-pub fn hadris_iso::IsoOptions<C>::with_rock_ridge(self, hadris_iso::RockRidge) -> Self
-pub fn hadris_iso::IsoOptions<C>::with_volume(self, hadris_iso::VolumeIdentifiers) -> Self
+pub fn hadris_iso::IsoOptions::rock_ridge(&self) -> core::option::Option<&hadris_iso::RockRidge>
+pub fn hadris_iso::IsoOptions::seed(&self) -> core::option::Option<u64>
+pub fn hadris_iso::IsoOptions::time(&self) -> hadris_fs::time::DateTime
+pub fn hadris_iso::IsoOptions::volume(&self) -> &hadris_iso::VolumeIdentifiers
+pub fn hadris_iso::IsoOptions::with_charset(self, hadris_iso::Charset) -> Self
+pub fn hadris_iso::IsoOptions::with_el_torito(self, hadris_iso::ElTorito) -> Self
+pub fn hadris_iso::IsoOptions::with_enhanced_tree(self) -> Self
+pub fn hadris_iso::IsoOptions::with_hybrid(self, hadris_iso::HybridBoot) -> Self
+pub fn hadris_iso::IsoOptions::with_joliet(self, hadris_iso::JolietLevel) -> Self
+pub fn hadris_iso::IsoOptions::with_level(self, hadris_iso::IsoLevel) -> Self
+pub fn hadris_iso::IsoOptions::with_min_blocks(self, u64) -> Self
+pub fn hadris_iso::IsoOptions::with_name_case(self, hadris_iso::NameCase) -> Self
+pub fn hadris_iso::IsoOptions::with_rock_ridge(self, hadris_iso::RockRidge) -> Self
+pub fn hadris_iso::IsoOptions::with_seed(self, u64) -> Self
+pub fn hadris_iso::IsoOptions::with_time(self, hadris_fs::time::DateTime) -> Self
+pub fn hadris_iso::IsoOptions::with_volume(self, hadris_iso::VolumeIdentifiers) -> Self
 impl core::default::Default for hadris_iso::IsoOptions
 pub fn hadris_iso::IsoOptions::default() -> Self
 pub struct hadris_iso::Namespaces
@@ -1074,13 +1071,6 @@ pub fn hadris_iso::Preserve::bitxor_assign(&mut self, Self)
 impl core::ops::bit::Not for hadris_iso::Preserve
 pub type hadris_iso::Preserve::Output = hadris_iso::Preserve
 pub fn hadris_iso::Preserve::not(self) -> Self
-pub struct hadris_iso::Report
-impl hadris_iso::Report
-pub fn hadris_iso::Report::extent_of(&self, &str) -> core::option::Option<hadris_fs::extent::Extent>
-pub fn hadris_iso::Report::extents(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&str, hadris_fs::extent::Extent)> + '_
-pub fn hadris_iso::Report::size_bytes(&self) -> u64
-pub fn hadris_iso::Report::total_blocks(&self) -> u64
-pub fn hadris_iso::Report::warnings(&self) -> &[hadris_fs::tree::Warning]
 pub struct hadris_iso::RockRidge
 impl hadris_iso::RockRidge
 pub fn hadris_iso::RockRidge::new() -> Self
@@ -1092,19 +1082,20 @@ impl core::default::Default for hadris_iso::RockRidge
 pub fn hadris_iso::RockRidge::default() -> Self
 pub struct hadris_iso::RockRidgeInfo
 impl hadris_iso::RockRidgeInfo
+pub const fn hadris_iso::RockRidgeInfo::accessed(&self) -> core::option::Option<hadris_fs::time::DateTime>
+pub const fn hadris_iso::RockRidgeInfo::changed(&self) -> core::option::Option<hadris_fs::time::DateTime>
 pub const fn hadris_iso::RockRidgeInfo::child_link(&self) -> core::option::Option<u32>
+pub const fn hadris_iso::RockRidgeInfo::created(&self) -> core::option::Option<hadris_fs::time::DateTime>
 pub const fn hadris_iso::RockRidgeInfo::device(&self) -> core::option::Option<hadris_fs::ops::DeviceNumber>
 pub const fn hadris_iso::RockRidgeInfo::has_name(&self) -> bool
 pub const fn hadris_iso::RockRidgeInfo::is_relocated(&self) -> bool
 pub const fn hadris_iso::RockRidgeInfo::is_symlink(&self) -> bool
 pub const fn hadris_iso::RockRidgeInfo::links(&self) -> core::option::Option<u32>
 pub const fn hadris_iso::RockRidgeInfo::mode(&self) -> core::option::Option<u32>
+pub const fn hadris_iso::RockRidgeInfo::modified(&self) -> core::option::Option<hadris_fs::time::DateTime>
 pub const fn hadris_iso::RockRidgeInfo::owner(&self) -> core::option::Option<(u32, u32)>
 pub const fn hadris_iso::RockRidgeInfo::parent_link(&self) -> core::option::Option<u32>
 pub const fn hadris_iso::RockRidgeInfo::serial(&self) -> core::option::Option<u32>
-pub const fn hadris_iso::RockRidgeInfo::times(&self) -> hadris_fs::time::FileTimes
-impl core::default::Default for hadris_iso::RockRidgeInfo
-pub fn hadris_iso::RockRidgeInfo::default() -> Self
 pub struct hadris_iso::VolumeIdentifiers
 impl hadris_iso::VolumeIdentifiers
 pub fn hadris_iso::VolumeIdentifiers::application(&self) -> core::option::Option<&str>
@@ -1121,3 +1112,4 @@ pub fn hadris_iso::VolumeIdentifiers::with_system(self, impl core::convert::Into
 pub fn hadris_iso::VolumeIdentifiers::with_volume_set(self, impl core::convert::Into<alloc::string::String>) -> Self
 impl core::default::Default for hadris_iso::VolumeIdentifiers
 pub fn hadris_iso::VolumeIdentifiers::default() -> Self
+pub fn hadris_iso::plan(&hadris_fs::tree::Tree, &hadris_iso::IsoOptions) -> core::result::Result<hadris_fs::report::Report, hadris_fs::error::PathError>

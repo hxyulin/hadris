@@ -1,45 +1,48 @@
 mod common;
 
 use common::{archive, newc_entry, read_all, read_all_with, trailer};
-use hadris_cpio::sync::{CpioReader, CpioWriter};
-use hadris_cpio::{CpioOptions, Detail, Format, NewEntry, ReaderOptions};
-use hadris_fs::tree::{Content, Tree, WarningKind};
+use hadris_cpio::sync::{CpioReader, Writer, read_tree};
+use hadris_cpio::{CpioOptions, Detail, Format, ReaderOptions};
 use hadris_fs::{
-    DateTime, DeviceKind, DeviceNumber, ErrorKind, FileTimes, FileType, Owner, Permissions,
-    SetMetadata,
+    Content, DateTime, DeviceNumber, ErrorKind, Extent, Field, FileType, Node, Owner, Permissions,
+    SetAttr, Tree, WarningKind,
 };
+use hadris_io::sync::Write;
 use hadris_io::{Cursor, StdIo};
 
 fn sample_tree() -> Tree {
     let mut tree = Tree::new();
-    tree.add_file("init", Content::bytes(b"#!/bin/sh\n".to_vec()))
-        .unwrap();
-    tree.set_metadata(
+    let attrs = SetAttr::new()
+        .with_permissions(Permissions::new(0o755))
+        .with_owner(Owner::new(1000, 100))
+        .with_modified(DateTime::from_unix_seconds(1_700_000_000).unwrap());
+    tree.insert(
         "init",
-        SetMetadata::new()
-            .with_mode(Permissions::new(0o755))
-            .with_uid(1000)
-            .with_gid(100)
-            .with_times(
-                FileTimes::new().with_modified(DateTime::from_unix_seconds(1_700_000_000).unwrap()),
-            ),
+        Node::file(Content::bytes(b"#!/bin/sh\n".to_vec())).with_attrs(attrs),
     )
     .unwrap();
-    tree.add_file("etc/empty", Content::empty()).unwrap();
-    tree.add_file("etc/big.bin", Content::bytes(vec![7u8; 70_001]))
+    tree.insert("etc/empty", Node::file(Content::empty()))
         .unwrap();
-    tree.add_dir("dev").unwrap();
-    tree.add_device("dev/console", DeviceKind::Char, DeviceNumber::new(5, 1))
+    tree.insert("etc/big.bin", Node::file(Content::bytes(vec![7u8; 70_001])))
         .unwrap();
-    tree.add_device("dev/sda", DeviceKind::Block, DeviceNumber::new(8, 0))
-        .unwrap();
-    tree.add_symlink("bin/sh", "busybox").unwrap();
+    tree.insert("dev", Node::dir()).unwrap();
+    tree.insert(
+        "dev/console",
+        Node::special(FileType::CharDevice, Some(DeviceNumber::new(5, 1))),
+    )
+    .unwrap();
+    tree.insert(
+        "dev/sda",
+        Node::special(FileType::BlockDevice, Some(DeviceNumber::new(8, 0))),
+    )
+    .unwrap();
+    tree.insert("bin/sh", Node::symlink("busybox")).unwrap();
     tree
 }
 
 #[test]
 fn every_format_reads_back() {
-    for format in [Format::Newc, Format::NewcCrc, Format::Odc] {
+    for format in [Format::Newc, Format::Crc, Format::Odc] {
         let entries = read_all(&archive(&sample_tree(), format)).unwrap();
         let names: Vec<_> = entries.iter().map(|entry| entry.name.as_str()).collect();
         assert_eq!(
@@ -80,15 +83,40 @@ fn every_format_reads_back() {
 }
 
 #[test]
+fn the_plan_is_the_report_and_locates_data() {
+    let tree = sample_tree();
+    for format in [Format::Newc, Format::Crc, Format::Odc] {
+        let options = CpioOptions::new().with_format(format);
+        let plan = hadris_cpio::plan(&tree, &options).unwrap();
+        let mut out = StdIo::new(Vec::new());
+        let report = hadris_cpio::sync::write(&mut out, &tree, &options).unwrap();
+        let bytes = out.into_inner();
+        assert_eq!(plan, report);
+        assert_eq!(report.size(), bytes.len() as u64);
+        let [extent] = report.extents("/init").unwrap() else {
+            panic!("one extent")
+        };
+        let at = extent.offset() as usize;
+        assert_eq!(&bytes[at..at + extent.len() as usize], b"#!/bin/sh\n");
+        assert_eq!(report.extents("etc/empty").unwrap()[0].len(), 0);
+        assert!(report.extents("bin/sh").is_none());
+        assert!(report.warnings().is_empty());
+    }
+}
+
+#[test]
 fn hard_link_group_uses_total_link_count() {
     let mut tree = Tree::new();
-    tree.add_file("a", Content::bytes(b"data".to_vec()))
-        .unwrap();
-    tree.add_hard_link("b/c", "a").unwrap();
-    tree.add_hard_link("d", "a").unwrap();
-    tree.set_metadata("d", SetMetadata::new().with_uid(9))
-        .unwrap();
-    let entries = read_all(&archive(&tree, Format::Newc)).unwrap();
+    let attrs = SetAttr::new().with_owner(Owner::new(9, 0));
+    tree.insert(
+        "a",
+        Node::file(Content::bytes(b"data".to_vec())).with_attrs(attrs),
+    )
+    .unwrap();
+    tree.link("a", "b/c").unwrap();
+    tree.link("a", "d").unwrap();
+    let bytes = archive(&tree, Format::Newc);
+    let entries = read_all(&bytes).unwrap();
     let links: Vec<_> = entries
         .iter()
         .filter(|entry| entry.file_type == FileType::File)
@@ -108,34 +136,84 @@ fn hard_link_group_uses_total_link_count() {
     );
     assert_eq!(entries[1].name, "b");
     assert_eq!(entries[1].ino, 2);
+
+    let report = hadris_cpio::plan(&tree, &CpioOptions::new()).unwrap();
+    let extent = report.extents("d").unwrap()[0];
+    assert_eq!(report.extents("a").unwrap(), [extent]);
+    assert_eq!(report.extents("b/c").unwrap(), [extent]);
+    let at = extent.offset() as usize;
+    assert_eq!(&bytes[at..at + 4], b"data");
 }
 
 #[test]
 fn streaming_appends_every_kind() {
-    let mut writer = CpioWriter::new(StdIo::new(Vec::new()), &CpioOptions::default());
-    let meta = SetMetadata::new();
-    writer.append("pipe", &meta, NewEntry::Fifo).unwrap();
-    writer.append("sock", &meta, NewEntry::Socket).unwrap();
-    let content = Content::bytes(b"x".to_vec());
+    let mut writer = Writer::new(StdIo::new(Vec::new()), &CpioOptions::default());
     writer
-        .append_hard_links(&["one", "two"], &meta, &content)
+        .append("pipe", &Node::special(FileType::Fifo, None))
         .unwrap();
-    assert_eq!(writer.entries(), 4);
-    let bytes = writer.finish().unwrap().into_inner();
+    writer
+        .append("sock", &Node::special(FileType::Socket, None))
+        .unwrap();
+    let file = Node::file(Content::bytes(b"x".to_vec()));
+    writer.append_hard_links(&["one", "two"], &file).unwrap();
+    let mut entry = writer.append_file("made", &SetAttr::new(), 5).unwrap();
+    entry.write_all(b"he").unwrap();
+    assert_eq!(
+        entry.write(b"llo!").unwrap_err().kind(),
+        ErrorKind::InvalidInput
+    );
+    entry.write_all(b"llo").unwrap();
+    entry.finish().unwrap();
+    assert_eq!(writer.entries(), 5);
+    let (out, report) = writer.finish().unwrap();
+    let bytes = out.into_inner();
+    assert_eq!(report.size(), bytes.len() as u64);
+    let made = report.extents("made").unwrap()[0];
+    assert_eq!(made, Extent::new(made.offset(), 5));
+    assert_eq!(&bytes[made.offset() as usize..][..5], b"hello");
+    assert_eq!(report.extents("one"), report.extents("two"));
     let entries = read_all(&bytes).unwrap();
     assert_eq!(entries[0].file_type, FileType::Fifo);
     assert_eq!(entries[0].mode, 0o010644);
     assert_eq!(entries[1].file_type, FileType::Socket);
     assert_eq!((entries[2].ino, entries[3].ino), (3, 3));
     assert_eq!((entries[2].data.len(), entries[3].data.len()), (0, 1));
+    assert_eq!(
+        (entries[4].ino, entries[4].data.as_slice()),
+        (4, &b"hello"[..])
+    );
+}
+
+#[test]
+fn an_unfinished_entry_blocks_the_writer() {
+    let mut writer = Writer::new(StdIo::new(Vec::new()), &CpioOptions::default());
+    let mut entry = writer.append_file("short", &SetAttr::new(), 3).unwrap();
+    entry.write_all(b"ab").unwrap();
+    let err = entry.finish().unwrap_err();
+    assert_eq!(
+        (err.kind(), err.path()),
+        (ErrorKind::InvalidInput, Some(&b"short"[..]))
+    );
+    assert_eq!(
+        writer.append("x", &Node::dir()).unwrap_err().kind(),
+        ErrorKind::InvalidInput
+    );
+    assert_eq!(writer.finish().unwrap_err().kind(), ErrorKind::InvalidInput);
+
+    let mut crc = Writer::new(
+        StdIo::new(Vec::new()),
+        &CpioOptions::new().with_format(Format::Crc),
+    );
+    assert_eq!(
+        crc.append_file("f", &SetAttr::new(), 1).unwrap_err().kind(),
+        ErrorKind::Unsupported
+    );
 }
 
 #[test]
 fn writer_rejects_empty_symlink_target() {
-    let mut writer = CpioWriter::new(StdIo::new(Vec::new()), &CpioOptions::default());
-    let err = writer
-        .append("link", &SetMetadata::new(), NewEntry::Symlink(b""))
-        .unwrap_err();
+    let mut writer = Writer::new(StdIo::new(Vec::new()), &CpioOptions::default());
+    let err = writer.append("link", &Node::symlink("")).unwrap_err();
     assert_eq!(
         (err.kind(), err.detail().and_then(Detail::from_code)),
         (ErrorKind::InvalidInput, Some(Detail::Entry))
@@ -145,124 +223,183 @@ fn writer_rejects_empty_symlink_target() {
 
 #[test]
 fn writer_rejects_bad_names_and_fields_before_writing() {
-    let mut writer = CpioWriter::new(StdIo::new(Vec::new()), &CpioOptions::default());
-    let meta = SetMetadata::new();
+    let mut writer = Writer::new(StdIo::new(Vec::new()), &CpioOptions::default());
     for (name, kind) in [
         ("", ErrorKind::InvalidInput),
         ("TRAILER!!!", ErrorKind::InvalidInput),
         (&"a".repeat(4096)[..], ErrorKind::NameTooLong),
     ] {
-        assert_eq!(
-            writer
-                .append(name, &meta, NewEntry::Dir)
-                .unwrap_err()
-                .kind(),
-            kind
-        );
+        let err = writer.append(name, &Node::dir()).unwrap_err();
+        assert_eq!((err.kind(), err.path()), (kind, Some(name.as_bytes())));
     }
-    let old = SetMetadata::new()
-        .with_times(FileTimes::new().with_modified(DateTime::from_unix_seconds(-1).unwrap()));
+    let old = SetAttr::new().with_modified(DateTime::from_unix_seconds(-1).unwrap());
     assert_eq!(
         writer
-            .append("old", &old, NewEntry::Dir)
+            .append("old", &Node::dir().with_attrs(old))
             .unwrap_err()
             .kind(),
         ErrorKind::LimitExceeded
     );
     assert_eq!(writer.bytes_written(), 0);
 
-    let mut odc = CpioWriter::new(
+    let mut odc = Writer::new(
         StdIo::new(Vec::new()),
         &CpioOptions::default().with_format(Format::Odc),
     );
-    let big_uid = SetMetadata::new().with_uid(1 << 18);
+    let big_uid = SetAttr::new().with_owner(Owner::new(1 << 18, 0));
     assert_eq!(
-        odc.append("x", &big_uid, NewEntry::Dir).unwrap_err().kind(),
+        odc.append("x", &Node::dir().with_attrs(big_uid))
+            .unwrap_err()
+            .kind(),
         ErrorKind::LimitExceeded
     );
+    let device = Node::special(FileType::CharDevice, Some(DeviceNumber::new(1, 300)));
     assert_eq!(
-        odc.append(
-            "d",
-            &meta,
-            NewEntry::Device(DeviceKind::Char, DeviceNumber::new(1, 300))
-        )
-        .unwrap_err()
-        .kind(),
+        odc.append("d", &device).unwrap_err().kind(),
         ErrorKind::LimitExceeded
     );
-    let mut binary = CpioWriter::new(
+    let mut binary = Writer::new(
         StdIo::new(Vec::new()),
         &CpioOptions::default().with_format(Format::Binary),
     );
     assert_eq!(
-        binary.append("x", &meta, NewEntry::Dir).unwrap_err().kind(),
+        binary.append("x", &Node::dir()).unwrap_err().kind(),
         ErrorKind::Unsupported
     );
 }
 
-struct Zeros(u64);
+#[test]
+fn files_over_the_format_limit_are_too_large() {
+    let mut tree = Tree::new();
+    let huge = Content::stored([Extent::new(0, u64::from(u32::MAX) + 1)]);
+    tree.insert("big", Node::file(huge)).unwrap();
+    let err = hadris_cpio::plan(&tree, &CpioOptions::default()).unwrap_err();
+    assert_eq!(
+        (err.kind(), err.path()),
+        (ErrorKind::FileTooLarge, Some(&b"big"[..]))
+    );
 
-impl hadris_io::ErrorType for Zeros {
-    type Error = core::convert::Infallible;
-}
-
-impl hadris_io::sync::ByteSource for Zeros {
-    fn len(&self) -> u64 {
-        self.0
-    }
-
-    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        let take = self.0.saturating_sub(offset).min(buf.len() as u64) as usize;
-        buf[..take].fill(0);
-        Ok(take)
-    }
+    let odc = CpioOptions::default().with_format(Format::Odc);
+    assert!(hadris_cpio::plan(&tree, &odc).is_ok());
+    let mut tree = Tree::new();
+    let huge = Content::stored([Extent::new(0, Format::Odc.max_file_size() + 1)]);
+    tree.insert("big", Node::file(huge)).unwrap();
+    assert_eq!(
+        hadris_cpio::plan(&tree, &odc).unwrap_err().kind(),
+        ErrorKind::FileTooLarge
+    );
+    assert_eq!(Format::Newc.max_file_size(), u64::from(u32::MAX));
 }
 
 #[test]
-fn files_over_the_format_limit_are_too_large() {
-    let meta = SetMetadata::new();
-    let newc = Content::source(Zeros(u64::from(u32::MAX) + 1));
-    let mut writer = CpioWriter::new(StdIo::new(Vec::new()), &CpioOptions::default());
-    let err = writer
-        .append("big", &meta, NewEntry::File(&newc))
-        .unwrap_err();
-    assert_eq!(err.kind(), ErrorKind::FileTooLarge);
-    assert_eq!(writer.bytes_written(), 0);
-
-    let odc = Content::source(Zeros(Format::Odc.max_file_size() + 1));
-    let mut writer = CpioWriter::new(
-        StdIo::new(Vec::new()),
-        &CpioOptions::default().with_format(Format::Odc),
+fn unreadable_content_fails_before_writing() {
+    let mut tree = Tree::new();
+    tree.insert("a", Node::file(Content::bytes("a"))).unwrap();
+    tree.insert("b", Node::file(Content::stored([Extent::new(0, 4)])))
+        .unwrap();
+    let mut out = StdIo::new(Vec::new());
+    let err = hadris_cpio::sync::write(&mut out, &tree, &CpioOptions::new()).unwrap_err();
+    assert_eq!(
+        (err.kind(), err.path()),
+        (ErrorKind::Unsupported, Some(&b"b"[..]))
     );
-    let err = writer
-        .append("big", &meta, NewEntry::File(&odc))
-        .unwrap_err();
-    assert_eq!(err.kind(), ErrorKind::FileTooLarge);
-    assert_eq!(Format::Newc.max_file_size(), u64::from(u32::MAX));
+    assert!(out.into_inner().is_empty());
 }
 
 #[test]
 fn dropped_metadata_is_reported() {
     let mut tree = Tree::new();
-    tree.add_file("f", Content::empty()).unwrap();
     let time = DateTime::new(5, 500).unwrap();
-    tree.set_metadata(
-        "f",
-        SetMetadata::new().with_times(FileTimes::new().with_modified(time).with_accessed(time)),
-    )
-    .unwrap();
+    let attrs = SetAttr::new().with_modified(time).with_accessed(time);
+    tree.insert("f", Node::file(Content::empty()).with_attrs(attrs))
+        .unwrap();
+    tree.insert("g", Node::file(Content::empty()).with_attrs(attrs))
+        .unwrap();
     let mut out = StdIo::new(Vec::new());
     let report = hadris_cpio::sync::write(&mut out, &tree, &CpioOptions::default()).unwrap();
-    assert_eq!(report.entries(), 1);
-    assert_eq!(report.warnings().len(), 1);
-    assert_eq!(report.warnings()[0].path(), "f");
-    assert_eq!(report.warnings()[0].kind(), WarningKind::IgnoredMetadata);
-    assert!(report.warnings()[0].message().contains("access time"));
+    let warnings: Vec<_> = report
+        .warnings()
+        .iter()
+        .map(|warning| (warning.kind(), warning.count(), warning.path()))
+        .collect();
+    assert_eq!(
+        warnings,
+        [
+            (WarningKind::Dropped(Field::Accessed), 2, None),
+            (WarningKind::Dropped(Field::Modified), 2, None)
+        ]
+    );
+}
+
+#[test]
+fn the_options_time_fills_unset_modification_times() {
+    let mut tree = Tree::new();
+    tree.insert("a", Node::file(Content::empty())).unwrap();
+    let set = SetAttr::new().with_modified(DateTime::from_unix_seconds(7).unwrap());
+    tree.insert("b", Node::dir().with_attrs(set)).unwrap();
+    let options = CpioOptions::new().with_time(DateTime::from_unix_seconds(1_000).unwrap());
+    let mut out = StdIo::new(Vec::new());
+    hadris_cpio::sync::write(&mut out, &tree, &options).unwrap();
+    let mtimes: Vec<_> = read_all(&out.into_inner())
+        .unwrap()
+        .iter()
+        .map(|entry| entry.mtime)
+        .collect();
+    assert_eq!(mtimes, [1_000, 7]);
+}
+
+#[test]
+fn read_tree_restores_what_write_wrote() {
+    let mut tree = sample_tree();
+    tree.link("init", "sbin/init").unwrap();
+    tree.link("init", "linuxrc").unwrap();
+    let bytes = archive(&tree, Format::Newc);
+    let back = read_tree(&mut CpioReader::new(Cursor::new(&bytes))).unwrap();
+    assert_eq!(archive(&back, Format::Newc), bytes);
+    let init = back.entry("sbin/init").unwrap();
+    assert_eq!(init.links(), 3);
+    assert_eq!(
+        init.node().content().unwrap().as_bytes(),
+        Some(&b"#!/bin/sh\n"[..])
+    );
+    assert_eq!(
+        back.get("dev/console").unwrap().device(),
+        Some(DeviceNumber::new(5, 1))
+    );
+}
+
+#[test]
+fn read_tree_takes_relative_paths_and_refuses_parents() {
+    let mut archive = newc_entry(b".", 0o040700, b"", None);
+    archive.extend(newc_entry(b"./a", 0o100644, b"x", None));
+    archive.extend(newc_entry(b"/b/c", 0o100644, b"y", None));
+    archive.extend(trailer());
+    let tree = read_tree(&mut CpioReader::new(Cursor::new(&archive))).unwrap();
+    assert_eq!(
+        tree.root().node().attrs().permissions(),
+        Some(Permissions::new(0o700))
+    );
+    assert_eq!(
+        tree.get("a").unwrap().content().unwrap().as_bytes(),
+        Some(&b"x"[..])
+    );
+    assert_eq!(
+        tree.get("b/c").unwrap().content().unwrap().as_bytes(),
+        Some(&b"y"[..])
+    );
+
+    let mut archive = newc_entry(b"a/../../x", 0o100644, b"", None);
+    archive.extend(trailer());
+    let err = read_tree(&mut CpioReader::new(Cursor::new(&archive))).unwrap_err();
+    assert_eq!(
+        (err.kind(), err.path()),
+        (ErrorKind::InvalidInput, Some(&b"a/../../x"[..]))
+    );
 }
 
 #[test]
 fn crc_reader_rejects_corrupt_data() {
-    let mut bytes = archive(&sample_tree(), Format::NewcCrc);
+    let mut bytes = archive(&sample_tree(), Format::Crc);
     let at = bytes
         .windows(7)
         .position(|window| window == b"busybox")

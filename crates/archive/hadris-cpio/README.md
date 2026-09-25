@@ -2,7 +2,7 @@
 
 cpio archives for Linux initramfs, RPM payloads and `cpio(1)`, in pure Rust:
 an allocation-free streaming reader and a streaming writer that also takes
-the shared `hadris_fs::tree::Tree` input of the other Hadris writers.
+the shared `hadris_fs::Tree` input of the other Hadris writers.
 
 ## Features
 
@@ -52,11 +52,11 @@ before the main initramfs.
 use std::fs::File;
 use std::io::BufWriter;
 use hadris_cpio::{CpioOptions, Format};
-use hadris_fs::tree::{FromFsOptions, Tree};
+use hadris_fs::host::{self, TreeOptions};
 use hadris_io::StdIo;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let tree = Tree::from_fs("./rootfs", FromFsOptions::new())?;
+    let (tree, _skipped) = host::read_tree("./rootfs", &TreeOptions::new())?;
     let mut out = StdIo::new(BufWriter::new(File::create("initramfs.cpio")?));
     let options = CpioOptions::default().with_format(Format::Newc);
     let report = hadris_cpio::sync::write(&mut out, &tree, &options)?;
@@ -67,10 +67,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-`CpioWriter` appends entries one at a time (`append`, `append_hard_links`,
-`write_tree`) and `finish` writes the trailer. Metadata cpio cannot store
-(times other than the modification time, sub-second parts, attributes) is
-listed in the report's warnings. Values that do not fit a header field fail
+`hadris_cpio::plan` returns the same report without writing: the archive
+size, where each file's data starts, and the metadata cpio cannot store
+(times other than the modification time, sub-second parts, attributes).
+`Writer` appends entries one at a time (`append`, `append_hard_links`, and
+`append_file` for data produced while writing) and `finish` writes the
+trailer and returns the stream with the report. `CpioOptions::with_time`
+sets the modification time of entries that set none, such as
+`SOURCE_DATE_EPOCH`. `sync::read_tree` reads an archive back into a
+`Tree`. Values that do not fit a header field fail
 before the entry is written. `CpioOptions::with_format(Format::Odc)` writes
 `odc`, whose device numbers are stored as `major << 8 | minor`.
 
@@ -81,7 +86,7 @@ The header layouts are in `hadris_cpio::raw`.
 | Feature | Default | Description |
 |---|---|---|
 | `std` | yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
-| `alloc` | via `std` | The writer and the `Tree` input |
+| `alloc` | via `std` | The writer, `plan` and `read_tree` |
 | `sync` | yes | The blocking API in `sync` |
 | `async` | no | The asynchronous API with `Send` futures in `r#async` |
 

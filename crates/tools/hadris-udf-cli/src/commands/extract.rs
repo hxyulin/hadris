@@ -1,7 +1,7 @@
 use std::fs;
 
-use hadris_fs::sync::{FileSystem, extract_to_host};
-use hadris_fs::{DirCursor, NodeId, Resolve};
+use hadris_fs::sync::{FileSystem, Volume, read_tree};
+use hadris_fs::{DirCursor, NodeId, Resolve, host};
 
 use super::super::args::ExtractArgs;
 use super::{Result, Udf, open};
@@ -11,18 +11,26 @@ use super::{Result, Udf, open};
 pub fn extract(args: ExtractArgs) -> Result<()> {
     let mut udf = open(&args.input)?;
     let from = args.path.as_deref().unwrap_or("/");
-    let destination = match stored_name(&mut udf, from)? {
-        None => args.output.clone(),
-        Some(name) => {
-            fs::create_dir_all(&args.output)?;
-            args.output.join(name)
-        }
+    let name = stored_name(&mut udf, from)?;
+    let node = udf.resolve(from.as_bytes(), Resolve::Lexical)?;
+    let is_dir = udf.stat(node).map(|meta| meta.file_type().is_dir());
+    udf.forget(node, 1);
+    let (destination, target) = match (name, is_dir?) {
+        (None, _) => (args.output.clone(), args.output.clone()),
+        (Some(name), true) => (args.output.join(&name), args.output.join(name)),
+        (Some(name), false) => (args.output.join(name), args.output.clone()),
     };
     if args.verbose {
         println!("Extracting {from} to {}", destination.display());
     }
-    extract_to_host(&mut udf, from, &destination)
+    let vol = Volume::new(udf);
+    let tree = read_tree(&vol, from).map_err(|err| format!("Failed to extract {from}: {err}"))?;
+    fs::create_dir_all(&target)?;
+    let report = host::write_tree(&target, &tree)
         .map_err(|err| format!("Failed to extract {from}: {err}"))?;
+    for warning in report.warnings() {
+        eprintln!("warning: {warning}");
+    }
     println!("Extracted {from} to {}", destination.display());
     Ok(())
 }

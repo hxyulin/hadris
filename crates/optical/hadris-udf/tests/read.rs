@@ -6,7 +6,7 @@ mod common;
 
 use common::Paths;
 use common::{image, open, pattern, reseal};
-use hadris_fs::tree::{Content, Tree};
+use hadris_fs::{Content, Node, Tree};
 use hadris_udf::UdfOptions;
 use hadris_udf::raw::{ExtendedFileEntry, FileEntry, Tag, Timestamp, U16Le, U32Le, U64Le, tag};
 
@@ -15,23 +15,29 @@ const PARTITION: u64 = 290;
 /// A volume with `f.bin` and free blocks after the allocated ones.
 fn volume() -> (Vec<u8>, u64, u64, u64) {
     let mut tree = Tree::new();
-    tree.add_file("f.bin", Content::bytes(pattern(5000, 7)))
+    tree.insert("f.bin", Node::file(Content::bytes(pattern(5000, 7))))
         .unwrap();
     for i in 0..80 {
-        tree.add_file(
-            &format!("many/file-{i:03}.txt"),
-            Content::bytes(format!("file {i}")),
+        tree.insert(
+            format!("many/file-{i:03}.txt"),
+            Node::file(Content::bytes(format!("file {i}"))),
         )
         .unwrap();
     }
     let options = UdfOptions::default().with_min_blocks(1000);
-    let report = hadris_udf::sync::plan(&tree, &options).unwrap();
+    let report = hadris_udf::plan(&tree, &options).unwrap();
     let bytes = image(&tree, &options);
     let mut udf = open(bytes.clone());
     let f = udf.resolve_path("/f.bin").unwrap();
     let icb = PARTITION + f.get() - 1;
-    let data = report.extent_of("f.bin").unwrap().offset() / 2048;
-    (bytes, icb, data, report.allocated_end() + 8)
+    let data = report.extents("f.bin").map(|e| e[0]).unwrap().offset() / 2048;
+    let allocated_end = report
+        .files()
+        .flat_map(|(_, extents)| extents)
+        .map(|extent| extent.end().div_ceil(2048))
+        .max()
+        .unwrap();
+    (bytes, icb, data, allocated_end + 8)
 }
 
 fn sector(bytes: &mut [u8], sector: u64) -> &mut [u8] {

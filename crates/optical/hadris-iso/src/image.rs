@@ -752,15 +752,14 @@ impl View {
             let file_type = rr.and_then(|rr| rr.file_type()).unwrap_or(FileType::File);
             (file_type, self.file_len(dev, node.get(), &record).await?)
         };
-        let mut times = hadris_fs::FileTimes::new().with_modified(header.date_time.to_datetime());
+        let mut times = [None, header.date_time.to_datetime(), None, None];
         let mut permissions = Permissions::new(if file_type.is_dir() { 0o555 } else { 0o444 });
         let mut owner = None;
         let mut nlink = 1;
         let mut device = None;
         if let Some(rr) = rr {
-            let rr_times = rr.times();
-            if !rr_times.is_empty() {
-                times = rr_times;
+            if rr.has_times() {
+                times = [rr.created(), rr.modified(), rr.accessed(), rr.changed()];
             }
             if let Some(mode) = rr.mode() {
                 permissions = Permissions::new(mode);
@@ -783,16 +782,16 @@ impl View {
         if let Some(device) = device.filter(|_| matches!(file_type, FileType::CharDevice | FileType::BlockDevice)) {
             meta = meta.with_device(device);
         }
-        if let Some(time) = times.created() {
+        if let Some(time) = times[0] {
             meta = meta.with_created(time);
         }
-        if let Some(time) = times.modified() {
+        if let Some(time) = times[1] {
             meta = meta.with_modified(time);
         }
-        if let Some(time) = times.accessed() {
+        if let Some(time) = times[2] {
             meta = meta.with_accessed(time);
         }
-        if let Some(time) = times.changed() {
+        if let Some(time) = times[3] {
             meta = meta.with_changed(time);
         }
         Ok(meta)

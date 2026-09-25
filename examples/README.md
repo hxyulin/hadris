@@ -28,7 +28,7 @@ Crate examples cover single-crate tasks:
 |---|---|
 | Share a FAT volume between threads with `Volume` | `cargo run -p hadris-fat --example shared_volume -- disk.img` |
 | Print the trees, volume name and boot catalog of an ISO | `cargo run -p hadris-iso --example read_iso -- image.iso` |
-| Extract an ISO with `extract_to_host` | `cargo run -p hadris-iso --example extract_files -- image.iso out/` |
+| Extract an ISO with `read_tree` and `host::write_tree` | `cargo run -p hadris-iso --example extract_files -- image.iso out/` |
 | Write a BIOS and UEFI bootable hybrid ISO | `cargo run -p hadris-iso --example create_bootable_iso -- bootable.iso` |
 
 These programs favor readable error messages and conventional host filesystem

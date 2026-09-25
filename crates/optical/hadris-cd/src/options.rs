@@ -1,4 +1,4 @@
-use hadris_fs::{Clock, NoClock};
+use hadris_fs::DateTime;
 use hadris_iso::{IsoLevel, IsoOptions, JolietLevel, VolumeIdentifiers};
 use hadris_udf::UdfOptions;
 
@@ -6,12 +6,12 @@ use hadris_udf::UdfOptions;
 ///
 /// The defaults name both volumes `CDROM` and write a Level 2 primary
 /// tree with Joliet level 3 and an ISO 9660:1999 enhanced tree beside a
-/// UDF 1.02 volume, dated by [`NoClock`].
+/// UDF 1.02 volume, dated 1980-01-01.
 ///
 /// The writer decides where the ISO 9660 structures start and how long the
 /// UDF volume is: it raises [`IsoOptions::with_min_blocks`] to leave room
-/// for the UDF metadata, and it sets [`UdfOptions::with_bridge`] and
-/// [`UdfOptions::with_min_blocks`] itself.
+/// for the UDF metadata, and it sets [`UdfOptions::with_min_blocks`]
+/// itself.
 ///
 /// ```rust
 /// use hadris_cd::iso::{JolietLevel, RockRidge, VolumeIdentifiers};
@@ -29,9 +29,9 @@ use hadris_udf::UdfOptions;
 /// assert_eq!(options.udf().volume_id(), "MY_DISC");
 /// ```
 #[derive(Debug, Clone)]
-pub struct CdOptions<C = NoClock> {
-    iso: IsoOptions<C>,
-    udf: UdfOptions<C>,
+pub struct CdOptions {
+    iso: IsoOptions,
+    udf: UdfOptions,
 }
 
 impl Default for CdOptions {
@@ -52,35 +52,33 @@ impl CdOptions {
     pub fn new() -> Self {
         Self::default()
     }
-}
 
-impl<C: Clock + Clone> CdOptions<C> {
     /// Replaces the ISO 9660 options.
-    pub fn with_iso(self, iso: IsoOptions<C>) -> Self {
+    pub fn with_iso(self, iso: IsoOptions) -> Self {
         Self { iso, ..self }
     }
 
     /// Replaces the UDF options.
-    pub fn with_udf(self, udf: UdfOptions<C>) -> Self {
+    pub fn with_udf(self, udf: UdfOptions) -> Self {
         Self { udf, ..self }
     }
 
-    /// Sets the clock that dates both volumes and the entries without
+    /// Sets the time that dates both volumes and the entries without
     /// times.
-    pub fn with_clock<C2: Clock + Clone>(self, clock: C2) -> CdOptions<C2> {
-        CdOptions {
-            iso: self.iso.with_clock(clock.clone()),
-            udf: self.udf.with_clock(clock),
+    pub fn with_time(self, time: DateTime) -> Self {
+        Self {
+            iso: self.iso.with_time(time),
+            udf: self.udf.with_time(time),
         }
     }
 
     /// The ISO 9660 options.
-    pub fn iso(&self) -> &IsoOptions<C> {
+    pub fn iso(&self) -> &IsoOptions {
         &self.iso
     }
 
     /// The UDF options.
-    pub fn udf(&self) -> &UdfOptions<C> {
+    pub fn udf(&self) -> &UdfOptions {
         &self.udf
     }
 }

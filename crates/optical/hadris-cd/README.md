@@ -14,10 +14,11 @@ This crate creates images that contain both ISO 9660 and UDF filesystems sharing
 
 ```rust,no_run
 use hadris_cd::CdOptions;
-use hadris_fs::tree::{Content, FromFsOptions, Tree};
+use hadris_fs::host::{self, TreeOptions};
+use hadris_fs::{Content, Node};
 
-let mut tree = Tree::from_fs("image-root", FromFsOptions::new()).unwrap();
-tree.add_file("readme.txt", Content::bytes("Hello, World!")).unwrap();
+let (mut tree, _skipped) = host::read_tree("image-root", &TreeOptions::new()).unwrap();
+tree.insert("readme.txt", Node::file(Content::bytes("Hello, World!"))).unwrap();
 
 let file = std::fs::File::options()
     .read(true)
@@ -28,16 +29,16 @@ let file = std::fs::File::options()
     .unwrap();
 let out = hadris_storage::host::FileDevice::new(file).unwrap();
 let report = hadris_cd::sync::write(out, &tree, &CdOptions::default()).unwrap();
-println!("{} blocks", report.total_blocks());
+println!("{} bytes", report.size());
 ```
 
 `CdOptions` holds the `IsoOptions` and `UdfOptions` of the two volumes
-(`with_iso`, `with_udf`, `with_clock`); both crates are re-exported as
-`hadris_cd::iso` and `hadris_cd::udf`. The writer places the ISO 9660
-structures after the UDF metadata, writes the ISO 9660 image, then writes
-the UDF volume in bridge mode pointing at the file extents the ISO report
-gives. Nothing is read back from the output. `plan` returns the report
-without writing, to size a device first.
+(`with_iso`, `with_udf`, `with_time`); both crates are re-exported as
+`hadris_cd::iso` and `hadris_cd::udf`. The writer is
+`hadris_udf::write_bridge`: it places the ISO 9660 structures after the
+UDF metadata, writes the ISO 9660 image, then writes the UDF volume
+pointing at the file extents the ISO report gives. `hadris_cd::plan`
+returns the report without I/O, to size a device first.
 
 ## Disk Layout
 

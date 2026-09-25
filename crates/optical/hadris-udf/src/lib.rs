@@ -18,16 +18,15 @@
 //! use std::io::Read;
 //!
 //! use hadris_fs::sync::Volume;
-//! use hadris_fs::OpenOptions;
-//! use hadris_fs::tree::{Content, Tree};
+//! use hadris_fs::{Content, Node, OpenOptions, Tree};
 //! use hadris_storage::{BlockSize, MemDevice};
-//! use hadris_udf::UdfOptions;
-//! use hadris_udf::sync::{UdfFs, plan, write};
+//! use hadris_udf::{UdfOptions, plan};
+//! use hadris_udf::sync::{UdfFs, write};
 //!
 //! let mut tree = Tree::new();
-//! tree.add_file("docs/readme.txt", Content::bytes("hello"))?;
+//! tree.insert("docs/readme.txt", Node::file(Content::bytes("hello")))?;
 //! let options = UdfOptions::default().with_volume_id("DOCS");
-//! let size = plan(&tree, &options)?.size_bytes();
+//! let size = plan(&tree, &options)?.size();
 //! let mut dev = MemDevice::new(vec![0u8; size as usize], BlockSize::new(2048).unwrap());
 //! write(&mut dev, &tree, &options)?;
 //!
@@ -54,14 +53,18 @@
 //!
 //! ## Writing
 //!
-//! `write` (in each mode, with `alloc`) lays out a `hadris_fs::tree::Tree`
-//! as a UDF volume on a block device, as [`UdfOptions`] says, and returns a
-//! [`Report`] of its size, where each file went, and what it could not
-//! store. `plan` returns the same report without writing, so the device can
-//! be sized first. The output is reproducible: the clock is injected, and
-//! the default [`NoClock`](hadris_fs::NoClock) writes 1980-01-01. With
-//! [`Bridge`], the volume shares an image with ISO 9660 and points at file
-//! data already on the device, as `hadris-cd` does.
+//! `write` (in each mode, with `alloc`) lays out a `hadris_fs::Tree` as a
+//! UDF volume on a block device, as [`UdfOptions`] says, and returns a
+//! `hadris_fs::Report` of its size, where each file went, and what it could
+//! not store. [`plan`] returns the same report without I/O, so the device
+//! can be sized first. The output is reproducible: the writer reads no
+//! clock, and dates the volume with [`UdfOptions::with_time`], 1980-01-01
+//! by default.
+//!
+//! `write_bridge` writes an ISO 9660 and UDF bridge image, as DVD-Video
+//! uses: both file systems point at the same file data. It takes the
+//! `hadris_iso::IsoOptions` of the ISO 9660 half, and [`plan_bridge`]
+//! returns its report without I/O.
 //!
 //! Reading fails with [`hadris_fs::Error`]; [`Detail::of`] names the
 //! structure or option at fault, and a device without a UDF recognition
@@ -75,7 +78,7 @@
 //! | Feature | Default | Description |
 //! |---|---|---|
 //! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
-//! | `alloc` | via `std` | The writer and the `Tree` input |
+//! | `alloc` | via `std` | The writers, `plan` and `plan_bridge` |
 //! | `sync` | Yes | The blocking API in `sync` |
 //! | `async` | No | The asynchronous API with `Send` futures in `r#async` |
 //!
@@ -98,14 +101,14 @@ extern crate alloc;
 #[cfg(all(feature = "std", not(test)))]
 extern crate std;
 
+#[cfg(feature = "alloc")]
+mod bridge;
 mod error;
 mod name;
 #[cfg(feature = "alloc")]
 mod options;
 #[cfg(feature = "alloc")]
 mod plan;
-#[cfg(feature = "alloc")]
-mod report;
 mod revision;
 mod time;
 mod volume;
@@ -124,6 +127,8 @@ pub mod sync {
 
     #[cfg(feature = "alloc")]
     use hadris_fs::sync as fs;
+    #[cfg(feature = "alloc")]
+    use hadris_iso::sync as iso;
     use hadris_storage::sync as storage;
 
     use hadris_fs::sync::FileSystem;
@@ -135,7 +140,7 @@ pub mod sync {
     #[path = "write.rs"]
     mod write;
     #[cfg(feature = "alloc")]
-    pub use write::{plan, write};
+    pub use write::{write, write_bridge};
 }
 
 /// The asynchronous API with `Send` futures, for generic code on
@@ -144,13 +149,16 @@ pub mod sync {
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 pub mod r#async;
 
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+pub use bridge::plan_bridge;
 pub use error::Detail;
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-pub use options::{Bridge, UdfOptions};
+pub use options::UdfOptions;
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-pub use report::Report;
+pub use plan::plan;
 pub use revision::UdfRevision;
 pub use volume::Partition;
 

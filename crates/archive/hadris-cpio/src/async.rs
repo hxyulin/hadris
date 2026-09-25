@@ -14,4 +14,9 @@ pub use read::{CpioReader, Entry};
 #[path = "write.rs"]
 mod write;
 #[cfg(feature = "alloc")]
-pub use write::{CpioWriter, write};
+pub use write::{EntryWriter, Writer, write};
+#[cfg(feature = "alloc")]
+#[path = "read_tree.rs"]
+mod read_tree;
+#[cfg(feature = "alloc")]
+pub use read_tree::read_tree;

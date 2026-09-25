@@ -83,10 +83,10 @@ hadris-iso mkisofs -o output.iso ./directory
 - `create --dry-run` prints the planned image size
 - `verify --strict` also checks the path table, extent bounds and Rock
   Ridge fields
-- `extract` copies symlinks (on Unix), file modes and modification times
-  through `hadris_fs::sync::extract_to_host`, and refuses names that would
-  leave the output directory; device nodes, FIFOs and sockets stop the
-  extraction with an error
+- `extract` copies symlinks (on Unix), hard links, file modes and
+  modification times through `hadris_fs::host::write_tree`, and refuses
+  names that would leave the output directory; device nodes, FIFOs and
+  sockets are skipped with a warning
 
 ## Examples
 

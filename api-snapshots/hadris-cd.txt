@@ -4,37 +4,17 @@ pub use hadris_cd::UdfOptions
 pub use hadris_cd::iso
 pub use hadris_cd::udf
 pub mod hadris_cd::async
-pub async fn hadris_cd::async::plan<C: hadris_fs::time::Clock + core::clone::Clone>(&hadris_fs::tree::Tree, &hadris_cd::CdOptions<C>) -> core::result::Result<hadris_cd::Report, hadris_fs::error::PathError>
-pub async fn hadris_cd::async::write<D: hadris_storage::async::api::BlockDevice, C: hadris_fs::time::Clock + core::clone::Clone>(D, &hadris_fs::tree::Tree, &hadris_cd::CdOptions<C>) -> core::result::Result<hadris_cd::Report, hadris_fs::error::PathError>
+pub async fn hadris_cd::async::write<D: hadris_storage::async::api::BlockDevice>(D, &hadris_fs::tree::Tree, &hadris_cd::CdOptions) -> core::result::Result<hadris_fs::report::Report, hadris_fs::error::PathError>
 pub mod hadris_cd::sync
-pub fn hadris_cd::sync::plan<C: hadris_fs::time::Clock + core::clone::Clone>(&hadris_fs::tree::Tree, &hadris_cd::CdOptions<C>) -> core::result::Result<hadris_cd::Report, hadris_fs::error::PathError>
-pub fn hadris_cd::sync::write<D: hadris_storage::sync::api::BlockDevice, C: hadris_fs::time::Clock + core::clone::Clone>(D, &hadris_fs::tree::Tree, &hadris_cd::CdOptions<C>) -> core::result::Result<hadris_cd::Report, hadris_fs::error::PathError>
-#[non_exhaustive] pub enum hadris_cd::Detail
-pub hadris_cd::Detail::MissingExtent = 1
-impl hadris_cd::Detail
-pub const fn hadris_cd::Detail::code(self) -> hadris_io::fs_error::DetailCode
-pub fn hadris_cd::Detail::from_code(hadris_io::fs_error::DetailCode) -> core::option::Option<Self>
-pub fn hadris_cd::Detail::of<E>(&hadris_io::fs_error::Error<E>) -> core::option::Option<Self>
-impl core::convert::From<hadris_cd::Detail> for hadris_io::fs_error::DetailCode
-pub fn hadris_io::fs_error::DetailCode::from(hadris_cd::Detail) -> Self
-impl core::fmt::Display for hadris_cd::Detail
-pub fn hadris_cd::Detail::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub struct hadris_cd::CdOptions<C>
+pub fn hadris_cd::sync::write<D: hadris_storage::sync::api::BlockDevice>(D, &hadris_fs::tree::Tree, &hadris_cd::CdOptions) -> core::result::Result<hadris_fs::report::Report, hadris_fs::error::PathError>
+pub struct hadris_cd::CdOptions
 impl hadris_cd::CdOptions
+pub fn hadris_cd::CdOptions::iso(&self) -> &hadris_iso::options::IsoOptions
 pub fn hadris_cd::CdOptions::new() -> Self
-impl<C: hadris_fs::time::Clock + core::clone::Clone> hadris_cd::CdOptions<C>
-pub fn hadris_cd::CdOptions<C>::iso(&self) -> &hadris_iso::options::IsoOptions<C>
-pub fn hadris_cd::CdOptions<C>::udf(&self) -> &hadris_udf::options::UdfOptions<C>
-pub fn hadris_cd::CdOptions<C>::with_clock<C2: hadris_fs::time::Clock + core::clone::Clone>(self, C2) -> hadris_cd::CdOptions<C2>
-pub fn hadris_cd::CdOptions<C>::with_iso(self, hadris_iso::options::IsoOptions<C>) -> Self
-pub fn hadris_cd::CdOptions<C>::with_udf(self, hadris_udf::options::UdfOptions<C>) -> Self
+pub fn hadris_cd::CdOptions::udf(&self) -> &hadris_udf::options::UdfOptions
+pub fn hadris_cd::CdOptions::with_iso(self, hadris_iso::options::IsoOptions) -> Self
+pub fn hadris_cd::CdOptions::with_time(self, hadris_fs::time::DateTime) -> Self
+pub fn hadris_cd::CdOptions::with_udf(self, hadris_udf::options::UdfOptions) -> Self
 impl core::default::Default for hadris_cd::CdOptions
 pub fn hadris_cd::CdOptions::default() -> Self
-pub struct hadris_cd::Report
-impl hadris_cd::Report
-pub fn hadris_cd::Report::extent_of(&self, &str) -> core::option::Option<hadris_fs::extent::Extent>
-pub fn hadris_cd::Report::iso(&self) -> &hadris_iso::report::Report
-pub fn hadris_cd::Report::size_bytes(&self) -> u64
-pub fn hadris_cd::Report::total_blocks(&self) -> u64
-pub fn hadris_cd::Report::udf(&self) -> &hadris_udf::report::Report
-pub fn hadris_cd::Report::warnings(&self) -> &[hadris_fs::tree::Warning]
+pub fn hadris_cd::plan(&hadris_fs::tree::Tree, &hadris_cd::CdOptions) -> core::result::Result<hadris_fs::report::Report, hadris_fs::error::PathError>

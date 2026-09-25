@@ -1,43 +1,14 @@
 use alloc::string::String;
 
-use hadris_fs::{Clock, NoClock};
+use hadris_fs::{DateTime, NoClock};
 
 use crate::UdfRevision;
 
-/// Makes a UDF volume share its image with ISO 9660, as the UDF Bridge
-/// format of DVD-Video and `hadris-cd` does.
-///
-/// The ISO 9660 image is written first. The UDF volume then records its
-/// recognition sequence after the ISO volume descriptors, keeps its
-/// structures before the blocks
-/// [`Report::allocated_end`](crate::Report::allocated_end) of a
-/// [`plan`](crate::sync::plan) gives, and points each file at data already
-/// on the device: file contents must be
-/// [`Content::stored`](hadris_fs::tree::Content::stored) extents there, or
-/// empty. Nothing else of the image is written.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Bridge {
-    iso_descriptors: u32,
-}
-
-impl Bridge {
-    /// A bridge after `iso_descriptors` ISO 9660 volume descriptors at
-    /// logical sector 16, the set terminator included.
-    pub const fn new(iso_descriptors: u32) -> Self {
-        Self { iso_descriptors }
-    }
-
-    /// The number of ISO 9660 volume descriptors before the UDF
-    /// recognition sequence.
-    pub const fn iso_descriptors(&self) -> u32 {
-        self.iso_descriptors
-    }
-}
-
 /// Options for writing a UDF volume.
 ///
-/// The defaults write a UDF 1.02 volume named `UDF_VOLUME`, dated by
-/// [`NoClock`], so the same tree always gives the same bytes.
+/// The defaults write a UDF 1.02 volume named `UDF_VOLUME`, dated
+/// 1980-01-01 ([`NoClock::TIME`]), so the same tree always gives the same
+/// bytes.
 ///
 /// ```rust
 /// use hadris_udf::{UdfOptions, UdfRevision};
@@ -48,12 +19,11 @@ impl Bridge {
 /// assert_eq!(options.volume_id(), "MOVIES");
 /// ```
 #[derive(Debug, Clone)]
-pub struct UdfOptions<C = NoClock> {
+pub struct UdfOptions {
     volume_id: String,
     revision: UdfRevision,
     min_blocks: u64,
-    bridge: Option<Bridge>,
-    clock: C,
+    time: DateTime,
 }
 
 impl Default for UdfOptions {
@@ -62,8 +32,7 @@ impl Default for UdfOptions {
             volume_id: String::from("UDF_VOLUME"),
             revision: UdfRevision::V1_02,
             min_blocks: 0,
-            bridge: None,
-            clock: NoClock,
+            time: NoClock::TIME,
         }
     }
 }
@@ -73,9 +42,7 @@ impl UdfOptions {
     pub fn new() -> Self {
         Self::default()
     }
-}
 
-impl<C: Clock> UdfOptions<C> {
     /// Sets the volume identifier. It names the logical volume and the file
     /// set, up to 126 bytes of OSTA Compressed Unicode, and is cut to 30
     /// bytes for the primary volume descriptor and file set identifier.
@@ -105,23 +72,10 @@ impl<C: Clock> UdfOptions<C> {
         }
     }
 
-    /// Writes a bridge volume over an ISO 9660 image on the same device.
-    pub fn with_bridge(self, bridge: Bridge) -> Self {
-        Self {
-            bridge: Some(bridge),
-            ..self
-        }
-    }
-
-    /// Sets the clock that dates the volume and the entries without times.
-    pub fn with_clock<C2: Clock>(self, clock: C2) -> UdfOptions<C2> {
-        UdfOptions {
-            volume_id: self.volume_id,
-            revision: self.revision,
-            min_blocks: self.min_blocks,
-            bridge: self.bridge,
-            clock,
-        }
+    /// Sets the time that dates the volume and the entries without times,
+    /// such as `SOURCE_DATE_EPOCH`. The writer reads no clock.
+    pub fn with_time(self, time: DateTime) -> Self {
+        Self { time, ..self }
     }
 
     /// The volume identifier.
@@ -139,13 +93,8 @@ impl<C: Clock> UdfOptions<C> {
         self.min_blocks
     }
 
-    /// The bridge, for a volume that shares an ISO 9660 image.
-    pub fn bridge(&self) -> Option<Bridge> {
-        self.bridge
-    }
-
-    /// The clock.
-    pub fn clock(&self) -> &C {
-        &self.clock
+    /// The time that dates the volume and the entries without times.
+    pub fn time(&self) -> DateTime {
+        self.time
     }
 }

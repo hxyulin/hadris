@@ -1,85 +1,64 @@
-use alloc::collections::BTreeMap;
-use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use hadris_fs::tree::{Content, NodeKind, Tree, Warning, WarningKind};
-use hadris_fs::{DeviceKind, DeviceNumber, ErrorKind, SetMetadata};
+use hadris_fs::{ErrorKind, FileType, Node, PathError, Report, SetAttr, Tree};
 
 use super::fs::ContentReader;
 use super::io::Write;
-use crate::entry::{NewEntry, Report, dropped};
-use hadris_fs::PathError;
-
+use crate::build::{self, Data, Fields, Planner, error, plan_tree};
 use crate::error::{Detail, Error, write_failed};
 use crate::header;
 use crate::options::{CpioOptions, Format};
-use crate::raw::{self, NewcFields, NewcHeader, OdcFields, OdcHeader, PATH_MAX, TRAILER_NAME};
+use crate::raw::{self, TRAILER_NAME};
 
 /// Bytes read from a content per request.
 const CHUNK: usize = 64 * 1024;
 
-/// The header fields of one entry, before encoding.
-#[derive(Debug, Clone, Copy)]
-struct Fields {
-    ino: u64,
-    mode: u32,
-    uid: u32,
-    gid: u32,
-    nlink: u64,
-    mtime: u64,
-    len: u64,
-    rdev: DeviceNumber,
-    check: u32,
-}
-
 /// A streaming cpio archive writer.
 ///
-/// Entries go out in the order they are appended; [`finish`](Self::finish)
-/// writes the trailer and returns the stream. Inodes are numbered from 1.
+/// Entries go out in the order they are appended, and
+/// [`finish`](Self::finish) writes the trailer and returns the stream with
+/// the [`Report`]. Inodes are numbered from 1. After an error the archive
+/// is incomplete.
 ///
 /// ```rust,ignore
-/// let mut writer = CpioWriter::new(out, &CpioOptions::default());
-/// writer.append("init", &SetMetadata::new().with_mode(Permissions::new(0o755)), NewEntry::File(&content))?;
-/// let out = writer.finish()?;
+/// let mut writer = Writer::new(out, &CpioOptions::new());
+/// writer.append("init", &Node::file(content).with_attrs(SetAttr::new().with_permissions(Permissions::new(0o755))))?;
+/// let (out, report) = writer.finish()?;
 /// ```
-pub struct CpioWriter<W> {
+pub struct Writer<W> {
     out: W,
-    format: Format,
-    next_ino: u64,
-    entries: u64,
+    planner: Planner,
     bytes: u64,
-    warnings: Vec<Warning>,
+    open_entry: bool,
     buf: Vec<u8>,
 }
 
-impl<W> core::fmt::Debug for CpioWriter<W> {
+impl<W> core::fmt::Debug for Writer<W> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("CpioWriter")
-            .field("format", &self.format)
-            .field("entries", &self.entries)
+        f.debug_struct("Writer")
+            .field("format", &self.planner.format)
+            .field("entries", &self.planner.entries())
             .field("bytes", &self.bytes)
             .finish_non_exhaustive()
     }
 }
 
-impl<W> CpioWriter<W> {
+impl<W> Writer<W> {
     /// A writer of `options.format()` entries to `out`.
     pub fn new(out: W, options: &CpioOptions) -> Self {
         Self {
             out,
-            format: options.format(),
-            next_ino: 1,
-            entries: 0,
+            planner: Planner::new(options),
             bytes: 0,
-            warnings: Vec::new(),
+            open_entry: false,
             buf: Vec::new(),
         }
     }
 
     /// Entries written so far, not counting a trailer.
     pub fn entries(&self) -> u64 {
-        self.entries
+        self.planner.entries()
     }
 
     /// Bytes written so far.
@@ -87,180 +66,135 @@ impl<W> CpioWriter<W> {
         self.bytes
     }
 
-    /// Metadata dropped so far, one warning per entry.
-    pub fn warnings(&self) -> &[Warning] {
-        &self.warnings
-    }
-
-    fn check_name(&self, path: &str) -> Result<usize, ErrorKind> {
-        let name = path.as_bytes();
-        if name.is_empty() || name.contains(&0) || name == TRAILER_NAME {
-            return Err(ErrorKind::InvalidInput);
-        }
-        if name.len() + 1 > PATH_MAX {
-            return Err(ErrorKind::NameTooLong);
-        }
-        Ok(name.len() + 1)
-    }
-
-    fn take_ino(&mut self) -> u64 {
-        let ino = self.next_ino;
-        self.next_ino += 1;
-        ino
-    }
-
-    fn warn(&mut self, path: &str, meta: &SetMetadata) {
-        if let Some(message) = dropped(meta) {
-            self.warnings
-                .push(Warning::new(path, WarningKind::IgnoredMetadata, message));
+    fn check_idle(&self) -> Result<(), PathError> {
+        match self.open_entry {
+            true => Err(PathError::new(
+                ErrorKind::InvalidInput,
+                "an entry from append_file was not finished",
+            )),
+            false => Ok(()),
         }
     }
 }
 
-/// Mode bits, owner and modification time of `meta`, with the defaults for
-/// `kind` where it sets none.
-fn base_fields<E>(meta: &SetMetadata, kind: u32, default_mode: u32) -> Result<Fields, Error<E>> {
-    let mtime = match meta.times().modified() {
-        Some(time) => u64::try_from(time.unix_seconds())
-            .map_err(|_| Detail::Field.error(ErrorKind::LimitExceeded))?,
-        None => 0,
-    };
-    Ok(Fields {
-        ino: 0,
-        mode: kind | meta.mode().map_or(default_mode, |mode| mode.bits()),
-        uid: meta.uid().unwrap_or(0),
-        gid: meta.gid().unwrap_or(0),
-        nlink: 1,
-        mtime,
-        len: 0,
-        rdev: DeviceNumber::new(0, 0),
-        check: 0,
-    })
-}
-
-/// Encodes a header of `format` into `out`, returning its length.
-fn encode<E>(
-    format: Format,
-    fields: &Fields,
-    namesize: usize,
-    out: &mut [u8; raw::NEWC_HEADER_LEN],
-) -> Result<usize, Error<E>> {
-    if fields.len > format.max_file_size() {
-        return Err(Detail::Field.error(ErrorKind::FileTooLarge));
-    }
-    let limit = || Detail::Field.error(ErrorKind::LimitExceeded);
-    let small = |value: u64| u32::try_from(value).map_err(|_| limit());
-    match format {
-        Format::Newc | Format::NewcCrc => {
-            let header = NewcHeader::new(
-                format == Format::NewcCrc,
-                &NewcFields {
-                    ino: small(fields.ino)?,
-                    mode: fields.mode,
-                    uid: fields.uid,
-                    gid: fields.gid,
-                    nlink: small(fields.nlink)?,
-                    mtime: small(fields.mtime)?,
-                    filesize: small(fields.len)?,
-                    devmajor: 0,
-                    devminor: 0,
-                    rdevmajor: fields.rdev.major(),
-                    rdevminor: fields.rdev.minor(),
-                    namesize: small(namesize as u64)?,
-                    check: fields.check,
-                },
-            );
-            out.copy_from_slice(&header.0);
-            Ok(raw::NEWC_HEADER_LEN)
-        }
-        Format::Odc => {
-            let header = OdcHeader::new(&OdcFields {
-                dev: 0,
-                ino: small(fields.ino)?,
-                mode: fields.mode,
-                uid: fields.uid,
-                gid: fields.gid,
-                nlink: small(fields.nlink)?,
-                rdev: header::join_dev(fields.rdev).ok_or_else(limit)?,
-                mtime: fields.mtime,
-                namesize: small(namesize as u64)?,
-                filesize: fields.len,
-            })
-            .ok_or_else(limit)?;
-            out[..raw::ODC_HEADER_LEN].copy_from_slice(&header.0);
-            Ok(raw::ODC_HEADER_LEN)
-        }
-        _ => Err(Detail::Format.error(ErrorKind::Unsupported)),
+/// Checks that `data` is readable in this mode before anything is written.
+fn check_data(data: &Data<'_>, path: &[u8]) -> Result<(), PathError> {
+    match data {
+        Data::Content(content) => ContentReader::check(content).map_err(|err| err.with_path(path)),
+        _ => Ok(()),
     }
 }
 
-/// The data of an entry being written.
-enum Data<'a, 'c> {
-    Bytes(&'a [u8]),
-    Content(&'a mut ContentReader<'c>),
+/// A file entry being written by [`Writer::append_file`]. It implements
+/// `Write`; [`finish`](Self::finish) ends the entry once exactly the
+/// announced length was written.
+pub struct EntryWriter<'w, W> {
+    writer: &'w mut Writer<W>,
+    path: Vec<u8>,
+    len: u64,
+    remaining: u64,
+}
+
+impl<W> core::fmt::Debug for EntryWriter<'_, W> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("EntryWriter")
+            .field("len", &self.len)
+            .field("remaining", &self.remaining)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<W> EntryWriter<'_, W> {
+    /// Bytes still to write.
+    pub fn remaining(&self) -> u64 {
+        self.remaining
+    }
+}
+
+impl<W: hadris_io::ErrorType> hadris_io::ErrorType for EntryWriter<'_, W> {
+    type Error = Error<W::Error>;
 }
 
 io_transform! {
 
 /// Writes `tree` as a complete cpio archive to `out`, as `options` say, and
-/// returns the [`Report`].
+/// returns the report [`plan`](crate::plan) returns.
 ///
-/// Entries follow the tree depth-first, each directory before its
-/// children, children in the tree's name order; the root itself is not an
-/// entry. The names of a hard link share one inode, and the last of them
-/// in that order carries the data, as GNU cpio writes them.
+/// It plans first and checks that every file's content is readable in this
+/// mode, so an error there writes nothing. Entries follow the tree
+/// depth-first, each directory before its children, children in name
+/// order; the root itself is not an entry. The names of a hard link share
+/// one inode, and the last of them in that order carries the data, as GNU
+/// cpio writes them. Report offsets count from the first byte this call
+/// writes. `out` is flushed, not closed.
 pub async fn write<W: Write>(out: W, tree: &Tree, options: &CpioOptions) -> Result<Report, PathError> {
-    let mut writer = CpioWriter::new(out, options);
-    writer.write_tree(tree).await?;
+    let (entries, report) = plan_tree(tree, options)?;
+    for entry in &entries {
+        check_data(&entry.data, &entry.path)?;
+    }
+    let mut writer = Writer::new(out, options);
+    for entry in &entries {
+        writer.emit(&entry.path, entry.fields, entry.data).await?;
+    }
     writer.write_trailer().await?;
-    Ok(Report::new(writer.entries, writer.bytes, writer.warnings))
+    Ok(report)
 }
 
-impl<W: Write> CpioWriter<W> {
+impl<W: Write> Writer<W> {
     async fn put(&mut self, data: &[u8]) -> Result<(), Error<W::Error>> {
         self.out.write_all(data).await.map_err(write_failed)?;
         self.bytes += data.len() as u64;
         Ok(())
     }
 
-    async fn emit(&mut self, path: &str, mut fields: Fields, mut data: Option<Data<'_, '_>>) -> Result<(), PathError> {
-        let namesize = self
-            .check_name(path)
-            .map_err(|kind| PathError::from(Detail::Name.error::<W::Error>(kind)).with_path(path))?;
+    /// Writes a header and name the planner checked, or the trailer's.
+    async fn header(&mut self, path: &[u8], fields: &Fields) -> Result<(), PathError> {
+        let namesize = match path == TRAILER_NAME {
+            true => TRAILER_NAME.len() + 1,
+            false => build::namesize(path)?,
+        };
+        let mut raw = [0u8; raw::NEWC_HEADER_LEN];
+        let len = build::encode::<W::Error>(self.planner.format, fields, namesize, &mut raw)
+            .map_err(|err| PathError::from(err).with_path(path))?;
+        self.put(&raw[..len]).await?;
+        self.put(path).await?;
+        self.put(&[0]).await?;
+        self.put(&[0u8; 3][..header::name_padding(self.planner.format, namesize)]).await?;
+        Ok(())
+    }
+
+    async fn emit(&mut self, path: &[u8], mut fields: Fields, data: Data<'_>) -> Result<(), PathError> {
         if self.buf.len() < CHUNK {
             self.buf = vec![0u8; CHUNK];
         }
-        if self.format == Format::NewcCrc {
-            fields.check = match &mut data {
-                Some(Data::Bytes(bytes)) => header::checksum(0, bytes),
-                Some(Data::Content(reader)) => {
-                    let len = reader.len();
+        let mut reader = match data {
+            Data::Content(content) => Some(ContentReader::open(content).await.map_err(|err| err.with_path(path))?),
+            _ => None,
+        };
+        if self.planner.format == Format::Crc {
+            fields.check = match (&data, &mut reader) {
+                (Data::Bytes(bytes), _) => header::checksum(0, bytes),
+                (_, Some(reader)) => {
                     let mut buf = core::mem::take(&mut self.buf);
-                    let sum = checksum(reader, len, &mut buf).await;
+                    let sum = checksum(reader, fields.len, &mut buf).await;
                     self.buf = buf;
                     sum.map_err(|err| err.with_path(path))?
                 }
-                None => 0,
+                _ => 0,
             };
         }
-        let mut raw = [0u8; raw::NEWC_HEADER_LEN];
-        let len = encode::<W::Error>(self.format, &fields, namesize, &mut raw)?;
-        self.put(&raw[..len]).await?;
-        self.put(path.as_bytes()).await?;
-        self.put(&[0]).await?;
-        self.put(&[0u8; 3][..header::name_padding(self.format, namesize)]).await?;
-        match data {
-            Some(Data::Bytes(bytes)) => self.put(bytes).await?,
-            Some(Data::Content(reader)) => {
+        self.header(path, &fields).await?;
+        match (data, &mut reader) {
+            (Data::Bytes(bytes), _) => self.put(bytes).await?,
+            (_, Some(reader)) => {
                 let mut buf = core::mem::take(&mut self.buf);
                 let copied = self.copy(reader, fields.len, &mut buf).await;
                 self.buf = buf;
                 copied.map_err(|err| err.with_path(path))?;
             }
-            None => {}
+            _ => {}
         }
-        self.put(&[0u8; 3][..header::data_padding(self.format, fields.len)]).await?;
-        self.entries += 1;
+        self.put(&[0u8; 3][..header::data_padding(self.planner.format, fields.len)]).await?;
         Ok(())
     }
 
@@ -275,158 +209,152 @@ impl<W: Write> CpioWriter<W> {
         Ok(())
     }
 
-    /// Appends one entry named `path`, with the mode, owner and
-    /// modification time of `meta`.
+    /// Appends `node` named `path`: a file, directory, symlink, device
+    /// node, FIFO or socket, with the permissions, owner and modification
+    /// time its attributes set.
     ///
-    /// Unset fields take 0o644 permissions (0o755 for directories, 0o777
-    /// for symlinks), owner 0 and modification time 0. Times other than
-    /// the modification time and attributes are dropped with a warning.
+    /// Unset fields take 0o644 permissions (0o755 for directories and
+    /// sockets, 0o777 for symlinks), owner 0 and the options' time, or 0.
+    /// Other times, sub-second parts and attributes are dropped and
+    /// reported.
     ///
-    /// Fails before writing anything of the entry: [`ErrorKind::InvalidInput`]
-    /// for an empty name, one with a NUL or the trailer's name, or an empty
-    /// symlink target; [`ErrorKind::NameTooLong`] for names over 4095
-    /// bytes; [`ErrorKind::FileTooLarge`] for data the format cannot size;
-    /// [`ErrorKind::LimitExceeded`] for another value that does not fit its
-    /// field; [`ErrorKind::Unsupported`] for [`Format::Binary`].
-    pub async fn append(&mut self, path: &str, meta: &SetMetadata, entry: NewEntry<'_>) -> Result<(), PathError> {
-        match entry {
-            NewEntry::File(content) => self.append_hard_links(&[path], meta, content).await,
-            NewEntry::Dir => {
-                let mut fields = base_fields::<W::Error>(meta, raw::S_IFDIR, 0o755)?;
-                fields.nlink = 2;
-                self.append_fields(path, meta, fields, None).await
-            }
-            NewEntry::Symlink(target) => {
-                if target.is_empty() {
-                    return Err(Detail::Entry.invalid::<W::Error>().into());
-                }
-                let mut fields = base_fields::<W::Error>(meta, raw::S_IFLNK, 0o777)?;
-                fields.len = target.len() as u64;
-                self.append_fields(path, meta, fields, Some(Data::Bytes(target))).await
-            }
-            NewEntry::Device(kind, number) => {
-                let bits = match kind {
-                    DeviceKind::Block => raw::S_IFBLK,
-                    DeviceKind::Char => raw::S_IFCHR,
-                    _ => return Err(Detail::Entry.error::<W::Error>(ErrorKind::Unsupported).into()),
-                };
-                let mut fields = base_fields::<W::Error>(meta, bits, 0o644)?;
-                fields.rdev = number;
-                self.append_fields(path, meta, fields, None).await
-            }
-            NewEntry::Fifo => {
-                let fields = base_fields::<W::Error>(meta, raw::S_IFIFO, 0o644)?;
-                self.append_fields(path, meta, fields, None).await
-            }
-            NewEntry::Socket => {
-                let fields = base_fields::<W::Error>(meta, raw::S_IFSOCK, 0o755)?;
-                self.append_fields(path, meta, fields, None).await
-            }
+    /// Fails before writing anything of the entry, as [`plan`](crate::plan)
+    /// does, and with [`ErrorKind::InvalidInput`] for an empty symlink
+    /// target, and [`ErrorKind::Unsupported`] for content this mode cannot
+    /// read.
+    pub async fn append(&mut self, path: impl AsRef<[u8]>, node: &Node) -> Result<(), PathError> {
+        let path = path.as_ref();
+        self.check_idle()?;
+        let (mut fields, data) = self.planner.node(node, path)?;
+        check_data(&data, path)?;
+        fields.ino = self.planner.ino();
+        let start = self.planner.entry(path, &fields, node.attrs())?;
+        self.planner.take_ino();
+        if node.file_type() == FileType::File {
+            self.planner.extent(path, start, fields.len);
         }
+        self.emit(path, fields, data).await
     }
 
-    async fn append_fields(&mut self, path: &str, meta: &SetMetadata, mut fields: Fields, data: Option<Data<'_, '_>>) -> Result<(), PathError> {
-        fields.ino = self.next_ino;
-        self.emit(path, fields, data).await?;
-        self.take_ino();
-        self.warn(path, meta);
-        Ok(())
-    }
-
-    /// Appends a regular file under every name in `paths`, as a hard link
+    /// Appends the file `node` under every name in `paths`, as a hard link
     /// group: one inode, a link count of `paths.len()`, and the data on the
-    /// last name only, as GNU cpio writes them. Every name carries `meta`.
+    /// last name only, as GNU cpio writes them. Every name carries the
+    /// node's attributes, and the report gives every name the data's
+    /// extent.
     ///
-    /// Fails like [`append`](Self::append), and with
-    /// [`ErrorKind::InvalidInput`] when `paths` is empty. An error from the
-    /// content carries the last name ([`PathError::path`]).
-    pub async fn append_hard_links(&mut self, paths: &[&str], meta: &SetMetadata, content: &Content) -> Result<(), PathError> {
+    /// Fails like [`append`](Self::append) before writing anything, and
+    /// with [`ErrorKind::InvalidInput`] when `paths` is empty or `node` is
+    /// not a file.
+    pub async fn append_hard_links<P: AsRef<[u8]>>(&mut self, paths: &[P], node: &Node) -> Result<(), PathError> {
+        self.check_idle()?;
         let Some((last, first)) = paths.split_last() else {
             return Err(Detail::Entry.invalid::<W::Error>().into());
         };
-        for path in paths {
-            self.check_name(path)
-                .map_err(|kind| PathError::from(Detail::Name.error::<W::Error>(kind)).with_path(*path))?;
+        if node.file_type() != FileType::File {
+            return Err(error(Detail::Entry, ErrorKind::InvalidInput, last.as_ref()));
         }
-        let mut fields = base_fields::<W::Error>(meta, raw::S_IFREG, 0o644)?;
-        fields.ino = self.next_ino;
+        let (mut fields, data) = self.planner.node(node, last.as_ref())?;
+        check_data(&data, last.as_ref())?;
+        fields.ino = self.planner.ino();
         fields.nlink = paths.len() as u64;
+        let empty = Fields { len: 0, ..fields };
         for path in first {
-            self.emit(path, fields, None).await?;
-            self.warn(path, meta);
+            self.planner.check(path.as_ref(), &empty)?;
         }
-        self.file(last, fields, meta, content).await?;
-        self.take_ino();
-        Ok(())
+        self.planner.check(last.as_ref(), &fields)?;
+        for path in first {
+            self.planner.entry(path.as_ref(), &empty, node.attrs())?;
+        }
+        let start = self.planner.entry(last.as_ref(), &fields, node.attrs())?;
+        self.planner.take_ino();
+        for path in paths {
+            self.planner.extent(path.as_ref(), start, fields.len);
+        }
+        for path in first {
+            self.emit(path.as_ref(), empty, Data::None).await?;
+        }
+        self.emit(last.as_ref(), fields, data).await
     }
 
-    async fn file(&mut self, path: &str, mut fields: Fields, meta: &SetMetadata, content: &Content) -> Result<(), PathError> {
-        let mut reader = ContentReader::open(content).await.map_err(|err| err.with_path(path))?;
-        fields.len = reader.len();
-        self.emit(path, fields, Some(Data::Content(&mut reader))).await?;
-        self.warn(path, meta);
-        Ok(())
-    }
-
-    /// Appends every entry of `tree`, as [`write()`] orders them, and
-    /// returns what this call wrote. The trailer is not written.
-    pub async fn write_tree(&mut self, tree: &Tree) -> Result<Report, PathError> {
-        let (entries, bytes, warnings) = (self.entries, self.bytes, self.warnings.len());
-        let mut links: BTreeMap<usize, (u64, usize)> = BTreeMap::new();
-        for (path, node) in preorder(tree) {
-            let meta = node.metadata();
-            match node.kind() {
-                NodeKind::File(content) if node.links() > 1 => {
-                    let ino = match links.get(&node.id()) {
-                        Some(&(ino, _)) => ino,
-                        None => self.take_ino(),
-                    };
-                    let seen = links.get(&node.id()).map_or(0, |&(_, seen)| seen) + 1;
-                    links.insert(node.id(), (ino, seen));
-                    let mut fields = base_fields::<W::Error>(meta, raw::S_IFREG, 0o644)?;
-                    fields.ino = ino;
-                    fields.nlink = node.links() as u64;
-                    if seen == node.links() {
-                        self.file(&path, fields, meta, content).await?;
-                    } else {
-                        self.emit(&path, fields, None).await?;
-                        self.warn(&path, meta);
-                    }
-                }
-                NodeKind::File(content) => self.append(&path, meta, NewEntry::File(content)).await?,
-                NodeKind::Dir => self.append(&path, meta, NewEntry::Dir).await?,
-                NodeKind::Symlink(target) => self.append(&path, meta, NewEntry::Symlink(target)).await?,
-                NodeKind::Device(kind, number) => self.append(&path, meta, NewEntry::Device(kind, number)).await?,
-                _ => return Err(Detail::Entry.error::<W::Error>(ErrorKind::Unsupported).into()),
-            }
+    /// Starts a regular file of `len` bytes named `path`, for data produced
+    /// while writing, and returns the writer of its data.
+    ///
+    /// The header is written now. Write exactly `len` bytes, then call
+    /// [`EntryWriter::finish`]; until then every other call on this writer
+    /// fails with [`ErrorKind::InvalidInput`]. Fails like
+    /// [`append`](Self::append), and with [`ErrorKind::Unsupported`] for
+    /// [`Format::Crc`], whose header holds a checksum of the data.
+    pub async fn append_file(&mut self, path: impl AsRef<[u8]>, attrs: &SetAttr, len: u64) -> Result<EntryWriter<'_, W>, PathError> {
+        let path = path.as_ref();
+        self.check_idle()?;
+        if self.planner.format == Format::Crc {
+            return Err(error(Detail::Entry, ErrorKind::Unsupported, path));
         }
-        Ok(Report::new(self.entries - entries, self.bytes - bytes, self.warnings[warnings..].to_vec()))
+        let mut fields = self.planner.fields(attrs, raw::S_IFREG, 0o644, path)?;
+        fields.len = len;
+        fields.ino = self.planner.ino();
+        let start = self.planner.entry(path, &fields, attrs)?;
+        self.planner.take_ino();
+        self.planner.extent(path, start, len);
+        self.header(path, &fields).await?;
+        self.open_entry = true;
+        Ok(EntryWriter { writer: self, path: path.to_vec(), len, remaining: len })
     }
 
     async fn write_trailer(&mut self) -> Result<(), PathError> {
-        let fields = Fields { ino: 0, mode: 0, uid: 0, gid: 0, nlink: 1, mtime: 0, len: 0, rdev: DeviceNumber::new(0, 0), check: 0 };
-        let namesize = TRAILER_NAME.len() + 1;
-        let mut raw = [0u8; raw::NEWC_HEADER_LEN];
-        let len = encode::<W::Error>(self.format, &fields, namesize, &mut raw)?;
-        self.put(&raw[..len]).await?;
-        self.put(TRAILER_NAME).await?;
-        self.put(&[0]).await?;
-        self.put(&[0u8; 3][..header::name_padding(self.format, namesize)]).await?;
+        self.header(TRAILER_NAME, &Fields::TRAILER).await?;
         self.out
             .flush()
             .await
             .map_err(|err| Error::device(err, "flushing the archive failed").into())
     }
 
-    /// Writes the trailer, flushes and returns the stream.
-    pub async fn finish(mut self) -> Result<W, PathError> {
+    /// Writes the trailer, flushes, and returns the stream with the report:
+    /// the bytes written with the trailer, what cpio dropped, and where each
+    /// file's data starts, counted from the first byte this writer wrote.
+    pub async fn finish(mut self) -> Result<(W, Report), PathError> {
+        self.check_idle()?;
+        self.planner.trailer()?;
         self.write_trailer().await?;
-        Ok(self.out)
+        Ok((self.out, self.planner.finish()))
+    }
+}
+
+impl<W: Write> EntryWriter<'_, W> {
+    /// Ends the entry with its padding. Fails with
+    /// [`ErrorKind::InvalidInput`] naming the entry when fewer bytes than
+    /// its length were written.
+    pub async fn finish(self) -> Result<(), PathError> {
+        if self.remaining != 0 {
+            return Err(error(Detail::Entry, ErrorKind::InvalidInput, &self.path));
+        }
+        let format = self.writer.planner.format;
+        self.writer.put(&[0u8; 3][..header::data_padding(format, self.len)]).await?;
+        self.writer.open_entry = false;
+        Ok(())
+    }
+}
+
+impl<W: Write> Write for EntryWriter<'_, W> {
+    /// Writes data of the entry. Fails with [`ErrorKind::InvalidInput`]
+    /// past its length.
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        if buf.len() as u64 > self.remaining {
+            return Err(Detail::Entry.invalid());
+        }
+        let written = self.writer.out.write(buf).await.map_err(|err| Error::device(err, "writing the archive failed"))?;
+        self.remaining -= written as u64;
+        self.writer.bytes += written as u64;
+        Ok(written)
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.writer.out.flush().await.map_err(|err| Error::device(err, "flushing the archive failed"))
     }
 }
 
 /// The byte sum of the first `len` bytes of `reader`.
-async fn checksum(reader: &mut ContentReader<'_>, len: u64, buf: &mut [u8]) -> Result<u32, hadris_fs::PathError> {
+async fn checksum(reader: &mut ContentReader<'_>, len: u64, buf: &mut [u8]) -> Result<u32, PathError> {
     let mut sum = 0u32;
     let mut offset = 0u64;
     while offset < len {
@@ -438,26 +366,4 @@ async fn checksum(reader: &mut ContentReader<'_>, len: u64, buf: &mut [u8]) -> R
     Ok(sum)
 }
 
-}
-
-/// Every node of `tree` but the root, depth-first, each directory before
-/// its children, with its `/`-separated path.
-fn preorder(tree: &Tree) -> Vec<(String, hadris_fs::tree::TreeNode<'_>)> {
-    let mut out = Vec::new();
-    let mut pending = vec![(String::new(), tree.root())];
-    while let Some((path, node)) = pending.pop() {
-        if !path.is_empty() {
-            out.push((path.clone(), node));
-        }
-        let children: Vec<_> = node.children().collect();
-        for (name, child) in children.into_iter().rev() {
-            let child_path = if path.is_empty() {
-                String::from(name)
-            } else {
-                alloc::format!("{path}/{name}")
-            };
-            pending.push((child_path, child));
-        }
-    }
-    out
 }

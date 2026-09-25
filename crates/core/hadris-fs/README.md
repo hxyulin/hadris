@@ -6,7 +6,7 @@ The vocabulary is mode-independent and performs no I/O:
 
 - `NodeId` and `FileType`
 - `Name`, `NameBuf` and `OwnedName`: byte names that need no allocator (`NameBuf` holds 1024 bytes by default), checked with `Name::check`
-- `DateTime`, `Clock` and `FileTimes`, with civil-time conversions for on-disk encodings
+- `DateTime` and `Clock`, with civil-time conversions for on-disk encodings
 - `Metadata`, `Permissions`, `Owner`, `Attributes` and `SetAttr`, the changes `setattr`, `create` and `mkdir` apply
 - `Capabilities` (with `CaseRule`, `Charset`, `Field` and `Stored`) and `FsStats`
 - `ErrorKind`, the error categories shared by every crate, with `ErrorKind::errno()` and `Errno`
@@ -17,12 +17,17 @@ The vocabulary is mode-independent and performs no I/O:
 - `MountOptions`, one mount configuration for every format: read-only,
   the `Clock`, the UTC offset of zoneless timestamps, the FAT `CodePage`
   (`Cp437` by default, or `Ascii`), a node cap and backup boot structures
-- `tree` (`alloc`): the input of every image writer. `Tree` holds files,
-  directories, symlinks, device nodes and hard links with their
-  `SetMetadata`; `Content` is bytes, a `ByteSource`, a host file opened
-  lazily (`std`) or extents already on the device a session updates.
-  `Tree::from_fs` (`std`) imports a host directory, and `Warning` is the
-  shape writers use to report what they could not store
+- `Tree`, `Node` and `Content` (`alloc`): the input of every image
+  writer and of `copy_tree`. A tree holds files, directories, symlinks,
+  special files and hard links, each with the `SetAttr` it asks for, at
+  `/`-separated byte paths; children sort by name bytes, and `.` and `..`
+  are refused. `Content` is opaque and cloneable, with its length fixed
+  when it is made: bytes, a host file (`host::file`), a file of a mounted
+  volume read lazily by `read_tree`, or extents already on the device a
+  session updates
+- `Report`, `Warning` and `WarningKind` (`alloc`): what every writer,
+  planner and `copy_tree` returns: the output size, what it could not
+  store as the tree asks, and the extents of each file
 
 The `sync` and `async` features add the API that does I/O, each generated
 from one source:
@@ -37,13 +42,19 @@ from one source:
 - `Volume<F>` (`std` in `sync`, `alloc` in `r#async`), which owns a
   filesystem behind a lock and shares it between threads and tasks, with
   paths and `File` and `ReadDir` handles named after `std::fs`
-- `ContentReader`, which reads a `Content` in that mode, and `TreeExt`,
-  whose `Tree::from_filesystem` builds a tree from any filesystem (`alloc`)
-- `copy_tree` (`alloc`), which copies a file or directory tree between any
-  two filesystems and returns `PathError`, and in the sync API with `std`,
-  `extract_to_host` and `import_from_host`, which copy between a
-  filesystem and a host directory and refuse entry names or host symlinks
-  that would leave the target directory
+- `ContentReader` (`alloc`), which reads a `Content` in that mode; lazy
+  content is readable only in the mode that produced it
+- `copy_tree` (`alloc`), which copies a `Tree` into a directory of any
+  filesystem, keeps directory times and reports what the target drops or
+  cannot hold, and `read_tree` (with the `Volume`), which reads a mounted
+  volume into a `Tree` whose content is read lazily through the volume
+
+The `host` module (`std` and `sync`) connects trees to the host:
+`read_tree` and `write_tree` between host directories and trees, with
+symlink, error, exclude, owner and clamp policies for reading; `file` for
+host files as content; `source_date_epoch`; and `mount_options` and
+`local_utc_offset`, the host clock and time zone. `write_tree` never
+writes outside its directory.
 
 ```rust,ignore
 // The trait: node ids, no lock, no allocation.
@@ -79,8 +90,8 @@ assert!(OpenOptions::new().write().create().append().validate().is_ok());
 
 | Feature | Default | Purpose |
 |---|---:|---|
-| `alloc` | No | `OwnedName`, `PathError`, `copy_tree`, the async `Volume`, `Box` forwarding, and `tree` with `ContentReader` and `TreeExt` |
-| `std` | No | Implies `alloc`; adds `SystemClock`, the sync `Volume` and its `std::io` handles, the sync host helpers, `Content::path`, `Tree::from_fs` and conversions to `std::io::Error` |
+| `alloc` | No | `OwnedName`, `PathError`, `Tree`, `Report`, `copy_tree` and `ContentReader` in each mode, the async `Volume` and its `read_tree`, and `Box` forwarding |
+| `std` | No | Implies `alloc`; adds `SystemClock`, the sync `Volume` with its `std::io` handles and `read_tree`, `host` with `sync`, and conversions to `std::io::Error` |
 | `sync` | No | The blocking API in `sync` |
 | `async` | No | The same API with `Send` futures in `r#async` |
 | `contract` | No | The driver contract kit: `contract::check` in each mode, for testing a format against the `FileSystem` contract |

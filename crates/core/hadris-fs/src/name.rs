@@ -137,6 +137,19 @@ impl fmt::Debug for Name {
     }
 }
 
+/// The name as text, with U+FFFD for bytes that are not UTF-8.
+impl fmt::Display for Name {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for chunk in self.0.utf8_chunks() {
+            f.write_str(chunk.valid())?;
+            if !chunk.invalid().is_empty() {
+                f.write_str("\u{FFFD}")?;
+            }
+        }
+        Ok(())
+    }
+}
+
 impl AsRef<[u8]> for Name {
     fn as_ref(&self) -> &[u8] {
         &self.0

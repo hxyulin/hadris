@@ -5,8 +5,8 @@ mod common;
 use common::Paths;
 use common::{SECTOR, image, open, pattern, sample, with_metadata};
 use hadris_fs::sync::FileSystem;
-use hadris_fs::tree::{Content, Tree, WarningKind};
-use hadris_fs::{DirCursor, ErrorKind, FileType, Permissions, Resolve, SystemClock};
+use hadris_fs::{Content, Node, WarningKind};
+use hadris_fs::{DirCursor, ErrorKind, FileType, Permissions, Resolve};
 use hadris_storage::{BlockSize, MemDevice};
 use hadris_udf::{UdfOptions, UdfRevision};
 
@@ -115,14 +115,14 @@ fn every_tree_reads_back() {
 fn metadata_reads_back() {
     let mut tree = sample();
     with_metadata(&mut tree);
-    tree.set_metadata(
+    tree.replace(
         "empty.txt",
-        hadris_fs::SetMetadata::new()
-            .with_times(hadris_fs::FileTimes::new().with_created(common::time(5))),
+        Node::file(Content::empty())
+            .with_attrs(hadris_fs::SetAttr::new().with_created(common::time(5))),
     )
     .unwrap();
     let options = UdfOptions::default();
-    let report = hadris_udf::sync::plan(&tree, &options).unwrap();
+    let report = hadris_udf::plan(&tree, &options).unwrap();
     let kinds: Vec<_> = report
         .warnings()
         .iter()
@@ -131,8 +131,8 @@ fn metadata_reads_back() {
     assert_eq!(
         kinds,
         [
-            ("/empty.txt", WarningKind::IgnoredMetadata),
-            ("/dev/null", WarningKind::Skipped),
+            (Some(&b"/dev/null"[..]), WarningKind::Skipped),
+            (None, WarningKind::Dropped(hadris_fs::Field::Created)),
         ]
     );
     let mut udf = open(image(&tree, &options));
@@ -142,7 +142,10 @@ fn metadata_reads_back() {
     let times = meta;
     assert_eq!(times.modified().unwrap().unix_seconds(), 1_700_000_000);
     assert_eq!(times.accessed().unwrap().unix_seconds(), 1_700_000_100);
-    assert_eq!(times.changed().unwrap().unix_seconds(), 1_700_000_200);
+    assert_eq!(
+        times.changed().unwrap().unix_seconds(),
+        hadris_fs::NoClock::TIME.unix_seconds()
+    );
     assert_eq!(times.created(), None);
     assert_eq!(
         udf.metadata("/docs").unwrap().permissions(),
@@ -168,23 +171,25 @@ fn reports_match_what_is_written() {
     let tree = sample();
     let options = UdfOptions::default();
     let bytes = image(&tree, &options);
-    let report = hadris_udf::sync::plan(&tree, &options).unwrap();
-    assert_eq!(report.size_bytes(), bytes.len() as u64);
-    let extent = report.extent_of("docs/big.bin").unwrap();
-    assert_eq!(report.extent_of("/docs//big.bin"), Some(extent));
+    let report = hadris_udf::plan(&tree, &options).unwrap();
+    assert_eq!(report.size(), bytes.len() as u64);
+    let extent = report.extents("docs/big.bin").map(|e| e[0]).unwrap();
+    assert_eq!(report.extents("/docs//big.bin").map(|e| e[0]), Some(extent));
     let start = extent.offset() as usize;
     assert_eq!(&bytes[start..start + 70_000], pattern(70_000, 1).as_slice());
     assert_eq!(
-        report.extent_of("readme.txt"),
-        report.extent_of("docs/link.txt")
+        report.extents("readme.txt").map(|e| e[0]),
+        report.extents("docs/link.txt").map(|e| e[0])
     );
-    assert_eq!(report.extent_of("empty.txt"), None);
-    assert_eq!(report.extent_of("docs"), None);
-    assert!(report.allocated_end() < report.total_blocks());
+    assert_eq!(report.extents("empty.txt").map(|e| e[0]), None);
+    assert_eq!(report.extents("docs").map(|e| e[0]), None);
 
     let again = image(&tree, &options);
     assert_eq!(bytes, again, "the same tree gives the same bytes");
-    let dated = image(&tree, &options.clone().with_clock(SystemClock));
+    let dated = image(
+        &tree,
+        &options.clone().with_time(common::time(1_700_000_000)),
+    );
     assert_ne!(bytes, dated);
 
     let padded = image(&tree, &options.clone().with_min_blocks(2000));
@@ -197,9 +202,7 @@ fn reports_match_what_is_written() {
 fn small_device_blocks_and_growing_devices_work() {
     let tree = sample();
     let options = UdfOptions::default();
-    let size = hadris_udf::sync::plan(&tree, &options)
-        .unwrap()
-        .size_bytes();
+    let size = hadris_udf::plan(&tree, &options).unwrap().size();
     let mut dev = MemDevice::new(vec![0u8; size as usize], BlockSize::new(512).unwrap());
     hadris_udf::sync::write(&mut dev, &tree, &options).unwrap();
     assert_eq!(dev.get_ref().as_slice(), image(&tree, &options).as_slice());
@@ -214,7 +217,7 @@ fn small_device_blocks_and_growing_devices_work() {
     let report = hadris_udf::sync::write(&mut dev, &tree, &options).unwrap();
     assert_eq!(
         hadris_storage::sync::BlockDevice::block_count(&dev) * 512,
-        report.size_bytes()
+        report.size()
     );
     let mut udf = hadris_udf::sync::UdfFs::open(&mut dev).unwrap();
     assert_eq!(udf.read_to_vec("/docs/sub/deep.txt").unwrap(), b"deep");
@@ -229,10 +232,7 @@ fn async_modes_write_and_read_the_same_volume() {
     let options = UdfOptions::default().with_revision(UdfRevision::V2_01);
     let expected = image(&tree, &options);
     common::block_on(async {
-        let size = hadris_udf::r#async::plan(&tree, &options)
-            .await
-            .unwrap()
-            .size_bytes();
+        let size = hadris_udf::plan(&tree, &options).unwrap().size();
         let mut dev = MemDevice::new(vec![0u8; size as usize], SECTOR);
         hadris_udf::r#async::write(&mut dev, &tree, &options)
             .await
@@ -281,11 +281,15 @@ fn host_trees_extract_back() {
     std::fs::create_dir_all(src.join("a/b")).unwrap();
     std::fs::write(src.join("a/b/file.txt"), b"host").unwrap();
     std::fs::write(src.join("top.bin"), pattern(5000, 9)).unwrap();
-    let tree = Tree::from_fs(&src, hadris_fs::tree::FromFsOptions::new()).unwrap();
+    let (tree, skipped) =
+        hadris_fs::host::read_tree(&src, &hadris_fs::host::TreeOptions::new()).unwrap();
+    assert!(skipped.is_empty());
     let bytes = image(&tree, &UdfOptions::default());
-    let mut udf = open(bytes);
+    let vol = hadris_fs::sync::Volume::new(open(bytes));
+    let back = hadris_fs::sync::read_tree(&vol, "/").unwrap();
     let out = dir.path().join("out");
-    hadris_fs::sync::extract_to_host(&mut udf, "/", &out).unwrap();
+    std::fs::create_dir(&out).unwrap();
+    hadris_fs::host::write_tree(&out, &back).unwrap();
     assert_eq!(std::fs::read(out.join("a/b/file.txt")).unwrap(), b"host");
     assert_eq!(
         std::fs::read(out.join("top.bin")).unwrap(),

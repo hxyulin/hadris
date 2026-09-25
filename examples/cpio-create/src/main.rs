@@ -4,12 +4,12 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use hadris_cpio::CpioOptions;
-use hadris_fs::tree::{FromFsOptions, Tree};
+use hadris_fs::host::{self, TreeOptions};
 use hadris_io::StdIo;
 
 fn main() -> Result<()> {
     let (source_path, archive_path) = arguments()?;
-    let tree = Tree::from_fs(&source_path, FromFsOptions::new())
+    let (tree, _) = host::read_tree(&source_path, &TreeOptions::new())
         .with_context(|| format!("failed to scan {}", source_path.display()))?;
     let output = File::create(&archive_path)
         .with_context(|| format!("failed to create {}", archive_path.display()))?;

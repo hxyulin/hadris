@@ -4,8 +4,8 @@
 use std::fs;
 
 use hadris_fs::Resolve;
-use hadris_fs::sync::{FileSystem, TreeExt};
-use hadris_fs::tree::{Content, Tree};
+use hadris_fs::sync::{FileSystem, Volume, read_tree};
+use hadris_fs::{Content, Node, Tree};
 use hadris_iso::raw::{DirectoryRecord, SuspEntries};
 use hadris_iso::{IsoOptions, Namespace, RockRidge, VolumeIdentifiers};
 use hadris_tests::harness::files::read_path;
@@ -22,10 +22,16 @@ fn le32(bytes: &[u8]) -> u32 {
 #[test]
 fn test_hadris_rockridge_roundtrip() {
     let mut tree = Tree::new();
-    tree.add_file("hello.txt", Content::bytes("Hello, Rock Ridge!\n"))
-        .unwrap();
-    tree.add_file("subdir/nested.txt", Content::bytes("Nested content\n"))
-        .unwrap();
+    tree.insert(
+        "hello.txt",
+        Node::file(Content::bytes("Hello, Rock Ridge!\n")),
+    )
+    .unwrap();
+    tree.insert(
+        "subdir/nested.txt",
+        Node::file(Content::bytes("Nested content\n")),
+    )
+    .unwrap();
     let options = IsoOptions::default()
         .with_volume(VolumeIdentifiers::new("RRIP_TEST"))
         .with_rock_ridge(RockRidge::default());
@@ -157,10 +163,11 @@ fn test_hadris_rockridge_roundtrip() {
 #[test]
 fn hard_links_share_a_node_id() {
     let mut tree = Tree::new();
-    tree.add_file("a.txt", Content::bytes("data\n")).unwrap();
-    tree.add_file("other.txt", Content::bytes("other\n"))
+    tree.insert("a.txt", Node::file(Content::bytes("data\n")))
         .unwrap();
-    tree.add_hard_link("sub/b.txt", "a.txt").unwrap();
+    tree.insert("other.txt", Node::file(Content::bytes("other\n")))
+        .unwrap();
+    tree.link("a.txt", "sub/b.txt").unwrap();
     let options = IsoOptions::default().with_rock_ridge(RockRidge::default());
     let mut images = vec![("hadris", write_tree(&tree, &options).unwrap())];
     let temp = TempDir::new().unwrap();
@@ -194,11 +201,16 @@ fn hard_links_share_a_node_id() {
             view.forget(node, 1);
         }
 
-        let imported = Tree::from_filesystem(&mut view).unwrap();
-        assert_eq!(imported.get("sub/b.txt").unwrap().links(), 2, "{producer}");
+        let vol = Volume::new(iso.into_view(Namespace::RockRidge).unwrap());
+        let imported = read_tree(&vol, "/").unwrap();
         assert_eq!(
-            imported.get("a.txt").unwrap().id(),
-            imported.get("sub/b.txt").unwrap().id(),
+            imported.entry("sub/b.txt").unwrap().links(),
+            2,
+            "{producer}"
+        );
+        assert_eq!(
+            imported.entry("a.txt").unwrap().id(),
+            imported.entry("sub/b.txt").unwrap().id(),
             "{producer}"
         );
     }

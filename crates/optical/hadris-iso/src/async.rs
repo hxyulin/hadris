@@ -18,7 +18,7 @@ pub use image::{IsoImage, IsoView};
 #[path = "write.rs"]
 mod write;
 #[cfg(feature = "alloc")]
-pub use write::{plan, write};
+pub use write::write;
 #[cfg(feature = "alloc")]
 #[path = "session.rs"]
 mod session;

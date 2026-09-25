@@ -12,9 +12,10 @@ pub async fn hadris_fs::async::contract::check<Fs: hadris_fs::async::FileSystem 
 pub async fn hadris_fs::async::contract::check_read_only<Fs: hadris_fs::async::FileSystem + ?core::marker::Sized>(&mut Fs) -> core::result::Result<(), hadris_fs::ContractViolation>
 pub struct hadris_fs::async::ContentReader<'a>
 impl<'a> hadris_fs::async::ContentReader<'a>
+pub fn hadris_fs::async::ContentReader<'a>::check(&hadris_fs::Content) -> core::result::Result<(), hadris_fs::PathError>
 pub fn hadris_fs::async::ContentReader<'a>::is_empty(&self) -> bool
 pub fn hadris_fs::async::ContentReader<'a>::len(&self) -> u64
-pub async fn hadris_fs::async::ContentReader<'a>::open(&'a hadris_fs::tree::Content) -> core::result::Result<Self, hadris_fs::PathError>
+pub async fn hadris_fs::async::ContentReader<'a>::open(&'a hadris_fs::Content) -> core::result::Result<Self, hadris_fs::PathError>
 pub async fn hadris_fs::async::ContentReader<'a>::read_at(&mut self, u64, &mut [u8]) -> core::result::Result<usize, hadris_fs::PathError>
 pub async fn hadris_fs::async::ContentReader<'a>::read_exact_at(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_fs::PathError>
 impl core::fmt::Debug for hadris_fs::async::ContentReader<'_>
@@ -157,20 +158,47 @@ pub async fn alloc::boxed::Box<F>::sync(&mut self) -> hadris_io::fs_error::FsRes
 pub async fn alloc::boxed::Box<F>::truncate(&mut self, hadris_fs::NodeId, u64) -> hadris_io::fs_error::FsResult<(), Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::unlink(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_io::fs_error::FsResult<(), Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::write(&mut self, hadris_fs::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, Self::DeviceError>
-pub trait hadris_fs::async::TreeExt: core::marker::Sized + core::marker::Send
-pub fn hadris_fs::async::TreeExt::from_filesystem<F: hadris_fs::async::FileSystem + ?core::marker::Sized>(&mut F) -> impl core::future::future::Future<Output = hadris_io::fs_error::FsResult<Self, <F as hadris_fs::async::FileSystem>::DeviceError>> + core::marker::Send
-impl hadris_fs::async::TreeExt for hadris_fs::tree::Tree
-pub async fn hadris_fs::tree::Tree::from_filesystem<F: hadris_fs::async::FileSystem + ?core::marker::Sized>(&mut F) -> hadris_io::fs_error::FsResult<Self, <F as hadris_fs::async::FileSystem>::DeviceError>
-pub async fn hadris_fs::async::copy_tree<S, D>(&mut S, impl core::convert::AsRef<[u8]>, &mut D, impl core::convert::AsRef<[u8]>) -> core::result::Result<(), hadris_fs::PathError> where S: hadris_fs::async::FileSystem + ?core::marker::Sized, D: hadris_fs::async::FileSystem + ?core::marker::Sized
+pub async fn hadris_fs::async::copy_tree<F: hadris_fs::async::FileSystem + ?core::marker::Sized>(&hadris_fs::Tree, &mut F, hadris_fs::NodeId) -> core::result::Result<hadris_fs::Report, hadris_fs::PathError>
+pub async fn hadris_fs::async::read_tree<F: hadris_fs::async::FileSystem + core::marker::Send + 'static>(&hadris_fs::async::Volume<F>, impl core::convert::AsRef<[u8]>) -> core::result::Result<hadris_fs::Tree, hadris_fs::PathError>
+pub mod hadris_fs::host
+#[non_exhaustive] pub enum hadris_fs::host::OnError
+pub hadris_fs::host::OnError::Fail
+pub hadris_fs::host::OnError::Skip
+#[non_exhaustive] pub enum hadris_fs::host::Symlinks
+pub hadris_fs::host::Symlinks::Fail
+pub hadris_fs::host::Symlinks::Follow
+pub hadris_fs::host::Symlinks::Keep
+pub hadris_fs::host::Symlinks::Skip
+pub struct hadris_fs::host::TreeOptions
+impl hadris_fs::host::TreeOptions
+pub fn hadris_fs::host::TreeOptions::clamp(&self) -> core::option::Option<hadris_fs::DateTime>
+pub fn hadris_fs::host::TreeOptions::new() -> Self
+pub fn hadris_fs::host::TreeOptions::on_error(&self) -> hadris_fs::host::OnError
+pub fn hadris_fs::host::TreeOptions::owner(&self) -> core::option::Option<hadris_fs::Owner>
+pub fn hadris_fs::host::TreeOptions::symlinks(&self) -> hadris_fs::host::Symlinks
+pub fn hadris_fs::host::TreeOptions::with_clamp(self, hadris_fs::DateTime) -> Self
+pub fn hadris_fs::host::TreeOptions::with_exclude(self, impl core::ops::function::Fn(&std::path::Path) -> bool + core::marker::Send + core::marker::Sync + 'static) -> Self
+pub fn hadris_fs::host::TreeOptions::with_on_error(self, hadris_fs::host::OnError) -> Self
+pub fn hadris_fs::host::TreeOptions::with_owner(self, hadris_fs::Owner) -> Self
+pub fn hadris_fs::host::TreeOptions::with_symlinks(self, hadris_fs::host::Symlinks) -> Self
+impl core::fmt::Debug for hadris_fs::host::TreeOptions
+pub fn hadris_fs::host::TreeOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn hadris_fs::host::file(impl core::convert::AsRef<std::path::Path>) -> core::result::Result<hadris_fs::Content, hadris_fs::PathError>
+pub fn hadris_fs::host::local_utc_offset() -> i16
+pub fn hadris_fs::host::mount_options() -> hadris_fs::MountOptions
+pub fn hadris_fs::host::read_tree(impl core::convert::AsRef<std::path::Path>, &hadris_fs::host::TreeOptions) -> core::result::Result<(hadris_fs::Tree, alloc::vec::Vec<hadris_fs::PathError>), hadris_fs::PathError>
+pub fn hadris_fs::host::source_date_epoch() -> core::result::Result<core::option::Option<hadris_fs::DateTime>, hadris_fs::PathError>
+pub fn hadris_fs::host::write_tree(impl core::convert::AsRef<std::path::Path>, &hadris_fs::Tree) -> core::result::Result<hadris_fs::Report, hadris_fs::PathError>
 pub mod hadris_fs::sync
 pub mod hadris_fs::sync::contract
 pub fn hadris_fs::sync::contract::check<Fs: hadris_fs::sync::FileSystem + ?core::marker::Sized>(&mut Fs) -> core::result::Result<(), hadris_fs::ContractViolation>
 pub fn hadris_fs::sync::contract::check_read_only<Fs: hadris_fs::sync::FileSystem + ?core::marker::Sized>(&mut Fs) -> core::result::Result<(), hadris_fs::ContractViolation>
 pub struct hadris_fs::sync::ContentReader<'a>
 impl<'a> hadris_fs::sync::ContentReader<'a>
+pub fn hadris_fs::sync::ContentReader<'a>::check(&hadris_fs::Content) -> core::result::Result<(), hadris_fs::PathError>
 pub fn hadris_fs::sync::ContentReader<'a>::is_empty(&self) -> bool
 pub fn hadris_fs::sync::ContentReader<'a>::len(&self) -> u64
-pub fn hadris_fs::sync::ContentReader<'a>::open(&'a hadris_fs::tree::Content) -> core::result::Result<Self, hadris_fs::PathError>
+pub fn hadris_fs::sync::ContentReader<'a>::open(&'a hadris_fs::Content) -> core::result::Result<Self, hadris_fs::PathError>
 pub fn hadris_fs::sync::ContentReader<'a>::read_at(&mut self, u64, &mut [u8]) -> core::result::Result<usize, hadris_fs::PathError>
 pub fn hadris_fs::sync::ContentReader<'a>::read_exact_at(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_fs::PathError>
 impl core::fmt::Debug for hadris_fs::sync::ContentReader<'_>
@@ -323,115 +351,8 @@ pub fn alloc::boxed::Box<F>::sync(&mut self) -> hadris_io::fs_error::FsResult<()
 pub fn alloc::boxed::Box<F>::truncate(&mut self, hadris_fs::NodeId, u64) -> hadris_io::fs_error::FsResult<(), Self::DeviceError>
 pub fn alloc::boxed::Box<F>::unlink(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_io::fs_error::FsResult<(), Self::DeviceError>
 pub fn alloc::boxed::Box<F>::write(&mut self, hadris_fs::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, Self::DeviceError>
-pub trait hadris_fs::sync::TreeExt: core::marker::Sized
-pub fn hadris_fs::sync::TreeExt::from_filesystem<F: hadris_fs::sync::FileSystem + ?core::marker::Sized>(&mut F) -> hadris_io::fs_error::FsResult<Self, <F as hadris_fs::sync::FileSystem>::DeviceError>
-impl hadris_fs::sync::TreeExt for hadris_fs::tree::Tree
-pub fn hadris_fs::tree::Tree::from_filesystem<F: hadris_fs::sync::FileSystem + ?core::marker::Sized>(&mut F) -> hadris_io::fs_error::FsResult<Self, <F as hadris_fs::sync::FileSystem>::DeviceError>
-pub fn hadris_fs::sync::copy_tree<S, D>(&mut S, impl core::convert::AsRef<[u8]>, &mut D, impl core::convert::AsRef<[u8]>) -> core::result::Result<(), hadris_fs::PathError> where S: hadris_fs::sync::FileSystem + ?core::marker::Sized, D: hadris_fs::sync::FileSystem + ?core::marker::Sized
-pub fn hadris_fs::sync::extract_to_host<F: hadris_fs::sync::FileSystem + ?core::marker::Sized>(&mut F, impl core::convert::AsRef<[u8]>, impl core::convert::AsRef<std::path::Path>) -> core::io::error::Result<()>
-pub fn hadris_fs::sync::import_from_host<F: hadris_fs::sync::FileSystem + ?core::marker::Sized>(impl core::convert::AsRef<std::path::Path>, &mut F, impl core::convert::AsRef<[u8]>) -> core::io::error::Result<()>
-pub mod hadris_fs::tree
-#[non_exhaustive] pub enum hadris_fs::tree::NodeKind<'a>
-pub hadris_fs::tree::NodeKind::Device(hadris_fs::DeviceKind, hadris_fs::DeviceNumber)
-pub hadris_fs::tree::NodeKind::Dir
-pub hadris_fs::tree::NodeKind::File(&'a hadris_fs::tree::Content)
-pub hadris_fs::tree::NodeKind::Symlink(&'a [u8])
-#[non_exhaustive] pub enum hadris_fs::tree::OnError
-pub hadris_fs::tree::OnError::Fail
-pub hadris_fs::tree::OnError::Warn
-#[non_exhaustive] pub enum hadris_fs::tree::WarningKind
-pub hadris_fs::tree::WarningKind::IgnoredMetadata
-pub hadris_fs::tree::WarningKind::Renamed
-pub hadris_fs::tree::WarningKind::Skipped
-pub hadris_fs::tree::WarningKind::Unreadable
-pub struct hadris_fs::tree::Content(_)
-impl hadris_fs::tree::Content
-pub fn hadris_fs::tree::Content::as_bytes(&self) -> core::option::Option<&[u8]>
-pub fn hadris_fs::tree::Content::async_source<S: hadris_io::async::api::ByteSource + 'static>(S) -> Self
-pub fn hadris_fs::tree::Content::bytes(impl core::convert::Into<alloc::vec::Vec<u8>>) -> Self
-pub fn hadris_fs::tree::Content::empty() -> Self
-pub fn hadris_fs::tree::Content::len(&self) -> core::option::Option<u64>
-pub fn hadris_fs::tree::Content::path(impl core::convert::Into<std::path::PathBuf>) -> Self
-pub fn hadris_fs::tree::Content::source<S: hadris_io::sync::api::ByteSource + core::marker::Send + 'static>(S) -> Self
-pub fn hadris_fs::tree::Content::stored(impl core::convert::Into<alloc::vec::Vec<hadris_fs::Extent>>) -> Self
-pub fn hadris_fs::tree::Content::stored_extents(&self) -> core::option::Option<&[hadris_fs::Extent]>
-impl core::convert::From<&[u8]> for hadris_fs::tree::Content
-pub fn hadris_fs::tree::Content::from(&[u8]) -> Self
-impl core::convert::From<alloc::vec::Vec<u8>> for hadris_fs::tree::Content
-pub fn hadris_fs::tree::Content::from(alloc::vec::Vec<u8>) -> Self
-impl core::default::Default for hadris_fs::tree::Content
-pub fn hadris_fs::tree::Content::default() -> Self
-impl core::fmt::Debug for hadris_fs::tree::Content
-pub fn hadris_fs::tree::Content::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub struct hadris_fs::tree::Extent
-impl hadris_fs::Extent
-pub const fn hadris_fs::Extent::end(&self) -> u64
-pub const fn hadris_fs::Extent::is_empty(&self) -> bool
-pub const fn hadris_fs::Extent::len(&self) -> u64
-pub const fn hadris_fs::Extent::new(u64, u64) -> Self
-pub const fn hadris_fs::Extent::offset(&self) -> u64
-pub struct hadris_fs::tree::FromFsOptions
-impl hadris_fs::tree::FromFsOptions
-pub const fn hadris_fs::tree::FromFsOptions::new() -> Self
-pub const fn hadris_fs::tree::FromFsOptions::on_error(&self) -> hadris_fs::tree::OnError
-pub const fn hadris_fs::tree::FromFsOptions::with_on_error(self, hadris_fs::tree::OnError) -> Self
-pub struct hadris_fs::tree::Tree
-impl hadris_fs::tree::Tree
-pub fn hadris_fs::tree::Tree::add_device(&mut self, &str, hadris_fs::DeviceKind, hadris_fs::DeviceNumber) -> core::result::Result<(), hadris_fs::tree::TreeError>
-pub fn hadris_fs::tree::Tree::add_dir(&mut self, &str) -> core::result::Result<(), hadris_fs::tree::TreeError>
-pub fn hadris_fs::tree::Tree::add_file(&mut self, &str, hadris_fs::tree::Content) -> core::result::Result<(), hadris_fs::tree::TreeError>
-pub fn hadris_fs::tree::Tree::add_hard_link(&mut self, &str, &str) -> core::result::Result<(), hadris_fs::tree::TreeError>
-pub fn hadris_fs::tree::Tree::add_symlink(&mut self, &str, impl core::convert::AsRef<[u8]>) -> core::result::Result<(), hadris_fs::tree::TreeError>
-pub fn hadris_fs::tree::Tree::content_mut(&mut self, &str) -> core::option::Option<&mut hadris_fs::tree::Content>
-pub fn hadris_fs::tree::Tree::get(&self, &str) -> core::option::Option<hadris_fs::tree::TreeNode<'_>>
-pub fn hadris_fs::tree::Tree::new() -> Self
-pub fn hadris_fs::tree::Tree::remove(&mut self, &str) -> core::result::Result<(), hadris_fs::tree::TreeError>
-pub fn hadris_fs::tree::Tree::root(&self) -> hadris_fs::tree::TreeNode<'_>
-pub fn hadris_fs::tree::Tree::set_metadata(&mut self, &str, hadris_fs::SetMetadata) -> core::result::Result<(), hadris_fs::tree::TreeError>
-pub fn hadris_fs::tree::Tree::warnings(&self) -> &[hadris_fs::tree::Warning]
-impl hadris_fs::tree::Tree
-pub fn hadris_fs::tree::Tree::from_fs(impl core::convert::AsRef<std::path::Path>, hadris_fs::tree::FromFsOptions) -> core::io::error::Result<Self>
-impl core::default::Default for hadris_fs::tree::Tree
-pub fn hadris_fs::tree::Tree::default() -> Self
-impl core::fmt::Debug for hadris_fs::tree::Tree
-pub fn hadris_fs::tree::Tree::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl hadris_fs::async::TreeExt for hadris_fs::tree::Tree
-pub async fn hadris_fs::tree::Tree::from_filesystem<F: hadris_fs::async::FileSystem + ?core::marker::Sized>(&mut F) -> hadris_io::fs_error::FsResult<Self, <F as hadris_fs::async::FileSystem>::DeviceError>
-impl hadris_fs::sync::TreeExt for hadris_fs::tree::Tree
-pub fn hadris_fs::tree::Tree::from_filesystem<F: hadris_fs::sync::FileSystem + ?core::marker::Sized>(&mut F) -> hadris_io::fs_error::FsResult<Self, <F as hadris_fs::sync::FileSystem>::DeviceError>
-pub struct hadris_fs::tree::TreeError
-impl hadris_fs::tree::TreeError
-pub const fn hadris_fs::tree::TreeError::kind(&self) -> hadris_io::kind::ErrorKind
-impl core::convert::From<hadris_fs::tree::TreeError> for core::io::error::Error
-pub fn core::io::error::Error::from(hadris_fs::tree::TreeError) -> Self
-impl core::convert::From<hadris_fs::tree::TreeError> for hadris_fs::PathError
-pub fn hadris_fs::PathError::from(hadris_fs::tree::TreeError) -> Self
-impl core::convert::From<hadris_fs::tree::TreeError> for hadris_io::kind::ErrorKind
-pub fn hadris_io::kind::ErrorKind::from(hadris_fs::tree::TreeError) -> Self
-impl core::error::Error for hadris_fs::tree::TreeError
-impl core::fmt::Display for hadris_fs::tree::TreeError
-pub fn hadris_fs::tree::TreeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<E> core::convert::From<hadris_fs::tree::TreeError> for hadris_io::fs_error::Error<E>
-pub fn hadris_io::fs_error::Error<E>::from(hadris_fs::tree::TreeError) -> Self
-pub struct hadris_fs::tree::TreeNode<'a>
-impl<'a> hadris_fs::tree::TreeNode<'a>
-pub fn hadris_fs::tree::TreeNode<'a>::child(&self, &str) -> core::option::Option<hadris_fs::tree::TreeNode<'a>>
-pub fn hadris_fs::tree::TreeNode<'a>::children(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&'a str, hadris_fs::tree::TreeNode<'a>)> + 'a
-pub fn hadris_fs::tree::TreeNode<'a>::file_type(&self) -> hadris_fs::FileType
-pub fn hadris_fs::tree::TreeNode<'a>::id(&self) -> usize
-pub fn hadris_fs::tree::TreeNode<'a>::kind(&self) -> hadris_fs::tree::NodeKind<'a>
-pub fn hadris_fs::tree::TreeNode<'a>::links(&self) -> usize
-pub fn hadris_fs::tree::TreeNode<'a>::metadata(&self) -> &'a hadris_fs::SetMetadata
-impl core::fmt::Debug for hadris_fs::tree::TreeNode<'_>
-pub fn hadris_fs::tree::TreeNode<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub struct hadris_fs::tree::Warning
-impl hadris_fs::tree::Warning
-pub fn hadris_fs::tree::Warning::kind(&self) -> hadris_fs::tree::WarningKind
-pub fn hadris_fs::tree::Warning::message(&self) -> &str
-pub fn hadris_fs::tree::Warning::new(impl core::convert::Into<alloc::string::String>, hadris_fs::tree::WarningKind, impl core::convert::Into<alloc::string::String>) -> Self
-pub fn hadris_fs::tree::Warning::path(&self) -> &str
-impl core::fmt::Display for hadris_fs::tree::Warning
-pub fn hadris_fs::tree::Warning::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn hadris_fs::sync::copy_tree<F: hadris_fs::sync::FileSystem + ?core::marker::Sized>(&hadris_fs::Tree, &mut F, hadris_fs::NodeId) -> core::result::Result<hadris_fs::Report, hadris_fs::PathError>
+pub fn hadris_fs::sync::read_tree<F: hadris_fs::sync::FileSystem + core::marker::Send + 'static>(&hadris_fs::sync::Volume<F>, impl core::convert::AsRef<[u8]>) -> core::result::Result<hadris_fs::Tree, hadris_fs::PathError>
 #[non_exhaustive] pub enum hadris_fs::CaseRule
 pub hadris_fs::CaseRule::Insensitive
 pub hadris_fs::CaseRule::InsensitivePreserving
@@ -453,9 +374,6 @@ impl core::fmt::Display for hadris_fs::DateTimeError
 pub fn hadris_fs::DateTimeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<E> core::convert::From<hadris_fs::DateTimeError> for hadris_io::fs_error::Error<E>
 pub fn hadris_io::fs_error::Error<E>::from(hadris_fs::DateTimeError) -> Self
-#[non_exhaustive] pub enum hadris_fs::DeviceKind
-pub hadris_fs::DeviceKind::Block
-pub hadris_fs::DeviceKind::Char
 #[non_exhaustive] pub enum hadris_fs::Field
 pub hadris_fs::Field::Accessed
 pub hadris_fs::Field::Attributes
@@ -524,6 +442,14 @@ pub hadris_fs::Severity::Warning
 pub hadris_fs::Stored::No
 pub hadris_fs::Stored::Partial
 pub hadris_fs::Stored::Yes
+#[non_exhaustive] pub enum hadris_fs::WarningKind
+pub hadris_fs::WarningKind::Boot
+pub hadris_fs::WarningKind::Deduplicated
+pub hadris_fs::WarningKind::Dropped(hadris_fs::Field)
+pub hadris_fs::WarningKind::Relocated
+pub hadris_fs::WarningKind::Renamed
+pub hadris_fs::WarningKind::Skipped
+pub hadris_fs::WarningKind::Truncated
 pub struct hadris_fs::Ascii
 impl hadris_fs::CodePage for hadris_fs::Ascii
 pub fn hadris_fs::Ascii::decode(&self, u8) -> char
@@ -644,6 +570,23 @@ pub const fn hadris_fs::CivilTime::hour(&self) -> u8
 pub const fn hadris_fs::CivilTime::minute(&self) -> u8
 pub const fn hadris_fs::CivilTime::new(u8, u8, u8) -> core::result::Result<Self, hadris_fs::DateTimeError>
 pub const fn hadris_fs::CivilTime::second(&self) -> u8
+pub struct hadris_fs::Content
+impl hadris_fs::Content
+pub fn hadris_fs::Content::as_bytes(&self) -> core::option::Option<&[u8]>
+pub fn hadris_fs::Content::bytes(impl core::convert::Into<alloc::vec::Vec<u8>>) -> Self
+pub fn hadris_fs::Content::empty() -> Self
+pub fn hadris_fs::Content::is_empty(&self) -> bool
+pub fn hadris_fs::Content::len(&self) -> u64
+pub fn hadris_fs::Content::stored(impl core::convert::Into<alloc::vec::Vec<hadris_fs::Extent>>) -> Self
+pub fn hadris_fs::Content::stored_extents(&self) -> core::option::Option<&[hadris_fs::Extent]>
+impl core::convert::From<&[u8]> for hadris_fs::Content
+pub fn hadris_fs::Content::from(&[u8]) -> Self
+impl core::convert::From<alloc::vec::Vec<u8>> for hadris_fs::Content
+pub fn hadris_fs::Content::from(alloc::vec::Vec<u8>) -> Self
+impl core::default::Default for hadris_fs::Content
+pub fn hadris_fs::Content::default() -> Self
+impl core::fmt::Debug for hadris_fs::Content
+pub fn hadris_fs::Content::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_fs::ContractViolation
 impl hadris_fs::ContractViolation
 pub const fn hadris_fs::ContractViolation::case(&self) -> &'static str
@@ -704,18 +647,6 @@ pub const fn hadris_fs::Extent::is_empty(&self) -> bool
 pub const fn hadris_fs::Extent::len(&self) -> u64
 pub const fn hadris_fs::Extent::new(u64, u64) -> Self
 pub const fn hadris_fs::Extent::offset(&self) -> u64
-pub struct hadris_fs::FileTimes
-impl hadris_fs::FileTimes
-pub const fn hadris_fs::FileTimes::accessed(&self) -> core::option::Option<hadris_fs::DateTime>
-pub const fn hadris_fs::FileTimes::changed(&self) -> core::option::Option<hadris_fs::DateTime>
-pub const fn hadris_fs::FileTimes::created(&self) -> core::option::Option<hadris_fs::DateTime>
-pub const fn hadris_fs::FileTimes::is_empty(&self) -> bool
-pub const fn hadris_fs::FileTimes::modified(&self) -> core::option::Option<hadris_fs::DateTime>
-pub const fn hadris_fs::FileTimes::new() -> Self
-pub fn hadris_fs::FileTimes::with_accessed(self, impl core::convert::Into<core::option::Option<hadris_fs::DateTime>>) -> Self
-pub fn hadris_fs::FileTimes::with_changed(self, impl core::convert::Into<core::option::Option<hadris_fs::DateTime>>) -> Self
-pub fn hadris_fs::FileTimes::with_created(self, impl core::convert::Into<core::option::Option<hadris_fs::DateTime>>) -> Self
-pub fn hadris_fs::FileTimes::with_modified(self, impl core::convert::Into<core::option::Option<hadris_fs::DateTime>>) -> Self
 pub struct hadris_fs::Finding<'a>
 impl<'a> hadris_fs::Finding<'a>
 pub const fn hadris_fs::Finding<'a>::detail(&self) -> hadris_io::fs_error::DetailCode
@@ -842,6 +773,8 @@ impl core::convert::From<&hadris_fs::Name> for hadris_fs::OwnedName
 pub fn hadris_fs::OwnedName::from(&hadris_fs::Name) -> Self
 impl core::fmt::Debug for hadris_fs::Name
 pub fn hadris_fs::Name::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for hadris_fs::Name
+pub fn hadris_fs::Name::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_fs::NameBuf<const N: usize>
 impl<const N: usize> hadris_fs::NameBuf<N>
 pub const hadris_fs::NameBuf<N>::CAPACITY: usize
@@ -870,6 +803,20 @@ impl hadris_fs::NoClock
 pub const hadris_fs::NoClock::TIME: hadris_fs::DateTime
 impl hadris_fs::Clock for hadris_fs::NoClock
 pub fn hadris_fs::NoClock::now(&self) -> hadris_fs::DateTime
+pub struct hadris_fs::Node
+impl hadris_fs::Node
+pub fn hadris_fs::Node::attrs(&self) -> &hadris_fs::SetAttr
+pub fn hadris_fs::Node::content(&self) -> core::option::Option<&hadris_fs::Content>
+pub fn hadris_fs::Node::device(&self) -> core::option::Option<hadris_fs::DeviceNumber>
+pub fn hadris_fs::Node::dir() -> Self
+pub fn hadris_fs::Node::file(hadris_fs::Content) -> Self
+pub fn hadris_fs::Node::file_type(&self) -> hadris_fs::FileType
+pub fn hadris_fs::Node::special(hadris_fs::FileType, core::option::Option<hadris_fs::DeviceNumber>) -> Self
+pub fn hadris_fs::Node::symlink(impl core::convert::AsRef<[u8]>) -> Self
+pub fn hadris_fs::Node::target(&self) -> core::option::Option<&[u8]>
+pub fn hadris_fs::Node::with_attrs(self, hadris_fs::SetAttr) -> Self
+impl core::fmt::Debug for hadris_fs::Node
+pub fn hadris_fs::Node::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_fs::NodeId(_)
 impl hadris_fs::NodeId
 pub const fn hadris_fs::NodeId::get(self) -> u64
@@ -921,13 +868,11 @@ pub fn hadris_fs::PathError::kind(&self) -> hadris_io::kind::ErrorKind
 pub fn hadris_fs::PathError::location(&self) -> core::option::Option<hadris_io::fs_error::Location>
 pub fn hadris_fs::PathError::message(&self) -> &'static str
 pub fn hadris_fs::PathError::new(hadris_io::kind::ErrorKind, &'static str) -> Self
-pub fn hadris_fs::PathError::path(&self) -> core::option::Option<&str>
+pub fn hadris_fs::PathError::path(&self) -> core::option::Option<&[u8]>
 pub fn hadris_fs::PathError::with_host_path(self, impl core::convert::Into<std::path::PathBuf>) -> Self
-pub fn hadris_fs::PathError::with_path(self, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn hadris_fs::PathError::with_path(self, impl core::convert::AsRef<[u8]>) -> Self
 impl core::convert::From<hadris_fs::PathError> for core::io::error::Error
 pub fn core::io::error::Error::from(hadris_fs::PathError) -> Self
-impl core::convert::From<hadris_fs::tree::TreeError> for hadris_fs::PathError
-pub fn hadris_fs::PathError::from(hadris_fs::tree::TreeError) -> Self
 impl core::convert::From<hadris_io::kind::ErrorKind> for hadris_fs::PathError
 pub fn hadris_fs::PathError::from(hadris_io::kind::ErrorKind) -> Self
 impl core::error::Error for hadris_fs::PathError
@@ -945,6 +890,18 @@ pub const fn hadris_fs::Permissions::bits(self) -> u32
 pub const fn hadris_fs::Permissions::new(u32) -> Self
 impl core::fmt::Debug for hadris_fs::Permissions
 pub fn hadris_fs::Permissions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_fs::Report
+impl hadris_fs::Report
+pub fn hadris_fs::Report::extents(&self, impl core::convert::AsRef<[u8]>) -> core::option::Option<&[hadris_fs::Extent]>
+pub fn hadris_fs::Report::files(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&hadris_fs::Name, &[hadris_fs::Extent])> + '_
+pub fn hadris_fs::Report::new() -> Self
+pub fn hadris_fs::Report::push_extent(&mut self, impl core::convert::AsRef<[u8]>, hadris_fs::Extent)
+pub fn hadris_fs::Report::push_warning(&mut self, hadris_fs::Warning)
+pub fn hadris_fs::Report::set_size(&mut self, u64)
+pub fn hadris_fs::Report::size(&self) -> u64
+pub fn hadris_fs::Report::warnings(&self) -> &[hadris_fs::Warning]
+impl core::fmt::Display for hadris_fs::Report
+pub fn hadris_fs::Report::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_fs::SetAttr
 impl hadris_fs::SetAttr
 pub const fn hadris_fs::SetAttr::accessed(&self) -> core::option::Option<hadris_fs::DateTime>
@@ -961,23 +918,45 @@ pub const fn hadris_fs::SetAttr::with_created(self, hadris_fs::DateTime) -> Self
 pub const fn hadris_fs::SetAttr::with_modified(self, hadris_fs::DateTime) -> Self
 pub const fn hadris_fs::SetAttr::with_owner(self, hadris_fs::Owner) -> Self
 pub const fn hadris_fs::SetAttr::with_permissions(self, hadris_fs::Permissions) -> Self
-pub struct hadris_fs::SetMetadata
-impl hadris_fs::SetMetadata
-pub const fn hadris_fs::SetMetadata::attributes(&self) -> core::option::Option<hadris_fs::Attributes>
-pub const fn hadris_fs::SetMetadata::gid(&self) -> core::option::Option<u32>
-pub const fn hadris_fs::SetMetadata::is_empty(&self) -> bool
-pub const fn hadris_fs::SetMetadata::mode(&self) -> core::option::Option<hadris_fs::Permissions>
-pub const fn hadris_fs::SetMetadata::new() -> Self
-pub const fn hadris_fs::SetMetadata::times(&self) -> hadris_fs::FileTimes
-pub const fn hadris_fs::SetMetadata::uid(&self) -> core::option::Option<u32>
-pub fn hadris_fs::SetMetadata::with_attributes(self, impl core::convert::Into<core::option::Option<hadris_fs::Attributes>>) -> Self
-pub fn hadris_fs::SetMetadata::with_gid(self, impl core::convert::Into<core::option::Option<u32>>) -> Self
-pub fn hadris_fs::SetMetadata::with_mode(self, impl core::convert::Into<core::option::Option<hadris_fs::Permissions>>) -> Self
-pub const fn hadris_fs::SetMetadata::with_times(self, hadris_fs::FileTimes) -> Self
-pub fn hadris_fs::SetMetadata::with_uid(self, impl core::convert::Into<core::option::Option<u32>>) -> Self
 pub struct hadris_fs::SystemClock
 impl hadris_fs::Clock for hadris_fs::SystemClock
 pub fn hadris_fs::SystemClock::now(&self) -> hadris_fs::DateTime
+pub struct hadris_fs::Tree
+impl hadris_fs::Tree
+pub fn hadris_fs::Tree::entry(&self, impl core::convert::AsRef<[u8]>) -> core::option::Option<hadris_fs::TreeEntry<'_>>
+pub fn hadris_fs::Tree::get(&self, impl core::convert::AsRef<[u8]>) -> core::option::Option<&hadris_fs::Node>
+pub fn hadris_fs::Tree::insert(&mut self, impl core::convert::AsRef<[u8]>, hadris_fs::Node) -> core::result::Result<(), hadris_fs::PathError>
+pub fn hadris_fs::Tree::link(&mut self, impl core::convert::AsRef<[u8]>, impl core::convert::AsRef<[u8]>) -> core::result::Result<(), hadris_fs::PathError>
+pub fn hadris_fs::Tree::new() -> Self
+pub fn hadris_fs::Tree::remove(&mut self, impl core::convert::AsRef<[u8]>) -> core::result::Result<(), hadris_fs::PathError>
+pub fn hadris_fs::Tree::replace(&mut self, impl core::convert::AsRef<[u8]>, hadris_fs::Node) -> core::result::Result<(), hadris_fs::PathError>
+pub fn hadris_fs::Tree::root(&self) -> hadris_fs::TreeEntry<'_>
+impl core::default::Default for hadris_fs::Tree
+pub fn hadris_fs::Tree::default() -> Self
+impl core::fmt::Debug for hadris_fs::Tree
+pub fn hadris_fs::Tree::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_fs::TreeEntry<'a>
+impl<'a> hadris_fs::TreeEntry<'a>
+pub fn hadris_fs::TreeEntry<'a>::child(&self, impl core::convert::AsRef<[u8]>) -> core::option::Option<hadris_fs::TreeEntry<'a>>
+pub fn hadris_fs::TreeEntry<'a>::children(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&'a hadris_fs::Name, hadris_fs::TreeEntry<'a>)> + 'a
+pub fn hadris_fs::TreeEntry<'a>::id(&self) -> usize
+pub fn hadris_fs::TreeEntry<'a>::links(&self) -> usize
+pub fn hadris_fs::TreeEntry<'a>::node(&self) -> &'a hadris_fs::Node
+impl core::fmt::Debug for hadris_fs::TreeEntry<'_>
+pub fn hadris_fs::TreeEntry<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_fs::Warning
+impl hadris_fs::Warning
+pub fn hadris_fs::Warning::count(&self) -> u64
+pub fn hadris_fs::Warning::kind(&self) -> hadris_fs::WarningKind
+pub fn hadris_fs::Warning::message(&self) -> &'static str
+pub const fn hadris_fs::Warning::new(hadris_fs::WarningKind, &'static str) -> Self
+pub fn hadris_fs::Warning::path(&self) -> core::option::Option<&[u8]>
+pub fn hadris_fs::Warning::stored_as(&self) -> core::option::Option<&[u8]>
+pub const fn hadris_fs::Warning::with_count(self, u64) -> Self
+pub fn hadris_fs::Warning::with_path(self, impl core::convert::AsRef<[u8]>) -> Self
+pub fn hadris_fs::Warning::with_stored_as(self, impl core::convert::AsRef<[u8]>) -> Self
+impl core::fmt::Display for hadris_fs::Warning
+pub fn hadris_fs::Warning::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub trait hadris_fs::Clock: core::marker::Send + core::marker::Sync
 pub fn hadris_fs::Clock::now(&self) -> hadris_fs::DateTime
 impl hadris_fs::Clock for hadris_fs::NoClock

@@ -207,7 +207,7 @@ impl<R> Entry<'_, R> {
         self.header().rdev
     }
 
-    /// The checksum field: the byte sum of the data for [`Format::NewcCrc`],
+    /// The checksum field: the byte sum of the data for [`Format::Crc`],
     /// zero otherwise.
     pub fn check(&self) -> u32 {
         self.header().check
@@ -377,7 +377,7 @@ impl<R: Read> CpioReader<R> {
         self.header = header;
         self.remaining = header.len;
         self.padding = header::data_padding(format, header.len);
-        self.sum = (format == Format::NewcCrc).then_some(0);
+        self.sum = (format == Format::Crc).then_some(0);
         if header.len == 0 {
             self.verify()?;
         }
