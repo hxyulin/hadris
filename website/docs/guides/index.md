@@ -25,6 +25,7 @@ and feature set needed to complete it.
 ## Integrate with a platform
 
 - [Use Hadris without the standard library](./no-std.md)
+- [Use FAT and exFAT on a microcontroller](./embedded.md)
 - [Use asynchronous I/O](./async-io.md)
 - [Adapt a custom device or firmware reader](./custom-io.md)
 

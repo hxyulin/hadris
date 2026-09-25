@@ -286,6 +286,9 @@ Writes follow the same crash ordering as `FatFs`. A power cut, or a
 dropped async future, leaves at worst lost clusters, and the next writing
 call or `sync` on the same `Fat` frees them.
 
+The guide [Use FAT and exFAT on a microcontroller](https://hxyulin.github.io/hadris/guides/embedded)
+has the measured flash and stack on `thumbv6m`, `thumbv7em` and `riscv32imc`.
+
 `hadris_fat::exfat::embedded::sync::ExFat<D, const FILES: usize = 4>` and
 its `r#async` twin read exFAT volumes, such as SDXC cards, the same way:
 one 512-byte block buffer and `FILES` file slots, with `open_dir`, `list`,

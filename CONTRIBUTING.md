@@ -42,6 +42,20 @@ rustup target add thumbv6m-none-eabi thumbv7em-none-eabihf riscv32imc-unknown-no
 RUSTFLAGS="-D warnings" scripts/check-targets.sh
 ```
 
+The `firmware-size` job builds `examples/firmware` for the same targets at
+opt-level `s` with fat LTO and reports flash, the driver state, the mount
+stack, the worst-case stack and the largest frame of each binary. It fails
+when the mount stack or the driver state reaches 2 KB (NF-STACK-01), a
+Hadris frame exceeds 1 KB (NF-STACK-02) or the FAT logger grows past its
+flash ceiling. It needs the pinned nightly for `-Z emit-stack-sizes` and
+`-Z print-type-sizes`:
+
+```bash
+rustup toolchain install nightly-2026-09-04 --component llvm-tools \
+  --target thumbv6m-none-eabi,thumbv7em-none-eabihf,riscv32imc-unknown-none-elf
+RUSTUP_TOOLCHAIN=nightly-2026-09-04 scripts/firmware-size.py --check
+```
+
 ### Conformance and interoperability suite
 
 Specification conformance and peer interoperability tests live in the

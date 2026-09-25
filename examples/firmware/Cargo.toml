@@ -1,0 +1,18 @@
+[package]
+name = "hadris-example-firmware"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+hadris-fat = { workspace = true, features = ["sync", "async", "write"] }
+hadris-fat-raw = { workspace = true }
+hadris-fs = { workspace = true }
+hadris-io = { workspace = true }
+hadris-storage = { workspace = true, features = ["sync", "async"] }
+
+[target.'cfg(not(target_os = "none"))'.dependencies]
+hadris-fat = { workspace = true, features = ["std"] }
+hadris-storage = { workspace = true, features = ["std"] }

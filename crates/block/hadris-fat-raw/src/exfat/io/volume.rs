@@ -8,7 +8,6 @@ use crate::exfat::io::{
 use crate::exfat::{self as raw, Detail, ENTRY_SIZE, Geometry, RawEntry, UpcaseDecoder};
 use crate::io::{BlockBuf, ChainPos, ClusterGroup, Held};
 
-const BOOT_SECTOR_LEN: usize = 512;
 /// Offset of `VolumeFlags` in the boot sector.
 const VOLUME_FLAGS_AT: u64 = 106;
 /// Offset of `PercentInUse` in the boot sector.
@@ -62,9 +61,9 @@ io_transform! {
 /// and its checksum matches.
 async fn boot_region<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, base: u64) -> FsResult<Option<Geometry>, D::Error> {
     let parsed = {
-        let mut sector = [0u8; BOOT_SECTOR_LEN];
-        read_bytes(dev, block, base, &mut sector).await?;
-        raw::parse_boot(&bytemuck::pod_read_unaligned(&sector))
+        let mut boot: raw::BootSector = bytemuck::Zeroable::zeroed();
+        read_bytes(dev, block, base, bytemuck::bytes_of_mut(&mut boot)).await?;
+        raw::parse_boot(&boot)
     };
     let Ok(geo) = parsed else {
         return Ok(None);

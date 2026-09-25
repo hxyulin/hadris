@@ -39,6 +39,16 @@ Each published package owns its version and may be released independently.
   fails with `Unsupported`, and names compare with the `Options` fold.
 - **hadris-fat-raw (V3):** `exfat::set_checksum_step` adds one entry to a
   `SetChecksum`, for checking an entry set as it is read.
+- **CI (V3):** A `firmware-size` job builds `examples/firmware`, `no_std`
+  sessions on the embedded `Fat` and `ExFat`, for `thumbv6m-none-eabi`,
+  `thumbv7em-none-eabihf` and `riscv32imc-unknown-none-elf`, and reports
+  flash, driver state and worst-case stack through
+  `scripts/firmware-size.py`. It fails when the mount stack or the driver
+  state reaches 2 KB, a Hadris frame exceeds 1 KB, or the FAT logger's
+  flash grows past its ceiling.
+- **Docs (V3):** The guide "Use FAT and exFAT on a microcontroller" covers
+  the embedded API and has the measured flash, driver state and stack of
+  each session per target.
 - **CI (V3):** A `cross` job builds the `no_std` tiers for
   `thumbv6m-none-eabi`, `thumbv7em-none-eabihf` and
   `riscv32imc-unknown-none-elf` through `scripts/check-targets.sh`; the
@@ -720,7 +730,9 @@ Each published package owns its version and may be released independently.
 ### Changed
 
 - **hadris-fat-raw (V3):** `exfat::io::read_boot` no longer keeps a copy of
-  the boot sector across device reads, so its future is 512 bytes smaller.
+  the boot sector across device reads, so its future is 512 bytes smaller,
+  and reads the boot sector in place, which saves another 512 bytes of
+  stack in sync mode.
 - **hadris-fat-raw (V3):** `short_name::generate` no longer uppercases
   non-ASCII characters itself; the `encode` closure folds and maps them,
   so building short names links no Unicode case tables.

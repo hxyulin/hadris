@@ -1093,99 +1093,101 @@ impl<D: BlockDevice, const FILES: usize> Fat<D, FILES> {
         Ok((offset, entry))
     }
 
-    /// Finds room for `new` in `dir` and picks its short name. With
-    /// `check_exists`, an entry matching `text` fails with
-    /// [`ErrorKind::AlreadyExists`]. The short name of the entry at `skip`
-    /// does not count as taken.
-    async fn plan(&mut self, dir: DirStart, text: &str, check_exists: bool, new: &NewName<'_>, skip: Option<u64>) -> FsResult<Plan, D::Error> {
-        let (code_page, fold) = (self.options.code_page(), self.options.fold());
-        let needed = new.slots();
-        let mut walk = DirWalk::new(dir);
-        let mut long = Assembler::new();
-        let mut slot = 0;
-        let mut end = false;
-        let mut taken = 0u8;
-        if new.candidates[CANDIDATES - 1][0] == 0 {
-            taken |= 1 << (CANDIDATES - 1);
-        }
-        let (mut run_start, mut run_len) = (0, 0);
-        let mut found = None;
-        while let Some(offset) = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot).await? {
-            let free = end
-                || match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
-                    Slot::End => {
-                        end = true;
-                        true
-                    }
-                    Slot::Free => {
-                        long.reset();
-                        true
-                    }
-                    Slot::Long(part) => {
-                        long.push(&part);
-                        false
-                    }
-                    Slot::Short(entry) => {
-                        let units = long.finish(entry.lfn_checksum()).filter(|units| !units.is_empty());
-                        if skip != Some(offset) {
-                            if check_exists && entry.is_visible() && matches(text, units, &entry, code_page, fold) {
-                                return Err(ErrorKind::AlreadyExists.into());
-                            }
-                            for (bit, candidate) in new.candidates.iter().enumerate() {
-                                if entry.name() == *candidate {
-                                    taken |= 1 << bit;
+    outline! {
+        /// Finds room for `new` in `dir` and picks its short name. With
+        /// `check_exists`, an entry matching `text` fails with
+        /// [`ErrorKind::AlreadyExists`]. The short name of the entry at `skip`
+        /// does not count as taken.
+        async fn plan(&mut self, dir: DirStart, text: &str, check_exists: bool, new: &NewName<'_>, skip: Option<u64>) -> FsResult<Plan, D::Error> {
+            let (code_page, fold) = (self.options.code_page(), self.options.fold());
+            let needed = new.slots();
+            let mut walk = DirWalk::new(dir);
+            let mut long = Assembler::new();
+            let mut slot = 0;
+            let mut end = false;
+            let mut taken = 0u8;
+            if new.candidates[CANDIDATES - 1][0] == 0 {
+                taken |= 1 << (CANDIDATES - 1);
+            }
+            let (mut run_start, mut run_len) = (0, 0);
+            let mut found = None;
+            while let Some(offset) = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot).await? {
+                let free = end
+                    || match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
+                        Slot::End => {
+                            end = true;
+                            true
+                        }
+                        Slot::Free => {
+                            long.reset();
+                            true
+                        }
+                        Slot::Long(part) => {
+                            long.push(&part);
+                            false
+                        }
+                        Slot::Short(entry) => {
+                            let units = long.finish(entry.lfn_checksum()).filter(|units| !units.is_empty());
+                            if skip != Some(offset) {
+                                if check_exists && entry.is_visible() && matches(text, units, &entry, code_page, fold) {
+                                    return Err(ErrorKind::AlreadyExists.into());
+                                }
+                                for (bit, candidate) in new.candidates.iter().enumerate() {
+                                    if entry.name() == *candidate {
+                                        taken |= 1 << bit;
+                                    }
                                 }
                             }
+                            false
                         }
-                        false
+                    };
+                if free {
+                    if run_len == 0 {
+                        run_start = slot;
                     }
-                };
-            if free {
-                if run_len == 0 {
-                    run_start = slot;
+                    run_len += 1;
+                    if run_len == needed && found.is_none() {
+                        found = Some(run_start);
+                    }
+                } else {
+                    run_len = 0;
                 }
-                run_len += 1;
-                if run_len == needed && found.is_none() {
-                    found = Some(run_start);
+                slot += 1;
+                if end && found.is_some() {
+                    break;
                 }
+            }
+            let (start, grow, tail) = match found {
+                Some(start) => (start, 0, 0),
+                None => {
+                    let start = if run_len == 0 { slot } else { run_start };
+                    if matches!(dir, DirStart::Fixed { .. })
+                        || start as u64 + needed as u64 > raw::MAX_DIR_ENTRIES as u64
+                    {
+                        return Err(ErrorKind::NoSpace.into());
+                    }
+                    let per_cluster = self.fat.geometry().cluster_size() / ENTRY_SIZE as u32;
+                    (start, (needed - run_len).div_ceil(per_cluster), walk.pos().cluster())
+                }
+            };
+            let short = if new.lossless && taken & 1 == 0 {
+                new.candidates[0]
+            } else if new.short_only() {
+                return Err(ErrorKind::AlreadyExists.into());
+            } else if let Some(bit) = (1..new.candidates.len()).find(|bit| taken & (1 << bit) == 0) {
+                new.candidates[bit]
             } else {
-                run_len = 0;
-            }
-            slot += 1;
-            if end && found.is_some() {
-                break;
-            }
+                self.hashed_short(dir, text, skip).await?
+            };
+            Ok(Plan {
+                start,
+                slots: needed,
+                grow,
+                tail,
+                short,
+                nt_case: if new.short_only() { new.case_bits.unwrap_or(0) } else { 0 },
+            })
         }
-        let (start, grow, tail) = match found {
-            Some(start) => (start, 0, 0),
-            None => {
-                let start = if run_len == 0 { slot } else { run_start };
-                if matches!(dir, DirStart::Fixed { .. })
-                    || start as u64 + needed as u64 > raw::MAX_DIR_ENTRIES as u64
-                {
-                    return Err(ErrorKind::NoSpace.into());
-                }
-                let per_cluster = self.fat.geometry().cluster_size() / ENTRY_SIZE as u32;
-                (start, (needed - run_len).div_ceil(per_cluster), walk.pos().cluster())
-            }
-        };
-        let short = if new.lossless && taken & 1 == 0 {
-            new.candidates[0]
-        } else if new.short_only() {
-            return Err(ErrorKind::AlreadyExists.into());
-        } else if let Some(bit) = (1..new.candidates.len()).find(|bit| taken & (1 << bit) == 0) {
-            new.candidates[bit]
-        } else {
-            self.hashed_short(dir, text, skip).await?
-        };
-        Ok(Plan {
-            start,
-            slots: needed,
-            grow,
-            tail,
-            short,
-            nt_case: if new.short_only() { new.case_bits.unwrap_or(0) } else { 0 },
-        })
     }
 
     /// A short name with a hashed `HHHH~N` tail that no entry of `dir` has.

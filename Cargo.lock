@@ -329,6 +329,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "hadris-example-firmware"
+version = "0.0.0"
+dependencies = [
+ "hadris-fat",
+ "hadris-fat-raw",
+ "hadris-fs",
+ "hadris-io",
+ "hadris-storage",
+]
+
+[[package]]
 name = "hadris-example-partition-list"
 version = "0.0.0"
 dependencies = [

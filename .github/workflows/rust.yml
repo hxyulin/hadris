@@ -400,6 +400,25 @@ jobs:
       - name: Build the no_std tiers
         run: scripts/check-targets.sh ${{ matrix.target }}
 
+  firmware-size:
+    name: Embedded flash and stack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # -Z emit-stack-sizes needs nightly; pinned like the public-api job.
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: nightly-2026-09-04
+          targets: thumbv6m-none-eabi, thumbv7em-none-eabihf, riscv32imc-unknown-none-elf
+          components: llvm-tools
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: firmware
+      - name: Measure the embedded API (NF-STACK-01, NF-STACK-02, NF-FLASH-01)
+        env:
+          RUSTUP_TOOLCHAIN: nightly-2026-09-04
+        run: python3 scripts/firmware-size.py --check
+
   test:
     name: Test
     runs-on: ${{ matrix.os }}
