@@ -64,6 +64,45 @@
 //! with `check` and, with `write`, `format` and `write`. It needs `alloc`
 //! and implements `FileSystem`.
 //!
+//! ## Firmware: the embedded API
+//!
+//! [`embedded`] holds `Fat<D, const FILES: usize = 4>`, a handle-based
+//! FAT12/16/32 driver for firmware without an allocator, in
+//! `embedded::sync` and `embedded::r#async` (over a `local::BlockDevice`,
+//! whose futures need not be `Send`). It is built on the raw layer, not on
+//! `FatFs`: one 512-byte block buffer, no node table, ASCII name folding
+//! unless asked for Unicode, and under 1 KiB of state with four file
+//! slots.
+//!
+//! ```rust
+//! # #[cfg(all(feature = "sync", feature = "write", feature = "std"))]
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use core::ops::ControlFlow;
+//!
+//! use hadris_fat::embedded::sync::Fat;
+//! use hadris_fat::{FatOptions, sync::format};
+//! use hadris_fs::{DirCursor, OpenOptions};
+//! use hadris_storage::{BlockSize, MemDevice};
+//!
+//! let mut dev = MemDevice::new(vec![0u8; 4 << 20], BlockSize::new(512).unwrap());
+//! format(&mut dev, &FatOptions::new())?;
+//! let mut fat: Fat<_> = Fat::mount(dev)?;
+//! let logs = fat.create_dir_all(fat.root(), "data/logs")?;
+//! let log = fat.open(logs, "boot.txt", OpenOptions::new().write().create().append())?;
+//! fat.write(&log, b"booted\n")?;
+//! fat.close(log)?;
+//! fat.list(logs, DirCursor::START, |entry| {
+//!     assert!(entry.chars().eq("boot.txt".chars()));
+//!     ControlFlow::Continue(())
+//! })?;
+//! let dev = fat.unmount()?;
+//! # let _ = dev;
+//! # Ok(())
+//! # }
+//! # #[cfg(not(all(feature = "sync", feature = "write", feature = "std")))]
+//! # fn main() {}
+//! ```
+//!
 //! ## Formatting and writing trees
 //!
 //! With the `write` feature, `format(&mut dev, &opts)` (in each mode) lays
@@ -135,7 +174,7 @@
 //! | Feature  | Default | Description |
 //! |----------|---------|-------------|
 //! | `std`    | Yes     | Standard library support (enables `alloc`); `hadris_storage::host::FileDevice` and `SystemClock` from the storage and fs crates |
-//! | `alloc`  | No      | `FatFs`, `ExFatFs` and the tree writers `write`; without it `check`, `format` and the raw layer |
+//! | `alloc`  | No      | `FatFs`, `ExFatFs` and the tree writers `write`; without it the embedded API, `check`, `format` and the raw layer |
 //! | `sync`   | Yes     | Synchronous API in `sync` |
 //! | `async`  | No      | Asynchronous API with `Send` futures in `r#async` |
 //! | `write`  | Yes     | `format`, and with `alloc` `write`, in each mode; `FatFs` and `ExFatFs` write without it |
@@ -185,10 +224,14 @@ extern crate self as hadris_fat;
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+#[cfg(any(feature = "sync", feature = "async"))]
+mod names;
 mod options;
 #[cfg(feature = "alloc")]
 mod table;
 
+#[cfg(any(feature = "sync", feature = "async"))]
+pub mod embedded;
 /// The exFAT driver, `ExFatFs`, its formatter and checker.
 pub mod exfat;
 
@@ -234,21 +277,8 @@ pub mod sync {
 #[cfg(feature = "async")]
 pub mod r#async;
 
-/// The permissions FAT and exFAT derive: `rwx` for directories, `rw` for
-/// files, and no write bits when the entry is read-only.
 #[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
-fn permissions(dir: bool, read_only: bool) -> hadris_fs::Permissions {
-    let mode = if dir { 0o755 } else { 0o644 };
-    hadris_fs::Permissions::new(if read_only { mode & !0o222 } else { mode })
-}
-
-/// The read-only bit `wanted` stands for: `None` when the volume cannot
-/// report those permissions for a node of this kind.
-#[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
-fn read_only_bit(dir: bool, wanted: hadris_fs::Permissions) -> Option<bool> {
-    let read_only = wanted.bits() & 0o222 == 0;
-    (permissions(dir, read_only) == wanted).then_some(read_only)
-}
+use names::{permissions, read_only_bit};
 
 /// Adds the run `(file offset, device offset, bytes)` to `out` from
 /// `*count` on when it holds bytes of the file from `from`, cut to the

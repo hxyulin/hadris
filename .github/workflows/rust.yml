@@ -374,6 +374,32 @@ jobs:
       - name: Check ${{ matrix.crate }} with features "${{ matrix.features }}"
         run: cargo check -p ${{ matrix.crate }} --no-default-features --features "${{ matrix.features }}"
 
+  cross:
+    name: "Build ${{ matrix.target }}"
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: "-D warnings"
+    strategy:
+      fail-fast: false
+      matrix:
+        # NF-TARGET-01: thumbv6m and riscv32imc have no compare-and-swap,
+        # so they build the tiers without an allocator only.
+        target:
+          - thumbv6m-none-eabi
+          - thumbv7em-none-eabihf
+          - riscv32imc-unknown-none-elf
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.88.0
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Build the no_std tiers
+        run: scripts/check-targets.sh ${{ matrix.target }}
+
   test:
     name: Test
     runs-on: ${{ matrix.os }}

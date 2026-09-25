@@ -10,6 +10,29 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-fat (V3):** The embedded API for firmware without an
+  allocator: `hadris_fat::embedded::sync::Fat<D, const FILES: usize = 4>`
+  and its `embedded::r#async` twin over a
+  `hadris_storage::local::BlockDevice`, built on `hadris-fat-raw` rather
+  than `FatFs`. It reads and writes FAT12, FAT16 and FAT32 through one
+  512-byte block buffer and `FILES` file slots, under 1 KiB of state with
+  four slots, and takes 512-byte device blocks only. `Dir` is a `Copy`
+  directory handle, `File` a slot consumed by `close` whose generation
+  makes a stale or foreign handle fail with `InvalidHandle`, and `list`
+  lends each `Entry` to a callback; `Entry::node` with `open_node` opens a
+  listed file without a lookup. `Options` sets a `fn() -> DateTime` clock,
+  the name fold (`fold_ascii` by default, `fold_unicode` as an opt-in), the
+  UTC offset, the code page and read-only. It has `open`, `read`, `write`,
+  `seek`, `set_len`, `flush`, `close`, `open_dir`, `create_dir`,
+  `create_dir_all`, `metadata`, `set_attr`, `remove_file`, `remove_dir`,
+  `remove_dir_all` (without a stack, at most 1024 levels), `rename`,
+  `label`, `stats`, `was_dirty`, `sync` and `unmount`. Writes keep
+  `FatFs`'s crash ordering, and the next writing call or `sync` frees what
+  an interrupted operation or a dropped future held.
+- **CI (V3):** A `cross` job builds the `no_std` tiers for
+  `thumbv6m-none-eabi`, `thumbv7em-none-eabihf` and
+  `riscv32imc-unknown-none-elf` through `scripts/check-targets.sh`; the
+  targets without compare-and-swap skip the `alloc` tiers.
 - **hadris-fs (V3):** `Walk` in each mode lists everything below a
   directory depth first on the bare driver: `Walk::new(dir)` on a heap
   stack of up to 1024 levels (`alloc`), or `Walk::with_stack(dir, &mut
@@ -686,6 +709,9 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fat-raw (V3):** `short_name::generate` no longer uppercases
+  non-ASCII characters itself; the `encode` closure folds and maps them,
+  so building short names links no Unicode case tables.
 - **hadris-fat (V3):** `FatFs` compares names by folding each UTF-16 unit
   with `hadris_fat_raw::fold_unicode`, as Windows does, instead of folding
   characters. Letters outside the Basic Multilingual Plane now match only
