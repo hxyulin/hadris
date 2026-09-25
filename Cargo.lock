@@ -256,8 +256,6 @@ dependencies = [
 name = "hadris"
 version = "2.4.0"
 dependencies = [
- "hadris-block",
- "hadris-cd",
  "hadris-cpio",
  "hadris-fat",
  "hadris-fat-raw",
@@ -266,31 +264,7 @@ dependencies = [
  "hadris-iso",
  "hadris-macros",
  "hadris-ntfs",
- "hadris-optical",
  "hadris-part",
- "hadris-storage",
- "hadris-udf",
-]
-
-[[package]]
-name = "hadris-block"
-version = "2.4.0"
-dependencies = [
- "hadris-fat",
- "hadris-fs",
- "hadris-macros",
- "hadris-ntfs",
- "hadris-part",
- "hadris-storage",
-]
-
-[[package]]
-name = "hadris-cd"
-version = "2.4.0"
-dependencies = [
- "hadris-fs",
- "hadris-iso",
- "hadris-macros",
  "hadris-storage",
  "hadris-udf",
 ]
@@ -300,7 +274,6 @@ name = "hadris-cd-cli"
 version = "2.4.0"
 dependencies = [
  "clap",
- "hadris-cd",
  "hadris-fs",
  "hadris-iso",
  "hadris-storage",
@@ -362,15 +335,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hadris-example-optical-detect"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "hadris-optical",
- "hadris-storage",
-]
-
-[[package]]
 name = "hadris-example-partition-list"
 version = "0.0.0"
 dependencies = [
@@ -385,9 +349,7 @@ name = "hadris-example-volume-list"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "hadris-block",
- "hadris-fs",
- "hadris-storage",
+ "hadris",
 ]
 
 [[package]]
@@ -502,18 +464,6 @@ dependencies = [
  "hadris-macros",
  "hadris-storage",
  "tempfile",
-]
-
-[[package]]
-name = "hadris-optical"
-version = "2.4.0"
-dependencies = [
- "hadris-cd",
- "hadris-fs",
- "hadris-iso",
- "hadris-macros",
- "hadris-storage",
- "hadris-udf",
 ]
 
 [[package]]

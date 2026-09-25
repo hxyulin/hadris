@@ -302,25 +302,6 @@ jobs:
             tier: all-capabilities
             features: "std,alloc,sync,async"
 
-          # hadris-cd
-          - crate: hadris-cd
-            tier: no-api
-            features: ""
-          - crate: hadris-cd
-            tier: no-std-sync
-            features: "sync"
-          - crate: hadris-cd
-            tier: no-std-async
-            features: "async"
-          - crate: hadris-cd
-            tier: std
-            features: "std,sync"
-          - crate: hadris-cd
-            tier: hosted-async
-            features: "std,async"
-          - crate: hadris-cd
-            tier: all-capabilities
-            features: "std,sync,async"
 
           # hadris-ntfs
           - crate: hadris-ntfs
@@ -342,52 +323,6 @@ jobs:
             tier: all-capabilities
             features: "std,alloc,sync,async"
 
-          # detection and opening facades
-          - crate: hadris-block
-            tier: no-api
-            features: ""
-          - crate: hadris-block
-            tier: no-std-sync
-            features: "sync"
-          - crate: hadris-block
-            tier: no-std-async
-            features: "async"
-          - crate: hadris-block
-            tier: no-alloc-async
-            features: "async,write,part"
-          - crate: hadris-block
-            tier: alloc-async
-            features: "alloc,async,part"
-          - crate: hadris-block
-            tier: std
-            features: "std,sync,write,part"
-          - crate: hadris-block
-            tier: unstable-ntfs
-            features: "sync,unstable-ntfs"
-          - crate: hadris-block
-            tier: all-capabilities
-            features: "std,alloc,sync,async,write,part,unstable-ntfs"
-          - crate: hadris-optical
-            tier: no-api
-            features: ""
-          - crate: hadris-optical
-            tier: no-std-sync
-            features: "sync"
-          - crate: hadris-optical
-            tier: no-std-async
-            features: "async"
-          - crate: hadris-optical
-            tier: alloc-sync
-            features: "alloc,sync"
-          - crate: hadris-optical
-            tier: std
-            features: "std,sync"
-          - crate: hadris-optical
-            tier: hosted-async-with-cd
-            features: "std,async,cd"
-          - crate: hadris-optical
-            tier: all-capabilities
-            features: "std,alloc,sync,async,cd"
 
           # hadris umbrella forwarding
           - crate: hadris
@@ -412,20 +347,11 @@ jobs:
             tier: leaf-udf
             features: "std,sync,udf"
           - crate: hadris
-            tier: leaf-cd
-            features: "std,cd"
-          - crate: hadris
             tier: leaf-cpio
             features: "std,sync,cpio"
           - crate: hadris
-            tier: no-std-block
-            features: "sync,block"
-          - crate: hadris
-            tier: no-std-async-block
-            features: "async,block"
-          - crate: hadris
             tier: hosted-async-optical
-            features: "std,async,optical"
+            features: "std,async,iso,udf"
           - crate: hadris
             tier: no-std-detect
             features: "sync,detect"
@@ -437,7 +363,7 @@ jobs:
             features: "alloc,sync,async,archive"
           - crate: hadris
             tier: all-capabilities
-            features: "std,alloc,sync,async,write,detect,block,optical,archive,unstable-ntfs"
+            features: "std,alloc,sync,async,write,detect,part,archive,unstable-ntfs"
 
     steps:
       - uses: actions/checkout@v7
@@ -486,12 +412,8 @@ jobs:
           cargo test --workspace --all-features --tests --exclude hadris-fat --exclude hadris-fat-raw
           cargo test -p hadris-fat --features "std,alloc,sync,async,write" --tests
           cargo test -p hadris-fat-raw --features "sync,async" --tests
-      - name: Run block opening integration tests
-        run: cargo test -p hadris-block --all-features --test open_volume --test async_volume --test async_send_volume
-      - name: Run optical detection integration tests
-        run: cargo test -p hadris-optical --all-features --test detect
-      - name: Run optical opening integration tests
-        run: cargo test -p hadris-optical --all-features --test open_image --test async_open_image
+      - name: Run detection and opening integration tests
+        run: cargo test -p hadris --all-features --test detect
       - name: Run CPIO async writer integration test
         run: cargo test -p hadris-cpio --all-features --test async_writer
 
@@ -630,7 +552,7 @@ jobs:
           HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
         run: cargo test -p hadris-udf --all-features --test interop -- --nocapture
       - name: Qualify hybrid ISO/UDF images
-        run: cargo test -p hadris-cd --all-features --test bridge -- --nocapture
+        run: cargo test -p hadris-udf --all-features --test bridge -- --nocapture
 
   # CLI --help/--version smoke tests live in crates/tools/hadris-*-cli/tests/cli_smoke.rs
   # and run under the workspace `test` job.

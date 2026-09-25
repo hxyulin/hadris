@@ -54,6 +54,6 @@ entries, `IsoFs::records` and `IsoFs::extents` where its directory records and
 data lie (read them with `IsoFs::read_raw`), and `hadris_iso::raw` the on-disk
 layouts.
 
-Use `hadris-optical` when an application must detect and open ISO-only,
-UDF-only, or bridge images. Use `hadris_udf::sync::write_bridge` to author a
+Use `hadris::sync::detect` and `hadris::sync::open` when an application must
+detect and open ISO-only, UDF-only, or bridge images. Use `hadris_udf::sync::write_bridge` to author a
 shared ISO/UDF bridge image.

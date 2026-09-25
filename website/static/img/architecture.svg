@@ -83,20 +83,20 @@
 
   <rect class="umbrella" x="325" y="128" width="310" height="68" rx="10"/>
   <text class="title umbrella-text" x="480" y="157">hadris</text>
-  <text class="umbrella-text" x="480" y="179" font-size="14">umbrella crate</text>
+  <text class="umbrella-text" x="480" y="179" font-size="14">umbrella crate · detect · open</text>
 
   <path class="connector" d="M 480 196 V 222 H 180 V 248 M 480 222 V 248 M 480 222 H 780 V 248"/>
 
   <g>
     <rect class="surface" x="40" y="248" width="280" height="112" rx="8"/>
-    <text class="title" x="180" y="290">hadris-block</text>
-    <text class="detail" x="180" y="318">FAT12 / FAT16 / FAT32</text>
+    <text class="title" x="180" y="290">hadris-fat · hadris-part</text>
+    <text class="detail" x="180" y="318">FAT12 / FAT16 / FAT32 · exFAT</text>
     <text class="detail" x="180" y="340">GPT / MBR</text>
   </g>
 
   <g>
     <rect class="surface" x="340" y="248" width="280" height="112" rx="8"/>
-    <text class="title" x="480" y="290">hadris-optical</text>
+    <text class="title" x="480" y="290">hadris-iso · hadris-udf</text>
     <text class="detail" x="480" y="323">ISO 9660 · UDF</text>
   </g>
 

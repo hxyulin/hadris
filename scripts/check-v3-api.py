@@ -46,8 +46,6 @@ PINNED_NIGHTLY = "nightly-2026-09-04"
 # crate has it, otherwise the smallest useful tier in .github/workflows/rust.yml.
 MINIMAL_FEATURES = {
     "hadris": "sync",
-    "hadris-block": "sync",
-    "hadris-cd": "sync",
     "hadris-common": "",
     "hadris-cpio": "sync",
     "hadris-fat": "sync",
@@ -57,7 +55,6 @@ MINIMAL_FEATURES = {
     "hadris-iso": "sync",
     "hadris-macros": "",
     "hadris-ntfs": "sync",
-    "hadris-optical": "sync",
     "hadris-part": "sync",
     "hadris-storage": "sync",
     "hadris-udf": "sync",

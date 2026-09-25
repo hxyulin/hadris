@@ -60,17 +60,19 @@ block device) restricted to that partition. This prevents filesystem offsets fro
 partitions and keeps offsets relative to the filesystem start.
 
 `hadris-part` reads, edits and writes MBR, GPT and hybrid tables on a block
-device, and its `open` turns a partition into such a slice. `hadris-block` adds
-detection on block devices, and opens the FAT, exFAT or NTFS volume a slice
-holds, when an application needs both the partition and filesystem layers.
+device, and its `open` turns a partition into such a slice. The umbrella's
+`detect` lists what a device or slice holds, and its `open` mounts the FAT,
+exFAT, ISO 9660 or UDF volume a slice holds, when an application needs both
+the partition and filesystem layers.
 
 ## Format handles
 
 Every driver (`FatFs`, `ExFatFs`, `IsoFs`, `UdfFs`, `NtfsFs`) implements
 the `hadris-fs` `FileSystem` trait directly, and keeps a native API for what
 the trait does not model, such as FAT attributes, Rock Ridge metadata and UDF
-descriptors. Category facades detect and open formats, implement the same
-trait over whichever driver they opened, and keep that driver reachable.
+descriptors. The umbrella's `open` returns an `AnyFs` enum, which
+implements the same trait over whichever driver it mounted and reaches that
+driver by `match`.
 
 ## The trait and the volume
 
@@ -92,9 +94,8 @@ volume go through `vol.lock()`, which dereferences to the driver.
 | Starting point | Recommended layer |
 |---|---|
 | A known standalone FAT image | Open it directly with `hadris-fat` |
-| An unknown disk image | Detect it with `hadris-block` |
+| An unknown disk or optical image | Detect it with `hadris::sync::detect`, open it with `hadris::sync::open` |
 | A filesystem inside GPT or MBR | Create a partition view, then open the leaf filesystem |
-| An unknown optical image | Use `hadris-optical` with an open policy |
 | A custom firmware device | Implement or adapt `hadris-io` traits |
 | A logical-block-native device | Start with `hadris-storage` |
 

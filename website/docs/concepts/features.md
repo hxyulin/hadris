@@ -65,12 +65,10 @@ sync-only because the host side is blocking `std::fs`.
 | `hadris-fat` `exfat` | exFAT, including TexFAT volumes with two FATs | Yes | Yes | Yes | Yes | `alloc` (checking is allocation-free) | Stable |
 | `hadris-part` | MBR (with logical partitions), GPT, hybrid MBR | Yes | Yes | Yes | Yes | Allocation-free (`scan`, `open`) | Stable |
 | `hadris-iso` | ISO 9660, Joliet, Rock Ridge, El Torito | Yes | Yes | Yes | Yes | Allocation-free (writing and sessions need `alloc`) | Stable |
-| `hadris-udf` | UDF 1.02 to 2.01, type 1 partitions | Yes | Yes | Yes | Yes | Allocation-free (writing needs `alloc`) | Stable |
+| `hadris-udf` | UDF 1.02 to 2.01, type 1 partitions; ISO 9660 and UDF bridge images | Yes | Yes | Yes | Yes | Allocation-free (writing needs `alloc`) | Stable |
 | `hadris-cpio` | CPIO newc, CRC and odc; old binary read | Yes | Yes | Yes | Yes | Allocation-free (writing needs `alloc`) | Stable |
 | `hadris-ntfs` | NTFS | Yes | No | Yes | Yes | Allocation-free | Preview |
-| `hadris-cd` | Hybrid ISO/UDF images, a wrapper over `hadris_udf::write_bridge` until 3.0 removes it | N/A | Yes | Yes | Yes | `alloc` | Stable |
-| `hadris-block` | FAT, exFAT and NTFS detection and opening | Yes | FAT and exFAT | Yes | Yes | `alloc` (detection is allocation-free) | Stable (NTFS native API behind `unstable-ntfs`) |
-| `hadris-optical` | ISO 9660 and UDF detection and opening | Yes | Through re-exported writers | Yes | Yes | Allocation-free | Stable |
+| `hadris` `detect` | Detection of every format above, opening FAT, exFAT, ISO 9660 and UDF as `AnyFs` | Yes | N/A | Yes | Yes | Allocation-free detection; `open` needs `alloc` | Stable |
 
 "Allocation-free" means the core parser can operate without a global
 allocator. Higher-level conveniences such as owned filenames, collected

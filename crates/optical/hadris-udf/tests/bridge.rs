@@ -4,14 +4,12 @@
 mod common;
 
 use common::Paths;
-use hadris_cd::iso::{IsoId, Namespace};
-use hadris_cd::udf::UdfId;
-use hadris_cd::udf::UdfRevision;
-use hadris_cd::{CdOptions, IsoOptions, UdfOptions};
 use hadris_fs::MountOptions;
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{Content, ErrorKind, Extent, Node, Permissions, SetAttr, Tree};
+use hadris_iso::{IsoId, IsoLevel, IsoOptions, Namespace};
 use hadris_storage::{BlockSize, MemDevice};
+use hadris_udf::{UdfId, UdfOptions, UdfRevision};
 
 const SECTOR: usize = 2048;
 const VOLUME: &str = "BRIDGE_TEST";
@@ -38,29 +36,36 @@ fn fixture() -> Tree {
     tree
 }
 
-fn options(revision: UdfRevision) -> CdOptions {
-    CdOptions::default()
-        .with_iso(
-            CdOptions::default()
-                .iso()
-                .clone()
-                .with_id(IsoId::Volume, VOLUME)
-                .with_rock_ridge(),
-        )
-        .with_udf(
-            UdfOptions::default()
-                .with_id(UdfId::Volume, VOLUME)
-                .with_revision(revision),
-        )
+struct Options {
+    iso: IsoOptions,
+    udf: UdfOptions,
 }
 
-fn create(tree: &Tree, options: &CdOptions) -> Vec<u8> {
-    let report = hadris_cd::plan(tree, options).unwrap();
+fn cd_iso() -> IsoOptions {
+    IsoOptions::default()
+        .with_id(IsoId::Volume, "CDROM")
+        .with_level(IsoLevel::L2)
+        .with_joliet()
+        .with_iso1999()
+}
+
+fn options(revision: UdfRevision) -> Options {
+    Options {
+        iso: cd_iso().with_id(IsoId::Volume, VOLUME).with_rock_ridge(),
+        udf: UdfOptions::default()
+            .with_id(UdfId::Volume, VOLUME)
+            .with_revision(revision),
+    }
+}
+
+fn create(tree: &Tree, options: &Options) -> Vec<u8> {
+    let report = hadris_udf::plan_bridge(tree, &options.iso, &options.udf).unwrap();
     let mut dev = MemDevice::new(
         vec![0u8; report.size() as usize],
         BlockSize::new(2048).unwrap(),
     );
-    let written = hadris_cd::sync::write(&mut dev, tree, options).unwrap();
+    let written =
+        hadris_udf::sync::write_bridge(&mut dev, tree, &options.iso, &options.udf).unwrap();
     assert_eq!(written, report);
     dev.into_inner()
 }
@@ -72,7 +77,7 @@ fn tag_at(bytes: &[u8], sector: usize) -> u16 {
 fn verify(bytes: &[u8]) {
     let dev = MemDevice::new(bytes, BlockSize::new(2048).unwrap());
     let mut iso = dev;
-    let mut view = hadris_cd::iso::sync::IsoFs::mount_namespace(
+    let mut view = hadris_iso::sync::IsoFs::mount_namespace(
         &mut iso,
         MountOptions::new(),
         Namespace::RockRidge,
@@ -88,7 +93,7 @@ fn verify(bytes: &[u8]) {
         iso_extents.push(extents[..n].to_vec());
     }
 
-    let mut udf = hadris_cd::udf::sync::UdfFs::mount(
+    let mut udf = hadris_udf::sync::UdfFs::mount(
         MemDevice::new(bytes, BlockSize::new(2048).unwrap()),
         MountOptions::new(),
     )
@@ -167,7 +172,7 @@ fn bridge_layout_follows_udf_and_ecma_119() {
         290,
         "the partition starts after the integrity descriptor"
     );
-    let mut udf = hadris_cd::udf::sync::UdfFs::mount(
+    let mut udf = hadris_udf::sync::UdfFs::mount(
         MemDevice::new(bytes.as_slice(), BlockSize::new(2048).unwrap()),
         MountOptions::new(),
     )
@@ -197,7 +202,7 @@ fn reports_devices_and_modes_agree() {
     let tree = fixture();
     let options = options(UdfRevision::V1_02);
     let bytes = create(&tree, &options);
-    let report = hadris_cd::plan(&tree, &options).unwrap();
+    let report = hadris_udf::plan_bridge(&tree, &options.iso, &options.udf).unwrap();
     assert_eq!(
         report.extents("DOCS/COPY.BIN"),
         report.extents("DOCS/LARGE.BIN")
@@ -211,7 +216,7 @@ fn reports_devices_and_modes_agree() {
 
     let file = tempfile_like();
     let dev = hadris_storage::host::FileDevice::new(file.0.try_clone().unwrap()).unwrap();
-    let written = hadris_cd::sync::write(dev, &tree, &options).unwrap();
+    let written = hadris_udf::sync::write_bridge(dev, &tree, &options.iso, &options.udf).unwrap();
     assert_eq!(written.size(), file.0.metadata().unwrap().len());
     let mut host = Vec::new();
     std::io::Read::read_to_end(&mut std::fs::File::open(&file.1).unwrap(), &mut host).unwrap();
@@ -225,14 +230,14 @@ fn reports_devices_and_modes_agree() {
     };
     let run = async {
         let mut dev = MemDevice::new(vec![0u8; expected.len()], BlockSize::new(2048).unwrap());
-        hadris_cd::r#async::write(&mut dev, &tree, &options)
+        hadris_udf::r#async::write_bridge(&mut dev, &tree, &options.iso, &options.udf)
             .await
             .unwrap();
         assert_eq!(dev.get_ref(), &expected);
         let mut dev = MemDevice::new(vec![0u8; expected.len()], BlockSize::new(2048).unwrap());
-        let report = hadris_cd::plan(&tree, &options).unwrap();
+        let report = hadris_udf::plan_bridge(&tree, &options.iso, &options.udf).unwrap();
         assert_eq!(report.size(), expected.len() as u64);
-        hadris_cd::r#async::write(&mut dev, &tree, &options)
+        hadris_udf::r#async::write_bridge(&mut dev, &tree, &options.iso, &options.udf)
             .await
             .unwrap();
         assert_eq!(dev.get_ref(), &expected);
@@ -242,7 +247,7 @@ fn reports_devices_and_modes_agree() {
 }
 
 fn tempfile_like() -> (std::fs::File, std::path::PathBuf) {
-    let path = std::env::temp_dir().join(format!("hadris-cd-{}.iso", std::process::id()));
+    let path = std::env::temp_dir().join(format!("hadris-udf-bridge-{}.iso", std::process::id()));
     let file = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -257,26 +262,27 @@ fn tempfile_like() -> (std::fs::File, std::path::PathBuf) {
 fn writer_errors_keep_their_detail() {
     let tree = fixture();
     let mut dev = MemDevice::new(vec![0u8; 8 << 20], BlockSize::new(4096).unwrap());
-    let err = hadris_cd::sync::write(&mut dev, &tree, &CdOptions::default()).unwrap_err();
+    let err = hadris_udf::sync::write_bridge(&mut dev, &tree, &cd_iso(), &UdfOptions::default())
+        .unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Unsupported);
     assert_eq!(
-        err.detail().and_then(hadris_cd::udf::Detail::from_code),
-        Some(hadris_cd::udf::Detail::OutputBlockSize)
+        err.detail().and_then(hadris_udf::Detail::from_code),
+        Some(hadris_udf::Detail::OutputBlockSize)
     );
 
     let mut long = Tree::new();
     long.insert("n".repeat(255), Node::file(Content::empty()))
         .unwrap();
-    let options = CdOptions::default().with_iso(IsoOptions::default());
-    let err = hadris_cd::plan(&long, &options).unwrap_err();
+    let err =
+        hadris_udf::plan_bridge(&long, &IsoOptions::default(), &UdfOptions::default()).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::NameTooLong);
 }
 
 #[test]
 fn iso_volume_space_covers_the_udf_tail() {
     let tree = fixture();
-    let iso = options(UdfRevision::V2_01).iso().clone().with_joliet();
-    let options = options(UdfRevision::V2_01).with_iso(iso);
+    let mut options = options(UdfRevision::V2_01);
+    options.iso = options.iso.with_joliet();
     let bytes = create(&tree, &options);
     let blocks = (bytes.len() / SECTOR) as u32;
     let mut descriptors = 0;
@@ -295,7 +301,7 @@ fn iso_volume_space_covers_the_udf_tail() {
     }
     assert!(descriptors >= 2);
     let dev = MemDevice::new(bytes.as_slice(), BlockSize::new(2048).unwrap());
-    let iso = hadris_cd::iso::sync::IsoFs::mount(dev, MountOptions::new()).unwrap();
+    let iso = hadris_iso::sync::IsoFs::mount(dev, MountOptions::new()).unwrap();
     assert_eq!(iso.info().volume_space_size(), blocks);
     verify(&bytes);
 }

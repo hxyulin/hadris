@@ -1,37 +1,33 @@
-//! Detects the filesystem of a block image (FAT12/16/32, exFAT or NTFS),
-//! opens it with `hadris-block`, and prints its tree through one function
-//! that works on any `hadris-fs` driver.
+//! Detects the filesystem of an image (FAT12/16/32, exFAT, ISO 9660 or
+//! UDF), opens it with `hadris::host::open`, and prints its tree through
+//! one function that works on any `hadris-fs` driver.
 
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, bail};
-use hadris_block::detect::BlockFormat;
-use hadris_block::sync::OpenVolume;
-use hadris_fs::sync::FileSystem;
-use hadris_fs::{DirCursor, NodeId};
-use hadris_storage::host::FileDevice;
+use anyhow::{Result, bail};
+use hadris::ImageFormat;
+use hadris::fs::sync::FileSystem;
+use hadris::fs::{DirCursor, NodeId};
+use hadris::host::FileDevice;
 
 fn main() -> Result<()> {
     let image_path = image_path()?;
-    let mut image = FileDevice::open(&image_path)
-        .with_context(|| format!("failed to open {}", image_path.display()))?;
-
-    match hadris_block::detect::sync::detect(&mut image)? {
-        Some(BlockFormat::PartitionTable(kind)) => {
-            bail!("{kind:?} partitioned disk: open one partition with hadris_part::sync::open")
+    let mut image = FileDevice::open(&image_path)?;
+    let found = hadris::sync::detect(&mut image)?;
+    match found.first().map(|candidate| candidate.format()) {
+        Some(ImageFormat::Mbr | ImageFormat::Gpt) => {
+            bail!("partitioned disk: open one partition with hadris::part::sync::open")
         }
         None => bail!("no supported filesystem detected"),
-        Some(_) => {}
+        Some(format) => println!("{format:?}"),
     }
-    let mut volume = OpenVolume::open(image).map_err(|err| err.into_error())?;
-    println!("{:?}", volume.format());
-    let root = volume.root();
-    print_tree(&mut volume, root, 1)
+    let mut fs = hadris::host::open(&image_path)?;
+    let root = fs.root();
+    print_tree(&mut fs, root, 1)
 }
 
 /// Prints the directory `dir` and everything below it. `F` is any
-/// `hadris-fs` filesystem: `OpenVolume` here, or a `FatFs`, `IsoFs` or
-/// `UdfFs`.
+/// `hadris-fs` filesystem: `AnyFs` here, or a `FatFs`, `IsoFs` or `UdfFs`.
 fn print_tree<F: FileSystem>(fs: &mut F, dir: NodeId, depth: usize) -> Result<()> {
     let mut cursor = DirCursor::START;
     while let Some(entry) = fs.readdir(dir, cursor)? {

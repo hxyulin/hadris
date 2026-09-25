@@ -7,14 +7,11 @@ pub use hadris::FsResult
 pub use hadris::Location
 pub use hadris::MountError
 pub use hadris::PathError
-pub use hadris::block
-pub use hadris::cd
 pub use hadris::cpio
 pub use hadris::fat
 pub use hadris::fs
 pub use hadris::io
 pub use hadris::iso
-pub use hadris::optical
 pub use hadris::part
 pub use hadris::storage
 pub use hadris::udf

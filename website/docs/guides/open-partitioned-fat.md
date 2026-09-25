@@ -11,16 +11,15 @@ block range.
 ```toml
 [dependencies]
 anyhow = "1"
-hadris-block = "2.4.0"
-hadris-fs = "2.4.0"
-hadris-storage = "2.4.0"
+hadris = { version = "2.4.0", features = ["part"] }
 ```
 
 ```rust,no_run
 use anyhow::{Context, Result};
-use hadris_block::{part, sync::OpenVolume};
-use hadris_fs::sync::Volume;
-use hadris_storage::host::FileDevice;
+use hadris::fs::sync::Volume;
+use hadris::host::FileDevice;
+use hadris::part;
+use hadris::sync::AnyFs;
 
 fn main() -> Result<()> {
     let mut disk = FileDevice::open("disk.img")?;
@@ -29,11 +28,11 @@ fn main() -> Result<()> {
 
     let slice = part::sync::open(&mut disk, &partition)?;
     // `MountError` holds the borrowed slice; keep only its error for `anyhow`.
-    let opened = OpenVolume::open(slice).map_err(|err| err.into_error())?;
-    let fat = opened
-        .into_fat()
-        .ok()
-        .context("the selected partition is not FAT")?;
+    let opened = hadris::sync::open(slice, hadris::host::mount_options())
+        .map_err(|err| err.into_error())?;
+    let AnyFs::Fat(fat) = opened else {
+        anyhow::bail!("the selected partition is not FAT");
+    };
 
     let vol = Volume::new(fat);
     for entry in vol.read_dir("/")? {

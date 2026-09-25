@@ -16,9 +16,9 @@
 //!   [`FsResult`] and [`MountError`] at the root: the one error type every
 //!   device and filesystem operation returns, and with `alloc`
 //!   `PathError`, which adds the path that failed.
-//! - `fat`, `part`, `iso`, `udf`, `cd`, `cpio`: one format crate each.
-//! - `block` and `optical`: detection and opening of whatever volume or
-//!   image a device holds.
+//! - `fat`, `part`, `iso`, `udf`, `cpio`: one format crate each. The ISO
+//!   9660 and UDF bridge writer is `udf::plan_bridge` and
+//!   `udf::sync::write_bridge`.
 //! - `sync::detect` and `r#async::detect` (with `detect`): every format a
 //!   device holds, as `ImageFormat`s in a `Detection`, each with the
 //!   damage a mount would report. With `alloc`, `open` mounts the first
@@ -29,11 +29,9 @@
 //!
 //! # Feature flags
 //!
-//! One feature per format (`fat`, `part`, `iso`, `udf`, `cd`, `cpio`) adds
-//! that crate. `block` adds `hadris-block` with `fat` and `part`,
-//! `optical` adds `hadris-optical` with `iso`, `udf` and `cd`, `archive`
-//! adds `cpio`, and `detect` adds `detect`, `open` and `AnyFs` with `fat`,
-//! `iso`, `udf` and `cpio`. The platform (`std`, `alloc`), mode (`sync`,
+//! One feature per format (`fat`, `part`, `iso`, `udf`, `cpio`) adds
+//! that crate. `archive` adds `cpio`, and `detect` adds `detect`, `open`
+//! and `AnyFs` with `fat`, `iso`, `udf` and `cpio`. The platform (`std`, `alloc`), mode (`sync`,
 //! `async`) and `write` features are forwarded to every enabled crate.
 //! `unstable-ntfs` adds the NTFS preview, whose native API may change in
 //! 3.x minors. The default set is `std`, `sync`, `write`,
@@ -194,22 +192,7 @@ pub use hadris_iso as iso;
 #[cfg_attr(docsrs, doc(cfg(feature = "udf")))]
 pub use hadris_udf as udf;
 
-/// Hybrid ISO 9660 and UDF images.
-#[cfg(feature = "cd")]
-#[cfg_attr(docsrs, doc(cfg(feature = "cd")))]
-pub use hadris_cd as cd;
-
 /// CPIO newc, CRC, odc and binary archives.
 #[cfg(feature = "cpio")]
 #[cfg_attr(docsrs, doc(cfg(feature = "cpio")))]
 pub use hadris_cpio as cpio;
-
-/// Detection and opening of FAT, exFAT and NTFS volumes.
-#[cfg(feature = "block")]
-#[cfg_attr(docsrs, doc(cfg(feature = "block")))]
-pub use hadris_block as block;
-
-/// Detection and opening of ISO 9660 and UDF images.
-#[cfg(feature = "optical")]
-#[cfg_attr(docsrs, doc(cfg(feature = "optical")))]
-pub use hadris_optical as optical;

@@ -22,3 +22,18 @@ descriptors and every allocation descriptor form. It does not interpret
 implementation use or unallocated space descriptors, indirect entries or
 stream directories, and refuses virtual, sparable and metadata partitions,
 so coverage of Part 3 and Part 4 stays partial.
+
+## Bridge images
+
+The bridge writer (`plan_bridge` and `write_bridge`, formerly `hadris-cd`)
+follows ECMA TR/71's UDF Bridge logical-sector image, cataloged beside the
+UDF requirements. This is not evidence for raw CD sector framing: no pinned
+ECMA-130, Yellow Book, or equivalent recording-layer source is available, so
+the catalog makes no claim about raw-sector sync, headers, modes, EDC, ECC,
+subchannels, or physical recording, nor about El Torito, Joliet, Rock
+Ridge/SUSP, UEFI partitioning, or later UDF bridge profiles in a bridge.
+
+Raw-image regressions cover the pinned profile: fixed 2,048-byte sectors,
+consecutive recognition descriptors, permitted anchors, sixteen-sector main
+and reserve descriptor sequences, a single closed integrity descriptor, one
+partition, and short allocation descriptors.

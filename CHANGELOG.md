@@ -1288,6 +1288,17 @@ Each published package owns its version and may be released independently.
 
 ### Removed
 
+- **hadris-block, hadris-optical, hadris-cd (V3):** The three crates are
+  gone. Detection and opening are `hadris::{sync, r#async}::{detect,
+  open, AnyFs}` and `hadris::host::open`: `OpenVolume`,
+  `OpenOpticalImage`, `OpenPolicy`, `BlockFormat`, `FatVariant`,
+  `OpticalFormats` and their `Detail` types have no successor beyond
+  `ImageFormat`, `Detection` and `Candidate`. The bridge writer is
+  `hadris_udf::plan_bridge` and `hadris_udf::{sync, r#async}::write_bridge`,
+  which take `IsoOptions` and `UdfOptions` in place of `CdOptions`. The
+  umbrella drops the `block`, `optical` and `cd` features and the
+  `hadris::block`, `hadris::optical` and `hadris::cd` modules; enable
+  `detect` and `part` instead.
 - **hadris-iso (V3):** `IsoFs::block_size`, `volume_blocks`,
   `boot_catalog_block`, `primary_descriptor` and `raw_record`, the owned
   `BootCatalog` and `BootCatalogEntry` (now `CatalogEntry`). Use `info()`,

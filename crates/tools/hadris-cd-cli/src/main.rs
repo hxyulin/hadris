@@ -4,17 +4,16 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use clap::{Parser, Subcommand};
-use hadris_cd::{CdOptions, UdfOptions};
 use std::hash::Hasher;
 
 use hadris_fs::host::{self, OnError, TreeOptions};
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{Clock, DirCursor, FileType, NodeId, OpenMode, Resolve, SystemClock, WarningKind};
 use hadris_iso::sync::IsoFs;
-use hadris_iso::{BootEntry, BootInfo, ElTorito, Hybrid, IsoId, Namespace};
+use hadris_iso::{BootEntry, BootInfo, ElTorito, Hybrid, IsoId, IsoLevel, IsoOptions, Namespace};
 use hadris_storage::host::FileDevice;
 use hadris_udf::sync::UdfFs;
-use hadris_udf::{UdfId, UdfRevision};
+use hadris_udf::{UdfId, UdfOptions, UdfRevision};
 
 mod output;
 
@@ -152,17 +151,13 @@ fn create(args: CreateArgs) -> Result<()> {
         eprintln!("warning: skipped {err}");
     }
 
-    let defaults = CdOptions::default();
-    let mut iso = defaults
-        .iso()
-        .clone()
-        .with_id(IsoId::Volume, &args.volume_name);
-    if args.no_joliet {
-        iso = hadris_cd::IsoOptions::default()
-            .with_id(IsoId::Volume, &args.volume_name)
-            .with_level(defaults.iso().level())
-            .with_iso1999();
-    } else {
+    let time = host::source_date_epoch()?.unwrap_or_else(|| SystemClock.now());
+    let mut iso = IsoOptions::default()
+        .with_id(IsoId::Volume, &args.volume_name)
+        .with_level(IsoLevel::L2)
+        .with_iso1999()
+        .with_time(time);
+    if !args.no_joliet {
         iso = iso.with_joliet();
     }
     if args.rock_ridge {
@@ -179,17 +174,14 @@ fn create(args: CreateArgs) -> Result<()> {
     }
     let udf = UdfOptions::default()
         .with_id(UdfId::Volume, &args.volume_name)
-        .with_revision(args.udf_revision.0);
-    let options = CdOptions::default()
-        .with_iso(iso)
-        .with_udf(udf)
-        .with_time(host::source_date_epoch()?.unwrap_or_else(|| SystemClock.now()));
+        .with_revision(args.udf_revision.0)
+        .with_time(time);
 
     let (file, pending) = Output::create(&args.output)
         .map_err(|err| format!("cannot create {}: {err}", args.output.display()))?;
     let mut dev = FileDevice::new(file)
         .map_err(|err| format!("cannot create {}: {err}", args.output.display()))?;
-    let report = hadris_cd::sync::write(&mut dev, &tree, &options)?;
+    let report = hadris_udf::sync::write_bridge(&mut dev, &tree, &iso, &udf)?;
     pending
         .commit(dev.into_inner())
         .map_err(|err| format!("cannot write {}: {err}", args.output.display()))?;

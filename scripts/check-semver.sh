@@ -32,8 +32,6 @@ fi
 
 crates=(
   hadris
-  hadris-block
-  hadris-cd
   hadris-common
   hadris-cpio
   hadris-fat
@@ -42,7 +40,6 @@ crates=(
   hadris-iso
   hadris-macros
   hadris-ntfs
-  hadris-optical
   hadris-part
   hadris-storage
   hadris-udf

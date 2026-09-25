@@ -7,9 +7,8 @@ together. Each directory is a small workspace package and is compiled by
 | Example | Purpose |
 |---|---|
 | [`fat-list`](fat-list) | List the root directory of a FAT12/16/32 image |
-| [`volume-list`](volume-list) | Detect a FAT12/16/32, exFAT or NTFS image, open it with `hadris-block` and print its tree through any `hadris-fs` driver |
+| [`volume-list`](volume-list) | Detect a FAT12/16/32, exFAT, ISO 9660 or UDF image with `hadris::sync::detect`, open it with `hadris::host::open` and print its tree through any `hadris-fs` driver |
 | [`partition-list`](partition-list) | Detect and list MBR or GPT partitions |
-| [`optical-detect`](optical-detect) | Detect ISO 9660, UDF, or bridge images |
 | [`cpio-create`](cpio-create) | Build a newc/SVR4 CPIO archive from a directory |
 
 Run an example from the repository root:
@@ -18,7 +17,6 @@ Run an example from the repository root:
 cargo run -p hadris-example-fat-list -- disk.img
 cargo run -p hadris-example-volume-list -- disk.img
 cargo run -p hadris-example-partition-list -- disk.img
-cargo run -p hadris-example-optical-detect -- image.iso
 cargo run -p hadris-example-cpio-create -- rootfs/ initramfs.cpio
 ```
 
