@@ -49,8 +49,9 @@ hadris iso extract disc.iso -p /docs -o out
   `-o -`.
 - Unreadable source entries are skipped with a warning, and images are dated
   with `SOURCE_DATE_EPOCH` when it is set.
-- `extract` writes into `-o/--output` (default `.`). The image root is merged
-  into it and any other path lands at `<output>/<name>`. Existing directories
+- `extract` writes into `-o/--output` (default `.`), and `-p/--path` picks
+  one file or directory. The image root is merged into it and any other path
+  lands at `<output>/<name>`. Existing directories
   are merged, existing files and symlinks are never replaced, and nothing is
   written outside the output directory.
 - `-V/--volume-name` names a new volume, and `-v/--verbose` prints more.

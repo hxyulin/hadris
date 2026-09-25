@@ -286,8 +286,9 @@ hadris-<fmt>-raw   I/O-free codecs and raw::io device primitives, versioned apar
 format crates      drivers (FatFs, ExFatFs, IsoFs, UdfFs, NtfsFs) that implement
                    FileSystem, inherent extras, format, check, plan and write; FAT
                    and exFAT also have an embedded API
-hadris             umbrella: flat re-exports, detect, open and AnyFs, the host
-                   module, and the hadris binary
+hadris             umbrella: flat re-exports, detect, open and AnyFs, and the host
+                   module
+hadris-cli         the hadris binary, versioned apart from the library
 hadris-vfs         3.x, std only: type erasure, a mount table, FUSE
 ```
 
@@ -959,7 +960,7 @@ different content gives different ids. `FatOptions::with_serial` and
 | `hadris-archive` | Removed. The umbrella re-exports `hadris-cpio` directly. |
 | `hadris-cd` | Removed (S3). The bridge writer is `hadris_udf::plan_bridge` and `hadris_udf::{sync, r#async}::write_bridge`. |
 | `hadris-block`, `hadris-optical` | Removed (S2). `detect`, `open` and `AnyFs` move into the umbrella. |
-| CLI crates | Replaced by one `hadris` binary with subcommands (S1). |
+| CLI crates | Replaced by one `hadris` binary with subcommands (S1), in the `hadris-cli` package (Q15). |
 | `hadris-vfs` | New, `std` only, can ship in 3.x. Type erasure, a mount table for composing volumes, and a `fuser` adapter (prototyped in `experiments/fuse-prototype`). The sync `FileSystem` is dyn-compatible, so the sync form needs no second trait: an erasing wrapper boxes the device error, and one `Vec<Box<dyn FileSystem<..> + Send>>` holds FAT and ISO volumes with different device errors. The async form needs an object-safe trait with boxed futures, since the async trait is not dyn-compatible. Lost: the typed device error (boxed, error path only) and format extras. |
 | Format crates | Kept. |
 | `hadris` | Umbrella. Re-exports `io`, `storage` and `fs` so `no_std` users need one dependency, with flat paths (`hadris::fat`, `hadris::iso`). Holds `detect`, `open`, `AnyFs` and the `host` module, since `host::open` needs every format. |
@@ -1545,7 +1546,7 @@ Removed (S2). Detection and opening move into the umbrella crate (5.9):
 - Re-exports `hadris-io`, `hadris-storage` and `hadris-fs`, and each format crate at a flat path behind a feature of its name (`hadris::fat`, `hadris::iso`, `hadris::udf`, `hadris::cpio`, `hadris::part`; `hadris::ntfs` behind `unstable-ntfs`).
 - `hadris::{sync, r#async}::{detect, open, AnyFs}` (5.8).
 - `hadris::host` (`std`, sync only, 4.15): `open(path)` detects and mounts read-only as `AnyFs<FileDevice>` with `host::mount_options()`; `FileDevice` (`open`, `new`, `into_inner`); `read_tree`, `write_tree`, `TreeOptions`, `Symlinks`, `OnError`; `file` and `source_date_epoch` for builders; `mount_options()` and `local_utc_offset()`, the host defaults of post-pass decision C; and `StdIo`. Its errors are `PathError` with the host path set.
-- The `hadris` binary (the `hadris-cli` package, Q15) replaces the five CLI crates, with subcommands `fat`, `iso`, `udf`, `cpio` and `detect` and one set of flags, overwrite rules and output handling (S1). The 2.x binary names are not installed.
+- The umbrella has no binary. The `hadris` binary is its own package, `hadris-cli` (`cargo install hadris-cli`, Q15), so library users never compile clap and CLI changes do not move the umbrella's version. It replaces the five CLI crates, with subcommands `fat`, `iso`, `udf`, `cpio` and `detect` and one set of flags, overwrite rules and output handling (S1); `extract` takes `-p/--path` in every format. The 2.x binary names are not installed.
 
 ---
 
@@ -1807,12 +1808,12 @@ the rejected alternative.
 - `MountOptions::with_utc_offset` stays fallible. The host's local UTC offset is the default of `host::mount_options()`, not of `MountOptions::new()`, as D10 says.
 - A FAT label is decoded through the mount's code page, like short names, so a label with bytes above `0x7F` no longer reads as `Some("")`.
 
-**Q15. Open points from R7.** Open:
+**Q15. Open points from R7.** Resolved 2026-09-25 by the user:
 
-- The `hadris` binary is the `hadris-cli` package (`cargo install hadris-cli`). Sections 3 and 5.9 place it in the umbrella, which would need an optional `cli` feature that adds clap to the library and ties CLI changes to the umbrella's version.
-- `MountOptions` has no namespace field, so `open` and `AnyFs` always mount the most capable ISO 9660 tree; `IsoFs::mount_namespace` chooses another.
-- A damaged UDF File Identifier Descriptor fails the listing it is in. Skipping it would need a way for `readdir` to report a skipped entry.
-- cpio `extract` has no `--path` to extract one entry, unlike the other formats.
+- The `hadris` binary stays in its own `hadris-cli` package (`cargo install hadris-cli`). The umbrella gets no `cli` feature, so the library never pulls in clap and the CLI versions apart. Sections 3 and 5.9 say so.
+- Choosing the ISO 9660 namespace through `open` and `AnyFs` is deferred to 3.x. `MountOptions` stays shared across formats, so `open` mounts the most capable tree and `IsoFs::mount_namespace` chooses another; an ISO-specific way to choose the tree can be added later without a break.
+- A damaged UDF File Identifier Descriptor keeps failing the listing it is in, since the lengths that locate the next descriptor cannot be trusted. Skipping it would need a way for `readdir` to report a skipped entry.
+- `hadris cpio extract` takes `-p/--path` like the other formats: the root is merged into the output, and any other entry or subtree lands at `<output>/<name>`.
 
 **Q14. Open points from R6.** Resolved 2026-09-25 by the user:
 
