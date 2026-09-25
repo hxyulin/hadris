@@ -207,7 +207,7 @@ their requirements in `[workspace.dependencies]` aligned.
 When several unpublished versions depend on one another, publish in dependency
 order: `hadris-macros`/`hadris-io`/`hadris-fs`; then
 `hadris-common`/`hadris-storage`/`hadris-part`/`hadris-fat-raw`; then format crates; then
-the `hadris` umbrella and CLI packages. Cargo
+the `hadris` umbrella and `hadris-cli`. Cargo
 validates dependent packages against crates.io, so each prerequisite version
 must be available before packaging the next layer.
 

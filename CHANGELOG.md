@@ -686,6 +686,15 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-cli (V3):** One `hadris` binary replaces the five CLI crates,
+  with the subcommands `fat`, `iso`, `udf`, `cpio` and `detect`. The
+  bridge commands of `hadris-cd` are `hadris udf bridge` and `hadris udf
+  compare`. Every format shares one set of flags and rules: `create`
+  refuses an existing output unless `-f/--force` is given, `extract` never
+  replaces existing files (cpio extraction now refuses them too), unreadable
+  source entries are skipped with a warning, and in-image paths may start
+  with `/` or `./` (cpio `cat` included). `hadris iso create` writes a
+  UEFI-only boot catalog when only `--efi-boot` is given.
 - **hadris-iso (V3):** The option reshape of 5.2. `with_joliet()` and
   `with_rock_ridge()` take no argument; `with_relocation` and
   `with_preserve` are on `IsoOptions`, and `Relocation::Reject` is
@@ -1288,6 +1297,13 @@ Each published package owns its version and may be released independently.
 
 ### Removed
 
+- **hadris-cli (V3):** The `hadris-fat-cli`, `hadris-iso-cli`,
+  `hadris-udf-cli`, `hadris-cpio-cli` and `hadris-cd-cli` packages and
+  their binaries (`hadris-fat`, `fatutil`, `hadris-iso`, `hadris-iso-cli`,
+  `hadris-udf`, `hadris-udf-cli`, `hadris-cpio`, `cpioutil`, `hadris-cd`).
+  `hadris-cd info` has no successor beyond `hadris detect` and the `info`
+  commands of `hadris iso` and `hadris udf`, and the bridge writer's
+  defaults now follow `hadris iso create` (level 1, no Joliet unless `-J`).
 - **hadris-block, hadris-optical, hadris-cd (V3):** The three crates are
   gone. Detection and opening are `hadris::{sync, r#async}::{detect,
   open, AnyFs}` and `hadris::host::open`: `OpenVolume`,

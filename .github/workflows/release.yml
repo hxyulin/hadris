@@ -96,8 +96,7 @@ jobs:
             hadris-io hadris-fs hadris-macros
             hadris-common hadris-storage hadris-part hadris-fat-raw
             hadris-fat hadris-ntfs hadris-iso hadris-udf hadris-cpio
-            hadris hadris-cd-cli hadris-cpio-cli hadris-fat-cli
-            hadris-iso-cli hadris-udf-cli
+            hadris hadris-cli
           )
           mapfile -t publishable < <(
             cargo metadata --no-deps --format-version 1 |
@@ -134,8 +133,7 @@ jobs:
             hadris-io hadris-fs hadris-macros
             hadris-common hadris-storage hadris-part hadris-fat-raw
             hadris-fat hadris-ntfs hadris-iso hadris-udf hadris-cpio
-            hadris hadris-cd-cli hadris-cpio-cli hadris-fat-cli
-            hadris-iso-cli hadris-udf-cli
+            hadris hadris-cli
           )
 
           crate_exists() {

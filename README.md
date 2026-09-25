@@ -115,15 +115,16 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 - **[hadris-cpio](crates/archive/hadris-cpio)** - CPIO archives (initramfs): streaming newc, CRC and odc reader and writer, old binary read
 
-### CLI Tools
+### Command-line tool
 
-| Crate | Binary | Notes |
-|-------|--------|-------|
-| [hadris-iso-cli](crates/tools/hadris-iso-cli) | `hadris-iso` | ISO create/inspect/extract; legacy alias: `hadris-iso-cli` |
-| [hadris-fat-cli](crates/tools/hadris-fat-cli) | `hadris-fat` | FAT12/16/32 and exFAT create/read/extract/check/analyze; legacy alias: `fatutil` |
-| [hadris-cpio-cli](crates/tools/hadris-cpio-cli) | `hadris-cpio` | CPIO create/read/extract; legacy alias: `cpioutil` |
-| [hadris-udf-cli](crates/tools/hadris-udf-cli) | `hadris-udf` | UDF create/inspect/extract; legacy alias: `hadris-udf-cli` |
-| [hadris-cd-cli](crates/tools/hadris-cd-cli) | `hadris-cd` | Create, inspect, and verify hybrid ISO 9660/UDF images |
+**[hadris-cli](crates/tools/hadris-cli)** installs one binary, `hadris`, with a
+subcommand per format: `hadris fat` (FAT12/16/32 and exFAT), `hadris iso`,
+`hadris udf` (with `bridge` and `compare` for ISO 9660 and UDF bridge images),
+`hadris cpio` and `hadris detect`. Every format shares the same flags, the
+same overwrite rule (`create` refuses an existing output without `--force`,
+and `extract` never replaces existing files) and the same in-image path syntax.
+The 2.x binaries (`hadris-fat`, `hadris-iso`, `hadris-udf`, `hadris-cpio`,
+`hadris-cd` and their aliases) are no longer installed.
 
 ### Meta-crate
 

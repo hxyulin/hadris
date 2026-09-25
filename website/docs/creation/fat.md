@@ -153,7 +153,7 @@ file.close()?;
 ```
 
 `ExFatOptions::with_fat_count(2)` formats a TexFAT volume. From the command
-line, `hadris-fat create ./contents -o card.img --fat-type exfat` does the
+line, `hadris fat create ./contents -o card.img --fat-type exfat` does the
 same for a host directory.
 
 ## Format a partition rather than a whole disk
@@ -184,11 +184,11 @@ assert!(report.is_clean());
 ```bash
 fsck.fat -vn disk.img
 7z l disk.img
-hadris-fat verify disk.img
+hadris fat check disk.img
 ```
 
 For exFAT, `fsck.exfat -n` from exfatprogs and macOS `fsck_exfat -n` on an
-attached raw device check the image, and `hadris-fat verify` runs the exFAT
+attached raw device check the image, and `hadris fat check` runs the exFAT
 checker.
 
 Use read-only validation first. Do not allow a repair tool to modify a release

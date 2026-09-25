@@ -554,7 +554,7 @@ jobs:
       - name: Qualify hybrid ISO/UDF images
         run: cargo test -p hadris-udf --all-features --test bridge -- --nocapture
 
-  # CLI --help/--version smoke tests live in crates/tools/hadris-*-cli/tests/cli_smoke.rs
+  # CLI tests live in crates/tools/hadris-cli/tests
   # and run under the workspace `test` job.
 
   doc:

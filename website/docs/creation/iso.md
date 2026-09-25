@@ -181,7 +181,7 @@ copied.
 ```bash
 xorriso -indev demo.iso -toc
 7z l demo.iso
-hadris-iso verify --strict demo.iso
+hadris iso check --strict demo.iso
 ```
 
 Treat external validation as part of release testing, especially for bootable,
