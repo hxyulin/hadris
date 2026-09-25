@@ -46,7 +46,7 @@ for crate in "${crates[@]}"; do
   elif [[ "$crate" == "hadris" ]]; then
     cargo public-api -p "$crate" \
       --no-default-features \
-      --features "std,alloc,sync,async,write,block,optical,archive" \
+      --features "std,alloc,sync,async,write,detect,block,optical,archive" \
       -sss --color never >"$generated"
   else
     cargo public-api -p "$crate" --all-features -sss --color never >"$generated"

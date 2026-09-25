@@ -12,15 +12,15 @@ keywords = ["filesystem", "disk-image", "fat32", "iso9660", "no-std"]
 categories = ["filesystem", "embedded", "no-std"]
 
 [package.metadata.docs.rs]
-features = ["std", "sync", "async", "write", "block", "optical", "archive", "unstable-ntfs"]
+features = ["std", "sync", "async", "write", "detect", "block", "optical", "archive", "unstable-ntfs"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["std", "sync", "write", "fat", "iso", "cpio"]
+default = ["std", "sync", "write", "fat", "iso", "cpio", "detect"]
 std = ["alloc", "hadris-io/std", "hadris-storage/std", "hadris-fs/std", "hadris-fat?/std", "hadris-part?/std", "hadris-ntfs?/std", "hadris-iso?/std", "hadris-udf?/std", "hadris-cd?/std", "hadris-cpio?/std", "hadris-block?/std", "hadris-optical?/std"]
 alloc = ["hadris-io/alloc", "hadris-storage/alloc", "hadris-fs/alloc", "hadris-fat?/alloc", "hadris-part?/alloc", "hadris-ntfs?/alloc", "hadris-iso?/alloc", "hadris-udf?/alloc", "hadris-cpio?/alloc", "hadris-block?/alloc", "hadris-optical?/alloc"]
-sync = ["hadris-io/sync", "hadris-storage/sync", "hadris-fs/sync", "hadris-fat?/sync", "hadris-part?/sync", "hadris-ntfs?/sync", "hadris-iso?/sync", "hadris-udf?/sync", "hadris-cd?/sync", "hadris-cpio?/sync", "hadris-block?/sync", "hadris-optical?/sync"]
-async = ["hadris-io/async", "hadris-storage/async", "hadris-fs/async", "hadris-fat?/async", "hadris-part?/async", "hadris-ntfs?/async", "hadris-iso?/async", "hadris-udf?/async", "hadris-cd?/async", "hadris-cpio?/async", "hadris-block?/async", "hadris-optical?/async"]
+sync = ["hadris-io/sync", "hadris-storage/sync", "hadris-fs/sync", "hadris-fat?/sync", "hadris-part?/sync", "hadris-ntfs?/sync", "hadris-iso?/sync", "hadris-udf?/sync", "hadris-cd?/sync", "hadris-cpio?/sync", "hadris-block?/sync", "hadris-optical?/sync", "hadris-fat-raw?/sync"]
+async = ["hadris-io/async", "hadris-storage/async", "hadris-fs/async", "hadris-fat?/async", "hadris-part?/async", "hadris-ntfs?/async", "hadris-iso?/async", "hadris-udf?/async", "hadris-cd?/async", "hadris-cpio?/async", "hadris-block?/async", "hadris-optical?/async", "hadris-fat-raw?/async"]
 # FAT formatting.
 write = ["hadris-fat?/write", "hadris-block?/write"]
 fat = ["dep:hadris-fat"]
@@ -34,6 +34,9 @@ block = ["dep:hadris-block", "fat", "part", "hadris-block/part"]
 # Detection and opening of ISO 9660 and UDF images, with the writers.
 optical = ["dep:hadris-optical", "iso", "udf", "cd", "hadris-optical/cd"]
 archive = ["cpio"]
+# `detect`, `open` and `AnyFs` in `sync` and `async`, over every format
+# they recognize, and `host::open`.
+detect = ["fat", "iso", "udf", "cpio", "dep:hadris-fat-raw", "dep:hadris-macros"]
 # The NTFS preview, whose native API may change in 3.x minors.
 unstable-ntfs = ["dep:hadris-ntfs", "hadris-block?/unstable-ntfs"]
 
@@ -41,6 +44,8 @@ unstable-ntfs = ["dep:hadris-ntfs", "hadris-block?/unstable-ntfs"]
 hadris-io = { workspace = true, default-features = false }
 hadris-storage = { workspace = true, default-features = false }
 hadris-fs = { workspace = true, default-features = false }
+hadris-macros = { workspace = true, optional = true }
+hadris-fat-raw = { workspace = true, optional = true, default-features = false }
 hadris-fat = { workspace = true, optional = true, default-features = false }
 hadris-part = { workspace = true, optional = true, default-features = false }
 hadris-ntfs = { workspace = true, optional = true, default-features = false }
@@ -50,3 +55,7 @@ hadris-cd = { workspace = true, optional = true, default-features = false }
 hadris-cpio = { workspace = true, optional = true, default-features = false }
 hadris-block = { workspace = true, optional = true, default-features = false }
 hadris-optical = { workspace = true, optional = true, default-features = false }
+
+[[test]]
+name = "detect"
+required-features = ["std", "sync", "write", "detect"]

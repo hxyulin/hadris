@@ -48,6 +48,17 @@ Each published package owns its version and may be released independently.
   reads the device; and `extents(node, from, &mut [Extent])` maps data,
   with allocated but unrecorded extents marked unwritten and embedded data
   located inside the file entry. `UdfId` no longer needs `alloc`.
+- **hadris (V3):** `hadris::sync::detect` and `hadris::r#async::detect`
+  list every format a device holds as a `Detection` of `Candidate`s, most
+  specific first and without allocating: `ImageFormat::Fat(FatKind)`,
+  `ExFat`, `Iso`, `Udf`, `IsoUdfBridge`, `Cpio(Format)`, `Mbr`, `Gpt` and
+  `Ntfs`, each with the `Corrupt` error a mount would give when its
+  signature is present but its first structures are damaged. `open(dev,
+  options)` mounts the first filesystem found as an `AnyFs` (`Fat`,
+  `ExFat`, `Iso`, `Udf`), which implements `FileSystem`; NTFS, partition
+  tables and archives fail with `NotRecognized`. `hadris::host::open(path)`
+  opens an image file read-only. The new `detect` feature, on by default,
+  adds these with the `udf` format.
 - **hadris-fat-raw:** `Geometry::volume_serial()` for FAT12/16/32 and
   `FatKind::clean_bit()`; the exFAT `Geometry::serial()` is now
   `volume_serial()`.
