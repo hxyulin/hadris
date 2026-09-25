@@ -18,7 +18,7 @@ use super::storage::BlockDevice;
 use super::write::{check_block_size, check_contents, check_output, emit};
 use crate::error::{Detail, Error};
 use crate::namespace::Namespace;
-use crate::options::{BootInfo, IsoLevel, IsoOptions, RockRidge, SessionMode, VolumeIdentifiers};
+use crate::options::{BootInfo, IsoId, IsoLevel, IsoOptions, SessionMode};
 use crate::plan::{self, Base, InfoTable, Region};
 use crate::raw::{self, SECTOR_SIZE};
 use hadris_fs::PathError;
@@ -634,31 +634,32 @@ impl<D: BlockDevice> Session<D> {
 async fn read_session<D: BlockDevice>(iso: &mut IsoFs<D>) -> Result<(Tree, IsoOptions), Error<D::Error>> {
     let pvd = iso.primary_descriptor().await?;
     let namespaces = iso.namespaces();
-    let mut ids = VolumeIdentifiers::new(text(&pvd.volume_identifier).unwrap_or_default());
-    if let Some(value) = text(&pvd.system_identifier) {
-        ids = ids.with_system(value);
+    let mut options = IsoOptions::new()
+        .with_id(IsoId::Volume, text(&pvd.volume_identifier).as_deref().unwrap_or(""))
+        .with_level(IsoLevel::L3);
+    let ids = [
+        (IsoId::System, text(&pvd.system_identifier)),
+        (IsoId::VolumeSet, text(&pvd.volume_set_identifier)),
+        (IsoId::Publisher, text(&pvd.publisher_identifier)),
+        (IsoId::Preparer, text(&pvd.preparer_identifier)),
+        (IsoId::Application, text(&pvd.application_identifier)),
+        (IsoId::CopyrightFile, text(&pvd.copyright_file_identifier)),
+        (IsoId::AbstractFile, text(&pvd.abstract_file_identifier)),
+        (IsoId::BibliographicFile, text(&pvd.bibliographic_file_identifier)),
+    ];
+    for (id, value) in ids {
+        if let Some(value) = value {
+            options = options.with_id(id, &value);
+        }
     }
-    if let Some(value) = text(&pvd.volume_set_identifier) {
-        ids = ids.with_volume_set(value);
-    }
-    if let Some(value) = text(&pvd.publisher_identifier) {
-        ids = ids.with_publisher(value);
-    }
-    if let Some(value) = text(&pvd.preparer_identifier) {
-        ids = ids.with_preparer(value);
-    }
-    if let Some(value) = text(&pvd.application_identifier) {
-        ids = ids.with_application(value);
-    }
-    let mut options = IsoOptions::default().with_volume(ids).with_level(IsoLevel::L3);
-    if let Some(level) = namespaces.joliet_level() {
-        options = options.with_joliet(level);
+    if namespaces.joliet_level().is_some() {
+        options = options.with_joliet();
     }
     if namespaces.contains(Namespace::RockRidge) {
-        options = options.with_rock_ridge(RockRidge::default());
+        options = options.with_rock_ridge();
     }
     if namespaces.contains(Namespace::Enhanced) {
-        options = options.with_enhanced_tree();
+        options = options.with_iso1999();
     }
     let view = iso;
     let mut tree = Tree::new();
@@ -748,7 +749,7 @@ fn info_table_of(head: &[u8; 64], rba: u32, len: u64) -> BootInfo {
     } else if head[24..].iter().all(|&byte| byte == 0) {
         BootInfo::Grub2
     } else {
-        BootInfo::Standard
+        BootInfo::Table
     }
 }
 

@@ -20,12 +20,12 @@
 //! use hadris_fs::sync::Volume;
 //! use hadris_fs::{Content, MountOptions, Node, OpenOptions, Tree};
 //! use hadris_storage::{BlockSize, MemDevice};
-//! use hadris_udf::{UdfOptions, plan};
+//! use hadris_udf::{UdfId, UdfOptions, plan};
 //! use hadris_udf::sync::{UdfFs, write};
 //!
 //! let mut tree = Tree::new();
 //! tree.insert("docs/readme.txt", Node::file(Content::bytes("hello")))?;
-//! let options = UdfOptions::default().with_volume_id("DOCS");
+//! let options = UdfOptions::new().with_id(UdfId::Volume, "DOCS");
 //! let size = plan(&tree, &options)?.size();
 //! let mut dev = MemDevice::new(vec![0u8; size as usize], BlockSize::new(2048).unwrap());
 //! write(&mut dev, &tree, &options)?;
@@ -155,7 +155,7 @@ pub use bridge::plan_bridge;
 pub use error::Detail;
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-pub use options::UdfOptions;
+pub use options::{UdfId, UdfOptions};
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub use plan::plan;

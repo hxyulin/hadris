@@ -1,7 +1,4 @@
-use hadris_iso::{
-    BootEntry, BootInfo, Charset, ElTorito, HybridBoot, IsoOptions, JolietLevel, Platform,
-    RockRidge, VolumeIdentifiers,
-};
+use hadris_iso::{BootEntry, BootInfo, ElTorito, Hybrid, IsoId, IsoOptions};
 
 use super::super::args::CreateArgs;
 
@@ -19,58 +16,56 @@ pub fn create(args: CreateArgs) -> Result<()> {
 
     let tree = read_source(&args.source)?;
 
-    let mut volume = VolumeIdentifiers::new(args.volume_name.clone());
-    if let Some(id) = &args.system_id {
-        volume = volume.with_system(id.clone());
-    }
-    if let Some(id) = &args.volume_set_id {
-        volume = volume.with_volume_set(id.clone());
-    }
-    if let Some(id) = &args.publisher_id {
-        volume = volume.with_publisher(id.clone());
-    }
-    if let Some(id) = &args.preparer_id {
-        volume = volume.with_preparer(id.clone());
-    }
-    if let Some(id) = &args.application_id {
-        volume = volume.with_application(id.clone());
-    }
-
     let mut options = IsoOptions::default()
-        .with_volume(volume)
         .with_level(args.level.level)
         .with_name_case(args.level.name_case)
         .with_time(build_time()?);
-    if args.strict_charset {
-        options = options.with_charset(Charset::Strict);
+    let ids = [
+        (IsoId::Volume, Some(&args.volume_name), true),
+        (IsoId::System, args.system_id.as_ref(), false),
+        (IsoId::VolumeSet, args.volume_set_id.as_ref(), true),
+        (IsoId::Publisher, args.publisher_id.as_ref(), false),
+        (IsoId::Preparer, args.preparer_id.as_ref(), false),
+        (IsoId::Application, args.application_id.as_ref(), false),
+    ];
+    for (id, value, d_chars) in ids {
+        if let Some(value) = value {
+            let value = if args.strict_charset {
+                strict(value, d_chars)
+            } else {
+                value.clone()
+            };
+            options = options.with_id(id, &value);
+        }
     }
     if args.joliet {
-        options = options.with_joliet(JolietLevel::L3);
+        options = options.with_joliet();
     }
     if args.rock_ridge {
-        options = options.with_rock_ridge(RockRidge::default());
+        options = options.with_rock_ridge();
     }
 
     if let Some(boot_path) = &args.boot {
-        let mut bios = BootEntry::new(normalize_path(boot_path));
+        let mut bios = BootEntry::bios(&normalize_path(boot_path));
         if args.boot_load_size != 0 {
             bios = bios.with_load_size(args.boot_load_size);
         }
         if args.boot_info_table {
-            bios = bios.with_boot_info_table(BootInfo::Standard);
+            bios = bios.with_boot_info(BootInfo::Table);
         }
-        let mut el_torito = ElTorito::new(bios).with_catalog_path(CATALOG_PATH);
+        let mut el_torito = ElTorito::new()
+            .with_entry(bios)
+            .with_catalog_path(CATALOG_PATH);
         if let Some(efi_path) = &args.efi_boot {
-            el_torito = el_torito
-                .with_entry(BootEntry::new(normalize_path(efi_path)).with_platform(Platform::Efi));
+            el_torito = el_torito.with_entry(BootEntry::uefi(&normalize_path(efi_path)));
         }
         options = options.with_el_torito(el_torito);
     }
 
     let hybrid = match (args.hybrid_mbr, args.hybrid_gpt) {
-        (true, true) => Some(HybridBoot::hybrid()),
-        (false, true) => Some(HybridBoot::gpt()),
-        (true, false) => Some(HybridBoot::mbr()),
+        (true, true) => Some(Hybrid::gpt_hybrid_mbr()),
+        (false, true) => Some(Hybrid::gpt()),
+        (true, false) => Some(Hybrid::mbr()),
         (false, false) => None,
     };
     if let Some(hybrid) = hybrid {
@@ -101,4 +96,23 @@ pub fn create(args: CreateArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// `id` in the ECMA-119 d-characters, or a-characters without `d_chars`:
+/// lowercase becomes uppercase and other characters `_`.
+fn strict(id: &str, d_chars: bool) -> String {
+    id.chars()
+        .map(|ch| {
+            let ch = ch.to_ascii_uppercase();
+            if ch.is_ascii_uppercase()
+                || ch.is_ascii_digit()
+                || ch == '_'
+                || (!d_chars && " !\"%&'()*+,-./:;<=>?".contains(ch))
+            {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }

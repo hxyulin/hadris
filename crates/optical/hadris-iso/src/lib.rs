@@ -160,8 +160,8 @@ pub use namespace::{JolietLevel, Namespace, Namespaces};
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub use options::{
-    BootEntry, BootInfo, Charset, ElTorito, HybridBoot, IsoLevel, IsoOptions, NameCase,
-    PartitionScheme, Preserve, Relocation, RockRidge, SessionMode, VolumeIdentifiers,
+    AppendedPartition, BootEntry, BootInfo, ElTorito, Hybrid, IsoDate, IsoId, IsoLevel, IsoOptions,
+    NameCase, Preserve, Relocation, SessionMode,
 };
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]

@@ -11,13 +11,10 @@ use hadris_fs::host::{self, OnError, TreeOptions};
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{Clock, DirCursor, FileType, NodeId, OpenMode, Resolve, SystemClock, WarningKind};
 use hadris_iso::sync::IsoFs;
-use hadris_iso::{
-    BootEntry, BootInfo, ElTorito, HybridBoot, JolietLevel, Namespace, Platform, RockRidge,
-    VolumeIdentifiers,
-};
+use hadris_iso::{BootEntry, BootInfo, ElTorito, Hybrid, IsoId, Namespace};
 use hadris_storage::host::FileDevice;
-use hadris_udf::UdfRevision;
 use hadris_udf::sync::UdfFs;
+use hadris_udf::{UdfId, UdfRevision};
 
 mod output;
 
@@ -159,29 +156,29 @@ fn create(args: CreateArgs) -> Result<()> {
     let mut iso = defaults
         .iso()
         .clone()
-        .with_volume(VolumeIdentifiers::new(args.volume_name.clone()));
+        .with_id(IsoId::Volume, &args.volume_name);
     if args.no_joliet {
         iso = hadris_cd::IsoOptions::default()
-            .with_volume(VolumeIdentifiers::new(args.volume_name.clone()))
+            .with_id(IsoId::Volume, &args.volume_name)
             .with_level(defaults.iso().level())
-            .with_enhanced_tree();
+            .with_iso1999();
     } else {
-        iso = iso.with_joliet(JolietLevel::L3);
+        iso = iso.with_joliet();
     }
     if args.rock_ridge {
-        iso = iso.with_rock_ridge(RockRidge::default());
+        iso = iso.with_rock_ridge();
     }
     if let Some(el_torito) = boot_options(&args) {
         iso = iso.with_el_torito(el_torito);
     }
     match (args.hybrid_mbr, args.hybrid_gpt) {
-        (true, true) => iso = iso.with_hybrid(HybridBoot::hybrid()),
-        (true, false) => iso = iso.with_hybrid(HybridBoot::mbr()),
-        (false, true) => iso = iso.with_hybrid(HybridBoot::gpt()),
+        (true, true) => iso = iso.with_hybrid(Hybrid::gpt_hybrid_mbr()),
+        (true, false) => iso = iso.with_hybrid(Hybrid::mbr()),
+        (false, true) => iso = iso.with_hybrid(Hybrid::gpt()),
         (false, false) => {}
     }
     let udf = UdfOptions::default()
-        .with_volume_id(args.volume_name.clone())
+        .with_id(UdfId::Volume, &args.volume_name)
         .with_revision(args.udf_revision.0);
     let options = CdOptions::default()
         .with_iso(iso)
@@ -209,18 +206,18 @@ fn boot_options(args: &CreateArgs) -> Option<ElTorito> {
     let efi = args
         .efi_boot
         .as_ref()
-        .map(|efi| BootEntry::new(normalize(efi)).with_platform(Platform::Efi));
+        .map(|efi| BootEntry::uefi(&normalize(efi)));
     let Some(bios) = &args.boot else {
-        return efi.map(ElTorito::new);
+        return efi.map(|efi| ElTorito::new().with_entry(efi));
     };
-    let mut bios = BootEntry::new(normalize(bios));
+    let mut bios = BootEntry::bios(&normalize(bios));
     if args.boot_load_size != 0 {
         bios = bios.with_load_size(args.boot_load_size);
     }
     if args.boot_info_table {
-        bios = bios.with_boot_info_table(BootInfo::Standard);
+        bios = bios.with_boot_info(BootInfo::Table);
     }
-    let mut el_torito = ElTorito::new(bios);
+    let mut el_torito = ElTorito::new().with_entry(bios);
     if let Some(efi) = efi {
         el_torito = el_torito.with_entry(efi);
     }

@@ -32,9 +32,7 @@ pub(crate) struct BridgePlan {
 
 /// The ISO 9660 volume descriptors `opts` writes, the terminator included.
 fn iso_descriptors(opts: &IsoOptions) -> u32 {
-    2 + u32::from(opts.joliet().is_some())
-        + u32::from(opts.has_enhanced_tree())
-        + u32::from(opts.el_torito().is_some())
+    2 + u32::from(opts.joliet()) + u32::from(opts.iso1999()) + u32::from(opts.el_torito().is_some())
 }
 
 /// The files of `tree` as the extents the ISO 9660 writer stores them in,

@@ -6,13 +6,13 @@ mod common;
 use common::{image, sample};
 use hadris_fs::MountOptions;
 use hadris_iso::sync::IsoFs;
-use hadris_iso::{IsoOptions, JolietLevel, Namespace, RockRidge};
+use hadris_iso::{IsoOptions, Namespace};
 
 fn options() -> IsoOptions {
     IsoOptions::default()
-        .with_joliet(JolietLevel::L3)
-        .with_rock_ridge(RockRidge::default())
-        .with_enhanced_tree()
+        .with_joliet()
+        .with_rock_ridge()
+        .with_iso1999()
 }
 
 #[test]

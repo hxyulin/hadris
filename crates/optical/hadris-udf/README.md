@@ -60,14 +60,14 @@ gives it paths, shared access and `File` handles.
 ```rust,no_run
 use hadris_fs::{Content, Node, Tree, host};
 use hadris_udf::sync::write;
-use hadris_udf::{UdfOptions, UdfRevision};
+use hadris_udf::{UdfId, UdfOptions, UdfRevision};
 
 let mut tree = Tree::new();
 tree.insert("readme.txt", Node::file(Content::bytes("Hello, World!"))).unwrap();
 tree.insert("video.bin", Node::file(host::file("/data/video.bin").unwrap())).unwrap();
 
 let options = UdfOptions::default()
-    .with_volume_id("MY_DISC")
+    .with_id(UdfId::Volume, "MY_DISC")
     .with_revision(UdfRevision::V2_01);
 let out = hadris_storage::host::FileDevice::new(std::fs::File::create("disc.udf").unwrap()).unwrap();
 let report = write(out, &tree, &options).unwrap();

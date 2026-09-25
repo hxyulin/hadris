@@ -8,7 +8,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{Content, Node, Tree};
 use hadris_fs::{OpenMode, Resolve};
-use hadris_iso::{IsoLevel, IsoOptions, Namespace, RockRidge};
+use hadris_iso::{IsoLevel, IsoOptions, Namespace};
 use hadris_storage::{BlockIndex, BlockSize};
 use hadris_tests::harness::command::{require_or_skip, run_command};
 use hadris_tests::harness::tree::EntryData;
@@ -222,7 +222,7 @@ fn rock_ridge_covers_every_extent_of_a_large_file() {
         .unwrap();
     let options = IsoOptions::default()
         .with_level(IsoLevel::L3)
-        .with_rock_ridge(RockRidge::default());
+        .with_rock_ridge();
     let path = temp.path().join("large.iso");
     let file = File::options()
         .read(true)

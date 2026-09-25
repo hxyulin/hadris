@@ -6,10 +6,7 @@
 //! ```
 
 use hadris_fs::{Content, Node, Tree};
-use hadris_iso::{
-    BootEntry, BootInfo, ElTorito, HybridBoot, IsoLevel, IsoOptions, JolietLevel, Platform,
-    RockRidge, VolumeIdentifiers,
-};
+use hadris_iso::{BootEntry, BootInfo, ElTorito, Hybrid, IsoId, IsoLevel, IsoOptions};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = std::env::args()
@@ -28,20 +25,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     let options = IsoOptions::default()
-        .with_volume(VolumeIdentifiers::new("HADRIS_BOOT"))
+        .with_id(IsoId::Volume, "HADRIS_BOOT")
         .with_level(IsoLevel::L3)
-        .with_joliet(JolietLevel::L3)
-        .with_rock_ridge(RockRidge::default())
+        .with_joliet()
+        .with_rock_ridge()
         .with_el_torito(
-            ElTorito::new(
-                BootEntry::new("boot/bios.img")
-                    .with_load_size(4)
-                    .with_boot_info_table(BootInfo::Standard),
-            )
-            .with_entry(BootEntry::new("boot/efi.img").with_platform(Platform::Efi))
-            .with_catalog_path("boot/boot.cat"),
+            ElTorito::new()
+                .with_entry(
+                    BootEntry::bios("boot/bios.img")
+                        .with_load_size(4)
+                        .with_boot_info(BootInfo::Table),
+                )
+                .with_entry(BootEntry::uefi("boot/efi.img"))
+                .with_catalog_path("boot/boot.cat"),
         )
-        .with_hybrid(HybridBoot::hybrid());
+        .with_hybrid(Hybrid::gpt_hybrid_mbr());
 
     let file = std::fs::File::options()
         .read(true)

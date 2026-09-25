@@ -10,6 +10,19 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-iso (V3):** Appended partitions: `Hybrid::with_appended(AppendedPartition::esp(content))`
+  stores a partition after the files and lists it in the GPT, and
+  `BootEntry::uefi_appended(index)` boots it from El Torito, so an EFI
+  system partition is stored once (BUILD-ESP-01). The first appended
+  partition is the GPT's EFI system partition.
+- **hadris-iso (V3):** `IsoId` and `IsoDate` with `IsoOptions::with_id`
+  and `with_date` set every descriptor identifier, the copyright, abstract
+  and bibliographic file identifiers included, and every descriptor date.
+- **hadris-udf (V3):** `UdfOptions::with_seed`. The volume set identifier
+  starts with a 16-digit serial derived from the seed or the time and the
+  tree, as UDF 2.2.2.5 asks. `UdfId` with `with_id` sets the volume, volume
+  set, logical volume and file set identifiers separately.
+
 - **hadris-fat, hadris-fat-raw (V3):** `MountOptions::backup_boot` mounts
   a FAT32 volume read-only from its backup boot sector (sector 6) and an
   exFAT volume read-only from its backup boot region, without trying the
@@ -620,6 +633,22 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-iso (V3):** The option reshape of 5.2. `with_joliet()` and
+  `with_rock_ridge()` take no argument; `with_relocation` and
+  `with_preserve` are on `IsoOptions`, and `Relocation::Reject` is
+  `Refuse`; `with_enhanced_tree` is `with_iso1999`. `ElTorito::new()`
+  starts empty and takes entries with `with_entry`; a catalog without
+  entries fails with `Detail::BootImage`. `BootEntry::bios(path)`,
+  `uefi(path)` and `uefi_appended(index)` replace `BootEntry::new`,
+  `with_boot_info(BootInfo::Table)` replaces
+  `with_boot_info_table(BootInfo::Standard)`, and `image()` returns
+  `Option<&str>`. `HybridBoot` is `Hybrid` with `mbr`, `gpt` and
+  `gpt_hybrid_mbr`; `with_bootstrap` takes `&[u8]`. Identifiers are stored
+  as given and only their length is checked.
+- **hadris-udf (V3):** A volume identifier longer than the 30 bytes of its
+  field fails with `Detail::Identifier` instead of being cut; the logical
+  volume keeps 126.
+
 - **hadris-iso (V3):** `IsoImage` and `IsoView` merge into `IsoFs`, which
   mounts like every other driver: `IsoFs::mount(dev, MountOptions)` reads
   the most capable tree (Rock Ridge, then Joliet, then the enhanced tree,
@@ -1205,6 +1234,13 @@ Each published package owns its version and may be released independently.
 - **hadris (V3):** Re-exports `hadris-io` as `hadris::io`.
 
 ### Removed
+
+- **hadris-iso (V3):** `VolumeIdentifiers`, `RockRidge`, `Charset` with
+  `with_charset`, `PartitionScheme`, `HybridBoot::with_efi_partition` and
+  `JolietLevel` as a writer option. Use `with_id`, `with_rock_ridge`, an
+  appended partition, and `with_joliet()`, which writes level 3.
+- **hadris-udf (V3):** `UdfOptions::with_volume_id` and `volume_id`; use
+  `with_id(UdfId::Volume, ..)` and `id`.
 
 - **hadris-fs (V3):** `FileTimes`, `SetMetadata` and `DeviceKind`, with
   the old `tree` module (`add_file`, `add_dir`, `add_symlink`,

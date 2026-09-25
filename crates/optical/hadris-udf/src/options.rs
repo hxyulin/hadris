@@ -4,6 +4,32 @@ use hadris_fs::{DateTime, NoClock};
 
 use crate::UdfRevision;
 
+/// A text identifier of the volume, stored in OSTA Compressed Unicode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum UdfId {
+    /// The volume name in the primary volume descriptor, up to 30 bytes;
+    /// `UDF_VOLUME` by default. It is also the default of
+    /// [`LogicalVolume`](Self::LogicalVolume) and [`FileSet`](Self::FileSet).
+    Volume,
+    /// The volume set, up to 126 bytes. UDF 2.2.2.5 asks for 16 unique
+    /// characters first; by default they are the hexadecimal volume serial
+    /// derived from the seed or the time and the tree, followed by the
+    /// volume name.
+    VolumeSet,
+    /// The logical volume, up to 126 bytes, which most systems show as the
+    /// volume label.
+    LogicalVolume,
+    /// The file set, up to 30 bytes.
+    FileSet,
+}
+
+impl UdfId {
+    const fn index(self) -> usize {
+        self as usize
+    }
+}
+
 /// Options for writing a UDF volume.
 ///
 /// The defaults write a UDF 1.02 volume named `UDF_VOLUME`, dated
@@ -11,28 +37,32 @@ use crate::UdfRevision;
 /// bytes.
 ///
 /// ```rust
-/// use hadris_udf::{UdfOptions, UdfRevision};
+/// use hadris_udf::{UdfId, UdfOptions, UdfRevision};
 ///
-/// let options = UdfOptions::default()
-///     .with_volume_id("MOVIES")
+/// let options = UdfOptions::new()
+///     .with_id(UdfId::Volume, "MOVIES")
 ///     .with_revision(UdfRevision::V2_01);
-/// assert_eq!(options.volume_id(), "MOVIES");
+/// assert_eq!(options.id(UdfId::Volume), Some("MOVIES"));
 /// ```
 #[derive(Debug, Clone)]
 pub struct UdfOptions {
-    volume_id: String,
+    ids: [Option<String>; 4],
     revision: UdfRevision,
     min_blocks: u64,
     time: DateTime,
+    seed: Option<u64>,
 }
 
 impl Default for UdfOptions {
     fn default() -> Self {
+        let mut ids = [const { None }; 4];
+        ids[UdfId::Volume.index()] = Some(String::from("UDF_VOLUME"));
         Self {
-            volume_id: String::from("UDF_VOLUME"),
+            ids,
             revision: UdfRevision::V1_02,
             min_blocks: 0,
             time: NoClock::TIME,
+            seed: None,
         }
     }
 }
@@ -43,14 +73,12 @@ impl UdfOptions {
         Self::default()
     }
 
-    /// Sets the volume identifier. It names the logical volume and the file
-    /// set, up to 126 bytes of OSTA Compressed Unicode, and is cut to 30
-    /// bytes for the primary volume descriptor and file set identifier.
-    pub fn with_volume_id(self, volume_id: impl Into<String>) -> Self {
-        Self {
-            volume_id: volume_id.into(),
-            ..self
-        }
+    /// Sets an identifier. One longer than its field fails the plan with
+    /// [`Detail::Identifier`](crate::Detail::Identifier); characters
+    /// outside Latin-1 take two bytes each.
+    pub fn with_id(mut self, id: UdfId, value: &str) -> Self {
+        self.ids[id.index()] = Some(String::from(value));
+        self
     }
 
     /// Sets the UDF revision the volume records: 1.02 to 2.01. 2.00 and
@@ -64,7 +92,8 @@ impl UdfOptions {
     }
 
     /// Makes the volume at least `blocks` 2048-byte blocks long; the
-    /// partition then runs to the anchor 257 blocks before the end.
+    /// partition then runs to the anchor 257 blocks before the end, leaving
+    /// free space after the files.
     pub fn with_min_blocks(self, blocks: u64) -> Self {
         Self {
             min_blocks: blocks,
@@ -78,9 +107,20 @@ impl UdfOptions {
         Self { time, ..self }
     }
 
-    /// The volume identifier.
-    pub fn volume_id(&self) -> &str {
-        &self.volume_id
+    /// Sets the seed the volume serial derives from, with the tree's
+    /// paths, sizes and times. Without one it derives from the time and the
+    /// tree, so the same inputs give the same volume and different trees
+    /// different serials. [`UdfId::VolumeSet`] overrides it.
+    pub fn with_seed(self, seed: u64) -> Self {
+        Self {
+            seed: Some(seed),
+            ..self
+        }
+    }
+
+    /// An identifier as set, or `None` when it takes its default.
+    pub fn id(&self, id: UdfId) -> Option<&str> {
+        self.ids[id.index()].as_deref()
     }
 
     /// The UDF revision.
@@ -96,5 +136,10 @@ impl UdfOptions {
     /// The time that dates the volume and the entries without times.
     pub fn time(&self) -> DateTime {
         self.time
+    }
+
+    /// The seed of the volume serial, if set.
+    pub fn seed(&self) -> Option<u64> {
+        self.seed
     }
 }

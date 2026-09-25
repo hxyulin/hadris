@@ -14,7 +14,7 @@ use hadris_fs::{
 
 use crate::error::{Detail, Error};
 use crate::name::{encode_cs0, encode_symlink, write_dstring};
-use crate::options::UdfOptions;
+use crate::options::{UdfId, UdfOptions};
 use crate::raw::{
     self, CharSpec, EntityId, FileCharacteristics, IcbFlags, ShortAd, Tag, Timestamp, U16Le, U32Le,
     U64Le, file_type, tag,
@@ -119,6 +119,8 @@ fn block_of(value: u64) -> PlanResult<u32> {
 
 struct Planner<'a> {
     opts: &'a UdfOptions,
+    /// The identifiers, by `UdfId`, defaults resolved.
+    ids: [String; 4],
     contents: &'a BTreeMap<usize, ContentInfo>,
     measured: bool,
     now: Timestamp,
@@ -366,8 +368,8 @@ impl Planner<'_> {
         Tag::seal(buf, id, self.version, location, crc_length.min(496));
     }
 
-    fn volume_id(&self, field: &mut [u8]) {
-        write_dstring(field, self.opts.volume_id());
+    fn id(&self, id: UdfId, field: &mut [u8]) {
+        write_dstring(field, &self.ids[id as usize]);
     }
 
     fn anchor(&self, location: u32) -> Vec<u8> {
@@ -384,14 +386,14 @@ impl Planner<'_> {
 
     fn primary(&self, location: u32) -> Vec<u8> {
         let mut buf = self.sector();
-        self.volume_id(&mut buf[24..56]);
+        self.id(UdfId::Volume, &mut buf[24..56]);
         put(&mut buf, 56, &1u16.to_le_bytes());
         put(&mut buf, 58, &1u16.to_le_bytes());
         put(&mut buf, 60, &2u16.to_le_bytes());
         put(&mut buf, 62, &3u16.to_le_bytes());
         put(&mut buf, 64, &1u32.to_le_bytes());
         put(&mut buf, 68, &1u32.to_le_bytes());
-        self.volume_id(&mut buf[72..200]);
+        self.id(UdfId::VolumeSet, &mut buf[72..200]);
         charspec(&mut buf[200..264]);
         charspec(&mut buf[264..328]);
         entity(&mut buf[344..376], IMPLEMENTATION);
@@ -406,7 +408,7 @@ impl Planner<'_> {
         put(&mut buf, 16, &1u32.to_le_bytes());
         entity(&mut buf[20..52], b"*UDF LV Info");
         charspec(&mut buf[52..116]);
-        self.volume_id(&mut buf[116..244]);
+        self.id(UdfId::LogicalVolume, &mut buf[116..244]);
         self.seal(&mut buf, tag::IMPLEMENTATION_USE, location, 496);
         buf
     }
@@ -433,7 +435,7 @@ impl Planner<'_> {
         let mut buf = self.sector();
         put(&mut buf, 16, &3u32.to_le_bytes());
         charspec(&mut buf[20..84]);
-        self.volume_id(&mut buf[84..212]);
+        self.id(UdfId::LogicalVolume, &mut buf[84..212]);
         put(&mut buf, 212, &(SECTOR as u32).to_le_bytes());
         self.domain(&mut buf[216..248]);
         let fsd = raw::LongAd {
@@ -501,9 +503,9 @@ impl Planner<'_> {
         put(&mut buf, 32, &1u32.to_le_bytes());
         put(&mut buf, 36, &1u32.to_le_bytes());
         charspec(&mut buf[48..112]);
-        self.volume_id(&mut buf[112..240]);
+        self.id(UdfId::LogicalVolume, &mut buf[112..240]);
         charspec(&mut buf[240..304]);
-        self.volume_id(&mut buf[304..336]);
+        self.id(UdfId::FileSet, &mut buf[304..336]);
         let root = raw::LongAd {
             length: U32Le::new(SECTOR as u32),
             location: raw::LbAddr {
@@ -742,6 +744,38 @@ pub fn plan(tree: &Tree, opts: &UdfOptions) -> Result<Report, PathError> {
     Ok(lay_out(tree, opts, &contents, true, None)?.report)
 }
 
+/// The identifiers of `opts` with their defaults, checked against their
+/// fields.
+fn identifiers(tree: &Tree, opts: &UdfOptions) -> PlanResult<[String; 4]> {
+    let volume = String::from(opts.id(UdfId::Volume).unwrap_or(""));
+    let serial = {
+        let time = opts.time();
+        let base = opts
+            .seed()
+            .unwrap_or((time.unix_seconds() as u64) ^ (u64::from(time.nanoseconds()) << 32));
+        base.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ tree.fingerprint()
+    };
+    let or = |id, default: &str| String::from(opts.id(id).unwrap_or(default));
+    let ids = [
+        volume.clone(),
+        or(UdfId::VolumeSet, &alloc::format!("{serial:016X}{volume}")),
+        or(UdfId::LogicalVolume, &volume),
+        or(UdfId::FileSet, &volume),
+    ];
+    let mut field = [0u8; 128];
+    for (id, len) in [
+        (UdfId::Volume, 32),
+        (UdfId::VolumeSet, 128),
+        (UdfId::LogicalVolume, 128),
+        (UdfId::FileSet, 32),
+    ] {
+        if write_dstring(&mut field[..len], &ids[id as usize]) {
+            return Err(Detail::Identifier.invalid());
+        }
+    }
+    Ok(ids)
+}
+
 /// Plans the volume `opts` describes for `tree`. `contents` holds the
 /// length of every file, or, for a bridge volume, the stored extents;
 /// without `measured`, files missing from it get no data. `bridge` is the
@@ -756,13 +790,11 @@ pub(crate) fn lay_out(
     if opts.revision() >= crate::UdfRevision::V2_50 {
         return Err(Detail::PartitionMap.error(ErrorKind::Unsupported));
     }
-    let mut encoded = [0u8; 256];
-    if write_dstring(&mut encoded[..128], opts.volume_id()) {
-        return Err(Detail::Identifier.invalid());
-    }
+    let ids = identifiers(tree, opts)?;
     let now = from_datetime(opts.time()).ok_or(Detail::Timestamp.invalid())?;
     let mut planner = Planner {
         opts,
+        ids,
         contents,
         measured,
         now,

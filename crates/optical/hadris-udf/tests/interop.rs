@@ -12,7 +12,7 @@ use common::Paths;
 use common::{image, pattern};
 use hadris_fs::{Content, Node, Tree};
 use hadris_udf::sync::UdfFs;
-use hadris_udf::{UdfOptions, UdfRevision};
+use hadris_udf::{UdfId, UdfOptions, UdfRevision};
 
 fn tool(names: &[&'static str], probe: &str) -> Option<&'static str> {
     let found = names.iter().copied().find(|name| {
@@ -49,7 +49,7 @@ fn tree() -> Tree {
 
 fn write(dir: &Path, revision: UdfRevision) -> std::path::PathBuf {
     let options = UdfOptions::default()
-        .with_volume_id("INTEROP")
+        .with_id(UdfId::Volume, "INTEROP")
         .with_revision(revision);
     let path = dir.join(format!("hadris-{revision}.udf"));
     std::fs::write(&path, image(&tree(), &options)).unwrap();

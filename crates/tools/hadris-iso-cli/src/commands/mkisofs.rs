@@ -1,7 +1,4 @@
-use hadris_iso::{
-    BootEntry, BootInfo, ElTorito, HybridBoot, IsoOptions, JolietLevel, Platform, RockRidge,
-    VolumeIdentifiers,
-};
+use hadris_iso::{BootEntry, BootInfo, ElTorito, Hybrid, IsoId, IsoOptions};
 
 use super::super::args::MkisofsArgs;
 
@@ -20,31 +17,32 @@ pub fn mkisofs(args: MkisofsArgs) -> Result<()> {
 
     let volume = args.volume_name.as_deref().unwrap_or("CDROM");
     let mut options = IsoOptions::default()
-        .with_volume(VolumeIdentifiers::new(volume))
+        .with_id(IsoId::Volume, volume)
         .with_time(build_time()?);
     if args.joliet {
-        options = options.with_joliet(JolietLevel::L3);
+        options = options.with_joliet();
     }
     if args.rock_ridge {
-        options = options.with_rock_ridge(RockRidge::default());
+        options = options.with_rock_ridge();
     }
 
     if let Some(boot_path) = &args.boot_image {
-        let mut bios = BootEntry::new(normalize_path(boot_path))
+        let mut bios = BootEntry::bios(&normalize_path(boot_path))
             .with_load_size(args.boot_load_size.unwrap_or(4));
         if args.boot_info_table {
-            bios = bios.with_boot_info_table(BootInfo::Standard);
+            bios = bios.with_boot_info(BootInfo::Table);
         }
-        let mut el_torito = ElTorito::new(bios).with_catalog_path(CATALOG_PATH);
+        let mut el_torito = ElTorito::new()
+            .with_entry(bios)
+            .with_catalog_path(CATALOG_PATH);
         if let Some(efi_path) = &args.efi_boot {
-            el_torito = el_torito
-                .with_entry(BootEntry::new(normalize_path(efi_path)).with_platform(Platform::Efi));
+            el_torito = el_torito.with_entry(BootEntry::uefi(&normalize_path(efi_path)));
         }
         options = options.with_el_torito(el_torito);
     }
 
     if let Some(mbr) = &args.isohybrid_mbr {
-        options = options.with_hybrid(HybridBoot::mbr().with_bootstrap(std::fs::read(mbr)?));
+        options = options.with_hybrid(Hybrid::mbr().with_bootstrap(&std::fs::read(mbr)?));
     }
 
     let report = write_image(&output_path, &tree, &options, false)?;

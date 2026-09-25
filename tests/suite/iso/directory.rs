@@ -3,7 +3,7 @@
 use std::fs;
 
 use hadris_fs::{Content, Node, Tree};
-use hadris_iso::{IsoOptions, Namespace, VolumeIdentifiers};
+use hadris_iso::{IsoId, IsoOptions, Namespace};
 use hadris_tests::iso::hadris::write_tree;
 use hadris_tests::iso::xorriso;
 use tempfile::TempDir;
@@ -102,7 +102,7 @@ fn test_multi_sector_directory() {
         )
         .unwrap();
     }
-    let options = IsoOptions::default().with_volume(VolumeIdentifiers::new("MULTISECTOR"));
+    let options = IsoOptions::default().with_id(IsoId::Volume, "MULTISECTOR");
     let bytes = write_tree(&tree, &options).expect("Failed to create ISO");
 
     let mut view = open_ns(bytes, Namespace::Primary);

@@ -11,8 +11,8 @@ use hadris_fs::{Content, Node, Tree, WarningKind};
 use hadris_fs::{ErrorKind, NodeId};
 use hadris_iso::sync::IsoFs;
 use hadris_iso::{
-    BootEntry, BootInfo, Detail, ElTorito, Emulation, HybridBoot, IsoOptions, NameCase, Namespace,
-    Platform, Relocation, RockRidge, VolumeIdentifiers,
+    AppendedPartition, BootEntry, BootInfo, Detail, ElTorito, Emulation, Hybrid, IsoId, IsoOptions,
+    NameCase, Namespace, Relocation,
 };
 use hadris_storage::MemDevice;
 
@@ -43,7 +43,8 @@ fn refused(tree: &Tree, options: &IsoOptions) -> (ErrorKind, Option<Detail>) {
 #[test]
 fn bad_options_are_refused_before_writing() {
     let tree = sample(false, false);
-    let missing = IsoOptions::default().with_el_torito(ElTorito::new(BootEntry::new("nope.img")));
+    let missing = IsoOptions::default()
+        .with_el_torito(ElTorito::new().with_entry(BootEntry::bios("nope.img")));
     assert_eq!(
         refused(&tree, &missing),
         (ErrorKind::InvalidInput, Some(Detail::BootImage))
@@ -54,35 +55,56 @@ fn bad_options_are_refused_before_writing() {
             .unwrap();
         tree
     };
-    let info = IsoOptions::default().with_el_torito(ElTorito::new(
-        BootEntry::new("tiny.img").with_boot_info_table(BootInfo::Grub2),
-    ));
+    let info = IsoOptions::default().with_el_torito(
+        ElTorito::new().with_entry(BootEntry::bios("tiny.img").with_boot_info(BootInfo::Grub2)),
+    );
     assert_eq!(
         refused(&small, &info),
         (ErrorKind::InvalidInput, Some(Detail::BootInfoTable))
     );
     let clash = IsoOptions::default().with_el_torito(
-        ElTorito::new(BootEntry::new("boot/boot.img")).with_catalog_path("readme.txt"),
+        ElTorito::new()
+            .with_entry(BootEntry::bios("boot/boot.img"))
+            .with_catalog_path("readme.txt"),
     );
     assert_eq!(
         refused(&tree, &clash),
         (ErrorKind::InvalidInput, Some(Detail::CatalogPath))
     );
-    let long = IsoOptions::default().with_volume(VolumeIdentifiers::new("X".repeat(33)));
+    let long = IsoOptions::default().with_id(IsoId::Volume, &"X".repeat(33));
     assert_eq!(
         refused(&tree, &long),
         (ErrorKind::InvalidInput, Some(Detail::Identifier))
     );
-    let efi =
-        IsoOptions::default().with_hybrid(HybridBoot::gpt().with_efi_partition("missing.img"));
+    let empty = IsoOptions::default()
+        .with_hybrid(Hybrid::gpt().with_appended(AppendedPartition::esp(Content::empty())));
     assert_eq!(
-        refused(&tree, &efi),
+        refused(&tree, &empty),
         (ErrorKind::InvalidInput, Some(Detail::HybridBoot))
+    );
+    let esp = || AppendedPartition::esp(Content::bytes(vec![0xEF; 4096]));
+    let mbr = IsoOptions::default().with_hybrid(Hybrid::mbr().with_appended(esp()));
+    assert_eq!(
+        refused(&tree, &mbr),
+        (ErrorKind::InvalidInput, Some(Detail::HybridBoot))
+    );
+    let unknown = IsoOptions::default()
+        .with_el_torito(ElTorito::new().with_entry(BootEntry::uefi_appended(1)))
+        .with_hybrid(Hybrid::gpt().with_appended(esp()));
+    assert_eq!(
+        refused(&tree, &unknown),
+        (ErrorKind::InvalidInput, Some(Detail::BootImage))
+    );
+    let catalog = IsoOptions::default().with_el_torito(ElTorito::new());
+    assert_eq!(
+        refused(&tree, &catalog),
+        (ErrorKind::InvalidInput, Some(Detail::BootImage))
     );
 
     let deep = sample(true, true);
     let reject = IsoOptions::default()
-        .with_rock_ridge(RockRidge::default().with_relocation(Relocation::Reject));
+        .with_rock_ridge()
+        .with_relocation(Relocation::Refuse);
     assert_eq!(
         refused(&deep, &reject),
         (ErrorKind::InvalidInput, Some(Detail::Relocation))
@@ -91,13 +113,14 @@ fn bad_options_are_refused_before_writing() {
     taken
         .insert("rr_moved", Node::file(Content::empty()))
         .unwrap();
-    let relocate = IsoOptions::default().with_rock_ridge(RockRidge::default());
+    let relocate = IsoOptions::default().with_rock_ridge();
     assert_eq!(
         refused(&taken, &relocate),
         (ErrorKind::InvalidInput, Some(Detail::Relocation))
     );
     let named = IsoOptions::default()
-        .with_rock_ridge(RockRidge::default().with_relocation(Relocation::DotRrMoved));
+        .with_rock_ridge()
+        .with_relocation(Relocation::DotRrMoved);
     let mut iso = image(&taken, &named);
     let mut view =
         IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::RockRidge).unwrap();
@@ -110,17 +133,18 @@ fn bad_options_are_refused_before_writing() {
 #[test]
 fn boot_options_are_checked_against_the_images() {
     let tree = sample(false, false);
-    let el_torito = || ElTorito::new(BootEntry::new("boot/boot.img").with_load_size(4));
+    let el_torito =
+        || ElTorito::new().with_entry(BootEntry::bios("boot/boot.img").with_load_size(4));
     let bootstrap = IsoOptions::default()
         .with_el_torito(el_torito())
-        .with_hybrid(HybridBoot::mbr().with_bootstrap(vec![0x90u8; 447]));
+        .with_hybrid(Hybrid::mbr().with_bootstrap(&[0x90u8; 447]));
     assert_eq!(
         refused(&tree, &bootstrap),
         (ErrorKind::LimitExceeded, Some(Detail::HybridBoot))
     );
     let fits = IsoOptions::default()
         .with_el_torito(el_torito())
-        .with_hybrid(HybridBoot::mbr().with_bootstrap(vec![0x90u8; 446]));
+        .with_hybrid(Hybrid::mbr().with_bootstrap(&[0x90u8; 446]));
     let mut iso = image(&tree, &fits);
     let mut mbr = [0u8; 512];
     IsoFs::mount(&mut iso, MountOptions::new())
@@ -129,16 +153,17 @@ fn boot_options_are_checked_against_the_images() {
         .unwrap();
     assert!(mbr[..446].iter().all(|&byte| byte == 0x90));
 
-    let zero = IsoOptions::default().with_el_torito(ElTorito::new(
-        BootEntry::new("boot/boot.img").with_load_size(0),
-    ));
+    let zero = IsoOptions::default().with_el_torito(
+        ElTorito::new().with_entry(BootEntry::bios("boot/boot.img").with_load_size(0)),
+    );
     assert_eq!(
         refused(&tree, &zero),
         (ErrorKind::InvalidInput, Some(Detail::BootImage))
     );
-    let floppy = IsoOptions::default().with_el_torito(ElTorito::new(
-        BootEntry::new("boot/boot.img").with_emulation(Emulation::Floppy144),
-    ));
+    let floppy = IsoOptions::default().with_el_torito(
+        ElTorito::new()
+            .with_entry(BootEntry::bios("boot/boot.img").with_emulation(Emulation::Floppy144)),
+    );
     assert_eq!(
         refused(&tree, &floppy),
         (ErrorKind::InvalidInput, Some(Detail::BootImage))
@@ -149,14 +174,15 @@ fn boot_options_are_checked_against_the_images() {
         Node::file(Content::bytes(vec![0u8; 1_474_560])),
     )
     .unwrap();
-    let floppy = IsoOptions::default().with_el_torito(ElTorito::new(
-        BootEntry::new("floppy.img").with_emulation(Emulation::Floppy144),
-    ));
+    let floppy = IsoOptions::default().with_el_torito(
+        ElTorito::new()
+            .with_entry(BootEntry::bios("floppy.img").with_emulation(Emulation::Floppy144)),
+    );
     assert!(hadris_iso::plan(&disk, &floppy).is_ok());
 
-    let past = IsoOptions::default().with_el_torito(ElTorito::new(
-        BootEntry::new("boot/boot.img").with_load_size(9),
-    ));
+    let past = IsoOptions::default().with_el_torito(
+        ElTorito::new().with_entry(BootEntry::bios("boot/boot.img").with_load_size(9)),
+    );
     let report = hadris_iso::plan(&tree, &past).unwrap();
     assert!(
         report
@@ -178,10 +204,10 @@ fn boot_options_are_checked_against_the_images() {
     let two_efi = IsoOptions::default()
         .with_el_torito(
             el_torito()
-                .with_entry(BootEntry::new("boot/efi.img").with_platform(Platform::Efi))
-                .with_entry(BootEntry::new("boot/boot.img").with_platform(Platform::Efi)),
+                .with_entry(BootEntry::uefi("boot/efi.img"))
+                .with_entry(BootEntry::uefi("boot/boot.img")),
         )
-        .with_hybrid(HybridBoot::gpt());
+        .with_hybrid(Hybrid::gpt());
     let report = hadris_iso::plan(&tree, &two_efi).unwrap();
     assert!(
         report
@@ -194,10 +220,12 @@ fn boot_options_are_checked_against_the_images() {
     let named = IsoOptions::default()
         .with_el_torito(
             el_torito()
-                .with_entry(BootEntry::new("boot/efi.img").with_platform(Platform::Efi))
-                .with_entry(BootEntry::new("boot/boot.img").with_platform(Platform::Efi)),
+                .with_entry(BootEntry::uefi("boot/efi.img"))
+                .with_entry(BootEntry::uefi("boot/boot.img")),
         )
-        .with_hybrid(HybridBoot::gpt().with_efi_partition("boot/efi.img"));
+        .with_hybrid(
+            Hybrid::gpt().with_appended(AppendedPartition::esp(Content::bytes(vec![0xEF; 4096]))),
+        );
     assert!(
         hadris_iso::plan(&tree, &named)
             .unwrap()
@@ -439,7 +467,8 @@ fn relocation_names_libarchive_would_mistake_are_refused() {
     let options = |case: NameCase, container: Relocation| {
         IsoOptions::default()
             .with_name_case(case)
-            .with_rock_ridge(RockRidge::default().with_relocation(container))
+            .with_rock_ridge()
+            .with_relocation(container)
     };
     for (case, container, user) in [
         (NameCase::Preserve, Relocation::RrMoved, ".rr_moved"),

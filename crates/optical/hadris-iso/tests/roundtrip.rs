@@ -10,17 +10,18 @@ use hadris_fs::{Content, Field, Node, Tree, WarningKind};
 use hadris_fs::{DeviceNumber, ErrorKind, FileType, Permissions, Resolve};
 use hadris_iso::sync::IsoFs;
 use hadris_iso::{
-    BootEntry, BootInfo, ElTorito, Emulation, IsoLevel, IsoOptions, JolietLevel, NameCase,
-    Namespace, Platform, RockRidge, VolumeIdentifiers,
+    AppendedPartition, BootEntry, BootInfo, ElTorito, Emulation, Hybrid, IsoDate, IsoId, IsoLevel,
+    IsoOptions, JolietLevel, NameCase, Namespace, Platform,
 };
 
 fn full() -> IsoOptions {
     IsoOptions::default()
-        .with_volume(VolumeIdentifiers::new("ROUNDTRIP").with_publisher("hadris"))
+        .with_id(IsoId::Volume, "ROUNDTRIP")
+        .with_id(IsoId::Publisher, "hadris")
         .with_level(IsoLevel::L2)
-        .with_joliet(JolietLevel::L3)
-        .with_rock_ridge(RockRidge::default())
-        .with_enhanced_tree()
+        .with_joliet()
+        .with_rock_ridge()
+        .with_iso1999()
 }
 
 #[test]
@@ -272,13 +273,14 @@ fn lowercase_names_are_kept_on_request() {
 fn boot_catalogs_read_back() {
     let tree = sample(false, false);
     let options = IsoOptions::default().with_el_torito(
-        ElTorito::new(
-            BootEntry::new("boot/boot.img")
-                .with_load_size(4)
-                .with_boot_info_table(BootInfo::Standard),
-        )
-        .with_entry(BootEntry::new("boot/efi.img").with_platform(Platform::Efi))
-        .with_catalog_path("boot/boot.cat"),
+        ElTorito::new()
+            .with_entry(
+                BootEntry::bios("boot/boot.img")
+                    .with_load_size(4)
+                    .with_boot_info(BootInfo::Table),
+            )
+            .with_entry(BootEntry::uefi("boot/efi.img"))
+            .with_catalog_path("boot/boot.cat"),
     );
     let report = hadris_iso::plan(&tree, &options).unwrap();
     let mut iso = image(&tree, &options);
@@ -493,7 +495,7 @@ fn joliet_reports_the_names_it_changes() {
     ] {
         tree.insert(name, Node::file(Content::bytes("x"))).unwrap();
     }
-    let options = IsoOptions::default().with_joliet(JolietLevel::L3);
+    let options = IsoOptions::default().with_joliet();
     let report = hadris_iso::plan(&tree, &options).unwrap();
     let mut warned: Vec<_> = report
         .warnings()
@@ -523,10 +525,11 @@ fn the_tree_and_the_seed_or_the_time_decide_the_gpt_guids() {
     let tree = sample(false, false);
     let options = IsoOptions::default()
         .with_el_torito(
-            ElTorito::new(BootEntry::new("boot/boot.img"))
-                .with_entry(BootEntry::new("boot/efi.img").with_platform(Platform::Efi)),
+            ElTorito::new()
+                .with_entry(BootEntry::bios("boot/boot.img"))
+                .with_entry(BootEntry::uefi("boot/efi.img")),
         )
-        .with_hybrid(hadris_iso::HybridBoot::gpt());
+        .with_hybrid(hadris_iso::Hybrid::gpt());
     let guid_of = |tree: &Tree, options: &IsoOptions| {
         image(tree, options).into_inner()[512 + 56..512 + 72].to_vec()
     };
@@ -550,4 +553,106 @@ fn the_tree_and_the_seed_or_the_time_decide_the_gpt_guids() {
         disk_guid(&options.clone().with_seed(7).with_time(later)),
         seeded
     );
+}
+
+#[test]
+fn identifiers_and_dates_reach_the_descriptors() {
+    let tree = sample(false, false);
+    let created = hadris_fs::DateTime::from_unix_seconds(1_600_000_000).unwrap();
+    let expires = hadris_fs::DateTime::from_unix_seconds(1_900_000_000).unwrap();
+    let options = IsoOptions::new()
+        .with_id(IsoId::System, "LINUX")
+        .with_id(IsoId::Volume, "IDS")
+        .with_id(IsoId::VolumeSet, "SET")
+        .with_id(IsoId::Publisher, "PUB")
+        .with_id(IsoId::Preparer, "PREP")
+        .with_id(IsoId::Application, "")
+        .with_id(IsoId::CopyrightFile, "COPYING.TXT;1")
+        .with_id(IsoId::AbstractFile, "ABSTRACT.TXT;1")
+        .with_id(IsoId::BibliographicFile, "BIB.TXT;1")
+        .with_date(IsoDate::Created, created)
+        .with_date(IsoDate::Expires, expires)
+        .with_joliet();
+    assert_eq!(options.id(IsoId::Application), None);
+    assert_eq!(options.date(IsoDate::Modified), Some(options.time()));
+    assert_eq!(options.date(IsoDate::Effective), None);
+    let bytes = image(&tree, &options).into_inner();
+    let pvd = &bytes[16 * 2048..17 * 2048];
+    let field = |range: core::ops::Range<usize>| {
+        String::from_utf8(pvd[range].to_vec())
+            .unwrap()
+            .trim_end()
+            .to_string()
+    };
+    assert_eq!(field(8..40), "LINUX");
+    assert_eq!(field(40..72), "IDS");
+    assert_eq!(field(190..318), "SET");
+    assert_eq!(field(318..446), "PUB");
+    assert_eq!(field(446..574), "PREP");
+    assert_eq!(field(574..702), "");
+    assert_eq!(field(702..739), "COPYING.TXT;1");
+    assert_eq!(field(739..776), "ABSTRACT.TXT;1");
+    assert_eq!(field(776..813), "BIB.TXT;1");
+    assert_eq!(&pvd[813..829], b"2020091312264000");
+    assert_eq!(&pvd[830..846], b"1980010100000000");
+    assert_eq!(&pvd[847..863], b"2030031717464000");
+    assert_eq!(&pvd[864..880], b"0000000000000000");
+    let joliet = &bytes[17 * 2048..18 * 2048];
+    assert_eq!(&joliet[40..48], &[0, b'I', 0, b'D', 0, b'S', 0, b' ']);
+    assert_eq!(&joliet[813..829], b"2020091312264000");
+
+    let long = IsoOptions::new().with_id(IsoId::CopyrightFile, &"C".repeat(38));
+    let err = hadris_iso::plan(&tree, &long).unwrap_err();
+    assert_eq!(
+        err.detail().and_then(hadris_iso::Detail::from_code),
+        Some(hadris_iso::Detail::Identifier)
+    );
+}
+
+#[test]
+fn an_appended_esp_is_stored_once_for_el_torito_and_the_gpt() {
+    let tree = sample(false, false);
+    let esp = pattern(6000).into_iter().rev().collect::<Vec<u8>>();
+    let options = IsoOptions::new()
+        .with_el_torito(
+            ElTorito::new()
+                .with_entry(BootEntry::bios("boot/boot.img"))
+                .with_entry(BootEntry::uefi_appended(0)),
+        )
+        .with_hybrid(
+            Hybrid::gpt_hybrid_mbr()
+                .with_appended(AppendedPartition::esp(Content::bytes(esp.clone()))),
+        );
+    let report = hadris_iso::plan(&tree, &options).unwrap();
+    let mut iso = image(&tree, &options);
+    let catalog = IsoFs::mount(&mut iso, MountOptions::new())
+        .unwrap()
+        .boot_catalog()
+        .unwrap()
+        .unwrap();
+    let entries = catalog.entries();
+    assert_eq!(entries[1].platform(), Platform::Efi);
+    assert_eq!(entries[1].sector_count(), 12);
+    let start = u64::from(entries[1].load_block()) * 2048;
+    let bytes = iso.into_inner();
+    assert_eq!(&bytes[start as usize..start as usize + esp.len()], &esp[..]);
+    assert!(start + esp.len() as u64 <= report.size());
+    assert!(
+        report
+            .files()
+            .flat_map(|(_, extents)| extents)
+            .all(|extent| extent.end() <= start || extent.offset() >= start + 6144)
+    );
+
+    let disk = hadris_part::sync::read(&mut hadris_storage::MemDevice::new(
+        bytes,
+        hadris_storage::BlockSize::new(512).unwrap(),
+    ))
+    .unwrap();
+    let esp_part = disk
+        .partitions()
+        .find(|p| p.kind() == hadris_part::PartitionKind::Gpt(hadris_part::gpt::types::EFI_SYSTEM))
+        .unwrap();
+    assert_eq!(esp_part.start() * 512, start);
+    assert_eq!(esp_part.len() * 512, 6144);
 }

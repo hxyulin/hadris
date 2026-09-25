@@ -8,22 +8,20 @@ use common::{image, pattern, sample};
 use hadris_fs::MountOptions;
 use hadris_fs::{Content, Node};
 use hadris_iso::sync::{IsoFs, Session};
-use hadris_iso::{
-    BootEntry, BootInfo, ElTorito, HybridBoot, IsoOptions, JolietLevel, Namespace, Platform,
-    RockRidge, SessionMode,
-};
+use hadris_iso::{BootEntry, BootInfo, ElTorito, Hybrid, IsoOptions, Namespace, SessionMode};
 use hadris_storage::MemDevice;
 
 fn options() -> IsoOptions {
     IsoOptions::default()
-        .with_joliet(JolietLevel::L3)
-        .with_rock_ridge(RockRidge::default())
+        .with_joliet()
+        .with_rock_ridge()
         .with_el_torito(
-            ElTorito::new(BootEntry::new("boot/boot.img"))
-                .with_entry(BootEntry::new("boot/efi.img").with_platform(Platform::Efi))
+            ElTorito::new()
+                .with_entry(BootEntry::bios("boot/boot.img"))
+                .with_entry(BootEntry::uefi("boot/efi.img"))
                 .with_catalog_path("boot/boot.cat"),
         )
-        .with_hybrid(HybridBoot::hybrid())
+        .with_hybrid(Hybrid::gpt_hybrid_mbr())
 }
 
 fn grown(dev: MemDevice<Vec<u8>>) -> MemDevice<Vec<u8>> {
@@ -94,7 +92,7 @@ fn both_modes_write_changed_trees_back() {
             .unwrap();
         session.tree_mut().remove("docs/big.bin").unwrap();
         let opts = session.options();
-        assert!(opts.rock_ridge().is_some() && opts.joliet().is_some());
+        assert!(opts.rock_ridge() && opts.joliet());
         let first = session.write(&opts, mode).unwrap();
         session
             .tree_mut()
@@ -144,7 +142,7 @@ fn new_boot_options_replace_the_catalog() {
     assert!(session.tree().get("BOOT/BOOT.IMG").is_some());
     let opts = session
         .options()
-        .with_el_torito(ElTorito::new(BootEntry::new("BOOT/BOOT.IMG")));
+        .with_el_torito(ElTorito::new().with_entry(BootEntry::bios("BOOT/BOOT.IMG")));
     let report = session.write(&opts, SessionMode::Rewrite).unwrap();
     let mut iso = session.into_inner();
     let catalog = IsoFs::mount(&mut iso, MountOptions::new())
@@ -237,16 +235,15 @@ fn kept_catalogs_follow_replaced_boot_images() {
 #[test]
 fn replaced_boot_images_get_load_sizes_and_info_tables() {
     let tree = sample(false, false);
-    let opts = IsoOptions::default()
-        .with_rock_ridge(RockRidge::default())
-        .with_el_torito(
-            ElTorito::new(
-                BootEntry::new("boot/boot.img")
+    let opts = IsoOptions::default().with_rock_ridge().with_el_torito(
+        ElTorito::new()
+            .with_entry(
+                BootEntry::bios("boot/boot.img")
                     .with_load_size(4)
-                    .with_boot_info_table(BootInfo::Grub2),
+                    .with_boot_info(BootInfo::Grub2),
             )
-            .with_entry(BootEntry::new("boot/efi.img").with_platform(Platform::Efi)),
-        );
+            .with_entry(BootEntry::uefi("boot/efi.img")),
+    );
     for mode in [SessionMode::Append, SessionMode::Rewrite] {
         let mut session = Session::open(grown(image(&tree, &opts))).unwrap();
         let bios = pattern(10_001);
@@ -298,7 +295,7 @@ fn replaced_boot_images_get_load_sizes_and_info_tables() {
 fn appended_sessions_report_ignored_hybrid_options() {
     let tree = sample(false, false);
     let mut session = Session::open(grown(image(&tree, &IsoOptions::default()))).unwrap();
-    let opts = session.options().with_hybrid(HybridBoot::mbr());
+    let opts = session.options().with_hybrid(Hybrid::mbr());
     let report = session.write(&opts, SessionMode::Append).unwrap();
     assert!(
         report
@@ -315,7 +312,7 @@ fn appended_sessions_report_ignored_hybrid_options() {
 #[test]
 fn async_sessions_match_sync_ones() {
     let tree = sample(false, true);
-    let opts = IsoOptions::default().with_rock_ridge(RockRidge::default());
+    let opts = IsoOptions::default().with_rock_ridge();
     let dev = grown(image(&tree, &opts));
     let mut sync_session =
         Session::open(MemDevice::new(dev.get_ref().clone(), common::SECTOR)).unwrap();
