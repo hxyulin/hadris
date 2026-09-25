@@ -1545,7 +1545,7 @@ Removed (S2). Detection and opening move into the umbrella crate (5.9):
 - Re-exports `hadris-io`, `hadris-storage` and `hadris-fs`, and each format crate at a flat path behind a feature of its name (`hadris::fat`, `hadris::iso`, `hadris::udf`, `hadris::cpio`, `hadris::part`; `hadris::ntfs` behind `unstable-ntfs`).
 - `hadris::{sync, r#async}::{detect, open, AnyFs}` (5.8).
 - `hadris::host` (`std`, sync only, 4.15): `open(path)` detects and mounts read-only as `AnyFs<FileDevice>` with `host::mount_options()`; `FileDevice` (`open`, `new`, `into_inner`); `read_tree`, `write_tree`, `TreeOptions`, `Symlinks`, `OnError`; `file` and `source_date_epoch` for builders; `mount_options()` and `local_utc_offset()`, the host defaults of post-pass decision C; and `StdIo`. Its errors are `PathError` with the host path set.
-- The `hadris` binary replaces the five CLI crates, with subcommands `fat`, `iso`, `udf`, `cpio` and `detect` and one set of flags, overwrite rules and output handling (S1). The 2.x binary names are not installed.
+- The `hadris` binary (the `hadris-cli` package, Q15) replaces the five CLI crates, with subcommands `fat`, `iso`, `udf`, `cpio` and `detect` and one set of flags, overwrite rules and output handling (S1). The 2.x binary names are not installed.
 
 ---
 
@@ -1646,13 +1646,18 @@ into `next` per step, each leaving the workspace building and tested:
   - `host::file` measures a device such as `\\.\PhysicalDrive2` with `file_len`, since its metadata fails on Windows.
 
   Deferred: `Session::plan` and sessions over a lazy `Volume`; the ISO and UDF option reshape (`IsoId`, `Hybrid`, `ElTorito`, `UdfId`, UDF `with_seed`) to R7; `WarningKind::Deduplicated`, which no writer emits yet; the cpio reader reshape; `experiments/fuse-prototype` still uses the removed API. Open points are [Q14](#7-open-questions).
-- R7. **Extras and crate merges.** `detect`, `open` and `AnyFs` in the umbrella, the `info` and `extents` family, `Walk`, the removal of `hadris-cd`, `hadris-block` and `hadris-optical`, and the single `hadris` binary. In progress:
+- R7. **Extras and crate merges.** `detect`, `open` and `AnyFs` in the umbrella, the `info` and `extents` family, `Walk`, the removal of `hadris-cd`, `hadris-block` and `hadris-optical`, and the single `hadris` binary. Done in nine PRs:
   - #188: Q14.
   - #189: mounting. `IsoImage` and `IsoView` merge into `IsoFs` with `mount`, `mount_namespace` and `unmount`; `UdfFs` and `NtfsFs` trade `open` for `mount` and `unmount`. `MountOptions::backup_boot` mounts FAT32 from sector 6 and exFAT from its backup region, both read-only, and makes UDF read the end anchors and the reserve sequence first; ISO has no backup structures and NTFS ignores it. A UDF entry whose file entry is damaged is listed with the type its identifier records and fails `stat`, so one bad entry no longer fails the listing.
-  - Options: the ISO and UDF reshape of 5.2 and 5.3. `IsoId`, `IsoDate`, `with_joliet()`, `with_rock_ridge()`, `with_relocation`, `with_iso1999`, `ElTorito::new().with_entry`, `BootEntry::{bios, uefi, uefi_appended}`, `with_boot_info(BootInfo::{Table, Grub2})`, `Hybrid::{mbr, gpt, gpt_hybrid_mbr}` with `with_bootstrap` and `with_appended(AppendedPartition::esp(content))`; `VolumeIdentifiers`, `RockRidge`, `Charset` and `HybridBoot` are gone. `UdfId` with `with_id` and UDF `with_seed`, whose serial leads the volume set identifier.
-  - Walk and FAT extras: `Walk` with `WalkEntry` and `WalkFrame` in `hadris-fs`, `Extent` with `file_offset` and `unwritten`, and on `FatFs` and `ExFatFs` `info`, `was_dirty`, `extents`, `records`, `read_raw`, `set_label` and `set_volume_serial`; `kind`, `volume_label`, `volume_id`, `cluster_size` and `cluster_chain` are gone.
-  - ISO and UDF extras: `IsoFs::info` (`VolumeInfo`), `boot_catalog(&mut buf)` returning a borrowing `BootCatalog` with `CatalogEntries`, `boot_image`, `records` and slice `extents`; `UdfFs::info` (`VolumeInfo` with `EntityId`, `PartitionInfo`, `PartitionKind`), `was_dirty`, `records`, `read_raw` and slice `extents`. `IsoId`, `IsoDate` and `UdfId` no longer need `alloc`.
-  - Detection: `hadris::{sync, r#async}::{detect, open, AnyFs}` and `ImageFormat`, `Detection` and `Candidate` at the umbrella root, behind a new default `detect` feature that adds `fat`, `iso`, `udf` and `cpio`; `hadris::host::open(path)`. `hadris-block` and `hadris-optical` still exist until their removal.
+  - #190, options: the ISO and UDF reshape of 5.2 and 5.3. `IsoId`, `IsoDate`, `with_joliet()`, `with_rock_ridge()`, `with_relocation`, `with_iso1999`, `ElTorito::new().with_entry`, `BootEntry::{bios, uefi, uefi_appended}`, `with_boot_info(BootInfo::{Table, Grub2})`, `Hybrid::{mbr, gpt, gpt_hybrid_mbr}` with `with_bootstrap` and `with_appended(AppendedPartition::esp(content))`; `VolumeIdentifiers`, `RockRidge`, `Charset` and `HybridBoot` are gone. `UdfId` with `with_id` and UDF `with_seed`, whose serial leads the volume set identifier.
+  - #191, Walk and FAT extras: `Walk` with `WalkEntry` and `WalkFrame` in `hadris-fs`, `Extent` with `file_offset` and `unwritten`, and on `FatFs` and `ExFatFs` `info`, `was_dirty`, `extents`, `records`, `read_raw`, `set_label` and `set_volume_serial`; `kind`, `volume_label`, `volume_id`, `cluster_size` and `cluster_chain` are gone.
+  - #192, ISO and UDF extras: `IsoFs::info` (`VolumeInfo`), `boot_catalog(&mut buf)` returning a borrowing `BootCatalog` with `CatalogEntries`, `boot_image`, `records` and slice `extents`; `UdfFs::info` (`VolumeInfo` with `EntityId`, `PartitionInfo`, `PartitionKind`), `was_dirty`, `records`, `read_raw` and slice `extents`. `IsoId`, `IsoDate` and `UdfId` no longer need `alloc`.
+  - #193, detection: `hadris::{sync, r#async}::{detect, open, AnyFs}` and `ImageFormat`, `Detection` and `Candidate` at the umbrella root, behind a new default `detect` feature that adds `fat`, `iso`, `udf` and `cpio`; `hadris::host::open(path)`.
+  - #194: `hadris-block`, `hadris-optical` and `hadris-cd` are removed with the umbrella's `block`, `optical` and `cd` features. The bridge test and the ECMA TR/71 catalog move to `hadris-udf`, and the umbrella tests open FAT through a GPT partition.
+  - #195: `hadris-cli` installs one `hadris` binary with `fat`, `iso`, `udf`, `cpio` and `detect`, and the five CLI crates and their binaries go.
+  - A docs PR: this entry.
+
+  After R7 the workspace publishes `hadris-io`, `hadris-storage`, `hadris-fs`, `hadris-common`, `hadris-macros`, `hadris-fat-raw`, `hadris-fat`, `hadris-part`, `hadris-ntfs`, `hadris-iso`, `hadris-udf`, `hadris-cpio`, `hadris` and `hadris-cli`. The umbrella re-exports `io`, `storage` and `fs` whole (the stable base), each enabled format crate at a flat path, the error items at its root, `ImageFormat`, `Detection` and `Candidate`, `sync` and `r#async` with `detect`, `open` and `AnyFs`, and a `host` module that re-exports `hadris-fs` host items, `StdIo` and `FileDevice` one by one.
 
   Decisions where the spec was silent or the code differs from it:
   - `MountOptions` has no namespace field, so choosing an ISO tree is `IsoFs::mount_namespace(dev, options, Namespace)`; `mount` takes the most capable tree. Open point: a `MountOptions` field would reach `open` and `AnyFs` too.
@@ -1672,6 +1677,11 @@ into `next` per step, each leaving the workspace building and tested:
   - `open` tries the filesystem candidates in order with the caller's options and returns the first that mounts, so a bridge with a damaged UDF side opens as ISO 9660; when none mounts it fails with the first one's error. A bridge opens as UDF. Messages for devices without a filesystem: `"ntfs"`, `"partition table"`, `"archive"`, `"no filesystem recognized"`.
   - `AnyFs` has `unmount` and `into_inner` besides the trait. A test in the umbrella reads the trait's method list and fails until `AnyFs` forwards a new method.
   - NTFS gets no `info`, `extents`, `records` or `read_raw` in 3.0: it stays behind `unstable-ntfs` (Q12) and keeps `volume_serial` and its geometry getters. `iso::SystemArea` and the ISO `check` are deferred to 3.x.
+  - The R5 note that a damaged UDF child entry fails its listing no longer holds: since #189 the entry is listed with the type its File Identifier Descriptor records and empty metadata, and `stat`, `open` and `lookup` of it fail with `Corrupt` (`damaged_entries_behind_listed_ids_are_corrupt`). A damaged File Identifier Descriptor itself still fails the listing at that point, since the lengths that locate the next one cannot be trusted.
+  - The binary is the `hadris-cli` package, not a target of the umbrella library, so library users never compile clap and the CLI versions apart (Q15).
+  - The CLI rules (S1 and triage G1): `create` takes the source and `-o/--output` and refuses an existing output unless `-f/--force` is given (FAT refused and the others replaced before), then replaces a file atomically or writes a device in place; unreadable source entries are skipped with a warning; `extract` never replaces an existing file, so cpio extraction refuses one too while still replacing what an earlier entry of the same archive created; in-image paths accept `/a`, `./a` and `a` in every format; `-V/--volume-name` names a volume; `list` and `check` stay aliases of `ls` and `verify`.
+  - The bridge commands are `hadris udf bridge` and `hadris udf compare`, following the writer into `hadris-udf`. `bridge` takes the `iso create` flags and defaults (level 1, Joliet with `-J`), not `hadris-cd`'s level 2 with Joliet and ISO 9660:1999. `hadris-cd info` has no successor beyond `hadris detect` and the `info` commands.
+  - `hadris detect` prints each candidate with its damage and fails when nothing is recognized.
 - R8. **Embedded.** `Fat` and `ExFat` on the raw layer, with cross-target CI for size and stack.
 
 14. **3.0.0-rc.1.** CI guardrails become blocking. Migration guide (`docs/hadris-3.0.0-migration.md`) with a V2 to V3 symbol table.
@@ -1796,6 +1806,13 @@ the rejected alternative.
 - `hadris_fat::raw` no longer re-exports the whole `hadris-fat-raw` crate, which tied `hadris-fat`'s API to the raw crate's version. `hadris-fat` keeps the `check` functions and the raw types its own signatures use (`FatKind`, `Detail`, `exfat::Detail`, and `Geometry` once `format` returns it); users of the rest depend on `hadris-fat-raw` directly (R12).
 - `MountOptions::with_utc_offset` stays fallible. The host's local UTC offset is the default of `host::mount_options()`, not of `MountOptions::new()`, as D10 says.
 - A FAT label is decoded through the mount's code page, like short names, so a label with bytes above `0x7F` no longer reads as `Some("")`.
+
+**Q15. Open points from R7.** Open:
+
+- The `hadris` binary is the `hadris-cli` package (`cargo install hadris-cli`). Sections 3 and 5.9 place it in the umbrella, which would need an optional `cli` feature that adds clap to the library and ties CLI changes to the umbrella's version.
+- `MountOptions` has no namespace field, so `open` and `AnyFs` always mount the most capable ISO 9660 tree; `IsoFs::mount_namespace` chooses another.
+- A damaged UDF File Identifier Descriptor fails the listing it is in. Skipping it would need a way for `readdir` to report a skipped entry.
+- cpio `extract` has no `--path` to extract one entry, unlike the other formats.
 
 **Q14. Open points from R6.** Resolved 2026-09-25 by the user:
 
