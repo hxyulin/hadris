@@ -19,20 +19,25 @@
 //! - `fat`, `part`, `iso`, `udf`, `cd`, `cpio`: one format crate each.
 //! - `block` and `optical`: detection and opening of whatever volume or
 //!   image a device holds.
+//! - `sync::detect` and `r#async::detect` (with `detect`): every format a
+//!   device holds, as `ImageFormat`s in a `Detection`, each with the
+//!   damage a mount would report. With `alloc`, `open` mounts the first
+//!   filesystem found as an `AnyFs`.
 //! - `ntfs`: the NTFS preview, behind `unstable-ntfs`.
 //! - `host` (with `std` and `sync`): host files, directories and image
-//!   files for builders and tools.
+//!   files for builders and tools, and `host::open` (with `detect`).
 //!
 //! # Feature flags
 //!
 //! One feature per format (`fat`, `part`, `iso`, `udf`, `cd`, `cpio`) adds
 //! that crate. `block` adds `hadris-block` with `fat` and `part`,
-//! `optical` adds `hadris-optical` with `iso`, `udf` and `cd`, and
-//! `archive` adds `cpio`. The platform (`std`, `alloc`), mode (`sync`,
-//! `async`) and `write` features are forwarded to every
-//! enabled crate. `unstable-ntfs` adds the NTFS preview, whose native API
-//! may change in 3.x minors. The default set is `std`, `sync`, `write`,
-//! `fat`, `iso` and `cpio`. No feature changes what an item does.
+//! `optical` adds `hadris-optical` with `iso`, `udf` and `cd`, `archive`
+//! adds `cpio`, and `detect` adds `detect`, `open` and `AnyFs` with `fat`,
+//! `iso`, `udf` and `cpio`. The platform (`std`, `alloc`), mode (`sync`,
+//! `async`) and `write` features are forwarded to every enabled crate.
+//! `unstable-ntfs` adds the NTFS preview, whose native API may change in
+//! 3.x minors. The default set is `std`, `sync`, `write`,
+//! `fat`, `iso`, `cpio` and `detect`. No feature changes what an item does.
 //!
 //! # Quick start
 //!
@@ -57,6 +62,10 @@
 #![no_std]
 #![deny(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
+#![allow(clippy::duplicate_mod)]
+
+#[cfg(all(feature = "std", feature = "sync", feature = "detect"))]
+extern crate std;
 
 /// I/O traits with the device's own error, and adapters.
 pub use hadris_io as io;
@@ -91,7 +100,74 @@ pub mod host {
     };
     pub use hadris_io::StdIo;
     pub use hadris_storage::host::FileDevice;
+
+    /// Detects the format of the image or device at `path` and mounts it
+    /// read-only with [`mount_options`], as
+    /// [`sync::open`](crate::sync::open) does.
+    #[cfg(feature = "detect")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "detect")))]
+    pub fn open(
+        path: impl AsRef<std::path::Path>,
+    ) -> Result<crate::sync::AnyFs<FileDevice>, crate::PathError> {
+        use crate::{Error, ErrorKind, PathError};
+        let path = path.as_ref();
+        let dev = match FileDevice::open(path) {
+            Ok(dev) => dev,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                return Err(
+                    PathError::new(ErrorKind::NotFound, "no such image").with_host_path(path)
+                );
+            }
+            Err(err) => {
+                return Err(PathError::from(Error::device(err, "cannot open the image"))
+                    .with_host_path(path));
+            }
+        };
+        crate::sync::open(dev, mount_options().read_only())
+            .map_err(|err| PathError::from(err).with_host_path(path))
+    }
 }
+
+#[cfg(feature = "detect")]
+mod detect;
+#[cfg(feature = "detect")]
+#[cfg_attr(docsrs, doc(cfg(feature = "detect")))]
+pub use detect::{Candidate, Detection, ImageFormat};
+
+/// Detection and opening with blocking I/O.
+#[cfg(all(feature = "detect", feature = "sync"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "detect", feature = "sync"))))]
+#[path = ""]
+pub mod sync {
+    #[allow(unused_macros)]
+    macro_rules! io_transform {
+        ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
+    }
+
+    #[cfg(feature = "alloc")]
+    use hadris_fat::exfat::sync::ExFatFs;
+    #[cfg(feature = "alloc")]
+    use hadris_fat::sync::FatFs;
+    use hadris_fat_raw::exfat::io::sync as exio;
+    use hadris_fat_raw::io::sync as rawio;
+    #[cfg(feature = "alloc")]
+    use hadris_fs::sync::FileSystem;
+    use hadris_iso::sync::IsoFs;
+    use hadris_storage::sync::BlockDevice;
+    use hadris_udf::sync::UdfFs;
+
+    #[path = "open.rs"]
+    mod open;
+    pub use open::detect;
+    #[cfg(feature = "alloc")]
+    pub use open::{AnyFs, open};
+}
+
+/// Detection and opening with `Send` futures, generated from the same
+/// source as `sync`.
+#[cfg(all(feature = "detect", feature = "async"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "detect", feature = "async"))))]
+pub mod r#async;
 
 /// FAT12, FAT16, FAT32 and exFAT.
 #[cfg(feature = "fat")]

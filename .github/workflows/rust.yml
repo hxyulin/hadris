@@ -427,11 +427,17 @@ jobs:
             tier: hosted-async-optical
             features: "std,async,optical"
           - crate: hadris
+            tier: no-std-detect
+            features: "sync,detect"
+          - crate: hadris
+            tier: no-std-async-open
+            features: "alloc,async,detect"
+          - crate: hadris
             tier: dual-mode-archive
             features: "alloc,sync,async,archive"
           - crate: hadris
             tier: all-capabilities
-            features: "std,alloc,sync,async,write,block,optical,archive,unstable-ntfs"
+            features: "std,alloc,sync,async,write,detect,block,optical,archive,unstable-ntfs"
 
     steps:
       - uses: actions/checkout@v7
