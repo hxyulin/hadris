@@ -16,7 +16,7 @@ mod layout;
 pub use codec::{
     Geometry, MAX_SET, NameUnits, PageStart, RawEntry, UpcaseDecoder, boot_checksum, decode_time,
     encode_time, hash_unit, mandatory_upcase, name_hash, parse_boot, seal, set_checksum,
-    table_checksum, valid_unit,
+    set_checksum_step, table_checksum, valid_unit,
 };
 pub use detail::Detail;
 pub use layout::{

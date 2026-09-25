@@ -232,14 +232,19 @@ pub fn table_checksum(mut sum: u32, bytes: &[u8]) -> u32 {
 
 /// The `SetChecksum` of an entry set.
 pub fn set_checksum(entries: &[RawEntry]) -> u16 {
-    let mut sum = 0u16;
-    for (index, entry) in entries.iter().enumerate() {
-        for (at, &byte) in entry.iter().enumerate() {
-            if index == 0 && (at == 2 || at == 3) {
-                continue;
-            }
-            sum = sum.rotate_right(1).wrapping_add(byte as u16);
+    entries.iter().enumerate().fold(0, |sum, (index, entry)| {
+        set_checksum_step(sum, index, entry)
+    })
+}
+
+/// Adds `entry`, entry `index` of its set, to a `SetChecksum`, for
+/// checking a set one entry at a time from a sum of 0.
+pub fn set_checksum_step(mut sum: u16, index: usize, entry: &RawEntry) -> u16 {
+    for (at, &byte) in entry.iter().enumerate() {
+        if index == 0 && (at == 2 || at == 3) {
+            continue;
         }
+        sum = sum.rotate_right(1).wrapping_add(byte as u16);
     }
     sum
 }

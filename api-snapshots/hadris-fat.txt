@@ -206,6 +206,85 @@ impl<D> core::fmt::Debug for hadris_fat::exfat::async::ExFatFs<D>
 pub fn hadris_fat::exfat::async::ExFatFs<D>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub async fn hadris_fat::exfat::async::format<D: hadris_storage::async::api::BlockDevice>(&mut D, &hadris_fat::exfat::ExFatOptions) -> hadris_io::fs_error::FsResult<hadris_fat_raw::exfat::codec::Geometry, <D as hadris_io::error::ErrorType>::Error>
 pub async fn hadris_fat::exfat::async::write<D: hadris_storage::async::api::BlockDevice>(D, &hadris_fs::tree::Tree, &hadris_fat::exfat::ExFatOptions) -> core::result::Result<hadris_fs::report::Report, hadris_fs::error::PathError>
+pub mod hadris_fat::exfat::embedded
+pub mod hadris_fat::exfat::embedded::async
+pub struct hadris_fat::exfat::embedded::async::ExFat<D, const FILES: usize>
+impl<D: hadris_storage::local::api::BlockDevice, const FILES: usize> hadris_fat::exfat::embedded::async::ExFat<D, FILES>
+pub fn hadris_fat::exfat::embedded::async::ExFat<D, FILES>::close(&mut self, hadris_fat::embedded::File) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::embedded::async::ExFat<D, FILES>::info(&self) -> &hadris_fat_raw::exfat::codec::Geometry
+pub async fn hadris_fat::exfat::embedded::async::ExFat<D, FILES>::label<'b>(&mut self, &'b mut [u8]) -> hadris_io::fs_error::FsResult<core::option::Option<&'b str>, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::embedded::async::ExFat<D, FILES>::list(&mut self, hadris_fat::exfat::embedded::Dir, hadris_fs::dir::DirCursor, impl core::ops::function::FnMut(&hadris_fat::exfat::embedded::Entry<'_>) -> core::ops::control_flow::ControlFlow<()>) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::embedded::async::ExFat<D, FILES>::metadata(&mut self, hadris_fat::exfat::embedded::Dir, &str) -> hadris_io::fs_error::FsResult<hadris_fs::meta::Metadata, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::embedded::async::ExFat<D, FILES>::mount(D) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_fat::exfat::embedded::async::ExFat<D, FILES>::mount_with(D, hadris_fat::embedded::Options) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_fat::exfat::embedded::async::ExFat<D, FILES>::open(&mut self, hadris_fat::exfat::embedded::Dir, &str, hadris_fs::ops::OpenOptions) -> hadris_io::fs_error::FsResult<hadris_fat::embedded::File, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::embedded::async::ExFat<D, FILES>::open_dir(&mut self, hadris_fat::exfat::embedded::Dir, &str) -> hadris_io::fs_error::FsResult<hadris_fat::exfat::embedded::Dir, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::embedded::async::ExFat<D, FILES>::open_node(&mut self, hadris_fat::exfat::embedded::Node, hadris_fs::ops::OpenOptions) -> hadris_io::fs_error::FsResult<hadris_fat::embedded::File, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::embedded::async::ExFat<D, FILES>::options(&self) -> &hadris_fat::embedded::Options
+pub async fn hadris_fat::exfat::embedded::async::ExFat<D, FILES>::read(&mut self, &hadris_fat::embedded::File, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::embedded::async::ExFat<D, FILES>::root(&self) -> hadris_fat::exfat::embedded::Dir
+pub fn hadris_fat::exfat::embedded::async::ExFat<D, FILES>::seek(&mut self, &hadris_fat::embedded::File, hadris_io::SeekFrom) -> hadris_io::fs_error::FsResult<u64, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::embedded::async::ExFat<D, FILES>::stats(&mut self) -> hadris_io::fs_error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::embedded::async::ExFat<D, FILES>::unmount(self) -> D
+pub fn hadris_fat::exfat::embedded::async::ExFat<D, FILES>::was_dirty(&self) -> bool
+impl<D, const FILES: usize> core::fmt::Debug for hadris_fat::exfat::embedded::async::ExFat<D, FILES>
+pub fn hadris_fat::exfat::embedded::async::ExFat<D, FILES>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub mod hadris_fat::exfat::embedded::sync
+pub struct hadris_fat::exfat::embedded::sync::ExFat<D, const FILES: usize>
+impl<D: hadris_storage::sync::api::BlockDevice, const FILES: usize> hadris_fat::exfat::embedded::sync::ExFat<D, FILES>
+pub fn hadris_fat::exfat::embedded::sync::ExFat<D, FILES>::close(&mut self, hadris_fat::embedded::File) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::embedded::sync::ExFat<D, FILES>::info(&self) -> &hadris_fat_raw::exfat::codec::Geometry
+pub fn hadris_fat::exfat::embedded::sync::ExFat<D, FILES>::label<'b>(&mut self, &'b mut [u8]) -> hadris_io::fs_error::FsResult<core::option::Option<&'b str>, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::embedded::sync::ExFat<D, FILES>::list(&mut self, hadris_fat::exfat::embedded::Dir, hadris_fs::dir::DirCursor, impl core::ops::function::FnMut(&hadris_fat::exfat::embedded::Entry<'_>) -> core::ops::control_flow::ControlFlow<()>) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::embedded::sync::ExFat<D, FILES>::metadata(&mut self, hadris_fat::exfat::embedded::Dir, &str) -> hadris_io::fs_error::FsResult<hadris_fs::meta::Metadata, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::embedded::sync::ExFat<D, FILES>::mount(D) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_fat::exfat::embedded::sync::ExFat<D, FILES>::mount_with(D, hadris_fat::embedded::Options) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_fat::exfat::embedded::sync::ExFat<D, FILES>::open(&mut self, hadris_fat::exfat::embedded::Dir, &str, hadris_fs::ops::OpenOptions) -> hadris_io::fs_error::FsResult<hadris_fat::embedded::File, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::embedded::sync::ExFat<D, FILES>::open_dir(&mut self, hadris_fat::exfat::embedded::Dir, &str) -> hadris_io::fs_error::FsResult<hadris_fat::exfat::embedded::Dir, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::embedded::sync::ExFat<D, FILES>::open_node(&mut self, hadris_fat::exfat::embedded::Node, hadris_fs::ops::OpenOptions) -> hadris_io::fs_error::FsResult<hadris_fat::embedded::File, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::embedded::sync::ExFat<D, FILES>::options(&self) -> &hadris_fat::embedded::Options
+pub fn hadris_fat::exfat::embedded::sync::ExFat<D, FILES>::read(&mut self, &hadris_fat::embedded::File, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::embedded::sync::ExFat<D, FILES>::root(&self) -> hadris_fat::exfat::embedded::Dir
+pub fn hadris_fat::exfat::embedded::sync::ExFat<D, FILES>::seek(&mut self, &hadris_fat::embedded::File, hadris_io::SeekFrom) -> hadris_io::fs_error::FsResult<u64, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::embedded::sync::ExFat<D, FILES>::stats(&mut self) -> hadris_io::fs_error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::embedded::sync::ExFat<D, FILES>::unmount(self) -> D
+pub fn hadris_fat::exfat::embedded::sync::ExFat<D, FILES>::was_dirty(&self) -> bool
+impl<D, const FILES: usize> core::fmt::Debug for hadris_fat::exfat::embedded::sync::ExFat<D, FILES>
+pub fn hadris_fat::exfat::embedded::sync::ExFat<D, FILES>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_fat::exfat::embedded::Dir
+impl hadris_fat::exfat::embedded::Dir
+pub const fn hadris_fat::exfat::embedded::Dir::is_root(self) -> bool
+pub struct hadris_fat::exfat::embedded::Entry<'a>
+impl<'a> hadris_fat::exfat::embedded::Entry<'a>
+pub fn hadris_fat::exfat::embedded::Entry<'a>::attributes(&self) -> hadris_fs::meta::Attributes
+pub fn hadris_fat::exfat::embedded::Entry<'a>::chars(&self) -> impl core::iter::traits::iterator::Iterator<Item = char> + 'a
+pub fn hadris_fat::exfat::embedded::Entry<'a>::file_type(&self) -> hadris_fs::node::FileType
+pub fn hadris_fat::exfat::embedded::Entry<'a>::is_dir(&self) -> bool
+pub fn hadris_fat::exfat::embedded::Entry<'a>::is_empty(&self) -> bool
+pub fn hadris_fat::exfat::embedded::Entry<'a>::len(&self) -> u64
+pub fn hadris_fat::exfat::embedded::Entry<'a>::metadata(&self) -> hadris_fs::meta::Metadata
+pub fn hadris_fat::exfat::embedded::Entry<'a>::name_utf16(&self) -> &'a [u16]
+pub fn hadris_fat::exfat::embedded::Entry<'a>::next_cursor(&self) -> hadris_fs::dir::DirCursor
+pub fn hadris_fat::exfat::embedded::Entry<'a>::node(&self) -> hadris_fat::exfat::embedded::Node
+pub struct hadris_fat::exfat::embedded::File
+pub struct hadris_fat::exfat::embedded::Node
+pub struct hadris_fat::exfat::embedded::Options
+impl hadris_fat::embedded::Options
+pub const fn hadris_fat::embedded::Options::clock(&self) -> fn() -> hadris_fs::time::DateTime
+pub const fn hadris_fat::embedded::Options::code_page(&self) -> &'static dyn hadris_fs::code_page::CodePage
+pub const fn hadris_fat::embedded::Options::fold(&self) -> fn(u16) -> u16
+pub const fn hadris_fat::embedded::Options::is_read_only(&self) -> bool
+pub const fn hadris_fat::embedded::Options::new() -> Self
+pub const fn hadris_fat::embedded::Options::read_only(self) -> Self
+pub const fn hadris_fat::embedded::Options::utc_offset(&self) -> core::option::Option<i16>
+pub const fn hadris_fat::embedded::Options::with_clock(self, fn() -> hadris_fs::time::DateTime) -> Self
+pub const fn hadris_fat::embedded::Options::with_code_page(self, &'static dyn hadris_fs::code_page::CodePage) -> Self
+pub const fn hadris_fat::embedded::Options::with_fold(self, fn(u16) -> u16) -> Self
+pub const fn hadris_fat::embedded::Options::with_utc_offset(self, i16) -> core::result::Result<Self, hadris_fs::time::DateTimeError>
+impl core::default::Default for hadris_fat::embedded::Options
+pub fn hadris_fat::embedded::Options::default() -> Self
+impl core::fmt::Debug for hadris_fat::embedded::Options
+pub fn hadris_fat::embedded::Options::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub mod hadris_fat::exfat::sync
 pub use hadris_fat::exfat::sync::check
 pub struct hadris_fat::exfat::sync::ExFatFs<D>

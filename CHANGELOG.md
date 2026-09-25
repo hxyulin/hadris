@@ -29,6 +29,16 @@ Each published package owns its version and may be released independently.
   `label`, `stats`, `was_dirty`, `sync` and `unmount`. Writes keep
   `FatFs`'s crash ordering, and the next writing call or `sync` frees what
   an interrupted operation or a dropped future held.
+- **hadris-fat (V3):** `hadris_fat::exfat::embedded::{sync, r#async}::ExFat<D,
+  const FILES: usize = 4>`, a read-only exFAT reader for firmware without an
+  allocator, beside the embedded `Fat` and sharing its `File` and
+  `Options`. It reads chained and contiguous allocations, zeros past
+  `ValidDataLength`, and skips entry sets whose checksum or layout is
+  invalid. It has `open_dir`, `list`, `open`, `open_node`, `read`, `seek`,
+  `close`, `metadata`, `label`, `stats`, `was_dirty` and `unmount`; `..`
+  fails with `Unsupported`, and names compare with the `Options` fold.
+- **hadris-fat-raw (V3):** `exfat::set_checksum_step` adds one entry to a
+  `SetChecksum`, for checking an entry set as it is read.
 - **CI (V3):** A `cross` job builds the `no_std` tiers for
   `thumbv6m-none-eabi`, `thumbv7em-none-eabihf` and
   `riscv32imc-unknown-none-elf` through `scripts/check-targets.sh`; the
@@ -709,6 +719,8 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fat-raw (V3):** `exfat::io::read_boot` no longer keeps a copy of
+  the boot sector across device reads, so its future is 512 bytes smaller.
 - **hadris-fat-raw (V3):** `short_name::generate` no longer uppercases
   non-ASCII characters itself; the `encode` closure folds and maps them,
   so building short names links no Unicode case tables.

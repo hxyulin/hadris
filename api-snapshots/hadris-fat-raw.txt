@@ -324,6 +324,7 @@ pub fn hadris_fat_raw::exfat::name_hash(&[u16]) -> u16
 pub fn hadris_fat_raw::exfat::parse_boot(&hadris_fat_raw::exfat::BootSector) -> core::result::Result<hadris_fat_raw::exfat::Geometry, &'static str>
 pub fn hadris_fat_raw::exfat::seal(&mut [hadris_fat_raw::exfat::RawEntry])
 pub fn hadris_fat_raw::exfat::set_checksum(&[hadris_fat_raw::exfat::RawEntry]) -> u16
+pub fn hadris_fat_raw::exfat::set_checksum_step(u16, usize, &hadris_fat_raw::exfat::RawEntry) -> u16
 pub fn hadris_fat_raw::exfat::table_checksum(u32, &[u8]) -> u32
 pub fn hadris_fat_raw::exfat::valid_unit(u16) -> bool
 pub type hadris_fat_raw::exfat::RawEntry = [u8; 32]
