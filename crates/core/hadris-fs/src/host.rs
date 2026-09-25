@@ -30,10 +30,12 @@ use std::io::{self, Write as _};
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+#[cfg(unix)]
+use crate::DeviceNumber;
 use crate::sync::ContentReader;
 use crate::{
-    Attributes, Content, DateTime, DeviceNumber, Error, ErrorKind, Field, FileType, MountOptions,
-    Node, Owner, PathError, Report, SetAttr, SystemClock, Tree, TreeEntry, Warning, WarningKind,
+    Attributes, Content, DateTime, Error, ErrorKind, Field, FileType, MountOptions, Node, Owner,
+    PathError, Report, SetAttr, SystemClock, Tree, TreeEntry, Warning, WarningKind,
 };
 
 /// What [`read_tree`] makes of a host symlink.
@@ -216,10 +218,7 @@ pub fn file(path: impl AsRef<Path>) -> Result<Content, PathError> {
     let path = path.as_ref();
     let file =
         fs::File::open(path).map_err(|err| host_error(err, "cannot open host file", path))?;
-    let meta = file
-        .metadata()
-        .map_err(|err| host_error(err, "cannot read host file metadata", path))?;
-    if meta.is_dir() {
+    if file.metadata().is_ok_and(|meta| meta.is_dir()) {
         return Err(
             PathError::new(ErrorKind::IsADirectory, "tree content must be a file")
                 .with_host_path(path),
@@ -391,6 +390,7 @@ enum Kind {
     Dir,
     File(u64),
     Symlink(Vec<u8>),
+    #[cfg(unix)]
     Special(FileType, Option<DeviceNumber>),
 }
 
@@ -553,6 +553,7 @@ impl Reader<'_> {
             Kind::Dir => Node::dir(),
             Kind::File(len) => Node::file(Content::host(host.to_path_buf(), len)),
             Kind::Symlink(target) => Node::symlink(target),
+            #[cfg(unix)]
             Kind::Special(file_type, device) => Node::special(file_type, device),
         };
         let dir = node.file_type() == FileType::Dir;

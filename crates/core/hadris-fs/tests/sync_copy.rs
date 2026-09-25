@@ -9,7 +9,9 @@ use std::path::PathBuf;
 
 use common::MemError;
 use common::sync::{MemFs, fixture};
-use hadris_fs::host::{self, OnError, Symlinks, TreeOptions};
+use hadris_fs::host::{self, TreeOptions};
+#[cfg(unix)]
+use hadris_fs::host::{OnError, Symlinks};
 use hadris_fs::sync::{FileSystem, Volume, copy_tree, read_tree};
 use hadris_fs::{
     Content, DateTime, DeviceNumber, ErrorKind, Field, FileType, Node, Owner, PathError,
