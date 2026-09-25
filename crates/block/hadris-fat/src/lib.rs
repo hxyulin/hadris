@@ -147,12 +147,18 @@
 //! - `sync::format` and its `async` versions: the formatter (requires `write`)
 //! - `sync::check` and its `async` versions: the checker, from
 //!   `hadris-fat-raw`
-//! - `raw`: the `hadris-fat-raw` crate, with the on-disk boot sector, BPB,
-//!   FSInfo and directory entry layouts and the codecs
 //! - `exfat`: the exFAT driver, `ExFatFs`, with its own `sync` and
-//!   `r#async` modes, formatter, checker and `raw` layouts
+//!   `r#async` modes, formatter and checker
 //! - `Detail` and `exfat::Detail`: what exactly is wrong with a volume, read
 //!   from mount and read errors with `Detail::of`
+//!
+//! ## The raw layer
+//!
+//! The on-disk layouts, the I/O-free codecs and the device primitives the
+//! drivers are built on are the separate `hadris-fat-raw` crate, which has
+//! its own version. This crate re-exports only what its own signatures use:
+//! [`FatKind`], [`Detail`], `exfat::Detail` and the `check` functions.
+//! Depend on `hadris-fat-raw` directly to use the rest.
 
 #![cfg_attr(not(test), no_std)]
 #![deny(missing_docs)]
@@ -172,14 +178,6 @@ extern crate alloc;
 mod options;
 #[cfg(feature = "alloc")]
 mod table;
-/// The on-disk layer, the `hadris-fat-raw` crate: the boot sector, BPB,
-/// FSInfo and directory entry layouts with their constants, and the
-/// I/O-free codecs the drivers are built on.
-///
-/// The layouts mirror the FAT specification. They may gain items; the
-/// existing ones follow the specification and stay exhaustive. The crate
-/// root never re-exports them.
-pub use hadris_fat_raw as raw;
 
 /// The exFAT driver, `ExFatFs`, its formatter and checker.
 pub mod exfat;

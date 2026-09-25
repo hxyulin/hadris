@@ -2,7 +2,7 @@
 //!
 //! The on-disk layer of FAT12, FAT16, FAT32 and exFAT, for drivers, tools
 //! and firmware that the `hadris-fat` driver does not fit. `hadris-fat`
-//! builds on it and re-exports it as `hadris_fat::raw`.
+//! builds on it and re-exports only the items its own API uses.
 //!
 //! Everything here works on bytes and plain values, does no I/O and needs
 //! no allocator:

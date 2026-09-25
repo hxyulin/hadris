@@ -224,9 +224,9 @@ changes what an item does.
 `hadris_fat::exfat::sync::ExFatFs` and its `r#async` twin
 are a sibling of `FatFs` that needs `alloc` and implements `FileSystem`,
 with `format` (the `write` feature) and `check` in each mode.
-exFAT is stable and needs no feature flag. It mounts with the same `hadris_fs::MountOptions`. Its format options, label,
-detail codes and on-disk layouts are in `hadris_fat::exfat` (`exfat::FormatOptions`,
-`exfat::Detail`, `exfat::raw`), since their names match FAT's. It reads contiguous and
+exFAT is stable and needs no feature flag. It mounts with the same `hadris_fs::MountOptions`. Its format options, label
+and detail codes are in `hadris_fat::exfat` (`exfat::FormatOptions`,
+`exfat::Detail`), since their names match FAT's. It reads contiguous and
 chained allocations, fragmented bitmaps and up-case tables, and entry sets
 that cross clusters; it writes FAT chains, grows directories, and keeps
 `VolumeDirty` and `PercentInUse`. On TexFAT volumes it follows `ActiveFat`
@@ -273,8 +273,7 @@ hadris-fat = "2.4.0"  # Uses default features
 ## The Raw Layer
 
 The on-disk layouts and the I/O-free codecs the drivers use live in the
-[`hadris-fat-raw`](../hadris-fat-raw) crate, re-exported as
-`hadris_fat::raw` (and its exFAT part as `hadris_fat::exfat::raw`): boot
+[`hadris-fat-raw`](../hadris-fat-raw) crate: boot
 sector parsing into a `Geometry`, FAT entry encoding, directory slots,
 long and short names, timestamps, the format layout planner and the exFAT
 checksums and up-case decoder. Its `io` module holds the device
@@ -282,7 +281,10 @@ primitives `FatFs` is built on: FAT entry reads and writes on every copy,
 chain walks, batched allocation and freeing, directory slots and `mkfs`,
 generated for each mode; `exfat::io` holds the exFAT bitmap, up-case and
 entry set primitives `ExFatFs` is built on. It is for tools and firmware that the drivers do
-not fit, and it has its own version.
+not fit. It has its own version, so `hadris-fat` does not re-export it:
+only `FatKind`, `Detail`, `exfat::Detail` and the `check` functions, which
+this crate's own API uses, are available here. Depend on `hadris-fat-raw`
+directly for the rest.
 
 ## No-std Compatibility
 

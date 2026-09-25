@@ -10,9 +10,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 use hadris_fat::exfat::sync::ExFatFs;
-use hadris_fat::raw::{RawBpb, RawBpbExt16, RawBpbExt32};
 use hadris_fat::sync::FatFs;
 use hadris_fat::{FatKind, exfat};
+use hadris_fat_raw::{RawBpb, RawBpbExt16, RawBpbExt32};
 use hadris_storage::host::FileDevice;
 use output::Output;
 
@@ -200,8 +200,8 @@ fn boot_sector(path: &Path) -> Result<[u8; 512]> {
 }
 
 fn is_exfat(sector: &[u8; 512]) -> bool {
-    let boot: exfat::raw::BootSector = bytemuck::pod_read_unaligned(sector);
-    boot.file_system_name == exfat::raw::FILE_SYSTEM_NAME
+    let boot: hadris_fat_raw::exfat::BootSector = bytemuck::pod_read_unaligned(sector);
+    boot.file_system_name == hadris_fat_raw::exfat::FILE_SYSTEM_NAME
 }
 
 /// Mounts an image read-only as FAT12/16/32 or exFAT, whichever its boot
@@ -298,7 +298,7 @@ fn cmd_info(image: &Path) -> Result<()> {
             println!("Cluster Size:    {} bytes", stats.block_size());
         }
         Volume::ExFat(fs) => {
-            let boot: exfat::raw::BootSector = bytemuck::pod_read_unaligned(&sector);
+            let boot: hadris_fat_raw::exfat::BootSector = bytemuck::pod_read_unaligned(&sector);
             let revision = boot.file_system_revision.get();
             let flags = boot.volume_flags.get();
             println!("exFAT Filesystem Information");
@@ -314,7 +314,7 @@ fn cmd_info(image: &Path) -> Result<()> {
             println!("FAT Count:       {}", boot.number_of_fats);
             println!(
                 "Volume Dirty:    {}",
-                if flags & exfat::raw::VOLUME_DIRTY != 0 {
+                if flags & hadris_fat_raw::exfat::VOLUME_DIRTY != 0 {
                     "yes"
                 } else {
                     "no"

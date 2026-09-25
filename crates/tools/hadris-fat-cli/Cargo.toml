@@ -24,6 +24,7 @@ doc = false
 
 [dependencies]
 hadris-fat = { workspace = true, features = ["std", "sync", "write"] }
+hadris-fat-raw.workspace = true
 hadris-fs = { workspace = true, features = ["std", "sync"] }
 hadris-storage = { workspace = true, features = ["std", "sync"] }
 bytemuck.workspace = true

@@ -248,6 +248,27 @@ Growing `FileSystem` has two more rules, both stated in the trait docs:
 - A lint script rejects public enums without `#[non_exhaustive]` outside `raw`.
 - A sync/async parity check diffs the public item lists of the two modules and lists the intended differences (4.8).
 
+### R12. Crates version independently after 3.0.0
+
+Every crate ships 3.0.0 together. After that each crate has its own
+version and bumps its major only for its own breaking changes; there is no
+lockstep release.
+
+- A crate exposes another Hadris crate's types only where that crate is a
+  deliberate public dependency. `hadris-io`, `hadris-storage` and
+  `hadris-fs` are the stable base that every format crate exposes. Any
+  other public dependency is named in section 5 (the ISO 9660 and UDF
+  bridge writer takes `hadris-iso` options), and a major version of that
+  dependency is a major version of the crate that exposes it.
+- The umbrella `hadris` re-exports the format crates, so it bumps its
+  major whenever a re-exported crate does.
+- Raw crates (`hadris-<fmt>-raw`) version separately and are never
+  re-exported wholesale. A format crate re-exports only the raw items its
+  own signatures use ([Q13](#7-open-questions)).
+- No new wholesale re-export of one crate by another is added.
+
+Per-crate tags and the release workflow change in step 14.
+
 ---
 
 ## 3. Layers
@@ -1018,7 +1039,7 @@ Each row is a deliberate trade, what it buys, and what a user does about it.
 | `read_exact` and `write_all` return `ExactError<E>` | Short reads and zero-length writes need their own cases, as in embedded-io | `?` converts into `Error<E>` |
 | `ReadDir` is not an `Iterator` in the async mode | No async iterator in core | `next_entry().await` |
 | A dropped embedded `File` keeps its slot until `unmount` | The handle is a slot index and cannot reach the volume in `Drop` | Call `close`; `sync` and `unmount` still publish its size |
-| Embedded FAT folds ASCII by default, shared FAT folds Unicode | Keeps the Unicode tables out of firmware flash (NF-FLASH-02) | `Options::new().with_fold(fat::raw::fold_unicode)` |
+| Embedded FAT folds ASCII by default, shared FAT folds Unicode | Keeps the Unicode tables out of firmware flash (NF-FLASH-02) | `Options::new().with_fold(hadris_fat_raw::fold_unicode)` |
 
 Experiment E1 built the lock-placement prototype for `thumbv7em-none-eabihf`
 with no allocator, with `alloc`, and with std. Its raw tier that opens a FAT
@@ -1252,7 +1273,7 @@ Pass 4 (embedded), accepted on 2026-09-24:
 - `Fat<D, const FILES: usize = 4>` and `ExFat<D, const FILES: usize = 4>` are separate types, so FAT-only firmware does not link the exFAT reader. Embedded exFAT is read-only in 3.0; 3.x writes arrive through a new entry point, and `mount` stays read-only in every version.
 - Device blocks are 512 bytes; other sizes are refused with `Unsupported`. FAT sectors of 512 to 4096 bytes are read in 512-byte pieces through one 512-byte cache in the struct.
 - `File` is a slot index consumed by `close`, with a 16-bit generation so a stale handle or one from another volume fails with `InvalidHandle`. A dropped `File` keeps its slot until `unmount`; `sync` and `unmount` still publish its size. `Dir` is `Copy` and holds no slot. Names are passed per call, with `create_dir_all(dir, path)` as the one path method; `list` takes a callback and lends each `Entry`, whose UTF-16 name lives on the call's stack. `Entry::node()` with `open_node` opens a listed file by its entry position, valid until the directory changes.
-- The embedded API has its own `Options`: a `fn() -> DateTime` clock, a `fn(u16) -> u16` fold that defaults to `fat::raw::fold_ascii` with `fold_unicode` as a one-line opt-in, UTC offset, and CP437 as the default code page. The slot count is the const parameter.
+- The embedded API has its own `Options`: a `fn() -> DateTime` clock, a `fn(u16) -> u16` fold that defaults to `hadris_fat_raw::fold_ascii` with `fold_unicode` as a one-line opt-in, UTC offset, and CP437 as the default code page. The slot count is the const parameter.
 - Format and check are the shared, already alloc-free `fat::sync::{format, check}`.
 - Footprint (prototype estimate, device excluded): `Fat<(), 4>` is 760 bytes on thumbv7em and 776 on aarch64, `ExFat<(), 4>` 792 and 808: one 512-byte cache, the 80-byte geometry, the options and 32-byte FAT slots (48 for exFAT). The 16-bit generation fits in existing padding, so the sizes are those of the 8-bit layout. Both types are const-asserted under 2048 bytes. Stack and flash need the real crate, with `-Z emit-stack-sizes` and a size report on thumbv7em in CI.
 - Changes forced on passes 1 to 3, all additive: `local::BlockDevice` without `Send` (with a `Partition` impl), `fat::raw::fold_ascii` and `fold_unicode`, and the `embedded` modules. No signature changed.
@@ -1272,7 +1293,7 @@ this section covers what each crate adds.
 **Crates and modules.** `hadris-fat-raw` holds the I/O-free codecs and the
 `raw::io` primitives for FAT12/16/32 and exFAT (4.15). `hadris-fat` has the
 shared drivers, the format extras and the embedded API. exFAT is the
-`hadris_fat::exfat` module with its own `raw`, `sync`, `r#async` and
+`hadris_fat::exfat` module with its own `sync`, `r#async` and
 `embedded`, because its names (`ExFatOptions`, `Detail`, `Geometry`) differ
 from FAT's and R5 keeps them out of the crate root.
 
@@ -1294,7 +1315,7 @@ let report = fat::sync::check(&mut dev, &mut scratch, |f| eprintln!("{f}"))?;
 - `format(&mut dev, &opts) -> FsResult<Geometry, D::Error>` needs no allocator; the caller then mounts with its own options (VOL-FORMAT-07). `FatOptions` (`with_kind`, `with_size`, `with_label`, `with_time`, `with_seed`, `with_cluster_size`, `with_sector_size`, `with_reserved_sectors`, `with_fat_count`, `with_root_entries`, `with_media`, `with_oem_name`, `with_serial`, `with_partition_offset`, `with_alignment`) is `Copy` with the label inline, and serves both `format` and the tree writer `fat::sync::write`. `ExFatOptions` is the same without the FAT-only knobs. They replace `FormatOptions`, `FatVolumeFormatter`, `FatFormatOptions`, `ExFatFormatOptions`, `format_exfat` and `ExFatLayoutParams`. The partition offset defaults to `BlockDevice::disk_offset`. Without `with_kind`, volumes below 16 MiB are FAT12, below 512 MiB FAT16, and larger ones FAT32; the cluster size starts from the V2 tables and doubles or halves until the count fits. Option errors are checked before any write.
 - `check(&mut dev, scratch, on_finding) -> FsResult<CheckReport, D::Error>` runs on the unmounted device with no allocator. It reports each shared `Finding` (4.15) with a `fat::Detail` code through the callback. Cross-links and lost clusters need a bit per cluster: the scratch buffer covers a window of clusters, and the tree is walked once per window, so the findings do not depend on its size. The tree is walked without a stack by following `..` entries. A `repair` pass and an `analysis` module are 3.x.
 - Extras: `info()` returns `fat::Geometry` (the type `raw::parse_boot` and `format` return), `extents`, `records`, `read_raw`, `was_dirty` (false on FAT12, which has no flag), `set_label(Option<&str>)` and `set_volume_serial`. FAT attribute bits are `stat().attributes()` and `SetAttr::with_attributes`; cluster chains are `extents`. This replaces `kind()`, `label()` as an inherent method, `set_label(&VolumeLabel)`, `fat_attributes`, `set_fat_attributes` and `cluster_chain`.
-- `raw`: `FatKind` (re-exported as `fat::FatKind`), `Geometry`, `RootLocation`, `parse_boot`, `boot_code`, `Slot`, `ShortEntry`, `LongEntry`, `lfn_checksum`, and the folding functions `fold_ascii` and `fold_unicode`. exFAT `raw` adds `boot_checksum`, `set_checksum`, `name_hash` and `EntrySet`.
+- The raw layer is the `hadris-fat-raw` crate: `FatKind`, `Geometry`, `RootLocation`, `parse_boot`, `boot_code`, `Slot`, `ShortEntry`, `LongEntry`, `lfn_checksum`, and the folding functions `fold_ascii` and `fold_unicode`; its `exfat` module adds `boot_checksum`, `set_checksum`, `name_hash` and `EntrySet`. `hadris-fat` re-exports only the raw items its own signatures use (`FatKind`, `Geometry`, `Detail`, `exfat::Detail` and `check`), not the crate (R12, Q13).
 - Shared FAT folds Unicode case as Windows does, and shared exFAT compares through the volume's up-case table, with no folding option. The code page defaults to `Cp437`.
 - The FAT sector cache is gone as a separate thing. Users wrap the device in `Cache<D>`. `FatSectorCache`, `CachedFat`, `with_cached_fat` and `fat_cache` are removed (#27).
 - `expect("Fixed root info required ...")` sites return `ErrorKind::Corrupt`. exFAT internals (`allocate_cluster`, `sync_bitmap`, `parse_entry_set`) become private; the pieces tools need are in `raw`.
@@ -1596,12 +1617,12 @@ into `next` per step, each leaving the workspace building and tested:
   - `MountOptions::with_utc_offset` returns `Result`, failing past a day, so a bad offset never reaches a driver. `utc_offset() == None` is UTC with no offset recorded, which keeps the times earlier builds read.
   - Only `FatFs` and `ExFatFs` gained `mount` and `unmount` here. `IsoImage`, `UdfFs` and `NtfsFs` keep `open` until R7 brings `IsoFs` and `AnyFs`, and `backup_boot` is stored but no driver reads it yet (exFAT already falls back to its backup boot region).
   - `FatFs`, `ExFatFs` and `format` need `alloc`. Without it `hadris-fat` keeps `check` and the raw layer, and `hadris-block` keeps detection, until R6's `format` returns `Geometry` and R8's embedded API covers firmware.
-  - The inherent FAT label getter is `volume_label()`, returning the stored `VolumeLabel`, so it does not shadow `FileSystem::label`. R7's `info()` and `set_label` replace it. A FAT label with bytes that are not ASCII reads as `Some("")` through the trait.
+  - The inherent FAT label getter is `volume_label()`, returning the stored `VolumeLabel`, so it does not shadow `FileSystem::label`. R7's `info()` and `set_label` replace it. A FAT label with bytes that are not ASCII reads as `Some("")` through the trait (Q13 changed this after R5: the label is decoded through the code page).
   - An ISO view's `label` decodes the volume identifier of the descriptor it reads (UCS-2 for Joliet, Latin-1 otherwise) without name mangling. UDF's is the logical volume identifier.
   - ISO and UDF `readdir` read each entry's metadata, so a damaged UDF child entry fails the listing it is in.
   - A clock or code page is a `&'static dyn` reference, as 4.3 says; a clock with runtime state is a `static` or leaked by the caller.
 
-  Deferred: `hadris_fat::raw` still re-exports the whole raw crate (Q13); `experiments/fuse-prototype`, outside the workspace and CI, still uses the removed API.
+  Deferred: `hadris_fat::raw` still re-exports the whole raw crate (Q13, resolved after R5: it no longer does); `experiments/fuse-prototype`, outside the workspace and CI, still uses the removed API.
 - R6. **Builders.** The new `Tree`, `plan` and `write`, `Report`, `copy_tree`, `read_tree` and the `host` module.
 - R7. **Extras and crate merges.** `detect`, `open` and `AnyFs` in the umbrella, the `info` and `extents` family, `Walk`, the removal of `hadris-cd`, `hadris-block` and `hadris-optical`, and the single `hadris` binary.
 - R8. **Embedded.** `Fat` and `ExFat` on the raw layer, with cross-target CI for size and stack.
@@ -1723,8 +1744,8 @@ NTFS variant in 3.0: `open` fails with `NotRecognized` and the message
 stabilises NTFS. A variant present in every build with a stable payload was
 the rejected alternative.
 
-**Q13. Open points from R5.** Not yet decided by the user:
+**Q13. Open points from R5.** Resolved 2026-09-25 by the user:
 
-- Whether `hadris_fat::raw` keeps re-exporting the whole `hadris-fat-raw` crate, which ties `hadris-fat`'s API to the raw crate's version (R4's deferral).
-- Whether `MountOptions::with_utc_offset` should stay fallible or clamp, and whether the host default offset belongs in `host::mount_options()` as D10 says (R6).
-- Whether a FAT label that does not decode should read as `None`, `Some("")` (today) or be decoded through the mount's code page.
+- `hadris_fat::raw` no longer re-exports the whole `hadris-fat-raw` crate, which tied `hadris-fat`'s API to the raw crate's version. `hadris-fat` keeps the `check` functions and the raw types its own signatures use (`FatKind`, `Detail`, `exfat::Detail`, and `Geometry` once `format` returns it); users of the rest depend on `hadris-fat-raw` directly (R12).
+- `MountOptions::with_utc_offset` stays fallible. The host's local UTC offset is the default of `host::mount_options()`, not of `MountOptions::new()`, as D10 says.
+- A FAT label is decoded through the mount's code page, like short names, so a label with bytes above `0x7F` no longer reads as `Some("")`.

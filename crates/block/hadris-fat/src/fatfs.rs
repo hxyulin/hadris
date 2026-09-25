@@ -2041,14 +2041,17 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
 
     /// The volume label from the label entry of the root directory, or
     /// `None` when it has none. The copy in the boot sector is not read.
+    /// Bytes above `0x7F` are decoded through the mount's code page, as in
+    /// short names.
     async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
         let Some(label) = self.volume_label().await? else {
             return Ok(None);
         };
-        let text = label.as_str().as_bytes();
-        let out = buf.get_mut(..text.len()).ok_or(ErrorKind::LimitExceeded)?;
-        out.copy_from_slice(text);
-        Ok(core::str::from_utf8(out).ok())
+        let mut text = [0u8; short_name::DISPLAY_MAX];
+        let len = short_name::display_label(label.as_bytes(), |byte| self.code_page.decode(byte), &mut text);
+        let out = buf.get_mut(..len).ok_or(ErrorKind::LimitExceeded)?;
+        out.copy_from_slice(&text[..len]);
+        Ok(Some(core::str::from_utf8(out).map_err(|_| ErrorKind::Corrupt)?))
     }
 
     /// Finds `name` in `dir` and pins the result. Case is ignored, and the

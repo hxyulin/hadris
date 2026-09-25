@@ -58,7 +58,7 @@ impl fmt::Display for VolumeLabel {
     /// Writes the label, with unpaired surrogates as U+FFFD.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use fmt::Write;
-        for ch in crate::raw::name::utf16_chars(self.as_utf16().iter().copied()) {
+        for ch in hadris_fat_raw::name::utf16_chars(self.as_utf16().iter().copied()) {
             f.write_char(ch)?;
         }
         Ok(())
