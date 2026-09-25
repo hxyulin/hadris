@@ -105,11 +105,6 @@ pub fn is_valid_long_name(name: &str) -> bool {
 
 fn process_char(ch: char, encode: &impl Fn(char) -> Option<u8>) -> u8 {
     if !ch.is_ascii() {
-        let mut upper = ch.to_uppercase();
-        let ch = match (upper.next(), upper.next()) {
-            (Some(upper), None) => upper,
-            _ => ch,
-        };
         return encode(ch).filter(|&byte| byte >= 0x80).unwrap_or(b'_');
     }
     let byte = ch as u8;
@@ -136,9 +131,10 @@ fn hash(name: &str, suffix: u8) -> u16 {
 /// 0 for none, `~1` to `~4` for 1 to 4. Above that, as Windows does, the
 /// first two basis characters, four hex digits hashed from `name` and a
 /// `~1` to `~9` tail, the hash changing every nine suffixes.
-/// Non-ASCII characters are uppercased where that gives one character and
-/// go through `encode`, the OEM code page, and become
-/// `_` when it has no byte above `0x7F` for them. `None` when nothing representable
+/// ASCII letters are uppercased. Non-ASCII characters go through `encode`,
+/// which folds their case and maps them to the OEM code page, and become
+/// `_` when it has no byte above `0x7F` for them, so no Unicode case tables
+/// are linked unless `encode` uses them. `None` when nothing representable
 /// remains.
 pub fn generate(name: &str, suffix: u8, encode: impl Fn(char) -> Option<u8>) -> Option<[u8; 11]> {
     let (base, ext) = match name.rfind('.') {
@@ -328,7 +324,10 @@ mod tests {
     #[test]
     fn non_ascii_goes_through_code_page() {
         assert_eq!(
-            generate("caf\u{e9}", 0, |c| (c == '\u{c9}').then_some(0x90)),
+            generate("caf\u{e9}", 0, |c| {
+                let upper = char::from_u32(crate::fold_unicode(c as u16) as u32).unwrap();
+                (upper == '\u{c9}').then_some(0x90)
+            }),
             Some(*b"CAF\x90       ")
         );
         assert_eq!(ascii("caf\u{e9}", 0), Some(*b"CAF_       "));

@@ -5,18 +5,22 @@ use super::fsapi::FileSystem;
 use super::rawio;
 use super::storage::BlockDevice;
 use hadris_fat_raw::io::{ChainPos, DirStart, DirWalk, Fat, Held};
-use hadris_fat_raw::lfn::{self, Assembler, Encoded};
+use hadris_fat_raw::lfn::{self, Assembler};
 use hadris_fat_raw::{
     self as raw, LongEntry, RootLocation, ShortEntry, Slot, date, name as names, short_name,
 };
 use hadris_fs::{
-    Attributes, Capabilities, CaseRule, Charset, Clock, CodePage, DateTime, DirCursor, DirEntry,
-    ErrorKind, Extent, Field, FileType, FsResult, FsStats, Metadata, MountError, MountOptions,
-    Name, NameBuf, NameError, NodeId, OpenMode, RenameMode, SetAttr, Stored,
+    Capabilities, CaseRule, Charset, Clock, CodePage, DateTime, DirCursor, DirEntry, ErrorKind,
+    Extent, Field, FileType, FsResult, FsStats, Metadata, MountError, MountOptions, Name, NameBuf,
+    NameError, NodeId, OpenMode, RenameMode, SetAttr, Stored,
 };
 
+use crate::names::{
+    CANDIDATES, NewName, apply_attributes, is_exact, matches, permissions, read_only_bit,
+    set_read_only, stamp,
+};
 use crate::table::Table;
-use crate::{FatKind, Geometry, VolumeLabel, permissions, push_run, read_only_bit};
+use crate::{FatKind, Geometry, VolumeLabel, push_run};
 
 /// `NodeId::new` for ids that are not 0 by construction.
 const fn node_id(raw: u64) -> NodeId {
@@ -50,15 +54,6 @@ const MAX_FILE_SIZE: u64 = u32::MAX as u64;
 const DELETED: u8 = raw::ENTRY_FREE;
 /// The boot sector's label when the volume has none.
 const NO_NAME: &[u8; 11] = b"NO NAME    ";
-/// Short-name candidates a directory scan checks at once.
-const CANDIDATES: usize = 6;
-/// The attribute bits [`Attributes`] maps to.
-const ATTR_MAPPED: [(u8, Attributes); 4] = [
-    (raw::ATTR_READ_ONLY, Attributes::READ_ONLY),
-    (raw::ATTR_HIDDEN, Attributes::HIDDEN),
-    (raw::ATTR_SYSTEM, Attributes::SYSTEM),
-    (raw::ATTR_ARCHIVE, Attributes::ARCHIVE),
-];
 
 /// State of a pinned node.
 #[derive(Debug, Clone, Copy)]
@@ -125,68 +120,6 @@ struct Located {
     entry: ShortEntry,
     /// Whether the query equals the entry's name exactly.
     exact: bool,
-}
-
-/// A name about to be written: its long-name entries and short-name
-/// candidates.
-struct NewName<'a> {
-    encoded: Encoded<'a>,
-    /// Candidates in on-disk form for tails none, `~1` to `~4`, and the
-    /// first hashed tail, so one directory scan checks them all.
-    candidates: [[u8; 11]; CANDIDATES],
-    /// The name is its own short name up to case.
-    lossless: bool,
-    /// Set when the name can be stored as a short entry alone with these
-    /// `DIR_NTRes` case bits.
-    case_bits: Option<u8>,
-}
-
-impl<'a> NewName<'a> {
-    fn new(text: &'a str, code_page: &dyn CodePage) -> Result<Self, ErrorKind> {
-        if text.encode_utf16().count() > lfn::MAX_UNITS {
-            return Err(ErrorKind::NameTooLong);
-        }
-        if !short_name::is_valid_long_name(text) || text.ends_with(['.', ' ']) {
-            return Err(ErrorKind::InvalidInput);
-        }
-        let encoded = Encoded::new(text).ok_or(ErrorKind::InvalidInput)?;
-        let mut candidates = [[0u8; 11]; CANDIDATES];
-        for (suffix, candidate) in candidates.iter_mut().enumerate() {
-            if let Some(mut name) =
-                short_name::generate(text, suffix as u8, |ch| code_page.encode(ch))
-            {
-                short_name::to_disk(&mut name);
-                *candidate = name;
-            }
-        }
-        let mut shown = [0u8; short_name::DISPLAY_MAX];
-        let len = short_name::display(&candidates[0], 0, |byte| code_page.decode(byte), &mut shown);
-        let lossless = candidates[0][0] != 0
-            && text.is_ascii()
-            && text
-                .bytes()
-                .map(|b| b.to_ascii_uppercase())
-                .eq(shown[..len].iter().copied());
-        Ok(Self {
-            encoded,
-            candidates,
-            lossless,
-            case_bits: short_name::case_bits(text),
-        })
-    }
-
-    fn short_only(&self) -> bool {
-        self.lossless && self.case_bits.is_some()
-    }
-
-    /// Directory slots the name needs.
-    fn slots(&self) -> u32 {
-        if self.short_only() {
-            1
-        } else {
-            self.encoded.entries() as u32 + 1
-        }
-    }
 }
 
 /// Where a new entry goes.
@@ -288,71 +221,7 @@ impl Run {
 }
 
 fn metadata(node: &Node, entry: &ShortEntry, zone: Option<i16>) -> Metadata {
-    let (created_date, created_time, created_tenths) = entry.created();
-    let (modified_date, modified_time) = entry.modified();
-    let mut attributes = Attributes::empty();
-    for (bit, flag) in ATTR_MAPPED {
-        if entry.attributes() & bit != 0 {
-            attributes |= flag;
-        }
-    }
-    let (file_type, len) = if node.dir {
-        (FileType::Dir, 0)
-    } else {
-        (FileType::File, node.size as u64)
-    };
-    let mut meta = Metadata::new(
-        file_type,
-        permissions(node.dir, attributes.contains(Attributes::READ_ONLY)),
-    )
-    .with_len(len)
-    .with_attributes(attributes);
-    if let Some(time) = date::decode(created_date, created_time, created_tenths, zone) {
-        meta = meta.with_created(time);
-    }
-    if let Some(time) = date::decode(modified_date, modified_time, 0, zone) {
-        meta = meta.with_modified(time);
-    }
-    if let Some(time) = date::decode(entry.accessed_date(), 0, 0, zone) {
-        meta = meta.with_accessed(time);
-    }
-    meta
-}
-
-/// Whether `query` names the entry, by its long name or its short name,
-/// ignoring case.
-fn matches(
-    query: &str,
-    long: Option<&[u16]>,
-    entry: &ShortEntry,
-    code_page: &dyn CodePage,
-) -> bool {
-    if long.is_some_and(|units| {
-        names::eq_folded(
-            query.encode_utf16(),
-            units.iter().copied(),
-            raw::fold_unicode,
-        )
-    }) {
-        return true;
-    }
-    if query.chars().nth(short_name::DISPLAY_CHARS).is_some() {
-        return false;
-    }
-    let mut short = [0u8; short_name::DISPLAY_MAX];
-    let len = short_name::display(
-        &entry.name(),
-        entry.nt_case(),
-        |byte| code_page.decode(byte),
-        &mut short,
-    );
-    core::str::from_utf8(&short[..len]).is_ok_and(|short| {
-        names::eq_folded(
-            query.encode_utf16(),
-            short.encode_utf16(),
-            raw::fold_unicode,
-        )
-    })
+    crate::names::metadata(entry, node.dir, node.size as u64, zone)
 }
 
 /// Writes the entry's name into `out`: the long name when it is a valid
@@ -382,58 +251,6 @@ fn write_name(
         _ => ErrorKind::Corrupt,
     })?;
     Ok(len)
-}
-
-/// Whether `query` is exactly the entry's name.
-fn is_exact(
-    query: &str,
-    long: Option<&[u16]>,
-    entry: &ShortEntry,
-    code_page: &dyn CodePage,
-) -> bool {
-    if let Some(units) = long {
-        return names::utf16_chars(units.iter().copied()).eq(query.chars());
-    }
-    let mut short = [0u8; short_name::DISPLAY_MAX];
-    let len = short_name::display(
-        &entry.name(),
-        entry.nt_case(),
-        |byte| code_page.decode(byte),
-        &mut short,
-    );
-    short[..len] == *query.as_bytes()
-}
-
-/// Sets the entry's creation time and the modification and access times.
-fn stamp(
-    entry: &mut ShortEntry,
-    created: DateTime,
-    modified: DateTime,
-    accessed: DateTime,
-    zone: Option<i16>,
-) {
-    let (date, time, tenths) = date::encode(created, zone);
-    entry.set_created(date, time, tenths);
-    let (date, time, _) = date::encode(modified, zone);
-    entry.set_modified(date, time);
-    entry.set_accessed_date(date::encode(accessed, zone).0);
-}
-
-fn set_read_only(entry: &mut ShortEntry, read_only: bool) {
-    match read_only {
-        true => entry.set_attributes(entry.attributes() | raw::ATTR_READ_ONLY),
-        false => entry.set_attributes(entry.attributes() & !raw::ATTR_READ_ONLY),
-    }
-}
-
-fn apply_attributes(entry: &mut ShortEntry, attributes: Attributes) {
-    for (bit, flag) in ATTR_MAPPED {
-        if attributes.contains(flag) {
-            entry.set_attributes(entry.attributes() | bit);
-        } else {
-            entry.set_attributes(entry.attributes() & !bit);
-        }
-    }
 }
 
 /// The name a query must be, as a string: not `.` or `..`.
@@ -823,7 +640,7 @@ impl<D: BlockDevice> FatFs<D> {
                 let mut entry = ShortEntry::new(*label.as_bytes(), raw::ATTR_VOLUME_ID);
                 self.stamp_label(&mut entry);
                 let start = self.dir_start(ROOT).await?;
-                let new = NewName::new("LABEL", self.code_page)?;
+                let new = NewName::new("LABEL", self.code_page, raw::fold_unicode)?;
                 let plan = self.plan(start, "LABEL", false, &new, Skip::default()).await?;
                 let grown = self.grow(&plan).await?;
                 self.insert_entry(start, &new, &plan, &entry, grown).await?;
@@ -930,7 +747,7 @@ impl<D: BlockDevice> FatFs<D> {
         name.check()?;
         let start = self.dir_start(dir).await?;
         let text = entry_name(name, ErrorKind::InvalidInput)?;
-        let new = NewName::new(text, self.code_page)?;
+        let new = NewName::new(text, self.code_page, raw::fold_unicode)?;
         let plan = self.plan(start, text, true, &new, Skip::default()).await?;
         let reserved = RESERVED;
         let placeholder = Node {
@@ -1361,7 +1178,7 @@ impl<D: BlockDevice> FatFs<D> {
             let units = long.finish(found.entry.lfn_checksum());
             let named = units.is_some();
             let units = units.filter(|units| !units.is_empty());
-            if matches(query, units, &found.entry, self.code_page) {
+            if matches(query, units, &found.entry, self.code_page, raw::fold_unicode) {
                 return Ok(Some(Located {
                     first: if named { found.long_start } else { found.slot },
                     slot: found.slot,
@@ -1456,7 +1273,7 @@ impl<D: BlockDevice> FatFs<D> {
                             .finish(entry.lfn_checksum())
                             .filter(|units| !units.is_empty());
                         if !skip.covers(slot, offset) {
-                            if check_exists && entry.is_visible() && matches(text, units, &entry, self.code_page) {
+                            if check_exists && entry.is_visible() && matches(text, units, &entry, self.code_page, raw::fold_unicode) {
                                 return Err(ErrorKind::AlreadyExists.into());
                             }
                             for (bit, candidate) in new.candidates.iter().enumerate() {
@@ -1519,7 +1336,7 @@ impl<D: BlockDevice> FatFs<D> {
     /// A short name with a hashed `HHHH~N` tail that no entry of `dir` has.
     async fn hashed_short(&mut self, dir: DirStart, text: &str, skip: Skip) -> FsResult<[u8; 11], D::Error> {
         for suffix in CANDIDATES as u8..=u8::MAX {
-            let Some(mut candidate) = short_name::generate(text, suffix, |ch| self.code_page.encode(ch)) else {
+            let Some(mut candidate) = crate::names::short_name(text, suffix, self.code_page, raw::fold_unicode) else {
                 continue;
             };
             short_name::to_disk(&mut candidate);
@@ -2644,7 +2461,7 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
         let to_start = self.dir_start(to_dir).await?;
         let from_text = entry_name(from, ErrorKind::NotFound)?;
         let to_text = entry_name(to, ErrorKind::InvalidInput)?;
-        let new = NewName::new(to_text, self.code_page)?;
+        let new = NewName::new(to_text, self.code_page, raw::fold_unicode)?;
         let src = self
             .find_entry(from_start, from_text)
             .await?

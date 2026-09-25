@@ -11,7 +11,7 @@ systems, SD cards, and USB drives.
 - **Volume Formatting** - Create new FAT12/16/32 volumes with automatic type selection
 - **Long Filenames (VFAT/LFN)** - Always read and written
 - **No-std Compatible** - Use in bootloaders and custom kernels
-- **No allocator needed** - Read, write, format and check without `alloc`
+- **No allocator needed** - The embedded API reads and writes, and `format` and `check` run, without `alloc`
 - **Sync and async** - One driver generated for each mode; async futures are `Send`
 - **Checker** - A read-only `fsck` that reports each problem it finds
 - **exFAT** - `ExFatFs` reads, writes, formats and checks exFAT, including TexFAT volumes with two FATs
@@ -221,7 +221,7 @@ cargo run -p hadris-fat --example shared_volume -- disk.img
 | Feature | Description | Dependencies |
 |---------|-------------|--------------|
 | `write` | `format` in each mode; `FatFs` and `ExFatFs` write without it | None |
-| `alloc` | `FatFs`, `ExFatFs` and `format`; without it only `check` and the raw layer | `alloc` crate |
+| `alloc` | `FatFs`, `ExFatFs` and the tree writers; without it the embedded API, `format`, `check` and the raw layer | `alloc` crate |
 | `sync` | Synchronous API in `sync` | `hadris-io/sync` |
 | `async` | Asynchronous API with `Send` futures in `r#async` | `hadris-io/async` |
 | `std` | `hadris_storage::host::FileDevice` for image files and `SystemClock` | `std`, `alloc` |
@@ -255,9 +255,36 @@ exfatprogs, macOS `newfs_exfat`/`fsck_exfat` and the macOS kernel driver.
 hadris-fat = { version = "2.4.0", default-features = false, features = ["sync"] }
 ```
 
-Without `alloc` this gives `check` and the raw layer; add `alloc` for
-`FatFs` and `ExFatFs`, and `write` for `format`. A firmware API that needs
-no allocator is planned.
+Without `alloc` this gives the embedded API, `check` and the raw layer;
+add `write` for `format`, and `alloc` for `FatFs` and `ExFatFs`.
+
+`hadris_fat::embedded::sync::Fat<D, const FILES: usize = 4>` and its
+`embedded::r#async` twin are a handle-based driver for firmware. They are
+built on the raw layer and need no allocator: one 512-byte block buffer,
+the geometry, the options and `FILES` file slots, under 1 KiB with four
+slots. Directories are `Copy` handles, names are passed one component per
+call, a `File` is a slot consumed by `close`, and `list` lends each entry
+to a callback. Names fold ASCII case unless
+`Options::new().with_fold(hadris_fat_raw::fold_unicode)` asks for
+Unicode, so the Unicode case tables stay out of flash. The async variant
+takes a `hadris_storage::local::BlockDevice`, whose futures need not be
+`Send`. The device's blocks must be 512 bytes.
+
+```rust,ignore
+use hadris_fat::embedded::sync::Fat;
+use hadris_fs::OpenOptions;
+
+let mut fat: Fat<_> = Fat::mount(sd_card)?;
+let logs = fat.create_dir_all(fat.root(), "data/logs")?;
+let log = fat.open(logs, "boot.txt", OpenOptions::new().write().create().append())?;
+fat.write(&log, b"booted\n")?;
+fat.close(log)?;
+let sd_card = fat.unmount()?;
+```
+
+Writes follow the same crash ordering as `FatFs`. A power cut, or a
+dropped async future, leaves at worst lost clusters, and the next writing
+call or `sync` on the same `Fat` frees them.
 
 ### For Desktop Applications (full features)
 
@@ -302,8 +329,12 @@ directly for the rest.
 
 ## No-std Compatibility
 
-- `FatFs`, `format` and `check` need neither `std` nor `alloc` in any mode
-- The only buffer is one device block of at most 4096 bytes
+- The embedded API, `format` and `check` need neither `std` nor `alloc` in
+  any mode; `FatFs` and `ExFatFs` need `alloc`
+- `FatFs` keeps one device block of at most 4096 bytes, the embedded API
+  one of 512 bytes
+- CI builds the no-allocator tiers for `thumbv6m-none-eabi`,
+  `thumbv7em-none-eabihf` and `riscv32imc-unknown-none-elf`
 - All I/O goes through `hadris-storage` block devices
 - Suitable for bootloaders, embedded systems, and custom kernels
 

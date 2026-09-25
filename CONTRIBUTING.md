@@ -33,6 +33,15 @@ RUSTFLAGS="-D warnings" cargo check -p hadris-iso --no-default-features --featur
 The full per-crate feature matrix used in CI is the `check-features` job in
 [`.github/workflows/rust.yml`](.github/workflows/rust.yml).
 
+The `cross` job builds the `no_std` tiers for `thumbv6m-none-eabi`,
+`thumbv7em-none-eabihf` and `riscv32imc-unknown-none-elf`; targets without
+compare-and-swap skip the `alloc` tiers:
+
+```bash
+rustup target add thumbv6m-none-eabi thumbv7em-none-eabihf riscv32imc-unknown-none-elf
+RUSTFLAGS="-D warnings" scripts/check-targets.sh
+```
+
 ### Conformance and interoperability suite
 
 Specification conformance and peer interoperability tests live in the
