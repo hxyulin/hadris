@@ -109,10 +109,11 @@ fn list_dir(view: &mut View<'_>, path: &str) -> Result<Vec<Entry>> {
 /// The first logical block of a node's data.
 fn first_block(view: &mut View<'_>, node: NodeId) -> Result<u64> {
     let mut first = None;
-    view.extents(node, |extent| {
-        first.get_or_insert(extent.offset());
-    })?;
-    Ok(first.unwrap_or(0) / u64::from(view.block_size()))
+    let mut out = [hadris_fs::Extent::new(0, 0); 1];
+    if view.extents(node, 0, &mut out)? == 1 {
+        first = Some(out[0].offset());
+    }
+    Ok(first.unwrap_or(0) / u64::from(view.info().block_size()))
 }
 
 /// Reads the host directory `source` into a tree, reporting what it skipped.

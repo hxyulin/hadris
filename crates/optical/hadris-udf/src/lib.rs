@@ -31,7 +31,7 @@
 //! write(&mut dev, &tree, &options)?;
 //!
 //! let udf = UdfFs::mount(dev, MountOptions::new())?;
-//! assert_eq!(udf.volume_id(), "DOCS");
+//! assert_eq!(udf.info().id(UdfId::Volume), "DOCS");
 //! let vol = Volume::new(udf);
 //! let mut text = String::new();
 //! vol.open("/docs/readme.txt", OpenOptions::new().read())?.read_to_string(&mut text)?;
@@ -155,12 +155,12 @@ pub use bridge::plan_bridge;
 pub use error::Detail;
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-pub use options::{UdfId, UdfOptions};
+pub use options::UdfOptions;
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub use plan::plan;
 pub use revision::UdfRevision;
-pub use volume::Partition;
+pub use volume::{EntityId, PartitionInfo, PartitionKind, UdfId, VolumeInfo};
 
 #[cfg(test)]
 extern crate self as hadris_udf;

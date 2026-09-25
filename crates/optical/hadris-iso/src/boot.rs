@@ -83,13 +83,13 @@ impl Emulation {
 
 /// One boot entry of a [`BootCatalog`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BootCatalogEntry {
+pub struct CatalogEntry {
     raw: BootSectionEntry,
     platform: Platform,
     section: Option<usize>,
 }
 
-impl BootCatalogEntry {
+impl CatalogEntry {
     /// The platform: the validation entry's for the default entry, the
     /// section header's for the others.
     pub const fn platform(&self) -> Platform {
@@ -134,17 +134,20 @@ impl BootCatalogEntry {
     }
 }
 
-/// A parsed El Torito boot catalog, as `IsoFs::boot_catalog` reads it.
-#[cfg(feature = "alloc")]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BootCatalog {
+/// An El Torito boot catalog in a caller's buffer, as `IsoFs::boot_catalog`
+/// reads and checks it. Its entries are parsed as they are iterated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BootCatalog<'b> {
     block: u32,
-    validation: raw::BootValidationEntry,
-    entries: alloc::vec::Vec<BootCatalogEntry>,
+    /// The checked catalog, from the validation entry to its last entry.
+    bytes: &'b [u8],
 }
 
-#[cfg(feature = "alloc")]
-impl BootCatalog {
+impl<'b> BootCatalog<'b> {
+    pub(crate) const fn new(block: u32, bytes: &'b [u8]) -> Self {
+        Self { block, bytes }
+    }
+
     /// The logical block the catalog starts at.
     pub const fn block(&self) -> u32 {
         self.block
@@ -152,37 +155,84 @@ impl BootCatalog {
 
     /// The platform in the validation entry.
     pub const fn platform(&self) -> Platform {
-        Platform::from_id(self.validation.platform_id)
+        Platform::from_id(self.bytes[1])
     }
 
-    /// The manufacturer string of the validation entry.
-    pub fn id_string(&self) -> &[u8] {
-        let end = self
-            .validation
-            .id_string
+    /// The manufacturer string of the validation entry, without trailing
+    /// spaces and NULs.
+    pub fn id_string(&self) -> &'b [u8] {
+        let id = &self.bytes[4..28];
+        let end = id
             .iter()
             .rposition(|&byte| byte != 0 && byte != b' ')
             .map_or(0, |pos| pos + 1);
-        &self.validation.id_string[..end]
+        &id[..end]
     }
 
     /// The default entry, then every section entry in catalog order.
-    pub fn entries(&self) -> &[BootCatalogEntry] {
-        &self.entries
+    pub fn entries(&self) -> CatalogEntries<'b> {
+        CatalogEntries {
+            parser: CatalogParser::new(),
+            bytes: self.bytes,
+            pos: 0,
+        }
     }
 
     /// The default (initial) entry.
-    pub fn default_entry(&self) -> &BootCatalogEntry {
-        &self.entries[0]
+    pub fn default_entry(&self) -> CatalogEntry {
+        let raw: BootSectionEntry = bytemuck::pod_read_unaligned(&self.bytes[32..64]);
+        CatalogEntry {
+            raw,
+            platform: self.platform(),
+            section: None,
+        }
     }
 
-    /// The validation entry as stored.
-    pub const fn validation(&self) -> &raw::BootValidationEntry {
-        &self.validation
+    /// The catalog as stored, from the validation entry to its last entry.
+    pub const fn as_bytes(&self) -> &'b [u8] {
+        self.bytes
     }
 }
 
+/// The entries of a [`BootCatalog`], parsed one at a time.
+#[derive(Clone)]
+pub struct CatalogEntries<'b> {
+    parser: CatalogParser,
+    bytes: &'b [u8],
+    pos: usize,
+}
+
+impl core::fmt::Debug for CatalogEntries<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("CatalogEntries")
+            .field("pos", &self.pos)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Iterator for CatalogEntries<'_> {
+    type Item = CatalogEntry;
+
+    fn next(&mut self) -> Option<CatalogEntry> {
+        while let Some(chunk) = self.bytes.get(self.pos..self.pos + 32) {
+            self.pos += 32;
+            let mut entry = [0u8; 32];
+            entry.copy_from_slice(chunk);
+            match self.parser.feed(&entry) {
+                Ok(Step::Entry(entry)) => return Some(entry),
+                Ok(Step::More) => {}
+                _ => break,
+            }
+        }
+        self.pos = self.bytes.len();
+        None
+    }
+}
+
+impl core::iter::FusedIterator for CatalogEntries<'_> {}
+
 /// Parses a catalog 32 bytes at a time.
+#[derive(Clone)]
 pub(crate) struct CatalogParser {
     validation: Option<raw::BootValidationEntry>,
     state: State,
@@ -206,7 +256,7 @@ enum State {
 
 /// What the parser found in a 32-byte entry.
 pub(crate) enum Step {
-    Entry(BootCatalogEntry),
+    Entry(CatalogEntry),
     More,
     Done,
 }
@@ -236,7 +286,7 @@ impl CatalogParser {
             State::Default => {
                 let platform = self.validation.map_or(0, |v| v.platform_id);
                 self.state = State::Header { section: 0 };
-                Ok(Step::Entry(BootCatalogEntry {
+                Ok(Step::Entry(CatalogEntry {
                     raw: bytemuck::cast(*chunk),
                     platform: Platform::from_id(platform),
                     section: None,
@@ -284,7 +334,7 @@ impl CatalogParser {
                         last,
                     },
                 };
-                Ok(Step::Entry(BootCatalogEntry {
+                Ok(Step::Entry(CatalogEntry {
                     raw: bytemuck::cast(*chunk),
                     platform: Platform::from_id(platform),
                     section: Some(section),
@@ -294,19 +344,8 @@ impl CatalogParser {
         }
     }
 
-    #[cfg(feature = "alloc")]
-    pub(crate) fn finish(
-        self,
-        block: u32,
-        entries: alloc::vec::Vec<BootCatalogEntry>,
-    ) -> Option<BootCatalog> {
-        if entries.is_empty() {
-            return None;
-        }
-        Some(BootCatalog {
-            block,
-            validation: self.validation?,
-            entries,
-        })
+    /// Whether the catalog has ended, so no more chunks belong to it.
+    pub(crate) fn is_done(&self) -> bool {
+        matches!(self.state, State::Done)
     }
 }

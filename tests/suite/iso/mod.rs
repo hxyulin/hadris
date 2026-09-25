@@ -57,8 +57,18 @@ fn open_file_ns(path: &Path, namespace: Namespace) -> Image {
 
 /// The volume identifier of the primary volume descriptor.
 fn volume_id(image: &mut Image) -> String {
-    let pvd = image.primary_descriptor().unwrap();
-    String::from_utf8_lossy(pvd.volume_identifier.trimmed()).into_owned()
+    String::from_utf8_lossy(image.info().id(hadris_iso::IsoId::Volume)).into_owned()
+}
+
+/// The primary volume descriptor.
+fn primary(image: &mut Image) -> hadris_iso::raw::PrimaryVolumeDescriptor {
+    descriptors(image)
+        .into_iter()
+        .find_map(|descriptor| match descriptor {
+            VolumeDescriptor::Primary(pvd) => Some(pvd),
+            _ => None,
+        })
+        .unwrap()
 }
 
 /// The volume descriptor set, up to and including the terminator.
@@ -121,10 +131,7 @@ fn first_extent<D: hadris_storage::sync::BlockDevice>(
     view: &mut IsoFs<D>,
     node: NodeId,
 ) -> hadris_fs::Extent {
-    let mut first = None;
-    view.extents(node, |extent| {
-        first.get_or_insert(extent);
-    })
-    .unwrap();
-    first.unwrap()
+    let mut out = [hadris_fs::Extent::new(0, 0); 1];
+    assert_eq!(view.extents(node, 0, &mut out).unwrap(), 1);
+    hadris_fs::Extent::new(out[0].offset(), out[0].len())
 }

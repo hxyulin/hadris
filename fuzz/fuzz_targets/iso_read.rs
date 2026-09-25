@@ -56,7 +56,7 @@ fn walk(view: &mut View<'_>, budget: &mut u32) {
         }
         let _ = view.parent(dir);
         let _ = view.rock_ridge(dir);
-        let _ = view.raw_record(dir);
+        let _ = view.records(dir, &mut [hadris_fs::Extent::new(0, 0); 4]);
         let mut lookups = 0usize;
         let mut seen_names: HashSet<Vec<u8>> = HashSet::new();
         let mut cursor = DirCursor::START;
@@ -96,8 +96,8 @@ fn walk(view: &mut View<'_>, budget: &mut u32) {
             }
 
             let _ = view.rock_ridge(node);
-            let _ = view.raw_record(node);
-            let _ = view.extents(node, |_| {});
+            let _ = view.records(node, &mut [hadris_fs::Extent::new(0, 0); 4]);
+            let _ = view.extents(node, 0, &mut [hadris_fs::Extent::new(0, 0); 4]);
             match entry.file_type() {
                 FileType::Dir => stack.push((node, depth + 1)),
                 FileType::Symlink => {
@@ -133,8 +133,15 @@ fn drive(data: &[u8]) {
             break;
         }
     }
-    let _ = image.primary_descriptor();
-    let _ = image.boot_catalog();
+    let _ = image.info().id(hadris_iso::IsoId::Volume);
+    let _ = image.info().date(hadris_iso::IsoDate::Created);
+    let mut catalog = [0u8; 2048];
+    if let Ok(Some(catalog)) = image.boot_catalog(&mut catalog) {
+        let entries: Vec<_> = catalog.entries().collect();
+        for entry in entries {
+            let _ = image.boot_image(&entry);
+        }
+    }
 
     let mut budget: u32 = 200_000;
     let namespaces: Vec<_> = image.namespaces().iter().collect();

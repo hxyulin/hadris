@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::Paths;
+use common::{IsoExtras, Paths};
 use common::{image, pattern, sample};
 use hadris_fs::MountOptions;
 use hadris_fs::{Content, Node};
@@ -35,7 +35,7 @@ fn check(bytes: Vec<u8>, catalog: u32) {
     assert_eq!(
         IsoFs::mount(&mut iso, MountOptions::new())
             .unwrap()
-            .boot_catalog()
+            .catalog()
             .unwrap()
             .unwrap()
             .block(),
@@ -82,7 +82,9 @@ fn both_modes_write_changed_trees_back() {
             MountOptions::new(),
         )
         .unwrap()
-        .boot_catalog_block()
+        .catalog()
+        .unwrap()
+        .map(|c| c.block())
         .unwrap();
         let mut session = Session::open(dev).unwrap();
         assert_eq!(session.tree().entry("docs/big.bin").unwrap().links(), 1);
@@ -147,7 +149,7 @@ fn new_boot_options_replace_the_catalog() {
     let mut iso = session.into_inner();
     let catalog = IsoFs::mount(&mut iso, MountOptions::new())
         .unwrap()
-        .boot_catalog()
+        .catalog()
         .unwrap()
         .unwrap();
     assert_eq!(
@@ -183,7 +185,7 @@ fn kept_catalogs_follow_replaced_boot_images() {
         let mut iso = session.into_inner();
         let catalog = IsoFs::mount(&mut iso, MountOptions::new())
             .unwrap()
-            .boot_catalog()
+            .catalog()
             .unwrap()
             .unwrap();
         let entries: Vec<_> = catalog.entries().iter().map(|e| e.load_block()).collect();
@@ -262,7 +264,7 @@ fn replaced_boot_images_get_load_sizes_and_info_tables() {
         let mut iso = session.into_inner();
         let catalog = IsoFs::mount(&mut iso, MountOptions::new())
             .unwrap()
-            .boot_catalog()
+            .catalog()
             .unwrap()
             .unwrap();
         let counts: Vec<_> = catalog.entries().iter().map(|e| e.sector_count()).collect();

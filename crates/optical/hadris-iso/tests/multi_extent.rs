@@ -6,7 +6,7 @@ mod common;
 use hadris_fs::MountOptions;
 use std::collections::BTreeMap;
 
-use common::Paths;
+use common::{IsoExtras, Paths};
 use hadris_fs::ErrorKind;
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{Content, Node, Tree};
@@ -116,8 +116,7 @@ fn large_files_take_several_extents_at_level_3() {
         IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Primary).unwrap();
     let node = view.resolve_path("/BIG.BIN").unwrap();
     assert_eq!(view.stat(node).unwrap().len(), LEN);
-    let mut extents = Vec::new();
-    view.extents(node, |extent| extents.push(extent)).unwrap();
+    let extents = view.all_extents(node);
     assert_eq!(extents.len(), 2);
     assert_eq!(extents[0].end(), extents[1].offset());
     let mut byte = [0u8; 1];

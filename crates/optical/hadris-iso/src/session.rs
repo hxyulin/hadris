@@ -18,9 +18,10 @@ use super::storage::BlockDevice;
 use super::write::{check_block_size, check_contents, check_output, emit};
 use crate::error::{Detail, Error};
 use crate::namespace::Namespace;
-use crate::options::{BootInfo, IsoId, IsoLevel, IsoOptions, SessionMode};
+use crate::options::{BootInfo, IsoLevel, IsoOptions, SessionMode};
 use crate::plan::{self, Base, InfoTable, Region};
 use crate::raw::{self, SECTOR_SIZE};
+use crate::volume_info::IsoId;
 use hadris_fs::PathError;
 
 const SECTOR: u64 = SECTOR_SIZE as u64;
@@ -176,14 +177,14 @@ impl<D: BlockDevice> Session<D> {
     /// [`ErrorKind::Unsupported`] for logical blocks other than 2048 bytes.
     pub async fn open(dev: D) -> Result<Self, MountError<D, D::Error>> {
         let mut iso = IsoFs::mount(dev, hadris_fs::MountOptions::new().read_only()).await?;
-        if iso.block_size() != SECTOR_SIZE as u32 {
+        if iso.info().block_size() != SECTOR_SIZE as u32 {
             let err: hadris_fs::Error<D::Error> = ErrorKind::Unsupported.into();
             return Err(MountError::new(err, iso.into_inner()));
         }
         match read_session(&mut iso).await {
             Ok((tree, options)) => {
-                let volume_blocks = u64::from(iso.volume_blocks());
-                let catalog = iso.boot_catalog_block();
+                let volume_blocks = u64::from(iso.info().volume_space_size());
+                let catalog = iso.catalog_block();
                 let mut session = Self {
                     dev: iso.into_inner(),
                     tree,
@@ -689,7 +690,14 @@ async fn read_session<D: BlockDevice>(iso: &mut IsoFs<D>) -> Result<(Tree, IsoOp
                 }
                 FileType::File => {
                     let mut extents = Vec::new();
-                    view.extents(node, |extent| extents.push(extent)).await?;
+                    let mut out = [Extent::new(0, 0); 8];
+                    let mut from = 0;
+                    loop {
+                        let n = view.extents(node, from, &mut out).await?;
+                        let Some(last) = out[..n].last() else { break };
+                        from = last.file_offset() + last.len();
+                        extents.extend(out[..n].iter().map(|extent| Extent::new(extent.offset(), extent.len())));
+                    }
                     let first = extents.first().map(Extent::offset).filter(|_| meta.len() > 0);
                     if let Some(target) = first.and_then(|first| links.get(&first).filter(|_| meta.nlink() > 1)) {
                         tree.link(target, &path).map_err(tree_error)?;

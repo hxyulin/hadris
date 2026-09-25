@@ -23,7 +23,7 @@ fn ucs2(bytes: &[u8]) -> String {
 pub fn info(args: InfoArgs) -> Result<()> {
     let mut dev = open(&args.input)?;
     let mut iso = super::view(&mut dev, hadris_iso::Namespace::Preferred)?;
-    let block_size = u64::from(iso.block_size());
+    let block_size = u64::from(iso.info().block_size());
 
     println!("ISO 9660 Image: {}", args.input.display());
     println!();
@@ -116,7 +116,8 @@ pub fn info(args: InfoArgs) -> Result<()> {
         }
     }
 
-    let catalog = iso.boot_catalog()?;
+    let mut catalog_buf = [0u8; 32 * 1024];
+    let catalog = iso.boot_catalog(&mut catalog_buf)?;
     if let Some(catalog) = &catalog {
         println!();
         println!("Boot Catalog:");

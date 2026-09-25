@@ -167,11 +167,13 @@ fn test_eltorito_boot_catalog_comparison() {
     );
     assert_eq!(default_entry[0], 0x88, "Default entry should be bootable");
 
-    let catalog = open(iso_data)
-        .boot_catalog()
+    let mut buf = [0u8; 2048];
+    let mut image = open(iso_data);
+    let catalog = image
+        .boot_catalog(&mut buf)
         .expect("hadris-iso should parse the xorriso boot catalog")
         .expect("the image has a boot catalog");
-    assert!(catalog.validation().is_valid());
+    assert_eq!(catalog.as_bytes()[30..32], [0x55, 0xAA]);
     assert!(catalog.default_entry().is_bootable());
 }
 

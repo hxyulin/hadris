@@ -118,7 +118,8 @@ fn check_volume_descriptors(
 
 fn check_volume_size(iso: &View<'_>, file_size: u64, verbose: bool) -> Vec<VerifyIssue> {
     let mut issues = Vec::new();
-    let declared_size = u64::from(iso.volume_blocks()) * u64::from(iso.block_size());
+    let declared_size =
+        u64::from(iso.info().volume_space_size()) * u64::from(iso.info().block_size());
 
     if verbose {
         println!("  Volume size: {declared_size} bytes (declared), {file_size} bytes (file)");
@@ -142,7 +143,8 @@ fn check_volume_size(iso: &View<'_>, file_size: u64, verbose: bool) -> Vec<Verif
 
 fn check_boot_catalog(iso: &mut View<'_>, verbose: bool) -> Vec<VerifyIssue> {
     let mut issues = Vec::new();
-    let catalog = match iso.boot_catalog() {
+    let mut buf = [0u8; 32 * 1024];
+    let catalog = match iso.boot_catalog(&mut buf) {
         Ok(Some(catalog)) => catalog,
         Ok(None) => return issues,
         Err(error) => {
@@ -153,7 +155,8 @@ fn check_boot_catalog(iso: &mut View<'_>, verbose: bool) -> Vec<VerifyIssue> {
         }
     };
 
-    let validation = catalog.validation();
+    let validation: hadris_iso::raw::BootValidationEntry =
+        bytemuck::pod_read_unaligned(&catalog.as_bytes()[..32]);
     if validation.header_id != 0x01 {
         issues.push(VerifyIssue::error(format!(
             "Boot catalog validation entry has header_id {:#x} (expected 0x01)",
@@ -174,7 +177,7 @@ fn check_boot_catalog(iso: &mut View<'_>, verbose: bool) -> Vec<VerifyIssue> {
         )));
     }
 
-    let volume_blocks = iso.volume_blocks();
+    let volume_blocks = iso.info().volume_space_size();
     for entry in catalog.entries() {
         if entry.is_bootable() && entry.load_block() >= volume_blocks {
             issues.push(VerifyIssue::error(format!(
@@ -187,7 +190,7 @@ fn check_boot_catalog(iso: &mut View<'_>, verbose: bool) -> Vec<VerifyIssue> {
     if verbose && issues.is_empty() {
         println!(
             "  Boot catalog validation passed ({} entries)",
-            catalog.entries().len()
+            catalog.entries().count()
         );
     }
 
@@ -201,7 +204,7 @@ fn check_path_table(
 ) -> Vec<VerifyIssue> {
     let mut issues = Vec::new();
     let mut table = vec![0u8; size as usize];
-    let offset = u64::from(block) * u64::from(iso.block_size());
+    let offset = u64::from(block) * u64::from(iso.info().block_size());
     if let Err(error) = iso.read_raw(offset, &mut table) {
         issues.push(VerifyIssue::error(format!(
             "Failed to read path table: {error}"
@@ -241,7 +244,7 @@ fn check_path_table(
         )));
     }
 
-    let volume_blocks = iso.volume_blocks();
+    let volume_blocks = iso.info().volume_space_size();
     for (i, &(extent, parent)) in records.iter().enumerate() {
         let idx = i + 1;
         if parent < 1 || parent > total {
@@ -334,14 +337,17 @@ fn check_extent_bounds(
         println!("  Checking extent bounds...");
     }
     for (path, entry) in entries {
-        let mut extents = Vec::new();
-        if let Err(error) = view.extents(entry.node, |extent| extents.push(extent)) {
-            issues.push(VerifyIssue::error(format!(
-                "Failed to read the extents of '{path}': {error}"
-            )));
-            continue;
-        }
-        for extent in extents.into_iter().filter(|extent| !extent.is_empty()) {
+        let mut extents = [hadris_fs::Extent::new(0, 0); 64];
+        let n = match view.extents(entry.node, 0, &mut extents) {
+            Ok(n) => n,
+            Err(error) => {
+                issues.push(VerifyIssue::error(format!(
+                    "Failed to read the extents of '{path}': {error}"
+                )));
+                continue;
+            }
+        };
+        for extent in extents[..n].iter().filter(|extent| !extent.is_empty()) {
             let end = extent.end();
             if end > volume_size {
                 issues.push(VerifyIssue::error(format!(
@@ -379,9 +385,9 @@ fn check_rrip_fields(
                 continue;
             }
         };
-        let is_dir = match view.raw_record(entry.node) {
-            Ok(record) => record.header().is_directory(),
-            Err(_) => entry.meta.file_type() == FileType::Dir,
+        let is_dir = match record(view, entry.node) {
+            Some(record) => record.header().is_directory(),
+            None => entry.meta.file_type() == FileType::Dir,
         };
         if let Some(mode) = info.mode() {
             let file_type = mode & 0o170000;
@@ -435,8 +441,8 @@ pub fn verify(args: VerifyArgs) -> Result<()> {
         all_issues.extend(check_path_table(&mut iso, table, args.verbose));
     }
 
-    let volume_blocks = iso.volume_blocks();
-    let volume_size = u64::from(volume_blocks) * u64::from(iso.block_size());
+    let volume_blocks = iso.info().volume_space_size();
+    let volume_size = u64::from(volume_blocks) * u64::from(iso.info().block_size());
     let has_rrip = iso.namespaces().contains(Namespace::RockRidge);
     {
         let mut view = view(&mut dev, Namespace::Primary)?;
@@ -500,4 +506,18 @@ pub fn verify(args: VerifyArgs) -> Result<()> {
             Err(format!("{} error(s) found", errors.len()).into())
         }
     }
+}
+
+/// The directory record a node id names, read through `records`.
+fn record(
+    view: &mut View<'_>,
+    node: hadris_fs::NodeId,
+) -> Option<hadris_iso::raw::DirectoryRecord> {
+    let mut out = [hadris_fs::Extent::new(0, 0); 1];
+    view.records(node, &mut out).ok()?;
+    let mut bytes = vec![0u8; out[0].len() as usize];
+    view.read_raw(out[0].offset(), &mut bytes).ok()?;
+    hadris_iso::raw::DirectoryRecord::parse(&bytes)
+        .ok()
+        .flatten()
 }

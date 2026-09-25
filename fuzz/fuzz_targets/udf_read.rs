@@ -81,7 +81,8 @@ fn walk(fs: &mut Fs) {
                 fs.forget(found, 1);
             }
             let _ = fs.stat(node);
-            let _ = fs.extents(node, |_| {});
+            let _ = fs.extents(node, 0, &mut [hadris_fs::Extent::new(0, 0); 4]);
+            let _ = fs.records(node, &mut [hadris_fs::Extent::new(0, 0); 1]);
             match entry.file_type() {
                 FileType::Dir => stack.push((node, depth + 1)),
                 FileType::Symlink => {
@@ -115,10 +116,11 @@ fn drive(data: &[u8]) {
         return;
     };
     let _ = (
-        fs.volume_id(),
-        fs.logical_volume_id(),
-        fs.revision(),
-        fs.partitions(),
+        fs.info().id(hadris_udf::UdfId::Volume),
+        fs.info().id(hadris_udf::UdfId::VolumeSet),
+        fs.info().volume_serial(),
+        fs.info().partitions(),
+        fs.was_dirty(),
     );
     walk(&mut fs);
 }

@@ -119,9 +119,11 @@ fn allocation_descriptors_of_every_form_read_back() {
     let mut udf = open(bytes);
     assert_eq!(udf.read_to_vec("/f.bin").unwrap(), &expected[..100]);
     let f = udf.resolve_path("/f.bin").unwrap();
-    let mut extents = 0;
-    udf.extents(f, |_| extents += 1).unwrap();
-    assert_eq!(extents, 0);
+    let mut out = [hadris_fs::Extent::new(0, 0); 4];
+    assert_eq!(udf.extents(f, 0, &mut out).unwrap(), 1);
+    let mut embedded = [0u8; 100];
+    udf.read_raw(out[0].offset(), &mut embedded).unwrap();
+    assert_eq!(embedded, expected[..100]);
 
     let mut bytes = base;
     let looped = sector(&mut bytes, aed);
@@ -244,6 +246,9 @@ fn prevailing_descriptors_win() {
     terminator.fill(0);
     Tag::seal(terminator, tag::TERMINATING, 2, 263, 0);
     let udf = open(bytes);
-    assert_eq!(udf.volume_id(), "NEWER");
-    assert_eq!(udf.logical_volume_id(), "UDF_VOLUME");
+    assert_eq!(udf.info().id(hadris_udf::UdfId::Volume), "NEWER");
+    assert_eq!(
+        udf.info().id(hadris_udf::UdfId::LogicalVolume),
+        "UDF_VOLUME"
+    );
 }

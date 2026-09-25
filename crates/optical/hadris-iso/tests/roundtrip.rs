@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::Paths;
+use common::{IsoExtras, Paths};
 use common::{image, pattern, sample};
 use hadris_fs::MountOptions;
 use hadris_fs::sync::FileSystem;
@@ -206,8 +206,7 @@ fn reports_match_what_the_reader_finds() {
         "/boot/efi.img",
     ] {
         let node = view.resolve_path(path).unwrap();
-        let mut extents = Vec::new();
-        view.extents(node, |extent| extents.push(extent)).unwrap();
+        let extents = view.all_extents(node);
         assert_eq!(
             report.extents(path).map(|e| e[0]),
             Some(extents[0]),
@@ -229,7 +228,8 @@ fn reports_match_what_the_reader_finds() {
         u64::from(
             IsoFs::mount(&mut iso, MountOptions::new())
                 .unwrap()
-                .volume_blocks()
+                .info()
+                .volume_space_size()
         )
     );
 }
@@ -266,7 +266,7 @@ fn lowercase_names_are_kept_on_request() {
         IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Primary).unwrap();
     assert!(view.exists("/readme.txt").unwrap());
     let node = view.resolve_path("/readme.txt").unwrap();
-    assert_eq!(view.raw_record(node).unwrap().name(), b"readme.txt;1");
+    assert_eq!(view.record(node).name(), b"readme.txt;1");
 }
 
 #[test]
@@ -286,14 +286,16 @@ fn boot_catalogs_read_back() {
     let mut iso = image(&tree, &options);
     let catalog = IsoFs::mount(&mut iso, MountOptions::new())
         .unwrap()
-        .boot_catalog()
+        .catalog()
         .unwrap()
         .unwrap();
     assert_eq!(
         Some(catalog.block()),
         IsoFs::mount(&mut iso, MountOptions::new())
             .unwrap()
-            .boot_catalog_block()
+            .catalog()
+            .unwrap()
+            .map(|c| c.block())
     );
     assert_eq!(
         report
@@ -474,9 +476,9 @@ fn primary_names_keep_the_separator_and_split_at_the_last_dot() {
         let mut view =
             IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Primary).unwrap();
         let readme = view.resolve_path("/README").unwrap();
-        assert_eq!(view.raw_record(readme).unwrap().name(), b"README.;1");
+        assert_eq!(view.record(readme).name(), b"README.;1");
         let tarball = view.resolve_path("/X_TAR.GZ").unwrap();
-        assert_eq!(view.raw_record(tarball).unwrap().name(), b"X_TAR.GZ;1");
+        assert_eq!(view.record(tarball).name(), b"X_TAR.GZ;1");
         assert_eq!(view.read_to_vec("/README").unwrap(), b"r");
     }
 }
@@ -627,7 +629,7 @@ fn an_appended_esp_is_stored_once_for_el_torito_and_the_gpt() {
     let mut iso = image(&tree, &options);
     let catalog = IsoFs::mount(&mut iso, MountOptions::new())
         .unwrap()
-        .boot_catalog()
+        .catalog()
         .unwrap()
         .unwrap();
     let entries = catalog.entries();
@@ -655,4 +657,61 @@ fn an_appended_esp_is_stored_once_for_el_torito_and_the_gpt() {
         .unwrap();
     assert_eq!(esp_part.start() * 512, start);
     assert_eq!(esp_part.len() * 512, 6144);
+}
+
+#[test]
+fn extras_read_the_descriptor_catalog_and_records() {
+    let tree = sample(false, false);
+    let time = hadris_fs::DateTime::from_unix_seconds(1_700_000_000).unwrap();
+    let options = IsoOptions::default()
+        .with_id(IsoId::Volume, "EXTRAS")
+        .with_id(IsoId::Publisher, "PUBLISHER")
+        .with_time(time)
+        .with_el_torito(
+            ElTorito::new()
+                .with_entry(BootEntry::bios("boot/boot.img").with_load_size(4))
+                .with_entry(BootEntry::uefi("boot/efi.img")),
+        );
+    let report = hadris_iso::plan(&tree, &options).unwrap();
+    let mut dev = image(&tree, &options);
+    let mut iso = IsoFs::mount(&mut dev, MountOptions::new()).unwrap();
+    let info = *iso.info();
+    assert_eq!(info.block_size(), 2048);
+    assert_eq!(u64::from(info.volume_space_size()) * 2048, report.size());
+    assert_eq!(info.id(IsoId::Volume), b"EXTRAS");
+    assert_eq!(info.id(IsoId::Publisher), b"PUBLISHER");
+    assert_eq!(info.id(IsoId::CopyrightFile), b"");
+    assert_eq!(
+        info.date(IsoDate::Created).map(|t| t.unix_seconds()),
+        Some(time.unix_seconds())
+    );
+    assert_eq!(info.date(IsoDate::Expires), None);
+
+    let mut small = [0u8; 64];
+    let err = iso.boot_catalog(&mut small).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::LimitExceeded);
+    let mut buf = [0u8; 2048];
+    let catalog = iso.boot_catalog(&mut buf).unwrap().unwrap();
+    let entries: Vec<_> = catalog.entries().collect();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(catalog.default_entry(), entries[0]);
+    assert_eq!(catalog.platform(), Platform::X86);
+    let efi = iso.boot_image(&entries[1]);
+    let stored = report.extents("boot/efi.img").unwrap()[0];
+    assert_eq!(efi.offset(), stored.offset());
+    let bios = iso.boot_image(&entries[0]);
+    assert_eq!(bios.len(), 4 * 512);
+    let mut loaded = vec![0u8; bios.len() as usize];
+    iso.read_raw(bios.offset(), &mut loaded).unwrap();
+
+    let node = iso.resolve_path("/readme.txt").unwrap();
+    assert_eq!(iso.record(node).name(), b"README.TXT;1");
+    let mut out = [hadris_fs::Extent::new(0, 0); 1];
+    assert_eq!(iso.extents(node, 0, &mut out).unwrap(), 1);
+    assert_eq!(out[0], report.extents("readme.txt").unwrap()[0]);
+    assert_eq!(iso.extents(node, out[0].len(), &mut out).unwrap(), 0);
+    assert_eq!(
+        iso.records(node, &mut []).unwrap_err().kind(),
+        ErrorKind::LimitExceeded
+    );
 }

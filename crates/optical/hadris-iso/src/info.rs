@@ -1,6 +1,7 @@
 use crate::error::Detail;
 use crate::namespace::{JolietLevel, Namespace, Namespaces};
 use crate::raw::{self, VolumeDescriptor};
+use crate::volume_info::VolumeInfo;
 
 /// A directory tree's root: the first block of its data and its length.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,6 +24,7 @@ pub(crate) struct Info {
     pub(crate) rock_ridge: Option<u8>,
     pub(crate) boot_catalog: Option<u32>,
     pub(crate) descriptors: u32,
+    pub(crate) volume: VolumeInfo,
 }
 
 impl Info {
@@ -53,7 +55,7 @@ impl Info {
 
 /// Reads the volume descriptor set one sector at a time.
 pub(crate) struct DescriptorScan {
-    primary: Option<(Root, u32, u32)>,
+    primary: Option<(Root, u32, u32, VolumeInfo)>,
     joliet: Option<(Root, JolietLevel)>,
     enhanced: Option<Root>,
     boot_catalog: Option<u32>,
@@ -131,6 +133,7 @@ impl DescriptorScan {
                     root_of(&pvd.root, pvd.type_l_path_table, pvd.path_table_size)?,
                     block_size,
                     pvd.volume_space_size.get(),
+                    VolumeInfo::new(&pvd),
                 ));
             }
             VolumeDescriptor::Supplementary(svd) => {
@@ -161,7 +164,7 @@ impl DescriptorScan {
     }
 
     pub(crate) fn finish(self) -> Result<Info, Detail> {
-        let (primary, block_size, volume_blocks) =
+        let (primary, block_size, volume_blocks, volume) =
             self.primary.ok_or(Detail::NoPrimaryDescriptor)?;
         Ok(Info {
             block_size,
@@ -172,6 +175,7 @@ impl DescriptorScan {
             rock_ridge: None,
             boot_catalog: self.boot_catalog,
             descriptors: self.seen,
+            volume,
         })
     }
 }

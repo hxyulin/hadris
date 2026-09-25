@@ -160,7 +160,7 @@ fn reserve_sequence_and_backup_anchor_are_used() {
     let mut bad = good;
     bad[257 * 2048 + 30] ^= 1;
     let mut udf = open(bad);
-    assert_eq!(udf.volume_id(), "UDF_VOLUME");
+    assert_eq!(udf.info().id(hadris_udf::UdfId::Volume), "UDF_VOLUME");
     assert_eq!(udf.read_to_vec("/docs/sub/deep.txt").unwrap(), b"deep");
 }
 
@@ -176,9 +176,12 @@ fn backup_boot_reads_the_end_anchors_and_the_reserve_sequence() {
     let mut reserve = good.clone();
     reserve[273 * 2048 + 25] = b'X';
     reseal(&mut reserve, 273, 496);
-    assert_eq!(open(reserve.clone()).volume_id(), "UDF_VOLUME");
+    assert_eq!(
+        open(reserve.clone()).info().id(hadris_udf::UdfId::Volume),
+        "UDF_VOLUME"
+    );
     let mut udf = backup(reserve).unwrap();
-    assert_eq!(udf.volume_id(), "XDF_VOLUME");
+    assert_eq!(udf.info().id(hadris_udf::UdfId::Volume), "XDF_VOLUME");
     assert_eq!(udf.read_to_vec("/readme.txt").unwrap(), b"hello");
 
     let mut ends = good.clone();

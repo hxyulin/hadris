@@ -83,9 +83,9 @@ fn verify(bytes: &[u8]) {
     let mut iso_extents = Vec::new();
     for path in ["/DOCS/LARGE.BIN", "/DOCS/NESTED/NOTE.TXT"] {
         let node = view.resolve_path(path).unwrap();
-        let mut extents = Vec::new();
-        view.extents(node, |extent| extents.push(extent)).unwrap();
-        iso_extents.push(extents);
+        let mut extents = [Extent::new(0, 0); 8];
+        let n = view.extents(node, 0, &mut extents).unwrap();
+        iso_extents.push(extents[..n].to_vec());
     }
 
     let mut udf = hadris_cd::udf::sync::UdfFs::mount(
@@ -93,7 +93,7 @@ fn verify(bytes: &[u8]) {
         MountOptions::new(),
     )
     .unwrap();
-    assert_eq!(udf.volume_id(), VOLUME);
+    assert_eq!(udf.info().id(hadris_udf::UdfId::Volume), VOLUME);
     assert_eq!(udf.read_to_vec("/EMPTY.TXT").unwrap(), b"");
     assert_eq!(udf.read_to_vec("/DOCS/LARGE.BIN").unwrap(), large());
     assert_eq!(udf.read_to_vec("/DOCS/COPY.BIN").unwrap(), large());
@@ -118,9 +118,9 @@ fn verify(bytes: &[u8]) {
         .zip(iso_extents)
     {
         let node = udf.resolve_path(path).unwrap();
-        let mut extents: Vec<Extent> = Vec::new();
-        udf.extents(node, |extent| extents.push(extent)).unwrap();
-        assert_eq!(extents, iso, "{path} shares its data");
+        let mut extents = [Extent::new(0, 0); 8];
+        let n = udf.extents(node, 0, &mut extents).unwrap();
+        assert_eq!(extents[..n], iso[..], "{path} shares its data");
     }
 }
 
@@ -296,6 +296,6 @@ fn iso_volume_space_covers_the_udf_tail() {
     assert!(descriptors >= 2);
     let dev = MemDevice::new(bytes.as_slice(), BlockSize::new(2048).unwrap());
     let iso = hadris_cd::iso::sync::IsoFs::mount(dev, MountOptions::new()).unwrap();
-    assert_eq!(iso.volume_blocks(), blocks);
+    assert_eq!(iso.info().volume_space_size(), blocks);
     verify(&bytes);
 }

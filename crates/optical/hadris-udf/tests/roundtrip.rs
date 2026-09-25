@@ -41,10 +41,10 @@ fn every_tree_reads_back() {
             .with_id(UdfId::Volume, "ROUNDTRIP")
             .with_revision(revision);
         let mut udf = open(image(&tree, &options));
-        assert_eq!(udf.volume_id(), "ROUNDTRIP");
-        assert_eq!(udf.logical_volume_id(), "ROUNDTRIP");
-        assert_eq!(udf.revision(), revision);
-        assert_eq!(udf.block_size(), 2048);
+        assert_eq!(udf.info().id(hadris_udf::UdfId::Volume), "ROUNDTRIP");
+        assert_eq!(udf.info().id(hadris_udf::UdfId::LogicalVolume), "ROUNDTRIP");
+        assert_eq!(udf.info().revision(), revision);
+        assert_eq!(udf.info().block_size(), 2048);
 
         assert_eq!(udf.read_to_vec("/readme.txt").unwrap(), b"hello");
         assert_eq!(udf.read_to_vec("/empty.txt").unwrap(), b"");
@@ -104,9 +104,10 @@ fn every_tree_reads_back() {
         assert_eq!(udf.parent(docs).unwrap(), udf.root());
         assert_eq!(udf.parent(udf.root()).unwrap(), udf.root());
 
-        let mut extents = Vec::new();
         let big = udf.resolve_path("/docs/big.bin").unwrap();
-        udf.extents(big, |extent| extents.push(extent)).unwrap();
+        let mut extents = [hadris_fs::Extent::new(0, 0); 4];
+        let n = udf.extents(big, 0, &mut extents).unwrap();
+        let extents = &extents[..n];
         assert_eq!(extents.len(), 1);
         assert_eq!(extents[0].len(), 70_000);
     }
@@ -196,7 +197,7 @@ fn reports_match_what_is_written() {
     let padded = image(&tree, &options.clone().with_min_blocks(2000));
     assert_eq!(padded.len(), 2000 * 2048);
     let udf = open(padded);
-    assert_eq!(udf.partitions()[0].len(), 2000 - 257 - 290);
+    assert_eq!(udf.info().partitions()[0].len(), 2000 - 257 - 290);
 }
 
 #[test]
@@ -359,8 +360,8 @@ fn identifiers_and_the_serial_follow_the_options() {
         .with_id(UdfId::FileSet, "SET");
     let bytes = image(&tree, &options);
     let udf = open(bytes.clone());
-    assert_eq!(udf.volume_id(), "DISC");
-    assert_eq!(udf.logical_volume_id(), "My Movies");
+    assert_eq!(udf.info().id(hadris_udf::UdfId::Volume), "DISC");
+    assert_eq!(udf.info().id(hadris_udf::UdfId::LogicalVolume), "My Movies");
     let serial = volume_set(&bytes);
     assert_eq!(serial.len(), 20);
     assert!(serial[..16].bytes().all(|b| b.is_ascii_hexdigit()));
@@ -404,4 +405,65 @@ fn identifiers_and_the_serial_follow_the_options() {
             "{id:?}"
         );
     }
+}
+
+#[test]
+fn extras_read_the_descriptors_records_and_extents() {
+    let tree = sample();
+    let options = UdfOptions::new()
+        .with_id(UdfId::Volume, "EXTRAS")
+        .with_id(UdfId::LogicalVolume, "Logical")
+        .with_id(UdfId::FileSet, "Files")
+        .with_seed(7)
+        .with_time(common::time(1_700_000_000));
+    let bytes = image(&tree, &options);
+    let mut udf = open(bytes.clone());
+    let info = *udf.info();
+    assert_eq!(info.id(UdfId::Volume), "EXTRAS");
+    assert_eq!(info.id(UdfId::LogicalVolume), "Logical");
+    assert_eq!(info.id(UdfId::FileSet), "Files");
+    assert!(info.id(UdfId::VolumeSet).ends_with("EXTRAS"));
+    let serial = info.volume_serial().unwrap();
+    assert_eq!(
+        format!("{serial:016x}"),
+        info.id(UdfId::VolumeSet)[..16].to_ascii_lowercase()
+    );
+    assert_eq!(info.domain().name(), b"*OSTA UDF Compliant");
+    assert!(!info.implementation().name().is_empty());
+    assert_eq!(
+        info.partitions()[0].kind(),
+        hadris_udf::PartitionKind::Physical
+    );
+    assert_eq!(
+        info.recorded().map(|t| t.unix_seconds()),
+        Some(1_700_000_000)
+    );
+    assert!(info.integrity_recorded().is_some());
+    assert!(!udf.was_dirty());
+
+    let big = udf.resolve_path("/docs/big.bin").unwrap();
+    let mut out = [hadris_fs::Extent::new(0, 0); 1];
+    assert_eq!(udf.extents(big, 0, &mut out).unwrap(), 1);
+    let mut data = vec![0u8; out[0].len() as usize];
+    udf.read_raw(out[0].offset(), &mut data).unwrap();
+    assert_eq!(data, udf.read_to_vec("/docs/big.bin").unwrap());
+    assert_eq!(udf.extents(big, out[0].len(), &mut out).unwrap(), 0);
+    assert_eq!(udf.records(big, &mut out).unwrap(), 1);
+    let mut entry = [0u8; 2];
+    udf.read_raw(out[0].offset(), &mut entry).unwrap();
+    assert!(matches!(u16::from_le_bytes(entry), 261 | 266));
+    assert_eq!(
+        udf.records(big, &mut []).unwrap_err().kind(),
+        ErrorKind::LimitExceeded
+    );
+
+    let mut dirty = bytes;
+    let sector = (0..dirty.len() as u64 / 2048)
+        .find(|&s| dirty[s as usize * 2048..][..2] == 9u16.to_le_bytes())
+        .unwrap();
+    let at = sector as usize * 2048;
+    let crc_length = u16::from_le_bytes([dirty[at + 10], dirty[at + 11]]) as usize;
+    dirty[at + 28..at + 32].copy_from_slice(&0u32.to_le_bytes());
+    common::reseal(&mut dirty, sector, crc_length);
+    assert!(open(dirty).was_dirty());
 }

@@ -22,7 +22,7 @@ fn small_images_are_padded_like_xorriso() {
         .unwrap();
     let bytes = write_tree(&tree, &IsoOptions::default()).unwrap();
     let image = open(bytes.clone());
-    let volume = image.volume_blocks() as usize;
+    let volume = image.info().volume_space_size() as usize;
     assert_eq!(volume * 2048, bytes.len());
     assert!(volume >= 150 + 18, "{volume}");
     assert!(bytes[(volume - 150) * 2048..].iter().all(|&byte| byte == 0));
@@ -40,7 +40,8 @@ fn small_images_are_padded_like_xorriso() {
         let peer = temp.path().join("peer.iso");
         xorriso::mkisofs(&source, &peer, "PEER", &[]).unwrap();
         let peer = open_file(&peer);
-        let data_blocks = |image: &hadris_tests::iso::hadris::Image| image.volume_blocks() - 150;
+        let data_blocks =
+            |image: &hadris_tests::iso::hadris::Image| image.info().volume_space_size() - 150;
         assert!(data_blocks(&peer) < 150);
         assert!(data_blocks(&image) < 150);
     }

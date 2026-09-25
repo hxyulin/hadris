@@ -94,10 +94,7 @@ pub fn write(state: &IsoState) -> Result<Vec<u8>, String> {
 
 pub fn snapshot(bytes: Vec<u8>) -> Result<IsoState, String> {
     let mut view = open_namespace(bytes, Namespace::Primary)?;
-    let pvd = view
-        .primary_descriptor()
-        .map_err(|error| error.to_string())?;
-    let volume_id = String::from_utf8_lossy(pvd.volume_identifier.trimmed()).into_owned();
+    let volume_id = String::from_utf8_lossy(view.info().id(IsoId::Volume)).into_owned();
     let mut entries = BTreeMap::new();
     let root = view.root();
     snapshot_dir(&mut view, root, "/", &mut entries)?;

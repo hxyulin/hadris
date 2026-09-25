@@ -67,10 +67,13 @@ hadris_fs::host::write_tree("out", &tree)?;
 
 In the primary and enhanced trees, `lookup` tries the exact name first and
 then ignores ASCII case, and version suffixes (`;1`) are not part of listed
-names. `IsoFs::rock_ridge` returns the Rock Ridge entries of a node,
-`IsoFs::raw_record` its directory record, `IsoFs::extents` where its data
-lies, and `IsoFs::boot_catalog` the El Torito catalog. The on-disk layouts
-are in `hadris_iso::raw`.
+names. `IsoFs::info` returns the primary volume descriptor's block size,
+volume size, identifiers (`IsoId`) and dates (`IsoDate`);
+`IsoFs::rock_ridge` the Rock Ridge entries of a node; `IsoFs::records` where
+its directory records lie and `IsoFs::extents` where its data lies, both
+read with `IsoFs::read_raw`; and `IsoFs::boot_catalog(&mut buf)` the El
+Torito catalog, parsed from the caller's buffer, with `IsoFs::boot_image`
+locating each entry's image. The on-disk layouts are in `hadris_iso::raw`.
 
 ### Without an allocator
 
