@@ -1,6 +1,6 @@
 use hadris_fs::host::{self, OnError, TreeOptions};
 use hadris_fs::{Clock, SystemClock, WarningKind};
-use hadris_udf::{UdfOptions, UdfRevision};
+use hadris_udf::{UdfId, UdfOptions, UdfRevision};
 
 use super::super::args::CreateArgs;
 use super::super::output::Output;
@@ -25,7 +25,7 @@ pub fn create(args: CreateArgs) -> Result<()> {
     }
     let time = host::source_date_epoch()?.unwrap_or_else(|| SystemClock.now());
     let options = UdfOptions::default()
-        .with_volume_id(args.volume_name.clone())
+        .with_id(UdfId::Volume, &args.volume_name)
         .with_revision(revision)
         .with_time(time);
 

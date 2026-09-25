@@ -7,7 +7,7 @@ use hadris_fs::Resolve;
 use hadris_fs::sync::{FileSystem, Volume, read_tree};
 use hadris_fs::{Content, Node, Tree};
 use hadris_iso::raw::{DirectoryRecord, SuspEntries};
-use hadris_iso::{IsoOptions, Namespace, RockRidge, VolumeIdentifiers};
+use hadris_iso::{IsoId, IsoOptions, Namespace};
 use hadris_tests::harness::files::read_path;
 use hadris_tests::iso::hadris::write_tree;
 use hadris_tests::iso::xorriso;
@@ -33,8 +33,8 @@ fn test_hadris_rockridge_roundtrip() {
     )
     .unwrap();
     let options = IsoOptions::default()
-        .with_volume(VolumeIdentifiers::new("RRIP_TEST"))
-        .with_rock_ridge(RockRidge::default());
+        .with_id(IsoId::Volume, "RRIP_TEST")
+        .with_rock_ridge();
     let iso_data = write_tree(&tree, &options).expect("Failed to create Rock Ridge ISO");
 
     let mut image = open(iso_data.clone());
@@ -168,7 +168,7 @@ fn hard_links_share_a_node_id() {
     tree.insert("other.txt", Node::file(Content::bytes("other\n")))
         .unwrap();
     tree.link("a.txt", "sub/b.txt").unwrap();
-    let options = IsoOptions::default().with_rock_ridge(RockRidge::default());
+    let options = IsoOptions::default().with_rock_ridge();
     let mut images = vec![("hadris", write_tree(&tree, &options).unwrap())];
     let temp = TempDir::new().unwrap();
     if xorriso::require() {

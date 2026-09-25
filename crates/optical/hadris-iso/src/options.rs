@@ -1,11 +1,10 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use hadris_fs::{DateTime, NoClock};
+use hadris_fs::{Content, DateTime, NoClock};
 use hadris_part::PartitionFlags;
 
 use crate::boot::{Emulation, Platform};
-use crate::namespace::JolietLevel;
 
 /// The ISO 9660 interchange level of the primary tree.
 ///
@@ -35,119 +34,56 @@ pub enum NameCase {
     Preserve,
 }
 
-/// How the volume descriptor identifiers treat characters outside the
-/// ECMA-119 a- and d-character sets.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum Charset {
-    /// Identifiers are stored as given, as xorriso and genisoimage do.
-    #[default]
-    Relaxed,
-    /// Lowercase becomes uppercase and other invalid characters `_`.
-    Strict,
-}
-
-/// The identifiers of the volume descriptors.
+/// A text identifier of the volume descriptors.
 ///
-/// A field left unset stays blank, except the application, which defaults
-/// to `HADRIS-ISO`. Joliet and enhanced descriptors carry the same values.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct VolumeIdentifiers {
-    volume: String,
-    system: Option<String>,
-    volume_set: Option<String>,
-    publisher: Option<String>,
-    preparer: Option<String>,
-    application: Option<String>,
+/// Joliet and ISO 9660:1999 descriptors carry the same values. The `File`
+/// identifiers name files of the root directory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum IsoId {
+    /// The system that may use the system area, up to 32 bytes.
+    System,
+    /// The volume name, up to 32 bytes; `CDROM` by default.
+    Volume,
+    /// The volume set, up to 128 bytes.
+    VolumeSet,
+    /// The publisher, up to 128 bytes.
+    Publisher,
+    /// The data preparer, up to 128 bytes.
+    Preparer,
+    /// The application, up to 128 bytes; `HADRIS-ISO` by default.
+    Application,
+    /// The copyright file, up to 37 bytes.
+    CopyrightFile,
+    /// The abstract file, up to 37 bytes.
+    AbstractFile,
+    /// The bibliographic file, up to 37 bytes.
+    BibliographicFile,
 }
 
-impl VolumeIdentifiers {
-    /// Identifiers naming the volume `volume`, up to 32 bytes.
-    pub fn new(volume: impl Into<String>) -> Self {
-        Self {
-            volume: volume.into(),
-            system: None,
-            volume_set: None,
-            publisher: None,
-            preparer: None,
-            application: None,
-        }
-    }
-
-    /// Sets the system that may use the system area, up to 32 bytes.
-    pub fn with_system(self, system: impl Into<String>) -> Self {
-        Self {
-            system: Some(system.into()),
-            ..self
-        }
-    }
-
-    /// Sets the volume set, up to 128 bytes.
-    pub fn with_volume_set(self, volume_set: impl Into<String>) -> Self {
-        Self {
-            volume_set: Some(volume_set.into()),
-            ..self
-        }
-    }
-
-    /// Sets the publisher, up to 128 bytes.
-    pub fn with_publisher(self, publisher: impl Into<String>) -> Self {
-        Self {
-            publisher: Some(publisher.into()),
-            ..self
-        }
-    }
-
-    /// Sets the data preparer, up to 128 bytes.
-    pub fn with_preparer(self, preparer: impl Into<String>) -> Self {
-        Self {
-            preparer: Some(preparer.into()),
-            ..self
-        }
-    }
-
-    /// Sets the application, up to 128 bytes.
-    pub fn with_application(self, application: impl Into<String>) -> Self {
-        Self {
-            application: Some(application.into()),
-            ..self
-        }
-    }
-
-    /// The volume name.
-    pub fn volume(&self) -> &str {
-        &self.volume
-    }
-
-    /// The system identifier.
-    pub fn system(&self) -> Option<&str> {
-        self.system.as_deref()
-    }
-
-    /// The volume set identifier.
-    pub fn volume_set(&self) -> Option<&str> {
-        self.volume_set.as_deref()
-    }
-
-    /// The publisher identifier.
-    pub fn publisher(&self) -> Option<&str> {
-        self.publisher.as_deref()
-    }
-
-    /// The data preparer identifier.
-    pub fn preparer(&self) -> Option<&str> {
-        self.preparer.as_deref()
-    }
-
-    /// The application identifier.
-    pub fn application(&self) -> Option<&str> {
-        self.application.as_deref()
+impl IsoId {
+    const fn index(self) -> usize {
+        self as usize
     }
 }
 
-impl Default for VolumeIdentifiers {
-    fn default() -> Self {
-        Self::new("CDROM")
+/// A date of the volume descriptors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum IsoDate {
+    /// When the volume was created; the options' time by default.
+    Created,
+    /// When the volume was last modified; the options' time by default.
+    Modified,
+    /// When the data becomes obsolete; unspecified by default.
+    Expires,
+    /// When the data may first be used; unspecified by default.
+    Effective,
+}
+
+impl IsoDate {
+    const fn index(self) -> usize {
+        self as usize
     }
 }
 
@@ -187,62 +123,18 @@ pub enum Relocation {
     /// Move them into `.rr_moved`.
     DotRrMoved,
     /// Fail with [`ErrorKind::InvalidInput`](hadris_fs::ErrorKind::InvalidInput).
-    Reject,
+    Refuse,
 }
 
 impl Relocation {
     /// The relocation directory's name, or `None` for
-    /// [`Reject`](Self::Reject).
+    /// [`Refuse`](Self::Refuse).
     pub const fn directory(self) -> Option<&'static str> {
         match self {
             Self::RrMoved => Some("rr_moved"),
             Self::DotRrMoved => Some(".rr_moved"),
-            Self::Reject => None,
+            Self::Refuse => None,
         }
-    }
-}
-
-/// Rock Ridge (RRIP 1.12) over the primary tree: POSIX names, modes,
-/// owners, times, symlinks, device nodes and hard links.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct RockRidge {
-    preserve: Preserve,
-    relocation: Relocation,
-}
-
-impl Default for RockRidge {
-    fn default() -> Self {
-        Self {
-            preserve: Preserve::all(),
-            relocation: Relocation::default(),
-        }
-    }
-}
-
-impl RockRidge {
-    /// Rock Ridge that copies all metadata and relocates into `rr_moved`.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Sets which metadata is copied from the tree.
-    pub fn with_preserve(self, preserve: Preserve) -> Self {
-        Self { preserve, ..self }
-    }
-
-    /// Sets where deep directories go.
-    pub fn with_relocation(self, relocation: Relocation) -> Self {
-        Self { relocation, ..self }
-    }
-
-    /// The metadata copied from the tree.
-    pub fn preserve(&self) -> Preserve {
-        self.preserve
-    }
-
-    /// Where deep directories go.
-    pub fn relocation(&self) -> &Relocation {
-        &self.relocation
     }
 }
 
@@ -254,34 +146,58 @@ pub enum BootInfo {
     #[default]
     None,
     /// The 16-byte table at byte 8, as `mkisofs -boot-info-table` writes.
-    Standard,
+    Table,
     /// The same table followed by 40 zero bytes, as GRUB 2 and ISOLINUX
     /// expect.
     Grub2,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum BootImage {
+    Path(String),
+    Appended(usize),
+}
+
 /// One El Torito boot entry.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BootEntry {
-    image: String,
+    image: BootImage,
     platform: Platform,
     emulation: Emulation,
     load_size: Option<u16>,
     load_segment: u16,
-    info_table: BootInfo,
+    info: BootInfo,
 }
 
 impl BootEntry {
-    /// An x86 no-emulation entry booting the file at tree path `image`.
-    pub fn new(image: impl Into<String>) -> Self {
+    fn with_image(image: BootImage, platform: Platform) -> Self {
         Self {
-            image: image.into(),
-            platform: Platform::X86,
+            image,
+            platform,
             emulation: Emulation::NoEmulation,
             load_size: None,
             load_segment: 0,
-            info_table: BootInfo::None,
+            info: BootInfo::None,
         }
+    }
+
+    /// A BIOS (x86) no-emulation entry booting the file at tree path
+    /// `image`.
+    pub fn bios(image: &str) -> Self {
+        Self::with_image(BootImage::Path(String::from(image)), Platform::X86)
+    }
+
+    /// A UEFI entry booting the file at tree path `image`, usually a FAT
+    /// image holding `EFI/BOOT/BOOTX64.EFI`.
+    pub fn uefi(image: &str) -> Self {
+        Self::with_image(BootImage::Path(String::from(image)), Platform::Efi)
+    }
+
+    /// A UEFI entry booting the partition that
+    /// [`Hybrid::with_appended`] added as number `index`, counted from 0,
+    /// so the image is stored once for El Torito and the partition table.
+    pub fn uefi_appended(index: usize) -> Self {
+        Self::with_image(BootImage::Appended(index), Platform::Efi)
     }
 
     /// Sets the platform.
@@ -318,16 +234,25 @@ impl BootEntry {
     }
 
     /// Writes a boot information table into the image.
-    pub fn with_boot_info_table(self, table: BootInfo) -> Self {
-        Self {
-            info_table: table,
-            ..self
+    pub fn with_boot_info(self, info: BootInfo) -> Self {
+        Self { info, ..self }
+    }
+
+    /// The tree path of the image, unless it is an appended partition.
+    pub fn image(&self) -> Option<&str> {
+        match &self.image {
+            BootImage::Path(path) => Some(path),
+            BootImage::Appended(_) => None,
         }
     }
 
-    /// The tree path of the image.
-    pub fn image(&self) -> &str {
-        &self.image
+    /// The number of the appended partition the entry boots, if it boots
+    /// one.
+    pub fn appended(&self) -> Option<usize> {
+        match self.image {
+            BootImage::Appended(index) => Some(index),
+            BootImage::Path(_) => None,
+        }
     }
 
     /// The platform.
@@ -351,31 +276,31 @@ impl BootEntry {
     }
 
     /// The boot information table.
-    pub fn boot_info_table(&self) -> BootInfo {
-        self.info_table
+    pub fn boot_info(&self) -> BootInfo {
+        self.info
     }
 }
 
 /// El Torito boot: a catalog of boot entries.
 ///
 /// The first entry is the default entry and gives the validation entry its
-/// platform; each further entry gets a section of its own.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// platform; each further entry gets a section of its own. A catalog
+/// without entries fails the plan with
+/// [`Detail::BootImage`](crate::Detail::BootImage).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct ElTorito {
     entries: Vec<BootEntry>,
     catalog: Option<String>,
 }
 
 impl ElTorito {
-    /// A catalog with `entry` as its default entry.
-    pub fn new(entry: BootEntry) -> Self {
-        Self {
-            entries: alloc::vec![entry],
-            catalog: None,
-        }
+    /// An empty catalog.
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    /// Adds an entry in a section of its own.
+    /// Adds an entry: the first is the default entry, each further one
+    /// gets a section of its own.
     pub fn with_entry(mut self, entry: BootEntry) -> Self {
         self.entries.push(entry);
         self
@@ -384,9 +309,9 @@ impl ElTorito {
     /// Makes the catalog visible as a file at tree path `path`, whose
     /// parent directory must exist. Without it the catalog is written after
     /// the other data and no directory lists it.
-    pub fn with_catalog_path(self, path: impl Into<String>) -> Self {
+    pub fn with_catalog_path(self, path: &str) -> Self {
         Self {
-            catalog: Some(path.into()),
+            catalog: Some(String::from(path)),
             ..self
         }
     }
@@ -404,61 +329,86 @@ impl ElTorito {
 
 /// The partition table of a hybrid image.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum PartitionScheme {
-    /// An MBR with one partition over the image, for BIOS USB boot.
+pub(crate) enum PartitionScheme {
     Mbr,
-    /// A GPT, with a protective MBR, for UEFI boot.
     Gpt,
-    /// A GPT whose MBR mirrors the ISO and EFI partitions, for both.
-    Hybrid,
+    GptHybridMbr,
+}
+
+/// A partition stored after the files of the image, inside the ISO 9660
+/// volume but in no directory, and listed in the partition table.
+#[derive(Debug, Clone)]
+pub struct AppendedPartition {
+    content: Content,
+}
+
+impl AppendedPartition {
+    /// An EFI system partition holding `content`, usually a FAT image. The
+    /// first one is the EFI system partition of a GPT, and
+    /// [`BootEntry::uefi_appended`] boots it from optical media.
+    pub fn esp(content: Content) -> Self {
+        Self { content }
+    }
+
+    /// The partition's bytes.
+    pub fn content(&self) -> &Content {
+        &self.content
+    }
 }
 
 /// A partition table in the system area, so the image also boots from a
 /// USB stick or disk.
 ///
-/// MBR partition entries count 512-byte sectors in 32 bits, so `Mbr` and
-/// `Hybrid` images are limited to 2 TiB. GPT and hybrid images get a backup
+/// MBR partition entries count 512-byte sectors in 32 bits, so `mbr` and
+/// `gpt_hybrid_mbr` images are limited to 2 TiB. GPT images get a backup
 /// GPT after the ISO data, counted in the volume space size.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct HybridBoot {
+///
+/// A GPT gets an EFI system partition over the first appended partition,
+/// or else over the image of the only UEFI boot entry after the default
+/// entry. With several such entries and no appended partition it gets
+/// none, and the report warns.
+#[derive(Debug, Clone)]
+pub struct Hybrid {
     scheme: PartitionScheme,
     bootstrap: Option<Vec<u8>>,
     flags: PartitionFlags,
-    efi_partition: Option<String>,
+    appended: Vec<AppendedPartition>,
 }
 
-impl HybridBoot {
+impl Hybrid {
     fn with_scheme(scheme: PartitionScheme, flags: PartitionFlags) -> Self {
         Self {
             scheme,
             bootstrap: None,
             flags,
-            efi_partition: None,
+            appended: Vec::new(),
         }
     }
 
-    /// An MBR whose partition is marked bootable.
+    /// An MBR with one partition over the image, marked bootable, for BIOS
+    /// USB boot.
     pub fn mbr() -> Self {
         Self::with_scheme(PartitionScheme::Mbr, PartitionFlags::BOOTABLE)
     }
 
-    /// A GPT.
+    /// A GPT with a protective MBR, for UEFI boot.
     pub fn gpt() -> Self {
         Self::with_scheme(PartitionScheme::Gpt, PartitionFlags::empty())
     }
 
-    /// A hybrid MBR and GPT whose ISO partition is marked bootable.
-    pub fn hybrid() -> Self {
-        Self::with_scheme(PartitionScheme::Hybrid, PartitionFlags::BOOTABLE)
+    /// A GPT whose MBR mirrors the ISO partition, marked bootable, and the
+    /// EFI system partition, for BIOS and UEFI boot.
+    pub fn gpt_hybrid_mbr() -> Self {
+        Self::with_scheme(PartitionScheme::GptHybridMbr, PartitionFlags::BOOTABLE)
     }
 
     /// Sets the boot code in the MBR, at most 446 bytes. Longer code fails
-    /// the write with [`ErrorKind::LimitExceeded`](hadris_fs::ErrorKind::LimitExceeded)
-    /// and [`Detail::HybridBoot`](crate::Detail::HybridBoot).
-    pub fn with_bootstrap(self, code: impl Into<Vec<u8>>) -> Self {
+    /// the plan with [`ErrorKind::LimitExceeded`](hadris_fs::ErrorKind::LimitExceeded)
+    /// and [`Detail::HybridBoot`](crate::Detail::HybridBoot). A plain GPT
+    /// has no boot code.
+    pub fn with_bootstrap(self, code: &[u8]) -> Self {
         Self {
-            bootstrap: Some(code.into()),
+            bootstrap: Some(code.to_vec()),
             ..self
         }
     }
@@ -469,19 +419,15 @@ impl HybridBoot {
         Self { flags, ..self }
     }
 
-    /// Exposes the file at tree path `image` as the EFI system partition of
-    /// a GPT or hybrid table. Without it, the image of the only UEFI boot
-    /// entry is used, if there is exactly one; with several, the table gets
-    /// no EFI system partition and the report warns.
-    pub fn with_efi_partition(self, image: impl Into<String>) -> Self {
-        Self {
-            efi_partition: Some(image.into()),
-            ..self
-        }
+    /// Adds a partition after the files. Only a GPT lists it; an `mbr`
+    /// table fails the plan with
+    /// [`Detail::HybridBoot`](crate::Detail::HybridBoot).
+    pub fn with_appended(mut self, partition: AppendedPartition) -> Self {
+        self.appended.push(partition);
+        self
     }
 
-    /// The partition scheme.
-    pub fn scheme(&self) -> PartitionScheme {
+    pub(crate) fn scheme(&self) -> PartitionScheme {
         self.scheme
     }
 
@@ -495,9 +441,9 @@ impl HybridBoot {
         self.flags
     }
 
-    /// The tree path of the EFI system partition image.
-    pub fn efi_partition(&self) -> Option<&str> {
-        self.efi_partition.as_deref()
+    /// The appended partitions, in order.
+    pub fn appended(&self) -> &[AppendedPartition] {
+        &self.appended
     }
 }
 
@@ -508,26 +454,29 @@ impl HybridBoot {
 /// bytes.
 ///
 /// ```rust
-/// use hadris_iso::{IsoLevel, IsoOptions, JolietLevel, RockRidge, VolumeIdentifiers};
+/// use hadris_iso::{IsoId, IsoLevel, IsoOptions};
 ///
-/// let options = IsoOptions::default()
-///     .with_volume(VolumeIdentifiers::new("INSTALL"))
+/// let options = IsoOptions::new()
+///     .with_id(IsoId::Volume, "INSTALL")
 ///     .with_level(IsoLevel::L3)
-///     .with_joliet(JolietLevel::L3)
-///     .with_rock_ridge(RockRidge::default());
-/// assert!(options.rock_ridge().is_some());
+///     .with_joliet()
+///     .with_rock_ridge();
+/// assert!(options.rock_ridge());
+/// assert_eq!(options.id(IsoId::Volume), Some("INSTALL"));
 /// ```
 #[derive(Debug, Clone)]
 pub struct IsoOptions {
-    volume: VolumeIdentifiers,
+    ids: [Option<String>; 9],
+    dates: [Option<DateTime>; 4],
     level: IsoLevel,
     name_case: NameCase,
-    charset: Charset,
-    joliet: Option<JolietLevel>,
-    rock_ridge: Option<RockRidge>,
-    enhanced: bool,
+    joliet: bool,
+    rock_ridge: bool,
+    relocation: Relocation,
+    preserve: Preserve,
+    iso1999: bool,
     el_torito: Option<ElTorito>,
-    hybrid: Option<HybridBoot>,
+    hybrid: Option<Hybrid>,
     min_blocks: u64,
     time: DateTime,
     seed: Option<u64>,
@@ -535,14 +484,19 @@ pub struct IsoOptions {
 
 impl Default for IsoOptions {
     fn default() -> Self {
+        let mut ids = [const { None }; 9];
+        ids[IsoId::Volume.index()] = Some(String::from("CDROM"));
+        ids[IsoId::Application.index()] = Some(String::from("HADRIS-ISO"));
         Self {
-            volume: VolumeIdentifiers::default(),
+            ids,
+            dates: [None; 4],
             level: IsoLevel::default(),
             name_case: NameCase::default(),
-            charset: Charset::default(),
-            joliet: None,
-            rock_ridge: None,
-            enhanced: false,
+            joliet: false,
+            rock_ridge: false,
+            relocation: Relocation::default(),
+            preserve: Preserve::all(),
+            iso1999: false,
             el_torito: None,
             hybrid: None,
             min_blocks: 0,
@@ -558,9 +512,19 @@ impl IsoOptions {
         Self::default()
     }
 
-    /// Sets the volume descriptor identifiers.
-    pub fn with_volume(self, volume: VolumeIdentifiers) -> Self {
-        Self { volume, ..self }
+    /// Sets a descriptor identifier. It is stored as given, as xorriso and
+    /// genisoimage do, in UCS-2 for Joliet; one longer than its field fails
+    /// the plan with [`Detail::Identifier`](crate::Detail::Identifier).
+    /// An empty identifier leaves the field blank.
+    pub fn with_id(mut self, id: IsoId, value: &str) -> Self {
+        self.ids[id.index()] = Some(String::from(value));
+        self
+    }
+
+    /// Sets a descriptor date.
+    pub fn with_date(mut self, date: IsoDate, time: DateTime) -> Self {
+        self.dates[date.index()] = Some(time);
+        self
     }
 
     /// Sets the interchange level of the primary tree.
@@ -573,33 +537,39 @@ impl IsoOptions {
         Self { name_case, ..self }
     }
 
-    /// Sets how descriptor identifiers treat invalid characters.
-    pub fn with_charset(self, charset: Charset) -> Self {
-        Self { charset, ..self }
-    }
-
     /// Adds a Joliet tree with UCS-2 names of up to 64 characters.
-    pub fn with_joliet(self, level: JolietLevel) -> Self {
+    pub fn with_joliet(self) -> Self {
         Self {
-            joliet: Some(level),
+            joliet: true,
             ..self
         }
     }
 
     /// Adds Rock Ridge to the primary tree. Without it, symlinks and device
     /// nodes are left out and reported, and deep trees fail.
-    pub fn with_rock_ridge(self, rock_ridge: RockRidge) -> Self {
+    pub fn with_rock_ridge(self) -> Self {
         Self {
-            rock_ridge: Some(rock_ridge),
+            rock_ridge: true,
             ..self
         }
     }
 
-    /// Adds an ISO 9660:1999 enhanced tree with names of up to 207 bytes
-    /// that keep their case.
-    pub fn with_enhanced_tree(self) -> Self {
+    /// Sets where Rock Ridge puts deep directories; `rr_moved` by default.
+    pub fn with_relocation(self, relocation: Relocation) -> Self {
+        Self { relocation, ..self }
+    }
+
+    /// Sets which metadata Rock Ridge copies from the tree; all of it by
+    /// default.
+    pub fn with_preserve(self, preserve: Preserve) -> Self {
+        Self { preserve, ..self }
+    }
+
+    /// Adds an ISO 9660:1999 tree with names of up to 207 bytes that keep
+    /// their case.
+    pub fn with_iso1999(self) -> Self {
         Self {
-            enhanced: true,
+            iso1999: true,
             ..self
         }
     }
@@ -613,7 +583,7 @@ impl IsoOptions {
     }
 
     /// Adds a partition table, so the image boots from disks too.
-    pub fn with_hybrid(self, hybrid: HybridBoot) -> Self {
+    pub fn with_hybrid(self, hybrid: Hybrid) -> Self {
         Self {
             hybrid: Some(hybrid),
             ..self
@@ -621,7 +591,8 @@ impl IsoOptions {
     }
 
     /// Places directories and files at or after logical block `blocks`,
-    /// leaving room for another format's structures after the descriptors.
+    /// leaving room for another format's structures after the descriptors,
+    /// as the ISO 9660 and UDF bridge writer does.
     pub fn with_min_blocks(self, blocks: u64) -> Self {
         Self {
             min_blocks: blocks,
@@ -646,9 +617,20 @@ impl IsoOptions {
         }
     }
 
-    /// The volume descriptor identifiers.
-    pub fn volume(&self) -> &VolumeIdentifiers {
-        &self.volume
+    /// A descriptor identifier, or `None` when it is blank.
+    pub fn id(&self, id: IsoId) -> Option<&str> {
+        self.ids[id.index()].as_deref().filter(|id| !id.is_empty())
+    }
+
+    /// A descriptor date, as written: the options' time for
+    /// [`IsoDate::Created`] and [`IsoDate::Modified`] unless set, `None`
+    /// for an unspecified date.
+    pub fn date(&self, date: IsoDate) -> Option<DateTime> {
+        match (self.dates[date.index()], date) {
+            (Some(time), _) => Some(time),
+            (None, IsoDate::Created | IsoDate::Modified) => Some(self.time),
+            (None, _) => None,
+        }
     }
 
     /// The interchange level.
@@ -661,24 +643,29 @@ impl IsoOptions {
         self.name_case
     }
 
-    /// How descriptor identifiers treat invalid characters.
-    pub fn charset(&self) -> Charset {
-        self.charset
-    }
-
-    /// The Joliet level, if a Joliet tree is written.
-    pub fn joliet(&self) -> Option<JolietLevel> {
+    /// Whether a Joliet tree is written.
+    pub fn joliet(&self) -> bool {
         self.joliet
     }
 
-    /// The Rock Ridge options, if Rock Ridge is written.
-    pub fn rock_ridge(&self) -> Option<&RockRidge> {
-        self.rock_ridge.as_ref()
+    /// Whether Rock Ridge is written.
+    pub fn rock_ridge(&self) -> bool {
+        self.rock_ridge
     }
 
-    /// Whether an enhanced tree is written.
-    pub fn has_enhanced_tree(&self) -> bool {
-        self.enhanced
+    /// Where Rock Ridge puts deep directories.
+    pub fn relocation(&self) -> Relocation {
+        self.relocation
+    }
+
+    /// The metadata Rock Ridge copies from the tree.
+    pub fn preserve(&self) -> Preserve {
+        self.preserve
+    }
+
+    /// Whether an ISO 9660:1999 tree is written.
+    pub fn iso1999(&self) -> bool {
+        self.iso1999
     }
 
     /// The El Torito options.
@@ -687,7 +674,7 @@ impl IsoOptions {
     }
 
     /// The hybrid boot options.
-    pub fn hybrid(&self) -> Option<&HybridBoot> {
+    pub fn hybrid(&self) -> Option<&Hybrid> {
         self.hybrid.as_ref()
     }
 

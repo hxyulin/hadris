@@ -7,7 +7,7 @@ use hadris_fs::{Content, Node, Tree};
 use hadris_fs::{MountOptions, NodeId};
 use hadris_iso::plan;
 use hadris_iso::sync::IsoFs;
-use hadris_iso::{Charset, IsoOptions, Namespace, VolumeIdentifiers};
+use hadris_iso::{IsoId, IsoOptions, Namespace};
 use hadris_storage::{BlockSize, MemDevice};
 
 use super::adapter::{IsoConsumer, IsoProducer};
@@ -87,10 +87,8 @@ pub fn tree(state: &IsoState) -> Result<Tree, String> {
 /// Writes a strict Level 1 image in memory.
 pub fn write(state: &IsoState) -> Result<Vec<u8>, String> {
     let options = IsoOptions::default()
-        .with_volume(
-            VolumeIdentifiers::new(state.volume_id.clone()).with_application("HADRIS CONFORMANCE"),
-        )
-        .with_charset(Charset::Strict);
+        .with_id(IsoId::Volume, &state.volume_id)
+        .with_id(IsoId::Application, "HADRIS CONFORMANCE");
     write_tree(&tree(state)?, &options)
 }
 

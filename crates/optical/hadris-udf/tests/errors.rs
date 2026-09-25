@@ -11,7 +11,7 @@ use hadris_fs::{Content, Node, Tree};
 use hadris_fs::{ErrorKind, Extent, NodeId, SetAttr};
 use hadris_storage::{BlockSize, MemDevice};
 use hadris_udf::sync::UdfFs;
-use hadris_udf::{Detail, UdfOptions, UdfRevision};
+use hadris_udf::{Detail, UdfId, UdfOptions, UdfRevision};
 
 fn good() -> Vec<u8> {
     image(&sample(), &UdfOptions::default())
@@ -219,7 +219,7 @@ fn the_writer_refuses_what_it_cannot_store() {
     let tree = sample();
     let err = hadris_udf::plan(
         &tree,
-        &UdfOptions::default().with_volume_id("x".repeat(127)),
+        &UdfOptions::default().with_id(UdfId::Volume, &"x".repeat(127)),
     )
     .unwrap_err();
     assert_eq!(

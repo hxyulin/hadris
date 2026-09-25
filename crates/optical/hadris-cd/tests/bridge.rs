@@ -4,7 +4,8 @@
 mod common;
 
 use common::Paths;
-use hadris_cd::iso::{Namespace, RockRidge, VolumeIdentifiers};
+use hadris_cd::iso::{IsoId, Namespace};
+use hadris_cd::udf::UdfId;
 use hadris_cd::udf::UdfRevision;
 use hadris_cd::{CdOptions, IsoOptions, UdfOptions};
 use hadris_fs::MountOptions;
@@ -43,12 +44,12 @@ fn options(revision: UdfRevision) -> CdOptions {
             CdOptions::default()
                 .iso()
                 .clone()
-                .with_volume(VolumeIdentifiers::new(VOLUME))
-                .with_rock_ridge(RockRidge::default()),
+                .with_id(IsoId::Volume, VOLUME)
+                .with_rock_ridge(),
         )
         .with_udf(
             UdfOptions::default()
-                .with_volume_id(VOLUME)
+                .with_id(UdfId::Volume, VOLUME)
                 .with_revision(revision),
         )
 }
@@ -274,10 +275,7 @@ fn writer_errors_keep_their_detail() {
 #[test]
 fn iso_volume_space_covers_the_udf_tail() {
     let tree = fixture();
-    let iso = options(UdfRevision::V2_01)
-        .iso()
-        .clone()
-        .with_joliet(hadris_cd::iso::JolietLevel::L3);
+    let iso = options(UdfRevision::V2_01).iso().clone().with_joliet();
     let options = options(UdfRevision::V2_01).with_iso(iso);
     let bytes = create(&tree, &options);
     let blocks = (bytes.len() / SECTOR) as u32;

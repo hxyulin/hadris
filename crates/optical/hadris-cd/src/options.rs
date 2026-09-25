@@ -1,6 +1,6 @@
 use hadris_fs::DateTime;
-use hadris_iso::{IsoLevel, IsoOptions, JolietLevel, VolumeIdentifiers};
-use hadris_udf::UdfOptions;
+use hadris_iso::{IsoId, IsoLevel, IsoOptions};
+use hadris_udf::{UdfId, UdfOptions};
 
 /// Options for a hybrid image: the ISO 9660 and the UDF options.
 ///
@@ -14,19 +14,19 @@ use hadris_udf::UdfOptions;
 /// itself.
 ///
 /// ```rust
-/// use hadris_cd::iso::{JolietLevel, RockRidge, VolumeIdentifiers};
-/// use hadris_cd::udf::UdfRevision;
+/// use hadris_cd::iso::IsoId;
+/// use hadris_cd::udf::{UdfId, UdfRevision};
 /// use hadris_cd::{CdOptions, IsoOptions, UdfOptions};
 ///
 /// let options = CdOptions::default()
 ///     .with_iso(
 ///         IsoOptions::default()
-///             .with_volume(VolumeIdentifiers::new("MY_DISC"))
-///             .with_joliet(JolietLevel::L3)
-///             .with_rock_ridge(RockRidge::default()),
+///             .with_id(IsoId::Volume, "MY_DISC")
+///             .with_joliet()
+///             .with_rock_ridge(),
 ///     )
-///     .with_udf(UdfOptions::default().with_volume_id("MY_DISC").with_revision(UdfRevision::V2_01));
-/// assert_eq!(options.udf().volume_id(), "MY_DISC");
+///     .with_udf(UdfOptions::default().with_id(UdfId::Volume, "MY_DISC").with_revision(UdfRevision::V2_01));
+/// assert_eq!(options.udf().id(UdfId::Volume), Some("MY_DISC"));
 /// ```
 #[derive(Debug, Clone)]
 pub struct CdOptions {
@@ -38,11 +38,11 @@ impl Default for CdOptions {
     fn default() -> Self {
         Self {
             iso: IsoOptions::default()
-                .with_volume(VolumeIdentifiers::new("CDROM"))
+                .with_id(IsoId::Volume, "CDROM")
                 .with_level(IsoLevel::L2)
-                .with_joliet(JolietLevel::L3)
-                .with_enhanced_tree(),
-            udf: UdfOptions::default().with_volume_id("CDROM"),
+                .with_joliet()
+                .with_iso1999(),
+            udf: UdfOptions::default().with_id(UdfId::Volume, "CDROM"),
         }
     }
 }

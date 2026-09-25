@@ -16,8 +16,8 @@ use hadris_fs::{
 };
 use hadris_part::gpt::types as part_types;
 use hadris_part::{
-    Disk, Gpt, GptEntry, Guid, Hybrid, HybridMbr, Mbr, MbrEntry, MbrType, PartitionFlags,
-    PartitionName, TableError,
+    Disk, Gpt, GptEntry, Guid, Hybrid as HybridTable, HybridMbr, Mbr, MbrEntry, MbrType,
+    PartitionFlags, PartitionName, TableError,
 };
 use hadris_storage::BlockSize;
 
@@ -25,7 +25,8 @@ use crate::boot::Platform;
 use crate::error::{Detail, Error};
 use crate::namespace::JolietLevel;
 use crate::options::{
-    BootInfo, Charset, HybridBoot, IsoLevel, IsoOptions, PartitionScheme, Preserve, Relocation,
+    BootEntry, BootInfo, Hybrid, IsoDate, IsoId, IsoLevel, IsoOptions, PartitionScheme, Preserve,
+    Relocation,
 };
 use crate::raw::{
     self, BootRecordVolumeDescriptor, DecDateTime, DirDateTime, DirectoryRecord, FileFlags, IsoStr,
@@ -53,7 +54,6 @@ const MAX_EXTENT: u64 = (u32::MAX as u64 / SECTOR) * SECTOR;
 const MAX_DEPTH: usize = 8;
 /// The longest path ECMA-119 allows.
 const MAX_PATH: usize = 255;
-const APPLICATION: &str = "HADRIS-ISO";
 const PART_BLOCK: BlockSize = match BlockSize::new(512) {
     Some(size) => size,
     None => panic!("512 is not zero"),
@@ -125,12 +125,20 @@ pub(crate) enum Region {
         len: u64,
         info: Option<InfoTable>,
     },
+    /// An appended partition's content, padded to whole blocks.
+    Content {
+        block: u64,
+        content: Content,
+        info: Option<InfoTable>,
+    },
 }
 
 impl Region {
     pub(crate) fn block(&self) -> u64 {
         match self {
-            Self::Bytes { block, .. } | Self::File { block, .. } => *block,
+            Self::Bytes { block, .. } | Self::File { block, .. } | Self::Content { block, .. } => {
+                *block
+            }
         }
     }
 
@@ -138,6 +146,7 @@ impl Region {
         let len = match self {
             Self::Bytes { data, .. } => data.len() as u64,
             Self::File { len, .. } => *len,
+            Self::Content { content, .. } => content.len(),
         };
         len.div_ceil(SECTOR)
     }
@@ -240,6 +249,8 @@ struct Planner<'a> {
     /// The first extent and length of each data file, by tree node; the
     /// visible catalog is `usize::MAX`.
     extents: BTreeMap<usize, Vec<(u32, u64)>>,
+    /// The first block and length of each appended partition.
+    appended: Vec<(u32, u64)>,
     dir_refs: BTreeMap<(usize, usize), (u32, u32)>,
 }
 
@@ -372,15 +383,15 @@ pub(crate) fn lay_out(
     contents: &BTreeMap<usize, ContentInfo>,
     base: Base,
 ) -> PlanResult<Plan> {
-    let rock_ridge = opts.rock_ridge().is_some();
+    let rock_ridge = opts.rock_ridge();
     let case = opts.name_case();
     let level = opts.level();
     let mut trees = vec![(TreeKind::Primary, Rules::Primary { level, case })];
-    if opts.has_enhanced_tree() {
+    if opts.iso1999() {
         trees.push((TreeKind::Enhanced, Rules::Enhanced));
     }
-    if let Some(level) = opts.joliet() {
-        trees.push((TreeKind::Joliet(level), Rules::Joliet));
+    if opts.joliet() {
+        trees.push((TreeKind::Joliet(JolietLevel::L3), Rules::Joliet));
     }
     let mut planner = Planner {
         tree,
@@ -396,6 +407,7 @@ pub(crate) fn lay_out(
         serials: BTreeMap::new(),
         warnings: Vec::new(),
         extents: BTreeMap::new(),
+        appended: Vec::new(),
         dir_refs: BTreeMap::new(),
     };
     planner.gather()?;
@@ -524,19 +536,38 @@ impl Planner<'_> {
     /// zero, and the MBR boot code fits. Warns about load sizes past the
     /// image and a hybrid table that gets no EFI system partition.
     fn check_boot(&mut self) -> PlanResult<()> {
-        if let Some(code) = self.opts.hybrid().and_then(HybridBoot::bootstrap)
-            && code.len() > 446
-        {
-            return Err(Detail::HybridBoot.error(ErrorKind::LimitExceeded));
+        let appended = self.opts.hybrid().map_or(&[][..], Hybrid::appended);
+        if let Some(hybrid) = self.opts.hybrid() {
+            if hybrid.bootstrap().is_some_and(|code| code.len() > 446) {
+                return Err(Detail::HybridBoot.error(ErrorKind::LimitExceeded));
+            }
+            if (hybrid.scheme() == PartitionScheme::Mbr && !appended.is_empty())
+                || appended
+                    .iter()
+                    .any(|partition| partition.content().is_empty())
+            {
+                return Err(invalid(Detail::HybridBoot));
+            }
         }
         let Some(el_torito) = self.opts.el_torito() else {
             return Ok(());
         };
+        if el_torito.entries().is_empty() {
+            return Err(invalid(Detail::BootImage));
+        }
         for entry in el_torito.entries() {
-            let node = self
-                .file_entry(entry.image())
-                .ok_or(invalid(Detail::BootImage))?;
-            let len = self.contents.get(&node.id()).map_or(0, |info| info.len);
+            let len = match (entry.image(), entry.appended()) {
+                (Some(path), _) => {
+                    let node = self.file_entry(path).ok_or(invalid(Detail::BootImage))?;
+                    self.contents.get(&node.id()).map_or(0, |info| info.len)
+                }
+                (None, Some(index)) => appended
+                    .get(index)
+                    .ok_or(invalid(Detail::BootImage))?
+                    .content()
+                    .len(),
+                (None, None) => return Err(invalid(Detail::BootImage)),
+            };
             let floppy = match entry.emulation() {
                 crate::Emulation::Floppy12 => Some(1_228_800),
                 crate::Emulation::Floppy144 => Some(1_474_560),
@@ -550,18 +581,19 @@ impl Planner<'_> {
                 && let Some(load) = entry.load_size()
                 && u64::from(load) > len.div_ceil(512)
             {
-                self.warnings.push(
-                    Warning::new(
-                        WarningKind::Boot,
-                        "the load size runs past the boot image; firmware loads the bytes after it too",
-                    )
-                    .with_path(normalize(entry.image())),
+                let mut warning = Warning::new(
+                    WarningKind::Boot,
+                    "the load size runs past the boot image; firmware loads the bytes after it too",
                 );
+                if let Some(path) = entry.image() {
+                    warning = warning.with_path(normalize(path));
+                }
+                self.warnings.push(warning);
             }
         }
         if let Some(hybrid) = self.opts.hybrid()
             && hybrid.scheme() != PartitionScheme::Mbr
-            && hybrid.efi_partition().is_none()
+            && appended.is_empty()
         {
             let mut uefi = el_torito
                 .entries()
@@ -569,13 +601,14 @@ impl Planner<'_> {
                 .skip(1)
                 .filter(|entry| entry.platform() == Platform::Efi);
             if let (Some(first), Some(_)) = (uefi.next(), uefi.next()) {
-                self.warnings.push(
-                    Warning::new(
-                        WarningKind::Boot,
-                        "several UEFI boot entries and no HybridBoot::with_efi_partition: the partition table has no EFI system partition",
-                    )
-                    .with_path(normalize(first.image())),
+                let mut warning = Warning::new(
+                    WarningKind::Boot,
+                    "several UEFI boot entries and no appended partition: the partition table has no EFI system partition",
                 );
+                if let Some(path) = first.image() {
+                    warning = warning.with_path(normalize(path));
+                }
+                self.warnings.push(warning);
             }
         }
         Ok(())
@@ -666,7 +699,7 @@ impl Planner<'_> {
     }
 
     fn relocation(&self) -> Option<Relocation> {
-        self.opts.rock_ridge().map(|rr| *rr.relocation())
+        self.opts.rock_ridge().then(|| self.opts.relocation())
     }
 
     /// Moves directories deeper than ECMA-119 allows into the relocation
@@ -834,10 +867,11 @@ impl Planner<'_> {
         links: u32,
         serial: u32,
     ) {
-        let preserve = self
-            .opts
-            .rock_ridge()
-            .map_or(Preserve::empty(), |rr| rr.preserve());
+        let preserve = if self.opts.rock_ridge() {
+            self.opts.preserve()
+        } else {
+            Preserve::empty()
+        };
         let mode = if preserve.contains(Preserve::PERMISSIONS) {
             meta.permissions().map_or(default, |mode| mode.bits())
         } else {
@@ -1162,6 +1196,18 @@ impl Planner<'_> {
         }
 
         let mut regions = Vec::new();
+        for partition in self.opts.hybrid().map_or(&[][..], Hybrid::appended) {
+            let content = partition.content().clone();
+            let block = cursor.div_ceil(SECTOR);
+            self.appended
+                .push((block_of(block * SECTOR)?, content.len()));
+            cursor = block * SECTOR + content.len();
+            regions.push(Region::Content {
+                block,
+                content,
+                info: None,
+            });
+        }
         for &dir in &order {
             for ti in 0..self.trees.len() {
                 if !self.has_dir(dir, ti) {
@@ -1177,7 +1223,16 @@ impl Planner<'_> {
             }
         }
 
-        let infos = self.info_tables()?;
+        let (infos, appended_infos) = self.info_tables()?;
+        for region in &mut regions {
+            if let Region::Content { block, info, .. } = region {
+                let index = self
+                    .appended
+                    .iter()
+                    .position(|&(start, _)| u64::from(start) == *block);
+                *info = index.and_then(|index| appended_infos.get(&index).copied());
+            }
+        }
         for (block, node, path, len) in file_regions {
             regions.push(Region::File {
                 block,
@@ -1246,8 +1301,8 @@ impl Planner<'_> {
             None
         };
         let gpt = matches!(
-            hybrid.map(HybridBoot::scheme),
-            Some(PartitionScheme::Gpt | PartitionScheme::Hybrid)
+            hybrid.map(Hybrid::scheme),
+            Some(PartitionScheme::Gpt | PartitionScheme::GptHybridMbr)
         );
         let total = if gpt || self.base.gpt_backup {
             (end * 4 + BACKUP_GPT_SECTORS).div_ceil(4)
@@ -1353,34 +1408,57 @@ impl Planner<'_> {
         Ok((block, len))
     }
 
-    fn info_tables(&self) -> PlanResult<BTreeMap<usize, InfoTable>> {
-        let mut out = BTreeMap::new();
+    /// The first block and length of an entry's image.
+    fn entry_image(&self, entry: &BootEntry) -> PlanResult<(u32, u64)> {
+        match (entry.image(), entry.appended()) {
+            (Some(path), _) => self.boot_image(path),
+            (None, Some(index)) => self
+                .appended
+                .get(index)
+                .copied()
+                .ok_or(invalid(Detail::BootImage)),
+            (None, None) => Err(invalid(Detail::BootImage)),
+        }
+    }
+
+    /// The boot information tables, by the tree node of the image and by
+    /// appended partition.
+    #[allow(clippy::type_complexity)]
+    fn info_tables(&self) -> PlanResult<(BTreeMap<usize, InfoTable>, BTreeMap<usize, InfoTable>)> {
+        let mut nodes = BTreeMap::new();
+        let mut appended = BTreeMap::new();
         let Some(el_torito) = self.opts.el_torito() else {
-            return Ok(out);
+            return Ok((nodes, appended));
         };
         for entry in el_torito.entries() {
-            if entry.boot_info_table() == BootInfo::None {
+            if entry.boot_info() == BootInfo::None {
                 continue;
             }
-            let (block, len) = self.boot_image(entry.image())?;
+            let (block, len) = self.entry_image(entry)?;
             if len < 64 {
                 return Err(invalid(Detail::BootInfoTable));
             }
-            let node = self
-                .tree
-                .entry(entry.image())
-                .map(|node| node.id())
-                .ok_or(invalid(Detail::BootImage))?;
-            out.insert(
-                node,
-                InfoTable {
-                    kind: entry.boot_info_table(),
-                    block,
-                    len: u32::try_from(len).map_err(|_| invalid(Detail::BootInfoTable))?,
-                },
-            );
+            let table = InfoTable {
+                kind: entry.boot_info(),
+                block,
+                len: u32::try_from(len).map_err(|_| invalid(Detail::BootInfoTable))?,
+            };
+            match (entry.image(), entry.appended()) {
+                (Some(path), _) => {
+                    let node = self
+                        .tree
+                        .entry(path)
+                        .map(|node| node.id())
+                        .ok_or(invalid(Detail::BootImage))?;
+                    nodes.insert(node, table);
+                }
+                (None, Some(index)) => {
+                    appended.insert(index, table);
+                }
+                (None, None) => return Err(invalid(Detail::BootImage)),
+            }
         }
-        Ok(out)
+        Ok((nodes, appended))
     }
 
     fn boot_catalog(&self) -> PlanResult<Option<Vec<u8>>> {
@@ -1396,7 +1474,7 @@ impl Planner<'_> {
             platform.id(),
         )));
         for (index, entry) in entries.iter().enumerate() {
-            let (block, len) = self.boot_image(entry.image())?;
+            let (block, len) = self.entry_image(entry)?;
             let load = entry.load_size().unwrap_or_else(|| {
                 if entry.emulation() != crate::Emulation::NoEmulation {
                     1
@@ -1432,25 +1510,18 @@ impl Planner<'_> {
     // -----------------------------------------------------------------------
     // Descriptors.
 
-    fn identifier<const N: usize>(&self, text: &str, d_chars: bool) -> PlanResult<IsoStr<N>> {
+    fn identifier<const N: usize>(&self, id: IsoId) -> PlanResult<IsoStr<N>> {
+        let text = self.opts.id(id).unwrap_or("");
         if text.len() > N {
             return Err(invalid(Detail::Identifier));
         }
-        let mut bytes = text.as_bytes().to_vec();
-        if self.opts.charset() == Charset::Strict {
-            for byte in &mut bytes {
-                if byte.is_ascii_lowercase() {
-                    *byte = byte.to_ascii_uppercase();
-                } else if !(byte.is_ascii_uppercase()
-                    || byte.is_ascii_digit()
-                    || *byte == b'_'
-                    || (!d_chars && b" !\"%$'()*+,-./:;<=>?".contains(byte)))
-                {
-                    *byte = b'_';
-                }
-            }
-        }
-        IsoStr::padded(&bytes).ok_or(invalid(Detail::Identifier))
+        IsoStr::padded(text.as_bytes()).ok_or(invalid(Detail::Identifier))
+    }
+
+    fn date(&self, date: IsoDate) -> DecDateTime {
+        self.opts
+            .date(date)
+            .map_or(DecDateTime::UNSPECIFIED, DecDateTime::from_datetime)
     }
 
     fn ucs2<const N: usize>(text: &str) -> IsoStr<N> {
@@ -1476,8 +1547,6 @@ impl Planner<'_> {
         tables: &[(u32, u32, u32)],
         catalog: Option<u32>,
     ) -> PlanResult<Vec<u8>> {
-        let ids = self.opts.volume();
-        let now = DecDateTime::from_datetime(self.now);
         let mut out = Vec::new();
         for (ti, (tree, _)) in self.trees.iter().enumerate() {
             let (l, m, size) = tables[ti];
@@ -1491,40 +1560,43 @@ impl Planner<'_> {
             d.type_l_path_table = U32Le::new(l);
             d.type_m_path_table = U32Be::new(m);
             d.root = self.root_record(ti);
-            d.creation_date = now;
-            d.modification_date = now;
-            d.expiration_date = DecDateTime::UNSPECIFIED;
-            d.effective_date = DecDateTime::UNSPECIFIED;
+            d.creation_date = self.date(IsoDate::Created);
+            d.modification_date = self.date(IsoDate::Modified);
+            d.expiration_date = self.date(IsoDate::Expires);
+            d.effective_date = self.date(IsoDate::Effective);
             d.file_structure_version = 1;
             match tree {
                 TreeKind::Joliet(level) => {
                     let mut s: SupplementaryVolumeDescriptor = bytemuck::cast(d);
                     s.header = VolumeDescriptorHeader::new(raw::DescriptorType::Supplementary);
                     s.escape_sequences = level.escape_sequences();
-                    s.system_identifier = Self::ucs2(ids.system().unwrap_or(""));
-                    s.volume_identifier = Self::ucs2(ids.volume());
-                    s.volume_set_identifier = Self::ucs2(ids.volume_set().unwrap_or(""));
-                    s.publisher_identifier = Self::ucs2(ids.publisher().unwrap_or(""));
-                    s.preparer_identifier = Self::ucs2(ids.preparer().unwrap_or(""));
-                    s.application_identifier = Self::ucs2(ids.application().unwrap_or(APPLICATION));
-                    s.copyright_file_identifier = Self::ucs2("");
-                    s.abstract_file_identifier = Self::ucs2("");
-                    s.bibliographic_file_identifier = Self::ucs2("");
+                    s.system_identifier = Self::ucs2(self.opts.id(IsoId::System).unwrap_or(""));
+                    s.volume_identifier = Self::ucs2(self.opts.id(IsoId::Volume).unwrap_or(""));
+                    s.volume_set_identifier =
+                        Self::ucs2(self.opts.id(IsoId::VolumeSet).unwrap_or(""));
+                    s.publisher_identifier =
+                        Self::ucs2(self.opts.id(IsoId::Publisher).unwrap_or(""));
+                    s.preparer_identifier = Self::ucs2(self.opts.id(IsoId::Preparer).unwrap_or(""));
+                    s.application_identifier =
+                        Self::ucs2(self.opts.id(IsoId::Application).unwrap_or(""));
+                    s.copyright_file_identifier =
+                        Self::ucs2(self.opts.id(IsoId::CopyrightFile).unwrap_or(""));
+                    s.abstract_file_identifier =
+                        Self::ucs2(self.opts.id(IsoId::AbstractFile).unwrap_or(""));
+                    s.bibliographic_file_identifier =
+                        Self::ucs2(self.opts.id(IsoId::BibliographicFile).unwrap_or(""));
                     out.extend_from_slice(bytemuck::bytes_of(&s));
                 }
                 _ => {
-                    d.system_identifier = self.identifier(ids.system().unwrap_or(""), false)?;
-                    d.volume_identifier = self.identifier(ids.volume(), true)?;
-                    d.volume_set_identifier =
-                        self.identifier(ids.volume_set().unwrap_or(""), true)?;
-                    d.publisher_identifier =
-                        self.identifier(ids.publisher().unwrap_or(""), false)?;
-                    d.preparer_identifier = self.identifier(ids.preparer().unwrap_or(""), false)?;
-                    d.application_identifier =
-                        self.identifier(ids.application().unwrap_or(APPLICATION), false)?;
-                    d.copyright_file_identifier = IsoStr::empty();
-                    d.abstract_file_identifier = IsoStr::empty();
-                    d.bibliographic_file_identifier = IsoStr::empty();
+                    d.system_identifier = self.identifier(IsoId::System)?;
+                    d.volume_identifier = self.identifier(IsoId::Volume)?;
+                    d.volume_set_identifier = self.identifier(IsoId::VolumeSet)?;
+                    d.publisher_identifier = self.identifier(IsoId::Publisher)?;
+                    d.preparer_identifier = self.identifier(IsoId::Preparer)?;
+                    d.application_identifier = self.identifier(IsoId::Application)?;
+                    d.copyright_file_identifier = self.identifier(IsoId::CopyrightFile)?;
+                    d.abstract_file_identifier = self.identifier(IsoId::AbstractFile)?;
+                    d.bibliographic_file_identifier = self.identifier(IsoId::BibliographicFile)?;
                     if *tree == TreeKind::Enhanced {
                         let mut s: SupplementaryVolumeDescriptor = bytemuck::cast(d);
                         s.header = VolumeDescriptorHeader::new(raw::DescriptorType::Supplementary);
@@ -1552,29 +1624,34 @@ impl Planner<'_> {
     // -----------------------------------------------------------------------
     // Hybrid boot.
 
-    fn efi_image(&self, hybrid: &HybridBoot) -> Option<String> {
-        if let Some(path) = hybrid.efi_partition() {
-            return Some(path.to_string());
+    /// The first block and length of the EFI system partition.
+    fn efi_image(&self) -> PlanResult<Option<(u32, u64)>> {
+        if let Some(&first) = self.appended.first() {
+            return Ok(Some(first));
         }
-        let el_torito = self.opts.el_torito()?;
+        let Some(el_torito) = self.opts.el_torito() else {
+            return Ok(None);
+        };
         let mut uefi = el_torito
             .entries()
             .iter()
             .skip(1)
             .filter(|entry| entry.platform() == Platform::Efi);
-        let first = uefi.next()?;
-        uefi.next().is_none().then(|| first.image().to_string())
+        let Some(first) = uefi.next() else {
+            return Ok(None);
+        };
+        if uefi.next().is_some() {
+            return Ok(None);
+        }
+        self.entry_image(first)
+            .map(Some)
+            .map_err(|_| invalid(Detail::HybridBoot))
     }
 
-    fn gpt(
-        &self,
-        hybrid: &HybridBoot,
-        end: u64,
-        total: u64,
-    ) -> PlanResult<(Gpt, Option<usize>, Option<usize>)> {
+    fn gpt(&self, end: u64, total: u64) -> PlanResult<(Gpt, Option<usize>, Option<usize>)> {
         let iso_512 = end * 4;
         let total_512 = total * 4;
-        let volume = self.opts.volume().volume();
+        let volume = self.opts.id(IsoId::Volume).unwrap_or("");
         let mut gpt = Gpt::new(
             self.guid(&alloc::format!("disk-{volume}")),
             total_512,
@@ -1586,11 +1663,8 @@ impl Planner<'_> {
         if iso_end <= start {
             return Err(invalid(Detail::HybridBoot));
         }
-        let esp = match self.efi_image(hybrid) {
-            Some(path) => {
-                let (block, len) = self
-                    .boot_image(&path)
-                    .map_err(|_| invalid(Detail::HybridBoot))?;
+        let esp = match self.efi_image()? {
+            Some((block, len)) => {
                 let first = u64::from(block) * 4;
                 let last = first + len.div_ceil(512).max(1) - 1;
                 if first < start || last > iso_end {
@@ -1649,7 +1723,7 @@ impl Planner<'_> {
         Ok((gpt, iso_index, esp_index))
     }
 
-    fn partition_disk(&self, hybrid: &HybridBoot, end: u64, total: u64) -> PlanResult<Disk> {
+    fn partition_disk(&self, hybrid: &Hybrid, end: u64, total: u64) -> PlanResult<Disk> {
         let mut disk = match hybrid.scheme() {
             PartitionScheme::Mbr => {
                 let sectors = u32::try_from(end * 4).map_err(|_| too_large())?;
@@ -1661,9 +1735,9 @@ impl Planner<'_> {
                 .map_err(part_error)?;
                 Disk::new(mbr)
             }
-            PartitionScheme::Gpt => Disk::new(self.gpt(hybrid, end, total)?.0),
-            PartitionScheme::Hybrid => {
-                let (gpt, iso, esp) = self.gpt(hybrid, end, total)?;
+            PartitionScheme::Gpt => Disk::new(self.gpt(end, total)?.0),
+            PartitionScheme::GptHybridMbr => {
+                let (gpt, iso, esp) = self.gpt(end, total)?;
                 let mut config = HybridMbr::new();
                 if let Some(iso) = iso {
                     config
@@ -1675,7 +1749,7 @@ impl Planner<'_> {
                         .add_mirrored(esp, MbrType::EFI_SYSTEM, PartitionFlags::empty())
                         .map_err(part_error)?;
                 }
-                Disk::new(Hybrid::new(gpt, &config).map_err(part_error)?)
+                Disk::new(HybridTable::new(gpt, &config).map_err(part_error)?)
             }
         };
         if hybrid.scheme() != PartitionScheme::Gpt
@@ -1734,10 +1808,11 @@ impl Planner<'_> {
         for warning in &self.warnings {
             report.push_warning(warning.clone());
         }
-        let preserve = self
-            .opts
-            .rock_ridge()
-            .map_or(Preserve::empty(), |rr| rr.preserve());
+        let preserve = if self.opts.rock_ridge() {
+            self.opts.preserve()
+        } else {
+            Preserve::empty()
+        };
         let metas = || {
             self.dirs
                 .iter()

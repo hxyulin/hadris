@@ -1,10 +1,10 @@
 //! Hybrid MBR/GPT boot sectors written alongside the ISO 9660 image.
 
 use hadris_fs::{Content, Node, Tree};
-use hadris_iso::{BootEntry, ElTorito, HybridBoot, IsoOptions, VolumeIdentifiers};
+use hadris_iso::{BootEntry, ElTorito, Hybrid, IsoId, IsoOptions};
 use hadris_tests::iso::hadris::write_tree;
 
-fn hybrid_image(volume_name: &str, hybrid_boot: HybridBoot) -> Vec<u8> {
+fn hybrid_image(volume_name: &str, hybrid_boot: Hybrid) -> Vec<u8> {
     let mut boot_image = vec![0u8; 2048];
     boot_image[0] = 0xEB;
     boot_image[1] = 0xFE;
@@ -12,9 +12,10 @@ fn hybrid_image(volume_name: &str, hybrid_boot: HybridBoot) -> Vec<u8> {
     tree.insert("boot.bin", Node::file(Content::bytes(boot_image)))
         .unwrap();
     let options = IsoOptions::default()
-        .with_volume(VolumeIdentifiers::new(volume_name))
+        .with_id(IsoId::Volume, volume_name)
         .with_el_torito(
-            ElTorito::new(BootEntry::new("boot.bin").with_load_size(4))
+            ElTorito::new()
+                .with_entry(BootEntry::bios("boot.bin").with_load_size(4))
                 .with_catalog_path("boot.catalog"),
         )
         .with_hybrid(hybrid_boot);
@@ -23,7 +24,7 @@ fn hybrid_image(volume_name: &str, hybrid_boot: HybridBoot) -> Vec<u8> {
 
 #[test]
 fn test_hybrid_boot_mbr() {
-    let iso_data = hybrid_image("HYBRID_TEST", HybridBoot::mbr());
+    let iso_data = hybrid_image("HYBRID_TEST", Hybrid::mbr());
     assert_eq!(iso_data[510], 0x55, "MBR signature byte 1 incorrect");
     assert_eq!(iso_data[511], 0xAA, "MBR signature byte 2 incorrect");
     assert_eq!(iso_data[446], 0x80, "Partition should be bootable");
@@ -36,7 +37,7 @@ fn test_hybrid_boot_mbr() {
 
 #[test]
 fn test_hybrid_boot_gpt() {
-    let iso_data = hybrid_image("GPT_TEST", HybridBoot::gpt());
+    let iso_data = hybrid_image("GPT_TEST", Hybrid::gpt());
     assert_eq!(iso_data[510], 0x55, "MBR signature byte 1 incorrect");
     assert_eq!(iso_data[511], 0xAA, "MBR signature byte 2 incorrect");
     assert_eq!(
@@ -49,7 +50,7 @@ fn test_hybrid_boot_gpt() {
 
 #[test]
 fn test_hybrid_boot_dual() {
-    let iso_data = hybrid_image("DUAL_BOOT", HybridBoot::hybrid());
+    let iso_data = hybrid_image("DUAL_BOOT", Hybrid::gpt_hybrid_mbr());
     assert_eq!(iso_data[510], 0x55);
     assert_eq!(iso_data[511], 0xAA);
     assert_eq!(&iso_data[512..520], b"EFI PART", "GPT signature incorrect");

@@ -88,16 +88,17 @@ read goes through one fixed-size buffer.
 ```rust,no_run
 use hadris_fs::host::{self, TreeOptions};
 use hadris_fs::{Content, NoClock, Node};
-use hadris_iso::{IsoOptions, JolietLevel, RockRidge, VolumeIdentifiers};
+use hadris_iso::{IsoId, IsoOptions};
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 let (mut tree, _skipped) = host::read_tree("rootfs", &TreeOptions::new())?;
 tree.insert("README.txt", Node::file(Content::bytes("Built with hadris-iso\n")))?;
 
 let options = IsoOptions::default()
-    .with_volume(VolumeIdentifiers::new("MY_DISC").with_publisher("Example"))
-    .with_joliet(JolietLevel::L3)
-    .with_rock_ridge(RockRidge::default())
+    .with_id(IsoId::Volume, "MY_DISC")
+    .with_id(IsoId::Publisher, "Example")
+    .with_joliet()
+    .with_rock_ridge()
     .with_time(host::source_date_epoch()?.unwrap_or(NoClock::TIME));
 
 let size = hadris_iso::plan(&tree, &options)?.size();
@@ -117,8 +118,10 @@ for warning in report.warnings() {
 ```
 
 `IsoLevel` (`L1`, `L2`, `L3`) sets the primary tree's name rules and file
-sizes, `NameCase` whether names keep their case, and `Charset::Strict` maps
-invalid characters. `with_enhanced_tree` adds an ISO 9660:1999 tree. Rock
+sizes and `NameCase` whether names keep their case. `with_id` and
+`with_date` set the descriptor identifiers and dates; identifiers are stored
+as given and must fit their fields. `with_iso1999` adds an ISO 9660:1999
+tree. Rock
 Ridge stores permissions, owners, times, symlinks, device nodes and hard
 links; without it they are dropped with a warning. File contents come from
 bytes, a host file (`host::file`) or a mounted volume (`read_tree`), and are
@@ -127,25 +130,33 @@ read once while the image is written.
 ### Bootable images
 
 ```rust,no_run
-use hadris_iso::{BootEntry, BootInfo, ElTorito, HybridBoot, IsoOptions, Platform};
+use hadris_fs::Content;
+use hadris_iso::{AppendedPartition, BootEntry, BootInfo, ElTorito, Hybrid, IsoOptions};
 
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let esp = Content::bytes(std::fs::read("efi.img")?);
 let options = IsoOptions::default()
     .with_el_torito(
-        ElTorito::new(
-            BootEntry::new("boot/bios.img")
-                .with_load_size(4)
-                .with_boot_info_table(BootInfo::Standard),
-        )
-        .with_entry(BootEntry::new("boot/efi.img").with_platform(Platform::Efi))
-        .with_catalog_path("boot/boot.cat"),
+        ElTorito::new()
+            .with_entry(
+                BootEntry::bios("boot/bios.img")
+                    .with_load_size(4)
+                    .with_boot_info(BootInfo::Table),
+            )
+            .with_entry(BootEntry::uefi_appended(0))
+            .with_catalog_path("boot/boot.cat"),
     )
-    .with_hybrid(HybridBoot::hybrid());
+    .with_hybrid(Hybrid::gpt_hybrid_mbr().with_appended(AppendedPartition::esp(esp)));
+# Ok(())
+# }
 ```
 
-`HybridBoot::mbr`, `gpt` and `hybrid` add partition tables for USB sticks;
-the EFI system partition is the image of the only UEFI boot entry unless
-`with_efi_partition` names another file. Without `with_catalog_path` the
-boot catalog is not listed in any tree.
+`Hybrid::mbr`, `gpt` and `gpt_hybrid_mbr` add partition tables for USB
+sticks. `with_appended` stores a partition after the files, so an EFI
+system partition is stored once for the GPT and for El Torito
+(`BootEntry::uefi_appended`). Without one, the GPT's EFI system partition is
+the image of the only UEFI boot entry, `BootEntry::uefi(path)`. Without
+`with_catalog_path` the boot catalog is not listed in any tree.
 
 ### Sessions
 
@@ -175,14 +186,14 @@ data where it is. Unchanged files are never copied.
 ECMA-119 allows eight directory levels. With Rock Ridge, deeper directories
 move into a relocation directory and appear in their real place to Rock
 Ridge readers. It is `rr_moved` (`Relocation::RrMoved`, the default) or
-`.rr_moved` (`RockRidge::with_relocation(Relocation::DotRrMoved)`), the only
+`.rr_moved` (`IsoOptions::with_relocation(Relocation::DotRrMoved)`), the only
 names libarchive (`bsdtar`) reads relocated directories from. A root
 directory with that name is reused and keeps its own entries; a root file
 with that name fails. libarchive takes the first root directory with either
 name for the relocation directory, so a root directory with the other name
 that would come first in the directory fails with `Detail::Relocation`:
 `.rr_moved` with `NameCase::Preserve`, or `rr_moved` when the relocation
-directory is `.rr_moved`. `Relocation::Reject` fails instead. Joliet and
+directory is `.rr_moved`. `Relocation::Refuse` fails instead. Joliet and
 enhanced trees keep the real hierarchy.
 
 ## Extension Support

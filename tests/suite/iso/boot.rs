@@ -4,7 +4,7 @@ use std::fs;
 use std::time::Duration;
 
 use hadris_fs::{Content, Node, Tree};
-use hadris_iso::{BootEntry, ElTorito, Emulation, IsoOptions, Platform, VolumeIdentifiers};
+use hadris_iso::{BootEntry, ElTorito, Emulation, IsoId, IsoOptions, Platform};
 use hadris_tests::harness::qemu;
 use hadris_tests::iso::hadris::write_tree;
 use hadris_tests::iso::xorriso;
@@ -54,9 +54,10 @@ fn hadris_bootable_image(boot_data: Vec<u8>) -> Vec<u8> {
     tree.insert("boot.bin", Node::file(Content::bytes(boot_data)))
         .unwrap();
     let options = IsoOptions::default()
-        .with_volume(VolumeIdentifiers::new("BOOT_TEST"))
+        .with_id(IsoId::Volume, "BOOT_TEST")
         .with_el_torito(
-            ElTorito::new(BootEntry::new("boot.bin").with_load_size(4))
+            ElTorito::new()
+                .with_entry(BootEntry::bios("boot.bin").with_load_size(4))
                 .with_catalog_path("boot.catalog"),
         );
     write_tree(&tree, &options).expect("Failed to create bootable ISO with hadris-iso")
@@ -72,19 +73,16 @@ fn test_hadris_multisection_boot_catalog() {
     tree.insert("uefi.img", Node::file(Content::bytes(vec![0x33; 4096])))
         .unwrap();
     let options = IsoOptions::default()
-        .with_volume(VolumeIdentifiers::new("MULTIBOOT"))
+        .with_id(IsoId::Volume, "MULTIBOOT")
         .with_el_torito(
-            ElTorito::new(BootEntry::new("bios.img").with_load_size(4))
+            ElTorito::new()
+                .with_entry(BootEntry::bios("bios.img").with_load_size(4))
                 .with_entry(
-                    BootEntry::new("ppc.img")
+                    BootEntry::bios("ppc.img")
                         .with_platform(Platform::PowerPc)
                         .with_load_size(4),
                 )
-                .with_entry(
-                    BootEntry::new("uefi.img")
-                        .with_platform(Platform::Efi)
-                        .with_load_size(8),
-                )
+                .with_entry(BootEntry::uefi("uefi.img").with_load_size(8))
                 .with_catalog_path("boot.catalog"),
         );
     let output = write_tree(&tree, &options).unwrap();
@@ -116,9 +114,10 @@ fn test_floppy_emulation_media_type_and_default_load_size() {
     )
     .unwrap();
     let options = IsoOptions::default()
-        .with_volume(VolumeIdentifiers::new("FLOPPYBOOT"))
+        .with_id(IsoId::Volume, "FLOPPYBOOT")
         .with_el_torito(
-            ElTorito::new(BootEntry::new("floppy.img").with_emulation(Emulation::Floppy144))
+            ElTorito::new()
+                .with_entry(BootEntry::bios("floppy.img").with_emulation(Emulation::Floppy144))
                 .with_catalog_path("boot.catalog"),
         );
     let output = write_tree(&tree, &options).unwrap();

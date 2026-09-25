@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fs;
 
 use hadris_fs::{Content, Node, Tree};
-use hadris_iso::{IsoOptions, Relocation, RockRidge, VolumeIdentifiers};
+use hadris_iso::{IsoId, IsoOptions, Relocation};
 use hadris_tests::harness::command::{require_or_skip, run_command};
 use hadris_tests::harness::tree::{EntryData, snapshot_host};
 use hadris_tests::iso::hadris::write_tree;
@@ -72,8 +72,9 @@ fn bsdtar_extracts_relocated_trees() {
                 }
             }
             let options = IsoOptions::default()
-                .with_volume(VolumeIdentifiers::new("RELOCATION"))
-                .with_rock_ridge(RockRidge::default().with_relocation(relocation));
+                .with_id(IsoId::Volume, "RELOCATION")
+                .with_rock_ridge()
+                .with_relocation(relocation);
             let image = write_tree(&tree, &options).unwrap();
             let temp = tempfile::tempdir().unwrap();
             let iso = temp.path().join("image.iso");

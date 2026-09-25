@@ -1,7 +1,7 @@
 use alloc::vec;
 use core::convert::Infallible;
 
-use hadris_fs::{ErrorKind, PathError, Report, Tree};
+use hadris_fs::{Content, ErrorKind, PathError, Report, Tree};
 use hadris_storage::BlockIndex;
 
 use super::fs::ContentReader;
@@ -50,10 +50,14 @@ pub(crate) fn check_output<D: BlockDevice>(out: &D, plan: &Plan) -> Result<(), P
 /// Checks that this mode can read every file the plan writes.
 pub(crate) fn check_contents(tree: &Tree, plan: &Plan) -> Result<(), PathError> {
     for region in &plan.regions {
-        if let Region::File { path, .. } = region
-            && let Some(content) = tree.get(path).and_then(|node| node.content())
-        {
-            ContentReader::check(content).map_err(|err| err.with_path(path))?;
+        match region {
+            Region::File { path, .. } => {
+                if let Some(content) = tree.get(path).and_then(|node| node.content()) {
+                    ContentReader::check(content).map_err(|err| err.with_path(path))?;
+                }
+            }
+            Region::Content { content, .. } => ContentReader::check(content)?,
+            Region::Bytes { .. } => {}
         }
     }
     Ok(())
@@ -101,7 +105,15 @@ pub(crate) async fn emit<D: BlockDevice>(out: &mut D, tree: &Tree, plan: &Plan) 
                 write_sectors(out, *block, data).await?;
             }
             Region::File { block, path, len, info } => {
-                file(out, tree, *block, path, *len, *info, &mut buf).await?;
+                let changed = || PathError::from(Detail::Content.corrupt::<Infallible>()).with_path(path);
+                let content = tree.get(path).and_then(|node| node.content()).ok_or_else(changed)?;
+                if content.len() != *len {
+                    return Err(changed());
+                }
+                file(out, content, *block, *info, &mut buf).await.map_err(|err| err.with_path(path))?;
+            }
+            Region::Content { block, content, info } => {
+                file(out, content, *block, *info, &mut buf).await?;
             }
         }
         next = region.block() + region.blocks();
@@ -143,24 +155,19 @@ async fn checksum(reader: &mut ContentReader<'_>, len: u64, buf: &mut [u8]) -> R
 
 async fn file<D: BlockDevice>(
     out: &mut D,
-    tree: &Tree,
+    content: &Content,
     block: u64,
-    path: &str,
-    len: u64,
     info: Option<InfoTable>,
     buf: &mut [u8],
 ) -> Result<(), PathError> {
-    let changed = || PathError::from(Detail::Content.corrupt::<Infallible>()).with_path(path);
-    let Some(content) = tree.get(path).and_then(|node| node.content()) else {
-        return Err(changed());
-    };
-    let mut reader = ContentReader::open(content).await.map_err(|err| err.with_path(path))?;
-    if reader.len() != len {
-        return Err(changed());
+    let mut reader = ContentReader::open(content).await?;
+    let len = reader.len();
+    if len != content.len() {
+        return Err(Detail::Content.corrupt::<Infallible>().into());
     }
     let table = match info {
         Some(info) => {
-            let sum = checksum(&mut reader, len, buf).await.map_err(|err| err.with_path(path))?;
+            let sum = checksum(&mut reader, len, buf).await?;
             let table = raw::Grub2BootInfoTable {
                 pvd_lba: raw::U32Le::new(raw::DESCRIPTOR_START),
                 file_lba: raw::U32Le::new(info.block),
@@ -182,7 +189,7 @@ async fn file<D: BlockDevice>(
     let mut sector = block;
     while offset < len {
         let take = (len - offset).min(buf.len() as u64) as usize;
-        reader.read_exact_at(offset, &mut buf[..take]).await.map_err(|err| err.with_path(path))?;
+        reader.read_exact_at(offset, &mut buf[..take]).await?;
         if let Some((bytes, size)) = &table
             && offset == 0
         {

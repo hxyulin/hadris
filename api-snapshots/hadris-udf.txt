@@ -742,6 +742,11 @@ impl core::convert::From<hadris_udf::Detail> for hadris_io::fs_error::DetailCode
 pub fn hadris_io::fs_error::DetailCode::from(hadris_udf::Detail) -> Self
 impl core::fmt::Display for hadris_udf::Detail
 pub fn hadris_udf::Detail::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[non_exhaustive] pub enum hadris_udf::UdfId
+pub hadris_udf::UdfId::FileSet
+pub hadris_udf::UdfId::LogicalVolume
+pub hadris_udf::UdfId::Volume
+pub hadris_udf::UdfId::VolumeSet
 pub struct hadris_udf::Partition
 impl hadris_udf::Partition
 pub const fn hadris_udf::Partition::is_empty(&self) -> bool
@@ -750,15 +755,17 @@ pub const fn hadris_udf::Partition::number(&self) -> u16
 pub const fn hadris_udf::Partition::start(&self) -> u32
 pub struct hadris_udf::UdfOptions
 impl hadris_udf::UdfOptions
+pub fn hadris_udf::UdfOptions::id(&self, hadris_udf::UdfId) -> core::option::Option<&str>
 pub fn hadris_udf::UdfOptions::min_blocks(&self) -> u64
 pub fn hadris_udf::UdfOptions::new() -> Self
 pub fn hadris_udf::UdfOptions::revision(&self) -> hadris_udf::UdfRevision
+pub fn hadris_udf::UdfOptions::seed(&self) -> core::option::Option<u64>
 pub fn hadris_udf::UdfOptions::time(&self) -> hadris_fs::time::DateTime
-pub fn hadris_udf::UdfOptions::volume_id(&self) -> &str
+pub fn hadris_udf::UdfOptions::with_id(self, hadris_udf::UdfId, &str) -> Self
 pub fn hadris_udf::UdfOptions::with_min_blocks(self, u64) -> Self
 pub fn hadris_udf::UdfOptions::with_revision(self, hadris_udf::UdfRevision) -> Self
+pub fn hadris_udf::UdfOptions::with_seed(self, u64) -> Self
 pub fn hadris_udf::UdfOptions::with_time(self, hadris_fs::time::DateTime) -> Self
-pub fn hadris_udf::UdfOptions::with_volume_id(self, impl core::convert::Into<alloc::string::String>) -> Self
 impl core::default::Default for hadris_udf::UdfOptions
 pub fn hadris_udf::UdfOptions::default() -> Self
 pub struct hadris_udf::UdfRevision(_)

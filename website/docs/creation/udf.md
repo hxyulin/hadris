@@ -44,10 +44,10 @@ reading the files until the image is written.
 ## Select a mastered revision
 
 ```rust
-use hadris_udf::{UdfOptions, UdfRevision};
+use hadris_udf::{UdfId, UdfOptions, UdfRevision};
 
 let options = UdfOptions::default()
-    .with_volume_id("ARCHIVE_2026")
+    .with_id(UdfId::Volume, "ARCHIVE_2026")
     .with_revision(UdfRevision::V2_01);
 ```
 
@@ -64,7 +64,9 @@ below U+0100, 16-bit otherwise. A name over 254 encoded bytes fails with
 times and DOS attributes are left out and listed in `Report::warnings`. The
 options' time, `NoClock::TIME` (1980-01-01) by default, dates entries
 without times, so the same tree gives the same bytes; `with_time` sets
-another.
+another. The volume set identifier starts with a 16-digit serial derived
+from `with_seed`, or the time, and the tree's paths, sizes and times;
+`with_id(UdfId::VolumeSet, ..)` sets it outright.
 
 ## Author an ISO/UDF bridge
 

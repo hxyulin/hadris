@@ -9,7 +9,7 @@ use hadris_fs::sync::FileSystem;
 use hadris_fs::{Content, Node, WarningKind};
 use hadris_fs::{DirCursor, ErrorKind, FileType, Permissions, Resolve};
 use hadris_storage::{BlockSize, MemDevice};
-use hadris_udf::{UdfOptions, UdfRevision};
+use hadris_udf::{UdfId, UdfOptions, UdfRevision};
 
 fn names(
     fs: &mut impl FileSystem<DeviceError = core::convert::Infallible>,
@@ -38,7 +38,7 @@ fn every_tree_reads_back() {
     ] {
         let tree = sample();
         let options = UdfOptions::default()
-            .with_volume_id("ROUNDTRIP")
+            .with_id(UdfId::Volume, "ROUNDTRIP")
             .with_revision(revision);
         let mut udf = open(image(&tree, &options));
         assert_eq!(udf.volume_id(), "ROUNDTRIP");
@@ -341,4 +341,67 @@ fn anchors_sequences_and_directories_follow_udf() {
     );
     let icb = u32::from_le_bytes(bytes[root_fids + 24..root_fids + 28].try_into().unwrap());
     assert_eq!(icb, 1, "the root is its own parent");
+}
+
+/// The volume set identifier of the primary volume descriptor.
+fn volume_set(bytes: &[u8]) -> String {
+    let field = &bytes[257 * 2048 + 72..257 * 2048 + 200];
+    assert_eq!(field[0], 8);
+    String::from_utf8(field[1..usize::from(field[127])].to_vec()).unwrap()
+}
+
+#[test]
+fn identifiers_and_the_serial_follow_the_options() {
+    let tree = sample();
+    let options = UdfOptions::new()
+        .with_id(UdfId::Volume, "DISC")
+        .with_id(UdfId::LogicalVolume, "My Movies")
+        .with_id(UdfId::FileSet, "SET");
+    let bytes = image(&tree, &options);
+    let udf = open(bytes.clone());
+    assert_eq!(udf.volume_id(), "DISC");
+    assert_eq!(udf.logical_volume_id(), "My Movies");
+    let serial = volume_set(&bytes);
+    assert_eq!(serial.len(), 20);
+    assert!(serial[..16].bytes().all(|b| b.is_ascii_hexdigit()));
+    assert_eq!(&serial[16..], "DISC");
+
+    assert_eq!(volume_set(&image(&tree, &options)), serial);
+    let seeded = volume_set(&image(&tree, &options.clone().with_seed(7)));
+    assert_ne!(seeded, serial);
+    let later = common::time(1_700_000_000);
+    assert_eq!(
+        volume_set(&image(
+            &tree,
+            &options.clone().with_seed(7).with_time(later)
+        )),
+        seeded
+    );
+    assert_ne!(
+        volume_set(&image(&tree, &options.clone().with_time(later))),
+        serial
+    );
+    let mut other = sample();
+    other
+        .insert("extra.txt", Node::file(Content::bytes(*b"x")))
+        .unwrap();
+    assert_ne!(volume_set(&image(&other, &options)), serial);
+    let fixed = options
+        .clone()
+        .with_id(UdfId::VolumeSet, "0123456789ABCDEFfixed");
+    assert_eq!(volume_set(&image(&tree, &fixed)), "0123456789ABCDEFfixed");
+
+    for (id, len) in [
+        (UdfId::Volume, 31),
+        (UdfId::FileSet, 31),
+        (UdfId::LogicalVolume, 127),
+    ] {
+        let err =
+            hadris_udf::plan(&tree, &UdfOptions::new().with_id(id, &"x".repeat(len))).unwrap_err();
+        assert_eq!(
+            err.detail().and_then(hadris_udf::Detail::from_code),
+            Some(hadris_udf::Detail::Identifier),
+            "{id:?}"
+        );
+    }
 }
