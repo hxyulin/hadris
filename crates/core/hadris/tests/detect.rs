@@ -352,12 +352,11 @@ fn any_fs_forwards_every_trait_method() {
         let body = &source[source.find(start).unwrap()..];
         &body[..body.find("\n}\n").unwrap()]
     }
-    let declared = methods(block(
-        include_str!("../../hadris-fs/src/api/filesystem.rs"),
-        "pub trait FileSystem {",
-    ));
+    let trait_source = include_str!("../../hadris-fs/src/api/filesystem.rs").replace("\r\n", "\n");
+    let any_source = include_str!("../src/open.rs").replace("\r\n", "\n");
+    let declared = methods(block(&trait_source, "pub trait FileSystem {"));
     let forwarded = methods(block(
-        include_str!("../src/open.rs"),
+        &any_source,
         "impl<D: BlockDevice> FileSystem for AnyFs<D> {",
     ));
     assert!(declared.len() > 20, "{declared:?}");
