@@ -10,6 +10,8 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-fat-raw (V3):** `short_name::display_label`, which decodes a
+  stored volume label through a code page.
 - **hadris-fs (V3):** `MountOptions`, one mount configuration for every
   format: `read_only`, `with_clock`, `with_utc_offset`, `with_code_page`,
   `with_node_limit` and `backup_boot`, with matching getters. The default
@@ -555,6 +557,9 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fat (V3):** `FileSystem::label` decodes a FAT label through the
+  mount's code page, as short names are, instead of reading a label with
+  bytes above `0x7F` as `Some("")`.
 - **All crates (V3):** One async mode. The `async_send` modules become
   `r#async`, whose futures are `Send` when the device is, and the former
   `r#async` modules, whose futures were not `Send`, are removed. The
@@ -1069,6 +1074,11 @@ Each published package owns its version and may be released independently.
 
 ### Removed
 
+- **hadris-fat (V3):** `hadris_fat::raw` and `hadris_fat::exfat::raw`, which
+  re-exported the whole `hadris-fat-raw` crate and tied `hadris-fat`'s API
+  to its version. `hadris-fat` keeps `FatKind`, `Detail`, `exfat::Detail`
+  and the `check` functions; depend on `hadris-fat-raw` for the layouts,
+  codecs and device primitives.
 - **hadris-fs (V3):** `NodeTable`, `FixedTable`, `HeapTable` and
   `TableFull`; drivers keep their node tables private.
 - **hadris-fat (V3):** `MountOptions` and `exfat::MountOptions`, replaced by

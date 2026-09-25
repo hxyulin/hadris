@@ -888,12 +888,18 @@ fn the_label_is_read_from_the_root() {
     assert_eq!(fs.label_text().unwrap().unwrap(), "CHECK");
     let mut odd = image;
     let at = entry(&odd, b"CHECK      ");
-    odd[at + 1] = 0xFF;
+    odd[at] = 0x05;
+    odd[at + 1] = 0x82;
+    let mut ascii = FatFs::mount(
+        device(odd.clone()),
+        MountOptions::new().with_code_page(&hadris_fs::Ascii),
+    )
+    .unwrap();
+    assert_eq!(ascii.label_text().unwrap().unwrap(), "\u{F7E5}\u{F782}ECK");
     let mut odd = mount(odd);
     let label = odd.volume_label().unwrap().unwrap();
-    assert_eq!(label.as_bytes()[..2], [b'C', 0xFF]);
-    assert_eq!(label.as_str(), "");
-    assert_eq!(odd.label_text().unwrap().unwrap(), "");
+    assert_eq!(label.as_bytes()[..2], [0x05, 0x82]);
+    assert_eq!(odd.label_text().unwrap().unwrap(), "σéECK");
     let mut blank = format(
         MemDevice::new(vec![0; 2 << 20], BlockSize::new(512).unwrap()),
         FormatOptions::new(),

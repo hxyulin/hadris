@@ -277,7 +277,7 @@ pub fn check_dev<D: BlockDevice>(dev: &mut D, scratch: usize) -> (CheckReport, V
 
 /// The free clusters of the volume on `dev`, counted by scanning its FAT.
 pub fn scan_free<D: BlockDevice>(dev: &mut D) -> u32 {
-    use hadris_fat::raw::io::{BlockBuf, Fat, sync as rawio};
+    use hadris_fat_raw::io::{BlockBuf, Fat, sync as rawio};
     let mut block = BlockBuf::<[u8; 4096]>::new(dev.block_size().get() as usize).unwrap();
     let geo = rawio::read_geometry(dev, &mut block).unwrap();
     rawio::count_free(dev, &mut block, &mut Fat::new(geo)).unwrap()

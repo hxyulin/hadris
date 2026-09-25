@@ -538,6 +538,7 @@ pub const hadris_fat_raw::short_name::DISPLAY_CHARS: usize
 pub const hadris_fat_raw::short_name::DISPLAY_MAX: usize
 pub fn hadris_fat_raw::short_name::case_bits(&str) -> core::option::Option<u8>
 pub fn hadris_fat_raw::short_name::display(&[u8; 11], u8, impl core::ops::function::Fn(u8) -> char, &mut [u8; 45]) -> usize
+pub fn hadris_fat_raw::short_name::display_label(&[u8; 11], impl core::ops::function::Fn(u8) -> char, &mut [u8; 45]) -> usize
 pub fn hadris_fat_raw::short_name::from_disk(&mut [u8; 11])
 pub fn hadris_fat_raw::short_name::generate(&str, u8, impl core::ops::function::Fn(char) -> core::option::Option<u8>) -> core::option::Option<[u8; 11]>
 pub fn hadris_fat_raw::short_name::is_valid_long_name(&str) -> bool

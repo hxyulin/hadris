@@ -412,6 +412,7 @@ dependencies = [
  "bytemuck",
  "clap",
  "hadris-fat",
+ "hadris-fat-raw",
  "hadris-fs",
  "hadris-storage",
  "libc",

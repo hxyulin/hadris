@@ -40,12 +40,6 @@
 //! supported.
 
 mod options;
-/// The exFAT part of the on-disk layer, `hadris_fat_raw::exfat`: the boot
-/// sector and directory entry layouts with their constants, and the codecs.
-///
-/// The layouts mirror the exFAT specification and stay exhaustive.
-pub use hadris_fat_raw::exfat as raw;
-
 pub use hadris_fat_raw::exfat::Detail;
 
 /// Reads a little-endian `u16` at `at`.

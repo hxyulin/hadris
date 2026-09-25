@@ -67,6 +67,30 @@ pub fn display(
     len
 }
 
+/// Writes a stored volume label as UTF-8 and returns its length: a leading
+/// `0x05` read as `0xE5`, trailing spaces dropped, and bytes above `0x7F`
+/// decoded with `decode`, the code page of short names. Unlike a short
+/// name, a label has no dot and keeps its spaces inside.
+pub fn display_label(
+    stored: &[u8; 11],
+    decode: impl Fn(u8) -> char,
+    out: &mut [u8; DISPLAY_MAX],
+) -> usize {
+    let mut label = *stored;
+    from_disk(&mut label);
+    let end = label.iter().rposition(|&b| b != b' ').map_or(0, |i| i + 1);
+    let mut len = 0;
+    for &byte in &label[..end] {
+        let ch = if byte < 0x80 {
+            byte as char
+        } else {
+            decode(byte)
+        };
+        len += ch.encode_utf8(&mut out[len..]).len();
+    }
+    len
+}
+
 /// Whether `name` is a valid long name: not empty, `.` or `..`, at most 255
 /// UTF-16 code units, and free of control characters and `"*/:<>?\|`.
 pub fn is_valid_long_name(name: &str) -> bool {
@@ -240,6 +264,33 @@ mod tests {
 
     fn ascii(name: &str, suffix: u8) -> Option<[u8; 11]> {
         generate(name, suffix, |_| None)
+    }
+
+    #[test]
+    fn labels_decode_through_the_code_page() {
+        let show = |stored: &[u8; 11]| {
+            let mut out = [0u8; DISPLAY_MAX];
+            let len = display_label(
+                stored,
+                |b| {
+                    if b == 0x82 {
+                        'é'
+                    } else {
+                        char::REPLACEMENT_CHARACTER
+                    }
+                },
+                &mut out,
+            );
+            std::string::String::from_utf8(out[..len].to_vec()).unwrap()
+        };
+        assert_eq!(show(b"MY DISK    "), "MY DISK");
+        assert_eq!(show(b"CAF\x82       "), "CAFé");
+        assert_eq!(show(b"\x05BC        "), "\u{FFFD}BC");
+        assert_eq!(
+            show(b"\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF"),
+            "\u{FFFD}".repeat(11)
+        );
+        assert_eq!(show(b"           "), "");
     }
 
     #[test]

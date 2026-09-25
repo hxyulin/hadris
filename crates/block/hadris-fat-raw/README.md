@@ -6,9 +6,10 @@ codecs for drivers, tools and firmware.
 ## Overview
 
 `hadris-fat-raw` holds what the `hadris-fat` drivers are built on, for
-anyone whose case those drivers do not cover. `hadris-fat` re-exports it as
-`hadris_fat::raw`. It has its own version, so the low-level API can change
-without a new major version of `hadris-fat`.
+anyone whose case those drivers do not cover. It has its own version, so the
+low-level API can change without a new major version of `hadris-fat`, and
+`hadris-fat` re-exports only the items its own API uses (`FatKind`,
+`Detail`, `exfat::Detail` and `check`).
 
 Everything works on bytes and plain values. Nothing does I/O, and nothing
 needs an allocator:
