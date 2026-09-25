@@ -1,0 +1,38 @@
+[package]
+name = "hadris-cli"
+version = "2.4.0"
+description = "The hadris command: create, inspect, extract and check FAT, exFAT, ISO 9660, UDF and cpio images"
+readme = "README.md"
+keywords = ["filesystem", "disk-image", "iso9660", "fat32", "cli"]
+categories = ["command-line-utilities", "filesystem"]
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "hadris"
+path = "src/main.rs"
+doc = false
+
+[dependencies]
+hadris = { workspace = true, features = ["std", "sync", "detect"] }
+hadris-cpio = { workspace = true, features = ["std", "sync"] }
+hadris-fat = { workspace = true, features = ["std", "sync", "write"] }
+hadris-fat-raw.workspace = true
+hadris-fs = { workspace = true, features = ["std", "sync"] }
+hadris-io = { workspace = true, features = ["std", "sync"] }
+hadris-iso = { workspace = true, features = ["std", "sync"] }
+hadris-storage = { workspace = true, features = ["std", "sync"] }
+hadris-udf = { workspace = true, features = ["std", "sync"] }
+anyhow.workspace = true
+bytemuck.workspace = true
+clap.workspace = true
+tempfile.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true

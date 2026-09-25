@@ -26,17 +26,17 @@ and shared ISO/UDF payload extents.
 ## Bridge commands
 
 ```bash
-cargo run -q -p hadris-cd-cli --bin hadris-cd -- \
-  info test-images/output/bridge-simple.iso
+cargo run -q -p hadris-cli -- detect \
+  test-images/output/bridge-simple.iso
 
-cargo run -q -p hadris-cd-cli --bin hadris-cd -- \
-  verify test-images/output/bridge-simple.iso
+cargo run -q -p hadris-cli -- udf \
+  compare test-images/output/bridge-simple.iso
 
-cargo run -q -p hadris-cd-cli --bin hadris-cd -- \
-  info test-images/output/bridge-nested.iso
+cargo run -q -p hadris-cli -- detect \
+  test-images/output/bridge-nested.iso
 
-cargo run -q -p hadris-cd-cli --bin hadris-cd -- \
-  verify test-images/output/bridge-nested.iso
+cargo run -q -p hadris-cli -- udf \
+  compare test-images/output/bridge-nested.iso
 ```
 
 The successful verifier reports:
@@ -48,22 +48,22 @@ Verified: test-images/output/bridge-simple.iso (2 shared entries)
 Inspect the same bridge through each filesystem independently:
 
 ```bash
-cargo run -q -p hadris-iso-cli --bin hadris-iso -- \
+cargo run -q -p hadris-cli -- iso \
   info test-images/output/bridge-nested.iso
-cargo run -q -p hadris-udf-cli --bin hadris-udf -- \
+cargo run -q -p hadris-cli -- udf \
   info test-images/output/bridge-nested.iso
 ```
 
 ## Standalone ISO
 
 ```bash
-cargo run -q -p hadris-iso-cli --bin hadris-iso -- \
+cargo run -q -p hadris-cli -- iso \
   info test-images/output/standalone.iso
-cargo run -q -p hadris-iso-cli --bin hadris-iso -- \
+cargo run -q -p hadris-cli -- iso \
   tree test-images/output/standalone.iso
-cargo run -q -p hadris-iso-cli --bin hadris-iso -- \
+cargo run -q -p hadris-cli -- iso \
   cat test-images/output/standalone.iso README.TXT
-cargo run -q -p hadris-iso-cli --bin hadris-iso -- \
+cargo run -q -p hadris-cli -- iso \
   verify test-images/output/standalone.iso
 ```
 
@@ -73,13 +73,13 @@ block size, and path-table size.
 ## Standalone UDF
 
 ```bash
-cargo run -q -p hadris-udf-cli --bin hadris-udf -- \
+cargo run -q -p hadris-cli -- udf \
   info test-images/output/standalone.udf
-cargo run -q -p hadris-udf-cli --bin hadris-udf -- \
+cargo run -q -p hadris-cli -- udf \
   tree test-images/output/standalone.udf
-cargo run -q -p hadris-udf-cli --bin hadris-udf -- \
+cargo run -q -p hadris-cli -- udf \
   cat test-images/output/standalone.udf README.txt
-cargo run -q -p hadris-udf-cli --bin hadris-udf -- \
+cargo run -q -p hadris-cli -- udf \
   verify test-images/output/standalone.udf
 ```
 
@@ -89,15 +89,15 @@ descriptor, and root-directory readability.
 ## FAT32
 
 ```bash
-cargo run -q -p hadris-fat-cli --bin hadris-fat -- \
+cargo run -q -p hadris-cli -- fat \
   info test-images/output/standalone-fat32.img
-cargo run -q -p hadris-fat-cli --bin hadris-fat -- \
+cargo run -q -p hadris-cli -- fat \
   stat test-images/output/standalone-fat32.img
-cargo run -q -p hadris-fat-cli --bin hadris-fat -- \
+cargo run -q -p hadris-cli -- fat \
   tree test-images/output/standalone-fat32.img
-cargo run -q -p hadris-fat-cli --bin hadris-fat -- \
+cargo run -q -p hadris-cli -- fat \
   cat test-images/output/standalone-fat32.img README.txt
-cargo run -q -p hadris-fat-cli --bin hadris-fat -- \
+cargo run -q -p hadris-cli -- fat \
   verify test-images/output/standalone-fat32.img
 ```
 

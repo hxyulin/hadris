@@ -77,8 +77,8 @@ writes one, and `hadris_udf::plan_bridge` plans it without I/O. Both
 namespaces point at the same file data. From the command line:
 
 ```bash
-hadris-cd create image-root -o bridge.iso
-hadris-cd verify bridge.iso
+hadris udf bridge image-root -o bridge.iso -J
+hadris udf compare bridge.iso
 ```
 
 ## Validate the result
@@ -86,7 +86,7 @@ hadris-cd verify bridge.iso
 ```bash
 udfinfo volume.udf
 7z l volume.udf
-hadris-udf verify volume.udf
+hadris udf check volume.udf
 ```
 
 7-Zip does not open volumes that contain symlinks. For interoperability

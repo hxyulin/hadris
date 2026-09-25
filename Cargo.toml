@@ -49,4 +49,5 @@ hadris-part = { version = "2.4.0", path = "crates/block/hadris-part", default-fe
 hadris-iso = { version = "2.4.0", path = "crates/optical/hadris-iso", default-features = false }
 hadris-udf = { version = "2.4.0", path = "crates/optical/hadris-udf", default-features = false }
 hadris-cpio = { version = "2.4.0", path = "crates/archive/hadris-cpio", default-features = false }
+hadris = { version = "2.4.0", path = "crates/core/hadris", default-features = false }
 hadris-ntfs = { version = "2.4.0", path = "crates/block/hadris-ntfs", default-features = false }

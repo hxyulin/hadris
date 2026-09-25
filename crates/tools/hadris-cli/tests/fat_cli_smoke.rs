@@ -1,0 +1,117 @@
+//! Smoke tests for the canonical and compatibility FAT binaries.
+
+#[test]
+fn help_succeeds() {
+    let output = hadris("fat").arg("--help").output().expect("run --help");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("info"));
+    assert!(stdout.contains("verify"));
+    assert!(stdout.contains("create"));
+    assert!(stdout.contains("extract"));
+}
+
+#[test]
+fn create_cat_and_extract_roundtrip() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("source");
+    std::fs::create_dir_all(source.join("nested")).unwrap();
+    std::fs::write(source.join("nested/hello.txt"), b"hello from FAT").unwrap();
+    let image = temp.path().join("disk.img");
+
+    let status = hadris("fat")
+        .args([
+            "create",
+            source.to_str().unwrap(),
+            "--output",
+            image.to_str().unwrap(),
+        ])
+        .status()
+        .unwrap();
+    assert!(status.success());
+
+    let output = hadris("fat")
+        .args(["cat", image.to_str().unwrap(), "/nested/hello.txt"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"hello from FAT");
+
+    let extracted = temp.path().join("out");
+    let status = hadris("fat")
+        .args([
+            "extract",
+            image.to_str().unwrap(),
+            "--output",
+            extracted.to_str().unwrap(),
+        ])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert_eq!(
+        std::fs::read(extracted.join("nested/hello.txt")).unwrap(),
+        b"hello from FAT"
+    );
+
+    for (args, expected) in [
+        (&["verify"][..], "Result: PASS"),
+        (&["ls", "--long"][..], "<DIR>  nested"),
+        (&["info"][..], "Volume Label:    HADRIS"),
+        (&["stat"][..], "Files:             1"),
+        (&["fragmentation"][..], "Total Files:             1"),
+    ] {
+        let output = hadris("fat").args(args).arg(&image).output().unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(output.status.success(), "{args:?}: {output:?}");
+        assert!(stdout.contains(expected), "{args:?}:\n{stdout}");
+    }
+
+    let output = hadris("fat")
+        .arg("chain")
+        .arg(&image)
+        .arg("/nested/hello.txt")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Chain length: 1 clusters"));
+}
+
+#[cfg(unix)]
+#[test]
+fn create_rejects_symbolic_links() {
+    use std::os::unix::fs::symlink;
+
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    std::fs::write(source.join("target.txt"), b"target").unwrap();
+    symlink("target.txt", source.join("link.txt")).unwrap();
+
+    let output = hadris("fat")
+        .args([
+            "create",
+            source.to_str().unwrap(),
+            "--output",
+            temp.path().join("disk.img").to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("Symbolic links"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// The `hadris` binary with the format subcommand `format`.
+fn hadris(format: &str) -> std::process::Command {
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_hadris"));
+    command.arg(format);
+    command
+}
