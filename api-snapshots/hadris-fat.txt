@@ -1,6 +1,7 @@
 pub mod hadris_fat
 pub use hadris_fat::Detail
 pub use hadris_fat::FatKind
+pub use hadris_fat::Geometry
 pub mod hadris_fat::async
 pub use hadris_fat::async::check
 pub struct hadris_fat::async::FatFs<D>
@@ -43,9 +44,11 @@ pub async fn hadris_fat::async::FatFs<D>::unlink(&mut self, hadris_fs::node::Nod
 pub async fn hadris_fat::async::FatFs<D>::write(&mut self, hadris_fs::node::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
 impl<D> core::fmt::Debug for hadris_fat::async::FatFs<D>
 pub fn hadris_fat::async::FatFs<D>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub async fn hadris_fat::async::format<D: hadris_storage::async::api::BlockDevice>(D, hadris_fat::FormatOptions) -> core::result::Result<hadris_fat::async::FatFs<D>, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_fat::async::format<D: hadris_storage::async::api::BlockDevice>(&mut D, &hadris_fat::FatOptions) -> hadris_io::fs_error::FsResult<hadris_fat_raw::boot::Geometry, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::async::write<D: hadris_storage::async::api::BlockDevice>(D, &hadris_fs::tree::Tree, &hadris_fat::FatOptions) -> core::result::Result<hadris_fs::report::Report, hadris_fs::error::PathError>
 pub mod hadris_fat::exfat
 pub use hadris_fat::exfat::Detail
+pub use hadris_fat::exfat::Geometry
 pub mod hadris_fat::exfat::async
 pub use hadris_fat::exfat::async::check
 pub struct hadris_fat::exfat::async::ExFatFs<D>
@@ -89,7 +92,8 @@ pub async fn hadris_fat::exfat::async::ExFatFs<D>::unlink(&mut self, hadris_fs::
 pub async fn hadris_fat::exfat::async::ExFatFs<D>::write(&mut self, hadris_fs::node::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
 impl<D> core::fmt::Debug for hadris_fat::exfat::async::ExFatFs<D>
 pub fn hadris_fat::exfat::async::ExFatFs<D>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub async fn hadris_fat::exfat::async::format<D: hadris_storage::async::api::BlockDevice>(D, hadris_fat::exfat::FormatOptions) -> core::result::Result<hadris_fat::exfat::async::ExFatFs<D>, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_fat::exfat::async::format<D: hadris_storage::async::api::BlockDevice>(&mut D, &hadris_fat::exfat::ExFatOptions) -> hadris_io::fs_error::FsResult<hadris_fat_raw::exfat::codec::Geometry, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat::exfat::async::write<D: hadris_storage::async::api::BlockDevice>(D, &hadris_fs::tree::Tree, &hadris_fat::exfat::ExFatOptions) -> core::result::Result<hadris_fs::report::Report, hadris_fs::error::PathError>
 pub mod hadris_fat::exfat::sync
 pub use hadris_fat::exfat::sync::check
 pub struct hadris_fat::exfat::sync::ExFatFs<D>
@@ -133,23 +137,23 @@ pub fn hadris_fat::exfat::sync::ExFatFs<D>::unlink(&mut self, hadris_fs::node::N
 pub fn hadris_fat::exfat::sync::ExFatFs<D>::write(&mut self, hadris_fs::node::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
 impl<D> core::fmt::Debug for hadris_fat::exfat::sync::ExFatFs<D>
 pub fn hadris_fat::exfat::sync::ExFatFs<D>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub fn hadris_fat::exfat::sync::format<D: hadris_storage::sync::api::BlockDevice>(D, hadris_fat::exfat::FormatOptions) -> core::result::Result<hadris_fat::exfat::sync::ExFatFs<D>, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
-pub struct hadris_fat::exfat::FormatOptions
-impl hadris_fat::exfat::FormatOptions
-pub const fn hadris_fat::exfat::FormatOptions::new() -> Self
-impl hadris_fat::exfat::FormatOptions
-pub fn hadris_fat::exfat::FormatOptions::with_alignment(self, u32) -> Self
-pub fn hadris_fat::exfat::FormatOptions::with_clock(self, &'static dyn hadris_fs::time::Clock) -> Self
-pub fn hadris_fat::exfat::FormatOptions::with_cluster_size(self, u32) -> Self
-pub fn hadris_fat::exfat::FormatOptions::with_fat_count(self, u8) -> Self
-pub fn hadris_fat::exfat::FormatOptions::with_label(self, hadris_fat::exfat::VolumeLabel) -> Self
-pub fn hadris_fat::exfat::FormatOptions::with_partition_offset(self, u64) -> Self
-pub fn hadris_fat::exfat::FormatOptions::with_sector_size(self, u32) -> Self
-pub fn hadris_fat::exfat::FormatOptions::with_volume_id(self, u32) -> Self
-impl core::default::Default for hadris_fat::exfat::FormatOptions
-pub fn hadris_fat::exfat::FormatOptions::default() -> Self
-impl core::fmt::Debug for hadris_fat::exfat::FormatOptions
-pub fn hadris_fat::exfat::FormatOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn hadris_fat::exfat::sync::format<D: hadris_storage::sync::api::BlockDevice>(&mut D, &hadris_fat::exfat::ExFatOptions) -> hadris_io::fs_error::FsResult<hadris_fat_raw::exfat::codec::Geometry, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::exfat::sync::write<D: hadris_storage::sync::api::BlockDevice>(D, &hadris_fs::tree::Tree, &hadris_fat::exfat::ExFatOptions) -> core::result::Result<hadris_fs::report::Report, hadris_fs::error::PathError>
+pub struct hadris_fat::exfat::ExFatOptions
+impl hadris_fat::exfat::ExFatOptions
+pub const fn hadris_fat::exfat::ExFatOptions::new() -> Self
+pub const fn hadris_fat::exfat::ExFatOptions::with_alignment(self, u32) -> Self
+pub const fn hadris_fat::exfat::ExFatOptions::with_cluster_size(self, u32) -> Self
+pub const fn hadris_fat::exfat::ExFatOptions::with_fat_count(self, u8) -> Self
+pub const fn hadris_fat::exfat::ExFatOptions::with_label(self, hadris_fat::exfat::VolumeLabel) -> Self
+pub const fn hadris_fat::exfat::ExFatOptions::with_partition_offset(self, u64) -> Self
+pub const fn hadris_fat::exfat::ExFatOptions::with_sector_size(self, u32) -> Self
+pub const fn hadris_fat::exfat::ExFatOptions::with_seed(self, u64) -> Self
+pub const fn hadris_fat::exfat::ExFatOptions::with_serial(self, u32) -> Self
+pub const fn hadris_fat::exfat::ExFatOptions::with_size(self, u64) -> Self
+pub const fn hadris_fat::exfat::ExFatOptions::with_time(self, hadris_fs::time::DateTime) -> Self
+impl core::default::Default for hadris_fat::exfat::ExFatOptions
+pub fn hadris_fat::exfat::ExFatOptions::default() -> Self
 pub struct hadris_fat::exfat::VolumeLabel
 impl hadris_fat::exfat::VolumeLabel
 pub fn hadris_fat::exfat::VolumeLabel::as_utf16(&self) -> &[u16]
@@ -200,27 +204,28 @@ pub fn hadris_fat::sync::FatFs<D>::unlink(&mut self, hadris_fs::node::NodeId, &h
 pub fn hadris_fat::sync::FatFs<D>::write(&mut self, hadris_fs::node::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
 impl<D> core::fmt::Debug for hadris_fat::sync::FatFs<D>
 pub fn hadris_fat::sync::FatFs<D>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub fn hadris_fat::sync::format<D: hadris_storage::sync::api::BlockDevice>(D, hadris_fat::FormatOptions) -> core::result::Result<hadris_fat::sync::FatFs<D>, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
-pub struct hadris_fat::FormatOptions
-impl hadris_fat::FormatOptions
-pub const fn hadris_fat::FormatOptions::new() -> Self
-impl hadris_fat::FormatOptions
-pub fn hadris_fat::FormatOptions::with_clock(self, &'static dyn hadris_fs::time::Clock) -> Self
-pub fn hadris_fat::FormatOptions::with_cluster_size(self, u32) -> Self
-pub fn hadris_fat::FormatOptions::with_fat_count(self, u8) -> Self
-pub fn hadris_fat::FormatOptions::with_hidden_sectors(self, u32) -> Self
-pub fn hadris_fat::FormatOptions::with_kind(self, hadris_fat_raw::entry::FatKind) -> Self
-pub fn hadris_fat::FormatOptions::with_label(self, hadris_fat::VolumeLabel) -> Self
-pub fn hadris_fat::FormatOptions::with_media(self, u8) -> Self
-pub fn hadris_fat::FormatOptions::with_oem_name(self, [u8; 8]) -> Self
-pub fn hadris_fat::FormatOptions::with_reserved_sectors(self, u16) -> Self
-pub fn hadris_fat::FormatOptions::with_root_entries(self, u16) -> Self
-pub fn hadris_fat::FormatOptions::with_sector_size(self, u32) -> Self
-pub fn hadris_fat::FormatOptions::with_volume_id(self, u32) -> Self
-impl core::default::Default for hadris_fat::FormatOptions
-pub fn hadris_fat::FormatOptions::default() -> Self
-impl core::fmt::Debug for hadris_fat::FormatOptions
-pub fn hadris_fat::FormatOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn hadris_fat::sync::format<D: hadris_storage::sync::api::BlockDevice>(&mut D, &hadris_fat::FatOptions) -> hadris_io::fs_error::FsResult<hadris_fat_raw::boot::Geometry, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat::sync::write<D: hadris_storage::sync::api::BlockDevice>(D, &hadris_fs::tree::Tree, &hadris_fat::FatOptions) -> core::result::Result<hadris_fs::report::Report, hadris_fs::error::PathError>
+pub struct hadris_fat::FatOptions
+impl hadris_fat::FatOptions
+pub const fn hadris_fat::FatOptions::new() -> Self
+pub const fn hadris_fat::FatOptions::with_alignment(self, u32) -> Self
+pub const fn hadris_fat::FatOptions::with_cluster_size(self, u32) -> Self
+pub const fn hadris_fat::FatOptions::with_fat_count(self, u8) -> Self
+pub const fn hadris_fat::FatOptions::with_kind(self, hadris_fat_raw::entry::FatKind) -> Self
+pub const fn hadris_fat::FatOptions::with_label(self, hadris_fat::VolumeLabel) -> Self
+pub const fn hadris_fat::FatOptions::with_media(self, u8) -> Self
+pub const fn hadris_fat::FatOptions::with_oem_name(self, [u8; 8]) -> Self
+pub const fn hadris_fat::FatOptions::with_partition_offset(self, u64) -> Self
+pub const fn hadris_fat::FatOptions::with_reserved_sectors(self, u16) -> Self
+pub const fn hadris_fat::FatOptions::with_root_entries(self, u16) -> Self
+pub const fn hadris_fat::FatOptions::with_sector_size(self, u32) -> Self
+pub const fn hadris_fat::FatOptions::with_seed(self, u64) -> Self
+pub const fn hadris_fat::FatOptions::with_serial(self, u32) -> Self
+pub const fn hadris_fat::FatOptions::with_size(self, u64) -> Self
+pub const fn hadris_fat::FatOptions::with_time(self, hadris_fs::time::DateTime) -> Self
+impl core::default::Default for hadris_fat::FatOptions
+pub fn hadris_fat::FatOptions::default() -> Self
 pub struct hadris_fat::VolumeLabel(_)
 impl hadris_fat::VolumeLabel
 pub fn hadris_fat::VolumeLabel::as_bytes(&self) -> &[u8; 11]

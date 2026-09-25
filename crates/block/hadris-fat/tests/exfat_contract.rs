@@ -8,7 +8,7 @@ use hadris_fs::r#async::FileSystem as _;
 use hadris_fs::sync::FileSystem;
 
 use common::{block_on, clean, fsck};
-use hadris_fat::exfat::FormatOptions;
+use hadris_fat::exfat::ExFatOptions;
 
 fn blank(size: usize, cluster: u32) -> Vec<u8> {
     common::image(common::small(size, cluster))
@@ -41,8 +41,11 @@ fn sync_through_a_volume() {
 #[test]
 fn async_modes() {
     block_on(async {
-        let dev = common::device(vec![0u8; 8 << 20], 4096);
-        let mut fs = hadris_fat::exfat::r#async::format(dev, FormatOptions::new())
+        let mut dev = common::device(vec![0u8; 8 << 20], 4096);
+        hadris_fat::exfat::r#async::format(&mut dev, &ExFatOptions::new())
+            .await
+            .unwrap();
+        let mut fs = hadris_fat::exfat::r#async::ExFatFs::mount(dev, MountOptions::new())
             .await
             .unwrap();
         hadris_fs::r#async::contract::check(&mut fs).await.unwrap();
@@ -77,11 +80,9 @@ fn every_mode_writes_the_same_bytes() {
     use hadris_fs::{Name, SetAttr};
     let name = |text| Name::new(text);
     let sync = {
-        let mut fs = hadris_fat::exfat::sync::format(
-            common::device(vec![0u8; 4 << 20], 512),
-            FormatOptions::new(),
-        )
-        .unwrap();
+        let mut dev = common::device(vec![0u8; 4 << 20], 512);
+        hadris_fat::exfat::sync::format(&mut dev, &ExFatOptions::new()).unwrap();
+        let mut fs = hadris_fat::exfat::sync::ExFatFs::mount(dev, MountOptions::new()).unwrap();
         let root = fs.root();
         let dir = fs.mkdir(root, name("dir"), &SetAttr::new()).unwrap();
         let file = fs.create(dir, name("file.txt"), &SetAttr::new()).unwrap();
@@ -94,12 +95,13 @@ fn every_mode_writes_the_same_bytes() {
     };
     let send = block_on(async {
         use hadris_fat::exfat::r#async as asynch;
-        let mut fs = asynch::format(
-            common::device(vec![0u8; 4 << 20], 512),
-            FormatOptions::new(),
-        )
-        .await
-        .unwrap();
+        let mut dev = common::device(vec![0u8; 4 << 20], 512);
+        asynch::format(&mut dev, &ExFatOptions::new())
+            .await
+            .unwrap();
+        let mut fs = asynch::ExFatFs::mount(dev, MountOptions::new())
+            .await
+            .unwrap();
         let root = fs.root();
         let dir = fs.mkdir(root, name("dir"), &SetAttr::new()).await.unwrap();
         let file = fs

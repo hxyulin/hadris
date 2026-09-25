@@ -5,7 +5,7 @@ use std::fs::OpenOptions;
 use std::path::Path;
 
 use hadris_fat::exfat::sync::{ExFatFs, format as format_exfat};
-use hadris_fat::exfat::{FormatOptions, VolumeLabel};
+use hadris_fat::exfat::{ExFatOptions, VolumeLabel};
 use hadris_fs::MountOptions;
 use hadris_storage::host::FileDevice;
 
@@ -49,19 +49,19 @@ pub fn format(path: &Path, case: ExFatCase) -> Result<(), String> {
         .open(path)
         .map_err(|error| error.to_string())?;
     file.set_len(case.size).map_err(|error| error.to_string())?;
-    let file = FileDevice::new(file).map_err(|error| error.to_string())?;
+    let mut file = FileDevice::new(file).map_err(|error| error.to_string())?;
     let label = VolumeLabel::new(LABEL).map_err(|error| error.to_string())?;
-    let options = FormatOptions::new()
+    let options = ExFatOptions::new()
         .with_label(label)
         .with_cluster_size(case.cluster)
         .with_fat_count(case.fats)
-        .with_volume_id(0x4841_4452);
-    let fs = format_exfat(file, options).map_err(|error| error.to_string())?;
-    if fs.cluster_size() != case.cluster {
+        .with_serial(0x4841_4452);
+    let geometry = format_exfat(&mut file, &options).map_err(|error| error.to_string())?;
+    let cluster = 1u32 << geometry.cluster_shift();
+    if cluster != case.cluster {
         return Err(format!(
-            "{} formatted with {}-byte clusters",
-            case.name,
-            fs.cluster_size()
+            "{} formatted with {cluster}-byte clusters",
+            case.name
         ));
     }
     Ok(())

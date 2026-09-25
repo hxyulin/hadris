@@ -1,13 +1,14 @@
 use hadris_common::types::endian::LittleEndian;
 use hadris_common::types::number::{U16, U32, U64};
-use hadris_fs::{DateTime, ErrorKind, FsResult, MountError, MountOptions};
+use hadris_fs::{ErrorKind, FsResult};
 
 use super::block_io::{new_block, write_bytes};
-use super::fs::ExFatFs;
 use super::storage::BlockDevice;
-use hadris_fat_raw::exfat::{self as raw, BootSector, ENTRY_SIZE, RawEntry};
+use hadris_fat_raw::exfat::{self as raw, BootSector, ENTRY_SIZE, Geometry, RawEntry};
 
-use crate::exfat::FormatOptions;
+use super::fatmkfs::{grow, offset_sectors, volume_bytes};
+use crate::exfat::ExFatOptions;
+use crate::options::serial;
 
 /// The smallest volume `format` lays out.
 const MIN_VOLUME: u64 = 1 << 20;
@@ -74,7 +75,7 @@ fn shift_of(value: u64) -> Option<u8> {
 }
 
 /// Plans a volume of `device_bytes`, or says why it cannot.
-fn plan(device_bytes: u64, block_size: u32, options: &FormatOptions) -> Result<Layout, ErrorKind> {
+fn plan(device_bytes: u64, block_size: u32, options: &ExFatOptions) -> Result<Layout, ErrorKind> {
     let sector = options.sector_size.unwrap_or(match block_size {
         512 | 1024 | 2048 | 4096 => block_size,
         _ => 512,
@@ -146,16 +147,11 @@ fn plan(device_bytes: u64, block_size: u32, options: &FormatOptions) -> Result<L
     })
 }
 
-fn volume_id(now: DateTime) -> u32 {
-    let seconds = now.unix_seconds() as u64;
-    (seconds as u32) ^ ((seconds >> 32) as u32) ^ now.nanoseconds().rotate_left(16)
-}
-
-fn boot_sector(layout: &Layout, options: &FormatOptions, serial: u32) -> BootSector {
+fn boot_sector(layout: &Layout, partition_offset: u64, serial: u32) -> BootSector {
     let mut boot: BootSector = bytemuck::Zeroable::zeroed();
     boot.jump_boot = raw::JUMP_BOOT;
     boot.file_system_name = raw::FILE_SYSTEM_NAME;
-    boot.partition_offset = U64::<LittleEndian>::new(options.partition_offset);
+    boot.partition_offset = U64::<LittleEndian>::new(partition_offset);
     boot.volume_length = U64::<LittleEndian>::new(layout.volume_sectors);
     boot.fat_offset = U32::<LittleEndian>::new(layout.fat_offset);
     boot.fat_length = U32::<LittleEndian>::new(layout.fat_length);
@@ -176,7 +172,7 @@ fn boot_sector(layout: &Layout, options: &FormatOptions, serial: u32) -> BootSec
 
 /// The root directory's first entries: the label, when there is one, the
 /// Allocation Bitmaps and the Up-case Table.
-fn root_entries(layout: &Layout, options: &FormatOptions) -> ([RawEntry; 4], usize) {
+fn root_entries(layout: &Layout, options: &ExFatOptions) -> ([RawEntry; 4], usize) {
     let mut entries = [[0u8; ENTRY_SIZE]; 4];
     let mut count = 0;
     if let Some(label) = &options.label {
@@ -207,44 +203,42 @@ fn root_entries(layout: &Layout, options: &FormatOptions) -> ([RawEntry; 4], usi
 
 io_transform! {
 
-/// Formats `dev` as an exFAT volume that fills it, and mounts it with the
-/// default [`MountOptions`] and the options' clock.
+/// Formats `dev` as an exFAT volume and returns its geometry. Needs no
+/// allocator; mount the volume with [`ExFatFs::mount`](super::ExFatFs::mount)
+/// and the options of your choice.
 ///
-/// The volume uses every whole sector of the device; pass a
-/// `hadris_storage` `Partition` to format a partition. Written are both boot
-/// regions, the FATs, the allocation bitmaps, the recommended up-case table
-/// and the root directory with its label, bitmap and up-case entries; the
-/// rest of the cluster heap is left as it is. The boot sector is written
-/// last, and the device is flushed before the volume is mounted; use
-/// `into_inner` to mount it with other [`MountOptions`].
+/// The volume fills the device unless [`ExFatOptions::with_size`] asks for
+/// another size; pass a `hadris_storage` `Partition` to format a partition.
+/// Written are both boot regions, the FATs, the allocation bitmaps, the
+/// recommended up-case table and the root directory with its label, bitmap
+/// and up-case entries; the rest of the cluster heap is left as it is,
+/// except that a growable device is grown to the volume's end. The boot
+/// sector is written last, and the device is flushed.
 ///
 /// Fails with [`ErrorKind::InvalidInput`] when an option is out of range,
-/// with [`ErrorKind::NoSpace`] when the device is smaller than 1 MiB or too
-/// small for the clusters asked for, with [`ErrorKind::LimitExceeded`] when
-/// the FAT or heap offset does not fit its field, with
-/// [`ErrorKind::Unsupported`] when its blocks are larger than 4096 bytes,
-/// and with [`ErrorKind::ReadOnly`] when it refuses writes. Nothing is
-/// written unless the options are valid. On any failure, including the
-/// final mount, the [`MountError`] gives `dev` back.
-pub async fn format<D: BlockDevice>(
-    mut dev: D,
-    options: FormatOptions,
-) -> Result<ExFatFs<D>, MountError<D, D::Error>> {
-    if let Err(error) = write_volume(&mut dev, &options).await {
-        return Err(MountError::new(error, dev));
-    }
-    ExFatFs::mount(dev, MountOptions::new().with_clock(options.clock)).await
+/// with [`ErrorKind::NoSpace`] when the device is smaller than the size or
+/// than 1 MiB, or too small for the clusters asked for, with
+/// [`ErrorKind::LimitExceeded`] when the FAT or heap offset does not fit
+/// its field, with [`ErrorKind::Unsupported`] when the device's blocks are
+/// larger than 4096 bytes, and with [`ErrorKind::ReadOnly`] when it refuses
+/// writes. Nothing is written unless the options are valid.
+pub async fn format<D: BlockDevice>(dev: &mut D, options: &ExFatOptions) -> FsResult<Geometry, D::Error> {
+    Ok(format_volume(dev, options).await?.0)
 }
 
-async fn write_volume<D: BlockDevice>(
+/// [`format`], also returning the volume's length in bytes.
+pub(crate) async fn format_volume<D: BlockDevice>(
     dev: &mut D,
-    options: &FormatOptions,
-) -> FsResult<(), D::Error> {
+    options: &ExFatOptions,
+) -> FsResult<(Geometry, u64), D::Error> {
     let block_size = dev.block_size().get() as usize;
     let mut block = new_block(block_size)?;
-    let device_bytes = dev.block_count().saturating_mul(block_size as u64);
+    let device_bytes = volume_bytes(options.size, block_size as u64, dev.block_count(), dev.max_block_count())?;
     let layout = plan(device_bytes, block_size as u32, options)?;
-    let serial = options.volume_id.unwrap_or_else(|| volume_id(options.clock.now()));
+    let partition_offset = offset_sectors(options.partition_offset.unwrap_or(dev.disk_offset()), layout.sector())?;
+    let serial = options.serial.unwrap_or_else(|| serial(options.time, options.seed));
+    let boot = boot_sector(&layout, partition_offset, serial);
+    let geometry = raw::parse_boot(&boot).map_err(|_| ErrorKind::InvalidInput)?;
     let block = &mut block;
     let sector = layout.sector();
     let region = raw::BOOT_REGION_SECTORS * sector;
@@ -300,7 +294,6 @@ async fn write_volume<D: BlockDevice>(
         write_bytes(dev, block, root_at + (index * ENTRY_SIZE) as u64, Some(entry), ENTRY_SIZE).await?;
     }
 
-    let boot = boot_sector(&layout, options, serial);
     let boot = bytemuck::bytes_of(&boot);
     let signature = raw::EXTENDED_BOOT_SIGNATURE.to_le_bytes();
     let mut sum = raw::boot_checksum(0, 0, boot);
@@ -328,11 +321,55 @@ async fn write_volume<D: BlockDevice>(
         }
         write_bytes(dev, block, base, Some(boot), boot.len()).await?;
     }
+    let volume = layout.volume_sectors << layout.sector_shift;
+    grow(dev, block, volume).await?;
     dev.flush().await?;
-    Ok(())
+    Ok((geometry, volume))
 }
 
 }
+
+#[cfg(feature = "alloc")]
+mod tree {
+    use hadris_fs::{MountOptions, PathError, Report, Tree};
+
+    use super::super::ExFatFs;
+    use super::super::fatmkfs::stamped;
+    use super::super::fsapi::{FileSystem, copy_tree};
+    use super::super::storage::BlockDevice;
+    use super::format_volume;
+    use crate::exfat::ExFatOptions;
+
+    io_transform! {
+
+    /// Formats `out` as [`format`](super::format) does and copies `tree`
+    /// into the new volume with `copy_tree`, then unmounts it.
+    ///
+    /// Nodes without times get the options' time, so the same tree and
+    /// options give the same bytes. A growable device such as `Vec<u8>`
+    /// needs [`ExFatOptions::with_size`], since it starts empty. Every
+    /// file's content is checked to be readable in this mode before
+    /// anything is written. The report has the volume's size and the
+    /// warnings of `copy_tree`: symlinks, special files and extra hard-link
+    /// names are skipped, and fields exFAT does not store are dropped.
+    /// Fails as `format` and `copy_tree` do, with the tree path of the node
+    /// that failed.
+    pub async fn write<D: BlockDevice>(mut out: D, tree: &Tree, options: &ExFatOptions) -> Result<Report, PathError> {
+        let tree = stamped(tree, options.time)?;
+        let (_, volume) = format_volume(&mut out, options).await?;
+        let mut fs = ExFatFs::mount(out, MountOptions::new()).await?;
+        let root = fs.root();
+        let mut report = copy_tree(&tree, &mut fs, root).await?;
+        fs.unmount().await?;
+        report.set_size(volume);
+        Ok(report)
+    }
+
+    }
+}
+
+#[cfg(feature = "alloc")]
+pub use tree::write;
 
 #[cfg(test)]
 mod tests {
@@ -340,15 +377,15 @@ mod tests {
 
     #[test]
     fn layouts_match_mkfs_exfat() {
-        let layout = plan(64 << 20, 512, &FormatOptions::new()).unwrap();
+        let layout = plan(64 << 20, 512, &ExFatOptions::new()).unwrap();
         assert_eq!(layout.fat_offset, 2048);
         assert_eq!(layout.heap_offset, 4096);
         assert_eq!(layout.root(), 5);
         assert_eq!(
-            plan(512 << 10, 512, &FormatOptions::new()).err(),
+            plan(512 << 10, 512, &ExFatOptions::new()).err(),
             Some(ErrorKind::NoSpace)
         );
-        let odd = FormatOptions::new().with_cluster_size(3000);
+        let odd = ExFatOptions::new().with_cluster_size(3000);
         assert_eq!(
             plan(8 << 20, 512, &odd).err(),
             Some(ErrorKind::InvalidInput)

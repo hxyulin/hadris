@@ -2,21 +2,22 @@
 //!
 //! It follows the same shape as `FatFs`. `ExFatFs` is generated for each mode
 //! (`exfat::sync`, `exfat::r#async`) with `check`
-//! and, with `write`, `format`; the mode-independent types are here. It
+//! and, with `write`, `format` and the tree writer `write`; the
+//! mode-independent types are here. It
 //! needs `alloc` and implements the `hadris_fs` `FileSystem` trait, so
 //! `Volume` and its handles work on it.
 //!
 //! ```rust
 //! # #[cfg(all(feature = "sync", feature = "write", feature = "std"))]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use hadris_fat::exfat::FormatOptions;
+//! use hadris_fat::exfat::ExFatOptions;
 //! use hadris_fat::exfat::sync::{check, format};
 //! use hadris_fs::sync::Volume;
 //! use hadris_fs::{MountOptions, OpenOptions};
 //! use hadris_storage::{BlockSize, MemDevice};
 //!
-//! let dev = MemDevice::new(vec![0u8; 16 << 20], BlockSize::new(512).unwrap());
-//! let mut dev = format(dev, FormatOptions::new())?.into_inner();
+//! let mut dev = MemDevice::new(vec![0u8; 16 << 20], BlockSize::new(512).unwrap());
+//! format(&mut dev, &ExFatOptions::new())?;
 //! assert!(check(&mut dev, &mut [0u8; 4096], |_| {})?.is_clean());
 //! let vol = Volume::new(hadris_fat::exfat::sync::ExFatFs::mount(dev, MountOptions::new())?);
 //! vol.create_dir_all("/Photos")?;
@@ -40,7 +41,7 @@
 //! supported.
 
 mod options;
-pub use hadris_fat_raw::exfat::Detail;
+pub use hadris_fat_raw::exfat::{Detail, Geometry};
 
 /// Reads a little-endian `u16` at `at`.
 #[cfg_attr(
@@ -71,7 +72,7 @@ pub(crate) fn le64(bytes: &[u8], at: usize) -> u64 {
     u64::from_le_bytes(value)
 }
 #[cfg(feature = "write")]
-pub use options::FormatOptions;
+pub use options::ExFatOptions;
 pub use options::VolumeLabel;
 
 #[cfg(feature = "sync")]
@@ -84,10 +85,12 @@ pub mod sync {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
     }
 
-    #[cfg(feature = "alloc")]
+    #[cfg(any(feature = "alloc", feature = "write"))]
     use crate::sync::block_io;
+    #[cfg(feature = "write")]
+    use crate::sync::mkfs as fatmkfs;
     use hadris_fat_raw::exfat::io::sync as exio;
-    #[cfg(feature = "alloc")]
+    #[cfg(any(feature = "alloc", feature = "write"))]
     use hadris_storage::sync as storage;
 
     #[cfg(feature = "alloc")]
@@ -99,11 +102,13 @@ pub mod sync {
     pub use exio::check;
     #[cfg(feature = "alloc")]
     pub use fs::ExFatFs;
-    #[cfg(all(feature = "alloc", feature = "write"))]
+    #[cfg(feature = "write")]
     #[path = "mkfs.rs"]
     mod mkfs;
-    #[cfg(all(feature = "alloc", feature = "write"))]
+    #[cfg(feature = "write")]
     pub use mkfs::format;
+    #[cfg(all(feature = "alloc", feature = "write"))]
+    pub use mkfs::write;
 }
 
 #[cfg(feature = "async")]
@@ -117,10 +122,12 @@ pub mod r#async {
         ($($item:tt)*) => { hadris_macros::send_async! { $($item)* } };
     }
 
-    #[cfg(feature = "alloc")]
+    #[cfg(any(feature = "alloc", feature = "write"))]
     use crate::r#async::block_io;
+    #[cfg(feature = "write")]
+    use crate::r#async::mkfs as fatmkfs;
     use hadris_fat_raw::exfat::io::r#async as exio;
-    #[cfg(feature = "alloc")]
+    #[cfg(any(feature = "alloc", feature = "write"))]
     use hadris_storage::r#async as storage;
 
     #[cfg(feature = "alloc")]
@@ -132,9 +139,11 @@ pub mod r#async {
     pub use exio::check;
     #[cfg(feature = "alloc")]
     pub use fs::ExFatFs;
-    #[cfg(all(feature = "alloc", feature = "write"))]
+    #[cfg(feature = "write")]
     #[path = "mkfs.rs"]
     mod mkfs;
-    #[cfg(all(feature = "alloc", feature = "write"))]
+    #[cfg(feature = "write")]
     pub use mkfs::format;
+    #[cfg(all(feature = "alloc", feature = "write"))]
+    pub use mkfs::write;
 }

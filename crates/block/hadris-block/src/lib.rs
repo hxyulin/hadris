@@ -23,8 +23,8 @@
 //! use hadris_storage::{BlockSize, MemDevice};
 //! use std::io::{Read, Write};
 //!
-//! let dev = MemDevice::new(vec![0u8; 2 << 20], BlockSize::new(512).unwrap());
-//! let dev = hadris_fat::sync::format(dev, hadris_fat::FormatOptions::new())?.into_inner();
+//! let mut dev = MemDevice::new(vec![0u8; 2 << 20], BlockSize::new(512).unwrap());
+//! hadris_fat::sync::format(&mut dev, &hadris_fat::FatOptions::new())?;
 //!
 //! let volume = OpenVolume::open(dev)?;
 //! assert_eq!(volume.format(), BlockFormat::Fat(FatVariant::Fat12));

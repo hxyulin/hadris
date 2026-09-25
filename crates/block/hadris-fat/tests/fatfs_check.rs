@@ -11,7 +11,12 @@ use std::process::Command;
 
 use common::{CASES, Found, block_on, check_dev};
 use hadris_fat::sync::{FatFs, check, format};
-use hadris_fat::{Detail, FatKind, FormatOptions, VolumeLabel};
+
+fn formatted(mut dev: MemDevice<Vec<u8>>, options: FatOptions) -> FatFs<MemDevice<Vec<u8>>> {
+    format(&mut dev, &options).unwrap();
+    FatFs::mount(dev, MountOptions::new()).unwrap()
+}
+use hadris_fat::{Detail, FatKind, FatOptions, VolumeLabel};
 use hadris_fs::sync::{FileSystem, Volume};
 use hadris_fs::{CheckReport, ErrorKind, Location, Name, RenameMode, SetAttr, Severity};
 use hadris_io::Error;
@@ -251,14 +256,13 @@ fn short_entry(name: &[u8; 11], attr: u8, cluster: u32, size: u32) -> [u8; 32] {
 /// clusters, `B.BIN` of two, `C.BIN` of one, a long-named file, an empty
 /// file, and `SUB` holding `D.BIN` and `DEEP/E.BIN`.
 fn fixture(kind: FatKind, size: u64) -> Vec<u8> {
-    let options = FormatOptions::new()
+    let options = FatOptions::new()
         .with_kind(kind)
         .with_label(VolumeLabel::new("CHECK").unwrap());
-    let fs = format(
+    let fs = formatted(
         MemDevice::new(vec![0; size as usize], BlockSize::new(512).unwrap()),
         options,
-    )
-    .unwrap();
+    );
     let vol = Volume::new(fs);
     let cluster = vol.lock().statfs().unwrap().block_size() as usize;
     vol.write_file("/A.BIN", &common::payload(3 * cluster - 10, 1))
@@ -721,11 +725,10 @@ fn short_scratch_is_refused() {
 
 #[test]
 fn deep_trees_are_walked_without_a_stack() {
-    let fs = format(
+    let fs = formatted(
         MemDevice::new(vec![0; 40 << 20], BlockSize::new(512).unwrap()),
-        FormatOptions::new().with_kind(FatKind::Fat32),
-    )
-    .unwrap();
+        FatOptions::new().with_kind(FatKind::Fat32),
+    );
     let vol = Volume::new(fs);
     let mut path = String::new();
     for depth in 0..40 {
@@ -900,11 +903,10 @@ fn the_label_is_read_from_the_root() {
     let label = odd.volume_label().unwrap().unwrap();
     assert_eq!(label.as_bytes()[..2], [0x05, 0x82]);
     assert_eq!(odd.label_text().unwrap().unwrap(), "σéECK");
-    let mut blank = format(
+    let mut blank = formatted(
         MemDevice::new(vec![0; 2 << 20], BlockSize::new(512).unwrap()),
-        FormatOptions::new(),
-    )
-    .unwrap();
+        FatOptions::new(),
+    );
     assert_eq!(blank.label_text().unwrap(), None);
 }
 
@@ -926,11 +928,10 @@ fn put_fragment(img: &mut [u8], at: usize, sequence: u8, checksum: u8, units: &[
 fn overlong_long_name_runs_fall_back_to_the_short_name() {
     let long = "x".repeat(255);
     for (kind, size) in KINDS {
-        let fs = format(
+        let fs = formatted(
             MemDevice::new(vec![0; size as usize], BlockSize::new(512).unwrap()),
-            FormatOptions::new().with_kind(kind),
-        )
-        .unwrap();
+            FatOptions::new().with_kind(kind),
+        );
         let vol = Volume::new(fs);
         vol.write_file("/P", b"").unwrap();
         vol.write_file(&format!("/{long}"), b"data").unwrap();
@@ -1021,11 +1022,10 @@ fn a_clear_clean_shutdown_bit_is_a_notice() {
 
 #[test]
 fn findings_name_the_path_of_their_entry() {
-    let fs = format(
+    let fs = formatted(
         MemDevice::new(vec![0; 40 << 20], BlockSize::new(512).unwrap()),
-        FormatOptions::new().with_kind(FatKind::Fat32),
-    )
-    .unwrap();
+        FatOptions::new().with_kind(FatKind::Fat32),
+    );
     let vol = Volume::new(fs);
     let segment = "d".repeat(100);
     let mut path = String::new();

@@ -6,6 +6,7 @@ use hadris_fs::{ErrorKind, FsResult};
 use super::rawio;
 use super::storage::BlockDevice;
 
+#[cfg(feature = "alloc")]
 pub(crate) use rawio::read_bytes;
 
 /// The largest device block a driver can buffer.

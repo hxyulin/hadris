@@ -320,16 +320,14 @@ mod tests {
     #[cfg(all(feature = "std", feature = "sync", feature = "write"))]
     #[test]
     fn recognizes_volume_created_by_fat_formatter() {
-        use hadris_fat::{FatKind, FormatOptions};
+        use hadris_fat::{FatKind, FatOptions};
         use hadris_storage::{BlockSize, MemDevice};
 
-        let dev = MemDevice::new(
+        let mut dev = MemDevice::new(
             std::vec![0u8; 2 * 1024 * 1024],
             BlockSize::new(512).unwrap(),
         );
-        let fs =
-            hadris_fat::sync::format(dev, FormatOptions::new().with_kind(FatKind::Fat12)).unwrap();
-        let mut dev = fs.into_inner();
+        hadris_fat::sync::format(&mut dev, &FatOptions::new().with_kind(FatKind::Fat12)).unwrap();
         assert_eq!(
             sync::detect(&mut dev).unwrap(),
             Some(BlockFormat::Fat(FatVariant::Fat12))

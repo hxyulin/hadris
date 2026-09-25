@@ -19,8 +19,8 @@ use output::Output;
 use hadris_fs::host::{self, TreeOptions};
 use hadris_fs::sync::{FileSystem, copy_tree, read_tree};
 use hadris_fs::{
-    Attributes, DirCursor, FileType, Finding, Metadata, MountOptions, NodeId, OpenMode, Resolve,
-    SystemClock,
+    Attributes, Clock, DirCursor, FileType, Finding, Metadata, MountOptions, NodeId, OpenMode,
+    Resolve, SystemClock,
 };
 use hadris_fs::{Tree, TreeEntry};
 
@@ -857,25 +857,24 @@ fn estimate_image_size(bytes: u64, entries: u64, fat_type: KindArg) -> u64 {
     estimated.max(minimum).div_ceil(MIB) * MIB
 }
 
-/// Formats `file` as `fat_type` and mounts it for writing.
-fn format_image(file: FileDevice, fat_type: KindArg, label: &str) -> Result<Volume> {
+/// Formats `file` as `fat_type`, stamped with `SOURCE_DATE_EPOCH` or the
+/// current time, and mounts it for writing.
+fn format_image(mut file: FileDevice, fat_type: KindArg, label: &str) -> Result<Volume> {
+    let time = host::source_date_epoch()?.unwrap_or_else(|| SystemClock.now());
+    let mount = MountOptions::new().with_clock(&SystemClock);
     if fat_type == KindArg::Exfat {
         let label = exfat::VolumeLabel::new(label)
             .map_err(|kind| anyhow::anyhow!("Invalid volume label {label:?}: {kind}"))?;
-        let options = exfat::FormatOptions::new()
-            .with_label(label)
-            .with_clock(&SystemClock);
-        let formatted = exfat::sync::format(file, options)?;
-        let options = MountOptions::new().with_clock(&SystemClock);
-        let fs = ExFatFs::mount(formatted.into_inner(), options)
-            .context("Failed to mount the formatted image")?;
+        let options = exfat::ExFatOptions::new().with_label(label).with_time(time);
+        exfat::sync::format(&mut file, &options)?;
+        let fs = ExFatFs::mount(file, mount).context("Failed to mount the formatted image")?;
         return Ok(Volume::ExFat(Box::new(fs)));
     }
     let label = hadris_fat::VolumeLabel::new(label)
         .map_err(|kind| anyhow::anyhow!("Invalid volume label {label:?}: {kind}"))?;
-    let mut options = hadris_fat::FormatOptions::new()
+    let mut options = hadris_fat::FatOptions::new()
         .with_label(label)
-        .with_clock(&SystemClock);
+        .with_time(time);
     if let Some(kind) = match fat_type {
         KindArg::Fat12 => Some(FatKind::Fat12),
         KindArg::Fat16 => Some(FatKind::Fat16),
@@ -884,10 +883,8 @@ fn format_image(file: FileDevice, fat_type: KindArg, label: &str) -> Result<Volu
     } {
         options = options.with_kind(kind);
     }
-    let formatted = hadris_fat::sync::format(file, options)?;
-    let options = MountOptions::new().with_clock(&SystemClock);
-    let fs = FatFs::mount(formatted.into_inner(), options)
-        .context("Failed to mount the formatted image")?;
+    hadris_fat::sync::format(&mut file, &options)?;
+    let fs = FatFs::mount(file, mount).context("Failed to mount the formatted image")?;
     Ok(Volume::Fat(Box::new(fs)))
 }
 

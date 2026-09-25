@@ -22,17 +22,18 @@ hadris-fs = "2.4.0"
 
 ## Format an image file
 
-`format` fills the whole device, so the target must already have the desired
-length. Without `with_kind`, volumes below 16 MiB are FAT12, below 512 MiB
-FAT16, and larger ones FAT32; use `with_kind` when the variant is part of an
-external contract.
+`format(&mut dev, &options)` lays out a volume and returns its `Geometry`;
+mount it afterwards with the `MountOptions` of your choice. The volume fills
+the device unless `with_size` asks for another size. Without `with_kind`,
+volumes below 16 MiB are FAT12, below 512 MiB FAT16, and larger ones FAT32;
+use `with_kind` when the variant is part of an external contract.
 
 ```rust,no_run
 use std::fs::OpenOptions;
 
-use hadris_fat::sync::format;
-use hadris_fat::{FatKind, FormatOptions, VolumeLabel};
-use hadris_fs::SystemClock;
+use hadris_fat::sync::{FatFs, format};
+use hadris_fat::{FatKind, FatOptions, VolumeLabel};
+use hadris_fs::MountOptions;
 use hadris_storage::host::FileDevice;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -46,23 +47,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .open("disk.img")?;
     image.set_len(SIZE)?;
 
-    let options = FormatOptions::new()
+    let options = FatOptions::new()
         .with_kind(FatKind::Fat16)
-        .with_label(VolumeLabel::new("HADRIS")?)
-        .with_clock(&SystemClock);
+        .with_label(VolumeLabel::new("HADRIS")?);
 
-    let mut fs = format(FileDevice::new(image)?, options)?;
+    let mut dev = FileDevice::new(image)?;
+    format(&mut dev, &options)?;
+    let mut fs = FatFs::mount(dev, MountOptions::new())?;
     assert_eq!(fs.volume_label()?.map(|l| l.as_str().to_owned()).as_deref(), Some("HADRIS"));
     Ok(())
 }
 ```
 
-A device too small for the requested variant fails with `ErrorKind::NoSpace`,
+A device too small for the size or variant fails with `ErrorKind::NoSpace`,
 one too large with `ErrorKind::LimitExceeded`, and an invalid option with
 `ErrorKind::InvalidInput` before anything is written. `with_cluster_size`,
-`with_sector_size`, `with_volume_id`, `with_oem_name`, `with_fat_count`,
-`with_root_entries` and the other `with_*` methods set the remaining boot
-sector fields. The default `NoClock` produces the same bytes on every run.
+`with_sector_size`, `with_serial`, `with_oem_name`, `with_fat_count`,
+`with_root_entries`, `with_alignment` and the other `with_*` methods set the
+remaining boot sector fields. The time (`with_time`, 1980-01-01 by default)
+stamps the label, and the serial derives from `with_seed` or the time, so
+the same options produce the same bytes on every run.
 
 ## Create directories and files
 
@@ -75,7 +79,7 @@ use std::io::Write;
 
 use hadris_fat::sync::FatFs;
 use hadris_fs::OpenOptions;
-use hadris_fs::sync::{FileSystem, Volume};
+use hadris_fs::sync::Volume;
 use hadris_storage::sync::BlockDevice;
 
 fn populate<D: BlockDevice>(vol: &Volume<FatFs<D>>) -> Result<(), Box<dyn std::error::Error>> {
@@ -92,48 +96,50 @@ fn populate<D: BlockDevice>(vol: &Volume<FatFs<D>>) -> Result<(), Box<dyn std::e
 }
 ```
 
-To copy a host directory tree into the image, use
-`hadris_fs::sync::import_from_host("./contents", &mut fs, "/")` on the
-`FatFs`, or on `&mut *vol.lock()`. Names that fit
-FAT's short-name rules are stored as 8.3 entries, including the standard
-lowercase case flags; other names get long-name entries.
+Names that fit FAT's short-name rules are stored as 8.3 entries, including
+the standard lowercase case flags; other names get long-name entries.
 
-## In-memory and async formatting
+## Build an image from a tree
 
-For tests, format a byte buffer:
+`write(dev, &tree, &options)` formats the device and copies a
+`hadris_fs::Tree` into it. `hadris_fs::host::read_tree` builds the tree
+from a host directory. Nodes without times get the options' time, and the
+report lists what FAT cannot store, such as symlinks and permissions. A
+growable device such as `Vec<u8>` starts empty, so give it a size.
 
 ```rust
-use hadris_fat::FormatOptions;
-use hadris_fat::sync::format;
-use hadris_storage::{BlockSize, MemDevice};
+use hadris_fat::FatOptions;
+use hadris_fat::sync::write;
+use hadris_fs::{Content, Node, Tree};
 
-let dev = MemDevice::new(vec![0_u8; 4 * 1024 * 1024], BlockSize::new(512).unwrap());
-let fs = format(dev, FormatOptions::new())?;
-let bytes: Vec<u8> = fs.into_inner().into_inner();
-# Ok::<(), hadris_fs::Error<core::convert::Infallible>>(())
+let mut tree = Tree::new();
+tree.insert("DOCS/README.TXT", Node::file(Content::bytes("hello")))?;
+let mut image = Vec::new();
+let report = write(&mut image, &tree, &FatOptions::new().with_size(4 << 20))?;
+assert_eq!(image.len() as u64, report.size());
+# Ok::<(), hadris_fs::PathError>(())
 ```
 
-The same `format` exists in `hadris_fat::r#async` when the crate is built
-with `async`. Enable exactly the I/O
+The same `format` and `write` exist in `hadris_fat::r#async` when the crate
+is built with `async`. `format` needs no allocator. Enable exactly the I/O
 mode your application uses; `std` does not implicitly select `sync`.
 
 ## Format exFAT
 
 exFAT has its own driver, `ExFatFs`, with the same node API, and its own
-`FormatOptions`, `VolumeLabel` and `format` in `hadris_fat::exfat`. Labels
-keep their case and may use up to 11 UTF-16 code units.
+`ExFatOptions`, `VolumeLabel`, `format` and `write` in `hadris_fat::exfat`.
+Labels keep their case and may use up to 11 UTF-16 code units.
 
 ```rust
-use hadris_fat::exfat::sync::{check, format};
-use hadris_fat::exfat::{FormatOptions, VolumeLabel};
-use hadris_fat::exfat::sync::ExFatFs;
+use hadris_fat::exfat::sync::{ExFatFs, check, format};
+use hadris_fat::exfat::{ExFatOptions, VolumeLabel};
 use hadris_fs::sync::Volume;
 use hadris_fs::{MountOptions, OpenOptions};
 use hadris_storage::{BlockSize, MemDevice};
 
-let dev = MemDevice::new(vec![0u8; 16 << 20], BlockSize::new(512).unwrap());
+let mut dev = MemDevice::new(vec![0u8; 16 << 20], BlockSize::new(512).unwrap());
 let label = VolumeLabel::new("Photos").unwrap();
-let mut dev = format(dev, FormatOptions::new().with_label(label))?.into_inner();
+format(&mut dev, &ExFatOptions::new().with_label(label))?;
 assert!(check(&mut dev, &mut [0u8; 4096], |_| {})?.is_clean());
 let vol = Volume::new(ExFatFs::mount(dev, MountOptions::new())?);
 let mut file = vol.open("/hello.txt", OpenOptions::new().write().create())?;
@@ -142,7 +148,7 @@ file.close()?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-`FormatOptions::with_fat_count(2)` formats a TexFAT volume. From the command
+`ExFatOptions::with_fat_count(2)` formats a TexFAT volume. From the command
 line, `hadris-fat create ./contents -o card.img --fat-type exfat` does the
 same for a host directory.
 
@@ -151,8 +157,9 @@ same for a host directory.
 Create or read the partition table with `hadris-part` (`DiskLayout` and
 `hadris_part::sync::create`, or `hadris_part::sync::read`), restrict the disk
 to the partition with `hadris_part::sync::open`, and pass that slice to
-`format`. The formatter sees block zero relative to the partition and
-cannot write outside it.
+`format`. The formatter sees block zero relative to the partition, cannot
+write outside it, and records the partition's start as the hidden sectors
+(the exFAT `PartitionOffset`) unless `with_partition_offset` overrides it.
 
 ## Validate the result
 

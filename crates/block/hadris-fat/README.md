@@ -96,7 +96,7 @@ let dev = fs.unmount()?;
 `unmount` syncs and gives the device back; `into_inner` gives it back
 without syncing.
 
-A failed `mount`, `unmount` or `format` returns a `hadris_fs::MountError`, which
+A failed `mount` or `unmount` returns a `hadris_fs::MountError`, which
 gives the device back through `into_device` or `into_parts`. `?` converts
 it into `hadris_fs::Error`, `PathError` or `std::io::Error`, dropping the
 device.
@@ -116,24 +116,28 @@ chain longer than its file, or a renamed node under both names.
 
 ### Formatting with `FatFs`
 
-`format` (the `write` feature, every mode, `alloc`) lays out a volume
-that fills the block device, using its block count and size, and returns it
-mounted. Format a partition by passing a `hadris_storage` `Partition`.
+`format(&mut dev, &options)` (the `write` feature, every mode, no
+allocator) lays out a volume and returns its `Geometry`; mount it with
+`FatFs::mount` and the `MountOptions` of your choice. The volume fills the
+device unless `with_size` asks for another size, and a growable device such
+as `Vec<u8>` grows to it. Format a partition by passing a `hadris_storage`
+`Partition`; its start becomes the boot sector's hidden sectors unless
+`with_partition_offset` says otherwise.
 
 ```rust,no_run
-use hadris_fat::sync::format;
-use hadris_fat::{FatKind, FormatOptions, VolumeLabel};
-use hadris_fs::SystemClock;
+use hadris_fat::sync::{FatFs, format};
+use hadris_fat::{FatKind, FatOptions, VolumeLabel};
+use hadris_fs::MountOptions;
 use hadris_storage::{BlockSize, MemDevice};
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
-let dev = MemDevice::new(vec![0u8; 64 << 20], BlockSize::new(512).unwrap());
-let options = FormatOptions::new()
+let mut dev = MemDevice::new(vec![0u8; 64 << 20], BlockSize::new(512).unwrap());
+let options = FatOptions::new()
     .with_kind(FatKind::Fat32)
-    .with_label(VolumeLabel::new("BOOT")?)
-    .with_clock(&SystemClock);
-let fs = format(dev, options)?;
-# let _ = fs;
+    .with_label(VolumeLabel::new("BOOT")?);
+let geometry = format(&mut dev, &options)?;
+let fs = FatFs::mount(dev, MountOptions::new())?;
+# let _ = (geometry, fs);
 # Ok(())
 # }
 ```
@@ -141,14 +145,20 @@ let fs = format(dev, options)?;
 Without `with_kind`, volumes below 16 MiB are FAT12, below 512 MiB FAT16,
 and larger ones FAT32. The cluster size starts from Microsoft's defaults
 for the size and doubles or halves until the cluster count suits the
-variant; `with_cluster_size` fixes it. `with_sector_size`,
-`with_volume_id`, `with_oem_name`, `with_reserved_sectors`,
-`with_hidden_sectors`, `with_fat_count`, `with_root_entries` and
-`with_media` set the other boot sector fields. The clock stamps the label
-entry and derives the volume id, so the default `NoClock` produces the same
-bytes on every run. A device too small for the variant gives
+variant; `with_cluster_size` fixes it. `with_sector_size`, `with_serial`,
+`with_oem_name`, `with_reserved_sectors`, `with_fat_count`,
+`with_root_entries` and `with_media` set the other boot sector fields, and
+`with_alignment` starts the data region on a multiple of its size. The time
+(`with_time`, `NoClock::TIME` by default) stamps the label entry, and the
+serial derives from `with_seed` or the time, so the same options produce the
+same bytes on every run. A device too small for the size or variant gives
 `ErrorKind::NoSpace`, one too large gives `ErrorKind::LimitExceeded`, and a
 bad option gives `ErrorKind::InvalidInput` before anything is written.
+
+With `alloc`, `write(dev, &tree, &options)` formats and copies a
+`hadris_fs::Tree` into the volume with `copy_tree`, giving nodes without
+times the options' time, and returns a `hadris_fs::Report` with the volume
+size and what FAT could not store.
 
 ### Checking
 
@@ -225,8 +235,8 @@ changes what an item does.
 are a sibling of `FatFs` that needs `alloc` and implements `FileSystem`,
 with `format` (the `write` feature) and `check` in each mode.
 exFAT is stable and needs no feature flag. It mounts with the same `hadris_fs::MountOptions`. Its format options, label
-and detail codes are in `hadris_fat::exfat` (`exfat::FormatOptions`,
-`exfat::Detail`), since their names match FAT's. It reads contiguous and
+and detail codes are in `hadris_fat::exfat` (`exfat::ExFatOptions`,
+`exfat::Geometry`, `exfat::Detail`), since their names match FAT's. It reads contiguous and
 chained allocations, fragmented bitmaps and up-case tables, and entry sets
 that cross clusters; it writes FAT chains, grows directories, and keeps
 `VolumeDirty` and `PercentInUse`. On TexFAT volumes it follows `ActiveFat`
