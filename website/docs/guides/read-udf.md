@@ -48,6 +48,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 writes through an existing host symlink, so an untrusted image cannot escape
 the target directory.
 
-For an unknown ISO/UDF image, open through `hadris-optical` so bridge-image
-selection is explicit. The `hadris-udf` CLI provides listing and extraction
+For an unknown ISO/UDF image, `hadris::sync::detect` lists a bridge as
+`IsoUdfBridge`, `Iso` and `Udf`, and `hadris::sync::open` mounts its UDF side. The `hadris-udf` CLI provides listing and extraction
 for hosted workflows.

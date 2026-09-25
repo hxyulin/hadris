@@ -225,6 +225,36 @@ fn partition_tables_are_listed_but_not_opened() {
 }
 
 #[test]
+fn a_partition_opens_through_its_table() {
+    use hadris::part;
+    let (start, blocks) = (2048u64, (2u64 << 20) / 512);
+    let layout = part::DiskLayout::gpt(part::Guid::from_bytes([0x61; 16])).partition(
+        part::PartitionSpec::new(part::gpt::types::EFI_SYSTEM, part::Size::Blocks(blocks))
+            .with_start(start),
+    );
+    let mut disk = device(vec![0u8; ((start + blocks + 34) * 512) as usize], 512);
+    let table = part::sync::create(&mut disk, &layout).unwrap();
+    let entry = table.partition(0).unwrap();
+    let options = hadris::fat::FatOptions::new().with_kind(FatKind::Fat12);
+    hadris::fat::sync::format(&mut part::sync::open(&mut disk, &entry).unwrap(), &options).unwrap();
+
+    let found: Vec<_> = detect(&mut disk)
+        .unwrap()
+        .iter()
+        .map(|c| c.format())
+        .collect();
+    assert_eq!(found, [ImageFormat::Gpt]);
+    let entry = part::sync::read(&mut disk).unwrap().partition(0).unwrap();
+    let fs = open(
+        part::sync::open(&mut disk, &entry).unwrap(),
+        MountOptions::new(),
+    )
+    .unwrap();
+    assert!(matches!(&fs, AnyFs::Fat(fat) if fat.info().kind() == FatKind::Fat12));
+    assert_eq!(fs.into_inner().offset(), start * 512);
+}
+
+#[test]
 fn a_4kn_gpt_header_is_in_block_one() {
     let mut image = table(&[0xEE], true);
     image.resize(4 * 4096, 0);

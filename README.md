@@ -8,9 +8,9 @@ CPIO, and disk images, plus a read-only NTFS reader in preview. It supports desk
 applications as well as `no_std` bootloaders, operating-system kernels,
 firmware, and embedded devices.
 
-Use a focused format crate such as `hadris-fat` or `hadris-iso`, a category
-facade such as `hadris-block`, or the `hadris` umbrella crate as an application
-grows. Shared I/O, storage, filesystem, feature, and API conventions keep
+Use a focused format crate such as `hadris-fat` or `hadris-iso`, or the
+`hadris` umbrella crate, which also detects and opens any supported image, as
+an application grows. Shared I/O, storage, filesystem, feature, and API conventions keep
 those layers coherent without hiding format-specific capabilities.
 
 ## Stability and Versioning
@@ -26,7 +26,7 @@ documentation.
 
 In 3.0, exFAT is stable as `hadris_fat::exfat::ExFatFs`, with no feature flag.
 The NTFS reader (`hadris-ntfs`, and the `unstable-ntfs` feature of
-`hadris-block` and `hadris`) is a preview whose native API may change in 3.x
+`hadris`) is a preview whose native API may change in 3.x
 minor releases. Every stable crate is covered by the public-API snapshots in
 [`api-snapshots/`](api-snapshots/).
 
@@ -41,8 +41,9 @@ Every filesystem driver implements the `FileSystem` trait of `hadris-fs`,
 so `Volume`, its file handles and generic code work on any of them. Each
 format keeps a native API for what the trait does not model: formatting,
 checking, FAT attributes, ISO namespaces and boot catalogs, NTFS streams.
-Image writers share one input tree instead of a trait. The category facades
-detect a format and open it behind the same driver trait.
+Image writers share one input tree instead of a trait. The umbrella's
+`detect` and `open` find a format and mount it as an `AnyFs`, which
+implements the same driver trait.
 
 ## Why Hadris?
 
@@ -56,8 +57,8 @@ detect a format and open it behind the same driver trait.
   drives through portable I/O abstractions.
 - **Desktop capable** - Build image parsers, filesystem tools, and optical-disc
   image generators with synchronous or asynchronous APIs.
-- **One ecosystem** - Move from a leaf filesystem crate to category facades or
-  the umbrella crate while retaining the same underlying implementations.
+- **One ecosystem** - Move from a leaf filesystem crate to the umbrella crate
+  while retaining the same underlying implementations.
 
 ## Who is Hadris for?
 
@@ -82,7 +83,6 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 ### Block Storage
 
-- **[hadris-block](crates/block/hadris-block)** - Detection of FAT, NTFS, exFAT and partition tables on block devices, and `OpenVolume`, which opens FAT12/16/32, exFAT and NTFS behind one `hadris-fs` driver
 - **[hadris-part](crates/block/hadris-part)** - Partition table support on block devices
   - MBR with extended and logical partitions
   - GPT with backup-copy recovery and UTF-16 names
@@ -94,15 +94,14 @@ organizational only: published package names such as `hadris-fat` are unchanged.
   - `FatFs`, a node-based `hadris-fs` driver in sync, async and `Send` async modes
   - Long filename support (VFAT/LFN)
   - Formatting and a read-only checker, all without an allocator
-  - `ExFatFs`, an allocation-free exFAT driver with its own formatter and checker, in the same three modes; opened by `hadris-block`
+  - `ExFatFs`, an allocation-free exFAT driver with its own formatter and checker, in the same three modes
 - **[hadris-ntfs](crates/block/hadris-ntfs)** - Read-only NTFS reader
   (preview) on block devices, allocation-free in sync, async and `Send`
   async modes, with attribute lists, named streams and `$UpCase` case
-  folding; opened by `hadris-block`
+  folding; listed by `hadris::sync::detect`
 
 ### Optical Media
 
-- **[hadris-optical](crates/optical/hadris-optical)** - Detection of ISO 9660, UDF and bridge images on block devices, and `OpenOpticalImage`, which opens one of them behind one `hadris-fs` driver
 - **[hadris-iso](crates/optical/hadris-iso)** - ISO 9660 filesystem implementation
   - Allocation-free reader for the primary, Rock Ridge, Joliet and enhanced trees, in sync, async and `Send` async modes
   - Writer and multi-session updates driven by the shared input tree
@@ -110,8 +109,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
   - Joliet extension (UTF-16 Unicode filenames)
   - Rock Ridge (RRIP) and SUSP (POSIX semantics, symlinks)
   - El Torito bootable CD/DVD images and hybrid MBR/GPT boot
-- **[hadris-udf](crates/optical/hadris-udf)** - Universal Disk Format (UDF) for DVD/Blu-ray: an allocation-free reader and a writer
-- **[hadris-cd](crates/optical/hadris-cd)** - Hybrid ISO+UDF optical disc image creation
+- **[hadris-udf](crates/optical/hadris-udf)** - Universal Disk Format (UDF) for DVD/Blu-ray: an allocation-free reader, a writer, and the hybrid ISO 9660 and UDF bridge writer
 
 ### Archives
 
@@ -129,7 +127,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 ### Meta-crate
 
-- **[hadris](crates/core/hadris)** - Optional umbrella that re-exports `hadris-io`, `hadris-storage` and `hadris-fs`, and each format crate at a flat path (`hadris::fat`, `hadris::iso`, `hadris::cpio`, ...), with `hadris::block` and `hadris::optical` for detection. One feature per format; the platform (`std`, `alloc`), mode (`sync`, `async`) and `write` features are forwarded to every enabled crate. The defaults are `std`, `sync`, `write`, `fat`, `iso` and `cpio`.
+- **[hadris](crates/core/hadris)** - Optional umbrella that re-exports `hadris-io`, `hadris-storage` and `hadris-fs`, and each format crate at a flat path (`hadris::fat`, `hadris::iso`, `hadris::cpio`, ...), and `hadris::{sync, r#async}::{detect, open, AnyFs}` with `hadris::host::open` for detecting and opening any supported image. One feature per format; the platform (`std`, `alloc`), mode (`sync`, `async`) and `write` features are forwarded to every enabled crate. The defaults are `std`, `sync`, `write`, `fat`, `iso`, `cpio` and `detect`.
 
 ## Key Features
 

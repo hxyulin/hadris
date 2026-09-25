@@ -206,8 +206,8 @@ their requirements in `[workspace.dependencies]` aligned.
 
 When several unpublished versions depend on one another, publish in dependency
 order: `hadris-macros`/`hadris-io`/`hadris-fs`; then
-`hadris-common`/`hadris-storage`/`hadris-part`/`hadris-fat-raw`; then format crates; then category
-facades and `hadris-cd`; then the `hadris` umbrella and CLI packages. Cargo
+`hadris-common`/`hadris-storage`/`hadris-part`/`hadris-fat-raw`; then format crates; then
+the `hadris` umbrella and CLI packages. Cargo
 validates dependent packages against crates.io, so each prerequisite version
 must be available before packaging the next layer.
 
@@ -299,7 +299,7 @@ are welcome in a minor release when their documentation, feature-matrix tier,
 and tests land with them.
 
 Feature-gated items should use `#[cfg_attr(docsrs, doc(cfg(...)))]` where the
-crate already enables `docsrs` (see `hadris-part`, `hadris-block`).
+crate already enables `docsrs` (see `hadris-part`, `hadris`).
 
 ## License
 

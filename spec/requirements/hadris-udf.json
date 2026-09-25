@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "crate": "optical/hadris-udf",
-  "profile": "ECMA-167 base structures with ECMA TR/112-7 UDF 1.02 restrictions; the reader also accepts UDF 1.50 to 2.01 volumes with type 1 partitions",
+  "profile": "ECMA-167 base structures with ECMA TR/112-7 UDF 1.02 restrictions; the reader also accepts UDF 1.50 to 2.01 volumes with type 1 partitions; the bridge writer follows ECMA TR/71 UDF Bridge logical-sector images, not a raw-CD recording layer",
   "requirements": [
     {
       "id": "ECMA-167-1997:3/7.2.2#descriptor-versions",
@@ -205,6 +205,126 @@
       "status": "verified",
       "symbols": [{"path": "crates/optical/hadris-udf/src/plan.rs", "name": "plan"}],
       "tests": [{"path": "crates/optical/hadris-udf/tests/roundtrip.rs", "name": "anchors_sequences_and_directories_follow_udf", "kind": "integration"}],
+      "gap": null
+    },
+    {
+      "id": "ECMA-TR-71-1998:2.1#logical-sector-and-block-size",
+      "source": "ECMA-TR-71-1998",
+      "clause": "2.1 item 2",
+      "normativity": "shall",
+      "summary": "UDF Bridge logical sectors and logical blocks are 2048 bytes.",
+      "direction": "write",
+      "status": "verified",
+      "symbols": [{"path": "crates/optical/hadris-udf/src/bridge.rs", "name": "plan_bridge"}, {"path": "crates/optical/hadris-udf/src/write.rs", "name": "write_bridge"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/bridge.rs", "name": "bridge_layout_follows_udf_and_ecma_119", "kind": "integration"}, {"path": "crates/optical/hadris-udf/tests/bridge.rs", "name": "writer_errors_keep_their_detail", "kind": "integration"}],
+      "gap": null
+    },
+    {
+      "id": "ECMA-TR-71-1998:2.3#recognition-sequence-order",
+      "source": "ECMA-TR-71-1998",
+      "clause": "2.3; 2.4",
+      "normativity": "shall",
+      "summary": "The recognition sequence follows the CD-ROM descriptors with consecutive BEA01, NSR02, and TEA01 descriptors.",
+      "direction": "write",
+      "status": "verified",
+      "symbols": [{"path": "crates/optical/hadris-udf/src/write.rs", "name": "write_bridge"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/bridge.rs", "name": "bridge_layout_follows_udf_and_ecma_119", "kind": "integration"}],
+      "gap": null
+    },
+    {
+      "id": "ECMA-TR-71-1998:2.3#anchor-locations",
+      "source": "ECMA-TR-71-1998",
+      "clause": "2.3; 2.5",
+      "normativity": "shall",
+      "summary": "Anchor descriptors occur at sector 256 and at least one of the final sector or final sector minus 256.",
+      "direction": "write",
+      "status": "verified",
+      "symbols": [{"path": "crates/optical/hadris-udf/src/write.rs", "name": "write_bridge"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/bridge.rs", "name": "bridge_layout_follows_udf_and_ecma_119", "kind": "integration"}],
+      "gap": null
+    },
+    {
+      "id": "ECMA-TR-71-1998:2.3#main-and-reserve-vds",
+      "source": "ECMA-TR-71-1998",
+      "clause": "2.3; 2.6",
+      "normativity": "shall",
+      "summary": "Equivalent main and reserve descriptor sequences contain the required volume descriptors and terminator.",
+      "direction": "write",
+      "status": "verified",
+      "symbols": [{"path": "crates/optical/hadris-udf/src/write.rs", "name": "write_bridge"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/bridge.rs", "name": "bridge_layout_follows_udf_and_ecma_119", "kind": "integration"}],
+      "gap": null
+    },
+    {
+      "id": "ECMA-TR-71-1998:2.6#vds-minimum-extent",
+      "source": "ECMA-TR-71-1998",
+      "clause": "2.3; 2.6",
+      "normativity": "shall",
+      "summary": "Each main and reserve volume-descriptor-sequence extent occupies at least sixteen logical sectors.",
+      "direction": "write",
+      "status": "verified",
+      "symbols": [{"path": "crates/optical/hadris-udf/src/write.rs", "name": "write_bridge"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/bridge.rs", "name": "bridge_layout_follows_udf_and_ecma_119", "kind": "integration"}],
+      "gap": null
+    },
+    {
+      "id": "ECMA-TR-71-1998:2.1#closed-integrity-sequence",
+      "source": "ECMA-TR-71-1998",
+      "clause": "2.1 item 8; 2.3",
+      "normativity": "shall",
+      "summary": "The integrity sequence contains exactly one closed logical-volume-integrity descriptor and no open descriptor.",
+      "direction": "write",
+      "status": "verified",
+      "symbols": [{"path": "crates/optical/hadris-udf/src/write.rs", "name": "write_bridge"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/bridge.rs", "name": "bridge_layout_follows_udf_and_ecma_119", "kind": "integration"}],
+      "gap": null
+    },
+    {
+      "id": "ECMA-TR-71-1998:2.3#single-partition",
+      "source": "ECMA-TR-71-1998",
+      "clause": "2.3",
+      "normativity": "shall",
+      "summary": "The UDF logical volume uses one partition with logical blocks numbered consecutively from its start.",
+      "direction": "write",
+      "status": "verified",
+      "symbols": [{"path": "crates/optical/hadris-udf/src/write.rs", "name": "write_bridge"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/bridge.rs", "name": "bridge_layout_follows_udf_and_ecma_119", "kind": "integration"}],
+      "gap": null
+    },
+    {
+      "id": "ECMA-TR-71-1998:2.3#same-file-set",
+      "source": "ECMA-TR-71-1998",
+      "clause": "2.3",
+      "normativity": "shall",
+      "summary": "The UDF and ECMA-119 file structures reference the same file data set.",
+      "direction": "write",
+      "status": "verified",
+      "symbols": [{"path": "crates/optical/hadris-udf/src/write.rs", "name": "write_bridge"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/bridge.rs", "name": "bridge_reads_back_through_iso_and_udf", "kind": "integration"}],
+      "gap": null
+    },
+    {
+      "id": "ECMA-TR-71-1998:3.1#dual-file-structures",
+      "source": "ECMA-TR-71-1998",
+      "clause": "3.1 item 1",
+      "normativity": "shall",
+      "summary": "A bridge disk provides both UDF and ECMA-119 file structures.",
+      "direction": "write",
+      "status": "verified",
+      "symbols": [{"path": "crates/optical/hadris-udf/src/write.rs", "name": "write_bridge"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/bridge.rs", "name": "bridge_reads_back_through_iso_and_udf", "kind": "integration"}],
+      "gap": null
+    },
+    {
+      "id": "ECMA-TR-71-1998:3.1#short-allocation-descriptors",
+      "source": "ECMA-TR-71-1998",
+      "clause": "3.1 item 2",
+      "normativity": "shall",
+      "summary": "File Entry allocation descriptors use only Short Allocation Descriptors.",
+      "direction": "write",
+      "status": "verified",
+      "symbols": [{"path": "crates/optical/hadris-udf/src/write.rs", "name": "write_bridge"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/bridge.rs", "name": "bridge_layout_follows_udf_and_ecma_119", "kind": "integration"}],
       "gap": null
     }
   ]

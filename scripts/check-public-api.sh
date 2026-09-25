@@ -14,8 +14,6 @@ fi
 
 crates=(
   hadris
-  hadris-block
-  hadris-cd
   hadris-common
   hadris-cpio
   hadris-fat
@@ -24,7 +22,6 @@ crates=(
   hadris-io
   hadris-iso
   hadris-macros
-  hadris-optical
   hadris-part
   hadris-storage
   hadris-udf
@@ -37,16 +34,10 @@ trap 'rm -rf "$tmp_dir"' EXIT
 
 for crate in "${crates[@]}"; do
   generated="$tmp_dir/$crate.txt"
-  if [[ "$crate" == "hadris-block" ]]; then
-    # The NTFS preview (unstable-ntfs) is outside the stability promise.
+  if [[ "$crate" == "hadris" ]]; then
     cargo public-api -p "$crate" \
       --no-default-features \
-      --features "std,alloc,sync,async,write,part" \
-      -sss --color never >"$generated"
-  elif [[ "$crate" == "hadris" ]]; then
-    cargo public-api -p "$crate" \
-      --no-default-features \
-      --features "std,alloc,sync,async,write,detect,block,optical,archive" \
+      --features "std,alloc,sync,async,write,detect,part,archive" \
       -sss --color never >"$generated"
   else
     cargo public-api -p "$crate" --all-features -sss --color never >"$generated"

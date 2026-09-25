@@ -19,7 +19,7 @@ and report real-world compatibility findings through
 
 In 3.0, exFAT is stable as `hadris_fat::exfat::ExFatFs`, with no feature
 flag; in 2.x it was the `unstable-exfat` preview. The `hadris-ntfs` reader,
-and the `unstable-ntfs` feature of `hadris-block` and `hadris` that exposes
+and the `unstable-ntfs` feature of `hadris` that exposes
 its native API, stay outside the stability promise: its `FileSystem`
 implementation follows the frozen trait, but its native methods may change in
 3.x minor releases.
