@@ -1683,7 +1683,26 @@ into `next` per step, each leaving the workspace building and tested:
   - The CLI rules (S1 and triage G1): `create` takes the source and `-o/--output` and refuses an existing output unless `-f/--force` is given (FAT refused and the others replaced before), then replaces a file atomically or writes a device in place; unreadable source entries are skipped with a warning; `extract` never replaces an existing file, so cpio extraction refuses one too while still replacing what an earlier entry of the same archive created; in-image paths accept `/a`, `./a` and `a` in every format; `-V/--volume-name` names a volume; `list` and `check` stay aliases of `ls` and `verify`.
   - The bridge commands are `hadris udf bridge` and `hadris udf compare`, following the writer into `hadris-udf`. `bridge` takes the `iso create` flags and defaults (level 1, Joliet with `-J`), not `hadris-cd`'s level 2 with Joliet and ISO 9660:1999. `hadris-cd info` has no successor beyond `hadris detect` and the `info` commands.
   - `hadris detect` prints each candidate with its damage and fails when nothing is recognized.
-- R8. **Embedded.** `Fat` and `ExFat` on the raw layer, with cross-target CI for size and stack.
+- R8. **Embedded.** `Fat` and `ExFat` on the raw layer, with cross-target CI for size and stack. Done in five PRs:
+  - #197: Q15, and `hadris cpio extract --path`.
+  - #198: `FatFs` compares names through `hadris_fat_raw::name::eq_folded` with `fold_unicode`, the comparison the embedded API uses with its own fold.
+  - #199: `hadris_fat::embedded::{sync, r#async}::Fat<D, const FILES: usize = 4>`, FAT12/16/32 read and write without an allocator, as 4.15 and 5.1 describe, and the `cross` job, which builds the `no_std` feature tiers for `thumbv6m-none-eabi`, `thumbv7em-none-eabihf` and `riscv32imc-unknown-none-elf`.
+  - #200: `hadris_fat::exfat::embedded::{sync, r#async}::ExFat<D, const FILES: usize = 4>`, the read-only exFAT reader.
+  - #201: the `firmware-size` job and `scripts/firmware-size.py`, which build the `examples/firmware` sessions for the three targets at `opt-level = "s"` with fat LTO and report flash, driver state, mount stack, worst-case stack and the largest frame; the guide "Use FAT and exFAT on a microcontroller" with the measured table; and this entry.
+
+  Measured on thumbv7em (bytes): the FAT logger session is 40048 of flash, every FAT call 44760, every call with `fold_unicode` 46844, the async FAT session 63804 and the exFAT reader 13412. `Fat` is 936 bytes of state and `ExFat` 1016 on every target. Sync mount takes 1824 to 1944 bytes of stack across the targets, and no Hadris frame exceeds 904. The job fails when a mount stack or the driver state reaches 2 KB (NF-STACK-01) or a frame exceeds 1 KB (NF-STACK-02).
+
+  Decisions where the spec was silent or the code differs from it:
+  - `Fat` and `ExFat` also have `info` and `options`, and `ExFat` has `mount_with` and `was_dirty` like `Fat`; `File` and `Options` are shared between them.
+  - `ExFat` compares names with the `Options` fold, not the volume's up-case table, and `open_dir(dir, "..")` on it fails with `Unsupported`, since exFAT directories do not record their parent.
+  - Stack is measured on the binaries from `-Z emit-stack-sizes` and the direct calls `llvm-objdump` shows, so the job needs a pinned nightly; calls through the clock and fold pointers and compiler builtins count as 0.
+  - To stay inside NF-STACK-01 and NF-STACK-02, the raw exFAT boot region is read into a `BootSector` in place (the sync mount stack was 2424 bytes with the copy), and the sync `Fat`'s free-slot search is kept out of line (the inlined `create_entry` frame was 1104 bytes). The async API leaves inlining to the compiler, since an out-of-line async function returns its whole future into the caller.
+
+  Not done:
+  - NF-FLASH-01: the FAT logger is 40 KB of flash on thumbv7em against the 20 KB target. The job only fails past a 44 KB ceiling, to catch growth. No single function dominates; the largest are `create_entry` (2.9 KB), `plan`, `recover`, `names::matches` and `find`, each under 1.7 KB.
+  - Embedded exFAT write and a FAT-or-exFAT type are 3.x (4.14, NF-NOALLOC-02).
+  - Known limits from #199: a FAT12 entry that straddles two device blocks is written with two writes, as in `FatFs`, so a cut between them can tear it; an interrupted `rename` can leave both names.
+  - NF-STACK-03, the shared tier's stack, is not measured by the job.
 
 14. **3.0.0-rc.1.** CI guardrails become blocking. Migration guide (`docs/hadris-3.0.0-migration.md`) with a V2 to V3 symbol table.
 

@@ -31,6 +31,7 @@ module.exports = {
         "guides/async-io",
         "guides/custom-io",
         "guides/no-std",
+        "guides/embedded",
         "guides/validate-images",
       ],
     },

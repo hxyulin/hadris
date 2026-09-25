@@ -465,6 +465,11 @@ pub mod sync {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
     }
 
+    /// Keeps a function out of line, to bound the caller's frame.
+    macro_rules! outline {
+        ($($item:tt)*) => { #[inline(never)] $($item)* };
+    }
+
     use hadris_fat_raw::io::sync as rawio;
     use hadris_storage::sync as storage;
 
@@ -483,6 +488,12 @@ pub mod r#async {
     //! `Send`.
 
     macro_rules! io_transform {
+        ($($item:tt)*) => { $($item)* };
+    }
+
+    /// Leaves inlining to the compiler: an async function kept out of line
+    /// returns its whole future into the caller's poll frame.
+    macro_rules! outline {
         ($($item:tt)*) => { $($item)* };
     }
 

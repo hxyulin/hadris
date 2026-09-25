@@ -40,7 +40,8 @@ kernel, memory, or device-specific readers rather than depending on
 |---|---|
 | Allocation-free synchronous reader | `sync` |
 | Allocation-free asynchronous reader | `async` |
-| FAT or exFAT drivers | Add `alloc` |
+| FAT read and write or exFAT read without an allocator (the embedded API) | `sync` or `async` |
+| FAT or exFAT shared drivers (`FatFs`, `ExFatFs`) | Add `alloc` |
 | FAT or exFAT formatting | Add `alloc` and `write` |
 | Image writers, owned names or buffers | Add `alloc` |
 | Several I/O modes | Enable each; the APIs live in separate namespaces |
@@ -48,4 +49,6 @@ kernel, memory, or device-specific readers rather than depending on
 See the complete [feature and capability matrix](../concepts/features.md).
 
 For integration examples, see [Adapt a custom device](./custom-io.md) and
-[Use asynchronous I/O](./async-io.md).
+[Use asynchronous I/O](./async-io.md). Firmware on a microcontroller should
+read [Use FAT and exFAT on a microcontroller](./embedded.md), which has the
+flash and stack budget per target.
