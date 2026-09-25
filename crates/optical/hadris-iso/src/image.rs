@@ -7,11 +7,13 @@ use hadris_storage::BlockIndex;
 
 use super::FileSystem;
 use super::storage::BlockDevice;
+use crate::boot::{BootCatalog, CatalogEntry, Emulation};
 use crate::error::{Detail, Error};
 use crate::info::{DescriptorScan, Info, Root};
 use crate::namespace::{Namespace, Namespaces};
 use crate::raw::{self, DirectoryRecord, FileFlags, SECTOR_SIZE};
 use crate::rock_ridge::{RockRidgeInfo, Scan};
+use crate::volume_info::VolumeInfo;
 
 /// The largest device block the reader buffers.
 pub(crate) const MAX_DEVICE_BLOCK: usize = 4096;
@@ -860,20 +862,10 @@ impl<D: BlockDevice> IsoFs<D> {
         self.view.info.namespaces()
     }
 
-    /// The logical block size from the primary volume descriptor.
-    pub fn block_size(&self) -> u32 {
-        self.view.info.block_size
-    }
-
-    /// The number of logical blocks the primary volume descriptor declares.
-    pub fn volume_blocks(&self) -> u32 {
-        self.view.info.volume_blocks
-    }
-
-    /// The logical block of the El Torito boot catalog, when the image has
-    /// a boot record.
-    pub fn boot_catalog_block(&self) -> Option<u32> {
-        self.view.info.boot_catalog
+    /// What the primary volume descriptor records: the block size, the
+    /// volume size, the identifiers and the dates.
+    pub fn info(&self) -> &VolumeInfo {
+        &self.view.info.volume
     }
 
     /// Reads `buf.len()` bytes from byte `offset` of the image.
@@ -894,7 +886,8 @@ impl<D: BlockDevice> IsoFs<D> {
     }
 
     /// The primary volume descriptor.
-    pub async fn primary_descriptor(&mut self) -> Result<raw::PrimaryVolumeDescriptor, Error<D::Error>> {
+    #[cfg(feature = "alloc")]
+    pub(crate) async fn primary_descriptor(&mut self) -> Result<raw::PrimaryVolumeDescriptor, Error<D::Error>> {
         let mut index = 0;
         while let Some(descriptor) = self.descriptor(index).await? {
             if let raw::VolumeDescriptor::Primary(pvd) = descriptor {
@@ -905,50 +898,74 @@ impl<D: BlockDevice> IsoFs<D> {
         Err(Detail::NoPrimaryDescriptor.corrupt())
     }
 
-    /// Reads the El Torito boot catalog, or `None` without a boot record.
-    ///
-    /// Fails with [`ErrorKind::Corrupt`] and [`Detail::BootCatalog`] when
-    /// the validation entry is wrong or the catalog runs past 1024 entries.
+    /// The logical block of the boot catalog, when there is a boot record.
     #[cfg(feature = "alloc")]
-    pub async fn boot_catalog(&mut self) -> Result<Option<crate::BootCatalog>, Error<D::Error>> {
+    pub(crate) fn catalog_block(&self) -> Option<u32> {
+        self.view.info.boot_catalog
+    }
+
+    /// Reads the El Torito boot catalog into `buf` and checks it, or
+    /// returns `None` without a boot record. Its entries are parsed as
+    /// they are iterated; [`boot_image`](Self::boot_image) locates each
+    /// entry's image.
+    ///
+    /// Fails with [`ErrorKind::LimitExceeded`] when the catalog does not
+    /// fit in `buf` (2048 bytes hold 63 entries), and with
+    /// [`ErrorKind::Corrupt`] and [`Detail::BootCatalog`] when the
+    /// validation entry is wrong or the catalog runs past 1024 entries.
+    pub async fn boot_catalog<'b>(&mut self, buf: &'b mut [u8]) -> Result<Option<BootCatalog<'b>>, Error<D::Error>> {
         use crate::boot::{CatalogParser, Step};
 
         let Some(block) = self.view.info.boot_catalog else {
             return Ok(None);
         };
+        let start = u64::from(block) * u64::from(self.view.info.block_size);
+        let usable = buf.len() - buf.len() % 32;
         let mut parser = CatalogParser::new();
-        let mut entries = alloc::vec::Vec::new();
-        let mut offset = u64::from(block) * u64::from(self.view.info.block_size);
-        let mut sector = [0u8; SECTOR_SIZE];
-        let mut used = SECTOR_SIZE;
-        for _ in 0..CatalogParser::MAX_ENTRIES + 2 {
-            if used == SECTOR_SIZE {
-                self.read_raw(offset, &mut sector).await?;
-                offset += SECTOR_SIZE as u64;
-                used = 0;
+        let mut read = 0;
+        let mut end = 0;
+        while !parser.is_done() {
+            if end / 32 > CatalogParser::MAX_ENTRIES + 1 {
+                return Err(Detail::BootCatalog.corrupt());
+            }
+            if end == read {
+                if read == usable {
+                    return Err(ErrorKind::LimitExceeded.into());
+                }
+                let want = (SECTOR_SIZE - read % SECTOR_SIZE).min(usable - read);
+                self.read_raw(start + read as u64, &mut buf[read..read + want]).await?;
+                read += want;
             }
             let mut chunk = [0u8; 32];
-            chunk.copy_from_slice(&sector[used..used + 32]);
-            used += 32;
+            chunk.copy_from_slice(&buf[end..end + 32]);
             match parser.feed(&chunk).map_err(|()| Detail::BootCatalog.corrupt())? {
-                Step::Entry(entry) => entries.push(entry),
-                Step::More => {}
-                Step::Done => return Ok(parser.finish(block, entries)),
+                Step::Done => break,
+                Step::Entry(_) | Step::More => end += 32,
             }
         }
-        Err(Detail::BootCatalog.corrupt())
+        let buf: &'b [u8] = buf;
+        Ok(Some(BootCatalog::new(block, &buf[..end])))
+    }
+
+    /// Where the image of a boot catalog entry lies: from its load block,
+    /// the size of the emulated diskette, or the 512-byte sectors the entry
+    /// loads for no emulation and hard disk emulation. Read it with
+    /// [`read_raw`](Self::read_raw).
+    pub fn boot_image(&self, entry: &CatalogEntry) -> hadris_fs::Extent {
+        let start = u64::from(entry.load_block()) * u64::from(self.view.info.block_size);
+        let len = match entry.emulation() {
+            Some(Emulation::Floppy12) => 1_228_800,
+            Some(Emulation::Floppy144) => 1_474_560,
+            Some(Emulation::Floppy288) => 2_949_120,
+            _ => u64::from(entry.sector_count()) * 512,
+        };
+        hadris_fs::Extent::new(start, len)
     }
 
     /// The Rock Ridge entries of a node in the primary tree, or `None` when
     /// the image has no Rock Ridge or the mount reads another tree.
     pub async fn rock_ridge(&mut self, node: NodeId) -> Result<Option<RockRidgeInfo>, Error<D::Error>> {
         self.view.rock_ridge_info(&mut self.dev, node).await
-    }
-
-    /// The directory record a node id names, for tools that check the
-    /// on-disk layout.
-    pub async fn raw_record(&mut self, node: NodeId) -> Result<DirectoryRecord, Error<D::Error>> {
-        self.view.record_at(&mut self.dev, node.get()).await
     }
 
     /// Whether `dir` holds records the Rock Ridge tree hides because an
@@ -976,25 +993,53 @@ impl<D: BlockDevice> IsoFs<D> {
         Ok(relocated)
     }
 
-    /// Calls `visit` with the byte range of each extent of a file, in
-    /// order.
-    pub async fn extents(
-        &mut self,
-        node: NodeId,
-        mut visit: impl FnMut(hadris_fs::Extent),
-    ) -> Result<(), Error<D::Error>> {
+    /// Maps a file to the device: fills `out` with its extents that end
+    /// after file offset `from`, in order, and returns how many it filled.
+    /// Call again from the end of the last one for more; 0 means there are
+    /// none. A file of several extents (multi-extent) has one per
+    /// directory record; a directory has the one extent of its records.
+    pub async fn extents(&mut self, node: NodeId, from: u64, out: &mut [hadris_fs::Extent]) -> Result<usize, Error<D::Error>> {
         let record = self.view.record_at(&mut self.dev, node.get()).await?;
         let mut current = (node.get(), record);
+        let mut file = 0u64;
+        let mut count = 0;
         for _ in 0..MAX_EXTENTS {
             let start = self.view.extent_start(&current.1).ok_or(Detail::DirectoryRecord.corrupt())?;
-            visit(hadris_fs::Extent::new(start, u64::from(current.1.header().data_len.get())));
+            let len = u64::from(current.1.header().data_len.get());
+            if file + len > from && len > 0 {
+                let Some(slot) = out.get_mut(count) else {
+                    return Ok(count);
+                };
+                *slot = hadris_fs::Extent::new(start, len).with_file_offset(file);
+                count += 1;
+            }
+            file += len;
             if !current.1.header().file_flags().contains(FileFlags::NOT_FINAL) {
-                return Ok(());
+                return Ok(count);
             }
             current = self.view.following(&mut self.dev, current.0, &current.1).await?;
             if current.1.name() != record.name() {
                 return Err(Detail::MultiExtent.corrupt());
             }
+        }
+        Err(Detail::MultiExtent.corrupt())
+    }
+
+    /// Locates a node's directory records: the record its id names (a
+    /// directory's `.` record) and, for a file of several extents, the
+    /// records that follow it. Read them with [`read_raw`](Self::read_raw).
+    /// Returns how many it filled; fails with [`ErrorKind::LimitExceeded`]
+    /// when `out` is too short.
+    pub async fn records(&mut self, node: NodeId, out: &mut [hadris_fs::Extent]) -> Result<usize, Error<D::Error>> {
+        let record = self.view.record_at(&mut self.dev, node.get()).await?;
+        let mut current = (node.get(), record);
+        for count in 0..MAX_EXTENTS {
+            let len = u64::from(current.1.header().len);
+            *out.get_mut(count).ok_or(ErrorKind::LimitExceeded)? = hadris_fs::Extent::new(current.0, len);
+            if !current.1.header().file_flags().contains(FileFlags::NOT_FINAL) {
+                return Ok(count + 1);
+            }
+            current = self.view.following(&mut self.dev, current.0, &current.1).await?;
         }
         Err(Detail::MultiExtent.corrupt())
     }

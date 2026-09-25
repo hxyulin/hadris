@@ -25,8 +25,7 @@ use crate::boot::Platform;
 use crate::error::{Detail, Error};
 use crate::namespace::JolietLevel;
 use crate::options::{
-    BootEntry, BootInfo, Hybrid, IsoDate, IsoId, IsoLevel, IsoOptions, PartitionScheme, Preserve,
-    Relocation,
+    BootEntry, BootInfo, Hybrid, IsoLevel, IsoOptions, PartitionScheme, Preserve, Relocation,
 };
 use crate::raw::{
     self, BootRecordVolumeDescriptor, DecDateTime, DirDateTime, DirectoryRecord, FileFlags, IsoStr,
@@ -35,6 +34,7 @@ use crate::raw::{
     VolumeDescriptorSetTerminator,
 };
 use crate::rock_ridge::{S_IFBLK, S_IFCHR, S_IFDIR, S_IFLNK, S_IFREG};
+use crate::volume_info::{IsoDate, IsoId};
 
 pub(crate) mod names;
 pub(crate) mod susp;

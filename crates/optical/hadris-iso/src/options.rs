@@ -5,6 +5,7 @@ use hadris_fs::{Content, DateTime, NoClock};
 use hadris_part::PartitionFlags;
 
 use crate::boot::{Emulation, Platform};
+use crate::volume_info::{IsoDate, IsoId};
 
 /// The ISO 9660 interchange level of the primary tree.
 ///
@@ -32,59 +33,6 @@ pub enum NameCase {
     Upper,
     /// Lowercase is kept, as many producers do; readers accept it.
     Preserve,
-}
-
-/// A text identifier of the volume descriptors.
-///
-/// Joliet and ISO 9660:1999 descriptors carry the same values. The `File`
-/// identifiers name files of the root directory.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum IsoId {
-    /// The system that may use the system area, up to 32 bytes.
-    System,
-    /// The volume name, up to 32 bytes; `CDROM` by default.
-    Volume,
-    /// The volume set, up to 128 bytes.
-    VolumeSet,
-    /// The publisher, up to 128 bytes.
-    Publisher,
-    /// The data preparer, up to 128 bytes.
-    Preparer,
-    /// The application, up to 128 bytes; `HADRIS-ISO` by default.
-    Application,
-    /// The copyright file, up to 37 bytes.
-    CopyrightFile,
-    /// The abstract file, up to 37 bytes.
-    AbstractFile,
-    /// The bibliographic file, up to 37 bytes.
-    BibliographicFile,
-}
-
-impl IsoId {
-    const fn index(self) -> usize {
-        self as usize
-    }
-}
-
-/// A date of the volume descriptors.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum IsoDate {
-    /// When the volume was created; the options' time by default.
-    Created,
-    /// When the volume was last modified; the options' time by default.
-    Modified,
-    /// When the data becomes obsolete; unspecified by default.
-    Expires,
-    /// When the data may first be used; unspecified by default.
-    Effective,
-}
-
-impl IsoDate {
-    const fn index(self) -> usize {
-        self as usize
-    }
 }
 
 bitflags::bitflags! {

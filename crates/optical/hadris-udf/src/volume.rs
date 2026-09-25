@@ -2,7 +2,8 @@
 //! structures.
 
 use hadris_fs::{
-    Capabilities, CaseRule, Charset, Field, FileType, Metadata, NodeId, Owner, Permissions, Stored,
+    Capabilities, CaseRule, Charset, DateTime, Field, FileType, Metadata, NodeId, Owner,
+    Permissions, Stored,
 };
 
 use crate::UdfRevision;
@@ -15,17 +16,58 @@ pub(crate) const MAX_BLOCK: usize = 4096;
 /// The most partition maps a logical volume may have.
 pub(crate) const MAX_PARTITIONS: usize = 8;
 
+/// A text identifier of the volume, stored in OSTA Compressed Unicode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum UdfId {
+    /// The volume name in the primary volume descriptor, up to 30 bytes;
+    /// `UDF_VOLUME` by default. It is also the default of
+    /// [`LogicalVolume`](Self::LogicalVolume) and [`FileSet`](Self::FileSet).
+    Volume,
+    /// The volume set, up to 126 bytes. UDF 2.2.2.5 asks for 16 unique
+    /// characters first; by default they are the hexadecimal volume serial
+    /// derived from the seed or the time and the tree, followed by the
+    /// volume name.
+    VolumeSet,
+    /// The logical volume, up to 126 bytes, which most systems show as the
+    /// volume label.
+    LogicalVolume,
+    /// The file set, up to 30 bytes.
+    FileSet,
+}
+
+impl UdfId {
+    pub(crate) const fn index(self) -> usize {
+        self as usize
+    }
+}
+
+/// What kind of partition a partition map names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
+pub enum PartitionKind {
+    /// A type 1 map: logical blocks map directly to the partition.
+    #[default]
+    Physical,
+}
+
 /// A partition of the logical volume, in the order of its partition maps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct Partition {
+pub struct PartitionInfo {
     number: u16,
     start: u32,
     len: u32,
+    kind: PartitionKind,
 }
 
-impl Partition {
+impl PartitionInfo {
     pub(crate) const fn new(number: u16, start: u32, len: u32) -> Self {
-        Self { number, start, len }
+        Self {
+            number,
+            start,
+            len,
+            kind: PartitionKind::Physical,
+        }
     }
 
     /// The partition number of its Partition Descriptor.
@@ -46,6 +88,112 @@ impl Partition {
     /// Whether the partition has no blocks.
     pub const fn is_empty(&self) -> bool {
         self.len == 0
+    }
+
+    /// The kind of its partition map.
+    pub const fn kind(&self) -> PartitionKind {
+        self.kind
+    }
+}
+
+/// An entity identifier (ECMA-167 1/7.4): who wrote a structure, or the
+/// domain a volume follows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct EntityId(raw::EntityId);
+
+impl EntityId {
+    pub(crate) const fn from_raw(raw: raw::EntityId) -> Self {
+        Self(raw)
+    }
+
+    /// The identifier without its padding, such as `*OSTA UDF Compliant`.
+    pub fn name(&self) -> &[u8] {
+        self.0.name()
+    }
+
+    /// The identifier suffix as stored.
+    pub const fn suffix(&self) -> &[u8; 8] {
+        &self.0.suffix
+    }
+
+    /// The flags: bit 0 dirty, bit 1 protected.
+    pub const fn flags(&self) -> u8 {
+        self.0.flags
+    }
+}
+
+/// What the volume descriptors of a mounted UDF volume record, as
+/// `UdfFs::info` returns it.
+#[derive(Debug, Clone, Copy)]
+pub struct VolumeInfo {
+    pub(crate) revision: UdfRevision,
+    pub(crate) block_size: u32,
+    pub(crate) partitions: [PartitionInfo; MAX_PARTITIONS],
+    pub(crate) partition_count: usize,
+    pub(crate) implementation: EntityId,
+    pub(crate) domain: EntityId,
+    pub(crate) volume: Identifier<64>,
+    pub(crate) volume_set: Identifier<256>,
+    pub(crate) logical_volume: Identifier<256>,
+    pub(crate) file_set: Identifier<64>,
+    pub(crate) recorded: Option<DateTime>,
+    pub(crate) integrity_recorded: Option<DateTime>,
+    pub(crate) was_dirty: bool,
+}
+
+impl VolumeInfo {
+    /// The UDF revision the domain identifier records, or 1.02 or 2.01 by
+    /// the recognition sequence when it records none.
+    pub const fn revision(&self) -> UdfRevision {
+        self.revision
+    }
+
+    /// The logical block size.
+    pub const fn block_size(&self) -> u32 {
+        self.block_size
+    }
+
+    /// The partitions, indexed by partition reference number.
+    pub fn partitions(&self) -> &[PartitionInfo] {
+        &self.partitions[..self.partition_count]
+    }
+
+    /// The implementation that wrote the logical volume descriptor.
+    pub const fn implementation(&self) -> &EntityId {
+        &self.implementation
+    }
+
+    /// The domain of the logical volume, `*OSTA UDF Compliant` for UDF.
+    pub const fn domain(&self) -> &EntityId {
+        &self.domain
+    }
+
+    /// The identifier `id`, decoded from OSTA Compressed Unicode.
+    pub fn id(&self, id: UdfId) -> &str {
+        match id {
+            UdfId::Volume => self.volume.as_str(),
+            UdfId::VolumeSet => self.volume_set.as_str(),
+            UdfId::LogicalVolume => self.logical_volume.as_str(),
+            UdfId::FileSet => self.file_set.as_str(),
+        }
+    }
+
+    /// When the primary volume descriptor was recorded.
+    pub const fn recorded(&self) -> Option<DateTime> {
+        self.recorded
+    }
+
+    /// When the last logical volume integrity descriptor was recorded.
+    pub const fn integrity_recorded(&self) -> Option<DateTime> {
+        self.integrity_recorded
+    }
+
+    /// The serial the volume set identifier starts with, as UDF 2.2.2.5
+    /// asks: its first 16 characters read as hexadecimal digits, or `None`
+    /// when they are not.
+    pub fn volume_serial(&self) -> Option<u64> {
+        let digits = self.volume_set.as_str().get(..16)?;
+        u64::from_str_radix(digits, 16).ok()
     }
 }
 
@@ -110,18 +258,14 @@ impl<const N: usize> core::fmt::Debug for Identifier<N> {
 pub(crate) struct Info {
     pub(crate) block_size: u32,
     pub(crate) len: u64,
-    pub(crate) partitions: [Partition; MAX_PARTITIONS],
-    pub(crate) partition_count: usize,
     pub(crate) root: Location,
-    pub(crate) revision: UdfRevision,
-    pub(crate) volume_id: Identifier<64>,
-    pub(crate) logical_volume_id: Identifier<256>,
     pub(crate) free_blocks: Option<u64>,
+    pub(crate) volume: VolumeInfo,
 }
 
 impl Info {
-    pub(crate) fn partitions(&self) -> &[Partition] {
-        &self.partitions[..self.partition_count]
+    pub(crate) fn partitions(&self) -> &[PartitionInfo] {
+        self.volume.partitions()
     }
 
     /// The byte offset of `count` bytes from logical block `block` of

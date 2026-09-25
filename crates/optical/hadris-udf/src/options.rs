@@ -3,32 +3,7 @@ use alloc::string::String;
 use hadris_fs::{DateTime, NoClock};
 
 use crate::UdfRevision;
-
-/// A text identifier of the volume, stored in OSTA Compressed Unicode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum UdfId {
-    /// The volume name in the primary volume descriptor, up to 30 bytes;
-    /// `UDF_VOLUME` by default. It is also the default of
-    /// [`LogicalVolume`](Self::LogicalVolume) and [`FileSet`](Self::FileSet).
-    Volume,
-    /// The volume set, up to 126 bytes. UDF 2.2.2.5 asks for 16 unique
-    /// characters first; by default they are the hexadecimal volume serial
-    /// derived from the seed or the time and the tree, followed by the
-    /// volume name.
-    VolumeSet,
-    /// The logical volume, up to 126 bytes, which most systems show as the
-    /// volume label.
-    LogicalVolume,
-    /// The file set, up to 30 bytes.
-    FileSet,
-}
-
-impl UdfId {
-    const fn index(self) -> usize {
-        self as usize
-    }
-}
+use crate::volume::UdfId;
 
 /// Options for writing a UDF volume.
 ///

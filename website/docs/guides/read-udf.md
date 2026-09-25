@@ -20,11 +20,12 @@ use std::io::Read;
 
 use hadris_fs::{MountOptions, OpenOptions};
 use hadris_fs::sync::Volume;
+use hadris_udf::UdfId;
 use hadris_udf::sync::UdfFs;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let udf = UdfFs::mount(hadris_storage::host::FileDevice::open("disc.udf")?, MountOptions::new())?;
-    println!("volume: {}", udf.logical_volume_id());
+    println!("volume: {}", udf.info().id(UdfId::LogicalVolume));
     let vol = Volume::new(udf);
 
     for entry in vol.read_dir("/")? {

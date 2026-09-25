@@ -43,9 +43,11 @@
 //! # fn main() {}
 //! ```
 //!
-//! `IsoFs::boot_catalog` reads the El Torito catalog, `IsoFs::rock_ridge`
-//! the Rock Ridge entries of a node and `IsoFs::raw_record` its directory
-//! record. The on-disk layouts are in [`raw`].
+//! `IsoFs::info` returns what the primary volume descriptor records,
+//! `IsoFs::boot_catalog` reads the El Torito catalog into a caller buffer,
+//! `IsoFs::rock_ridge` returns the Rock Ridge entries of a node, and
+//! `IsoFs::records` and `IsoFs::extents` locate its directory records and
+//! data for `IsoFs::read_raw`. The on-disk layouts are in [`raw`].
 //!
 //! ## Writing
 //!
@@ -76,7 +78,7 @@
 //! | Feature | Default | Description |
 //! |---|---|---|
 //! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
-//! | `alloc` | via `std` | The writer, sessions, `BootCatalog` and the `Tree` input |
+//! | `alloc` | via `std` | The writer, sessions and the `Tree` input |
 //! | `sync` | Yes | The blocking API in `sync` |
 //! | `async` | No | The asynchronous API with `Send` futures in `r#async` |
 //!
@@ -109,6 +111,7 @@ mod options;
 #[cfg(feature = "alloc")]
 mod plan;
 mod rock_ridge;
+mod volume_info;
 
 pub mod raw;
 
@@ -151,22 +154,20 @@ pub mod sync {
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 pub mod r#async;
 
-#[cfg(feature = "alloc")]
-#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-pub use boot::BootCatalog;
-pub use boot::{BootCatalogEntry, Emulation, Platform};
+pub use boot::{BootCatalog, CatalogEntries, CatalogEntry, Emulation, Platform};
 pub use error::Detail;
 pub use namespace::{JolietLevel, Namespace, Namespaces};
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub use options::{
-    AppendedPartition, BootEntry, BootInfo, ElTorito, Hybrid, IsoDate, IsoId, IsoLevel, IsoOptions,
-    NameCase, Preserve, Relocation, SessionMode,
+    AppendedPartition, BootEntry, BootInfo, ElTorito, Hybrid, IsoLevel, IsoOptions, NameCase,
+    Preserve, Relocation, SessionMode,
 };
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub use plan::plan;
 pub use rock_ridge::RockRidgeInfo;
+pub use volume_info::{IsoDate, IsoId, VolumeInfo};
 
 #[cfg(test)]
 extern crate self as hadris_iso;

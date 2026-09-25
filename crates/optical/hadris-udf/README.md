@@ -32,11 +32,12 @@ use std::io::Read;
 
 use hadris_fs::{MountOptions, OpenOptions};
 use hadris_fs::sync::Volume;
+use hadris_udf::UdfId;
 use hadris_udf::sync::UdfFs;
 
 let file = hadris_storage::host::FileDevice::open("movie.udf").unwrap();
 let udf = UdfFs::mount(file, MountOptions::new()).unwrap();
-println!("Volume: {} (UDF {})", udf.logical_volume_id(), udf.revision());
+println!("Volume: {} (UDF {})", udf.info().id(UdfId::LogicalVolume), udf.info().revision());
 
 let vol = Volume::new(udf);
 for entry in vol.read_dir("/").unwrap() {

@@ -7,6 +7,7 @@
 
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{DirCursor, MountOptions};
+use hadris_iso::IsoId;
 use hadris_iso::sync::IsoFs;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -18,24 +19,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         MountOptions::new(),
     )?;
 
-    let pvd = iso.primary_descriptor()?;
+    let info = iso.info();
     println!(
         "Volume: {}",
-        String::from_utf8_lossy(pvd.volume_identifier.trimmed())
+        String::from_utf8_lossy(info.id(IsoId::Volume))
     );
     println!(
         "Blocks: {} of {} bytes",
-        iso.volume_blocks(),
-        iso.block_size()
+        info.volume_space_size(),
+        info.block_size()
     );
     println!("Trees: {:?}", iso.namespaces().iter().collect::<Vec<_>>());
-    if let Some(catalog) = iso.boot_catalog()? {
+    let mut buf = [0u8; 2048];
+    if let Some(catalog) = iso.boot_catalog(&mut buf)? {
         for entry in catalog.entries() {
+            let image = iso.boot_image(&entry);
             println!(
-                "Boot: {:?} {:?} at block {}",
+                "Boot: {:?} {:?}, {} bytes at byte {}",
                 entry.platform(),
                 entry.emulation(),
-                entry.load_block()
+                image.len(),
+                image.offset()
             );
         }
     }

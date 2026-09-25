@@ -145,9 +145,9 @@ fn mkudffs_volumes_read_back() {
             MountOptions::new(),
         )
         .unwrap_or_else(|err| panic!("{revision}/{block}: {err}"));
-        assert_eq!(udf.logical_volume_id(), "MKUDFFS");
-        assert_eq!(udf.block_size(), block);
-        assert_eq!(udf.revision().to_string(), revision);
+        assert_eq!(udf.info().id(hadris_udf::UdfId::LogicalVolume), "MKUDFFS");
+        assert_eq!(udf.info().block_size(), block);
+        assert_eq!(udf.info().revision().to_string(), revision);
         let listed = udf.names("/").unwrap();
         assert!(listed.len() <= 1, "{revision}/{block}: {listed:?}");
     }

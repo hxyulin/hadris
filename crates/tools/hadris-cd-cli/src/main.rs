@@ -239,21 +239,20 @@ fn info(path: &Path) -> Result<()> {
     println!("  ISO 9660: {}", yes_no(iso.is_some()));
     println!("  UDF:      {}", yes_no(udf.is_some()));
     println!("  Bridge:   {}", yes_no(iso.is_some() && udf.is_some()));
-    if let Some(mut iso) = iso {
-        let pvd = iso.primary_descriptor()?;
+    if let Some(iso) = iso {
         println!(
             "  ISO volume: {}",
-            String::from_utf8_lossy(pvd.volume_identifier.trimmed())
+            String::from_utf8_lossy(iso.info().id(hadris_iso::IsoId::Volume))
         );
-        println!("  ISO size:   {} sectors", iso.volume_blocks());
+        println!("  ISO size:   {} sectors", iso.info().volume_space_size());
         println!(
             "  Rock Ridge: {}",
             yes_no(iso.namespaces().contains(Namespace::RockRidge))
         );
     }
     if let Some(udf) = udf {
-        println!("  UDF volume: {}", udf.volume_id());
-        println!("  UDF revision: {}", udf.revision());
+        println!("  UDF volume: {}", udf.info().id(hadris_udf::UdfId::Volume));
+        println!("  UDF revision: {}", udf.info().revision());
     }
     Ok(())
 }

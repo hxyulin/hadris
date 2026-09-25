@@ -39,7 +39,7 @@ fn test_hadris_rockridge_roundtrip() {
 
     let mut image = open(iso_data.clone());
     assert_eq!(volume_id(&mut image), "RRIP_TEST");
-    let pvd = image.primary_descriptor().unwrap();
+    let pvd = super::primary(&mut image);
     let root_start = pvd.root.header.extent.get() as usize * 2048;
     let root_len = pvd.root.header.data_len.get() as usize;
     let root_dir = &iso_data[root_start..root_start + root_len];

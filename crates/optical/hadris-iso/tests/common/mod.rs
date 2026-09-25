@@ -169,3 +169,76 @@ pub fn read_node<F: hadris_fs::sync::FileSystem + ?Sized>(
     closed?;
     Ok(out)
 }
+
+/// A boot catalog copied out of the caller buffer it was read into.
+pub struct Catalog {
+    block: u32,
+    entries: Vec<hadris_iso::CatalogEntry>,
+    valid: bool,
+}
+
+impl Catalog {
+    pub fn block(&self) -> u32 {
+        self.block
+    }
+
+    pub fn entries(&self) -> &[hadris_iso::CatalogEntry] {
+        &self.entries
+    }
+
+    pub fn default_entry(&self) -> &hadris_iso::CatalogEntry {
+        &self.entries[0]
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.valid
+    }
+}
+
+/// Extras read through the new buffer-lending calls, for tests that want
+/// owned results.
+#[allow(dead_code)]
+pub trait IsoExtras {
+    type E;
+    fn catalog(&mut self) -> Result<Option<Catalog>, hadris_fs::Error<Self::E>>;
+    fn all_extents(&mut self, node: hadris_fs::NodeId) -> Vec<hadris_fs::Extent>;
+    fn record(&mut self, node: hadris_fs::NodeId) -> hadris_iso::raw::DirectoryRecord;
+}
+
+impl<D: hadris_storage::sync::BlockDevice> IsoExtras for hadris_iso::sync::IsoFs<D> {
+    type E = D::Error;
+
+    fn catalog(&mut self) -> Result<Option<Catalog>, hadris_fs::Error<D::Error>> {
+        let mut buf = [0u8; 4096];
+        Ok(self.boot_catalog(&mut buf)?.map(|catalog| Catalog {
+            block: catalog.block(),
+            entries: catalog.entries().collect(),
+            valid: catalog.as_bytes()[30..32] == [0x55, 0xAA],
+        }))
+    }
+
+    fn all_extents(&mut self, node: hadris_fs::NodeId) -> Vec<hadris_fs::Extent> {
+        let mut out = [hadris_fs::Extent::new(0, 0); 2];
+        let mut all = Vec::new();
+        loop {
+            let from = all
+                .last()
+                .map_or(0, |e: &hadris_fs::Extent| e.file_offset() + e.len());
+            let n = self.extents(node, from, &mut out).unwrap();
+            if n == 0 {
+                return all;
+            }
+            all.extend_from_slice(&out[..n]);
+        }
+    }
+
+    fn record(&mut self, node: hadris_fs::NodeId) -> hadris_iso::raw::DirectoryRecord {
+        let mut out = [hadris_fs::Extent::new(0, 0); 1];
+        assert_eq!(self.records(node, &mut out).unwrap(), 1);
+        let mut bytes = vec![0u8; out[0].len() as usize];
+        self.read_raw(out[0].offset(), &mut bytes).unwrap();
+        hadris_iso::raw::DirectoryRecord::parse(&bytes)
+            .unwrap()
+            .unwrap()
+    }
+}

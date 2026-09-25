@@ -31,6 +31,23 @@ Each published package owns its version and may be released independently.
   (both exFAT boot regions with their checksums, and the FAT32 backup boot
   sector). `FatFs::set_label` writes, creates or removes the root label
   entry and the boot sector copy.
+- **hadris-iso (V3):** Extras on `IsoFs`: `info()` returns `VolumeInfo`
+  (`block_size`, `volume_space_size`, `id(IsoId)` as stored bytes and
+  `date(IsoDate)`), `boot_catalog(&mut buf)` reads and checks the El Torito
+  catalog into the caller's buffer without an allocator and returns a
+  borrowing `BootCatalog` whose `entries()` are parsed as iterated,
+  `boot_image(&entry)` locates an entry's image, `records(node, &mut
+  [Extent])` locates a node's directory records, and `extents(node, from,
+  &mut [Extent])` maps its data with file offsets. `IsoId` and `IsoDate`
+  no longer need `alloc`.
+- **hadris-udf (V3):** Extras on `UdfFs`: `info()` returns `VolumeInfo`
+  (`revision`, `block_size`, `partitions`, `implementation`, `domain`,
+  `id(UdfId)`, `recorded`, `integrity_recorded`, `volume_serial`) with
+  `EntityId`, `PartitionInfo` and `PartitionKind`; `was_dirty()` reports an
+  open integrity descriptor; `records` locates a file entry; `read_raw`
+  reads the device; and `extents(node, from, &mut [Extent])` maps data,
+  with allocated but unrecorded extents marked unwritten and embedded data
+  located inside the file entry. `UdfId` no longer needs `alloc`.
 - **hadris-fat-raw:** `Geometry::volume_serial()` for FAT12/16/32 and
   `FatKind::clean_bit()`; the exFAT `Geometry::serial()` is now
   `volume_serial()`.
@@ -1260,6 +1277,14 @@ Each published package owns its version and may be released independently.
 
 ### Removed
 
+- **hadris-iso (V3):** `IsoFs::block_size`, `volume_blocks`,
+  `boot_catalog_block`, `primary_descriptor` and `raw_record`, the owned
+  `BootCatalog` and `BootCatalogEntry` (now `CatalogEntry`). Use `info()`,
+  `BootCatalog::block`, `records` with `read_raw`, and
+  `boot_catalog(&mut buf)`.
+- **hadris-udf (V3):** `UdfFs::volume_id`, `logical_volume_id`, `revision`,
+  `block_size`, `partitions` and `read_bytes`, and `Partition` (now
+  `PartitionInfo`). Use `info()` and `read_raw`.
 - **hadris-fat (V3):** `FatFs::kind`, `FatFs::volume_label`,
   `ExFatFs::volume_label`, `ExFatFs::volume_id`, `ExFatFs::cluster_size`
   and `cluster_chain` on both. Use `info().kind()`, `FileSystem::label`,

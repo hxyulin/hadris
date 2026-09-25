@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::Paths;
+use common::{IsoExtras, Paths};
 use common::{image, sample};
 use hadris_fs::MountOptions;
 use hadris_fs::sync::FileSystem;
@@ -286,7 +286,7 @@ fn malformed_images_are_refused() {
     let err = view.stat(NodeId::new(1 << 40).unwrap()).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::InvalidHandle);
     let readme = view.resolve_path("/README.TXT").unwrap();
-    let record = view.raw_record(readme).unwrap();
+    let record = view.record(readme);
     assert_eq!(record.name(), b"README.TXT;1");
 
     let offset = readme.get() as usize;
@@ -336,7 +336,7 @@ fn damaged_records_behind_listed_ids_are_corrupt() {
         IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Primary).unwrap();
     let docs = view.resolve_path("/DOCS").unwrap();
     let big = view.resolve_path("/DOCS/BIG.BIN").unwrap();
-    let data = view.raw_record(big).unwrap().header().extent.get();
+    let data = view.record(big).header().extent.get();
     let root = view.root().get() as usize;
     let record = (root..root + 2048)
         .step_by(2)
@@ -388,7 +388,7 @@ fn missing_namespaces_are_reported() {
     assert!(
         IsoFs::mount(&mut iso, MountOptions::new())
             .unwrap()
-            .boot_catalog()
+            .catalog()
             .unwrap()
             .is_none()
     );

@@ -20,8 +20,11 @@ pub fn verify(args: VerifyArgs) -> Result<()> {
             return Err(e);
         }
     };
-    println!("  Volume ID:    {}", udf.volume_id());
-    println!("  UDF revision: {}", udf.revision());
+    println!(
+        "  Volume ID:    {}",
+        udf.info().id(hadris_udf::UdfId::Volume)
+    );
+    println!("  UDF revision: {}", udf.info().revision());
 
     let mut tally = Tally::default();
     walk(&mut udf, "/", args.verbose, &mut tally);

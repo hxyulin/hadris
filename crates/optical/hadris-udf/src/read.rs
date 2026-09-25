@@ -15,7 +15,8 @@ use crate::raw::{
     vsd,
 };
 use crate::volume::{
-    Icb, Identifier, Info, Location, MAX_BLOCK, MAX_PARTITIONS, Partition, check_tag,
+    EntityId as Entity, Icb, Identifier, Info, Location, MAX_BLOCK, MAX_PARTITIONS, PartitionInfo,
+    VolumeInfo, check_tag,
 };
 
 /// Allocation descriptors walked for one file.
@@ -34,15 +35,26 @@ const FID_BUFFER: usize = 512;
 /// One stretch of a file's data.
 #[derive(Clone, Copy)]
 enum Piece {
-    Disk { offset: u64, len: u64 },
-    Zero { len: u64 },
-    Embedded { start: usize, len: usize },
+    Disk {
+        offset: u64,
+        len: u64,
+    },
+    /// Reads as zeros; `offset` is where an allocated but unrecorded
+    /// extent lies.
+    Zero {
+        len: u64,
+        offset: Option<u64>,
+    },
+    Embedded {
+        start: usize,
+        len: usize,
+    },
 }
 
 impl Piece {
     fn len(&self) -> u64 {
         match *self {
-            Piece::Disk { len, .. } | Piece::Zero { len } => len,
+            Piece::Disk { len, .. } | Piece::Zero { len, .. } => len,
             Piece::Embedded { len, .. } => len as u64,
         }
     }
@@ -102,9 +114,9 @@ fn domain_revision(domain: &EntityId, nsr03: bool) -> Option<UdfRevision> {
 
 /// The prevailing descriptors of one volume descriptor sequence.
 struct Sequence {
-    volume_id: Option<(u32, [u8; 32])>,
+    primary: Option<(u32, raw::PrimaryVolumeDescriptor)>,
     logical: Option<(u32, [u8; MAX_BLOCK])>,
-    partitions: [(u16, u32, Partition); MAX_PARTITIONS],
+    partitions: [(u16, u32, PartitionInfo); MAX_PARTITIONS],
     partition_count: usize,
 }
 
@@ -233,9 +245,9 @@ async fn sequence<D: BlockDevice>(
 ) -> Result<Sequence, Error<D::Error>> {
     let bs = block_size as usize;
     let mut found = Sequence {
-        volume_id: None,
+        primary: None,
         logical: None,
-        partitions: [(0, 0, Partition::default()); MAX_PARTITIONS],
+        partitions: [(0, 0, PartitionInfo::default()); MAX_PARTITIONS],
         partition_count: 0,
     };
     let mut block = start.location.get();
@@ -254,10 +266,8 @@ async fn sequence<D: BlockDevice>(
         let number = u32::from_le_bytes([data[16], data[17], data[18], data[19]]);
         match tag.identifier.get() {
             tag::PRIMARY_VOLUME => {
-                if found.volume_id.is_none_or(|(seen, _)| number >= seen) {
-                    let mut id = [0u8; 32];
-                    id.copy_from_slice(&data[24..56]);
-                    found.volume_id = Some((number, id));
+                if found.primary.is_none_or(|(seen, _)| number >= seen) {
+                    found.primary = Some((number, bytemuck::pod_read_unaligned(&data[..512])));
                 }
             }
             tag::LOGICAL_VOLUME => {
@@ -267,7 +277,7 @@ async fn sequence<D: BlockDevice>(
             }
             tag::PARTITION => {
                 let pd: raw::PartitionDescriptor = bytemuck::pod_read_unaligned(&data[..512]);
-                let part = Partition::new(pd.number.get(), pd.start.get(), pd.length.get());
+                let part = PartitionInfo::new(pd.number.get(), pd.start.get(), pd.length.get());
                 let count = found.partition_count;
                 match found.partitions[..count].iter_mut().find(|(n, _, _)| *n == part.number()) {
                     Some(slot) if number >= slot.1 => *slot = (part.number(), number, part),
@@ -290,22 +300,31 @@ async fn sequence<D: BlockDevice>(
         }
         block = block.checked_add(1).ok_or(Detail::DescriptorSequence.corrupt())?;
     }
-    if found.volume_id.is_none() || found.logical.is_none() || found.partition_count == 0 {
+    if found.primary.is_none() || found.logical.is_none() || found.partition_count == 0 {
         return Err(Detail::DescriptorSequence.corrupt());
     }
     Ok(found)
 }
 
-/// The free blocks a closed integrity descriptor records, following the
-/// integrity sequence to its last descriptor.
-async fn free_blocks<D: BlockDevice>(
+/// What the last descriptor of the integrity sequence records: the free
+/// blocks when it is closed, whether it is open, and when it was recorded.
+#[derive(Default)]
+struct Integrity {
+    free: Option<u64>,
+    open: bool,
+    recorded: Option<hadris_fs::DateTime>,
+}
+
+/// Follows the integrity sequence to its last descriptor. A damaged
+/// sequence records nothing.
+async fn integrity<D: BlockDevice>(
     dev: &mut D,
     len: u64,
     block_size: u32,
     mut next: raw::ExtentAd,
     partitions: usize,
-) -> Option<u64> {
-    let mut free = None;
+) -> Integrity {
+    let mut found = Integrity::default();
     let mut buf = [0u8; MAX_BLOCK];
     for _ in 0..MAX_INTEGRITY {
         if next.length.get() == 0 {
@@ -313,12 +332,17 @@ async fn free_blocks<D: BlockDevice>(
         }
         let block = next.location.get();
         let data = &mut buf[..block_size as usize];
-        read_bytes(dev, len, u64::from(block) * u64::from(block_size), data).await.ok()?;
-        check_tag(data, Some(tag::INTEGRITY), block).ok()?;
+        if read_bytes(dev, len, u64::from(block) * u64::from(block_size), data).await.is_err()
+            || check_tag(data, Some(tag::INTEGRITY), block).is_err()
+        {
+            return Integrity::default();
+        }
         let lvid: LogicalVolumeIntegrityDescriptor = bytemuck::pod_read_unaligned(&data[..80]);
         let count = (lvid.partition_count.get() as usize).min(partitions);
-        let table = data.get(80..80 + 4 * count)?;
-        free = (lvid.integrity_type.get() == 1)
+        let Some(table) = data.get(80..80 + 4 * count) else {
+            return Integrity::default();
+        };
+        found.free = (lvid.integrity_type.get() == 1)
             .then(|| {
                 table
                     .chunks_exact(4)
@@ -326,9 +350,11 @@ async fn free_blocks<D: BlockDevice>(
                     .try_fold(0u64, |sum, v| (v != u32::MAX).then_some(sum + u64::from(v)))
             })
             .flatten();
+        found.open = lvid.integrity_type.get() == 0;
+        found.recorded = crate::time::to_datetime(&lvid.recorded);
         next = lvid.next;
     }
-    free
+    found
 }
 
 /// Reads the volume structures of `dev`; with `backup` from the anchors at
@@ -365,7 +391,7 @@ async fn mount<D: BlockDevice>(dev: &mut D, backup: bool) -> Result<Info, Error<
         .get(440..440 + table_len)
         .filter(|_| 440 + table_len <= block_size as usize)
         .ok_or(Detail::Descriptor.corrupt())?;
-    let mut partitions = [Partition::default(); MAX_PARTITIONS];
+    let mut partitions = [PartitionInfo::default(); MAX_PARTITIONS];
     let mut count = 0;
     let mut at = 0;
     for _ in 0..lvd.map_count.get() {
@@ -395,7 +421,7 @@ async fn mount<D: BlockDevice>(dev: &mut D, backup: bool) -> Result<Info, Error<
         }
         at += map_len;
     }
-    let (_, volume_id) = found.volume_id.ok_or(Detail::DescriptorSequence.corrupt())?;
+    let (_, pvd) = found.primary.ok_or(Detail::DescriptorSequence.corrupt())?;
     let revision = domain_revision(&lvd.domain, nsr03).unwrap_or(if nsr03 {
         UdfRevision::V2_01
     } else {
@@ -404,13 +430,23 @@ async fn mount<D: BlockDevice>(dev: &mut D, backup: bool) -> Result<Info, Error<
     let mut info = Info {
         block_size,
         len,
-        partitions,
-        partition_count: count,
         root: Location { partition: 0, block: 0 },
-        revision,
-        volume_id: Identifier::decode(&volume_id),
-        logical_volume_id: Identifier::decode(&lvd.logical_volume_identifier),
         free_blocks: None,
+        volume: VolumeInfo {
+            revision,
+            block_size,
+            partitions,
+            partition_count: count,
+            implementation: Entity::from_raw(lvd.implementation),
+            domain: Entity::from_raw(lvd.domain),
+            volume: Identifier::decode(&pvd.volume_identifier),
+            volume_set: Identifier::decode(&pvd.volume_set_identifier),
+            logical_volume: Identifier::decode(&lvd.logical_volume_identifier),
+            file_set: Identifier::decode(&[]),
+            recorded: crate::time::to_datetime(&pvd.recorded),
+            integrity_recorded: None,
+            was_dirty: false,
+        },
     };
 
     let fsd_at: LongAd = bytemuck::pod_read_unaligned(&lvd.contents_use);
@@ -424,6 +460,7 @@ async fn mount<D: BlockDevice>(dev: &mut D, backup: bool) -> Result<Info, Error<
     check_tag(data, Some(tag::FILE_SET), fsd_at.block).map_err(|()| Detail::FileSet.corrupt())?;
     let fsd: FileSetDescriptor = bytemuck::pod_read_unaligned(&data[..512]);
     info.root = Location::from_long(&fsd.root);
+    info.volume.file_set = Identifier::decode(&fsd.file_set_identifier);
     let root = icb_at(&info, dev, info.root).await.map_err(|err| match err.kind() {
         ErrorKind::Io => err,
         _ => Detail::FileSet.corrupt(),
@@ -431,7 +468,10 @@ async fn mount<D: BlockDevice>(dev: &mut D, backup: bool) -> Result<Info, Error<
     if !root.is_dir() {
         return Err(Detail::FileSet.corrupt());
     }
-    info.free_blocks = free_blocks(dev, len, block_size, lvd.integrity_sequence, count).await;
+    let integrity = integrity(dev, len, block_size, lvd.integrity_sequence, count).await;
+    info.free_blocks = integrity.free;
+    info.volume.was_dirty = integrity.open;
+    info.volume.integrity_recorded = integrity.recorded;
     Ok(info)
 }
 
@@ -533,7 +573,11 @@ impl Walk {
                     let offset = info.offset(at.partition, at.block, length)?;
                     return Ok(Some(Piece::Disk { offset, len: length }));
                 }
-                _ => return Ok(Some(Piece::Zero { len: length })),
+                extent::ALLOCATED => {
+                    let offset = info.offset::<D::Error>(at.partition, at.block, length).ok();
+                    return Ok(Some(Piece::Zero { len: length, offset }));
+                }
+                _ => return Ok(Some(Piece::Zero { len: length, offset: None })),
             }
         }
     }
@@ -743,35 +787,21 @@ impl<D: BlockDevice> UdfFs<D> {
         Ok(self.dev)
     }
 
-    /// The volume identifier of the primary volume descriptor.
-    pub fn volume_id(&self) -> &str {
-        self.info.volume_id.as_str()
+    /// What the volume descriptors record: the revision, block size,
+    /// partitions, identifiers, domain, implementation and times.
+    pub fn info(&self) -> &VolumeInfo {
+        &self.info.volume
     }
 
-    /// The logical volume identifier, which operating systems show as the
-    /// label.
-    pub fn logical_volume_id(&self) -> &str {
-        self.info.logical_volume_id.as_str()
-    }
-
-    /// The UDF revision the domain identifier records, or 1.02 or 2.01 by
-    /// the recognition sequence when it records none.
-    pub fn revision(&self) -> UdfRevision {
-        self.info.revision
-    }
-
-    /// The logical block size.
-    pub fn block_size(&self) -> u32 {
-        self.info.block_size
-    }
-
-    /// The partitions, indexed by partition reference number.
-    pub fn partitions(&self) -> &[Partition] {
-        self.info.partitions()
+    /// Whether the logical volume integrity descriptor was open at mount:
+    /// the volume was not cleanly closed. A volume whose integrity
+    /// sequence cannot be read counts as clean.
+    pub fn was_dirty(&self) -> bool {
+        self.info.volume.was_dirty
     }
 
     /// Reads `buf.len()` bytes from byte `offset` of the device.
-    pub async fn read_bytes(&mut self, offset: u64, buf: &mut [u8]) -> Result<(), Error<D::Error>> {
+    pub async fn read_raw(&mut self, offset: u64, buf: &mut [u8]) -> Result<(), Error<D::Error>> {
         read_bytes(&mut self.dev, self.info.len, offset, buf).await
     }
 
@@ -812,24 +842,56 @@ impl<D: BlockDevice> UdfFs<D> {
         Ok(meta)
     }
 
-    /// Calls `visit` with the byte range of each recorded extent of a
-    /// node's data, in order. Embedded data and unrecorded extents are not
-    /// visited.
-    pub async fn extents(&mut self, node: NodeId, mut visit: impl FnMut(hadris_fs::Extent)) -> FsResult<(), D::Error> {
+    /// Maps a node's data to the device: fills `out` with its extents
+    /// that end after byte `from` of the data, in order, and returns how
+    /// many it filled. Call again from the end of the last one for more; 0
+    /// means there are none. Allocated but unrecorded extents are marked
+    /// unwritten, holes are left out, and data embedded in the file entry
+    /// is one extent inside it.
+    pub async fn extents(&mut self, node: NodeId, from: u64, out: &mut [hadris_fs::Extent]) -> FsResult<usize, D::Error> {
         let icb = self.icb(node).await?;
         let mut walk = Walk::new(&icb);
         let mut pos = 0u64;
+        let mut count = 0;
         while pos < icb.size {
             let Some(piece) = walk.next(&self.info, &mut self.dev, &icb).await? else {
                 return Err(Detail::AllocationDescriptor.corrupt());
             };
             let len = piece.len().min(icb.size - pos);
-            if let Piece::Disk { offset, .. } = piece {
-                visit(hadris_fs::Extent::new(offset, len));
+            let extent = match piece {
+                Piece::Disk { offset, .. } => Some(hadris_fs::Extent::new(offset, len)),
+                Piece::Zero { offset: Some(offset), .. } => Some(hadris_fs::Extent::new(offset, len).with_unwritten()),
+                Piece::Zero { offset: None, .. } => None,
+                Piece::Embedded { start, .. } => {
+                    let block = self.info.offset::<D::Error>(icb.at.partition, icb.at.block, 1)?;
+                    Some(hadris_fs::Extent::new(block + start as u64, len))
+                }
+            };
+            if let Some(extent) = extent.filter(|_| pos + len > from && len > 0) {
+                let Some(slot) = out.get_mut(count) else {
+                    return Ok(count);
+                };
+                *slot = extent.with_file_offset(pos);
+                count += 1;
             }
             pos += len;
         }
-        Ok(())
+        Ok(count)
+    }
+
+    /// Locates a node's on-disk record: its file entry, one logical block.
+    /// Returns how many it filled; fails with [`ErrorKind::LimitExceeded`]
+    /// when `out` is empty.
+    pub async fn records(&mut self, node: NodeId, out: &mut [hadris_fs::Extent]) -> FsResult<usize, D::Error> {
+        let at = Location::of(node).ok_or(ErrorKind::InvalidHandle)?;
+        let block_size = u64::from(self.info.block_size);
+        let offset = self
+            .info
+            .offset::<D::Error>(at.partition, at.block, block_size)
+            .map_err(|_| ErrorKind::InvalidHandle)?;
+        self.icb(node).await?;
+        *out.first_mut().ok_or(ErrorKind::LimitExceeded)? = hadris_fs::Extent::new(offset, block_size);
+        Ok(1)
     }
 }
 
@@ -855,7 +917,7 @@ impl<D: BlockDevice> FileSystem for UdfFs<D> {
 
     /// The logical volume identifier.
     async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
-        let id = self.info.logical_volume_id.as_str();
+        let id = self.info.volume.logical_volume.as_str();
         if id.is_empty() {
             return Ok(None);
         }
