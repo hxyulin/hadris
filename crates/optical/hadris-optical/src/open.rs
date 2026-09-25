@@ -1,10 +1,10 @@
+use hadris_fs::MountOptions;
 use hadris_fs::{
     Capabilities, DirCursor, DirEntry, ErrorKind, FsResult, FsStats, Metadata, MountError, Name,
     NodeId, OpenMode, RenameMode, Resolve, SetAttr,
 };
-use hadris_iso::Namespace;
 
-use super::{BlockDevice, FileSystem, IsoImage, IsoView, UdfFs, detect};
+use super::{BlockDevice, FileSystem, IsoFs, UdfFs, detect};
 use crate::detect::OpticalFormats;
 use crate::error::Error;
 use crate::{Detail, OpenPolicy, OpticalFormat};
@@ -28,7 +28,7 @@ io_transform! {
 // Boxing the larger driver would need an allocator.
 #[allow(clippy::large_enum_variant)]
 enum Inner<D> {
-    Iso(IsoView<D>),
+    Iso(IsoFs<D>),
     Udf(UdfFs<D>),
 }
 
@@ -36,7 +36,7 @@ enum Inner<D> {
 ///
 /// It implements `hadris_fs` `FileSystem` read-only by delegating to the
 /// driver it opened, so generic code lists and reads either the same way.
-/// ISO 9660 opens with [`Namespace::Preferred`]; open `hadris_iso`
+/// ISO 9660 opens its most capable tree; mount `hadris_iso`
 /// directly to pick another tree. [`as_iso`](Self::as_iso) and
 /// [`as_udf`](Self::as_udf) reach the drivers' native API.
 ///
@@ -87,12 +87,11 @@ impl<D: BlockDevice> OpenOpticalImage<D> {
         };
         match selected {
             OpticalFormat::Udf => {
-                UdfFs::open(dev).await.map(|udf| Self { inner: Inner::Udf(udf) })
+                UdfFs::mount(dev, MountOptions::new()).await.map(|udf| Self { inner: Inner::Udf(udf) })
             }
             OpticalFormat::Iso9660 => {
-                let image = IsoImage::open(dev).await?;
-                let view = image.into_view(Namespace::Preferred)?;
-                Ok(Self { inner: Inner::Iso(view) })
+                let iso = IsoFs::mount(dev, MountOptions::new()).await?;
+                Ok(Self { inner: Inner::Iso(iso) })
             }
         }
     }
@@ -106,7 +105,7 @@ impl<D: BlockDevice> OpenOpticalImage<D> {
     }
 
     /// Borrows the ISO 9660 view, if ISO 9660 was opened.
-    pub fn as_iso(&self) -> Option<&IsoView<D>> {
+    pub fn as_iso(&self) -> Option<&IsoFs<D>> {
         match &self.inner {
             Inner::Iso(view) => Some(view),
             Inner::Udf(_) => None,
@@ -114,7 +113,7 @@ impl<D: BlockDevice> OpenOpticalImage<D> {
     }
 
     /// Mutably borrows the ISO 9660 view, if ISO 9660 was opened.
-    pub fn as_iso_mut(&mut self) -> Option<&mut IsoView<D>> {
+    pub fn as_iso_mut(&mut self) -> Option<&mut IsoFs<D>> {
         match &mut self.inner {
             Inner::Iso(view) => Some(view),
             Inner::Udf(_) => None,
@@ -123,7 +122,7 @@ impl<D: BlockDevice> OpenOpticalImage<D> {
 
     /// Takes the ISO 9660 view, or gives `self` back.
     #[allow(clippy::result_large_err)]
-    pub fn into_iso(self) -> Result<IsoView<D>, Self> {
+    pub fn into_iso(self) -> Result<IsoFs<D>, Self> {
         match self.inner {
             Inner::Iso(view) => Ok(view),
             inner => Err(Self { inner }),

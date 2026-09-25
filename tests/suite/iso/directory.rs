@@ -8,15 +8,14 @@ use hadris_tests::iso::hadris::write_tree;
 use hadris_tests::iso::xorriso;
 use tempfile::TempDir;
 
-use super::{first_extent, list, open, open_file, xorriso_sample_image};
+use super::{first_extent, list, open_file_ns, open_ns, xorriso_sample_image};
 
 #[test]
 fn test_read_directory_structure() {
     let Some((_temp, iso_path)) = xorriso_sample_image(xorriso::create_minimal) else {
         return;
     };
-    let mut image = open_file(&iso_path);
-    let mut view = image.view(Namespace::Primary).unwrap();
+    let mut view = open_file_ns(&iso_path, Namespace::Primary);
     let entries: Vec<String> = list(&mut view, "/")
         .into_iter()
         .map(|(name, _, _)| name)
@@ -45,8 +44,7 @@ fn test_iso_file_content() {
     xorriso::create_minimal(&content_dir, &iso_path).unwrap();
 
     let iso_data = fs::read(&iso_path).unwrap();
-    let mut image = open(iso_data.clone());
-    let mut view = image.view(Namespace::Primary).unwrap();
+    let mut view = open_ns(iso_data.clone(), Namespace::Primary);
     let mut found_file = false;
     for (name, node, meta) in list(&mut view, "/") {
         if name.to_uppercase().contains("TEST") && !meta.file_type().is_dir() {
@@ -76,8 +74,7 @@ fn test_large_file() {
     fs::write(content_dir.join("large.bin"), &large_content).unwrap();
     xorriso::create_minimal(&content_dir, &iso_path).unwrap();
 
-    let mut image = open_file(&iso_path);
-    let mut view = image.view(Namespace::Primary).unwrap();
+    let mut view = open_file_ns(&iso_path, Namespace::Primary);
     let mut found_file = false;
     for (name, _, meta) in list(&mut view, "/") {
         if name.to_uppercase().contains("LARGE") && !meta.file_type().is_dir() {
@@ -108,8 +105,7 @@ fn test_multi_sector_directory() {
     let options = IsoOptions::default().with_volume(VolumeIdentifiers::new("MULTISECTOR"));
     let bytes = write_tree(&tree, &options).expect("Failed to create ISO");
 
-    let mut image = open(bytes);
-    let mut view = image.view(Namespace::Primary).unwrap();
+    let mut view = open_ns(bytes, Namespace::Primary);
     let file_names: Vec<String> = list(&mut view, "/")
         .into_iter()
         .map(|(name, _, _)| name)

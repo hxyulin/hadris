@@ -13,7 +13,7 @@ use hadris_fs::r#async::FileSystem;
 
 #[path = "image.rs"]
 mod image;
-pub use image::{IsoImage, IsoView};
+pub use image::IsoFs;
 #[cfg(feature = "alloc")]
 #[path = "write.rs"]
 mod write;

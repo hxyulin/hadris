@@ -1,6 +1,7 @@
 use hadris_fs::{
     Capabilities, CaseRule, Charset, DirCursor, DirEntry, ErrorKind, Field, FileType, FsResult,
-    FsStats, Metadata, MountError, Name, NodeId, OpenMode, Owner, Permissions, Stored,
+    FsStats, Metadata, MountError, MountOptions, Name, NodeId, OpenMode, Owner, Permissions,
+    Stored,
 };
 use hadris_storage::BlockIndex;
 
@@ -89,188 +90,41 @@ async fn read_info<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>>
     Ok(info)
 }
 
-/// An open ISO 9660 image on a block device.
+/// A mounted ISO 9660 image, read through one of its directory trees.
 ///
-/// It reads the volume descriptors once, when opened, and needs no
-/// allocator. [`view`](Self::view) picks one of its directory trees for the
-/// node API; the boot catalog, the descriptors and raw bytes are read here.
-///
-/// ```rust,ignore
-/// let mut iso = IsoImage::open(dev)?;
-/// let mut view = iso.view(Namespace::Preferred)?;
-/// let node = view.resolve(b"/boot/grub/grub.cfg", Resolve::Lexical)?;
-/// view.open(node, OpenMode::Read)?;
-/// let n = view.read(node, 0, &mut buf)?;
-/// ```
-#[derive(Debug)]
-pub struct IsoImage<D> {
-    dev: D,
-    info: Info,
-    len: u64,
-}
-
-impl<D: BlockDevice> IsoImage<D> {
-    /// Opens the image on `dev`: reads the volume descriptors from logical
-    /// sector 16 and checks the primary tree for Rock Ridge.
-    ///
-    /// Fails with [`ErrorKind::Corrupt`] when the descriptor set is invalid
-    /// and with [`ErrorKind::Unsupported`] for device blocks above 4096
-    /// bytes. The device comes back in the [`MountError`].
-    pub async fn open(mut dev: D) -> Result<Self, MountError<D, D::Error>> {
-        match read_info(&mut dev).await {
-            Ok(info) => {
-                let len = dev.block_count().saturating_mul(u64::from(dev.block_size().get()));
-                Ok(Self { dev, info, len })
-            }
-            Err(err) => Err(MountError::new(err, dev)),
-        }
-    }
-
-    /// The trees the image has.
-    pub fn namespaces(&self) -> Namespaces {
-        self.info.namespaces()
-    }
-
-    /// The logical block size from the primary volume descriptor.
-    pub fn block_size(&self) -> u32 {
-        self.info.block_size
-    }
-
-    /// The number of logical blocks the primary volume descriptor declares.
-    pub fn volume_blocks(&self) -> u32 {
-        self.info.volume_blocks
-    }
-
-    /// The logical block of the El Torito boot catalog, when the image has
-    /// a boot record.
-    pub fn boot_catalog_block(&self) -> Option<u32> {
-        self.info.boot_catalog
-    }
-
-    /// A view of the tree `namespace` names, borrowing the device.
-    ///
-    /// Fails with [`ErrorKind::NotFound`] and [`Detail::NoNamespace`] when
-    /// the image has no such tree.
-    pub fn view(&mut self, namespace: Namespace) -> Result<IsoView<&mut D>, Error<D::Error>> {
-        let (namespace, root) = self
-            .info
-            .tree(namespace)
-            .ok_or(Detail::NoNamespace.error(ErrorKind::NotFound))?;
-        Ok(IsoView {
-            dev: &mut self.dev,
-            view: View::new(self.info, namespace, root, self.len),
-        })
-    }
-
-    /// A view of the tree `namespace` names that owns the device, for
-    /// sharing in a `Volume`.
-    pub fn into_view(self, namespace: Namespace) -> Result<IsoView<D>, MountError<D, D::Error>> {
-        match self.info.tree(namespace) {
-            Some((namespace, root)) => Ok(IsoView {
-                view: View::new(self.info, namespace, root, self.len),
-                dev: self.dev,
-            }),
-            None => Err(MountError::new(ErrorKind::NotFound.into(), self.dev)),
-        }
-    }
-
-    /// Reads `buf.len()` bytes from byte `offset` of the image.
-    pub async fn read_bytes(&mut self, offset: u64, buf: &mut [u8]) -> Result<(), Error<D::Error>> {
-        read_bytes(&mut self.dev, self.len, offset, buf).await
-    }
-
-    /// The volume descriptor `index` places after the first one, at logical
-    /// sector 16, or `None` past the set terminator.
-    pub async fn descriptor(&mut self, index: u32) -> Result<Option<raw::VolumeDescriptor>, Error<D::Error>> {
-        if index >= self.info.descriptors {
-            return Ok(None);
-        }
-        let mut sector = [0u8; SECTOR_SIZE];
-        let offset = u64::from(raw::DESCRIPTOR_START + index) * SECTOR_SIZE as u64;
-        self.read_bytes(offset, &mut sector).await?;
-        Ok(Some(raw::VolumeDescriptor::from_bytes(sector)))
-    }
-
-    /// The primary volume descriptor.
-    pub async fn primary_descriptor(&mut self) -> Result<raw::PrimaryVolumeDescriptor, Error<D::Error>> {
-        let mut index = 0;
-        while let Some(descriptor) = self.descriptor(index).await? {
-            if let raw::VolumeDescriptor::Primary(pvd) = descriptor {
-                return Ok(pvd);
-            }
-            index += 1;
-        }
-        Err(Detail::NoPrimaryDescriptor.corrupt())
-    }
-
-    /// Reads the El Torito boot catalog, or `None` without a boot record.
-    ///
-    /// Fails with [`ErrorKind::Corrupt`] and [`Detail::BootCatalog`] when
-    /// the validation entry is wrong or the catalog runs past 1024 entries.
-    #[cfg(feature = "alloc")]
-    pub async fn boot_catalog(&mut self) -> Result<Option<crate::BootCatalog>, Error<D::Error>> {
-        use crate::boot::{CatalogParser, Step};
-
-        let Some(block) = self.info.boot_catalog else {
-            return Ok(None);
-        };
-        let mut parser = CatalogParser::new();
-        let mut entries = alloc::vec::Vec::new();
-        let mut offset = u64::from(block) * u64::from(self.info.block_size);
-        let mut sector = [0u8; SECTOR_SIZE];
-        let mut used = SECTOR_SIZE;
-        for _ in 0..CatalogParser::MAX_ENTRIES + 2 {
-            if used == SECTOR_SIZE {
-                self.read_bytes(offset, &mut sector).await?;
-                offset += SECTOR_SIZE as u64;
-                used = 0;
-            }
-            let mut chunk = [0u8; 32];
-            chunk.copy_from_slice(&sector[used..used + 32]);
-            used += 32;
-            match parser.feed(&chunk).map_err(|()| Detail::BootCatalog.corrupt())? {
-                Step::Entry(entry) => entries.push(entry),
-                Step::More => {}
-                Step::Done => return Ok(parser.finish(block, entries)),
-            }
-        }
-        Err(Detail::BootCatalog.corrupt())
-    }
-
-    /// Borrows the device.
-    pub fn device(&self) -> &D {
-        &self.dev
-    }
-
-    /// Returns the device.
-    pub fn into_inner(self) -> D {
-        self.dev
-    }
-}
-
-/// One directory tree of an [`IsoImage`], which implements the read-only
-/// `hadris_fs` `FileSystem` trait.
+/// It reads the volume descriptors once, when mounted, and needs no
+/// allocator. [`mount`](Self::mount) reads the most capable tree the image
+/// has (Rock Ridge, then Joliet, then the enhanced tree, then the primary
+/// tree); [`mount_namespace`](Self::mount_namespace) picks one. It
+/// implements the read-only `hadris_fs` `FileSystem` trait.
 ///
 /// Node ids are byte offsets of directory records: a directory's is its
 /// `.` record, so a relocated directory has one id, and a file's is its
-/// first record in its parent. In the Rock Ridge view the names of a hard
+/// first record in its parent. In the Rock Ridge tree the names of a hard
 /// link share one id, that of the first record in path table order with
 /// the same `PX` serial number (or, without one, the same data): listing a
 /// file with more than one link scans the directories before it. Every id
 /// is stable, so `forget` does nothing. An id no record can have (zero, odd, or past the volume
 /// and the device) fails with [`ErrorKind::InvalidHandle`]; any other id is
 /// read as a record, and a damaged one fails with [`ErrorKind::Corrupt`].
-/// The view is read-only; write methods fail with [`ErrorKind::ReadOnly`].
+/// Write methods fail with [`ErrorKind::ReadOnly`].
 ///
 /// Names drop the `;1` version. In the primary and enhanced trees a lookup
 /// that finds no exact name retries ignoring ASCII case.
+///
+/// ```rust,ignore
+/// let mut iso = IsoFs::mount(dev, MountOptions::new())?;
+/// let node = iso.resolve(b"/boot/grub/grub.cfg", Resolve::Lexical)?;
+/// iso.open(node, OpenMode::Read)?;
+/// let n = iso.read(node, 0, &mut buf)?;
+/// ```
 #[derive(Debug)]
-pub struct IsoView<D> {
+pub struct IsoFs<D> {
     dev: D,
     view: View,
 }
 
-/// The device-independent state of a view.
+/// The device-independent state of a mount.
 #[derive(Debug, Clone, Copy)]
 struct View {
     info: Info,
@@ -941,15 +795,49 @@ impl View {
     }
 }
 
-impl<D: BlockDevice> IsoView<D> {
-    /// The tree this view reads; never [`Namespace::Preferred`].
-    pub fn namespace(&self) -> Namespace {
-        self.view.namespace
+impl<D: BlockDevice> IsoFs<D> {
+    /// Mounts the image on `dev` with its most capable tree: Rock Ridge,
+    /// then Joliet, then the enhanced tree, then the primary tree. Reads
+    /// the volume descriptors from logical sector 16 and checks the primary
+    /// tree for Rock Ridge. ISO 9660 has no backup structures, so
+    /// [`MountOptions::backup_boot`] changes nothing, and the mount is
+    /// read-only whatever `options` say.
+    ///
+    /// Fails with [`ErrorKind::NotRecognized`] when the first volume
+    /// descriptor is not ISO 9660, with [`ErrorKind::Corrupt`] when the
+    /// descriptor set is invalid, and with [`ErrorKind::Unsupported`] for
+    /// device blocks above 4096 bytes. The [`MountError`] gives `dev` back.
+    pub async fn mount(dev: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
+        Self::mount_namespace(dev, options, Namespace::Preferred).await
     }
 
-    /// The logical block size.
-    pub fn block_size(&self) -> u32 {
-        self.view.info.block_size
+    /// Mounts the image on `dev` as [`mount`](Self::mount) does, reading
+    /// the tree `namespace` names. Fails with [`ErrorKind::NotFound`] and
+    /// [`Detail::NoNamespace`] when the image has no such tree.
+    pub async fn mount_namespace(
+        mut dev: D,
+        options: MountOptions,
+        namespace: Namespace,
+    ) -> Result<Self, MountError<D, D::Error>> {
+        let _ = options;
+        let info = match read_info(&mut dev).await {
+            Ok(info) => info,
+            Err(err) => return Err(MountError::new(err, dev)),
+        };
+        let len = dev.block_count().saturating_mul(u64::from(dev.block_size().get()));
+        match info.tree(namespace) {
+            Some((namespace, root)) => Ok(Self {
+                dev,
+                view: View::new(info, namespace, root, len),
+            }),
+            None => Err(MountError::new(Detail::NoNamespace.error(ErrorKind::NotFound), dev)),
+        }
+    }
+
+    /// Gives the device back. The image is read-only, so there is nothing
+    /// to sync and this never fails.
+    pub async fn unmount(self) -> Result<D, MountError<D, D::Error>> {
+        Ok(self.dev)
     }
 
     /// Returns the device.
@@ -957,8 +845,102 @@ impl<D: BlockDevice> IsoView<D> {
         self.dev
     }
 
+    /// Borrows the device.
+    pub fn device(&self) -> &D {
+        &self.dev
+    }
+
+    /// The tree this mount reads; never [`Namespace::Preferred`].
+    pub fn namespace(&self) -> Namespace {
+        self.view.namespace
+    }
+
+    /// The trees the image has.
+    pub fn namespaces(&self) -> Namespaces {
+        self.view.info.namespaces()
+    }
+
+    /// The logical block size from the primary volume descriptor.
+    pub fn block_size(&self) -> u32 {
+        self.view.info.block_size
+    }
+
+    /// The number of logical blocks the primary volume descriptor declares.
+    pub fn volume_blocks(&self) -> u32 {
+        self.view.info.volume_blocks
+    }
+
+    /// The logical block of the El Torito boot catalog, when the image has
+    /// a boot record.
+    pub fn boot_catalog_block(&self) -> Option<u32> {
+        self.view.info.boot_catalog
+    }
+
+    /// Reads `buf.len()` bytes from byte `offset` of the image.
+    pub async fn read_raw(&mut self, offset: u64, buf: &mut [u8]) -> Result<(), Error<D::Error>> {
+        read_bytes(&mut self.dev, self.view.len, offset, buf).await
+    }
+
+    /// The volume descriptor `index` places after the first one, at logical
+    /// sector 16, or `None` past the set terminator.
+    pub async fn descriptor(&mut self, index: u32) -> Result<Option<raw::VolumeDescriptor>, Error<D::Error>> {
+        if index >= self.view.info.descriptors {
+            return Ok(None);
+        }
+        let mut sector = [0u8; SECTOR_SIZE];
+        let offset = u64::from(raw::DESCRIPTOR_START + index) * SECTOR_SIZE as u64;
+        self.read_raw(offset, &mut sector).await?;
+        Ok(Some(raw::VolumeDescriptor::from_bytes(sector)))
+    }
+
+    /// The primary volume descriptor.
+    pub async fn primary_descriptor(&mut self) -> Result<raw::PrimaryVolumeDescriptor, Error<D::Error>> {
+        let mut index = 0;
+        while let Some(descriptor) = self.descriptor(index).await? {
+            if let raw::VolumeDescriptor::Primary(pvd) = descriptor {
+                return Ok(pvd);
+            }
+            index += 1;
+        }
+        Err(Detail::NoPrimaryDescriptor.corrupt())
+    }
+
+    /// Reads the El Torito boot catalog, or `None` without a boot record.
+    ///
+    /// Fails with [`ErrorKind::Corrupt`] and [`Detail::BootCatalog`] when
+    /// the validation entry is wrong or the catalog runs past 1024 entries.
+    #[cfg(feature = "alloc")]
+    pub async fn boot_catalog(&mut self) -> Result<Option<crate::BootCatalog>, Error<D::Error>> {
+        use crate::boot::{CatalogParser, Step};
+
+        let Some(block) = self.view.info.boot_catalog else {
+            return Ok(None);
+        };
+        let mut parser = CatalogParser::new();
+        let mut entries = alloc::vec::Vec::new();
+        let mut offset = u64::from(block) * u64::from(self.view.info.block_size);
+        let mut sector = [0u8; SECTOR_SIZE];
+        let mut used = SECTOR_SIZE;
+        for _ in 0..CatalogParser::MAX_ENTRIES + 2 {
+            if used == SECTOR_SIZE {
+                self.read_raw(offset, &mut sector).await?;
+                offset += SECTOR_SIZE as u64;
+                used = 0;
+            }
+            let mut chunk = [0u8; 32];
+            chunk.copy_from_slice(&sector[used..used + 32]);
+            used += 32;
+            match parser.feed(&chunk).map_err(|()| Detail::BootCatalog.corrupt())? {
+                Step::Entry(entry) => entries.push(entry),
+                Step::More => {}
+                Step::Done => return Ok(parser.finish(block, entries)),
+            }
+        }
+        Err(Detail::BootCatalog.corrupt())
+    }
+
     /// The Rock Ridge entries of a node in the primary tree, or `None` when
-    /// the image has no Rock Ridge or the view reads another tree.
+    /// the image has no Rock Ridge or the mount reads another tree.
     pub async fn rock_ridge(&mut self, node: NodeId) -> Result<Option<RockRidgeInfo>, Error<D::Error>> {
         self.view.rock_ridge_info(&mut self.dev, node).await
     }
@@ -969,7 +951,7 @@ impl<D: BlockDevice> IsoView<D> {
         self.view.record_at(&mut self.dev, node.get()).await
     }
 
-    /// Whether `dir` holds records the Rock Ridge view hides because an
+    /// Whether `dir` holds records the Rock Ridge tree hides because an
     /// `RE` entry marks them relocated, and nothing else.
     #[cfg(feature = "alloc")]
     pub(crate) async fn is_relocation_dir(&mut self, dir: NodeId) -> Result<bool, Error<D::Error>> {
@@ -1019,7 +1001,7 @@ impl<D: BlockDevice> IsoView<D> {
 }
 
 
-impl<D: BlockDevice> FileSystem for IsoView<D> {
+impl<D: BlockDevice> FileSystem for IsoFs<D> {
     type DeviceError = D::Error;
 
     /// Symlinks, hard links, permissions and owners with Rock Ridge;
@@ -1039,8 +1021,8 @@ impl<D: BlockDevice> FileSystem for IsoView<D> {
         Ok(FsStats::new(u64::from(self.view.info.volume_blocks), 0, self.view.info.block_size))
     }
 
-    /// The volume identifier of the descriptor this view reads: UCS-2 in
-    /// the Joliet view, bytes read as Latin-1 otherwise.
+    /// The volume identifier of the descriptor this mount reads: UCS-2 in
+    /// the Joliet tree, bytes read as Latin-1 otherwise.
     async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
         self.view.label(&mut self.dev, buf).await
     }
@@ -1060,7 +1042,7 @@ impl<D: BlockDevice> FileSystem for IsoView<D> {
         self.view.parent(&mut self.dev, dir).await
     }
 
-    /// Rock Ridge mode, owner, links and times when the view reads Rock
+    /// Rock Ridge mode, owner, links and times when the mount reads Rock
     /// Ridge, the record's time as the modification time otherwise.
     async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
         self.view.stat(&mut self.dev, node).await
@@ -1072,7 +1054,7 @@ impl<D: BlockDevice> FileSystem for IsoView<D> {
     }
 
     /// [`ErrorKind::InvalidInput`] for other nodes and outside the Rock
-    /// Ridge view.
+    /// Ridge tree.
     async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
         let len = self.view.readlink(&mut self.dev, node, buf).await?;
         Ok(&buf[..len])

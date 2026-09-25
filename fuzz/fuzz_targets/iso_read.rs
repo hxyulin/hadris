@@ -11,12 +11,12 @@
 use std::collections::HashSet;
 
 use hadris_fs::sync::FileSystem;
-use hadris_fs::{DirCursor, ErrorKind, FileType, NodeId};
-use hadris_iso::sync::{IsoImage, IsoView};
+use hadris_fs::{DirCursor, ErrorKind, FileType, MountOptions, NodeId};
+use hadris_iso::sync::IsoFs;
 use hadris_storage::{BlockSize, MemDevice};
 use libfuzzer_sys::fuzz_target;
 
-type View<'a> = IsoView<&'a mut MemDevice<Vec<u8>>>;
+type View<'a> = IsoFs<&'a mut MemDevice<Vec<u8>>>;
 
 /// `lookup` re-scans a directory from the start, so cap name re-resolution
 /// lookups per directory to keep the walk from going quadratic under the
@@ -124,8 +124,8 @@ fn walk(view: &mut View<'_>, budget: &mut u32) {
 fn drive(data: &[u8]) {
     let mut bytes = data.to_vec();
     bytes.resize(bytes.len().next_multiple_of(512), 0);
-    let dev = MemDevice::new(bytes, BlockSize::new(512).unwrap());
-    let Ok(mut image) = IsoImage::open(dev) else {
+    let mut dev = MemDevice::new(bytes, BlockSize::new(512).unwrap());
+    let Ok(mut image) = IsoFs::mount(&mut dev, MountOptions::new()) else {
         return;
     };
     for index in 0..70 {
@@ -138,8 +138,9 @@ fn drive(data: &[u8]) {
 
     let mut budget: u32 = 200_000;
     let namespaces: Vec<_> = image.namespaces().iter().collect();
+    drop(image);
     for namespace in namespaces {
-        if let Ok(mut view) = image.view(namespace) {
+        if let Ok(mut view) = IsoFs::mount_namespace(&mut dev, MountOptions::new(), namespace) {
             walk(&mut view, &mut budget);
         }
     }

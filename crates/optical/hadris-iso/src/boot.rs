@@ -134,7 +134,7 @@ impl BootCatalogEntry {
     }
 }
 
-/// A parsed El Torito boot catalog, as `IsoImage::boot_catalog` reads it.
+/// A parsed El Torito boot catalog, as `IsoFs::boot_catalog` reads it.
 #[cfg(feature = "alloc")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BootCatalog {

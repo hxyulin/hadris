@@ -4,10 +4,11 @@ mod common;
 
 use common::Paths;
 use common::{image, pattern, sample};
+use hadris_fs::MountOptions;
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{Content, Field, Node, Tree, WarningKind};
 use hadris_fs::{DeviceNumber, ErrorKind, FileType, Permissions, Resolve};
-use hadris_iso::sync::IsoImage;
+use hadris_iso::sync::IsoFs;
 use hadris_iso::{
     BootEntry, BootInfo, ElTorito, Emulation, IsoLevel, IsoOptions, JolietLevel, NameCase,
     Namespace, Platform, RockRidge, VolumeIdentifiers,
@@ -25,8 +26,10 @@ fn full() -> IsoOptions {
 #[test]
 fn every_tree_reads_back() {
     let tree = sample(true, true);
-    let mut iso = IsoImage::open(image(&tree, &full())).unwrap();
-    let namespaces = iso.namespaces();
+    let mut iso = image(&tree, &full());
+    let namespaces = IsoFs::mount(&mut iso, MountOptions::new())
+        .unwrap()
+        .namespaces();
     assert!(namespaces.contains(Namespace::RockRidge));
     assert_eq!(namespaces.joliet_level(), Some(JolietLevel::L3));
     assert!(namespaces.contains(Namespace::Enhanced));
@@ -38,7 +41,7 @@ fn every_tree_reads_back() {
         Namespace::Enhanced,
         Namespace::Primary,
     ] {
-        let mut view = iso.view(ns).unwrap();
+        let mut view = IsoFs::mount_namespace(&mut iso, MountOptions::new(), ns).unwrap();
         let big = if ns == Namespace::Primary {
             "/DOCS/BIG.BIN"
         } else {
@@ -52,7 +55,8 @@ fn every_tree_reads_back() {
         );
     }
 
-    let mut rr = iso.view(Namespace::RockRidge).unwrap();
+    let mut rr =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::RockRidge).unwrap();
     assert_eq!(
         rr.read_to_vec("/a/b/c/d/e/f/g/h/i/deep.txt").unwrap(),
         b"deep"
@@ -89,7 +93,8 @@ fn every_tree_reads_back() {
     let parent = rr.parent(deep).unwrap();
     assert_eq!(parent, rr.resolve_path("/a/b/c/d/e/f/g").unwrap());
 
-    let mut joliet = iso.view(Namespace::Joliet).unwrap();
+    let mut joliet =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Joliet).unwrap();
     assert_eq!(
         joliet.read_to_vec("/Long Name With Spaces é.txt").unwrap(),
         b"long"
@@ -101,7 +106,8 @@ fn every_tree_reads_back() {
         b"deep"
     );
 
-    let mut primary = iso.view(Namespace::Primary).unwrap();
+    let mut primary =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Primary).unwrap();
     assert_eq!(
         primary.read_to_vec("/readme.txt").unwrap(),
         b"hello world\n"
@@ -128,9 +134,9 @@ fn relocation_reuses_a_root_directory_of_that_name() {
         Node::file(Content::bytes("inner")),
     )
     .unwrap();
-    let mut iso = IsoImage::open(image(&tree, &full())).unwrap();
+    let mut iso = image(&tree, &full());
     for ns in [Namespace::RockRidge, Namespace::Joliet] {
-        let mut view = iso.view(ns).unwrap();
+        let mut view = IsoFs::mount_namespace(&mut iso, MountOptions::new(), ns).unwrap();
         assert_eq!(
             view.read_to_vec("/a/b/c/d/e/f/g/h/i/deep.txt").unwrap(),
             b"deep",
@@ -152,15 +158,17 @@ fn relocation_reuses_a_root_directory_of_that_name() {
             "{ns:?}"
         );
     }
-    let mut primary = iso.view(Namespace::Primary).unwrap();
+    let mut primary =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Primary).unwrap();
     assert_eq!(names(&mut primary, "/RR_MOVED").len(), 3);
 }
 
 #[test]
 fn listings_resume_and_skip_dots() {
     let tree = sample(false, false);
-    let mut iso = IsoImage::open(image(&tree, &IsoOptions::default())).unwrap();
-    let mut view = iso.view(Namespace::Preferred).unwrap();
+    let mut iso = image(&tree, &IsoOptions::default());
+    let mut view =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Preferred).unwrap();
     assert_eq!(view.namespace(), Namespace::Primary);
     let root = view.root();
     let mut cursor = hadris_fs::DirCursor::START;
@@ -187,8 +195,9 @@ fn reports_match_what_the_reader_finds() {
     let tree = sample(true, true);
     let options = full();
     let report = hadris_iso::plan(&tree, &options).unwrap();
-    let mut iso = IsoImage::open(image(&tree, &options)).unwrap();
-    let mut view = iso.view(Namespace::RockRidge).unwrap();
+    let mut iso = image(&tree, &options);
+    let mut view =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::RockRidge).unwrap();
     for path in [
         "/readme.txt",
         "/docs/big.bin",
@@ -214,7 +223,14 @@ fn reports_match_what_the_reader_finds() {
         relocated,
         [(WarningKind::Relocated, Some(&b"a/b/c/d/e/f/g/h"[..]))]
     );
-    assert_eq!(report.size() / 2048, u64::from(iso.volume_blocks()));
+    assert_eq!(
+        report.size() / 2048,
+        u64::from(
+            IsoFs::mount(&mut iso, MountOptions::new())
+                .unwrap()
+                .volume_blocks()
+        )
+    );
 }
 
 #[test]
@@ -244,8 +260,9 @@ fn trees_without_rock_ridge_report_what_they_drop() {
 fn lowercase_names_are_kept_on_request() {
     let tree = sample(false, false);
     let options = IsoOptions::default().with_name_case(NameCase::Preserve);
-    let mut iso = IsoImage::open(image(&tree, &options)).unwrap();
-    let mut view = iso.view(Namespace::Primary).unwrap();
+    let mut iso = image(&tree, &options);
+    let mut view =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Primary).unwrap();
     assert!(view.exists("/readme.txt").unwrap());
     let node = view.resolve_path("/readme.txt").unwrap();
     assert_eq!(view.raw_record(node).unwrap().name(), b"readme.txt;1");
@@ -264,9 +281,18 @@ fn boot_catalogs_read_back() {
         .with_catalog_path("boot/boot.cat"),
     );
     let report = hadris_iso::plan(&tree, &options).unwrap();
-    let mut iso = IsoImage::open(image(&tree, &options)).unwrap();
-    let catalog = iso.boot_catalog().unwrap().unwrap();
-    assert_eq!(Some(catalog.block()), iso.boot_catalog_block());
+    let mut iso = image(&tree, &options);
+    let catalog = IsoFs::mount(&mut iso, MountOptions::new())
+        .unwrap()
+        .boot_catalog()
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        Some(catalog.block()),
+        IsoFs::mount(&mut iso, MountOptions::new())
+            .unwrap()
+            .boot_catalog_block()
+    );
     assert_eq!(
         report
             .extents("boot/boot.cat")
@@ -303,7 +329,8 @@ fn boot_catalogs_read_back() {
             .offset()
     );
 
-    let mut view = iso.view(Namespace::Primary).unwrap();
+    let mut view =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Primary).unwrap();
     let boot = view.read_to_vec("/boot/boot.img").unwrap();
     let table: [u8; 16] = boot[8..24].try_into().unwrap();
     assert_eq!(u32::from_le_bytes(table[..4].try_into().unwrap()), 16);
@@ -340,8 +367,9 @@ fn async_modes_read_and_write_alike() {
             .unwrap();
         assert_eq!(dev.get_ref(), &sync_image);
 
-        let mut iso = hadris_iso::r#async::IsoImage::open(dev).await.unwrap();
-        let mut view = iso.view(Namespace::Preferred).await_view();
+        let mut view = hadris_iso::r#async::IsoFs::mount(dev, MountOptions::new())
+            .await
+            .unwrap();
         use hadris_fs::r#async::FileSystem as _;
         let big = view
             .resolve(b"/docs/big.bin", Resolve::Lexical)
@@ -374,27 +402,19 @@ fn async_modes_read_and_write_alike() {
 #[test]
 fn hard_links_share_one_node_id() {
     let tree = sample(true, true);
-    let mut iso = IsoImage::open(image(&tree, &full())).unwrap();
-    let mut view = iso.view(Namespace::RockRidge).unwrap();
+    let mut iso = image(&tree, &full());
+    let mut view =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::RockRidge).unwrap();
     let target = view.resolve_path("/readme.txt").unwrap();
     assert_eq!(view.resolve_path("/docs/hard.txt").unwrap(), target);
     assert_ne!(view.resolve_path("/docs/big.bin").unwrap(), target);
     assert_eq!(view.metadata("/docs/hard.txt").unwrap().nlink(), 2);
-    let mut primary = iso.view(Namespace::Primary).unwrap();
+    let mut primary =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Primary).unwrap();
     assert_ne!(
         primary.resolve_path("/README.TXT").unwrap(),
         primary.resolve_path("/DOCS/HARD.TXT").unwrap()
     );
-}
-
-trait AwaitView<T> {
-    fn await_view(self) -> T;
-}
-
-impl<T, E: std::fmt::Debug> AwaitView<T> for Result<T, E> {
-    fn await_view(self) -> T {
-        self.unwrap()
-    }
 }
 
 #[test]
@@ -408,18 +428,23 @@ fn smaller_device_blocks_hold_images() {
     );
     hadris_iso::sync::write(&mut dev, &tree, &options).unwrap();
     assert_eq!(dev.get_ref(), &bytes);
-    let mut iso = IsoImage::open(dev).unwrap();
-    let mut view = iso.view(Namespace::Primary).unwrap();
+    let mut iso = dev;
+    let mut view =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Primary).unwrap();
     assert_eq!(view.read_to_vec("/docs/big.bin").unwrap(), pattern(100_000));
 }
 
 #[test]
 fn supplementary_escape_sequences_are_zero_padded() {
     let tree = sample(true, true);
-    let mut iso = IsoImage::open(image(&tree, &full())).unwrap();
+    let mut iso = image(&tree, &full());
     let mut index = 0;
     let mut seen = 0;
-    while let Some(descriptor) = iso.descriptor(index).unwrap() {
+    while let Some(descriptor) = IsoFs::mount(&mut iso, MountOptions::new())
+        .unwrap()
+        .descriptor(index)
+        .unwrap()
+    {
         index += 1;
         if let hadris_iso::raw::VolumeDescriptor::Supplementary(svd) = descriptor {
             let escapes = svd.escape_sequences;
@@ -443,8 +468,9 @@ fn primary_names_keep_the_separator_and_split_at_the_last_dot() {
         .unwrap();
     for level in [IsoLevel::L1, IsoLevel::L2] {
         let options = IsoOptions::default().with_level(level);
-        let mut iso = IsoImage::open(image(&tree, &options)).unwrap();
-        let mut view = iso.view(Namespace::Primary).unwrap();
+        let mut iso = image(&tree, &options);
+        let mut view =
+            IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Primary).unwrap();
         let readme = view.resolve_path("/README").unwrap();
         assert_eq!(view.raw_record(readme).unwrap().name(), b"README.;1");
         let tarball = view.resolve_path("/X_TAR.GZ").unwrap();
@@ -485,8 +511,9 @@ fn joliet_reports_the_names_it_changes() {
             long.clone(),
         ]
     );
-    let mut iso = IsoImage::open(image(&tree, &options)).unwrap();
-    let mut view = iso.view(Namespace::Joliet).unwrap();
+    let mut iso = image(&tree, &options);
+    let mut view =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Joliet).unwrap();
     assert_eq!(view.read_to_vec("/a_b_c_d").unwrap(), b"x");
     assert_eq!(view.read_to_vec("emoji_.txt").unwrap(), b"x");
 }

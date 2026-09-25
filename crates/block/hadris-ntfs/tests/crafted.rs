@@ -2,6 +2,7 @@
 //! structures that must fail with an error, never a panic.
 
 use hadris_fs::Error;
+use hadris_fs::MountOptions;
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{DirCursor, ErrorKind, FileType, Name, NodeId};
 use hadris_ntfs::Detail;
@@ -21,11 +22,11 @@ fn device(image: Vec<u8>) -> MemDevice<Vec<u8>> {
 }
 
 fn open(image: Vec<u8>) -> NtfsFs<MemDevice<Vec<u8>>> {
-    NtfsFs::open(device(image)).expect("crafted image must mount")
+    NtfsFs::mount(device(image), MountOptions::new()).expect("crafted image must mount")
 }
 
 fn open_err(image: Vec<u8>) -> Error<core::convert::Infallible> {
-    match NtfsFs::open(device(image)) {
+    match NtfsFs::mount(device(image), MountOptions::new()) {
         Ok(_) => panic!("the image mounted"),
         Err(err) => err.into(),
     }
@@ -68,13 +69,14 @@ fn contract_holds_in_every_mode_and_tier() {
     hadris_fs::sync::contract::check_read_only(&mut fs).unwrap();
 
     block_on(async {
-        let mut fs = hadris_ntfs::r#async::NtfsFs::open(device(image.clone()))
-            .await
-            .unwrap();
+        let mut fs =
+            hadris_ntfs::r#async::NtfsFs::mount(device(image.clone()), MountOptions::new())
+                .await
+                .unwrap();
         hadris_fs::r#async::contract::check_read_only(&mut fs)
             .await
             .unwrap();
-        let fs = hadris_ntfs::r#async::NtfsFs::open(device(image))
+        let fs = hadris_ntfs::r#async::NtfsFs::mount(device(image), MountOptions::new())
             .await
             .unwrap();
         let vol = hadris_fs::r#async::Volume::new(fs);
@@ -281,7 +283,7 @@ fn open_rejects_bad_boot_sectors() {
 #[test]
 fn open_refuses_blocks_above_4096_and_gives_the_device_back() {
     let dev = MemDevice::new(base_image(), BlockSize::new(8192).unwrap());
-    let Err(err) = NtfsFs::open(dev) else {
+    let Err(err) = NtfsFs::mount(dev, MountOptions::new()) else {
         panic!("mounted");
     };
     let (err, dev) = err.into_parts();
@@ -475,7 +477,7 @@ fn attribute_lists_join_extension_records() {
     assert_eq!(&buf[..n], b"alternate");
     hadris_fs::sync::contract::check_read_only(&mut fs).unwrap();
     block_on(async {
-        let mut fs = hadris_ntfs::r#async::NtfsFs::open(device(image))
+        let mut fs = hadris_ntfs::r#async::NtfsFs::mount(device(image), MountOptions::new())
             .await
             .unwrap();
         assert_eq!(read_async(&mut fs, "/BIN.DAT").await, content);
@@ -608,14 +610,16 @@ fn large_streams_read_across_runs() {
 fn async_modes_walk_and_reject_corruption() {
     use hadris_fs::r#async::FileSystem as _;
     block_on(async {
-        let mut fs = hadris_ntfs::r#async::NtfsFs::open(device(base_image()))
+        let mut fs = hadris_ntfs::r#async::NtfsFs::mount(device(base_image()), MountOptions::new())
             .await
             .unwrap();
         assert_eq!(read_async(&mut fs, "/HELLO.TXT").await, b"hello ntfs");
-        let mut fs =
-            hadris_ntfs::r#async::NtfsFs::open(device(allocation_image(u32::MAX, &[1], None)))
-                .await
-                .unwrap();
+        let mut fs = hadris_ntfs::r#async::NtfsFs::mount(
+            device(allocation_image(u32::MAX, &[1], None)),
+            MountOptions::new(),
+        )
+        .await
+        .unwrap();
         let root = fs.root();
         let sub = fs.lookup(root, name("SUBDIR")).await.unwrap();
         assert!(fs.readdir(sub, DirCursor::START).await.is_err());

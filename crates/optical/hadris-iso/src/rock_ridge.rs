@@ -14,7 +14,7 @@ pub(crate) const S_IFDIR: u32 = 0o040_000;
 pub(crate) const S_IFCHR: u32 = 0o020_000;
 pub(crate) const S_IFIFO: u32 = 0o010_000;
 
-/// The Rock Ridge entries of one node, as `IsoView::rock_ridge` reads
+/// The Rock Ridge entries of one node, as `IsoFs::rock_ridge` reads
 /// them.
 ///
 /// Fields a node has no entry for are `None`. Names and symlink targets are

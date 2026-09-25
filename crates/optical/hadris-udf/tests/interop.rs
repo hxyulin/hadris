@@ -4,6 +4,7 @@
 
 mod common;
 
+use hadris_fs::MountOptions;
 use std::path::Path;
 use std::process::Command;
 
@@ -139,8 +140,11 @@ fn mkudffs_volumes_read_back() {
             "{}",
             String::from_utf8_lossy(&out.stderr)
         );
-        let mut udf = UdfFs::open(hadris_storage::host::FileDevice::open(&path).unwrap())
-            .unwrap_or_else(|err| panic!("{revision}/{block}: {err}"));
+        let mut udf = UdfFs::mount(
+            hadris_storage::host::FileDevice::open(&path).unwrap(),
+            MountOptions::new(),
+        )
+        .unwrap_or_else(|err| panic!("{revision}/{block}: {err}"));
         assert_eq!(udf.logical_volume_id(), "MKUDFFS");
         assert_eq!(udf.block_size(), block);
         assert_eq!(udf.revision().to_string(), revision);

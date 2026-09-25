@@ -56,8 +56,8 @@ fn main() -> Result<()> {
 other `hadris-storage` device, such as a `MemDevice` over bytes already in
 memory. Lookups ignore case, and long names are always read. Files opened
 with `vol.open(path, OpenOptions::new().read())` implement `std::io::Read`
-and `Seek`, and `hadris_fs::sync::extract_to_host(&mut *vol.lock(), "/",
-"out")` copies the whole tree to the host. Short names are read in CP437
+and `Seek`, and `hadris_fs::sync::read_tree(&vol, "/")` followed by
+`hadris_fs::host::write_tree("out", &tree)` copies the whole tree to the host. Short names are read in CP437
 unless `MountOptions::with_code_page` names another code page.
 
 Directory iteration surfaces malformed entries and I/O failures as errors; do

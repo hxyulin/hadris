@@ -15,8 +15,9 @@ use std::path::{Path, PathBuf};
 use hadris_fs::Resolve;
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{Metadata, NodeId};
+use hadris_iso::Namespace;
 use hadris_iso::raw::VolumeDescriptor;
-use hadris_iso::sync::IsoView;
+use hadris_iso::sync::IsoFs;
 use hadris_tests::iso::hadris::Image;
 use hadris_tests::iso::xorriso;
 use tempfile::TempDir;
@@ -44,6 +45,14 @@ fn open(bytes: Vec<u8>) -> Image {
 
 fn open_file(path: &Path) -> Image {
     open(std::fs::read(path).unwrap())
+}
+
+fn open_ns(bytes: Vec<u8>, namespace: Namespace) -> Image {
+    hadris_tests::iso::hadris::open_namespace(bytes, namespace).expect("failed to open ISO image")
+}
+
+fn open_file_ns(path: &Path, namespace: Namespace) -> Image {
+    open_ns(std::fs::read(path).unwrap(), namespace)
 }
 
 /// The volume identifier of the primary volume descriptor.
@@ -88,7 +97,7 @@ fn validation_checksum(entry: &[u8]) -> u16 {
 
 /// The entries of the directory `path`: name, node and metadata.
 fn list<D: hadris_storage::sync::BlockDevice>(
-    view: &mut IsoView<D>,
+    view: &mut IsoFs<D>,
     path: &str,
 ) -> Vec<(String, NodeId, Metadata)> {
     let dir = view.resolve(path.as_bytes(), Resolve::Lexical).unwrap();
@@ -109,7 +118,7 @@ fn list<D: hadris_storage::sync::BlockDevice>(
 
 /// The byte range of the first extent of `node`.
 fn first_extent<D: hadris_storage::sync::BlockDevice>(
-    view: &mut IsoView<D>,
+    view: &mut IsoFs<D>,
     node: NodeId,
 ) -> hadris_fs::Extent {
     let mut first = None;

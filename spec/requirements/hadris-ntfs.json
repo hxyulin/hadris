@@ -11,7 +11,7 @@
       "summary": "The MFT stores information used to retrieve files from an NTFS partition.",
       "direction": "read",
       "status": "partial",
-      "symbols": [{"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "NtfsFs::open"}, {"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "NtfsFs::read_at"}],
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "NtfsFs::mount"}, {"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "NtfsFs::read_at"}],
       "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "files_read_back", "kind": "interop"}, {"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "attribute_lists_on_a_real_volume", "kind": "interop"}],
       "gap": "Resident, non-resident, sparse and listed streams are retrievable; compressed and encrypted streams and $MFTMirr recovery are unsupported."
     },

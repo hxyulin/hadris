@@ -7,6 +7,7 @@
 //! read twice and the bytes must match, and listed entries must re-resolve
 //! by name through `lookup` to the id the listing gave.
 
+use hadris_fs::MountOptions;
 use std::collections::HashSet;
 
 use hadris_fs::sync::FileSystem;
@@ -110,7 +111,10 @@ fn walk(fs: &mut Fs) {
 fn drive(data: &[u8]) {
     let mut bytes = data.to_vec();
     bytes.resize(bytes.len().next_multiple_of(512), 0);
-    let Ok(mut fs) = NtfsFs::open(MemDevice::new(bytes, BlockSize::new(512).unwrap())) else {
+    let Ok(mut fs) = NtfsFs::mount(
+        MemDevice::new(bytes, BlockSize::new(512).unwrap()),
+        MountOptions::new(),
+    ) else {
         return;
     };
     let mut label = [0u8; 1024];

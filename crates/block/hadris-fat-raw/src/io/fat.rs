@@ -69,6 +69,30 @@ pub async fn read_geometry<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf) ->
     Ok(geo)
 }
 
+/// Reads the FAT32 backup boot sector, sector 6 at a sector size of 512 to
+/// 4096 bytes, and checks that the volume fits the device, for mounting a
+/// volume whose boot sector is damaged.
+///
+/// Fails with [`ErrorKind::InvalidInput`] when `block` is not sized to the
+/// device's blocks, with [`ErrorKind::Corrupt`] and
+/// [`Detail::BackupBootSector`] when there is no valid FAT32 backup boot
+/// sector, and with [`ErrorKind::Corrupt`] when it describes a volume
+/// larger than the device.
+pub async fn read_backup_geometry<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf) -> FsResult<Geometry, D::Error> {
+    if block.size as u64 != dev.block_size().get() as u64 {
+        return Err(ErrorKind::InvalidInput.into());
+    }
+    let mut sector = [0u8; BOOT_SECTOR_LEN];
+    let Some((geo, _)) = super::check::read_backup(dev, block, &mut sector).await? else {
+        return Err(Detail::BackupBootSector.corrupt());
+    };
+    let device_len = dev.block_count().saturating_mul(block.size as u64);
+    if geo.data_end() > device_len {
+        return Err(Error::new(ErrorKind::Corrupt, "volume is larger than the device").with_detail(Detail::BootSector.code()));
+    }
+    Ok(geo)
+}
+
 /// The [`Fat`] state of a volume with geometry `geo`, with the free count
 /// and allocation hint of its FAT32 FSInfo sector when that is valid.
 pub async fn read_fat<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, geo: Geometry) -> FsResult<Fat, D::Error> {

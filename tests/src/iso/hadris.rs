@@ -2,11 +2,11 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-use hadris_fs::NodeId;
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{Content, Node, Tree};
+use hadris_fs::{MountOptions, NodeId};
 use hadris_iso::plan;
-use hadris_iso::sync::{IsoImage, IsoView};
+use hadris_iso::sync::IsoFs;
 use hadris_iso::{Charset, IsoOptions, Namespace, VolumeIdentifiers};
 use hadris_storage::{BlockSize, MemDevice};
 
@@ -20,7 +20,7 @@ use crate::harness::tree::EntryData;
 pub const NAME: &str = "Hadris";
 
 /// An image held in memory.
-pub type Image = IsoImage<MemDevice<Vec<u8>>>;
+pub type Image = IsoFs<MemDevice<Vec<u8>>>;
 
 /// The Hadris ISO implementation as a peer of the external tools.
 pub struct HadrisIso;
@@ -45,12 +45,17 @@ impl IsoConsumer for HadrisIso {
     }
 }
 
-/// Opens an image held in memory. The bytes are padded to whole 512-byte
-/// device blocks.
-pub fn open(mut bytes: Vec<u8>) -> Result<Image, String> {
+/// Mounts an image held in memory with its most capable tree. The bytes
+/// are padded to whole 512-byte device blocks.
+pub fn open(bytes: Vec<u8>) -> Result<Image, String> {
+    open_namespace(bytes, Namespace::Preferred)
+}
+
+/// Mounts an image held in memory with the tree `namespace` names.
+pub fn open_namespace(mut bytes: Vec<u8>, namespace: Namespace) -> Result<Image, String> {
     bytes.resize(bytes.len().next_multiple_of(512), 0);
     let dev = MemDevice::new(bytes, BlockSize::new(512).unwrap());
-    IsoImage::open(dev).map_err(|error| error.to_string())
+    IsoFs::mount_namespace(dev, MountOptions::new(), namespace).map_err(|error| error.to_string())
 }
 
 /// Writes `tree` into memory, sized by `plan`.
@@ -90,14 +95,11 @@ pub fn write(state: &IsoState) -> Result<Vec<u8>, String> {
 }
 
 pub fn snapshot(bytes: Vec<u8>) -> Result<IsoState, String> {
-    let mut image = open(bytes)?;
-    let pvd = image
+    let mut view = open_namespace(bytes, Namespace::Primary)?;
+    let pvd = view
         .primary_descriptor()
         .map_err(|error| error.to_string())?;
     let volume_id = String::from_utf8_lossy(pvd.volume_identifier.trimmed()).into_owned();
-    let mut view = image
-        .view(Namespace::Primary)
-        .map_err(|error| error.to_string())?;
     let mut entries = BTreeMap::new();
     let root = view.root();
     snapshot_dir(&mut view, root, "/", &mut entries)?;
@@ -115,7 +117,7 @@ pub fn verify_image(label: &str, bytes: Vec<u8>, expected: &IsoState) -> Result<
 /// Every entry of the directory `dir` at `path` of `view`, keyed by path,
 /// with the version suffix of each name removed.
 pub fn snapshot_dir<D: hadris_storage::sync::BlockDevice>(
-    view: &mut IsoView<D>,
+    view: &mut IsoFs<D>,
     dir: NodeId,
     path: &str,
     out: &mut BTreeMap<String, EntryData>,

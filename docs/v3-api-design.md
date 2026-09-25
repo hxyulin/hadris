@@ -1646,7 +1646,13 @@ into `next` per step, each leaving the workspace building and tested:
   - `host::file` measures a device such as `\\.\PhysicalDrive2` with `file_len`, since its metadata fails on Windows.
 
   Deferred: `Session::plan` and sessions over a lazy `Volume`; the ISO and UDF option reshape (`IsoId`, `Hybrid`, `ElTorito`, `UdfId`, UDF `with_seed`) to R7; `WarningKind::Deduplicated`, which no writer emits yet; the cpio reader reshape; `experiments/fuse-prototype` still uses the removed API. Open points are [Q14](#7-open-questions).
-- R7. **Extras and crate merges.** `detect`, `open` and `AnyFs` in the umbrella, the `info` and `extents` family, `Walk`, the removal of `hadris-cd`, `hadris-block` and `hadris-optical`, and the single `hadris` binary.
+- R7. **Extras and crate merges.** `detect`, `open` and `AnyFs` in the umbrella, the `info` and `extents` family, `Walk`, the removal of `hadris-cd`, `hadris-block` and `hadris-optical`, and the single `hadris` binary. In progress:
+  - #188: Q14.
+  - Mounting: `IsoImage` and `IsoView` merge into `IsoFs` with `mount`, `mount_namespace` and `unmount`; `UdfFs` and `NtfsFs` trade `open` for `mount` and `unmount`. `MountOptions::backup_boot` mounts FAT32 from sector 6 and exFAT from its backup region, both read-only, and makes UDF read the end anchors and the reserve sequence first; ISO has no backup structures and NTFS ignores it. A UDF entry whose file entry is damaged is listed with the type its identifier records and fails `stat`, so one bad entry no longer fails the listing.
+
+  Decisions where the spec was silent or the code differs from it:
+  - `MountOptions` has no namespace field, so choosing an ISO tree is `IsoFs::mount_namespace(dev, options, Namespace)`; `mount` takes the most capable tree. Open point: a `MountOptions` field would reach `open` and `AnyFs` too.
+  - With `backup_boot`, a volume whose boot sector reads as FAT12 or FAT16 mounts from it, since those have no backup; a FAT32 volume without a valid backup fails with `Corrupt`.
 - R8. **Embedded.** `Fat` and `ExFat` on the raw layer, with cross-target CI for size and stack.
 
 14. **3.0.0-rc.1.** CI guardrails become blocking. Migration guide (`docs/hadris-3.0.0-migration.md`) with a V2 to V3 symbol table.

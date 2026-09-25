@@ -18,12 +18,12 @@ handles and the host helpers work on it.
 ```rust,no_run
 use std::io::Read;
 
-use hadris_fs::OpenOptions;
+use hadris_fs::{MountOptions, OpenOptions};
 use hadris_fs::sync::Volume;
 use hadris_udf::sync::UdfFs;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let udf = UdfFs::open(hadris_storage::host::FileDevice::open("disc.udf")?)?;
+    let udf = UdfFs::mount(hadris_storage::host::FileDevice::open("disc.udf")?, MountOptions::new())?;
     println!("volume: {}", udf.logical_volume_id());
     let vol = Volume::new(udf);
 
@@ -37,12 +37,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     vol.open("/README.TXT", OpenOptions::new().read())?
         .read_to_end(&mut readme)?;
     std::fs::write("README.TXT", readme)?;
-    hadris_fs::sync::extract_to_host(&mut *vol.lock(), "/", "out")?;
+    let tree = hadris_fs::sync::read_tree(&vol, "/")?;
+    hadris_fs::host::write_tree("out", &tree)?;
     Ok(())
 }
 ```
 
-`extract_to_host` refuses names with separators or `..` components and never
+`host::write_tree` refuses names with separators or `..` components and never
 writes through an existing host symlink, so an untrusted image cannot escape
 the target directory.
 

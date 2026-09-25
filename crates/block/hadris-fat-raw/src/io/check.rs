@@ -252,7 +252,7 @@ pub async fn check<D: BlockDevice, F: FnMut(&Finding<'_>)>(
 
 /// The geometry of a FAT32 backup boot sector at sector 6, read into
 /// `sector`, and its byte offset.
-async fn read_backup<D: BlockDevice>(
+pub(super) async fn read_backup<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
     sector: &mut [u8; BOOT_SECTOR_LEN],

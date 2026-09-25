@@ -1,3 +1,4 @@
+use hadris_fs::MountOptions;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -9,7 +10,7 @@ use std::hash::Hasher;
 use hadris_fs::host::{self, OnError, TreeOptions};
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{Clock, DirCursor, FileType, NodeId, OpenMode, Resolve, SystemClock, WarningKind};
-use hadris_iso::sync::IsoImage;
+use hadris_iso::sync::IsoFs;
 use hadris_iso::{
     BootEntry, BootInfo, ElTorito, HybridBoot, JolietLevel, Namespace, Platform, RockRidge,
     VolumeIdentifiers,
@@ -231,8 +232,8 @@ fn normalize(path: &str) -> String {
 }
 
 fn info(path: &Path) -> Result<()> {
-    let iso = IsoImage::open(FileDevice::open(path)?).ok();
-    let udf = UdfFs::open(FileDevice::open(path)?).ok();
+    let iso = IsoFs::mount(FileDevice::open(path)?, MountOptions::new()).ok();
+    let udf = UdfFs::mount(FileDevice::open(path)?, MountOptions::new()).ok();
     if iso.is_none() && udf.is_none() {
         return Err("image contains neither a readable ISO 9660 nor UDF filesystem".into());
     }
@@ -261,12 +262,13 @@ fn info(path: &Path) -> Result<()> {
 }
 
 fn verify(path: &Path) -> Result<()> {
-    let mut iso = IsoImage::open(FileDevice::open(path)?)
-        .map_err(|error| format!("ISO namespace is not readable: {error}"))?;
-    let mut udf = UdfFs::open(FileDevice::open(path)?)
+    let mut iso = FileDevice::open(path)?;
+    IsoFs::mount(&mut iso, MountOptions::new())
+        .map_err(|error| format!("ISO namespace is not readable: {}", error.error()))?;
+    let mut udf = UdfFs::mount(FileDevice::open(path)?, MountOptions::new())
         .map_err(|error| format!("UDF namespace is not readable: {error}"))?;
 
-    let mut view = iso.view(Namespace::Preferred)?;
+    let mut view = IsoFs::mount(&mut iso, MountOptions::new()).map_err(|err| err.into_parts().0)?;
     let namespace = view.namespace();
     let names_match = namespace != Namespace::Primary;
     let mut iso_nodes = BTreeMap::new();
@@ -318,7 +320,7 @@ fn verify(path: &Path) -> Result<()> {
 /// directories: absent from UDF, empty in the Rock Ridge view because their
 /// children are shown in their real place, and not empty in the primary tree.
 fn relocation_dirs(
-    iso: &mut IsoImage<FileDevice>,
+    iso: &mut FileDevice,
     iso_nodes: &BTreeMap<String, Node>,
     udf_nodes: &BTreeMap<String, Node>,
 ) -> Result<Vec<String>> {
@@ -339,7 +341,8 @@ fn relocation_dirs(
     if candidates.is_empty() {
         return Ok(Vec::new());
     }
-    let mut primary = iso.view(Namespace::Primary)?;
+    let mut primary = IsoFs::mount_namespace(iso, MountOptions::new(), Namespace::Primary)
+        .map_err(|err| err.into_parts().0)?;
     let mut found = Vec::new();
     for path in candidates {
         let dir = primary.resolve(format!("/{path}").as_bytes(), Resolve::Lexical)?;

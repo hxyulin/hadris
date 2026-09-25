@@ -110,7 +110,7 @@ impl<D: BlockDevice> OpenVolume<D> {
                 }
             }
             BlockFormat::Ntfs => {
-                NtfsFs::open(dev).await.map(|ntfs| Self { inner: Inner::Ntfs(ntfs) })
+                NtfsFs::mount(dev, MountOptions::new()).await.map(|ntfs| Self { inner: Inner::Ntfs(ntfs) })
             }
             BlockFormat::PartitionTable(_) => Err(MountError::new(
                 Detail::PartitionedDisk.error(ErrorKind::InvalidInput),

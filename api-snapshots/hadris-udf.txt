@@ -7,10 +7,11 @@ pub fn hadris_udf::async::UdfFs<D>::device(&self) -> &D
 pub async fn hadris_udf::async::UdfFs<D>::extents(&mut self, hadris_fs::node::NodeId, impl core::ops::function::FnMut(hadris_fs::extent::Extent)) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris_udf::async::UdfFs<D>::into_inner(self) -> D
 pub fn hadris_udf::async::UdfFs<D>::logical_volume_id(&self) -> &str
-pub async fn hadris_udf::async::UdfFs<D>::open(D) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_udf::async::UdfFs<D>::mount(D, hadris_fs::mount::MountOptions) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
 pub fn hadris_udf::async::UdfFs<D>::partitions(&self) -> &[hadris_udf::Partition]
 pub async fn hadris_udf::async::UdfFs<D>::read_bytes(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
 pub fn hadris_udf::async::UdfFs<D>::revision(&self) -> hadris_udf::UdfRevision
+pub async fn hadris_udf::async::UdfFs<D>::unmount(self) -> core::result::Result<D, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
 pub fn hadris_udf::async::UdfFs<D>::volume_id(&self) -> &str
 impl<D: hadris_storage::async::api::BlockDevice> hadris_fs::async::api::filesystem::FileSystem for hadris_udf::async::UdfFs<D>
 pub type hadris_udf::async::UdfFs<D>::DeviceError = <D as hadris_io::error::ErrorType>::Error
@@ -690,10 +691,11 @@ pub fn hadris_udf::sync::UdfFs<D>::device(&self) -> &D
 pub fn hadris_udf::sync::UdfFs<D>::extents(&mut self, hadris_fs::node::NodeId, impl core::ops::function::FnMut(hadris_fs::extent::Extent)) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris_udf::sync::UdfFs<D>::into_inner(self) -> D
 pub fn hadris_udf::sync::UdfFs<D>::logical_volume_id(&self) -> &str
-pub fn hadris_udf::sync::UdfFs<D>::open(D) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_udf::sync::UdfFs<D>::mount(D, hadris_fs::mount::MountOptions) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
 pub fn hadris_udf::sync::UdfFs<D>::partitions(&self) -> &[hadris_udf::Partition]
 pub fn hadris_udf::sync::UdfFs<D>::read_bytes(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
 pub fn hadris_udf::sync::UdfFs<D>::revision(&self) -> hadris_udf::UdfRevision
+pub fn hadris_udf::sync::UdfFs<D>::unmount(self) -> core::result::Result<D, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
 pub fn hadris_udf::sync::UdfFs<D>::volume_id(&self) -> &str
 impl<D: hadris_storage::sync::api::BlockDevice> hadris_fs::sync::api::filesystem::FileSystem for hadris_udf::sync::UdfFs<D>
 pub type hadris_udf::sync::UdfFs<D>::DeviceError = <D as hadris_io::error::ErrorType>::Error

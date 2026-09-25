@@ -120,6 +120,25 @@ fn damaged_main_boot_regions_mount_from_the_backup() {
 }
 
 #[test]
+fn backup_boot_mounts_the_backup_region() {
+    let mut fs = common::small(4 << 20, 4096);
+    let root = fs.root();
+    let node = common::write(&mut fs, root, "kept.txt", b"backup");
+    fs.forget(node, 1);
+    fs.sync().unwrap();
+    let image = common::image(fs);
+    let backup = MountOptions::new().backup_boot();
+    let mut fs = ExFatFs::mount(common::device(image.clone(), 512), backup).unwrap();
+    assert!(fs.is_read_only());
+    assert_eq!(fs.read_to_vec("/kept.txt").unwrap(), b"backup");
+    let mut damaged = image;
+    damaged[12 * 512 + 200] ^= 1;
+    assert!(ExFatFs::mount(common::device(damaged.clone(), 512), MountOptions::new()).is_ok());
+    let err = ExFatFs::mount(common::device(damaged, 512), backup).unwrap_err();
+    assert_eq!(err.error().kind(), ErrorKind::Corrupt);
+}
+
+#[test]
 fn reads_a_macos_image() {
     let image = std::fs::read(concat!(
         env!("CARGO_MANIFEST_DIR"),

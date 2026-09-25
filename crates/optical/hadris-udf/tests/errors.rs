@@ -5,6 +5,7 @@ mod common;
 
 use common::Paths;
 use common::{SECTOR, image, open, reseal, sample};
+use hadris_fs::MountOptions;
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{Content, Node, Tree};
 use hadris_fs::{ErrorKind, Extent, NodeId, SetAttr};
@@ -17,7 +18,7 @@ fn good() -> Vec<u8> {
 }
 
 fn open_err(bytes: Vec<u8>) -> ErrorKind {
-    UdfFs::open(MemDevice::new(bytes, SECTOR))
+    UdfFs::mount(MemDevice::new(bytes, SECTOR), MountOptions::new())
         .unwrap_err()
         .kind()
 }
@@ -25,7 +26,7 @@ fn open_err(bytes: Vec<u8>) -> ErrorKind {
 #[test]
 fn malformed_volumes_are_refused() {
     let good = good();
-    assert_eq!(open_err(vec![0u8; good.len()]), ErrorKind::Corrupt);
+    assert_eq!(open_err(vec![0u8; good.len()]), ErrorKind::NotRecognized);
 
     let mut bad = good.clone();
     bad[17 * 2048 + 1..17 * 2048 + 6].copy_from_slice(b"XXXXX");
@@ -53,7 +54,7 @@ fn malformed_volumes_are_refused() {
 
     let mut truncated = good.clone();
     truncated.truncate(300 * 2048);
-    if let Ok(mut udf) = UdfFs::open(MemDevice::new(truncated, SECTOR)) {
+    if let Ok(mut udf) = UdfFs::mount(MemDevice::new(truncated, SECTOR), MountOptions::new()) {
         assert!(udf.read_to_vec("/docs/big.bin").is_err());
     }
 
@@ -67,7 +68,11 @@ fn malformed_volumes_are_refused() {
     let mut udf = open(bad);
     assert_eq!(udf.names("/").unwrap_err().kind(), ErrorKind::Corrupt);
 
-    let mut udf = UdfFs::open(MemDevice::new(good, BlockSize::new(4096).unwrap())).unwrap();
+    let mut udf = UdfFs::mount(
+        MemDevice::new(good, BlockSize::new(4096).unwrap()),
+        MountOptions::new(),
+    )
+    .unwrap();
     assert_eq!(udf.read_to_vec("/readme.txt").unwrap(), b"hello");
 }
 
@@ -92,6 +97,21 @@ fn damaged_entries_behind_listed_ids_are_corrupt() {
     let listed = udf.resolve_path("/readme.txt").unwrap();
     assert_eq!(listed, node);
     assert_eq!(udf.stat(listed).unwrap_err().kind(), ErrorKind::Corrupt);
+    let names = udf.names("/").unwrap();
+    assert!(names.iter().any(|name| name == "readme.txt"), "{names:?}");
+    assert!(names.iter().any(|name| name == "docs"), "{names:?}");
+    let root = udf.root();
+    let mut cursor = hadris_fs::DirCursor::START;
+    while let Some(entry) = udf.readdir(root, cursor).unwrap() {
+        if entry.node() == node {
+            assert_eq!(entry.metadata().len(), 0);
+            assert_eq!(
+                entry.metadata().permissions(),
+                hadris_fs::Permissions::new(0)
+            );
+        }
+        cursor = entry.next_cursor();
+    }
 }
 
 #[test]
@@ -142,6 +162,43 @@ fn reserve_sequence_and_backup_anchor_are_used() {
     let mut udf = open(bad);
     assert_eq!(udf.volume_id(), "UDF_VOLUME");
     assert_eq!(udf.read_to_vec("/docs/sub/deep.txt").unwrap(), b"deep");
+}
+
+#[test]
+fn backup_boot_reads_the_end_anchors_and_the_reserve_sequence() {
+    let good = good();
+    let backup = |bytes: Vec<u8>| {
+        UdfFs::mount(
+            MemDevice::new(bytes, SECTOR),
+            MountOptions::new().backup_boot(),
+        )
+    };
+    let mut reserve = good.clone();
+    reserve[273 * 2048 + 25] = b'X';
+    reseal(&mut reserve, 273, 496);
+    assert_eq!(open(reserve.clone()).volume_id(), "UDF_VOLUME");
+    let mut udf = backup(reserve).unwrap();
+    assert_eq!(udf.volume_id(), "XDF_VOLUME");
+    assert_eq!(udf.read_to_vec("/readme.txt").unwrap(), b"hello");
+
+    let mut ends = good.clone();
+    let last = good.len() / 2048 - 1;
+    for sector in [last - 256, last] {
+        ends[sector * 2048 + 4] ^= 1;
+    }
+    assert_eq!(
+        open(ends.clone()).read_to_vec("/readme.txt").unwrap(),
+        b"hello"
+    );
+    assert_eq!(backup(ends).unwrap_err().kind(), ErrorKind::Corrupt);
+
+    let mut main = good;
+    main[256 * 2048 + 4] ^= 1;
+    main[257 * 2048 + 30] ^= 1;
+    assert_eq!(
+        backup(main).unwrap().read_to_vec("/readme.txt").unwrap(),
+        b"hello"
+    );
 }
 
 #[test]

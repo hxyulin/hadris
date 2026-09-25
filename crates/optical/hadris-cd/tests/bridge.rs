@@ -7,6 +7,7 @@ use common::Paths;
 use hadris_cd::iso::{Namespace, RockRidge, VolumeIdentifiers};
 use hadris_cd::udf::UdfRevision;
 use hadris_cd::{CdOptions, IsoOptions, UdfOptions};
+use hadris_fs::MountOptions;
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{Content, ErrorKind, Extent, Node, Permissions, SetAttr, Tree};
 use hadris_storage::{BlockSize, MemDevice};
@@ -69,8 +70,13 @@ fn tag_at(bytes: &[u8], sector: usize) -> u16 {
 
 fn verify(bytes: &[u8]) {
     let dev = MemDevice::new(bytes, BlockSize::new(2048).unwrap());
-    let mut iso = hadris_cd::iso::sync::IsoImage::open(dev).unwrap();
-    let mut view = iso.view(Namespace::RockRidge).unwrap();
+    let mut iso = dev;
+    let mut view = hadris_cd::iso::sync::IsoFs::mount_namespace(
+        &mut iso,
+        MountOptions::new(),
+        Namespace::RockRidge,
+    )
+    .unwrap();
     assert_eq!(view.read_to_vec("/EMPTY.TXT").unwrap(), b"");
     assert_eq!(view.read_to_vec("/DOCS/LARGE.BIN").unwrap(), large());
     let mut iso_extents = Vec::new();
@@ -81,9 +87,11 @@ fn verify(bytes: &[u8]) {
         iso_extents.push(extents);
     }
 
-    let mut udf =
-        hadris_cd::udf::sync::UdfFs::open(MemDevice::new(bytes, BlockSize::new(2048).unwrap()))
-            .unwrap();
+    let mut udf = hadris_cd::udf::sync::UdfFs::mount(
+        MemDevice::new(bytes, BlockSize::new(2048).unwrap()),
+        MountOptions::new(),
+    )
+    .unwrap();
     assert_eq!(udf.volume_id(), VOLUME);
     assert_eq!(udf.read_to_vec("/EMPTY.TXT").unwrap(), b"");
     assert_eq!(udf.read_to_vec("/DOCS/LARGE.BIN").unwrap(), large());
@@ -158,10 +166,10 @@ fn bridge_layout_follows_udf_and_ecma_119() {
         290,
         "the partition starts after the integrity descriptor"
     );
-    let mut udf = hadris_cd::udf::sync::UdfFs::open(MemDevice::new(
-        bytes.as_slice(),
-        BlockSize::new(2048).unwrap(),
-    ))
+    let mut udf = hadris_cd::udf::sync::UdfFs::mount(
+        MemDevice::new(bytes.as_slice(), BlockSize::new(2048).unwrap()),
+        MountOptions::new(),
+    )
     .unwrap();
     let large = udf.resolve_path("/DOCS/LARGE.BIN").unwrap();
     let entry = (290 + large.get() - 1) as usize * SECTOR;
@@ -289,7 +297,7 @@ fn iso_volume_space_covers_the_udf_tail() {
     }
     assert!(descriptors >= 2);
     let dev = MemDevice::new(bytes.as_slice(), BlockSize::new(2048).unwrap());
-    let iso = hadris_cd::iso::sync::IsoImage::open(dev).unwrap();
+    let iso = hadris_cd::iso::sync::IsoFs::mount(dev, MountOptions::new()).unwrap();
     assert_eq!(iso.volume_blocks(), blocks);
     verify(&bytes);
 }

@@ -5,13 +5,13 @@
 //!
 //! ## Reading
 //!
-//! `IsoImage` opens an image on a `hadris_storage` block device, in each
-//! mode (`sync::IsoImage`, `r#async::IsoImage`). An
-//! image has up to four trees: the primary tree, Rock Ridge names and
-//! metadata over it, a Joliet tree and an ISO 9660:1999 enhanced tree.
-//! `view` picks one as an `IsoView`, which implements the read-only
-//! `hadris_fs` `FileSystem` trait, so `Volume` and its handles work on it.
-//! Reading needs no allocator.
+//! `IsoFs` mounts an image on a `hadris_storage` block device, in each
+//! mode (`sync::IsoFs`, `r#async::IsoFs`). An image has up to four trees:
+//! the primary tree, Rock Ridge names and metadata over it, a Joliet tree
+//! and an ISO 9660:1999 enhanced tree. `IsoFs::mount` reads the most
+//! capable one and `IsoFs::mount_namespace` picks one. `IsoFs` implements
+//! the read-only `hadris_fs` `FileSystem` trait, so `Volume` and its
+//! handles work on it. Reading needs no allocator.
 //!
 //! ```rust
 //! # #[cfg(all(feature = "sync", feature = "std"))]
@@ -19,9 +19,9 @@
 //! use std::io::Read;
 //!
 //! use hadris_fs::sync::Volume;
-//! use hadris_fs::{Content, Node, OpenOptions, Tree};
-//! use hadris_iso::sync::{IsoImage, write};
-//! use hadris_iso::{IsoOptions, Namespace, plan};
+//! use hadris_fs::{Content, MountOptions, Node, OpenOptions, Tree};
+//! use hadris_iso::sync::{IsoFs, write};
+//! use hadris_iso::{IsoOptions, plan};
 //! use hadris_storage::{BlockSize, MemDevice};
 //!
 //! let mut tree = Tree::new();
@@ -32,8 +32,7 @@
 //! let report = write(&mut dev, &tree, &options)?;
 //! assert_eq!(report.size(), size);
 //!
-//! let iso = IsoImage::open(dev)?;
-//! let vol = Volume::new(iso.into_view(Namespace::Preferred)?);
+//! let vol = Volume::new(IsoFs::mount(dev, MountOptions::new())?);
 //! let mut text = String::new();
 //! vol.open("/boot/grub/grub.cfg", OpenOptions::new().read())?
 //!     .read_to_string(&mut text)?;
@@ -44,8 +43,8 @@
 //! # fn main() {}
 //! ```
 //!
-//! `IsoImage::boot_catalog` reads the El Torito catalog, `IsoView::rock_ridge`
-//! the Rock Ridge entries of a node and `IsoView::raw_record` its directory
+//! `IsoFs::boot_catalog` reads the El Torito catalog, `IsoFs::rock_ridge`
+//! the Rock Ridge entries of a node and `IsoFs::raw_record` its directory
 //! record. The on-disk layouts are in [`raw`].
 //!
 //! ## Writing
@@ -133,7 +132,7 @@ pub mod sync {
 
     #[path = "image.rs"]
     mod image;
-    pub use image::{IsoImage, IsoView};
+    pub use image::IsoFs;
     #[cfg(feature = "alloc")]
     #[path = "write.rs"]
     mod write;

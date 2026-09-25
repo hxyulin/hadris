@@ -4,6 +4,7 @@ mod common;
 
 use common::Paths;
 use common::{SECTOR, image, open, pattern, sample, with_metadata};
+use hadris_fs::MountOptions;
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{Content, Node, WarningKind};
 use hadris_fs::{DirCursor, ErrorKind, FileType, Permissions, Resolve};
@@ -206,7 +207,7 @@ fn small_device_blocks_and_growing_devices_work() {
     let mut dev = MemDevice::new(vec![0u8; size as usize], BlockSize::new(512).unwrap());
     hadris_udf::sync::write(&mut dev, &tree, &options).unwrap();
     assert_eq!(dev.get_ref().as_slice(), image(&tree, &options).as_slice());
-    let mut udf = hadris_udf::sync::UdfFs::open(dev).unwrap();
+    let mut udf = hadris_udf::sync::UdfFs::mount(dev, MountOptions::new()).unwrap();
     assert_eq!(
         udf.read_to_vec("/docs/big.bin").unwrap(),
         pattern(70_000, 1)
@@ -219,7 +220,7 @@ fn small_device_blocks_and_growing_devices_work() {
         hadris_storage::sync::BlockDevice::block_count(&dev) * 512,
         report.size()
     );
-    let mut udf = hadris_udf::sync::UdfFs::open(&mut dev).unwrap();
+    let mut udf = hadris_udf::sync::UdfFs::mount(&mut dev, MountOptions::new()).unwrap();
     assert_eq!(udf.read_to_vec("/docs/sub/deep.txt").unwrap(), b"deep");
 }
 
@@ -238,7 +239,7 @@ fn async_modes_write_and_read_the_same_volume() {
             .await
             .unwrap();
         assert_eq!(dev.get_ref(), &expected);
-        let mut udf = hadris_udf::r#async::UdfFs::open(dev)
+        let mut udf = hadris_udf::r#async::UdfFs::mount(dev, MountOptions::new())
             .await
             .map_err(|_| ())
             .unwrap();
@@ -258,7 +259,7 @@ fn async_modes_write_and_read_the_same_volume() {
             .await
             .unwrap();
         assert_eq!(dev.get_ref(), &expected);
-        let mut udf = hadris_udf::r#async::UdfFs::open(dev)
+        let mut udf = hadris_udf::r#async::UdfFs::mount(dev, MountOptions::new())
             .await
             .map_err(|_| ())
             .unwrap();

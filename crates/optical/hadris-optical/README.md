@@ -31,7 +31,7 @@ for entry in vol.read_dir("/")? {
   blocks of up to 4096 bytes, without an allocator, in each mode.
 - `OpenOpticalImage` detects and mounts the filesystem an `OpenPolicy`
   selects: UDF or ISO 9660 first on a bridge image, or one of them only.
-  ISO 9660 opens as an `IsoView` of the preferred namespace. It implements
+  ISO 9660 opens as an `IsoFs` of its most capable tree. It implements
   the `hadris-fs` `FileSystem` trait read-only by delegating to the driver,
   so `Volume`, its handles and `copy_tree` work on either; `as_iso` and
   `as_udf` reach the drivers' native API.

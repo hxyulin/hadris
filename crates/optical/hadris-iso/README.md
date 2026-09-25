@@ -7,11 +7,12 @@ desktop tools as well as `no_std` bootloaders, kernels and firmware.
 
 ## Overview
 
-- **One reader for every tree.** `IsoImage` opens an image and `view` picks
-  the primary tree, Rock Ridge names and metadata over it, the Joliet tree or
-  the ISO 9660:1999 enhanced tree. A view is a `hadris-fs` `FileSystem`, so
-  `Volume`, its handles and `read_tree` work on it.
-- **No allocator needed to read.** Views, lookups, listings and file reads
+- **One reader for every tree.** `IsoFs::mount` reads the most capable tree
+  an image has and `IsoFs::mount_namespace` picks the primary tree, Rock
+  Ridge names and metadata over it, the Joliet tree or the ISO 9660:1999
+  enhanced tree. `IsoFs` is a `hadris-fs` `FileSystem`, so `Volume`, its
+  handles and `read_tree` work on it.
+- **No allocator needed to read.** Mounts, lookups, listings and file reads
   use fixed buffers; only the boot catalog listing needs `alloc`.
 - **A writer driven by a shared tree.** `write` lays out a
   `hadris_fs::Tree` as `IsoOptions` says and returns a `hadris_fs::Report`
@@ -42,17 +43,15 @@ enhanced tree are always available.
 ```rust,no_run
 use std::io::Read;
 
-use hadris_fs::OpenOptions;
 use hadris_fs::sync::Volume;
-use hadris_iso::Namespace;
-use hadris_iso::sync::IsoImage;
+use hadris_fs::{MountOptions, OpenOptions};
+use hadris_iso::sync::IsoFs;
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
-let iso = IsoImage::open(hadris_storage::host::FileDevice::open("image.iso")?)?;
-println!("trees: {:?}", iso.namespaces().iter().collect::<Vec<_>>());
-
 // Rock Ridge if present, then Joliet, the enhanced tree, the primary tree.
-let vol = Volume::new(iso.into_view(Namespace::Preferred)?);
+let iso = IsoFs::mount(hadris_storage::host::FileDevice::open("image.iso")?, MountOptions::new())?;
+println!("trees: {:?}", iso.namespaces().iter().collect::<Vec<_>>());
+let vol = Volume::new(iso);
 for item in vol.read_dir("/")? {
     let item = item?;
     println!("{:?} {}", item.file_type(), String::from_utf8_lossy(item.name().as_bytes()));
@@ -68,9 +67,9 @@ hadris_fs::host::write_tree("out", &tree)?;
 
 In the primary and enhanced trees, `lookup` tries the exact name first and
 then ignores ASCII case, and version suffixes (`;1`) are not part of listed
-names. `IsoView::rock_ridge` returns the Rock Ridge entries of a node,
-`IsoView::raw_record` its directory record, `IsoView::extents` where its data
-lies, and `IsoImage::boot_catalog` the El Torito catalog. The on-disk layouts
+names. `IsoFs::rock_ridge` returns the Rock Ridge entries of a node,
+`IsoFs::raw_record` its directory record, `IsoFs::extents` where its data
+lies, and `IsoFs::boot_catalog` the El Torito catalog. The on-disk layouts
 are in `hadris_iso::raw`.
 
 ### Without an allocator
@@ -80,7 +79,7 @@ are in `hadris_iso::raw`.
 hadris-iso = { version = "2.4.0", default-features = false, features = ["sync"] }
 ```
 
-`IsoImage::open` takes any `BlockDevice` whose blocks are at most 4096
+`IsoFs::mount` takes any `BlockDevice` whose blocks are at most 4096
 bytes; the image's logical block size may be 512, 1024 or 2048 bytes. Every
 read goes through one fixed-size buffer.
 

@@ -2,6 +2,7 @@
 //! `ntfs-3g`, read back. Each test is skipped when its tools are missing;
 //! `scripts/test-ntfs.sh` runs them in a container that has them.
 
+use hadris_fs::MountOptions;
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{ErrorKind, FileType, Name};
 use hadris_ntfs::sync::NtfsFs;
@@ -23,7 +24,7 @@ macro_rules! require_image {
 }
 
 fn open(img: &NtfsTestImage) -> NtfsFs<FileDevice> {
-    NtfsFs::open(FileDevice::open(img.path()).unwrap()).unwrap()
+    NtfsFs::mount(FileDevice::open(img.path()).unwrap(), MountOptions::new()).unwrap()
 }
 
 fn names(fs: &mut NtfsFs<FileDevice>, path: &str) -> Vec<String> {

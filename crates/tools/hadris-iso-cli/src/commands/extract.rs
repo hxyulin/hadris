@@ -31,7 +31,10 @@ pub fn extract(args: ExtractArgs) -> Result<()> {
             destination.display()
         );
     }
-    let vol = Volume::new(iso.into_view(namespace)?);
+    let vol = Volume::new(
+        hadris_iso::sync::IsoFs::mount_namespace(iso, hadris_fs::MountOptions::new(), namespace)
+            .map_err(|err| err.into_parts().0)?,
+    );
     let tree = read_tree(&vol, from).map_err(|err| format!("Failed to extract {from}: {err}"))?;
     fs::create_dir_all(&target)?;
     let report = host::write_tree(&target, &tree)

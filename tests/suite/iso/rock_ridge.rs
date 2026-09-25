@@ -13,7 +13,7 @@ use hadris_tests::iso::hadris::write_tree;
 use hadris_tests::iso::xorriso;
 use tempfile::TempDir;
 
-use super::{open, volume_id};
+use super::{open, open_ns, volume_id};
 
 fn le32(bytes: &[u8]) -> u32 {
     u32::from_le_bytes(bytes[..4].try_into().unwrap())
@@ -182,8 +182,7 @@ fn hard_links_share_a_node_id() {
         images.push(("xorriso", fs::read(image).unwrap()));
     }
     for (producer, bytes) in images {
-        let mut iso = open(bytes);
-        let mut view = iso.view(Namespace::RockRidge).unwrap();
+        let mut view = open_ns(bytes.clone(), Namespace::RockRidge);
         let a = view.resolve(b"/a.txt", Resolve::Lexical).unwrap();
         let b = view.resolve(b"/sub/b.txt", Resolve::Lexical).unwrap();
         let other = view.resolve(b"/other.txt", Resolve::Lexical).unwrap();
@@ -201,7 +200,7 @@ fn hard_links_share_a_node_id() {
             view.forget(node, 1);
         }
 
-        let vol = Volume::new(iso.into_view(Namespace::RockRidge).unwrap());
+        let vol = Volume::new(open_ns(bytes, Namespace::RockRidge));
         let imported = read_tree(&vol, "/").unwrap();
         assert_eq!(
             imported.entry("sub/b.txt").unwrap().links(),

@@ -13,7 +13,7 @@ use hadris_part::{Disk, Gpt, GptEntry, Hybrid, HybridMbr, PartitionKind, Partiti
 use hadris_storage::{BlockIndex, BlockSize};
 
 use super::FileSystem;
-use super::image::IsoImage;
+use super::image::IsoFs;
 use super::storage::BlockDevice;
 use super::write::{check_block_size, check_contents, check_output, emit};
 use crate::error::{Detail, Error};
@@ -172,10 +172,10 @@ impl<D: BlockDevice> Session<D> {
     /// Reads the image on `dev` into a tree.
     ///
     /// Reads the newest descriptor set, at logical sector 16, and walks the
-    /// most capable tree. Fails like `IsoImage::open`, and with
+    /// most capable tree. Fails like `IsoFs::mount`, and with
     /// [`ErrorKind::Unsupported`] for logical blocks other than 2048 bytes.
     pub async fn open(dev: D) -> Result<Self, MountError<D, D::Error>> {
-        let mut iso = IsoImage::open(dev).await?;
+        let mut iso = IsoFs::mount(dev, hadris_fs::MountOptions::new().read_only()).await?;
         if iso.block_size() != SECTOR_SIZE as u32 {
             let err: hadris_fs::Error<D::Error> = ErrorKind::Unsupported.into();
             return Err(MountError::new(err, iso.into_inner()));
@@ -631,7 +631,7 @@ impl<D: BlockDevice> Session<D> {
 }
 
 /// Reads the image's tree and the options that write it back.
-async fn read_session<D: BlockDevice>(iso: &mut IsoImage<D>) -> Result<(Tree, IsoOptions), Error<D::Error>> {
+async fn read_session<D: BlockDevice>(iso: &mut IsoFs<D>) -> Result<(Tree, IsoOptions), Error<D::Error>> {
     let pvd = iso.primary_descriptor().await?;
     let namespaces = iso.namespaces();
     let mut ids = VolumeIdentifiers::new(text(&pvd.volume_identifier).unwrap_or_default());
@@ -660,7 +660,7 @@ async fn read_session<D: BlockDevice>(iso: &mut IsoImage<D>) -> Result<(Tree, Is
     if namespaces.contains(Namespace::Enhanced) {
         options = options.with_enhanced_tree();
     }
-    let mut view = iso.view(Namespace::Preferred)?;
+    let view = iso;
     let mut tree = Tree::new();
     let root = view.root();
     let rock_ridge = view.namespace() == Namespace::RockRidge;
