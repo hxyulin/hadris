@@ -66,6 +66,10 @@ enum Commands {
         /// Output directory
         #[arg(short, long, default_value = ".")]
         output: PathBuf,
+        /// Path within the archive to extract (default: extract all); a path
+        /// other than the root is written to `<output>/<name>`
+        #[arg(short, long)]
+        path: Option<String>,
     },
     /// Print a file's contents from the archive to stdout
     Cat {
@@ -91,7 +95,11 @@ pub fn run(cli: Args) -> Result<()> {
             let format = if crc { ArchiveFormat::Crc } else { format };
             commands::create(directory, target, format, verbose)
         }
-        Commands::Extract { archive, output } => commands::extract(archive, output),
+        Commands::Extract {
+            archive,
+            output,
+            path,
+        } => commands::extract(archive, output, path.as_deref()),
         Commands::Cat { archive, path } => commands::cat(archive, &path),
     }
 }

@@ -194,6 +194,44 @@ fn cat_accepts_the_path_syntax_of_the_other_formats() {
     }
 }
 
+#[test]
+fn extract_path_writes_one_subtree_below_its_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("a.cpio");
+    let mut archive = Vec::new();
+    newc_entry(&mut archive, "./etc", 0o040755, b"");
+    newc_entry(&mut archive, "./etc/motd", 0o100644, b"hello");
+    newc_entry(&mut archive, "./etc/ssh/config", 0o100644, b"cfg");
+    newc_entry(&mut archive, "./bin/sh", 0o100755, b"sh");
+    newc_entry(&mut archive, "TRAILER!!!", 0, b"");
+    std::fs::write(&path, archive).unwrap();
+    let run = |select: &str, out: &str| {
+        hadris("cpio")
+            .args(["extract", "-p", select, "-o"])
+            .arg(dir.path().join(out))
+            .arg(&path)
+            .output()
+            .unwrap()
+    };
+
+    let output = run("/etc", "dir");
+    assert!(output.status.success(), "{output:?}");
+    let out = dir.path().join("dir");
+    assert_eq!(std::fs::read(out.join("etc/motd")).unwrap(), b"hello");
+    assert_eq!(std::fs::read(out.join("etc/ssh/config")).unwrap(), b"cfg");
+    assert!(!out.join("bin").exists());
+
+    let output = run("etc/ssh/config", "file");
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        std::fs::read(dir.path().join("file/config")).unwrap(),
+        b"cfg"
+    );
+
+    let output = run("etc/missing", "missing");
+    assert!(!output.status.success());
+}
+
 /// The `hadris` binary with the format subcommand `format`.
 fn hadris(format: &str) -> std::process::Command {
     let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_hadris"));

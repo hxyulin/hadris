@@ -7,7 +7,9 @@ use anyhow::{Context, Result, bail};
 use hadris_fs::FileType;
 use hadris_io::sync::Read;
 
-use super::open_reader;
+use hadris_cpio::sync::Entry;
+
+use super::{Input, open_reader};
 
 /// Where `name` goes below `output`, or `None` for a name that is the
 /// output directory itself, such as `.` or `./`. Leading `/` and `.`
@@ -67,7 +69,63 @@ struct Links {
     waiting: Vec<PathBuf>,
 }
 
-pub fn extract(archive: PathBuf, output: PathBuf) -> Result<()> {
+/// Where an entry named `name` lands when extracting `select`, the
+/// components of the requested path: `None` outside it, and otherwise the
+/// name below the last selected component, as `--path` works in the other
+/// formats.
+fn relocate(select: &[&str], name: &str) -> Option<String> {
+    let Some(last) = select.last() else {
+        return Some(name.to_owned());
+    };
+    let parts: Vec<&str> = name
+        .split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+        .collect();
+    if !parts.starts_with(select) {
+        return None;
+    }
+    let mut out = (*last).to_owned();
+    for part in &parts[select.len()..] {
+        out.push('/');
+        out.push_str(part);
+    }
+    Some(out)
+}
+
+fn copy_data(entry: &mut Entry<'_, Input>, dest: &Path, buf: &mut [u8]) -> Result<()> {
+    let mut file =
+        File::create(dest).with_context(|| format!("Failed to write file: {}", dest.display()))?;
+    loop {
+        let read = entry.read(buf).context("Failed to read file data")?;
+        if read == 0 {
+            return Ok(());
+        }
+        file.write_all(&buf[..read])?;
+    }
+}
+
+fn link_waiting(group: &mut Links, data: &Path) -> Result<()> {
+    for waiting in group.waiting.drain(..) {
+        fs::remove_file(&waiting).ok();
+        fs::hard_link(data, &waiting)
+            .with_context(|| format!("Failed to link {}", waiting.display()))?;
+    }
+    group.data = Some(data.to_path_buf());
+    Ok(())
+}
+
+pub fn extract(archive: PathBuf, output: PathBuf, path: Option<&str>) -> Result<()> {
+    let select: Vec<&str> = path
+        .unwrap_or("/")
+        .split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+        .collect();
+    if select.contains(&"..") {
+        bail!(
+            "refusing to extract a path with `..`: {}",
+            path.unwrap_or("/")
+        );
+    }
     let mut reader = open_reader(&archive)?;
     fs::create_dir_all(&output)
         .with_context(|| format!("Failed to create output directory: {}", output.display()))?;
@@ -78,10 +136,24 @@ pub fn extract(archive: PathBuf, output: PathBuf) -> Result<()> {
     let mut buf = vec![0u8; 64 * 1024];
 
     while let Some(mut entry) = reader.next_entry().context("Failed to read entry")? {
-        let name = entry
+        let stored = entry
             .name_str()
             .context("Entry name is not UTF-8")?
             .to_string();
+        let Some(name) = relocate(&select, &stored) else {
+            // Hard-link data outside the selection still fills the selected
+            // names of its group.
+            if entry.file_type() == FileType::File && entry.nlink() > 1 && entry.len() > 0 {
+                if let Some(group) = links.get_mut(&entry.ino()) {
+                    if group.data.is_none() && !group.waiting.is_empty() {
+                        let data = group.waiting.remove(0);
+                        copy_data(&mut entry, &data, &mut buf)?;
+                        link_waiting(group, &data)?;
+                    }
+                }
+            }
+            continue;
+        };
         let Some(dest) = destination(&output, &name)? else {
             if entry.file_type() != FileType::Dir {
                 bail!("refusing to extract an entry without a name: {name}");
@@ -113,23 +185,9 @@ pub fn extract(archive: PathBuf, output: PathBuf) -> Result<()> {
                         }
                     }
                     group => {
-                        let mut file = File::create(&dest)
-                            .with_context(|| format!("Failed to write file: {}", dest.display()))?;
-                        loop {
-                            let read = entry.read(&mut buf).context("Failed to read file data")?;
-                            if read == 0 {
-                                break;
-                            }
-                            file.write_all(&buf[..read])?;
-                        }
+                        copy_data(&mut entry, &dest, &mut buf)?;
                         if let Some(group) = group {
-                            for waiting in group.waiting.drain(..) {
-                                fs::remove_file(&waiting).ok();
-                                fs::hard_link(&dest, &waiting).with_context(|| {
-                                    format!("Failed to link {}", waiting.display())
-                                })?;
-                            }
-                            group.data = Some(dest.clone());
+                            link_waiting(group, &dest)?;
                         }
                     }
                 }
@@ -164,6 +222,9 @@ pub fn extract(archive: PathBuf, output: PathBuf) -> Result<()> {
         count += 1;
     }
 
+    if count == 0 && !select.is_empty() {
+        bail!("Not found in archive: {}", path.unwrap_or("/"));
+    }
     println!("Extracted {} entries to {}", count, output.display());
     Ok(())
 }
@@ -183,5 +244,18 @@ mod tests {
         assert!(destination(out, "a/../../x").is_err());
         assert_eq!(destination(out, ".").unwrap(), None);
         assert_eq!(destination(out, "./").unwrap(), None);
+    }
+
+    #[test]
+    fn a_selected_path_lands_below_its_last_component() {
+        let select = ["usr", "lib"];
+        assert_eq!(relocate(&select, "./usr/lib").as_deref(), Some("lib"));
+        assert_eq!(
+            relocate(&select, "/usr/lib/a.so").as_deref(),
+            Some("lib/a.so")
+        );
+        assert_eq!(relocate(&select, "usr/libexec"), None);
+        assert_eq!(relocate(&select, "usr"), None);
+        assert_eq!(relocate(&[], "a/b").as_deref(), Some("a/b"));
     }
 }

@@ -694,7 +694,9 @@ Each published package owns its version and may be released independently.
   replaces existing files (cpio extraction now refuses them too), unreadable
   source entries are skipped with a warning, and in-image paths may start
   with `/` or `./` (cpio `cat` included). `hadris iso create` writes a
-  UEFI-only boot catalog when only `--efi-boot` is given.
+  UEFI-only boot catalog when only `--efi-boot` is given. `hadris cpio
+  extract` takes `-p/--path` like the other formats and writes that entry
+  or subtree to `<output>/<name>`.
 - **hadris-iso (V3):** The option reshape of 5.2. `with_joliet()` and
   `with_rock_ridge()` take no argument; `with_relocation` and
   `with_preserve` are on `IsoOptions`, and `Relocation::Reject` is
