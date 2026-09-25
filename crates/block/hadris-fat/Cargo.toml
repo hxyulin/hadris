@@ -117,3 +117,7 @@ required-features = ["std", "sync", "async", "write"]
 [[test]]
 name = "embedded"
 required-features = ["std", "sync", "async", "write"]
+
+[[test]]
+name = "embedded_exfat"
+required-features = ["std", "sync", "async", "write"]

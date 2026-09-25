@@ -72,7 +72,8 @@
 //! whose futures need not be `Send`). It is built on the raw layer, not on
 //! `FatFs`: one 512-byte block buffer, no node table, ASCII name folding
 //! unless asked for Unicode, and under 1 KiB of state with four file
-//! slots.
+//! slots. [`exfat::embedded`] holds `ExFat`, its read-only exFAT
+//! counterpart.
 //!
 //! ```rust
 //! # #[cfg(all(feature = "sync", feature = "write", feature = "std"))]

@@ -286,6 +286,16 @@ Writes follow the same crash ordering as `FatFs`. A power cut, or a
 dropped async future, leaves at worst lost clusters, and the next writing
 call or `sync` on the same `Fat` frees them.
 
+`hadris_fat::exfat::embedded::sync::ExFat<D, const FILES: usize = 4>` and
+its `r#async` twin read exFAT volumes, such as SDXC cards, the same way:
+one 512-byte block buffer and `FILES` file slots, with `open_dir`, `list`,
+`open`, `open_node`, `read`, `seek`, `close`, `metadata`, `label` and
+`stats`. They never write, share `File` and `Options` with `Fat`, and are a
+separate type, so FAT-only firmware does not link them. Names compare with
+the `Options` fold rather than the volume's up-case table, and exFAT
+directories do not record their parent, so `open_dir(dir, "..")` fails
+with `Unsupported`.
+
 ### For Desktop Applications (full features)
 
 ```toml

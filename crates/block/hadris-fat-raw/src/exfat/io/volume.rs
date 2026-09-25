@@ -61,10 +61,12 @@ io_transform! {
 /// The geometry of the boot region at `base`, if its boot sector is valid
 /// and its checksum matches.
 async fn boot_region<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, base: u64) -> FsResult<Option<Geometry>, D::Error> {
-    let mut sector = [0u8; BOOT_SECTOR_LEN];
-    read_bytes(dev, block, base, &mut sector).await?;
-    let boot: raw::BootSector = bytemuck::pod_read_unaligned(&sector);
-    let Ok(geo) = raw::parse_boot(&boot) else {
+    let parsed = {
+        let mut sector = [0u8; BOOT_SECTOR_LEN];
+        read_bytes(dev, block, base, &mut sector).await?;
+        raw::parse_boot(&bytemuck::pod_read_unaligned(&sector))
+    };
+    let Ok(geo) = parsed else {
         return Ok(None);
     };
     let size = geo.sector_size();

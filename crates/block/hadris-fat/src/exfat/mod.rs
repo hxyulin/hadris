@@ -7,6 +7,9 @@
 //! needs `alloc` and implements the `hadris_fs` `FileSystem` trait, so
 //! `Volume` and its handles work on it.
 //!
+//! [`embedded`] holds `ExFat`, a read-only reader for firmware without an
+//! allocator.
+//!
 //! ```rust
 //! # #[cfg(all(feature = "sync", feature = "write", feature = "std"))]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -40,6 +43,8 @@
 //! keeps both copies equal; TexFAT transactions and repair are not
 //! supported.
 
+#[cfg(any(feature = "sync", feature = "async"))]
+pub mod embedded;
 mod options;
 pub use hadris_fat_raw::exfat::{Detail, Geometry};
 
