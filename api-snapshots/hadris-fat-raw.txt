@@ -534,8 +534,7 @@ pub const fn hadris_fat_raw::lfn::checksum(&[u8; 11]) -> u8
 pub fn hadris_fat_raw::lfn::pack(&[u16; 13]) -> ([u8; 10], [u8; 12], [u8; 4])
 pub fn hadris_fat_raw::lfn::unpack(&[u8; 10], &[u8; 12], &[u8; 4]) -> ([u16; 13], usize)
 pub mod hadris_fat_raw::name
-pub fn hadris_fat_raw::name::eq_ignore_case(impl core::iter::traits::collect::IntoIterator<Item = char>, impl core::iter::traits::collect::IntoIterator<Item = char>) -> bool
-pub fn hadris_fat_raw::name::fold(char) -> char
+pub fn hadris_fat_raw::name::eq_folded(impl core::iter::traits::collect::IntoIterator<Item = u16>, impl core::iter::traits::collect::IntoIterator<Item = u16>, fn(u16) -> u16) -> bool
 pub const fn hadris_fat_raw::name::fold_ascii(u16) -> u16
 pub fn hadris_fat_raw::name::fold_unicode(u16) -> u16
 pub fn hadris_fat_raw::name::utf16_chars(impl core::iter::traits::collect::IntoIterator<Item = u16>) -> impl core::iter::traits::iterator::Iterator<Item = char>

@@ -2477,3 +2477,19 @@ fn was_dirty_reads_the_clean_bit() {
         assert!(common::mount(case, &image).was_dirty(), "{}", case.name);
     }
 }
+
+#[test]
+fn names_fold_per_utf16_unit() {
+    let case = CASES[0];
+    let mut fs = open(case, common::blank(case));
+    let root = fs.root();
+    let lower = create(&mut fs, root, "\u{E9}t\u{E9}.txt", FileType::File);
+    let found = fs.lookup(root, name("\u{C9}T\u{C9}.TXT")).unwrap();
+    assert_eq!(found, lower);
+    create(&mut fs, root, "\u{10428}.txt", FileType::File);
+    assert_eq!(
+        fs.lookup(root, name("\u{10400}.txt")).unwrap_err().kind(),
+        ErrorKind::NotFound
+    );
+    create(&mut fs, root, "\u{10400}.txt", FileType::File);
+}

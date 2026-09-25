@@ -328,7 +328,11 @@ fn matches(
     code_page: &dyn CodePage,
 ) -> bool {
     if long.is_some_and(|units| {
-        names::eq_ignore_case(query.chars(), names::utf16_chars(units.iter().copied()))
+        names::eq_folded(
+            query.encode_utf16(),
+            units.iter().copied(),
+            raw::fold_unicode,
+        )
     }) {
         return true;
     }
@@ -342,8 +346,13 @@ fn matches(
         |byte| code_page.decode(byte),
         &mut short,
     );
-    core::str::from_utf8(&short[..len])
-        .is_ok_and(|short| names::eq_ignore_case(query.chars(), short.chars()))
+    core::str::from_utf8(&short[..len]).is_ok_and(|short| {
+        names::eq_folded(
+            query.encode_utf16(),
+            short.encode_utf16(),
+            raw::fold_unicode,
+        )
+    })
 }
 
 /// Writes the entry's name into `out`: the long name when it is a valid
@@ -466,7 +475,10 @@ io_transform! {
 ///   be looked up by the name listed.
 ///
 /// Long names are always read and written. Names compare
-/// case-insensitively, by the long name or by the short name. A new name that is a valid
+/// case-insensitively, by the long name or by the short name, with each
+/// UTF-16 unit folded by `hadris_fat_raw::fold_unicode` as Windows does,
+/// so characters outside the Basic Multilingual Plane match only
+/// exactly. A new name that is a valid
 /// 8.3 name, in one case per part, is stored as a short entry alone;
 /// others get long-name entries and a generated short name with a `~N`
 /// tail, as Windows and Linux do.
