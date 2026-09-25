@@ -1,5 +1,6 @@
 use core::fmt;
 
+use hadris_fs::Extent as FileExtent;
 use hadris_fs::{
     Attributes, Capabilities, CaseRule, Charset, Clock, DateTime, DirCursor, DirEntry, ErrorKind,
     Field, FileType, FsResult, FsStats, Metadata, MountError, MountOptions, Name, NameBuf,
@@ -14,9 +15,9 @@ use hadris_fat_raw::exfat::io::{BootRegion, ClusterState, DirWalk, ExFat, Extent
 use hadris_fat_raw::exfat::{self as raw, ENTRY_SIZE, MAX_SET, NameUnits, RawEntry};
 use hadris_fat_raw::name as names;
 
-use crate::exfat::{VolumeLabel, le16, le32, le64};
+use crate::exfat::{Geometry, VolumeLabel, le16, le32, le64};
 use crate::table::Table;
-use crate::{permissions, read_only_bit};
+use crate::{permissions, push_run, read_only_bit};
 use hadris_fat_raw::io::{ChainPos, Held};
 
 /// `NodeId::new` for ids that are not 0 by construction.
@@ -40,6 +41,8 @@ const RESERVED: NodeId = match NodeId::new(1 << 63) {
     Some(id) => id,
     None => panic!("not 0"),
 };
+/// Byte offset of `VolumeSerialNumber` in the boot sector.
+const SERIAL_AT: usize = 100;
 /// The entry offset that stands for the root directory, which has none.
 const ROOT_ENTRY: u64 = 0;
 /// A parent not yet known.
@@ -696,14 +699,137 @@ impl<D: BlockDevice> ExFatFs<D> {
         self.nodes.len() + 1
     }
 
-    /// The volume serial number.
-    pub fn volume_id(&self) -> u32 {
-        self.vol.geometry().serial()
+    /// The volume's geometry from its boot sector, with its serial.
+    pub fn info(&self) -> &Geometry {
+        self.vol.geometry()
     }
 
-    /// The cluster size in bytes.
-    pub fn cluster_size(&self) -> u32 {
-        self.vol.geometry().cluster_size() as u32
+    /// Whether `VolumeDirty` was set at mount: the volume was not cleanly
+    /// unmounted.
+    pub fn was_dirty(&self) -> bool {
+        self.vol.was_dirty()
+    }
+
+    /// Maps `node` to the device, FIEMAP style: fills `out` with the runs
+    /// of consecutive clusters that hold its bytes from file offset `from`
+    /// on, and returns how many it filled. A run ends with the file, and
+    /// the bytes past `ValidDataLength` are a run of their own marked
+    /// unwritten, since they read as zeros. Call again from the end of the
+    /// last run for more; 0 means there are none. An empty file has none.
+    /// Fails with [`ErrorKind::Corrupt`] when the allocation leaves the
+    /// heap or a chain is longer than the volume.
+    pub async fn extents(&mut self, node: NodeId, from: u64, out: &mut [FileExtent]) -> FsResult<usize, D::Error> {
+        let (alloc, len, valid) = if node == ROOT {
+            (self.root_start().alloc, u64::MAX, u64::MAX)
+        } else {
+            let state = self.node(node).await?;
+            (state.alloc(), state.len, if state.dir { state.len } else { state.valid })
+        };
+        if alloc.first == 0 || out.is_empty() {
+            return Ok(0);
+        }
+        let cluster_size = self.vol.geometry().cluster_size();
+        let mut cluster = self.check_cluster(alloc.first)?;
+        let mut count = 0usize;
+        if alloc.contiguous {
+            let clusters = len.div_ceil(cluster_size);
+            if clusters == 0 {
+                return Ok(0);
+            }
+            let last = u32::try_from(cluster as u64 + clusters - 1).map_err(|_| ErrorKind::Corrupt)?;
+            self.check_cluster(last)?;
+            push_run(out, &mut count, (0, self.cluster_at(cluster)?, clusters * cluster_size), from, len, valid);
+            return Ok(count);
+        }
+        let mut run: Option<(u64, u64, u64)> = None;
+        let mut index = 0u64;
+        while index.saturating_mul(cluster_size) < len {
+            let at = self.cluster_at(cluster)?;
+            run = match run {
+                Some((file, disk, bytes)) if disk + bytes == at => Some((file, disk, bytes + cluster_size)),
+                Some(done) => {
+                    if push_run(out, &mut count, done, from, len, valid) {
+                        return Ok(count);
+                    }
+                    Some((index * cluster_size, at, cluster_size))
+                }
+                None => Some((index * cluster_size, at, cluster_size)),
+            };
+            index += 1;
+            if index > self.vol.geometry().cluster_count() as u64 {
+                return Err(ErrorKind::Corrupt.into());
+            }
+            match self.next_cluster(cluster).await? {
+                Some(next) => cluster = self.check_cluster(next)?,
+                None => break,
+            }
+        }
+        if let Some(done) = run {
+            push_run(out, &mut count, done, from, len, valid);
+        }
+        Ok(count)
+    }
+
+    /// Locates `node`'s on-disk records: its entry set, one range per run
+    /// of entries that follow one another on the device. The root, which
+    /// has no entry set, has none. Returns how many it filled; fails with
+    /// [`ErrorKind::LimitExceeded`] when `out` is too short.
+    pub async fn records(&mut self, node: NodeId, out: &mut [FileExtent]) -> FsResult<usize, D::Error> {
+        if node == ROOT {
+            return Ok(0);
+        }
+        let entry = self.node(node).await?.entry;
+        let mut set = Set::new();
+        self.set_at(entry, &mut set).await?;
+        let mut count = 0usize;
+        for &at in &set.at[..set.count] {
+            if count > 0 && out[count - 1].end() == at {
+                let last = out[count - 1];
+                out[count - 1] = FileExtent::new(last.offset(), last.len() + ENTRY_SIZE as u64);
+                continue;
+            }
+            *out.get_mut(count).ok_or(ErrorKind::LimitExceeded)? = FileExtent::new(at, ENTRY_SIZE as u64);
+            count += 1;
+        }
+        Ok(count)
+    }
+
+    /// Reads `buf.len()` bytes of the device at byte `offset`, through the
+    /// driver's block buffer.
+    pub async fn read_raw(&mut self, offset: u64, buf: &mut [u8]) -> FsResult<(), D::Error> {
+        self.get_bytes(offset, buf).await
+    }
+
+    /// Writes `serial` to both boot regions, the backup first, and
+    /// recomputes each region's boot checksum, which covers it.
+    pub async fn set_volume_serial(&mut self, serial: u32) -> FsResult<(), D::Error> {
+        self.prepare().await?;
+        let sector = self.vol.geometry().sector_size();
+        let region = raw::BOOT_REGION_SECTORS * sector;
+        for base in [region, 0] {
+            let mut sum = 0u32;
+            let mut chunk = [0u8; 512];
+            for index in 0..raw::BOOT_REGION_SECTORS - 1 {
+                let mut done = 0;
+                while done < sector {
+                    let n = (sector - done).min(chunk.len() as u64) as usize;
+                    let at = base + index * sector + done;
+                    self.get_bytes(at, &mut chunk[..n]).await?;
+                    if index == 0 && done == 0 {
+                        chunk[SERIAL_AT..SERIAL_AT + 4].copy_from_slice(&serial.to_le_bytes());
+                    }
+                    sum = raw::boot_checksum(sum, if done == 0 { index } else { index.max(1) }, &chunk[..n]);
+                    done += n as u64;
+                }
+            }
+            self.put_bytes(base + SERIAL_AT as u64, &serial.to_le_bytes()).await?;
+            let checksum_at = base + (raw::BOOT_REGION_SECTORS - 1) * sector;
+            for word in 0..sector / 4 {
+                self.put_bytes(checksum_at + word * 4, &sum.to_le_bytes()).await?;
+            }
+        }
+        self.vol.set_volume_serial(serial);
+        Ok(())
     }
 
     /// Sets the volume label, or empties it with `None`. The root
@@ -731,42 +857,6 @@ impl<D: BlockDevice> ExFatFs<D> {
         set[0] = entry;
         self.insert(start, ROOT_ENTRY, &plan, &set[..1]).await?;
         Ok(())
-    }
-
-    /// Passes the clusters of `node`'s allocation to `visit` in order and
-    /// returns how many there were. An empty file has none. Fails with
-    /// [`ErrorKind::Corrupt`] when a chain leaves the heap, runs into a bad
-    /// cluster or is longer than the volume.
-    pub async fn cluster_chain(&mut self, node: NodeId, mut visit: impl FnMut(u32)) -> FsResult<u32, D::Error> {
-        let (alloc, len) = if node == ROOT {
-            (self.root_start().alloc, u64::MAX)
-        } else {
-            let state = self.node(node).await?;
-            (state.alloc(), state.len)
-        };
-        if alloc.first == 0 {
-            return Ok(0);
-        }
-        let mut cluster = self.check_cluster(alloc.first)?;
-        if alloc.contiguous {
-            let count = len.div_ceil(self.vol.geometry().cluster_size()).min(self.vol.geometry().cluster_count() as u64) as u32;
-            for step in 0..count {
-                visit(self.check_cluster(cluster + step)?);
-            }
-            return Ok(count);
-        }
-        let mut count = 0u32;
-        loop {
-            visit(cluster);
-            count += 1;
-            if count > self.vol.geometry().cluster_count() {
-                return Err(ErrorKind::Corrupt.into());
-            }
-            match self.next_cluster(cluster).await? {
-                Some(next) => cluster = next,
-                None => return Ok(count),
-            }
-        }
     }
 
     /// Where the last listing of `dir` left its chain, [`ChainPos::NONE`] when
@@ -803,9 +893,8 @@ impl<D: BlockDevice> ExFatFs<D> {
     }
 
     /// The volume label from the Volume Label entry of the root directory,
-    /// or `None` when there is none or it is empty. `FileSystem::label`
-    /// gives the same label as text.
-    pub async fn volume_label(&mut self) -> FsResult<Option<VolumeLabel>, D::Error> {
+    /// or `None` when there is none or it is empty.
+    async fn volume_label(&mut self) -> FsResult<Option<VolumeLabel>, D::Error> {
         Ok(self.find_label().await?.and_then(|(_, entry)| {
             let count = entry[1] as usize;
             if count == 0 || count > raw::MAX_LABEL_UNITS {

@@ -102,6 +102,7 @@ impl fmt::Debug for VolumeLabel {
 /// use hadris_fat::exfat::sync::{ExFatFs, format};
 /// use hadris_fat::exfat::{ExFatOptions, VolumeLabel};
 /// use hadris_fs::MountOptions;
+/// use hadris_fs::sync::FileSystem;
 /// use hadris_storage::{BlockSize, MemDevice};
 ///
 /// let mut dev = MemDevice::new(vec![0u8; 64 << 20], BlockSize::new(512).unwrap());
@@ -110,9 +111,10 @@ impl fmt::Debug for VolumeLabel {
 ///     .with_cluster_size(32 * 1024)
 ///     .with_serial(0x1234_5678);
 /// let geometry = format(&mut dev, &options)?;
-/// assert_eq!(geometry.serial(), 0x1234_5678);
+/// assert_eq!(geometry.volume_serial(), 0x1234_5678);
 /// let mut fs = ExFatFs::mount(dev, MountOptions::new())?;
-/// assert_eq!(fs.volume_label()?.unwrap().to_string(), "Photos");
+/// let mut buf = [0u8; 64];
+/// assert_eq!(fs.label(&mut buf)?, Some("Photos"));
 /// # Ok(())
 /// # }
 /// # #[cfg(not(all(feature = "sync", feature = "write", feature = "std")))]

@@ -80,6 +80,16 @@ impl FatKind {
         }
     }
 
+    /// The bit of FAT entry 1 that is set while the volume is cleanly
+    /// unmounted, 0 on FAT12, which has none.
+    pub const fn clean_bit(self) -> u32 {
+        match self {
+            Self::Fat12 => 0,
+            Self::Fat16 => 0x8000,
+            Self::Fat32 => 0x0800_0000,
+        }
+    }
+
     /// Whether a masked entry value ends a chain.
     pub const fn is_end_of_chain(self, value: u32) -> bool {
         value >= self.end_of_chain()

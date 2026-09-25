@@ -196,10 +196,14 @@ checking its device. A volume left by an interrupted `FatFs` operation shows onl
 what the crash-safety rules allow: lost clusters, chains longer than their
 file, a renamed node under both names, orphaned long-name fragments, FAT
 copies that lag the active one and a stale FSInfo free count.
-`FatFs::volume_label` reads the raw volume label from the root directory
-(`FileSystem::label` gives it as text), and
-`FatFs::cluster_chain` passes the clusters of a file or directory to a
-callback, for tools that show layout or fragmentation.
+`FatFs` and `ExFatFs` also have format extras as inherent methods: `info()`
+returns the boot sector's `Geometry` (FAT variant, cluster size, serial),
+`was_dirty()` whether the volume was cleanly unmounted, `extents(node,
+from, &mut out)` maps a file or directory to device ranges, FIEMAP style,
+for tools that show layout or fragmentation, `records(node, &mut out)`
+locates its directory entries, and `read_raw(offset, buf)` reads the
+device through the driver. `set_label(Some(label))` and
+`set_volume_serial(serial)` change the label and serial in place.
 
 ### Sharing a Volume Between Threads
 

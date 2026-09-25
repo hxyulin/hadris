@@ -80,6 +80,13 @@ impl<F: hadris_fs::async::FileSystem> core::ops::deref::DerefMut for hadris_fs::
 pub fn hadris_fs::async::VolumeGuard<'_, F>::deref_mut(&mut self) -> &mut F
 impl<F: hadris_fs::async::FileSystem> core::ops::drop::Drop for hadris_fs::async::VolumeGuard<'_, F>
 pub fn hadris_fs::async::VolumeGuard<'_, F>::drop(&mut self)
+pub struct hadris_fs::async::Walk<'s>
+impl hadris_fs::async::Walk<'static>
+pub fn hadris_fs::async::Walk<'static>::new(hadris_fs::NodeId) -> Self
+impl<'s> hadris_fs::async::Walk<'s>
+pub async fn hadris_fs::async::Walk<'s>::next<F: hadris_fs::async::FileSystem + ?core::marker::Sized>(&mut self, &mut F) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fs::WalkEntry>, <F as hadris_fs::async::FileSystem>::DeviceError>
+pub fn hadris_fs::async::Walk<'s>::skip_dir(&mut self)
+pub fn hadris_fs::async::Walk<'s>::with_stack(hadris_fs::NodeId, &'s mut [hadris_fs::WalkFrame]) -> Self
 pub trait hadris_fs::async::FileSystem: core::marker::Send
 pub type hadris_fs::async::FileSystem::DeviceError: core::error::Error + core::marker::Send + core::marker::Sync + 'static
 pub fn hadris_fs::async::FileSystem::capabilities(&self) -> hadris_fs::Capabilities
@@ -273,6 +280,13 @@ impl<F: hadris_fs::sync::FileSystem> core::ops::deref::DerefMut for hadris_fs::s
 pub fn hadris_fs::sync::VolumeGuard<'_, F>::deref_mut(&mut self) -> &mut F
 impl<F: hadris_fs::sync::FileSystem> core::ops::drop::Drop for hadris_fs::sync::VolumeGuard<'_, F>
 pub fn hadris_fs::sync::VolumeGuard<'_, F>::drop(&mut self)
+pub struct hadris_fs::sync::Walk<'s>
+impl hadris_fs::sync::Walk<'static>
+pub fn hadris_fs::sync::Walk<'static>::new(hadris_fs::NodeId) -> Self
+impl<'s> hadris_fs::sync::Walk<'s>
+pub fn hadris_fs::sync::Walk<'s>::next<F: hadris_fs::sync::FileSystem + ?core::marker::Sized>(&mut self, &mut F) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fs::WalkEntry>, <F as hadris_fs::sync::FileSystem>::DeviceError>
+pub fn hadris_fs::sync::Walk<'s>::skip_dir(&mut self)
+pub fn hadris_fs::sync::Walk<'s>::with_stack(hadris_fs::NodeId, &'s mut [hadris_fs::WalkFrame]) -> Self
 pub trait hadris_fs::sync::FileSystem
 pub type hadris_fs::sync::FileSystem::DeviceError: core::error::Error + core::marker::Send + core::marker::Sync + 'static
 pub fn hadris_fs::sync::FileSystem::capabilities(&self) -> hadris_fs::Capabilities
@@ -643,10 +657,14 @@ pub fn hadris_fs::DirEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::f
 pub struct hadris_fs::Extent
 impl hadris_fs::Extent
 pub const fn hadris_fs::Extent::end(&self) -> u64
+pub const fn hadris_fs::Extent::file_offset(&self) -> u64
 pub const fn hadris_fs::Extent::is_empty(&self) -> bool
+pub const fn hadris_fs::Extent::is_unwritten(&self) -> bool
 pub const fn hadris_fs::Extent::len(&self) -> u64
 pub const fn hadris_fs::Extent::new(u64, u64) -> Self
 pub const fn hadris_fs::Extent::offset(&self) -> u64
+pub const fn hadris_fs::Extent::with_file_offset(self, u64) -> Self
+pub const fn hadris_fs::Extent::with_unwritten(self) -> Self
 pub struct hadris_fs::Finding<'a>
 impl<'a> hadris_fs::Finding<'a>
 pub const fn hadris_fs::Finding<'a>::detail(&self) -> hadris_io::fs_error::DetailCode
@@ -945,6 +963,15 @@ pub fn hadris_fs::TreeEntry<'a>::links(&self) -> usize
 pub fn hadris_fs::TreeEntry<'a>::node(&self) -> &'a hadris_fs::Node
 impl core::fmt::Debug for hadris_fs::TreeEntry<'_>
 pub fn hadris_fs::TreeEntry<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_fs::WalkEntry
+impl hadris_fs::WalkEntry
+pub fn hadris_fs::WalkEntry::depth(&self) -> u32
+pub fn hadris_fs::WalkEntry::entry(&self) -> &hadris_fs::DirEntry
+impl core::fmt::Debug for hadris_fs::WalkEntry
+pub fn hadris_fs::WalkEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_fs::WalkFrame(_)
+impl hadris_fs::WalkFrame
+pub const hadris_fs::WalkFrame::EMPTY: Self
 pub struct hadris_fs::Warning
 impl hadris_fs::Warning
 pub fn hadris_fs::Warning::count(&self) -> u64

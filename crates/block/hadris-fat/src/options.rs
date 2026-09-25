@@ -32,12 +32,6 @@ impl VolumeLabel {
         Ok(Self(label))
     }
 
-    /// A label as read from a volume, unchecked.
-    #[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
-    pub(crate) const fn from_disk(bytes: [u8; 11]) -> Self {
-        Self(bytes)
-    }
-
     /// The label as stored: 11 bytes padded with spaces.
     pub fn as_bytes(&self) -> &[u8; 11] {
         &self.0

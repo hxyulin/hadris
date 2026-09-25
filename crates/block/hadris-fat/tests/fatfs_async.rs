@@ -389,6 +389,10 @@ fn async_futures_stay_small() {
         3584,
     );
     assert_below("FatFs create", fat.create(root, name, &meta), 2240);
+    let label = Some(hadris_fat::VolumeLabel::new("DATA").unwrap());
+    assert_below("FatFs set_label", fat.set_label(label), 3584);
+    let mut out = [hadris_fs::Extent::new(0, 0); 1];
+    assert_below("FatFs extents", fat.extents(root, 0, &mut out), 512);
 
     let options = hadris_fs::MountOptions::new();
     assert_below("ExFatFs mount", ExFatFs::mount(empty(), options), 3 * BLOCK);
@@ -405,6 +409,49 @@ fn async_futures_stay_small() {
         2 * BLOCK,
     );
     assert_below("ExFatFs create", exfat.create(root, name, &meta), 4608);
+    assert_below(
+        "ExFatFs set_volume_serial",
+        exfat.set_volume_serial(1),
+        2560,
+    );
+    assert_below("ExFatFs records", exfat.records(root, &mut out), 2048);
+}
+
+#[test]
+fn async_extras_match_the_sync_mode() {
+    use hadris_fat::r#async::FatFs;
+
+    let case = CASES[2];
+    block_on(async {
+        let mut fs = FatFs::mount(
+            common::device(case, common::build(case)),
+            MountOptions::new(),
+        )
+        .await
+        .unwrap();
+        assert!(!fs.was_dirty());
+        assert_eq!(fs.info().kind(), case.kind);
+        let root = fs.root();
+        let long = fs.lookup(root, Name::new(LONG_NAME)).await.unwrap();
+        let mut out = [hadris_fs::Extent::new(0, 0); 4];
+        let n = fs.extents(long, 0, &mut out).await.unwrap();
+        let mut data = Vec::new();
+        for extent in &out[..n] {
+            let mut buf = vec![0; extent.len() as usize];
+            fs.read_raw(extent.offset(), &mut buf).await.unwrap();
+            data.extend(buf);
+        }
+        assert_eq!(data, common::payload(5000, 1));
+        assert_eq!(fs.records(long, &mut out).await.unwrap(), 1);
+        fs.forget(long, 1);
+        fs.set_label(Some(hadris_fat::VolumeLabel::new("ASYNC").unwrap()))
+            .await
+            .unwrap();
+        fs.set_volume_serial(7).await.unwrap();
+        assert_eq!(fs.info().volume_serial(), Some(7));
+        let mut buf = [0u8; 16];
+        assert_eq!(fs.label(&mut buf).await.unwrap(), Some("ASYNC"));
+    });
 }
 
 #[path = "common/cancel.rs"]

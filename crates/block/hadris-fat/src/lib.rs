@@ -250,6 +250,40 @@ fn read_only_bit(dir: bool, wanted: hadris_fs::Permissions) -> Option<bool> {
     (permissions(dir, read_only) == wanted).then_some(read_only)
 }
 
+/// Adds the run `(file offset, device offset, bytes)` to `out` from
+/// `*count` on when it holds bytes of the file from `from`, cut to the
+/// file's `len` and split where its bytes past `valid` read as zeros.
+/// Returns true when `out` was full before the run was added whole.
+#[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
+fn push_run(
+    out: &mut [hadris_fs::Extent],
+    count: &mut usize,
+    (file, disk, bytes): (u64, u64, u64),
+    from: u64,
+    len: u64,
+    valid: u64,
+) -> bool {
+    let end = file + bytes.min(len - file);
+    let split = valid.clamp(file, end);
+    for (start, stop, unwritten) in [(file, split, false), (split, end, true)] {
+        if stop <= start || stop <= from {
+            continue;
+        }
+        let Some(slot) = out.get_mut(*count) else {
+            return true;
+        };
+        let extent =
+            hadris_fs::Extent::new(disk + (start - file), stop - start).with_file_offset(start);
+        *slot = if unwritten {
+            extent.with_unwritten()
+        } else {
+            extent
+        };
+        *count += 1;
+    }
+    false
+}
+
 pub use hadris_fat_raw::{Detail, FatKind, Geometry};
 #[cfg(feature = "write")]
 pub use options::FatOptions;

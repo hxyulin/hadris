@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         FileDevice::new(file)?,
         MountOptions::new().with_clock(&SystemClock),
     )?;
-    let kind = fs.kind();
+    let kind = fs.info().kind();
 
     // Volume puts the filesystem behind a lock, so its path methods work on
     // `&self` and an Arc shares it between threads.

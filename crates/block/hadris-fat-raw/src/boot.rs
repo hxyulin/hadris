@@ -93,6 +93,7 @@ pub struct Geometry {
     data_start: u64,
     max_cluster: u32,
     fs_info_sector: Option<u16>,
+    volume_serial: Option<u32>,
 }
 
 impl Geometry {
@@ -178,6 +179,17 @@ impl Geometry {
         self.fs_info_sector
     }
 
+    /// The volume serial number, when the boot sector has an extended boot
+    /// signature (`0x28` or `0x29`) that records one.
+    pub const fn volume_serial(&self) -> Option<u32> {
+        self.volume_serial
+    }
+
+    #[cfg(any(feature = "sync", feature = "async"))]
+    pub(crate) fn set_volume_serial(&mut self, serial: u32) {
+        self.volume_serial = Some(serial);
+    }
+
     /// Byte offset of `cluster`'s first byte, or `None` when `cluster` is
     /// not a data cluster.
     pub const fn cluster_offset(&self, cluster: u32) -> Option<u64> {
@@ -216,12 +228,15 @@ pub fn parse_boot(sector: &[u8; BOOT_SECTOR_LEN]) -> Result<Geometry, BootError>
         };
         let info = ext.fs_info_sector.get();
         geo.fs_info_sector = (info != 0 && info < geo.reserved_sectors).then_some(info);
+        geo.volume_serial = serial(ext.ext_boot_signature, ext.volume_id);
         geo
     } else {
         let ext: RawBpbExt16 =
             bytemuck::pod_read_unaligned(&sector[BPB_LEN..BPB_LEN + size_of::<RawBpbExt16>()]);
         check_ext16(&bpb, &ext)?;
-        geometry16(&bpb)?
+        let mut geo = geometry16(&bpb)?;
+        geo.volume_serial = serial(ext.ext_boot_signature, ext.volume_id);
+        geo
     };
     if geo.max_cluster < FIRST_DATA_CLUSTER {
         return Err(BootError::Corrupt("volume has no data cluster"));
@@ -236,6 +251,11 @@ pub fn parse_boot(sector: &[u8; BOOT_SECTOR_LEN]) -> Result<Geometry, BootError>
         return Err(BootError::Corrupt("FAT is too small for the cluster count"));
     }
     Ok(geo)
+}
+
+/// The serial an extended boot signature of `0x28` or `0x29` records.
+fn serial(signature: u8, id: [u8; 4]) -> Option<u32> {
+    matches!(signature, 0x28 | 0x29).then(|| u32::from_le_bytes(id))
 }
 
 /// Checks the fields common to every FAT variant: sector size, sectors per
@@ -379,6 +399,7 @@ fn geometry16(bpb: &RawBpb) -> Result<Geometry, BootError> {
         mirrored: true,
         reserved_sectors: reserved as u16,
         fs_info_sector: None,
+        volume_serial: None,
         root: RootLocation::Fixed {
             start: root_start,
             size: root_size,
@@ -423,6 +444,7 @@ fn geometry32(bpb: &RawBpb, ext: &RawBpbExt32) -> Result<Geometry, BootError> {
         mirrored: true,
         reserved_sectors: reserved as u16,
         fs_info_sector: None,
+        volume_serial: None,
         root: RootLocation::Cluster(root),
         data_start: fat_start + bpb.fat_count as u64 * fat_sectors * sector_size,
         max_cluster,

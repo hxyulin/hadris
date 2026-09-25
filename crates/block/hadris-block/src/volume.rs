@@ -100,7 +100,7 @@ impl<D: BlockDevice> OpenVolume<D> {
             }
             BlockFormat::Fat(variant) => {
                 let fat = FatFs::mount(dev, MountOptions::new()).await?;
-                match fat_variant(fat.kind()) {
+                match fat_variant(fat.info().kind()) {
                     Some(opened) if opened == variant => Ok(Self { inner: Inner::Fat(fat) }),
                     Some(_) => Err(MountError::new(
                         Detail::FormatMismatch.error(ErrorKind::Corrupt),
@@ -122,7 +122,7 @@ impl<D: BlockDevice> OpenVolume<D> {
     /// The format of the opened filesystem.
     pub fn format(&self) -> BlockFormat {
         match &self.inner {
-            Inner::Fat(fat) => BlockFormat::Fat(fat_variant(fat.kind()).unwrap_or(FatVariant::Fat32)),
+            Inner::Fat(fat) => BlockFormat::Fat(fat_variant(fat.info().kind()).unwrap_or(FatVariant::Fat32)),
             Inner::ExFat(_) => BlockFormat::Fat(FatVariant::ExFat),
             Inner::Ntfs(_) => BlockFormat::Ntfs,
         }

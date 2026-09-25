@@ -11,12 +11,14 @@ mod filesystem;
 mod paths;
 #[cfg(feature = "alloc")]
 mod tree;
+mod walk;
 
 #[cfg(feature = "alloc")]
 pub use copy::copy_tree;
 pub use filesystem::FileSystem;
 #[cfg(feature = "alloc")]
 pub use tree::ContentReader;
+pub use walk::Walk;
 
 #[cfg(feature = "std")]
 sync_only! {

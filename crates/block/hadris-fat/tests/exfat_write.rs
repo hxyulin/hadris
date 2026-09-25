@@ -1388,3 +1388,62 @@ fn unmount_syncs_and_returns_the_device() {
     fs.forget(node, 1);
     clean(&mut fs, "unmount");
 }
+
+#[test]
+fn extras_map_files_and_set_the_serial() {
+    let mut fs = common::small(8 << 20, 4096);
+    assert!(!fs.was_dirty());
+    let root = fs.root();
+    let data = common::payload(4096 + 100, 3);
+    let node = common::write(&mut fs, root, "f.bin", &data);
+    fs.truncate(node, 3 * 4096).unwrap();
+    let mut out = [hadris_fs::Extent::new(0, 0); 4];
+    let n = fs.extents(node, 0, &mut out).unwrap();
+    let mut mapped = Vec::new();
+    for extent in &out[..n] {
+        assert_eq!(extent.file_offset(), mapped.len() as u64);
+        let mut buf = vec![0; extent.len() as usize];
+        fs.read_raw(extent.offset(), &mut buf).unwrap();
+        if extent.is_unwritten() {
+            buf.fill(0);
+        }
+        mapped.extend(buf);
+    }
+    assert!(out[..n].last().unwrap().is_unwritten());
+    let mut expected = data.clone();
+    expected.resize(3 * 4096, 0);
+    assert_eq!(mapped, expected);
+    assert_eq!(fs.extents(node, 3 * 4096, &mut out).unwrap(), 0);
+
+    let n = fs.records(node, &mut out).unwrap();
+    assert_eq!(n, 1);
+    assert_eq!(out[0].len(), 3 * 32);
+    let mut entry = [0u8; 32];
+    fs.read_raw(out[0].offset(), &mut entry).unwrap();
+    assert_eq!(entry[0], 0x85);
+    assert_eq!(fs.records(root, &mut out).unwrap(), 0);
+    assert_eq!(
+        fs.records(node, &mut []).unwrap_err().kind(),
+        ErrorKind::LimitExceeded
+    );
+
+    fs.set_volume_serial(0x0BAD_F00D).unwrap();
+    assert_eq!(fs.info().volume_serial(), 0x0BAD_F00D);
+    let image = fs.unmount().unwrap().into_inner();
+    assert_eq!(common::mount(&image).info().volume_serial(), 0x0BAD_F00D);
+    let backup = ExFatFs::mount(
+        common::device(image.clone(), 512),
+        MountOptions::new().backup_boot(),
+    )
+    .unwrap();
+    assert_eq!(backup.info().volume_serial(), 0x0BAD_F00D);
+    fsck(&image, "new serial");
+}
+
+#[test]
+fn was_dirty_reads_volume_dirty() {
+    let mut image = common::image(common::small(4 << 20, 4096));
+    assert!(!common::mount(&image).was_dirty());
+    image[106] |= 0x02;
+    assert!(common::mount(&image).was_dirty());
+}

@@ -242,6 +242,11 @@ impl ExFat {
         &self.geo
     }
 
+    /// Records a serial written to both boot regions.
+    pub fn set_volume_serial(&mut self, serial: u32) {
+        self.geo.set_volume_serial(serial);
+    }
+
     /// `VolumeFlags` as last written.
     pub const fn flags(&self) -> u16 {
         self.flags

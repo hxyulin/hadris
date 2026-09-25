@@ -261,24 +261,22 @@ fn fat_boot(sector: &[u8; 512], kind: FatKind) -> FatBoot {
 /// back to the boot sector copy.
 fn volume_label(volume: &mut Volume, sector: &[u8; 512]) -> Result<String> {
     const MESSAGE: &str = "Failed to read root directory from image (image may be truncated)";
+    let mut buf = [0u8; 64];
+    let label =
+        with_fs!(&mut *volume, fs => fs.label(&mut buf).map(|label| label.map(str::to_string)))
+            .context(MESSAGE)?;
     match volume {
-        Volume::Fat(fs) => match fs.volume_label().context(MESSAGE)? {
-            Some(label) if !label.as_str().is_empty() && label.as_str() != "NO NAME" => {
-                Ok(label.as_str().to_string())
-            }
-            _ => Ok(fat_boot(sector, fs.kind()).label),
+        Volume::Fat(fs) => match label {
+            Some(label) if !label.is_empty() && label != "NO NAME" => Ok(label),
+            _ => Ok(fat_boot(sector, fs.info().kind()).label),
         },
-        Volume::ExFat(fs) => Ok(fs
-            .volume_label()
-            .context(MESSAGE)?
-            .map(|label| String::from_utf16_lossy(label.as_utf16()))
-            .unwrap_or_default()),
+        Volume::ExFat(_) => Ok(label.unwrap_or_default()),
     }
 }
 
 fn type_name(volume: &Volume) -> String {
     match volume {
-        Volume::Fat(fs) => format!("{:?}", fs.kind()),
+        Volume::Fat(fs) => format!("{:?}", fs.info().kind()),
         Volume::ExFat(_) => "exFAT".to_string(),
     }
 }
@@ -291,10 +289,10 @@ fn cmd_info(image: &Path) -> Result<()> {
 
     match &volume {
         Volume::Fat(fs) => {
-            let boot = fat_boot(&sector, fs.kind());
+            let boot = fat_boot(&sector, fs.info().kind());
             println!("FAT Filesystem Information");
             println!("==========================");
-            println!("FAT Type:        {:?}", fs.kind());
+            println!("FAT Type:        {:?}", fs.info().kind());
             println!("OEM Name:        {}", boot.oem_name);
             println!("Volume Label:    {label}");
             println!("Volume ID:       {:08X}", boot.volume_id);
@@ -309,12 +307,12 @@ fn cmd_info(image: &Path) -> Result<()> {
             println!("============================");
             println!("FS Revision:     {}.{:02}", revision >> 8, revision & 0xFF);
             println!("Volume Label:    {label}");
-            println!("Volume ID:       {:08X}", fs.volume_id());
+            println!("Volume ID:       {:08X}", fs.info().volume_serial());
             println!(
                 "Sector Size:     {} bytes",
                 1u32 << boot.bytes_per_sector_shift
             );
-            println!("Cluster Size:    {} bytes", fs.cluster_size());
+            println!("Cluster Size:    {} bytes", fs.info().cluster_size());
             println!("FAT Count:       {}", boot.number_of_fats);
             println!(
                 "Volume Dirty:    {}",
@@ -550,17 +548,32 @@ fn walk_files<D: FileSystem>(fs: &mut D, path: &str, out: &mut Vec<(String, u64)
     Ok(())
 }
 
-/// The clusters of the file or directory at `path`.
+/// The clusters of the file or directory at `path`, from its extents.
 fn cluster_chain(volume: &mut Volume, path: &str) -> Result<Vec<u32>> {
-    let mut chain = Vec::new();
     let node = with_fs!(&mut *volume, fs => resolve(&mut **fs, path))?;
-    let result = match volume {
-        Volume::Fat(fs) => fs
-            .cluster_chain(node, |cluster| chain.push(cluster))
-            .map(drop),
-        Volume::ExFat(fs) => fs
-            .cluster_chain(node, |cluster| chain.push(cluster))
-            .map(drop),
+    let (heap, size) = match &*volume {
+        Volume::Fat(fs) => (fs.info().data_start(), fs.info().cluster_size() as u64),
+        Volume::ExFat(fs) => (fs.info().heap_start(), fs.info().cluster_size()),
+    };
+    let mut chain: Vec<u32> = Vec::new();
+    let mut out = [hadris_fs::Extent::new(0, 0); 16];
+    let mut from = 0;
+    let result = loop {
+        let n = match with_fs!(&mut *volume, fs => fs.extents(node, from, &mut out)) {
+            Ok(0) => break Ok(()),
+            Ok(n) => n,
+            Err(err) => break Err(err),
+        };
+        for extent in &out[..n] {
+            let first = (extent.offset() - heap) / size + 2;
+            let last = (extent.end() - 1 - heap) / size + 2;
+            for cluster in first..=last {
+                if chain.last() != Some(&(cluster as u32)) {
+                    chain.push(cluster as u32);
+                }
+            }
+            from = extent.file_offset() + extent.len();
+        }
     };
     with_fs!(&mut *volume, fs => fs.forget(node, 1));
     result.with_context(|| format!("Failed to read cluster chain of {path}"))?;

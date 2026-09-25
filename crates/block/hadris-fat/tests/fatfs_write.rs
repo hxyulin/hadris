@@ -2354,3 +2354,126 @@ fn unmount_syncs_and_returns_the_device() {
     fs.forget(file, 1);
     fsck(&bytes, "unmount");
 }
+
+fn write_at(fs: &mut common::Fs, node: NodeId, at: u64, data: &[u8]) {
+    assert_eq!(fs.write(node, at, data).unwrap(), data.len());
+}
+
+fn write(fs: &mut common::Fs, dir: NodeId, name: &str, data: &[u8]) -> NodeId {
+    let node = fs.create(dir, Name::new(name), &SetAttr::new()).unwrap();
+    write_at(fs, node, 0, data);
+    node
+}
+
+/// Reads a file back through its extents and `read_raw`, one extent per
+/// call, checking that the extents follow one another.
+fn read_mapped(fs: &mut common::Fs, node: NodeId) -> Vec<u8> {
+    let mut out = [hadris_fs::Extent::new(0, 0); 1];
+    let mut data = Vec::new();
+    while fs.extents(node, data.len() as u64, &mut out).unwrap() == 1 {
+        let extent = out[0];
+        assert_eq!(extent.file_offset(), data.len() as u64);
+        assert!(!extent.is_unwritten());
+        let mut buf = vec![0; extent.len() as usize];
+        fs.read_raw(extent.offset(), &mut buf).unwrap();
+        data.extend(buf);
+    }
+    data
+}
+
+#[test]
+fn extras_map_files_and_set_label_and_serial() {
+    use hadris_fat::{FatOptions, VolumeLabel};
+    for case in CASES {
+        let mut fs = common::formatted(case, FatOptions::new());
+        let geo = *fs.info();
+        assert_eq!(geo.kind(), case.kind, "{}", case.name);
+        assert!(!fs.was_dirty(), "{}", case.name);
+        let root = fs.root();
+        let size = geo.cluster_size() as usize;
+        let spacer = write(&mut fs, root, "spacer.bin", &common::payload(size, 1));
+        let data = common::payload(size * 3 + size / 2, 7);
+        let node = write(&mut fs, root, "f.bin", &data[..size]);
+        write_at(&mut fs, spacer, size as u64, &common::payload(size, 2));
+        write_at(&mut fs, node, size as u64, &data[size..]);
+        assert_eq!(read_mapped(&mut fs, node), data, "{}", case.name);
+        let mut out = [hadris_fs::Extent::new(0, 0); 4];
+        assert_eq!(fs.extents(node, 0, &mut out).unwrap(), 2, "{}", case.name);
+
+        assert_eq!(fs.records(node, &mut out).unwrap(), 1);
+        let mut entry = [0u8; 32];
+        fs.read_raw(out[0].offset(), &mut entry).unwrap();
+        assert_eq!(&entry[..11], b"F       BIN");
+        assert_eq!(fs.records(root, &mut out).unwrap(), 0);
+        assert_eq!(
+            fs.records(node, &mut []).unwrap_err().kind(),
+            ErrorKind::LimitExceeded
+        );
+        let expected_root = match geo.root() {
+            hadris_fat_raw::RootLocation::Fixed { start, size } => {
+                Some(hadris_fs::Extent::new(start, size))
+            }
+            hadris_fat_raw::RootLocation::Cluster(_) => None,
+        };
+        assert_eq!(fs.extents(root, 0, &mut out).unwrap(), 1);
+        if let Some(fixed) = expected_root {
+            assert_eq!(out[0], fixed);
+        }
+
+        fs.set_label(Some(VolumeLabel::new("new label").unwrap()))
+            .unwrap();
+        assert_eq!(fs.label_text().unwrap().as_deref(), Some("NEW LABEL"));
+        fs.set_volume_serial(0x1234_5678).unwrap();
+        assert_eq!(fs.info().volume_serial(), Some(0x1234_5678));
+        let image = fs.unmount().unwrap().into_inner();
+        let (serial_at, label_at) = if case.kind == hadris_fat::FatKind::Fat32 {
+            (0x43, 0x47)
+        } else {
+            (0x27, 0x2B)
+        };
+        let mut boots = vec![0];
+        if case.kind == hadris_fat::FatKind::Fat32 {
+            boots.push(6 * case.sector as usize);
+        }
+        for boot in boots {
+            assert_eq!(
+                image[boot + serial_at..boot + serial_at + 4],
+                0x1234_5678u32.to_le_bytes()
+            );
+            assert_eq!(
+                &image[boot + label_at..boot + label_at + 11],
+                b"NEW LABEL  "
+            );
+        }
+        fsck(&image, case.name);
+
+        let mut fs = common::mount(case, &image);
+        assert_eq!(fs.label_text().unwrap().as_deref(), Some("NEW LABEL"));
+        assert_eq!(fs.info().volume_serial(), Some(0x1234_5678));
+        fs.set_label(None).unwrap();
+        assert_eq!(fs.label_text().unwrap(), None);
+        let image = fs.unmount().unwrap().into_inner();
+        assert_eq!(&image[label_at..label_at + 11], b"NO NAME    ");
+        fsck(&image, case.name);
+    }
+}
+
+#[test]
+fn was_dirty_reads_the_clean_bit() {
+    for case in CASES {
+        let mut image = common::blank(case);
+        let geo = *common::mount(case, &image).info();
+        let clean = case.kind.clean_bit();
+        if clean == 0 {
+            assert!(!common::mount(case, &image).was_dirty());
+            continue;
+        }
+        let at = geo.fat_start() as usize + case.kind.entry_offset(1) as usize;
+        let len = case.kind.entry_len();
+        let mut bytes = [0u8; 4];
+        bytes[..len].copy_from_slice(&image[at..at + len]);
+        let entry = u32::from_le_bytes(bytes) & !clean;
+        image[at..at + len].copy_from_slice(&entry.to_le_bytes()[..len]);
+        assert!(common::mount(case, &image).was_dirty(), "{}", case.name);
+    }
+}

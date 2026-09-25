@@ -175,7 +175,8 @@ fn drive(data: &[u8]) {
                 first.0 == second.0,
                 "ORACLE: repeated reads of {text:?} returned different bytes"
             );
-            let _ = fs.cluster_chain(node, |_| {});
+            let _ = fs.extents(node, 0, &mut [hadris_fs::Extent::new(0, 0); 4]);
+            let _ = fs.records(node, &mut [hadris_fs::Extent::new(0, 0); 4]);
         }
     }
 }
