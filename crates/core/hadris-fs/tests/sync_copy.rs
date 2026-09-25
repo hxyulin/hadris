@@ -93,9 +93,9 @@ fn nodes_the_trait_cannot_create_are_skipped() {
     assert_eq!(
         skipped,
         [
-            b"/dev/null".to_vec(),
-            b"/etc/again".to_vec(),
-            b"/link".to_vec()
+            b"dev/null".to_vec(),
+            b"etc/again".to_vec(),
+            b"link".to_vec()
         ]
     );
     assert!(dst.contents("/etc/again").is_none());

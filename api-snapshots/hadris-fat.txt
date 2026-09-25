@@ -158,6 +158,9 @@ pub struct hadris_fat::exfat::VolumeLabel
 impl hadris_fat::exfat::VolumeLabel
 pub fn hadris_fat::exfat::VolumeLabel::as_utf16(&self) -> &[u16]
 pub fn hadris_fat::exfat::VolumeLabel::new(&str) -> core::result::Result<Self, hadris_io::kind::ErrorKind>
+impl core::convert::TryFrom<&str> for hadris_fat::exfat::VolumeLabel
+pub type hadris_fat::exfat::VolumeLabel::Error = hadris_io::kind::ErrorKind
+pub fn hadris_fat::exfat::VolumeLabel::try_from(&str) -> core::result::Result<Self, hadris_io::kind::ErrorKind>
 impl core::fmt::Debug for hadris_fat::exfat::VolumeLabel
 pub fn hadris_fat::exfat::VolumeLabel::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for hadris_fat::exfat::VolumeLabel
@@ -231,3 +234,6 @@ impl hadris_fat::VolumeLabel
 pub fn hadris_fat::VolumeLabel::as_bytes(&self) -> &[u8; 11]
 pub fn hadris_fat::VolumeLabel::as_str(&self) -> &str
 pub fn hadris_fat::VolumeLabel::new(&str) -> core::result::Result<Self, hadris_io::kind::ErrorKind>
+impl core::convert::TryFrom<&str> for hadris_fat::VolumeLabel
+pub type hadris_fat::VolumeLabel::Error = hadris_io::kind::ErrorKind
+pub fn hadris_fat::VolumeLabel::try_from(&str) -> core::result::Result<Self, hadris_io::kind::ErrorKind>

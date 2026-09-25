@@ -635,9 +635,10 @@ impl IsoOptions {
         Self { time, ..self }
     }
 
-    /// Sets the seed the GPT disk and partition GUIDs derive from. Without
-    /// one they derive from the time and the volume identifier, so the
-    /// same inputs give the same image.
+    /// Sets the seed the GPT disk and partition GUIDs derive from, with the
+    /// tree's paths, sizes and times. Without one they derive from the time
+    /// and the tree, so the same inputs give the same image and different
+    /// trees different GUIDs.
     pub fn with_seed(self, seed: u64) -> Self {
         Self {
             seed: Some(seed),

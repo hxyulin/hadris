@@ -50,6 +50,15 @@ impl VolumeLabel {
     }
 }
 
+impl TryFrom<&str> for VolumeLabel {
+    type Error = ErrorKind;
+
+    /// Checks `text` as [`VolumeLabel::new`] does.
+    fn try_from(text: &str) -> Result<Self, ErrorKind> {
+        Self::new(text)
+    }
+}
+
 /// How `format` lays out a FAT12, FAT16 or FAT32 volume, and how
 /// `write` builds one from a tree.
 ///
@@ -164,7 +173,9 @@ impl FatOptions {
         self
     }
 
-    /// Derives the serial from `seed` instead of the time.
+    /// Derives the serial from `seed` instead of the time. `write` mixes in
+    /// the tree's paths, sizes and times, so different trees get different
+    /// serials.
     pub const fn with_seed(mut self, seed: u64) -> Self {
         self.seed = Some(seed);
         self

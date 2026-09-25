@@ -66,7 +66,9 @@ one too large with `ErrorKind::LimitExceeded`, and an invalid option with
 `with_root_entries`, `with_alignment` and the other `with_*` methods set the
 remaining boot sector fields. The time (`with_time`, 1980-01-01 by default)
 stamps the label, and the serial derives from `with_seed` or the time, so
-the same options produce the same bytes on every run.
+the same options produce the same bytes on every run. `write`, which formats
+and copies a tree in, also mixes the tree's paths, sizes and times into the
+serial.
 
 ## Create directories and files
 

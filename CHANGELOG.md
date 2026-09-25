@@ -10,6 +10,12 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-fs (V3):** `Tree::fingerprint`, a hash of the tree's paths,
+  types, sizes, link targets, device numbers and times that writers mix
+  into serials and GUIDs.
+- **hadris-fat (V3):** `VolumeLabel` and `exfat::VolumeLabel` implement
+  `TryFrom<&str>`.
+
 - **hadris-fat (V3):** `fat::{sync, r#async}::write(dev, &tree,
   &FatOptions)` and `exfat::{sync, r#async}::write(dev, &tree,
   &ExFatOptions)` format a device and copy a `Tree` into it with
@@ -604,6 +610,18 @@ Each published package owns its version and may be released independently.
   gains `kind()` and `device()`.
 
 ### Changed
+
+- **hadris-fs (V3):** Warning paths use the form `Tree::insert` takes and
+  `Report::extents` keys: no leading, trailing or repeated `/`
+  (`boot/grub.cfg`, not `/boot/grub.cfg`). `read_tree` of a single file
+  names the node as its directory lists it, so on a case-insensitive
+  volume the tree holds the stored spelling rather than the one in the
+  path.
+- **hadris-fat, hadris-iso (V3):** Volume serials written by FAT and exFAT
+  `write`, and the GPT GUIDs of hybrid ISO images, derive from the tree's
+  paths, sizes and times together with the seed, or the time without one,
+  so different trees get different ids and the same inputs still give the
+  same bytes.
 
 - **hadris-fat (V3):** `format(&mut dev, &opts)` in each mode, FAT and
   exFAT, returns the volume's `Geometry` instead of a mounted volume, and

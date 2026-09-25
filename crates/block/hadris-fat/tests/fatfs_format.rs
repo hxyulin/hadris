@@ -520,12 +520,26 @@ fn writes_a_tree() {
         report
             .warnings()
             .iter()
-            .any(|warning| warning.path() == Some(b"/link".as_slice())),
+            .any(|warning| warning.path() == Some(b"link".as_slice())),
         "{report}"
     );
     let mut again = Vec::new();
     write(&mut again, &tree, &options).unwrap();
     assert_eq!(image, again, "reproducible");
+    let mut other = Tree::new();
+    other
+        .insert("Docs/readme.txt", Node::file(Content::bytes("hello!")))
+        .unwrap();
+    let mut different = Vec::new();
+    write(&mut different, &other, &options).unwrap();
+    assert_ne!(
+        image[39..43],
+        different[39..43],
+        "the serial follows the tree"
+    );
+    let mut seeded = Vec::new();
+    write(&mut seeded, &tree, &options.with_seed(9)).unwrap();
+    assert_ne!(image[39..43], seeded[39..43], "and the seed");
 
     let dev = MemDevice::new(image.clone(), BlockSize::new(512).unwrap());
     let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
@@ -554,6 +568,8 @@ fn labels() {
     assert_eq!(label("boot").as_bytes(), b"BOOT       ");
     assert_eq!(label("My Disk 1").as_str(), "MY DISK 1");
     assert_eq!(label("ABCDEFGHIJK").as_str(), "ABCDEFGHIJK");
+    assert_eq!(VolumeLabel::try_from("boot"), VolumeLabel::new("BOOT"));
+    assert_eq!(VolumeLabel::try_from("A.B"), Err(ErrorKind::InvalidInput));
     assert_eq!(
         VolumeLabel::new("ABCDEFGHIJKL"),
         Err(ErrorKind::NameTooLong)

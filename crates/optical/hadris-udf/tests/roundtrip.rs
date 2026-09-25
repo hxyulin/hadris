@@ -131,7 +131,7 @@ fn metadata_reads_back() {
     assert_eq!(
         kinds,
         [
-            (Some(&b"/dev/null"[..]), WarningKind::Skipped),
+            (Some(&b"dev/null"[..]), WarningKind::Skipped),
             (None, WarningKind::Dropped(hadris_fs::Field::Created)),
         ]
     );

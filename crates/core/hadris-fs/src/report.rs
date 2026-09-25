@@ -56,10 +56,11 @@ impl Warning {
         }
     }
 
-    /// Records the tree path of the node.
+    /// Records the tree path of the node, in the form [`Report::extents`]
+    /// keys paths with: no leading, trailing or repeated `/`.
     #[must_use]
     pub fn with_path(mut self, path: impl AsRef<[u8]>) -> Self {
-        self.path = Some(path.as_ref().to_vec());
+        self.path = Some(normalize(path.as_ref()));
         self
     }
 
@@ -88,7 +89,9 @@ impl Warning {
         self.message
     }
 
-    /// The tree path, or `None` for a warning about a whole kind of loss.
+    /// The tree path as [`Tree::insert`](crate::Tree::insert) takes it,
+    /// with no leading `/`, or `None` for a warning about a whole kind of
+    /// loss.
     pub fn path(&self) -> Option<&[u8]> {
         self.path.as_deref()
     }
@@ -124,8 +127,8 @@ impl fmt::Display for Warning {
     }
 }
 
-/// A tree path as reports key it: its components joined by `/`, with no
-/// leading, trailing or repeated `/` and no leading `./`.
+/// A tree path as reports key and show it: its components joined by `/`,
+/// with no leading, trailing or repeated `/` and no leading `./`.
 fn normalize(path: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(path.len());
     for (index, part) in path.split(|&byte| byte == b'/').enumerate() {
@@ -245,11 +248,12 @@ mod tests {
                 .with_stored_as("READ_ME.TXT;1"),
         );
         report.push_warning(Warning::new(WarningKind::Dropped(Field::Owner), "fat").with_count(3));
+        assert_eq!(report.warnings()[0].path(), Some(&b"Read Me.txt"[..]));
         let text = alloc::format!("{report}");
         assert_eq!(
             text,
             "0 bytes, 0 files\n\
-             warning: Renamed (iso level 1 name): /Read Me.txt as READ_ME.TXT;1\n\
+             warning: Renamed (iso level 1 name): Read Me.txt as READ_ME.TXT;1\n\
              warning: Owner dropped (fat): 3 nodes"
         );
     }

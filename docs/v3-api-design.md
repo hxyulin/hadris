@@ -1632,13 +1632,13 @@ into `next` per step, each leaving the workspace building and tested:
   Decisions where the spec was silent or the code differs from it:
   - `Content::stored`, `Content::stored_extents` and `ContentReader::check` are public: the bridge writer in `hadris-udf` builds on ISO extents, and every writer checks content before it writes.
   - `Tree` also has `entry` and `root`, returning a `TreeEntry` (`node`, `id`, `links`, `children`, `child`), since writers and `copy_tree` walk trees and see hard links.
-  - `Report` has `new`, `set_size`, `push_warning` and `push_extent`, so format crates and `copy_tree` build it. Extent keys have no leading slash; warning paths keep the writer's form, `/a/b`.
+  - `Report` has `new`, `set_size`, `push_warning` and `push_extent`, so format crates and `copy_tree` build it. Extent keys have no leading slash; warning paths keep the writer's form, `/a/b` (Q14 changed this after R6: both use the form `Tree::insert` takes).
   - `PathError` carries tree paths as bytes and host paths separately (`host_path`).
   - `copy_tree` does not apply the root's attributes to `dir`, and sets attribute bits with the times after the data, because writing sets FAT's archive bit.
-  - `read_tree` of a single file names it by the path as given, not the stored name; the FAT CLI renames it.
+  - `read_tree` of a single file names it by the path as given, not the stored name; the FAT CLI renames it (Q14 changed this after R6: it uses the stored name).
   - cpio's `CpioWriter` is `Writer`, and `Format::NewcCrc` is `Format::Crc`. `append_file` refuses `Crc` with `Unsupported`, since the checksum precedes the data. `CpioReader` is unchanged.
-  - Serials and GPT GUIDs derive from `with_seed`, or from the time, not from the time plus the tree as 4.10 says.
-  - FAT and exFAT have no `plan`; `write` reports the volume size the options give.
+  - Serials and GPT GUIDs derive from `with_seed`, or from the time, not from the time plus the tree as 4.10 says (Q14 changed this after R6: they hash the tree too).
+  - FAT and exFAT have no `plan`; `write` reports the volume size the options give (Q14: none in 3.0, additive later).
   - `FatOptions::with_partition_offset` and `ExFatOptions::with_partition_offset` take bytes, like `disk_offset`, and must be whole sectors. `with_label` takes a checked `VolumeLabel`, not `&str`. A failed `format` returns only the error, since it borrows the device.
   - FAT and exFAT `write` give nodes without times the options' time, so the volume does not depend on the mount clock.
   - `write_bridge` checks the UDF block size before the ISO part.
@@ -1772,10 +1772,10 @@ the rejected alternative.
 - `MountOptions::with_utc_offset` stays fallible. The host's local UTC offset is the default of `host::mount_options()`, not of `MountOptions::new()`, as D10 says.
 - A FAT label is decoded through the mount's code page, like short names, so a label with bytes above `0x7F` no longer reads as `Some("")`.
 
-**Q14. Open points from R6.** Open. The code follows the first option of each:
+**Q14. Open points from R6.** Resolved 2026-09-25 by the user:
 
-- Warning paths keep a leading slash while `Report::extents` keys have none. Alternatives: normalise warnings the same way, or give extents the slash.
-- Serials and GUIDs derive from the seed or the time, not from the time plus the tree (4.10). Hashing the tree's paths, sizes and times would give different content different ids without reading file data.
-- FAT and exFAT have no `plan`. A plan would need the allocation `copy_tree` does, or a size estimate that is not exact.
-- `with_label` takes a `VolumeLabel` rather than `&str` as 5.1's example shows, so an invalid label fails where it is built, not in `format`.
-- `read_tree` of a single file uses the name as given. On a case-insensitive volume the stored name may differ; finding it costs a directory scan.
+- Warning paths and `Report::extents` keys use one form, the one `Tree::insert` takes: no leading, trailing or repeated `/`.
+- Serials and GUIDs hash the tree (paths, sizes and times, through `Tree::fingerprint`) together with the seed, or the time without one, as 4.10 says. Output stays reproducible for fixed inputs. `format` alone has no tree, so its serial derives from the seed or the time.
+- FAT and exFAT have no `plan` in 3.0. It can be added in 3.x without a break.
+- `with_label` keeps taking a `VolumeLabel`, which implements `TryFrom<&str>`, so an invalid label fails where it is built.
+- `read_tree` of a single file names it as its directory lists it, at the cost of one directory scan. The FAT CLI's rename step is gone.

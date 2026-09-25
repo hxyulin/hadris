@@ -157,7 +157,7 @@ fn boot_options_are_checked_against_the_images() {
         report
             .warnings()
             .iter()
-            .any(|w| w.path() == Some(&b"/boot/boot.img"[..]) && w.kind() == WarningKind::Boot),
+            .any(|w| w.path() == Some(&b"boot/boot.img"[..]) && w.kind() == WarningKind::Boot),
         "{:?}",
         report.warnings()
     );
@@ -167,7 +167,7 @@ fn boot_options_are_checked_against_the_images() {
             .unwrap()
             .warnings()
             .iter()
-            .all(|w| w.path() != Some(&b"/boot/boot.img"[..]))
+            .all(|w| w.path() != Some(&b"boot/boot.img"[..]))
     );
 
     let two_efi = IsoOptions::default()
@@ -182,7 +182,7 @@ fn boot_options_are_checked_against_the_images() {
         report
             .warnings()
             .iter()
-            .any(|w| w.path() == Some(&b"/boot/efi.img"[..]) && w.kind() == WarningKind::Boot),
+            .any(|w| w.path() == Some(&b"boot/efi.img"[..]) && w.kind() == WarningKind::Boot),
         "{:?}",
         report.warnings()
     );

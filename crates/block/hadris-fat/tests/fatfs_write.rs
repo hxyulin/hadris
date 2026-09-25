@@ -1432,6 +1432,22 @@ fn copy_tree_between_two_volumes() {
     fsck(&image, "copy_tree");
 }
 
+#[test]
+fn read_tree_of_a_file_uses_its_stored_name() {
+    let case = CASES[1];
+    let vol = Volume::new(open(case, common::blank(case)));
+    vol.create_dir_all("/Docs").unwrap();
+    vol.write_file("/Docs/ReadMe.txt", b"hi").unwrap();
+    let tree = hadris_fs::sync::read_tree(&vol, "/docs/README.TXT").unwrap();
+    let names: Vec<_> = tree
+        .root()
+        .children()
+        .map(|(name, _)| name.as_bytes().to_vec())
+        .collect();
+    assert_eq!(names, [b"ReadMe.txt".to_vec()]);
+    assert_eq!(tree.get("ReadMe.txt").unwrap().content().unwrap().len(), 2);
+}
+
 fn compare_trees(a: &mut Fs, a_dir: NodeId, b: &mut Fs, b_dir: NodeId) -> usize {
     let a_list = list(a, a_dir);
     let b_list = list(b, b_dir);

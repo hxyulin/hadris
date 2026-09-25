@@ -1867,20 +1867,24 @@ impl Planner<'_> {
         }
     }
 
-    /// A deterministic GUID from `key` and the seed, or the time without
-    /// one, so the same inputs always give the same GPT.
+    /// A deterministic GUID from `key`, the tree and the seed, or the time
+    /// without one, so the same inputs always give the same GPT and
+    /// different trees different GUIDs.
     fn guid(&self, key: &str) -> Guid {
         let seed = self.opts.seed().unwrap_or(self.now.unix_seconds() as u64);
-        guid(key, seed)
+        guid(key, seed, self.tree.fingerprint())
     }
 }
 
-/// A deterministic GUID from `key`, so the same volume always gets the same
-/// GPT.
-fn guid(key: &str, seed: u64) -> Guid {
+/// A deterministic GUID from `key`, the seed and the tree's fingerprint.
+fn guid(key: &str, seed: u64, tree: u64) -> Guid {
     let mut hash1: u64 = 0xcbf2_9ce4_8422_2325;
     let mut hash2: u64 = 0x0000_0100_0000_01b3;
-    for byte in key.bytes().chain(seed.to_le_bytes()) {
+    for byte in key
+        .bytes()
+        .chain(seed.to_le_bytes())
+        .chain(tree.to_le_bytes())
+    {
         hash1 ^= u64::from(byte);
         hash1 = hash1.wrapping_mul(0x0000_0100_0000_01b3);
         hash2 ^= u64::from(byte);

@@ -679,6 +679,69 @@ impl Tree {
             index: ROOT,
         }
     }
+
+    /// A 64-bit hash of every path, file type, size, symlink target, device
+    /// number and time in the tree, without reading file data.
+    ///
+    /// Writers mix it with their time or seed to derive volume serials and
+    /// GUIDs, so the same tree and options give the same ids and different
+    /// trees give different ones. Equal trees hash equal; the value may
+    /// change between releases.
+    pub fn fingerprint(&self) -> u64 {
+        let mut hash = Fnv::new();
+        let mut pending = alloc::vec![(self.root(), Vec::new())];
+        while let Some((entry, path)) = pending.pop() {
+            hash.bytes(&path);
+            hash.u64(path.len() as u64);
+            let node = entry.node();
+            hash.u64(node.file_type() as u64);
+            hash.u64(node.content().map_or(0, Content::len));
+            if let Some(target) = node.target() {
+                hash.bytes(target);
+                hash.u64(target.len() as u64);
+            }
+            if let Some(device) = node.device() {
+                hash.u64(u64::from(device.major()) << 32 | u64::from(device.minor()));
+            }
+            let attrs = node.attrs();
+            for time in [attrs.created(), attrs.modified(), attrs.accessed()] {
+                match time {
+                    Some(time) => {
+                        hash.u64(1);
+                        hash.u64(time.unix_seconds() as u64);
+                        hash.u64(u64::from(time.nanoseconds()));
+                    }
+                    None => hash.u64(0),
+                }
+            }
+            for (name, child) in entry.children() {
+                let mut child_path = path.clone();
+                child_path.push(b'/');
+                child_path.extend_from_slice(name.as_bytes());
+                pending.push((child, child_path));
+            }
+        }
+        hash.0
+    }
+}
+
+/// 64-bit FNV-1a.
+struct Fnv(u64);
+
+impl Fnv {
+    fn new() -> Self {
+        Self(0xCBF2_9CE4_8422_2325)
+    }
+
+    fn bytes(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.0 = (self.0 ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01B3);
+        }
+    }
+
+    fn u64(&mut self, value: u64) {
+        self.bytes(&value.to_le_bytes());
+    }
 }
 
 /// A node of a [`Tree`] with its place in it: its children and the names
@@ -742,6 +805,28 @@ mod tests {
 
     fn file(bytes: &[u8]) -> Node {
         Node::file(Content::bytes(bytes))
+    }
+
+    #[test]
+    fn fingerprints_follow_paths_sizes_and_times() {
+        let build = |name: &str, data: &[u8], time: i64| {
+            let mut tree = Tree::new();
+            tree.insert(
+                name,
+                file(data).with_attrs(
+                    SetAttr::new().with_modified(DateTime::from_unix_seconds(time).unwrap()),
+                ),
+            )
+            .unwrap();
+            tree.insert("dir/link", Node::symlink("../a")).unwrap();
+            tree
+        };
+        let base = build("a", b"x", 10).fingerprint();
+        assert_eq!(base, build("/a", b"y", 10).fingerprint());
+        assert_ne!(base, build("b", b"x", 10).fingerprint());
+        assert_ne!(base, build("a", b"xy", 10).fingerprint());
+        assert_ne!(base, build("a", b"x", 11).fingerprint());
+        assert_ne!(Tree::new().fingerprint(), base);
     }
 
     #[test]
