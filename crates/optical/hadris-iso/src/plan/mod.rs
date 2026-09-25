@@ -10,8 +10,10 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::convert::Infallible;
 
-use hadris_fs::tree::{NodeKind, Tree, TreeNode, Warning, WarningKind};
-use hadris_fs::{Clock, DateTime, DeviceKind, DeviceNumber, ErrorKind, Extent, SetMetadata};
+use hadris_fs::{
+    Content, DateTime, DeviceNumber, ErrorKind, Extent, Field, FileType, Name, Node, PathError,
+    Report, SetAttr, Tree, TreeEntry, Warning, WarningKind,
+};
 use hadris_part::gpt::types as part_types;
 use hadris_part::{
     Disk, Gpt, GptEntry, Guid, Hybrid, HybridMbr, Mbr, MbrEntry, MbrType, PartitionFlags,
@@ -31,7 +33,6 @@ use crate::raw::{
     SupplementaryVolumeDescriptor, U16Both, U32Be, U32Both, U32Le, VolumeDescriptorHeader,
     VolumeDescriptorSetTerminator,
 };
-use crate::report::{Report, normalize};
 use crate::rock_ridge::{S_IFBLK, S_IFCHR, S_IFDIR, S_IFLNK, S_IFREG};
 
 pub(crate) mod names;
@@ -167,7 +168,7 @@ enum FileKind {
     },
     Device {
         node: usize,
-        kind: DeviceKind,
+        kind: FileType,
         number: DeviceNumber,
     },
     Catalog {
@@ -180,7 +181,7 @@ struct PFile {
     name: String,
     path: String,
     kind: FileKind,
-    meta: SetMetadata,
+    meta: SetAttr,
     links: u32,
 }
 
@@ -193,13 +194,6 @@ impl PFile {
             FileKind::Catalog { .. } => None,
         }
     }
-
-    fn len(&self) -> u64 {
-        match self.kind {
-            FileKind::Data { len, .. } | FileKind::Catalog { len } => len,
-            _ => 0,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -209,7 +203,7 @@ struct PDir {
     /// directory, the name otherwise.
     iso_name: String,
     path: String,
-    meta: SetMetadata,
+    meta: SetAttr,
     parent: usize,
     dirs: Vec<usize>,
     files: Vec<usize>,
@@ -230,9 +224,9 @@ enum TreeKind {
     Joliet(JolietLevel),
 }
 
-struct Planner<'a, C> {
+struct Planner<'a> {
     tree: &'a Tree,
-    opts: &'a IsoOptions<C>,
+    opts: &'a IsoOptions,
     contents: &'a BTreeMap<usize, ContentInfo>,
     base: Base,
     now: DateTime,
@@ -267,6 +261,84 @@ fn block_of(offset: u64) -> PlanResult<u32> {
     u32::try_from(offset / SECTOR).map_err(|_| too_large())
 }
 
+/// A tree path in the form the planner keys it by: `/` separated, with a
+/// leading `/` and no empty components.
+pub(crate) fn normalize(path: &str) -> String {
+    let mut out = String::new();
+    for part in path.split('/').filter(|part| !part.is_empty()) {
+        out.push('/');
+        out.push_str(part);
+    }
+    if out.is_empty() {
+        out.push('/');
+    }
+    out
+}
+
+/// A tree name as text; names that are not UTF-8 get U+FFFD and a
+/// warning.
+fn text(name: &Name, path: &str, warnings: &mut Vec<Warning>) -> String {
+    match core::str::from_utf8(name.as_bytes()) {
+        Ok(text) => String::from(text),
+        Err(_) => {
+            let text = String::from_utf8_lossy(name.as_bytes()).into_owned();
+            warnings.push(
+                Warning::new(WarningKind::Renamed, "iso 9660 names are unicode")
+                    .with_path(path)
+                    .with_stored_as(&text),
+            );
+            text
+        }
+    }
+}
+
+/// Measures every file of `tree` without I/O: content lengths are fixed
+/// when the content is made. Stored content is accepted only when `stored`
+/// is set, for sessions.
+pub(crate) fn measure(
+    tree: &Tree,
+    stored: bool,
+) -> Result<BTreeMap<usize, ContentInfo>, PathError> {
+    let mut out = BTreeMap::new();
+    let mut pending = vec![(Vec::new(), tree.root())];
+    while let Some((dir_path, dir)) = pending.pop() {
+        for (name, child) in dir.children() {
+            let mut path = dir_path.clone();
+            path.push(b'/');
+            path.extend_from_slice(name.as_bytes());
+            let node = child.node();
+            if node.file_type() == FileType::Dir {
+                pending.push((path, child));
+                continue;
+            }
+            let Some(content) = node.content() else {
+                continue;
+            };
+            if out.contains_key(&child.id()) {
+                continue;
+            }
+            let info = match content.stored_extents() {
+                Some(extents) if stored => ContentInfo {
+                    len: content.len(),
+                    stored: Some(extents.to_vec()),
+                },
+                Some(_) => {
+                    return Err(PathError::from(
+                        Detail::StoredContent.error::<Infallible>(ErrorKind::Unsupported),
+                    )
+                    .with_path(path));
+                }
+                None => ContentInfo {
+                    len: content.len(),
+                    stored: None,
+                },
+            };
+            out.insert(child.id(), info);
+        }
+    }
+    Ok(out)
+}
+
 fn join(parent: &str, name: &str) -> String {
     if parent == "/" {
         alloc::format!("/{name}")
@@ -275,10 +347,28 @@ fn join(parent: &str, name: &str) -> String {
     }
 }
 
+/// Plans writing `tree` as an ISO 9660 image, without I/O, and returns the
+/// report `write` returns: the image size, where each file's data goes, and
+/// what the image cannot store as the tree asks.
+///
+/// Size an output device with [`Report::size`]; the image includes the
+/// 150 zero blocks after the data that xorriso and `mkisofs -pad` write,
+/// and any backup GPT. Fails as `write` does before it writes anything:
+/// [`ErrorKind::InvalidInput`] for a missing boot image, a diskette image
+/// of the wrong size, a load size of zero, an identifier that does not
+/// fit, a relocation clash or a tree too deep without Rock Ridge;
+/// [`ErrorKind::LimitExceeded`] for MBR boot code over 446 bytes;
+/// [`ErrorKind::FileTooLarge`] for a file of 4 GiB or more below Level 3;
+/// and [`ErrorKind::Unsupported`] for content stored on another image.
+pub fn plan(tree: &Tree, opts: &IsoOptions) -> Result<Report, PathError> {
+    let contents = measure(tree, false)?;
+    Ok(lay_out(tree, opts, &contents, Base::image())?.report)
+}
+
 /// Lays `tree` out as `opts` says, from `base`.
-pub(crate) fn plan<C: Clock>(
+pub(crate) fn lay_out(
     tree: &Tree,
-    opts: &IsoOptions<C>,
+    opts: &IsoOptions,
     contents: &BTreeMap<usize, ContentInfo>,
     base: Base,
 ) -> PlanResult<Plan> {
@@ -297,7 +387,7 @@ pub(crate) fn plan<C: Clock>(
         opts,
         contents,
         base,
-        now: opts.clock().now(),
+        now: opts.time(),
         dirs: Vec::new(),
         files: Vec::new(),
         trees,
@@ -317,7 +407,7 @@ pub(crate) fn plan<C: Clock>(
     planner.layout()
 }
 
-impl<C: Clock> Planner<'_, C> {
+impl Planner<'_> {
     // -----------------------------------------------------------------------
     // Gathering the tree.
 
@@ -327,7 +417,7 @@ impl<C: Clock> Planner<'_, C> {
             name: String::new(),
             iso_name: String::new(),
             path: String::from("/"),
-            meta: *root.metadata(),
+            meta: *root.node().attrs(),
             parent: 0,
             dirs: Vec::new(),
             files: Vec::new(),
@@ -337,21 +427,22 @@ impl<C: Clock> Planner<'_, C> {
             serial: 0,
         });
         let mut pending = vec![(0usize, root)];
-        let mut skipped = 0usize;
-        let mut first_skipped = None;
-        while let Some((dir, node)) = pending.pop() {
+        while let Some((dir, entry)) = pending.pop() {
             let path = self.dirs[dir].path.clone();
             let mut children = Vec::new();
-            for (name, child) in node.children() {
-                let child_path = join(&path, name);
-                let kind = match child.kind() {
-                    NodeKind::Dir => {
+            for (raw_name, child) in entry.children() {
+                let raw_path = join(&path, &String::from_utf8_lossy(raw_name.as_bytes()));
+                let name = text(raw_name, &raw_path, &mut self.warnings);
+                let child_path = join(&path, &name);
+                let node = child.node();
+                let kind = match node.file_type() {
+                    FileType::Dir => {
                         let id = self.dirs.len();
                         self.dirs.push(PDir {
-                            name: name.to_string(),
-                            iso_name: name.to_string(),
+                            name: name.clone(),
+                            iso_name: name,
                             path: child_path,
-                            meta: *child.metadata(),
+                            meta: *node.attrs(),
                             parent: dir,
                             dirs: Vec::new(),
                             files: Vec::new(),
@@ -364,10 +455,10 @@ impl<C: Clock> Planner<'_, C> {
                         children.push((id, child));
                         continue;
                     }
-                    NodeKind::File(content) => {
+                    FileType::File => {
                         let len = match self.contents.get(&child.id()) {
                             Some(info) => info.len,
-                            None => content.len().unwrap_or(0),
+                            None => node.content().map_or(0, Content::len),
                         };
                         if len >= MAX_EXTENT && !matches!(self.opts.level(), IsoLevel::L3) {
                             return Err(Detail::ImageTooLarge.error(ErrorKind::FileTooLarge));
@@ -377,26 +468,36 @@ impl<C: Clock> Planner<'_, C> {
                             len,
                         }
                     }
-                    NodeKind::Symlink(_) if self.rock_ridge => {
-                        FileKind::Symlink { node: child.id() }
+                    FileType::Symlink if self.rock_ridge => FileKind::Symlink { node: child.id() },
+                    kind @ (FileType::CharDevice | FileType::BlockDevice)
+                        if self.rock_ridge && node.device().is_some() =>
+                    {
+                        FileKind::Device {
+                            node: child.id(),
+                            kind,
+                            number: node.device().unwrap_or(DeviceNumber::new(0, 0)),
+                        }
                     }
-                    NodeKind::Device(kind, number) if self.rock_ridge => FileKind::Device {
-                        node: child.id(),
-                        kind,
-                        number,
-                    },
                     _ => {
-                        skipped += 1;
-                        first_skipped.get_or_insert(child_path);
+                        self.warnings.push(
+                            Warning::new(
+                                WarningKind::Skipped,
+                                match self.rock_ridge {
+                                    true => "iso 9660 stores no fifos or sockets",
+                                    false => "symlinks and device nodes need rock ridge",
+                                },
+                            )
+                            .with_path(&child_path),
+                        );
                         continue;
                     }
                 };
                 let id = self.files.len();
                 self.files.push(PFile {
-                    name: name.to_string(),
+                    name,
                     path: child_path,
                     kind,
-                    meta: *child.metadata(),
+                    meta: *node.attrs(),
                     links: u32::try_from(child.links()).unwrap_or(u32::MAX),
                 });
                 self.dirs[dir].files.push(id);
@@ -405,19 +506,17 @@ impl<C: Clock> Planner<'_, C> {
                 pending.push(child);
             }
         }
-        if let Some(path) = first_skipped {
-            self.warnings.push(Warning::new(
-                path,
-                WarningKind::Skipped,
-                alloc::format!(
-                    "{skipped} symlink or device entries need Rock Ridge and were left out"
-                ),
-            ));
-        }
         self.dirs
             .iter_mut()
             .for_each(|dir| dir.physical = dir.dirs.clone());
         Ok(())
+    }
+
+    /// The tree entry of the file at `path`.
+    fn file_entry(&self, path: &str) -> Option<TreeEntry<'_>> {
+        self.tree
+            .entry(path)
+            .filter(|entry| entry.node().file_type() == FileType::File)
     }
 
     /// Checks the boot options against the tree before anything is laid
@@ -435,9 +534,7 @@ impl<C: Clock> Planner<'_, C> {
         };
         for entry in el_torito.entries() {
             let node = self
-                .tree
-                .get(entry.image())
-                .filter(|node| matches!(node.kind(), NodeKind::File(_)))
+                .file_entry(entry.image())
                 .ok_or(invalid(Detail::BootImage))?;
             let len = self.contents.get(&node.id()).map_or(0, |info| info.len);
             let floppy = match entry.emulation() {
@@ -453,13 +550,13 @@ impl<C: Clock> Planner<'_, C> {
                 && let Some(load) = entry.load_size()
                 && u64::from(load) > len.div_ceil(512)
             {
-                self.warnings.push(Warning::new(
-                    normalize(entry.image()),
-                    WarningKind::IgnoredMetadata,
-                    alloc::format!(
-                        "the load size of {load} sectors runs past the {len}-byte boot image; firmware loads the bytes after it too"
-                    ),
-                ));
+                self.warnings.push(
+                    Warning::new(
+                        WarningKind::Boot,
+                        "the load size runs past the boot image; firmware loads the bytes after it too",
+                    )
+                    .with_path(normalize(entry.image())),
+                );
             }
         }
         if let Some(hybrid) = self.opts.hybrid()
@@ -472,11 +569,13 @@ impl<C: Clock> Planner<'_, C> {
                 .skip(1)
                 .filter(|entry| entry.platform() == Platform::Efi);
             if let (Some(first), Some(_)) = (uefi.next(), uefi.next()) {
-                self.warnings.push(Warning::new(
-                    normalize(first.image()),
-                    WarningKind::Skipped,
-                    "several UEFI boot entries and no HybridBoot::with_efi_partition: the partition table has no EFI system partition",
-                ));
+                self.warnings.push(
+                    Warning::new(
+                        WarningKind::Boot,
+                        "several UEFI boot entries and no HybridBoot::with_efi_partition: the partition table has no EFI system partition",
+                    )
+                    .with_path(normalize(first.image())),
+                );
             }
         }
         Ok(())
@@ -508,24 +607,24 @@ impl<C: Clock> Planner<'_, C> {
             .ok_or(invalid(Detail::CatalogPath))?;
         let node = self
             .tree
-            .get(&self.dirs[parent].path)
+            .entry(&self.dirs[parent].path)
             .ok_or(invalid(Detail::CatalogPath))?;
         if node.child(name).is_some() {
             return Err(invalid(Detail::CatalogPath));
         }
         let first_dir = node
             .children()
-            .position(|(_, child)| matches!(child.kind(), NodeKind::Dir));
+            .position(|(_, child)| child.node().file_type() == FileType::Dir);
         let insert_at = first_dir.unwrap_or(0).saturating_sub(1);
         let files_before = node
             .children()
             .take(insert_at)
             .filter(|(child_name, child)| {
-                !matches!(child.kind(), NodeKind::Dir)
+                child.node().file_type() != FileType::Dir
                     && self.dirs[parent]
                         .files
                         .iter()
-                        .any(|&f| self.files[f].name == *child_name)
+                        .any(|&f| self.files[f].name.as_bytes() == child_name.as_bytes())
             })
             .count();
         let entries = el_torito.entries().len().saturating_sub(1);
@@ -535,7 +634,7 @@ impl<C: Clock> Planner<'_, C> {
             name: name.to_string(),
             path: path.clone(),
             kind: FileKind::Catalog { len },
-            meta: SetMetadata::new(),
+            meta: SetAttr::new(),
             links: 1,
         });
         self.dirs[parent].files.insert(files_before, id);
@@ -640,7 +739,7 @@ impl<C: Clock> Planner<'_, C> {
                     name: String::from(rr_name),
                     iso_name: String::from(rr_name),
                     path: join("/", rr_name),
-                    meta: SetMetadata::new(),
+                    meta: SetAttr::new(),
                     parent: 0,
                     dirs: Vec::new(),
                     files: Vec::new(),
@@ -653,6 +752,14 @@ impl<C: Clock> Planner<'_, C> {
                 id
             }
         };
+        for &dir in &moved {
+            let stored = join(&self.dirs[id].path, &self.dirs[dir].iso_name);
+            self.warnings.push(
+                Warning::new(WarningKind::Relocated, "rock ridge relocation")
+                    .with_path(&self.dirs[dir].path)
+                    .with_stored_as(stored),
+            );
+        }
         self.dirs[0].physical.retain(|&dir| dir != id);
         self.dirs[0].physical.insert(0, id);
         for &dir in &moved {
@@ -709,8 +816,8 @@ impl<C: Clock> Planner<'_, C> {
     // -----------------------------------------------------------------------
     // Directory records.
 
-    fn record_time(&self, meta: &SetMetadata) -> DirDateTime {
-        DirDateTime::from_datetime(meta.times().modified().unwrap_or(self.now))
+    fn record_time(&self, meta: &SetAttr) -> DirDateTime {
+        DirDateTime::from_datetime(meta.modified().unwrap_or(self.now))
     }
 
     fn rr_time(time: DateTime) -> [u8; 7] {
@@ -721,7 +828,7 @@ impl<C: Clock> Planner<'_, C> {
     fn posix(
         &self,
         builder: &mut SuBuilder,
-        meta: &SetMetadata,
+        meta: &SetAttr,
         type_mode: u32,
         default: u32,
         links: u32,
@@ -732,21 +839,21 @@ impl<C: Clock> Planner<'_, C> {
             .rock_ridge()
             .map_or(Preserve::empty(), |rr| rr.preserve());
         let mode = if preserve.contains(Preserve::PERMISSIONS) {
-            meta.mode().map_or(default, |mode| mode.bits())
+            meta.permissions().map_or(default, |mode| mode.bits())
         } else {
             default
         };
         let (uid, gid) = if preserve.contains(Preserve::OWNERS) {
-            (meta.uid().unwrap_or(0), meta.gid().unwrap_or(0))
+            meta.owner()
+                .map_or((0, 0), |owner| (owner.uid(), owner.gid()))
         } else {
             (0, 0)
         };
         builder.px(type_mode | mode, links, uid, gid, serial);
         if preserve.contains(Preserve::TIMES) {
-            let times = meta.times();
-            let modified = Self::rr_time(times.modified().unwrap_or(self.now));
-            let accessed = Self::rr_time(times.accessed().unwrap_or(self.now));
-            builder.tf(times.created().map(Self::rr_time), modified, accessed);
+            let modified = Self::rr_time(meta.modified().unwrap_or(self.now));
+            let accessed = Self::rr_time(meta.accessed().unwrap_or(self.now));
+            builder.tf(meta.created().map(Self::rr_time), modified, accessed);
         }
     }
 
@@ -919,7 +1026,7 @@ impl<C: Clock> Planner<'_, C> {
                 let (type_mode, default) = match f.kind {
                     FileKind::Symlink { .. } => (S_IFLNK, 0o777),
                     FileKind::Device {
-                        kind: DeviceKind::Block,
+                        kind: FileType::BlockDevice,
                         ..
                     } => (S_IFBLK, 0o600),
                     FileKind::Device { .. } => (S_IFCHR, 0o600),
@@ -935,11 +1042,8 @@ impl<C: Clock> Planner<'_, C> {
                 );
                 b.nm(f.name.as_bytes());
                 match f.kind {
-                    FileKind::Symlink { node } => {
-                        if let Some(NodeKind::Symlink(target)) =
-                            self.tree.get(&f.path).map(|n: TreeNode<'_>| n.kind())
-                        {
-                            let _ = node;
+                    FileKind::Symlink { .. } => {
+                        if let Some(target) = self.tree.get(&f.path).and_then(Node::target) {
                             b.sl(target);
                         }
                     }
@@ -1239,11 +1343,7 @@ impl<C: Clock> Planner<'_, C> {
     // El Torito.
 
     fn boot_image(&self, path: &str) -> PlanResult<(u32, u64)> {
-        let node = self
-            .tree
-            .get(path)
-            .filter(|node| matches!(node.kind(), NodeKind::File(_)))
-            .ok_or(invalid(Detail::BootImage))?;
+        let node = self.file_entry(path).ok_or(invalid(Detail::BootImage))?;
         let len = self.contents.get(&node.id()).map_or(0, |info| info.len);
         let block = self
             .extents
@@ -1268,7 +1368,7 @@ impl<C: Clock> Planner<'_, C> {
             }
             let node = self
                 .tree
-                .get(entry.image())
+                .entry(entry.image())
                 .map(|node| node.id())
                 .ok_or(invalid(Detail::BootImage))?;
             out.insert(
@@ -1476,7 +1576,7 @@ impl<C: Clock> Planner<'_, C> {
         let total_512 = total * 4;
         let volume = self.opts.volume().volume();
         let mut gpt = Gpt::new(
-            guid(&alloc::format!("disk-{volume}")),
+            self.guid(&alloc::format!("disk-{volume}")),
             total_512,
             PART_BLOCK,
         )
@@ -1503,7 +1603,10 @@ impl<C: Clock> Planner<'_, C> {
         let entry =
             |type_guid, key: &str, first: u64, last: u64, name: &str| -> PlanResult<GptEntry> {
                 let name = PartitionName::new(name).map_err(part_error)?;
-                Ok(GptEntry::new(type_guid, guid(key), first, last - first + 1).with_name(name))
+                Ok(
+                    GptEntry::new(type_guid, self.guid(key), first, last - first + 1)
+                        .with_name(name),
+                )
             };
         let mut iso_index = None;
         let mut esp_index = None;
@@ -1614,41 +1717,68 @@ impl<C: Clock> Planner<'_, C> {
     // Report.
 
     fn report(&self, total: u64) -> Report {
-        let mut extents = BTreeMap::new();
+        let mut report = Report::new();
+        report.set_size(total * SECTOR);
         for f in &self.files {
             let key = match f.kind {
                 FileKind::Data { node, .. } => node,
                 FileKind::Catalog { .. } => CATALOG,
                 _ => continue,
             };
-            if let Some(list) = self.extents.get(&key)
-                && let Some(&(block, _)) = list.first()
-            {
-                extents.insert(
-                    f.path.clone(),
-                    Extent::new(u64::from(block) * SECTOR, f.len()),
-                );
+            if let Some(list) = self.extents.get(&key) {
+                for &(block, len) in list {
+                    report.push_extent(&f.path, Extent::new(u64::from(block) * SECTOR, len));
+                }
             }
         }
-        let mut warnings = self.warnings.clone();
-        if !self.rock_ridge {
-            let dropped = self
-                .dirs
+        for warning in &self.warnings {
+            report.push_warning(warning.clone());
+        }
+        let preserve = self
+            .opts
+            .rock_ridge()
+            .map_or(Preserve::empty(), |rr| rr.preserve());
+        let metas = || {
+            self.dirs
                 .iter()
                 .map(|d| &d.meta)
                 .chain(self.files.iter().map(|f| &f.meta))
-                .filter(|meta| {
-                    meta.mode().is_some() || meta.uid().is_some() || meta.gid().is_some()
-                })
-                .count();
-            if dropped > 0 {
-                warnings.push(Warning::new(
-                    "/",
-                    WarningKind::IgnoredMetadata,
-                    alloc::format!(
-                        "permissions and owners of {dropped} entries need Rock Ridge and were not stored"
-                    ),
-                ));
+        };
+        type Loss = (Field, bool, fn(&SetAttr) -> bool);
+        let losses: [Loss; 5] = [
+            (Field::Created, !preserve.contains(Preserve::TIMES), |m| {
+                m.created().is_some()
+            }),
+            (Field::Accessed, !preserve.contains(Preserve::TIMES), |m| {
+                m.accessed().is_some()
+            }),
+            (
+                Field::Permissions,
+                !preserve.contains(Preserve::PERMISSIONS),
+                |m| m.permissions().is_some(),
+            ),
+            (Field::Owner, !preserve.contains(Preserve::OWNERS), |m| {
+                m.owner().is_some()
+            }),
+            (Field::Attributes, true, |m| {
+                m.attributes().is_some_and(|a| !a.is_empty())
+            }),
+        ];
+        for (field, lost, set) in losses {
+            let count = if lost {
+                metas().filter(|meta| set(meta)).count()
+            } else {
+                0
+            };
+            if count > 0 {
+                let message = match (field, self.rock_ridge) {
+                    (Field::Attributes, _) => "iso 9660 stores no attributes",
+                    (_, false) => "needs rock ridge",
+                    (_, true) => "not in the rock ridge preserve set",
+                };
+                report.push_warning(
+                    Warning::new(WarningKind::Dropped(field), message).with_count(count as u64),
+                );
             }
         }
         let keeps_names = self.rock_ridge
@@ -1662,22 +1792,22 @@ impl<C: Clock> Planner<'_, C> {
                 .files
                 .iter()
                 .filter(|f| !matches!(f.kind, FileKind::Catalog { .. }))
-                .map(|f| (&f.path, names::primary_keeps(&f.name, &rules.file(&f.name))))
-                .chain(self.dirs.iter().skip(1).map(|d| {
-                    (
-                        &d.path,
-                        names::primary_keeps(&d.name, &rules.directory(&d.name)),
-                    )
-                }))
-                .filter(|(_, kept)| !kept)
-                .map(|(path, _)| path.clone())
-                .collect::<BTreeSet<_>>();
-            for path in changed {
-                warnings.push(Warning::new(
-                    path,
-                    WarningKind::Renamed,
-                    "the name does not fit the primary tree and was shortened",
-                ));
+                .map(|f| (&f.path, &f.name, rules.file(&f.name)))
+                .chain(
+                    self.dirs
+                        .iter()
+                        .skip(1)
+                        .map(|d| (&d.path, &d.name, rules.directory(&d.name))),
+                )
+                .filter(|(_, name, stored)| !names::primary_keeps(name, stored))
+                .map(|(path, _, stored)| (path.clone(), stored))
+                .collect::<BTreeMap<_, _>>();
+            for (path, stored) in changed {
+                report.push_warning(
+                    Warning::new(WarningKind::Renamed, "iso 9660 name")
+                        .with_path(path)
+                        .with_stored_as(stored),
+                );
             }
         }
         if self
@@ -1685,15 +1815,15 @@ impl<C: Clock> Planner<'_, C> {
             .iter()
             .any(|(tree, _)| matches!(tree, TreeKind::Joliet(_)))
         {
-            self.joliet_warnings(&mut warnings);
+            self.joliet_warnings(&mut report);
         }
-        Report::new(total, extents, warnings)
+        report
     }
 
     /// Warns about names the Joliet tree changes, and about names that
     /// differ from a sibling's only in case, which case-insensitive readers
     /// cannot tell apart.
-    fn joliet_warnings(&self, warnings: &mut Vec<Warning>) {
+    fn joliet_warnings(&self, report: &mut Report) {
         for (index, dir) in self.dirs.iter().enumerate() {
             if Some(index) == self.rr_moved {
                 continue;
@@ -1711,36 +1841,46 @@ impl<C: Clock> Planner<'_, C> {
                 );
             let mut folded = BTreeMap::new();
             for (name, path) in children {
-                if let Some(reason) = names::joliet_change(name) {
-                    warnings.push(Warning::new(path.clone(), WarningKind::Renamed, reason));
-                }
-                let key = String::from_utf16_lossy(
+                let joliet = String::from_utf16_lossy(
                     &names::convert_joliet(name)
                         .chunks_exact(2)
                         .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
                         .collect::<Vec<_>>(),
-                )
-                .to_lowercase();
-                if let Some(first) = folded.insert(key, path) {
-                    warnings.push(Warning::new(
-                        path.clone(),
-                        WarningKind::Renamed,
-                        alloc::format!(
-                            "the Joliet name differs from {first} only in case; case-insensitive readers see one of them"
-                        ),
-                    ));
+                );
+                if let Some(reason) = names::joliet_change(name) {
+                    report.push_warning(
+                        Warning::new(WarningKind::Renamed, reason)
+                            .with_path(path)
+                            .with_stored_as(&joliet),
+                    );
+                }
+                if folded.insert(joliet.to_lowercase(), path).is_some() {
+                    report.push_warning(
+                        Warning::new(
+                            WarningKind::Renamed,
+                            "the Joliet name differs from a sibling's only in case; case-insensitive readers see one of them",
+                        )
+                        .with_path(path),
+                    );
                 }
             }
         }
+    }
+
+    /// A deterministic GUID from `key` and the seed, or the time without
+    /// one, so the same inputs always give the same GPT.
+    fn guid(&self, key: &str) -> Guid {
+        let seed = self.opts.seed().unwrap_or(self.now.unix_seconds() as u64);
+        guid(key, seed)
     }
 }
 
 /// A deterministic GUID from `key`, so the same volume always gets the same
 /// GPT.
-fn guid(key: &str) -> Guid {
+fn guid(key: &str, seed: u64) -> Guid {
     let mut hash1: u64 = 0xcbf2_9ce4_8422_2325;
     let mut hash2: u64 = 0x0000_0100_0000_01b3;
-    for byte in key.bytes() {
+    for byte in key.bytes().chain(seed.to_le_bytes()) {
         hash1 ^= u64::from(byte);
         hash1 = hash1.wrapping_mul(0x0000_0100_0000_01b3);
         hash2 ^= u64::from(byte);

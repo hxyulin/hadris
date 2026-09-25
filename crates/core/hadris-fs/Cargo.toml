@@ -19,7 +19,7 @@ features = ["std", "sync", "async", "contract"]
 [features]
 default = []
 alloc = ["hadris-io/alloc", "hadris-storage/alloc", "dep:async-lock", "dep:spin"]
-std = ["alloc", "hadris-io/std", "hadris-storage/std", "async-lock?/std"]
+std = ["alloc", "hadris-io/std", "hadris-storage/std", "async-lock?/std", "dep:libc"]
 sync = ["hadris-io/sync", "dep:hadris-macros"]
 async = ["hadris-io/async", "dep:hadris-macros"]
 # The driver contract kit: `contract::check` in each enabled mode.
@@ -36,6 +36,10 @@ async-lock = { version = "3", default-features = false, optional = true }
 # needs atomic compare-and-swap like the `Arc` it lives in.
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
 spin = { version = "0.12", default-features = false, features = ["mutex", "spin_mutex"], optional = true }
+
+# `host::local_utc_offset` reads the host's zone with `localtime_r`.
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true, optional = true }
 
 [dev-dependencies]
 hadris-macros = { workspace = true }

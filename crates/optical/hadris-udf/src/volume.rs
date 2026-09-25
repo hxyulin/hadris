@@ -2,8 +2,7 @@
 //! structures.
 
 use hadris_fs::{
-    Capabilities, CaseRule, Charset, Field, FileTimes, FileType, Metadata, NodeId, Owner,
-    Permissions, Stored,
+    Capabilities, CaseRule, Charset, Field, FileType, Metadata, NodeId, Owner, Permissions, Stored,
 };
 
 use crate::UdfRevision;
@@ -170,7 +169,7 @@ pub(crate) struct Icb {
     pub(crate) permissions: u32,
     pub(crate) link_count: u16,
     pub(crate) size: u64,
-    pub(crate) times: FileTimes,
+    pub(crate) times: Times,
     pub(crate) ad_start: usize,
     pub(crate) ad_len: usize,
     pub(crate) block: [u8; MAX_BLOCK],
@@ -189,10 +188,12 @@ impl Icb {
         let (fixed, header): (usize, Header) = match tag.identifier.get() {
             tag::FILE_ENTRY => {
                 let fe: FileEntry = bytemuck::pod_read_unaligned(data.get(..176).ok_or_else(bad)?);
-                let times = FileTimes::new()
-                    .with_accessed(to_datetime(&fe.accessed))
-                    .with_modified(to_datetime(&fe.modified))
-                    .with_changed(to_datetime(&fe.attributes_changed));
+                let times = Times {
+                    created: None,
+                    modified: to_datetime(&fe.modified),
+                    accessed: to_datetime(&fe.accessed),
+                    changed: to_datetime(&fe.attributes_changed),
+                };
                 (
                     176,
                     Header {
@@ -211,11 +212,12 @@ impl Icb {
             tag::EXTENDED_FILE_ENTRY => {
                 let efe: ExtendedFileEntry =
                     bytemuck::pod_read_unaligned(data.get(..216).ok_or_else(bad)?);
-                let times = FileTimes::new()
-                    .with_accessed(to_datetime(&efe.accessed))
-                    .with_modified(to_datetime(&efe.modified))
-                    .with_created(to_datetime(&efe.created))
-                    .with_changed(to_datetime(&efe.attributes_changed));
+                let times = Times {
+                    created: to_datetime(&efe.created),
+                    modified: to_datetime(&efe.modified),
+                    accessed: to_datetime(&efe.accessed),
+                    changed: to_datetime(&efe.attributes_changed),
+                };
                 (
                     216,
                     Header {
@@ -292,20 +294,29 @@ impl Icb {
         if self.uid != u32::MAX || self.gid != u32::MAX {
             meta = meta.with_owner(Owner::new(self.uid, self.gid));
         }
-        if let Some(time) = self.times.created() {
+        if let Some(time) = self.times.created {
             meta = meta.with_created(time);
         }
-        if let Some(time) = self.times.modified() {
+        if let Some(time) = self.times.modified {
             meta = meta.with_modified(time);
         }
-        if let Some(time) = self.times.accessed() {
+        if let Some(time) = self.times.accessed {
             meta = meta.with_accessed(time);
         }
-        if let Some(time) = self.times.changed() {
+        if let Some(time) = self.times.changed {
             meta = meta.with_changed(time);
         }
         meta
     }
+}
+
+/// The times of a file entry.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Times {
+    created: Option<hadris_fs::DateTime>,
+    modified: Option<hadris_fs::DateTime>,
+    accessed: Option<hadris_fs::DateTime>,
+    changed: Option<hadris_fs::DateTime>,
 }
 
 struct Header {
@@ -315,7 +326,7 @@ struct Header {
     permissions: u32,
     link_count: u16,
     size: u64,
-    times: FileTimes,
+    times: Times,
     ea: u32,
     ad: u32,
 }

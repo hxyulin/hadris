@@ -342,90 +342,6 @@ const fn check_offset(offset: Option<i16>) -> Result<i16, DateTimeError> {
     }
 }
 
-/// Creation, modification, access and change times of a node.
-///
-/// Every field is optional: formats leave out what they do not store, and
-/// `None` in a change request means "leave unchanged".
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct FileTimes {
-    created: Option<DateTime>,
-    modified: Option<DateTime>,
-    accessed: Option<DateTime>,
-    changed: Option<DateTime>,
-}
-
-impl FileTimes {
-    /// Creates a value with every time unset.
-    pub const fn new() -> Self {
-        Self {
-            created: None,
-            modified: None,
-            accessed: None,
-            changed: None,
-        }
-    }
-
-    /// Returns the creation (birth) time.
-    pub const fn created(&self) -> Option<DateTime> {
-        self.created
-    }
-
-    /// Returns the last content modification time.
-    pub const fn modified(&self) -> Option<DateTime> {
-        self.modified
-    }
-
-    /// Returns the last access time.
-    pub const fn accessed(&self) -> Option<DateTime> {
-        self.accessed
-    }
-
-    /// Returns the last metadata change time.
-    pub const fn changed(&self) -> Option<DateTime> {
-        self.changed
-    }
-
-    /// Sets the creation time.
-    pub fn with_created(self, time: impl Into<Option<DateTime>>) -> Self {
-        Self {
-            created: time.into(),
-            ..self
-        }
-    }
-
-    /// Sets the modification time.
-    pub fn with_modified(self, time: impl Into<Option<DateTime>>) -> Self {
-        Self {
-            modified: time.into(),
-            ..self
-        }
-    }
-
-    /// Sets the access time.
-    pub fn with_accessed(self, time: impl Into<Option<DateTime>>) -> Self {
-        Self {
-            accessed: time.into(),
-            ..self
-        }
-    }
-
-    /// Sets the metadata change time.
-    pub fn with_changed(self, time: impl Into<Option<DateTime>>) -> Self {
-        Self {
-            changed: time.into(),
-            ..self
-        }
-    }
-
-    /// Returns whether no time is set.
-    pub const fn is_empty(&self) -> bool {
-        self.created.is_none()
-            && self.modified.is_none()
-            && self.accessed.is_none()
-            && self.changed.is_none()
-    }
-}
-
 /// A source of the current time for timestamps a filesystem writes.
 pub trait Clock: Send + Sync {
     /// Returns the current time.
@@ -636,11 +552,6 @@ mod tests {
             .unwrap();
         assert_eq!((dt.unix_seconds(), dt.nanoseconds()), (10, 5));
         assert!(dt.with_nanoseconds(NANOS_PER_SEC).is_err());
-        let times = FileTimes::new().with_modified(dt).with_accessed(None);
-        assert_eq!(times.modified(), Some(dt));
-        assert_eq!(times.accessed(), None);
-        assert!(!times.is_empty());
-        assert!(FileTimes::default().is_empty());
     }
 
     #[test]

@@ -157,6 +157,7 @@ dependencies = [
  "hadris-io",
  "hadris-macros",
  "hadris-storage",
+ "libc",
  "spin",
 ]
 

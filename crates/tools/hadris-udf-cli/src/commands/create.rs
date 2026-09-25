@@ -1,4 +1,5 @@
-use hadris_fs::tree::{FromFsOptions, OnError, Tree, WarningKind};
+use hadris_fs::host::{self, OnError, TreeOptions};
+use hadris_fs::{Clock, SystemClock, WarningKind};
 use hadris_udf::{UdfOptions, UdfRevision};
 
 use super::super::args::CreateArgs;
@@ -15,27 +16,28 @@ pub fn create(args: CreateArgs) -> Result<()> {
     }
 
     let revision = parse_revision(&args.revision)?;
-    let tree = Tree::from_fs(
+    let (tree, skipped) = host::read_tree(
         &args.source,
-        FromFsOptions::new().with_on_error(OnError::Warn),
+        &TreeOptions::new().with_on_error(OnError::Skip),
     )?;
-    for warning in tree.warnings() {
-        eprintln!("warning: {warning}");
+    for err in skipped {
+        eprintln!("warning: skipped {err}");
     }
+    let time = host::source_date_epoch()?.unwrap_or_else(|| SystemClock.now());
     let options = UdfOptions::default()
         .with_volume_id(args.volume_name.clone())
         .with_revision(revision)
-        .with_clock(hadris_fs::SystemClock);
+        .with_time(time);
 
     if args.dry_run {
-        let report = hadris_udf::sync::plan(&tree, &options)?;
+        let report = hadris_udf::plan(&tree, &options)?;
         println!("Dry run: would create UDF image");
         println!("  Volume name: {}", args.volume_name);
         println!("  UDF revision: {revision}");
         println!(
             "  Size: {} sectors ({} bytes)",
-            report.total_blocks(),
-            report.size_bytes()
+            report.size() / 2048,
+            report.size()
         );
         return Ok(());
     }
@@ -49,7 +51,7 @@ pub fn create(args: CreateArgs) -> Result<()> {
         .commit(dev.into_inner())
         .map_err(|err| format!("cannot write {}: {err}", args.output.display()))?;
     for warning in report.warnings() {
-        if warning.kind() != WarningKind::IgnoredMetadata || args.verbose {
+        if !matches!(warning.kind(), WarningKind::Dropped(_)) || args.verbose {
             eprintln!("warning: {warning}");
         }
     }
@@ -58,8 +60,8 @@ pub fn create(args: CreateArgs) -> Result<()> {
         println!(
             "Created UDF image: {} ({} sectors, {} bytes)",
             args.output.display(),
-            report.total_blocks(),
-            report.size_bytes()
+            report.size() / 2048,
+            report.size()
         );
     } else {
         println!("Created: {}", args.output.display());

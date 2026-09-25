@@ -4,8 +4,9 @@ use std::path::Path;
 
 use hadris_fs::NodeId;
 use hadris_fs::sync::FileSystem;
-use hadris_fs::tree::{Content, Tree};
-use hadris_iso::sync::{IsoImage, IsoView, plan};
+use hadris_fs::{Content, Node, Tree};
+use hadris_iso::plan;
+use hadris_iso::sync::{IsoImage, IsoView};
 use hadris_iso::{Charset, IsoOptions, Namespace, VolumeIdentifiers};
 use hadris_storage::{BlockSize, MemDevice};
 
@@ -53,13 +54,10 @@ pub fn open(mut bytes: Vec<u8>) -> Result<Image, String> {
 }
 
 /// Writes `tree` into memory, sized by `plan`.
-pub fn write_tree<C: hadris_fs::Clock>(
-    tree: &Tree,
-    options: &IsoOptions<C>,
-) -> Result<Vec<u8>, String> {
+pub fn write_tree(tree: &Tree, options: &IsoOptions) -> Result<Vec<u8>, String> {
     let size = plan(tree, options)
         .map_err(|error| error.to_string())?
-        .size_bytes();
+        .size();
     let size = usize::try_from(size).map_err(|error| error.to_string())?;
     let mut dev = MemDevice::new(vec![0u8; size], BlockSize::new(2048).unwrap());
     hadris_iso::sync::write(&mut dev, tree, options).map_err(|error| error.to_string())?;
@@ -71,8 +69,10 @@ pub fn tree(state: &IsoState) -> Result<Tree, String> {
     let mut tree = Tree::new();
     for (path, data) in &state.entries {
         let result = match data {
-            EntryData::Directory => tree.add_dir(path),
-            EntryData::File(contents) => tree.add_file(path, Content::bytes(contents.clone())),
+            EntryData::Directory => tree.insert(path, Node::dir()),
+            EntryData::File(contents) => {
+                tree.insert(path, Node::file(Content::bytes(contents.clone())))
+            }
         };
         result.map_err(|error| format!("{path}: {error}"))?;
     }

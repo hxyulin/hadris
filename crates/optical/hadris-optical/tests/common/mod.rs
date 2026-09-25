@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use hadris_fs::tree::{Content, Tree};
+use hadris_fs::{Content, Node, Tree};
 use hadris_storage::{BlockSize, MemDevice};
 
 pub const PAYLOAD: &[u8] = b"optical traversal";
@@ -8,10 +8,13 @@ pub const SECTOR: usize = 2048;
 
 pub fn populated_tree() -> Tree {
     let mut tree = Tree::new();
-    tree.add_file("DOCS/README.TXT", Content::bytes(PAYLOAD))
+    tree.insert("DOCS/README.TXT", Node::file(Content::bytes(PAYLOAD)))
         .unwrap();
-    tree.add_file("DOCS/R\u{e9}sum\u{e9}.txt", Content::bytes(PAYLOAD))
-        .unwrap();
+    tree.insert(
+        "DOCS/R\u{e9}sum\u{e9}.txt",
+        Node::file(Content::bytes(PAYLOAD)),
+    )
+    .unwrap();
     tree
 }
 

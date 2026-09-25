@@ -2,7 +2,7 @@
 
 use std::fs;
 
-use hadris_fs::tree::{Content, Tree};
+use hadris_fs::{Content, Node, Tree};
 use hadris_iso::IsoOptions;
 use hadris_iso::raw::VolumeDescriptor;
 use hadris_tests::harness::command::{program_available, run_command};
@@ -18,7 +18,8 @@ use super::{descriptors, open, open_file, volume_id, xorriso_sample_image};
 #[test]
 fn small_images_are_padded_like_xorriso() {
     let mut tree = Tree::new();
-    tree.add_file("a.txt", Content::bytes("hi\n")).unwrap();
+    tree.insert("a.txt", Node::file(Content::bytes("hi\n")))
+        .unwrap();
     let bytes = write_tree(&tree, &IsoOptions::default()).unwrap();
     let image = open(bytes.clone());
     let volume = image.volume_blocks() as usize;

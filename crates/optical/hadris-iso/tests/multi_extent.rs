@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use common::Paths;
 use hadris_fs::ErrorKind;
 use hadris_fs::sync::FileSystem;
-use hadris_fs::tree::{Content, Tree};
+use hadris_fs::{Content, Node, Tree};
 use hadris_io::ErrorType;
 use hadris_iso::sync::IsoImage;
 use hadris_iso::{IsoLevel, IsoOptions, Namespace};
@@ -18,30 +18,18 @@ use hadris_storage::{BlockIndex, BlockSize};
 const LEN: u64 = (1 << 32) + 4096;
 static ZEROS: [u8; 2048] = [0; 2048];
 
-/// Zeros except the last byte of every MiB, without holding them.
-struct Sparse;
-
-impl ErrorType for Sparse {
-    type Error = std::convert::Infallible;
-}
-
-impl hadris_io::sync::ByteSource for Sparse {
-    fn len(&self) -> u64 {
-        LEN
+/// A sparse host file of zeros except the last byte of every MiB.
+fn sparse() -> tempfile::NamedTempFile {
+    use std::io::{Seek, SeekFrom, Write};
+    let mut file = tempfile::NamedTempFile::new().unwrap();
+    file.as_file().set_len(LEN).unwrap();
+    let mut mark = (1u64 << 20) - 1;
+    while mark < LEN {
+        file.seek(SeekFrom::Start(mark)).unwrap();
+        file.write_all(&[(mark >> 20) as u8]).unwrap();
+        mark += 1 << 20;
     }
-
-    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        let n = buf.len().min((LEN - offset.min(LEN)) as usize);
-        buf[..n].fill(0);
-        let mut mark = (offset >> 20 << 20) + (1 << 20) - 1;
-        while mark < offset + n as u64 {
-            if mark >= offset {
-                buf[(mark - offset) as usize] = (mark >> 20) as u8;
-            }
-            mark += 1 << 20;
-        }
-        Ok(n)
-    }
+    file
 }
 
 /// A device that keeps only the blocks that are not all zero.
@@ -98,18 +86,29 @@ impl BlockDevice for SparseDevice {
     }
 }
 
+/// Windows fills a file with zeros up to each write, so the sparse input
+/// would take 4 GiB of disk and minutes there.
 #[test]
+#[cfg_attr(windows, ignore)]
 fn large_files_take_several_extents_at_level_3() {
+    let file = sparse();
     let mut tree = Tree::new();
-    tree.add_file("big.bin", Content::source(Sparse)).unwrap();
-    tree.add_file("small.txt", Content::bytes("after")).unwrap();
-    let refused = hadris_iso::sync::plan(&tree, &IsoOptions::default()).unwrap_err();
+    tree.insert(
+        "big.bin",
+        Node::file(hadris_fs::host::file(file.path()).unwrap()),
+    )
+    .unwrap();
+    tree.insert("small.txt", Node::file(Content::bytes("after")))
+        .unwrap();
+    let refused = hadris_iso::plan(&tree, &IsoOptions::default()).unwrap_err();
     assert_eq!(refused.kind(), ErrorKind::FileTooLarge);
 
     let options = IsoOptions::default().with_level(IsoLevel::L3);
     let mut dev = SparseDevice::default();
     let report = hadris_iso::sync::write(&mut dev, &tree, &options).unwrap();
-    assert_eq!(report.extent_of("big.bin").unwrap().len(), LEN);
+    let written: Vec<_> = report.extents("big.bin").unwrap().to_vec();
+    assert_eq!(written.len(), 2);
+    assert_eq!(written.iter().map(|e| e.len()).sum::<u64>(), LEN);
 
     let mut iso = IsoImage::open(dev).unwrap();
     let mut view = iso.view(Namespace::Primary).unwrap();

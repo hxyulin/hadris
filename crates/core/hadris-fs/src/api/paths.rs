@@ -30,6 +30,7 @@ fn cancelled<'a>(rest: impl Iterator<Item = &'a [u8]>) -> bool {
 /// a plain name: a path that is empty, the root, or ends in `.` or `..`
 /// fails with [`ErrorKind::InvalidInput`].
 #[cfg(feature = "alloc")]
+#[allow(dead_code)]
 pub(super) fn split_parent(path: &[u8]) -> Result<(&[u8], &Name), ErrorKind> {
     let mut end = path.len();
     while end > 0 && path[end - 1] == b'/' {
@@ -195,6 +196,7 @@ async fn posix<F: FileSystem + ?Sized>(
 /// Resolves the parent of `path` with `how` and returns it pinned, with the
 /// last name.
 #[cfg(feature = "alloc")]
+#[allow(dead_code)]
 pub(super) async fn resolve_parent<'p, F: FileSystem + ?Sized>(
     fs: &mut F,
     path: &'p [u8],
@@ -207,6 +209,7 @@ pub(super) async fn resolve_parent<'p, F: FileSystem + ?Sized>(
 /// Creates the directory `path` and every missing parent, resolving `..`
 /// as `how` does.
 #[cfg(feature = "alloc")]
+#[allow(dead_code)]
 pub(super) async fn create_dir_all<F: FileSystem + ?Sized>(
     fs: &mut F,
     path: &[u8],

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::task::{Wake, Waker};
 
 use hadris_cpio::{CpioOptions, Format};
-use hadris_fs::tree::{Content, Tree};
+use hadris_fs::{Content, Node, Tree};
 use hadris_io::{Cursor, StdIo};
 
 struct ThreadWaker(std::thread::Thread);
@@ -48,16 +48,16 @@ impl hadris_io::r#async::Write for Sink {
 
 fn tree() -> Tree {
     let mut tree = Tree::new();
-    tree.add_file("bin/busybox", Content::bytes(vec![1u8; 5000]))
+    tree.insert("bin/busybox", Node::file(Content::bytes(vec![1u8; 5000])))
         .unwrap();
-    tree.add_symlink("bin/sh", "busybox").unwrap();
-    tree.add_hard_link("linuxrc", "bin/busybox").unwrap();
+    tree.insert("bin/sh", Node::symlink("busybox")).unwrap();
+    tree.link("bin/busybox", "linuxrc").unwrap();
     tree
 }
 
 #[test]
 fn every_mode_writes_the_same_bytes() {
-    let options = CpioOptions::default().with_format(Format::NewcCrc);
+    let options = CpioOptions::default().with_format(Format::Crc);
     let mut sync = StdIo::new(Vec::new());
     hadris_cpio::sync::write(&mut sync, &tree(), &options).unwrap();
     let sync = sync.into_inner();
@@ -70,6 +70,12 @@ fn every_mode_writes_the_same_bytes() {
     }
     block_on(assert_send(future)).unwrap();
     assert_eq!(send.0, sync);
+
+    let back = block_on(assert_send(hadris_cpio::r#async::read_tree(
+        &mut hadris_cpio::r#async::CpioReader::new(Cursor::new(&sync)),
+    )))
+    .unwrap();
+    assert_eq!(back.entry("linuxrc").unwrap().links(), 2);
 }
 
 #[test]

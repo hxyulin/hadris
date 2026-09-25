@@ -18,12 +18,12 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["std", "sync"]
-# The writer and the tree input.
-alloc = ["hadris-io/alloc", "hadris-fs/alloc", "hadris-storage/alloc"]
+# The writers and `plan`; the bridge writer takes `hadris-iso` options.
+alloc = ["hadris-io/alloc", "hadris-fs/alloc", "hadris-storage/alloc", "dep:hadris-iso", "hadris-iso/alloc"]
 # Implies `alloc`; `std::io::Error` conversions and host files as tree content.
-std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std"]
-sync = ["hadris-io/sync", "hadris-fs/sync", "hadris-storage/sync"]
-async = ["hadris-io/async", "hadris-fs/async", "hadris-storage/async"]
+std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std", "hadris-iso/std"]
+sync = ["hadris-io/sync", "hadris-fs/sync", "hadris-storage/sync", "hadris-iso?/sync"]
+async = ["hadris-io/async", "hadris-fs/async", "hadris-storage/async", "hadris-iso?/async"]
 
 [dependencies]
 bitflags = { workspace = true }
@@ -32,6 +32,7 @@ hadris-io = { workspace = true, default-features = false }
 hadris-fs = { workspace = true, default-features = false }
 hadris-storage = { workspace = true, default-features = false }
 hadris-macros = { workspace = true }
+hadris-iso = { workspace = true, default-features = false, optional = true }
 
 [dev-dependencies]
 hadris-fs = { workspace = true, features = ["contract"] }

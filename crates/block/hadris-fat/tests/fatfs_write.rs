@@ -1401,13 +1401,22 @@ fn two_handles_on_a_volume_see_one_size() {
 #[test]
 fn copy_tree_between_two_volumes() {
     let case = CASES[2];
-    let mut src = open(case, common::build(case));
+    let src = Volume::new(open(case, common::build(case)));
     let mut dst = open(CASES[1], common::blank(CASES[1]));
-    copy_tree(&mut src, "/", &mut dst, "/").unwrap();
-    let (src_root, dst_root) = (src.root(), dst.root());
+    let whole = hadris_fs::sync::read_tree(&src, "/").unwrap();
+    let dst_root = dst.root();
+    copy_tree(&whole, &mut dst, dst_root).unwrap();
+    let nested = hadris_fs::sync::read_tree(&src, "/Nested Dir").unwrap();
+    let second = dst
+        .mkdir(dst_root, name("second"), &hadris_fs::SetAttr::new())
+        .unwrap();
+    copy_tree(&nested, &mut dst, second).unwrap();
+    dst.forget(second, 1);
+    drop((whole, nested));
+    let mut src = src.into_inner().ok().unwrap();
+    let src_root = src.root();
     let copied = compare_trees(&mut src, src_root, &mut dst, dst_root);
     assert!(copied > 50, "{copied}");
-    copy_tree(&mut src, "/Nested Dir", &mut dst, "/second").unwrap();
     assert_eq!(
         dst.read_to_vec("/second/inner/deep.bin").unwrap(),
         common::payload(70_000, 5)

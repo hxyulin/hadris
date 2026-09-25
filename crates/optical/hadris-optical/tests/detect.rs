@@ -47,7 +47,7 @@ fn every_block_size_distinguishes_iso_udf_and_bridge() {
 #[test]
 fn images_from_the_writers_are_detected() {
     for (iso, udf) in [(true, false), (false, true), (true, true)] {
-        let bytes = image_of(iso, udf, &hadris_fs::tree::Tree::new());
+        let bytes = image_of(iso, udf, &hadris_fs::Tree::new());
         let formats = detect(&mut device(bytes, 2048)).unwrap().unwrap();
         assert_eq!(formats.has_iso9660(), iso);
         assert_eq!(formats.udf().is_some(), udf);

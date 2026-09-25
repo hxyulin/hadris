@@ -1,7 +1,7 @@
 use std::fs;
 
-use hadris_fs::sync::{FileSystem, extract_to_host};
-use hadris_fs::{DirCursor, NodeId, Resolve};
+use hadris_fs::sync::{FileSystem, Volume, read_tree};
+use hadris_fs::{DirCursor, NodeId, Resolve, host};
 
 use super::super::args::ExtractArgs;
 
@@ -12,24 +12,33 @@ use super::{Result, View, open, view_for};
 pub fn extract(args: ExtractArgs) -> Result<()> {
     let mut iso = open(&args.input)?;
     let from = args.path.as_deref().unwrap_or("/");
-    let mut view = view_for(&mut iso, from)?;
-
-    let destination = match stored_name(&mut view, from)? {
-        None => args.output.clone(),
-        Some(name) => {
-            fs::create_dir_all(&args.output)?;
-            args.output.join(name)
-        }
+    let (namespace, name, is_dir) = {
+        let mut view = view_for(&mut iso, from)?;
+        let name = stored_name(&mut view, from)?;
+        let node = view.resolve(from.as_bytes(), Resolve::Lexical)?;
+        let is_dir = view.stat(node).map(|meta| meta.file_type().is_dir());
+        view.forget(node, 1);
+        (view.namespace(), name, is_dir?)
+    };
+    let (destination, target) = match name {
+        None => (args.output.clone(), args.output.clone()),
+        Some(name) if is_dir => (args.output.join(&name), args.output.join(name)),
+        Some(name) => (args.output.join(name), args.output.clone()),
     };
     if args.verbose {
         println!(
-            "Extracting {from} from the {:?} tree to {}",
-            view.namespace(),
+            "Extracting {from} from the {namespace:?} tree to {}",
             destination.display()
         );
     }
-    extract_to_host(&mut view, from, &destination)
+    let vol = Volume::new(iso.into_view(namespace)?);
+    let tree = read_tree(&vol, from).map_err(|err| format!("Failed to extract {from}: {err}"))?;
+    fs::create_dir_all(&target)?;
+    let report = host::write_tree(&target, &tree)
         .map_err(|err| format!("Failed to extract {from}: {err}"))?;
+    for warning in report.warnings() {
+        eprintln!("warning: {warning}");
+    }
     println!("Extracted {from} to {}", destination.display());
     Ok(())
 }

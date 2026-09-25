@@ -74,7 +74,7 @@ use std::{fs::File, io::BufWriter};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tree = Tree::from_fs("./root", FromFsOptions::new())?;
     let mut output = StdIo::new(BufWriter::new(File::create("archive.cpio")?));
-    let options = CpioOptions::default().with_format(Format::NewcCrc);
+    let options = CpioOptions::default().with_format(Format::Crc);
     let report = hadris_cpio::sync::write(&mut output, &tree, &options)?;
     for warning in report.warnings() {
         eprintln!("{warning}");

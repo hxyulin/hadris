@@ -95,7 +95,7 @@
       "summary": "The UDF and ECMA-119 file structures reference the same file data set.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-cd/src/tree.rs", "name": "stored"}],
+      "symbols": [{"path": "crates/optical/hadris-cd/src/write.rs", "name": "write"}],
       "tests": [{"path": "crates/optical/hadris-cd/tests/bridge.rs", "name": "bridge_reads_back_through_iso_and_udf", "kind": "integration"}],
       "gap": null
     },

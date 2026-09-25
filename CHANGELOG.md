@@ -10,6 +10,46 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-fs (V3):** The builder input and output of step R6. `Tree`
+  with `insert`, `link`, `remove`, `replace`, `get`, `entry` and `root`,
+  at `/`-separated byte paths that refuse `.`, `..` and NUL; `TreeEntry`
+  walks it, children sorted by name bytes. `Node` is `file`, `dir`,
+  `symlink` or `special`, with `with_attrs(SetAttr)`. `Content` is
+  opaque and cloneable with a fixed length: `bytes`, `empty`, `stored`
+  extents for session writers, host files and lazy volume content.
+  `Report` (`size`, `warnings`, `extents`, `files`, `Display`) with
+  `Warning` and the non-exhaustive `WarningKind` (`Renamed`, `Truncated`,
+  `Deduplicated`, `Relocated`, `Dropped(Field)`, `Skipped`, `Boot`) is
+  what every writer, planner and `copy_tree` returns.
+- **hadris-fs (V3):** `read_tree(&vol, path)` in each mode reads a mounted
+  volume into a `Tree` whose content is read lazily through the `Volume`,
+  keeping hard links, symlinks and devices; `Volume::into_inner` fails
+  while the tree lives. Lazy content is readable only by writers of the
+  mode that produced it, others fail with `Unsupported`.
+  `ContentReader::check` tells a writer so before it writes anything.
+- **hadris-fs (V3):** `host` (`std` and `sync`): `read_tree(dir,
+  &TreeOptions)` with `Symlinks`, `OnError`, an exclude filter, an owner
+  override and an mtime clamp, returning the tree and the errors it
+  skipped; `write_tree(dir, &tree)`, which never writes outside `dir`,
+  creates symlinks last and reports what it drops; `file`,
+  `source_date_epoch`, `mount_options` and `local_utc_offset`.
+- **hadris (V3):** `hadris::host` re-exports the `hadris-fs` host
+  functions and types with `FileDevice` and `StdIo`.
+- **hadris-cpio (V3):** `plan`, `sync::read_tree` and `r#async::read_tree`,
+  `Writer::append_file` with `EntryWriter` for data produced while
+  writing, and `CpioOptions::with_time` for entries that set no
+  modification time.
+- **hadris-iso (V3):** `plan` outside the mode modules, and
+  `IsoOptions::with_time` and `with_seed`; GPT GUIDs derive from the seed,
+  or the time, and the volume identifier. `RockRidgeInfo::created`,
+  `modified`, `accessed` and `changed`.
+- **hadris-udf (V3):** `plan` outside the mode modules,
+  `UdfOptions::with_time`, and the ISO 9660 and UDF bridge writer that
+  `hadris-cd` held: `plan_bridge` and `write_bridge` in each mode, taking
+  the `IsoOptions` and `UdfOptions` of the two volumes.
+- **hadris-cd (V3):** `plan` outside the mode modules and
+  `CdOptions::with_time`.
+
 - **hadris-fat-raw (V3):** `short_name::display_label`, which decodes a
   stored volume label through a code page.
 - **hadris-fs (V3):** `MountOptions`, one mount configuration for every
@@ -557,6 +597,34 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fs (V3):** `copy_tree(&tree, &mut fs, dir)` copies a `Tree`
+  into a directory of any filesystem and returns a `Report`: directory
+  times are set after their children, fields the target does not store are
+  reported once per field with a count, and symlinks, special files and
+  extra hard-link names are skipped and reported by path. Errors carry the
+  tree path. The source of every copy is a tree; copy between volumes
+  with `read_tree` then `copy_tree`.
+- **hadris-fs (V3):** `PathError` paths are bytes: `with_path` takes
+  `impl AsRef<[u8]>` and `path` returns `Option<&[u8]>`.
+- **hadris-cpio (V3):** `CpioWriter` is `Writer`. `append(path, &Node)`
+  replaces `append(path, &SetMetadata, NewEntry)`, `append_hard_links`
+  takes a file `Node`, and `finish` returns the stream with the `Report`.
+  `write` returns the shared `Report`, whose extents give where each
+  file's data starts and whose warnings count dropped fields once per
+  field. Names are bytes. `Format::NewcCrc` is `Format::Crc`.
+- **hadris-iso, hadris-udf, hadris-cd (V3):** Writers return the shared
+  `hadris_fs::Report`, plan without I/O (content lengths are fixed when
+  content is made), check every file's content is readable in their mode
+  and that the device's `max_block_count` holds the image before writing,
+  failing with `NoSpace` otherwise. `IsoOptions`, `UdfOptions` and
+  `CdOptions` have no clock parameter: `with_time` fixes every timestamp,
+  1980-01-01 by default. Warnings name paths and the stored name; names
+  that are not UTF-8 are written with U+FFFD and reported as `Renamed`.
+  Rock Ridge relocations are reported as `Relocated`.
+- **hadris-iso (V3):** `Session` reads FIFOs and sockets into its tree;
+  `Session::warnings` is gone with nothing left to report.
+- **hadris-cd (V3):** The writer is `hadris_udf::write_bridge`; the UDF
+  volume is checked first for the output block size.
 - **hadris-fat (V3):** `FileSystem::label` decodes a FAT label through the
   mount's code page, as short names are, instead of reading a label with
   bytes above `0x7F` as `Some("")`.
@@ -1074,6 +1142,22 @@ Each published package owns its version and may be released independently.
 
 ### Removed
 
+- **hadris-fs (V3):** `FileTimes`, `SetMetadata` and `DeviceKind`, with
+  the old `tree` module (`add_file`, `add_dir`, `add_symlink`,
+  `add_device`, `add_hard_link`, `set_metadata`, `content_mut`,
+  `Tree::from_fs`, `FromFsOptions`, `TreeExt::from_filesystem`,
+  `Content::source` and `Content::path`), and `extract_to_host` and
+  `import_from_host`. Use `Tree::insert`, `link` and `replace`,
+  `host::read_tree`, `host::file`, `read_tree` and `host::write_tree`.
+  `Content::source` returns in 3.x.
+- **hadris-cpio (V3):** `NewEntry`, the crate's `Report` (with
+  `entries` and `size_bytes`), and `CpioWriter::write_tree` and
+  `warnings`.
+- **hadris-iso, hadris-udf, hadris-cd (V3):** Their own `Report` types
+  (`total_blocks`, `size_bytes`, `extent_of`, `allocated_end`), `plan` in
+  the mode modules, and `with_clock`. `RockRidgeInfo::times`.
+  `hadris_udf::Bridge` and `UdfOptions::with_bridge`, now internal to
+  `write_bridge`. `hadris_cd::Detail`, which no error carries any more.
 - **hadris-fat (V3):** `hadris_fat::raw` and `hadris_fat::exfat::raw`, which
   re-exported the whole `hadris-fat-raw` crate and tied `hadris-fat`'s API
   to its version. `hadris-fat` keeps `FatKind`, `Detail`, `exfat::Detail`

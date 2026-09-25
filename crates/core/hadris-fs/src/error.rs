@@ -129,14 +129,14 @@ impl<D, E: core::error::Error + Send + Sync + 'static> From<MountError<D, E>> fo
 ///
 /// let err = copy().unwrap_err();
 /// assert_eq!(err.kind(), ErrorKind::NoSpace);
-/// assert_eq!(err.path(), Some("/boot/kernel"));
+/// assert_eq!(err.path(), Some(&b"/boot/kernel"[..]));
 /// assert_eq!(err.to_string(), "volume full: /boot/kernel");
 /// ```
 #[cfg(feature = "alloc")]
 #[derive(Debug)]
 pub struct PathError {
     context: Error<core::convert::Infallible>,
-    path: Option<alloc::string::String>,
+    path: Option<alloc::vec::Vec<u8>>,
     #[cfg(feature = "std")]
     host: Option<std::path::PathBuf>,
     source: Option<alloc::boxed::Box<dyn core::error::Error + Send + Sync>>,
@@ -149,10 +149,11 @@ impl PathError {
         Error::<core::convert::Infallible>::new(kind, message).into()
     }
 
-    /// Records the path within the tree or volume that failed.
+    /// Records the path within the tree or volume that failed. Tree and
+    /// volume paths are bytes and need not be UTF-8.
     #[must_use]
-    pub fn with_path(mut self, path: impl Into<alloc::string::String>) -> Self {
-        self.path = Some(path.into());
+    pub fn with_path(mut self, path: impl AsRef<[u8]>) -> Self {
+        self.path = Some(path.as_ref().to_vec());
         self
     }
 
@@ -161,6 +162,13 @@ impl PathError {
     #[must_use]
     pub fn with_host_path(mut self, path: impl Into<std::path::PathBuf>) -> Self {
         self.host = Some(path.into());
+        self
+    }
+
+    /// The error with `kind` instead of its kind, keeping the rest.
+    #[cfg(all(feature = "std", feature = "sync"))]
+    pub(crate) fn with_kind(mut self, kind: ErrorKind) -> Self {
+        self.context = Error::new(kind, self.context.message());
         self
     }
 
@@ -190,7 +198,7 @@ impl PathError {
     }
 
     /// The path within the tree or volume, when known.
-    pub fn path(&self) -> Option<&str> {
+    pub fn path(&self) -> Option<&[u8]> {
         self.path.as_deref()
     }
 
@@ -241,7 +249,7 @@ impl fmt::Display for PathError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.context.fmt(f)?;
         if let Some(path) = &self.path {
-            return write!(f, ": {path}");
+            return write!(f, ": {}", crate::Name::new(path));
         }
         #[cfg(feature = "std")]
         if let Some(host) = &self.host {

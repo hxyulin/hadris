@@ -1,84 +1,153 @@
 use super::*;
-use crate::tree::{Content, Repr, Tree, Warning, WarningKind};
-use crate::{FileTimes, PathError, SetMetadata};
-use alloc::string::String;
-use alloc::vec::Vec;
+use crate::PathError;
+#[cfg(feature = "async")]
+use crate::tree::AsyncSource;
+#[cfg(feature = "sync")]
+use crate::tree::SyncSource;
+use crate::tree::{Content, Repr};
+use alloc::sync::Arc;
+
+fn stored() -> PathError {
+    PathError::new(
+        ErrorKind::Unsupported,
+        "content stored on the output device",
+    )
+}
 
 io_transform! {
 
-/// Reads a [`Content`] for a writer in this mode.
+sync_only! {
+    const SYNC: bool = true;
+}
+async_only! {
+    const SYNC: bool = false;
+}
+
+/// Lazy content of the sync mode when `sync`, else of the async mode, is
+/// readable only by writers of that mode.
+fn same_mode(sync: bool) -> Result<(), PathError> {
+    if sync == SYNC {
+        Ok(())
+    } else {
+        Err(PathError::new(
+            ErrorKind::Unsupported,
+            "lazy content is read only by writers of the mode that produced it",
+        ))
+    }
+}
+
+sync_only! {
+    #[cfg(feature = "sync")]
+    fn read_sync(source: &Arc<dyn SyncSource>, offset: u64, buf: &mut [u8]) -> Result<usize, PathError> {
+        source.read_at(offset, buf)
+    }
+    #[cfg(feature = "async")]
+    fn read_async(_: &Arc<dyn AsyncSource>, _: u64, _: &mut [u8]) -> Result<usize, PathError> {
+        same_mode(false).map(|()| 0)
+    }
+}
+async_only! {
+    #[cfg(feature = "sync")]
+    fn read_sync(_: &Arc<dyn SyncSource>, _: u64, _: &mut [u8]) -> Result<usize, PathError> {
+        same_mode(true).map(|()| 0)
+    }
+    #[cfg(feature = "async")]
+    async fn read_async(source: &Arc<dyn AsyncSource>, offset: u64, buf: &mut [u8]) -> Result<usize, PathError> {
+        source.read_at(offset, buf).await
+    }
+}
+
+/// Reads the [`Content`] of a tree file for a writer of this mode.
 ///
-/// Bytes, sources and host files are read; content made with
-/// [`Content::stored`] fails with [`ErrorKind::Unsupported`], since it lives
-/// on the device the writer updates.
+/// Bytes are read from memory. Host files and nodes of a sync `Volume`
+/// are read by the sync writers, nodes of an async `Volume` by the async
+/// ones; the other mode fails with [`ErrorKind::Unsupported`]. Content made
+/// with [`Content::stored`] fails with [`ErrorKind::Unsupported`], since it
+/// lives on the device a session writer updates. A host file whose length
+/// changed since it was added fails with [`ErrorKind::Corrupt`] naming it.
 pub struct ContentReader<'a> {
     content: &'a Content,
-    len: u64,
-    #[cfg(feature = "std")]
+    #[cfg(all(feature = "std", feature = "sync"))]
     file: Option<std::fs::File>,
 }
 
 impl<'a> ContentReader<'a> {
-    /// Opens `content`: a host file is opened and measured now.
-    pub async fn open(content: &'a Content) -> Result<Self, PathError> {
-        let len = match &content.0 {
-            Repr::Bytes(bytes) => bytes.len() as u64,
+    /// Checks without I/O that [`open`](Self::open) can read `content` in
+    /// this mode: stored content and the other mode's lazy content fail
+    /// with [`ErrorKind::Unsupported`]. Writers call it for every file
+    /// before they write anything.
+    pub fn check(content: &Content) -> Result<(), PathError> {
+        match &content.repr {
+            Repr::Bytes(_) => Ok(()),
+            Repr::Stored(_) => Err(stored()),
+            #[cfg(all(feature = "std", feature = "sync"))]
+            Repr::Host(_) => same_mode(true),
             #[cfg(feature = "sync")]
-            Repr::Blocking(source) => source.lock().len(),
+            Repr::Sync(_) => same_mode(true),
             #[cfg(feature = "async")]
-            Repr::Async(source) => async_content_len(source).await?,
-            #[cfg(feature = "std")]
-            Repr::Path { path, .. } => {
-                let file = std::fs::File::open(path).map_err(|err| host_error(err, path))?;
-                let len = hadris_storage::host::file_len(&file).map_err(|err| host_error(err, path))?;
-                return Ok(Self { content, len, file: Some(file) });
+            Repr::Async(_) => same_mode(false),
+        }
+    }
+
+    /// Opens `content`: a host file is opened now.
+    pub async fn open(content: &'a Content) -> Result<Self, PathError> {
+        Self::check(content)?;
+        #[cfg(all(feature = "std", feature = "sync"))]
+        let mut file = None;
+        #[cfg(all(feature = "std", feature = "sync"))]
+        if let Repr::Host(path) = &content.repr {
+            sync_only! {
+                file = Some(open_host(path, content.len())?);
             }
-            Repr::Stored(_) => return Err(ErrorKind::Unsupported.into()),
-        };
+            async_only! {
+                let _ = (path, &mut file);
+            }
+        }
         Ok(Self {
             content,
-            len,
-            #[cfg(feature = "std")]
-            file: None,
+            #[cfg(all(feature = "std", feature = "sync"))]
+            file,
         })
     }
 
     /// The length in bytes.
     pub fn len(&self) -> u64 {
-        self.len
+        self.content.len()
     }
 
     /// Whether there are no bytes.
     pub fn is_empty(&self) -> bool {
-        self.len == 0
+        self.content.is_empty()
     }
 
     /// Reads from `offset`. Returns 0 at or past the end.
     pub async fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, PathError> {
-        if offset >= self.len || buf.is_empty() {
+        let len = self.content.len();
+        if offset >= len || buf.is_empty() {
             return Ok(0);
         }
-        let limit = usize::try_from(self.len - offset).unwrap_or(usize::MAX).min(buf.len());
+        let limit = usize::try_from(len - offset).unwrap_or(usize::MAX).min(buf.len());
         let buf = &mut buf[..limit];
-        match &self.content.0 {
+        match &self.content.repr {
             Repr::Bytes(bytes) => {
                 let start = offset as usize;
                 buf.copy_from_slice(&bytes[start..start + limit]);
                 Ok(limit)
             }
-            #[cfg(feature = "sync")]
-            Repr::Blocking(source) => source.lock().read_at(offset, buf),
-            #[cfg(feature = "async")]
-            Repr::Async(source) => async_content_read(source, offset, buf).await,
-            #[cfg(feature = "std")]
-            Repr::Path { path, .. } => {
+            #[cfg(all(feature = "std", feature = "sync"))]
+            Repr::Host(path) => {
                 use std::io::{Read as _, Seek as _};
-                let file = self.file.as_mut().ok_or(ErrorKind::InvalidInput)?;
+                same_mode(true)?;
+                let file = self.file.as_mut().ok_or_else(|| PathError::new(ErrorKind::InvalidHandle, "the host file is not open"))?;
                 file.seek(std::io::SeekFrom::Start(offset))
                     .and_then(|_| file.read(buf))
                     .map_err(|err| host_error(err, path))
             }
-            Repr::Stored(_) => Err(ErrorKind::Unsupported.into()),
+            #[cfg(feature = "sync")]
+            Repr::Sync(source) => read_sync(source, offset, buf),
+            #[cfg(feature = "async")]
+            Repr::Async(source) => read_async(source, offset, buf).await,
+            Repr::Stored(_) => Err(stored()),
         }
     }
 
@@ -87,7 +156,7 @@ impl<'a> ContentReader<'a> {
     pub async fn read_exact_at(&mut self, mut offset: u64, mut buf: &mut [u8]) -> Result<(), PathError> {
         while !buf.is_empty() {
             match self.read_at(offset, buf).await? {
-                0 => return Err(ErrorKind::Corrupt.into()),
+                0 => return Err(PathError::new(ErrorKind::Corrupt, "file content ended early")),
                 n => {
                     buf = &mut buf[n..];
                     offset += n as u64;
@@ -100,193 +169,30 @@ impl<'a> ContentReader<'a> {
 
 impl core::fmt::Debug for ContentReader<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("ContentReader").field("len", &self.len).finish_non_exhaustive()
-    }
-}
-
-/// Builds a [`Tree`] from a mounted filesystem, in this mode.
-///
-/// ```rust,ignore
-/// use hadris_fs::sync::TreeExt;
-/// let tree = Tree::from_filesystem(&mut fat)?;
-/// ```
-pub trait TreeExt: Sized {
-    /// Reads everything below the root of `src` into a tree: file contents
-    /// into memory, symlinks with their targets, and metadata where `src`
-    /// reports it. A node with more than one link that `src` lists under
-    /// the same id again becomes a hard link.
-    ///
-    /// Device nodes, FIFOs and sockets are left out and listed in
-    /// [`Tree::warnings`]. A directory entry that leads back to a directory
-    /// on its own path fails with [`ErrorKind::Corrupt`], and a tree more
-    /// than 1024 directories deep with [`ErrorKind::LimitExceeded`].
-    async fn from_filesystem<F: FileSystem + ?Sized>(src: &mut F) -> FsResult<Self, F::DeviceError>;
-}
-
-impl TreeExt for Tree {
-    async fn from_filesystem<F: FileSystem + ?Sized>(fs: &mut F) -> FsResult<Self, F::DeviceError> {
-        let mut tree = Tree::new();
-        let root = fs.root();
-        let meta = fs.stat(root).await?;
-        tree.set_metadata("/", set_metadata_of(&meta))?;
-        let mut stack: Vec<(NodeId, String, DirCursor)> = alloc::vec![(root, String::new(), DirCursor::START)];
-        let mut seen: Vec<(NodeId, String)> = Vec::new();
-        let result = import(fs, &mut tree, &mut stack, &mut seen).await;
-        for (node, _, _) in stack.iter().skip(1) {
-            fs.forget(*node, 1);
-        }
-        result.map(|()| tree)
-    }
-}
-
-async fn import<F: FileSystem + ?Sized>(
-    fs: &mut F,
-    tree: &mut Tree,
-    stack: &mut Vec<(NodeId, String, DirCursor)>,
-    seen: &mut Vec<(NodeId, String)>,
-) -> FsResult<(), F::DeviceError> {
-    loop {
-        let Some((dir, prefix, cursor)) = stack.last_mut() else {
-            return Ok(());
-        };
-        let dir = *dir;
-        let Some(entry) = fs.readdir(dir, *cursor).await? else {
-            if let Some((node, _, _)) = stack.pop()
-                && node != fs.root()
-            {
-                fs.forget(node, 1);
-            }
-            continue;
-        };
-        *cursor = entry.next_cursor();
-        let text = entry.name().to_str().map_err(|_| ErrorKind::InvalidInput)?;
-        let path = alloc::format!("{prefix}/{text}");
-        let child = fs.lookup(dir, entry.name()).await?;
-        match import_node(fs, tree, child, &path, seen).await {
-            Ok(true) => {
-                if let Err(err) = super::copy::enter(stack.iter().map(|(node, ..)| *node), child) {
-                    fs.forget(child, 1);
-                    return Err(err.into());
-                }
-                stack.push((child, path, DirCursor::START));
-            }
-            Ok(false) => fs.forget(child, 1),
-            Err(err) => {
-                fs.forget(child, 1);
-                return Err(err);
-            }
-        }
-    }
-}
-
-/// Adds the pinned `node` at `path`. Returns whether it is a directory to
-/// walk.
-async fn import_node<F: FileSystem + ?Sized>(
-    fs: &mut F,
-    tree: &mut Tree,
-    node: NodeId,
-    path: &str,
-    seen: &mut Vec<(NodeId, String)>,
-) -> FsResult<bool, F::DeviceError> {
-    let meta = fs.stat(node).await?;
-    match meta.file_type() {
-        FileType::Dir => tree.add_dir(path)?,
-        FileType::File => {
-            if meta.nlink() > 1 {
-                if let Some((_, first)) = seen.iter().find(|(id, _)| *id == node) {
-                    tree.add_hard_link(path, first)?;
-                    return Ok(false);
-                }
-                seen.push((node, String::from(path)));
-            }
-            fs.open(node, OpenMode::Read).await?;
-            let data = read_all(fs, node).await;
-            let closed = fs.close(node).await;
-            let data = data?;
-            closed?;
-            tree.add_file(path, Content::bytes(data))?;
-        }
-        FileType::Symlink => {
-            let mut target = super::copy::link_buffer(meta.len())?;
-            let n = fs.readlink(node, &mut target).await?.len();
-            tree.add_symlink(path, &target[..n])?;
-        }
-        _ => {
-            tree.warn(Warning::new(path, WarningKind::Skipped, "device nodes, FIFOs and sockets are not imported"));
-            return Ok(false);
-        }
-    }
-    tree.set_metadata(path, set_metadata_of(&meta))?;
-    Ok(meta.file_type().is_dir())
-}
-
-async fn read_all<F: FileSystem + ?Sized>(fs: &mut F, node: NodeId) -> FsResult<Vec<u8>, F::DeviceError> {
-    let mut data = Vec::new();
-    let mut chunk = [0u8; 4096];
-    loop {
-        let n = fs.read(node, data.len() as u64, &mut chunk).await?;
-        if n == 0 {
-            return Ok(data);
-        }
-        data.extend_from_slice(&chunk[..n]);
+        f.debug_struct("ContentReader").field("content", self.content).finish_non_exhaustive()
     }
 }
 
 }
 
-fn set_metadata_of(meta: &Metadata) -> SetMetadata {
-    let times = FileTimes::new()
-        .with_created(meta.created())
-        .with_modified(meta.modified())
-        .with_accessed(meta.accessed())
-        .with_changed(meta.changed());
-    let set = SetMetadata::new()
-        .with_times(times)
-        .with_mode(meta.permissions())
-        .with_attributes(meta.attributes());
-    match meta.owner() {
-        Some(owner) => set.with_uid(owner.uid()).with_gid(owner.gid()),
-        None => set,
-    }
-}
-
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", feature = "sync"))]
 fn host_error(err: std::io::Error, path: &std::path::Path) -> PathError {
     PathError::from(crate::Error::device(err, "reading a host file failed")).with_host_path(path)
 }
 
-async_only! {
-    #[cfg(feature = "async")]
-    async fn async_content_len(
-        source: &async_lock::Mutex<alloc::boxed::Box<dyn crate::tree::AsyncSource>>,
-    ) -> Result<u64, PathError> {
-        Ok(source.lock().await.len())
+/// Opens the host file of a [`Content`] and checks that its length is still
+/// `len`.
+#[cfg(all(feature = "std", feature = "sync"))]
+#[allow(dead_code)]
+fn open_host(path: &std::path::Path, len: u64) -> Result<std::fs::File, PathError> {
+    let file = std::fs::File::open(path).map_err(|err| host_error(err, path))?;
+    let now = hadris_storage::host::file_len(&file).map_err(|err| host_error(err, path))?;
+    if now != len {
+        return Err(PathError::new(
+            ErrorKind::Corrupt,
+            "host file changed length after it was added",
+        )
+        .with_host_path(path));
     }
-
-    #[cfg(feature = "async")]
-    async fn async_content_read(
-        source: &async_lock::Mutex<alloc::boxed::Box<dyn crate::tree::AsyncSource>>,
-        offset: u64,
-        buf: &mut [u8],
-    ) -> Result<usize, PathError> {
-        source.lock().await.read_at(offset, buf).await
-    }
-}
-
-sync_only! {
-    #[cfg(feature = "async")]
-    fn async_content_len(
-        _: &async_lock::Mutex<alloc::boxed::Box<dyn crate::tree::AsyncSource>>,
-    ) -> Result<u64, PathError> {
-        Err(ErrorKind::Unsupported.into())
-    }
-
-    #[cfg(feature = "async")]
-    fn async_content_read(
-        _: &async_lock::Mutex<alloc::boxed::Box<dyn crate::tree::AsyncSource>>,
-        _: u64,
-        _: &mut [u8],
-    ) -> Result<usize, PathError> {
-        Err(ErrorKind::Unsupported.into())
-    }
+    Ok(file)
 }

@@ -2,7 +2,7 @@
 
 use std::fs;
 
-use hadris_fs::tree::{Content, Tree};
+use hadris_fs::{Content, Node, Tree};
 use hadris_iso::{IsoOptions, Namespace, VolumeIdentifiers};
 use hadris_tests::iso::hadris::write_tree;
 use hadris_tests::iso::xorriso;
@@ -97,9 +97,11 @@ fn test_multi_sector_directory() {
 
     let mut tree = Tree::new();
     for i in 0..NUM_FILES {
-        tree.add_file(
-            &format!("FILE{i:03}.TXT"),
-            Content::bytes(format!("Content of file {i}\n").into_bytes()),
+        tree.insert(
+            format!("FILE{i:03}.TXT"),
+            Node::file(Content::bytes(
+                format!("Content of file {i}\n").into_bytes(),
+            )),
         )
         .unwrap();
     }

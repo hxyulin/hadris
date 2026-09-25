@@ -82,7 +82,7 @@ pub(crate) fn detect(start: &[u8; 6]) -> Option<Format> {
     }
     match start {
         s if s == raw::NEWC_MAGIC => Some(Format::Newc),
-        s if s == raw::NEWC_CRC_MAGIC => Some(Format::NewcCrc),
+        s if s == raw::NEWC_CRC_MAGIC => Some(Format::Crc),
         s if s == raw::ODC_MAGIC => Some(Format::Odc),
         _ => None,
     }
@@ -185,7 +185,7 @@ mod tests {
     fn padding_follows_each_format() {
         assert_eq!(name_padding(Format::Newc, 2), 0);
         assert_eq!(name_padding(Format::Newc, 3), 3);
-        assert_eq!(data_padding(Format::NewcCrc, 5), 3);
+        assert_eq!(data_padding(Format::Crc, 5), 3);
         assert_eq!(name_padding(Format::Binary, 3), 1);
         assert_eq!(data_padding(Format::Odc, 5), 0);
     }

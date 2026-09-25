@@ -10,14 +10,14 @@ desktop tools as well as `no_std` bootloaders, kernels and firmware.
 - **One reader for every tree.** `IsoImage` opens an image and `view` picks
   the primary tree, Rock Ridge names and metadata over it, the Joliet tree or
   the ISO 9660:1999 enhanced tree. A view is a `hadris-fs` `FileSystem`, so
-  `Volume`, its handles and `extract_to_host` work on it.
+  `Volume`, its handles and `read_tree` work on it.
 - **No allocator needed to read.** Views, lookups, listings and file reads
   use fixed buffers; only the boot catalog listing needs `alloc`.
 - **A writer driven by a shared tree.** `write` lays out a
-  `hadris_fs::tree::Tree` as `IsoOptions` says and returns a `Report` of the
-  image size, where each file went and what could not be stored. `plan`
-  gives the same report without writing. The clock is injected, so images
-  are reproducible.
+  `hadris_fs::Tree` as `IsoOptions` says and returns a `hadris_fs::Report`
+  of the image size, where each file went and what could not be stored.
+  `plan` gives the same report without I/O. The writer reads no clock:
+  `with_time` dates the image, so images are reproducible.
 - **Sessions.** `Session` reads an image back into a tree whose files point
   at their extents, and writes it again as a new session or rebuilt in
   place.
@@ -59,7 +59,9 @@ for item in vol.read_dir("/")? {
 }
 let mut config = String::new();
 vol.open("/boot/grub/grub.cfg", OpenOptions::new().read())?.read_to_string(&mut config)?;
-hadris_fs::sync::extract_to_host(&mut *vol.lock(), "/", "out")?;
+let tree = hadris_fs::sync::read_tree(&vol, "/")?;
+std::fs::create_dir_all("out")?;
+hadris_fs::host::write_tree("out", &tree)?;
 # Ok(())
 # }
 ```
@@ -85,21 +87,21 @@ read goes through one fixed-size buffer.
 ### Writing an image
 
 ```rust,no_run
-use hadris_fs::SystemClock;
-use hadris_fs::tree::{Content, FromFsOptions, Tree};
+use hadris_fs::host::{self, TreeOptions};
+use hadris_fs::{Content, NoClock, Node};
 use hadris_iso::{IsoOptions, JolietLevel, RockRidge, VolumeIdentifiers};
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
-let mut tree = Tree::from_fs("rootfs", FromFsOptions::new())?;
-tree.add_file("README.txt", Content::bytes("Built with hadris-iso\n"))?;
+let (mut tree, _skipped) = host::read_tree("rootfs", &TreeOptions::new())?;
+tree.insert("README.txt", Node::file(Content::bytes("Built with hadris-iso\n")))?;
 
 let options = IsoOptions::default()
     .with_volume(VolumeIdentifiers::new("MY_DISC").with_publisher("Example"))
     .with_joliet(JolietLevel::L3)
     .with_rock_ridge(RockRidge::default())
-    .with_clock(SystemClock);
+    .with_time(host::source_date_epoch()?.unwrap_or(NoClock::TIME));
 
-let size = hadris_iso::sync::plan(&tree, &options)?.size_bytes();
+let size = hadris_iso::plan(&tree, &options)?.size();
 let file = std::fs::File::options()
     .read(true)
     .write(true)
@@ -107,7 +109,7 @@ let file = std::fs::File::options()
     .truncate(true)
     .open("out.iso")?;
 let report = hadris_iso::sync::write(hadris_storage::host::FileDevice::new(file)?, &tree, &options)?;
-assert_eq!(report.size_bytes(), size);
+assert_eq!(report.size(), size);
 for warning in report.warnings() {
     eprintln!("warning: {warning}");
 }
@@ -120,8 +122,8 @@ sizes, `NameCase` whether names keep their case, and `Charset::Strict` maps
 invalid characters. `with_enhanced_tree` adds an ISO 9660:1999 tree. Rock
 Ridge stores permissions, owners, times, symlinks, device nodes and hard
 links; without it they are dropped with a warning. File contents come from
-bytes, a reader, an async reader or, with `std`, a host path, and are read
-once while the image is written.
+bytes, a host file (`host::file`) or a mounted volume (`read_tree`), and are
+read once while the image is written.
 
 ### Bootable images
 
@@ -149,14 +151,14 @@ boot catalog is not listed in any tree.
 ### Sessions
 
 ```rust,no_run
-use hadris_fs::tree::Content;
+use hadris_fs::{Content, Node};
 use hadris_iso::SessionMode;
 use hadris_iso::sync::Session;
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 let file = std::fs::File::options().read(true).write(true).open("image.iso")?;
 let mut session = Session::open(hadris_storage::host::FileDevice::new(file)?)?;
-session.tree_mut().add_file("notes.txt", Content::bytes("added later"))?;
+session.tree_mut().insert("notes.txt", Node::file(Content::bytes("added later")))?;
 session.tree_mut().remove("old.log")?;
 let options = session.options();
 session.write(&options, SessionMode::Append)?;

@@ -15,16 +15,16 @@
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use hadris_fs::OpenOptions;
 //! use hadris_fs::sync::Volume;
-//! use hadris_fs::tree::{Content, Tree};
+//! use hadris_fs::{Content, Node, Tree};
 //! use std::io::Read;
 //! use hadris_optical::sync::OpenOpticalImage;
 //! use hadris_optical::{OpenPolicy, OpticalFormat};
 //! use hadris_storage::{BlockSize, MemDevice};
 //!
 //! let mut tree = Tree::new();
-//! tree.add_file("readme.txt", Content::bytes("hello"))?;
+//! tree.insert("readme.txt", Node::file(Content::bytes("hello")))?;
 //! let options = hadris_optical::udf::UdfOptions::default();
-//! let size = hadris_optical::udf::sync::plan(&tree, &options)?.size_bytes();
+//! let size = hadris_optical::udf::plan(&tree, &options)?.size();
 //! let mut dev = MemDevice::new(vec![0u8; size as usize], BlockSize::new(2048).unwrap());
 //! hadris_optical::udf::sync::write(&mut dev, &tree, &options)?;
 //!

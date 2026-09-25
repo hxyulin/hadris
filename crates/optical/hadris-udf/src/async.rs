@@ -5,6 +5,8 @@ macro_rules! io_transform {
 
 #[cfg(feature = "alloc")]
 use hadris_fs::r#async as fs;
+#[cfg(feature = "alloc")]
+use hadris_iso::r#async as iso;
 use hadris_storage::r#async as storage;
 
 use hadris_fs::r#async::FileSystem;
@@ -16,4 +18,4 @@ pub use read::UdfFs;
 #[path = "write.rs"]
 mod write;
 #[cfg(feature = "alloc")]
-pub use write::{plan, write};
+pub use write::{write, write_bridge};

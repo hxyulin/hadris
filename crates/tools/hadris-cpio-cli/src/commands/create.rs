@@ -3,7 +3,8 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use hadris_cpio::{CpioOptions, Format};
-use hadris_fs::tree::{FromFsOptions, OnError, Tree, WarningKind};
+use hadris_fs::WarningKind;
+use hadris_fs::host::{self, OnError, TreeOptions};
 use hadris_io::StdIo;
 
 use crate::app::ArchiveFormat;
@@ -15,18 +16,16 @@ pub fn create(
     format: ArchiveFormat,
     verbose: bool,
 ) -> Result<()> {
-    let tree = Tree::from_fs(
-        &directory,
-        FromFsOptions::new().with_on_error(OnError::Warn),
-    )
-    .with_context(|| format!("Failed to scan directory: {}", directory.display()))?;
-    for warning in tree.warnings() {
-        eprintln!("warning: skipped {warning}");
+    let (tree, skipped) =
+        host::read_tree(&directory, &TreeOptions::new().with_on_error(OnError::Skip))
+            .with_context(|| format!("Failed to scan directory: {}", directory.display()))?;
+    for err in skipped {
+        eprintln!("warning: skipped {err}");
     }
 
     let (format, name) = match format {
         ArchiveFormat::Newc => (Format::Newc, "newc"),
-        ArchiveFormat::Crc => (Format::NewcCrc, "newc+crc"),
+        ArchiveFormat::Crc => (Format::Crc, "newc+crc"),
         ArchiveFormat::Odc => (Format::Odc, "odc"),
     };
     let options = CpioOptions::default().with_format(format);
@@ -57,7 +56,7 @@ pub fn create(
     };
 
     for warning in report.warnings() {
-        if verbose || warning.kind() != WarningKind::IgnoredMetadata {
+        if verbose || !matches!(warning.kind(), WarningKind::Dropped(_)) {
             eprintln!("warning: {warning}");
         }
     }

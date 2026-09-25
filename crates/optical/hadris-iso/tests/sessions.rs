@@ -5,7 +5,7 @@ mod common;
 
 use common::Paths;
 use common::{image, pattern, sample};
-use hadris_fs::tree::Content;
+use hadris_fs::{Content, Node};
 use hadris_iso::sync::{IsoImage, Session};
 use hadris_iso::{
     BootEntry, BootInfo, ElTorito, HybridBoot, IsoOptions, JolietLevel, Namespace, Platform,
@@ -74,10 +74,10 @@ fn both_modes_write_changed_trees_back() {
             .boot_catalog_block()
             .unwrap();
         let mut session = Session::open(dev).unwrap();
-        assert_eq!(session.tree().get("docs/big.bin").unwrap().links(), 1);
+        assert_eq!(session.tree().entry("docs/big.bin").unwrap().links(), 1);
         session
             .tree_mut()
-            .add_file("added/new.txt", Content::bytes("brand new"))
+            .insert("added/new.txt", Node::file(Content::bytes("brand new")))
             .unwrap();
         session.tree_mut().remove("docs/big.bin").unwrap();
         let opts = session.options();
@@ -85,17 +85,17 @@ fn both_modes_write_changed_trees_back() {
         let first = session.write(&opts, mode).unwrap();
         session
             .tree_mut()
-            .add_file("added/second.txt", Content::bytes("second"))
+            .insert("added/second.txt", Node::file(Content::bytes("second")))
             .unwrap();
         let second = session.write(&opts, mode).unwrap();
-        assert!(second.total_blocks() > first.total_blocks(), "{mode:?}");
+        assert!(second.size() / 2048 > first.size() / 2048, "{mode:?}");
         assert_eq!(
-            second.extent_of("readme.txt"),
-            first.extent_of("readme.txt")
+            second.extents("readme.txt").map(|e| e[0]),
+            first.extents("readme.txt").map(|e| e[0])
         );
         assert_eq!(
-            second.extent_of("added/new.txt"),
-            first.extent_of("added/new.txt")
+            second.extents("added/new.txt").map(|e| e[0]),
+            first.extents("added/new.txt").map(|e| e[0])
         );
         let bytes = session.into_inner().into_inner();
         let disk = hadris_part::sync::read(&mut MemDevice::new(
@@ -107,7 +107,7 @@ fn both_modes_write_changed_trees_back() {
         match mode {
             SessionMode::Rewrite => {
                 assert!(
-                    covered * 512 >= (second.total_blocks() - 9) * 2048,
+                    covered * 512 >= (second.size() / 2048 - 9) * 2048,
                     "{mode:?} partitions grow"
                 );
                 assert!(disk.partitions().count() == 3);
@@ -137,7 +137,11 @@ fn new_boot_options_replace_the_catalog() {
     let catalog = iso.boot_catalog().unwrap().unwrap();
     assert_eq!(
         u64::from(catalog.default_entry().load_block()) * 2048,
-        report.extent_of("BOOT/BOOT.IMG").unwrap().offset()
+        report
+            .extents("BOOT/BOOT.IMG")
+            .map(|e| e[0])
+            .unwrap()
+            .offset()
     );
     let mut view = iso.view(Namespace::Preferred).unwrap();
     assert_eq!(view.read_to_vec("/docs/big.bin").unwrap(), pattern(100_000));
@@ -150,18 +154,27 @@ fn kept_catalogs_follow_replaced_boot_images() {
     for mode in [SessionMode::Append, SessionMode::Rewrite] {
         let mut session = Session::open(grown(image(&tree, &options()))).unwrap();
         let replaced = vec![0x5Au8; 4096];
-        *session.tree_mut().content_mut("boot/boot.img").unwrap() =
-            Content::bytes(replaced.clone());
+        session
+            .tree_mut()
+            .replace(
+                "boot/boot.img",
+                Node::file(Content::bytes(replaced.clone())),
+            )
+            .unwrap();
         let opts = session.options();
         let report = session.write(&opts, mode).unwrap();
-        let moved = report.extent_of("boot/boot.img").unwrap();
+        let moved = report.extents("boot/boot.img").map(|e| e[0]).unwrap();
         let mut iso = IsoImage::open(session.into_inner()).unwrap();
         let catalog = iso.boot_catalog().unwrap().unwrap();
         let entries: Vec<_> = catalog.entries().iter().map(|e| e.load_block()).collect();
         assert_eq!(u64::from(entries[0]) * 2048, moved.offset(), "{mode:?}");
         assert_eq!(
             u64::from(entries[1]) * 2048,
-            report.extent_of("boot/efi.img").unwrap().offset()
+            report
+                .extents("boot/efi.img")
+                .map(|e| e[0])
+                .unwrap()
+                .offset()
         );
         let mut loaded = vec![0u8; 4096];
         iso.read_bytes(moved.offset(), &mut loaded).unwrap();
@@ -212,11 +225,17 @@ fn replaced_boot_images_get_load_sizes_and_info_tables() {
         let mut session = Session::open(grown(image(&tree, &opts))).unwrap();
         let bios = pattern(10_001);
         let efi = vec![0xEEu8; 3000];
-        *session.tree_mut().content_mut("boot/boot.img").unwrap() = Content::bytes(bios.clone());
-        *session.tree_mut().content_mut("boot/efi.img").unwrap() = Content::bytes(efi);
+        session
+            .tree_mut()
+            .replace("boot/boot.img", Node::file(Content::bytes(bios.clone())))
+            .unwrap();
+        session
+            .tree_mut()
+            .replace("boot/efi.img", Node::file(Content::bytes(efi)))
+            .unwrap();
         let kept = session.options();
         let report = session.write(&kept, mode).unwrap();
-        let moved = report.extent_of("boot/boot.img").unwrap();
+        let moved = report.extents("boot/boot.img").map(|e| e[0]).unwrap();
         let mut iso = IsoImage::open(session.into_inner()).unwrap();
         let catalog = iso.boot_catalog().unwrap().unwrap();
         let counts: Vec<_> = catalog.entries().iter().map(|e| e.sector_count()).collect();
@@ -269,7 +288,7 @@ fn async_sessions_match_sync_ones() {
         Session::open(MemDevice::new(dev.get_ref().clone(), common::SECTOR)).unwrap();
     sync_session
         .tree_mut()
-        .add_file("x.txt", Content::bytes("x"))
+        .insert("x.txt", Node::file(Content::bytes("x")))
         .unwrap();
     sync_session.write(&opts, SessionMode::Append).unwrap();
     let expected = sync_session.into_inner().into_inner();
@@ -277,7 +296,7 @@ fn async_sessions_match_sync_ones() {
         let mut session = hadris_iso::r#async::Session::open(dev).await.unwrap();
         session
             .tree_mut()
-            .add_file("x.txt", Content::bytes("x"))
+            .insert("x.txt", Node::file(Content::bytes("x")))
             .unwrap();
         session.write(&opts, SessionMode::Append).await.unwrap();
         assert_eq!(session.into_inner().into_inner(), expected);

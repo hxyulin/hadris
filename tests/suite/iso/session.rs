@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::Path;
 
-use hadris_fs::tree::Content;
+use hadris_fs::{Content, Node};
 use hadris_iso::SessionMode;
 use hadris_iso::sync::Session;
 use hadris_tests::iso::xorriso;
@@ -62,7 +62,7 @@ fn sessions_keep_partitions_appended_after_the_image() {
         let mut session = Session::open(file).map_err(|err| err.into_error()).unwrap();
         session
             .tree_mut()
-            .add_file("new.txt", Content::bytes("added\n"))
+            .insert("new.txt", Node::file(Content::bytes("added\n")))
             .unwrap();
         let options = session.options();
         session.write(&options, mode).unwrap();

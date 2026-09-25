@@ -212,16 +212,6 @@ impl OpenOptions {
     }
 }
 
-/// The kind of a device node.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum DeviceKind {
-    /// A character device.
-    Char,
-    /// A block device.
-    Block,
-}
-
 /// A device's major and minor numbers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DeviceNumber {

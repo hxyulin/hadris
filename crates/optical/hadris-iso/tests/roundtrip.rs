@@ -5,7 +5,7 @@ mod common;
 use common::Paths;
 use common::{image, pattern, sample};
 use hadris_fs::sync::FileSystem;
-use hadris_fs::tree::{Content, Tree, WarningKind};
+use hadris_fs::{Content, Field, Node, Tree, WarningKind};
 use hadris_fs::{DeviceNumber, ErrorKind, FileType, Permissions, Resolve};
 use hadris_iso::sync::IsoImage;
 use hadris_iso::{
@@ -121,10 +121,13 @@ fn names<D: FileSystem>(view: &mut D, path: &str) -> Vec<String> {
 #[test]
 fn relocation_reuses_a_root_directory_of_that_name() {
     let mut tree = sample(true, true);
-    tree.add_file("rr_moved/user.txt", Content::bytes("user"))
+    tree.insert("rr_moved/user.txt", Node::file(Content::bytes("user")))
         .unwrap();
-    tree.add_file("rr_moved/RRD000001/inner.txt", Content::bytes("inner"))
-        .unwrap();
+    tree.insert(
+        "rr_moved/RRD000001/inner.txt",
+        Node::file(Content::bytes("inner")),
+    )
+    .unwrap();
     let mut iso = IsoImage::open(image(&tree, &full())).unwrap();
     for ns in [Namespace::RockRidge, Namespace::Joliet] {
         let mut view = iso.view(ns).unwrap();
@@ -183,7 +186,7 @@ fn listings_resume_and_skip_dots() {
 fn reports_match_what_the_reader_finds() {
     let tree = sample(true, true);
     let options = full();
-    let report = hadris_iso::sync::plan(&tree, &options).unwrap();
+    let report = hadris_iso::plan(&tree, &options).unwrap();
     let mut iso = IsoImage::open(image(&tree, &options)).unwrap();
     let mut view = iso.view(Namespace::RockRidge).unwrap();
     for path in [
@@ -195,23 +198,36 @@ fn reports_match_what_the_reader_finds() {
         let node = view.resolve_path(path).unwrap();
         let mut extents = Vec::new();
         view.extents(node, |extent| extents.push(extent)).unwrap();
-        assert_eq!(report.extent_of(path), Some(extents[0]), "{path}");
+        assert_eq!(
+            report.extents(path).map(|e| e[0]),
+            Some(extents[0]),
+            "{path}"
+        );
     }
-    assert_eq!(report.extent_of("docs/empty.txt"), None);
-    assert!(report.warnings().is_empty());
-    assert_eq!(report.total_blocks(), u64::from(iso.volume_blocks()));
+    assert_eq!(report.extents("docs/empty.txt").map(|e| e[0]), None);
+    let relocated: Vec<_> = report
+        .warnings()
+        .iter()
+        .map(|w| (w.kind(), w.path()))
+        .collect();
+    assert_eq!(
+        relocated,
+        [(WarningKind::Relocated, Some(&b"/a/b/c/d/e/f/g/h"[..]))]
+    );
+    assert_eq!(report.size() / 2048, u64::from(iso.volume_blocks()));
 }
 
 #[test]
 fn trees_without_rock_ridge_report_what_they_drop() {
     let tree = sample(false, true);
-    let report = hadris_iso::sync::plan(&tree, &IsoOptions::default()).unwrap();
+    let report = hadris_iso::plan(&tree, &IsoOptions::default()).unwrap();
     let kinds: Vec<_> = report.warnings().iter().map(|w| w.kind()).collect();
     assert!(kinds.contains(&WarningKind::Skipped));
-    assert!(kinds.contains(&WarningKind::IgnoredMetadata));
+    assert!(kinds.contains(&WarningKind::Dropped(Field::Permissions)));
+    assert!(kinds.contains(&WarningKind::Dropped(Field::Owner)));
     assert!(kinds.contains(&WarningKind::Renamed));
     let deep = sample(true, false);
-    let err = hadris_iso::sync::plan(&deep, &IsoOptions::default()).unwrap_err();
+    let err = hadris_iso::plan(&deep, &IsoOptions::default()).unwrap_err();
     assert_eq!(
         (
             err.kind(),
@@ -247,12 +263,16 @@ fn boot_catalogs_read_back() {
         .with_entry(BootEntry::new("boot/efi.img").with_platform(Platform::Efi))
         .with_catalog_path("boot/boot.cat"),
     );
-    let report = hadris_iso::sync::plan(&tree, &options).unwrap();
+    let report = hadris_iso::plan(&tree, &options).unwrap();
     let mut iso = IsoImage::open(image(&tree, &options)).unwrap();
     let catalog = iso.boot_catalog().unwrap().unwrap();
     assert_eq!(Some(catalog.block()), iso.boot_catalog_block());
     assert_eq!(
-        report.extent_of("boot/boot.cat").unwrap().offset(),
+        report
+            .extents("boot/boot.cat")
+            .map(|e| e[0])
+            .unwrap()
+            .offset(),
         u64::from(catalog.block()) * 2048
     );
     let entries = catalog.entries();
@@ -276,7 +296,11 @@ fn boot_catalogs_read_back() {
     assert!(entries.iter().all(|entry| entry.is_bootable()));
     assert_eq!(
         u64::from(entries[1].load_block()) * 2048,
-        report.extent_of("boot/efi.img").unwrap().offset()
+        report
+            .extents("boot/efi.img")
+            .map(|e| e[0])
+            .unwrap()
+            .offset()
     );
 
     let mut view = iso.view(Namespace::Primary).unwrap();
@@ -285,7 +309,11 @@ fn boot_catalogs_read_back() {
     assert_eq!(u32::from_le_bytes(table[..4].try_into().unwrap()), 16);
     assert_eq!(
         u64::from(u32::from_le_bytes(table[4..8].try_into().unwrap())) * 2048,
-        report.extent_of("boot/boot.img").unwrap().offset()
+        report
+            .extents("boot/boot.img")
+            .map(|e| e[0])
+            .unwrap()
+            .offset()
     );
     assert_eq!(u32::from_le_bytes(table[8..12].try_into().unwrap()), 4096);
     let sum = boot[64..].chunks_exact(4).fold(0u32, |sum, w| {
@@ -300,10 +328,7 @@ fn async_modes_read_and_write_alike() {
     let options = full();
     let sync_image = image(&tree, &options).into_inner();
     common::block_on(async {
-        let size = hadris_iso::r#async::plan(&tree, &options)
-            .await
-            .unwrap()
-            .size_bytes();
+        let size = hadris_iso::plan(&tree, &options).unwrap().size();
         let mut dev = hadris_storage::MemDevice::new(vec![0u8; size as usize], common::SECTOR);
         hadris_iso::r#async::write(&mut dev, &tree, &options)
             .await
@@ -412,8 +437,10 @@ fn supplementary_escape_sequences_are_zero_padded() {
 #[test]
 fn primary_names_keep_the_separator_and_split_at_the_last_dot() {
     let mut tree = Tree::new();
-    tree.add_file("README", Content::bytes("r")).unwrap();
-    tree.add_file("x.tar.gz", Content::bytes("x")).unwrap();
+    tree.insert("README", Node::file(Content::bytes("r")))
+        .unwrap();
+    tree.insert("x.tar.gz", Node::file(Content::bytes("x")))
+        .unwrap();
     for level in [IsoLevel::L1, IsoLevel::L2] {
         let options = IsoOptions::default().with_level(level);
         let mut iso = IsoImage::open(image(&tree, &options)).unwrap();
@@ -438,15 +465,15 @@ fn joliet_reports_the_names_it_changes() {
         long.as_str(),
         "plain.txt",
     ] {
-        tree.add_file(name, Content::bytes("x")).unwrap();
+        tree.insert(name, Node::file(Content::bytes("x"))).unwrap();
     }
     let options = IsoOptions::default().with_joliet(JolietLevel::L3);
-    let report = hadris_iso::sync::plan(&tree, &options).unwrap();
+    let report = hadris_iso::plan(&tree, &options).unwrap();
     let mut warned: Vec<_> = report
         .warnings()
         .iter()
         .inspect(|w| assert_eq!(w.kind(), WarningKind::Renamed))
-        .map(|w| w.path().to_string())
+        .map(|w| String::from_utf8(w.path().unwrap().to_vec()).unwrap())
         .collect();
     warned.sort();
     assert_eq!(
@@ -462,4 +489,27 @@ fn joliet_reports_the_names_it_changes() {
     let mut view = iso.view(Namespace::Joliet).unwrap();
     assert_eq!(view.read_to_vec("/a_b_c_d").unwrap(), b"x");
     assert_eq!(view.read_to_vec("/emoji_.txt").unwrap(), b"x");
+}
+
+#[test]
+fn the_seed_or_the_time_decides_the_gpt_guids() {
+    let tree = sample(false, false);
+    let options = IsoOptions::default()
+        .with_el_torito(
+            ElTorito::new(BootEntry::new("boot/boot.img"))
+                .with_entry(BootEntry::new("boot/efi.img").with_platform(Platform::Efi)),
+        )
+        .with_hybrid(hadris_iso::HybridBoot::gpt());
+    let disk_guid =
+        |options: &IsoOptions| image(&tree, options).into_inner()[512 + 56..512 + 72].to_vec();
+    let default = disk_guid(&options);
+    assert_eq!(disk_guid(&options), default);
+    let later = hadris_fs::DateTime::from_unix_seconds(1_700_000_000).unwrap();
+    assert_ne!(disk_guid(&options.clone().with_time(later)), default);
+    let seeded = disk_guid(&options.clone().with_seed(7));
+    assert_ne!(seeded, default);
+    assert_eq!(
+        disk_guid(&options.clone().with_seed(7).with_time(later)),
+        seeded
+    );
 }

@@ -20,6 +20,8 @@
 //! - `block` and `optical`: detection and opening of whatever volume or
 //!   image a device holds.
 //! - `ntfs`: the NTFS preview, behind `unstable-ntfs`.
+//! - `host` (with `std` and `sync`): host files, directories and image
+//!   files for builders and tools.
 //!
 //! # Feature flags
 //!
@@ -73,6 +75,24 @@ pub use hadris_fs as fs;
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub use hadris_fs::PathError;
 pub use hadris_fs::{DetailCode, Errno, Error, ErrorKind, FsResult, Location, MountError};
+
+/// Host files, directories and image files, for builders and tools.
+///
+/// `read_tree` and `write_tree` move trees between host directories and
+/// writers, `file` makes tree content of a host file, `source_date_epoch`
+/// reads the build time, `mount_options` gives the host clock and time
+/// zone, `FileDevice` opens image files and devices, and `StdIo` adapts
+/// `std::io` streams. Errors are `PathError` with the host path set.
+#[cfg(all(feature = "std", feature = "sync"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "std", feature = "sync"))))]
+pub mod host {
+    pub use hadris_fs::host::{
+        OnError, Symlinks, TreeOptions, file, local_utc_offset, mount_options, read_tree,
+        source_date_epoch, write_tree,
+    };
+    pub use hadris_io::StdIo;
+    pub use hadris_storage::host::FileDevice;
+}
 
 /// FAT12, FAT16, FAT32 and exFAT.
 #[cfg(feature = "fat")]

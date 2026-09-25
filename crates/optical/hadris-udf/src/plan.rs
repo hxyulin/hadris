@@ -7,8 +7,10 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::convert::Infallible;
 
-use hadris_fs::tree::{NodeKind, Tree, TreeNode, Warning, WarningKind};
-use hadris_fs::{Clock, ErrorKind, Extent, SetMetadata};
+use hadris_fs::{
+    ErrorKind, Extent, Field, FileType, Name, PathError, Report, SetAttr, Tree, TreeEntry, Warning,
+    WarningKind,
+};
 
 use crate::error::{Detail, Error};
 use crate::name::{encode_cs0, encode_symlink, write_dstring};
@@ -17,7 +19,6 @@ use crate::raw::{
     self, CharSpec, EntityId, FileCharacteristics, IcbFlags, ShortAd, Tag, Timestamp, U16Le, U32Le,
     U64Le, file_type, tag,
 };
-use crate::report::{Report, normalize};
 use crate::time::from_datetime;
 use crate::volume::permissions_of;
 
@@ -71,6 +72,10 @@ impl Region {
 pub(crate) struct Plan {
     pub(crate) regions: Vec<Region>,
     pub(crate) total_blocks: u64,
+    /// The block after the last one the writer allocates in the partition
+    /// for its structures and the data it writes. In a bridge volume the
+    /// ISO 9660 directories and files go at or after it.
+    pub(crate) allocated_end: u64,
     pub(crate) fill_gaps: bool,
     pub(crate) report: Report,
 }
@@ -84,7 +89,7 @@ enum Data {
 }
 
 struct Node<'a> {
-    node: TreeNode<'a>,
+    node: TreeEntry<'a>,
     path: String,
     icb: u32,
     unique: u64,
@@ -93,7 +98,7 @@ struct Node<'a> {
 }
 
 struct Dir<'a> {
-    node: TreeNode<'a>,
+    node: TreeEntry<'a>,
     icb: u32,
     unique: u64,
     parent: usize,
@@ -112,8 +117,8 @@ fn block_of(value: u64) -> PlanResult<u32> {
     u32::try_from(value).map_err(|_| too_large())
 }
 
-struct Planner<'a, C> {
-    opts: &'a UdfOptions<C>,
+struct Planner<'a> {
+    opts: &'a UdfOptions,
     contents: &'a BTreeMap<usize, ContentInfo>,
     measured: bool,
     now: Timestamp,
@@ -124,9 +129,32 @@ struct Planner<'a, C> {
     nodes: Vec<Node<'a>>,
     by_id: BTreeMap<usize, usize>,
     warnings: Vec<Warning>,
+    /// Nodes that set a creation time, and nodes that set attributes.
+    dropped: [u64; 2],
 }
 
-impl<'a, C: Clock> Planner<'a, C> {
+/// A tree name as text; names that are not UTF-8 get U+FFFD and a
+/// warning.
+fn text(name: &Name, path: &[u8], warnings: &mut Vec<Warning>) -> String {
+    match core::str::from_utf8(name.as_bytes()) {
+        Ok(text) => String::from(text),
+        Err(_) => {
+            let text = String::from_utf8_lossy(name.as_bytes()).into_owned();
+            warnings.push(
+                Warning::new(WarningKind::Renamed, "udf names are unicode")
+                    .with_path(path)
+                    .with_stored_as(&text),
+            );
+            text
+        }
+    }
+}
+
+fn join(parent: &str, name: &Name) -> String {
+    alloc::format!("{parent}/{}", String::from_utf8_lossy(name.as_bytes()))
+}
+
+impl<'a> Planner<'a> {
     fn alloc(&mut self, blocks: u64) -> PlanResult<u32> {
         let block = block_of(self.next)?;
         self.next = self.next.checked_add(blocks).ok_or_else(too_large)?;
@@ -140,52 +168,33 @@ impl<'a, C: Clock> Planner<'a, C> {
         id
     }
 
-    fn warn(&mut self, path: &str, kind: WarningKind, message: &str) {
+    fn warn(&mut self, path: &str, kind: WarningKind, message: &'static str) {
         self.warnings
-            .push(Warning::new(normalize(path), kind, message));
+            .push(Warning::new(kind, message).with_path(path));
     }
 
-    fn check_metadata(&mut self, path: &str, meta: &SetMetadata) {
-        if meta.times().created().is_some() {
-            self.warn(
-                path,
-                WarningKind::IgnoredMetadata,
-                "file entries have no creation time",
-            );
-        }
-        if meta.attributes().is_some_and(|attrs| !attrs.is_empty()) {
-            self.warn(
-                path,
-                WarningKind::IgnoredMetadata,
-                "UDF stores no DOS attributes",
-            );
-        }
+    fn check_metadata(&mut self, meta: &SetAttr) {
+        self.dropped[0] += u64::from(meta.created().is_some());
+        self.dropped[1] += u64::from(meta.attributes().is_some_and(|attrs| !attrs.is_empty()));
     }
 
     fn add_dir(
         &mut self,
-        node: TreeNode<'a>,
+        node: TreeEntry<'a>,
         path: &str,
         parent: Option<usize>,
     ) -> PlanResult<usize> {
         let icb = self.alloc(1)?;
         let unique = self.unique();
         let index = self.dirs.len();
-        self.check_metadata(path, node.metadata());
+        self.check_metadata(node.node().attrs());
         let mut entries = Vec::new();
         let mut fid_bytes = 40usize;
         for (name, child) in node.children() {
-            let child_path = alloc::format!("{path}/{name}");
-            let symlink = match child.kind() {
-                NodeKind::Device(..) => {
-                    self.warn(
-                        &child_path,
-                        WarningKind::Skipped,
-                        "UDF volumes store no device nodes",
-                    );
-                    continue;
-                }
-                NodeKind::Symlink(target) => match encode_symlink(target) {
+            let child_path = join(path, name);
+            let symlink = match child.node().file_type() {
+                FileType::Dir | FileType::File => None,
+                FileType::Symlink => match child.node().target().and_then(encode_symlink) {
                     Some(bytes) => Some(bytes),
                     None => {
                         self.warn(
@@ -196,9 +205,16 @@ impl<'a, C: Clock> Planner<'a, C> {
                         continue;
                     }
                 },
-                _ => None,
+                _ => {
+                    self.warn(
+                        &child_path,
+                        WarningKind::Skipped,
+                        "the udf writer stores no device nodes, fifos or sockets",
+                    );
+                    continue;
+                }
             };
-            let encoded = encode_cs0(name);
+            let encoded = encode_cs0(&text(name, child_path.as_bytes(), &mut self.warnings));
             fid_bytes = fid_bytes
                 .checked_add(fid_len(&encoded)?)
                 .ok_or_else(too_large)?;
@@ -208,7 +224,7 @@ impl<'a, C: Clock> Planner<'a, C> {
         let mut files = Vec::new();
         let mut dirs = Vec::new();
         for (encoded, child, child_path, symlink) in entries {
-            if matches!(child.kind(), NodeKind::Dir) {
+            if child.node().file_type() == FileType::Dir {
                 dirs.push((encoded, usize::MAX));
             } else {
                 files.push((encoded, self.add_node(child, &child_path, symlink)?));
@@ -229,7 +245,7 @@ impl<'a, C: Clock> Planner<'a, C> {
 
     fn add_node(
         &mut self,
-        node: TreeNode<'a>,
+        node: TreeEntry<'a>,
         path: &str,
         symlink: Option<Vec<u8>>,
     ) -> PlanResult<usize> {
@@ -238,7 +254,7 @@ impl<'a, C: Clock> Planner<'a, C> {
         }
         let icb = self.alloc(1)?;
         let unique = self.unique();
-        self.check_metadata(path, node.metadata());
+        self.check_metadata(node.node().attrs());
         let (file_type, data) = match symlink {
             Some(bytes) => {
                 let blocks = (bytes.len() as u64).div_ceil(SECTOR as u64);
@@ -260,7 +276,7 @@ impl<'a, C: Clock> Planner<'a, C> {
         Ok(index)
     }
 
-    fn file_data(&mut self, node: TreeNode<'a>) -> PlanResult<Data> {
+    fn file_data(&mut self, node: TreeEntry<'a>) -> PlanResult<Data> {
         let Some(info) = self.contents.get(&node.id()) else {
             return match self.measured {
                 true => Err(Detail::Content.corrupt()),
@@ -332,7 +348,7 @@ fn put(buf: &mut [u8], at: usize, bytes: &[u8]) {
     buf[at..at + bytes.len()].copy_from_slice(bytes);
 }
 
-impl<C: Clock> Planner<'_, C> {
+impl Planner<'_> {
     fn revision(&self) -> [u8; 2] {
         self.opts.revision().to_raw().to_le_bytes()
     }
@@ -514,7 +530,7 @@ impl<C: Clock> Planner<'_, C> {
         &self,
         location: u32,
         kind: u8,
-        meta: &SetMetadata,
+        meta: &SetAttr,
         links: usize,
         len: u64,
         ads: &[ShortAd],
@@ -523,11 +539,10 @@ impl<C: Clock> Planner<'_, C> {
         if ads.len() > MAX_ADS {
             return Err(ErrorKind::FileTooLarge.into());
         }
-        let (permissions, flags) = match meta.mode() {
+        let (permissions, flags) = match meta.permissions() {
             Some(mode) => permissions_of(mode.bits()),
             None => (0x7FFF, IcbFlags::empty()),
         };
-        let times = meta.times();
         let fe = raw::FileEntry {
             tag: Tag::default(),
             icb_tag: raw::IcbTag {
@@ -537,8 +552,8 @@ impl<C: Clock> Planner<'_, C> {
                 flags: U16Le::new(flags.bits()),
                 ..Default::default()
             },
-            uid: U32Le::new(meta.uid().unwrap_or(u32::MAX)),
-            gid: U32Le::new(meta.gid().unwrap_or(u32::MAX)),
+            uid: U32Le::new(meta.owner().map_or(u32::MAX, |owner| owner.uid())),
+            gid: U32Le::new(meta.owner().map_or(u32::MAX, |owner| owner.gid())),
             permissions: U32Le::new(permissions),
             link_count: U16Le::new(links.min(usize::from(u16::MAX)) as u16),
             record_format: 0,
@@ -550,9 +565,9 @@ impl<C: Clock> Planner<'_, C> {
                     .map(|ad| u64::from(ad.len()).div_ceil(SECTOR as u64))
                     .sum(),
             ),
-            accessed: self.timestamp(times.accessed())?,
-            modified: self.timestamp(times.modified())?,
-            attributes_changed: self.timestamp(times.changed())?,
+            accessed: self.timestamp(meta.accessed())?,
+            modified: self.timestamp(meta.modified())?,
+            attributes_changed: self.timestamp(None)?,
             checkpoint: U32Le::new(1),
             extended_attribute_icb: raw::LongAd::default(),
             implementation: EntityId::new(IMPLEMENTATION),
@@ -646,7 +661,7 @@ impl<C: Clock> Planner<'_, C> {
         let entry = self.file_entry(
             dir.icb,
             file_type::DIRECTORY,
-            dir.node.metadata(),
+            dir.node.node().attrs(),
             1 + dir.dirs.len(),
             dir.fid_bytes as u64,
             &ads,
@@ -657,14 +672,86 @@ impl<C: Clock> Planner<'_, C> {
     }
 }
 
+/// Measures every file of `tree` without I/O: the length of content to
+/// write, or the extents of stored content in a bridge volume. With
+/// `strict`, a bridge file whose content is neither stored nor empty
+/// fails; without, it is left out.
+pub(crate) fn measure(
+    tree: &Tree,
+    bridge: bool,
+    strict: bool,
+) -> Result<BTreeMap<usize, ContentInfo>, PathError> {
+    let mut out = BTreeMap::new();
+    let mut pending = vec![(Vec::new(), tree.root())];
+    while let Some((dir_path, dir)) = pending.pop() {
+        for (name, child) in dir.children() {
+            let mut path = dir_path.clone();
+            path.push(b'/');
+            path.extend_from_slice(name.as_bytes());
+            let node = child.node();
+            if node.file_type() == FileType::Dir {
+                pending.push((path, child));
+                continue;
+            }
+            let Some(content) = node.content() else {
+                continue;
+            };
+            if out.contains_key(&child.id()) {
+                continue;
+            }
+            let info = match content.stored_extents() {
+                Some(extents) if bridge => ContentInfo {
+                    len: content.len(),
+                    stored: Some(extents.to_vec()),
+                },
+                None if bridge && content.is_empty() => ContentInfo {
+                    len: 0,
+                    stored: None,
+                },
+                None if bridge && !strict => continue,
+                None if !bridge => ContentInfo {
+                    len: content.len(),
+                    stored: None,
+                },
+                _ => {
+                    return Err(PathError::from(
+                        Detail::StoredContent.error::<Infallible>(ErrorKind::Unsupported),
+                    )
+                    .with_path(path));
+                }
+            };
+            out.insert(child.id(), info);
+        }
+    }
+    Ok(out)
+}
+
+/// Plans writing `tree` as a UDF volume, without I/O, and returns the
+/// report `write` returns: the volume size, where each file's data goes,
+/// and what the volume cannot store as the tree asks.
+///
+/// Size an output device with [`Report::size`]; the volume includes the
+/// trailing anchor and the 256 blocks after it. Fails as `write` does
+/// before it writes anything: [`ErrorKind::InvalidInput`] for a volume
+/// identifier over 126 bytes or a time outside the years 1 to 9999,
+/// [`ErrorKind::NameTooLong`] for a name over 254 bytes of OSTA Compressed
+/// Unicode, [`ErrorKind::FileTooLarge`] for a file of more than 234 GiB,
+/// and [`ErrorKind::Unsupported`] for content stored on another image.
+pub fn plan(tree: &Tree, opts: &UdfOptions) -> Result<Report, PathError> {
+    let contents = measure(tree, false, false)?;
+    Ok(lay_out(tree, opts, &contents, true, None)?.report)
+}
+
 /// Plans the volume `opts` describes for `tree`. `contents` holds the
 /// length of every file, or, for a bridge volume, the stored extents;
-/// without `measured`, files missing from it get no data.
-pub(crate) fn plan<C: Clock>(
+/// without `measured`, files missing from it get no data. `bridge` is the
+/// number of ISO 9660 volume descriptors a bridge volume follows.
+pub(crate) fn lay_out(
     tree: &Tree,
-    opts: &UdfOptions<C>,
+    opts: &UdfOptions,
     contents: &BTreeMap<usize, ContentInfo>,
     measured: bool,
+    bridge: Option<u32>,
 ) -> PlanResult<Plan> {
     if opts.revision() >= crate::UdfRevision::V2_50 {
         return Err(Detail::PartitionMap.error(ErrorKind::Unsupported));
@@ -673,7 +760,7 @@ pub(crate) fn plan<C: Clock>(
     if write_dstring(&mut encoded[..128], opts.volume_id()) {
         return Err(Detail::Identifier.invalid());
     }
-    let now = from_datetime(opts.clock().now()).ok_or(Detail::Timestamp.invalid())?;
+    let now = from_datetime(opts.time()).ok_or(Detail::Timestamp.invalid())?;
     let mut planner = Planner {
         opts,
         contents,
@@ -686,6 +773,7 @@ pub(crate) fn plan<C: Clock>(
         nodes: Vec::new(),
         by_id: BTreeMap::new(),
         warnings: Vec::new(),
+        dropped: [0; 2],
     };
 
     let mut stack = vec![(tree.root(), String::new(), None::<(usize, usize)>)];
@@ -696,11 +784,9 @@ pub(crate) fn plan<C: Clock>(
         }
         let children: Vec<_> = node
             .children()
-            .filter(|(_, child)| matches!(child.kind(), NodeKind::Dir))
+            .filter(|(_, child)| child.node().file_type() == FileType::Dir)
             .enumerate()
-            .map(|(slot, (name, child))| {
-                (child, alloc::format!("{path}/{name}"), Some((index, slot)))
-            })
+            .map(|(slot, (name, child))| (child, join(&path, name), Some((index, slot))))
             .collect();
         stack.extend(children.into_iter().rev());
     }
@@ -724,7 +810,7 @@ pub(crate) fn plan<C: Clock>(
     let partition_len = anchor - PARTITION_START;
 
     let mut regions = Vec::new();
-    let recognition = u64::from(opts.bridge().map_or(0, |bridge| bridge.iso_descriptors()));
+    let recognition = u64::from(bridge.unwrap_or(0));
     let nsr = if opts.revision().is_nsr03() {
         raw::vsd::NSR03
     } else {
@@ -772,7 +858,7 @@ pub(crate) fn plan<C: Clock>(
             data: fids,
         });
     }
-    let mut extents = BTreeMap::new();
+    let mut extents: BTreeMap<usize, Vec<Extent>> = BTreeMap::new();
     for node in &planner.nodes {
         let mut ads = Vec::new();
         let len = match &node.data {
@@ -786,27 +872,21 @@ pub(crate) fn plan<C: Clock>(
                 });
                 extents.insert(
                     node.node.id(),
-                    Some(Extent::new(
+                    vec![Extent::new(
                         (base + u64::from(*block)) * SECTOR as u64,
                         *len,
-                    )),
+                    )],
                 );
                 *len
             }
             Data::Stored(stored) => {
-                let mut contiguous = true;
-                let mut expect = None;
+                let mut list = Vec::new();
                 for &(block, len) in stored {
-                    if expect.is_some_and(|expect| expect != block) {
-                        contiguous = false;
-                    }
-                    expect = Some(block + (len / SECTOR as u64) as u32);
                     short_ads(block, len, &mut ads)?;
+                    list.push(Extent::new((base + u64::from(block)) * SECTOR as u64, len));
                 }
-                let total: u64 = stored.iter().map(|(_, len)| len).sum();
-                let extent = Extent::new((base + u64::from(stored[0].0)) * SECTOR as u64, total);
-                extents.insert(node.node.id(), contiguous.then_some(extent));
-                total
+                extents.insert(node.node.id(), list);
+                stored.iter().map(|(_, len)| len).sum()
             }
             Data::Symlink { block, bytes } => {
                 short_ads(*block, bytes.len() as u64, &mut ads)?;
@@ -820,7 +900,7 @@ pub(crate) fn plan<C: Clock>(
         let entry = planner.file_entry(
             node.icb,
             node.file_type,
-            node.node.metadata(),
+            node.node.node().attrs(),
             node.node.links(),
             len,
             &ads,
@@ -835,7 +915,7 @@ pub(crate) fn plan<C: Clock>(
         block: u64::from(anchor),
         data: planner.anchor(anchor),
     });
-    let fill_gaps = opts.bridge().is_none();
+    let fill_gaps = bridge.is_none();
     if !fill_gaps {
         regions.push(Region::Bytes {
             block: total - 1,
@@ -844,34 +924,44 @@ pub(crate) fn plan<C: Clock>(
     }
     regions.sort_by_key(Region::block);
 
-    let mut by_path = BTreeMap::new();
-    collect_paths(tree.root(), "", &extents, &mut by_path);
-    let report = Report::new(total, allocated_end, by_path, planner.warnings);
+    let mut report = Report::new();
+    report.set_size(total * SECTOR as u64);
+    for warning in planner.warnings {
+        report.push_warning(warning);
+    }
+    let losses = [
+        (Field::Created, "file entries have no creation time"),
+        (Field::Attributes, "udf stores no dos attributes"),
+    ];
+    for ((field, message), count) in losses.into_iter().zip(planner.dropped) {
+        if count > 0 {
+            report
+                .push_warning(Warning::new(WarningKind::Dropped(field), message).with_count(count));
+        }
+    }
+    collect_paths(tree.root(), &extents, &mut report);
     Ok(Plan {
         regions,
         total_blocks: total,
+        allocated_end,
         fill_gaps,
         report,
     })
 }
 
-/// The extent of every name of every file with one.
-fn collect_paths(
-    dir: TreeNode<'_>,
-    prefix: &str,
-    extents: &BTreeMap<usize, Option<Extent>>,
-    out: &mut BTreeMap<String, Extent>,
-) {
-    let mut pending = vec![(dir, prefix.to_string())];
+/// The extents of every name of every file with some.
+fn collect_paths(dir: TreeEntry<'_>, extents: &BTreeMap<usize, Vec<Extent>>, report: &mut Report) {
+    let mut pending = vec![(dir, Vec::new())];
     while let Some((dir, prefix)) = pending.pop() {
         for (name, child) in dir.children() {
-            let path = alloc::format!("{prefix}/{name}");
-            match child.kind() {
-                NodeKind::Dir => pending.push((child, path)),
-                _ => {
-                    if let Some(Some(extent)) = extents.get(&child.id()) {
-                        out.insert(path, *extent);
-                    }
+            let mut path = prefix.clone();
+            path.push(b'/');
+            path.extend_from_slice(name.as_bytes());
+            if child.node().file_type() == FileType::Dir {
+                pending.push((child, path));
+            } else if let Some(list) = extents.get(&child.id()) {
+                for extent in list {
+                    report.push_extent(&path, *extent);
                 }
             }
         }

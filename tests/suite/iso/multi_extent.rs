@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 
 use hadris_fs::sync::FileSystem;
-use hadris_fs::tree::{Content, Tree};
+use hadris_fs::{Content, Node, Tree};
 use hadris_fs::{OpenMode, Resolve};
 use hadris_iso::{IsoLevel, IsoOptions, Namespace, RockRidge};
 use hadris_storage::{BlockIndex, BlockSize};
@@ -132,32 +132,15 @@ fn oracle_rejects_invalid_multi_extent_chains() {
     }
 }
 
-/// A file of zeros that starts with `head`.
-struct Zeros {
-    len: u64,
-}
-
 const HEAD: &[u8] = b"head";
 
-impl hadris_io::ErrorType for Zeros {
-    type Error = std::io::Error;
-}
-
-impl hadris_io::sync::ByteSource for Zeros {
-    fn len(&self) -> u64 {
-        self.len
-    }
-
-    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> std::io::Result<usize> {
-        let take = buf.len().min(self.len.saturating_sub(offset) as usize);
-        buf[..take].fill(0);
-        if offset < HEAD.len() as u64 {
-            let start = offset as usize;
-            let end = HEAD.len().min(start + take);
-            buf[..end - start].copy_from_slice(&HEAD[start..end]);
-        }
-        Ok(take)
-    }
+/// A sparse host file of `len` zero bytes that starts with `head`.
+fn zeros(dir: &std::path::Path, len: u64) -> std::path::PathBuf {
+    let path = dir.join("big.bin");
+    let mut file = File::create(&path).unwrap();
+    file.write_all(HEAD).unwrap();
+    file.set_len(len).unwrap();
+    path
 }
 
 /// A host file that skips writing all-zero chunks, so a 4 GiB image stays
@@ -177,6 +160,10 @@ impl hadris_storage::sync::BlockDevice for SparseFile {
 
     fn block_count(&self) -> u64 {
         self.0.metadata().map_or(0, |meta| meta.len() / 2048)
+    }
+
+    fn max_block_count(&self) -> u64 {
+        u64::MAX / 2048
     }
 
     fn writable(&self) -> bool {
@@ -222,14 +209,19 @@ impl hadris_storage::sync::BlockDevice for SparseFile {
 #[test]
 fn rock_ridge_covers_every_extent_of_a_large_file() {
     let len = (4u64 << 30) + 4096 + 7;
+    let temp = tempfile::tempdir().unwrap();
+    let source = zeros(temp.path(), len);
     let mut tree = Tree::new();
-    tree.add_file("big.bin", Content::source(Zeros { len }))
+    tree.insert(
+        "big.bin",
+        Node::file(hadris_fs::host::file(&source).unwrap()),
+    )
+    .unwrap();
+    tree.insert("small.txt", Node::file(Content::bytes("small")))
         .unwrap();
-    tree.add_file("small.txt", Content::bytes("small")).unwrap();
     let options = IsoOptions::default()
         .with_level(IsoLevel::L3)
         .with_rock_ridge(RockRidge::default());
-    let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("large.iso");
     let file = File::options()
         .read(true)
@@ -238,7 +230,8 @@ fn rock_ridge_covers_every_extent_of_a_large_file() {
         .open(&path)
         .unwrap();
     let report = hadris_iso::sync::write(SparseFile(file), &tree, &options).unwrap();
-    assert!(report.extent_of("/big.bin").unwrap().len() == len);
+    let extents = report.extents("/big.bin").unwrap();
+    assert_eq!(extents.iter().map(|extent| extent.len()).sum::<u64>(), len);
 
     let file = File::open(&path).unwrap();
     let mut iso = hadris_iso::sync::IsoImage::open(SparseFile(file)).unwrap();

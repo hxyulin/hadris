@@ -3,7 +3,7 @@
 use std::fs;
 use std::time::Duration;
 
-use hadris_fs::tree::{Content, Tree};
+use hadris_fs::{Content, Node, Tree};
 use hadris_iso::{BootEntry, ElTorito, Emulation, IsoOptions, Platform, VolumeIdentifiers};
 use hadris_tests::harness::qemu;
 use hadris_tests::iso::hadris::write_tree;
@@ -51,7 +51,7 @@ fn padded_boot_image(code: &[u8]) -> Vec<u8> {
 /// A Level 1 image with a single no-emulation boot entry for `boot_data`.
 fn hadris_bootable_image(boot_data: Vec<u8>) -> Vec<u8> {
     let mut tree = Tree::new();
-    tree.add_file("boot.bin", Content::bytes(boot_data))
+    tree.insert("boot.bin", Node::file(Content::bytes(boot_data)))
         .unwrap();
     let options = IsoOptions::default()
         .with_volume(VolumeIdentifiers::new("BOOT_TEST"))
@@ -65,11 +65,11 @@ fn hadris_bootable_image(boot_data: Vec<u8>) -> Vec<u8> {
 #[test]
 fn test_hadris_multisection_boot_catalog() {
     let mut tree = Tree::new();
-    tree.add_file("bios.img", Content::bytes(vec![0x11; 2048]))
+    tree.insert("bios.img", Node::file(Content::bytes(vec![0x11; 2048])))
         .unwrap();
-    tree.add_file("ppc.img", Content::bytes(vec![0x22; 2048]))
+    tree.insert("ppc.img", Node::file(Content::bytes(vec![0x22; 2048])))
         .unwrap();
-    tree.add_file("uefi.img", Content::bytes(vec![0x33; 4096]))
+    tree.insert("uefi.img", Node::file(Content::bytes(vec![0x33; 4096])))
         .unwrap();
     let options = IsoOptions::default()
         .with_volume(VolumeIdentifiers::new("MULTIBOOT"))
@@ -110,8 +110,11 @@ fn test_hadris_multisection_boot_catalog() {
 #[test]
 fn test_floppy_emulation_media_type_and_default_load_size() {
     let mut tree = Tree::new();
-    tree.add_file("floppy.img", Content::bytes(vec![0x44u8; 1_474_560]))
-        .unwrap();
+    tree.insert(
+        "floppy.img",
+        Node::file(Content::bytes(vec![0x44u8; 1_474_560])),
+    )
+    .unwrap();
     let options = IsoOptions::default()
         .with_volume(VolumeIdentifiers::new("FLOPPYBOOT"))
         .with_el_torito(

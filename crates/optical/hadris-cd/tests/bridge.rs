@@ -8,8 +8,7 @@ use hadris_cd::iso::{Namespace, RockRidge, VolumeIdentifiers};
 use hadris_cd::udf::UdfRevision;
 use hadris_cd::{CdOptions, IsoOptions, UdfOptions};
 use hadris_fs::sync::FileSystem;
-use hadris_fs::tree::{Content, Tree};
-use hadris_fs::{ErrorKind, Extent, Permissions, SetMetadata};
+use hadris_fs::{Content, ErrorKind, Extent, Node, Permissions, SetAttr, Tree};
 use hadris_storage::{BlockSize, MemDevice};
 
 const SECTOR: usize = 2048;
@@ -21,22 +20,19 @@ fn large() -> Vec<u8> {
 
 fn fixture() -> Tree {
     let mut tree = Tree::new();
-    tree.add_file("EMPTY.TXT", Content::empty()).unwrap();
-    tree.add_file("DOCS/LARGE.BIN", Content::bytes(large()))
+    tree.insert("EMPTY.TXT", Node::file(Content::empty()))
         .unwrap();
-    tree.add_file(
+    tree.insert("DOCS/LARGE.BIN", Node::file(Content::bytes(large())))
+        .unwrap();
+    tree.insert(
         "DOCS/NESTED/NOTE.TXT",
-        Content::bytes("qualified through both namespaces"),
+        Node::file(Content::bytes("qualified through both namespaces"))
+            .with_attrs(SetAttr::new().with_permissions(Permissions::new(0o640))),
     )
     .unwrap();
-    tree.add_hard_link("DOCS/COPY.BIN", "DOCS/LARGE.BIN")
+    tree.link("DOCS/LARGE.BIN", "DOCS/COPY.BIN").unwrap();
+    tree.insert("LINK", Node::symlink("DOCS/NESTED/NOTE.TXT"))
         .unwrap();
-    tree.add_symlink("LINK", "DOCS/NESTED/NOTE.TXT").unwrap();
-    tree.set_metadata(
-        "DOCS/NESTED/NOTE.TXT",
-        SetMetadata::new().with_mode(Permissions::new(0o640)),
-    )
-    .unwrap();
     tree
 }
 
@@ -57,9 +53,9 @@ fn options(revision: UdfRevision) -> CdOptions {
 }
 
 fn create(tree: &Tree, options: &CdOptions) -> Vec<u8> {
-    let report = hadris_cd::sync::plan(tree, options).unwrap();
+    let report = hadris_cd::plan(tree, options).unwrap();
     let mut dev = MemDevice::new(
-        vec![0u8; report.size_bytes() as usize],
+        vec![0u8; report.size() as usize],
         BlockSize::new(2048).unwrap(),
     );
     let written = hadris_cd::sync::write(&mut dev, tree, options).unwrap();
@@ -192,27 +188,22 @@ fn reports_devices_and_modes_agree() {
     let tree = fixture();
     let options = options(UdfRevision::V1_02);
     let bytes = create(&tree, &options);
-    let report = hadris_cd::sync::plan(&tree, &options).unwrap();
+    let report = hadris_cd::plan(&tree, &options).unwrap();
     assert_eq!(
-        report.extent_of("DOCS/LARGE.BIN"),
-        report.udf().extent_of("DOCS/LARGE.BIN")
+        report.extents("DOCS/COPY.BIN"),
+        report.extents("DOCS/LARGE.BIN")
     );
+    let large = report.extents("DOCS/LARGE.BIN").unwrap()[0];
     assert_eq!(
-        report.extent_of("DOCS/COPY.BIN"),
-        report.extent_of("DOCS/LARGE.BIN")
+        &bytes[large.offset() as usize..][..5000],
+        self::large().as_slice()
     );
-    assert!(
-        report.udf().allocated_end()
-            <= report
-                .iso()
-                .extent_of("EMPTY.TXT")
-                .map_or(u64::MAX, |e| e.offset() / 2048)
-    );
+    assert_eq!(report.size(), bytes.len() as u64);
 
     let file = tempfile_like();
     let dev = hadris_storage::host::FileDevice::new(file.0.try_clone().unwrap()).unwrap();
     let written = hadris_cd::sync::write(dev, &tree, &options).unwrap();
-    assert_eq!(written.size_bytes(), file.0.metadata().unwrap().len());
+    assert_eq!(written.size(), file.0.metadata().unwrap().len());
     let mut host = Vec::new();
     std::io::Read::read_to_end(&mut std::fs::File::open(&file.1).unwrap(), &mut host).unwrap();
     assert_eq!(host, bytes);
@@ -230,8 +221,8 @@ fn reports_devices_and_modes_agree() {
             .unwrap();
         assert_eq!(dev.get_ref(), &expected);
         let mut dev = MemDevice::new(vec![0u8; expected.len()], BlockSize::new(2048).unwrap());
-        let report = hadris_cd::r#async::plan(&tree, &options).await.unwrap();
-        assert_eq!(report.size_bytes(), expected.len() as u64);
+        let report = hadris_cd::plan(&tree, &options).unwrap();
+        assert_eq!(report.size(), expected.len() as u64);
         hadris_cd::r#async::write(&mut dev, &tree, &options)
             .await
             .unwrap();
@@ -260,15 +251,15 @@ fn writer_errors_keep_their_detail() {
     let err = hadris_cd::sync::write(&mut dev, &tree, &CdOptions::default()).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Unsupported);
     assert_eq!(
-        err.detail().and_then(hadris_cd::iso::Detail::from_code),
-        Some(hadris_cd::iso::Detail::OutputBlockSize)
+        err.detail().and_then(hadris_cd::udf::Detail::from_code),
+        Some(hadris_cd::udf::Detail::OutputBlockSize)
     );
-    assert_eq!(err.detail().and_then(hadris_cd::Detail::from_code), None);
 
     let mut long = Tree::new();
-    long.add_file(&"n".repeat(255), Content::empty()).unwrap();
+    long.insert("n".repeat(255), Node::file(Content::empty()))
+        .unwrap();
     let options = CdOptions::default().with_iso(IsoOptions::default());
-    let err = hadris_cd::sync::plan(&long, &options).unwrap_err();
+    let err = hadris_cd::plan(&long, &options).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::NameTooLong);
 }
 

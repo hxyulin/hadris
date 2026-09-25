@@ -1,7 +1,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use hadris_fs::{Clock, NoClock};
+use hadris_fs::{DateTime, NoClock};
 use hadris_part::PartitionFlags;
 
 use crate::boot::{Emulation, Platform};
@@ -154,7 +154,7 @@ impl Default for VolumeIdentifiers {
 bitflags::bitflags! {
     /// The metadata Rock Ridge copies from the tree. What is not copied
     /// gets a default: mode 0644 for files and 0755 for directories, owner
-    /// 0, the clock's time.
+    /// 0, the options' time.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct Preserve: u8 {
         /// Permission bits.
@@ -504,7 +504,8 @@ impl HybridBoot {
 /// Options for `write`, `plan` and `Session::write`.
 ///
 /// The default is a Level 1 image named `CDROM` with no extensions, dated
-/// by [`NoClock`], so the same tree always gives the same bytes.
+/// 1980-01-01 ([`NoClock::TIME`]), so the same tree always gives the same
+/// bytes.
 ///
 /// ```rust
 /// use hadris_iso::{IsoLevel, IsoOptions, JolietLevel, RockRidge, VolumeIdentifiers};
@@ -517,7 +518,7 @@ impl HybridBoot {
 /// assert!(options.rock_ridge().is_some());
 /// ```
 #[derive(Debug, Clone)]
-pub struct IsoOptions<C = NoClock> {
+pub struct IsoOptions {
     volume: VolumeIdentifiers,
     level: IsoLevel,
     name_case: NameCase,
@@ -528,7 +529,8 @@ pub struct IsoOptions<C = NoClock> {
     el_torito: Option<ElTorito>,
     hybrid: Option<HybridBoot>,
     min_blocks: u64,
-    clock: C,
+    time: DateTime,
+    seed: Option<u64>,
 }
 
 impl Default for IsoOptions {
@@ -544,7 +546,8 @@ impl Default for IsoOptions {
             el_torito: None,
             hybrid: None,
             min_blocks: 0,
-            clock: NoClock,
+            time: NoClock::TIME,
+            seed: None,
         }
     }
 }
@@ -554,9 +557,7 @@ impl IsoOptions {
     pub fn new() -> Self {
         Self::default()
     }
-}
 
-impl<C: Clock> IsoOptions<C> {
     /// Sets the volume descriptor identifiers.
     pub fn with_volume(self, volume: VolumeIdentifiers) -> Self {
         Self { volume, ..self }
@@ -628,20 +629,19 @@ impl<C: Clock> IsoOptions<C> {
         }
     }
 
-    /// Sets the clock that dates the volume and the entries without times.
-    pub fn with_clock<C2: Clock>(self, clock: C2) -> IsoOptions<C2> {
-        IsoOptions {
-            volume: self.volume,
-            level: self.level,
-            name_case: self.name_case,
-            charset: self.charset,
-            joliet: self.joliet,
-            rock_ridge: self.rock_ridge,
-            enhanced: self.enhanced,
-            el_torito: self.el_torito,
-            hybrid: self.hybrid,
-            min_blocks: self.min_blocks,
-            clock,
+    /// Sets the time that dates the volume and the entries without times,
+    /// such as `SOURCE_DATE_EPOCH`. The writer reads no clock.
+    pub fn with_time(self, time: DateTime) -> Self {
+        Self { time, ..self }
+    }
+
+    /// Sets the seed the GPT disk and partition GUIDs derive from. Without
+    /// one they derive from the time and the volume identifier, so the
+    /// same inputs give the same image.
+    pub fn with_seed(self, seed: u64) -> Self {
+        Self {
+            seed: Some(seed),
+            ..self
         }
     }
 
@@ -695,9 +695,14 @@ impl<C: Clock> IsoOptions<C> {
         self.min_blocks
     }
 
-    /// The clock.
-    pub fn clock(&self) -> &C {
-        &self.clock
+    /// The time that dates the volume and the entries without times.
+    pub fn time(&self) -> DateTime {
+        self.time
+    }
+
+    /// The seed of the GUIDs, if set.
+    pub fn seed(&self) -> Option<u64> {
+        self.seed
     }
 }
 

@@ -1,4 +1,3 @@
-use hadris_fs::SystemClock;
 use hadris_iso::{
     BootEntry, BootInfo, ElTorito, HybridBoot, IsoOptions, JolietLevel, Platform, RockRidge,
     VolumeIdentifiers,
@@ -7,7 +6,7 @@ use hadris_iso::{
 use super::super::args::MkisofsArgs;
 
 use super::create::CATALOG_PATH;
-use super::{Result, normalize_path, read_source, write_image};
+use super::{Result, build_time, normalize_path, read_source, write_image};
 
 /// xorriso-compatible mkisofs mode
 pub fn mkisofs(args: MkisofsArgs) -> Result<()> {
@@ -22,7 +21,7 @@ pub fn mkisofs(args: MkisofsArgs) -> Result<()> {
     let volume = args.volume_name.as_deref().unwrap_or("CDROM");
     let mut options = IsoOptions::default()
         .with_volume(VolumeIdentifiers::new(volume))
-        .with_clock(SystemClock);
+        .with_time(build_time()?);
     if args.joliet {
         options = options.with_joliet(JolietLevel::L3);
     }
@@ -52,7 +51,7 @@ pub fn mkisofs(args: MkisofsArgs) -> Result<()> {
     println!(
         "Written to {} ({} bytes)",
         output_path.display(),
-        report.size_bytes().max(32 * 2048)
+        report.size().max(32 * 2048)
     );
 
     Ok(())

@@ -20,11 +20,13 @@ pub use verify::verify;
 
 use std::path::Path;
 
+use hadris_fs::host::{self, TreeOptions};
 use hadris_fs::sync::FileSystem;
-use hadris_fs::tree::{FromFsOptions, Tree, WarningKind};
-use hadris_fs::{DirCursor, Metadata, NodeId, Resolve, SystemClock};
+use hadris_fs::{
+    Clock, DateTime, DirCursor, Metadata, NodeId, Report, Resolve, SystemClock, Tree, WarningKind,
+};
 use hadris_iso::sync::{IsoImage, IsoView, write};
-use hadris_iso::{IsoOptions, Namespace, Report};
+use hadris_iso::{IsoOptions, Namespace};
 use hadris_storage::host::FileDevice;
 
 use super::output::Output;
@@ -109,18 +111,21 @@ fn first_block(view: &mut View<'_>, node: NodeId) -> Result<u64> {
 
 /// Reads the host directory `source` into a tree, reporting what it skipped.
 fn read_source(source: &Path) -> Result<Tree> {
-    let tree = Tree::from_fs(source, FromFsOptions::new())?;
-    for warning in tree.warnings() {
-        eprintln!("warning: {warning}");
-    }
+    let (tree, _) = host::read_tree(source, &TreeOptions::new())?;
     Ok(tree)
+}
+
+/// The time new images are dated with: `SOURCE_DATE_EPOCH` when set, the
+/// system time otherwise.
+fn build_time() -> Result<DateTime> {
+    Ok(host::source_date_epoch()?.unwrap_or_else(|| SystemClock.now()))
 }
 
 /// Prints the writer's warnings. Dropped metadata, which every image without
 /// Rock Ridge reports, only when `verbose`.
 fn print_warnings(report: &Report, verbose: bool) {
     for warning in report.warnings() {
-        if verbose || warning.kind() != WarningKind::IgnoredMetadata {
+        if verbose || !matches!(warning.kind(), WarningKind::Dropped(_)) {
             eprintln!("warning: {warning}");
         }
     }
@@ -128,12 +133,7 @@ fn print_warnings(report: &Report, verbose: bool) {
 
 /// Writes `tree` to `output`, padded to at least 32 blocks. The file appears
 /// only once the image is complete.
-fn write_image(
-    output: &Path,
-    tree: &Tree,
-    options: &IsoOptions<SystemClock>,
-    verbose: bool,
-) -> Result<Report> {
+fn write_image(output: &Path, tree: &Tree, options: &IsoOptions, verbose: bool) -> Result<Report> {
     let (file, pending) = Output::create(output)
         .map_err(|err| format!("cannot create {}: {err}", output.display()))?;
     let mut dev = FileDevice::new(file)

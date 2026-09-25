@@ -4,9 +4,9 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::convert::Infallible;
 
-use hadris_fs::tree::{Content, NodeKind, Tree, Warning, WarningKind};
 use hadris_fs::{
-    Clock, DirCursor, ErrorKind, Extent, FileTimes, FileType, MountError, NodeId, SetMetadata,
+    Content, DirCursor, ErrorKind, Extent, FileType, MountError, Node, NodeId, Report, SetAttr,
+    Tree, Warning, WarningKind,
 };
 use hadris_io::ErrorType;
 use hadris_part::{Disk, Gpt, GptEntry, Hybrid, HybridMbr, PartitionKind, PartitionTable};
@@ -15,13 +15,12 @@ use hadris_storage::{BlockIndex, BlockSize};
 use super::FileSystem;
 use super::image::IsoImage;
 use super::storage::BlockDevice;
-use super::write::{check_block_size, emit, measure};
+use super::write::{check_block_size, check_contents, check_output, emit};
 use crate::error::{Detail, Error};
 use crate::namespace::Namespace;
 use crate::options::{BootInfo, IsoLevel, IsoOptions, RockRidge, SessionMode, VolumeIdentifiers};
 use crate::plan::{self, Base, InfoTable, Region};
 use crate::raw::{self, SECTOR_SIZE};
-use crate::report::Report;
 use hadris_fs::PathError;
 
 const SECTOR: u64 = SECTOR_SIZE as u64;
@@ -30,29 +29,69 @@ const SECTOR: u64 = SECTOR_SIZE as u64;
 type Tables512 = (Vec<u8>, Option<Vec<u8>>, Vec<u64>);
 /// Sectors of a kept boot catalog read to patch its entries.
 const CATALOG_SECTORS: u64 = 8;
-/// The largest extent a stored file keeps: a multiple of the block size.
-const MAX_EXTENT: u64 = (u32::MAX as u64 / SECTOR) * SECTOR;
 
 fn text<const N: usize>(field: &raw::IsoStr<N>) -> Option<String> {
     let bytes = field.trimmed();
     (!bytes.is_empty()).then(|| String::from_utf8_lossy(bytes).into_owned())
 }
 
-/// The metadata a tree node keeps of `meta`. Permissions are kept only
+/// The attributes a tree node keeps of `meta`. Permissions are kept only
 /// when Rock Ridge stored them.
-fn set_metadata(meta: &hadris_fs::Metadata, rock_ridge: bool) -> SetMetadata {
-    let times = FileTimes::new()
-        .with_created(meta.created())
-        .with_modified(meta.modified())
-        .with_accessed(meta.accessed())
-        .with_changed(meta.changed());
-    let set = SetMetadata::new()
-        .with_times(times)
-        .with_mode(rock_ridge.then(|| meta.permissions()));
-    match meta.owner() {
-        Some(owner) => set.with_uid(owner.uid()).with_gid(owner.gid()),
-        None => set,
+fn set_attr(meta: &hadris_fs::Metadata, rock_ridge: bool) -> SetAttr {
+    let mut attrs = SetAttr::new();
+    if let Some(time) = meta.created() {
+        attrs = attrs.with_created(time);
     }
+    if let Some(time) = meta.modified() {
+        attrs = attrs.with_modified(time);
+    }
+    if let Some(time) = meta.accessed() {
+        attrs = attrs.with_accessed(time);
+    }
+    if rock_ridge {
+        attrs = attrs.with_permissions(meta.permissions());
+    }
+    if let Some(owner) = meta.owner() {
+        attrs = attrs.with_owner(owner);
+    }
+    attrs
+}
+
+/// The first byte and the total length of the file at `path` in `report`.
+fn span(report: &Report, path: &str) -> Option<Extent> {
+    let extents = report.extents(path)?;
+    let first = extents.first()?;
+    Some(Extent::new(
+        first.offset(),
+        extents.iter().map(Extent::len).sum(),
+    ))
+}
+
+/// A tree error while reading an image: the image holds what no tree can.
+fn tree_error<E>(_: hadris_fs::PathError) -> Error<E> {
+    Error::new(
+        ErrorKind::Corrupt,
+        "the image's directories do not form a tree",
+    )
+}
+
+/// Every file of `tree` with its path, depth first.
+fn files(tree: &Tree) -> Vec<(Vec<u8>, hadris_fs::TreeEntry<'_>)> {
+    let mut out = Vec::new();
+    let mut pending = vec![(Vec::new(), tree.root())];
+    while let Some((prefix, dir)) = pending.pop() {
+        for (name, child) in dir.children() {
+            let mut path = prefix.clone();
+            path.push(b'/');
+            path.extend_from_slice(name.as_bytes());
+            if child.node().file_type() == FileType::Dir {
+                pending.push((path, child));
+            } else if child.node().content().is_some() {
+                out.push((path, child));
+            }
+        }
+    }
+    out
 }
 
 /// An entry of a kept boot catalog whose boot image is a file of the tree.
@@ -106,14 +145,14 @@ impl<D: BlockDevice> BlockDevice for Sectors<'_, D> {
 ///
 /// Every file of the image becomes a tree entry whose content is its
 /// extents on the device ([`Content::stored`]), with Rock Ridge names,
-/// modes, owners, times, symlinks, device nodes and hard links when the
-/// image has them, Joliet or enhanced names otherwise. Change the tree, then
+/// modes, owners, times, symlinks, device nodes, FIFOs, sockets and hard
+/// links when the image has them, Joliet or enhanced names otherwise. Change the tree, then
 /// [`write`](Self::write) it back: unchanged files keep their extents, new
 /// content goes after the old data.
 ///
 /// ```rust,ignore
 /// let mut session = Session::open(&mut dev)?;
-/// session.tree_mut().add_file("new.txt", Content::bytes("hi"))?;
+/// session.tree_mut().insert("new.txt", Node::file(Content::bytes("hi")))?;
 /// session.tree_mut().remove("old.txt")?;
 /// let report = session.write(&session.options(), SessionMode::Append)?;
 /// ```
@@ -127,7 +166,6 @@ pub struct Session<D> {
     /// tree.
     boot: Vec<BootImage>,
     options: IsoOptions,
-    warnings: Vec<Warning>,
 }
 
 impl<D: BlockDevice> Session<D> {
@@ -143,7 +181,7 @@ impl<D: BlockDevice> Session<D> {
             return Err(MountError::new(err, iso.into_inner()));
         }
         match read_session(&mut iso).await {
-            Ok((tree, options, warnings)) => {
+            Ok((tree, options)) => {
                 let volume_blocks = u64::from(iso.volume_blocks());
                 let catalog = iso.boot_catalog_block();
                 let mut session = Self {
@@ -153,7 +191,6 @@ impl<D: BlockDevice> Session<D> {
                     catalog,
                     boot: Vec::new(),
                     options,
-                    warnings,
                 };
                 match session.map_boot_images().await {
                     Ok(()) => Ok(session),
@@ -181,11 +218,6 @@ impl<D: BlockDevice> Session<D> {
     /// [`write`](Self::write)).
     pub fn options(&self) -> IsoOptions {
         self.options.clone()
-    }
-
-    /// Entries of the image the tree could not hold, such as FIFOs.
-    pub fn warnings(&self) -> &[Warning] {
-        &self.warnings
     }
 
     /// The number of blocks the image's volume descriptors declare.
@@ -222,9 +254,9 @@ impl<D: BlockDevice> Session<D> {
     ///
     /// Afterwards the tree's new files point at their new extents, so the
     /// session can be written again.
-    pub async fn write<C: Clock>(&mut self, opts: &IsoOptions<C>, mode: SessionMode) -> Result<Report, PathError> {
+    pub async fn write(&mut self, opts: &IsoOptions, mode: SessionMode) -> Result<Report, PathError> {
         check_block_size(&self.dev)?;
-        let contents = measure(&self.tree, true).await?;
+        let contents = plan::measure(&self.tree, true)?;
         let old = self.volume_blocks;
         let existing = self.partition_tables(old).await?;
         let has_tables = existing.is_some();
@@ -262,7 +294,9 @@ impl<D: BlockDevice> Session<D> {
             },
         };
         let descriptors = base.descriptors;
-        let mut plan = plan::plan(&self.tree, opts, &contents, base)?;
+        let mut plan = plan::lay_out(&self.tree, opts, &contents, base)?;
+        check_output(&self.dev, &plan)?;
+        check_contents(&self.tree, &plan)?;
         if mode == SessionMode::Append {
             let copy = plan.regions.iter().find_map(|region| match region {
                 Region::Bytes { block, data } if *block == descriptors => Some(data.clone()),
@@ -275,16 +309,14 @@ impl<D: BlockDevice> Session<D> {
                 });
             }
             if opts.hybrid().is_some() {
-                plan.report.warn(Warning::new(
-                    "/",
-                    WarningKind::IgnoredMetadata,
+                plan.report.push_warning(Warning::new(
+                    WarningKind::Boot,
                     "an appended session does not write the system area; the hybrid boot options were not applied",
                 ));
             }
             if has_tables {
-                plan.report.warn(Warning::new(
-                    "/",
-                    WarningKind::IgnoredMetadata,
+                plan.report.push_warning(Warning::new(
+                    WarningKind::Boot,
                     "the partition tables still describe the previous session",
                 ));
             }
@@ -304,28 +336,25 @@ impl<D: BlockDevice> Session<D> {
                     data: tail,
                 });
             }
-            for start in kept {
-                plan.report.warn(Warning::new(
-                    "/",
-                    WarningKind::IgnoredMetadata,
-                    alloc::format!(
-                        "the partition at 512-byte sector {start} keeps its size: growing it over the new data would overlap another partition"
-                    ),
-                ));
+            if !kept.is_empty() {
+                plan.report.push_warning(
+                    Warning::new(
+                        WarningKind::Boot,
+                        "a partition that ended with the volume keeps its size: growing it over the new data would overlap another partition",
+                    )
+                    .with_count(kept.len() as u64),
+                );
             }
         }
         plan.regions.sort_by_key(Region::block);
         emit(&mut self.dev, &self.tree, &plan).await?;
-        for warning in &self.warnings {
-            plan.report.warn(warning.clone());
-        }
         self.volume_blocks = plan.total_blocks;
         if keep_catalog.is_none() {
             self.catalog = None;
             self.boot.clear();
         }
         for boot in &mut self.boot {
-            if let Some(extent) = plan.report.extent_of(&boot.path) {
+            if let Some(extent) = span(&plan.report, &boot.path) {
                 boot.len = extent.len();
             }
         }
@@ -338,34 +367,28 @@ impl<D: BlockDevice> Session<D> {
         self.dev
     }
 
+    /// Points the files written as new content at their extents, keeping
+    /// every name of a hard link on one node.
     fn store_new_files(&mut self, report: &Report, contents: &BTreeMap<usize, plan::ContentInfo>) {
-        let mut paths = Vec::new();
-        let mut pending = vec![(String::new(), self.tree.root())];
-        while let Some((prefix, dir)) = pending.pop() {
-            for (name, child) in dir.children() {
-                let path = alloc::format!("{prefix}/{name}");
-                if child.file_type() == FileType::Dir {
-                    pending.push((path, child));
-                } else if contents.get(&child.id()).is_some_and(|info| info.stored.is_none() && info.len > 0) {
-                    paths.push(path);
-                }
+        let mut groups: BTreeMap<usize, Vec<Vec<u8>>> = BTreeMap::new();
+        for (path, entry) in files(&self.tree) {
+            if contents.get(&entry.id()).is_some_and(|info| info.stored.is_none() && info.len > 0) {
+                groups.entry(entry.id()).or_default().push(path);
             }
         }
-        for path in paths {
-            let Some(extent) = report.extent_of(&path) else {
+        for names in groups.into_values() {
+            let Some(first) = names.first() else { continue };
+            let (Some(extents), Some(node)) = (report.extents(first), self.tree.get(first)) else {
                 continue;
             };
-            let mut extents = Vec::new();
-            let mut offset = extent.offset();
-            let mut left = extent.len();
-            while left > 0 {
-                let len = left.min(MAX_EXTENT);
-                extents.push(Extent::new(offset, len));
-                offset += len;
-                left -= len;
+            let node = Node::file(Content::stored(extents.to_vec())).with_attrs(*node.attrs());
+            if self.tree.replace(first, node).is_err() {
+                continue;
             }
-            if let Some(content) = self.tree.content_mut(&path) {
-                *content = Content::stored(extents);
+            for name in &names[1..] {
+                if self.tree.remove(name).is_ok() {
+                    let _ = self.tree.link(first, name);
+                }
             }
         }
     }
@@ -380,18 +403,11 @@ impl<D: BlockDevice> Session<D> {
         let bytes = self.read_catalog(block).await?;
         let entries = catalog_entries(&bytes);
         let mut firsts = BTreeMap::new();
-        let mut pending = vec![(String::new(), self.tree.root())];
-        while let Some((prefix, dir)) = pending.pop() {
-            for (name, child) in dir.children() {
-                let path = alloc::format!("{prefix}/{name}");
-                if child.file_type() == FileType::Dir {
-                    pending.push((path, child));
-                } else if let Some(NodeKind::File(content)) = Some(child.kind())
-                    && let Some(first) = content.stored_extents().and_then(|extents| extents.first())
-                {
-                    let len = content.len().unwrap_or(0);
-                    firsts.entry(first.offset()).or_insert((path, len));
-                }
+        for (path, entry) in files(&self.tree) {
+            let Some(content) = entry.node().content() else { continue };
+            if let Some(first) = content.stored_extents().and_then(|extents| extents.first()) {
+                let path = String::from_utf8_lossy(&path).into_owned();
+                firsts.entry(first.offset()).or_insert((path, content.len()));
             }
         }
         let len = self.dev.block_count().saturating_mul(u64::from(self.dev.block_size().get()));
@@ -450,8 +466,8 @@ impl<D: BlockDevice> Session<D> {
     /// Fails when a boot image the kept catalog loads is gone from the tree.
     fn check_boot_images(&self) -> Result<(), PathError> {
         for boot in &self.boot {
-            match self.tree.get(&boot.path).map(|node| node.kind()) {
-                Some(NodeKind::File(content)) if content.len() != Some(0) => {}
+            match self.tree.get(&boot.path).and_then(Node::content) {
+                Some(content) if !content.is_empty() => {}
                 _ => return Err(PathError::from(Detail::BootImage.invalid::<Infallible>()).with_path(boot.path.as_str())),
             }
         }
@@ -478,7 +494,7 @@ impl<D: BlockDevice> Session<D> {
         let mut changed = false;
         for boot in &self.boot {
             let at = boot.at;
-            let extent = report.extent_of(&boot.path).ok_or(Detail::BootImage.invalid())?;
+            let extent = span(report, &boot.path).ok_or(Detail::BootImage.invalid())?;
             let rba = u32::try_from(extent.offset() / SECTOR).map_err(|_| Detail::ImageTooLarge.invalid())?;
             if bytes[at + 8..at + 12] == rba.to_le_bytes() {
                 continue;
@@ -614,9 +630,8 @@ impl<D: BlockDevice> Session<D> {
     }
 }
 
-/// Reads the image's tree, the options that write it back, and what the
-/// tree could not hold.
-async fn read_session<D: BlockDevice>(iso: &mut IsoImage<D>) -> Result<(Tree, IsoOptions, Vec<Warning>), Error<D::Error>> {
+/// Reads the image's tree and the options that write it back.
+async fn read_session<D: BlockDevice>(iso: &mut IsoImage<D>) -> Result<(Tree, IsoOptions), Error<D::Error>> {
     let pvd = iso.primary_descriptor().await?;
     let namespaces = iso.namespaces();
     let mut ids = VolumeIdentifiers::new(text(&pvd.volume_identifier).unwrap_or_default());
@@ -647,73 +662,66 @@ async fn read_session<D: BlockDevice>(iso: &mut IsoImage<D>) -> Result<(Tree, Is
     }
     let mut view = iso.view(Namespace::Preferred)?;
     let mut tree = Tree::new();
-    let mut warnings = Vec::new();
     let root = view.root();
     let rock_ridge = view.namespace() == Namespace::RockRidge;
     let meta = view.stat(root).await?;
-    tree.set_metadata("/", set_metadata(&meta, rock_ridge)).map_err(Error::from)?;
-    let mut links: BTreeMap<u64, String> = BTreeMap::new();
-    let mut pending: Vec<(NodeId, String)> = vec![(root, String::new())];
+    tree.replace("", Node::dir().with_attrs(set_attr(&meta, rock_ridge))).map_err(tree_error)?;
+    let mut links: BTreeMap<u64, Vec<u8>> = BTreeMap::new();
+    let mut pending: Vec<(NodeId, Vec<u8>)> = vec![(root, Vec::new())];
     while let Some((dir, prefix)) = pending.pop() {
         let mut cursor = DirCursor::START;
         while let Some(entry) = view.readdir(dir, cursor).await? {
             cursor = entry.next_cursor();
-            let path = alloc::format!("{prefix}/{}", String::from_utf8_lossy(entry.name().as_bytes()));
+            let mut path = prefix.clone();
+            path.push(b'/');
+            path.extend_from_slice(entry.name().as_bytes());
             let node = entry.node();
             let meta = *entry.metadata();
-            match meta.file_type() {
+            let attrs = set_attr(&meta, rock_ridge);
+            let new = match meta.file_type() {
                 FileType::Dir => {
                     if dir == root && view.is_relocation_dir(node).await? {
                         continue;
                     }
-                    tree.add_dir(&path).map_err(Error::from)?;
                     pending.push((node, path.clone()));
+                    Node::dir()
                 }
                 FileType::File => {
                     let mut extents = Vec::new();
                     view.extents(node, |extent| extents.push(extent)).await?;
                     let first = extents.first().map(Extent::offset).filter(|_| meta.len() > 0);
-                    match first.and_then(|first| links.get(&first).filter(|_| meta.nlink() > 1)) {
-                        Some(target) => tree.add_hard_link(&path, &target.clone()).map_err(Error::from)?,
-                        None => {
-                            let content = if meta.len() == 0 {
-                                Content::empty()
-                            } else {
-                                Content::stored(extents)
-                            };
-                            tree.add_file(&path, content).map_err(Error::from)?;
-                            if let Some(first) = first {
-                                links.insert(first, path.clone());
-                            }
-                        }
+                    if let Some(target) = first.and_then(|first| links.get(&first).filter(|_| meta.nlink() > 1)) {
+                        tree.link(target, &path).map_err(tree_error)?;
+                        continue;
                     }
+                    if let Some(first) = first {
+                        links.insert(first, path.clone());
+                    }
+                    Node::file(match meta.len() {
+                        0 => Content::empty(),
+                        _ => Content::stored(extents),
+                    })
                 }
                 FileType::Symlink => {
                     let mut target = vec![0u8; 4096];
                     let len = view.readlink(node, &mut target).await?.len();
-                    tree.add_symlink(&path, &target[..len]).map_err(Error::from)?;
+                    Node::symlink(&target[..len])
                 }
-                FileType::CharDevice | FileType::BlockDevice => {
+                kind @ (FileType::CharDevice | FileType::BlockDevice) => {
                     let number = view
                         .rock_ridge(node)
                         .await?
                         .and_then(|rr| rr.device())
                         .unwrap_or(hadris_fs::DeviceNumber::new(0, 0));
-                    let kind = match meta.file_type() {
-                        FileType::BlockDevice => hadris_fs::DeviceKind::Block,
-                        _ => hadris_fs::DeviceKind::Char,
-                    };
-                    tree.add_device(&path, kind, number).map_err(Error::from)?;
+                    Node::special(kind, Some(number))
                 }
-                _ => {
-                    warnings.push(Warning::new(path, WarningKind::Skipped, "FIFOs and sockets cannot be kept"));
-                    continue;
-                }
-            }
-            tree.set_metadata(&path, set_metadata(&meta, rock_ridge)).map_err(Error::from)?;
+                kind @ (FileType::Fifo | FileType::Socket) => Node::special(kind, None),
+                _ => continue,
+            };
+            tree.insert(&path, new.with_attrs(attrs)).map_err(tree_error)?;
         }
     }
-    Ok((tree, options, warnings))
+    Ok((tree, options))
 }
 
 }

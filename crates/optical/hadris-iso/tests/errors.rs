@@ -6,7 +6,7 @@ mod common;
 use common::Paths;
 use common::{image, sample};
 use hadris_fs::sync::FileSystem;
-use hadris_fs::tree::{Content, Tree, WarningKind};
+use hadris_fs::{Content, Node, Tree, WarningKind};
 use hadris_fs::{ErrorKind, NodeId};
 use hadris_iso::sync::IsoImage;
 use hadris_iso::{
@@ -16,7 +16,7 @@ use hadris_iso::{
 use hadris_storage::MemDevice;
 
 fn refused(tree: &Tree, options: &IsoOptions) -> (ErrorKind, Option<Detail>) {
-    let err = hadris_iso::sync::plan(tree, options).unwrap_err();
+    let err = hadris_iso::plan(tree, options).unwrap_err();
     let mut dev = MemDevice::new(vec![0u8; 1 << 20], common::SECTOR);
     let write = hadris_iso::sync::write(&mut dev, tree, options).unwrap_err();
     assert_eq!(
@@ -49,7 +49,7 @@ fn bad_options_are_refused_before_writing() {
     );
     let small = {
         let mut tree = sample(false, false);
-        tree.add_file("tiny.img", Content::bytes([1u8; 16]))
+        tree.insert("tiny.img", Node::file(Content::bytes([1u8; 16])))
             .unwrap();
         tree
     };
@@ -87,7 +87,9 @@ fn bad_options_are_refused_before_writing() {
         (ErrorKind::InvalidInput, Some(Detail::Relocation))
     );
     let mut taken = sample(true, true);
-    taken.add_file("rr_moved", Content::empty()).unwrap();
+    taken
+        .insert("rr_moved", Node::file(Content::empty()))
+        .unwrap();
     let relocate = IsoOptions::default().with_rock_ridge(RockRidge::default());
     assert_eq!(
         refused(&taken, &relocate),
@@ -137,32 +139,35 @@ fn boot_options_are_checked_against_the_images() {
         (ErrorKind::InvalidInput, Some(Detail::BootImage))
     );
     let mut disk = sample(false, false);
-    disk.add_file("floppy.img", Content::bytes(vec![0u8; 1_474_560]))
-        .unwrap();
+    disk.insert(
+        "floppy.img",
+        Node::file(Content::bytes(vec![0u8; 1_474_560])),
+    )
+    .unwrap();
     let floppy = IsoOptions::default().with_el_torito(ElTorito::new(
         BootEntry::new("floppy.img").with_emulation(Emulation::Floppy144),
     ));
-    assert!(hadris_iso::sync::plan(&disk, &floppy).is_ok());
+    assert!(hadris_iso::plan(&disk, &floppy).is_ok());
 
     let past = IsoOptions::default().with_el_torito(ElTorito::new(
         BootEntry::new("boot/boot.img").with_load_size(9),
     ));
-    let report = hadris_iso::sync::plan(&tree, &past).unwrap();
+    let report = hadris_iso::plan(&tree, &past).unwrap();
     assert!(
         report
             .warnings()
             .iter()
-            .any(|w| w.path() == "/boot/boot.img" && w.kind() == WarningKind::IgnoredMetadata),
+            .any(|w| w.path() == Some(&b"/boot/boot.img"[..]) && w.kind() == WarningKind::Boot),
         "{:?}",
         report.warnings()
     );
     let exact = IsoOptions::default().with_el_torito(el_torito());
     assert!(
-        hadris_iso::sync::plan(&tree, &exact)
+        hadris_iso::plan(&tree, &exact)
             .unwrap()
             .warnings()
             .iter()
-            .all(|w| w.path() != "/boot/boot.img")
+            .all(|w| w.path() != Some(&b"/boot/boot.img"[..]))
     );
 
     let two_efi = IsoOptions::default()
@@ -172,12 +177,12 @@ fn boot_options_are_checked_against_the_images() {
                 .with_entry(BootEntry::new("boot/boot.img").with_platform(Platform::Efi)),
         )
         .with_hybrid(HybridBoot::gpt());
-    let report = hadris_iso::sync::plan(&tree, &two_efi).unwrap();
+    let report = hadris_iso::plan(&tree, &two_efi).unwrap();
     assert!(
         report
             .warnings()
             .iter()
-            .any(|w| w.path() == "/boot/efi.img" && w.kind() == WarningKind::Skipped),
+            .any(|w| w.path() == Some(&b"/boot/efi.img"[..]) && w.kind() == WarningKind::Boot),
         "{:?}",
         report.warnings()
     );
@@ -189,11 +194,11 @@ fn boot_options_are_checked_against_the_images() {
         )
         .with_hybrid(HybridBoot::gpt().with_efi_partition("boot/efi.img"));
     assert!(
-        hadris_iso::sync::plan(&tree, &named)
+        hadris_iso::plan(&tree, &named)
             .unwrap()
             .warnings()
             .iter()
-            .all(|w| w.kind() != WarningKind::Skipped)
+            .all(|w| w.kind() != WarningKind::Boot)
     );
 }
 
@@ -370,7 +375,8 @@ fn directories_past_the_end_of_a_truncated_image_are_corrupt() {
 #[test]
 fn directory_cycles_are_corrupt() {
     let mut tree = Tree::new();
-    tree.add_file("a/b/f.txt", Content::bytes("f")).unwrap();
+    tree.insert("a/b/f.txt", Node::file(Content::bytes("f")))
+        .unwrap();
     let good = image(&tree, &IsoOptions::default()).into_inner();
     let mut iso = IsoImage::open(MemDevice::new(good.clone(), common::SECTOR)).unwrap();
     let mut view = iso.view(Namespace::Primary).unwrap();
@@ -383,13 +389,10 @@ fn directory_cycles_are_corrupt() {
         let mut bad = good.clone();
         bad[record + 2..record + 6].copy_from_slice(&target.to_le_bytes());
         bad[record + 6..record + 10].copy_from_slice(&target.to_be_bytes());
-        let mut iso = IsoImage::open(MemDevice::new(bad, common::SECTOR)).unwrap();
-        let mut view = iso.view(Namespace::Primary).unwrap();
-        let err = <Tree as hadris_fs::sync::TreeExt>::from_filesystem(&mut view).unwrap_err();
+        let iso = IsoImage::open(MemDevice::new(bad, common::SECTOR)).unwrap();
+        let vol = hadris_fs::sync::Volume::new(iso.into_view(Namespace::Primary).unwrap());
+        let err = hadris_fs::sync::read_tree(&vol, "/").unwrap_err();
         assert_eq!(err.kind(), ErrorKind::Corrupt);
-        let out = tempfile::tempdir().unwrap();
-        let err = hadris_fs::sync::extract_to_host(&mut view, "/", out.path()).unwrap_err();
-        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData, "{err}");
     }
 }
 
@@ -400,8 +403,11 @@ fn directory_cycles_are_corrupt() {
 fn relocation_names_libarchive_would_mistake_are_refused() {
     let tree = |user: &str| {
         let mut tree = sample(true, false);
-        tree.add_file(&format!("{user}/user.txt"), Content::bytes("user"))
-            .unwrap();
+        tree.insert(
+            format!("{user}/user.txt"),
+            Node::file(Content::bytes("user")),
+        )
+        .unwrap();
         tree
     };
     let options = |case: NameCase, container: Relocation| {
@@ -420,8 +426,11 @@ fn relocation_names_libarchive_would_mistake_are_refused() {
         );
         let shallow = {
             let mut tree = sample(false, false);
-            tree.add_file(&format!("{user}/user.txt"), Content::bytes("user"))
-                .unwrap();
+            tree.insert(
+                format!("{user}/user.txt"),
+                Node::file(Content::bytes("user")),
+            )
+            .unwrap();
             tree
         };
         image(&shallow, &options(case, container));
@@ -437,4 +446,16 @@ fn relocation_names_libarchive_would_mistake_are_refused() {
             b"deep"
         );
     }
+}
+
+#[test]
+fn a_device_too_small_for_the_image_is_refused_before_writing() {
+    let tree = sample(false, false);
+    let size = hadris_iso::plan(&tree, &IsoOptions::default())
+        .unwrap()
+        .size();
+    let mut dev = MemDevice::new(vec![0u8; size as usize - 2048], common::SECTOR);
+    let err = hadris_iso::sync::write(&mut dev, &tree, &IsoOptions::default()).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::NoSpace);
+    assert!(dev.get_ref().iter().all(|&b| b == 0));
 }

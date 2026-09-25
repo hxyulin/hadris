@@ -13,10 +13,10 @@ DVD-Video, Blu-ray and many large removable drives.
   allocator, through the `hadris-fs` `FileSystem` trait: path lookup,
   streaming reads, metadata with times, permissions and owners, symlinks and
   hard links
-- **Write** standalone volumes from a `hadris_fs::tree::Tree`, reproducibly,
+- **Write** standalone volumes from a `hadris_fs::Tree`, reproducibly,
   with a report of where each file went
-- **Bridge** volumes that share an image and its file data with ISO 9660, as
-  `hadris-cd` builds them
+- **Bridge** images that share their file data between ISO 9660 and UDF, as
+  DVD-Video uses: `plan_bridge` and `write_bridge`
 - The same API in `sync`, `r#async`
 
 ## Reading
@@ -58,38 +58,42 @@ gives it paths, shared access and `File` handles.
 ## Writing
 
 ```rust,no_run
-use hadris_fs::tree::{Content, Tree};
+use hadris_fs::{Content, Node, Tree, host};
 use hadris_udf::sync::write;
 use hadris_udf::{UdfOptions, UdfRevision};
 
 let mut tree = Tree::new();
-tree.add_file("readme.txt", Content::bytes("Hello, World!")).unwrap();
-tree.add_file("video.bin", Content::path("/data/video.bin")).unwrap();
+tree.insert("readme.txt", Node::file(Content::bytes("Hello, World!"))).unwrap();
+tree.insert("video.bin", Node::file(host::file("/data/video.bin").unwrap())).unwrap();
 
 let options = UdfOptions::default()
     .with_volume_id("MY_DISC")
     .with_revision(UdfRevision::V2_01);
 let out = hadris_storage::host::FileDevice::new(std::fs::File::create("disc.udf").unwrap()).unwrap();
 let report = write(out, &tree, &options).unwrap();
-println!("{} blocks", report.total_blocks());
+println!("{} bytes", report.size());
 for warning in report.warnings() {
     eprintln!("{warning}");
 }
 ```
 
 The writer stores files, directories, symlinks and hard links with their
-modification, access and change times, permissions and owners. Creation
-times, DOS attributes and device nodes are reported as warnings. Output is
-reproducible: the clock is injected, and the default `NoClock` dates the
-volume 1980-01-01. `plan` returns the report without writing, to size a
+modification and access times, permissions and owners. Creation times, DOS
+attributes and special files are reported as warnings. Output is
+reproducible: the writer reads no clock, and `with_time` dates the volume,
+1980-01-01 by default. `plan` returns the report without I/O, to size a
 device first.
+
+`write_bridge` writes an ISO 9660 image, then a UDF volume over the same
+file data, from one tree and the `IsoOptions` and `UdfOptions` of the two
+volumes; `plan_bridge` returns its report.
 
 ## Feature Flags
 
 | Feature | Default | Description |
 |---------|---------|-------------|
 | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
-| `alloc` | via `std` | The writer and the tree input |
+| `alloc` | via `std` | The writers, `plan` and `plan_bridge` |
 | `sync` | Yes | The blocking API in `sync` |
 | `async` | No | The asynchronous API with `Send` futures in `r#async` |
 

@@ -1,89 +1,62 @@
-use alloc::collections::BTreeMap;
-use alloc::format;
-use alloc::string::String;
 use alloc::vec;
 use core::convert::Infallible;
 
-use hadris_fs::tree::{NodeKind, Tree};
-use hadris_fs::{Clock, ErrorKind, PathError};
+use hadris_fs::{ErrorKind, PathError, Report, Tree};
 use hadris_storage::BlockIndex;
 
 use super::fs::ContentReader;
 use super::storage::BlockDevice;
 use crate::error::{Detail, Error};
 use crate::options::{BootInfo, IsoOptions};
-use crate::plan::{self, Base, ContentInfo, InfoTable, Plan, Region};
+use crate::plan::{self, Base, InfoTable, Plan, Region};
 use crate::raw::{self, SECTOR_SIZE};
-use crate::report::Report;
 
 /// Bytes read from a content per request.
 const CHUNK: usize = 64 * 1024;
 
 io_transform! {
 
-/// Measures every file of `tree`. Stored content is accepted only when
-/// `stored` is set.
-pub(crate) async fn measure(tree: &Tree, stored: bool) -> Result<BTreeMap<usize, ContentInfo>, PathError> {
-    let mut out = BTreeMap::new();
-    let mut pending = vec![(String::new(), tree.root())];
-    while let Some((dir_path, dir)) = pending.pop() {
-        for (name, child) in dir.children() {
-            let path = format!("{dir_path}/{name}");
-            match child.kind() {
-                NodeKind::Dir => pending.push((path, child)),
-                NodeKind::File(content) if !out.contains_key(&child.id()) => {
-                    let info = match content.stored_extents() {
-                        Some(extents) if stored => ContentInfo {
-                            len: extents.iter().map(|extent| extent.len()).sum(),
-                            stored: Some(extents.to_vec()),
-                        },
-                        Some(_) => return Err(PathError::from(Detail::StoredContent.error::<Infallible>(ErrorKind::Unsupported)).with_path(path)),
-                        None => {
-                            let reader = ContentReader::open(content).await.map_err(|err| err.with_path(path))?;
-                            ContentInfo { len: reader.len(), stored: None }
-                        }
-                    };
-                    out.insert(child.id(), info);
-                }
-                _ => {}
-            }
-        }
-    }
-    Ok(out)
-}
-
-/// The [`Report`] [`write()`] would return, without writing: the image size,
-/// where each file goes, and the warnings.
-///
-/// Size an output device with [`Report::size_bytes`]. Host files are
-/// opened and measured; nothing else is read.
-pub async fn plan<C: Clock>(tree: &Tree, opts: &IsoOptions<C>) -> Result<Report, PathError> {
-    let contents = measure(tree, false).await?;
-    Ok(plan::plan(tree, opts, &contents, Base::image())?.report)
-}
-
 /// Writes `tree` as an ISO 9660 image on `out`, as `opts` says, from block
-/// 0, and returns the [`Report`].
+/// 0, and returns the report [`plan`](crate::plan) returns.
 ///
 /// Blocks are written once each, in ascending order, then the device is
-/// flushed. The device must hold [`Report::size_bytes`] (see [`plan`]); a
-/// device that grows on write, such as a host file, needs no sizing. Its
-/// block size must divide 2048 ([`Detail::OutputBlockSize`]).
+/// flushed. Its block size must divide 2048 ([`Detail::OutputBlockSize`]).
 ///
-/// Fails before writing anything when the options do not fit the tree:
-/// [`ErrorKind::InvalidInput`] for a missing boot image, a diskette image
-/// of the wrong size, a load size of zero, an identifier that does not
-/// fit, a relocation clash or a tree too deep without Rock Ridge;
-/// [`ErrorKind::LimitExceeded`] for MBR boot code over 446 bytes;
-/// [`ErrorKind::FileTooLarge`] for a file of 4 GiB or more below Level 3.
-/// An error from a file's content carries the file's path
+/// Fails before writing anything as [`plan`](crate::plan) does, with
+/// [`ErrorKind::NoSpace`] when the device cannot hold [`Report::size`]
+/// (a device that grows on write, such as a host file, needs no sizing),
+/// and with [`ErrorKind::Unsupported`] naming the file whose content this
+/// mode cannot read. An error from a file's content carries the file's path
 /// ([`PathError::path`]).
-pub async fn write<D: BlockDevice, C: Clock>(mut out: D, tree: &Tree, opts: &IsoOptions<C>) -> Result<Report, PathError> {
+pub async fn write<D: BlockDevice>(mut out: D, tree: &Tree, opts: &IsoOptions) -> Result<Report, PathError> {
     check_block_size(&out)?;
-    let contents = measure(tree, false).await?;
-    let plan = plan::plan(tree, opts, &contents, Base::image())?;
+    let contents = plan::measure(tree, false)?;
+    let plan = plan::lay_out(tree, opts, &contents, Base::image())?;
+    check_output(&out, &plan)?;
+    check_contents(tree, &plan)?;
     emit(&mut out, tree, &plan).await?;
     Ok(plan.report)
+}
+
+/// Checks that `out` can hold the planned image.
+pub(crate) fn check_output<D: BlockDevice>(out: &D, plan: &Plan) -> Result<(), PathError> {
+    let per_sector = (SECTOR_SIZE / out.block_size().get() as usize) as u64;
+    if plan.total_blocks.saturating_mul(per_sector) > out.max_block_count() {
+        return Err(PathError::new(ErrorKind::NoSpace, "the output device is smaller than the image"));
+    }
+    Ok(())
+}
+
+/// Checks that this mode can read every file the plan writes.
+pub(crate) fn check_contents(tree: &Tree, plan: &Plan) -> Result<(), PathError> {
+    for region in &plan.regions {
+        if let Region::File { path, .. } = region
+            && let Some(content) = tree.get(path).and_then(|node| node.content())
+        {
+            ContentReader::check(content).map_err(|err| err.with_path(path))?;
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn check_block_size<D: BlockDevice>(out: &D) -> Result<(), Error<D::Error>> {
@@ -178,7 +151,7 @@ async fn file<D: BlockDevice>(
     buf: &mut [u8],
 ) -> Result<(), PathError> {
     let changed = || PathError::from(Detail::Content.corrupt::<Infallible>()).with_path(path);
-    let Some(NodeKind::File(content)) = tree.get(path).map(|node| node.kind()) else {
+    let Some(content) = tree.get(path).and_then(|node| node.content()) else {
         return Err(changed());
     };
     let mut reader = ContentReader::open(content).await.map_err(|err| err.with_path(path))?;

@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use common::asynch::{MemFs, fixture};
 use common::block_on;
-use hadris_fs::r#async::{FileSystem, Volume, copy_tree};
+use hadris_fs::r#async::{FileSystem, Volume, copy_tree, read_tree};
 use hadris_fs::{ErrorKind, FsResult, OpenOptions, Resolve};
 use hadris_io::r#async::Write as _;
 
@@ -52,20 +52,21 @@ fn paths_handles_and_policies() {
 }
 
 #[test]
-fn copy_tree_between_filesystems() {
+fn volumes_copy_through_trees() {
     block_on(async {
         let mut src = MemFs::new();
         src.add("/", "etc", hadris_fs::FileType::Dir, b"");
         src.add("/etc", "conf", hadris_fs::FileType::File, b"key=value");
+        let vol = Volume::new(src);
+        let tree = read_tree(&vol, "/etc").await.unwrap();
         let mut dst = MemFs::new();
-        copy_tree(&mut src, "/etc", &mut dst, "/copy/etc")
-            .await
-            .unwrap();
-        assert_eq!(dst.contents("/copy/etc/conf").unwrap(), b"key=value");
-        let err = copy_tree(&mut src, "/nope", &mut dst, "/x")
-            .await
-            .unwrap_err();
+        let root = dst.root();
+        copy_tree(&tree, &mut dst, root).await.unwrap();
+        assert_eq!(dst.contents("/conf").unwrap(), b"key=value");
+        let err = read_tree(&vol, "/nope").await.unwrap_err();
         assert_eq!(err.kind(), ErrorKind::NotFound);
+        drop(tree);
+        let src = vol.into_inner().await.ok().unwrap();
         assert_eq!((src.open_nodes(), dst.open_nodes()), (1, 1));
     });
 }
@@ -130,12 +131,11 @@ fn futures_are_send() {
         buf
     };
     assert_eq!(&block_on(assert_send(task)), b"root");
-    let src = Arc::new(());
+    let src = Arc::new(hadris_fs::Tree::new());
     let copy = async move {
-        let _keep = src;
-        let mut a = MemFs::new();
-        let mut b = MemFs::new();
-        copy_tree(&mut a, "/", &mut b, "/x").await
+        let mut fs = MemFs::new();
+        let root = fs.root();
+        copy_tree(&src, &mut fs, root).await
     };
     block_on(assert_send(copy)).unwrap();
 }

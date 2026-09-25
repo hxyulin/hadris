@@ -1,6 +1,6 @@
 use core::fmt;
 
-use crate::{DateTime, DeviceNumber, FileTimes, FileType};
+use crate::{DateTime, DeviceNumber, FileType};
 
 /// POSIX permission bits: the `0o7777` part of `st_mode`, with the setuid,
 /// setgid and sticky bits.
@@ -388,103 +388,6 @@ impl SetAttr {
             && self.created.is_none()
             && self.permissions.is_none()
             && self.owner.is_none()
-            && self.attributes.is_none()
-    }
-}
-
-/// The metadata of a [`Tree`](crate::tree::Tree) node, which image writers
-/// store.
-///
-/// Every field is optional; unset fields take the writer's default.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct SetMetadata {
-    times: FileTimes,
-    mode: Option<Permissions>,
-    uid: Option<u32>,
-    gid: Option<u32>,
-    attributes: Option<Attributes>,
-}
-
-impl SetMetadata {
-    /// Creates an empty change set.
-    pub const fn new() -> Self {
-        Self {
-            times: FileTimes::new(),
-            mode: None,
-            uid: None,
-            gid: None,
-            attributes: None,
-        }
-    }
-
-    /// Returns the times to set. Unset times are left unchanged.
-    pub const fn times(&self) -> FileTimes {
-        self.times
-    }
-
-    /// Returns the permissions to set.
-    pub const fn mode(&self) -> Option<Permissions> {
-        self.mode
-    }
-
-    /// Returns the owner user ID to set.
-    pub const fn uid(&self) -> Option<u32> {
-        self.uid
-    }
-
-    /// Returns the owner group ID to set.
-    pub const fn gid(&self) -> Option<u32> {
-        self.gid
-    }
-
-    /// Returns the attributes to set.
-    pub const fn attributes(&self) -> Option<Attributes> {
-        self.attributes
-    }
-
-    /// Sets the times to change.
-    pub const fn with_times(self, times: FileTimes) -> Self {
-        Self { times, ..self }
-    }
-
-    /// Sets the permissions.
-    pub fn with_mode(self, mode: impl Into<Option<Permissions>>) -> Self {
-        Self {
-            mode: mode.into(),
-            ..self
-        }
-    }
-
-    /// Sets the owner user ID.
-    pub fn with_uid(self, uid: impl Into<Option<u32>>) -> Self {
-        Self {
-            uid: uid.into(),
-            ..self
-        }
-    }
-
-    /// Sets the owner group ID.
-    pub fn with_gid(self, gid: impl Into<Option<u32>>) -> Self {
-        Self {
-            gid: gid.into(),
-            ..self
-        }
-    }
-
-    /// Sets the attributes.
-    pub fn with_attributes(self, attributes: impl Into<Option<Attributes>>) -> Self {
-        Self {
-            attributes: attributes.into(),
-            ..self
-        }
-    }
-
-    /// Returns whether the change set changes nothing.
-    pub const fn is_empty(&self) -> bool {
-        self.times.is_empty()
-            && self.mode.is_none()
-            && self.uid.is_none()
-            && self.gid.is_none()
             && self.attributes.is_none()
     }
 }

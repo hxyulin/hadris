@@ -19,16 +19,17 @@
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use hadris_cpio::sync::{CpioReader, write};
 //! use hadris_cpio::CpioOptions;
-//! use hadris_fs::tree::{Content, Tree};
+//! use hadris_fs::{Content, Node, Tree};
 //! use hadris_io::{Cursor, StdIo};
 //! use hadris_io::sync::Read;
 //!
 //! let mut tree = Tree::new();
-//! tree.add_file("etc/hostname", Content::bytes("hadris\n"))?;
+//! tree.insert("etc/hostname", Node::file(Content::bytes("hadris\n")))?;
 //! let mut out = StdIo::new(Vec::new());
 //! let report = write(&mut out, &tree, &CpioOptions::default())?;
 //! let archive = out.into_inner();
-//! assert_eq!(report.size_bytes(), archive.len() as u64);
+//! assert_eq!(report.size(), archive.len() as u64);
+//! assert_eq!(hadris_cpio::plan(&tree, &CpioOptions::default())?, report);
 //!
 //! let mut reader = CpioReader::new(Cursor::new(&archive));
 //! let mut names = Vec::new();
@@ -54,13 +55,18 @@
 //!
 //! ## Writing
 //!
-//! `CpioWriter` (with `alloc`) streams entries to a `Write` stream in
-//! `newc`, `newc` with checksums or `odc` ([`Format`]): `append` writes one
-//! file, directory, symlink, device node, FIFO or socket with its
-//! `hadris_fs::SetMetadata`, `append_hard_links` a hard link group, and
-//! `write_tree` a whole `hadris_fs::tree::Tree`. `write` writes a tree and
-//! the trailer in one call and returns a [`Report`], whose warnings list the
-//! metadata cpio cannot store.
+//! `Writer` (with `alloc`) streams entries to a `Write` stream in `newc`,
+//! `newc` with checksums or `odc` ([`Format`]): `append` writes one
+//! `hadris_fs::Node` (file, directory, symlink, device node, FIFO or
+//! socket), `append_hard_links` a hard link group, and `append_file` a file
+//! whose data is produced while writing. `finish` writes the trailer and
+//! returns the stream with a `hadris_fs::Report`, so segments can be
+//! concatenated.
+//!
+//! `write` writes a whole `hadris_fs::Tree` and the trailer, and [`plan`]
+//! returns the same report without I/O: the archive size, where each
+//! file's data starts, and the metadata cpio cannot store.
+//! `read_tree` reads an archive back into a `Tree`.
 //!
 //! The on-disk headers are in [`raw`].
 //!
@@ -76,7 +82,7 @@
 //! | Feature | Default | Description |
 //! |---|---|---|
 //! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
-//! | `alloc` | via `std` | The writer and the `Tree` input |
+//! | `alloc` | via `std` | The writer, `plan` and `read_tree` |
 //! | `sync` | Yes | The blocking API in `sync` |
 //! | `async` | No | The asynchronous API with `Send` futures in `r#async` |
 //!
@@ -100,7 +106,7 @@ extern crate alloc;
 extern crate std;
 
 #[cfg(feature = "alloc")]
-mod entry;
+mod build;
 mod error;
 mod header;
 mod options;
@@ -129,7 +135,12 @@ pub mod sync {
     #[path = "write.rs"]
     mod write;
     #[cfg(feature = "alloc")]
-    pub use write::{CpioWriter, write};
+    pub use write::{EntryWriter, Writer, write};
+    #[cfg(feature = "alloc")]
+    #[path = "read_tree.rs"]
+    mod read_tree;
+    #[cfg(feature = "alloc")]
+    pub use read_tree::read_tree;
 }
 
 /// The asynchronous API with `Send` futures, for generic code on
@@ -140,6 +151,6 @@ pub mod r#async;
 
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-pub use entry::{NewEntry, Report};
+pub use build::plan;
 pub use error::Detail;
 pub use options::{CpioOptions, Format, ReaderOptions};

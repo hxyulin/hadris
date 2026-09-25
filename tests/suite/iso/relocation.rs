@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 
-use hadris_fs::tree::{Content, Tree};
+use hadris_fs::{Content, Node, Tree};
 use hadris_iso::{IsoOptions, Relocation, RockRidge, VolumeIdentifiers};
 use hadris_tests::harness::command::{require_or_skip, run_command};
 use hadris_tests::harness::tree::{EntryData, snapshot_host};
@@ -38,14 +38,23 @@ fn bsdtar_extracts_relocated_trees() {
                 EntryData::File(b"deep".to_vec()),
             );
             let mut tree = Tree::new();
-            tree.add_file(&format!("{path}/leaf.txt"), Content::bytes("deep"))
-                .unwrap();
+            tree.insert(
+                format!("{path}/leaf.txt"),
+                Node::file(Content::bytes("deep")),
+            )
+            .unwrap();
             if let Some((name, directory)) = collision {
                 if directory {
-                    tree.add_file(&format!("{name}/user.txt"), Content::bytes("user"))
-                        .unwrap();
-                    tree.add_file(&format!("{name}/RRD000001/own.txt"), Content::bytes("own"))
-                        .unwrap();
+                    tree.insert(
+                        format!("{name}/user.txt"),
+                        Node::file(Content::bytes("user")),
+                    )
+                    .unwrap();
+                    tree.insert(
+                        format!("{name}/RRD000001/own.txt"),
+                        Node::file(Content::bytes("own")),
+                    )
+                    .unwrap();
                     expected.insert(format!("/{name}"), EntryData::Directory);
                     expected.insert(
                         format!("/{name}/user.txt"),
@@ -57,7 +66,8 @@ fn bsdtar_extracts_relocated_trees() {
                         EntryData::File(b"own".to_vec()),
                     );
                 } else {
-                    tree.add_file(name, Content::bytes("user")).unwrap();
+                    tree.insert(name, Node::file(Content::bytes("user")))
+                        .unwrap();
                     expected.insert(format!("/{name}"), EntryData::File(b"user".to_vec()));
                 }
             }

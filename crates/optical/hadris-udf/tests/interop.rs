@@ -9,7 +9,7 @@ use std::process::Command;
 
 use common::Paths;
 use common::{image, pattern};
-use hadris_fs::tree::{Content, Tree};
+use hadris_fs::{Content, Node, Tree};
 use hadris_udf::sync::UdfFs;
 use hadris_udf::{UdfOptions, UdfRevision};
 
@@ -33,13 +33,16 @@ fn tool(names: &[&'static str], probe: &str) -> Option<&'static str> {
 /// Files and directories 7-Zip lists; it refuses volumes with symlinks.
 fn tree() -> Tree {
     let mut tree = Tree::new();
-    tree.add_file("readme.txt", Content::bytes("hello"))
+    tree.insert("readme.txt", Node::file(Content::bytes("hello")))
         .unwrap();
-    tree.add_file("docs/big.bin", Content::bytes(pattern(70_000, 3)))
+    tree.insert(
+        "docs/big.bin",
+        Node::file(Content::bytes(pattern(70_000, 3))),
+    )
+    .unwrap();
+    tree.insert("docs/caf\u{e9}.txt", Node::file(Content::bytes("latin1")))
         .unwrap();
-    tree.add_file("docs/caf\u{e9}.txt", Content::bytes("latin1"))
-        .unwrap();
-    tree.add_dir("empty").unwrap();
+    tree.insert("empty", Node::dir()).unwrap();
     tree
 }
 

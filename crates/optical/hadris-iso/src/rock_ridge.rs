@@ -1,4 +1,4 @@
-use hadris_fs::{DeviceNumber, ErrorKind, FileTimes, FileType};
+use hadris_fs::{DateTime, DeviceNumber, ErrorKind, FileType};
 
 use crate::raw::{
     ContinuationArea, DecDateTime, DirDateTime, NmFlags, PnEntry, PxEntry, RRIP_IDENTIFIERS,
@@ -20,37 +20,19 @@ pub(crate) const S_IFIFO: u32 = 0o010_000;
 /// Fields a node has no entry for are `None`. Names and symlink targets are
 /// not kept here, so the type needs no allocator: the listing gives the
 /// name, and `read_link` the target.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct RockRidgeInfo {
     mode: Option<u32>,
     links: Option<u32>,
     owner: Option<(u32, u32)>,
     serial: Option<u32>,
-    times: FileTimes,
+    times: [Option<DateTime>; 4],
     device: Option<DeviceNumber>,
     has_name: bool,
     symlink: bool,
     child_link: Option<u32>,
     parent_link: Option<u32>,
     relocated: bool,
-}
-
-impl Default for RockRidgeInfo {
-    fn default() -> Self {
-        Self {
-            mode: None,
-            links: None,
-            owner: None,
-            serial: None,
-            times: FileTimes::new(),
-            device: None,
-            has_name: false,
-            symlink: false,
-            child_link: None,
-            parent_link: None,
-            relocated: false,
-        }
-    }
 }
 
 impl RockRidgeInfo {
@@ -74,10 +56,29 @@ impl RockRidgeInfo {
         self.serial
     }
 
-    /// The times from the `TF` entry. The attribute change time is
-    /// reported as the change time.
-    pub const fn times(&self) -> FileTimes {
-        self.times
+    /// The creation time from the `TF` entry.
+    pub const fn created(&self) -> Option<DateTime> {
+        self.times[0]
+    }
+
+    /// The modification time from the `TF` entry.
+    pub const fn modified(&self) -> Option<DateTime> {
+        self.times[1]
+    }
+
+    /// The access time from the `TF` entry.
+    pub const fn accessed(&self) -> Option<DateTime> {
+        self.times[2]
+    }
+
+    /// The attribute change time from the `TF` entry.
+    pub const fn changed(&self) -> Option<DateTime> {
+        self.times[3]
+    }
+
+    /// Whether the node has a `TF` entry with any of the four times.
+    pub(crate) fn has_times(&self) -> bool {
+        self.times.iter().any(Option::is_some)
     }
 
     /// The device number from the `PN` entry.
@@ -293,13 +294,14 @@ impl<'a> Scan<'a> {
             } else {
                 bytemuck::pod_read_unaligned::<DirDateTime>(stamp).to_datetime()
             };
-            times = match flag {
-                TfFlags::CREATION => times.with_created(time),
-                TfFlags::MODIFY => times.with_modified(time),
-                TfFlags::ACCESS => times.with_accessed(time),
-                TfFlags::ATTRIBUTES => times.with_changed(time),
-                _ => times,
+            let slot = match flag {
+                TfFlags::CREATION => 0,
+                TfFlags::MODIFY => 1,
+                TfFlags::ACCESS => 2,
+                TfFlags::ATTRIBUTES => 3,
+                _ => continue,
             };
+            times[slot] = time;
         }
         self.info.times = times;
     }
@@ -405,7 +407,7 @@ mod tests {
         scan.feed(&area, 0);
         assert_eq!(scan.name().unwrap(), Some(&b"abcde"[..]));
         assert_eq!(
-            scan.info.times().modified().map(|t| t.unix_seconds()),
+            scan.info.modified().map(|t| t.unix_seconds()),
             Some(315_532_800)
         );
         let mut small = [0u8; 2];

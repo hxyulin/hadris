@@ -5,7 +5,7 @@
 //! cargo run -p hadris-iso --example create_bootable_iso -- bootable.iso
 //! ```
 
-use hadris_fs::tree::{Content, Tree};
+use hadris_fs::{Content, Node, Tree};
 use hadris_iso::{
     BootEntry, BootInfo, ElTorito, HybridBoot, IsoLevel, IsoOptions, JolietLevel, Platform,
     RockRidge, VolumeIdentifiers,
@@ -17,9 +17,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| "bootable.iso".into());
 
     let mut tree = Tree::new();
-    tree.add_file("boot/bios.img", Content::bytes(vec![0u8; 2048]))?;
-    tree.add_file("boot/efi.img", Content::bytes(vec![0u8; 1 << 20]))?;
-    tree.add_file("README.txt", Content::bytes("A hadris-iso example image\n"))?;
+    tree.insert("boot/bios.img", Node::file(Content::bytes(vec![0u8; 2048])))?;
+    tree.insert(
+        "boot/efi.img",
+        Node::file(Content::bytes(vec![0u8; 1 << 20])),
+    )?;
+    tree.insert(
+        "README.txt",
+        Node::file(Content::bytes("A hadris-iso example image\n")),
+    )?;
 
     let options = IsoOptions::default()
         .with_volume(VolumeIdentifiers::new("HADRIS_BOOT"))
@@ -48,7 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &tree,
         &options,
     )?;
-    println!("Wrote {path}: {} bytes", report.size_bytes());
+    println!("Wrote {path}: {} bytes", report.size());
     for warning in report.warnings() {
         println!("warning: {warning}");
     }
