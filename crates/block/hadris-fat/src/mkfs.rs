@@ -169,6 +169,14 @@ mod tree {
     use super::format_volume;
     use crate::FatOptions;
 
+    /// The seed a volume written from `tree` derives its serial from: the
+    /// options' seed, or their time, mixed with the tree's fingerprint.
+    pub(crate) fn tree_seed(time: DateTime, seed: Option<u64>, tree: &Tree) -> u64 {
+        let base =
+            seed.unwrap_or((time.unix_seconds() as u64) ^ (u64::from(time.nanoseconds()) << 32));
+        base.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ tree.fingerprint()
+    }
+
     /// `tree` with `time` for each time its nodes leave unset, after
     /// checking that this mode reads every file.
     pub(crate) fn stamped(tree: &Tree, time: DateTime) -> Result<Tree, PathError> {
@@ -225,8 +233,10 @@ mod tree {
     /// into the new volume with `copy_tree`, then unmounts it.
     ///
     /// Nodes without times get the options' time, so the same tree and
-    /// options give the same bytes. A growable device such as `Vec<u8>`
-    /// needs [`FatOptions::with_size`], since it starts empty. Every file's
+    /// options give the same bytes. The serial derives from the tree's
+    /// paths, sizes and times together with the seed, or the time without
+    /// one, unless [`FatOptions::with_serial`] sets it. A growable device
+    /// such as `Vec<u8>` needs [`FatOptions::with_size`], since it starts empty. Every file's
     /// content is checked to be readable in this mode before anything is
     /// written. The report has the volume's size and the warnings of
     /// `copy_tree`: symlinks, special files and extra hard-link names are
@@ -234,8 +244,9 @@ mod tree {
     /// `format` and `copy_tree` do, with the tree path of the node that
     /// failed.
     pub async fn write<D: BlockDevice>(mut out: D, tree: &Tree, options: &FatOptions) -> Result<Report, PathError> {
+        let options = options.with_seed(tree_seed(options.time, options.seed, tree));
         let tree = stamped(tree, options.time)?;
-        let (_, volume) = format_volume(&mut out, options).await?;
+        let (_, volume) = format_volume(&mut out, &options).await?;
         let mut fs = FatFs::mount(out, MountOptions::new()).await?;
         let root = fs.root();
         let mut report = copy_tree(&tree, &mut fs, root).await?;
@@ -248,6 +259,6 @@ mod tree {
 }
 
 #[cfg(feature = "alloc")]
-pub(crate) use tree::stamped;
-#[cfg(feature = "alloc")]
 pub use tree::write;
+#[cfg(feature = "alloc")]
+pub(crate) use tree::{stamped, tree_seed};

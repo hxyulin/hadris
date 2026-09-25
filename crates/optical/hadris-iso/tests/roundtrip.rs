@@ -212,7 +212,7 @@ fn reports_match_what_the_reader_finds() {
         .collect();
     assert_eq!(
         relocated,
-        [(WarningKind::Relocated, Some(&b"/a/b/c/d/e/f/g/h"[..]))]
+        [(WarningKind::Relocated, Some(&b"a/b/c/d/e/f/g/h"[..]))]
     );
     assert_eq!(report.size() / 2048, u64::from(iso.volume_blocks()));
 }
@@ -479,20 +479,20 @@ fn joliet_reports_the_names_it_changes() {
     assert_eq!(
         warned,
         [
-            "/a*b?c:d".to_string(),
-            "/emoji\u{1F600}.txt".to_string(),
-            "/makefile".to_string(),
-            format!("/{long}"),
+            "a*b?c:d".to_string(),
+            "emoji\u{1F600}.txt".to_string(),
+            "makefile".to_string(),
+            long.clone(),
         ]
     );
     let mut iso = IsoImage::open(image(&tree, &options)).unwrap();
     let mut view = iso.view(Namespace::Joliet).unwrap();
     assert_eq!(view.read_to_vec("/a_b_c_d").unwrap(), b"x");
-    assert_eq!(view.read_to_vec("/emoji_.txt").unwrap(), b"x");
+    assert_eq!(view.read_to_vec("emoji_.txt").unwrap(), b"x");
 }
 
 #[test]
-fn the_seed_or_the_time_decides_the_gpt_guids() {
+fn the_tree_and_the_seed_or_the_time_decide_the_gpt_guids() {
     let tree = sample(false, false);
     let options = IsoOptions::default()
         .with_el_torito(
@@ -500,9 +500,20 @@ fn the_seed_or_the_time_decides_the_gpt_guids() {
                 .with_entry(BootEntry::new("boot/efi.img").with_platform(Platform::Efi)),
         )
         .with_hybrid(hadris_iso::HybridBoot::gpt());
-    let disk_guid =
-        |options: &IsoOptions| image(&tree, options).into_inner()[512 + 56..512 + 72].to_vec();
+    let guid_of = |tree: &Tree, options: &IsoOptions| {
+        image(tree, options).into_inner()[512 + 56..512 + 72].to_vec()
+    };
+    let disk_guid = |options: &IsoOptions| guid_of(&tree, options);
     let default = disk_guid(&options);
+    let mut other = sample(false, false);
+    other
+        .insert("extra.txt", Node::file(Content::bytes(*b"x")))
+        .unwrap();
+    assert_ne!(guid_of(&other, &options), default);
+    assert_ne!(
+        guid_of(&other, &options.clone().with_seed(7)),
+        disk_guid(&options.clone().with_seed(7))
+    );
     assert_eq!(disk_guid(&options), default);
     let later = hadris_fs::DateTime::from_unix_seconds(1_700_000_000).unwrap();
     assert_ne!(disk_guid(&options.clone().with_time(later)), default);

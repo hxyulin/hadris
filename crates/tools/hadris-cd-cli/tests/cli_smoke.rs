@@ -154,7 +154,7 @@ fn create_stores_symbolic_links_with_rock_ridge() {
         .unwrap();
     assert!(output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("/link.txt"), "{stderr}");
+    assert!(stderr.contains("link.txt"), "{stderr}");
 
     let output = Command::new(env!("CARGO_BIN_EXE_hadris-cd"))
         .args(["create", "-R", source.to_str().unwrap(), "--output"])
@@ -162,7 +162,7 @@ fn create_stores_symbolic_links_with_rock_ridge() {
         .output()
         .unwrap();
     assert!(output.status.success());
-    assert!(!String::from_utf8_lossy(&output.stderr).contains("/link.txt"));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("link.txt"));
 }
 
 #[test]

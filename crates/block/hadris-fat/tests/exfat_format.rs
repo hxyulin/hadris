@@ -106,7 +106,7 @@ fn options_are_checked() {
 #[test]
 fn labels_serials_and_offsets_are_written() {
     let options = ExFatOptions::new()
-        .with_label(VolumeLabel::new("Données").unwrap())
+        .with_label(VolumeLabel::try_from("Données").unwrap())
         .with_serial(0xDEAD_BEEF)
         .with_partition_offset(2048 * 512);
     let mut fs = common::formatted(8 << 20, options);

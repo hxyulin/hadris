@@ -924,6 +924,7 @@ pub fn hadris_fs::SystemClock::now(&self) -> hadris_fs::DateTime
 pub struct hadris_fs::Tree
 impl hadris_fs::Tree
 pub fn hadris_fs::Tree::entry(&self, impl core::convert::AsRef<[u8]>) -> core::option::Option<hadris_fs::TreeEntry<'_>>
+pub fn hadris_fs::Tree::fingerprint(&self) -> u64
 pub fn hadris_fs::Tree::get(&self, impl core::convert::AsRef<[u8]>) -> core::option::Option<&hadris_fs::Node>
 pub fn hadris_fs::Tree::insert(&mut self, impl core::convert::AsRef<[u8]>, hadris_fs::Node) -> core::result::Result<(), hadris_fs::PathError>
 pub fn hadris_fs::Tree::link(&mut self, impl core::convert::AsRef<[u8]>, impl core::convert::AsRef<[u8]>) -> core::result::Result<(), hadris_fs::PathError>

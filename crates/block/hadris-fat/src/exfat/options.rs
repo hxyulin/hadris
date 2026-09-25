@@ -54,6 +54,15 @@ impl VolumeLabel {
     }
 }
 
+impl TryFrom<&str> for VolumeLabel {
+    type Error = ErrorKind;
+
+    /// Checks `text` as [`VolumeLabel::new`] does.
+    fn try_from(text: &str) -> Result<Self, ErrorKind> {
+        Self::new(text)
+    }
+}
+
 impl fmt::Display for VolumeLabel {
     /// Writes the label, with unpaired surrogates as U+FFFD.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -165,7 +174,9 @@ impl ExFatOptions {
         self
     }
 
-    /// Derives the serial from `seed` instead of the time.
+    /// Derives the serial from `seed` instead of the time. `write` mixes in
+    /// the tree's paths, sizes and times, so different trees get different
+    /// serials.
     pub const fn with_seed(mut self, seed: u64) -> Self {
         self.seed = Some(seed);
         self

@@ -89,8 +89,9 @@ impl<F: FileSystem> VolumeContent<F> {
 /// large volume needs no memory for file data.
 ///
 /// For a directory the tree's root takes the directory's attributes and
-/// holds its contents; a file becomes the only node of the tree, under its
-/// own name. Symlinks, device nodes, FIFOs and sockets are kept, and a file
+/// holds its contents; a file becomes the only node of the tree, under the
+/// name its directory lists it by, which on a case-insensitive volume may
+/// differ from the spelling in `path` (one scan of the directory). Symlinks, device nodes, FIFOs and sockets are kept, and a file
 /// listed again under the same node id becomes a hard link. Attributes are
 /// what the volume reports. `path` resolves lexically.
 ///
@@ -114,7 +115,13 @@ pub async fn read_tree<F: FileSystem + Send + 'static>(vol: &Volume<F>, path: im
         }
     };
     if !meta.file_type().is_dir() {
-        let name = path.rsplit(|&byte| byte == b'/').find(|part| !part.is_empty()).unwrap_or(path).to_vec();
+        let name = match stored_name(&mut *fs, path, top).await {
+            Ok(name) => name,
+            Err(err) => {
+                fs.forget(top, 1);
+                return Err(PathError::from(err).with_path(path));
+            }
+        };
         let node = match node_of(&mut *fs, vol, top, &meta).await {
             Ok(node) => node,
             Err(err) => {
@@ -133,6 +140,28 @@ pub async fn read_tree<F: FileSystem + Send + 'static>(vol: &Volume<F>, path: im
         fs.forget(node, 1);
     }
     result.map(|()| tree)
+}
+
+/// The name `node`, found at `path`, is listed under in its directory: the
+/// stored spelling, which on a case-insensitive volume may differ from the
+/// one in `path`. The last component of `path` when the directory does not
+/// list it.
+async fn stored_name<F: FileSystem>(fs: &mut F, path: &[u8], node: NodeId) -> FsResult<Vec<u8>, F::DeviceError> {
+    let given = path.rsplit(|&byte| byte == b'/').find(|part| !part.is_empty()).unwrap_or(path).to_vec();
+    let mut parent_path = path.to_vec();
+    parent_path.extend_from_slice(b"/..");
+    let parent = fs.resolve(&parent_path, Resolve::Lexical).await?;
+    let mut cursor = DirCursor::START;
+    let found = loop {
+        match fs.readdir(parent, cursor).await {
+            Ok(Some(entry)) if entry.node() == node => break Ok(entry.name().as_bytes().to_vec()),
+            Ok(Some(entry)) => cursor = entry.next_cursor(),
+            Ok(None) => break Ok(given),
+            Err(err) => break Err(err),
+        }
+    };
+    fs.forget(parent, 1);
+    found
 }
 
 async fn walk<F: FileSystem + Send + 'static>(

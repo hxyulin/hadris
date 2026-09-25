@@ -113,7 +113,8 @@ Rock Ridge stores modes, owners, times, symlinks, device nodes and hard links.
 Entries without times get the options' time: `NoClock::TIME`
 (1980-01-01) by default, so images are reproducible, and `with_time` sets
 another, such as `hadris_fs::host::source_date_epoch()`. The GUIDs of hybrid
-images derive from `with_seed`, or from the time. Directories nested deeper than ECMA-119 allows move into
+images derive from the tree's paths, sizes and times together with `with_seed`,
+or the time without one. Directories nested deeper than ECMA-119 allows move into
 a relocation directory, `rr_moved` by default;
 `RockRidge::with_relocation` picks `Relocation::DotRrMoved` for `.rr_moved`
 or `Relocation::Reject` to refuse such trees. libarchive and `bsdtar` read

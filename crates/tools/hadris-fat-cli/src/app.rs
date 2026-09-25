@@ -16,13 +16,13 @@ use hadris_fat_raw::{RawBpb, RawBpbExt16, RawBpbExt32};
 use hadris_storage::host::FileDevice;
 use output::Output;
 
+use hadris_fs::TreeEntry;
 use hadris_fs::host::{self, TreeOptions};
 use hadris_fs::sync::{FileSystem, copy_tree, read_tree};
 use hadris_fs::{
     Attributes, Clock, DirCursor, FileType, Finding, Metadata, MountOptions, NodeId, OpenMode,
     Resolve, SystemClock,
 };
-use hadris_fs::{Tree, TreeEntry};
 
 #[derive(Parser)]
 #[command(name = "hadris-fat")]
@@ -765,25 +765,13 @@ fn cmd_extract<D: FileSystem + Send + 'static>(
     fs::create_dir_all(&target)
         .with_context(|| format!("Failed to create output directory: {}", target.display()))?;
     let vol = hadris_fs::sync::Volume::new(fs);
-    let mut tree = read_tree(&vol, from).with_context(|| format!("Failed to read {from}"))?;
-    if let (Some(name), false) = (&name, is_dir) {
-        tree = stored_file(&tree, name)?;
-    }
+    let tree = read_tree(&vol, from).with_context(|| format!("Failed to read {from}"))?;
     let report = host::write_tree(&target, &tree)
         .with_context(|| format!("Failed to extract {from} to {}", target.display()))?;
     for warning in report.warnings() {
         eprintln!("warning: {warning}");
     }
     Ok(())
-}
-
-/// The one-file `tree` of `read_tree` with its file under `name`.
-fn stored_file(tree: &Tree, name: &str) -> Result<Tree> {
-    let mut out = Tree::new();
-    if let Some((_, entry)) = tree.root().children().next() {
-        out.insert(name, entry.node().clone())?;
-    }
-    Ok(out)
 }
 
 /// The name `path` is stored under in its directory, or `None` for the root.

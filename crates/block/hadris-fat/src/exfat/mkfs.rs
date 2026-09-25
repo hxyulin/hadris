@@ -334,7 +334,7 @@ mod tree {
     use hadris_fs::{MountOptions, PathError, Report, Tree};
 
     use super::super::ExFatFs;
-    use super::super::fatmkfs::stamped;
+    use super::super::fatmkfs::{stamped, tree_seed};
     use super::super::fsapi::{FileSystem, copy_tree};
     use super::super::storage::BlockDevice;
     use super::format_volume;
@@ -346,8 +346,10 @@ mod tree {
     /// into the new volume with `copy_tree`, then unmounts it.
     ///
     /// Nodes without times get the options' time, so the same tree and
-    /// options give the same bytes. A growable device such as `Vec<u8>`
-    /// needs [`ExFatOptions::with_size`], since it starts empty. Every
+    /// options give the same bytes. The serial derives from the tree's
+    /// paths, sizes and times together with the seed, or the time without
+    /// one, unless [`ExFatOptions::with_serial`] sets it. A growable device
+    /// such as `Vec<u8>` needs [`ExFatOptions::with_size`], since it starts empty. Every
     /// file's content is checked to be readable in this mode before
     /// anything is written. The report has the volume's size and the
     /// warnings of `copy_tree`: symlinks, special files and extra hard-link
@@ -355,8 +357,9 @@ mod tree {
     /// Fails as `format` and `copy_tree` do, with the tree path of the node
     /// that failed.
     pub async fn write<D: BlockDevice>(mut out: D, tree: &Tree, options: &ExFatOptions) -> Result<Report, PathError> {
+        let options = options.with_seed(tree_seed(options.time, options.seed, tree));
         let tree = stamped(tree, options.time)?;
-        let (_, volume) = format_volume(&mut out, options).await?;
+        let (_, volume) = format_volume(&mut out, &options).await?;
         let mut fs = ExFatFs::mount(out, MountOptions::new()).await?;
         let root = fs.root();
         let mut report = copy_tree(&tree, &mut fs, root).await?;
