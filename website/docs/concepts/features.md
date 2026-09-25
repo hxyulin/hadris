@@ -26,11 +26,11 @@ only adds items: none changes what an existing item does, and only
 | `std` | Hosted files, clocks, OS errors, and `alloc` | CLI tools, desktop applications, build systems |
 
 Not every operation can be allocation-free. The image writers (ISO 9660, UDF,
-hybrid CD and CPIO) take a `hadris_fs::tree::Tree` and need `alloc`; `std`
-adds host files as tree content. The FAT and exFAT drivers, `FatFs` and
-`ExFatFs`, need `alloc` for their node table, and so does `format`, which
-returns a mounted driver; `check` runs on an unmounted device without an
-allocator.
+the ISO/UDF bridge, CPIO, and FAT and exFAT `write`) take a `hadris_fs::Tree`
+and need `alloc`; `std` adds host files as tree content. The FAT and exFAT
+drivers, `FatFs` and `ExFatFs`, need `alloc` for their node table. `format`,
+which returns the new volume's geometry, and `check` run on an unmounted
+device without an allocator.
 
 ## I/O modes
 
@@ -54,7 +54,7 @@ multi-threaded executors. `hadris-io` and `hadris-storage` also have a
 executors.
 
 Every crate has the same public items in each mode. The exceptions are the
-`hadris-fs` host helpers (`extract_to_host`, `import_from_host`), which are
+`hadris-fs` `host` module (`read_tree`, `write_tree`, `file`), which is
 sync-only because the host side is blocking `std::fs`.
 
 ## Format capability matrix
@@ -68,7 +68,7 @@ sync-only because the host side is blocking `std::fs`.
 | `hadris-udf` | UDF 1.02 to 2.01, type 1 partitions | Yes | Yes | Yes | Yes | Allocation-free (writing needs `alloc`) | Stable |
 | `hadris-cpio` | CPIO newc, CRC and odc; old binary read | Yes | Yes | Yes | Yes | Allocation-free (writing needs `alloc`) | Stable |
 | `hadris-ntfs` | NTFS | Yes | No | Yes | Yes | Allocation-free | Preview |
-| `hadris-cd` | Hybrid ISO/UDF images | N/A | Yes | Yes | Yes | `alloc` | Stable |
+| `hadris-cd` | Hybrid ISO/UDF images, a wrapper over `hadris_udf::write_bridge` until 3.0 removes it | N/A | Yes | Yes | Yes | `alloc` | Stable |
 | `hadris-block` | FAT, exFAT and NTFS detection and opening | Yes | FAT and exFAT | Yes | Yes | `alloc` (detection is allocation-free) | Stable (NTFS native API behind `unstable-ntfs`) |
 | `hadris-optical` | ISO 9660 and UDF detection and opening | Yes | Through re-exported writers | Yes | Yes | Allocation-free | Stable |
 

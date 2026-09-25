@@ -1623,7 +1623,29 @@ into `next` per step, each leaving the workspace building and tested:
   - A clock or code page is a `&'static dyn` reference, as 4.3 says; a clock with runtime state is a `static` or leaked by the caller.
 
   Deferred: `hadris_fat::raw` still re-exports the whole raw crate (Q13, resolved after R5: it no longer does); `experiments/fuse-prototype`, outside the workspace and CI, still uses the removed API.
-- R6. **Builders.** The new `Tree`, `plan` and `write`, `Report`, `copy_tree`, `read_tree` and the `host` module.
+- R6. **Builders.** The new `Tree`, `plan` and `write`, `Report`, `copy_tree`, `read_tree` and the `host` module. Done in four PRs:
+  - #184: Q13, the raw re-exports and code-page labels.
+  - #185: `Tree`, `Node`, `Content`, `TreeEntry`, `ContentReader`, the shared `Report` with `Warning` and `WarningKind`, `copy_tree` with paths in its errors, `read_tree` from a `Volume` with lazy content, and the `host` module (`read_tree`, `write_tree`, `file`, `source_date_epoch`, `local_utc_offset`, `mount_options`), also under `hadris::host` item by item. The ISO 9660, UDF, bridge and cpio writers take the `Tree`: `plan` at the crate root does no I/O, and `write` plans again, checks `max_block_count` and every file's content, then writes. Writers take `with_time` and read no clock. The bridge moved into `hadris-udf` (`plan_bridge`, `write_bridge`), and `hadris-cd` wraps it until R7. cpio gained `Writer::append`, `append_hard_links` and `append_file`, and `read_tree`. `SetMetadata`, `FileTimes`, `DeviceKind` and the per-crate trees and reports are gone.
+  - #186: FAT and exFAT `format(&mut dev, &opts) -> Geometry` without an allocator, `FatOptions` and `ExFatOptions` as 5.1 lists them, the `disk_offset` default R3 deferred, the `max_block_count` check, and `write(dev, &tree, &opts)` through `format` and `copy_tree`.
+  - A docs PR: the website guides and this entry.
+
+  Decisions where the spec was silent or the code differs from it:
+  - `Content::stored`, `Content::stored_extents` and `ContentReader::check` are public: the bridge writer in `hadris-udf` builds on ISO extents, and every writer checks content before it writes.
+  - `Tree` also has `entry` and `root`, returning a `TreeEntry` (`node`, `id`, `links`, `children`, `child`), since writers and `copy_tree` walk trees and see hard links.
+  - `Report` has `new`, `set_size`, `push_warning` and `push_extent`, so format crates and `copy_tree` build it. Extent keys have no leading slash; warning paths keep the writer's form, `/a/b`.
+  - `PathError` carries tree paths as bytes and host paths separately (`host_path`).
+  - `copy_tree` does not apply the root's attributes to `dir`, and sets attribute bits with the times after the data, because writing sets FAT's archive bit.
+  - `read_tree` of a single file names it by the path as given, not the stored name; the FAT CLI renames it.
+  - cpio's `CpioWriter` is `Writer`, and `Format::NewcCrc` is `Format::Crc`. `append_file` refuses `Crc` with `Unsupported`, since the checksum precedes the data. `CpioReader` is unchanged.
+  - Serials and GPT GUIDs derive from `with_seed`, or from the time, not from the time plus the tree as 4.10 says.
+  - FAT and exFAT have no `plan`; `write` reports the volume size the options give.
+  - `FatOptions::with_partition_offset` and `ExFatOptions::with_partition_offset` take bytes, like `disk_offset`, and must be whole sectors. `with_label` takes a checked `VolumeLabel`, not `&str`. A failed `format` returns only the error, since it borrows the device.
+  - FAT and exFAT `write` give nodes without times the options' time, so the volume does not depend on the mount clock.
+  - `write_bridge` checks the UDF block size before the ISO part.
+  - The host extract commands of the CLIs skip device nodes, FIFOs and sockets with the warnings `host::write_tree` reports.
+  - `host::file` measures a device such as `\\.\PhysicalDrive2` with `file_len`, since its metadata fails on Windows.
+
+  Deferred: `Session::plan` and sessions over a lazy `Volume`; the ISO and UDF option reshape (`IsoId`, `Hybrid`, `ElTorito`, `UdfId`, UDF `with_seed`) to R7; `WarningKind::Deduplicated`, which no writer emits yet; the cpio reader reshape; `experiments/fuse-prototype` still uses the removed API. Open points are [Q14](#7-open-questions).
 - R7. **Extras and crate merges.** `detect`, `open` and `AnyFs` in the umbrella, the `info` and `extents` family, `Walk`, the removal of `hadris-cd`, `hadris-block` and `hadris-optical`, and the single `hadris` binary.
 - R8. **Embedded.** `Fat` and `ExFat` on the raw layer, with cross-target CI for size and stack.
 
@@ -1749,3 +1771,11 @@ the rejected alternative.
 - `hadris_fat::raw` no longer re-exports the whole `hadris-fat-raw` crate, which tied `hadris-fat`'s API to the raw crate's version. `hadris-fat` keeps the `check` functions and the raw types its own signatures use (`FatKind`, `Detail`, `exfat::Detail`, and `Geometry` once `format` returns it); users of the rest depend on `hadris-fat-raw` directly (R12).
 - `MountOptions::with_utc_offset` stays fallible. The host's local UTC offset is the default of `host::mount_options()`, not of `MountOptions::new()`, as D10 says.
 - A FAT label is decoded through the mount's code page, like short names, so a label with bytes above `0x7F` no longer reads as `Some("")`.
+
+**Q14. Open points from R6.** Open. The code follows the first option of each:
+
+- Warning paths keep a leading slash while `Report::extents` keys have none. Alternatives: normalise warnings the same way, or give extents the slash.
+- Serials and GUIDs derive from the seed or the time, not from the time plus the tree (4.10). Hashing the tree's paths, sizes and times would give different content different ids without reading file data.
+- FAT and exFAT have no `plan`. A plan would need the allocation `copy_tree` does, or a size estimate that is not exact.
+- `with_label` takes a `VolumeLabel` rather than `&str` as 5.1's example shows, so an invalid label fails where it is built, not in `format`.
+- `read_tree` of a single file uses the name as given. On a case-insensitive volume the stored name may differ; finding it costs a directory scan.

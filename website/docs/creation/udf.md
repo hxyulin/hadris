@@ -5,7 +5,7 @@ title: Create UDF filesystems
 # Create UDF filesystems
 
 `hadris-udf` writes mastered, read-only type 1 UDF volumes from a
-`hadris_fs::tree::Tree`. Use `hadris-cd` for a shared ISO/UDF bridge image.
+`hadris_fs::Tree`. `write_bridge` writes a shared ISO/UDF bridge image.
 
 ## Dependency
 
@@ -19,26 +19,27 @@ hadris-storage = "2.4.0"
 ## Create a volume
 
 ```rust,no_run
-use hadris_fs::tree::{Content, Tree};
+use hadris_fs::{Content, Node, Tree};
 use hadris_udf::UdfOptions;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut tree = Tree::new();
-    tree.add_file("README.txt", Content::bytes("Hello from a UDF image\n"))?;
-    tree.add_file("docs/guide.txt", Content::bytes("UDF guide\n"))?;
+    tree.insert("README.txt", Node::file(Content::bytes("Hello from a UDF image\n")))?;
+    tree.insert("docs/guide.txt", Node::file(Content::bytes("UDF guide\n")))?;
 
     let target = hadris_storage::host::FileDevice::new(std::fs::File::create("volume.udf")?)?;
     let report = hadris_udf::sync::write(target, &tree, &UdfOptions::default())?;
-    println!("wrote {} blocks", report.total_blocks());
+    println!("wrote {} bytes", report.size());
     Ok(())
 }
 ```
 
 A `FileDevice` over a host file grows as the writer writes it, and so does a
 `Vec<u8>`. For a fixed-size device such as a
-`MemDevice`, size it with `hadris_udf::sync::plan(&tree, &options)` first.
-`Tree::from_fs` imports a host directory without reading the files until the
-image is written.
+`MemDevice`, size it with `hadris_udf::plan(&tree, &options)` first, which
+does no I/O; `write` refuses a device that is too small before writing
+anything. `hadris_fs::host::read_tree` imports a host directory without
+reading the files until the image is written.
 
 ## Select a mastered revision
 
@@ -61,14 +62,17 @@ Names are encoded as OSTA Compressed Unicode: 8-bit when every character is
 below U+0100, 16-bit otherwise. A name over 254 encoded bytes fails with
 `NameTooLong`. Symlinks and hard links are stored; device nodes, creation
 times and DOS attributes are left out and listed in `Report::warnings`. The
-default `NoClock` dates entries without times 1980-01-01, so the same tree
-gives the same bytes; `with_clock(SystemClock)` uses the current time.
+options' time, `NoClock::TIME` (1980-01-01) by default, dates entries
+without times, so the same tree gives the same bytes; `with_time` sets
+another.
 
 ## Author an ISO/UDF bridge
 
 Do not concatenate separate ISO and UDF images. A bridge coordinates
-descriptor locations, directory ICBs and payload extents. Use the `hadris-cd`
-crate or CLI:
+descriptor locations, directory ICBs and payload extents.
+`hadris_udf::sync::write_bridge(dev, &tree, &iso_options, &udf_options)`
+writes one, and `hadris_udf::plan_bridge` plans it without I/O. Both
+namespaces point at the same file data. From the command line:
 
 ```bash
 hadris-cd create image-root -o bridge.iso

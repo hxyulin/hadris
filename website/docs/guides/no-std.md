@@ -18,13 +18,15 @@ hadris-fat = {
 
 No crate has a `read` feature: reading is always compiled. `FatFs` and
 `ExFatFs` read and write with `alloc`, which holds their node table, and the
-`write` feature adds `format`. FAT and exFAT `check` runs on an unmounted
-device without an allocator, and the ISO 9660, UDF and NTFS readers and the
-CPIO reader need no allocator either.
+`write` feature adds `format` and, with `alloc`, the tree writer `write`.
+FAT and exFAT `format` and `check` run on an unmounted device without an
+allocator, and the ISO 9660, UDF and NTFS readers and the CPIO reader need
+no allocator either.
 
 Add `alloc` for the FAT and exFAT drivers, for the image writers (ISO 9660,
-UDF, hybrid CD, CPIO), which take a `hadris_fs::tree::Tree`, and for owned
-names, `copy_tree` and the async `Volume`.
+UDF, the ISO/UDF bridge, CPIO, FAT and exFAT), which take a
+`hadris_fs::Tree`, and for owned names, `copy_tree`, `read_tree` and the
+async `Volume`.
 `std` implies `alloc` but does not select `sync` or `async`.
 
 All storage I/O flows through `hadris-storage` block devices (every

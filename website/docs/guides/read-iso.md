@@ -50,5 +50,5 @@ Ridge entries, `IsoView::raw_record` its directory record, and
 `hadris_iso::raw` the on-disk layouts.
 
 Use `hadris-optical` when an application must detect and open ISO-only,
-UDF-only, or bridge images. Use `hadris-cd` to author a shared ISO/UDF bridge
-image.
+UDF-only, or bridge images. Use `hadris_udf::sync::write_bridge` to author a
+shared ISO/UDF bridge image.

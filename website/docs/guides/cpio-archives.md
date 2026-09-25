@@ -67,12 +67,12 @@ while let Some(mut entry) = archive.next_entry()? {
 
 ```rust,no_run
 use hadris_cpio::{CpioOptions, Format};
-use hadris_fs::tree::{FromFsOptions, Tree};
+use hadris_fs::host::{self, TreeOptions};
 use hadris_io::StdIo;
 use std::{fs::File, io::BufWriter};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let tree = Tree::from_fs("./root", FromFsOptions::new())?;
+    let (tree, _) = host::read_tree("./root", &TreeOptions::new())?;
     let mut output = StdIo::new(BufWriter::new(File::create("archive.cpio")?));
     let options = CpioOptions::default().with_format(Format::Crc);
     let report = hadris_cpio::sync::write(&mut output, &tree, &options)?;
@@ -84,7 +84,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 The report's warnings list metadata cpio cannot store, such as access
-times. To write entries one at a time, use `CpioWriter::append` and
-`finish`.
+times, once per field with a count; `hadris_cpio::plan` returns the same
+report without writing. Entries without a modification time get the
+options' time (`CpioOptions::with_time`, 1980-01-01 by default). To write
+entries one at a time, use `hadris_cpio::sync::Writer`: `append` takes a
+`Node`, `append_hard_links` a group of names, and `append_file` streams
+data of a known length through an `EntryWriter`; `finish` writes the
+trailer. `hadris_cpio::sync::read_tree` reads an archive back into a
+`Tree`.
 
 For initramfs-specific guidance, see [Build a CPIO initramfs](./build-initramfs.md).
