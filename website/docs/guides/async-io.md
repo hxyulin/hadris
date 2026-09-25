@@ -58,8 +58,9 @@ use hadris_fat::r#async::FatFs as AsyncFatFs;
 
 ## Limitations
 
-- The `hadris-fs` host helpers (`extract_to_host`, `import_from_host`) are
-  sync-only.
+- The `hadris-fs` `host` module (`read_tree`, `write_tree`, `file`) is
+  sync-only. Host files in a tree are read only by the sync writers; the
+  async writers refuse them with `Unsupported` before writing anything.
 - Filesystem drivers need random access through a block device; network
   streams generally need a buffering or range-request adapter.
 

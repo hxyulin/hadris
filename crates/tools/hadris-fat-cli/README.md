@@ -105,9 +105,8 @@ hadris-fat ls disk.img /
 
 The commands are built on the `hadris_fat::sync::FatFs` and
 `hadris_fat::exfat::sync::ExFatFs` drivers, `check`, `format`, the `raw`
-boot sector layouts, and the `hadris-fs` path and host helpers
-(`extract_to_host`, `import_from_host`, `Tree::from_fs`). Read commands mount
-images read-only.
+boot sector layouts, `copy_tree`, `read_tree` and the `hadris-fs` `host`
+module (`read_tree`, `write_tree`). Read commands mount images read-only.
 
 ## Documentation
 
