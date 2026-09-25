@@ -560,7 +560,10 @@ impl<D> fmt::Debug for FatFs<D> {
 impl<D: BlockDevice> FatFs<D> {
     /// Mounts the volume on `dev`. `options` set read-only, the clock, the
     /// UTC offset of the volume's timestamps, the code page of short names
-    /// and the node cap.
+    /// and the node cap. With [`MountOptions::backup_boot`] a FAT32 volume
+    /// is mounted read-only from its backup boot sector (sector 6), which
+    /// fails with [`ErrorKind::Corrupt`] when that is not valid; FAT12 and
+    /// FAT16 have no backup and mount from the boot sector as usual.
     ///
     /// Fails with [`ErrorKind::NotRecognized`] when the first sector has no
     /// FAT BIOS parameter block (its sector and cluster sizes are not ones
@@ -575,10 +578,12 @@ impl<D: BlockDevice> FatFs<D> {
             Ok(block) => block,
             Err(error) => return Err(MountError::new(error.into(), dev)),
         };
-        let fat = match Self::read_volume(&mut dev, &mut block).await {
+        let backup = options.is_backup_boot();
+        let fat = match Self::read_volume(&mut dev, &mut block, backup).await {
             Ok(fat) => fat,
             Err(error) => return Err(MountError::new(error, dev)),
         };
+        let read_only = read_only || (backup && fat.geometry().kind() == FatKind::Fat32);
         Ok(Self {
             dev,
             fat,
@@ -606,8 +611,26 @@ impl<D: BlockDevice> FatFs<D> {
         }
     }
 
-    async fn read_volume(dev: &mut D, block: &mut BlockBuf) -> FsResult<Fat, D::Error> {
-        let geo = rawio::read_geometry(dev, block).await?;
+    /// The volume's state from its boot sector, or with `backup` from the
+    /// FAT32 backup boot sector. A volume whose boot sector reads as FAT12
+    /// or FAT16 has no backup and is read from its boot sector.
+    async fn read_volume(dev: &mut D, block: &mut BlockBuf, backup: bool) -> FsResult<Fat, D::Error> {
+        let geo = match backup {
+            true => match rawio::read_geometry(dev, block).await {
+                Ok(geo) if geo.kind() != FatKind::Fat32 => geo,
+                Err(err) if err.kind() == ErrorKind::Io => return Err(err),
+                primary => match rawio::read_backup_geometry(dev, block).await {
+                    Ok(geo) => geo,
+                    Err(err) => match primary {
+                        Err(first) if first.kind() == ErrorKind::NotRecognized && err.kind() != ErrorKind::Io => {
+                            return Err(first);
+                        }
+                        _ => return Err(err),
+                    },
+                },
+            },
+            false => rawio::read_geometry(dev, block).await?,
+        };
         rawio::read_fat(dev, block, geo).await
     }
 

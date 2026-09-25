@@ -12,6 +12,7 @@
 //! testing only compares images both sides can mount.
 
 use hadris_fs::sync::FileSystem;
+use hadris_fs::MountOptions;
 use hadris_io::Cursor;
 
 const DEPTH_CAP: u32 = 64;
@@ -126,24 +127,23 @@ fn dump_ntfs(data: &[u8]) -> Vec<String> {
 
     let mut bytes = data.to_vec();
     bytes.resize(bytes.len().next_multiple_of(512), 0);
-    match NtfsFs::open(MemDevice::new(bytes, BlockSize::new(512).unwrap())) {
+    match NtfsFs::mount(
+        MemDevice::new(bytes, BlockSize::new(512).unwrap()),
+        MountOptions::new(),
+    ) {
         Ok(fs) => dump_driver(fs),
         Err(_) => Vec::new(),
     }
 }
 
 fn dump_iso(data: &[u8]) -> Vec<String> {
-    use hadris_iso::sync::IsoImage;
-    use hadris_iso::Namespace;
+    use hadris_iso::sync::IsoFs;
     use hadris_storage::{BlockSize, MemDevice};
 
     let mut bytes = data.to_vec();
     bytes.resize(bytes.len().next_multiple_of(512), 0);
     let dev = MemDevice::new(bytes, BlockSize::new(512).unwrap());
-    let Ok(image) = IsoImage::open(dev) else {
-        return Vec::new();
-    };
-    match image.into_view(Namespace::Preferred) {
+    match IsoFs::mount(dev, MountOptions::new()) {
         Ok(view) => dump_driver(view),
         Err(_) => Vec::new(),
     }
@@ -155,7 +155,10 @@ fn dump_udf(data: &[u8]) -> Vec<String> {
 
     let mut bytes = data.to_vec();
     bytes.resize(bytes.len().next_multiple_of(512), 0);
-    match UdfFs::open(MemDevice::new(bytes, BlockSize::new(512).unwrap())) {
+    match UdfFs::mount(
+        MemDevice::new(bytes, BlockSize::new(512).unwrap()),
+        MountOptions::new(),
+    ) {
         Ok(fs) => dump_driver(fs),
         Err(_) => Vec::new(),
     }

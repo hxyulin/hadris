@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use hadris_fs::MountOptions;
 use hadris_fs::{
     Content, DateTime, DeviceNumber, FileType, Node, Owner, Permissions, SetAttr, Tree,
 };
@@ -88,7 +89,7 @@ pub fn image(tree: &Tree, options: &UdfOptions) -> Vec<u8> {
 }
 
 pub fn open(bytes: Vec<u8>) -> hadris_udf::sync::UdfFs<MemDevice<Vec<u8>>> {
-    hadris_udf::sync::UdfFs::open(MemDevice::new(bytes, SECTOR)).unwrap()
+    hadris_udf::sync::UdfFs::mount(MemDevice::new(bytes, SECTOR), MountOptions::new()).unwrap()
 }
 
 /// Recomputes the tag of the descriptor at `sector` over `crc_length`

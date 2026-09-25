@@ -25,7 +25,7 @@ use hadris_fs::sync::FileSystem;
 use hadris_fs::{
     Clock, DateTime, DirCursor, Metadata, NodeId, Report, Resolve, SystemClock, Tree, WarningKind,
 };
-use hadris_iso::sync::{IsoImage, IsoView, write};
+use hadris_iso::sync::{IsoFs, write};
 use hadris_iso::{IsoOptions, Namespace};
 use hadris_storage::host::FileDevice;
 
@@ -33,18 +33,24 @@ use super::output::Output;
 
 pub(super) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-type View<'a> = IsoView<&'a mut FileDevice>;
+type View<'a> = IsoFs<&'a mut FileDevice>;
 
-fn open(path: &Path) -> Result<IsoImage<FileDevice>> {
-    Ok(IsoImage::open(FileDevice::open(path)?)?)
+fn open(path: &Path) -> Result<FileDevice> {
+    Ok(FileDevice::open(path)?)
+}
+
+/// The image on `dev`, read through the tree `namespace` names.
+fn view(dev: &mut FileDevice, namespace: Namespace) -> Result<View<'_>> {
+    IsoFs::mount_namespace(dev, hadris_fs::MountOptions::new(), namespace)
+        .map_err(|err| err.into_parts().0.into())
 }
 
 /// The most capable tree of the image (Rock Ridge, then Joliet, then the
 /// enhanced tree, then the primary tree) when `path` is in it, and otherwise
 /// the primary tree, whose lookups ignore ASCII case, so ISO 9660 paths such
 /// as `/README.TXT` work too.
-fn view_for<'a>(iso: &'a mut IsoImage<FileDevice>, path: &str) -> Result<View<'a>> {
-    let mut preferred_view = iso.view(Namespace::Preferred)?;
+fn view_for<'a>(iso: &'a mut FileDevice, path: &str) -> Result<View<'a>> {
+    let mut preferred_view = view(iso, Namespace::Preferred)?;
     let preferred = match preferred_view.resolve(path.as_bytes(), Resolve::Lexical) {
         Ok(node) => {
             preferred_view.forget(node, 1);
@@ -57,7 +63,7 @@ fn view_for<'a>(iso: &'a mut IsoImage<FileDevice>, path: &str) -> Result<View<'a
     } else {
         Namespace::Primary
     };
-    Ok(iso.view(namespace)?)
+    view(iso, namespace)
 }
 
 fn join(dir: &str, name: &str) -> String {

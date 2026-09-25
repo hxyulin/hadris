@@ -33,7 +33,7 @@ hadris-fat = {
 
 For hosted applications, the default features provide the synchronous API
 with `std`. Every I/O type is named through its mode module
-(`hadris_fat::sync::FatFs`, `hadris_iso::r#async::IsoImage`), so the same code
+(`hadris_fat::sync::FatFs`, `hadris_iso::r#async::IsoFs`), so the same code
 reads the same way whichever modes are enabled.
 
 Every filesystem driver implements the `hadris-fs` `FileSystem` trait, which

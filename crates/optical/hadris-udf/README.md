@@ -30,12 +30,12 @@ hadris-fs = { version = "2.4.0", features = ["std", "sync"] }
 ```rust,no_run
 use std::io::Read;
 
-use hadris_fs::OpenOptions;
+use hadris_fs::{MountOptions, OpenOptions};
 use hadris_fs::sync::Volume;
 use hadris_udf::sync::UdfFs;
 
 let file = hadris_storage::host::FileDevice::open("movie.udf").unwrap();
-let udf = UdfFs::open(file).unwrap();
+let udf = UdfFs::mount(file, MountOptions::new()).unwrap();
 println!("Volume: {} (UDF {})", udf.logical_volume_id(), udf.revision());
 
 let vol = Volume::new(udf);

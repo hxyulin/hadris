@@ -86,7 +86,7 @@ pub mod sync {
 
     use crate::detect::sync::detect;
     use hadris_fs::sync::FileSystem;
-    use hadris_iso::sync::{IsoImage, IsoView};
+    use hadris_iso::sync::IsoFs;
     use hadris_storage::sync::BlockDevice;
     use hadris_udf::sync::UdfFs;
 
@@ -107,7 +107,7 @@ pub mod r#async {
 
     use crate::detect::r#async::detect;
     use hadris_fs::r#async::FileSystem;
-    use hadris_iso::r#async::{IsoImage, IsoView};
+    use hadris_iso::r#async::IsoFs;
     use hadris_storage::r#async::BlockDevice;
     use hadris_udf::r#async::UdfFs;
 
@@ -117,7 +117,7 @@ pub mod r#async {
     pub use open::OpenOpticalImage;
 }
 
-/// ISO 9660 images, which `OpenOpticalImage` opens as an `IsoView`.
+/// ISO 9660 images, which `OpenOpticalImage` opens as an `IsoFs`.
 pub use hadris_iso as iso;
 
 /// Universal Disk Format volumes, which `OpenOpticalImage` opens as

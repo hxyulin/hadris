@@ -303,8 +303,8 @@ pub mod sync {
 
     pub use volume::{
         allocate, allocate_run, begin_write, bit, bitmap_bytes, clear_dirty, clear_set, count_free,
-        free_chain, get, next, read_boot, read_volume, set, set_bit, slot_offset, upcase,
-        write_percent_in_use, write_set,
+        free_chain, get, next, read_backup_boot, read_boot, read_volume, set, set_bit, slot_offset,
+        upcase, write_percent_in_use, write_set,
     };
 }
 
@@ -331,8 +331,8 @@ pub mod r#async {
 
     pub use volume::{
         allocate, allocate_run, begin_write, bit, bitmap_bytes, clear_dirty, clear_set, count_free,
-        free_chain, get, next, read_boot, read_volume, set, set_bit, slot_offset, upcase,
-        write_percent_in_use, write_set,
+        free_chain, get, next, read_backup_boot, read_boot, read_volume, set, set_bit, slot_offset,
+        upcase, write_percent_in_use, write_set,
     };
 }
 
@@ -357,7 +357,7 @@ pub mod local {
 
     pub use volume::{
         allocate, allocate_run, begin_write, bit, bitmap_bytes, clear_dirty, clear_set, count_free,
-        free_chain, get, next, read_boot, read_volume, set, set_bit, slot_offset, upcase,
-        write_percent_in_use, write_set,
+        free_chain, get, next, read_backup_boot, read_boot, read_volume, set, set_bit, slot_offset,
+        upcase, write_percent_in_use, write_set,
     };
 }

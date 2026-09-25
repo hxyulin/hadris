@@ -39,13 +39,12 @@
 //! ```rust,no_run
 //! # #[cfg(all(feature = "iso", feature = "std", feature = "sync"))]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use hadris::fs::sync::{FileSystem, Volume};
-//! use hadris::iso::Namespace;
-//! use hadris::iso::sync::IsoImage;
+//! use hadris::fs::MountOptions;
+//! use hadris::fs::sync::Volume;
+//! use hadris::iso::sync::IsoFs;
 //!
 //! let file = hadris::storage::host::FileDevice::open("image.iso")?;
-//! let view = IsoImage::open(file)?.into_view(Namespace::Preferred)?;
-//! let vol = Volume::new(view);
+//! let vol = Volume::new(IsoFs::mount(file, MountOptions::new())?);
 //! for entry in vol.read_dir("/")? {
 //!     println!("{:?}", entry?.name());
 //! }

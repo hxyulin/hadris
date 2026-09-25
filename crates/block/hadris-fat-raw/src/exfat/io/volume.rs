@@ -95,12 +95,30 @@ async fn boot_region<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, base: u6
 /// region holds a valid boot sector and checksum or the boot sector
 /// describes a volume larger than the device.
 pub async fn read_boot<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf) -> FsResult<(Geometry, BootRegion), D::Error> {
+    boot_from(dev, block, true).await
+}
+
+/// Reads the backup boot region, ignoring the main one, and checks that
+/// the volume fits the device, for mounting a volume whose main boot region
+/// is damaged or suspect.
+///
+/// Fails as [`read_boot`] does, with [`ErrorKind::Corrupt`] when the backup
+/// region holds no valid boot sector and checksum.
+pub async fn read_backup_boot<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf) -> FsResult<Geometry, D::Error> {
+    Ok(boot_from(dev, block, false).await?.0)
+}
+
+/// [`read_boot`], trying the main region first when `main` is set.
+async fn boot_from<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, main: bool) -> FsResult<(Geometry, BootRegion), D::Error> {
     let size = block.block_size();
     if size as u64 != dev.block_size().get() as u64 {
         return Err(ErrorKind::InvalidInput.into());
     }
     let mut region = BootRegion::Main;
-    let mut geo = boot_region(dev, block, 0).await?;
+    let mut geo = match main {
+        true => boot_region(dev, block, 0).await?,
+        false => None,
+    };
     for shift in 9..=12u8 {
         if geo.is_some() {
             break;

@@ -3,12 +3,10 @@ use std::fs::File;
 use hadris_fs::FileType;
 use hadris_iso::Namespace;
 use hadris_iso::raw::{PathTableHeader, VolumeDescriptor};
-use hadris_iso::sync::IsoImage;
-use hadris_storage::host::FileDevice;
 
 use super::super::args::VerifyArgs;
 
-use super::{Entry, Result, View, join, list_dir, open};
+use super::{Entry, Result, View, join, list_dir, open, view};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum IssueSeverity {
@@ -48,7 +46,7 @@ struct Descriptors {
 }
 
 fn check_volume_descriptors(
-    iso: &mut IsoImage<FileDevice>,
+    iso: &mut View<'_>,
     verbose: bool,
     issues: &mut Vec<VerifyIssue>,
 ) -> Descriptors {
@@ -118,11 +116,7 @@ fn check_volume_descriptors(
     found
 }
 
-fn check_volume_size(
-    iso: &IsoImage<FileDevice>,
-    file_size: u64,
-    verbose: bool,
-) -> Vec<VerifyIssue> {
+fn check_volume_size(iso: &View<'_>, file_size: u64, verbose: bool) -> Vec<VerifyIssue> {
     let mut issues = Vec::new();
     let declared_size = u64::from(iso.volume_blocks()) * u64::from(iso.block_size());
 
@@ -146,7 +140,7 @@ fn check_volume_size(
     issues
 }
 
-fn check_boot_catalog(iso: &mut IsoImage<FileDevice>, verbose: bool) -> Vec<VerifyIssue> {
+fn check_boot_catalog(iso: &mut View<'_>, verbose: bool) -> Vec<VerifyIssue> {
     let mut issues = Vec::new();
     let catalog = match iso.boot_catalog() {
         Ok(Some(catalog)) => catalog,
@@ -201,14 +195,14 @@ fn check_boot_catalog(iso: &mut IsoImage<FileDevice>, verbose: bool) -> Vec<Veri
 }
 
 fn check_path_table(
-    iso: &mut IsoImage<FileDevice>,
+    iso: &mut View<'_>,
     (block, size): (u32, u32),
     verbose: bool,
 ) -> Vec<VerifyIssue> {
     let mut issues = Vec::new();
     let mut table = vec![0u8; size as usize];
     let offset = u64::from(block) * u64::from(iso.block_size());
-    if let Err(error) = iso.read_bytes(offset, &mut table) {
+    if let Err(error) = iso.read_raw(offset, &mut table) {
         issues.push(VerifyIssue::error(format!(
             "Failed to read path table: {error}"
         )));
@@ -422,7 +416,8 @@ fn check_rrip_fields(
 /// Verify ISO image integrity
 pub fn verify(args: VerifyArgs) -> Result<()> {
     let file_size = hadris_storage::host::file_len(&File::open(&args.input)?)?;
-    let mut iso = open(&args.input)?;
+    let mut dev = open(&args.input)?;
+    let mut iso = view(&mut dev, Namespace::Preferred)?;
 
     if args.verbose {
         println!("Verifying: {}", args.input.display());
@@ -444,7 +439,7 @@ pub fn verify(args: VerifyArgs) -> Result<()> {
     let volume_size = u64::from(volume_blocks) * u64::from(iso.block_size());
     let has_rrip = iso.namespaces().contains(Namespace::RockRidge);
     {
-        let mut view = iso.view(Namespace::Primary)?;
+        let mut view = view(&mut dev, Namespace::Primary)?;
         all_issues.extend(check_root_directory(&mut view, args.verbose));
         if args.strict {
             let entries = walk(&mut view, &mut all_issues);
@@ -459,7 +454,7 @@ pub fn verify(args: VerifyArgs) -> Result<()> {
     }
     if args.strict {
         if has_rrip {
-            let mut view = iso.view(Namespace::RockRidge)?;
+            let mut view = view(&mut dev, Namespace::RockRidge)?;
             let entries = walk(&mut view, &mut all_issues);
             all_issues.extend(check_rrip_fields(
                 &mut view,

@@ -56,7 +56,7 @@ impl JolietLevel {
     }
 }
 
-/// The trees an image has, as `IsoImage::namespaces` reports them.
+/// The trees an image has, as `IsoFs::namespaces` reports them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Namespaces {
     rock_ridge: bool,

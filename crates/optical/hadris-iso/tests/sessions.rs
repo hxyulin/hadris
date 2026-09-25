@@ -5,8 +5,9 @@ mod common;
 
 use common::Paths;
 use common::{image, pattern, sample};
+use hadris_fs::MountOptions;
 use hadris_fs::{Content, Node};
-use hadris_iso::sync::{IsoImage, Session};
+use hadris_iso::sync::{IsoFs, Session};
 use hadris_iso::{
     BootEntry, BootInfo, ElTorito, HybridBoot, IsoOptions, JolietLevel, Namespace, Platform,
     RockRidge, SessionMode,
@@ -32,10 +33,18 @@ fn grown(dev: MemDevice<Vec<u8>>) -> MemDevice<Vec<u8>> {
 }
 
 fn check(bytes: Vec<u8>, catalog: u32) {
-    let mut iso = IsoImage::open(MemDevice::new(bytes, common::SECTOR)).unwrap();
-    assert_eq!(iso.boot_catalog().unwrap().unwrap().block(), catalog);
+    let mut iso = MemDevice::new(bytes, common::SECTOR);
+    assert_eq!(
+        IsoFs::mount(&mut iso, MountOptions::new())
+            .unwrap()
+            .boot_catalog()
+            .unwrap()
+            .unwrap()
+            .block(),
+        catalog
+    );
     for ns in [Namespace::RockRidge, Namespace::Joliet] {
-        let mut view = iso.view(ns).unwrap();
+        let mut view = IsoFs::mount_namespace(&mut iso, MountOptions::new(), ns).unwrap();
         assert_eq!(
             view.read_to_vec("/added/new.txt").unwrap(),
             b"brand new",
@@ -59,7 +68,8 @@ fn check(bytes: Vec<u8>, catalog: u32) {
         );
         hadris_fs::sync::contract::check_read_only(&mut view).unwrap();
     }
-    let mut rr = iso.view(Namespace::RockRidge).unwrap();
+    let mut rr =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::RockRidge).unwrap();
     assert!(rr.exists("/docs/link").unwrap());
     assert!(rr.exists("/dev/null").unwrap());
 }
@@ -69,10 +79,13 @@ fn both_modes_write_changed_trees_back() {
     let tree = sample(true, true);
     for mode in [SessionMode::Append, SessionMode::Rewrite] {
         let dev = grown(image(&tree, &options()));
-        let catalog = IsoImage::open(MemDevice::new(dev.get_ref().clone(), common::SECTOR))
-            .unwrap()
-            .boot_catalog_block()
-            .unwrap();
+        let catalog = IsoFs::mount(
+            MemDevice::new(dev.get_ref().clone(), common::SECTOR),
+            MountOptions::new(),
+        )
+        .unwrap()
+        .boot_catalog_block()
+        .unwrap();
         let mut session = Session::open(dev).unwrap();
         assert_eq!(session.tree().entry("docs/big.bin").unwrap().links(), 1);
         session
@@ -133,8 +146,12 @@ fn new_boot_options_replace_the_catalog() {
         .options()
         .with_el_torito(ElTorito::new(BootEntry::new("BOOT/BOOT.IMG")));
     let report = session.write(&opts, SessionMode::Rewrite).unwrap();
-    let mut iso = IsoImage::open(session.into_inner()).unwrap();
-    let catalog = iso.boot_catalog().unwrap().unwrap();
+    let mut iso = session.into_inner();
+    let catalog = IsoFs::mount(&mut iso, MountOptions::new())
+        .unwrap()
+        .boot_catalog()
+        .unwrap()
+        .unwrap();
     assert_eq!(
         u64::from(catalog.default_entry().load_block()) * 2048,
         report
@@ -143,7 +160,8 @@ fn new_boot_options_replace_the_catalog() {
             .unwrap()
             .offset()
     );
-    let mut view = iso.view(Namespace::Preferred).unwrap();
+    let mut view =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Preferred).unwrap();
     assert_eq!(view.read_to_vec("/docs/big.bin").unwrap(), pattern(100_000));
 }
 
@@ -164,8 +182,12 @@ fn kept_catalogs_follow_replaced_boot_images() {
         let opts = session.options();
         let report = session.write(&opts, mode).unwrap();
         let moved = report.extents("boot/boot.img").map(|e| e[0]).unwrap();
-        let mut iso = IsoImage::open(session.into_inner()).unwrap();
-        let catalog = iso.boot_catalog().unwrap().unwrap();
+        let mut iso = session.into_inner();
+        let catalog = IsoFs::mount(&mut iso, MountOptions::new())
+            .unwrap()
+            .boot_catalog()
+            .unwrap()
+            .unwrap();
         let entries: Vec<_> = catalog.entries().iter().map(|e| e.load_block()).collect();
         assert_eq!(u64::from(entries[0]) * 2048, moved.offset(), "{mode:?}");
         assert_eq!(
@@ -177,9 +199,13 @@ fn kept_catalogs_follow_replaced_boot_images() {
                 .offset()
         );
         let mut loaded = vec![0u8; 4096];
-        iso.read_bytes(moved.offset(), &mut loaded).unwrap();
+        IsoFs::mount(&mut iso, MountOptions::new())
+            .unwrap()
+            .read_raw(moved.offset(), &mut loaded)
+            .unwrap();
         assert_eq!(loaded, replaced);
-        let mut view = iso.view(Namespace::RockRidge).unwrap();
+        let mut view =
+            IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::RockRidge).unwrap();
         let listed = view.read_to_vec("/boot/boot.cat").unwrap();
         assert_eq!(
             u32::from_le_bytes(listed[40..44].try_into().unwrap()),
@@ -236,12 +262,19 @@ fn replaced_boot_images_get_load_sizes_and_info_tables() {
         let kept = session.options();
         let report = session.write(&kept, mode).unwrap();
         let moved = report.extents("boot/boot.img").map(|e| e[0]).unwrap();
-        let mut iso = IsoImage::open(session.into_inner()).unwrap();
-        let catalog = iso.boot_catalog().unwrap().unwrap();
+        let mut iso = session.into_inner();
+        let catalog = IsoFs::mount(&mut iso, MountOptions::new())
+            .unwrap()
+            .boot_catalog()
+            .unwrap()
+            .unwrap();
         let counts: Vec<_> = catalog.entries().iter().map(|e| e.sector_count()).collect();
         assert_eq!(counts, [4, 6], "{mode:?}");
         let mut loaded = vec![0u8; bios.len()];
-        iso.read_bytes(moved.offset(), &mut loaded).unwrap();
+        IsoFs::mount(&mut iso, MountOptions::new())
+            .unwrap()
+            .read_raw(moved.offset(), &mut loaded)
+            .unwrap();
         let word = |at: usize| u32::from_le_bytes(loaded[at..at + 4].try_into().unwrap());
         let sum = bios[64..64 + (bios.len() - 64) / 4 * 4]
             .chunks_exact(4)

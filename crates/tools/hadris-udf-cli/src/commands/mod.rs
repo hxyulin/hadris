@@ -16,6 +16,7 @@ pub use ls::ls;
 pub use tree::tree;
 pub use verify::verify;
 
+use hadris_fs::MountOptions;
 use std::io::Write;
 use std::path::Path;
 
@@ -30,7 +31,7 @@ pub(super) type Udf = UdfFs<FileDevice>;
 
 /// Opens the UDF volume in the image at `path`.
 pub(super) fn open(path: &Path) -> Result<Udf> {
-    Ok(UdfFs::open(FileDevice::open(path)?)?)
+    Ok(UdfFs::mount(FileDevice::open(path)?, MountOptions::new())?)
 }
 
 /// The entries of the directory at `path`, sorted as the volume lists them.

@@ -18,7 +18,7 @@
 //! use std::io::Read;
 //!
 //! use hadris_fs::sync::Volume;
-//! use hadris_fs::{Content, Node, OpenOptions, Tree};
+//! use hadris_fs::{Content, MountOptions, Node, OpenOptions, Tree};
 //! use hadris_storage::{BlockSize, MemDevice};
 //! use hadris_udf::{UdfOptions, plan};
 //! use hadris_udf::sync::{UdfFs, write};
@@ -30,7 +30,7 @@
 //! let mut dev = MemDevice::new(vec![0u8; size as usize], BlockSize::new(2048).unwrap());
 //! write(&mut dev, &tree, &options)?;
 //!
-//! let udf = UdfFs::open(dev)?;
+//! let udf = UdfFs::mount(dev, MountOptions::new())?;
 //! assert_eq!(udf.volume_id(), "DOCS");
 //! let vol = Volume::new(udf);
 //! let mut text = String::new();

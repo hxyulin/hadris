@@ -5,16 +5,18 @@
 //! cargo run -p hadris-iso --example read_iso -- image.iso
 //! ```
 
-use hadris_fs::DirCursor;
 use hadris_fs::sync::FileSystem;
-use hadris_iso::Namespace;
-use hadris_iso::sync::IsoImage;
+use hadris_fs::{DirCursor, MountOptions};
+use hadris_iso::sync::IsoFs;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = std::env::args()
         .nth(1)
         .ok_or("usage: read_iso <image.iso>")?;
-    let mut iso = IsoImage::open(hadris_storage::host::FileDevice::open(path)?)?;
+    let mut iso = IsoFs::mount(
+        hadris_storage::host::FileDevice::open(path)?,
+        MountOptions::new(),
+    )?;
 
     let pvd = iso.primary_descriptor()?;
     println!(
@@ -38,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let mut view = iso.view(Namespace::Preferred)?;
+    let view = &mut iso;
     println!("Root of the {:?} tree:", view.namespace());
     let root = view.root();
     let mut cursor = DirCursor::START;

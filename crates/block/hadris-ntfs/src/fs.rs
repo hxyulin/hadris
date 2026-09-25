@@ -1,6 +1,6 @@
 use hadris_fs::{
     Attributes, Capabilities, DirCursor, DirEntry, ErrorKind, FileType, FsResult, FsStats,
-    Metadata, MountError, Name, NodeId, OpenMode, Permissions,
+    Metadata, MountError, MountOptions, Name, NodeId, OpenMode, Permissions,
 };
 use hadris_storage::BlockIndex;
 
@@ -727,7 +727,7 @@ async fn mount<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>> {
 /// volume's `$UpCase` table, names in the POSIX namespace exactly.
 ///
 /// ```rust,ignore
-/// let mut ntfs = NtfsFs::open(dev)?;
+/// let mut ntfs = NtfsFs::mount(dev, MountOptions::new())?;
 /// let node = ntfs.resolve(b"/docs/readme.txt", Resolve::Lexical)?;
 /// let n = ntfs.read(node, 0, &mut buf)?;
 /// ```
@@ -738,7 +738,9 @@ pub struct NtfsFs<D> {
 }
 
 impl<D: BlockDevice> NtfsFs<D> {
-    /// Opens the volume on `dev`.
+    /// Mounts the volume on `dev`, read-only. NTFS reads only the primary
+    /// boot sector, so [`MountOptions::backup_boot`] and the other options
+    /// do not apply.
     ///
     /// Fails with [`ErrorKind::Corrupt`] when the boot sector, `$MFT`, the
     /// root directory or `$UpCase` are invalid, and with
@@ -751,11 +753,18 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// @hadris-tests read::open_blank_volume, crafted::open_rejects_bad_boot_sectors, crafted::fragmented_mft_is_followed
     /// @hadris-fuzz ntfs_read
     /// @hadris-note Reads `$MFT` from its base record and extension records and checks file references; `$MFTMirr` recovery is not supported.
-    pub async fn open(mut dev: D) -> Result<Self, MountError<D, D::Error>> {
+    pub async fn mount(mut dev: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
+        let _ = options;
         match mount(&mut dev).await {
             Ok(info) => Ok(Self { dev, info }),
             Err(err) => Err(MountError::new(err, dev)),
         }
+    }
+
+    /// Gives the device back. The volume is read-only, so there is nothing
+    /// to sync and this never fails.
+    pub async fn unmount(self) -> Result<D, MountError<D, D::Error>> {
+        Ok(self.dev)
     }
 
     /// The volume serial number.

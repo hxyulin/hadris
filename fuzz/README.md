@@ -11,10 +11,10 @@ gate).
 | `cpio_read` | `CpioReader::next_entry`, partial reads and skips, `continue_after_trailer` | newc, newc-crc, odc and old binary headers, names, sizes, checksums and concatenated archives |
 | `fat_read`  | `check` + `FatFs::mount` + recursive read | BPB, FAT chain, directory + LFN parsing, lookups, file reads, the checker |
 | `exfat_read`| `check` + `ExFatFs::mount` + recursive read | boot region, entry sets across clusters, FAT and contiguous allocations, the up-case table, lookups, `parent`, the checker |
-| `ntfs_read` | `NtfsFs::open` + recursive read      | boot sector, MFT records, attributes, index walks |
+| `ntfs_read` | `NtfsFs::mount` + recursive read      | boot sector, MFT records, attributes, index walks |
 | `part_read` | `sync::read` + `scan`, edits, `write` and re-read | MBR, EBR chains, GPT with the backup fallback, hybrid MBR, table edits |
-| `iso_read`  | `IsoImage::open` + recursive read    | volume descriptors, directory records, RRIP, multi-extent reads |
-| `udf_read`  | `UdfFs::open` + node API walk        | anchor/VDS/FSD, File Entry, allocation descriptors, FIDs |
+| `iso_read`  | `IsoFs::mount` + recursive read       | volume descriptors, directory records, RRIP, multi-extent reads |
+| `udf_read`  | `UdfFs::mount` + node API walk        | anchor/VDS/FSD, File Entry, allocation descriptors, FIDs |
 | `fat_ops`   | `format` + fuzz-driven create/write/delete/rename/write-at/set-len ops on `FatFs` | FAT write path vs a shadow model, `check` after sync, verified after remount |
 | `exfat_ops` | `format` + the same op stream on `ExFatFs` with 512-byte clusters | exFAT write path, directory growth and entry sets across clusters vs a shadow model, `check` after sync, verified after remount |
 

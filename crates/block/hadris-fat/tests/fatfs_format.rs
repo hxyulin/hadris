@@ -564,6 +564,52 @@ fn writes_a_tree() {
 }
 
 #[test]
+fn backup_boot_mounts_fat32_from_sector_6() {
+    let image = formatted(64 * MIB, 512, FatOptions::new().with_kind(FatKind::Fat32));
+    let mut fs = FatFs::mount(
+        MemDevice::new(image.clone(), BlockSize::new(512).unwrap()),
+        MountOptions::new(),
+    )
+    .unwrap();
+    let root = fs.root();
+    let node = fs
+        .create(
+            root,
+            hadris_fs::Name::new("kept.txt"),
+            &hadris_fs::SetAttr::new(),
+        )
+        .unwrap();
+    fs.forget(node, 1);
+    let image = fs.unmount().unwrap().into_inner();
+    let backup = MountOptions::new().backup_boot();
+
+    let mut damaged = image.clone();
+    damaged[11..13].copy_from_slice(&[0, 0]);
+    let dev = |bytes: Vec<u8>| MemDevice::new(bytes, BlockSize::new(512).unwrap());
+    assert!(FatFs::mount(dev(damaged.clone()), MountOptions::new()).is_err());
+    let mut fs = FatFs::mount(dev(damaged), backup).unwrap();
+    assert!(fs.is_read_only());
+    assert!(
+        fs.resolve(b"/kept.txt", hadris_fs::Resolve::Lexical)
+            .is_ok()
+    );
+
+    let mut no_backup = image;
+    no_backup[6 * 512 + 11..6 * 512 + 13].copy_from_slice(&[0, 0]);
+    let err = FatFs::mount(dev(no_backup.clone()), backup).unwrap_err();
+    assert_eq!(err.error().kind(), ErrorKind::Corrupt);
+    assert!(
+        !FatFs::mount(dev(no_backup), MountOptions::new())
+            .unwrap()
+            .is_read_only()
+    );
+
+    let fat16 = formatted(32 * MIB, 512, FatOptions::new().with_kind(FatKind::Fat16));
+    let fs = FatFs::mount(dev(fat16), backup).unwrap();
+    assert!(!fs.is_read_only(), "FAT16 has no backup boot sector");
+}
+
+#[test]
 fn labels() {
     assert_eq!(label("boot").as_bytes(), b"BOOT       ");
     assert_eq!(label("My Disk 1").as_str(), "MY DISK 1");

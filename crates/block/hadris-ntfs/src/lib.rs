@@ -12,12 +12,12 @@
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use std::io::Read;
 //!
-//! use hadris_fs::OpenOptions;
+//! use hadris_fs::{MountOptions, OpenOptions};
 //! use hadris_fs::sync::Volume;
 //! use hadris_ntfs::sync::NtfsFs;
 //!
 //! let image = hadris_storage::host::FileDevice::open("disk.img")?;
-//! let vol = Volume::new(NtfsFs::open(image)?);
+//! let vol = Volume::new(NtfsFs::mount(image, MountOptions::new())?);
 //! for entry in vol.read_dir("/")? {
 //!     let entry = entry?;
 //!     println!("{:?}", entry.name());

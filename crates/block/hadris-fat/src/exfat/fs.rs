@@ -599,7 +599,9 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// Mounts the volume on `dev` with `options`.
     ///
     /// A main boot region whose boot sector or checksum is bad is replaced by
-    /// a valid backup boot region, and the volume is then mounted read-only,
+    /// a valid backup boot region, and [`MountOptions::backup_boot`] reads
+    /// the backup region without trying the main one; the volume is then
+    /// mounted read-only,
     /// as it is when the up-case table does not match its `TableChecksum`
     /// or maps the first 128 code points wrongly; [`check`](super::check)
     /// reports both.
@@ -621,7 +623,11 @@ impl<D: BlockDevice> ExFatFs<D> {
             Ok(block) => block,
             Err(error) => return Err(MountError::new(error.into(), dev)),
         };
-        let (geo, region) = match exio::read_boot(&mut dev, &mut block).await {
+        let found = match options.is_backup_boot() {
+            true => exio::read_backup_boot(&mut dev, &mut block).await.map(|geo| (geo, BootRegion::Backup)),
+            false => exio::read_boot(&mut dev, &mut block).await,
+        };
+        let (geo, region) = match found {
             Ok(found) => found,
             Err(error) => return Err(MountError::new(error, dev)),
         };

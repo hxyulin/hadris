@@ -14,7 +14,7 @@ file, memory, firmware protocol, or device driver
                          |
       partition window (hadris-part, Partition)
                          |
-       format driver (FatFs, IsoView, UdfFs, ...)
+       format driver (FatFs, IsoFs, UdfFs, ...)
                          |
       hadris-fs FileSystem trait, Volume, handles
 ```
@@ -66,7 +66,7 @@ holds, when an application needs both the partition and filesystem layers.
 
 ## Format handles
 
-Every driver (`FatFs`, `ExFatFs`, `IsoView`, `UdfFs`, `NtfsFs`) implements
+Every driver (`FatFs`, `ExFatFs`, `IsoFs`, `UdfFs`, `NtfsFs`) implements
 the `hadris-fs` `FileSystem` trait directly, and keeps a native API for what
 the trait does not model, such as FAT attributes, Rock Ridge metadata and UDF
 descriptors. Category facades detect and open formats, implement the same

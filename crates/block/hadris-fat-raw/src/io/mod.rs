@@ -429,8 +429,8 @@ pub mod sync {
     pub use check::check;
     pub use fat::{
         allocate, allocate_run, clear_slots, count_free, free_chain, get, get_copy, mirror, mkfs,
-        next, read_fat, read_geometry, read_slot, run, set, slot_offset, walk, write_fs_info,
-        write_slots,
+        next, read_backup_geometry, read_fat, read_geometry, read_slot, run, set, slot_offset,
+        walk, write_fs_info, write_slots,
     };
 }
 
@@ -458,8 +458,8 @@ pub mod r#async {
     pub use check::check;
     pub use fat::{
         allocate, allocate_run, clear_slots, count_free, free_chain, get, get_copy, mirror, mkfs,
-        next, read_fat, read_geometry, read_slot, run, set, slot_offset, walk, write_fs_info,
-        write_slots,
+        next, read_backup_geometry, read_fat, read_geometry, read_slot, run, set, slot_offset,
+        walk, write_fs_info, write_slots,
     };
 }
 
@@ -486,7 +486,7 @@ pub mod local {
     pub use check::check;
     pub use fat::{
         allocate, allocate_run, clear_slots, count_free, free_chain, get, get_copy, mirror, mkfs,
-        next, read_fat, read_geometry, read_slot, run, set, slot_offset, walk, write_fs_info,
-        write_slots,
+        next, read_backup_geometry, read_fat, read_geometry, read_slot, run, set, slot_offset,
+        walk, write_fs_info, write_slots,
     };
 }

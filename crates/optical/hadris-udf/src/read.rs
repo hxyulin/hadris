@@ -1,6 +1,6 @@
 use hadris_fs::{
     Capabilities, DirCursor, DirEntry, ErrorKind, FileType, FsResult, FsStats, Metadata,
-    MountError, Name, NodeId, OpenMode,
+    MountError, MountOptions, Name, NodeId, OpenMode, Permissions,
 };
 use hadris_storage::BlockIndex;
 
@@ -76,6 +76,16 @@ fn fid_node<E>(info: &Info, fid: &Fid) -> Result<NodeId, Error<E>> {
     Ok(fid.icb.id())
 }
 
+/// The metadata listed for an entry whose file entry cannot be read: the
+/// type its identifier records and nothing else.
+fn damaged(fid: &Fid) -> Metadata {
+    let file_type = match fid.characteristics.contains(FileCharacteristics::DIRECTORY) {
+        true => FileType::Dir,
+        false => FileType::File,
+    };
+    Metadata::new(file_type, Permissions::new(0))
+}
+
 /// The revision a logical volume's domain records, when it agrees with the
 /// recognition sequence.
 fn domain_revision(domain: &EntityId, nsr03: bool) -> Option<UdfRevision> {
@@ -140,12 +150,14 @@ async fn read_bytes<D: BlockDevice>(
     Ok(())
 }
 
-/// Finds an anchor at block 256, N-256 or N-1, trying logical block sizes
-/// from the device's up to 4096 bytes.
+/// Finds an anchor at block 256, N-256 or N-1, or with `backup` at N-256
+/// or N-1 only, trying logical block sizes from the device's up to 4096
+/// bytes.
 async fn find_anchor<D: BlockDevice>(
     dev: &mut D,
     len: u64,
     device_block: u32,
+    backup: bool,
 ) -> Result<(u32, AnchorVolumeDescriptorPointer), Error<D::Error>> {
     let mut sizes = [device_block, 2048, 512, 1024, 4096];
     for i in 1..sizes.len() {
@@ -162,6 +174,9 @@ async fn find_anchor<D: BlockDevice>(
         let candidates = [u64::from(raw::ANCHOR_BLOCK), last.saturating_sub(256), last];
         for block in candidates {
             if block < u64::from(raw::ANCHOR_BLOCK) || block >= blocks {
+                continue;
+            }
+            if backup && block == u64::from(raw::ANCHOR_BLOCK) {
                 continue;
             }
             let Ok(location) = u32::try_from(block) else {
@@ -316,19 +331,26 @@ async fn free_blocks<D: BlockDevice>(
     free
 }
 
-/// Reads the volume structures of `dev`.
-async fn mount<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>> {
+/// Reads the volume structures of `dev`; with `backup` from the anchors at
+/// the end of the volume and the reserve descriptor sequence.
+async fn mount<D: BlockDevice>(dev: &mut D, backup: bool) -> Result<Info, Error<D::Error>> {
     let device_block = dev.block_size().get();
     if device_block as usize > MAX_BLOCK {
         return Err(Detail::BlockSize.error(ErrorKind::Unsupported));
     }
     let len = dev.block_count().saturating_mul(u64::from(device_block));
-    let (block_size, anchor) = find_anchor(dev, len, device_block).await?;
-    let nsr03 = recognition(dev, len, block_size).await?;
-    let found = match sequence(dev, len, block_size, anchor.main).await {
+    let anchor = find_anchor(dev, len, device_block, backup).await;
+    let probe = anchor.as_ref().map_or(2048, |(block_size, _)| *block_size);
+    let nsr03 = recognition(dev, len, probe).await?;
+    let (block_size, anchor) = anchor?;
+    let (first, second) = match backup {
+        true => (anchor.reserve, anchor.main),
+        false => (anchor.main, anchor.reserve),
+    };
+    let found = match sequence(dev, len, block_size, first).await {
         Ok(found) => found,
         Err(err) if err.kind() == ErrorKind::Io => return Err(err),
-        Err(err) => sequence(dev, len, block_size, anchor.reserve).await.map_err(|_| err)?,
+        Err(err) => sequence(dev, len, block_size, second).await.map_err(|_| err)?,
     };
 
     let Some((_, lvd_block)) = found.logical else {
@@ -684,7 +706,7 @@ async fn link_target<D: BlockDevice>(info: &Info, dev: &mut D, icb: &Icb, out: &
 /// [`ErrorKind::Corrupt`]. Write methods fail with [`ErrorKind::ReadOnly`].
 ///
 /// ```rust,ignore
-/// let mut udf = UdfFs::open(dev)?;
+/// let mut udf = UdfFs::mount(dev, MountOptions::new())?;
 /// let file = udf.resolve(b"/docs/readme.txt", Resolve::Lexical)?;
 /// let mut buf = [0u8; 64];
 /// let n = udf.read(file, 0, &mut buf)?;
@@ -696,19 +718,29 @@ pub struct UdfFs<D> {
 }
 
 impl<D: BlockDevice> UdfFs<D> {
-    /// Opens the volume on `dev`: finds an anchor, checks the recognition
-    /// sequence, and reads the prevailing volume descriptors, from the
-    /// reserve sequence when the main one is damaged, and the file set.
+    /// Mounts the volume on `dev`, read-only in every version: finds an
+    /// anchor, checks the recognition sequence, and reads the prevailing
+    /// volume descriptors, from the reserve sequence when the main one is
+    /// damaged, and the file set. With [`MountOptions::backup_boot`] it
+    /// skips the anchor at block 256 for those at the end of the volume
+    /// and reads the reserve sequence first. Other options do not apply.
     ///
-    /// Fails with [`ErrorKind::Corrupt`] when the structures are invalid,
-    /// and with [`ErrorKind::Unsupported`] for partition maps other than
-    /// type 1 or device blocks above 4096 bytes. The device comes back in
-    /// the [`MountError`].
-    pub async fn open(mut dev: D) -> Result<Self, MountError<D, D::Error>> {
-        match mount(&mut dev).await {
+    /// Fails with [`ErrorKind::NotRecognized`] without a UDF recognition
+    /// sequence, with [`ErrorKind::Corrupt`] when the structures are
+    /// invalid, and with [`ErrorKind::Unsupported`] for partition maps
+    /// other than type 1 or device blocks above 4096 bytes. The device
+    /// comes back in the [`MountError`].
+    pub async fn mount(mut dev: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
+        match mount(&mut dev, options.is_backup_boot()).await {
             Ok(info) => Ok(Self { dev, info }),
             Err(err) => Err(MountError::new(err, dev)),
         }
+    }
+
+    /// Gives the device back. The volume is read-only, so there is nothing
+    /// to sync and this never fails.
+    pub async fn unmount(self) -> Result<D, MountError<D, D::Error>> {
+        Ok(self.dev)
     }
 
     /// The volume identifier of the primary volume descriptor.
@@ -880,7 +912,12 @@ impl<D: BlockDevice> FileSystem for UdfFs<D> {
     }
 
     /// The cursor is the byte offset of the next identifier in the
-    /// directory. Parent and deleted identifiers are skipped.
+    /// directory. Parent and deleted identifiers are skipped. An entry
+    /// whose file entry is damaged is still listed, with the type its
+    /// identifier records, no permissions and length 0, so the rest of the
+    /// directory stays readable; `stat` and `open` on it fail with
+    /// [`ErrorKind::Corrupt`]. A damaged identifier ends the listing with
+    /// that error, since the next one cannot be found.
     async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
         let icb = self.dir(dir).await?;
         let mut pos = from.into_raw();
@@ -893,8 +930,15 @@ impl<D: BlockDevice> FileSystem for UdfFs<D> {
             }
             let len = fid_name(&self.info, &mut self.dev, &icb, &fid, &mut buf).await?;
             let node = fid_node(&self.info, &fid)?;
-            let child = icb_at(&self.info, &mut self.dev, fid.icb).await?;
-            let meta = self.icb_metadata(&child).await?;
+            let meta = match icb_at(&self.info, &mut self.dev, fid.icb).await {
+                Ok(child) => self.icb_metadata(&child).await,
+                Err(err) => Err(err),
+            };
+            let meta = match meta {
+                Ok(meta) => meta,
+                Err(err) if err.kind() == ErrorKind::Io => return Err(err),
+                Err(_) => damaged(&fid),
+            };
             let entry = DirEntry::new(Name::new(&buf[..len]), node, meta, DirCursor::from_raw(pos))?;
             return Ok(Some(entry));
         }

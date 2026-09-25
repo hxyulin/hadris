@@ -10,6 +10,15 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-fat, hadris-fat-raw (V3):** `MountOptions::backup_boot` mounts
+  a FAT32 volume read-only from its backup boot sector (sector 6) and an
+  exFAT volume read-only from its backup boot region, without trying the
+  main one. FAT12 and FAT16 have no backup and mount as usual. The raw
+  layer gains `io::{sync, r#async, local}::read_backup_geometry` and
+  `exfat::io::{sync, r#async, local}::read_backup_boot`.
+- **hadris-udf (V3):** `MountOptions::backup_boot` reads the anchors at the
+  end of the volume and the reserve volume descriptor sequence first.
+
 - **hadris-fs (V3):** `Tree::fingerprint`, a hash of the tree's paths,
   types, sizes, link targets, device numbers and times that writers mix
   into serials and GUIDs.
@@ -610,6 +619,22 @@ Each published package owns its version and may be released independently.
   gains `kind()` and `device()`.
 
 ### Changed
+
+- **hadris-iso (V3):** `IsoImage` and `IsoView` merge into `IsoFs`, which
+  mounts like every other driver: `IsoFs::mount(dev, MountOptions)` reads
+  the most capable tree (Rock Ridge, then Joliet, then the enhanced tree,
+  then the primary tree), `IsoFs::mount_namespace(dev, options, namespace)`
+  picks one, and `unmount` gives the device back. The image methods
+  (`namespaces`, `block_size`, `volume_blocks`, `boot_catalog_block`,
+  `descriptor`, `primary_descriptor`, `boot_catalog`) are on `IsoFs`, and
+  `read_bytes` is `read_raw`. `view` and `into_view` are gone.
+- **hadris-udf, hadris-ntfs (V3):** `UdfFs::open(dev)` and
+  `NtfsFs::open(dev)` are `mount(dev, MountOptions)`, with `unmount`.
+- **hadris-udf (V3):** A directory entry whose file entry is damaged is
+  listed with the type its identifier records, no permissions and length
+  0, instead of failing the whole listing; `stat` and `open` on it fail
+  with `Corrupt`. A device without a UDF recognition sequence fails to
+  mount with `NotRecognized` even when it has no anchor.
 
 - **hadris-fs (V3):** Warning paths use the form `Tree::insert` takes and
   `Report::extents` keys: no leading, trailing or repeated `/`

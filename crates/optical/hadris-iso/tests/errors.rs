@@ -5,10 +5,11 @@ mod common;
 
 use common::Paths;
 use common::{image, sample};
+use hadris_fs::MountOptions;
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{Content, Node, Tree, WarningKind};
 use hadris_fs::{ErrorKind, NodeId};
-use hadris_iso::sync::IsoImage;
+use hadris_iso::sync::IsoFs;
 use hadris_iso::{
     BootEntry, BootInfo, Detail, ElTorito, Emulation, HybridBoot, IsoOptions, NameCase, Namespace,
     Platform, Relocation, RockRidge, VolumeIdentifiers,
@@ -97,8 +98,9 @@ fn bad_options_are_refused_before_writing() {
     );
     let named = IsoOptions::default()
         .with_rock_ridge(RockRidge::default().with_relocation(Relocation::DotRrMoved));
-    let mut iso = IsoImage::open(image(&taken, &named)).unwrap();
-    let mut view = iso.view(Namespace::RockRidge).unwrap();
+    let mut iso = image(&taken, &named);
+    let mut view =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::RockRidge).unwrap();
     assert_eq!(
         view.read_to_vec("/a/b/c/d/e/f/g/h/i/deep.txt").unwrap(),
         b"deep"
@@ -119,9 +121,12 @@ fn boot_options_are_checked_against_the_images() {
     let fits = IsoOptions::default()
         .with_el_torito(el_torito())
         .with_hybrid(HybridBoot::mbr().with_bootstrap(vec![0x90u8; 446]));
-    let mut iso = IsoImage::open(image(&tree, &fits)).unwrap();
+    let mut iso = image(&tree, &fits);
     let mut mbr = [0u8; 512];
-    iso.read_bytes(0, &mut mbr).unwrap();
+    IsoFs::mount(&mut iso, MountOptions::new())
+        .unwrap()
+        .read_raw(0, &mut mbr)
+        .unwrap();
     assert!(mbr[..446].iter().all(|&byte| byte == 0x90));
 
     let zero = IsoOptions::default().with_el_torito(ElTorito::new(
@@ -226,27 +231,28 @@ fn malformed_images_are_refused() {
 
     let mut bad = good.clone();
     bad[16 * 2048 + 1] = b'X';
-    let err = IsoImage::open(MemDevice::new(bad, common::SECTOR)).unwrap_err();
+    let err = IsoFs::mount(MemDevice::new(bad, common::SECTOR), MountOptions::new()).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::NotRecognized);
     assert_eq!(Detail::of(err.error()), Some(Detail::DescriptorHeader));
 
     let mut bad = good.clone();
     bad[17 * 2048 + 1] = b'X';
-    let err = IsoImage::open(MemDevice::new(bad, common::SECTOR)).unwrap_err();
+    let err = IsoFs::mount(MemDevice::new(bad, common::SECTOR), MountOptions::new()).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Corrupt);
     assert_eq!(Detail::of(err.error()), Some(Detail::DescriptorHeader));
 
     let mut bad = good.clone();
     bad[16 * 2048 + 128] = 0x05;
     assert_eq!(
-        IsoImage::open(MemDevice::new(bad, common::SECTOR))
+        IsoFs::mount(MemDevice::new(bad, common::SECTOR), MountOptions::new())
             .unwrap_err()
             .kind(),
         ErrorKind::Corrupt
     );
 
-    let mut iso = IsoImage::open(MemDevice::new(good.clone(), common::SECTOR)).unwrap();
-    let mut view = iso.view(Namespace::Primary).unwrap();
+    let mut iso = MemDevice::new(good.clone(), common::SECTOR);
+    let mut view =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Primary).unwrap();
     let err = view.stat(NodeId::new(17 * 2048 + 3).unwrap()).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::InvalidHandle);
     let err = view.stat(NodeId::new(1 << 40).unwrap()).unwrap_err();
@@ -258,8 +264,9 @@ fn malformed_images_are_refused() {
     let offset = readme.get() as usize;
     let mut bad = good.clone();
     bad[offset + 2] ^= 0x40;
-    let mut iso = IsoImage::open(MemDevice::new(bad, common::SECTOR)).unwrap();
-    let mut view = iso.view(Namespace::Primary).unwrap();
+    let mut iso = MemDevice::new(bad, common::SECTOR);
+    let mut view =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Primary).unwrap();
     assert_eq!(
         view.read_to_vec("/README.TXT").unwrap_err().kind(),
         ErrorKind::Corrupt
@@ -272,7 +279,7 @@ fn malformed_images_are_refused() {
     let mut bad = good.clone();
     bad[terminator + 100] = 1;
     assert_eq!(
-        IsoImage::open(MemDevice::new(bad, common::SECTOR))
+        IsoFs::mount(MemDevice::new(bad, common::SECTOR), MountOptions::new())
             .unwrap_err()
             .kind(),
         ErrorKind::Corrupt
@@ -280,7 +287,13 @@ fn malformed_images_are_refused() {
 
     let mut truncated = good;
     truncated.truncate(18 * 2048);
-    assert!(IsoImage::open(MemDevice::new(truncated, common::SECTOR)).is_err());
+    assert!(
+        IsoFs::mount(
+            MemDevice::new(truncated, common::SECTOR),
+            MountOptions::new()
+        )
+        .is_err()
+    );
 }
 
 /// A directory record whose extent points at something that is not a
@@ -290,8 +303,9 @@ fn malformed_images_are_refused() {
 fn damaged_records_behind_listed_ids_are_corrupt() {
     let tree = sample(false, false);
     let good = image(&tree, &IsoOptions::default()).into_inner();
-    let mut iso = IsoImage::open(MemDevice::new(good.clone(), common::SECTOR)).unwrap();
-    let mut view = iso.view(Namespace::Primary).unwrap();
+    let mut iso = MemDevice::new(good.clone(), common::SECTOR);
+    let mut view =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Primary).unwrap();
     let docs = view.resolve_path("/DOCS").unwrap();
     let big = view.resolve_path("/DOCS/BIG.BIN").unwrap();
     let data = view.raw_record(big).unwrap().header().extent.get();
@@ -310,8 +324,9 @@ fn damaged_records_behind_listed_ids_are_corrupt() {
 
     let mut bad = good.clone();
     point(&mut bad, data + 1);
-    let mut iso = IsoImage::open(MemDevice::new(bad, common::SECTOR)).unwrap();
-    let mut view = iso.view(Namespace::Primary).unwrap();
+    let mut iso = MemDevice::new(bad, common::SECTOR);
+    let mut view =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Primary).unwrap();
     let listed = view
         .lookup(view.root(), hadris_fs::Name::new(b"DOCS"))
         .unwrap();
@@ -320,8 +335,9 @@ fn damaged_records_behind_listed_ids_are_corrupt() {
 
     let mut bad = good;
     point(&mut bad, u32::MAX);
-    let mut iso = IsoImage::open(MemDevice::new(bad, common::SECTOR)).unwrap();
-    let mut view = iso.view(Namespace::Primary).unwrap();
+    let mut iso = MemDevice::new(bad, common::SECTOR);
+    let mut view =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Primary).unwrap();
     let err = view
         .lookup(view.root(), hadris_fs::Name::new(b"DOCS"))
         .unwrap_err();
@@ -331,8 +347,9 @@ fn damaged_records_behind_listed_ids_are_corrupt() {
 #[test]
 fn missing_namespaces_are_reported() {
     let tree = sample(false, false);
-    let mut iso = IsoImage::open(image(&tree, &IsoOptions::default())).unwrap();
-    let err = iso.view(Namespace::Joliet).unwrap_err();
+    let mut iso = image(&tree, &IsoOptions::default());
+    let err = IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Joliet).unwrap_err();
+    let err = err.error();
     assert_eq!(
         (
             err.kind(),
@@ -340,26 +357,32 @@ fn missing_namespaces_are_reported() {
         ),
         (ErrorKind::NotFound, Some(Detail::NoNamespace))
     );
-    assert!(iso.boot_catalog().unwrap().is_none());
-    let err = iso.into_view(Namespace::RockRidge).unwrap_err();
-    assert_eq!(err.kind(), ErrorKind::NotFound);
+    assert!(
+        IsoFs::mount(&mut iso, MountOptions::new())
+            .unwrap()
+            .boot_catalog()
+            .unwrap()
+            .is_none()
+    );
+    let err = IsoFs::mount_namespace(iso, MountOptions::new(), Namespace::RockRidge).unwrap_err();
+    assert_eq!(err.error().kind(), ErrorKind::NotFound);
 }
 
 #[test]
 fn directories_past_the_end_of_a_truncated_image_are_corrupt() {
     let tree = sample(false, false);
     let good = image(&tree, &IsoOptions::default()).into_inner();
-    let mut iso = IsoImage::open(MemDevice::new(good.clone(), common::SECTOR)).unwrap();
-    let docs = iso
-        .view(Namespace::Primary)
+    let mut iso = MemDevice::new(good.clone(), common::SECTOR);
+    let docs = IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Primary)
         .unwrap()
         .resolve_path("/DOCS")
         .unwrap();
 
     let mut truncated = good;
     truncated.truncate(docs.get() as usize);
-    let mut iso = IsoImage::open(MemDevice::new(truncated, common::SECTOR)).unwrap();
-    let mut view = iso.view(Namespace::Primary).unwrap();
+    let mut iso = MemDevice::new(truncated, common::SECTOR);
+    let mut view =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Primary).unwrap();
     let root = view.root();
     let listed = view.lookup(root, hadris_fs::Name::new(b"DOCS")).unwrap();
     assert_eq!(listed, docs);
@@ -378,8 +401,9 @@ fn directory_cycles_are_corrupt() {
     tree.insert("a/b/f.txt", Node::file(Content::bytes("f")))
         .unwrap();
     let good = image(&tree, &IsoOptions::default()).into_inner();
-    let mut iso = IsoImage::open(MemDevice::new(good.clone(), common::SECTOR)).unwrap();
-    let mut view = iso.view(Namespace::Primary).unwrap();
+    let mut iso = MemDevice::new(good.clone(), common::SECTOR);
+    let mut view =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Primary).unwrap();
     let root = view.root().get() as u32 / 2048;
     let a = view.resolve_path("/A").unwrap().get() as usize;
     let record = (a..a + 2048)
@@ -389,8 +413,10 @@ fn directory_cycles_are_corrupt() {
         let mut bad = good.clone();
         bad[record + 2..record + 6].copy_from_slice(&target.to_le_bytes());
         bad[record + 6..record + 10].copy_from_slice(&target.to_be_bytes());
-        let iso = IsoImage::open(MemDevice::new(bad, common::SECTOR)).unwrap();
-        let vol = hadris_fs::sync::Volume::new(iso.into_view(Namespace::Primary).unwrap());
+        let iso = MemDevice::new(bad, common::SECTOR);
+        let vol = hadris_fs::sync::Volume::new(
+            IsoFs::mount_namespace(iso, MountOptions::new(), Namespace::Primary).unwrap(),
+        );
         let err = hadris_fs::sync::read_tree(&vol, "/").unwrap_err();
         assert_eq!(err.kind(), ErrorKind::Corrupt);
     }
@@ -439,8 +465,9 @@ fn relocation_names_libarchive_would_mistake_are_refused() {
         (NameCase::Upper, Relocation::RrMoved, ".rr_moved"),
         (NameCase::Preserve, Relocation::DotRrMoved, "rr_moved"),
     ] {
-        let mut iso = IsoImage::open(image(&tree(user), &options(case, container))).unwrap();
-        let mut view = iso.view(Namespace::RockRidge).unwrap();
+        let mut iso = image(&tree(user), &options(case, container));
+        let mut view =
+            IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::RockRidge).unwrap();
         assert_eq!(
             view.read_to_vec("/a/b/c/d/e/f/g/h/i/deep.txt").unwrap(),
             b"deep"

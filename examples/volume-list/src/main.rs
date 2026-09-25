@@ -30,7 +30,7 @@ fn main() -> Result<()> {
 }
 
 /// Prints the directory `dir` and everything below it. `F` is any
-/// `hadris-fs` filesystem: `OpenVolume` here, or a `FatFs`, `IsoView` or
+/// `hadris-fs` filesystem: `OpenVolume` here, or a `FatFs`, `IsoFs` or
 /// `UdfFs`.
 fn print_tree<F: FileSystem>(fs: &mut F, dir: NodeId, depth: usize) -> Result<()> {
     let mut cursor = DirCursor::START;

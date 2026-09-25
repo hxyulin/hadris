@@ -59,7 +59,7 @@
       "summary": "Records for successive sections of one file are adjacent and identify the same file.",
       "direction": "read",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/image.rs", "name": "IsoView::extents"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/image.rs", "name": "IsoFs::extents"}],
       "tests": [{"path": "crates/optical/hadris-iso/tests/multi_extent.rs", "name": "large_files_take_several_extents_at_level_3", "kind": "integration"}, {"path": "tests/suite/iso/multi_extent.rs", "name": "three_section_file_matches_oracle_and_hadris_reader", "kind": "integration"}, {"path": "tests/suite/iso/multi_extent.rs", "name": "unaligned_non_final_section_matches_oracle_and_hadris_reader", "kind": "integration"}],
       "gap": null
     },

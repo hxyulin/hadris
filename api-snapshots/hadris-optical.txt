@@ -5,13 +5,13 @@ pub use hadris_optical::udf
 pub mod hadris_optical::async
 pub struct hadris_optical::async::OpenOpticalImage<D>
 impl<D: hadris_storage::async::api::BlockDevice> hadris_optical::async::OpenOpticalImage<D>
-pub fn hadris_optical::async::OpenOpticalImage<D>::as_iso(&self) -> core::option::Option<&hadris_iso::async::image::IsoView<D>>
-pub fn hadris_optical::async::OpenOpticalImage<D>::as_iso_mut(&mut self) -> core::option::Option<&mut hadris_iso::async::image::IsoView<D>>
+pub fn hadris_optical::async::OpenOpticalImage<D>::as_iso(&self) -> core::option::Option<&hadris_iso::async::image::IsoFs<D>>
+pub fn hadris_optical::async::OpenOpticalImage<D>::as_iso_mut(&mut self) -> core::option::Option<&mut hadris_iso::async::image::IsoFs<D>>
 pub fn hadris_optical::async::OpenOpticalImage<D>::as_udf(&self) -> core::option::Option<&hadris_udf::async::read::UdfFs<D>>
 pub fn hadris_optical::async::OpenOpticalImage<D>::as_udf_mut(&mut self) -> core::option::Option<&mut hadris_udf::async::read::UdfFs<D>>
 pub fn hadris_optical::async::OpenOpticalImage<D>::format(&self) -> hadris_optical::OpticalFormat
 pub fn hadris_optical::async::OpenOpticalImage<D>::into_inner(self) -> D
-pub fn hadris_optical::async::OpenOpticalImage<D>::into_iso(self) -> core::result::Result<hadris_iso::async::image::IsoView<D>, Self>
+pub fn hadris_optical::async::OpenOpticalImage<D>::into_iso(self) -> core::result::Result<hadris_iso::async::image::IsoFs<D>, Self>
 pub fn hadris_optical::async::OpenOpticalImage<D>::into_udf(self) -> core::result::Result<hadris_udf::async::read::UdfFs<D>, Self>
 pub async fn hadris_optical::async::OpenOpticalImage<D>::open(D, hadris_optical::OpenPolicy) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
 pub async fn hadris_optical::async::OpenOpticalImage<D>::open_detected(D, hadris_optical::detect::OpticalFormats, hadris_optical::OpenPolicy) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
@@ -60,13 +60,13 @@ pub const fn hadris_optical::detect::OpticalFormats::udf(self) -> core::option::
 pub mod hadris_optical::sync
 pub struct hadris_optical::sync::OpenOpticalImage<D>
 impl<D: hadris_storage::sync::api::BlockDevice> hadris_optical::sync::OpenOpticalImage<D>
-pub fn hadris_optical::sync::OpenOpticalImage<D>::as_iso(&self) -> core::option::Option<&hadris_iso::sync::image::IsoView<D>>
-pub fn hadris_optical::sync::OpenOpticalImage<D>::as_iso_mut(&mut self) -> core::option::Option<&mut hadris_iso::sync::image::IsoView<D>>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::as_iso(&self) -> core::option::Option<&hadris_iso::sync::image::IsoFs<D>>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::as_iso_mut(&mut self) -> core::option::Option<&mut hadris_iso::sync::image::IsoFs<D>>
 pub fn hadris_optical::sync::OpenOpticalImage<D>::as_udf(&self) -> core::option::Option<&hadris_udf::sync::read::UdfFs<D>>
 pub fn hadris_optical::sync::OpenOpticalImage<D>::as_udf_mut(&mut self) -> core::option::Option<&mut hadris_udf::sync::read::UdfFs<D>>
 pub fn hadris_optical::sync::OpenOpticalImage<D>::format(&self) -> hadris_optical::OpticalFormat
 pub fn hadris_optical::sync::OpenOpticalImage<D>::into_inner(self) -> D
-pub fn hadris_optical::sync::OpenOpticalImage<D>::into_iso(self) -> core::result::Result<hadris_iso::sync::image::IsoView<D>, Self>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::into_iso(self) -> core::result::Result<hadris_iso::sync::image::IsoFs<D>, Self>
 pub fn hadris_optical::sync::OpenOpticalImage<D>::into_udf(self) -> core::result::Result<hadris_udf::sync::read::UdfFs<D>, Self>
 pub fn hadris_optical::sync::OpenOpticalImage<D>::open(D, hadris_optical::OpenPolicy) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
 pub fn hadris_optical::sync::OpenOpticalImage<D>::open_detected(D, hadris_optical::detect::OpticalFormats, hadris_optical::OpenPolicy) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>

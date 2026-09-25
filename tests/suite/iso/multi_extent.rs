@@ -1,5 +1,6 @@
 //! Multi-extent file conformance and reader coverage.
 
+use hadris_fs::MountOptions;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -234,8 +235,13 @@ fn rock_ridge_covers_every_extent_of_a_large_file() {
     assert_eq!(extents.iter().map(|extent| extent.len()).sum::<u64>(), len);
 
     let file = File::open(&path).unwrap();
-    let mut iso = hadris_iso::sync::IsoImage::open(SparseFile(file)).unwrap();
-    let mut view = iso.view(Namespace::RockRidge).unwrap();
+    let mut iso = SparseFile(file);
+    let mut view = hadris_iso::sync::IsoFs::mount_namespace(
+        &mut iso,
+        MountOptions::new(),
+        Namespace::RockRidge,
+    )
+    .unwrap();
     let node = view.resolve(b"/big.bin", Resolve::Lexical).unwrap();
     let meta = view.stat(node).unwrap();
     assert_eq!(meta.len(), len);
