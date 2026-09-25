@@ -606,7 +606,7 @@ fn volume_paths_and_handles() {
 #[test]
 fn ascii_short_names_with_high_bytes_stay_distinct() {
     let case = CASES[0];
-    let mut fs = common::formatted(case, hadris_fat::FormatOptions::new());
+    let mut fs = common::formatted(case, hadris_fat::FatOptions::new());
     let root = fs.root();
     for (text, data) in [("PAT1.TXT", b"first"), ("PAT2.TXT", b"other")] {
         let node = fs.create(root, name(text), &SetAttr::new()).unwrap();

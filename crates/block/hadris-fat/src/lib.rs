@@ -61,34 +61,42 @@
 //!
 //! [`exfat`] holds `ExFatFs`, a sibling of `FatFs` with the same shape:
 //! `exfat::sync::ExFatFs` and its `r#async` twin, each
-//! with `check` and, with `write`, `format`. It needs `alloc`
+//! with `check` and, with `write`, `format` and `write`. It needs `alloc`
 //! and implements `FileSystem`.
 //!
-//! ## Formatting with `FatFs`
+//! ## Formatting and writing trees
 //!
-//! With the `write` feature, `format` (in each mode) lays out a FAT12,
-//! FAT16 or FAT32 volume that fills a block device and mounts it, so it
-//! needs `alloc`. [`FormatOptions`] sets the variant, label, volume id,
-//! sector and cluster size and the other boot sector fields; everything
-//! defaults from the device's size. A failed format also returns a
-//! [`MountError`](hadris_fs::MountError) with the device.
+//! With the `write` feature, `format(&mut dev, &opts)` (in each mode) lays
+//! out a FAT12, FAT16 or FAT32 volume and returns its [`Geometry`]; it needs
+//! no allocator, and the caller mounts the volume with its own
+//! `MountOptions`. [`FatOptions`] sets the variant, size, label, time,
+//! seed or serial, sector and cluster size, alignment, partition offset and
+//! the other boot sector fields; everything defaults from the device. With
+//! `alloc`, `write(dev, &tree, &opts)` formats and copies a
+//! `hadris_fs::Tree` into the volume, returning a `hadris_fs::Report`.
 //!
 //! ```rust
 //! # #[cfg(all(feature = "sync", feature = "write", feature = "std"))]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use hadris_fat::sync::format;
-//! use hadris_fat::{FatKind, FormatOptions, VolumeLabel};
-//! use hadris_fs::OpenOptions;
+//! use hadris_fat::sync::{FatFs, format, write};
+//! use hadris_fat::{FatKind, FatOptions, VolumeLabel};
 //! use hadris_fs::sync::Volume;
+//! use hadris_fs::{Content, MountOptions, Node, OpenOptions, Tree};
 //! use hadris_storage::{BlockSize, MemDevice};
 //!
-//! let dev = MemDevice::new(vec![0u8; 8 << 20], BlockSize::new(512).unwrap());
-//! let fs = format(dev, FormatOptions::new().with_label(VolumeLabel::new("DATA")?))?;
-//! assert_eq!(fs.kind(), FatKind::Fat12);
-//! let vol = Volume::new(fs);
+//! let mut dev = MemDevice::new(vec![0u8; 8 << 20], BlockSize::new(512).unwrap());
+//! let options = FatOptions::new().with_label(VolumeLabel::new("DATA")?);
+//! assert_eq!(format(&mut dev, &options)?.kind(), FatKind::Fat12);
+//! let vol = Volume::new(FatFs::mount(dev, MountOptions::new())?);
 //! let mut file = vol.open("/hello.txt", OpenOptions::new().write().create())?;
 //! file.write(b"hello")?;
 //! file.close()?;
+//!
+//! let mut tree = Tree::new();
+//! tree.insert("docs/readme.txt", Node::file(Content::bytes("hi")))?;
+//! let mut image = Vec::new();
+//! let report = write(&mut image, &tree, &options.with_size(4 << 20))?;
+//! assert_eq!(report.size(), 4 << 20);
 //! # Ok(())
 //! # }
 //! # #[cfg(not(all(feature = "sync", feature = "write", feature = "std")))]
@@ -108,11 +116,11 @@
 //! # #[cfg(all(feature = "sync", feature = "write", feature = "std"))]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use hadris_fat::sync::{check, format};
-//! use hadris_fat::FormatOptions;
+//! use hadris_fat::FatOptions;
 //! use hadris_storage::{BlockSize, MemDevice};
 //!
-//! let dev = MemDevice::new(vec![0u8; 8 << 20], BlockSize::new(512).unwrap());
-//! let mut dev = format(dev, FormatOptions::new())?.into_inner();
+//! let mut dev = MemDevice::new(vec![0u8; 8 << 20], BlockSize::new(512).unwrap());
+//! format(&mut dev, &FatOptions::new())?;
 //! let mut scratch = [0u8; 4096];
 //! let report = check(&mut dev, &mut scratch, |finding| println!("{finding}"))?;
 //! assert!(report.is_clean());
@@ -127,10 +135,10 @@
 //! | Feature  | Default | Description |
 //! |----------|---------|-------------|
 //! | `std`    | Yes     | Standard library support (enables `alloc`); `hadris_storage::host::FileDevice` and `SystemClock` from the storage and fs crates |
-//! | `alloc`  | No      | `FatFs`, `ExFatFs` and `format`; without it only `check` and the raw layer |
+//! | `alloc`  | No      | `FatFs`, `ExFatFs` and the tree writers `write`; without it `check`, `format` and the raw layer |
 //! | `sync`   | Yes     | Synchronous API in `sync` |
 //! | `async`  | No      | Asynchronous API with `Send` futures in `r#async` |
-//! | `write`  | Yes     | `format` in each mode; `FatFs` and `ExFatFs` write without it |
+//! | `write`  | Yes     | `format`, and with `alloc` `write`, in each mode; `FatFs` and `ExFatFs` write without it |
 //! | `defmt`  | No      | `defmt::Format` for `FatKind` |
 //!
 //! No feature changes what an item does: `FatFs` always reads and writes long
@@ -139,12 +147,13 @@
 //! ## Sync and async
 //!
 //! The same source is compiled once per enabled mode: `sync` and `r#async`,
-//! whose futures are `Send` when the device is. Each holds `FatFs`, `check` and, with `write`, `format`. The crate root holds only the mode-independent types.
+//! whose futures are `Send` when the device is. Each holds `FatFs`, `check` and, with `write`, `format` and `write`. The crate root holds only the mode-independent types.
 //!
 //! ## Modules
 //!
 //! - `sync::FatFs`, `r#async::FatFs`: the driver
-//! - `sync::format` and its `async` versions: the formatter (requires `write`)
+//! - `sync::format`, `sync::write` and their `async` versions: the
+//!   formatter and the tree writer (require `write`)
 //! - `sync::check` and its `async` versions: the checker, from
 //!   `hadris-fat-raw`
 //! - `exfat`: the exFAT driver, `ExFatFs`, with its own `sync` and
@@ -157,7 +166,8 @@
 //! The on-disk layouts, the I/O-free codecs and the device primitives the
 //! drivers are built on are the separate `hadris-fat-raw` crate, which has
 //! its own version. This crate re-exports only what its own signatures use:
-//! [`FatKind`], [`Detail`], `exfat::Detail` and the `check` functions.
+//! [`FatKind`], [`Geometry`], [`Detail`], `exfat::Geometry`,
+//! `exfat::Detail` and the `check` functions.
 //! Depend on `hadris-fat-raw` directly to use the rest.
 
 #![cfg_attr(not(test), no_std)]
@@ -195,10 +205,10 @@ pub mod sync {
     use hadris_fat_raw::io::sync as rawio;
     #[cfg(feature = "alloc")]
     use hadris_fs::sync as fsapi;
-    #[cfg(feature = "alloc")]
+    #[cfg(any(feature = "alloc", feature = "write"))]
     use hadris_storage::sync as storage;
 
-    #[cfg(feature = "alloc")]
+    #[cfg(any(feature = "alloc", feature = "write"))]
     #[path = "block_io.rs"]
     pub(crate) mod block_io;
     #[cfg(feature = "alloc")]
@@ -207,11 +217,13 @@ pub mod sync {
     #[cfg(feature = "alloc")]
     pub use fatfs::FatFs;
     pub use rawio::check;
-    #[cfg(all(feature = "alloc", feature = "write"))]
+    #[cfg(feature = "write")]
     #[path = "mkfs.rs"]
-    mod mkfs;
-    #[cfg(all(feature = "alloc", feature = "write"))]
+    pub(crate) mod mkfs;
+    #[cfg(feature = "write")]
     pub use mkfs::format;
+    #[cfg(all(feature = "alloc", feature = "write"))]
+    pub use mkfs::write;
 }
 
 /// The asynchronous API with `Send` futures, for generic code on
@@ -238,7 +250,7 @@ fn read_only_bit(dir: bool, wanted: hadris_fs::Permissions) -> Option<bool> {
     (permissions(dir, read_only) == wanted).then_some(read_only)
 }
 
-pub use hadris_fat_raw::{Detail, FatKind};
+pub use hadris_fat_raw::{Detail, FatKind, Geometry};
 #[cfg(feature = "write")]
-pub use options::FormatOptions;
+pub use options::FatOptions;
 pub use options::VolumeLabel;

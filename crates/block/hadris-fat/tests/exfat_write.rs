@@ -1275,7 +1275,7 @@ fn texfat_workload(fs: &mut Fs, tag: &str) {
 /// the image.
 #[test]
 fn texfat_keeps_both_fats_and_bitmaps() {
-    let options = hadris_fat::exfat::FormatOptions::new()
+    let options = hadris_fat::exfat::ExFatOptions::new()
         .with_fat_count(2)
         .with_cluster_size(4096);
     let mut fs = common::formatted(16 << 20, options);
@@ -1306,7 +1306,7 @@ fn texfat_keeps_both_fats_and_bitmaps() {
 
 #[test]
 fn texfat_with_one_bitmap_mounts() {
-    let options = hadris_fat::exfat::FormatOptions::new().with_fat_count(2);
+    let options = hadris_fat::exfat::ExFatOptions::new().with_fat_count(2);
     let fs = common::formatted(8 << 20, options);
     let mut image = common::image(fs);
     let geo = Geometry::of(&image);

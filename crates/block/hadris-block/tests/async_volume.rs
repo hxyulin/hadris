@@ -8,7 +8,7 @@ use std::task::{Wake, Waker};
 use hadris_block::Detail;
 use hadris_block::r#async::OpenVolume;
 use hadris_block::detect::{BlockFormat, FatVariant};
-use hadris_fat::{FatKind, FormatOptions};
+use hadris_fat::{FatKind, FatOptions};
 use hadris_fs::r#async::{FileSystem, Volume};
 use hadris_fs::{ErrorKind, OpenOptions};
 use hadris_fs::{MountError, MountOptions};
@@ -44,10 +44,10 @@ fn block_on<F: Future>(future: F) -> F::Output {
 }
 
 fn formatted_fat12() -> Vec<u8> {
-    let dev = device(vec![0_u8; 2 * 1024 * 1024]);
-    let options = FormatOptions::new().with_kind(FatKind::Fat12);
-    let fs = block_on(hadris_fat::r#async::format(dev, options)).unwrap();
-    fs.into_inner().into_inner()
+    let mut dev = device(vec![0_u8; 2 * 1024 * 1024]);
+    let options = FatOptions::new().with_kind(FatKind::Fat12);
+    block_on(hadris_fat::r#async::format(&mut dev, &options)).unwrap();
+    dev.into_inner()
 }
 
 fn populated_gpt() -> hadris_block::part::Disk {
@@ -117,12 +117,11 @@ fn async_partition_slices_enforce_their_bounds() {
 #[test]
 fn async_opens_detected_exfat() {
     block_on(async {
-        let dev = device(vec![0_u8; 2 << 20]);
-        let options = hadris_fat::exfat::FormatOptions::new();
-        let dev = hadris_fat::exfat::r#async::format(dev, options)
+        let mut dev = device(vec![0_u8; 2 << 20]);
+        let options = hadris_fat::exfat::ExFatOptions::new();
+        hadris_fat::exfat::r#async::format(&mut dev, &options)
             .await
-            .unwrap()
-            .into_inner();
+            .unwrap();
         let mut volume = OpenVolume::open(dev).await.unwrap();
         assert_eq!(volume.format(), BlockFormat::Fat(FatVariant::ExFat));
         put(&mut volume, "/a.txt", b"exfat").await.unwrap();
@@ -332,10 +331,10 @@ fn async_partition_table_opens_fat_through_a_gpt_view() {
     let start = 40 * 512;
     let end = start + 4096 * 512;
     bytes[start..end].copy_from_slice(&{
-        let dev = device(vec![0_u8; end - start]);
-        let options = FormatOptions::new().with_kind(FatKind::Fat12);
-        let fs = block_on(hadris_fat::r#async::format(dev, options)).unwrap();
-        fs.into_inner().into_inner()
+        let mut dev = device(vec![0_u8; end - start]);
+        let options = FatOptions::new().with_kind(FatKind::Fat12);
+        block_on(hadris_fat::r#async::format(&mut dev, &options)).unwrap();
+        dev.into_inner()
     });
 
     block_on(async {

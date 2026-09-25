@@ -12,7 +12,7 @@ use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
 use hadris_fat::sync::{FatFs, format as format_fat};
-use hadris_fat::{FatKind, FormatOptions, VolumeLabel};
+use hadris_fat::{FatKind, FatOptions, VolumeLabel};
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{
     Attributes, DirCursor, ErrorKind, FileType, FsResult, MountOptions, Name, NodeId, OpenMode,
@@ -338,18 +338,18 @@ pub fn format(path: &Path, case: FatCase) -> Result<(), String> {
         .open(path)
         .map_err(|error| error.to_string())?;
     file.set_len(case.size).map_err(|error| error.to_string())?;
-    let file = FileDevice::new(file).map_err(|error| error.to_string())?;
+    let mut file = FileDevice::new(file).map_err(|error| error.to_string())?;
     let label = VolumeLabel::new(LABEL).map_err(|error| error.to_string())?;
-    let options = FormatOptions::new()
+    let options = FatOptions::new()
         .with_kind(kind)
         .with_label(label)
-        .with_volume_id(0x4841_4452);
-    let fs = format_fat(file, options).map_err(|error| error.to_string())?;
-    if fs.kind() != kind {
+        .with_serial(0x4841_4452);
+    let geometry = format_fat(&mut file, &options).map_err(|error| error.to_string())?;
+    if geometry.kind() != kind {
         return Err(format!(
             "{} formatted as {:?}, expected {kind:?}",
             case.name,
-            fs.kind()
+            geometry.kind()
         ));
     }
     Ok(())

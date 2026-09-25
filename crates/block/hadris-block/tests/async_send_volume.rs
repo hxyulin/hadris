@@ -10,7 +10,7 @@ use hadris_block::r#async::OpenVolume;
 use hadris_block::detect::{BlockFormat, FatVariant, PartitionTableKind};
 use hadris_block::part::r#async::open;
 use hadris_block::part::{Disk, Mbr, MbrEntry, MbrType, Partition};
-use hadris_fat::{FatKind, FormatOptions};
+use hadris_fat::{FatKind, FatOptions};
 use hadris_fs::r#async::FileSystem;
 use hadris_fs::{Error, ErrorKind, MountError};
 use hadris_storage::r#async::BlockDevice;
@@ -48,11 +48,10 @@ fn block_on<F: Future + Send>(future: F) -> F::Output {
     }
 }
 
-fn formatted_fat12<D: BlockDevice>(dev: D) -> D {
-    let options = FormatOptions::new().with_kind(FatKind::Fat12);
-    block_on(hadris_fat::r#async::format(dev, options))
-        .unwrap()
-        .into_inner()
+fn formatted_fat12<D: BlockDevice>(mut dev: D) -> D {
+    let options = FatOptions::new().with_kind(FatKind::Fat12);
+    block_on(hadris_fat::r#async::format(&mut dev, &options)).unwrap();
+    dev
 }
 
 /// A partition of `len` blocks from `start` in an MBR for a disk of
@@ -105,12 +104,11 @@ fn opens_fat_through_an_mbr_partition() {
 #[test]
 fn opens_exfat() {
     block_on(async {
-        let dev = device(vec![0_u8; VOLUME_LEN]);
-        let options = hadris_fat::exfat::FormatOptions::new();
-        let dev = hadris_fat::exfat::r#async::format(dev, options)
+        let mut dev = device(vec![0_u8; VOLUME_LEN]);
+        let options = hadris_fat::exfat::ExFatOptions::new();
+        hadris_fat::exfat::r#async::format(&mut dev, &options)
             .await
-            .unwrap()
-            .into_inner();
+            .unwrap();
         let volume = OpenVolume::open(dev).await.unwrap();
         assert_eq!(volume.format(), BlockFormat::Fat(FatVariant::ExFat));
         let mut fs = volume.into_exfat().ok().unwrap();

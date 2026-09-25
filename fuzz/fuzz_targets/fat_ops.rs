@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 
 use hadris_fat::sync::{check, format, FatFs};
-use hadris_fat::{FatKind, FormatOptions, VolumeLabel};
+use hadris_fat::{FatKind, FatOptions, VolumeLabel};
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{DirCursor, FileType, MountOptions, Name, NodeId, RenameMode, Resolve, SetAttr};
 use hadris_storage::{BlockSize, MemDevice};
@@ -312,16 +312,16 @@ fn apply(
 }
 
 fn drive(data: &[u8]) {
-    let dev = MemDevice::new(vec![0u8; IMAGE_SIZE], BlockSize::new(512).unwrap());
-    let options = FormatOptions::new()
+    let mut dev = MemDevice::new(vec![0u8; IMAGE_SIZE], BlockSize::new(512).unwrap());
+    let options = FatOptions::new()
         .with_kind(FatKind::Fat16)
         .with_label(VolumeLabel::new("FUZZ").unwrap());
-    let Ok(formatted) = format(dev, options) else {
+    let Ok(_) = format(&mut dev, &options) else {
         // Formatting a fixed valid geometry must succeed; if it ever fails
         // that is itself a finding, but it is not fuzz-driven, so bail.
         return;
     };
-    let mounted = FatFs::mount(formatted.into_inner(), MountOptions::new());
+    let mounted = FatFs::mount(dev, MountOptions::new());
     let Ok(mut fs) = mounted else {
         return;
     };

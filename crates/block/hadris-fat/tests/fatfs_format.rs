@@ -6,10 +6,10 @@ use common::{FsPaths, VolumePaths};
 use hadris_fs::MountOptions;
 
 use common::{CASES, fsck};
-use hadris_fat::sync::{FatFs, format};
-use hadris_fat::{FatKind, FormatOptions, VolumeLabel};
+use hadris_fat::sync::{FatFs, format, write};
+use hadris_fat::{FatKind, FatOptions, VolumeLabel};
 use hadris_fs::sync::{FileSystem, Volume};
-use hadris_fs::{Clock, DateTime, ErrorKind, NoClock};
+use hadris_fs::{Clock, Content, DateTime, ErrorKind, NoClock, Node, Tree};
 use hadris_storage::{BlockSize, MemDevice};
 
 const MIB: u64 = 1024 * 1024;
@@ -22,15 +22,16 @@ fn label(text: &str) -> VolumeLabel {
     VolumeLabel::new(text).unwrap()
 }
 
-fn formatted(bytes: u64, block: u32, options: FormatOptions) -> Vec<u8> {
-    format(device(bytes, block), options)
-        .unwrap()
-        .into_inner()
-        .into_inner()
+fn formatted(bytes: u64, block: u32, options: FatOptions) -> Vec<u8> {
+    let mut dev = device(bytes, block);
+    format(&mut dev, &options).unwrap();
+    dev.into_inner()
 }
 
-fn error(bytes: u64, block: u32, options: FormatOptions) -> ErrorKind {
-    format(device(bytes, block), options).unwrap_err().kind()
+fn error(bytes: u64, block: u32, options: FatOptions) -> ErrorKind {
+    format(&mut device(bytes, block), &options)
+        .unwrap_err()
+        .kind()
 }
 
 /// Writes files through `FatFs`, then reads them back through a fresh mount
@@ -70,55 +71,55 @@ fn exercise(image: Vec<u8>, block: u32, expected: FatKind, name: &str) -> Vec<u8
 
 #[test]
 fn formats_every_kind_that_mounts_and_passes_fsck() {
-    let cases: [(&str, u64, u32, FormatOptions, FatKind); 8] = [
-        ("auto 1 MiB", MIB, 512, FormatOptions::new(), FatKind::Fat12),
+    let cases: [(&str, u64, u32, FatOptions, FatKind); 8] = [
+        ("auto 1 MiB", MIB, 512, FatOptions::new(), FatKind::Fat12),
         (
             "auto 8 MiB",
             8 * MIB,
             512,
-            FormatOptions::new(),
+            FatOptions::new(),
             FatKind::Fat12,
         ),
         (
             "auto below 16 MiB",
             16 * MIB - 512,
             512,
-            FormatOptions::new(),
+            FatOptions::new(),
             FatKind::Fat12,
         ),
         (
             "auto 16 MiB",
             16 * MIB,
             512,
-            FormatOptions::new(),
+            FatOptions::new(),
             FatKind::Fat16,
         ),
         (
             "fat32 40 MiB",
             40 * MIB,
             512,
-            FormatOptions::new().with_kind(FatKind::Fat32),
+            FatOptions::new().with_kind(FatKind::Fat32),
             FatKind::Fat32,
         ),
         (
             "fat12 4096-byte sectors on 512-byte blocks",
             4 * MIB,
             512,
-            FormatOptions::new().with_sector_size(4096),
+            FatOptions::new().with_sector_size(4096),
             FatKind::Fat12,
         ),
         (
             "fat16 on 4096-byte blocks",
             32 * MIB,
             4096,
-            FormatOptions::new(),
+            FatOptions::new(),
             FatKind::Fat16,
         ),
         (
             "fat32 with one FAT and 2 KiB clusters",
             160 * MIB,
             512,
-            FormatOptions::new()
+            FatOptions::new()
                 .with_kind(FatKind::Fat32)
                 .with_fat_count(1)
                 .with_cluster_size(2048),
@@ -142,14 +143,14 @@ fn formats_every_kind_that_mounts_and_passes_fsck() {
 #[test]
 fn defaults_follow_the_device_block_size() {
     for block in [512, 1024, 2048, 4096] {
-        let image = formatted(8 * MIB, block, FormatOptions::new());
+        let image = formatted(8 * MIB, block, FatOptions::new());
         assert_eq!(u16::from_le_bytes([image[11], image[12]]) as u32, block);
     }
-    let image = formatted(8 * MIB, 256, FormatOptions::new());
+    let image = formatted(8 * MIB, 256, FatOptions::new());
     assert_eq!(u16::from_le_bytes([image[11], image[12]]), 512);
     exercise(image, 256, FatKind::Fat12, "256-byte blocks");
     assert_eq!(
-        error(8 * MIB, 8192, FormatOptions::new()),
+        error(8 * MIB, 8192, FatOptions::new()),
         ErrorKind::Unsupported
     );
 }
@@ -164,11 +165,11 @@ fn bpb_label(image: &[u8]) -> &[u8] {
 #[test]
 fn boot_sector_fats_and_fsinfo_are_consistent() {
     for case in CASES {
-        let options = FormatOptions::new()
+        let options = FatOptions::new()
             .with_kind(case.kind)
             .with_sector_size(case.sector)
             .with_label(label("HADRIS"))
-            .with_volume_id(0xC0FF_EE00);
+            .with_serial(0xC0FF_EE00);
         let image = formatted(case.size, case.block, options);
         let sector = case.sector as usize;
         let fat32 = case.kind == FatKind::Fat32;
@@ -254,51 +255,39 @@ fn boot_sector_fats_and_fsinfo_are_consistent() {
 }
 
 #[test]
-fn reproducible_and_clocked() {
-    let a = formatted(4 * MIB, 512, FormatOptions::new().with_label(label("A")));
-    let b = formatted(4 * MIB, 512, FormatOptions::new().with_label(label("A")));
+fn reproducible_and_timed() {
+    let a = formatted(4 * MIB, 512, FatOptions::new().with_label(label("A")));
+    let b = formatted(4 * MIB, 512, FatOptions::new().with_label(label("A")));
     assert_eq!(a, b);
     let id = u32::from_le_bytes(a[39..43].try_into().unwrap());
 
-    #[derive(Clone, Copy)]
-    struct Fixed(DateTime);
-    impl Clock for Fixed {
-        fn now(&self) -> DateTime {
-            self.0
-        }
-    }
     let time = DateTime::from_unix_seconds(1_900_000_000).unwrap();
-    let fs = format(
-        device(4 * MIB, 512),
-        FormatOptions::new()
-            .with_label(label("A"))
-            .with_clock(Box::leak(Box::new(Fixed(time)))),
-    )
-    .unwrap();
-    assert_eq!(fs.clock().now(), time);
-    let c = fs.into_inner().into_inner();
+    let c = formatted(
+        4 * MIB,
+        512,
+        FatOptions::new().with_label(label("A")).with_time(time),
+    );
     assert_ne!(u32::from_le_bytes(c[39..43].try_into().unwrap()), id);
     let root = c
         .chunks_exact(32)
         .find(|entry| &entry[..11] == b"A          ")
         .unwrap();
-    assert_ne!(
-        root[22..26],
-        [0, 0, 0, 0],
-        "label entry has the clock's time"
-    );
+    assert_ne!(root[22..26], [0, 0, 0, 0], "label entry has the time");
     assert_eq!(NoClock.now().unix_seconds(), 315_532_800);
-    let defaults = format(
-        device(4 * MIB, 512),
-        FormatOptions::default().with_label(label("A")),
-    )
-    .unwrap();
-    assert_eq!(defaults.into_inner().into_inner(), a);
+    let defaults = formatted(4 * MIB, 512, FatOptions::default().with_label(label("A")));
+    assert_eq!(defaults, a);
+
+    let seeded = |time| {
+        let image = formatted(4 * MIB, 512, FatOptions::new().with_time(time).with_seed(7));
+        u32::from_le_bytes(image[39..43].try_into().unwrap())
+    };
+    assert_eq!(seeded(time), seeded(NoClock::TIME), "the seed decides");
+    assert_ne!(seeded(time), id);
 }
 
 #[test]
 fn floppy_geometry() {
-    let options = FormatOptions::new()
+    let options = FatOptions::new()
         .with_kind(FatKind::Fat12)
         .with_cluster_size(512)
         .with_root_entries(224)
@@ -318,7 +307,7 @@ fn floppy_geometry() {
 
 /// The smallest device, in sectors, that `options` formats, with the error
 /// one sector below it.
-fn smallest(options: &FormatOptions, from: u64, to: u64) -> (u64, ErrorKind) {
+fn smallest(options: &FatOptions, from: u64, to: u64) -> (u64, ErrorKind) {
     let mut buffer = vec![0u8; to as usize * 512];
     let (mut low, mut high) = (from, to);
     let mut attempt = |sectors: u64| {
@@ -326,7 +315,10 @@ fn smallest(options: &FormatOptions, from: u64, to: u64) -> (u64, ErrorKind) {
             &mut buffer[..sectors as usize * 512],
             BlockSize::new(512).unwrap(),
         );
-        format(dev, *options).map(|_| ()).map_err(|err| err.kind())
+        let mut dev = dev;
+        format(&mut dev, options)
+            .map(|_| ())
+            .map_err(|err| err.kind())
     };
     assert!(attempt(high).is_ok());
     let below = attempt(low).unwrap_err();
@@ -343,15 +335,12 @@ fn smallest(options: &FormatOptions, from: u64, to: u64) -> (u64, ErrorKind) {
 
 #[test]
 fn smallest_volumes_and_kind_boundaries() {
-    let (fat12, below) = smallest(&FormatOptions::new(), 1, 64);
+    let (fat12, below) = smallest(&FatOptions::new(), 1, 64);
     assert_eq!(fat12, 36);
     assert_eq!(below, ErrorKind::NoSpace);
-    assert_eq!(
-        error(35 * 512, 512, FormatOptions::new()),
-        ErrorKind::NoSpace
-    );
+    assert_eq!(error(35 * 512, 512, FatOptions::new()), ErrorKind::NoSpace);
     let dev = MemDevice::new(
-        formatted(36 * 512, 512, FormatOptions::new()),
+        formatted(36 * 512, 512, FatOptions::new()),
         BlockSize::new(512).unwrap(),
     );
     let vol = Volume::new(FatFs::mount(dev, MountOptions::new()).unwrap());
@@ -365,7 +354,7 @@ fn smallest_volumes_and_kind_boundaries() {
     let image = vol.into_inner().unwrap().into_inner().into_inner();
     assert_eq!(bpb_label(&image), b"NO NAME    ");
     fsck(&image, "smallest");
-    let tiny = FormatOptions::new().with_root_entries(16);
+    let tiny = FatOptions::new().with_root_entries(16);
     let image = formatted(64 * 512, 512, tiny);
     let fs = FatFs::mount(
         MemDevice::new(image.clone(), BlockSize::new(512).unwrap()),
@@ -375,7 +364,7 @@ fn smallest_volumes_and_kind_boundaries() {
     assert_eq!(fs.kind(), FatKind::Fat12);
     fsck(&image, "64 sectors");
 
-    let fat16 = FormatOptions::new().with_kind(FatKind::Fat16);
+    let fat16 = FatOptions::new().with_kind(FatKind::Fat16);
     let (sectors, below) = smallest(&fat16, 4000, 8192);
     assert_eq!(below, ErrorKind::NoSpace);
     let image = formatted(sectors * 512, 512, fat16);
@@ -383,7 +372,7 @@ fn smallest_volumes_and_kind_boundaries() {
     assert!((4085..4090).contains(&clusters), "{clusters}");
     exercise(image, 512, FatKind::Fat16, "smallest fat16");
 
-    let fat32 = FormatOptions::new().with_kind(FatKind::Fat32);
+    let fat32 = FatOptions::new().with_kind(FatKind::Fat32);
     let (sectors, below) = smallest(&fat32, 64 * 1024, 72 * 1024);
     assert_eq!(below, ErrorKind::NoSpace);
     let image = formatted(sectors * 512, 512, fat32);
@@ -391,12 +380,12 @@ fn smallest_volumes_and_kind_boundaries() {
     assert!((65525..65530).contains(&clusters), "{clusters}");
     exercise(image, 512, FatKind::Fat32, "smallest fat32");
 
-    let fat12 = FormatOptions::new()
+    let fat12 = FatOptions::new()
         .with_kind(FatKind::Fat12)
         .with_cluster_size(512);
     let largest = (4100..4200)
         .rev()
-        .find(|&sectors| format(device(sectors * 512, 512), fat12).is_ok())
+        .find(|&sectors| format(&mut device(sectors * 512, 512), &fat12).is_ok())
         .unwrap();
     assert_eq!(
         error((largest + 1) * 512, 512, fat12),
@@ -432,78 +421,132 @@ fn cluster_count(image: &[u8]) -> u32 {
 #[test]
 fn rejects_bad_options_and_devices() {
     let invalid = [
-        FormatOptions::new().with_fat_count(3),
-        FormatOptions::new().with_fat_count(0),
-        FormatOptions::new().with_media(0x12),
-        FormatOptions::new().with_sector_size(768),
-        FormatOptions::new().with_cluster_size(1536),
-        FormatOptions::new().with_cluster_size(64 * 1024),
-        FormatOptions::new().with_root_entries(0),
-        FormatOptions::new().with_reserved_sectors(0),
-        FormatOptions::new()
+        FatOptions::new().with_fat_count(3),
+        FatOptions::new().with_fat_count(0),
+        FatOptions::new().with_media(0x12),
+        FatOptions::new().with_sector_size(768),
+        FatOptions::new().with_cluster_size(1536),
+        FatOptions::new().with_cluster_size(64 * 1024),
+        FatOptions::new().with_root_entries(0),
+        FatOptions::new().with_reserved_sectors(0),
+        FatOptions::new()
             .with_kind(FatKind::Fat32)
             .with_reserved_sectors(4),
     ];
     for options in invalid {
         let mut dev = device(64 * MIB, 512);
-        let err = format(&mut dev, options).unwrap_err();
+        let err = format(&mut dev, &options).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::InvalidInput);
         assert!(dev.into_inner().iter().all(|&b| b == 0), "nothing written");
     }
     assert_eq!(
-        error(
-            16 * MIB,
-            512,
-            FormatOptions::new().with_kind(FatKind::Fat32)
-        ),
+        error(16 * MIB, 512, FatOptions::new().with_kind(FatKind::Fat32)),
         ErrorKind::NoSpace
     );
     assert_eq!(
-        error(2 * MIB, 512, FormatOptions::new().with_kind(FatKind::Fat16)),
+        error(2 * MIB, 512, FatOptions::new().with_kind(FatKind::Fat16)),
         ErrorKind::NoSpace
     );
     assert_eq!(
         error(
             64 * MIB,
             512,
-            FormatOptions::new()
+            FatOptions::new()
                 .with_kind(FatKind::Fat12)
                 .with_cluster_size(4096)
         ),
         ErrorKind::LimitExceeded
     );
     let image = vec![0u8; MIB as usize];
-    let read_only = MemDevice::new(&image[..], BlockSize::new(512).unwrap());
+    let mut read_only = MemDevice::new(&image[..], BlockSize::new(512).unwrap());
     assert_eq!(
-        format(read_only, FormatOptions::new()).unwrap_err().kind(),
+        format(&mut read_only, &FatOptions::new())
+            .unwrap_err()
+            .kind(),
         ErrorKind::ReadOnly
+    );
+    assert_eq!(
+        error(4 * MIB, 512, FatOptions::new().with_size(8 * MIB)),
+        ErrorKind::NoSpace
+    );
+    assert_eq!(
+        error(4 * MIB, 512, FatOptions::new().with_partition_offset(100)),
+        ErrorKind::InvalidInput
+    );
+    assert_eq!(
+        error(4 * MIB, 512, FatOptions::new().with_alignment(3000)),
+        ErrorKind::InvalidInput
     );
 }
 
 #[test]
-fn failed_formats_give_the_device_back() {
-    let err = format(device(8 * 1024, 512), FormatOptions::new()).unwrap_err();
-    assert_eq!(err.kind(), ErrorKind::NoSpace);
-    assert_eq!(err.into_device().into_inner(), vec![0u8; 8 * 1024]);
+fn sizes_alignment_and_growable_devices() {
+    let image = formatted(8 * MIB, 512, FatOptions::new().with_size(4 * MIB));
+    assert_eq!(u16::from_le_bytes([image[19], image[20]]), 8192);
+    exercise(image, 512, FatKind::Fat12, "smaller than the device");
 
-    let options = FormatOptions::new().with_kind(FatKind::Fat32);
-    let (error, dev) = format(device(4 * MIB, 512), options)
-        .unwrap_err()
-        .into_parts();
-    assert_eq!(error.kind(), ErrorKind::NoSpace);
-    assert_eq!(dev.get_ref().len(), (4 * MIB) as usize);
+    let options = FatOptions::new()
+        .with_kind(FatKind::Fat32)
+        .with_alignment(1 << 20);
+    let image = formatted(64 * MIB, 512, options);
+    let reserved = u16::from_le_bytes([image[14], image[15]]) as u64;
+    let fat = u32::from_le_bytes(image[36..40].try_into().unwrap()) as u64;
+    assert_eq!((reserved + 2 * fat) * 512 % (1 << 20), 0, "data region");
+    exercise(image, 512, FatKind::Fat32, "aligned");
 
-    let image = vec![0xA5u8; MIB as usize];
-    let read_only = MemDevice::new(&image[..], BlockSize::new(512).unwrap());
-    let err = format(read_only, FormatOptions::new()).unwrap_err();
-    assert_eq!(err.kind(), ErrorKind::ReadOnly);
-    assert!(core::ptr::eq(*err.device().get_ref(), &image[..]));
+    let mut grown = Vec::new();
+    let geometry = format(&mut grown, &FatOptions::new().with_size(2 * MIB)).unwrap();
+    assert_eq!(geometry.kind(), FatKind::Fat12);
+    assert_eq!(grown.len() as u64, 2 * MIB);
+    exercise(grown, 512, FatKind::Fat12, "grown");
+}
 
-    let err: hadris_fs::Error<_> = format(device(8 * 1024, 512), FormatOptions::new())
-        .map(|_| ())
-        .map_err(Into::into)
-        .unwrap_err();
-    assert_eq!(err.kind(), ErrorKind::NoSpace);
+#[test]
+fn writes_a_tree() {
+    let mut tree = Tree::new();
+    tree.insert("Docs/readme.txt", Node::file(Content::bytes("hello")))
+        .unwrap();
+    tree.insert(
+        "big.bin",
+        Node::file(Content::bytes(common::payload(9000, 1))),
+    )
+    .unwrap();
+    tree.insert("link", Node::symlink("big.bin")).unwrap();
+    let options = FatOptions::new().with_size(4 * MIB);
+    let mut image = Vec::new();
+    let report = write(&mut image, &tree, &options).unwrap();
+    assert_eq!(report.size(), 4 * MIB);
+    assert!(
+        report
+            .warnings()
+            .iter()
+            .any(|warning| warning.path() == Some(b"/link".as_slice())),
+        "{report}"
+    );
+    let mut again = Vec::new();
+    write(&mut again, &tree, &options).unwrap();
+    assert_eq!(image, again, "reproducible");
+
+    let dev = MemDevice::new(image.clone(), BlockSize::new(512).unwrap());
+    let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
+    assert_eq!(fs.read_to_vec("/Docs/readme.txt").unwrap(), b"hello");
+    assert_eq!(
+        fs.read_to_vec("/big.bin").unwrap(),
+        common::payload(9000, 1)
+    );
+    assert_eq!(
+        fs.metadata("/Docs/readme.txt").unwrap().modified(),
+        Some(NoClock::TIME)
+    );
+    fsck(&image, "write");
+
+    assert_eq!(
+        write(&mut Vec::new(), &tree, &FatOptions::new())
+            .unwrap_err()
+            .kind(),
+        ErrorKind::NoSpace,
+        "an empty growable device needs a size"
+    );
 }
 
 #[test]
@@ -522,7 +565,7 @@ fn labels() {
             "{bad:?}"
         );
     }
-    let image = formatted(2 * MIB, 512, FormatOptions::new());
+    let image = formatted(2 * MIB, 512, FatOptions::new());
     assert_eq!(&image[43..54], b"NO NAME    ");
     let root_start = (1 + 2 * u16::from_le_bytes([image[22], image[23]]) as usize) * 512;
     assert!(image[root_start..root_start + 32].iter().all(|&b| b == 0));
@@ -533,11 +576,9 @@ fn formats_a_partition_slice() {
     let mut disk = MemDevice::new(vec![0xAAu8; 8 * MIB as usize], BlockSize::new(512).unwrap());
     let first = 2048;
     let count = 4 * MIB / 512;
-    let slice = hadris_storage::Partition::new(&mut disk, first * 512, count * 512);
-    let options = FormatOptions::new()
-        .with_hidden_sectors(first as u32)
-        .with_label(label("PART"));
-    let mut fs = format(slice, options).unwrap();
+    let mut slice = hadris_storage::Partition::new(&mut disk, first * 512, count * 512);
+    format(&mut slice, &FatOptions::new().with_label(label("PART"))).unwrap();
+    let mut fs = FatFs::mount(slice, MountOptions::new()).unwrap();
     assert!(fs.statfs().unwrap().total_blocks() > 0);
     let _ = fs.into_inner();
     let bytes = disk.into_inner();

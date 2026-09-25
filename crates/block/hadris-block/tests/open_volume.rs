@@ -3,7 +3,7 @@ use hadris_block::detect::{BlockFormat, FatVariant, PartitionTableKind};
 use hadris_block::part::sync::open;
 use hadris_block::part::{self, MbrEntry, MbrType};
 use hadris_block::sync::OpenVolume;
-use hadris_fat::{FatKind, FormatOptions};
+use hadris_fat::{FatKind, FatOptions};
 use hadris_fs::ErrorKind;
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{Error, MountError};
@@ -32,9 +32,10 @@ fn failure<T, D, E>(result: Result<T, MountError<D, E>>) -> (Error<E>, D) {
     (error, dev)
 }
 
-fn format_fat12<D: BlockDevice>(dev: D) -> D {
-    let options = FormatOptions::new().with_kind(FatKind::Fat12);
-    hadris_fat::sync::format(dev, options).unwrap().into_inner()
+fn format_fat12<D: BlockDevice>(mut dev: D) -> D {
+    let options = FatOptions::new().with_kind(FatKind::Fat12);
+    hadris_fat::sync::format(&mut dev, &options).unwrap();
+    dev
 }
 
 #[path = "../../hadris-ntfs/tests/support/image.rs"]
@@ -189,11 +190,9 @@ const EXFAT: BlockFormat = BlockFormat::Fat(FatVariant::ExFat);
 
 #[test]
 fn opens_detected_exfat() {
-    let dev = device(vec![0_u8; VOLUME_LEN]);
-    let options = hadris_fat::exfat::FormatOptions::new();
-    let dev = hadris_fat::exfat::sync::format(dev, options)
-        .unwrap()
-        .into_inner();
+    let mut dev = device(vec![0_u8; VOLUME_LEN]);
+    let options = hadris_fat::exfat::ExFatOptions::new();
+    hadris_fat::exfat::sync::format(&mut dev, &options).unwrap();
 
     let mut volume = OpenVolume::open(dev).unwrap();
     assert_eq!(volume.format(), EXFAT);

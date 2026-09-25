@@ -10,6 +10,14 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-fat (V3):** `fat::{sync, r#async}::write(dev, &tree,
+  &FatOptions)` and `exfat::{sync, r#async}::write(dev, &tree,
+  &ExFatOptions)` format a device and copy a `Tree` into it with
+  `copy_tree`, returning a `Report` with the volume size. Nodes without
+  times get the options' time, so the same tree gives the same bytes.
+  `Geometry` and `exfat::Geometry` are re-exported, since `format` returns
+  them.
+
 - **hadris-fs (V3):** The builder input and output of step R6. `Tree`
   with `insert`, `link`, `remove`, `replace`, `get`, `entry` and `root`,
   at `/`-separated byte paths that refuse `.`, `..` and NUL; `TreeEntry`
@@ -596,6 +604,19 @@ Each published package owns its version and may be released independently.
   gains `kind()` and `device()`.
 
 ### Changed
+
+- **hadris-fat (V3):** `format(&mut dev, &opts)` in each mode, FAT and
+  exFAT, returns the volume's `Geometry` instead of a mounted volume, and
+  needs no allocator; mount with `FatFs::mount` or `ExFatFs::mount`
+  afterwards. A failed format no longer returns the device, since it is
+  borrowed. `FormatOptions` is now `FatOptions` and `exfat::FormatOptions`
+  `ExFatOptions`: `with_clock` became `with_time(DateTime)`,
+  `with_volume_id` became `with_serial`, and `with_seed`, `with_size` and
+  `with_partition_offset(bytes)` are new; FAT gains `with_alignment`.
+  `with_hidden_sectors` is gone, and the FAT hidden sectors and the exFAT
+  `PartitionOffset` now default to the device's `disk_offset`, so
+  formatting a `Partition` records its start. A volume larger than the
+  device grows a growable device and fails with `NoSpace` on any other.
 
 - **hadris-fs (V3):** `copy_tree(&tree, &mut fs, dir)` copies a `Tree`
   into a directory of any filesystem and returns a `Report`: directory

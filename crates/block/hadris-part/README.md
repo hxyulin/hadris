@@ -71,7 +71,7 @@ let layout = DiskLayout::gpt(Guid::random())
     .partition(PartitionSpec::new(types::LINUX_FILESYSTEM, Size::Remaining));
 let table = hadris_part::sync::create(&mut disk, &layout)?;
 let esp = hadris_part::sync::open(&mut disk, &table.partition(0).unwrap())?;
-// hadris_fat::sync::format(esp, hadris_fat::FormatOptions::new())?;
+// hadris_fat::sync::format(&mut esp, &hadris_fat::FatOptions::new())?;
 # let _ = esp;
 # Ok(())
 # }

@@ -286,31 +286,24 @@ fn async_writers_on_other_threads() {
 }
 
 #[test]
-fn async_failed_formats_give_the_device_back() {
-    use hadris_fat::{FatKind, FormatOptions};
+fn async_failed_formats_write_nothing() {
+    use hadris_fat::{FatKind, FatOptions};
     use hadris_storage::{BlockSize, MemDevice};
 
-    let device = || MemDevice::new(vec![0u8; 4 << 20], BlockSize::new(512).unwrap());
-    let options = || FormatOptions::new().with_kind(FatKind::Fat32);
+    let mut dev = MemDevice::new(vec![0u8; 4 << 20], BlockSize::new(512).unwrap());
+    let options = FatOptions::new().with_kind(FatKind::Fat32);
     block_on(async {
-        let err = hadris_fat::r#async::format(device(), options())
+        let err = hadris_fat::r#async::format(&mut dev, &options)
             .await
             .unwrap_err();
         assert_eq!(err.kind(), ErrorKind::NoSpace);
-        assert_eq!(err.into_device().into_inner(), vec![0u8; 4 << 20]);
-
-        let (error, dev) = hadris_fat::r#async::format(device(), options())
-            .await
-            .unwrap_err()
-            .into_parts();
-        assert_eq!(error.kind(), ErrorKind::NoSpace);
-        assert_eq!(dev.into_inner(), vec![0u8; 4 << 20]);
     });
+    assert_eq!(dev.into_inner(), vec![0u8; 4 << 20]);
 }
 
 #[test]
 fn format_in_the_async_modes() {
-    use hadris_fat::{FatKind, FormatOptions, VolumeLabel};
+    use hadris_fat::{FatKind, FatOptions, VolumeLabel};
 
     use hadris_storage::{BlockSize, MemDevice};
 
@@ -318,34 +311,39 @@ fn format_in_the_async_modes() {
         value
     }
     let options = || {
-        FormatOptions::new()
+        FatOptions::new()
             .with_kind(FatKind::Fat32)
             .with_label(VolumeLabel::new("ASYNC").unwrap())
     };
     let device = || MemDevice::new(vec![0u8; 40 << 20], BlockSize::new(512).unwrap());
 
-    let sync = hadris_fat::sync::format(device(), options())
-        .unwrap()
-        .into_inner()
-        .into_inner();
+    let sync = {
+        let mut dev = device();
+        hadris_fat::sync::format(&mut dev, &options()).unwrap();
+        dev.into_inner()
+    };
     let image = block_on(async {
         use hadris_fs::r#async::Volume;
-        let fs = hadris_fat::r#async::format(device(), options())
+        let mut dev = device();
+        let geometry = hadris_fat::r#async::format(&mut dev, &options())
             .await
             .unwrap();
-        assert_eq!(fs.kind(), FatKind::Fat32);
+        assert_eq!(geometry.kind(), FatKind::Fat32);
+        let fs = hadris_fat::r#async::FatFs::mount(dev, MountOptions::new())
+            .await
+            .unwrap();
         let vol = Volume::new(fs);
         vol.write_file("/async.txt", b"async").await.unwrap();
         vol.lock().await.sync().await.unwrap();
         vol.into_inner().await.unwrap().into_inner().into_inner()
     });
-    let send = block_on(assert_send(hadris_fat::r#async::format(
-        device(),
-        options(),
+    let mut dev = device();
+    block_on(assert_send(hadris_fat::r#async::format(
+        &mut dev,
+        &options(),
     )))
-    .unwrap()
-    .into_inner()
-    .into_inner();
+    .unwrap();
+    let send = dev.into_inner();
     assert_eq!(sync, send);
     let mut fs = hadris_fat::sync::FatFs::mount(
         MemDevice::new(image.clone(), BlockSize::new(512).unwrap()),
@@ -394,10 +392,12 @@ fn async_futures_stay_small() {
 
     let options = hadris_fs::MountOptions::new();
     assert_below("ExFatFs mount", ExFatFs::mount(empty(), options), 3 * BLOCK);
-    let dev = MemDevice::new(vec![0u8; 4 << 20], BlockSize::new(512).unwrap());
-    let formatted =
-        hadris_fat::exfat::r#async::format(dev, hadris_fat::exfat::FormatOptions::new());
-    let mut exfat = block_on(formatted).unwrap();
+    let mut dev = MemDevice::new(vec![0u8; 4 << 20], BlockSize::new(512).unwrap());
+    let options = hadris_fat::exfat::ExFatOptions::new();
+    let formatted = hadris_fat::exfat::r#async::format(&mut dev, &options);
+    assert_below("exFAT format", formatted, 2 * BLOCK);
+    block_on(hadris_fat::exfat::r#async::format(&mut dev, &options)).unwrap();
+    let mut exfat = block_on(ExFatFs::mount(dev, MountOptions::new())).unwrap();
     let root = exfat.root();
     assert_below(
         "ExFatFs rename",

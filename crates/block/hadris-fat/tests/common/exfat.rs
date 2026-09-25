@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::Command;
 
 use hadris_fat::exfat::sync::{ExFatFs, format};
-use hadris_fat::exfat::{Detail, FormatOptions, VolumeLabel};
+use hadris_fat::exfat::{Detail, ExFatOptions, VolumeLabel};
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{CheckReport, DirCursor, Finding, Location, Name, NodeId, SetAttr, Severity};
 
@@ -31,14 +31,15 @@ pub fn device(image: Vec<u8>, block: u32) -> Device {
 
 /// Formats `size` bytes with `options` and mounts the result with a heap
 /// table.
-pub fn formatted(size: usize, options: FormatOptions) -> Fs {
-    let fs = format(device(vec![0u8; size], 512), options).unwrap();
-    mount(&fs.into_inner().into_inner())
+pub fn formatted(size: usize, options: ExFatOptions) -> Fs {
+    let mut dev = device(vec![0u8; size], 512);
+    format(&mut dev, &options).unwrap();
+    mount(&dev.into_inner())
 }
 
 /// A volume of `size` bytes with `cluster`-byte clusters.
 pub fn small(size: usize, cluster: u32) -> Fs {
-    formatted(size, FormatOptions::new().with_cluster_size(cluster))
+    formatted(size, ExFatOptions::new().with_cluster_size(cluster))
 }
 
 pub fn mount(image: &[u8]) -> Fs {
@@ -156,7 +157,7 @@ pub fn clean(fs: &mut Fs, what: &str) {
 /// Formats a volume and fills it: nested directories, long and Unicode
 /// names, a fragmented file, an empty file, attributes and a label.
 pub fn build() -> Vec<u8> {
-    let options = FormatOptions::new().with_label(VolumeLabel::new("Hadris").unwrap());
+    let options = ExFatOptions::new().with_label(VolumeLabel::new("Hadris").unwrap());
     let mut fs = formatted(8 << 20, options.with_cluster_size(4096));
     let root = fs.root();
     for (text, data) in [

@@ -9,7 +9,7 @@ use hadris_fs::MountOptions;
 use std::collections::BTreeSet;
 
 use common::{CASES, Case, Device, Fs, block_on, formatted, payload};
-use hadris_fat::FormatOptions;
+use hadris_fat::FatOptions;
 use hadris_fat::sync::FatFs;
 use hadris_fs::r#async::FileSystem as _;
 use hadris_fs::sync::FileSystem;
@@ -84,7 +84,7 @@ fn short_names(image: &[u8], prefix: &[u8]) -> Vec<[u8; 11]> {
 #[test]
 fn names_sharing_a_prefix_get_distinct_short_names() {
     for case in [CASES[1], CASES[2]] {
-        let mut fs = formatted(case, FormatOptions::new());
+        let mut fs = formatted(case, FatOptions::new());
         let root = fs.root();
         let dir = create(&mut fs, root, "reports", FileType::Dir);
         let count = 40;
@@ -163,7 +163,7 @@ fn fragment(fs: &mut Fs, cluster: usize) -> Vec<u8> {
 }
 
 fn cluster_size(case: Case) -> usize {
-    formatted(case, FormatOptions::new())
+    formatted(case, FatOptions::new())
         .statfs()
         .unwrap()
         .block_size() as usize
@@ -174,7 +174,7 @@ fn multi_cluster_io_over_fragmented_free_space() {
     for case in CASES {
         let cluster = cluster_size(case);
         let size = 30 * cluster;
-        let mut small = formatted(case, FormatOptions::new());
+        let mut small = formatted(case, FatOptions::new());
         let runs = fragment(&mut small, cluster);
         assert_clean(&mut small, case.name);
         let root = small.root();
@@ -221,7 +221,7 @@ fn multi_cluster_io_over_fragmented_free_space() {
         fs.unlink(root, name("filler.bin")).unwrap();
         assert_eq!(
             free(&mut fs),
-            free(&mut formatted(case, FormatOptions::new())) - 30,
+            free(&mut formatted(case, FatOptions::new())) - 30,
             "{}",
             case.name
         );
@@ -234,7 +234,7 @@ fn multi_cluster_io_over_fragmented_free_space() {
 fn allocation_wraps_to_the_start_and_fails_cleanly_when_full() {
     let case = CASES[1];
     let cluster = cluster_size(case);
-    let mut fs = formatted(case, FormatOptions::new());
+    let mut fs = formatted(case, FatOptions::new());
     let root = fs.root();
     let total = free(&mut fs) as usize;
     let first = create(&mut fs, root, "first.bin", FileType::File);
@@ -278,7 +278,7 @@ fn async_multi_cluster_io_matches_sync() {
     let case = CASES[2];
     let cluster = cluster_size(case);
     let data = payload(20 * cluster + 1, 5);
-    let mut sync_fs = formatted(case, FormatOptions::new());
+    let mut sync_fs = formatted(case, FatOptions::new());
     let root = sync_fs.root();
     fragment(&mut sync_fs, cluster);
     sync_fs.unlink(root, name("filler.bin")).unwrap();
@@ -320,7 +320,7 @@ fn async_multi_cluster_io_matches_sync() {
 #[test]
 fn listing_resumes_while_the_directory_grows() {
     for case in [CASES[0], CASES[2]] {
-        let mut fs = formatted(case, FormatOptions::new());
+        let mut fs = formatted(case, FatOptions::new());
         let root = fs.root();
         for dir in [None, Some("sub")] {
             let dir = match dir {

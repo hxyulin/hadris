@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::Command;
 
 use hadris_fat::sync::{FatFs, format};
-use hadris_fat::{Detail, FatKind, FormatOptions, VolumeLabel};
+use hadris_fat::{Detail, FatKind, FatOptions, VolumeLabel};
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{
     Attributes, CheckReport, DirCursor, Finding, Location, Name, NodeId, SetAttr, Severity,
@@ -121,7 +121,7 @@ pub fn chain<D: BlockDevice>(fs: &mut FatFs<D>, node: NodeId) -> Vec<u32> {
 /// multi-cluster directories, a fragmented file, attributes and a name whose
 /// first byte is `0xE5`.
 pub fn build(case: Case) -> Vec<u8> {
-    let options = FormatOptions::new().with_label(VolumeLabel::new("HADRIS").unwrap());
+    let options = FatOptions::new().with_label(VolumeLabel::new("HADRIS").unwrap());
     let mut fs = formatted(case, options);
     let root = fs.root();
     for (text, data) in [
@@ -190,21 +190,16 @@ pub fn build(case: Case) -> Vec<u8> {
 
 /// Formats a device for `case` with `options`, the case's kind and sector
 /// size added.
-pub fn formatted(case: Case, options: FormatOptions) -> Fs {
-    let dev = device(case, vec![0u8; case.size as usize]);
+pub fn formatted(case: Case, options: FatOptions) -> Fs {
+    let mut dev = device(case, vec![0u8; case.size as usize]);
     let options = options.with_kind(case.kind).with_sector_size(case.sector);
-    FatFs::mount(
-        format(dev, options).unwrap().into_inner(),
-        MountOptions::new(),
-    )
-    .unwrap()
+    format(&mut dev, &options).unwrap();
+    FatFs::mount(dev, MountOptions::new()).unwrap()
 }
 
 /// A freshly formatted image with nothing on it.
 pub fn blank(case: Case) -> Vec<u8> {
-    formatted(case, FormatOptions::new())
-        .into_inner()
-        .into_inner()
+    formatted(case, FatOptions::new()).into_inner().into_inner()
 }
 
 /// Mounts a copy of `image` afresh, to read back what was written.
