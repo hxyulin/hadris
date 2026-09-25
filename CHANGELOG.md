@@ -10,6 +10,31 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-fs (V3):** `Walk` in each mode lists everything below a
+  directory depth first on the bare driver: `Walk::new(dir)` on a heap
+  stack of up to 1024 levels (`alloc`), or `Walk::with_stack(dir, &mut
+  [WalkFrame])` on the caller's stack without allocating. `next(&mut fs)`
+  returns a `WalkEntry` with the directory entry and its depth, and
+  `skip_dir` stays out of the directory just returned. A directory loop
+  fails with `Corrupt`, a walk deeper than its stack with `LimitExceeded`,
+  and the walk fuses after an error. `Extent` gains `file_offset` and an
+  `unwritten` flag (`with_file_offset`, `with_unwritten`, `is_unwritten`)
+  for file maps.
+- **hadris-fat (V3):** Format extras on `FatFs` and `ExFatFs`: `info()`
+  returns the boot sector's `Geometry`, `was_dirty()` whether the volume
+  was not cleanly unmounted (FAT entry 1's clean bit, exFAT's
+  `VolumeDirty`), `extents(node, from, &mut [Extent])` maps a file or
+  directory to device ranges FIEMAP style, with exFAT bytes past
+  `ValidDataLength` marked unwritten, `records(node, &mut [Extent])`
+  locates its directory entries, `read_raw(offset, buf)` reads the device
+  through the driver, and `set_volume_serial(serial)` rewrites the serial
+  (both exFAT boot regions with their checksums, and the FAT32 backup boot
+  sector). `FatFs::set_label` writes, creates or removes the root label
+  entry and the boot sector copy.
+- **hadris-fat-raw:** `Geometry::volume_serial()` for FAT12/16/32 and
+  `FatKind::clean_bit()`; the exFAT `Geometry::serial()` is now
+  `volume_serial()`.
+
 - **hadris-iso (V3):** Appended partitions: `Hybrid::with_appended(AppendedPartition::esp(content))`
   stores a partition after the files and lists it in the GPT, and
   `BootEntry::uefi_appended(index)` boots it from El Torito, so an EFI
@@ -1235,6 +1260,10 @@ Each published package owns its version and may be released independently.
 
 ### Removed
 
+- **hadris-fat (V3):** `FatFs::kind`, `FatFs::volume_label`,
+  `ExFatFs::volume_label`, `ExFatFs::volume_id`, `ExFatFs::cluster_size`
+  and `cluster_chain` on both. Use `info().kind()`, `FileSystem::label`,
+  `info().volume_serial()`, `info().cluster_size()` and `extents`.
 - **hadris-iso (V3):** `VolumeIdentifiers`, `RockRidge`, `Charset` with
   `with_charset`, `PartitionScheme`, `HybridBoot::with_efi_partition` and
   `JolietLevel` as a writer option. Use `with_id`, `with_rock_ridge`, an

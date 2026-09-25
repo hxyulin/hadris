@@ -401,7 +401,7 @@ impl<D: BlockDevice, F: FnMut(&Finding<'_>)> Checker<'_, D, F> {
         let fat = Location::Byte(geo.fat_copy(active));
         if !geo.kind().reserved_entries_valid(media, first, second) {
             self.report(found(Detail::ReservedEntries).with_location(fat), Scope::Volume);
-        } else if second & clean_bit(geo.kind()) == 0 && geo.kind() != FatKind::Fat12 {
+        } else if second & geo.kind().clean_bit() == 0 && geo.kind() != FatKind::Fat12 {
             self.report(found(Detail::Dirty).with_severity(Severity::Notice).with_location(fat), Scope::Volume);
         }
         Ok(recorded)
@@ -909,13 +909,4 @@ const fn found(detail: Detail) -> Finding<'static> {
 /// A finding of `detail` with its own message.
 const fn said(detail: Detail, message: &'static str) -> Finding<'static> {
     Finding::new(message, detail.code())
-}
-
-/// The FAT entry 1 bit that is set while the volume is cleanly unmounted.
-const fn clean_bit(kind: FatKind) -> u32 {
-    match kind {
-        FatKind::Fat12 => 0,
-        FatKind::Fat16 => 0x8000,
-        FatKind::Fat32 => 0x0800_0000,
-    }
 }

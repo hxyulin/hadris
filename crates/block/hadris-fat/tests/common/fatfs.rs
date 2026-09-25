@@ -108,12 +108,24 @@ fn mkdir(fs: &mut Fs, dir: NodeId, text: &str) -> NodeId {
     fs.mkdir(dir, Name::new(text), &SetAttr::new()).unwrap()
 }
 
-/// The clusters of `node`'s chain.
+/// The clusters of `node`'s chain, from its extents.
 pub fn chain<D: BlockDevice>(fs: &mut FatFs<D>, node: NodeId) -> Vec<u32> {
-    let mut clusters = Vec::new();
-    fs.cluster_chain(node, |cluster| clusters.push(cluster))
-        .unwrap();
-    clusters
+    let geo = *fs.info();
+    let size = geo.cluster_size() as u64;
+    let mut clusters: Vec<u32> = Vec::new();
+    let mut out = [hadris_fs::Extent::new(0, 0); 4];
+    let mut from = 0;
+    loop {
+        let n = fs.extents(node, from, &mut out).unwrap();
+        if n == 0 {
+            return clusters;
+        }
+        for extent in &out[..n] {
+            let first = (extent.offset() - geo.data_start()) / size + 2;
+            clusters.extend((0..extent.len().div_ceil(size)).map(|i| (first + i) as u32));
+            from = extent.file_offset() + extent.len();
+        }
+    }
 }
 
 /// Formats an image with `format` and fills it through `FatFs`: short,

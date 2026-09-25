@@ -141,7 +141,7 @@ fn listings_metadata_and_contents_match_the_fixture() {
     let files = expected_files();
     for case in CASES {
         let mut fs = open(case, common::build(case));
-        assert_eq!(fs.kind(), case.kind, "{}", case.name);
+        assert_eq!(fs.info().kind(), case.kind, "{}", case.name);
         let root = fs.root();
         let seen = walk(case, &mut fs, root, "/", &files);
         assert_eq!(seen, 11 + 2 + INNER_FILES, "{}", case.name);
@@ -791,10 +791,10 @@ fn fat16_layout(clusters: u32) -> Vec<u8> {
 fn fat16_layouts_are_limited_to_what_fat16_addresses() {
     let device = |image| MemDevice::new(image, BlockSize::new(512).unwrap());
     let mut fs = FatFs::mount(device(fat16_layout(65_524)), MountOptions::new()).unwrap();
-    assert_eq!(fs.kind(), FatKind::Fat16);
+    assert_eq!(fs.info().kind(), FatKind::Fat16);
     assert_eq!(fs.statfs().unwrap().total_blocks(), 65_524);
     let mut fs = FatFs::mount(device(fat16_layout(4_084)), MountOptions::new()).unwrap();
-    assert_eq!(fs.kind(), FatKind::Fat12);
+    assert_eq!(fs.info().kind(), FatKind::Fat12);
     assert_eq!(fs.statfs().unwrap().total_blocks(), 4_084);
     for clusters in [65_525, 65_600] {
         assert_eq!(

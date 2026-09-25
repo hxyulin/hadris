@@ -71,6 +71,7 @@ mod report;
 mod time;
 #[cfg(feature = "alloc")]
 mod tree;
+mod walk;
 
 pub use caps::{Capabilities, CaseRule, Charset, Field, FsStats, Stored};
 pub use check::{CheckReport, Finding, Severity};
@@ -98,6 +99,7 @@ pub use time::SystemClock;
 pub use time::{CivilDate, CivilTime, Clock, DateTime, DateTimeError, NoClock};
 #[cfg(feature = "alloc")]
 pub use tree::{Content, Node, Tree, TreeEntry};
+pub use walk::{WalkEntry, WalkFrame};
 
 /// The blocking API: the `FileSystem` trait, and with `std` the `Volume`
 /// with its `File` and `ReadDir` handles.

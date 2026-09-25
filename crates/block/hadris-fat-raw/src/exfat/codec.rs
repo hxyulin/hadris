@@ -83,8 +83,13 @@ impl Geometry {
     }
 
     /// `VolumeSerialNumber`.
-    pub const fn serial(&self) -> u32 {
+    pub const fn volume_serial(&self) -> u32 {
         self.serial
+    }
+
+    #[cfg(any(feature = "sync", feature = "async"))]
+    pub(crate) fn set_volume_serial(&mut self, serial: u32) {
+        self.serial = serial;
     }
 
     /// `VolumeFlags` as the boot sector holds them.

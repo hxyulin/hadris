@@ -94,6 +94,7 @@ pub const fn hadris_fat_raw::exfat::io::ExFat::free_clusters(&self) -> core::opt
 pub const fn hadris_fat_raw::exfat::io::ExFat::geometry(&self) -> &hadris_fat_raw::exfat::Geometry
 pub const fn hadris_fat_raw::exfat::io::ExFat::mirror_bitmap(&self) -> core::option::Option<hadris_fat_raw::exfat::io::Extent>
 pub const fn hadris_fat_raw::exfat::io::ExFat::new(hadris_fat_raw::exfat::Geometry, hadris_fat_raw::exfat::io::Extent, core::option::Option<hadris_fat_raw::exfat::io::Extent>) -> Self
+pub fn hadris_fat_raw::exfat::io::ExFat::set_volume_serial(&mut self, u32)
 pub const fn hadris_fat_raw::exfat::io::ExFat::was_dirty(&self) -> bool
 pub struct hadris_fat_raw::exfat::io::Extent
 impl hadris_fat_raw::exfat::io::Extent
@@ -211,8 +212,8 @@ pub const fn hadris_fat_raw::exfat::Geometry::percent_in_use(&self) -> u8
 pub const fn hadris_fat_raw::exfat::Geometry::root(&self) -> u32
 pub const fn hadris_fat_raw::exfat::Geometry::sector_shift(&self) -> u8
 pub const fn hadris_fat_raw::exfat::Geometry::sector_size(&self) -> u64
-pub const fn hadris_fat_raw::exfat::Geometry::serial(&self) -> u32
 pub const fn hadris_fat_raw::exfat::Geometry::volume_len(&self) -> u64
+pub const fn hadris_fat_raw::exfat::Geometry::volume_serial(&self) -> u32
 #[repr(C)] pub struct hadris_fat_raw::exfat::LabelEntry
 pub hadris_fat_raw::exfat::LabelEntry::character_count: u8
 pub hadris_fat_raw::exfat::LabelEntry::entry_type: u8
@@ -452,6 +453,7 @@ pub const fn hadris_fat_raw::io::Fat::is_cluster(&self, u32) -> bool
 pub const fn hadris_fat_raw::io::Fat::new(hadris_fat_raw::Geometry) -> Self
 pub const fn hadris_fat_raw::io::Fat::next_free(&self) -> u32
 pub const fn hadris_fat_raw::io::Fat::root(&self) -> hadris_fat_raw::io::DirStart
+pub fn hadris_fat_raw::io::Fat::set_volume_serial(&mut self, u32)
 pub const fn hadris_fat_raw::io::Fat::unmirrored(&self) -> core::option::Option<(u32, u32)>
 pub struct hadris_fat_raw::io::Held
 impl hadris_fat_raw::io::Held
@@ -600,6 +602,7 @@ pub hadris_fat_raw::FatKind::Fat16
 pub hadris_fat_raw::FatKind::Fat32
 impl hadris_fat_raw::FatKind
 pub const fn hadris_fat_raw::FatKind::bad_cluster(self) -> u32
+pub const fn hadris_fat_raw::FatKind::clean_bit(self) -> u32
 pub fn hadris_fat_raw::FatKind::decode(self, u64, &[u8]) -> u32
 pub fn hadris_fat_raw::FatKind::encode(self, u64, u32, &mut [u8])
 pub const fn hadris_fat_raw::FatKind::end_of_chain(self) -> u32
@@ -647,6 +650,7 @@ pub const fn hadris_fat_raw::Geometry::mirrored(&self) -> bool
 pub const fn hadris_fat_raw::Geometry::reserved_sectors(&self) -> u16
 pub const fn hadris_fat_raw::Geometry::root(&self) -> hadris_fat_raw::RootLocation
 pub const fn hadris_fat_raw::Geometry::sector_size(&self) -> u32
+pub const fn hadris_fat_raw::Geometry::volume_serial(&self) -> core::option::Option<u32>
 pub struct hadris_fat_raw::LongEntry
 impl hadris_fat_raw::LongEntry
 pub const fn hadris_fat_raw::LongEntry::checksum(&self) -> u8

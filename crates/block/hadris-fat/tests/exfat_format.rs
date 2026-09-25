@@ -111,7 +111,7 @@ fn labels_serials_and_offsets_are_written() {
         .with_partition_offset(2048 * 512);
     let mut fs = common::formatted(8 << 20, options);
     assert_eq!(fs.label_text().unwrap().unwrap(), "Données");
-    assert_eq!(fs.volume_id(), 0xDEAD_BEEF);
+    assert_eq!(fs.info().volume_serial(), 0xDEAD_BEEF);
     let image = common::image(fs);
     assert_eq!(u64::from_le_bytes(image[64..72].try_into().unwrap()), 2048);
     let a = common::image(common::formatted(8 << 20, ExFatOptions::new()));
@@ -128,7 +128,10 @@ fn labels_serials_and_offsets_are_written() {
         (4 << 20) / 512,
         "the partition offset defaults to the device's"
     );
-    assert_ne!(geometry.serial(), common::mount(&a).volume_id());
+    assert_ne!(
+        geometry.volume_serial(),
+        common::mount(&a).info().volume_serial()
+    );
     fsck(&image, "partition");
 }
 

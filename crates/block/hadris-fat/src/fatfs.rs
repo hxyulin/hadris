@@ -11,12 +11,12 @@ use hadris_fat_raw::{
 };
 use hadris_fs::{
     Attributes, Capabilities, CaseRule, Charset, Clock, CodePage, DateTime, DirCursor, DirEntry,
-    ErrorKind, Field, FileType, FsResult, FsStats, Metadata, MountError, MountOptions, Name,
-    NameBuf, NameError, NodeId, OpenMode, RenameMode, SetAttr, Stored,
+    ErrorKind, Extent, Field, FileType, FsResult, FsStats, Metadata, MountError, MountOptions,
+    Name, NameBuf, NameError, NodeId, OpenMode, RenameMode, SetAttr, Stored,
 };
 
 use crate::table::Table;
-use crate::{FatKind, VolumeLabel, permissions, read_only_bit};
+use crate::{FatKind, Geometry, VolumeLabel, permissions, push_run, read_only_bit};
 
 /// `NodeId::new` for ids that are not 0 by construction.
 const fn node_id(raw: u64) -> NodeId {
@@ -46,6 +46,10 @@ const RESERVED: NodeId = match NodeId::new(1 << 63) {
 /// Size of one directory entry.
 const ENTRY_SIZE: u64 = raw::ENTRY_SIZE as u64;
 const MAX_FILE_SIZE: u64 = u32::MAX as u64;
+/// The first name byte of a deleted entry.
+const DELETED: u8 = raw::ENTRY_FREE;
+/// The boot sector's label when the volume has none.
+const NO_NAME: &[u8; 11] = b"NO NAME    ";
 /// Short-name candidates a directory scan checks at once.
 const CANDIDATES: usize = 6;
 /// The attribute bits [`Attributes`] maps to.
@@ -90,6 +94,14 @@ impl Node {
             opens: 0,
             unlinked: false,
         }
+    }
+}
+
+/// Byte offset of the serial in the boot sector; the label follows it.
+const fn bpb_serial_offset(kind: FatKind) -> u64 {
+    match kind {
+        FatKind::Fat32 => 0x43,
+        _ => 0x27,
     }
 }
 
@@ -534,6 +546,8 @@ pub struct FatFs<D> {
     /// their short entry.
     run: Option<Run>,
     read_only: bool,
+    /// FAT entry 1's clean bit was clear at mount.
+    was_dirty: bool,
     clock: &'static dyn Clock,
     code_page: &'static dyn CodePage,
     /// The UTC offset of the volume's timestamps, `None` for UTC.
@@ -584,6 +598,17 @@ impl<D: BlockDevice> FatFs<D> {
             Err(error) => return Err(MountError::new(error, dev)),
         };
         let read_only = read_only || (backup && fat.geometry().kind() == FatKind::Fat32);
+        let geo = *fat.geometry();
+        let kind = geo.kind();
+        let mut entry = [0u8; 4];
+        let at = geo.fat_copy(geo.active_fat()) + kind.entry_offset(1);
+        let was_dirty = match kind.clean_bit() {
+            0 => false,
+            clean => match read_bytes(&mut dev, &mut block, at, &mut entry[..kind.entry_len()]).await {
+                Ok(()) => kind.decode(1, &entry) & clean == 0,
+                Err(error) => return Err(MountError::new(error, dev)),
+            },
+        };
         Ok(Self {
             dev,
             fat,
@@ -592,6 +617,7 @@ impl<D: BlockDevice> FatFs<D> {
             pending: None,
             run: None,
             read_only,
+            was_dirty,
             clock: options.clock(),
             code_page: options.code_page(),
             zone: options.utc_offset(),
@@ -664,11 +690,6 @@ impl<D: BlockDevice> FatFs<D> {
         self.zone
     }
 
-    /// The FAT variant of the volume.
-    pub fn kind(&self) -> FatKind {
-        self.fat.geometry().kind()
-    }
-
     /// Number of nodes in the node table, plus one for the root, which is
     /// always pinned. Nodes whose size is not yet written count until
     /// `close`, `fsync` or `sync`.
@@ -676,40 +697,164 @@ impl<D: BlockDevice> FatFs<D> {
         self.nodes.len() + 1
     }
 
-    /// Passes the clusters of the chain of `node` to `visit` in order and
-    /// returns how many there were. An empty file and the FAT12/16 root
-    /// directory have none. Fails with [`ErrorKind::Corrupt`] when the chain
-    /// leaves the data clusters, runs into a bad cluster or is longer than
-    /// the volume.
-    pub async fn cluster_chain(
-        &mut self,
-        node: NodeId,
-        mut visit: impl FnMut(u32),
-    ) -> FsResult<u32, D::Error> {
-        let first = if node == ROOT {
+    /// The volume's geometry from its boot sector, with its FAT variant
+    /// and serial.
+    pub fn info(&self) -> &Geometry {
+        self.fat.geometry()
+    }
+
+    /// Whether the volume was not cleanly unmounted: the clean bit of FAT
+    /// entry 1 was clear at mount. Always false on FAT12, which has no
+    /// such bit.
+    pub fn was_dirty(&self) -> bool {
+        self.was_dirty
+    }
+
+    /// Maps `node` to the device, FIEMAP style: fills `out` with the runs
+    /// of consecutive clusters that hold its bytes from file offset `from`
+    /// on, and returns how many it filled. A run is whole clusters, except
+    /// that a file's last run ends with the file. Call again from the end
+    /// of the last run for more; 0 means there are none. An empty file has
+    /// none, and the FAT12/16 root directory is one run, its fixed region.
+    /// Fails with [`ErrorKind::Corrupt`] when the chain leaves the data
+    /// clusters or is longer than the volume.
+    pub async fn extents(&mut self, node: NodeId, from: u64, out: &mut [Extent]) -> FsResult<usize, D::Error> {
+        let (first, len) = if node == ROOT {
             match self.fat.geometry().root() {
-                RootLocation::Fixed { .. } => return Ok(0),
-                RootLocation::Cluster(cluster) => cluster,
+                RootLocation::Fixed { start, size } => {
+                    return Ok(match out.first_mut() {
+                        Some(slot) if from < size => {
+                            *slot = Extent::new(start, size);
+                            1
+                        }
+                        _ => 0,
+                    });
+                }
+                RootLocation::Cluster(cluster) => (cluster, u64::MAX),
             }
         } else {
-            self.node(node).await?.first
+            let state = self.node(node).await?;
+            (state.first, if state.dir { u64::MAX } else { state.size as u64 })
         };
-        if first == 0 {
+        if first == 0 || out.is_empty() {
             return Ok(0);
         }
+        let cluster_size = self.fat.geometry().cluster_size() as u64;
         let mut cluster = self.check_cluster(first)?;
-        let mut count = 0u32;
-        loop {
-            visit(cluster);
-            count += 1;
-            if count >= self.fat.geometry().max_cluster() {
+        let mut count = 0usize;
+        let mut run: Option<(u64, u64, u64)> = None;
+        let mut index = 0u64;
+        while index * cluster_size < len {
+            let at = self.cluster_at(cluster)?;
+            run = match run {
+                Some((file, disk, bytes)) if disk + bytes == at => Some((file, disk, bytes + cluster_size)),
+                Some(done) => {
+                    if push_run(out, &mut count, done, from, len, len) {
+                        return Ok(count);
+                    }
+                    Some((index * cluster_size, at, cluster_size))
+                }
+                None => Some((index * cluster_size, at, cluster_size)),
+            };
+            index += 1;
+            if index >= self.fat.geometry().max_cluster() as u64 {
                 return Err(ErrorKind::Corrupt.into());
             }
             match rawio::next(&mut self.dev, &mut self.block, &self.fat, cluster).await? {
-                Some(next) => cluster = next,
-                None => return Ok(count),
+                Some(next) => cluster = self.check_cluster(next)?,
+                None => break,
             }
         }
+        if let Some(done) = run {
+            push_run(out, &mut count, done, from, len, len);
+        }
+        Ok(count)
+    }
+
+    /// Locates `node`'s on-disk records: its 32-byte short directory
+    /// entry. Long-name entries are not included, and the root, which has
+    /// no entry, has none. Returns how many it filled; fails with
+    /// [`ErrorKind::LimitExceeded`] when `out` is empty and there is one.
+    pub async fn records(&mut self, node: NodeId, out: &mut [Extent]) -> FsResult<usize, D::Error> {
+        if node == ROOT {
+            return Ok(0);
+        }
+        let state = self.node(node).await?;
+        let slot = out.first_mut().ok_or(ErrorKind::LimitExceeded)?;
+        *slot = Extent::new(state.entry, ENTRY_SIZE);
+        Ok(1)
+    }
+
+    /// Reads `buf.len()` bytes of the device at byte `offset`, through the
+    /// driver's block buffer.
+    pub async fn read_raw(&mut self, offset: u64, buf: &mut [u8]) -> FsResult<(), D::Error> {
+        read_bytes(&mut self.dev, &mut self.block, offset, buf).await
+    }
+
+    /// Sets the volume label, or removes it with `None`: the label entry
+    /// of the root directory is rewritten, created in a free slot (the
+    /// FAT32 root grows when it has none) or deleted, then the copy in the
+    /// boot sector, and on FAT32 in the backup boot sector, is set, to
+    /// `NO NAME` when removed. A boot sector without an extended boot
+    /// signature has no copy.
+    pub async fn set_label(&mut self, label: Option<VolumeLabel>) -> FsResult<(), D::Error> {
+        self.prepare().await?;
+        let found = self.find_label().await?;
+        match (found, label) {
+            (Some((offset, _)), None) => self.put_bytes(offset, &[DELETED]).await?,
+            (Some((offset, mut entry)), Some(label)) => {
+                entry.set_name(*label.as_bytes());
+                self.stamp_label(&mut entry);
+                self.put_bytes(offset, &entry.encode()).await?;
+            }
+            (None, Some(label)) => {
+                let mut entry = ShortEntry::new(*label.as_bytes(), raw::ATTR_VOLUME_ID);
+                self.stamp_label(&mut entry);
+                let start = self.dir_start(ROOT).await?;
+                let new = NewName::new("LABEL", self.code_page)?;
+                let plan = self.plan(start, "LABEL", false, &new, Skip::default()).await?;
+                let grown = self.grow(&plan).await?;
+                self.insert_entry(start, &new, &plan, &entry, grown).await?;
+            }
+            (None, None) => {}
+        }
+        if self.fat.geometry().volume_serial().is_some() {
+            let bytes = label.map_or(*NO_NAME, |label| *label.as_bytes());
+            self.put_boot(bpb_serial_offset(self.fat.geometry().kind()) + 4, &bytes).await?;
+        }
+        Ok(())
+    }
+
+    /// Writes `serial` to the boot sector, and on FAT32 to the backup boot
+    /// sector. Fails with [`ErrorKind::Unsupported`] when the boot sector
+    /// has no extended boot signature, and so no serial field.
+    pub async fn set_volume_serial(&mut self, serial: u32) -> FsResult<(), D::Error> {
+        self.prepare().await?;
+        if self.fat.geometry().volume_serial().is_none() {
+            return Err(ErrorKind::Unsupported.into());
+        }
+        self.put_boot(bpb_serial_offset(self.fat.geometry().kind()), &serial.to_le_bytes()).await?;
+        self.fat.set_volume_serial(serial);
+        Ok(())
+    }
+
+    /// Writes `bytes` at `offset` in the boot sector, and first in the
+    /// FAT32 backup boot sector when that is valid.
+    async fn put_boot(&mut self, offset: u64, bytes: &[u8]) -> FsResult<(), D::Error> {
+        if self.fat.geometry().kind() == FatKind::Fat32
+            && rawio::read_backup_geometry(&mut self.dev, &mut self.block).await.is_ok()
+        {
+            let backup = raw::layout::BACKUP_BOOT_SECTOR as u64 * self.fat.geometry().sector_size() as u64;
+            self.put_bytes(backup + offset, bytes).await?;
+        }
+        self.put_bytes(offset, bytes).await
+    }
+
+    fn stamp_label(&self, entry: &mut ShortEntry) {
+        let (date, time, tenths) = date::encode(self.now(), self.zone);
+        entry.set_created(date, time, tenths);
+        entry.set_modified(date, time);
+        entry.set_accessed_date(date);
     }
 
     /// Where the last listing of `dir` left its chain, [`ChainPos::NONE`] when
@@ -734,18 +879,14 @@ impl<D: BlockDevice> FatFs<D> {
         }
     }
 
-    /// The volume label as stored in the label entry of the root directory,
-    /// or `None` when it has none. The copy in the boot sector is not read.
-    /// `FileSystem::label` gives the same label as text.
-    pub async fn volume_label(&mut self) -> FsResult<Option<VolumeLabel>, D::Error> {
+    /// The root directory's label entry and its offset.
+    async fn find_label(&mut self) -> FsResult<Option<(u64, ShortEntry)>, D::Error> {
         let mut walk = DirWalk::new(self.fat.root());
         let mut slot = 0;
         while let Some(offset) = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot).await? {
             match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
                 Slot::End => break,
-                Slot::Short(entry) if entry.is_label() => {
-                    return Ok(Some(VolumeLabel::from_disk(entry.name())));
-                }
+                Slot::Short(entry) if entry.is_label() => return Ok(Some((offset, entry))),
                 _ => {}
             }
             slot += 1;
@@ -2067,11 +2208,12 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
     /// Bytes above `0x7F` are decoded through the mount's code page, as in
     /// short names.
     async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
-        let Some(label) = self.volume_label().await? else {
+        let Some((_, entry)) = self.find_label().await? else {
             return Ok(None);
         };
+        let label = entry.name();
         let mut text = [0u8; short_name::DISPLAY_MAX];
-        let len = short_name::display_label(label.as_bytes(), |byte| self.code_page.decode(byte), &mut text);
+        let len = short_name::display_label(&label, |byte| self.code_page.decode(byte), &mut text);
         let out = buf.get_mut(..len).ok_or(ErrorKind::LimitExceeded)?;
         out.copy_from_slice(&text[..len]);
         Ok(Some(core::str::from_utf8(out).map_err(|_| ErrorKind::Corrupt)?))

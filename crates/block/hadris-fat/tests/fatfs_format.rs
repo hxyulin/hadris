@@ -39,7 +39,7 @@ fn error(bytes: u64, block: u32, options: FatOptions) -> ErrorKind {
 fn exercise(image: Vec<u8>, block: u32, expected: FatKind, name: &str) -> Vec<u8> {
     let dev = MemDevice::new(image, BlockSize::new(block).unwrap());
     let fs = FatFs::mount(dev, MountOptions::new()).unwrap();
-    assert_eq!(fs.kind(), expected, "{name}");
+    assert_eq!(fs.info().kind(), expected, "{name}");
     let vol = Volume::new(fs);
     let payload = common::payload(20_000, 3);
     vol.create_dir_all("/Some Dir/inner").unwrap();
@@ -361,7 +361,7 @@ fn smallest_volumes_and_kind_boundaries() {
         MountOptions::new(),
     )
     .unwrap();
-    assert_eq!(fs.kind(), FatKind::Fat12);
+    assert_eq!(fs.info().kind(), FatKind::Fat12);
     fsck(&image, "64 sectors");
 
     let fat16 = FatOptions::new().with_kind(FatKind::Fat16);

@@ -125,6 +125,11 @@ impl Fat {
         &self.geo
     }
 
+    /// Records a serial written to the boot sector.
+    pub fn set_volume_serial(&mut self, serial: u32) {
+        self.geo.set_volume_serial(serial);
+    }
+
     /// The number of free clusters, when known.
     pub const fn free_clusters(&self) -> Option<u32> {
         self.free

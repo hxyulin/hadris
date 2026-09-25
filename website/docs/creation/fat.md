@@ -34,6 +34,7 @@ use std::fs::OpenOptions;
 use hadris_fat::sync::{FatFs, format};
 use hadris_fat::{FatKind, FatOptions, VolumeLabel};
 use hadris_fs::MountOptions;
+use hadris_fs::sync::FileSystem;
 use hadris_storage::host::FileDevice;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -54,7 +55,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut dev = FileDevice::new(image)?;
     format(&mut dev, &options)?;
     let mut fs = FatFs::mount(dev, MountOptions::new())?;
-    assert_eq!(fs.volume_label()?.map(|l| l.as_str().to_owned()).as_deref(), Some("HADRIS"));
+    let mut buf = [0u8; 64];
+    assert_eq!(fs.label(&mut buf)?, Some("HADRIS"));
     Ok(())
 }
 ```
