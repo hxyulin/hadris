@@ -143,7 +143,8 @@ What fits, going by the thumbv6m and thumbv7em rows:
 CI fails when a mount stack reaches 2 KB or driver state reaches 2 KB
 (NF-STACK-01 in `docs/v3/actions.md`), when a Hadris stack frame exceeds
 1 KB (NF-STACK-02), or when the `fat-log` flash on thumbv7em grows past its
-44 KB ceiling. The 20 KB flash target of NF-FLASH-01 is not met yet.
+44 KB ceiling. The 20 KB flash target of NF-FLASH-01 is a goal for 3.x,
+not a 3.0 requirement.
 
 To measure locally:
 

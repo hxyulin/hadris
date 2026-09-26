@@ -338,7 +338,7 @@ Each constraint gets its own conformance or CI check. Numbers come from the embe
 | NF-STACK-01 | Embedded API with 4 file slots, device excluded: mount under 2 KB of stack and under 2 KB of RAM on every NF-TARGET-01 target (design 4.15 target). Reference: embedded-sdmmc main frame 1208 B | 3.0 |
 | NF-STACK-02 | No single frame over 1 KB in the embedded API's name, rename and create paths | 3.0 |
 | NF-STACK-03 | Shared-tier sync stack on thumbv7em does not grow; async stays within about 1.7× of sync (measured: 26 KB sync vs 45 KB block_on async) | 3.0: keep sync macro-generated |
-| NF-FLASH-01 | Embedded FAT read/write binary, FAT only (the exFAT reader is measured separately), within about 1.5× of embedded-sdmmc (13852 B text): target under 20 KB text on thumbv7em, opt-level s, LTO | 3.0 target |
+| NF-FLASH-01 | Embedded FAT read/write binary, FAT only (the exFAT reader is measured separately), within about 1.5× of embedded-sdmmc (13852 B text): target under 20 KB text on thumbv7em, opt-level s, LTO. CI fails only past a 44 KB growth ceiling | Tracked goal, not a 3.0 requirement (Q16) |
 | NF-FLASH-02 | No Unicode case tables linked unless the caller asks for Unicode folding (the 12.2 KB `to_uppercase` rodata) | 3.0 |
 | NF-RAM-01 | Driver state size documented and bounded: FAT shared driver (4496 B with 4 slots, 7376 B with 64 today), exFAT 12584 B | 3.0 (document), 3.x (shrink) |
 | NF-BUF-01 | Embedded API works with 512-byte buffers; no fixed 4 KiB buffer when the device block is 512 bytes | 3.0 |

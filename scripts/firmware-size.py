@@ -17,8 +17,8 @@ usage: scripts/firmware-size.py [--check] [target...]
 With --check, fails when a budget of docs/v3/actions.md is exceeded:
 NF-STACK-01 (mount under 2 KB of stack, driver state under 2 KB) and
 NF-STACK-02 (no frame over 1 KB in Hadris code), or when the FAT logger's flash on thumbv7em grows past
-FLASH_CEILING. NF-FLASH-01 targets 20 KB; the ceiling only guards against
-growth until that is met.
+FLASH_CEILING. NF-FLASH-01's 20 KB target is a tracked goal, not a 3.0
+requirement (Q16); the ceiling only guards against growth.
 """
 
 import os
