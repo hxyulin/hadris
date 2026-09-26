@@ -243,7 +243,7 @@ Growing `FileSystem` has two more rules, both stated in the trait docs:
 
 ### R11. CI enforces it
 
-- `cargo semver-checks` on every PR against the latest 3.x release (after 3.0.0). Before a crate's 3.0.0 it runs against the PR's target branch, and a change that keeps the version must be a compatible minor change, release candidates included (step 14).
+- `cargo semver-checks` on every PR against the latest 3.x release (after 3.0.0). Before a crate's 3.0.0 it runs against the PR's target branch, and a change that keeps a released version must be a compatible minor change, release candidates included; a version not yet tagged may still break (step 14).
 - The public-API snapshot runs with all non-`unstable` features on, and a second run with them off must produce a subset. That proves R3.
 - A lint script rejects public enums without `#[non_exhaustive]` outside `raw`.
 - A sync/async parity check diffs the public item lists of the two modules and lists the intended differences (4.8).
@@ -1712,7 +1712,7 @@ into `next` per step, each leaving the workspace building and tested:
     - The release tooling and this entry.
 
     Decisions:
-    - semver-checks compares each library crate with its latest 3.x release tag, or with the PR's target branch before its 3.0.0, and a change that keeps the version must pass as a minor release. cargo-semver-checks otherwise assumes a major change between equal pre-release versions and checks nothing; a deliberate break during the release candidates bumps the crate to the next candidate in the same PR. `hadris-fs` joined the checked crates, and a crate missing from the baseline is skipped.
+    - semver-checks compares each library crate with its latest 3.x release tag, or with the PR's target branch before its 3.0.0, and a change that keeps the version must pass as a minor release. cargo-semver-checks otherwise assumes a major change between equal pre-release versions and checks nothing; a deliberate break during the release candidates bumps the crate to the next candidate in the same PR. A version that has no `<crate>-v<version>` tag yet may still break, since nothing depends on it, so the rule starts with the rc.1 release. `hadris-fs` joined the checked crates, and a crate missing from the baseline is skipped.
     - `hadris-fat-raw` stays at 0.1.0, as R4 and R12 say, while every other published crate, `hadris-cli` included, goes to `3.0.0-rc.1`.
     - Tags are `<crate>-v<version>`. `release.yml` takes `crates` (`all` or names) and `notes` (a joint CHANGELOG section, or per-crate `[<crate> <version>]` sections), plans with `scripts/release-plan.py`, verifies with `cargo +stable publish --dry-run` (which resolves unpublished workspace dependencies within the run), and in publish mode publishes in dependency order with `cargo +stable publish`, skipping versions already on crates.io, then tags, creates one GitHub release per tag (pre-releases for `-rc` versions, the umbrella marked latest) and rebuilds the site. It runs from `main` or `next`. `scripts/release-check.sh`, which assumed one workspace version, is gone.
     - The docs site versions itself from `vX.Y.Z` (2.x) and `hadris-vX.Y.Z` tags, so the umbrella's releases add site versions.
