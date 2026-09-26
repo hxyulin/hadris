@@ -148,6 +148,10 @@ impl<R, B: AsRef<[u8]>> Entry<'_, R, B> {
     }
 
     /// Header start, in bytes from the start of the supplied stream.
+    #[allow(
+        clippy::misnamed_getters,
+        reason = "entry offset is its header start, not the stream position"
+    )]
     pub fn offset(&self) -> u64 {
         self.reader.header_offset
     }
