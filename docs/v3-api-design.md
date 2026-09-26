@@ -1699,7 +1699,7 @@ into `next` per step, each leaving the workspace building and tested:
   - To stay inside NF-STACK-01 and NF-STACK-02, the raw exFAT boot region is read into a `BootSector` in place (the sync mount stack was 2424 bytes with the copy), and the sync `Fat`'s free-slot search is kept out of line (the inlined `create_entry` frame was 1104 bytes). The async API leaves inlining to the compiler, since an out-of-line async function returns its whole future into the caller.
 
   Not done:
-  - NF-FLASH-01: the FAT logger is 40 KB of flash on thumbv7em against the 20 KB target. The job only fails past a 44 KB ceiling, to catch growth. No single function dominates; the largest are `create_entry` (2.9 KB), `plan`, `recover`, `names::matches` and `find`, each under 1.7 KB.
+  - NF-FLASH-01: the FAT logger is 40 KB of flash on thumbv7em against the 20 KB target. Since Q16 the target is a tracked goal, not a 3.0 requirement; the job fails only past a 44 KB ceiling, to catch growth. No single function dominates; the largest are `create_entry` (2.9 KB), `plan`, `recover`, `names::matches` and `find`, each under 1.7 KB.
   - Embedded exFAT write and a FAT-or-exFAT type are 3.x (4.14, NF-NOALLOC-02).
   - Known limits from #199: a FAT12 entry that straddles two device blocks is written with two writes, as in `FatFs`, so a cut between them can tear it; an interrupted `rename` can leave both names.
   - NF-STACK-03, the shared tier's stack, is not measured by the job.
@@ -1841,3 +1841,15 @@ the rejected alternative.
 - FAT and exFAT have no `plan` in 3.0. It can be added in 3.x without a break.
 - `with_label` keeps taking a `VolumeLabel`, which implements `TryFrom<&str>`, so an invalid label fails where it is built.
 - `read_tree` of a single file names it as its directory lists it, at the cost of one directory scan. The FAT CLI's rename step is gone.
+
+**Q16. Firmware flash and the pinned nightly.** Resolved 2026-09-26 by the
+user:
+
+- The 20 KB flash target of NF-FLASH-01 is not a 3.0 requirement. It stays a
+  tracked goal for 3.x, and the `firmware-size` job keeps failing only when
+  the FAT logger on thumbv7em grows past its 44 KB ceiling. Shrinking the
+  embedded API is additive work that changes no public shape.
+- The `firmware-size` job's pinned nightly (for `-Z emit-stack-sizes`) is a
+  lasting dependency, like the pinned nightly of the public API snapshots.
+  It is bumped deliberately, together with any budget the new compiler
+  moves.
