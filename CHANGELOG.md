@@ -1030,6 +1030,9 @@ Each published package owns its version and may be released independently.
   section, and CONTRIBUTING runs the FAT conformance filter as CI does
   (`fat:: -- --skip exfat::`). `hadris-fs`, `hadris-io` and
   `hadris-storage` build their docs.rs pages with every mode.
+- **Tests:** Rock Ridge relocation extraction is also checked with
+  xorriso/libisofs alongside libarchive/bsdtar, with a user `rr_moved`
+  under preserved name case and a deep user tree inside `rr_moved`.
 - **Docs site:** The documentation site is versioned. It serves the newest
   released minor at the root, every earlier released minor under `/X.Y/`
   and the unreleased docs under `/next/`, with a version dropdown and
