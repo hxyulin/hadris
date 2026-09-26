@@ -28,7 +28,6 @@ part = ["dep:hadris-part"]
 iso = ["dep:hadris-iso"]
 udf = ["dep:hadris-udf"]
 cpio = ["dep:hadris-cpio"]
-archive = ["cpio"]
 # `detect`, `open` and `AnyFs` in `sync` and `async`, over every format
 # they recognize, and `host::open`.
 detect = ["fat", "iso", "udf", "cpio", "dep:hadris-fat-raw", "dep:hadris-macros"]

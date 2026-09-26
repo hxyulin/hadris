@@ -243,7 +243,7 @@ Growing `FileSystem` has two more rules, both stated in the trait docs:
 
 ### R11. CI enforces it
 
-- `cargo semver-checks` on every PR against the latest 3.x release (after 3.0.0). Before a crate's 3.0.0 it runs against the PR's target branch, and a change that keeps the version must be a compatible minor change, release candidates included (step 14).
+- `cargo semver-checks` on every PR against the latest 3.x release (after 3.0.0). Before a crate's 3.0.0 it runs against the PR's target branch, and a change that keeps a released version must be a compatible minor change, release candidates included; a version not yet tagged may still break (step 14).
 - The public-API snapshot runs with all non-`unstable` features on, and a second run with them off must produce a subset. That proves R3.
 - A lint script rejects public enums without `#[non_exhaustive]` outside `raw`.
 - A sync/async parity check diffs the public item lists of the two modules and lists the intended differences (4.8).
@@ -1359,8 +1359,8 @@ iso.info().id(IsoId::Volume);                  // the PVD bytes
 - `IsoReader` and `IsoImage` merge into `IsoFs`, which needs no allocator (NF-NOALLOC-03). It implements `FileSystem` with the write half left at its `ReadOnly` defaults. Node ids are record locations, so there is no node table.
 - A mount uses Rock Ridge, then Joliet, then the primary tree, unless mount options choose (DIR-LOOKUP-01). Listings show the highest version of a name without `;N`, and `lookup` accepts an explicit `;N` (DIR-LOOKUP-03).
 - ISO needs device blocks of at most 2048 bytes and refuses a 4096-byte device with `Unsupported` (IO-OPEN-01).
-- Extras: `info()` returns `iso::VolumeInfo` (`block_size`, `volume_space_size`, `id(IsoId)`, `date(IsoDate)`, returning bytes, since PVD bytes are often not ASCII). `boot_catalog(&mut buf) -> Option<BootCatalog<'b>>` parses the El Torito catalog lazily from the caller's buffer, with `CatalogEntry`, `Platform` and the builder's `Emulation`. `boot_image(&entry)` returns an `Extent`, read with `read_raw`. `iso::SystemArea` over caller bytes lists MBR, GPT and APM entries of a hybrid image (BOOT-HYB-05). `records(node)` plus `read_raw` replaces `view.raw_record(node)`.
-- `check(&mut dev, scratch, on_finding)` verifies an image offline with `iso::Detail` codes (CHECK-ISO-01). The CLI stops parsing boot records by hand.
+- Extras: `info()` returns `iso::VolumeInfo` (`block_size`, `volume_space_size`, `id(IsoId)`, `date(IsoDate)`, returning bytes, since PVD bytes are often not ASCII). `boot_catalog(&mut buf) -> Option<BootCatalog<'b>>` parses the El Torito catalog lazily from the caller's buffer, with `CatalogEntry`, `Platform` and the builder's `Emulation`. `boot_image(&entry)` returns an `Extent`, read with `read_raw`. `iso::SystemArea` over caller bytes, listing the MBR, GPT and APM entries of a hybrid image (BOOT-HYB-05), is 3.x. `records(node)` plus `read_raw` replaces `view.raw_record(node)`.
+- 3.x: `check(&mut dev, scratch, on_finding)` verifies an image offline with `iso::Detail` codes (CHECK-ISO-01), and the CLI stops parsing boot records by hand.
 - `IsoStr::as_str` returns `Result`. Panicking `best_choice` and `primary` are removed.
 - Raw record and FID iterators, the Rock Ridge decoder, d-character codecs and descriptor selection move to `hadris-iso-raw` in 3.x (4.15).
 
@@ -1387,7 +1387,7 @@ let report = iso::sync::write(&mut out, &tree, &opts)?;
 - `IsoOptions` has no clock parameter. `with_time` fixes every timestamp, and ids derive from the time plus the tree unless `with_seed` (4.10).
 - `ElTorito` holds `BootEntry` values (`bios`, `uefi`, `uefi_appended`, `with_load_size`, `with_boot_info(BootInfo::{Table, Grub2})`, `with_emulation`), each with an image given as a tree path or, for EFI, an appended partition, so the ESP is stored once for El Torito and GPT (BUILD-ESP-01). `BootSectionOptions` and the tuple list are removed.
 - `Hybrid` is a struct with constructors (`mbr`, `gpt`, `gpt_hybrid_mbr`) and `with_bootstrap` and `with_appended`, not an enum, so APM in 3.x is a new method. Soft boot problems are `WarningKind::Boot`; a bootstrap over 446 bytes or a load size past the image fails the plan.
-- `sector_size`, `with_charset` and `with_min_blocks` are removed; no 3.0 action needs them.
+- `sector_size` and `with_charset` are removed; no 3.0 action needs them. `with_min_blocks` stays: the bridge writer in `hadris-udf` sets it across the crate boundary.
 - The writer runs in both modes and without `std`. The output is a `BlockDevice`; a two-pass `write_stream` that needs only `Write` is 3.x.
 - `iso::Guid`, `SystemArea` and `TablePartition` belong in the partition crate's raw layer and move there (5.6).
 
@@ -1712,7 +1712,7 @@ into `next` per step, each leaving the workspace building and tested:
     - The release tooling and this entry.
 
     Decisions:
-    - semver-checks compares each library crate with its latest 3.x release tag, or with the PR's target branch before its 3.0.0, and a change that keeps the version must pass as a minor release. cargo-semver-checks otherwise assumes a major change between equal pre-release versions and checks nothing; a deliberate break during the release candidates bumps the crate to the next candidate in the same PR. `hadris-fs` joined the checked crates, and a crate missing from the baseline is skipped.
+    - semver-checks compares each library crate with its latest 3.x release tag, or with the PR's target branch before its 3.0.0, and a change that keeps the version must pass as a minor release. cargo-semver-checks otherwise assumes a major change between equal pre-release versions and checks nothing; a deliberate break during the release candidates bumps the crate to the next candidate in the same PR. A version that has no `<crate>-v<version>` tag yet may still break, since nothing depends on it, so the rule starts with the rc.1 release. `hadris-fs` joined the checked crates, and a crate missing from the baseline is skipped.
     - `hadris-fat-raw` stays at 0.1.0, as R4 and R12 say, while every other published crate, `hadris-cli` included, goes to `3.0.0-rc.1`.
     - Tags are `<crate>-v<version>`. `release.yml` takes `crates` (`all` or names) and `notes` (a joint CHANGELOG section, or per-crate `[<crate> <version>]` sections), plans with `scripts/release-plan.py`, verifies with `cargo +stable publish --dry-run` (which resolves unpublished workspace dependencies within the run), and in publish mode publishes in dependency order with `cargo +stable publish`, skipping versions already on crates.io, then tags, creates one GitHub release per tag (pre-releases for `-rc` versions, the umbrella marked latest) and rebuilds the site. It runs from `main` or `next`. `scripts/release-check.sh`, which assumed one workspace version, is gone.
     - The docs site versions itself from `vX.Y.Z` (2.x) and `hadris-vX.Y.Z` tags, so the umbrella's releases add site versions.

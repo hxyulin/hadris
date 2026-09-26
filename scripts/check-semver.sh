@@ -12,13 +12,15 @@
 # release (every crate before 3.0.0) is checked against the fallback
 # baseline instead, and skipped when it does not exist there.
 #
-# When the crate's version equals the baseline's, the change must be
-# compatible as a minor release: additions pass, breaking changes fail.
-# This also holds between 3.0.0 release candidates, where cargo-semver-checks
-# would otherwise assume a major change. A deliberate break bumps the
-# crate's version in the same change (the next release candidate, or the
-# next major after 3.0.0), and cargo-semver-checks then infers the allowed
-# change from the two versions.
+# When the crate's version equals the baseline's and that version is tagged
+# as released (`<crate>-v<version>`), the change must be compatible as a
+# minor release: additions pass, breaking changes fail. This also holds
+# between 3.0.0 release candidates, where cargo-semver-checks would otherwise
+# assume a major change. A deliberate break bumps the crate's version in the
+# same change (the next release candidate, or the next major after 3.0.0),
+# and cargo-semver-checks then infers the allowed change from the two
+# versions. A version that was never released may still break, since nothing
+# depends on it; the crate is skipped.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
@@ -97,6 +99,10 @@ for crate in "${crates[@]}"; do
   fi
   release_type=infer
   if [[ "$version" == "$baseline_version" ]]; then
+    if [[ -z "$(git tag --list "$crate-v$version")" ]]; then
+      echo "$crate $version: not released yet, breaking changes allowed, skipped"
+      continue
+    fi
     release_type=minor
   fi
   echo "$crate $version against $baseline ($baseline_version), release type $release_type"

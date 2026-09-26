@@ -17,7 +17,7 @@ include = ["src/**/*", "Cargo.toml", "README.md"]
 features = ["std", "sync", "async", "contract"]
 
 [features]
-default = []
+default = ["std", "sync"]
 alloc = ["hadris-io/alloc", "hadris-storage/alloc", "dep:async-lock", "dep:spin"]
 std = ["alloc", "hadris-io/std", "hadris-storage/std", "async-lock?/std", "dep:libc"]
 sync = ["hadris-io/sync", "dep:hadris-macros"]
