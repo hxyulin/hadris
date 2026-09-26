@@ -248,7 +248,18 @@ crates.io publication.
 3. Add a `[Unreleased]` note in [CHANGELOG.md](CHANGELOG.md) for user-visible work.
 4. Do not commit secrets or large binary fixtures unless they are intentional
    corpus seeds under `fuzz/corpus/`.
-5. PRs to `main` and `next` also run the report-only V3 guardrails in `.github/workflows/v3-guardrails.yml` (`scripts/check-semver.sh`, `scripts/check-non-exhaustive.py`, `scripts/check-v3-api.py subset|parity`); run them locally to see the findings.
+5. PRs to `main` and `next` also run the V3 guardrails in
+   `.github/workflows/v3-guardrails.yml`, and a finding fails the PR:
+   `scripts/check-non-exhaustive.py`, `scripts/check-v3-api.py subset` and
+   `scripts/check-v3-api.py parity` (under the pinned nightly of the public
+   API job), and `scripts/check-semver.sh`, which needs
+   `cargo +stable install cargo-semver-checks`.
+6. `scripts/check-semver.sh` checks each library crate against its latest
+   3.x release tag (`<crate>-vX.Y.Z`), or against the target branch before
+   the crate's 3.0.0. While the version is unchanged, a PR must be a
+   compatible minor change, release candidates included. A deliberate break
+   bumps the crate's version in the same PR: the next release candidate
+   (`3.0.0-rc.2`) before 3.0.0, the next major after it.
 
 ## Safety and fuzzing
 

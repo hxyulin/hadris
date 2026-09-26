@@ -1,7 +1,7 @@
 name: V3 guardrails
 
-# Stability rule checks from docs/v3-api-design.md (R11). Report-only until
-# 3.0.0-rc.1: every check step uses continue-on-error so findings never block a merge.
+# Stability rule checks from docs/v3-api-design.md (R11). Every check blocks
+# since 3.0.0-rc.1. scripts/check-semver.sh documents the semver baselines.
 
 on:
   push:
@@ -21,7 +21,7 @@ env:
 
 jobs:
   semver:
-    name: semver-checks against branch point
+    name: semver-checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -34,9 +34,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-semver-checks
         run: cargo +stable install cargo-semver-checks --locked
-      - name: Check semver against merge-base with main
-        continue-on-error: true
-        run: scripts/check-semver.sh origin/main
+      - name: Check semver against the latest release or the target branch
+        env:
+          BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'HEAD^' }}
+        run: scripts/check-semver.sh "$BASE_REF"
 
   non-exhaustive:
     name: non_exhaustive lint (R1)
@@ -46,7 +47,6 @@ jobs:
       - name: Self-test lint
         run: python3 scripts/check-non-exhaustive.py --self-test
       - name: Check public enums and structs
-        continue-on-error: true
         run: python3 scripts/check-non-exhaustive.py
 
   api-shape:
@@ -71,7 +71,6 @@ jobs:
       - name: Install cargo-public-api
         run: cargo install cargo-public-api --version 0.52.0 --locked
       - name: Run ${{ matrix.check }} check
-        continue-on-error: true
         env:
           RUSTUP_TOOLCHAIN: nightly-2026-09-04
         run: python3 scripts/check-v3-api.py ${{ matrix.check }}

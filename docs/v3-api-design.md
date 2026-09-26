@@ -243,7 +243,7 @@ Growing `FileSystem` has two more rules, both stated in the trait docs:
 
 ### R11. CI enforces it
 
-- `cargo semver-checks` on every PR against the latest 3.x release (after 3.0.0).
+- `cargo semver-checks` on every PR against the latest 3.x release (after 3.0.0). Before a crate's 3.0.0 it runs against the PR's target branch, and a change that keeps the version must be a compatible minor change, release candidates included (step 14).
 - The public-API snapshot runs with all non-`unstable` features on, and a second run with them off must produce a subset. That proves R3.
 - A lint script rejects public enums without `#[non_exhaustive]` outside `raw`.
 - A sync/async parity check diffs the public item lists of the two modules and lists the intended differences (4.8).
