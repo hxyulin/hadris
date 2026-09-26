@@ -35,7 +35,7 @@ with_alloc=(
   "hadris-udf:alloc,sync,async"
   "hadris-cpio:alloc,sync,async"
   "hadris-ntfs:alloc,sync,async"
-  "hadris:alloc,sync,async,write,detect,part,archive"
+  "hadris:alloc,sync,async,write,detect,part,cpio"
 )
 
 failed=0
