@@ -221,25 +221,58 @@ before returning. Summaries are written to `external-tools-accuracy.txt`,
 `macos-hdiutil-accuracy.txt`, or `native-<os>-accuracy.txt` under
 `tests/target/reports/iso/` even when a peer deviates from the specification.
 
-## Package versions
+## Package versions and releases
 
-Each package declares its own version in its `Cargo.toml`; the workspace does
-not impose a shared version. Update only the packages being released and keep
-their requirements in `[workspace.dependencies]` aligned.
+Each package declares its own version in its `Cargo.toml`, and
+`[workspace.dependencies]` holds the requirement every other crate uses.
+Every crate ships 3.0.0 together; after that each crate versions on its own
+(R12 in [`docs/v3-api-design.md`](docs/v3-api-design.md)). A crate bumps its
+major only for its own breaking changes, and the umbrella `hadris` bumps its
+major when a crate it re-exports does. `hadris-fat-raw` versions separately
+from 0.1.0. The examples are `publish = false`.
 
-When several unpublished versions depend on one another, publish in dependency
-order: `hadris-macros`/`hadris-io`/`hadris-fs`; then
-`hadris-common`/`hadris-storage`/`hadris-part`/`hadris-fat-raw`; then format crates; then
-the `hadris` umbrella and `hadris-cli`. Cargo
-validates dependent packages against crates.io, so each prerequisite version
-must be available before packaging the next layer.
+To release, bump the versions of the crates being released and of their
+requirements in `[workspace.dependencies]`, and add a dated
+`CHANGELOG.md` section for them, in a PR:
 
-The `Release` GitHub Actions workflow automates this ordering for coordinated
-workspace releases. Run it from `main` in `dry-run` mode first, then rerun it in
-`publish` mode. Publishing requires a `CARGO_REGISTRY_TOKEN` repository secret.
-The workflow derives the tag and GitHub release notes from the matching
-`CHANGELOG.md` section and can safely resume after a partially completed
-crates.io publication.
+- one crate: `## [hadris-fat 3.1.0] - 2026-10-01`, the default heading for
+  `<crate> <version>`;
+- a joint release: one section for all of them, such as
+  `## [3.0.0-rc.1] - 2026-10-01`, named with the workflow's `notes` input.
+
+After that PR merges, run the `Release` workflow (Actions, Run workflow) on
+`next`, or on `main` once 3.x lives there, first with `mode: dry-run` and
+then with `mode: publish`:
+
+- `crates`: `all`, or the crate names separated by spaces, such as
+  `hadris-fat hadris`. A crate's unreleased workspace dependencies must be in
+  the same run or already on crates.io.
+- `notes`: empty for per-crate sections, or the section title of a joint
+  release.
+
+`scripts/release-plan.py` checks the plan in both modes: the crates exist
+and are published, each version is a semantic version, the tag
+`<crate>-v<version>` does not name another commit, and the CHANGELOG
+section exists with a date. `dry-run` then runs fmt, check and tests, and
+packages and verifies every crate with `cargo +stable publish --dry-run`,
+which resolves unpublished workspace dependencies in the same run.
+`publish` also publishes with `cargo +stable publish`, in dependency order,
+skipping versions already on crates.io so a failed run can be rerun. It
+then creates and pushes the tags `<crate>-v<version>`, one GitHub release
+per tag (pre-releases for versions with a pre-release suffix; the umbrella
+`hadris` is marked latest), and rebuilds the documentation site, which
+versions itself from the `hadris-vX.Y.Z` tags. Never create release tags by
+hand. Publishing needs the `CARGO_REGISTRY_TOKEN` repository secret.
+
+Check a plan locally before opening the release PR:
+
+```bash
+scripts/release-plan.py --notes 3.0.0-rc.1 all
+scripts/release-plan.py hadris-fat hadris
+cargo +stable publish --dry-run -p hadris-fat -p hadris
+```
+
+The 2.x releases on `main` used one workspace version and `vX.Y.Z` tags.
 
 ## Pull requests
 

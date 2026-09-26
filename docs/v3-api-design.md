@@ -267,7 +267,7 @@ lockstep release.
   own signatures use ([Q13](#7-open-questions)).
 - No new wholesale re-export of one crate by another is added.
 
-Per-crate tags and the release workflow change in step 14.
+Each release is tagged `<crate>-v<version>`, and the release workflow publishes one crate or a set (step 14).
 
 ---
 
@@ -1704,7 +1704,25 @@ into `next` per step, each leaving the workspace building and tested:
   - Known limits from #199: a FAT12 entry that straddles two device blocks is written with two writes, as in `FatFs`, so a cut between them can tear it; an interrupted `rename` can leave both names.
   - NF-STACK-03, the shared tier's stack, is not measured by the job.
 
-14. **3.0.0-rc.1.** CI guardrails become blocking. Migration guide (`docs/hadris-3.0.0-migration.md`) with a V2 to V3 symbol table.
+14. **3.0.0-rc.1.** CI guardrails become blocking. Migration guide (`docs/hadris-3.0.0-migration.md`) with a V2 to V3 symbol table. Done in five PRs:
+    - #202: Q16.
+    - #203: `main` merged into `next`. The docs site versioning was already on `next`. The 2.x fixes (GPT CRCs with `write`, cpio and UDF CLI path traversal, reuse of a user `rr_moved` and unique relocated names) already hold in V3 in its own form, so the 2.x code was dropped and the relocation conformance scenarios were ported: xorriso beside bsdtar, a user `rr_moved` under `NameCase::Preserve`, and a deep user tree inside `rr_moved`.
+    - #204: the non_exhaustive lint, the API subset and parity checks and semver-checks lose `continue-on-error`. The public API snapshots and spec annotations in `rust.yml` already blocked.
+    - #205: every published crate at `3.0.0-rc.1` and the migration guide.
+    - The release tooling and this entry.
+
+    Decisions:
+    - semver-checks compares each library crate with its latest 3.x release tag, or with the PR's target branch before its 3.0.0, and a change that keeps the version must pass as a minor release. cargo-semver-checks otherwise assumes a major change between equal pre-release versions and checks nothing; a deliberate break during the release candidates bumps the crate to the next candidate in the same PR. `hadris-fs` joined the checked crates, and a crate missing from the baseline is skipped.
+    - `hadris-fat-raw` stays at 0.1.0, as R4 and R12 say, while every other published crate, `hadris-cli` included, goes to `3.0.0-rc.1`.
+    - Tags are `<crate>-v<version>`. `release.yml` takes `crates` (`all` or names) and `notes` (a joint CHANGELOG section, or per-crate `[<crate> <version>]` sections), plans with `scripts/release-plan.py`, verifies with `cargo +stable publish --dry-run` (which resolves unpublished workspace dependencies within the run), and in publish mode publishes in dependency order with `cargo +stable publish`, skipping versions already on crates.io, then tags, creates one GitHub release per tag (pre-releases for `-rc` versions, the umbrella marked latest) and rebuilds the site. It runs from `main` or `next`. `scripts/release-check.sh`, which assumed one workspace version, is gone.
+    - The docs site versions itself from `vX.Y.Z` (2.x) and `hadris-vX.Y.Z` tags, so the umbrella's releases add site versions.
+    - The CHANGELOG heading is `[3.0.0-rc.1] - Unreleased` until the release PR dates it.
+
+    Not done:
+    - The guardrail jobs are not required checks: `next` has no branch protection, and the `main` ruleset requires Check, Test (ubuntu-latest), Format and Clippy. Adding them is a repository setting.
+    - The CHANGELOG's 3.0.0-rc.1 section still lists intermediate steps (`FsDriver`, `NodeTable`, `hadris-block`) that later steps replaced; the migration guide is the accurate summary.
+    - Crate README and website links to the migration guide point at `next` until the merge into `main`.
+    - The migration guide's snippets are not compiled.
 
 `hadris-vfs` and the 3.x feature items follow 3.0.0.
 
