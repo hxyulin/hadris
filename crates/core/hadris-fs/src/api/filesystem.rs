@@ -47,9 +47,21 @@ io_transform! {
 /// - `read` is short at the end of a file and returns zeros for unwritten
 ///   ranges; `write` past the end fills the gap with zeros. `rename` keeps
 ///   the moved node's id.
-/// - Reads never change times. A failed call changes nothing, in memory or
-///   on disk. In the async mode a call whose future is dropped before it
-///   completes leaves no pin.
+/// - Reads never change times. Drivers validate arguments and known
+///   read-only or unsupported operations before mutation. These preflight
+///   rejections leave logical contents and metadata unchanged.
+/// - Mutation is not transactional. An I/O failure, a device becoming
+///   read-only, or cancellation after mutation starts may leave partial
+///   changes in memory and on disk. An error kind alone does not establish
+///   whether mutation started; rollback is not guaranteed. A driver may
+///   also enter read-only mode after a device refusal.
+/// - `write` reports confirmed progress only through `Ok(n)`. An `Err`
+///   carries no byte count and must not be treated as proof that no bytes
+///   were written. Durability still requires `fsync` or `sync`.
+/// - In the async mode a call whose future is dropped before it completes
+///   leaves no newly acquired pin. This resource guarantee does not imply
+///   rollback of filesystem changes. Compound helpers may have completed
+///   earlier operations before a later one fails.
 ///
 /// # Adding methods
 ///
@@ -120,6 +132,10 @@ pub trait FileSystem {
     }
 
     /// Writes to an open file at `offset`, growing it as needed.
+    ///
+    /// `Ok(n)` reports bytes written; a short write is allowed. On `Err`,
+    /// data or metadata may already have changed and progress is unknown.
+    /// Retrying the whole request is not guaranteed to be safe.
     async fn write(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, Self::DeviceError> {
         let _ = (node, offset, buf);
         Err(ErrorKind::ReadOnly.into())

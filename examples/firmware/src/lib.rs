@@ -11,7 +11,7 @@
 use core::hint::black_box;
 use core::ops::ControlFlow;
 
-use hadris_fat::embedded::Options;
+use hadris_fat::embedded::{MountToken, Options};
 use hadris_fs::{DirCursor, MountError, OpenOptions};
 use hadris_io::{Error, ErrorType};
 use hadris_storage::{BlockIndex, BlockSize};
@@ -92,16 +92,18 @@ pub mod sync {
     #[inline(never)]
     pub fn mount_fat<D: BlockDevice>(
         dev: D,
+        token: &mut MountToken,
         options: Options,
-    ) -> Result<Fat<D>, MountError<D, D::Error>> {
-        Fat::mount_with(dev, options)
+    ) -> Result<Fat<'_, D>, MountError<D, D::Error>> {
+        Fat::mount_with(dev, token, options)
     }
 
     /// A data logger: appends a line to a short-named file, lists the
     /// directory and reads the file back, then unmounts.
     #[inline(never)]
     pub fn log<D: BlockDevice>(dev: D, options: Options) -> Option<D> {
-        let mut fat = mount_fat(dev, options).ok()?;
+        let mut token = MountToken::new();
+        let mut fat = mount_fat(dev, &mut token, options).ok()?;
         let root = fat.root();
         let logs = match fat.open_dir(root, "LOGS") {
             Ok(dir) => dir,
@@ -134,7 +136,8 @@ pub mod sync {
     /// rename and recursive removal, then unmounts.
     #[inline(never)]
     pub fn fat<D: BlockDevice>(dev: D, options: Options) -> Option<D> {
-        let mut fat = mount_fat(dev, options).ok()?;
+        let mut token = MountToken::new();
+        let mut fat = mount_fat(dev, &mut token, options).ok()?;
         let root = fat.root();
         let logs = fat.create_dir_all(root, "data/logs").ok()?;
         let log = fat
@@ -164,15 +167,19 @@ pub mod sync {
 
     /// Mounts an exFAT volume, as `mount_fat` does.
     #[inline(never)]
-    pub fn mount_exfat<D: BlockDevice>(dev: D) -> Result<ExFat<D>, MountError<D, D::Error>> {
-        ExFat::mount(dev)
+    pub fn mount_exfat<D: BlockDevice>(
+        dev: D,
+        token: &mut MountToken,
+    ) -> Result<ExFat<'_, D>, MountError<D, D::Error>> {
+        ExFat::mount(dev, token)
     }
 
     /// Reads the label and free space, lists the root and reads a file
     /// when it is there, then unmounts.
     #[inline(never)]
     pub fn exfat<D: BlockDevice>(dev: D) -> Option<D> {
-        let mut exfat = mount_exfat(dev).ok()?;
+        let mut token = MountToken::new();
+        let mut exfat = mount_exfat(dev, &mut token).ok()?;
         let mut label = [0u8; 44];
         let label = exfat.label(&mut label).ok()?;
         let free = exfat.stats().ok()?.free_blocks();
@@ -209,15 +216,17 @@ pub mod local {
     #[inline(never)]
     pub async fn mount_fat<D: BlockDevice>(
         dev: D,
+        token: &mut MountToken,
         options: Options,
-    ) -> Result<Fat<D>, MountError<D, D::Error>> {
-        Fat::mount_with(dev, options).await
+    ) -> Result<Fat<'_, D>, MountError<D, D::Error>> {
+        Fat::mount_with(dev, token, options).await
     }
 
     /// The sync `fat` session, awaited.
     #[inline(never)]
     pub async fn fat<D: BlockDevice>(dev: D, options: Options) -> Option<D> {
-        let mut fat = mount_fat(dev, options).await.ok()?;
+        let mut token = MountToken::new();
+        let mut fat = mount_fat(dev, &mut token, options).await.ok()?;
         let root = fat.root();
         let logs = fat.create_dir_all(root, "data/logs").await.ok()?;
         let log = fat

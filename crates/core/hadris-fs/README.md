@@ -24,7 +24,7 @@ The vocabulary is mode-independent and performs no I/O:
   are refused. `Content` is opaque and cloneable, with its length fixed
   when it is made: bytes, a host file (`host::file`), a file of a mounted
   volume read lazily by `read_tree`, or extents already on the device a
-  session updates
+  session updates, constructed with fallible `Content::stored(extents)`
 - `Report`, `Warning` and `WarningKind` (`alloc`): what every writer,
   planner and `copy_tree` returns: the output size, what it could not
   store as the tree asks, and the extents of each file
@@ -70,6 +70,20 @@ let mut log = vol.open("/log.txt", OpenOptions::new().write().create().append())
 
 `r#async` has the same API with `Send` futures, so generic code over
 `F: FileSystem + 'static` can spawn on multi-threaded executors.
+
+## Write failures
+
+Filesystem mutations are not transactions. Invalid arguments and known
+read-only or unsupported requests are rejected before mutation. Once writing
+starts, I/O failure, changing device write protection, or cancellation can
+leave partial data or metadata changes. The error kind does not tell you
+whether writing started, and rollback is not guaranteed.
+
+`write` returns confirmed progress as `Ok(n)`. An error has no reliable byte
+count; do not assume zero bytes changed or blindly retry the whole request.
+`fsync` or `sync` is still required for durability. Compound operations may
+complete earlier steps before a later step fails. Cancellation cleanup of
+node pins is a separate resource ownership requirement.
 
 ## Example
 

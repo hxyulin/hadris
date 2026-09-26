@@ -497,7 +497,10 @@ tree.insert("latest", Node::symlink("README.TXT"))?;
   permissions, owner, times and DOS attributes.
 - `Content` is `Content::bytes(..)`, `Content::empty()`, a host file from
   `hadris_fs::host::file(path)`, or content read lazily from a mounted volume
-  by `read_tree`.
+  by `read_tree`. `Content::stored(extents)?` represents bytes already on the
+  device used by a session or bridge. It is fallible: device-end/total-length
+  overflow is `InvalidInput`, unwritten extents are `Unsupported`. Extents
+  concatenate in supplied order; their file offsets are ignored.
 - `hadris_fs::host::read_tree(dir, &TreeOptions)` builds a tree from a host
   directory and returns the errors it skipped; `TreeOptions` sets the symlink
   policy (`Symlinks`), the error policy (`OnError`), an exclude filter, an
@@ -583,6 +586,14 @@ Option reshape:
 | `IsoImageWriter::create_with_allocation_floor` | `IsoOptions::with_min_blocks` |
 | `estimator::estimate`, `estimate_tree` | `hadris_iso::plan(&tree, &options)?.size()` |
 | `IsoModifier` with `ModifyOp` | `hadris_iso::sync::Session::open(dev)`, `tree_mut()`, `write(&options, SessionMode::{Append, Rewrite})` |
+
+To remaster an edited session to a new device, call
+`session.export(out, &options)?`. It streams original stored file extents from
+the session device with bounded memory and reads new content normally.
+`write(out, session.tree(), &options)` cannot read the original device and
+still rejects stored content. The output must not alias the source. Choose
+boot and partition settings explicitly for the new image; export does not
+automatically preserve the original boot catalog or partition tables.
 
 Bootable and hybrid images: [Create an ISO](../website/docs/creation/iso.md).
 
@@ -837,6 +848,20 @@ Other changes:
   `Gpt::damaged_copy()` says which one; `write` repairs it.
 - Block sizes must be powers of two of at least 512 bytes.
 
+### Failed mutations
+
+`FileSystem` mutations are not transactions. Drivers validate arguments and
+known read-only or unsupported requests before mutation; those rejections
+leave logical contents and metadata unchanged. Once mutation starts, device
+errors, changing write protection and cancellation may leave partial changes.
+An error kind alone does not establish whether anything changed.
+
+`write` reports confirmed progress as `Ok(n)`. `Err` has no reliable byte count
+and does not mean zero bytes were written; blindly retrying can be incorrect.
+`fsync`/`sync` are still required for durability. Compound helpers may have
+completed earlier steps before a later step fails. Node-pin cleanup on async
+cancellation is a separate requirement and does not imply rollback.
+
 ## Embedded API
 
 V2 firmware ran `FatVolume` without `alloc`. In V3 `FatFs` and `ExFatFs`
@@ -845,16 +870,17 @@ separate, handle-based API built on `hadris-fat-raw`:
 
 | Type | Does |
 |---|---|
-| `hadris_fat::embedded::{sync, r#async}::Fat<D, const FILES: usize = 4>` | FAT12/16/32 read and write |
-| `hadris_fat::exfat::embedded::{sync, r#async}::ExFat<D, const FILES: usize = 4>` | exFAT read only |
-| `hadris_fat::embedded::{Dir, File, Entry, Node, Options}` | Shared handles and options (`exfat::embedded` has its own `Dir`, `Entry`, `Node`) |
+| `hadris_fat::embedded::{sync, r#async}::Fat<'mount, D, const FILES: usize = 4>` | FAT12/16/32 read and write |
+| `hadris_fat::exfat::embedded::{sync, r#async}::ExFat<'mount, D, const FILES: usize = 4>` | exFAT read only |
+| `hadris_fat::embedded::{MountToken, Dir, File, Entry, Node, Options}` | Shared handles and options (`exfat::embedded` has its own `Dir`, `Entry`, `Node`) |
 
 ```rust
 // 3.0 (website/docs/guides/embedded.md)
-use hadris_fat::embedded::{Options, sync::Fat};
+use hadris_fat::embedded::{MountToken, Options, sync::Fat};
 use hadris_fs::{DirCursor, OpenOptions};
 
-let mut fat: Fat<_> = Fat::mount_with(card, Options::new())?;
+let mut token = MountToken::new();
+let mut fat: Fat<'_, _> = Fat::mount_with(card, &mut token, Options::new())?;
 let logs = fat.create_dir_all(fat.root(), "data/logs")?;
 let log = fat.open(logs, "boot.txt", OpenOptions::new().write().create().append())?;
 fat.write(&log, b"booted\n")?;
@@ -869,8 +895,11 @@ let card = fat.unmount()?;
   `with_code_page`, `read_only` and `with_fold`. Names fold ASCII case by
   default; `with_fold(hadris_fat_raw::fold_unicode)` compares as `FatFs`
   does.
-- A `File` is a slot index consumed by `close`; a stale handle fails with
-  `InvalidHandle`. `list(dir, cursor, callback)` lends each `Entry`.
+- Each mount requires its own `MountToken`, passed by exclusive borrow.
+  `File<'mount>` retains that identity even after unmount; Rust prevents reusing
+  the token while such a file can still be used. A foreign handle returns
+  `InvalidHandle`. `close` consumes a file; `list(dir, cursor, callback)` lends
+  each `Entry`. Mounts and files remain allocation-free and need no atomics.
 - `format` and `check` in `hadris_fat::sync` and `hadris_fat::exfat::sync`
   need no allocator and work with this API.
 
@@ -1363,7 +1392,7 @@ Writing:
 | `boot::options::{BootEntryOptions, BootSectionOptions}` | `hadris_iso::BootEntry` (`bios`, `uefi`, `uefi_appended`, `with_load_size`, `with_emulation`, `with_platform`, `with_load_segment`, `with_boot_info(BootInfo)`) |
 | `write::estimator::{estimate, estimate_tree, IsoSizeEstimate, SizeBreakdown}` | `hadris_iso::plan(&tree, &options)?.size()` |
 | `write::writer::{DirectoryId, WrittenDirectory, WrittenFile, WrittenFiles}` | `hadris_fs::Report` (`extents(path)`, `files()`) |
-| `modify::IsoModifier` | `hadris_iso::sync::Session` (`open`, `tree_mut`, `write`, `into_inner`) |
+| `modify::IsoModifier` | `hadris_iso::sync::Session` (`open`, `tree_mut`, `write`, `export`, `into_inner`) |
 | `modify::ModifyOp`, `modify::FileData` | `Tree` edits on `Session::tree_mut()` (`insert`, `replace`, `remove`), `Content` |
 | `modify::{IsoModifyError, Error, Result}` | `hadris_fs::PathError` |
 | (new) | `IsoId`, `IsoDate`, `Relocation`, `Preserve`, `AppendedPartition`, `SessionMode`, `Detail` |

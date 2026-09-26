@@ -334,3 +334,187 @@ fn async_sessions_match_sync_ones() {
         assert_eq!(session.into_inner().into_inner(), expected);
     });
 }
+
+struct ReadBounded(MemDevice<Vec<u8>>);
+
+impl hadris_io::ErrorType for ReadBounded {
+    type Error = core::convert::Infallible;
+}
+
+impl hadris_storage::sync::BlockDevice for ReadBounded {
+    fn block_size(&self) -> hadris_storage::BlockSize {
+        common::SECTOR
+    }
+
+    fn block_count(&self) -> u64 {
+        self.0.get_ref().len() as u64 / 2048
+    }
+
+    fn read_blocks(
+        &mut self,
+        first: hadris_storage::BlockIndex,
+        buf: &mut [u8],
+    ) -> Result<(), hadris_io::Error<Self::Error>> {
+        assert!(buf.len() <= 64 * 1024, "export must stream file content");
+        hadris_storage::sync::BlockDevice::read_blocks(&mut self.0, first, buf)
+    }
+}
+
+#[test]
+fn export_streams_edited_tree_to_independent_geometry() {
+    use hadris_fs::{Extent, Tree};
+    use hadris_storage::BlockSize;
+
+    let opts = IsoOptions::new().with_rock_ridge();
+    let payload = pattern(200_003);
+    let mut tree = Tree::new();
+    tree.insert("large.bin", Node::file(Content::bytes(payload.clone())))
+        .unwrap();
+    tree.insert("empty", Node::file(Content::empty())).unwrap();
+    tree.insert("removed", Node::file(Content::bytes("gone")))
+        .unwrap();
+    tree.insert("changed", Node::file(Content::bytes("before")))
+        .unwrap();
+    let original = image(&tree, &opts).into_inner();
+    let mut session = Session::open(ReadBounded(MemDevice::new(
+        original.clone(),
+        common::SECTOR,
+    )))
+    .unwrap();
+    let start = session
+        .tree()
+        .get("large.bin")
+        .unwrap()
+        .content()
+        .unwrap()
+        .stored_extents()
+        .unwrap()[0]
+        .offset();
+    session
+        .tree_mut()
+        .insert(
+            "pieces",
+            Node::file(
+                Content::stored(vec![
+                    Extent::new(start + 2047, 70_001),
+                    Extent::new(start + 100_003, 87_001),
+                ])
+                .unwrap(),
+            ),
+        )
+        .unwrap();
+    session.tree_mut().link("large.bin", "hardlink").unwrap();
+    session.tree_mut().remove("removed").unwrap();
+    session
+        .tree_mut()
+        .replace("changed", Node::file(Content::bytes("after")))
+        .unwrap();
+    session
+        .tree_mut()
+        .insert("added", Node::file(Content::bytes("new")))
+        .unwrap();
+    let mut out = MemDevice::new(vec![0; 1 << 20], BlockSize::new(512).unwrap());
+    let report = session.export(&mut out, &opts).unwrap();
+    assert_eq!(report.extents("large.bin"), report.extents("hardlink"));
+    let mut iso = IsoFs::mount(out, MountOptions::new()).unwrap();
+    assert_eq!(iso.read_to_vec("/large.bin").unwrap(), payload);
+    assert_eq!(iso.read_to_vec("/hardlink").unwrap(), payload);
+    assert_eq!(
+        iso.read_to_vec("/pieces").unwrap(),
+        [&payload[2047..72_048], &payload[100_003..187_004]].concat()
+    );
+    assert_eq!(iso.read_to_vec("/empty").unwrap(), b"");
+    assert_eq!(iso.read_to_vec("/changed").unwrap(), b"after");
+    assert_eq!(iso.read_to_vec("/added").unwrap(), b"new");
+    assert!(!iso.exists("/removed").unwrap());
+    assert_eq!(
+        session
+            .tree()
+            .get("large.bin")
+            .unwrap()
+            .content()
+            .unwrap()
+            .stored_extents()
+            .unwrap()[0]
+            .offset(),
+        start
+    );
+    let mut second = MemDevice::new(vec![0; 1 << 20], common::SECTOR);
+    session.export(&mut second, &opts).unwrap();
+    assert_eq!(session.into_inner().0.into_inner(), original);
+}
+
+#[test]
+fn export_rejects_outside_source_before_writing() {
+    use hadris_fs::{ErrorKind, Extent, Tree};
+
+    let opts = IsoOptions::new();
+    let dev = image(&Tree::new(), &opts);
+    let end = dev.get_ref().len() as u64;
+    let mut session = Session::open(dev).unwrap();
+    session
+        .tree_mut()
+        .insert(
+            "outside",
+            Node::file(Content::stored(vec![Extent::new(end - 1, 2)]).unwrap()),
+        )
+        .unwrap();
+    let initial = vec![0xA5; 1 << 20];
+    let mut out = MemDevice::new(initial.clone(), common::SECTOR);
+    let err = session.export(&mut out, &opts).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Corrupt);
+    assert!(err.path().is_some());
+    assert_eq!(out.into_inner(), initial);
+}
+
+#[test]
+fn async_export_matches_sync() {
+    let opts = IsoOptions::new().with_rock_ridge();
+    let tree = sample(false, true);
+    let original = image(&tree, &opts).into_inner();
+    let mut session = Session::open(MemDevice::new(original.clone(), common::SECTOR)).unwrap();
+    session
+        .tree_mut()
+        .insert("added", Node::file(Content::bytes("new")))
+        .unwrap();
+    let mut expected = MemDevice::new(vec![0; 1 << 20], common::SECTOR);
+    session.export(&mut expected, &opts).unwrap();
+    common::block_on(async {
+        let mut session =
+            hadris_iso::r#async::Session::open(MemDevice::new(original, common::SECTOR))
+                .await
+                .unwrap();
+        session
+            .tree_mut()
+            .insert("added", Node::file(Content::bytes("new")))
+            .unwrap();
+        let mut out = MemDevice::new(vec![0; 1 << 20], common::SECTOR);
+        session.export(&mut out, &opts).await.unwrap();
+        assert_eq!(out.into_inner(), expected.into_inner());
+    });
+}
+
+#[test]
+fn export_rebuilds_explicit_boot_info_from_stored_content() {
+    let tree = sample(false, false);
+    let initial_opts = IsoOptions::new().with_rock_ridge();
+    let mut session = Session::open(image(&tree, &initial_opts)).unwrap();
+    let opts = initial_opts.with_el_torito(
+        ElTorito::new()
+            .with_entry(BootEntry::bios("boot/boot.img").with_boot_info(BootInfo::Grub2)),
+    );
+    let mut out = MemDevice::new(vec![0; 1 << 20], common::SECTOR);
+    let report = session.export(&mut out, &opts).unwrap();
+    let offset = report.extents("boot/boot.img").unwrap()[0].offset();
+    let mut iso = IsoFs::mount(out, MountOptions::new()).unwrap();
+    assert!(iso.catalog().unwrap().is_some());
+    let bytes = iso.read_to_vec("/boot/boot.img").unwrap();
+    let word = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+    assert_eq!(word(12), (offset / 2048) as u32);
+    assert_eq!(word(16), 4096);
+    assert_eq!(
+        word(20),
+        (0..(4096 - 64) / 4).fold(0u32, |sum, _| sum.wrapping_add(0x9090_9090))
+    );
+    assert_eq!(&bytes[64..], &[0x90; 4096 - 64]);
+}

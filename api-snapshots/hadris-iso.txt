@@ -34,6 +34,7 @@ pub async fn hadris_iso::async::IsoFs<D>::stat(&mut self, hadris_fs::node::NodeI
 pub async fn hadris_iso::async::IsoFs<D>::statfs(&mut self) -> hadris_io::fs_error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
 pub struct hadris_iso::async::Session<D>
 impl<D: hadris_storage::async::api::BlockDevice> hadris_iso::async::Session<D>
+pub async fn hadris_iso::async::Session<D>::export<O: hadris_storage::async::api::BlockDevice>(&mut self, O, &hadris_iso::IsoOptions) -> core::result::Result<hadris_fs::report::Report, hadris_fs::error::PathError>
 pub fn hadris_iso::async::Session<D>::into_inner(self) -> D
 pub async fn hadris_iso::async::Session<D>::open(D) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
 pub fn hadris_iso::async::Session<D>::options(&self) -> hadris_iso::IsoOptions
@@ -798,6 +799,7 @@ pub fn hadris_iso::sync::IsoFs<D>::stat(&mut self, hadris_fs::node::NodeId) -> h
 pub fn hadris_iso::sync::IsoFs<D>::statfs(&mut self) -> hadris_io::fs_error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
 pub struct hadris_iso::sync::Session<D>
 impl<D: hadris_storage::sync::api::BlockDevice> hadris_iso::sync::Session<D>
+pub fn hadris_iso::sync::Session<D>::export<O: hadris_storage::sync::api::BlockDevice>(&mut self, O, &hadris_iso::IsoOptions) -> core::result::Result<hadris_fs::report::Report, hadris_fs::error::PathError>
 pub fn hadris_iso::sync::Session<D>::into_inner(self) -> D
 pub fn hadris_iso::sync::Session<D>::open(D) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
 pub fn hadris_iso::sync::Session<D>::options(&self) -> hadris_iso::IsoOptions

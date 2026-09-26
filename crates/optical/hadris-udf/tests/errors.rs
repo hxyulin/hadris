@@ -276,7 +276,7 @@ fn the_writer_refuses_what_it_cannot_store() {
     stored
         .insert(
             "f",
-            Node::file(Content::stored([Extent::new(2048 * 400, 10)])),
+            Node::file(Content::stored([Extent::new(2048 * 400, 10)]).unwrap()),
         )
         .unwrap();
     let err = hadris_udf::plan(&stored, &UdfOptions::default()).unwrap_err();

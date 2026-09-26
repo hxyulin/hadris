@@ -62,6 +62,7 @@ fn stored(tree: &Tree, iso: &Report) -> Result<(Tree, u64), PathError> {
                                 end = end.max(extent.end().div_ceil(SECTOR as u64));
                             }
                             Content::stored(extents.to_vec())
+                                .map_err(|error| error.with_path(&path))?
                         }
                         None if content.is_empty() => Content::empty(),
                         None => {

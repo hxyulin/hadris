@@ -258,7 +258,7 @@ hadris-fat = { version = "3.0.0-rc.1", default-features = false, features = ["sy
 Without `alloc` this gives the embedded API, `check` and the raw layer;
 add `write` for `format`, and `alloc` for `FatFs` and `ExFatFs`.
 
-`hadris_fat::embedded::sync::Fat<D, const FILES: usize = 4>` and its
+`hadris_fat::embedded::sync::Fat<'mount, D, const FILES: usize = 4>` and its
 `embedded::r#async` twin are a handle-based driver for firmware. They are
 built on the raw layer and need no allocator: one 512-byte block buffer,
 the geometry, the options and `FILES` file slots, under 1 KiB with four
@@ -271,10 +271,11 @@ takes a `hadris_storage::local::BlockDevice`, whose futures need not be
 `Send`. The device's blocks must be 512 bytes.
 
 ```rust,ignore
-use hadris_fat::embedded::sync::Fat;
+use hadris_fat::embedded::{MountToken, sync::Fat};
 use hadris_fs::OpenOptions;
 
-let mut fat: Fat<_> = Fat::mount(sd_card)?;
+let mut token = MountToken::new();
+let mut fat: Fat<_> = Fat::mount(sd_card, &mut token)?;
 let logs = fat.create_dir_all(fat.root(), "data/logs")?;
 let log = fat.open(logs, "boot.txt", OpenOptions::new().write().create().append())?;
 fat.write(&log, b"booted\n")?;
@@ -289,7 +290,7 @@ call or `sync` on the same `Fat` frees them.
 The guide [Use FAT and exFAT on a microcontroller](https://hxyulin.github.io/hadris/guides/embedded)
 has the measured flash and stack on `thumbv6m`, `thumbv7em` and `riscv32imc`.
 
-`hadris_fat::exfat::embedded::sync::ExFat<D, const FILES: usize = 4>` and
+`hadris_fat::exfat::embedded::sync::ExFat<'mount, D, const FILES: usize = 4>` and
 its `r#async` twin read exFAT volumes, such as SDXC cards, the same way:
 one 512-byte block buffer and `FILES` file slots, with `open_dir`, `list`,
 `open`, `open_node`, `read`, `seek`, `close`, `metadata`, `label` and

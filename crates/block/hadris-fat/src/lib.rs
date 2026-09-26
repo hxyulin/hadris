@@ -66,7 +66,7 @@
 //!
 //! ## Firmware: the embedded API
 //!
-//! [`embedded`] holds `Fat<D, const FILES: usize = 4>`, a handle-based
+//! [`embedded`] holds `Fat<'mount, D, const FILES: usize = 4>`, a handle-based
 //! FAT12/16/32 driver for firmware without an allocator, in
 //! `embedded::sync` and `embedded::r#async` (over a `local::BlockDevice`,
 //! whose futures need not be `Send`). It is built on the raw layer, not on
@@ -80,14 +80,15 @@
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use core::ops::ControlFlow;
 //!
-//! use hadris_fat::embedded::sync::Fat;
+//! use hadris_fat::embedded::{MountToken, sync::Fat};
 //! use hadris_fat::{FatOptions, sync::format};
 //! use hadris_fs::{DirCursor, OpenOptions};
 //! use hadris_storage::{BlockSize, MemDevice};
 //!
 //! let mut dev = MemDevice::new(vec![0u8; 4 << 20], BlockSize::new(512).unwrap());
 //! format(&mut dev, &FatOptions::new())?;
-//! let mut fat: Fat<_> = Fat::mount(dev)?;
+//! let mut token = MountToken::new();
+//! let mut fat: Fat<_> = Fat::mount(dev, &mut token)?;
 //! let logs = fat.create_dir_all(fat.root(), "data/logs")?;
 //! let log = fat.open(logs, "boot.txt", OpenOptions::new().write().create().append())?;
 //! fat.write(&log, b"booted\n")?;

@@ -34,10 +34,11 @@ maps `read_blocks` and `write_blocks` onto its block commands.
 
 ```rust,ignore
 use core::ops::ControlFlow;
-use hadris_fat::embedded::{Options, sync::Fat};
+use hadris_fat::embedded::{MountToken, Options, sync::Fat};
 use hadris_fs::{DirCursor, OpenOptions};
 
-let mut fat: Fat<_> = Fat::mount_with(card, Options::new())?;
+let mut token = MountToken::new();
+let mut fat: Fat<_> = Fat::mount_with(card, &mut token, Options::new())?;
 let root = fat.root();
 let logs = fat.create_dir_all(root, "data/logs")?;
 let log = fat.open(logs, "boot.txt", OpenOptions::new().write().create().append())?;
@@ -52,8 +53,10 @@ let card = fat.unmount()?;
 
 - A `Dir` is a `Copy` handle. Names are passed one component per call;
   `create_dir_all` is the one method that takes a path.
-- A `File` is a slot index that `close` consumes. `Fat<D, FILES>` has
-  `FILES` slots, 4 by default. A dropped `File` keeps its slot until
+- A `File` is a slot index that `close` consumes. `Fat<'mount, D, FILES>` has
+  `FILES` slots, 4 by default. A separate `MountToken` identifies each mount and stays borrowed while the
+  volume or any of its files remain usable. Foreign files fail with
+  `InvalidHandle`, even for identical images. A dropped `File` keeps its slot until
   `unmount`, so close files you are done with.
 - `list` lends each entry to a callback, so no name is kept in the driver.
   `Entry::node` with `open_node` opens a listed file without a second
@@ -66,7 +69,7 @@ Names fold ASCII case by default, so no Unicode case tables are linked.
 `Options::new().with_fold(hadris_fat_raw::fold_unicode)` compares names as
 Windows and `FatFs` do, for about 2 KB of flash.
 
-`ExFat::mount(dev)` works the same way for reading: `open_dir`, `list`,
+`ExFat::mount(dev, &mut token)` works the same way for reading: `open_dir`, `list`,
 `open`, `open_node`, `read`, `seek`, `close`, `metadata`, `label` and
 `stats`. It never writes. It is a separate type, so FAT-only firmware does
 not link it.
@@ -96,30 +99,30 @@ them with `scripts/firmware-size.py` at `opt-level = "s"` with fat LTO:
 - `exfat`: the exFAT reader. It reads the label and free space, lists the
   root and reads a file.
 
-Measured on 2026-09-25 with `nightly-2026-09-04`. Sizes are in bytes and
+Measured on 2026-09-26 with `nightly-2026-09-04`. Sizes are in bytes and
 exclude the device driver:
 
 | Target | Session | Flash | Driver state | Mount stack | Worst stack |
 |---|---|---|---|---|---|
-| thumbv6m-none-eabi (Cortex-M0+) | fat-log | 40388 | 936 | 1944 | 4568 |
-| | fat | 45236 | 936 | 1944 | 4552 |
-| | fat-unicode | 47308 | 936 | 1944 | 4552 |
-| | fat-async | 68344 | 936 | - | 11376 |
-| | exfat | 13704 | 1016 | 1936 | 4416 |
-| thumbv7em-none-eabihf (Cortex-M4F, M7) | fat-log | 40048 | 936 | 1880 | 4360 |
-| | fat | 44760 | 936 | 1880 | 4344 |
-| | fat-unicode | 46844 | 936 | 1880 | 4344 |
-| | fat-async | 63804 | 936 | - | 10688 |
-| | exfat | 13412 | 1016 | 1824 | 4272 |
-| riscv32imc-unknown-none-elf (ESP32-C3 class) | fat-log | 46866 | 936 | 1856 | 4240 |
-| | fat | 53428 | 936 | 1856 | 4256 |
-| | fat-unicode | 55546 | 936 | 1856 | 4256 |
-| | fat-async | 73618 | 936 | - | 10576 |
-| | exfat | 15652 | 1016 | 1840 | 4272 |
+| thumbv6m-none-eabi (Cortex-M0+) | fat-log | 40268 | 936 | 1944 | 4632 |
+| | fat | 45216 | 936 | 1944 | 4608 |
+| | fat-unicode | 47288 | 936 | 1944 | 4608 |
+| | fat-async | 68728 | 936 | - | 11432 |
+| | exfat | 13828 | 1016 | 1952 | 4440 |
+| thumbv7em-none-eabihf (Cortex-M4F, M7) | fat-log | 39940 | 936 | 1880 | 4408 |
+| | fat | 44824 | 936 | 1880 | 4384 |
+| | fat-unicode | 46908 | 936 | 1880 | 4384 |
+| | fat-async | 63848 | 936 | - | 10720 |
+| | exfat | 13680 | 1016 | 1864 | 4312 |
+| riscv32imc-unknown-none-elf (ESP32-C3 class) | fat-log | 46624 | 936 | 1856 | 4288 |
+| | fat | 53530 | 936 | 1856 | 4304 |
+| | fat-unicode | 55648 | 936 | 1856 | 4304 |
+| | fat-async | 73748 | 936 | - | 10624 |
+| | exfat | 15994 | 1016 | 1856 | 4288 |
 
 - **Flash** is text, rodata and data of the whole image, which is the
   session and the driver.
-- **Driver state** is `size_of::<Fat<D>>()` or `size_of::<ExFat<D>>()`
+- **Driver state** is `size_of::<Fat<'_, D>>()` or `size_of::<ExFat<'_, D>>()`
   with 4 file slots. Keep it in a `static` or on the stack; the driver has
   no other RAM and no statics of its own.
 - **Mount stack** is the deepest stack below `mount`, without the driver

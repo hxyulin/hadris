@@ -80,6 +80,15 @@ async fn write_sectors<D: BlockDevice>(out: &mut D, sector: u64, data: &[u8]) ->
 /// Writes the regions of `plan` in order, zero-filling the gaps when the
 /// plan asks for it, and flushes.
 pub(crate) async fn emit<D: BlockDevice>(out: &mut D, tree: &Tree, plan: &Plan) -> Result<(), PathError> {
+    emit_from(out, tree, plan, None::<&mut D>).await
+}
+
+pub(crate) async fn emit_from<D: BlockDevice, S: BlockDevice>(
+    out: &mut D,
+    tree: &Tree,
+    plan: &Plan,
+    mut source: Option<&mut S>,
+) -> Result<(), PathError> {
     let mut next = plan.regions.first().map_or(0, Region::block);
     if plan.fill_gaps {
         next = 0;
@@ -110,10 +119,10 @@ pub(crate) async fn emit<D: BlockDevice>(out: &mut D, tree: &Tree, plan: &Plan) 
                 if content.len() != *len {
                     return Err(changed());
                 }
-                file(out, content, *block, *info, &mut buf).await.map_err(|err| err.with_path(path))?;
+                file(out, content, *block, *info, &mut buf, source.as_deref_mut()).await.map_err(|err| err.with_path(path))?;
             }
             Region::Content { block, content, info } => {
-                file(out, content, *block, *info, &mut buf).await?;
+                file(out, content, *block, *info, &mut buf, source.as_deref_mut()).await?;
             }
         }
         next = region.block() + region.blocks();
@@ -136,9 +145,59 @@ async fn zero<D: BlockDevice>(out: &mut D, from: u64, to: u64, buf: &mut [u8]) -
     Ok(())
 }
 
+enum SourceReader<'a, S> {
+    Content(ContentReader<'a>),
+    Stored { source: &'a mut S, content: &'a Content },
+}
+
+impl<'a, S: BlockDevice> SourceReader<'a, S> {
+    async fn open(content: &'a Content, source: Option<&'a mut S>) -> Result<Self, PathError> {
+        if content.stored_extents().is_some() && let Some(source) = source {
+            return Ok(Self::Stored { source, content });
+        }
+        Ok(Self::Content(ContentReader::open(content).await?))
+    }
+
+    fn len(&self) -> u64 {
+        match self {
+            Self::Content(reader) => reader.len(),
+            Self::Stored { content, .. } => content.len(),
+        }
+    }
+
+    async fn read_exact_at(&mut self, mut offset: u64, mut buf: &mut [u8]) -> Result<(), PathError> {
+        match self {
+            Self::Content(reader) => reader.read_exact_at(offset, buf).await,
+            Self::Stored { source, content } => {
+                let len = source.block_count().saturating_mul(u64::from(source.block_size().get()));
+                for extent in content.stored_extents().unwrap_or(&[]) {
+                    if offset >= extent.len() {
+                        offset -= extent.len();
+                        continue;
+                    }
+                    let take = (extent.len() - offset).min(buf.len() as u64) as usize;
+                    let start = extent.offset().checked_add(offset)
+                        .ok_or_else(|| PathError::from(Detail::OutsideImage.corrupt::<Infallible>()))?;
+                    super::image::read_bytes(*source, len, start, &mut buf[..take]).await?;
+                    buf = &mut buf[take..];
+                    if buf.is_empty() {
+                        return Ok(());
+                    }
+                    offset = 0;
+                }
+                if buf.is_empty() {
+                    Ok(())
+                } else {
+                    Err(Detail::Content.corrupt::<Infallible>().into())
+                }
+            }
+        }
+    }
+}
+
 /// The sum of the image's 32-bit words from byte 64, as a boot information
 /// table records it.
-async fn checksum(reader: &mut ContentReader<'_>, len: u64, buf: &mut [u8]) -> Result<u32, PathError> {
+async fn checksum<S: BlockDevice>(reader: &mut SourceReader<'_, S>, len: u64, buf: &mut [u8]) -> Result<u32, PathError> {
     let words_end = 64 + (len - 64) / 4 * 4;
     let mut sum = 0u32;
     let mut offset = 64;
@@ -153,14 +212,15 @@ async fn checksum(reader: &mut ContentReader<'_>, len: u64, buf: &mut [u8]) -> R
     Ok(sum)
 }
 
-async fn file<D: BlockDevice>(
+async fn file<D: BlockDevice, S: BlockDevice>(
     out: &mut D,
     content: &Content,
     block: u64,
     info: Option<InfoTable>,
     buf: &mut [u8],
+    source: Option<&mut S>,
 ) -> Result<(), PathError> {
-    let mut reader = ContentReader::open(content).await?;
+    let mut reader = SourceReader::open(content, source).await?;
     let len = reader.len();
     if len != content.len() {
         return Err(Detail::Content.corrupt::<Infallible>().into());

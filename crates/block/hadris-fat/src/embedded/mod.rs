@@ -1,11 +1,12 @@
 //! The embedded API: [`sync::Fat`] and `r#async::Fat`, a handle-based
 //! FAT12, FAT16 and FAT32 driver for firmware without an allocator.
 //!
-//! `Fat<D, const FILES: usize = 4>` is built on the `hadris-fat-raw`
+//! `Fat<'mount, D, const FILES: usize = 4>` is built on the `hadris-fat-raw`
 //! device primitives, not on `FatFs`. It keeps one 512-byte device block
 //! in the struct, the volume's geometry, its [`Options`] and `FILES` file
-//! slots, needs no allocator and never reads the device into a buffer
-//! larger than 512 bytes. The device's blocks must be 512 bytes; FAT
+//! slots. Mounting borrows a caller-owned [`MountToken`] for the lifetime
+//! of the volume and its files. It needs no allocator and never reads the
+//! device into a buffer larger than 512 bytes. The device's blocks must be 512 bytes; FAT
 //! sectors of 512 to 4096 bytes are read in 512-byte pieces.
 //!
 //! - Names are passed one component per call, relative to a [`Dir`], and
@@ -14,7 +15,7 @@
 //!   `Options::new().with_fold(hadris_fat_raw::fold_unicode)` to compare
 //!   as Windows and `FatFs` do.
 //! - A [`File`] is a slot index, consumed by `close`. It carries a
-//!   generation, so a stale handle or one from another volume fails with
+//!   mount identity and generation, so one from another volume fails with
 //!   `InvalidHandle`. A dropped `File` keeps its slot until `unmount`;
 //!   `sync` and `unmount` still write its size.
 //! - `list` lends each [`Entry`] to a callback; its UTF-16 name lives on
@@ -161,7 +162,8 @@ impl Options {
 }
 
 /// A directory: the root or a subdirectory by its first cluster. `Copy`
-/// and holds no slot; it stays valid while the directory exists.
+/// and holds no slot; it stays valid while the directory exists. Use it only
+/// with its originating mount; directory locators do not check mount identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Dir {
     /// First cluster, 0 for the root.
@@ -185,18 +187,72 @@ impl Dir {
     }
 }
 
-/// An open file: a slot of its volume and the generation of the open that
-/// filled it. Not `Clone`, so `close` consumes the only handle.
-#[derive(Debug, PartialEq, Eq)]
+/// Storage for the identity of one embedded mount.
+///
+/// Pass a distinct token to each simultaneous mount. The token can be reused
+/// after the volume and all its file handles are no longer used. It requires
+/// neither allocation nor atomics.
+///
+/// A live file prevents reusing its token for another mount:
+///
+/// ```compile_fail,E0499
+/// use hadris_fat::embedded::{MountToken, sync::Fat};
+/// use hadris_fs::OpenOptions;
+/// use hadris_storage::sync::BlockDevice;
+///
+/// fn remount<D: BlockDevice>(dev: D) {
+///     let mut token = MountToken::new();
+///     let mut fat: Fat<_> = Fat::mount(dev, &mut token).ok().unwrap();
+///     let file = fat.open(fat.root(), "log", OpenOptions::new().read()).unwrap();
+///     let dev = fat.unmount().ok().unwrap();
+///     let mut next: Fat<_> = Fat::mount(dev, &mut token).ok().unwrap();
+///     next.read(&file, &mut [0; 1]).unwrap();
+/// }
+/// ```
+#[derive(Debug, Default)]
+pub struct MountToken {
+    _identity: u8,
+}
+
+impl MountToken {
+    /// Creates storage for a mount identity.
+    pub const fn new() -> Self {
+        Self { _identity: 0 }
+    }
+}
+
+/// An open file belonging to one mount. Not `Clone`, so `close` consumes
+/// the only handle. Its lifetime keeps the mount's identity reserved even
+/// after the volume is unmounted.
+#[derive(Debug)]
 #[must_use = "a dropped File keeps its slot until unmount; close it"]
-pub struct File {
+pub struct File<'mount> {
+    owner: &'mount MountToken,
     slot: u8,
     generation: u16,
 }
 
-impl File {
-    pub(crate) const fn new(slot: u8, generation: u16) -> Self {
-        Self { slot, generation }
+impl PartialEq for File<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        core::ptr::eq(self.owner, other.owner)
+            && self.slot == other.slot
+            && self.generation == other.generation
+    }
+}
+
+impl Eq for File<'_> {}
+
+impl<'mount> File<'mount> {
+    pub(crate) const fn new(owner: &'mount MountToken, slot: u8, generation: u16) -> Self {
+        Self {
+            owner,
+            slot,
+            generation,
+        }
+    }
+
+    pub(crate) fn belongs_to(&self, owner: &MountToken) -> bool {
+        core::ptr::eq(self.owner, owner)
     }
 
     pub(crate) const fn slot(&self) -> usize {
@@ -209,7 +265,8 @@ impl File {
 }
 
 /// Where a listed entry is: valid for `open_node` until its directory
-/// changes.
+/// changes. Use it only with its originating mount; node locators do not
+/// check mount identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Node {
     offset: u64,
@@ -408,19 +465,6 @@ pub(crate) struct Run {
     pub(crate) dir: DirStart,
     pub(crate) first: u32,
     pub(crate) short: u32,
-}
-
-/// Mounts so far, which spread the generations of volumes in one program
-/// apart. A load and a store rather than an atomic add, which targets
-/// without compare-and-swap lack; a race only makes two bases equal.
-static MOUNTS: core::sync::atomic::AtomicU16 = core::sync::atomic::AtomicU16::new(0);
-
-/// The first generation of a volume with serial `serial`.
-pub(crate) fn generation_base(serial: u32) -> u16 {
-    use core::sync::atomic::Ordering::Relaxed;
-    let seed = MOUNTS.load(Relaxed);
-    MOUNTS.store(seed.wrapping_add(1), Relaxed);
-    seed.wrapping_mul(4099) ^ serial as u16 ^ (serial >> 16) as u16
 }
 
 /// Deepest directory `remove_dir_all` descends to.

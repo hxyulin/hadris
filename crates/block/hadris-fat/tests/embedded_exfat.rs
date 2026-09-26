@@ -9,7 +9,7 @@ use std::ops::ControlFlow;
 
 use common::{FsPaths, Geometry, block_on};
 use hadris_fat::exfat::embedded::sync::ExFat;
-use hadris_fat::exfat::embedded::{Dir, Options};
+use hadris_fat::exfat::embedded::{Dir, MountToken, Options};
 use hadris_fat_raw::fold_unicode;
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{DirCursor, ErrorKind, FileType, Metadata, OpenOptions, SeekFrom};
@@ -17,8 +17,8 @@ use hadris_storage::{BlockSize, MemDevice};
 
 type Dev = common::Device;
 
-fn mount(image: &[u8]) -> ExFat<Dev> {
-    ExFat::mount(common::device(image.to_vec(), 512)).unwrap()
+fn mount<'m>(token: &'m mut MountToken, image: &[u8]) -> ExFat<'m, Dev> {
+    ExFat::mount(common::device(image.to_vec(), 512), token).unwrap()
 }
 
 fn names(fat: &mut ExFat<Dev>, dir: Dir) -> Vec<String> {
@@ -77,7 +77,8 @@ fn compare(fat: &mut ExFat<Dev>, fs: &mut common::Fs, dir: Dir, path: &str) {
 fn reads_what_exfatfs_wrote() {
     let image = common::build();
     let mut fs = common::mount(&image);
-    let mut fat = mount(&image);
+    let mut mount_token_0 = MountToken::new();
+    let mut fat = mount(&mut mount_token_0, &image);
     assert!(!fat.was_dirty());
     let root = fat.root();
     compare(&mut fat, &mut fs, root, "/");
@@ -108,7 +109,8 @@ fn reads_what_exfatfs_wrote() {
 #[test]
 fn rules_and_errors() {
     let image = common::build();
-    let mut fat = mount(&image);
+    let mut mount_token_0 = MountToken::new();
+    let mut fat = mount(&mut mount_token_0, &image);
     let root = fat.root();
     macro_rules! kind {
         ($result:expr) => {
@@ -146,7 +148,9 @@ fn rules_and_errors() {
 #[test]
 fn handles_are_checked() {
     let image = common::build();
-    let mut fat: ExFat<Dev, 2> = ExFat::mount(common::device(image.clone(), 512)).unwrap();
+    let mut mount_token_0 = MountToken::new();
+    let mut fat: ExFat<Dev, 2> =
+        ExFat::mount(common::device(image.clone(), 512), &mut mount_token_0).unwrap();
     let root = fat.root();
     let read = OpenOptions::new().read();
     let a = fat.open(root, "frag.bin", read).unwrap();
@@ -169,7 +173,9 @@ fn handles_are_checked() {
     fat.close(a).unwrap();
 
     let c = fat.open(root, "README.TXT", read).unwrap();
-    let mut other: ExFat<Dev, 2> = ExFat::mount(common::device(image, 512)).unwrap();
+    let mut mount_token_1 = MountToken::new();
+    let mut other: ExFat<Dev, 2> =
+        ExFat::mount(common::device(image, 512), &mut mount_token_1).unwrap();
     assert_eq!(
         other.read(&c, &mut tail).unwrap_err().kind(),
         ErrorKind::InvalidHandle
@@ -181,7 +187,8 @@ fn handles_are_checked() {
 #[test]
 fn lists_from_a_cursor_and_opens_listed_nodes() {
     let image = common::build();
-    let mut fat = mount(&image);
+    let mut mount_token_0 = MountToken::new();
+    let mut fat = mount(&mut mount_token_0, &image);
     let nested = fat.open_dir(fat.root(), "Nested Dir").unwrap();
     let inner = fat.open_dir(nested, "inner").unwrap();
     let all = names(&mut fat, inner);
@@ -226,7 +233,8 @@ fn unicode_folding_is_opt_in() {
     let image = common::build();
     let name = "\u{C9}t\u{E9} \u{1F600}.txt";
     let upper = "\u{C9}T\u{C9} \u{1F600}.TXT";
-    let mut fat = mount(&image);
+    let mut mount_token_0 = MountToken::new();
+    let mut fat = mount(&mut mount_token_0, &image);
     let root = fat.root();
     assert_eq!(read_all(&mut fat, root, name), b"unicode");
     assert_eq!(
@@ -234,8 +242,13 @@ fn unicode_folding_is_opt_in() {
         ErrorKind::NotFound
     );
     let dev = fat.unmount();
-    let mut fat: ExFat<Dev> =
-        ExFat::mount_with(dev, Options::new().with_fold(fold_unicode)).unwrap();
+    let mut mount_token_1 = MountToken::new();
+    let mut fat: ExFat<Dev> = ExFat::mount_with(
+        dev,
+        &mut mount_token_1,
+        Options::new().with_fold(fold_unicode),
+    )
+    .unwrap();
     assert_eq!(read_all(&mut fat, root, upper), b"unicode");
 }
 
@@ -264,7 +277,8 @@ fn contiguous_files_and_short_valid_lengths() {
         geo.unchain(&mut image, &set);
     }
 
-    let mut fat = mount(&image);
+    let mut mount_token_0 = MountToken::new();
+    let mut fat = mount(&mut mount_token_0, &image);
     let root = fat.root();
     assert_eq!(read_all(&mut fat, root, "contig.bin"), data);
     let cdir = fat.open_dir(root, "cdir").unwrap();
@@ -287,7 +301,8 @@ fn damaged_sets_are_skipped() {
     let spacer = geo.set(&image, geo.root, "spacer.bin");
     image[spacer[1]] = 0x40;
     geo.reseal(&mut image, &spacer);
-    let mut fat = mount(&image);
+    let mut mount_token_0 = MountToken::new();
+    let mut fat = mount(&mut mount_token_0, &image);
     let root = fat.root();
     let listed = names(&mut fat, root);
     assert!(!listed.iter().any(|name| name.ends_with("ower.txt")));
@@ -302,9 +317,12 @@ fn damaged_sets_are_skipped() {
 #[test]
 fn refuses_other_block_sizes_and_non_exfat() {
     let image = common::build();
-    let err = ExFat::<Dev>::mount(common::device(image, 4096)).unwrap_err();
+    let mut mount_token_0 = MountToken::new();
+    let err = ExFat::<Dev>::mount(common::device(image, 4096), &mut mount_token_0).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Unsupported);
-    let err = ExFat::<Dev>::mount(common::device(vec![0u8; 1 << 20], 512)).unwrap_err();
+    let mut mount_token_1 = MountToken::new();
+    let err = ExFat::<Dev>::mount(common::device(vec![0u8; 1 << 20], 512), &mut mount_token_1)
+        .unwrap_err();
     assert_eq!(err.kind(), ErrorKind::NotRecognized);
 }
 
@@ -313,16 +331,19 @@ fn async_matches_sync() {
     use hadris_fat::exfat::embedded::r#async::ExFat as AsyncFat;
 
     let image = common::build();
-    let mut fat = mount(&image);
+    let mut mount_token_0 = MountToken::new();
+    let mut fat = mount(&mut mount_token_0, &image);
     let nested = fat.open_dir(fat.root(), "Nested Dir").unwrap();
     let inner = fat.open_dir(nested, "inner").unwrap();
     let sync_names = names(&mut fat, inner);
     let sync_data = read_all(&mut fat, inner, "deep.bin");
 
     let (async_names, async_data) = block_on(async {
-        let mut fat: AsyncFat<Dev> = AsyncFat::mount(common::device(image.clone(), 512))
-            .await
-            .unwrap();
+        let mut mount_token_1 = MountToken::new();
+        let mut fat: AsyncFat<Dev> =
+            AsyncFat::mount(common::device(image.clone(), 512), &mut mount_token_1)
+                .await
+                .unwrap();
         let root = fat.root();
         let nested = fat.open_dir(root, "Nested Dir").await.unwrap();
         let inner = fat.open_dir(nested, "inner").await.unwrap();
@@ -354,14 +375,63 @@ fn state_and_futures_stay_small() {
     assert!(size_of::<ExFat<(), 4>>() < 2048);
     assert!(size_of::<AsyncFat<(), 4>>() < 2048);
     let empty = || MemDevice::new(Vec::new(), BlockSize::new(512).unwrap());
-    let mount = AsyncFat::<Dev>::mount(empty());
+    let mut mount_token_0 = MountToken::new();
+    let mount = AsyncFat::<Dev>::mount(empty(), &mut mount_token_0);
     assert!(size_of_val(&mount) < 2048, "mount {}", size_of_val(&mount));
-    let mut fat: AsyncFat<Dev> =
-        block_on(AsyncFat::mount(common::device(common::build(), 512))).unwrap();
+    let mut mount_token_1 = MountToken::new();
+    let mut fat: AsyncFat<Dev> = block_on(AsyncFat::mount(
+        common::device(common::build(), 512),
+        &mut mount_token_1,
+    ))
+    .unwrap();
     let root = fat.root();
     let open = fat.open(root, "README.TXT", OpenOptions::new().read());
     assert!(size_of_val(&open) < 3072, "open {}", size_of_val(&open));
     drop(open);
     let list = fat.list(root, DirCursor::START, |_| ControlFlow::Continue(()));
     assert!(size_of_val(&list) < 3072, "list {}", size_of_val(&list));
+}
+
+#[test]
+fn mount_identity_survives_moves_and_ignores_disk_serials() {
+    let mut tokens = [MountToken::new(), MountToken::new()];
+    let [first_token, second_token] = &mut tokens;
+    let image_with_serial = |serial| {
+        let mut fs = common::mount(&common::build());
+        fs.set_volume_serial(serial).unwrap();
+        fs.into_inner().into_inner()
+    };
+    let mut first = mount(first_token, &image_with_serial(0));
+    let mut second = mount(second_token, &image_with_serial(4099));
+    let a = first
+        .open(first.root(), "README.TXT", OpenOptions::new().read())
+        .unwrap();
+    let b = first
+        .open(first.root(), "empty.dat", OpenOptions::new().read())
+        .unwrap();
+    let foreign = second
+        .open(second.root(), "README.TXT", OpenOptions::new().read())
+        .unwrap();
+    let mut moved = first;
+    let mut buf = [0; 16];
+    assert_eq!(
+        second.read(&a, &mut buf).unwrap_err().kind(),
+        ErrorKind::InvalidHandle
+    );
+    assert_eq!(
+        moved.read(&foreign, &mut buf).unwrap_err().kind(),
+        ErrorKind::InvalidHandle
+    );
+    assert_eq!(moved.read(&a, &mut buf).unwrap(), 11);
+    assert_eq!(moved.read(&b, &mut buf).unwrap(), 0);
+    moved.close(a).unwrap();
+    moved.close(b).unwrap();
+    second.close(foreign).unwrap();
+    let dev = moved.unmount();
+    let mut remounted: ExFat<_> = ExFat::mount(dev, first_token).unwrap();
+    let file = remounted
+        .open(remounted.root(), "README.TXT", OpenOptions::new().read())
+        .unwrap();
+    assert_eq!(remounted.read(&file, &mut buf).unwrap(), 11);
+    remounted.close(file).unwrap();
 }

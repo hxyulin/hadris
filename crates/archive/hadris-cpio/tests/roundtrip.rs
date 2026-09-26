@@ -272,7 +272,7 @@ fn writer_rejects_bad_names_and_fields_before_writing() {
 #[test]
 fn files_over_the_format_limit_are_too_large() {
     let mut tree = Tree::new();
-    let huge = Content::stored([Extent::new(0, u64::from(u32::MAX) + 1)]);
+    let huge = Content::stored([Extent::new(0, u64::from(u32::MAX) + 1)]).unwrap();
     tree.insert("big", Node::file(huge)).unwrap();
     let err = hadris_cpio::plan(&tree, &CpioOptions::default()).unwrap_err();
     assert_eq!(
@@ -283,7 +283,7 @@ fn files_over_the_format_limit_are_too_large() {
     let odc = CpioOptions::default().with_format(Format::Odc);
     assert!(hadris_cpio::plan(&tree, &odc).is_ok());
     let mut tree = Tree::new();
-    let huge = Content::stored([Extent::new(0, Format::Odc.max_file_size() + 1)]);
+    let huge = Content::stored([Extent::new(0, Format::Odc.max_file_size() + 1)]).unwrap();
     tree.insert("big", Node::file(huge)).unwrap();
     assert_eq!(
         hadris_cpio::plan(&tree, &odc).unwrap_err().kind(),
@@ -296,8 +296,11 @@ fn files_over_the_format_limit_are_too_large() {
 fn unreadable_content_fails_before_writing() {
     let mut tree = Tree::new();
     tree.insert("a", Node::file(Content::bytes("a"))).unwrap();
-    tree.insert("b", Node::file(Content::stored([Extent::new(0, 4)])))
-        .unwrap();
+    tree.insert(
+        "b",
+        Node::file(Content::stored([Extent::new(0, 4)]).unwrap()),
+    )
+    .unwrap();
     let mut out = StdIo::new(Vec::new());
     let err = hadris_cpio::sync::write(&mut out, &tree, &CpioOptions::new()).unwrap_err();
     assert_eq!(

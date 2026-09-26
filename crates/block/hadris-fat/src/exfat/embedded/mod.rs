@@ -2,7 +2,7 @@
 //! handle-based, read-only exFAT driver for firmware without an allocator,
 //! such as SDXC card readers.
 //!
-//! `ExFat<D, const FILES: usize = 4>` is a separate type from the FAT
+//! `ExFat<'mount, D, const FILES: usize = 4>` is a separate type from the FAT
 //! `Fat`, so FAT-only firmware does not link it. It is built on the
 //! `hadris-fat-raw` exFAT primitives, keeps one 512-byte block buffer, the
 //! geometry, the [`Options`] and `FILES` file slots, and takes 512-byte
@@ -18,10 +18,11 @@ use hadris_fat_raw::exfat::{self as raw, RawEntry};
 use hadris_fat_raw::io::ChainPos;
 use hadris_fs::{Attributes, DirCursor, FileType, Metadata};
 
-pub use crate::embedded::{File, Options};
+pub use crate::embedded::{File, MountToken, Options};
 
 /// A directory: the root or a subdirectory by its allocation. `Copy` and
-/// holds no slot; it stays valid while the directory exists.
+/// holds no slot; it stays valid while the directory exists. Use it only
+/// with its originating mount; directory locators do not check mount identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Dir {
     /// First cluster, 0 for the root.
@@ -65,7 +66,8 @@ impl Dir {
 }
 
 /// Where a listed entry set is: its directory and slot, valid for
-/// `open_node` until the directory changes.
+/// `open_node` until the directory changes. Use it only with its originating
+/// mount; node locators do not check mount identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Node {
     dir: Dir,

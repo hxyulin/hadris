@@ -12,7 +12,7 @@ use super::rawio;
 use super::storage::BlockDevice;
 use crate::embedded::{
     BLOCK, Dir, Entry, FLAG_APPEND, FLAG_DIRTY, FLAG_READ, FLAG_WRITE, File, FileSlot, MAX_DEPTH,
-    MAX_FILE_SIZE, Node, Options, Owner, Pending, Run, generation_base, short_units,
+    MAX_FILE_SIZE, MountToken, Node, Options, Owner, Pending, Run, short_units,
 };
 use crate::names::{
     CANDIDATES, NewName, apply_attributes, is_exact, matches, read_only_bit, set_read_only, stamp,
@@ -98,7 +98,8 @@ io_transform! {
 /// file slots, and needs no allocator. Methods that change the volume fail
 /// with [`ErrorKind::ReadOnly`] on a read-only mount, and a device that
 /// refuses a write makes the mount read-only.
-pub struct Fat<D, const FILES: usize = 4> {
+pub struct Fat<'mount, D, const FILES: usize = 4> {
+    owner: &'mount MountToken,
     dev: D,
     fat: Volume,
     block: BlockBuf<[u8; BLOCK]>,
@@ -111,7 +112,7 @@ pub struct Fat<D, const FILES: usize = 4> {
     was_dirty: bool,
 }
 
-impl<D, const FILES: usize> core::fmt::Debug for Fat<D, FILES> {
+impl<D, const FILES: usize> core::fmt::Debug for Fat<'_, D, FILES> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Fat")
             .field("kind", &self.fat.geometry().kind())
@@ -121,10 +122,11 @@ impl<D, const FILES: usize> core::fmt::Debug for Fat<D, FILES> {
     }
 }
 
-impl<D: BlockDevice, const FILES: usize> Fat<D, FILES> {
-    /// Mounts the volume on `dev` with [`Options::new`].
-    pub async fn mount(dev: D) -> Result<Self, MountError<D, D::Error>> {
-        Self::mount_with(dev, Options::new()).await
+impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
+    /// Mounts the volume on `dev` with [`Options::new`], reserving `owner`
+    /// until the volume and all its files are no longer used.
+    pub async fn mount(dev: D, owner: &'mount mut MountToken) -> Result<Self, MountError<D, D::Error>> {
+        Self::mount_with(dev, owner, Options::new()).await
     }
 
     /// Mounts the volume on `dev`.
@@ -135,7 +137,7 @@ impl<D: BlockDevice, const FILES: usize> Fat<D, FILES> {
     /// [`ErrorKind::Corrupt`] when the boot sector is not a valid FAT12,
     /// FAT16 or FAT32 boot sector or describes a volume larger than the
     /// device. The [`MountError`] gives `dev` back.
-    pub async fn mount_with(mut dev: D, options: Options) -> Result<Self, MountError<D, D::Error>> {
+    pub async fn mount_with(mut dev: D, owner: &'mount mut MountToken, options: Options) -> Result<Self, MountError<D, D::Error>> {
         const { assert!(FILES <= u8::MAX as usize, "at most 255 file slots") };
         if dev.block_size().get() as usize != BLOCK {
             return Err(MountError::new(ErrorKind::Unsupported.into(), dev));
@@ -159,8 +161,8 @@ impl<D: BlockDevice, const FILES: usize> Fat<D, FILES> {
                 Err(error) => return Err(MountError::new(error, dev)),
             },
         };
-        let serial = geo.volume_serial().unwrap_or(0);
         Ok(Self {
+            owner,
             read_only: options.is_read_only() || !dev.writable(),
             dev,
             fat,
@@ -169,7 +171,7 @@ impl<D: BlockDevice, const FILES: usize> Fat<D, FILES> {
             files: [FileSlot::FREE; FILES],
             pending: Pending::NONE,
             run: None,
-            next_generation: generation_base(serial),
+            next_generation: 0,
             was_dirty,
         })
     }
@@ -277,7 +279,7 @@ impl<D: BlockDevice, const FILES: usize> Fat<D, FILES> {
     /// [`ErrorKind::IsADirectory`] for a directory,
     /// [`ErrorKind::InvalidInput`] for contradictory options, and as
     /// `create_dir` does for a name FAT cannot hold.
-    pub async fn open(&mut self, dir: Dir, name: &str, options: OpenOptions) -> FsResult<File, D::Error> {
+    pub async fn open(&mut self, dir: Dir, name: &str, options: OpenOptions) -> FsResult<File<'mount>, D::Error> {
         options.validate().map_err(ErrorKind::from)?;
         if options.is_write() {
             self.writable()?;
@@ -301,7 +303,7 @@ impl<D: BlockDevice, const FILES: usize> Fat<D, FILES> {
     /// position is valid until its directory changes; a position that no
     /// longer holds a file fails with [`ErrorKind::NotFound`].
     /// `create_new` fails with [`ErrorKind::AlreadyExists`].
-    pub async fn open_node(&mut self, node: Node, options: OpenOptions) -> FsResult<File, D::Error> {
+    pub async fn open_node(&mut self, node: Node, options: OpenOptions) -> FsResult<File<'mount>, D::Error> {
         options.validate().map_err(ErrorKind::from)?;
         if options.is_create_new() {
             return Err(ErrorKind::AlreadyExists.into());
@@ -325,7 +327,7 @@ impl<D: BlockDevice, const FILES: usize> Fat<D, FILES> {
     /// Reads from the file's position and advances it. Returns 0 at the
     /// end. Fails with [`ErrorKind::InvalidInput`] when the file was not
     /// opened for reading.
-    pub async fn read(&mut self, file: &File, buf: &mut [u8]) -> FsResult<usize, D::Error> {
+    pub async fn read(&mut self, file: &File<'_>, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         let index = self.slot(file)?;
         let state = self.files[index];
         if !state.has(FLAG_READ) {
@@ -366,7 +368,7 @@ impl<D: BlockDevice, const FILES: usize> Fat<D, FILES> {
     /// [`ErrorKind::FileTooLarge`], and a full volume with
     /// [`ErrorKind::NoSpace`]. The new size reaches the directory entry at
     /// `flush`, `close`, `sync` or `unmount`.
-    pub async fn write(&mut self, file: &File, buf: &[u8]) -> FsResult<usize, D::Error> {
+    pub async fn write(&mut self, file: &File<'_>, buf: &[u8]) -> FsResult<usize, D::Error> {
         let index = self.slot(file)?;
         if !self.files[index].has(FLAG_WRITE) {
             return Err(ErrorKind::InvalidInput.into());
@@ -389,7 +391,7 @@ impl<D: BlockDevice, const FILES: usize> Fat<D, FILES> {
     /// Moves the file's position and returns it. A position before the
     /// start fails with [`ErrorKind::InvalidInput`], one past the 4 GiB - 1
     /// limit with [`ErrorKind::FileTooLarge`].
-    pub fn seek(&mut self, file: &File, pos: SeekFrom) -> FsResult<u64, D::Error> {
+    pub fn seek(&mut self, file: &File<'_>, pos: SeekFrom) -> FsResult<u64, D::Error> {
         let index = self.slot(file)?;
         let state = self.files[index];
         let pos = pos.resolve(state.pos as u64, state.size as u64).ok_or(ErrorKind::InvalidInput)?;
@@ -405,7 +407,7 @@ impl<D: BlockDevice, const FILES: usize> Fat<D, FILES> {
     /// past it. Fails with [`ErrorKind::InvalidInput`] when the file was
     /// not opened for writing and [`ErrorKind::FileTooLarge`] past
     /// 4 GiB - 1.
-    pub async fn set_len(&mut self, file: &File, len: u64) -> FsResult<(), D::Error> {
+    pub async fn set_len(&mut self, file: &File<'_>, len: u64) -> FsResult<(), D::Error> {
         let index = self.slot(file)?;
         if !self.files[index].has(FLAG_WRITE) {
             return Err(ErrorKind::InvalidInput.into());
@@ -419,7 +421,7 @@ impl<D: BlockDevice, const FILES: usize> Fat<D, FILES> {
 
     /// Writes the file's size and modification time to its entry and
     /// flushes the device.
-    pub async fn flush(&mut self, file: &File) -> FsResult<(), D::Error> {
+    pub async fn flush(&mut self, file: &File<'_>) -> FsResult<(), D::Error> {
         let index = self.slot(file)?;
         self.publish(index).await?;
         self.flush_device().await
@@ -429,7 +431,7 @@ impl<D: BlockDevice, const FILES: usize> Fat<D, FILES> {
     /// entry, without flushing the device, and frees its slot. When the
     /// write fails the slot stays taken until `sync` or `unmount` writes
     /// it.
-    pub async fn close(&mut self, file: File) -> FsResult<(), D::Error> {
+    pub async fn close(&mut self, file: File<'_>) -> FsResult<(), D::Error> {
         let index = self.slot(&file)?;
         self.publish(index).await?;
         self.files[index] = FileSlot::FREE;
@@ -715,7 +717,10 @@ impl<D: BlockDevice, const FILES: usize> Fat<D, FILES> {
     }
 
     /// The slot `file` names, or [`ErrorKind::InvalidHandle`].
-    fn slot(&self, file: &File) -> Result<usize, ErrorKind> {
+    fn slot(&self, file: &File<'_>) -> Result<usize, ErrorKind> {
+        if !file.belongs_to(self.owner) {
+            return Err(ErrorKind::InvalidHandle);
+        }
         match self.files.get(file.slot()) {
             Some(slot) if !slot.is_free() && slot.generation == file.generation() => Ok(file.slot()),
             _ => Err(ErrorKind::InvalidHandle),
@@ -761,7 +766,7 @@ impl<D: BlockDevice, const FILES: usize> Fat<D, FILES> {
         Ok(self.find(start, Query::Name(name)).await?.ok_or(ErrorKind::NotFound)?)
     }
 
-    async fn open_entry(&mut self, index: usize, offset: u64, entry: &ShortEntry, options: OpenOptions) -> FsResult<File, D::Error> {
+    async fn open_entry(&mut self, index: usize, offset: u64, entry: &ShortEntry, options: OpenOptions) -> FsResult<File<'mount>, D::Error> {
         if entry.is_dir() {
             return Err(ErrorKind::IsADirectory.into());
         }
@@ -798,7 +803,7 @@ impl<D: BlockDevice, const FILES: usize> Fat<D, FILES> {
                 return Err(err);
             }
         }
-        Ok(File::new(index as u8, slot.generation))
+        Ok(File::new(self.owner, index as u8, slot.generation))
     }
 
     /// Records a file's new first cluster, size and chain position in

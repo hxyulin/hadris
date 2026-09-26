@@ -72,17 +72,38 @@ impl Content {
     }
 
     /// Bytes already stored on the device a session writer updates, in the
-    /// order of `extents`.
+    /// order of `extents`, ignoring their file offsets.
     ///
     /// A writer that updates an image in place (an ISO 9660 session or the
-    /// UDF bridge) points at them without copying. Writers that produce a
-    /// new image fail with [`ErrorKind::Unsupported`] on such content.
-    pub fn stored(extents: impl Into<Vec<Extent>>) -> Self {
-        let extents: Arc<[Extent]> = Arc::from(extents.into());
-        Self {
-            len: extents.iter().map(Extent::len).sum(),
-            repr: Repr::Stored(extents),
+    /// UDF bridge) points at them without copying. General image writers
+    /// fail with [`ErrorKind::Unsupported`] on such content; use the ISO
+    /// session's `export` operation to copy its extents to another device.
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] if an extent's device end or the
+    /// combined length exceeds `u64::MAX`, and [`ErrorKind::Unsupported`]
+    /// for unwritten extents. The caller must ensure the ranges contain the
+    /// intended bytes on the source device; this constructor performs no I/O.
+    pub fn stored(extents: impl Into<Vec<Extent>>) -> Result<Self, PathError> {
+        let extents = extents.into();
+        let mut len = 0u64;
+        for extent in &extents {
+            if extent.is_unwritten() {
+                return Err(PathError::new(
+                    ErrorKind::Unsupported,
+                    "stored content requires written extents",
+                ));
+            }
+            extent.offset().checked_add(extent.len()).ok_or_else(|| {
+                PathError::new(ErrorKind::InvalidInput, "stored extent end overflows")
+            })?;
+            len = len.checked_add(extent.len()).ok_or_else(|| {
+                PathError::new(ErrorKind::InvalidInput, "stored content length overflows")
+            })?;
         }
+        Ok(Self {
+            len,
+            repr: Repr::Stored(Arc::from(extents)),
+        })
     }
 
     #[cfg(all(feature = "std", feature = "sync"))]
@@ -977,12 +998,56 @@ mod tests {
 
     #[test]
     fn contents_report_their_length() {
-        let stored = Content::stored([Extent::new(2048, 10), Extent::new(8192, 5)]);
+        let stored = Content::stored([Extent::new(2048, 10), Extent::new(8192, 5)]).unwrap();
         assert_eq!(stored.len(), 15);
         assert_eq!(stored.stored_extents().unwrap().len(), 2);
         assert_eq!(Content::bytes("hi").len(), 2);
         assert!(Content::empty().is_empty());
         let shared = Content::bytes(*b"abc");
         assert_eq!(shared.clone().as_bytes(), Some(&b"abc"[..]));
+    }
+
+    #[test]
+    fn stored_content_rejects_overflowing_lengths_and_ranges() {
+        for extents in [
+            alloc::vec![Extent::new(0, u64::MAX), Extent::new(0, 1)],
+            alloc::vec![Extent::new(u64::MAX, 1)],
+        ] {
+            assert_eq!(
+                Content::stored(extents).unwrap_err().kind(),
+                ErrorKind::InvalidInput
+            );
+        }
+        assert_eq!(
+            Content::stored([Extent::new(0, u64::MAX)]).unwrap().len(),
+            u64::MAX
+        );
+        assert!(
+            Content::stored([Extent::new(u64::MAX, 0)])
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn stored_content_rejects_unwritten_extents() {
+        assert_eq!(
+            Content::stored([Extent::new(0, 4).with_unwritten()])
+                .unwrap_err()
+                .kind(),
+            ErrorKind::Unsupported
+        );
+    }
+
+    #[test]
+    fn stored_content_concatenates_extents_in_given_order() {
+        let extents = [
+            Extent::new(8192, 5).with_file_offset(100),
+            Extent::new(2048, 10).with_file_offset(0),
+        ];
+        let stored = Content::stored(extents).unwrap();
+        assert_eq!(stored.len(), 15);
+        assert_eq!(stored.stored_extents(), Some(extents.as_slice()));
+        assert!(Content::stored([]).unwrap().is_empty());
     }
 }

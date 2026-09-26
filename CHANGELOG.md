@@ -64,6 +64,16 @@ and command to its 3.0 replacement, and
 
 ### Changed
 
+- **hadris-fs:** `Content::stored` is fallible and rejects length/range overflow
+  and unwritten extents. The filesystem contract distinguishes preflight
+  rejection from partial effects after I/O failure or cancellation; failed
+  writes have no reliable byte count and do not promise rollback.
+- **hadris-iso:** `Session::export` streams an edited session to a distinct
+  output device with bounded memory and explicit output options.
+- **hadris-fat:** Embedded FAT/exFAT mounts take a caller-owned `MountToken`.
+  File handles retain its lifetime and exact identity, rejecting foreign
+  mounts without generation collisions or global atomic counters.
+
 - **All crates:** Every crate has the `std`, `alloc`, `sync` and `async`
   feature axes, with `std` and `sync` on by default. Features only add
   items and never change behaviour. I/O items live in the mode modules

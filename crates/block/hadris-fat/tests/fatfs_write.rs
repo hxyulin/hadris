@@ -2493,3 +2493,41 @@ fn names_fold_per_utf16_unit() {
     );
     create(&mut fs, root, "\u{10400}.txt", FileType::File);
 }
+
+#[test]
+fn overwrite_error_can_leave_partial_data() {
+    let case = CASES[0];
+    let mut fs = open(case, common::blank(case));
+    let node = fs.create(fs.root(), name("data"), &SetAttr::new()).unwrap();
+    fs.write(node, 0, &[1; 2048]).unwrap();
+    fs.sync().unwrap();
+    let before = fs.into_inner().into_inner();
+    let mut saw_partial = false;
+    for budget in 0..8 {
+        let mut fs = FatFs::mount(
+            Faulty {
+                inner: common::device(case, before.clone()),
+                budget: Some(budget),
+                refuse: false,
+                once: false,
+            },
+            MountOptions::new(),
+        )
+        .unwrap();
+        let node = fs.lookup(fs.root(), name("data")).unwrap();
+        let result = fs.write(node, 1, &[2; 2000]);
+        let actual = read_all(&mut fs, node);
+        assert_eq!(actual.len(), 2048);
+        assert_eq!(actual[0], 1);
+        assert_eq!(&actual[2001..], &[1; 47]);
+        assert!(actual[1..2001].iter().all(|&byte| byte == 1 || byte == 2));
+        if let Err(error) = result {
+            assert_eq!(error.kind(), ErrorKind::Io);
+            assert!(error.device_error().is_some());
+            saw_partial |= actual[1..2001].contains(&1) && actual[1..2001].contains(&2);
+        } else {
+            assert_eq!(&actual[1..2001], &[2; 2000]);
+        }
+    }
+    assert!(saw_partial);
+}

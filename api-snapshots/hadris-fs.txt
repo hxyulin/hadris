@@ -591,7 +591,7 @@ pub fn hadris_fs::Content::bytes(impl core::convert::Into<alloc::vec::Vec<u8>>) 
 pub fn hadris_fs::Content::empty() -> Self
 pub fn hadris_fs::Content::is_empty(&self) -> bool
 pub fn hadris_fs::Content::len(&self) -> u64
-pub fn hadris_fs::Content::stored(impl core::convert::Into<alloc::vec::Vec<hadris_fs::Extent>>) -> Self
+pub fn hadris_fs::Content::stored(impl core::convert::Into<alloc::vec::Vec<hadris_fs::Extent>>) -> core::result::Result<Self, hadris_fs::PathError>
 pub fn hadris_fs::Content::stored_extents(&self) -> core::option::Option<&[hadris_fs::Extent]>
 impl core::convert::From<&[u8]> for hadris_fs::Content
 pub fn hadris_fs::Content::from(&[u8]) -> Self
