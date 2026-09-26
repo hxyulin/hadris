@@ -14,7 +14,9 @@ const generated = {
   static: path.join(website, "versioned_static"),
   versions: path.join(website, "versions.json"),
 };
-const RELEASE_TAG = /^v(\d+)\.(\d+)\.(\d+)$/;
+// 2.x releases are tagged vX.Y.Z; from 3.0 the umbrella crate's tags
+// (hadris-vX.Y.Z) version the site.
+const RELEASE_TAG = /^(?:hadris-)?v(\d+)\.(\d+)\.(\d+)$/;
 
 function git(args) {
   return execFileSync("git", args, {
@@ -69,7 +71,7 @@ function releases() {
     fail("the repository is a shallow clone; fetch full history with `git fetch --unshallow --tags`");
   }
   const latest = new Map();
-  for (const tag of git(["tag", "--list", "v*"]).toString().split("\n")) {
+  for (const tag of git(["tag", "--list", "v*", "hadris-v*"]).toString().split("\n")) {
     const match = RELEASE_TAG.exec(tag.trim());
     if (!match) continue;
     const [major, minor, patch] = match.slice(1).map(Number);
@@ -80,7 +82,7 @@ function releases() {
     }
   }
   if (latest.size === 0) {
-    fail("no release tags (vX.Y.Z) found; fetch them with `git fetch --tags`");
+    fail("no release tags (vX.Y.Z or hadris-vX.Y.Z) found; fetch them with `git fetch --tags`");
   }
   return [...latest.values()]
     .filter(({tag}) => treeFiles(tag, "website/docs").length > 0)

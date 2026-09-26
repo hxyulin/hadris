@@ -1042,6 +1042,11 @@ and command to its 3.0 replacement, and
 - **Tests:** Rock Ridge relocation extraction is also checked with
   xorriso/libisofs alongside libarchive/bsdtar, with a user `rr_moved`
   under preserved name case and a deep user tree inside `rr_moved`.
+- **Release:** Releases are per crate. Each is tagged `<crate>-v<version>`,
+  and the `Release` workflow publishes one crate, a set or all of them in
+  dependency order, in `dry-run` or `publish` mode, reading notes from a
+  per-crate or joint CHANGELOG section. `scripts/check-semver.sh` blocks PRs
+  that break a crate's API without bumping its version.
 - **Docs site:** The documentation site is versioned. It serves the newest
   released minor at the root, every earlier released minor under `/X.Y/`
   and the unreleased docs under `/next/`, with a version dropdown and
