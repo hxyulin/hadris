@@ -21,7 +21,7 @@ pub fn info(archive: PathBuf) -> Result<()> {
             "  {}{} {}\n    ino={} nlink={} uid={} gid={} size={} mtime={}\n    dev={},{} rdev={},{} check={:#010x}",
             format_filetype(entry.file_type()),
             format_mode(entry.mode()),
-            entry.name_str().unwrap_or("<invalid utf-8>"),
+            entry.path_str().unwrap_or("<invalid utf-8>"),
             entry.ino(),
             entry.nlink(),
             entry.uid(),

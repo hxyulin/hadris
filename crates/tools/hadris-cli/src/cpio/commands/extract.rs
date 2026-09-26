@@ -137,7 +137,7 @@ pub fn extract(archive: PathBuf, output: PathBuf, path: Option<&str>) -> Result<
 
     while let Some(mut entry) = reader.next_entry().context("Failed to read entry")? {
         let stored = entry
-            .name_str()
+            .path_str()
             .context("Entry name is not UTF-8")?
             .to_string();
         let Some(name) = relocate(&select, &stored) else {

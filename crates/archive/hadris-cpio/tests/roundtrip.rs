@@ -1,3 +1,4 @@
+use hadris_io::sync::Read;
 mod common;
 
 use common::{archive, newc_entry, read_all, read_all_with, trailer};
@@ -461,8 +462,8 @@ fn names_that_are_not_utf8_stay_bytes() {
     let bytes = newc_entry(b"caf\xE9", 0o100644, b"", None);
     let mut reader = CpioReader::new(Cursor::new(&bytes));
     let entry = reader.next_entry().unwrap().unwrap();
-    assert_eq!(entry.name(), b"caf\xE9");
-    assert!(entry.name_str().is_err());
+    assert_eq!(entry.path(), b"caf\xE9");
+    assert!(entry.path_str().is_err());
 }
 
 #[test]
@@ -511,7 +512,6 @@ fn trailer_detection() {
     let mut reader = CpioReader::new(Cursor::new(&bytes));
     assert!(reader.next_entry().unwrap().is_some());
     assert!(reader.next_entry().unwrap().is_none());
-    assert!(reader.at_trailer());
     assert!(reader.next_entry().unwrap().is_none());
 }
 
@@ -568,12 +568,11 @@ fn concatenated_archives_read_on_request() {
     let mut names = Vec::new();
     loop {
         while let Some(entry) = reader.next_entry().unwrap() {
-            names.push(entry.name_str().unwrap().to_string());
+            names.push(entry.path_str().unwrap().to_string());
         }
-        if !reader.at_trailer() {
+        if !reader.next_segment().unwrap() {
             break;
         }
-        reader.continue_after_trailer();
     }
     assert_eq!(names, ["microcode", "init"]);
 }
@@ -662,7 +661,10 @@ fn odc_and_binary_archives_read() {
     let odc = archive(&sample_tree(), Format::Odc);
     assert_eq!(&odc[..6], b"070707");
     let mut reader = CpioReader::new(Cursor::new(&odc));
-    assert_eq!(reader.next_entry().unwrap().unwrap().format(), Format::Odc);
+    let entry = reader.next_entry().unwrap().unwrap();
+    assert_eq!(entry.format(), Format::Odc);
+    assert_eq!(entry.offset(), 0);
+    assert_eq!(entry.data_offset(), 76 + entry.path().len() as u64 + 1);
 
     let mut binary = Vec::new();
     for little in [true, false] {
@@ -704,6 +706,9 @@ fn odc_and_binary_archives_read() {
                 binary.push(0);
             }
         }
+        let mut reader = CpioReader::new(Cursor::new(&binary));
+        let entry = reader.next_entry().unwrap().unwrap();
+        assert_eq!((entry.offset(), entry.data_offset()), (0, 30));
         let entries = read_all(&binary).unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(
@@ -719,7 +724,7 @@ fn metadata_of_an_entry() {
     let bytes = archive(&sample_tree(), Format::Newc);
     let mut reader = CpioReader::new(Cursor::new(&bytes));
     while let Some(entry) = reader.next_entry().unwrap() {
-        if entry.name() == b"init" {
+        if entry.path() == b"init" {
             let meta = entry.metadata();
             assert_eq!(meta.file_type(), FileType::File);
             assert_eq!(meta.len(), 10);
@@ -731,4 +736,146 @@ fn metadata_of_an_entry() {
             );
         }
     }
+}
+
+#[test]
+fn caller_buffer_limits_include_nul_and_preserve_non_utf8_paths() {
+    let bytes = newc_entry(b"a\xff", 0o100644, b"data", None);
+    let mut storage = [0u8; 3];
+    let mut reader =
+        CpioReader::with_buffer(Cursor::new(&bytes), &mut storage[..], ReaderOptions::new());
+    let mut entry = reader.next_entry().unwrap().unwrap();
+    assert_eq!(entry.path(), b"a\xff");
+    assert!(entry.path_str().is_err());
+    assert_eq!((entry.offset(), entry.data_offset()), (0, 116));
+    let mut data = [0; 4];
+    entry.read_exact(&mut data).unwrap();
+    assert_eq!(&data, b"data");
+    assert_eq!(entry.data_offset(), 116);
+    assert!(reader.next_entry().unwrap().is_none());
+    for capacity in [0, 1, 2] {
+        let mut reader =
+            CpioReader::with_buffer(Cursor::new(&bytes), vec![0; capacity], ReaderOptions::new());
+        assert_eq!(
+            reader.next_entry().unwrap_err().kind(),
+            ErrorKind::LimitExceeded
+        );
+        assert!(reader.next_entry().unwrap().is_none());
+    }
+}
+
+#[test]
+fn caller_buffer_accepts_names_beyond_default_limit() {
+    let path = vec![b'x'; hadris_cpio::raw::PATH_MAX + 1];
+    let bytes = newc_entry(&path, 0o100644, b"", None);
+    let mut default = CpioReader::new(Cursor::new(&bytes));
+    assert_eq!(
+        default.next_entry().unwrap_err().kind(),
+        ErrorKind::LimitExceeded
+    );
+    let mut reader = CpioReader::with_buffer(
+        Cursor::new(&bytes),
+        vec![0; path.len() + 1],
+        ReaderOptions::new(),
+    );
+    assert_eq!(reader.next_entry().unwrap().unwrap().path(), path);
+}
+
+#[test]
+fn custom_buffer_still_validates_termination() {
+    let mut bytes = newc_entry(b"abc", 0o100644, b"", None);
+    bytes[113] = b'x';
+    let mut reader = CpioReader::with_buffer(Cursor::new(&bytes), [0; 4], ReaderOptions::new());
+    assert_eq!(reader.next_entry().unwrap_err().kind(), ErrorKind::Corrupt);
+}
+
+#[test]
+fn segment_state_offsets_and_pending_byte_recovery() {
+    let mut bytes = trailer();
+    bytes.resize(512, 0);
+    let second = newc_entry(b"x", 0o100644, b"abc", None);
+    bytes.extend(&second);
+    bytes.extend(trailer());
+    bytes.extend([0; 16]);
+    let mut reader = CpioReader::new(Cursor::new(&bytes));
+    assert_eq!(
+        reader.next_segment().unwrap_err().kind(),
+        ErrorKind::InvalidInput
+    );
+    assert!(reader.next_entry().unwrap().is_none());
+    assert!(reader.next_segment().unwrap());
+    assert_eq!(reader.offset(), 513);
+    assert_eq!(
+        reader.next_segment().unwrap_err().kind(),
+        ErrorKind::InvalidInput
+    );
+    let (mut input, buffer, pending) = reader.into_parts();
+    assert_eq!(buffer.len(), hadris_cpio::raw::PATH_MAX);
+    assert_eq!(pending, Some(b'0'));
+    let mut next = [0];
+    input.read_exact(&mut next).unwrap();
+    assert_eq!(next[0], second[1]);
+
+    let mut reader = CpioReader::new(Cursor::new(&bytes));
+    assert!(reader.next_entry().unwrap().is_none());
+    assert!(reader.next_segment().unwrap());
+    let entry = reader.next_entry().unwrap().unwrap();
+    assert_eq!((entry.offset(), entry.data_offset()), (512, 624));
+    assert_eq!(entry.path(), b"x");
+    assert!(reader.next_entry().unwrap().is_none());
+    assert!(!reader.next_segment().unwrap());
+    assert!(!reader.next_segment().unwrap());
+    assert_eq!(reader.offset(), bytes.len() as u64);
+}
+
+#[test]
+fn segment_probe_does_not_claim_header_validity() {
+    let mut bytes = trailer();
+    bytes.extend(b"garbage");
+    let mut reader = CpioReader::new(Cursor::new(&bytes));
+    assert!(reader.next_entry().unwrap().is_none());
+    assert!(reader.next_segment().unwrap());
+    assert_eq!(reader.next_entry().unwrap_err().kind(), ErrorKind::Corrupt);
+    assert!(!reader.next_segment().unwrap());
+}
+
+#[test]
+fn crc_trailer_checksum_is_verified() {
+    let bytes = newc_entry(b"TRAILER!!!", 0, b"", Some(1));
+    let mut reader = CpioReader::new(Cursor::new(&bytes));
+    let error = reader.next_entry().unwrap_err();
+    assert_eq!(Detail::of(&error), Some(Detail::Checksum));
+}
+
+#[test]
+fn caller_buffer_must_fit_trailer_and_both_slice_views() {
+    let mut bytes = newc_entry(b"x", 0o100644, b"", None);
+    bytes.extend(trailer());
+    let mut reader = CpioReader::with_buffer(Cursor::new(&bytes), [0; 2], ReaderOptions::new());
+    assert_eq!(reader.next_entry().unwrap().unwrap().path(), b"x");
+    assert_eq!(
+        reader.next_entry().unwrap_err().kind(),
+        ErrorKind::LimitExceeded
+    );
+
+    struct UnequalViews([u8; 16]);
+    impl AsRef<[u8]> for UnequalViews {
+        fn as_ref(&self) -> &[u8] {
+            &self.0[..1]
+        }
+    }
+    impl AsMut<[u8]> for UnequalViews {
+        fn as_mut(&mut self) -> &mut [u8] {
+            &mut self.0
+        }
+    }
+    let mut reader = CpioReader::with_buffer(
+        Cursor::new(&bytes),
+        UnequalViews([0; 16]),
+        ReaderOptions::new(),
+    );
+    assert_eq!(
+        reader.next_entry().unwrap_err().kind(),
+        ErrorKind::LimitExceeded
+    );
 }

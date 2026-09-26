@@ -177,7 +177,7 @@ fn dump_cpio(data: &[u8]) -> Vec<String> {
             break;
         }
         budget -= 1;
-        let name = String::from_utf8_lossy(entry.name()).into_owned();
+        let name = String::from_utf8_lossy(entry.path()).into_owned();
         match entry.file_type() {
             FileType::Dir => lines.push(format!("dir {name}")),
             _ => {

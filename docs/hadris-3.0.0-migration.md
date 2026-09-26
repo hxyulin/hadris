@@ -630,6 +630,21 @@ switches are gone; call `hadris_iso::sync::write` or
 
 ### cpio
 
+`CpioReader::new` owns a default name buffer. Use
+`with_buffer(reader, buffer, options)` for caller-owned storage implementing
+`AsRef<[u8]> + AsMut<[u8]>` (also `Send` for async). Capacity includes the
+terminating NUL; an encoded name exceeding it returns `LimitExceeded`.
+Entries expose byte paths through `path()` and UTF-8 through `path_str()`.
+`offset()` and `data_offset()` count from the supplied stream's start.
+
+After `next_entry()` returns `None`, `next_segment()` skips zero padding and
+returns whether bytes follow. It replaces `at_trailer()` and
+`continue_after_trailer()`. The next `next_entry()` validates the header.
+Calling `next_segment()` before a segment ends returns `InvalidInput`.
+To recover the stream after probing, `into_parts()` returns the stream,
+name buffer and optional peeked byte, which must be replayed first.
+`into_inner()` returns only the stream and discards that byte.
+
 ```rust
 // 2.4 (website/docs/guides/cpio-archives.md on main)
 let tree = FileTree::from_fs(Path::new("./root"))?;
@@ -1394,12 +1409,12 @@ Writing:
 
 | V2 path | V3 path or replacement |
 |---|---|
-| `hadris_cpio::CpioArchiveReader`, `read::CpioArchiveReader` | `hadris_cpio::sync::CpioReader<R>` (`new`, `with_options(ReaderOptions)`, `next_entry`, `continue_after_trailer`) |
+| `hadris_cpio::CpioArchiveReader`, `read::CpioArchiveReader` | `hadris_cpio::sync::CpioReader<R, B = [u8; PATH_MAX]>` (`new`, `with_options`, `with_buffer`, `next_entry`, `next_segment`) |
 | `next_entry_alloc`, `next_entry_with_buf` | `CpioReader::next_entry()`, returning an `Entry` that borrows the reader |
 | `read_entry_data`, `read_entry_data_alloc` | `Entry` implements `hadris_io::sync::Read` |
 | `skip_entry_data`, `skip_entry_data_owned` | Drop the `Entry`; the next `next_entry` skips unread data |
 | `seek_to_entry` | Removed |
-| `hadris_cpio::{CpioEntry, CpioEntryOwned}` | `hadris_cpio::sync::Entry` (`name`, `name_str`, `len`, `mode`, `file_type`, `metadata`, ...) |
+| `hadris_cpio::{CpioEntry, CpioEntryOwned}` | `hadris_cpio::sync::Entry` (`path`, `path_str`, `offset`, `data_offset`, `len`, `mode`, `file_type`, `metadata`, ...) |
 | `hadris_cpio::CpioEntryHeader`, `entry::CpioEntryHeader` | `Entry` accessors; the header layouts are `hadris_cpio::raw::{NewcFields, OdcFields, BinaryFields}` |
 | `hadris_cpio::CpioMagic`, `header::CpioMagic` | `hadris_cpio::Format::{Newc, Crc, Odc, Binary}`; `raw::{NEWC_MAGIC, NEWC_CRC_MAGIC, ODC_MAGIC, BINARY_MAGIC}` |
 | `hadris_cpio::RawNewcHeader`, `header::RawNewcHeader` (14-argument `build`) | `hadris_cpio::raw::NewcHeader` built from `raw::NewcFields` |

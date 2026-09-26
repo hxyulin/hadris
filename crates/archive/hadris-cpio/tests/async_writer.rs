@@ -90,7 +90,7 @@ fn the_async_reader_reads_what_was_written() {
         while let Some(mut entry) = reader.next_entry().await.unwrap() {
             let mut data = vec![0u8; entry.len() as usize];
             entry.read_exact(&mut data).await.unwrap();
-            names.push((entry.name_str().unwrap().to_string(), data.len()));
+            names.push((entry.path_str().unwrap().to_string(), data.len()));
         }
         assert_eq!(
             names,
@@ -102,4 +102,36 @@ fn the_async_reader_reads_what_was_written() {
             ]
         );
     });
+}
+
+#[test]
+fn custom_buffer_segments_and_offsets_are_send() {
+    let mut output = StdIo::new(Vec::new());
+    let mut tree = Tree::new();
+    tree.insert("a", Node::file(Content::bytes(b"abc")))
+        .unwrap();
+    hadris_cpio::sync::write(&mut output, &tree, &CpioOptions::default()).unwrap();
+    let first = output.into_inner();
+    let mut bytes = first.clone();
+    bytes.extend([0; 13]);
+    bytes.extend(&first);
+    fn assert_send<T: Send>(value: T) -> T {
+        value
+    }
+    block_on(assert_send(async {
+        let mut buffer = [0; 32];
+        let mut reader = hadris_cpio::r#async::CpioReader::with_buffer(
+            Cursor::new(&bytes),
+            &mut buffer[..],
+            hadris_cpio::ReaderOptions::new(),
+        );
+        assert_eq!(reader.next_entry().await.unwrap().unwrap().offset(), 0);
+        assert!(reader.next_entry().await.unwrap().is_none());
+        assert!(reader.next_segment().await.unwrap());
+        let entry = reader.next_entry().await.unwrap().unwrap();
+        assert_eq!(entry.path_str().unwrap(), "a");
+        assert_eq!(entry.offset(), first.len() as u64 + 13);
+        assert!(reader.next_entry().await.unwrap().is_none());
+        assert!(!reader.next_segment().await.unwrap());
+    }));
 }
