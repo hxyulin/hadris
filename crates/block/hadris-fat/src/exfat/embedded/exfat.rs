@@ -10,7 +10,7 @@ use hadris_fs::{
 
 use super::storage::BlockDevice;
 use super::{exio, rawio};
-use crate::embedded::{BLOCK, generation_base};
+use crate::embedded::{BLOCK, MountToken};
 use crate::exfat::embedded::{
     Dir, Entry, File, FileSlot, Head, Node, Options, le16, le32, le64, metadata,
 };
@@ -63,7 +63,8 @@ io_transform! {
 /// holds the device, one 512-byte block buffer, the geometry, the
 /// [`Options`] and the file slots, needs no allocator and never writes to
 /// the device.
-pub struct ExFat<D, const FILES: usize = 4> {
+pub struct ExFat<'mount, D, const FILES: usize = 4> {
+    owner: &'mount MountToken,
     dev: D,
     geo: Geometry,
     block: BlockBuf<[u8; BLOCK]>,
@@ -72,7 +73,7 @@ pub struct ExFat<D, const FILES: usize = 4> {
     next_generation: u16,
 }
 
-impl<D, const FILES: usize> core::fmt::Debug for ExFat<D, FILES> {
+impl<D, const FILES: usize> core::fmt::Debug for ExFat<'_, D, FILES> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("ExFat")
             .field("cluster_size", &self.geo.cluster_size())
@@ -81,10 +82,11 @@ impl<D, const FILES: usize> core::fmt::Debug for ExFat<D, FILES> {
     }
 }
 
-impl<D: BlockDevice, const FILES: usize> ExFat<D, FILES> {
-    /// Mounts the volume on `dev` with [`Options::new`].
-    pub async fn mount(dev: D) -> Result<Self, MountError<D, D::Error>> {
-        Self::mount_with(dev, Options::new()).await
+impl<'mount, D: BlockDevice, const FILES: usize> ExFat<'mount, D, FILES> {
+    /// Mounts the volume on `dev` with [`Options::new`], reserving `owner`
+    /// until the volume and all its files are no longer used.
+    pub async fn mount(dev: D, owner: &'mount mut MountToken) -> Result<Self, MountError<D, D::Error>> {
+        Self::mount_with(dev, owner, Options::new()).await
     }
 
     /// Mounts the volume on `dev`, from the backup boot region when the
@@ -96,7 +98,7 @@ impl<D: BlockDevice, const FILES: usize> ExFat<D, FILES> {
     /// sector does not name exFAT, and with [`ErrorKind::Corrupt`] when
     /// neither boot region is valid or the volume is larger than the
     /// device. The [`MountError`] gives `dev` back.
-    pub async fn mount_with(mut dev: D, options: Options) -> Result<Self, MountError<D, D::Error>> {
+    pub async fn mount_with(mut dev: D, owner: &'mount mut MountToken, options: Options) -> Result<Self, MountError<D, D::Error>> {
         const { assert!(FILES <= u8::MAX as usize, "at most 255 file slots") };
         if dev.block_size().get() as usize != BLOCK {
             return Err(MountError::new(ErrorKind::Unsupported.into(), dev));
@@ -107,12 +109,13 @@ impl<D: BlockDevice, const FILES: usize> ExFat<D, FILES> {
             Err(error) => return Err(MountError::new(error, dev)),
         };
         Ok(Self {
+            owner,
             dev,
             geo,
             block,
             options,
             files: [FileSlot::FREE; FILES],
-            next_generation: generation_base(geo.volume_serial()),
+            next_generation: 0,
         })
     }
 
@@ -192,7 +195,7 @@ impl<D: BlockDevice, const FILES: usize> ExFat<D, FILES> {
     /// that write fail with [`ErrorKind::ReadOnly`]. Fails with
     /// [`ErrorKind::LimitExceeded`] when every slot is taken and
     /// [`ErrorKind::IsADirectory`] for a directory.
-    pub async fn open(&mut self, dir: Dir, name: &str, options: OpenOptions) -> FsResult<File, D::Error> {
+    pub async fn open(&mut self, dir: Dir, name: &str, options: OpenOptions) -> FsResult<File<'mount>, D::Error> {
         let index = self.check_open(options)?;
         let mut found = Named::new();
         self.lookup(dir, name, &mut found).await?;
@@ -202,7 +205,7 @@ impl<D: BlockDevice, const FILES: usize> ExFat<D, FILES> {
     /// Opens the file a listed [`Entry`] names, without a lookup. The
     /// position is valid until its directory changes; one that no longer
     /// holds a file fails with [`ErrorKind::NotFound`].
-    pub async fn open_node(&mut self, node: Node, options: OpenOptions) -> FsResult<File, D::Error> {
+    pub async fn open_node(&mut self, node: Node, options: OpenOptions) -> FsResult<File<'mount>, D::Error> {
         let index = self.check_open(options)?;
         let mut walk = DirWalk::new(node.dir().extent(self.geo.root()));
         let mut slot = node.slot();
@@ -215,7 +218,7 @@ impl<D: BlockDevice, const FILES: usize> ExFat<D, FILES> {
 
     /// Reads from the file's position and advances it. Returns 0 at the
     /// end. Bytes past `ValidDataLength` read as zeros.
-    pub async fn read(&mut self, file: &File, buf: &mut [u8]) -> FsResult<usize, D::Error> {
+    pub async fn read(&mut self, file: &File<'_>, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         let index = self.slot(file)?;
         let state = self.files[index];
         let Some(head) = state.head else {
@@ -251,7 +254,7 @@ impl<D: BlockDevice, const FILES: usize> ExFat<D, FILES> {
 
     /// Moves the file's position and returns it. A position before the
     /// start fails with [`ErrorKind::InvalidInput`].
-    pub fn seek(&mut self, file: &File, pos: SeekFrom) -> FsResult<u64, D::Error> {
+    pub fn seek(&mut self, file: &File<'_>, pos: SeekFrom) -> FsResult<u64, D::Error> {
         let index = self.slot(file)?;
         let state = self.files[index];
         let len = state.head.map_or(0, |head| head.len());
@@ -261,7 +264,7 @@ impl<D: BlockDevice, const FILES: usize> ExFat<D, FILES> {
     }
 
     /// Closes the file and frees its slot.
-    pub fn close(&mut self, file: File) -> FsResult<(), D::Error> {
+    pub fn close(&mut self, file: File<'_>) -> FsResult<(), D::Error> {
         let index = self.slot(&file)?;
         self.files[index] = FileSlot::FREE;
         Ok(())
@@ -298,7 +301,10 @@ impl<D: BlockDevice, const FILES: usize> ExFat<D, FILES> {
     }
 
     /// The slot `file` names, or [`ErrorKind::InvalidHandle`].
-    fn slot(&self, file: &File) -> Result<usize, ErrorKind> {
+    fn slot(&self, file: &File<'_>) -> Result<usize, ErrorKind> {
+        if !file.belongs_to(self.owner) {
+            return Err(ErrorKind::InvalidHandle);
+        }
         match self.files.get(file.slot()) {
             Some(slot) if slot.head.is_some() && slot.generation == file.generation() => Ok(file.slot()),
             _ => Err(ErrorKind::InvalidHandle),
@@ -314,7 +320,7 @@ impl<D: BlockDevice, const FILES: usize> ExFat<D, FILES> {
         self.files.iter().position(|slot| slot.head.is_none()).ok_or(ErrorKind::LimitExceeded)
     }
 
-    fn open_head(&mut self, index: usize, head: Head) -> FsResult<File, D::Error> {
+    fn open_head(&mut self, index: usize, head: Head) -> FsResult<File<'mount>, D::Error> {
         if head.is_dir() {
             return Err(ErrorKind::IsADirectory.into());
         }
@@ -326,7 +332,7 @@ impl<D: BlockDevice, const FILES: usize> ExFat<D, FILES> {
             at: ChainPos::NONE,
             generation,
         };
-        Ok(File::new(index as u8, generation))
+        Ok(File::new(self.owner, index as u8, generation))
     }
 
 

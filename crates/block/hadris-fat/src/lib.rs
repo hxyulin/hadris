@@ -66,7 +66,7 @@
 //!
 //! ## Firmware: the embedded API
 //!
-//! [`embedded`] holds `Fat<D, const FILES: usize = 4>`, a handle-based
+//! [`embedded`] holds `Fat<'mount, D, const FILES: usize = 4>`, a handle-based
 //! FAT12/16/32 driver for firmware without an allocator, in
 //! `embedded::sync` and `embedded::r#async` (over a `local::BlockDevice`,
 //! whose futures need not be `Send`). It is built on the raw layer, not on

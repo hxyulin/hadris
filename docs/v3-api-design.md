@@ -433,9 +433,9 @@ stick can be write-protected at any time, and a write blocker refuses
 silently. Probing with a test write is worse: it writes, it wears flash, and
 write-once media keep it. So each write also answers for itself:
 
-- A refused write returns kind `ReadOnly`, and the mount turns read-only and stays consistent (IO-RO-02). `capabilities().writable()` is false from then on, and the driver rejects writes before touching the device or its own tables.
+- A refused device write returns kind `ReadOnly`, and the mount turns read-only (IO-RO-02). `capabilities().writable()` is false from then on, and later mutations are rejected before writing. Earlier writes in the failing operation may already have changed the image; rollback and crash consistency depend on the format and device.
 - Users who know up front mount read-only (`MountOptions::new().read_only()`), which never calls `write_blocks`, not even for dirty flags or FSInfo.
-- Format crates leave their in-memory state unchanged when a write is refused. That is the rule 4.3 already sets for every failed operation, so it adds no new contract.
+- Preflight rejection on a known read-only mount leaves logical contents and metadata unchanged. A device refusal after mutation begins may leave partial changes and may change the mount's writable state; it does not promise rollback (4.3).
 
 Provided devices and adapters:
 
@@ -572,7 +572,10 @@ The contract, stated in the trait docs:
 - `setattr` succeeds when the value the format would report after storing it equals what was asked, after rounding to the field's resolution and deriving dependent bits; otherwise `touch -d` with odd seconds and `chmod 644` would fail on FAT. A field the format does not store fails with `Unsupported` (META-TIME-02, META-PERM-02).
 - `truncate` is separate from `setattr` because it fails differently (`NoSpace`, `FileTooLarge`). The cost is that FUSE `setattr` with size and mode is two calls, not atomic.
 - `read` is short at end of file and returns zeros for unwritten ranges. `write` past the end fills the gap with zeros. `rename` keeps the moved node's `NodeId`.
-- Reads never change times. A failed call changes nothing, in memory or on disk; the conformance suite tests this ("rejection" scenarios). In the async mode a call whose future is dropped before it completes leaves no pin.
+- Reads never change times. Drivers validate arguments and known read-only or unsupported operations before mutation; those preflight rejections leave logical contents and metadata unchanged, as the conformance rejection scenarios test.
+- Mutations are not transactions. I/O failure, a device becoming read-only, or cancellation after mutation begins can leave partial in-memory and on-disk changes; rollback is not guaranteed. Error kind alone does not establish whether mutation began. Compound helpers may have completed earlier operations before a later failure.
+- `write` keeps `Result<usize, Error<E>>`: `Ok(n)` reports confirmed progress and may be short, while `Err` has no reliable byte count. A block device can fail after an unknown partial transfer, so a progress field on every error would promise information the implementation does not have. Callers must not interpret `Err` as zero bytes written or blindly retry; `fsync`/`sync` still establish durability.
+- In async, cancellation leaves no newly acquired pin. This resource cleanup contract is independent of filesystem rollback.
 - Write methods default to `ReadOnly`, so a read-only format implements only the read half and gains writes later by overriding them.
 
 The `hadris-fs-contract` crate (outside 3.0 semver) checks the
@@ -859,6 +862,7 @@ let (tree, skipped) = host::read_tree("rootfs/", &TreeOptions::new().with_clamp(
 - `Tree` has `new`, `insert`, `link`, `remove`, `replace` and `get`. Paths are `/`-separated bytes. A leading `./` is ignored, and `.` and `..` components are refused, so extraction cannot write outside its directory. Children are sorted by name bytes, so output does not depend on the host's listing order (BUILD-REPRO-01).
 - `Node` is `file(Content)`, `dir()`, `symlink(target)` or `special(FileType, Option<DeviceNumber>)`, with `with_attrs(SetAttr)`. Formats ignore what they cannot store and report it as a warning.
 - `Content` is opaque and cloneable: `Content::bytes`, `host::file(path)`, content read lazily from a mounted volume by `read_tree`, and extents of an existing ISO session. Its length is fixed when it is made, so planning does no I/O. The lazy kinds are private; `Content::source` for user-supplied content is additive in 3.x. Lazy content is readable only by writers of the mode that produced it; the other mode's plan fails with `Unsupported` naming the path, so async code never blocks on a hidden sync read (NF-MODE-01).
+- `Content::stored(extents)` returns `Result<Content, PathError>`. Extents are concatenated in supplied order, ignoring their file offsets. Device-end and total-length overflow return `InvalidInput`; unwritten extents return `Unsupported`. The constructor does no I/O, so the caller is responsible for the identity and contents of the source device. Ordinary writers still reject stored content; session writes reuse it and `Session::export` streams it from the source.
 - Streaming is the normal path. `unstable-streaming` goes away. No layout state on the tree; writers keep their planning structures `pub(crate)`.
 
 Every format has the same two entry points, and both return the same report:
@@ -1271,12 +1275,12 @@ Pass 3 (per-format extras), accepted on 2026-09-24:
 Pass 4 (embedded), accepted on 2026-09-24:
 
 - Firmware gets separate modules, `hadris_fat::embedded` and `hadris_fat::exfat::embedded`, each with `sync` and `r#async`. They are built on the raw layer, not on `FatFs`, and need no allocator. The async variant takes a new `local::BlockDevice` whose futures are not `Send`.
-- `Fat<D, const FILES: usize = 4>` and `ExFat<D, const FILES: usize = 4>` are separate types, so FAT-only firmware does not link the exFAT reader. Embedded exFAT is read-only in 3.0; 3.x writes arrive through a new entry point, and `mount` stays read-only in every version.
+- `Fat<'mount, D, const FILES: usize = 4>` and `ExFat<'mount, D, const FILES: usize = 4>` are separate types, so FAT-only firmware does not link the exFAT reader. Embedded exFAT is read-only in 3.0; 3.x writes arrive through a new entry point, and `mount` stays read-only in every version.
 - Device blocks are 512 bytes; other sizes are refused with `Unsupported`. FAT sectors of 512 to 4096 bytes are read in 512-byte pieces through one 512-byte cache in the struct.
-- `File` is a slot index consumed by `close`, with a 16-bit generation so a stale handle or one from another volume fails with `InvalidHandle`. A dropped `File` keeps its slot until `unmount`; `sync` and `unmount` still publish its size. `Dir` is `Copy` and holds no slot. Names are passed per call, with `create_dir_all(dir, path)` as the one path method; `list` takes a callback and lends each `Entry`, whose UTF-16 name lives on the call's stack. `Entry::node()` with `open_node` opens a listed file by its entry position, valid until the directory changes.
+- `File<'mount>` is a slot index consumed by `close`, with a generation and exact mount identity. `mount(dev, &mut MountToken)` and `mount_with(dev, &mut MountToken, options)` reserve a caller-owned, non-zero-sized token. The volume and its files retain references to it; files from another token fail with `InvalidHandle`, and Rust prevents token reuse while an old file can still be used. This needs no allocator, global counter or atomics. A dropped `File` keeps its slot until `unmount`; `sync` and `unmount` still publish its size. `Dir` is `Copy` and holds no slot. Names are passed per call, with `create_dir_all(dir, path)` as the one path method; `list` takes a callback and lends each `Entry`, whose UTF-16 name lives on the call's stack. `Entry::node()` with `open_node` opens a listed file by its entry position, valid until the directory changes.
 - The embedded API has its own `Options`: a `fn() -> DateTime` clock, a `fn(u16) -> u16` fold that defaults to `hadris_fat_raw::fold_ascii` with `fold_unicode` as a one-line opt-in, UTC offset, and CP437 as the default code page. The slot count is the const parameter.
 - Format and check are the shared, already alloc-free `fat::sync::{format, check}`.
-- Footprint (prototype estimate, device excluded): `Fat<(), 4>` is 760 bytes on thumbv7em and 776 on aarch64, `ExFat<(), 4>` 792 and 808: one 512-byte cache, the 80-byte geometry, the options and 32-byte FAT slots (48 for exFAT). The 16-bit generation fits in existing padding, so the sizes are those of the 8-bit layout. Both types are const-asserted under 2048 bytes. Stack and flash need the real crate, with `-Z emit-stack-sizes` and a size report on thumbv7em in CI.
+- Footprint (prototype estimate, device excluded): `Fat<(), 4>` is 760 bytes on thumbv7em and 776 on aarch64, `ExFat<(), 4>` 792 and 808: one 512-byte cache, the 80-byte geometry, the options and 32-byte FAT slots (48 for exFAT). These are historical prototype estimates; the current mount-token layout is measured by the firmware CI report. Both types are const-asserted under 2048 bytes. Stack and flash need the real crate, with `-Z emit-stack-sizes` and a size report on thumbv7em in CI.
 - Changes forced on passes 1 to 3, all additive: `local::BlockDevice` without `Send` (with a `Partition` impl), `fat::raw::fold_ascii` and `fold_unicode`, and the `embedded` modules. No signature changed.
 - Open: a combined FAT-or-exFAT type for SDXC firmware can be added later; the cancel safety of the embedded async API (NF-CANCEL-01) is not specified yet and must be tested in the real crate. Shared FAT folds Unicode while embedded folds ASCII, so a name that differs only in non-ASCII case matches in one tier and not the other; this is documented per tier.
 
@@ -1404,14 +1408,20 @@ let report = session.write(&opts, SessionMode::Append)?;   // new session after 
 ```
 
 `Session<D>` owns the device (`open(dev)` fails with `MountError`, which gives
-it back) and has `tree`, `tree_mut`, `options`, `plan`, `write` and
+it back) and has `tree`, `tree_mut`, `options`, `plan`, `write`, `export` and
 `into_inner`. `Append` writes a real new session: data and descriptors after
 the previous session, previous extents reused, and the descriptors at block
 16 updated as growisofs does on overwritable media. `Rewrite` replaces V2's
 in-place behaviour, keeps hybrid boot data and updates the backup GPT.
-Remastering to a new file is `iso::sync::write(out, session.tree(), &opts)`,
-so there is no second method. The sync `Session` needs `std`, because its
-lazy content reads through the sync `Volume`.
+Remastering to a distinct device is `session.export(out, &opts)`: it lays out
+fresh extents and streams existing content from the session's source device
+through a bounded buffer, while reading new content normally. The source and
+destination must not alias, including through separate handles to one file.
+Options explicitly select the new boot and partition configuration; old boot
+catalogs and partition tables are not automatically carried over. The source
+session remains usable. Validation precedes output writes, but later I/O
+failure can leave incomplete output. Sessions need `alloc` in both modes;
+sync does not require `std`.
 
 **Feature work.** Joliet beyond the BMP, zisofs read and write, RRIP SF and
 RR, Apple Partition Map in hybrid images, `write_stream`. All fit existing

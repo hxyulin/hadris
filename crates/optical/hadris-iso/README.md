@@ -184,6 +184,16 @@ volume and copies the descriptors to sector 16, so every reader sees the new
 session. `Rewrite` rebuilds the directories in place and keeps the old file
 data where it is. Unchanged files are never copied.
 
+To remaster onto a separate device, use
+`session.export(&mut output, &options)?`. This streams existing extents from
+the source and writes added or replaced content into a fresh image, using a
+bounded transfer buffer. The source and output must have separate backing
+storage. The session remains usable afterwards. `session.tree()` contains
+stored extents and cannot be passed directly to the standalone `write`.
+Export uses the supplied options for boot and partition tables; it does not
+automatically preserve the original boot configuration. `session.options()`
+preserves volume identifiers and namespaces but omits boot configuration.
+
 ### Rock Ridge relocation
 
 ECMA-119 allows eight directory levels. With Rock Ridge, deeper directories

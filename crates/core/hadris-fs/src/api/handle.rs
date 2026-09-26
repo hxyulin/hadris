@@ -48,7 +48,8 @@ impl<F: FileSystem> File<F> {
     }
 
     /// Writes at the position, or at the end in append mode, and advances
-    /// it.
+    /// it by the successful byte count. An error may leave partial changes
+    /// without reporting progress; see [`FileSystem::write`].
     pub async fn write(&mut self, buf: &[u8]) -> FsResult<usize, F::DeviceError> {
         if !self.options.is_write() {
             return Err(ErrorKind::InvalidInput.into());

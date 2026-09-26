@@ -120,7 +120,7 @@ fn content_reader_reads_every_kind() {
         ErrorKind::IsADirectory
     );
 
-    let stored = Content::stored([Extent::new(0, 4)]);
+    let stored = Content::stored([Extent::new(0, 4)]).unwrap();
     assert_eq!(
         ContentReader::open(&stored).unwrap_err().kind(),
         ErrorKind::Unsupported

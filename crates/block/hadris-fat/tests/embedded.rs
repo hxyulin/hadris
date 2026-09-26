@@ -11,7 +11,7 @@ use std::ops::ControlFlow;
 
 use common::{CASES, Case, INNER_FILES, LONG_NAME, UNICODE_NAME, block_on};
 use hadris_fat::embedded::sync::Fat;
-use hadris_fat::embedded::{Dir, Options};
+use hadris_fat::embedded::{Dir, MountToken, Options};
 use hadris_fat_raw::fold_unicode;
 use hadris_fs::{
     Attributes, DateTime, DirCursor, ErrorKind, FileType, OpenOptions, SeekFrom, SetAttr,
@@ -24,8 +24,8 @@ fn cases() -> impl Iterator<Item = Case> {
     CASES.into_iter().filter(|case| case.block == 512)
 }
 
-fn mount(case: Case, image: Vec<u8>) -> Fat<Dev> {
-    Fat::mount(common::device(case, image)).unwrap()
+fn mount(token: &mut MountToken, case: Case, image: Vec<u8>) -> Fat<'_, Dev> {
+    Fat::mount(common::device(case, image), token).unwrap()
 }
 
 fn names<const N: usize>(fat: &mut Fat<Dev, N>, dir: Dir) -> Vec<String> {
@@ -72,7 +72,8 @@ fn reads_what_fatfs_wrote() {
     for case in cases() {
         let built = common::build(case);
         let mut fs = common::mount(case, &built);
-        let mut fat = mount(case, built.clone());
+        let mut mount_token_0 = MountToken::new();
+        let mut fat = mount(&mut mount_token_0, case, built.clone());
         let root = fat.root();
         assert_eq!(
             names(&mut fat, root),
@@ -126,7 +127,8 @@ fn reads_what_fatfs_wrote() {
 #[test]
 fn lists_from_a_cursor_and_opens_listed_nodes() {
     let case = CASES[0];
-    let mut fat = mount(case, common::build(case));
+    let mut mount_token_0 = MountToken::new();
+    let mut fat = mount(&mut mount_token_0, case, common::build(case));
     let root = fat.root();
     let all = names(&mut fat, root);
     let mut seen = Vec::new();
@@ -154,7 +156,8 @@ fn lists_from_a_cursor_and_opens_listed_nodes() {
 #[test]
 fn writes_what_fatfs_check_and_fsck_accept() {
     for case in cases() {
-        let mut fat = mount(case, common::blank(case));
+        let mut mount_token_0 = MountToken::new();
+        let mut fat = mount(&mut mount_token_0, case, common::blank(case));
         let root = fat.root();
         let deep = fat.create_dir_all(root, "a/b/c").unwrap();
         assert_eq!(fat.create_dir_all(root, "/a//b/./c/").unwrap(), deep);
@@ -227,7 +230,8 @@ fn writes_what_fatfs_check_and_fsck_accept() {
 #[test]
 fn remove_dir_all_empties_a_tree() {
     let case = CASES[2];
-    let mut fat = mount(case, common::blank(case));
+    let mut mount_token_0 = MountToken::new();
+    let mut fat = mount(&mut mount_token_0, case, common::blank(case));
     let root = fat.root();
     let free = fat.stats().unwrap().free_blocks();
     let mut dir = fat.create_dir(root, "top").unwrap();
@@ -254,7 +258,8 @@ fn remove_dir_all_empties_a_tree() {
 #[test]
 fn directory_rules() {
     let case = CASES[1];
-    let mut fat = mount(case, common::blank(case));
+    let mut mount_token_0 = MountToken::new();
+    let mut fat = mount(&mut mount_token_0, case, common::blank(case));
     let root = fat.root();
     let dir = fat.create_dir(root, "dir").unwrap();
     write_file(&mut fat, dir, "inside", b"x");
@@ -295,8 +300,10 @@ fn directory_rules() {
 #[test]
 fn handles_are_checked() {
     let case = CASES[0];
-    let mut one = mount(case, common::blank(case));
-    let mut two = mount(case, common::blank(case));
+    let mut mount_token_0 = MountToken::new();
+    let mut one = mount(&mut mount_token_0, case, common::blank(case));
+    let mut mount_token_1 = MountToken::new();
+    let mut two = mount(&mut mount_token_1, case, common::blank(case));
     let root = one.root();
     write_file(&mut one, root, "a", b"a");
     write_file(&mut two, root, "a", b"a");
@@ -314,7 +321,12 @@ fn handles_are_checked() {
     one.close(file).unwrap();
     two.close(other).unwrap();
 
-    let mut small: Fat<Dev, 2> = Fat::mount(common::device(case, common::blank(case))).unwrap();
+    let mut mount_token_2 = MountToken::new();
+    let mut small: Fat<Dev, 2> = Fat::mount(
+        common::device(case, common::blank(case)),
+        &mut mount_token_2,
+    )
+    .unwrap();
     let root = small.root();
     let create = OpenOptions::new().write().create();
     let first = small.open(root, "first", create).unwrap();
@@ -335,7 +347,8 @@ fn handles_are_checked() {
 #[test]
 fn unicode_folding_is_opt_in() {
     let case = CASES[0];
-    let mut fat = mount(case, common::blank(case));
+    let mut mount_token_0 = MountToken::new();
+    let mut fat = mount(&mut mount_token_0, case, common::blank(case));
     let root = fat.root();
     write_file(&mut fat, root, "\u{E9}t\u{E9}.txt", b"summer");
     assert_eq!(
@@ -344,7 +357,9 @@ fn unicode_folding_is_opt_in() {
     );
     let bytes = image(fat);
     let options = Options::new().with_fold(fold_unicode);
-    let mut fat: Fat<Dev> = Fat::mount_with(common::device(case, bytes), options).unwrap();
+    let mut mount_token_1 = MountToken::new();
+    let mut fat: Fat<Dev> =
+        Fat::mount_with(common::device(case, bytes), &mut mount_token_1, options).unwrap();
     let root = fat.root();
     assert_eq!(read_file(&mut fat, root, "\u{C9}T\u{C9}.TXT"), b"summer");
 }
@@ -352,13 +367,23 @@ fn unicode_folding_is_opt_in() {
 #[test]
 fn refuses_other_block_sizes_and_honours_read_only() {
     let case = CASES[4];
-    let err = Fat::<Dev>::mount(common::device(case, common::blank(case))).unwrap_err();
+    let mut mount_token_0 = MountToken::new();
+    let err = Fat::<Dev>::mount(
+        common::device(case, common::blank(case)),
+        &mut mount_token_0,
+    )
+    .unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Unsupported);
 
     let case = CASES[0];
     let options = Options::new().read_only();
-    let mut fat: Fat<Dev> =
-        Fat::mount_with(common::device(case, common::build(case)), options).unwrap();
+    let mut mount_token_1 = MountToken::new();
+    let mut fat: Fat<Dev> = Fat::mount_with(
+        common::device(case, common::build(case)),
+        &mut mount_token_1,
+        options,
+    )
+    .unwrap();
     let root = fat.root();
     assert_eq!(
         fat.create_dir(root, "x").unwrap_err().kind(),
@@ -386,8 +411,13 @@ fn async_matches_sync() {
     let options = Options::new().with_clock(fixed_clock);
     let data = common::payload(20_000, 7);
 
-    let mut fat: Fat<Dev> =
-        Fat::mount_with(common::device(case, common::blank(case)), options).unwrap();
+    let mut mount_token_0 = MountToken::new();
+    let mut fat: Fat<Dev> = Fat::mount_with(
+        common::device(case, common::blank(case)),
+        &mut mount_token_0,
+        options,
+    )
+    .unwrap();
     let root = fat.root();
     let dir = fat.create_dir_all(root, "x/y").unwrap();
     write_file(&mut fat, dir, "data.bin", &data);
@@ -396,10 +426,14 @@ fn async_matches_sync() {
     let sync = image(fat);
 
     let asynced = block_on(async {
-        let mut fat: AsyncFat<Dev> =
-            AsyncFat::mount_with(common::device(case, common::blank(case)), options)
-                .await
-                .unwrap();
+        let mut mount_token_1 = MountToken::new();
+        let mut fat: AsyncFat<Dev> = AsyncFat::mount_with(
+            common::device(case, common::blank(case)),
+            &mut mount_token_1,
+            options,
+        )
+        .await
+        .unwrap();
         let root = fat.root();
         let dir = fat.create_dir_all(root, "x/y").await.unwrap();
         let file = fat
@@ -427,10 +461,15 @@ fn state_and_futures_stay_small() {
     assert!(size_of::<hadris_fat::embedded::r#async::Fat<(), 4>>() < 2048);
     let case = CASES[0];
     let empty = || MemDevice::new(Vec::new(), BlockSize::new(512).unwrap());
-    let mount = AsyncFat::<Dev>::mount(empty());
+    let mut mount_token_0 = MountToken::new();
+    let mount = AsyncFat::<Dev>::mount(empty(), &mut mount_token_0);
     assert!(size_of_val(&mount) < 2048, "mount {}", size_of_val(&mount));
-    let mut fat: AsyncFat<Dev> =
-        block_on(AsyncFat::mount(common::device(case, common::blank(case)))).unwrap();
+    let mut mount_token_1 = MountToken::new();
+    let mut fat: AsyncFat<Dev> = block_on(AsyncFat::mount(
+        common::device(case, common::blank(case)),
+        &mut mount_token_1,
+    ))
+    .unwrap();
     let root = fat.root();
     let create = fat.create_dir(root, "a long directory name");
     assert!(
@@ -514,9 +553,9 @@ mod cancel {
         }
     }
 
-    type Vol = AsyncFat<Yielding, 16>;
+    type Vol<'m> = AsyncFat<'m, Yielding, 16>;
 
-    async fn step(fat: &mut Vol, kind: u64, i: u64) -> Result<(), ErrorKind> {
+    async fn step(fat: &mut Vol<'_>, kind: u64, i: u64) -> Result<(), ErrorKind> {
         let root = fat.root();
         let dir_name = format!("directory {}", i % 3);
         let file = format!("file number {}.bin", i % 5);
@@ -574,7 +613,8 @@ mod cancel {
     fn dropped_futures_leave_a_clean_volume() {
         for case in [CASES[0], CASES[2]] {
             let dev = Yielding(common::device(case, common::blank(case)));
-            let mut fat: Vol = block_on(AsyncFat::mount(dev)).unwrap();
+            let mut mount_token_2 = MountToken::new();
+            let mut fat: Vol = block_on(AsyncFat::mount(dev, &mut mount_token_2)).unwrap();
             let mut rng = Rng(0x5eed ^ case.size);
             for i in 0..400 {
                 let kind = rng.below(6);
@@ -582,7 +622,7 @@ mod cancel {
                 let _ = run_for(step(&mut fat, kind, i), budget);
                 if i % 20 == 19 {
                     let dev = block_on(fat.unmount()).unwrap();
-                    fat = block_on(AsyncFat::mount(dev)).unwrap();
+                    fat = block_on(AsyncFat::mount(dev, &mut mount_token_2)).unwrap();
                 }
             }
             let bytes = block_on(fat.unmount()).unwrap().0.into_inner();
@@ -595,7 +635,8 @@ mod cancel {
 #[test]
 fn files_see_one_size() {
     let case = CASES[0];
-    let mut fat = mount(case, common::blank(case));
+    let mut mount_token_0 = MountToken::new();
+    let mut fat = mount(&mut mount_token_0, case, common::blank(case));
     let root = fat.root();
     let writer = fat
         .open(root, "shared", OpenOptions::new().write().create())
@@ -734,7 +775,8 @@ mod interrupted {
                         inner: common::device(case, before.clone()),
                         budget: left.clone(),
                     };
-                    let mut fat: Fat<Faulty> = Fat::mount(dev).unwrap();
+                    let mut mount_token_1 = MountToken::new();
+                    let mut fat: Fat<Faulty> = Fat::mount(dev, &mut mount_token_1).unwrap();
                     let result = run(&mut fat, op);
                     let context = format!("{} op {op} budget {budget}", case.name);
                     let cut = fat.into_inner();
@@ -751,7 +793,8 @@ mod interrupted {
                         inner: common::device(case, before.clone()),
                         budget: left.clone(),
                     };
-                    let mut fat: Fat<Faulty> = Fat::mount(dev).unwrap();
+                    let mut mount_token_2 = MountToken::new();
+                    let mut fat: Fat<Faulty> = Fat::mount(dev, &mut mount_token_2).unwrap();
                     let again = run(&mut fat, op);
                     assert_eq!(again.is_ok(), result.is_ok(), "{context}");
                     left.set(usize::MAX);
@@ -771,4 +814,49 @@ mod interrupted {
             }
         }
     }
+}
+
+#[test]
+fn mount_identity_survives_moves_and_ignores_disk_serials() {
+    let case = CASES[0];
+    let mut tokens = [MountToken::new(), MountToken::new()];
+    let [first_token, second_token] = &mut tokens;
+    let image_with_serial = |serial| {
+        let mut fs = common::mount(case, &common::build(case));
+        fs.set_volume_serial(serial).unwrap();
+        fs.into_inner().into_inner()
+    };
+    let mut first = mount(first_token, case, image_with_serial(0));
+    let mut second = mount(second_token, case, image_with_serial(4099));
+    let a = first
+        .open(first.root(), "README.TXT", OpenOptions::new().read())
+        .unwrap();
+    let b = first
+        .open(first.root(), "empty.dat", OpenOptions::new().read())
+        .unwrap();
+    let foreign = second
+        .open(second.root(), "README.TXT", OpenOptions::new().read())
+        .unwrap();
+    let mut moved = first;
+    let mut buf = [0; 16];
+    assert_eq!(
+        second.read(&a, &mut buf).unwrap_err().kind(),
+        ErrorKind::InvalidHandle
+    );
+    assert_eq!(
+        moved.read(&foreign, &mut buf).unwrap_err().kind(),
+        ErrorKind::InvalidHandle
+    );
+    assert_eq!(moved.read(&a, &mut buf).unwrap(), 9);
+    assert_eq!(moved.read(&b, &mut buf).unwrap(), 0);
+    moved.close(a).unwrap();
+    moved.close(b).unwrap();
+    second.close(foreign).unwrap();
+    let dev = moved.unmount().unwrap();
+    let mut remounted: Fat<_> = Fat::mount(dev, first_token).unwrap();
+    let file = remounted
+        .open(remounted.root(), "README.TXT", OpenOptions::new().read())
+        .unwrap();
+    assert_eq!(remounted.read(&file, &mut buf).unwrap(), 9);
+    remounted.close(file).unwrap();
 }

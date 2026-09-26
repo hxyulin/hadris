@@ -149,7 +149,8 @@ impl<D: BlockDevice> BlockDevice for Sectors<'_, D> {
 /// modes, owners, times, symlinks, device nodes, FIFOs, sockets and hard
 /// links when the image has them, Joliet or enhanced names otherwise. Change the tree, then
 /// [`write`](Self::write) it back: unchanged files keep their extents, new
-/// content goes after the old data.
+/// content goes after the old data. Use [`export`](Self::export) to stream
+/// the edited tree to a separate image instead.
 ///
 /// ```rust,ignore
 /// let mut session = Session::open(&mut dev)?;
@@ -202,7 +203,8 @@ impl<D: BlockDevice> Session<D> {
         }
     }
 
-    /// The tree the image holds.
+    /// The editable tree, with existing file data represented as stored extents.
+    /// Use [`export`](Self::export) to write it to another device.
     pub fn tree(&self) -> &Tree {
         &self.tree
     }
@@ -224,6 +226,58 @@ impl<D: BlockDevice> Session<D> {
     /// The number of blocks the image's volume descriptors declare.
     pub fn volume_blocks(&self) -> u64 {
         self.volume_blocks
+    }
+
+    /// Writes the edited tree as a fresh image on a separate device.
+    ///
+    /// Stored file extents are streamed from this session's device using a
+    /// bounded buffer; new content is read normally. The session and its
+    /// stored extents remain usable for subsequent exports or writes.
+    /// `out` must not alias the source device, including through another
+    /// handle to the same backing file.
+    ///
+    /// `opts` specifies the new image, including boot and partition tables.
+    /// Existing boot catalogs and partition tables are not preserved
+    /// automatically. [`options`](Self::options) preserves volume identifiers
+    /// and namespaces but omits boot configuration.
+    ///
+    /// Validation and output capacity checks run before writing. Source or
+    /// output I/O failures may leave an incomplete output image. File read
+    /// errors carry the path in [`PathError::path`].
+    pub async fn export<O: BlockDevice>(&mut self, mut out: O, opts: &IsoOptions) -> Result<Report, PathError> {
+        check_block_size(&out)?;
+        let mut contents = plan::measure(&self.tree, true)?;
+        for content in contents.values_mut() {
+            content.stored = None;
+        }
+        let plan = plan::lay_out(&self.tree, opts, &contents, Base::image())?;
+        check_output(&out, &plan)?;
+        for region in &plan.regions {
+            let content = match region {
+                Region::File { path, .. } => self.tree.get(path).and_then(Node::content),
+                Region::Content { content, .. } => Some(content),
+                Region::Bytes { .. } => None,
+            };
+            if let Some(content) = content {
+                if let Some(extents) = content.stored_extents() {
+                    let len = self.dev.block_count().saturating_mul(u64::from(self.dev.block_size().get()));
+                    if extents.iter().any(|extent| extent.offset().checked_add(extent.len()).is_none_or(|end| end > len)) {
+                        let err = PathError::from(Detail::OutsideImage.corrupt::<Infallible>());
+                        return Err(match region {
+                            Region::File { path, .. } => err.with_path(path),
+                            _ => err,
+                        });
+                    }
+                } else {
+                    super::fs::ContentReader::check(content).map_err(|err| match region {
+                        Region::File { path, .. } => err.with_path(path),
+                        _ => err,
+                    })?;
+                }
+            }
+        }
+        super::write::emit_from(&mut out, &self.tree, &plan, Some(&mut self.dev)).await?;
+        Ok(plan.report)
     }
 
     /// Writes the tree back as `mode` says and returns the [`Report`].
@@ -359,7 +413,7 @@ impl<D: BlockDevice> Session<D> {
                 boot.len = extent.len();
             }
         }
-        self.store_new_files(&plan.report, &contents);
+        self.store_new_files(&plan.report, &contents)?;
         Ok(plan.report)
     }
 
@@ -370,7 +424,7 @@ impl<D: BlockDevice> Session<D> {
 
     /// Points the files written as new content at their extents, keeping
     /// every name of a hard link on one node.
-    fn store_new_files(&mut self, report: &Report, contents: &BTreeMap<usize, plan::ContentInfo>) {
+    fn store_new_files(&mut self, report: &Report, contents: &BTreeMap<usize, plan::ContentInfo>) -> Result<(), PathError> {
         let mut groups: BTreeMap<usize, Vec<Vec<u8>>> = BTreeMap::new();
         for (path, entry) in files(&self.tree) {
             if contents.get(&entry.id()).is_some_and(|info| info.stored.is_none() && info.len > 0) {
@@ -382,7 +436,7 @@ impl<D: BlockDevice> Session<D> {
             let (Some(extents), Some(node)) = (report.extents(first), self.tree.get(first)) else {
                 continue;
             };
-            let node = Node::file(Content::stored(extents.to_vec())).with_attrs(*node.attrs());
+            let node = Node::file(Content::stored(extents.to_vec())?).with_attrs(*node.attrs());
             if self.tree.replace(first, node).is_err() {
                 continue;
             }
@@ -392,6 +446,7 @@ impl<D: BlockDevice> Session<D> {
                 }
             }
         }
+        Ok(())
     }
 
     /// Records, for each entry of the kept boot catalog, the tree path of
@@ -708,7 +763,7 @@ async fn read_session<D: BlockDevice>(iso: &mut IsoFs<D>) -> Result<(Tree, IsoOp
                     }
                     Node::file(match meta.len() {
                         0 => Content::empty(),
-                        _ => Content::stored(extents),
+                        _ => Content::stored(extents).map_err(tree_error)?,
                     })
                 }
                 FileType::Symlink => {

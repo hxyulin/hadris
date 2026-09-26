@@ -31,7 +31,7 @@ from pathlib import Path
 TARGETS = ["thumbv6m-none-eabi", "thumbv7em-none-eabihf", "riscv32imc-unknown-none-elf"]
 BINS = ["fat-log", "fat", "fat-unicode", "fat-async", "exfat"]
 MOUNT = re.compile(r"hadris_example_firmware::sync::mount_(ex)?fat")
-STATE = re.compile(r"type: `hadris_fat::(?:exfat::)?embedded::[^`]+::(?:Ex)?Fat<hadris_example_firmware::Card>`: (\d+) bytes")
+STATE = re.compile(r"type: `hadris_fat::(?:exfat::)?embedded::[^`]+::(?:Ex)?Fat<(?:'[^,]+, )?hadris_example_firmware::Card>`: (\d+) bytes")
 FLASH_TARGET = "thumbv7em-none-eabihf"
 FLASH_TARGET_BYTES = 20 * 1024
 FLASH_CEILING = 44 * 1024

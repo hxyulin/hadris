@@ -1447,3 +1447,39 @@ fn was_dirty_reads_volume_dirty() {
     image[106] |= 0x02;
     assert!(common::mount(&image).was_dirty());
 }
+
+#[test]
+fn overwrite_error_can_leave_partial_data() {
+    let mut fs = common::small(4 << 20, 512);
+    let node = fs.create(fs.root(), name("data"), &SetAttr::new()).unwrap();
+    fs.write(node, 0, &[1; 2048]).unwrap();
+    fs.sync().unwrap();
+    let before = common::image(fs);
+    let mut saw_partial = false;
+    for budget in 0..8 {
+        let mut fs = ExFatFs::mount(
+            Faulty {
+                inner: common::device(before.clone(), 512),
+                budget: Some(budget),
+                refuse: false,
+            },
+            MountOptions::new(),
+        )
+        .unwrap();
+        let node = fs.lookup(fs.root(), name("data")).unwrap();
+        let result = fs.write(node, 1, &[2; 2000]);
+        let actual = read_all(&mut fs, node);
+        assert_eq!(actual.len(), 2048);
+        assert_eq!(actual[0], 1);
+        assert_eq!(&actual[2001..], &[1; 47]);
+        assert!(actual[1..2001].iter().all(|&byte| byte == 1 || byte == 2));
+        if let Err(error) = result {
+            assert_eq!(error.kind(), ErrorKind::Io);
+            assert!(error.device_error().is_some());
+            saw_partial |= actual[1..2001].contains(&1) && actual[1..2001].contains(&2);
+        } else {
+            assert_eq!(&actual[1..2001], &[2; 2000]);
+        }
+    }
+    assert!(saw_partial);
+}
