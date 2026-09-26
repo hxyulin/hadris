@@ -360,10 +360,10 @@ jobs:
             features: "alloc,async,detect"
           - crate: hadris
             tier: dual-mode-archive
-            features: "alloc,sync,async,archive"
+            features: "alloc,sync,async,cpio"
           - crate: hadris
             tier: all-capabilities
-            features: "std,alloc,sync,async,write,detect,part,archive,unstable-ntfs"
+            features: "std,alloc,sync,async,write,detect,part,cpio,unstable-ntfs"
 
     steps:
       - uses: actions/checkout@v7

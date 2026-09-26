@@ -87,15 +87,16 @@ hadris-fat = "2.4"
 # 3.0
 [dependencies]
 hadris-fat = "3"
-hadris-fs = { version = "3", features = ["std", "sync"] }
+hadris-fs = "3"
 hadris-storage = "3"
 ```
 
 Until 3.0.0 is released, a requirement of `"3"` does not match the release
 candidates: depend on `"3.0.0-rc.1"` to try them.
 
-`hadris-fs` has no default features, so name the features you use. Code
-that only uses the umbrella can depend on `hadris` alone: it re-exports
+`hadris-fs` defaults to `std` and `sync`, like the other crates; turn
+them off with `default-features = false` for `no_std` or async-only builds.
+Code that only uses the umbrella can depend on `hadris` alone: it re-exports
 `hadris::io`, `hadris::storage` and `hadris::fs` in every build.
 
 ## Features
@@ -119,11 +120,11 @@ Per crate:
 
 | Crate | V2 features | V3 features | Removed, and what to do |
 |---|---|---|---|
-| `hadris` | `std`, `alloc`, `sync`, `async`, `read`, `write`, `block`, `optical`, `archive`, `path`, `fixed`, `storage`, `fat`, `part`, `iso`, `udf`, `cd`, `cpio` (default `std`, `sync`, `read`, `write`, `fixed`, `path`, `iso`, `fat`, `cpio`) | `std`, `alloc`, `sync`, `async`, `write`, `fat`, `part`, `iso`, `udf`, `cpio`, `archive` (alias of `cpio`), `detect`, `unstable-ntfs` (default `std`, `sync`, `write`, `fat`, `iso`, `cpio`, `detect`) | `read`: drop it. `block`, `optical`: use `detect` (adds `fat`, `iso`, `udf`, `cpio`) and `part`. `cd`: use `udf`. `storage`: `hadris::storage` is always there. `path`, `fixed`: the crates are gone. `write` now only forwards FAT formatting. |
+| `hadris` | `std`, `alloc`, `sync`, `async`, `read`, `write`, `block`, `optical`, `archive`, `path`, `fixed`, `storage`, `fat`, `part`, `iso`, `udf`, `cd`, `cpio` (default `std`, `sync`, `read`, `write`, `fixed`, `path`, `iso`, `fat`, `cpio`) | `std`, `alloc`, `sync`, `async`, `write`, `fat`, `part`, `iso`, `udf`, `cpio`, `detect`, `unstable-ntfs` (default `std`, `sync`, `write`, `fat`, `iso`, `cpio`, `detect`) | `read`: drop it. `archive`: use `cpio`. `block`, `optical`: use `detect` (adds `fat`, `iso`, `udf`, `cpio`) and `part`. `cd`: use `udf`. `storage`: `hadris::storage` is always there. `path`, `fixed`: the crates are gone. `write` now only forwards FAT formatting. |
 | `hadris-io` | `std`, `alloc`, `sync`, `async` | `std`, `alloc`, `sync`, `async`, `embedded-io` | `embedded-io` is now optional and gates `FromEmbedded` and the `embedded-io` conversions. `async` also enables `local`. |
 | `hadris-storage` | `std`, `alloc`, `sync`, `async` | `std`, `alloc`, `sync`, `async` | None. `async` also enables `local`. |
 | `hadris-common` | `std`, `alloc`, `sync`, `async`, `bytemuck`, `optical` | `bytemuck` | The crate is internal; do not depend on it. |
-| `hadris-fs` | (new) | `std`, `alloc`, `sync`, `async`, `contract` (no defaults) | `contract` adds the driver test kit `contract::check`. |
+| `hadris-fs` | (new) | `std`, `alloc`, `sync`, `async`, `contract` (default `std`, `sync`) | `contract` adds the driver test kit `contract::check`. |
 | `hadris-fat` | `read`, `write`, `lfn`, `std`, `sync`, `async`, `alloc`, `cache`, `tool`, `unstable-exfat`, `defmt`, `dirty-file-panic` (default `read`, `write`, `lfn`, `std`, `sync`) | `std`, `sync`, `async`, `alloc`, `write`, `defmt` (default `std`, `sync`, `write`) | `read`, `lfn`: always on. `cache`: wrap the device in `hadris_storage::sync::Cache`. `tool`: use `check` (always compiled) and `FatFs::extents`. `unstable-exfat`: exFAT is in every build. `dirty-file-panic`: gone. `write` now adds only `format`; it no longer implies `alloc` or `read`. `FatFs`, `ExFatFs` and the tree writer `write` need `alloc`. `defmt` now derives only on `FatKind`. |
 | `hadris-fat-raw` | (new) | `sync`, `async`, `defmt` (no defaults) | `sync` and `async` add the device primitives in `io` and `exfat::io`. |
 | `hadris-part` | `std`, `sync`, `async`, `alloc`, `read`, `write`, `crc`, `rand` | `std`, `alloc`, `sync`, `async` | `read`, `write`: always on. `crc`: CRCs are always computed and checked. `rand`: pass GUIDs yourself or call `Guid::random()` (`std`). `Disk`, the tables and `DiskLayout` need `alloc`; `scan` and `open` do not. |
@@ -1239,7 +1240,7 @@ NTFS stays a preview; its native API may change in 3.x minors.
 | `hadris_optical::OpticalFormat` | `hadris::ImageFormat::{Iso, Udf, IsoUdfBridge}` |
 | `hadris_optical::detect::sync::detect`, `detect::r#async::detect` | `hadris::sync::detect`, `hadris::r#async::detect` |
 | `hadris_optical::detect::OpticalFormats` | `hadris::Detection` |
-| `hadris_optical::detect::UdfVrs` | Removed |
+| `hadris_optical::detect::UdfVrs` | Removed; `hadris_udf::VolumeInfo::revision()` after mounting, or `hadris_udf::raw::vsd::{NSR02, NSR03}` for a raw probe |
 | `hadris_optical::{Error, Result}` | `hadris::MountError`, `hadris::Error` |
 | `hadris_optical::{iso, udf, cd}` | `hadris::iso`, `hadris::udf`; `cd` is `hadris::udf::{plan_bridge, sync::write_bridge}` |
 
@@ -1418,11 +1419,10 @@ Writing:
 
 1. Replace `hadris-block`, `hadris-optical`, `hadris-cd`, `hadris-archive`,
    `hadris-path` and `hadris-fixed` dependencies (see [Crate map](#crate-map)).
-2. Add `hadris-fs` (with `std` and `sync`, or the features you use) and
-   `hadris-storage` where you name their items.
+2. Add `hadris-fs` and `hadris-storage` where you name their items.
 3. Remove the `read`, `lfn`, `cache`, `tool`, `unstable-exfat`,
    `dirty-file-panic`, `crc`, `rand`, `joliet`, `unstable-streaming`,
-   `block`, `optical`, `cd`, `path`, `fixed` and `storage` features. Add
+   `block`, `optical`, `cd`, `archive`, `path`, `fixed` and `storage` features. Add
    `alloc` where you use `FatFs`, `ExFatFs`, `Tree` or a writer.
 4. Name I/O items through their mode module (`hadris_fat::sync::FatFs`,
    `hadris_io::sync::Read`); nothing is re-exported at a crate root any more.

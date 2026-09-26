@@ -1359,8 +1359,8 @@ iso.info().id(IsoId::Volume);                  // the PVD bytes
 - `IsoReader` and `IsoImage` merge into `IsoFs`, which needs no allocator (NF-NOALLOC-03). It implements `FileSystem` with the write half left at its `ReadOnly` defaults. Node ids are record locations, so there is no node table.
 - A mount uses Rock Ridge, then Joliet, then the primary tree, unless mount options choose (DIR-LOOKUP-01). Listings show the highest version of a name without `;N`, and `lookup` accepts an explicit `;N` (DIR-LOOKUP-03).
 - ISO needs device blocks of at most 2048 bytes and refuses a 4096-byte device with `Unsupported` (IO-OPEN-01).
-- Extras: `info()` returns `iso::VolumeInfo` (`block_size`, `volume_space_size`, `id(IsoId)`, `date(IsoDate)`, returning bytes, since PVD bytes are often not ASCII). `boot_catalog(&mut buf) -> Option<BootCatalog<'b>>` parses the El Torito catalog lazily from the caller's buffer, with `CatalogEntry`, `Platform` and the builder's `Emulation`. `boot_image(&entry)` returns an `Extent`, read with `read_raw`. `iso::SystemArea` over caller bytes lists MBR, GPT and APM entries of a hybrid image (BOOT-HYB-05). `records(node)` plus `read_raw` replaces `view.raw_record(node)`.
-- `check(&mut dev, scratch, on_finding)` verifies an image offline with `iso::Detail` codes (CHECK-ISO-01). The CLI stops parsing boot records by hand.
+- Extras: `info()` returns `iso::VolumeInfo` (`block_size`, `volume_space_size`, `id(IsoId)`, `date(IsoDate)`, returning bytes, since PVD bytes are often not ASCII). `boot_catalog(&mut buf) -> Option<BootCatalog<'b>>` parses the El Torito catalog lazily from the caller's buffer, with `CatalogEntry`, `Platform` and the builder's `Emulation`. `boot_image(&entry)` returns an `Extent`, read with `read_raw`. `iso::SystemArea` over caller bytes, listing the MBR, GPT and APM entries of a hybrid image (BOOT-HYB-05), is 3.x. `records(node)` plus `read_raw` replaces `view.raw_record(node)`.
+- 3.x: `check(&mut dev, scratch, on_finding)` verifies an image offline with `iso::Detail` codes (CHECK-ISO-01), and the CLI stops parsing boot records by hand.
 - `IsoStr::as_str` returns `Result`. Panicking `best_choice` and `primary` are removed.
 - Raw record and FID iterators, the Rock Ridge decoder, d-character codecs and descriptor selection move to `hadris-iso-raw` in 3.x (4.15).
 
@@ -1387,7 +1387,7 @@ let report = iso::sync::write(&mut out, &tree, &opts)?;
 - `IsoOptions` has no clock parameter. `with_time` fixes every timestamp, and ids derive from the time plus the tree unless `with_seed` (4.10).
 - `ElTorito` holds `BootEntry` values (`bios`, `uefi`, `uefi_appended`, `with_load_size`, `with_boot_info(BootInfo::{Table, Grub2})`, `with_emulation`), each with an image given as a tree path or, for EFI, an appended partition, so the ESP is stored once for El Torito and GPT (BUILD-ESP-01). `BootSectionOptions` and the tuple list are removed.
 - `Hybrid` is a struct with constructors (`mbr`, `gpt`, `gpt_hybrid_mbr`) and `with_bootstrap` and `with_appended`, not an enum, so APM in 3.x is a new method. Soft boot problems are `WarningKind::Boot`; a bootstrap over 446 bytes or a load size past the image fails the plan.
-- `sector_size`, `with_charset` and `with_min_blocks` are removed; no 3.0 action needs them.
+- `sector_size` and `with_charset` are removed; no 3.0 action needs them. `with_min_blocks` stays: the bridge writer in `hadris-udf` sets it across the crate boundary.
 - The writer runs in both modes and without `std`. The output is a `BlockDevice`; a two-pass `write_stream` that needs only `Write` is 3.x.
 - `iso::Guid`, `SystemArea` and `TablePartition` belong in the partition crate's raw layer and move there (5.6).
 
