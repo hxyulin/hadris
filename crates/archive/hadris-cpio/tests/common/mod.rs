@@ -44,7 +44,7 @@ pub fn read_all_with(bytes: &[u8], options: ReaderOptions) -> Result<Vec<ReadEnt
             _ => panic!("entry ended early"),
         })?;
         out.push(ReadEntry {
-            name: entry.name_str().unwrap().to_string(),
+            name: entry.path_str().unwrap().to_string(),
             file_type: entry.file_type(),
             mode: entry.mode(),
             ino: entry.ino(),

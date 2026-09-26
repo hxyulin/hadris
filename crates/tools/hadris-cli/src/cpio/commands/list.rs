@@ -8,7 +8,7 @@ pub fn list(archive: PathBuf, long: bool) -> Result<()> {
     let mut reader = open_reader(&archive)?;
 
     while let Some(entry) = reader.next_entry().context("Failed to read entry")? {
-        let name = entry.name_str().unwrap_or("<invalid utf-8>");
+        let name = entry.path_str().unwrap_or("<invalid utf-8>");
         if long {
             println!(
                 "{}{} {:>5} {:>5} {:>8} {} {}",

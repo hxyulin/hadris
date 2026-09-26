@@ -93,7 +93,11 @@ and command to its 3.0 replacement, and
   `ElTorito` with `BootEntry` values, and `Relocation`.
 - **hadris-udf:** The ISO 9660 and UDF bridge writer moves here from
   `hadris-cd` as `plan_bridge` and `write_bridge`.
-- **hadris-cpio:** `CpioReader` streams entries; `Writer` appends entries
+- **hadris-cpio:** `CpioReader` streams entries with configurable name storage,
+  `path`/`path_str`, absolute header/data offsets and `next_segment` for
+  concatenated archives; oversized names return `LimitExceeded`. `into_parts`
+  preserves the byte peeked at a segment boundary. CRC trailers are checked.
+  `Writer` appends entries
   and returns its sink from `finish`; `Format` names Newc, Crc, Odc and
   Binary. Odc is new.
 - **hadris-part:** Partition tables work on block devices, `open` returns

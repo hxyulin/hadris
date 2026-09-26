@@ -1504,7 +1504,7 @@ remove and resize, overlap checks in every edit. APM for hybrid ISO images is
 
 ```rust
 let mut path = [0u8; 4096];
-let mut reader = cpio::sync::Reader::new(StdIo(stdin), &mut path);
+let mut reader = cpio::sync::CpioReader::with_buffer(StdIo::new(stdin), &mut path[..], ReaderOptions::new());
 loop {
     while let Some(mut entry) = reader.next_entry()? {
         entry.path(); entry.metadata(); entry.read(&mut buf)?;
@@ -1519,7 +1519,7 @@ w.write_all(chunk)?; w.finish()?;
 let (out, report) = writer.finish()?;
 ```
 
-- The reader needs no allocator: `Reader<'b, R>` over a caller path buffer, so the caller picks the buffer size (NF-NOALLOC-04). Entries borrow the reader and have `path`, `metadata`, `format`, `offset`, `data_offset` and `read`; dropping an entry skips the rest of its data. `next_segment()` continues after a trailer, so concatenated archives (microcode plus main initramfs) keep their boundaries visible. It replaces `continue_after_trailer()`.
+- The reader needs no allocator: `CpioReader<R, B = [u8; PATH_MAX]>` owns its default buffer; `with_buffer(reader, buffer, options)` accepts `B: AsRef<[u8]> + AsMut<[u8]>` (also `Send` in async) so the caller picks the storage (NF-NOALLOC-04). Encoded names include the terminating NUL; insufficient capacity returns `LimitExceeded`. Entries borrow the reader and have `path`, `metadata`, `format`, `offset`, `data_offset` and `read`; the next `next_entry` consumes any data left by a dropped entry. `next_segment()` continues after a trailer, so concatenated archives (microcode plus main initramfs) keep their boundaries visible. It replaces `at_trailer()` and `continue_after_trailer()`. Call it after `next_entry` returns `None`: it skips zero padding, returns false at EOF, or stores one peeked byte and returns true. It does not validate the next header. Calling it before the segment ends returns `InvalidInput`. Entry offsets are absolute from the supplied stream start, including inter-segment padding. `into_parts()` returns `(stream, buffer, pending_byte)` for lossless recovery; `into_inner()` discards a pending byte.
 - An archive that ends at an aligned entry boundary without a trailer stays valid, as the Linux initramfs format allows (`LINUX-INITRAMFS-NEWC:archive#optional-trailer`). A trailer cut off mid-entry is `Corrupt`.
 - `skip_entry_data_owned`, `next_entry_alloc` and similar twins are removed.
 - Sizes are `u64` at the API boundary, with `LimitExceeded` when a newc field overflows.

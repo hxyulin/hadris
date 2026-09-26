@@ -23,7 +23,7 @@ fn pass(data: &[u8], read_all: bool) -> Vec<(Vec<u8>, u64, u32)> {
     let mut buf = [0u8; 97];
     loop {
         while let Ok(Some(mut entry)) = reader.next_entry() {
-            entries.push((entry.name().to_vec(), entry.len(), entry.mode()));
+            entries.push((entry.path().to_vec(), entry.len(), entry.mode()));
             if !read_all {
                 let _ = entry.read(&mut buf);
                 continue;
@@ -44,10 +44,9 @@ fn pass(data: &[u8], read_all: bool) -> Vec<(Vec<u8>, u64, u32)> {
                 );
             }
         }
-        if !reader.at_trailer() {
+        if !reader.next_segment().unwrap_or(false) {
             break;
         }
-        reader.continue_after_trailer();
     }
     entries
 }

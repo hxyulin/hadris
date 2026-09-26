@@ -34,8 +34,8 @@
 //! let mut reader = CpioReader::new(Cursor::new(&archive));
 //! let mut names = Vec::new();
 //! while let Some(mut entry) = reader.next_entry()? {
-//!     names.push(entry.name_str()?.to_string());
-//!     if entry.name() == b"etc/hostname" {
+//!     names.push(entry.path_str()?.to_string());
+//!     if entry.path() == b"etc/hostname" {
 //!         let mut data = [0u8; 7];
 //!         entry.read_exact(&mut data)?;
 //!         assert_eq!(&data, b"hadris\n");
@@ -51,7 +51,7 @@
 //! An archive that ends at an entry boundary without a `TRAILER!!!` entry
 //! is valid, as the Linux initramfs format allows;
 //! [`ReaderOptions::with_strict_trailer`] requires one.
-//! `continue_after_trailer` reads archives concatenated after a trailer.
+//! `next_segment()` reads archives concatenated after a trailer.
 //!
 //! ## Writing
 //!

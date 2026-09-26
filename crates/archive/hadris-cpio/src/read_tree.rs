@@ -49,7 +49,7 @@ struct Group {
 
 io_transform! {
 
-async fn read_data<R: Read>(entry: &mut Entry<'_, R>) -> Result<Vec<u8>, Error<R::Error>> {
+async fn read_data<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeSend>(entry: &mut Entry<'_, R, B>) -> Result<Vec<u8>, Error<R::Error>> {
     let mut data = Vec::new();
     let mut chunk = alloc::vec![0u8; CHUNK.min(entry.remaining() as usize)];
     while entry.remaining() > 0 {
@@ -73,12 +73,12 @@ async fn read_data<R: Read>(entry: &mut Entry<'_, R>) -> Result<Vec<u8>, Error<R
 /// share an inode and device number and have a link count above 1 become
 /// hard links, with the data and attributes of the name that carries data,
 /// as GNU cpio writes them. Errors carry the entry name.
-pub async fn read_tree<R: Read>(reader: &mut CpioReader<R>) -> Result<Tree, PathError> {
+pub async fn read_tree<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeSend>(reader: &mut CpioReader<R, B>) -> Result<Tree, PathError> {
     let mut tree = Tree::new();
     let mut groups: BTreeMap<(u32, u32, u64), Group> = BTreeMap::new();
     loop {
         let Some(mut entry) = reader.next_entry().await? else { break };
-        let name = entry.name().to_vec();
+        let name = entry.path().to_vec();
         let with_path = |err: PathError| err.with_path(&name);
         let owner = Owner::new(entry.uid(), entry.gid());
         let mut attrs = SetAttr::new().with_permissions(entry.permissions()).with_owner(owner);

@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut archive = CpioReader::new(input);
 
     while let Some(entry) = archive.next_entry()? {
-        let name = entry.name_str().unwrap_or("<non-UTF-8>");
+        let name = entry.path_str().unwrap_or("<non-UTF-8>");
         println!("{} ({} bytes)", name, entry.len());
     }
 
@@ -40,7 +40,16 @@ not read is skipped by the next call, and CRC archives are checked either
 way. The reader needs no allocator, so the same code runs in a bootloader.
 An archive may end at an entry boundary without a trailer, as initramfs
 allows; `ReaderOptions::with_strict_trailer` requires one, and
-`continue_after_trailer` reads archives concatenated after a trailer.
+`next_segment()` reads archives concatenated after a trailer.
+
+`CpioReader::with_buffer(input, &mut storage[..], options)` uses caller-owned
+name storage; capacity includes the terminating NUL, including for the
+`TRAILER!!!` name (11 bytes). Oversized encoded names return `LimitExceeded`.
+Entry `offset()` and `data_offset()` count from the supplied stream's start.
+Call `next_segment()` after `next_entry()` returns `None`; it returns false
+at EOF. A true result means bytes follow; `next_entry()` validates the header.
+`into_parts()` preserves the optional peeked byte for replay before reading
+the returned stream. `into_inner()` discards it.
 
 ## Read a file payload
 
@@ -52,7 +61,7 @@ allows; `ReaderOptions::with_strict_trailer` requires one, and
 # fn run() -> Result<(), Box<dyn std::error::Error>> {
 let mut archive = CpioReader::new(StdIo::new(BufReader::new(File::open("archive.cpio")?)));
 while let Some(mut entry) = archive.next_entry()? {
-    if entry.name() == b"etc/hostname" {
+    if entry.path() == b"etc/hostname" {
         let mut bytes = vec![0; entry.len() as usize];
         entry.read_exact(&mut bytes)?;
         println!("{}", String::from_utf8_lossy(&bytes));

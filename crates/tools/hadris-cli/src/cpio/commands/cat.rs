@@ -12,7 +12,7 @@ pub fn cat(archive: PathBuf, path: &str) -> Result<()> {
 
     while let Some(mut entry) = reader.next_entry().context("Failed to read entry")? {
         let wanted =
-            normalize(entry.name()) == normalize(path.as_bytes()) || link == Some(entry.ino());
+            normalize(entry.path()) == normalize(path.as_bytes()) || link == Some(entry.ino());
         if !wanted {
             continue;
         }

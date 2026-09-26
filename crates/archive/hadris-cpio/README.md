@@ -29,8 +29,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let file = File::open("initramfs.cpio")?;
     let mut reader = CpioReader::new(StdIo::new(BufReader::new(file)));
     while let Some(mut entry) = reader.next_entry()? {
-        println!("{} ({} bytes)", entry.name_str().unwrap_or("?"), entry.len());
-        if entry.name() == b"etc/hostname" {
+        println!("{} ({} bytes)", entry.path_str().unwrap_or("?"), entry.len());
+        if entry.path() == b"etc/hostname" {
             let mut data = vec![0; entry.len() as usize];
             entry.read_exact(&mut data)?;
         }
@@ -42,9 +42,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 Data left unread is skipped by the next `next_entry`, and `070702`
 checksums are verified whether the data is read or skipped. An archive may
 end at an entry boundary without a trailer, as the initramfs format allows;
-`ReaderOptions::with_strict_trailer` requires one. `continue_after_trailer`
+`ReaderOptions::with_strict_trailer` requires one. `next_segment()`
 reads archives concatenated after a trailer, such as a microcode archive
 before the main initramfs.
+
+`CpioReader::with_buffer(input, &mut storage[..], options)` uses caller-owned
+name storage; capacity includes the terminating NUL, including for the
+`TRAILER!!!` name (11 bytes). Oversized encoded names return `LimitExceeded`.
+`Entry::offset()` and `data_offset()` are measured from the supplied stream's
+start. After `next_entry()` returns `None`, call `next_segment()` to skip zero
+padding and test whether another segment follows. A true result only means
+bytes follow; `next_entry()` validates their header. To recover the stream
+without losing the peeked byte, use `into_parts()` and replay its optional
+byte before reading the returned stream. `into_inner()` discards that byte.
 
 ## Writing an archive
 
