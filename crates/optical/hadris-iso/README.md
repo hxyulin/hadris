@@ -79,7 +79,7 @@ locating each entry's image. The on-disk layouts are in `hadris_iso::raw`.
 
 ```toml
 [dependencies]
-hadris-iso = { version = "2.4.0", default-features = false, features = ["sync"] }
+hadris-iso = { version = "3.0.0-rc.1", default-features = false, features = ["sync"] }
 ```
 
 `IsoFs::mount` takes any `BlockDevice` whose blocks are at most 4096

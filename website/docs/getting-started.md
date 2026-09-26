@@ -9,13 +9,13 @@ Choose the narrowest crate that covers your application:
 ```toml
 [dependencies]
 # A single filesystem:
-hadris-fat = "2.4.0"
+hadris-fat = "3.0.0-rc.1"
 
 # Read-only NTFS (preview):
-hadris-ntfs = "2.4.0"
+hadris-ntfs = "3.0.0-rc.1"
 
 # Or several storage categories:
-hadris = { version = "2.4.0", features = ["block", "optical"] }
+hadris = { version = "3.0.0-rc.1", features = ["udf", "part"] }
 ```
 
 Hadris separates platform support, I/O mode, and capabilities. For a
@@ -25,7 +25,7 @@ driver's node table but not `std`:
 ```toml
 [dependencies]
 hadris-fat = {
-  version = "2.4.0",
+  version = "3.0.0-rc.1",
   default-features = false,
   features = ["alloc", "sync"]
 }

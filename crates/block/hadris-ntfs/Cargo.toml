@@ -1,7 +1,7 @@
 [package]
 name = "hadris-ntfs"
 autotests = false
-version = "2.4.0"
+version = "3.0.0-rc.1"
 description = "A read-only NTFS reader that needs no allocator"
 readme = "README.md"
 keywords = ["ntfs", "filesystem", "no-std"]

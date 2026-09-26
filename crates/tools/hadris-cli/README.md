@@ -63,6 +63,7 @@ are replaced by these subcommands and no longer installed.
 
 ## Documentation
 
+- [Migrating from the 2.x CLIs](https://github.com/hxyulin/hadris/blob/next/docs/hadris-3.0.0-migration.md#command-line-tools)
 - [Detect and open images](https://hxyulin.github.io/hadris/guides/detect-open-images)
 - [Read a FAT image](https://hxyulin.github.io/hadris/guides/read-fat-image)
 - [Create a UDF or bridge image](https://hxyulin.github.io/hadris/creation/udf)

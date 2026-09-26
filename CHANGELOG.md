@@ -8,6 +8,15 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+## [3.0.0-rc.1] - Unreleased
+
+The first release candidate of the 3.0 API. Every published crate moves to
+`3.0.0-rc.1` together; `hadris-fat-raw` is new and starts at 0.1.0. After
+3.0.0 each crate versions independently. The
+[migration guide](docs/hadris-3.0.0-migration.md) maps every 2.4 crate, item
+and command to its 3.0 replacement, and
+[`docs/v3-api-design.md`](docs/v3-api-design.md) records the design.
+
 ### Added
 
 - **hadris-fat (V3):** The embedded API for firmware without an

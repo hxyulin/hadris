@@ -18,7 +18,7 @@ directly when the hardware addresses whole blocks.
 
 ```toml
 [dependencies]
-hadris-io = { version = "2.4.0", default-features = false, features = ["sync"] }
+hadris-io = { version = "3.0.0-rc.1", default-features = false, features = ["sync"] }
 ```
 
 `hadris_io::sync::Read`, `Write` and `Seek` report the implementor's own error
@@ -100,7 +100,7 @@ through unchanged.
 ```toml
 [dependencies]
 embedded-io = "0.7"
-hadris-io = { version = "2.4.0", default-features = false, features = ["sync", "embedded-io"] }
+hadris-io = { version = "3.0.0-rc.1", default-features = false, features = ["sync", "embedded-io"] }
 ```
 
 ```rust,no_run
@@ -150,9 +150,9 @@ No allocator is needed.
 
 ```toml
 [dependencies]
-hadris-fat = { version = "2.4.0", default-features = false, features = ["sync"] }
-hadris-io = { version = "2.4.0", default-features = false, features = ["sync"] }
-hadris-storage = { version = "2.4.0", default-features = false, features = ["sync"] }
+hadris-fat = { version = "3.0.0-rc.1", default-features = false, features = ["sync"] }
+hadris-io = { version = "3.0.0-rc.1", default-features = false, features = ["sync"] }
+hadris-storage = { version = "3.0.0-rc.1", default-features = false, features = ["sync"] }
 ```
 
 ```rust,no_run

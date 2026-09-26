@@ -11,7 +11,7 @@ block range.
 ```toml
 [dependencies]
 anyhow = "1"
-hadris = { version = "2.4.0", features = ["part"] }
+hadris = { version = "3.0.0-rc.1", features = ["part"] }
 ```
 
 ```rust,no_run

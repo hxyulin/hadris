@@ -114,7 +114,7 @@ allocator either. The on-disk layouts live in `hadris_part::raw`.
 
 ```toml
 [dependencies]
-hadris-part = { version = "2.4.0", default-features = false, features = ["sync"] }
+hadris-part = { version = "3.0.0-rc.1", default-features = false, features = ["sync"] }
 ```
 
 ## Partition Types

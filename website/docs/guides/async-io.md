@@ -18,9 +18,9 @@ the sync traits.
 
 ```toml
 [dependencies]
-hadris-fat = { version = "2.4.0", default-features = false, features = ["alloc", "async"] }
-hadris-fs = { version = "2.4.0", default-features = false, features = ["async"] }
-hadris-storage = { version = "2.4.0", default-features = false, features = ["async"] }
+hadris-fat = { version = "3.0.0-rc.1", default-features = false, features = ["alloc", "async"] }
+hadris-fs = { version = "3.0.0-rc.1", default-features = false, features = ["async"] }
+hadris-storage = { version = "3.0.0-rc.1", default-features = false, features = ["async"] }
 ```
 
 ```rust

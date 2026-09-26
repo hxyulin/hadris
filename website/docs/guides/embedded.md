@@ -14,9 +14,9 @@ neither `std` nor `alloc`.
 
 ```toml
 [dependencies]
-hadris-fat = { version = "2.4.0", default-features = false, features = ["sync", "write"] }
-hadris-fs = { version = "2.4.0", default-features = false }
-hadris-storage = { version = "2.4.0", default-features = false, features = ["sync"] }
+hadris-fat = { version = "3.0.0-rc.1", default-features = false, features = ["sync", "write"] }
+hadris-fs = { version = "3.0.0-rc.1", default-features = false }
+hadris-storage = { version = "3.0.0-rc.1", default-features = false, features = ["sync"] }
 ```
 
 `write` adds `format`; drop it if the firmware only mounts cards that are
