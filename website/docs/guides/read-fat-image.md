@@ -10,9 +10,9 @@ filesystem.
 ```toml
 [dependencies]
 anyhow = "1"
-hadris-fat = "2.4.0"
-hadris-fs = "2.4.0"
-hadris-storage = "2.4.0"
+hadris-fat = "3.0.0-rc.1"
+hadris-fs = "3.0.0-rc.1"
+hadris-storage = "3.0.0-rc.1"
 ```
 
 ```rust,no_run

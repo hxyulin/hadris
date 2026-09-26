@@ -40,7 +40,7 @@ from one source. They may be enabled together.
 ```toml
 [dependencies]
 hadris-fat = {
-  version = "2.4.0",
+  version = "3.0.0-rc.1",
   default-features = false,
   features = ["alloc", "sync", "async", "write"]
 }
@@ -80,7 +80,7 @@ directory trees, or image construction may still require `alloc`.
 
 ```toml
 hadris-fat = {
-  version = "2.4.0",
+  version = "3.0.0-rc.1",
   default-features = false,
   features = ["alloc", "sync"]
 }
@@ -93,7 +93,7 @@ always available, and `write` adds only the formatter.
 
 ```toml
 hadris-iso = {
-  version = "2.4.0",
+  version = "3.0.0-rc.1",
   default-features = false,
   features = ["alloc", "async"]
 }
@@ -102,9 +102,9 @@ hadris-iso = {
 ### Hosted FAT editor
 
 ```toml
-hadris-fat = "2.4.0"      # std, sync and write
-hadris-fs = "2.4.0"       # Volume, MountOptions and host helpers
-hadris-storage = "2.4.0"  # Cache<D> for block caching
+hadris-fat = "3.0.0-rc.1"      # std, sync and write
+hadris-fs = "3.0.0-rc.1"       # Volume, MountOptions and host helpers
+hadris-storage = "3.0.0-rc.1"  # Cache<D> for block caching
 ```
 
 The checker (`check`) is always compiled; block caching comes
@@ -114,7 +114,7 @@ from wrapping the device in `hadris_storage::sync::Cache`.
 
 ```toml
 hadris-cpio = {
-  version = "2.4.0",
+  version = "3.0.0-rc.1",
   default-features = false,
   features = ["alloc", "sync"]
 }

@@ -6,9 +6,9 @@ title: Read and extract UDF
 
 ```toml
 [dependencies]
-hadris-fs = { version = "2.4.0", features = ["std", "sync"] }
-hadris-udf = "2.4.0"
-hadris-storage = "2.4.0"
+hadris-fs = { version = "3.0.0-rc.1", features = ["std", "sync"] }
+hadris-udf = "3.0.0-rc.1"
+hadris-storage = "3.0.0-rc.1"
 ```
 
 `UdfFs` opens a volume on any `hadris_storage` block device, such as a host

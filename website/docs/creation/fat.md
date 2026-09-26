@@ -4,18 +4,18 @@ title: Create FAT filesystems
 
 # Create FAT filesystems
 
-`hadris-fat` formats FAT12, FAT16, and FAT32 volumes and returns the new
-filesystem mounted as a `FatFs`, ready for mutation. It works with any
+`hadris-fat` formats FAT12, FAT16, and FAT32 volumes on any
 `hadris-storage` block device: files, memory buffers, partition slices, and
-custom devices. `FatFs` and `format` need `alloc`, which the default `std`
-feature enables.
+custom devices. `format` returns the new volume's `Geometry`, and
+`FatFs::mount` then opens it for changes. `format` needs no allocator;
+`FatFs` needs `alloc`, which the default `std` feature enables.
 
 ## Dependency
 
 ```toml
 [dependencies]
-hadris-fat = "2.4.0"   # default features: std, sync, write
-hadris-fs = "2.4.0"
+hadris-fat = "3.0.0-rc.1"   # default features: std, sync, write
+hadris-fs = "3.0.0-rc.1"
 ```
 
 `format` is behind the `write` feature. Long file names are always supported.

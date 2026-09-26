@@ -11,9 +11,9 @@ title: Create UDF filesystems
 
 ```toml
 [dependencies]
-hadris-fs = { version = "2.4.0", features = ["std", "sync"] }
-hadris-udf = "2.4.0"
-hadris-storage = "2.4.0"
+hadris-fs = { version = "3.0.0-rc.1", features = ["std", "sync"] }
+hadris-udf = "3.0.0-rc.1"
+hadris-storage = "3.0.0-rc.1"
 ```
 
 ## Create a volume

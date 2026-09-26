@@ -9,9 +9,9 @@ filesystem handle, and call `sync` before the backing device is removed.
 
 ```toml
 [dependencies]
-hadris-fat = "2.4.0"
-hadris-fs = "2.4.0"
-hadris-storage = "2.4.0"
+hadris-fat = "3.0.0-rc.1"
+hadris-fs = "3.0.0-rc.1"
+hadris-storage = "3.0.0-rc.1"
 ```
 
 ```rust,no_run

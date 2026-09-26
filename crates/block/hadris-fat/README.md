@@ -252,7 +252,7 @@ exfatprogs, macOS `newfs_exfat`/`fsck_exfat` and the macOS kernel driver.
 
 ```toml
 [dependencies]
-hadris-fat = { version = "2.4.0", default-features = false, features = ["sync"] }
+hadris-fat = { version = "3.0.0-rc.1", default-features = false, features = ["sync"] }
 ```
 
 Without `alloc` this gives the embedded API, `check` and the raw layer;
@@ -303,7 +303,7 @@ with `Unsupported`.
 
 ```toml
 [dependencies]
-hadris-fat = "2.4.0"  # Uses default features
+hadris-fat = "3.0.0-rc.1"  # Uses default features
 ```
 
 ## FAT Variant Support

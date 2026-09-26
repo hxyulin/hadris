@@ -15,10 +15,12 @@ those layers coherent without hiding format-specific capabilities.
 
 ## Stability and Versioning
 
-Hadris follows [Semantic Versioning](https://semver.org/). `2.4.0` is the
-current stable release, and the 2.x series continues on `main`. The 3.0 API
-described here is developed on the `next` branch and is not released yet; its
-design and stability rules are in [`docs/v3-api-design.md`](docs/v3-api-design.md).
+Hadris follows [Semantic Versioning](https://semver.org/). The 3.0 API
+described here is developed on the `next` branch, and `3.0.0-rc.1` is its
+first release candidate; its design and stability rules are in
+[`docs/v3-api-design.md`](docs/v3-api-design.md). `2.4.0` is the current
+stable release, and the 2.x series continues on `main`. To upgrade from 2.4,
+read the [migration guide](docs/hadris-3.0.0-migration.md).
 Within a major series, breaking changes to the public API require a new major
 version; minor releases add backward-compatible functionality, and patch
 releases are limited to correctness fixes, interoperability qualification, and
@@ -189,28 +191,31 @@ Choose the narrowest entry point that fits the application:
 ```toml
 [dependencies]
 # One filesystem:
-hadris-fat = "2.4.0"
+hadris-fat = "3.0.0-rc.1"
 
 # Or the unified storage ecosystem:
-hadris = { version = "2.4.0", features = ["block", "optical"] }
+hadris = { version = "3.0.0-rc.1", features = ["udf", "part"] }
 ```
 
 The umbrella crate re-exports `hadris::io`, `hadris::storage` and
-`hadris::fs`, and each format crate at a flat path (`hadris::fat`,
-`hadris::iso`, `hadris::cpio`, and `hadris::block` and `hadris::optical` for
-detection), so applications can grow into partition detection or additional
+`hadris::fs`, each format crate at a flat path behind a feature of its name
+(`hadris::fat`, `hadris::iso`, `hadris::udf`, `hadris::cpio`,
+`hadris::part`), and with the default `detect` feature
+`hadris::sync::{detect, open, AnyFs}`, so applications can grow into partition detection or additional
 disk-image formats without replacing their filesystem implementation. The
 umbrella's crate documentation has a quick start, and the compiled programs
 in [`examples/`](examples/) show each crate in use.
 
-Each package now owns its version; all current packages target **2.4.0**:
+Every package ships 3.0.0 together, and each versions independently after
+that; `hadris-fat-raw` has its own version (0.1.0). The release candidate
+is **3.0.0-rc.1**:
 
 ```toml
 [dependencies]
-hadris-iso = "2.4.0"
-hadris-fat = "2.4.0"
-hadris-part = "2.4.0"
-hadris-fs = "2.4.0"
+hadris-iso = "3.0.0-rc.1"
+hadris-fat = "3.0.0-rc.1"
+hadris-part = "3.0.0-rc.1"
+hadris-fs = "3.0.0-rc.1"
 ```
 
 For allocation-free `no_std` ISO reading and FAT reading and writing:
@@ -219,8 +224,8 @@ For allocation-free `no_std` ISO reading and FAT reading and writing:
 [dependencies]
 # No heap allocator: every ISO tree, Rock Ridge metadata and file reads, and
 # FAT reads and writes.
-hadris-iso = { version = "2.4.0", default-features = false, features = ["sync"] }
-hadris-fat = { version = "2.4.0", default-features = false, features = ["sync"] }
+hadris-iso = { version = "3.0.0-rc.1", default-features = false, features = ["sync"] }
+hadris-fat = { version = "3.0.0-rc.1", default-features = false, features = ["sync"] }
 ```
 
 Add the `alloc` feature to `hadris-iso` for the writer, sessions and the boot
@@ -242,7 +247,8 @@ cargo build -p hadris-fat --no-default-features --features "sync"
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the test, feature-tier and PR
 workflow, and [`docs/v3-api-design.md`](docs/v3-api-design.md) for the 3.0
 architecture. The [changelog](CHANGELOG.md) lists the unreleased 3.0 changes
-and the [`2.4.0` release](CHANGELOG.md#240---2026-09-08).
+and the [`2.4.0` release](CHANGELOG.md#240---2026-09-08). The
+[migration guide](docs/hadris-3.0.0-migration.md) maps the 2.4 API to 3.0.
 The Docusaurus source for the task-oriented documentation site lives in
 [`website/`](website/); it includes getting-started, crate-selection, and
 FAT, partition, ISO, UDF, CPIO, async, and `no_std` use-case guides.

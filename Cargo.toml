@@ -38,16 +38,16 @@ anyhow = "1.0"
 libc = "0.2"
 
 # Internal crates
-hadris-macros = { version = "2.4.0", path = "crates/core/hadris-macros" }
-hadris-io = { version = "2.4.0", path = "crates/core/hadris-io", default-features = false }
-hadris-fs = { version = "2.4.0", path = "crates/core/hadris-fs", default-features = false }
-hadris-common = { version = "2.4.0", path = "crates/core/hadris-common", default-features = false }
-hadris-storage = { version = "2.4.0", path = "crates/core/hadris-storage", default-features = false }
-hadris-fat = { version = "2.4.0", path = "crates/block/hadris-fat", default-features = false }
+hadris-macros = { version = "3.0.0-rc.1", path = "crates/core/hadris-macros" }
+hadris-io = { version = "3.0.0-rc.1", path = "crates/core/hadris-io", default-features = false }
+hadris-fs = { version = "3.0.0-rc.1", path = "crates/core/hadris-fs", default-features = false }
+hadris-common = { version = "3.0.0-rc.1", path = "crates/core/hadris-common", default-features = false }
+hadris-storage = { version = "3.0.0-rc.1", path = "crates/core/hadris-storage", default-features = false }
+hadris-fat = { version = "3.0.0-rc.1", path = "crates/block/hadris-fat", default-features = false }
 hadris-fat-raw = { version = "0.1.0", path = "crates/block/hadris-fat-raw", default-features = false }
-hadris-part = { version = "2.4.0", path = "crates/block/hadris-part", default-features = false }
-hadris-iso = { version = "2.4.0", path = "crates/optical/hadris-iso", default-features = false }
-hadris-udf = { version = "2.4.0", path = "crates/optical/hadris-udf", default-features = false }
-hadris-cpio = { version = "2.4.0", path = "crates/archive/hadris-cpio", default-features = false }
-hadris = { version = "2.4.0", path = "crates/core/hadris", default-features = false }
-hadris-ntfs = { version = "2.4.0", path = "crates/block/hadris-ntfs", default-features = false }
+hadris-part = { version = "3.0.0-rc.1", path = "crates/block/hadris-part", default-features = false }
+hadris-iso = { version = "3.0.0-rc.1", path = "crates/optical/hadris-iso", default-features = false }
+hadris-udf = { version = "3.0.0-rc.1", path = "crates/optical/hadris-udf", default-features = false }
+hadris-cpio = { version = "3.0.0-rc.1", path = "crates/archive/hadris-cpio", default-features = false }
+hadris = { version = "3.0.0-rc.1", path = "crates/core/hadris", default-features = false }
+hadris-ntfs = { version = "3.0.0-rc.1", path = "crates/block/hadris-ntfs", default-features = false }

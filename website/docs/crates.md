@@ -35,7 +35,7 @@ Examples include `hadris-fat`, `hadris-part`, `hadris-iso`, `hadris-udf`, and
 
 ```toml
 [dependencies]
-hadris-fat = "2.4.0"
+hadris-fat = "3.0.0-rc.1"
 ```
 
 ## The umbrella crate
@@ -46,7 +46,7 @@ open unknown images, or benefits from a single dependency declaration.
 ```toml
 [dependencies]
 hadris = {
-  version = "2.4.0",
+  version = "3.0.0-rc.1",
   default-features = false,
   features = ["std", "sync", "detect", "part"]
 }

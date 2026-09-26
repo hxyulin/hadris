@@ -33,7 +33,7 @@ assert_eq!(value.get(), 0x12345678);
 
 ```toml
 [dependencies]
-hadris-common = { version = "2.4.0", default-features = false }
+hadris-common = { version = "3.0.0-rc.1", default-features = false }
 ```
 
 ## Documentation

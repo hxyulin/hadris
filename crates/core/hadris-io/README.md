@@ -44,14 +44,14 @@ the crate root holds only mode-independent items.
 
 ```toml
 [dependencies]
-hadris-io = "2.4.0"
+hadris-io = "3.0.0-rc.1"
 ```
 
 ### No-std
 
 ```toml
 [dependencies]
-hadris-io = { version = "2.4.0", default-features = false, features = ["sync"] }
+hadris-io = { version = "3.0.0-rc.1", default-features = false, features = ["sync"] }
 ```
 
 ## Quick Start

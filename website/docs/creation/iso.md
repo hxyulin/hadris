@@ -14,9 +14,9 @@ block device, in the sync, async and `Send` async APIs.
 
 ```toml
 [dependencies]
-hadris-fs = "2.4.0"
-hadris-iso = "2.4.0"
-hadris-storage = "2.4.0"
+hadris-fs = "3.0.0-rc.1"
+hadris-iso = "3.0.0-rc.1"
+hadris-storage = "3.0.0-rc.1"
 ```
 
 The default features (`std`, `sync`) include the writer. Without `std`,
