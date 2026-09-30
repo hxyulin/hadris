@@ -193,6 +193,20 @@ and command to its 3.0 replacement, and
 - **hadris-fat:** exFAT flushes the device after setting `VolumeDirty` and
   before clearing it, so a clean flag never reaches the medium before the
   writes it covers.
+- **hadris-fat:** The embedded FAT driver's `sync` and `unmount` also fail
+  with `ReadOnly` after a refused write while file sizes or interrupted
+  work are left unwritten.
+- **hadris-fat:** An exFAT directory grow whose size write fails is cut
+  back by recovery instead of leaving zeroed clusters past its end.
+- **hadris-fat:** An exFAT rename whose old entry set cannot be removed, or
+  that is dropped part way, leaves exactly one name for the node; two names
+  shared one chain, or neither kept it.
+- **hadris-fat:** Growing a contiguous exFAT file whose size runs past the
+  cluster heap fails with `Corrupt` before any FAT entry is written.
+- **hadris-fat:** exFAT `format` gives the volume the largest cluster count
+  that fits; some sizes, 4 MiB among them, got one cluster fewer.
+- **hadris-fat:** `set_label` and `create` no longer fail with
+  `AlreadyExists` when a root file and the volume label share a name.
 - **hadris-fs:** Copying or extracting a tree whose directory entries loop
   fails with `Corrupt` instead of running forever.
 - **hadris-part:** GPT writes always fill in the header and partition
