@@ -1390,6 +1390,51 @@ fn a_directory_grow_whose_size_write_fails_is_cut_back() {
     assert_eq!(common::chain(&mut fresh, dir).len(), 1);
 }
 
+#[test]
+fn a_rename_whose_old_set_removal_fails_leaves_one_name() {
+    for replace in [false, true] {
+        let image = common::image(common::small(4 << 20, 4096));
+        let (dev, script) = Scripted::new(common::device(image, 512));
+        let mut fs = ExFatFs::mount(dev, MountOptions::new()).unwrap();
+        let root = fs.root();
+        let dir = fs.mkdir(root, name("dir"), &SetAttr::new()).unwrap();
+        if replace {
+            let target = common::write_any(&mut fs, dir, "b.txt", &[6u8; 5000]);
+            fs.forget(target, 1);
+        }
+        let (node, at) = file_at_block_end(&mut fs, &[5u8; 9000]);
+        let from = (0..)
+            .map(|i| format!("file {i}"))
+            .find(|text| fs.lookup(root, name(text)).unwrap() == node)
+            .unwrap();
+        fs.forget(node, 1);
+        {
+            let mut script = script.borrow_mut();
+            script.fail_at = Some(at + 32);
+            script.fail_more = 1;
+        }
+        let result = fs.rename(root, name(&from), dir, name("b.txt"), RenameMode::Replace);
+        assert_eq!(
+            script.borrow().fail_at,
+            None,
+            "{replace}: the removal failed"
+        );
+        fs.sync().unwrap();
+        let image = fs.into_inner().into_image();
+        assert_eq!(findings(image.clone()), [], "{replace}: {result:?}");
+        let mut fresh = common::mount(&image);
+        let old = fresh.read_to_vec(&format!("/{from}")).ok();
+        let new = fresh.read_to_vec("/dir/b.txt").ok();
+        let moved = Some(vec![5u8; 9000]);
+        if result.is_ok() || old.is_none() {
+            assert_eq!((old, new), (None, moved), "{replace}: {result:?}");
+        } else {
+            assert_eq!(old, moved, "{replace}");
+            assert_ne!(new, moved, "{replace}");
+        }
+    }
+}
+
 /// Both FATs and both Allocation Bitmaps of a TexFAT volume.
 fn texfat_copies(image: &[u8]) -> ([&[u8]; 2], [Vec<u8>; 2]) {
     let geo = Geometry::of(image);

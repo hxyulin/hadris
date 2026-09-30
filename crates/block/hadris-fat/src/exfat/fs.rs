@@ -557,14 +557,15 @@ fn entry_name(name: &Name, invalid: ErrorKind) -> Result<&str, ErrorKind> {
 /// or cleared whole. Across a boundary a new set is written secondary
 /// entries first and its File entry last, and a removed set loses its File
 /// entry first. `rename` writes the new set before it removes the old one,
-/// so an interruption can leave the node under both names.
+/// so a process that stops in between can leave the node under both names.
 ///
 /// The driver remembers what an unfinished operation leaves: clusters
 /// allocated but not yet linked or unlinked but not yet freed, and an entry
 /// set it was writing. The next `create`, `mkdir`, `unlink`, `rmdir`,
 /// `rename`, `write`, `truncate`, `setattr`, `set_label` or `sync` frees the clusters
 /// unless the interrupted write linked them, removes a new set that did
-/// not land whole, completes a removal, reseals an updated set so its
+/// not land whole or a moved set whose old set was not yet being removed,
+/// completes a removal, reseals an updated set so its
 /// checksum and name hash match, and cuts back a chain a dropped write had
 /// grown past the file's size, putting back the file's old sizes when only
 /// part of the entry set that recorded the new ones landed. Only a process that stops, or a driver that
@@ -869,7 +870,7 @@ impl<D: BlockDevice> ExFatFs<D> {
         let plan = self.plan(start, None, 1, None).await?;
         let mut set = [[0u8; ENTRY_SIZE]; MAX_SET];
         set[0] = entry;
-        self.insert(start, ROOT_ENTRY, &plan, &set[..1]).await?;
+        self.insert(start, ROOT_ENTRY, &plan, &set[..1], SetWrite::Insert).await?;
         Ok(())
     }
 
@@ -1899,9 +1900,11 @@ impl<D: BlockDevice> ExFatFs<D> {
 
     /// Writes `entries` into the run `plan` found in `dir`, growing it
     /// first when needed; secondary entries go first. Returns the offset
-    /// of the first entry.
+    /// of the first entry. `kind` is how recovery finishes a set that was
+    /// being written: `Insert` keeps it when it landed whole, `Clear`
+    /// removes it.
     /// A pending allocation is owned by the new set from its write on.
-    async fn insert(&mut self, dir: DirStart, dir_entry: u64, plan: &Plan, entries: &[RawEntry]) -> FsResult<u64, D::Error> {
+    async fn insert(&mut self, dir: DirStart, dir_entry: u64, plan: &Plan, entries: &[RawEntry], kind: SetWrite) -> FsResult<u64, D::Error> {
         let dir = if plan.grow > 0 { self.grow_dir(dir, dir_entry, plan.grow).await? } else { dir };
         let mut walk = walk(dir);
         let mut at = [0u64; MAX_SET];
@@ -1918,7 +1921,7 @@ impl<D: BlockDevice> ExFatFs<D> {
             pending.owner = Owner::Entry(at[0]);
         }
         if entries.len() > 1 {
-            self.pending_set = Some(SetPending::new(at, SetWrite::Insert));
+            self.pending_set = Some(SetPending::new(at, kind));
         }
         if let Err(err) = self.put_entries(at, entries).await {
             let _ = self.finish_set().await;
@@ -2071,7 +2074,7 @@ impl<D: BlockDevice> ExFatFs<D> {
         set_stream(&mut stream, alloc, len, len);
         let mut set = [[0; ENTRY_SIZE]; MAX_SET];
         let inserted = match build_set(&primary, &stream, name, hash, &[], &mut set) {
-            Ok(count) => self.insert(dir, dir_entry, &plan, &set[..count]).await,
+            Ok(count) => self.insert(dir, dir_entry, &plan, &set[..count], SetWrite::Insert).await,
             Err(kind) => Err(kind.into()),
         };
         match inserted {
@@ -2131,10 +2134,12 @@ impl<D: BlockDevice> ExFatFs<D> {
         Ok(())
     }
 
-    /// Writes `set` under `name` where `plan` found room in `to`, then
-    /// removes the old set.
+    /// Writes `set` under `name` where `plan` found room in `to`, and
+    /// points the pinned nodes at it. Recovery removes the new set until it
+    /// has landed; [`remove_moved`](Self::remove_moved) then removes the old
+    /// one.
     #[allow(clippy::too_many_arguments)]
-    async fn move_set(
+    async fn place_moved(
         &mut self,
         set: &Set,
         node: &Node,
@@ -2148,19 +2153,22 @@ impl<D: BlockDevice> ExFatFs<D> {
         let (primary, stream) = self.moved_entries(set, node);
         let mut raw = [[0; ENTRY_SIZE]; MAX_SET];
         let count = build_set(&primary, &stream, name, hash, set.extras(), &mut raw)?;
-        let offset = self.insert(to, to_entry, plan, &raw[..count]).await?;
-        let old = set.offset;
-        self.repoint(id, old, offset, to_entry);
-        if let Err(err) = self.clear_set(set).await {
-            self.repoint(id, offset, old, node.parent);
-            let _ = self.write_set(set, set.count, SetWrite::Insert).await;
-            let _ = self.clear_new(to, plan, count).await;
-            return Err(err);
-        }
+        let offset = self.insert(to, to_entry, plan, &raw[..count], SetWrite::Clear).await?;
+        self.repoint(id, set.offset, offset, to_entry);
         if let Some(id) = id {
             self.clean(id);
         }
         Ok(())
+    }
+
+    /// Removes the set a move left behind. A failed removal is tried once
+    /// more, and otherwise finished by the next recovery, so only the moved
+    /// set keeps the name.
+    async fn remove_moved(&mut self, set: &Set) -> FsResult<(), D::Error> {
+        match self.clear_set(set).await {
+            Err(err) => self.finish_set().await.map_err(|_| err),
+            ok => ok,
+        }
     }
 
     /// Moves the pinned node `id` and the parent of its pinned children
@@ -2179,19 +2187,6 @@ impl<D: BlockDevice> ExFatFs<D> {
             state.parent = parent;
             self.moved = true;
         }
-    }
-
-    /// Clears the entries a failed move wrote.
-    async fn clear_new(&mut self, dir: DirStart, plan: &Plan, count: usize) -> FsResult<(), D::Error> {
-        let mut walk = walk(dir);
-        for slot in plan.start..plan.start + count as u32 {
-            if let Some(at) = self.slot_offset(&mut walk, slot).await? {
-                let mut entry = [0u8; 1];
-                self.get_bytes(at, &mut entry).await?;
-                self.put_bytes(at, &[entry[0] & !raw::IN_USE]).await?;
-            }
-        }
-        Ok(())
     }
 
     /// Renames onto an existing entry set: the target is removed and the
@@ -2231,23 +2226,25 @@ impl<D: BlockDevice> ExFatFs<D> {
         let held = (target_node.first != 0 && !target_node.contiguous)
             .then(|| Pending::chain(target_node.first, Owner::Removed(target.set.offset)));
         self.pending = held;
-        let moved = match self.clear_set(&target.set).await {
-            Ok(()) => self.move_set(&src.set, src_node, src_id, to, to_entry, &plan, name, hash).await,
+        let placed = match self.clear_set(&target.set).await {
+            Ok(()) => self.place_moved(&src.set, src_node, src_id, to, to_entry, &plan, name, hash).await,
             Err(err) => Err(err),
         };
-        if let Err(err) = moved {
+        if let Err(err) = placed {
             let _ = self.write_set(&target.set, target.set.count, SetWrite::Insert).await;
             self.pending = held;
             let _ = self.recover().await;
             return Err(err);
         }
+        let removed = self.remove_moved(&src.set).await;
         self.pending = held;
         if let Some(id) = target_id {
             self.mark_unlinked(id);
         }
         let _ = target.slot;
         self.free_alloc(target_node.alloc(), target_node.len).await?;
-        self.free_extras(&target.set).await
+        self.free_extras(&target.set).await?;
+        removed
     }
 
     /// Stores `value` as the FAT entry of `cluster`.
@@ -2965,7 +2962,8 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
             }
             None => {
                 let plan = self.plan(to_start, None, 2 + units.entries() as u32 + src.set.extras().len() as u32, None).await?;
-                self.move_set(&src.set, &src_node, src_id, to_start, to_entry, &plan, &units, hash).await
+                self.place_moved(&src.set, &src_node, src_id, to_start, to_entry, &plan, &units, hash).await?;
+                self.remove_moved(&src.set).await
             }
         }
     }
