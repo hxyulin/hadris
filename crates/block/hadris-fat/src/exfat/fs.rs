@@ -301,8 +301,9 @@ enum Owner {
     None,
     /// The FAT entry of this cluster.
     Cluster(u32),
-    /// The FAT entry of this cluster, for a file whose new size is not yet
-    /// recorded: recovery cuts the chain there.
+    /// The FAT entry of this cluster, a file's last before growth whose new
+    /// size is not yet recorded, or after a shrink: recovery cuts the chain
+    /// there.
     Tail(u32),
     /// The entry set at this byte offset, of a node that stays.
     Entry(u64),
@@ -2831,7 +2832,7 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
         }
         let last = self.locate_cluster(state.alloc(), ChainPos::NONE, keep - 1).await?.cluster();
         if let Some(next) = self.next_cluster(last).await? {
-            self.pending = Some(Pending::chain(next, Owner::Cluster(last)));
+            self.pending = Some(Pending::chain(next, Owner::Tail(last)));
             self.set_fat(last, raw::FAT_END).await?;
             self.free_chain(next).await?;
         }

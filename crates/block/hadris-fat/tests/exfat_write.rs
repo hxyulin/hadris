@@ -1269,6 +1269,34 @@ fn a_grow_whose_file_entry_fails_keeps_the_old_size_and_chain() {
     assert_eq!(read_all(&mut fresh, node), [1u8; 100]);
 }
 
+#[test]
+fn a_shrink_whose_fat_write_fails_is_cut_back_by_the_next_write() {
+    let image = common::image(common::small(4 << 20, 4096));
+    let (dev, script) = Scripted::new(common::device(image, 512));
+    let mut fs = ExFatFs::mount(dev, MountOptions::new()).unwrap();
+    let root = fs.root();
+    let node = fs
+        .create(root, name("shrunk.bin"), &SetAttr::new())
+        .unwrap();
+    assert_eq!(fs.write(node, 0, &[3u8; 12288]).unwrap(), 12288);
+    fs.close(node).unwrap();
+    let geo = *fs.info();
+    let mut out = [hadris_fs::Extent::new(0, 0); 1];
+    assert_eq!(fs.extents(node, 0, &mut out).unwrap(), 1);
+    assert_eq!(out[0].len(), 12288, "one run");
+    let last = ((out[0].offset() - geo.heap_start()) / geo.cluster_size() + 3) as u32;
+    script.borrow_mut().fail_at = Some(geo.fat_start() + last as u64 * 4);
+    assert_eq!(fs.truncate(node, 5000).unwrap_err().kind(), ErrorKind::Io);
+    assert_eq!(script.borrow().fail_at, None, "the FAT write failed");
+    fs.sync().unwrap();
+    fs.forget(node, 1);
+    let image = fs.into_inner().into_image();
+    assert_eq!(findings(image.clone()), []);
+    let mut fresh = common::mount(&image);
+    assert_eq!(fresh.stat(node).unwrap().len(), 5000);
+    assert_eq!(common::chain(&mut fresh, node).len(), 2);
+}
+
 /// Both FATs and both Allocation Bitmaps of a TexFAT volume.
 fn texfat_copies(image: &[u8]) -> ([&[u8]; 2], [Vec<u8>; 2]) {
     let geo = Geometry::of(image);

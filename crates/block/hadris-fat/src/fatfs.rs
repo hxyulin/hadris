@@ -174,8 +174,9 @@ enum Owner {
     None,
     /// The FAT entry of this cluster.
     Cluster(u32),
-    /// The FAT entry of this cluster, for a file whose new size is not yet
-    /// recorded: recovery cuts the chain there.
+    /// The FAT entry of this cluster, a file's last before growth whose new
+    /// size is not yet recorded, or after a shrink: recovery cuts the chain
+    /// there.
     Tail(u32),
     /// The short entry at this byte offset, of a node that stays.
     Entry(u64),
@@ -2381,7 +2382,7 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
         if reached.index() == keep - 1
             && let Some(next) = rawio::next(&mut self.dev, &mut self.block, &self.fat, last).await?
         {
-            self.pending = Some(Pending::chain(next, Owner::Cluster(last)));
+            self.pending = Some(Pending::chain(next, Owner::Tail(last)));
             self.set_fat(last, self.fat.geometry().kind().end_of_chain()).await?;
             self.free_chain(next).await?;
         }
