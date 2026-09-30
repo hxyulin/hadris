@@ -715,3 +715,73 @@ fn extras_read_the_descriptor_catalog_and_records() {
         ErrorKind::LimitExceeded
     );
 }
+
+/// Checks that every continuation area the system use area `su` chains to
+/// stays inside one block, and returns how many there are.
+fn continuation_areas(bytes: &[u8], su: &[u8]) -> usize {
+    let word = |at: usize| u32::from_le_bytes(su[at..at + 4].try_into().unwrap()) as usize;
+    let mut count = 0;
+    let mut at = 0;
+    while at + 4 <= su.len() && su[at + 2] >= 4 {
+        if &su[at..at + 2] == b"CE" {
+            let (block, offset, size) = (word(at + 4), word(at + 12), word(at + 20));
+            assert!(offset + size <= 2048, "area at {offset} of {size} bytes");
+            let area = block * 2048 + offset;
+            count += 1 + continuation_areas(bytes, &bytes[area..area + size]);
+        }
+        at += su[at + 2] as usize;
+    }
+    count
+}
+
+#[test]
+fn continuation_areas_stay_inside_their_block() {
+    let names: Vec<String> = (0..12)
+        .map(|i| format!("{}{i:02}", "n".repeat(198)))
+        .collect();
+    let target = vec!["t".repeat(200); 15].join("/");
+    let mut tree = Tree::new();
+    for name in &names {
+        tree.insert(name, Node::file(Content::bytes(name.clone())))
+            .unwrap();
+    }
+    tree.insert("link", Node::symlink(target.as_bytes()))
+        .unwrap();
+    let dev = image(&tree, &IsoOptions::default().with_rock_ridge());
+    let bytes = dev.get_ref().clone();
+    let word = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap()) as usize;
+    let root = word(16 * 2048 + 156 + 2) * 2048;
+    let size = word(16 * 2048 + 156 + 10);
+    let (mut at, mut areas) = (root, 0);
+    while at < root + size {
+        let len = bytes[at] as usize;
+        if len == 0 {
+            at = (at / 2048 + 1) * 2048;
+            continue;
+        }
+        let id_len = bytes[at + 32] as usize;
+        let su = at + 33 + id_len + (id_len + 1) % 2;
+        areas += continuation_areas(&bytes, &bytes[su..at + len]);
+        at += len;
+    }
+    assert!(areas > names.len(), "{areas} areas");
+
+    let mut iso = dev;
+    let mut rr =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::RockRidge).unwrap();
+    let mut listed = rr.names("/").unwrap();
+    listed.sort();
+    let mut expected = names.clone();
+    expected.push("link".into());
+    expected.sort();
+    assert_eq!(listed, expected);
+    for name in &names {
+        assert_eq!(
+            rr.read_to_vec(&format!("/{name}")).unwrap(),
+            name.as_bytes()
+        );
+    }
+    let link = rr.resolve_path("/link").unwrap();
+    let mut buf = vec![0u8; 4096];
+    assert_eq!(rr.readlink(link, &mut buf).unwrap(), target.as_bytes());
+}

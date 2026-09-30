@@ -3,7 +3,7 @@
 
 use alloc::vec::Vec;
 
-use crate::raw::{PnEntry, PxEntry, U32Both};
+use crate::raw::{PnEntry, PxEntry, SECTOR_SIZE, U32Both};
 
 const CE_LEN: usize = 28;
 
@@ -153,12 +153,14 @@ impl SuBuilder {
     }
 
     /// Keeps whole entries inline while they fit `max_inline` bytes, leaving
-    /// room for a `CE` entry that points at the rest.
+    /// room for a `CE` entry that points at the rest. The rest goes in
+    /// continuation areas of at most a block, each but the last ending in a
+    /// `CE` entry for the next.
     pub(crate) fn split(self, max_inline: usize) -> SplitSu {
         if self.size() <= max_inline {
             return SplitSu {
                 inline: self.entries.concat(),
-                overflow: Vec::new(),
+                areas: Vec::new(),
                 ce_offset: None,
             };
         }
@@ -175,36 +177,66 @@ impl SuBuilder {
         let mut inline = self.entries[..split].concat();
         let ce_offset = inline.len();
         inline.extend_from_slice(&entry(b"CE", &[0; 24]));
+        let mut areas = Vec::new();
+        let mut rest = &self.entries[split..];
+        while !rest.is_empty() {
+            if rest.iter().map(Vec::len).sum::<usize>() <= SECTOR_SIZE {
+                areas.push(rest.concat());
+                break;
+            }
+            let mut used = 0;
+            let mut take = 0;
+            for entry in rest {
+                if used + entry.len() > SECTOR_SIZE - CE_LEN {
+                    break;
+                }
+                used += entry.len();
+                take += 1;
+            }
+            let mut area = rest[..take].concat();
+            area.extend_from_slice(&entry(b"CE", &[0; 24]));
+            areas.push(area);
+            rest = &rest[take..];
+        }
         SplitSu {
             inline,
-            overflow: self.entries[split..].concat(),
+            areas,
             ce_offset: Some(ce_offset),
         }
     }
 }
 
-/// A system use area: the inline bytes and the continuation bytes.
+/// A system use area: the inline bytes and the continuation areas.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SplitSu {
     pub(crate) inline: Vec<u8>,
-    pub(crate) overflow: Vec<u8>,
+    /// Each fits a block; each but the last ends in a `CE` entry.
+    pub(crate) areas: Vec<Vec<u8>>,
     ce_offset: Option<usize>,
 }
 
-impl SplitSu {
-    pub(crate) fn has_overflow(&self) -> bool {
-        !self.overflow.is_empty()
-    }
+fn patch(bytes: &mut [u8], at: usize, (block, offset): (u32, u32), len: usize) {
+    let body = [
+        U32Both::new(block),
+        U32Both::new(offset),
+        U32Both::new(len as u32),
+    ];
+    bytes[at + 4..at + CE_LEN].copy_from_slice(bytemuck::cast_slice(&body));
+}
 
-    /// Points the `CE` entry at `offset` in `block`.
-    pub(crate) fn patch_ce(&mut self, block: u32, offset: u32) {
-        if let Some(at) = self.ce_offset {
-            let body = [
-                U32Both::new(block),
-                U32Both::new(offset),
-                U32Both::new(self.overflow.len() as u32),
-            ];
-            self.inline[at + 4..at + 28].copy_from_slice(bytemuck::cast_slice(&body));
+impl SplitSu {
+    /// Points the `CE` entries at `places`, the block and offset of each
+    /// continuation area in order.
+    pub(crate) fn patch_ce(&mut self, places: &[(u32, u32)]) {
+        let (Some(at), Some(&first)) = (self.ce_offset, places.first()) else {
+            return;
+        };
+        patch(&mut self.inline, at, first, self.areas[0].len());
+        for index in 1..self.areas.len().min(places.len()) {
+            let next = self.areas[index].len();
+            let area = &mut self.areas[index - 1];
+            let at = area.len() - CE_LEN;
+            patch(area, at, places[index], next);
         }
     }
 }
@@ -229,14 +261,14 @@ mod tests {
         builder.nm_current();
         builder.er();
         let mut split = builder.split(inline_space(1));
-        assert!(split.has_overflow());
-        split.patch_ce(30, 12);
+        assert_eq!(split.areas.len(), 1);
+        split.patch_ce(&[(30, 12)]);
         let mut scan = Scan::new();
         scan.feed(&split.inline, 0);
         let ce = scan.next.unwrap();
         assert_eq!((ce.block.get(), ce.offset.get()), (30, 12));
-        assert_eq!(ce.length.get() as usize, split.overflow.len());
-        scan.feed(&split.overflow, 0);
+        assert_eq!(ce.length.get() as usize, split.areas[0].len());
+        scan.feed(&split.areas[0], 0);
         assert!(scan.rrip);
     }
 
