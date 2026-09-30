@@ -906,3 +906,23 @@ fn unmount_after_a_refusal_fails_while_sizes_are_unwritten() {
     let fat: Fat<Dev> = Fat::mount_with(common::device(case, before), &mut token, options).unwrap();
     fat.unmount().unwrap();
 }
+
+#[test]
+fn a_file_may_share_the_label_name() {
+    use hadris_fat::{FatOptions, VolumeLabel};
+    for case in cases() {
+        let options = FatOptions::new().with_label(VolumeLabel::new("MYDISK").unwrap());
+        let before = common::formatted(case, options).into_inner().into_inner();
+        let mut token = MountToken::new();
+        let mut fat = mount(&mut token, case, before);
+        let root = fat.root();
+        write_file(&mut fat, root, "MYDISK", b"disk");
+        assert_eq!(names(&mut fat, root), ["MYDISK"]);
+        let mut buf = [0u8; 32];
+        assert_eq!(fat.label(&mut buf).unwrap(), Some("MYDISK"));
+        let after = image(fat);
+        common::assert_checks_clean(case, &after, case.name);
+        let mut fs = common::mount(case, &after);
+        assert_eq!(common::names(&mut fs, "/"), ["MYDISK"]);
+    }
+}

@@ -1151,7 +1151,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
                         }
                         Slot::Short(entry) => {
                             let units = long.finish(entry.lfn_checksum()).filter(|units| !units.is_empty());
-                            if skip != Some(offset) {
+                            if skip != Some(offset) && !entry.is_label() {
                                 if check_exists && entry.is_visible() && matches(text, units, &entry, code_page, fold) {
                                     return Err(ErrorKind::AlreadyExists.into());
                                 }
@@ -1234,7 +1234,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         while let Some(offset) = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot).await? {
             match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
                 Slot::End => break,
-                Slot::Short(entry) if entry.name() == *name && skip != Some(offset) => return Ok(true),
+                Slot::Short(entry) if entry.name() == *name && !entry.is_label() && skip != Some(offset) => return Ok(true),
                 _ => {}
             }
             slot += 1;
