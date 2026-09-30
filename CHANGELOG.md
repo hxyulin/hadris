@@ -173,6 +173,22 @@ and command to its 3.0 replacement, and
   cycle fails with `Corrupt` instead of looping forever.
 - **hadris-iso:** Rock Ridge continuation areas no longer cross a block
   boundary, which Linux rejected.
+- **hadris-iso:** A Rock Ridge name longer than `DirEntry::MAX_NAME` lists
+  and looks up under its ISO 9660 identifier; it failed the listing, and
+  over 1024 bytes every lookup after it.
+- **hadris-iso:** `stat` reports a length of 0 for a directory, as
+  `Metadata::len` specifies.
+- **hadris-iso:** Deduplicated Joliet names stay within 64 characters.
+- **hadris-iso:** An El Torito entry with an empty boot image fails with
+  `InvalidInput` instead of writing a catalog entry at block 0.
+- **hadris-iso:** Rock Ridge names of some lengths no longer fail the write
+  with `Detail::DirectoryRecord`; inline system use left no room for the
+  record's padding byte.
+- **hadris-iso:** Listing a directory whose recorded size nears 4 GiB stops
+  at the end, or fails with `Corrupt`, instead of overflowing and scanning
+  again from the start.
+- **hadris-iso:** Opening a session reads each file's extent records once,
+  instead of a number of times quadratic in the extent count.
 - **hadris-udf:** The writer refuses UDF 2.50 and 2.60, which need a
   metadata partition it does not write.
 - **hadris-udf:** The volume space size of a bridge image's ISO 9660 side

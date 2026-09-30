@@ -242,10 +242,10 @@ impl SplitSu {
 }
 
 /// The system use bytes a record with an identifier of `name_len` bytes
-/// can hold inline.
+/// can hold inline: the record, padded to an even length, holds 254 bytes.
 pub(crate) const fn inline_space(name_len: usize) -> usize {
     let used = (33 + name_len + 1) & !1;
-    256usize.saturating_sub(used)
+    254usize.saturating_sub(used)
 }
 
 #[cfg(test)]

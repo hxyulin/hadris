@@ -112,7 +112,9 @@ async fn read_info<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>>
 /// Write methods fail with [`ErrorKind::ReadOnly`].
 ///
 /// Names drop the `;1` version. In the primary and enhanced trees a lookup
-/// that finds no exact name retries ignoring ASCII case.
+/// that finds no exact name retries ignoring ASCII case. A Rock Ridge name
+/// longer than [`DirEntry::MAX_NAME`] bytes lists and looks up under the
+/// record's ISO 9660 identifier instead.
 ///
 /// ```rust,ignore
 /// let mut iso = IsoFs::mount(dev, MountOptions::new())?;
@@ -285,10 +287,12 @@ impl View {
             match DirectoryRecord::parse(data) {
                 Ok(Some(record)) => {
                     let offset = dir.start + u64::from(*pos);
-                    *pos += record.len() as u32;
+                    *pos = pos
+                        .checked_add(record.len() as u32)
+                        .ok_or(Detail::DirectoryRecord.corrupt())?;
                     return Ok(Some(Found { offset, record }));
                 }
-                Ok(None) => *pos = (*pos / bs + 1) * bs,
+                Ok(None) => *pos = (*pos / bs + 1).checked_mul(bs).unwrap_or(u32::MAX),
                 Err(()) => return Err(Detail::DirectoryRecord.corrupt()),
             }
         }
@@ -453,15 +457,15 @@ impl View {
             _ => Err(Detail::DirectoryRecord.corrupt()),
         };
         if let Some(skip) = self.rock_ridge() {
-            let mut name = [0u8; 1024];
+            let mut name = [0u8; DirEntry::MAX_NAME];
             let mut scan = Scan::new().with_name(&mut name);
             self.scan(dev, record, skip, &mut scan).await?;
             if scan.info.is_relocated() {
                 return Ok(None);
             }
-            let len = match scan.name().map_err(Error::from)? {
-                Some(bytes) => crate::name::sanitize(bytes, out),
-                None => crate::name::sanitize(crate::name::strip_version(record.name()), out),
+            let len = match scan.name() {
+                Ok(Some(bytes)) => crate::name::sanitize(bytes, out),
+                _ => crate::name::sanitize(crate::name::strip_version(record.name()), out),
             }
             .ok_or(Error::from(ErrorKind::NameTooLong))?;
             let info = scan.info;
@@ -603,7 +607,7 @@ impl View {
             None => None,
         };
         let (mut file_type, mut len) = if header.is_directory() {
-            (FileType::Dir, u64::from(header.data_len.get()))
+            (FileType::Dir, 0)
         } else {
             let file_type = rr.and_then(|rr| rr.file_type()).unwrap_or(FileType::File);
             (file_type, self.file_len(dev, node.get(), &record).await?)
@@ -998,24 +1002,44 @@ impl<D: BlockDevice> IsoFs<D> {
     /// Call again from the end of the last one for more; 0 means there are
     /// none. A file of several extents (multi-extent) has one per
     /// directory record; a directory has the one extent of its records.
+    /// Each call reads the records from the first, so a larger `out`
+    /// takes fewer reads.
     pub async fn extents(&mut self, node: NodeId, from: u64, out: &mut [hadris_fs::Extent]) -> Result<usize, Error<D::Error>> {
+        let mut count = 0;
+        self.walk_extents(node, &mut |extent| {
+            if extent.file_offset() + extent.len() <= from || extent.is_empty() {
+                return true;
+            }
+            let Some(slot) = out.get_mut(count) else {
+                return false;
+            };
+            *slot = extent;
+            count += 1;
+            true
+        })
+        .await?;
+        Ok(count)
+    }
+
+    /// Calls `each` with every extent of a file in order, including empty
+    /// ones, until it returns `false`.
+    pub(crate) async fn walk_extents(
+        &mut self,
+        node: NodeId,
+        each: &mut impl FnMut(hadris_fs::Extent) -> bool,
+    ) -> Result<(), Error<D::Error>> {
         let record = self.view.record_at(&mut self.dev, node.get()).await?;
         let mut current = (node.get(), record);
         let mut file = 0u64;
-        let mut count = 0;
         for _ in 0..MAX_EXTENTS {
             let start = self.view.extent_start(&current.1).ok_or(Detail::DirectoryRecord.corrupt())?;
             let len = u64::from(current.1.header().data_len.get());
-            if file + len > from && len > 0 {
-                let Some(slot) = out.get_mut(count) else {
-                    return Ok(count);
-                };
-                *slot = hadris_fs::Extent::new(start, len).with_file_offset(file);
-                count += 1;
+            if !each(hadris_fs::Extent::new(start, len).with_file_offset(file)) {
+                return Ok(());
             }
             file += len;
             if !current.1.header().file_flags().contains(FileFlags::NOT_FINAL) {
-                return Ok(count);
+                return Ok(());
             }
             current = self.view.following(&mut self.dev, current.0, &current.1).await?;
             if current.1.name() != record.name() {

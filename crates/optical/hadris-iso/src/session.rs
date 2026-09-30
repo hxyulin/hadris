@@ -812,14 +812,13 @@ async fn read_session<D: BlockDevice>(iso: &mut IsoFs<D>) -> Result<(Tree, IsoOp
                 }
                 FileType::File => {
                     let mut extents = Vec::new();
-                    let mut out = [Extent::new(0, 0); 8];
-                    let mut from = 0;
-                    loop {
-                        let n = view.extents(node, from, &mut out).await?;
-                        let Some(last) = out[..n].last() else { break };
-                        from = last.file_offset() + last.len();
-                        extents.extend(out[..n].iter().map(|extent| Extent::new(extent.offset(), extent.len())));
-                    }
+                    view.walk_extents(node, &mut |extent| {
+                        if !extent.is_empty() {
+                            extents.push(Extent::new(extent.offset(), extent.len()));
+                        }
+                        true
+                    })
+                    .await?;
                     let first = extents.first().map(Extent::offset).filter(|_| meta.len() > 0);
                     if let Some(target) = first.and_then(|first| links.get(&first).filter(|_| meta.nlink() > 1)) {
                         tree.link(target, &path).map_err(tree_error)?;
