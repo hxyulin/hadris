@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::io::{Read as _, Write as _};
 
+use common::script::Scripted;
 use common::{CASES, Case, Device, KANJI_ASCII, KANJI_NAME, fsck};
 use hadris_fat::sync::FatFs;
 use hadris_fs::sync::{FileSystem, Volume, copy_tree};
@@ -2530,4 +2531,76 @@ fn overwrite_error_can_leave_partial_data() {
         }
     }
     assert!(saw_partial);
+}
+
+fn write_all_any<D: BlockDevice>(fs: &mut FatFs<D>, node: NodeId, data: &[u8]) {
+    let mut done = 0;
+    while done < data.len() {
+        done += fs.write(node, done as u64, &data[done..]).unwrap();
+    }
+}
+
+#[test]
+fn unmount_after_a_refusal_fails_while_sizes_are_unwritten() {
+    let case = CASES[1];
+    let before = populate(case);
+    for dirty in [true, false] {
+        let (dev, script) = Scripted::new(common::device(case, before.clone()));
+        let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
+        let root = fs.root();
+        let grown = fs.lookup(root, name("grown.bin")).unwrap();
+        if dirty {
+            assert_eq!(fs.write(grown, 9000, &[1u8; 100]).unwrap(), 100);
+        }
+        let lower = fs.lookup(root, name("lower.txt")).unwrap();
+        script.borrow_mut().refuse = true;
+        let refused = fs.write(lower, 0, b"x").unwrap_err();
+        assert_eq!(refused.kind(), ErrorKind::ReadOnly);
+        assert!(fs.is_read_only());
+        fs.forget(lower, 1);
+        fs.forget(grown, 1);
+        if !dirty {
+            assert_eq!(fs.sync().map_err(|err| err.kind()), Ok(()));
+            fs.unmount().unwrap();
+            continue;
+        }
+        assert_eq!(fs.sync().unwrap_err().kind(), ErrorKind::ReadOnly);
+        let err = fs.unmount().unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::ReadOnly);
+        let image = err.into_device().into_image();
+        assert_eq!(fresh_read(case, &image, "/grown.bin").len(), 9000);
+    }
+    let dev = common::device(case, before);
+    let fs = FatFs::mount(dev, MountOptions::new().read_only()).unwrap();
+    fs.unmount().unwrap();
+}
+
+#[test]
+fn a_shrink_whose_fat_write_fails_is_cut_back_by_the_next_write() {
+    let case = CASES[1];
+    let (dev, script) = Scripted::new(common::device(case, common::blank(case)));
+    let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
+    let root = fs.root();
+    let node = fs
+        .create(root, name("shrunk.bin"), &SetAttr::new())
+        .unwrap();
+    let geo = *fs.info();
+    let size = geo.cluster_size() as usize;
+    write_all_any(&mut fs, node, &vec![3u8; 3 * size]);
+    fs.close(node).unwrap();
+    let chain = common::chain(&mut fs, node);
+    assert_eq!(chain.len(), 3);
+    let at = geo.fat_copy(geo.active_fat()) + case.kind.entry_offset(chain[1] as u64);
+    script.borrow_mut().fail_at = Some(at);
+    let len = size as u64 + 100;
+    assert_eq!(fs.truncate(node, len).unwrap_err().kind(), ErrorKind::Io);
+    assert_eq!(script.borrow().fail_at, None, "the FAT write failed");
+    fs.sync().unwrap();
+    fs.forget(node, 1);
+    let image = fs.into_inner().into_image();
+    common::assert_checks_clean(case, &image, "failed shrink");
+    let mut fresh = open(case, image);
+    let node = fresh.lookup(fresh.root(), name("shrunk.bin")).unwrap();
+    assert_eq!(fresh.stat(node).unwrap().len(), len);
+    assert_eq!(common::chain(&mut fresh, node), chain[..2]);
 }
