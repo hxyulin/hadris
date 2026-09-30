@@ -1877,6 +1877,26 @@ impl Planner<'_> {
                 );
             }
         }
+        if self.rock_ridge {
+            let files = self
+                .files
+                .iter()
+                .filter(|f| !matches!(f.kind, FileKind::Catalog { .. }))
+                .map(|f| (&f.name, &f.path));
+            let dirs = self.dirs.iter().skip(1).map(|d| (&d.name, &d.path));
+            for (_, path) in files
+                .chain(dirs)
+                .filter(|(name, _)| !names::rock_ridge_lists(name))
+            {
+                report.push_warning(
+                    Warning::new(
+                        WarningKind::Renamed,
+                        "rock ridge name longer than 768 bytes; readers list the iso 9660 name",
+                    )
+                    .with_path(path),
+                );
+            }
+        }
         let keeps_names = self.rock_ridge
             || self
                 .trees
