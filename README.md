@@ -26,7 +26,8 @@ version; minor releases add backward-compatible functionality, and patch
 releases are limited to correctness fixes, interoperability qualification, and
 documentation.
 
-In 3.0, exFAT is stable as `hadris_fat::exfat::ExFatFs`, with no feature flag.
+In 3.0, exFAT is stable as `hadris_fat::exfat::sync::ExFatFs` and
+`hadris_fat::exfat::r#async::ExFatFs`, with no feature flag.
 The NTFS reader (`hadris-ntfs`, and the `unstable-ntfs` feature of
 `hadris`) is a preview whose native API may change in 3.x
 minor releases. Every stable crate is covered by the public-API snapshots in

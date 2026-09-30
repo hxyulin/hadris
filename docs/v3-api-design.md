@@ -401,17 +401,21 @@ devices and 2048-byte optical media stop being special cases, and a partition
 is just another device.
 
 ```rust
-pub trait BlockDevice {
+// hadris_io::ErrorType
+pub trait ErrorType {
     type Error: core::error::Error + Send + Sync + 'static;
-    fn block_size(&self) -> u32;
+}
+
+pub trait BlockDevice: ErrorType {
+    fn block_size(&self) -> BlockSize;
     fn block_count(&self) -> u64;
-    async fn read_blocks(&mut self, first: u64, buf: &mut [u8]) -> Result<(), Error<Self::Error>>;
+    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>>;
 
     // Defaulted, so a read-only device implements only the lines above.
     fn max_block_count(&self) -> u64 { self.block_count() }
     fn disk_offset(&self) -> u64 { 0 }
     fn writable(&self) -> bool { false }
-    async fn write_blocks(&mut self, first: u64, buf: &[u8]) -> Result<(), Error<Self::Error>> { .. }
+    async fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<(), Error<Self::Error>> { .. }
     async fn flush(&mut self) -> Result<(), Error<Self::Error>> { .. }
 }
 ```
@@ -1303,10 +1307,10 @@ shared drivers, the format extras and the embedded API. exFAT is the
 from FAT's and R5 keeps them out of the crate root.
 
 ```rust
-let geo = fat::sync::format(&mut dev, &FatOptions::new().with_label("BOOT"))?;
+let geo = fat::sync::format(&mut dev, &FatOptions::new().with_label(VolumeLabel::new("BOOT")?))?;
 let mut fs = FatFs::mount(dev, MountOptions::new())?;     // FatKind::{Fat12, Fat16, Fat32}
 fs.info().kind(); fs.info().volume_serial();
-fs.set_label(Some("DATA"))?;
+fs.set_label(Some(VolumeLabel::new("DATA")?))?;
 fs.setattr(node, &SetAttr::new().with_attributes(Attributes::HIDDEN))?;
 let n = fs.extents(node, 0, &mut extents)?;               // FIEMAP-style map
 let exfat = hadris_fat::exfat::sync::ExFatFs::mount(dev2, MountOptions::new())?;
@@ -1319,7 +1323,7 @@ let report = fat::sync::check(&mut dev, &mut scratch, |f| eprintln!("{f}"))?;
 - exFAT is a separate driver, not a `FatKind`. Its entry sets, allocation bitmap and up-case table share little with FAT12/16/32, so one type would branch on the kind in every method. Both share the codecs that do overlap. `ExFatFs` is stable in 3.0; `unstable-exfat` is gone (Q5).
 - `format(&mut dev, &opts) -> FsResult<Geometry, D::Error>` needs no allocator; the caller then mounts with its own options (VOL-FORMAT-07). `FatOptions` (`with_kind`, `with_size`, `with_label`, `with_time`, `with_seed`, `with_cluster_size`, `with_sector_size`, `with_reserved_sectors`, `with_fat_count`, `with_root_entries`, `with_media`, `with_oem_name`, `with_serial`, `with_partition_offset`, `with_alignment`) is `Copy` with the label inline, and serves both `format` and the tree writer `fat::sync::write`. `ExFatOptions` is the same without the FAT-only knobs. They replace `FormatOptions`, `FatVolumeFormatter`, `FatFormatOptions`, `ExFatFormatOptions`, `format_exfat` and `ExFatLayoutParams`. The partition offset defaults to `BlockDevice::disk_offset`. Without `with_kind`, volumes below 16 MiB are FAT12, below 512 MiB FAT16, and larger ones FAT32; the cluster size starts from the V2 tables and doubles or halves until the count fits. Option errors are checked before any write.
 - `check(&mut dev, scratch, on_finding) -> FsResult<CheckReport, D::Error>` runs on the unmounted device with no allocator. It reports each shared `Finding` (4.15) with a `fat::Detail` code through the callback. Cross-links and lost clusters need a bit per cluster: the scratch buffer covers a window of clusters, and the tree is walked once per window, so the findings do not depend on its size. The tree is walked without a stack by following `..` entries. A `repair` pass and an `analysis` module are 3.x.
-- Extras: `info()` returns `fat::Geometry` (the type `raw::parse_boot` and `format` return), `extents`, `records`, `read_raw`, `was_dirty` (false on FAT12, which has no flag), `set_label(Option<&str>)` and `set_volume_serial`. FAT attribute bits are `stat().attributes()` and `SetAttr::with_attributes`; cluster chains are `extents`. This replaces `kind()`, `label()` as an inherent method, `set_label(&VolumeLabel)`, `fat_attributes`, `set_fat_attributes` and `cluster_chain`.
+- Extras: `info()` returns `fat::Geometry` (the type `raw::parse_boot` and `format` return), `extents`, `records`, `read_raw`, `was_dirty` (false on FAT12, which has no flag), `set_label(Option<VolumeLabel>)` and `set_volume_serial`. FAT attribute bits are `stat().attributes()` and `SetAttr::with_attributes`; cluster chains are `extents`. This replaces `kind()`, `label()` as an inherent method, `set_label(&VolumeLabel)`, `fat_attributes`, `set_fat_attributes` and `cluster_chain`.
 - The raw layer is the `hadris-fat-raw` crate: `FatKind`, `Geometry`, `RootLocation`, `parse_boot`, `boot_code`, `Slot`, `ShortEntry`, `LongEntry`, `lfn_checksum`, and the folding functions `fold_ascii` and `fold_unicode`; its `exfat` module adds `boot_checksum`, `set_checksum`, `name_hash` and `EntrySet`. `hadris-fat` re-exports only the raw items its own signatures use (`FatKind`, `Geometry`, `Detail`, `exfat::Detail` and `check`), not the crate (R12, Q13).
 - Shared FAT folds Unicode case as Windows does, and shared exFAT compares through the volume's up-case table, with no folding option. The code page defaults to `Cp437`.
 - The FAT sector cache is gone as a separate thing. Users wrap the device in `Cache<D>`. `FatSectorCache`, `CachedFat`, `with_cached_fat` and `fat_cache` are removed (#27).
@@ -1355,7 +1359,7 @@ let mut iso = IsoFs::mount(dev, MountOptions::new())?;
 let node = iso.resolve(b"/boot/grub/grub.cfg", Resolve::Lexical)?;
 let mut buf = [0u8; 2048];
 if let Some(catalog) = iso.boot_catalog(&mut buf)? {
-    for entry in catalog.entries() { let image = iso.boot_image(&entry)?; }
+    for entry in catalog.entries() { let image = iso.boot_image(&entry); }
 }
 iso.info().id(IsoId::Volume);                  // the PVD bytes
 ```
@@ -1363,7 +1367,7 @@ iso.info().id(IsoId::Volume);                  // the PVD bytes
 - `IsoReader` and `IsoImage` merge into `IsoFs`, which needs no allocator (NF-NOALLOC-03). It implements `FileSystem` with the write half left at its `ReadOnly` defaults. Node ids are record locations, so there is no node table.
 - A mount uses Rock Ridge, then Joliet, then the primary tree, unless mount options choose (DIR-LOOKUP-01). Listings show the highest version of a name without `;N`, and `lookup` accepts an explicit `;N` (DIR-LOOKUP-03).
 - ISO needs device blocks of at most 2048 bytes and refuses a 4096-byte device with `Unsupported` (IO-OPEN-01).
-- Extras: `info()` returns `iso::VolumeInfo` (`block_size`, `volume_space_size`, `id(IsoId)`, `date(IsoDate)`, returning bytes, since PVD bytes are often not ASCII). `boot_catalog(&mut buf) -> Option<BootCatalog<'b>>` parses the El Torito catalog lazily from the caller's buffer, with `CatalogEntry`, `Platform` and the builder's `Emulation`. `boot_image(&entry)` returns an `Extent`, read with `read_raw`. `iso::SystemArea` over caller bytes, listing the MBR, GPT and APM entries of a hybrid image (BOOT-HYB-05), is 3.x. `records(node)` plus `read_raw` replaces `view.raw_record(node)`.
+- Extras: `info()` returns `iso::VolumeInfo` (`block_size`, `volume_space_size`, `id(IsoId)` returning the stored bytes, since PVD bytes are often not ASCII, and `date(IsoDate)` returning `Option<DateTime>`). `boot_catalog(&mut buf) -> Option<BootCatalog<'b>>` parses the El Torito catalog lazily from the caller's buffer, with `CatalogEntry`, `Platform` and the builder's `Emulation`. `boot_image(&entry)` returns an `Extent`, read with `read_raw`. `iso::SystemArea` over caller bytes, listing the MBR, GPT and APM entries of a hybrid image (BOOT-HYB-05), is 3.x. `records(node)` plus `read_raw` replaces `view.raw_record(node)`.
 - 3.x: `check(&mut dev, scratch, on_finding)` verifies an image offline with `iso::Detail` codes (CHECK-ISO-01), and the CLI stops parsing boot records by hand.
 - `IsoStr::as_str` returns `Result`. Panicking `best_choice` and `primary` are removed.
 - Raw record and FID iterators, the Rock Ridge decoder, d-character codecs and descriptor selection move to `hadris-iso-raw` in 3.x (4.15).

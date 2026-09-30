@@ -18,12 +18,12 @@ The [migration guide](https://github.com/hxyulin/hadris/blob/next/docs/hadris-3.
 maps every 2.4 crate and item to its 3.0 replacement. Report real-world compatibility findings through
 [GitHub Issues](https://github.com/hxyulin/hadris/issues).
 
-In 3.0, exFAT is stable as `hadris_fat::exfat::ExFatFs`, with no feature
-flag; in 2.x it was the `unstable-exfat` preview. The `hadris-ntfs` reader,
-and the `unstable-ntfs` feature of `hadris` that exposes
-its native API, stay outside the stability promise: its `FileSystem`
-implementation follows the frozen trait, but its native methods may change in
-3.x minor releases.
+In 3.0, exFAT is stable as `hadris_fat::exfat::sync::ExFatFs` and
+`hadris_fat::exfat::r#async::ExFatFs`, with no feature flag; in 2.x it was
+the `unstable-exfat` preview. The `hadris-ntfs` reader, and the
+`unstable-ntfs` feature of `hadris` that exposes its native API, stay outside
+the stability promise: its `FileSystem` implementation follows the frozen
+trait, but its native methods may change in 3.x minor releases.
 
 ## Compatibility policy
 

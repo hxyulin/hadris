@@ -613,8 +613,8 @@ jobs:
         with:
           toolchain: 1.88.0
       - uses: Swatinem/rust-cache@v2
-      - name: cargo doc --workspace
-        run: cargo doc --workspace --no-deps
+      - name: cargo doc --workspace --all-features
+        run: cargo doc --workspace --no-deps --all-features
       - name: Compile rustdoc examples
         run: cargo test --workspace --all-features --doc
       - name: Compile Cargo example targets
