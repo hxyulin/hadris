@@ -339,6 +339,9 @@ enum SetWrite {
     /// Changes to a set: its name hash and checksum are made to match the
     /// entries that landed.
     Update,
+    /// New sizes for clusters recovery frees: this Stream Extension entry,
+    /// the one the set had, is put back, then the set is resealed.
+    Revert(RawEntry),
     /// A removal: completed.
     Clear,
 }
@@ -558,7 +561,8 @@ fn entry_name(name: &Name, invalid: ErrorKind) -> Result<&str, ErrorKind> {
 /// unless the interrupted write linked them, removes a new set that did
 /// not land whole, completes a removal, reseals an updated set so its
 /// checksum and name hash match, and cuts back a chain a dropped write had
-/// grown past the file's size. Only a process that stops, or a driver that
+/// grown past the file's size, putting back the file's old sizes when only
+/// part of the entry set that recorded the new ones landed. Only a process that stops, or a driver that
 /// is dropped, in between leaves lost clusters, or secondary entries and a
 /// set checksum that `check` reports. What cannot be finished because the
 /// volume turns out to be corrupt is dropped.
@@ -1044,8 +1048,11 @@ impl<D: BlockDevice> ExFatFs<D> {
                     self.mark_unlinked(id);
                 }
             }
-            SetWrite::Update => {
+            SetWrite::Update | SetWrite::Revert(_) => {
                 if let Some(hash) = hash {
+                    if let SetWrite::Revert(old) = kind {
+                        stream = old;
+                    }
                     stream[4..6].copy_from_slice(&hash.to_le_bytes());
                     let sum = self.pending_checksum(count, &primary, &stream).await?;
                     primary[2..4].copy_from_slice(&sum.to_le_bytes());
@@ -1346,8 +1353,12 @@ impl<D: BlockDevice> ExFatFs<D> {
     ) -> FsResult<(), D::Error> {
         let mut set = Set::new();
         self.set_at(state.entry, &mut set).await?;
+        let kind = match self.pending {
+            Some(Pending { owner: Owner::Tail(_), .. }) => SetWrite::Revert(set.raw[1]),
+            _ => SetWrite::Update,
+        };
         self.touch(&mut set, state, alloc, len, valid);
-        self.write_set(&set, 2, SetWrite::Update).await?;
+        self.write_set(&set, 2, kind).await?;
         if let Some(id) = id {
             if let Some(node) = self.nodes.get_mut(id) {
                 node.first = alloc.first;

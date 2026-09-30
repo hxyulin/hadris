@@ -13,6 +13,8 @@ use hadris_fs::{
 
 #[path = "paths.rs"]
 pub mod paths;
+#[path = "script.rs"]
+pub mod script;
 use hadris_storage::sync::BlockDevice;
 use hadris_storage::{BlockSize, MemDevice};
 pub use paths::sync::{FsPaths, VolumePaths};

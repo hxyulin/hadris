@@ -11,6 +11,7 @@ use hadris_fs::MountOptions;
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 
+use common::script::Scripted;
 use common::{Device, Fs, Geometry, Tool, clean, fsck, le32};
 use hadris_fat::exfat::VolumeLabel;
 use hadris_fat::exfat::sync::ExFatFs;
@@ -1223,6 +1224,49 @@ fn unpinned_ids_write_through() {
     assert_eq!(fs.read_to_vec("/f").unwrap(), b"abcdef");
     assert_eq!(fs.open_nodes(), 1);
     let _ = le32;
+}
+
+/// Creates empty files in the root until one's File entry is the last slot
+/// of a 512-byte block, writes `data` to it and unpins it. Returns its id
+/// and the offset of its File entry.
+fn file_at_block_end(fs: &mut ExFatFs<Scripted>, data: &[u8]) -> (NodeId, u64) {
+    let root = fs.root();
+    for i in 0.. {
+        let node = fs
+            .create(root, name(&format!("file {i}")), &SetAttr::new())
+            .unwrap();
+        let at = node.get() * 32;
+        if at % 512 == 480 {
+            assert_eq!(fs.write(node, 0, data).unwrap(), data.len());
+            fs.close(node).unwrap();
+            fs.forget(node, 1);
+            return (node, at);
+        }
+        fs.forget(node, 1);
+    }
+    unreachable!()
+}
+
+fn findings(image: Vec<u8>) -> Vec<common::Found> {
+    common::check_dev(&mut common::device(image, 512), 4096).1
+}
+
+#[test]
+fn a_grow_whose_file_entry_fails_keeps_the_old_size_and_chain() {
+    let image = common::image(common::small(4 << 20, 4096));
+    let (dev, script) = Scripted::new(common::device(image, 512));
+    let mut fs = ExFatFs::mount(dev, MountOptions::new()).unwrap();
+    let (node, at) = file_at_block_end(&mut fs, &[1u8; 100]);
+    script.borrow_mut().fail_at = Some(at);
+    let err = fs.write(node, 100, &[2u8; 8000]).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Io);
+    assert_eq!(script.borrow().fail_at, None, "the File entry write failed");
+    assert_eq!(fs.stat(node).unwrap().len(), 100);
+    fs.sync().unwrap();
+    let image = fs.into_inner().into_image();
+    assert_eq!(findings(image.clone()), []);
+    let mut fresh = common::mount(&image);
+    assert_eq!(read_all(&mut fresh, node), [1u8; 100]);
 }
 
 /// Both FATs and both Allocation Bitmaps of a TexFAT volume.
