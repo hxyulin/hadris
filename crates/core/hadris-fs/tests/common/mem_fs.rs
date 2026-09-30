@@ -33,6 +33,7 @@ pub struct MemFs {
     writable: bool,
     fail_next: Option<MemError>,
     stall_next: bool,
+    stall_in: Option<u32>,
 }
 
 fn id(index: usize) -> NodeId {
@@ -60,6 +61,7 @@ impl MemFs {
             writable: true,
             fail_next: None,
             stall_next: false,
+            stall_in: None,
         }
     }
 
@@ -137,6 +139,12 @@ impl MemFs {
     /// Makes the next `stat`, `unlink` or `setattr` yield once before it runs.
     pub fn stall_next(&mut self) {
         self.stall_next = true;
+    }
+
+    /// Makes the `calls`-th following call of any node method but `forget`
+    /// yield once before it runs, counting from 0.
+    pub fn stall_in(&mut self, calls: u32) {
+        self.stall_in = Some(calls);
     }
 
     /// Makes the next device access fail with `err`.
@@ -267,8 +275,20 @@ io_transform! {
 
 impl MemFs {
     async fn stall(&mut self) {
+        self.tick().await;
         if core::mem::take(&mut self.stall_next) {
             super::yield_now().await;
+        }
+    }
+
+    async fn tick(&mut self) {
+        match self.stall_in {
+            Some(0) => {
+                self.stall_in = None;
+                super::yield_now().await;
+            }
+            Some(n) => self.stall_in = Some(n - 1),
+            None => {}
         }
     }
 }
@@ -296,6 +316,7 @@ impl FileSystem for MemFs {
     }
 
     async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, MemError> {
+        self.tick().await;
         name.check()?;
         self.device()?;
         let dir = self.dir(dir)?;
@@ -313,6 +334,7 @@ impl FileSystem for MemFs {
     }
 
     async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, MemError> {
+        self.tick().await;
         let dir = self.dir(dir)?;
         let up = self.nodes[dir].as_ref().map_or(0, |n| n.parent);
         Ok(self.pin(up))
@@ -328,6 +350,7 @@ impl FileSystem for MemFs {
     }
 
     async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, MemError> {
+        self.tick().await;
         self.device()?;
         let dir = self.dir(dir)?;
         let start = (from.into_raw() as usize).max(1);
@@ -345,6 +368,7 @@ impl FileSystem for MemFs {
     }
 
     async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], MemError> {
+        self.tick().await;
         let Kind::Link(target) = &self.node(node)?.kind else {
             return Err(ErrorKind::InvalidInput.into());
         };
@@ -354,6 +378,7 @@ impl FileSystem for MemFs {
     }
 
     async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), MemError> {
+        self.tick().await;
         match self.node(node)?.kind {
             Kind::File(_) => {}
             Kind::Link(_) => return Err(ErrorKind::Symlink.into()),
@@ -367,6 +392,7 @@ impl FileSystem for MemFs {
     }
 
     async fn close(&mut self, node: NodeId) -> FsResult<(), MemError> {
+        self.tick().await;
         if let Some(count) = self.opens.get_mut(&node.get()) {
             *count = count.saturating_sub(1);
         }
@@ -376,6 +402,7 @@ impl FileSystem for MemFs {
     }
 
     async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, MemError> {
+        self.tick().await;
         self.device()?;
         let Kind::File(data) = &self.node(node)?.kind else {
             return Err(ErrorKind::IsADirectory.into());

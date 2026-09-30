@@ -1,4 +1,4 @@
-use super::volume::Volume;
+use super::volume::{Held, Volume};
 use super::*;
 use crate::tree::Content;
 use crate::{DeviceNumber, Node, PathError, Tree};
@@ -76,7 +76,9 @@ impl<F: FileSystem> VolumeContent<F> {
     async fn read(&self, offset: u64, buf: &mut [u8]) -> Result<usize, PathError> {
         let mut fs = self.vol.lock().await;
         fs.open(self.node, OpenMode::Read).await?;
+        let open = self.vol.hold_open(self.node);
         let read = fs.read(self.node, offset, buf).await;
+        open.keep();
         let closed = fs.close(self.node).await;
         let n = read?;
         closed?;
@@ -105,39 +107,36 @@ impl<F: FileSystem> VolumeContent<F> {
 pub async fn read_tree<F: FileSystem + Send + 'static>(vol: &Volume<F>, path: impl AsRef<[u8]>) -> Result<Tree, PathError> {
     let path = path.as_ref();
     let mut fs = vol.lock().await;
-    let top = fs.resolve(path, Resolve::Lexical).await.map_err(|err| PathError::from(err).with_path(path))?;
+    let top = vol.hold(fs.resolve(path, Resolve::Lexical).await.map_err(|err| PathError::from(err).with_path(path))?);
     let mut tree = Tree::new();
-    let meta = match fs.stat(top).await {
+    let meta = match fs.stat(top.node()).await {
         Ok(meta) => meta,
         Err(err) => {
-            fs.forget(top, 1);
+            top.forget(&mut *fs);
             return Err(PathError::from(err).with_path(path));
         }
     };
     if !meta.file_type().is_dir() {
-        let name = match stored_name(&mut *fs, path, top).await {
+        let name = match stored_name(&mut *fs, vol, path, top.node()).await {
             Ok(name) => name,
             Err(err) => {
-                fs.forget(top, 1);
+                top.forget(&mut *fs);
                 return Err(PathError::from(err).with_path(path));
             }
         };
-        let node = match node_of(&mut *fs, vol, top, &meta).await {
-            Ok(node) => node,
-            Err(err) => {
-                fs.forget(top, 1);
-                return Err(err.with_path(path));
-            }
-        };
+        let node = node_of(&mut *fs, vol, top, &meta).await.map_err(|err| err.with_path(path))?;
         tree.insert(&name, node)?;
         return Ok(tree);
     }
-    tree.replace("/", Node::dir().with_attrs(attrs_of(&meta)))?;
-    let mut stack: Vec<(NodeId, DirCursor, Vec<u8>)> = alloc::vec![(top, DirCursor::START, Vec::new())];
+    if let Err(err) = tree.replace("/", Node::dir().with_attrs(attrs_of(&meta))) {
+        top.forget(&mut *fs);
+        return Err(err);
+    }
+    let mut stack: Vec<(Held<'_>, DirCursor, Vec<u8>)> = alloc::vec![(top, DirCursor::START, Vec::new())];
     let mut seen: Vec<(NodeId, Vec<u8>)> = Vec::new();
     let result = walk(&mut *fs, vol, &mut tree, &mut stack, &mut seen).await;
     for (node, ..) in stack {
-        fs.forget(node, 1);
+        node.forget(&mut *fs);
     }
     result.map(|()| tree)
 }
@@ -146,38 +145,43 @@ pub async fn read_tree<F: FileSystem + Send + 'static>(vol: &Volume<F>, path: im
 /// stored spelling, which on a case-insensitive volume may differ from the
 /// one in `path`. The last component of `path` when the directory does not
 /// list it.
-async fn stored_name<F: FileSystem>(fs: &mut F, path: &[u8], node: NodeId) -> FsResult<Vec<u8>, F::DeviceError> {
+async fn stored_name<F: FileSystem>(
+    fs: &mut F,
+    vol: &Volume<F>,
+    path: &[u8],
+    node: NodeId,
+) -> FsResult<Vec<u8>, F::DeviceError> {
     let given = path.rsplit(|&byte| byte == b'/').find(|part| !part.is_empty()).unwrap_or(path).to_vec();
     let mut parent_path = path.to_vec();
     parent_path.extend_from_slice(b"/..");
-    let parent = fs.resolve(&parent_path, Resolve::Lexical).await?;
+    let parent = vol.hold(fs.resolve(&parent_path, Resolve::Lexical).await?);
     let mut cursor = DirCursor::START;
     let found = loop {
-        match fs.readdir(parent, cursor).await {
+        match fs.readdir(parent.node(), cursor).await {
             Ok(Some(entry)) if entry.node() == node => break Ok(entry.name().as_bytes().to_vec()),
             Ok(Some(entry)) => cursor = entry.next_cursor(),
             Ok(None) => break Ok(given),
             Err(err) => break Err(err),
         }
     };
-    fs.forget(parent, 1);
+    parent.forget(fs);
     found
 }
 
-async fn walk<F: FileSystem + Send + 'static>(
+async fn walk<'v, F: FileSystem + Send + 'static>(
     fs: &mut F,
-    vol: &Volume<F>,
+    vol: &'v Volume<F>,
     tree: &mut Tree,
-    stack: &mut Vec<(NodeId, DirCursor, Vec<u8>)>,
+    stack: &mut Vec<(Held<'v>, DirCursor, Vec<u8>)>,
     seen: &mut Vec<(NodeId, Vec<u8>)>,
 ) -> Result<(), PathError> {
     while let Some((dir, cursor, prefix)) = stack.last_mut() {
-        let dir = *dir;
+        let dir = dir.node();
         let entry = match fs.readdir(dir, *cursor).await {
             Ok(Some(entry)) => entry,
             Ok(None) => {
                 if let Some((done, ..)) = stack.pop() {
-                    fs.forget(done, 1);
+                    done.forget(fs);
                 }
                 continue;
             }
@@ -187,69 +191,68 @@ async fn walk<F: FileSystem + Send + 'static>(
         let mut path = prefix.clone();
         path.push(b'/');
         path.extend_from_slice(entry.name().as_bytes());
-        let child = fs.lookup(dir, entry.name()).await.map_err(|err| PathError::from(err).with_path(&path))?;
-        let meta = match fs.stat(child).await {
+        let child = vol.hold(fs.lookup(dir, entry.name()).await.map_err(|err| PathError::from(err).with_path(&path))?);
+        let meta = match fs.stat(child.node()).await {
             Ok(meta) => meta,
             Err(err) => {
-                fs.forget(child, 1);
+                child.forget(fs);
                 return Err(PathError::from(err).with_path(&path));
             }
         };
         if meta.file_type().is_dir() {
-            if let Err(kind) = enter(stack.iter().map(|(node, ..)| *node), child) {
-                fs.forget(child, 1);
-                return Err(PathError::from(kind).with_path(&path));
+            let entered = enter(stack.iter().map(|(node, ..)| node.node()), child.node())
+                .map_err(PathError::from)
+                .and_then(|()| tree.insert(&path, Node::dir().with_attrs(attrs_of(&meta))));
+            if let Err(err) = entered {
+                child.forget(fs);
+                return Err(err.with_path(&path));
             }
-            tree.insert(&path, Node::dir().with_attrs(attrs_of(&meta)))?;
             stack.push((child, DirCursor::START, path));
             continue;
         }
         if meta.file_type().is_file() && meta.nlink() > 1 {
-            if let Some((_, first)) = seen.iter().find(|(node, _)| *node == child) {
-                fs.forget(child, 1);
+            if let Some((_, first)) = seen.iter().find(|(node, _)| *node == child.node()) {
+                child.forget(fs);
                 tree.link(first, &path)?;
                 continue;
             }
-            seen.push((child, path.clone()));
+            seen.push((child.node(), path.clone()));
         }
-        match node_of(fs, vol, child, &meta).await {
-            Ok(node) => tree.insert(&path, node)?,
-            Err(err) => {
-                fs.forget(child, 1);
-                return Err(err.with_path(&path));
-            }
-        }
+        let node = node_of(fs, vol, child, &meta).await.map_err(|err| err.with_path(&path))?;
+        tree.insert(&path, node)?;
     }
     Ok(())
 }
 
 /// The tree node for the pinned non-directory `node`. A file's content
 /// keeps the pin and releases it when dropped; for anything else the pin is
-/// forgotten here. On failure the caller forgets it.
+/// forgotten here.
 async fn node_of<F: FileSystem + Send + 'static>(
     fs: &mut F,
     vol: &Volume<F>,
-    node: NodeId,
+    node: Held<'_>,
     meta: &Metadata,
 ) -> Result<Node, PathError> {
     let attrs = attrs_of(meta);
     let made = match meta.file_type() {
         FileType::File => {
-            let content = VolumeContent { vol: vol.clone(), node };
+            let content = VolumeContent { vol: vol.clone(), node: node.keep() };
             return Ok(Node::file(lazy(content, meta.len())).with_attrs(attrs));
         }
-        FileType::Symlink => {
-            let mut target = link_buffer(meta.len())?;
-            let n = fs.readlink(node, &mut target).await?.len();
-            Node::symlink(&target[..n])
-        }
+        FileType::Symlink => match link_buffer(meta.len()) {
+            Ok(mut target) => match fs.readlink(node.node(), &mut target).await {
+                Ok(target) => Ok(Node::symlink(target)),
+                Err(err) => Err(PathError::from(err)),
+            },
+            Err(kind) => Err(PathError::from(kind)),
+        },
         FileType::CharDevice | FileType::BlockDevice => {
-            Node::special(meta.file_type(), Some(meta.device().unwrap_or(DeviceNumber::new(0, 0))))
+            Ok(Node::special(meta.file_type(), Some(meta.device().unwrap_or(DeviceNumber::new(0, 0)))))
         }
-        other => Node::special(other, None),
+        other => Ok(Node::special(other, None)),
     };
-    fs.forget(node, 1);
-    Ok(made.with_attrs(attrs))
+    node.forget(fs);
+    Ok(made?.with_attrs(attrs))
 }
 
 }

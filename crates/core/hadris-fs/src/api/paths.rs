@@ -47,6 +47,53 @@ pub(super) fn split_parent(path: &[u8]) -> Result<(&[u8], &Name), ErrorKind> {
     Ok((&path[..start], Name::new(name)))
 }
 
+/// The pins a resolution holds across `.await`s: the directory it has
+/// reached and the child it is looking at. It owns the borrow of the
+/// filesystem, so when it is dropped before [`keep`](Self::keep), as when
+/// its future is dropped, it forgets them itself; `forget` needs no
+/// `.await`.
+struct Pins<'f, F: FileSystem + ?Sized> {
+    fs: &'f mut F,
+    current: NodeId,
+    child: Option<NodeId>,
+    kept: bool,
+}
+
+impl<'f, F: FileSystem + ?Sized> Pins<'f, F> {
+    fn new(fs: &'f mut F) -> Self {
+        let current = fs.root();
+        Self {
+            fs,
+            current,
+            child: None,
+            kept: false,
+        }
+    }
+
+    /// Moves to the pinned `node`, forgetting the directory left.
+    fn step(&mut self, node: NodeId) {
+        let left = core::mem::replace(&mut self.current, node);
+        self.fs.forget(left, 1);
+    }
+
+    /// Hands the pin of the node reached to the caller.
+    fn keep(mut self) -> NodeId {
+        self.kept = true;
+        self.current
+    }
+}
+
+impl<F: FileSystem + ?Sized> Drop for Pins<'_, F> {
+    fn drop(&mut self) {
+        if let Some(child) = self.child.take() {
+            self.fs.forget(child, 1);
+        }
+        if !self.kept {
+            self.fs.forget(self.current, 1);
+        }
+    }
+}
+
 io_transform! {
 
 /// The default of [`FileSystem::resolve`].
@@ -63,20 +110,16 @@ pub(super) async fn resolve<F: FileSystem + ?Sized>(
 }
 
 async fn lexical<F: FileSystem + ?Sized>(fs: &mut F, path: &[u8]) -> FsResult<NodeId, F::DeviceError> {
-    let mut current: Option<NodeId> = None;
+    let mut pins = Pins::new(fs);
     let mut rest = components(path);
     while let Some(component) = rest.next() {
         if matches!(component, b"." | b"..") || cancelled(rest.clone()) {
             continue;
         }
-        let dir = current.unwrap_or(fs.root());
-        let found = fs.lookup(dir, Name::new(component)).await;
-        if let Some(prev) = current.take() {
-            fs.forget(prev, 1);
-        }
-        current = Some(found?);
+        let found = pins.fs.lookup(pins.current, Name::new(component)).await?;
+        pins.step(found);
     }
-    Ok(current.unwrap_or(fs.root()))
+    Ok(pins.keep())
 }
 
 /// POSIX resolution without an allocator: link targets are spliced into a
@@ -92,25 +135,8 @@ async fn posix<F: FileSystem + ?Sized>(
     let mut spliced: Option<usize> = None;
     let mut pos = 0;
     let mut links = 0;
-    let mut current = fs.root();
+    let mut pins = Pins::new(fs);
     let mut want_dir = false;
-    macro_rules! check {
-        ($e:expr) => {
-            match $e {
-                Ok(v) => v,
-                Err(err) => {
-                    fs.forget(current, 1);
-                    return Err(err);
-                }
-            }
-        };
-    }
-    macro_rules! fail {
-        ($err:expr) => {{
-            fs.forget(current, 1);
-            return Err($err.into());
-        }};
-    }
     loop {
         let pending = match spliced {
             Some(start) => &buf[start..],
@@ -131,66 +157,52 @@ async fn posix<F: FileSystem + ?Sized>(
         pos = end;
         let component = &pending[from..end];
         if component == b"." {
-            let meta = check!(fs.stat(current).await);
-            if !meta.file_type().is_dir() {
-                fail!(ErrorKind::NotADirectory);
+            if !pins.fs.stat(pins.current).await?.file_type().is_dir() {
+                return Err(ErrorKind::NotADirectory.into());
             }
             continue;
         }
         if component == b".." {
-            let up = check!(fs.parent(current).await);
-            fs.forget(current, 1);
-            current = up;
+            let up = pins.fs.parent(pins.current).await?;
+            pins.step(up);
             continue;
         }
-        let child = check!(fs.lookup(current, Name::new(component)).await);
-        let meta = match fs.stat(child).await {
-            Ok(meta) => meta,
-            Err(err) => {
-                fs.forget(child, 1);
-                fail!(err)
-            }
-        };
+        let child = pins.fs.lookup(pins.current, Name::new(component)).await?;
+        pins.child = Some(child);
+        let meta = pins.fs.stat(child).await?;
         if meta.file_type() != FileType::Symlink || (rest_len == 0 && !follow_last) {
-            fs.forget(current, 1);
-            current = child;
+            pins.child = None;
+            pins.step(child);
             continue;
         }
         links += 1;
         if links > MAX_LINKS {
-            fs.forget(child, 1);
-            fail!(ErrorKind::Symlink)
+            return Err(ErrorKind::Symlink.into());
         }
         let sep = usize::from(rest_len > 0);
-        let Some(room) = LINK_BUFFER.checked_sub(rest_len + sep) else {
-            fs.forget(child, 1);
-            fail!(ErrorKind::LimitExceeded)
-        };
+        let room = LINK_BUFFER.checked_sub(rest_len + sep).ok_or(ErrorKind::LimitExceeded)?;
         if spliced.is_none() {
             buf[LINK_BUFFER - rest_len..].copy_from_slice(&path[end..]);
         }
-        let read = fs.readlink(child, &mut buf[..room]).await.map(|target| target.len());
-        fs.forget(child, 1);
-        let len = check!(read);
+        let len = pins.fs.readlink(child, &mut buf[..room]).await?.len();
+        pins.child = None;
+        pins.fs.forget(child, 1);
         let start = room - len;
         buf.copy_within(..len, start);
         if sep == 1 {
             buf[room] = b'/';
         }
         if buf.get(start) == Some(&b'/') {
-            fs.forget(current, 1);
-            current = fs.root();
+            let root = pins.fs.root();
+            pins.step(root);
         }
         spliced = Some(start);
         pos = 0;
     }
-    if want_dir {
-        let meta = check!(fs.stat(current).await);
-        if !meta.file_type().is_dir() {
-            fail!(ErrorKind::NotADirectory);
-        }
+    if want_dir && !pins.fs.stat(pins.current).await?.file_type().is_dir() {
+        return Err(ErrorKind::NotADirectory.into());
     }
-    Ok(current)
+    Ok(pins.keep())
 }
 
 /// Resolves the parent of `path` with `how` and returns it pinned, with the
