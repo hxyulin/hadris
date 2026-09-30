@@ -287,10 +287,12 @@ impl View {
             match DirectoryRecord::parse(data) {
                 Ok(Some(record)) => {
                     let offset = dir.start + u64::from(*pos);
-                    *pos += record.len() as u32;
+                    *pos = pos
+                        .checked_add(record.len() as u32)
+                        .ok_or(Detail::DirectoryRecord.corrupt())?;
                     return Ok(Some(Found { offset, record }));
                 }
-                Ok(None) => *pos = (*pos / bs + 1) * bs,
+                Ok(None) => *pos = (*pos / bs + 1).checked_mul(bs).unwrap_or(u32::MAX),
                 Err(()) => return Err(Detail::DirectoryRecord.corrupt()),
             }
         }
