@@ -233,8 +233,8 @@ impl BootEntry {
 ///
 /// The first entry is the default entry and gives the validation entry its
 /// platform; each further entry gets a section of its own. A catalog
-/// without entries fails the plan with
-/// [`Detail::BootImage`](crate::Detail::BootImage).
+/// without entries, or with an entry whose image is empty, fails the plan
+/// with [`Detail::BootImage`](crate::Detail::BootImage).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct ElTorito {
     entries: Vec<BootEntry>,
