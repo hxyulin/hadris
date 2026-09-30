@@ -8,12 +8,12 @@ const MAX_LINKS: u32 = 40;
 const LINK_BUFFER: usize = 1024;
 
 /// The components of `path`, skipping empty ones.
-fn components(path: &[u8]) -> impl Iterator<Item = &[u8]> + Clone {
+pub(super) fn components(path: &[u8]) -> impl Iterator<Item = &[u8]> + Clone {
     path.split(|&b| b == b'/').filter(|c| !c.is_empty())
 }
 
 /// Whether a later `..` in `rest` removes the component just before it.
-fn cancelled<'a>(rest: impl Iterator<Item = &'a [u8]>) -> bool {
+pub(super) fn cancelled<'a>(rest: impl Iterator<Item = &'a [u8]>) -> bool {
     let mut depth = 0usize;
     for component in rest {
         match component {
@@ -204,56 +204,6 @@ pub(super) async fn resolve_parent<'p, F: FileSystem + ?Sized>(
 ) -> FsResult<(NodeId, &'p Name), F::DeviceError> {
     let (parent, name) = split_parent(path)?;
     Ok((fs.resolve(parent, how).await?, name))
-}
-
-/// Creates the directory `path` and every missing parent, resolving `..`
-/// as `how` does.
-#[cfg(feature = "alloc")]
-#[allow(dead_code)]
-pub(super) async fn create_dir_all<F: FileSystem + ?Sized>(
-    fs: &mut F,
-    path: &[u8],
-    how: Resolve,
-) -> FsResult<(), F::DeviceError> {
-    let mut current = fs.root();
-    let mut rest = components(path);
-    let mut result = Ok(());
-    while let Some(component) = rest.next() {
-        if component == b"." {
-            continue;
-        }
-        let next = if component == b".." {
-            if how == Resolve::Lexical {
-                continue;
-            }
-            fs.parent(current).await
-        } else if how == Resolve::Lexical && cancelled(rest.clone()) {
-            continue;
-        } else {
-            let name = Name::new(component);
-            match fs.lookup(current, name).await {
-                Err(err) if err.kind() == ErrorKind::NotFound => {
-                    fs.mkdir(current, name, &SetAttr::new()).await
-                }
-                other => other,
-            }
-        };
-        fs.forget(current, 1);
-        current = next?;
-        match fs.stat(current).await {
-            Ok(meta) if meta.file_type().is_dir() => {}
-            Ok(_) => {
-                result = Err(ErrorKind::NotADirectory.into());
-                break;
-            }
-            Err(err) => {
-                result = Err(err);
-                break;
-            }
-        }
-    }
-    fs.forget(current, 1);
-    result
 }
 
 /// Writes all of `buf` to `node` at `offset`.

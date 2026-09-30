@@ -10,7 +10,7 @@ use std::sync::Arc;
 use common::asynch::{MemFs, fixture};
 use common::block_on;
 use hadris_fs::r#async::{FileSystem, Volume, copy_tree, read_tree};
-use hadris_fs::{ErrorKind, FsResult, OpenOptions, Resolve};
+use hadris_fs::{ErrorKind, FsResult, OpenOptions, Resolve, SetAttr};
 use hadris_io::r#async::Write as _;
 
 async fn read<F: FileSystem>(vol: &Volume<F>, path: &str) -> FsResult<Vec<u8>, F::DeviceError> {
@@ -90,6 +90,53 @@ fn a_dropped_file_is_closed_by_the_next_call() {
         let guard = vol.lock().await;
         drop(files);
         drop(guard);
+        let fs = vol.into_inner().await.unwrap();
+        assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));
+    });
+}
+
+/// Polls `future` once, expecting it to wait, and drops it, as a caller that
+/// gives up does.
+fn cancel<F: core::future::Future>(future: F) {
+    let mut context = core::task::Context::from_waker(core::task::Waker::noop());
+    let mut future = core::pin::pin!(future);
+    assert!(future.as_mut().poll(&mut context).is_pending());
+}
+
+#[test]
+fn a_dropped_close_still_closes_the_file() {
+    block_on(async {
+        let vol = Volume::new(fixture());
+        let file = vol.open("/a.txt", OpenOptions::new().read()).await.unwrap();
+        let guard = vol.lock().await;
+        cancel(file.close());
+        drop(guard);
+        vol.remove_file("/a.txt").await.unwrap();
+        let fs = vol.into_inner().await.unwrap();
+        assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));
+    });
+}
+
+#[test]
+fn dropped_path_calls_leave_no_pins() {
+    block_on(async {
+        let vol = Volume::new(fixture());
+        vol.lock().await.stall_next();
+        cancel(vol.metadata("/etc/conf"));
+        vol.lock().await.stall_next();
+        cancel(vol.read_dir("/etc"));
+        vol.lock().await.stall_next();
+        cancel(vol.remove_file("/etc/conf"));
+        vol.lock().await.stall_next();
+        cancel(vol.set_attr("/a.txt", &SetAttr::new()));
+        vol.lock().await.stall_next();
+        cancel(vol.create_dir_all("/x/y"));
+        vol.lock().await.stall_next();
+        cancel(vol.open("/a.txt", OpenOptions::new().write().truncate()));
+        vol.remove_file("/a.txt").await.unwrap();
+        assert_eq!(vol.lock().await.open_nodes(), 1);
+        vol.lock().await.stall_next();
+        cancel(vol.remove_dir_all("/etc"));
         let fs = vol.into_inner().await.unwrap();
         assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));
     });

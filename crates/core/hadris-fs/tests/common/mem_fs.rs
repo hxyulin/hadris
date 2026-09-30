@@ -32,6 +32,7 @@ pub struct MemFs {
     closes: u32,
     writable: bool,
     fail_next: Option<MemError>,
+    stall_next: bool,
 }
 
 fn id(index: usize) -> NodeId {
@@ -58,6 +59,7 @@ impl MemFs {
             closes: 0,
             writable: true,
             fail_next: None,
+            stall_next: false,
         }
     }
 
@@ -130,6 +132,11 @@ impl MemFs {
     /// `close` calls that succeeded.
     pub fn closes(&self) -> u32 {
         self.closes
+    }
+
+    /// Makes the next `stat`, `unlink` or `setattr` yield once before it runs.
+    pub fn stall_next(&mut self) {
+        self.stall_next = true;
     }
 
     /// Makes the next device access fail with `err`.
@@ -258,6 +265,14 @@ impl MemFs {
 
 io_transform! {
 
+impl MemFs {
+    async fn stall(&mut self) {
+        if core::mem::take(&mut self.stall_next) {
+            super::yield_now().await;
+        }
+    }
+}
+
 impl FileSystem for MemFs {
     type DeviceError = MemError;
 
@@ -304,6 +319,7 @@ impl FileSystem for MemFs {
     }
 
     async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, MemError> {
+        self.stall().await;
         self.device()?;
         if let Kind::Alias(_) = self.node(node)?.kind {
             return Err(ErrorKind::InvalidHandle.into());
@@ -371,6 +387,7 @@ impl FileSystem for MemFs {
     }
 
     async fn setattr(&mut self, node: NodeId, _changes: &SetAttr) -> FsResult<(), MemError> {
+        self.stall().await;
         self.writable()?;
         self.node(node)?;
         Ok(())
@@ -408,6 +425,7 @@ impl FileSystem for MemFs {
     }
 
     async fn unlink(&mut self, dir: NodeId, name: &Name) -> FsResult<(), MemError> {
+        self.stall().await;
         let index = self.removable(dir, name)?;
         if self.file_type(index).is_dir() {
             return Err(ErrorKind::IsADirectory.into());

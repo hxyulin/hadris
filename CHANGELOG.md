@@ -216,6 +216,20 @@ and command to its 3.0 replacement, and
   instead of panicking.
 - **CLI:** A failed `create` no longer truncates an existing output, and
   cpio and UDF extraction refuse paths that escape the output directory.
+- **hadris-fs:** A dropped async `File::close` future still closes the
+  file, and dropped async `Volume` path calls release the pins and opens
+  they held, so a cancelled call no longer leaves a file `Busy` or fills
+  the node table.
+- **hadris-storage:** `FileDevice` reports a write or flush the OS refuses
+  as read-only or not permitted as `ReadOnly`, keeping the OS error, so
+  FAT and exFAT switch to read-only. `hadris_io::Error::with_kind` sets the
+  kind of a device error.
+- **hadris-cpio:** `read_tree` accepts a hard link name listed twice, and
+  applies hard link groups in archive order, so a later entry replaces an
+  earlier hard link name as it does any other.
+- **hadris-cpio:** `read_tree` fails with `LimitExceeded` for entry data
+  that does not fit in memory, such as an `odc` file of 4 GiB or more on a
+  32-bit target, instead of reporting a truncated archive.
 
 ## [2.4.0] - 2026-09-08
 

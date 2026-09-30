@@ -86,6 +86,14 @@ impl<E> Error<E> {
         }
     }
 
+    /// Replaces the kind, keeping the device error, as for a device failure
+    /// that is a refusal such as [`ErrorKind::ReadOnly`].
+    #[must_use]
+    pub const fn with_kind(mut self, kind: ErrorKind) -> Self {
+        self.kind = kind;
+        self
+    }
+
     /// Records where the failure happened.
     #[must_use]
     pub fn with_location(mut self, location: Location) -> Self {
