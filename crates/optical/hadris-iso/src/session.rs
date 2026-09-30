@@ -1,4 +1,4 @@
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -30,6 +30,8 @@ const SECTOR: u64 = SECTOR_SIZE as u64;
 type Tables512 = (Vec<u8>, Option<Vec<u8>>, Vec<u64>);
 /// Sectors of a kept boot catalog read to patch its entries.
 const CATALOG_SECTORS: u64 = 8;
+/// The deepest directory a session reads, as `hadris_fs` tree walks allow.
+const MAX_DEPTH: usize = 1024;
 
 fn text<const N: usize>(field: &raw::IsoStr<N>) -> Option<String> {
     let bytes = field.trimmed();
@@ -202,6 +204,9 @@ impl<D: BlockDevice> Session<D> {
     /// Reads the newest descriptor set, at logical sector 16, and walks the
     /// most capable tree. Fails like `IsoFs::mount`, and with
     /// [`ErrorKind::Unsupported`] for logical blocks other than 2048 bytes.
+    /// A directory listed twice, as in a cycle, fails with
+    /// [`ErrorKind::Corrupt`] and one more than 1024 levels deep with
+    /// [`ErrorKind::LimitExceeded`], both with [`Detail::DirectoryRecord`].
     pub async fn open(dev: D) -> Result<Self, MountError<D, D::Error>> {
         let mut iso = IsoFs::mount(dev, hadris_fs::MountOptions::new().read_only()).await?;
         if iso.info().block_size() != SECTOR_SIZE as u32 {
@@ -779,8 +784,9 @@ async fn read_session<D: BlockDevice>(iso: &mut IsoFs<D>) -> Result<(Tree, IsoOp
     let meta = view.stat(root).await?;
     tree.replace("", Node::dir().with_attrs(set_attr(&meta, rock_ridge))).map_err(tree_error)?;
     let mut links: BTreeMap<u64, Vec<u8>> = BTreeMap::new();
-    let mut pending: Vec<(NodeId, Vec<u8>)> = vec![(root, Vec::new())];
-    while let Some((dir, prefix)) = pending.pop() {
+    let mut pending: Vec<(NodeId, Vec<u8>, usize)> = vec![(root, Vec::new(), 0)];
+    let mut visited = BTreeSet::from([root]);
+    while let Some((dir, prefix, depth)) = pending.pop() {
         let mut cursor = DirCursor::START;
         while let Some(entry) = view.readdir(dir, cursor).await? {
             cursor = entry.next_cursor();
@@ -795,7 +801,13 @@ async fn read_session<D: BlockDevice>(iso: &mut IsoFs<D>) -> Result<(Tree, IsoOp
                     if dir == root && view.is_relocation_dir(node).await? {
                         continue;
                     }
-                    pending.push((node, path.clone()));
+                    if !visited.insert(node) {
+                        return Err(Detail::DirectoryRecord.corrupt());
+                    }
+                    if depth >= MAX_DEPTH {
+                        return Err(Detail::DirectoryRecord.error(ErrorKind::LimitExceeded));
+                    }
+                    pending.push((node, path.clone(), depth + 1));
                     Node::dir()
                 }
                 FileType::File => {

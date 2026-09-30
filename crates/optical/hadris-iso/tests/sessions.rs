@@ -573,6 +573,44 @@ fn growing_descriptor_sets_refuse_to_cover_a_kept_catalog() {
     assert_eq!(session.into_inner().into_inner(), original);
 }
 
+/// The byte offset of the record named `name` in the directory at `block`.
+fn record_in(bytes: &[u8], block: usize, name: &[u8]) -> usize {
+    let start = block * 2048;
+    let size = u32::from_le_bytes(bytes[start + 10..start + 14].try_into().unwrap()) as usize;
+    let mut at = start;
+    while at < start + size {
+        let len = bytes[at] as usize;
+        if len == 0 {
+            at = (at / 2048 + 1) * 2048;
+            continue;
+        }
+        let id_len = bytes[at + 32] as usize;
+        if &bytes[at + 33..at + 33 + id_len] == name {
+            return at;
+        }
+        at += len;
+    }
+    panic!("no record {name:?}");
+}
+
+#[test]
+fn directory_cycles_fail_to_open() {
+    let mut tree = hadris_fs::Tree::new();
+    tree.insert("A/B/F.TXT", Node::file(Content::bytes("f")))
+        .unwrap();
+    let mut bytes = image(&tree, &IsoOptions::default()).into_inner();
+    let extent = |bytes: &[u8], at: usize| {
+        u32::from_le_bytes(bytes[at + 2..at + 6].try_into().unwrap()) as usize
+    };
+    let root = extent(&bytes, 16 * 2048 + 156);
+    let a = extent(&bytes, record_in(&bytes, root, b"A"));
+    let b = record_in(&bytes, a, b"B");
+    bytes[b + 2..b + 6].copy_from_slice(&(root as u32).to_le_bytes());
+    bytes[b + 6..b + 10].copy_from_slice(&(root as u32).to_be_bytes());
+    let err = Session::open(MemDevice::new(bytes, common::SECTOR)).unwrap_err();
+    assert_eq!(err.kind(), hadris_fs::ErrorKind::Corrupt);
+}
+
 #[test]
 fn stored_files_keep_every_extent_record() {
     let data = pattern(100 * 2048);
