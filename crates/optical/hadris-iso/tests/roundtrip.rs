@@ -809,6 +809,25 @@ fn rock_ridge_names_too_long_to_list_fall_back_to_the_identifier() {
 }
 
 #[test]
+fn rock_ridge_names_of_every_length_fit_their_records() {
+    for len in 1..=255 {
+        let name = "a".repeat(len);
+        let mut tree = Tree::new();
+        tree.insert(&name, Node::file(Content::bytes("x"))).unwrap();
+        let options = IsoOptions::default().with_rock_ridge();
+        let size = hadris_iso::plan(&tree, &options)
+            .unwrap_or_else(|err| panic!("{len}: {err:?}"))
+            .size();
+        let mut dev = hadris_storage::MemDevice::new(vec![0u8; size as usize], common::SECTOR);
+        hadris_iso::sync::write(&mut dev, &tree, &options)
+            .unwrap_or_else(|err| panic!("{len}: {err:?}"));
+        let mut view =
+            IsoFs::mount_namespace(&mut dev, MountOptions::new(), Namespace::RockRidge).unwrap();
+        assert_eq!(view.names("/").unwrap(), [name], "{len}");
+    }
+}
+
+#[test]
 fn directories_have_no_length() {
     let tree = sample(true, true);
     let mut iso = image(&tree, &full());
