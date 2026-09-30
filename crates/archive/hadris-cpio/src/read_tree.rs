@@ -40,11 +40,82 @@ fn put(tree: &mut Tree, path: &[u8], node: Node) -> Result<(), PathError> {
     }
 }
 
-/// A hard link group seen so far: its names and the node that carries the
-/// data, once read.
+/// Makes `path` another name of the node at `existing`, replacing what an
+/// earlier entry put there as [`put`] does.
+fn put_link(tree: &mut Tree, existing: &[u8], path: &[u8]) -> Result<(), PathError> {
+    if tree.get(path).is_some() {
+        tree.replace(path, Node::file(Content::empty()))?;
+        tree.remove(path)?;
+    }
+    tree.link(existing, path)
+}
+
+/// The key of a hard link group: device major and minor, and inode.
+type GroupKey = (u32, u32, u64);
+
+/// A hard link group seen so far: the names that still hold its node, and
+/// the node, from the last entry that carried data.
 struct Group {
     names: Vec<Vec<u8>>,
-    node: Option<Node>,
+    node: Node,
+}
+
+/// The hard link groups, with the group each name belongs to, so a later
+/// entry of that name takes it out of its group.
+#[derive(Default)]
+struct Groups {
+    groups: BTreeMap<GroupKey, Group>,
+    owners: BTreeMap<Vec<u8>, GroupKey>,
+}
+
+impl Groups {
+    /// Takes `path` out of the group that holds it.
+    fn release(&mut self, path: &[u8]) {
+        if let Some(key) = self.owners.remove(path)
+            && let Some(group) = self.groups.get_mut(&key)
+        {
+            group.names.retain(|name| name != path);
+        }
+    }
+
+    /// Adds the file entry `node` at `path` to the group `key`. An entry
+    /// with data, or the first of its group, gives every name of the group
+    /// its node; any other becomes a new name of the group's node.
+    fn add(
+        &mut self,
+        tree: &mut Tree,
+        key: GroupKey,
+        path: &[u8],
+        node: Node,
+        has_data: bool,
+    ) -> Result<(), PathError> {
+        self.release(path);
+        let group = match self.groups.entry(key) {
+            alloc::collections::btree_map::Entry::Occupied(slot) => {
+                let group = slot.into_mut();
+                if has_data {
+                    group.node = node;
+                }
+                group
+            }
+            alloc::collections::btree_map::Entry::Vacant(slot) => slot.insert(Group {
+                names: Vec::new(),
+                node,
+            }),
+        };
+        match group.names.first() {
+            Some(first) if !has_data => put_link(tree, first, path)?,
+            _ => {
+                put(tree, path, group.node.clone())?;
+                for name in &group.names {
+                    put_link(tree, path, name).map_err(|err| err.with_path(name))?;
+                }
+            }
+        }
+        group.names.push(path.to_vec());
+        self.owners.insert(path.to_vec(), key);
+        Ok(())
+    }
 }
 
 io_transform! {
@@ -69,13 +140,14 @@ async fn read_data<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeSend>
 /// Names lose a leading `/` or `./`, and the entry `.` sets the root's
 /// attributes; a name with a `..` component fails with
 /// [`ErrorKind::InvalidInput`]. A later entry replaces an earlier one of
-/// the same name. File data is loaded into memory. Regular files that
-/// share an inode and device number and have a link count above 1 become
-/// hard links, with the data and attributes of the name that carries data,
-/// as GNU cpio writes them. Errors carry the entry name.
+/// the same name, in archive order, hard link names included. File data is
+/// loaded into memory. Regular files that share an inode and device number
+/// and have a link count above 1 become hard links, with the data and
+/// attributes of the last name that carries data, as GNU cpio writes them.
+/// Errors carry the entry name.
 pub async fn read_tree<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeSend>(reader: &mut CpioReader<R, B>) -> Result<Tree, PathError> {
     let mut tree = Tree::new();
-    let mut groups: BTreeMap<(u32, u32, u64), Group> = BTreeMap::new();
+    let mut groups = Groups::default();
     loop {
         let Some(mut entry) = reader.next_entry().await? else { break };
         let name = entry.path().to_vec();
@@ -103,27 +175,13 @@ pub async fn read_tree<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeS
             continue;
         };
         if file_type != FileType::File || entry.nlink() < 2 {
+            groups.release(path);
             put(&mut tree, path, node).map_err(with_path)?;
             continue;
         }
         let dev: DeviceNumber = entry.dev();
-        let group = groups
-            .entry((dev.major(), dev.minor(), entry.ino()))
-            .or_insert_with(|| Group { names: Vec::new(), node: None });
-        if group.node.is_none() || entry.len() > 0 {
-            group.node = Some(node);
-        }
-        group.names.push(path.to_vec());
-    }
-    for group in groups.into_values() {
-        let (Some(node), Some((first, rest))) = (group.node, group.names.split_first()) else { continue };
-        put(&mut tree, first, node).map_err(|err| err.with_path(first))?;
-        for name in rest {
-            if tree.get(name).is_some() {
-                tree.remove(name).map_err(|err| err.with_path(name))?;
-            }
-            tree.link(first, name).map_err(|err| err.with_path(name))?;
-        }
+        let key = (dev.major(), dev.minor(), entry.ino());
+        groups.add(&mut tree, key, path, node, entry.len() > 0).map_err(with_path)?;
     }
     Ok(tree)
 }

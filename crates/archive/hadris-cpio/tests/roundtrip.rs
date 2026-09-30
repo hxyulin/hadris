@@ -401,6 +401,65 @@ fn read_tree_takes_relative_paths_and_refuses_parents() {
     );
 }
 
+/// A regular file of the hard link group `ino` with `nlink` names.
+fn linked(name: &[u8], ino: u32, nlink: u32, data: &[u8]) -> Vec<u8> {
+    let mut entry = newc_entry(name, 0o100644, data, None);
+    entry[6..14].copy_from_slice(format!("{ino:08X}").as_bytes());
+    entry[38..46].copy_from_slice(format!("{nlink:08X}").as_bytes());
+    entry
+}
+
+fn tree_of(entries: &[Vec<u8>]) -> Result<Tree, hadris_fs::PathError> {
+    let mut archive = entries.concat();
+    archive.extend(trailer());
+    read_tree(&mut CpioReader::new(Cursor::new(&archive)))
+}
+
+fn bytes_at<'a>(tree: &'a Tree, path: &str) -> Option<&'a [u8]> {
+    tree.get(path)?.content()?.as_bytes()
+}
+
+#[test]
+fn read_tree_takes_a_repeated_hard_link_name_once() {
+    let tree = tree_of(&[linked(b"x", 7, 2, b""), linked(b"x", 7, 2, b"data")]).unwrap();
+    assert_eq!(bytes_at(&tree, "x"), Some(&b"data"[..]));
+    assert_eq!(tree.entry("x").unwrap().links(), 1);
+
+    let tree = tree_of(&[
+        linked(b"x", 7, 3, b""),
+        linked(b"y", 7, 3, b""),
+        linked(b"x", 7, 3, b"data"),
+    ])
+    .unwrap();
+    assert_eq!(bytes_at(&tree, "x"), Some(&b"data"[..]));
+    assert_eq!(tree.entry("y").unwrap().id(), tree.entry("x").unwrap().id());
+}
+
+#[test]
+fn read_tree_replaces_hard_link_names_in_archive_order() {
+    let tree = tree_of(&[
+        linked(b"a", 7, 2, b""),
+        newc_entry(b"a", 0o040755, b"", None),
+        newc_entry(b"a/b", 0o100644, b"y", None),
+        linked(b"c", 7, 2, b"data"),
+    ])
+    .unwrap();
+    assert_eq!(tree.get("a").unwrap().file_type(), FileType::Dir);
+    assert_eq!(bytes_at(&tree, "a/b"), Some(&b"y"[..]));
+    assert_eq!(bytes_at(&tree, "c"), Some(&b"data"[..]));
+    assert_eq!(tree.entry("c").unwrap().links(), 1);
+
+    let tree = tree_of(&[
+        linked(b"a", 7, 2, b""),
+        linked(b"b", 7, 2, b"data"),
+        newc_entry(b"a", 0o100644, b"new", None),
+    ])
+    .unwrap();
+    assert_eq!(bytes_at(&tree, "a"), Some(&b"new"[..]));
+    assert_eq!(bytes_at(&tree, "b"), Some(&b"data"[..]));
+    assert_eq!(tree.entry("b").unwrap().links(), 1);
+}
+
 #[test]
 fn crc_reader_rejects_corrupt_data() {
     let mut bytes = archive(&sample_tree(), Format::Crc);
