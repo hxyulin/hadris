@@ -104,9 +104,9 @@ assert!(OpenOptions::new().write().create().append().validate().is_ok());
 
 | Feature | Default | Purpose |
 |---|---:|---|
-| `alloc` | No | `OwnedName`, `PathError`, `Tree`, `Report`, `copy_tree` and `ContentReader` in each mode, the async `Volume` and its `read_tree`, and `Box` forwarding |
-| `std` | No | Implies `alloc`; adds `SystemClock`, the sync `Volume` with its `std::io` handles and `read_tree`, `host` with `sync`, and conversions to `std::io::Error` |
-| `sync` | No | The blocking API in `sync` |
+| `alloc` | via `std` | `OwnedName`, `PathError`, `Tree`, `Report`, `copy_tree` and `ContentReader` in each mode, the async `Volume` and its `read_tree`, and `Box` forwarding |
+| `std` | Yes | Implies `alloc`; adds `SystemClock`, the sync `Volume` with its `std::io` handles and `read_tree`, `host` with `sync`, and conversions to `std::io::Error` |
+| `sync` | Yes | The blocking API in `sync` |
 | `async` | No | The same API with `Send` futures in `r#async` |
 | `contract` | No | The driver contract kit: `contract::check` in each mode, for testing a format against the `FileSystem` contract |
 
