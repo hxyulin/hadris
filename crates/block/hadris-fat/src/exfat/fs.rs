@@ -301,8 +301,9 @@ enum Owner {
     None,
     /// The FAT entry of this cluster.
     Cluster(u32),
-    /// The FAT entry of this cluster, for a file whose new size is not yet
-    /// recorded: recovery cuts the chain there.
+    /// The FAT entry of this cluster, a file's last before growth whose new
+    /// size is not yet recorded, or after a shrink: recovery cuts the chain
+    /// there.
     Tail(u32),
     /// The entry set at this byte offset, of a node that stays.
     Entry(u64),
@@ -339,6 +340,9 @@ enum SetWrite {
     /// Changes to a set: its name hash and checksum are made to match the
     /// entries that landed.
     Update,
+    /// New sizes for clusters recovery frees: this Stream Extension entry,
+    /// the one the set had, is put back, then the set is resealed.
+    Revert(RawEntry),
     /// A removal: completed.
     Clear,
 }
@@ -533,11 +537,15 @@ fn entry_name(name: &Name, invalid: ErrorKind) -> Result<&str, ErrorKind> {
 ///
 /// The first write after mounting or after `sync` sets `VolumeDirty`, and
 /// `sync` clears it again, as the specification recommends; a volume that
-/// was dirty at mount stays dirty. `sync` also records `PercentInUse`.
+/// was dirty at mount stays dirty. The device is flushed after the flag is
+/// set and before it is cleared, so the medium never holds a clean flag
+/// over metadata that has not reached it. `sync` also records
+/// `PercentInUse`.
 ///
 /// A device that answers a write with `WriteError::ReadOnly` fails that
 /// operation with [`ErrorKind::ReadOnly`], and the volume is read-only from
-/// then on.
+/// then on; `sync` and `unmount` then fail with [`ErrorKind::ReadOnly`]
+/// while pending sizes are left unwritten.
 ///
 /// # Crash and cancellation safety
 ///
@@ -558,7 +566,8 @@ fn entry_name(name: &Name, invalid: ErrorKind) -> Result<&str, ErrorKind> {
 /// unless the interrupted write linked them, removes a new set that did
 /// not land whole, completes a removal, reseals an updated set so its
 /// checksum and name hash match, and cuts back a chain a dropped write had
-/// grown past the file's size. Only a process that stops, or a driver that
+/// grown past the file's size, putting back the file's old sizes when only
+/// part of the entry set that recorded the new ones landed. Only a process that stops, or a driver that
 /// is dropped, in between leaves lost clusters, or secondary entries and a
 /// set checksum that `check` reports. What cannot be finished because the
 /// volume turns out to be corrupt is dropped.
@@ -660,8 +669,13 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// Syncs the volume, as `FileSystem::sync` does, and gives the device
     /// back. When the sync fails the [`MountError`] holds its error and the
     /// device.
+    ///
+    /// A volume mounted read-only has nothing to write. One that became
+    /// read-only because the device refused a write fails with
+    /// [`ErrorKind::ReadOnly`] while it still holds pending sizes, or what an
+    /// interrupted operation left, that can no longer be written.
     pub async fn unmount(mut self) -> Result<D, MountError<D, D::Error>> {
-        let synced = if self.read_only { Ok(()) } else { FileSystem::sync(&mut self).await };
+        let synced = FileSystem::sync(&mut self).await;
         match synced {
             Ok(()) => Ok(self.dev),
             Err(error) => Err(MountError::new(error, self.dev)),
@@ -989,6 +1003,12 @@ impl<D: BlockDevice> ExFatFs<D> {
         if self.read_only { Err(ErrorKind::ReadOnly) } else { Ok(()) }
     }
 
+    /// Whether a node's sizes, or what an interrupted operation left, are
+    /// not yet written.
+    fn unwritten(&self) -> bool {
+        self.pending.is_some() || self.pending_set.is_some() || self.nodes.find(|_, node| node.dirty).is_some()
+    }
+
     /// Checks that the volume is writable and finishes what an interrupted
     /// operation left.
     async fn prepare(&mut self) -> FsResult<(), D::Error> {
@@ -1044,8 +1064,11 @@ impl<D: BlockDevice> ExFatFs<D> {
                     self.mark_unlinked(id);
                 }
             }
-            SetWrite::Update => {
+            SetWrite::Update | SetWrite::Revert(_) => {
                 if let Some(hash) = hash {
+                    if let SetWrite::Revert(old) = kind {
+                        stream = old;
+                    }
                     stream[4..6].copy_from_slice(&hash.to_le_bytes());
                     let sum = self.pending_checksum(count, &primary, &stream).await?;
                     primary[2..4].copy_from_slice(&sum.to_le_bytes());
@@ -1346,8 +1369,12 @@ impl<D: BlockDevice> ExFatFs<D> {
     ) -> FsResult<(), D::Error> {
         let mut set = Set::new();
         self.set_at(state.entry, &mut set).await?;
+        let kind = match self.pending {
+            Some(Pending { owner: Owner::Tail(_), .. }) => SetWrite::Revert(set.raw[1]),
+            _ => SetWrite::Update,
+        };
         self.touch(&mut set, state, alloc, len, valid);
-        self.write_set(&set, 2, SetWrite::Update).await?;
+        self.write_set(&set, 2, kind).await?;
         if let Some(id) = id {
             if let Some(node) = self.nodes.get_mut(id) {
                 node.first = alloc.first;
@@ -2820,7 +2847,7 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
         }
         let last = self.locate_cluster(state.alloc(), ChainPos::NONE, keep - 1).await?.cluster();
         if let Some(next) = self.next_cluster(last).await? {
-            self.pending = Some(Pending::chain(next, Owner::Cluster(last)));
+            self.pending = Some(Pending::chain(next, Owner::Tail(last)));
             self.set_fat(last, raw::FAT_END).await?;
             self.free_chain(next).await?;
         }
@@ -2937,17 +2964,22 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
     }
 
     /// Writes every pending size and modification time and `PercentInUse`,
-    /// clears the `VolumeDirty` flag this driver set, then flushes the
-    /// device.
+    /// flushes the device, clears the `VolumeDirty` flag this driver set,
+    /// then flushes the device again.
     ///
     /// A node whose entry set cannot be read any more does not stop the
     /// others: its pending sizes are dropped, the rest is written and the
     /// device flushed, `VolumeDirty` stays set, and `sync` then fails with
     /// [`ErrorKind::Corrupt`].
+    ///
+    /// A read-only volume is not written: `sync` fails with
+    /// [`ErrorKind::ReadOnly`] when a refused write left pending sizes, or
+    /// what an interrupted operation left, unwritten, and succeeds otherwise.
     async fn sync(&mut self) -> FsResult<(), D::Error> {
-        if !self.read_only {
-            self.recover().await?;
+        if self.read_only {
+            return if self.unwritten() { Err(ErrorKind::ReadOnly.into()) } else { Ok(()) };
         }
+        self.recover().await?;
         let mut corrupt = None;
         while let Some(id) = self.nodes.find(|_, node| node.dirty) {
             match self.flush_node(id).await {

@@ -11,6 +11,7 @@ use hadris_fs::MountOptions;
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 
+use common::script::{Op, Scripted};
 use common::{Device, Fs, Geometry, Tool, clean, fsck, le32};
 use hadris_fat::exfat::VolumeLabel;
 use hadris_fat::exfat::sync::ExFatFs;
@@ -1223,6 +1224,144 @@ fn unpinned_ids_write_through() {
     assert_eq!(fs.read_to_vec("/f").unwrap(), b"abcdef");
     assert_eq!(fs.open_nodes(), 1);
     let _ = le32;
+}
+
+/// Creates empty files in the root until one's File entry is the last slot
+/// of a 512-byte block, writes `data` to it and unpins it. Returns its id
+/// and the offset of its File entry.
+fn file_at_block_end(fs: &mut ExFatFs<Scripted>, data: &[u8]) -> (NodeId, u64) {
+    let root = fs.root();
+    for i in 0.. {
+        let node = fs
+            .create(root, name(&format!("file {i}")), &SetAttr::new())
+            .unwrap();
+        let at = node.get() * 32;
+        if at % 512 == 480 {
+            assert_eq!(fs.write(node, 0, data).unwrap(), data.len());
+            fs.close(node).unwrap();
+            fs.forget(node, 1);
+            return (node, at);
+        }
+        fs.forget(node, 1);
+    }
+    unreachable!()
+}
+
+fn findings(image: Vec<u8>) -> Vec<common::Found> {
+    common::check_dev(&mut common::device(image, 512), 4096).1
+}
+
+#[test]
+fn a_grow_whose_file_entry_fails_keeps_the_old_size_and_chain() {
+    let image = common::image(common::small(4 << 20, 4096));
+    let (dev, script) = Scripted::new(common::device(image, 512));
+    let mut fs = ExFatFs::mount(dev, MountOptions::new()).unwrap();
+    let (node, at) = file_at_block_end(&mut fs, &[1u8; 100]);
+    script.borrow_mut().fail_at = Some(at);
+    let err = fs.write(node, 100, &[2u8; 8000]).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Io);
+    assert_eq!(script.borrow().fail_at, None, "the File entry write failed");
+    assert_eq!(fs.stat(node).unwrap().len(), 100);
+    fs.sync().unwrap();
+    let image = fs.into_inner().into_image();
+    assert_eq!(findings(image.clone()), []);
+    let mut fresh = common::mount(&image);
+    assert_eq!(read_all(&mut fresh, node), [1u8; 100]);
+}
+
+#[test]
+fn volume_dirty_is_flushed_around_the_writes_it_covers() {
+    let image = common::image(common::small(4 << 20, 4096));
+    let (dev, script) = Scripted::new(common::device(image, 512));
+    let mut fs = ExFatFs::mount(dev, MountOptions::new()).unwrap();
+    let root = fs.root();
+    let boot = Op::Write(0, 512);
+    for round in 0..2 {
+        let node = fs
+            .create(root, name(&format!("file {round}")), &SetAttr::new())
+            .unwrap();
+        assert_eq!(fs.write(node, 0, &[1u8; 5000]).unwrap(), 5000);
+        fs.forget(node, 1);
+        fs.sync().unwrap();
+        let log = std::mem::take(&mut script.borrow_mut().log);
+        assert_eq!(log[..2], [boot, Op::Flush], "set, then flushed first");
+        let end = log.len() - 3;
+        assert_eq!(
+            log[end..],
+            [Op::Flush, boot, Op::Flush],
+            "cleared between flushes"
+        );
+        assert!(
+            log[2..end]
+                .iter()
+                .any(|op| matches!(op, Op::Write(at, _) if *at != 0))
+        );
+    }
+    let image = fs.into_inner().into_image();
+    assert_eq!(image[106] & 2, 0);
+}
+
+#[test]
+fn unmount_after_a_refusal_fails_while_sizes_are_unwritten() {
+    let before = populated();
+    for dirty in [true, false] {
+        let (dev, script) = Scripted::new(common::device(before.clone(), 512));
+        let mut fs = ExFatFs::mount(dev, MountOptions::new()).unwrap();
+        let root = fs.root();
+        let grown = fs.lookup(root, name("grown.bin")).unwrap();
+        if dirty {
+            assert_eq!(fs.write(grown, 9000, &[1u8; 100]).unwrap(), 100);
+        }
+        let lower = fs.lookup(root, name("lower.txt")).unwrap();
+        script.borrow_mut().refuse = true;
+        let refused = fs.write(lower, 0, b"x").unwrap_err();
+        assert_eq!(refused.kind(), ErrorKind::ReadOnly);
+        assert!(fs.is_read_only());
+        fs.forget(lower, 1);
+        fs.forget(grown, 1);
+        if !dirty {
+            assert_eq!(fs.sync().map_err(|err| err.kind()), Ok(()));
+            fs.unmount().unwrap();
+            continue;
+        }
+        assert_eq!(fs.sync().unwrap_err().kind(), ErrorKind::ReadOnly);
+        let err = fs.unmount().unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::ReadOnly);
+        let image = err.into_device().into_image();
+        let mut fresh = common::mount(&image);
+        assert_eq!(fresh.read_to_vec("/grown.bin").unwrap().len(), 9000);
+    }
+    let dev = common::device(before, 512);
+    let fs = ExFatFs::mount(dev, MountOptions::new().read_only()).unwrap();
+    fs.unmount().unwrap();
+}
+
+#[test]
+fn a_shrink_whose_fat_write_fails_is_cut_back_by_the_next_write() {
+    let image = common::image(common::small(4 << 20, 4096));
+    let (dev, script) = Scripted::new(common::device(image, 512));
+    let mut fs = ExFatFs::mount(dev, MountOptions::new()).unwrap();
+    let root = fs.root();
+    let node = fs
+        .create(root, name("shrunk.bin"), &SetAttr::new())
+        .unwrap();
+    assert_eq!(fs.write(node, 0, &[3u8; 12288]).unwrap(), 12288);
+    fs.close(node).unwrap();
+    let geo = *fs.info();
+    let mut out = [hadris_fs::Extent::new(0, 0); 1];
+    assert_eq!(fs.extents(node, 0, &mut out).unwrap(), 1);
+    assert_eq!(out[0].len(), 12288, "one run");
+    let last = ((out[0].offset() - geo.heap_start()) / geo.cluster_size() + 3) as u32;
+    script.borrow_mut().fail_at = Some(geo.fat_start() + last as u64 * 4);
+    assert_eq!(fs.truncate(node, 5000).unwrap_err().kind(), ErrorKind::Io);
+    assert_eq!(script.borrow().fail_at, None, "the FAT write failed");
+    fs.sync().unwrap();
+    fs.forget(node, 1);
+    let image = fs.into_inner().into_image();
+    assert_eq!(findings(image.clone()), []);
+    let mut fresh = common::mount(&image);
+    assert_eq!(fresh.stat(node).unwrap().len(), 5000);
+    assert_eq!(common::chain(&mut fresh, node).len(), 2);
 }
 
 /// Both FATs and both Allocation Bitmaps of a TexFAT volume.

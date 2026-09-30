@@ -182,6 +182,17 @@ and command to its 3.0 replacement, and
   `0x7F` stay distinct.
 - **hadris-fat:** A looping cluster chain fails with `Corrupt` instead of
   listing entries forever.
+- **hadris-fat:** An interrupted exFAT grow whose entry set crosses a device
+  block recovers to the old size and chain; it kept the new size over
+  freed clusters.
+- **hadris-fat:** A `truncate` whose end-of-chain write fails is cut back
+  by the next write instead of leaving a chain longer than the file.
+- **hadris-fat:** After a device refuses a write, `sync` and `unmount` fail
+  with `ReadOnly` while sizes or interrupted work are left unwritten,
+  instead of reporting success.
+- **hadris-fat:** exFAT flushes the device after setting `VolumeDirty` and
+  before clearing it, so a clean flag never reaches the medium before the
+  writes it covers.
 - **hadris-fs:** Copying or extracting a tree whose directory entries loop
   fails with `Corrupt` instead of running forever.
 - **hadris-part:** GPT writes always fill in the header and partition
