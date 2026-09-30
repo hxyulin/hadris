@@ -408,6 +408,7 @@ pub fn hadris_io::Error<E>::map_device<F>(self, impl core::ops::function::FnOnce
 pub const fn hadris_io::Error<E>::message(&self) -> &'static str
 pub const fn hadris_io::Error<E>::new(hadris_io::ErrorKind, &'static str) -> Self
 pub fn hadris_io::Error<E>::with_detail(self, hadris_io::DetailCode) -> Self
+pub const fn hadris_io::Error<E>::with_kind(self, hadris_io::ErrorKind) -> Self
 pub fn hadris_io::Error<E>::with_location(self, hadris_io::Location) -> Self
 pub fn hadris_io::Error<E>::without_device<F>(&self) -> hadris_io::Error<F>
 impl<E: core::cmp::Eq> core::cmp::Eq for hadris_io::Error<E>
