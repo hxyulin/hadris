@@ -417,6 +417,26 @@ mod device_tests {
         std::fs::remove_file(&path).unwrap();
     }
 
+    /// An OS refusal of a write, as write-protected media give, is
+    /// `ReadOnly` with the OS error kept; other failures stay `Io`.
+    #[test]
+    fn file_device_write_refusals_are_read_only() {
+        use crate::host::write_error;
+        use std::io::{Error as IoError, ErrorKind as Io};
+
+        let err = write_error(IoError::from_raw_os_error(30), "writing the file failed");
+        #[cfg(unix)]
+        assert_eq!(err.kind(), ErrorKind::ReadOnly);
+        assert_eq!(err.device_error().unwrap().raw_os_error(), Some(30));
+        for refused in [Io::ReadOnlyFilesystem, Io::PermissionDenied] {
+            let err = write_error(refused.into(), "writing the file failed");
+            assert_eq!(err.kind(), ErrorKind::ReadOnly);
+            assert_eq!(err.device_error().unwrap().kind(), refused);
+        }
+        let err = write_error(Io::Other.into(), "writing the file failed");
+        assert_eq!(err.kind(), ErrorKind::Io);
+    }
+
     /// A disk image attached with `hdiutil` is a device node whose length
     /// `stat` and `lseek` report as 0. Skips when it cannot be attached.
     #[cfg(target_vendor = "apple")]

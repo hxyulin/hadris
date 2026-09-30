@@ -27,7 +27,8 @@ const BLOCK: BlockSize = crate::device::BLOCK_512;
 /// A writable regular file grows when written past its end, so
 /// `max_block_count` is unbounded for it; a disk device does not grow.
 /// Device errors are the `std::io::Error` itself, so `raw_os_error()`
-/// survives.
+/// survives. A write or flush the OS refuses as read-only or not permitted
+/// has kind [`ErrorKind::ReadOnly`], so a driver switches to read-only.
 ///
 /// ```rust
 /// use hadris_storage::BlockIndex;
@@ -97,6 +98,23 @@ fn accepts_writes(file: &File) -> bool {
     io::Write::write(&mut &*file, &[]).is_ok()
 }
 
+/// A failed write or flush of `err`, kept as the device error. An OS
+/// refusal to write, as on a read-only filesystem or write-protected media,
+/// has kind [`ErrorKind::ReadOnly`].
+#[cfg(feature = "sync")]
+pub(crate) fn write_error(err: io::Error, message: &'static str) -> Error<io::Error> {
+    let refused = matches!(
+        err.kind(),
+        io::ErrorKind::ReadOnlyFilesystem | io::ErrorKind::PermissionDenied
+    );
+    let err = Error::device(err, message);
+    if refused {
+        err.with_kind(ErrorKind::ReadOnly)
+    } else {
+        err
+    }
+}
+
 #[cfg(feature = "sync")]
 impl ErrorType for FileDevice {
     type Error = io::Error;
@@ -149,7 +167,7 @@ impl crate::sync::BlockDevice for FileDevice {
             .seek(SeekFrom::Start(offset))
             .and_then(|_| io::Write::write_all(&mut self.file, buf))
             .map_err(|err| {
-                Error::device(err, "writing the file failed")
+                write_error(err, "writing the file failed")
                     .with_location(Location::Block(first.get()))
             })?;
         self.len = self.len.max(offset + buf.len() as u64);
@@ -164,7 +182,7 @@ impl crate::sync::BlockDevice for FileDevice {
         }
         self.file
             .sync_data()
-            .map_err(|err| Error::device(err, "syncing the file failed"))
+            .map_err(|err| write_error(err, "syncing the file failed"))
     }
 }
 

@@ -768,6 +768,7 @@ pub struct Error<E> { .. }             // kind, message, location, detail code, 
 impl<E> Error<E> {
     pub const fn new(kind: ErrorKind, message: &'static str) -> Self;
     pub const fn device(error: E, message: &'static str) -> Self;   // kind Io
+    pub const fn with_kind(self, kind: ErrorKind) -> Self;          // a device refusal
     pub fn with_location(self, location: Location) -> Self;
     pub fn with_detail(self, detail: DetailCode) -> Self;
     pub fn kind(&self) -> ErrorKind;
