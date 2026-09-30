@@ -112,7 +112,9 @@ async fn read_info<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>>
 /// Write methods fail with [`ErrorKind::ReadOnly`].
 ///
 /// Names drop the `;1` version. In the primary and enhanced trees a lookup
-/// that finds no exact name retries ignoring ASCII case.
+/// that finds no exact name retries ignoring ASCII case. A Rock Ridge name
+/// longer than [`DirEntry::MAX_NAME`] bytes lists and looks up under the
+/// record's ISO 9660 identifier instead.
 ///
 /// ```rust,ignore
 /// let mut iso = IsoFs::mount(dev, MountOptions::new())?;
@@ -453,15 +455,15 @@ impl View {
             _ => Err(Detail::DirectoryRecord.corrupt()),
         };
         if let Some(skip) = self.rock_ridge() {
-            let mut name = [0u8; 1024];
+            let mut name = [0u8; DirEntry::MAX_NAME];
             let mut scan = Scan::new().with_name(&mut name);
             self.scan(dev, record, skip, &mut scan).await?;
             if scan.info.is_relocated() {
                 return Ok(None);
             }
-            let len = match scan.name().map_err(Error::from)? {
-                Some(bytes) => crate::name::sanitize(bytes, out),
-                None => crate::name::sanitize(crate::name::strip_version(record.name()), out),
+            let len = match scan.name() {
+                Ok(Some(bytes)) => crate::name::sanitize(bytes, out),
+                _ => crate::name::sanitize(crate::name::strip_version(record.name()), out),
             }
             .ok_or(Error::from(ErrorKind::NameTooLong))?;
             let info = scan.info;

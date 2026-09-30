@@ -785,3 +785,25 @@ fn continuation_areas_stay_inside_their_block() {
     let mut buf = vec![0u8; 4096];
     assert_eq!(rr.readlink(link, &mut buf).unwrap(), target.as_bytes());
 }
+
+#[test]
+fn rock_ridge_names_too_long_to_list_fall_back_to_the_identifier() {
+    let mut tree = Tree::new();
+    for name in ["a", &"m".repeat(800), &"n".repeat(1100), "z"] {
+        tree.insert(name, Node::file(Content::bytes(name))).unwrap();
+    }
+    let mut iso = image(&tree, &IsoOptions::default().with_rock_ridge());
+    let mut view =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::RockRidge).unwrap();
+    let listed = view.names("/").unwrap();
+    assert_eq!(listed.len(), 4, "{listed:?}");
+    assert_eq!(listed[0], "a");
+    assert_eq!(listed[3], "z");
+    let root = view.root();
+    let mut cursor = hadris_fs::DirCursor::START;
+    while let Some(entry) = view.readdir(root, cursor).unwrap() {
+        cursor = entry.next_cursor();
+        assert_eq!(view.lookup(root, entry.name()).unwrap(), entry.node());
+    }
+    assert_eq!(view.read_to_vec("/z").unwrap(), b"z");
+}
