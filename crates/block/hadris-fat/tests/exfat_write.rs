@@ -1365,6 +1365,37 @@ fn a_shrink_whose_fat_write_fails_is_cut_back_by_the_next_write() {
 }
 
 #[test]
+fn growing_a_contiguous_file_past_the_heap_fails_before_any_fat_write() {
+    let mut fs = common::small(4 << 20, 4096);
+    let root = fs.root();
+    let node = common::write(&mut fs, root, "big", &[7u8; 8192]);
+    fs.close(node).unwrap();
+    let image = common::image(fs);
+    let geo = Geometry::of(&image);
+    let set = geo.set(&image, geo.root, "big");
+    for clusters in [geo.count as u64 + 10, (1 << 32) + 3] {
+        let mut image = image.clone();
+        geo.unchain(&mut image, &set);
+        let len = clusters * geo.cluster as u64;
+        image[set[1] + 24..set[1] + 32].copy_from_slice(&len.to_le_bytes());
+        geo.reseal(&mut image, &set);
+        let fat = geo.fat..geo.fat + (geo.count as usize + 2) * 4;
+        let before = image[fat.clone()].to_vec();
+        let mut fs = common::mount(&image);
+        let node = fs.lookup(fs.root(), name("big")).unwrap();
+        let err = fs.write(node, len, b"x").unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Corrupt, "{clusters}");
+        fs.forget(node, 1);
+        fs.sync().unwrap();
+        let after = common::image(fs);
+        let changed: Vec<usize> = (0..before.len())
+            .filter(|&i| after[geo.fat + i] != before[i])
+            .collect();
+        assert!(changed.is_empty(), "{clusters}: FAT changed at {changed:?}");
+    }
+}
+
+#[test]
 fn a_directory_grow_whose_size_write_fails_is_cut_back() {
     let image = common::image(common::small(4 << 20, 4096));
     let (dev, script) = Scripted::new(common::device(image, 512));

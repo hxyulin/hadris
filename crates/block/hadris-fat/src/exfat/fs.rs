@@ -1961,6 +1961,9 @@ impl<D: BlockDevice> ExFatFs<D> {
             opens: 0,
             unlinked: false,
         };
+        if old.first != 0 && old.contiguous {
+            self.contiguous_tail(&old)?;
+        }
         let owner = if old.first == 0 { Owner::Entry(dir_entry) } else { Owner::None };
         let added = self.allocate_chain(count, true, owner).await?;
         let linked = self.link(&old, added).await;
@@ -2002,6 +2005,14 @@ impl<D: BlockDevice> ExFatFs<D> {
         Ok(DirStart { alloc, size: len })
     }
 
+    /// The last cluster of a contiguous allocation, or
+    /// [`ErrorKind::Corrupt`] when its size runs past the cluster heap.
+    fn contiguous_tail(&self, node: &Node) -> Result<u32, ErrorKind> {
+        let clusters = u32::try_from(node.len.div_ceil(self.vol.geometry().cluster_size())).map_err(|_| ErrorKind::Corrupt)?;
+        let tail = self.check_cluster(node.first)?.checked_add(clusters.max(1) - 1).ok_or(ErrorKind::Corrupt)?;
+        self.check_cluster(tail)
+    }
+
     /// Links the chain at `added` after the allocation of `node`, giving a
     /// contiguous allocation a FAT chain first. Returns the new allocation.
     async fn link(&mut self, node: &Node, added: u32) -> FsResult<Alloc, D::Error> {
@@ -2009,11 +2020,10 @@ impl<D: BlockDevice> ExFatFs<D> {
             return Ok(Alloc { first: added, contiguous: false });
         }
         let tail = if node.contiguous {
-            let clusters = node.len.div_ceil(self.vol.geometry().cluster_size()) as u32;
-            for step in 0..clusters.saturating_sub(1) {
-                self.set_fat(node.first + step, node.first + step + 1).await?;
+            let tail = self.contiguous_tail(node)?;
+            for cluster in node.first..tail {
+                self.set_fat(cluster, cluster + 1).await?;
             }
-            let tail = node.first + clusters.max(1) - 1;
             self.set_fat(tail, raw::FAT_END).await?;
             tail
         } else {
@@ -2399,6 +2409,9 @@ impl<D: BlockDevice> ExFatFs<D> {
         let extra = u32::try_from(need - have).map_err(|_| ErrorKind::NoSpace)?;
         if extra > exio::count_free(&mut self.dev, &mut self.block, &mut self.vol).await? {
             return Err(ErrorKind::NoSpace.into());
+        }
+        if state.first != 0 && state.contiguous {
+            self.contiguous_tail(state)?;
         }
         let owner = if state.first == 0 { Owner::Entry(state.entry) } else { Owner::None };
         let added = self.allocate_chain(extra, false, owner).await?;
