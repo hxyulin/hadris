@@ -619,7 +619,7 @@ wraps, not in what they can reach.
 | Bare | `FatFs::mount(dev, options)?` | `alloc` for `FatFs` and `ExFatFs`; nothing for `IsoFs`, `UdfFs`, `NtfsFs` | The node API, format extras, `Walk`, `copy_tree` |
 | Shared | `Volume::new(fs)` | sync: `std`; async: `alloc` | Path methods named after `std::fs`, any number of `File` and `ReadDir` handles, cheap clones that move between threads and tasks |
 | Host | `host::open(path)`, `host::mount_options()` | `std`, sync | Host files as devices, host trees, the host clock and time zone (4.15) |
-| Embedded | `Fat::mount_with(dev, options)` | nothing | The handle-based firmware API (4.15) |
+| Embedded | `Fat::mount_with(dev, &mut token, options)` | nothing | The handle-based firmware API (4.15) |
 
 **One canonical pattern per tier.** Each tier's module docs open with one
 pattern, and the rustdoc examples use only that pattern.
@@ -1154,16 +1154,16 @@ in every tier.
 APIs built only on the raw layer:
 
 ```rust
-pub struct Fat<D, const FILES: usize = 4> { .. }
-impl<D: BlockDevice, const N: usize> Fat<D, N> {
-    pub fn mount_with(dev: D, options: Options) -> Result<Self, MountError<D, D::Error>>;
+pub struct Fat<'mount, D, const FILES: usize = 4> { .. }
+impl<'mount, D: BlockDevice, const N: usize> Fat<'mount, D, N> {
+    pub fn mount_with(dev: D, owner: &'mount mut MountToken, options: Options) -> Result<Self, MountError<D, D::Error>>;
     pub fn root(&self) -> Dir;
     pub fn open_dir(&mut self, parent: Dir, name: &str) -> FsResult<Dir, D::Error>;
-    pub fn open(&mut self, dir: Dir, name: &str, options: OpenOptions) -> FsResult<File, D::Error>;
-    pub fn read(&mut self, file: &File, buf: &mut [u8]) -> FsResult<usize, D::Error>;
-    pub fn write(&mut self, file: &File, buf: &[u8]) -> FsResult<usize, D::Error>;
-    pub fn flush(&mut self, file: &File) -> FsResult<(), D::Error>;
-    pub fn close(&mut self, file: File) -> FsResult<(), D::Error>;
+    pub fn open(&mut self, dir: Dir, name: &str, options: OpenOptions) -> FsResult<File<'mount>, D::Error>;
+    pub fn read(&mut self, file: &File<'_>, buf: &mut [u8]) -> FsResult<usize, D::Error>;
+    pub fn write(&mut self, file: &File<'_>, buf: &[u8]) -> FsResult<usize, D::Error>;
+    pub fn flush(&mut self, file: &File<'_>) -> FsResult<(), D::Error>;
+    pub fn close(&mut self, file: File<'_>) -> FsResult<(), D::Error>;
     pub fn list(&mut self, dir: Dir, from: DirCursor, each: impl FnMut(&Entry) -> ControlFlow<()>)
         -> FsResult<(), D::Error>;
     // mount, create_dir, create_dir_all, open_node, seek, set_len, metadata, set_attr,
@@ -1171,12 +1171,12 @@ impl<D: BlockDevice, const N: usize> Fat<D, N> {
 }
 ```
 
-Device blocks are 512 bytes, `File` is a move-only slot index, and errors
-are `Error<E>`. The targets are under 2 KB of RAM and under 2 KB of mount
-stack with 4 file slots, device excluded, checked in CI on `thumbv6m`,
-`thumbv7em` and `riscv32imc`. 3.0 ships FAT12/16/32 read and write as `Fat`
-and exFAT read-only as the separate `ExFat`; exFAT write follows in 3.x
-through a new entry point. Pass 4 in 4.18 has the details.
+Device blocks are 512 bytes, `File<'mount>` is a move-only slot index tied
+to the caller-owned `MountToken`, and errors are `Error<E>`. The targets are
+under 2 KB of RAM and under 2 KB of mount stack with 4 file slots, device
+excluded, checked in CI on `thumbv6m`, `thumbv7em` and `riscv32imc`. 3.0
+ships FAT12/16/32 read and write as `Fat` and exFAT read-only as the separate
+`ExFat`; exFAT write follows in 3.x through a new entry point. Pass 4 in 4.18 has the details.
 
 **Errors.** One `hadris_fs::Error<E>` for every crate. Its private context is
 `Copy` and allocation free: a `&'static str` message, an optional location
