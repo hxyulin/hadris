@@ -290,8 +290,9 @@ pub async fn check<Fs: FileSystem + ?Sized>(fs: &mut Fs) -> Result<(), ContractV
 /// a name inside a file fail with [`ErrorKind::NotFound`],
 /// [`ErrorKind::InvalidInput`] and [`ErrorKind::NotADirectory`], that
 /// opening a directory fails with [`ErrorKind::IsADirectory`], that the
-/// capabilities say read-only, and that every write method fails with
-/// [`ErrorKind::ReadOnly`] and changes nothing.
+/// capabilities say read-only, that every write method fails with
+/// [`ErrorKind::ReadOnly`] and changes nothing, and that `sync` and `fsync`
+/// succeed with nothing to write.
 pub async fn check_read_only<Fs: FileSystem + ?Sized>(fs: &mut Fs) -> Result<(), ContractViolation> {
     let none = SetAttr::new();
 
@@ -303,6 +304,8 @@ pub async fn check_read_only<Fs: FileSystem + ?Sized>(fs: &mut Fs) -> Result<(),
     fails(case, "open of a directory fails with IsADirectory", fs.open(root, OpenMode::Read).await, ErrorKind::IsADirectory)?;
 
     let case = "read-only";
+    ok(case, "sync with nothing to write succeeds", fs.sync().await)?;
+    ok(case, "fsync with nothing to write succeeds", fs.fsync(root).await)?;
     fails(case, "create fails with ReadOnly", fs.create(root, SCRATCH, &none).await, ErrorKind::ReadOnly)?;
     fails(case, "mkdir fails with ReadOnly", fs.mkdir(root, SCRATCH, &none).await, ErrorKind::ReadOnly)?;
     fails(case, "setattr fails with ReadOnly", fs.setattr(root, &none).await, ErrorKind::ReadOnly)?;
@@ -368,6 +371,7 @@ pub async fn check_read_only<Fs: FileSystem + ?Sized>(fs: &mut Fs) -> Result<(),
                     fails(case, "open for writing fails with ReadOnly", fs.open(node, OpenMode::Write).await, ErrorKind::ReadOnly)?;
                     fails(case, "write fails with ReadOnly", fs.write(node, 0, b"x").await, ErrorKind::ReadOnly)?;
                     fails(case, "truncate fails with ReadOnly", fs.truncate(node, 0).await, ErrorKind::ReadOnly)?;
+                    ok(case, "fsync with nothing to write succeeds", fs.fsync(node).await)?;
                     fails(case, "looking up inside a file fails with NotADirectory", fs.lookup(node, MISSING).await, ErrorKind::NotADirectory)?;
                     fails(case, "unlink fails with ReadOnly", fs.unlink(dir, child).await, ErrorKind::ReadOnly)?;
                     fails(case, "rename fails with ReadOnly", fs.rename(dir, child, dir, MISSING, RenameMode::Replace).await, ErrorKind::ReadOnly)?;

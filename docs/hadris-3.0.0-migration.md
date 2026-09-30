@@ -301,7 +301,8 @@ Every driver implements `hadris_fs::sync::FileSystem` (and the
 | Volume | `capabilities`, `root`, `statfs`, `label(&mut buf)` |
 | Names and nodes | `lookup`, `forget(node, count)`, `parent`, `resolve(path, Resolve)`, `stat`, `readdir(dir, cursor)`, `readlink` |
 | Data | `open(node, OpenMode)`, `close`, `read(node, offset, buf)` |
-| Writes (default `ReadOnly`) | `setattr`, `write`, `truncate`, `fsync`, `create`, `mkdir`, `unlink`, `rmdir`, `rename(.., RenameMode)`, `sync` |
+| Writes (default `ReadOnly`) | `setattr`, `write`, `truncate`, `create`, `mkdir`, `unlink`, `rmdir`, `rename(.., RenameMode)` |
+| Durability (default `Ok`) | `fsync`, `sync` |
 
 `lookup`, `parent`, `resolve`, `create` and `mkdir` pin the node they return;
 `forget` unpins it. A pin never blocks removal; removing the last name of an
