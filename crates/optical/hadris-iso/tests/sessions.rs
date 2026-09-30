@@ -648,3 +648,93 @@ fn stored_files_keep_every_extent_record() {
         }
     }
 }
+
+/// A memory device that counts the reads it serves.
+struct Counting {
+    inner: MemDevice<Vec<u8>>,
+    reads: usize,
+}
+
+impl hadris_io::ErrorType for Counting {
+    type Error = <MemDevice<Vec<u8>> as hadris_io::ErrorType>::Error;
+}
+
+impl hadris_storage::sync::BlockDevice for Counting {
+    fn block_size(&self) -> hadris_storage::BlockSize {
+        self.inner.block_size()
+    }
+
+    fn block_count(&self) -> u64 {
+        self.inner.block_count()
+    }
+
+    fn writable(&self) -> bool {
+        false
+    }
+
+    fn read_blocks(
+        &mut self,
+        first: hadris_storage::BlockIndex,
+        buf: &mut [u8],
+    ) -> Result<(), hadris_io::Error<Self::Error>> {
+        self.reads += 1;
+        self.inner.read_blocks(first, buf)
+    }
+
+    fn write_blocks(
+        &mut self,
+        first: hadris_storage::BlockIndex,
+        buf: &[u8],
+    ) -> Result<(), hadris_io::Error<Self::Error>> {
+        self.inner.write_blocks(first, buf)
+    }
+}
+
+#[test]
+fn reading_a_file_of_many_extents_takes_linear_reads() {
+    let reads = |count: u64| {
+        let mut tree = hadris_fs::Tree::new();
+        tree.insert(
+            "MANY.BIN",
+            Node::file(Content::bytes(pattern(count as usize * 2048))),
+        )
+        .unwrap();
+        let mut session = Session::open(grown(image(&tree, &IsoOptions::default()))).unwrap();
+        let start = session
+            .tree()
+            .get("MANY.BIN")
+            .and_then(Node::content)
+            .and_then(Content::stored_extents)
+            .unwrap()[0]
+            .offset();
+        let pieces: Vec<_> = (0..count)
+            .map(|i| hadris_fs::Extent::new(start + i * 2048, 2048))
+            .collect();
+        session
+            .tree_mut()
+            .replace("MANY.BIN", Node::file(Content::stored(pieces).unwrap()))
+            .unwrap();
+        let opts = session.options();
+        session.write(&opts, SessionMode::Rewrite).unwrap();
+        let mut dev = Counting {
+            inner: session.into_inner(),
+            reads: 0,
+        };
+        let session = Session::open(&mut dev).unwrap();
+        let extents = session
+            .tree()
+            .get("MANY.BIN")
+            .and_then(Node::content)
+            .and_then(Content::stored_extents)
+            .unwrap()
+            .len();
+        assert_eq!(extents as u64, count);
+        drop(session);
+        dev.reads
+    };
+    let (small, large) = (reads(64), reads(256));
+    assert!(
+        large < 5 * small,
+        "{small} reads for 64 extents, {large} for 256"
+    );
+}

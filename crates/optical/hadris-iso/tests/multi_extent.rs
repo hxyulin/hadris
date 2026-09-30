@@ -133,3 +133,37 @@ fn large_files_take_several_extents_at_level_3() {
     assert_eq!(view.read_to_vec("/SMALL.TXT").unwrap(), b"after");
     hadris_fs::sync::contract::check_read_only(&mut view).unwrap();
 }
+
+#[test]
+fn listing_the_end_of_a_4_gib_directory_stops() {
+    let mut tree = Tree::new();
+    tree.insert("a.txt", Node::file(Content::bytes("a")))
+        .unwrap();
+    let mut dev = SparseDevice::default();
+    hadris_iso::sync::write(&mut dev, &tree, &IsoOptions::default()).unwrap();
+    let mut pvd = [0u8; 2048];
+    dev.read_blocks(BlockIndex::new(16), &mut pvd).unwrap();
+    let root = u64::from(u32::from_le_bytes(pvd[158..162].try_into().unwrap()));
+    let mut dot = [0u8; 2048];
+    dev.read_blocks(BlockIndex::new(root), &mut dot).unwrap();
+    dot[10..18].copy_from_slice(&[0xFF; 8]);
+    dev.write_blocks(BlockIndex::new(root), &dot).unwrap();
+    let last = root * 2048 + (1 << 32) - 2048;
+    let mut block = [0u8; 2048];
+    let record = hadris_iso::raw::DirectoryRecord::new(b"A", &[0; 76]).unwrap();
+    assert_eq!(record.len(), 110);
+    block[2048 - 110..].copy_from_slice(record.as_bytes());
+    dev.write_blocks(BlockIndex::new(last / 2048), &block)
+        .unwrap();
+
+    let mut view =
+        IsoFs::mount_namespace(&mut dev, MountOptions::new(), Namespace::Primary).unwrap();
+    let root = view.root();
+    let padding = hadris_fs::DirCursor::from_raw(u64::from(u32::MAX) - 2048);
+    assert!(view.readdir(root, padding).unwrap().is_none());
+    let past = hadris_fs::DirCursor::from_raw((1 << 32) - 110);
+    assert_eq!(
+        view.readdir(root, past).unwrap_err().kind(),
+        ErrorKind::Corrupt
+    );
+}

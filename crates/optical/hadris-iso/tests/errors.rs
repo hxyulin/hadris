@@ -168,6 +168,17 @@ fn boot_options_are_checked_against_the_images() {
         refused(&tree, &floppy),
         (ErrorKind::InvalidInput, Some(Detail::BootImage))
     );
+    for entry in [
+        BootEntry::bios("docs/empty.txt"),
+        BootEntry::bios("docs/empty.txt").with_load_size(4),
+        BootEntry::uefi("docs/empty.txt"),
+    ] {
+        let empty = IsoOptions::default().with_el_torito(ElTorito::new().with_entry(entry));
+        assert_eq!(
+            refused(&tree, &empty),
+            (ErrorKind::InvalidInput, Some(Detail::BootImage))
+        );
+    }
     let mut disk = sample(false, false);
     disk.insert(
         "floppy.img",

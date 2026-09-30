@@ -179,7 +179,9 @@ fn joliet_dedup(name: &[u8], suffix: &str) -> Vec<u8> {
         Some(pos) => (&name[..pos], &name[pos..]),
         None => (name, &[][..]),
     };
-    let max_base = 206usize.saturating_sub(ext.len() + suffix.len());
+    let limit = 2 * JOLIET_MAX_CHARS;
+    let ext = &ext[..ext.len().min(limit.saturating_sub(suffix.len()))];
+    let max_base = limit.saturating_sub(ext.len() + suffix.len());
     let base = &base[..base.len().min(max_base) & !1];
     let mut out = Vec::with_capacity(base.len() + suffix.len() + ext.len());
     out.extend_from_slice(base);
@@ -330,5 +332,27 @@ mod tests {
         assert_eq!(L1.dedup(b"FILENAME.;1", 1), b"FILENA_1.;1");
         assert_eq!(L2.dedup(b"LONGFILENAME.EXT;1", 2), b"LONGFILENAME_2.EXT;1");
         assert_eq!(Rules::Enhanced.dedup(b"README.TXT", 1), b"README_1.TXT");
+    }
+
+    #[test]
+    fn joliet_dedup_stays_within_64_characters() {
+        for name in [
+            "a".repeat(70),
+            alloc::format!("{}.txt", "a".repeat(70)),
+            alloc::format!(".{}", "e".repeat(70)),
+            alloc::format!("a.{}", "e".repeat(70)),
+        ] {
+            let joliet = Rules::Joliet.file(&name);
+            for n in [1, 10, 100] {
+                let unique = Rules::Joliet.dedup(&joliet, n);
+                assert!(unique.len() <= 2 * JOLIET_MAX_CHARS, "{name} {n}");
+                assert_ne!(unique, joliet);
+                let suffix: Vec<u8> = alloc::format!("_{n}")
+                    .encode_utf16()
+                    .flat_map(u16::to_be_bytes)
+                    .collect();
+                assert!(unique.windows(suffix.len()).any(|w| w == suffix));
+            }
+        }
     }
 }

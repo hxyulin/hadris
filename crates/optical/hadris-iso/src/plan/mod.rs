@@ -574,7 +574,7 @@ impl Planner<'_> {
                 crate::Emulation::Floppy288 => Some(2_949_120),
                 _ => None,
             };
-            if floppy.is_some_and(|size| size != len) || entry.load_size() == Some(0) {
+            if len == 0 || floppy.is_some_and(|size| size != len) || entry.load_size() == Some(0) {
                 return Err(invalid(Detail::BootImage));
             }
             if entry.emulation() == crate::Emulation::NoEmulation
