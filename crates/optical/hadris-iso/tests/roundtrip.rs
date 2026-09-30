@@ -660,6 +660,55 @@ fn an_appended_esp_is_stored_once_for_el_torito_and_the_gpt() {
 }
 
 #[test]
+fn min_image_blocks_pads_the_volume_and_moves_the_backup_gpt() {
+    let tree = sample(false, false);
+    for (hybrid, gpt) in [
+        (None, false),
+        (Some(Hybrid::mbr()), false),
+        (Some(Hybrid::gpt()), true),
+    ] {
+        let mut options = IsoOptions::default();
+        if let Some(hybrid) = hybrid.clone() {
+            options = options.with_hybrid(hybrid);
+        }
+        let natural = hadris_iso::plan(&tree, &options).unwrap().size() / 2048;
+        let blocks = natural + 300;
+        let options = options.with_min_image_blocks(blocks);
+        let mut dev = image(&tree, &options);
+        let info = *IsoFs::mount(&mut dev, MountOptions::new()).unwrap().info();
+        assert_eq!(u64::from(info.volume_space_size()), blocks);
+        let bytes = dev.into_inner();
+        assert_eq!(bytes.len() as u64, blocks * 2048);
+        assert!(
+            bytes[natural as usize * 2048..bytes.len() - 9 * 2048]
+                .iter()
+                .all(|&b| b == 0)
+        );
+        if hybrid.is_none() {
+            continue;
+        }
+        let disk = hadris_part::sync::read(&mut hadris_storage::MemDevice::new(
+            bytes.as_slice(),
+            hadris_storage::BlockSize::new(512).unwrap(),
+        ))
+        .unwrap();
+        let end = disk
+            .partitions()
+            .map(|p| p.start() + p.len())
+            .max()
+            .unwrap();
+        if gpt {
+            let last = blocks * 4 - 1;
+            assert_eq!(&bytes[last as usize * 512..][..8], b"EFI PART");
+            assert_eq!(bytes[512 + 32..512 + 40], last.to_le_bytes());
+            assert!(end > (blocks - 10) * 4);
+        } else {
+            assert_eq!(end, blocks * 4);
+        }
+    }
+}
+
+#[test]
 fn extras_read_the_descriptor_catalog_and_records() {
     let tree = sample(false, false);
     let time = hadris_fs::DateTime::from_unix_seconds(1_700_000_000).unwrap();

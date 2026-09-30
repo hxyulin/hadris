@@ -426,6 +426,7 @@ pub struct IsoOptions {
     el_torito: Option<ElTorito>,
     hybrid: Option<Hybrid>,
     min_blocks: u64,
+    min_image_blocks: u64,
     time: DateTime,
     seed: Option<u64>,
 }
@@ -448,6 +449,7 @@ impl Default for IsoOptions {
             el_torito: None,
             hybrid: None,
             min_blocks: 0,
+            min_image_blocks: 0,
             time: NoClock::TIME,
             seed: None,
         }
@@ -548,6 +550,17 @@ impl IsoOptions {
         }
     }
 
+    /// Pads the image to at least `blocks` logical blocks, as the ISO 9660
+    /// and UDF bridge writer does to cover its UDF structures after the
+    /// ISO 9660 data. The volume space size and the hybrid partitions cover
+    /// the padding, and a backup GPT stays in the last blocks.
+    pub fn with_min_image_blocks(self, blocks: u64) -> Self {
+        Self {
+            min_image_blocks: blocks,
+            ..self
+        }
+    }
+
     /// Sets the time that dates the volume and the entries without times,
     /// such as `SOURCE_DATE_EPOCH`. The writer reads no clock.
     pub fn with_time(self, time: DateTime) -> Self {
@@ -629,6 +642,11 @@ impl IsoOptions {
     /// The first logical block available to directories and files.
     pub fn min_blocks(&self) -> u64 {
         self.min_blocks
+    }
+
+    /// The fewest logical blocks the image takes.
+    pub fn min_image_blocks(&self) -> u64 {
+        self.min_image_blocks
     }
 
     /// The time that dates the volume and the entries without times.

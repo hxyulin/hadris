@@ -26,8 +26,6 @@ pub(crate) struct BridgePlan {
     /// The tree with every file pointing at its ISO 9660 extents.
     pub(crate) stored: Tree,
     pub(crate) udf: Plan,
-    /// The ISO 9660 volume descriptors, the terminator included.
-    pub(crate) descriptors: u32,
 }
 
 /// The ISO 9660 volume descriptors `opts` writes, the terminator included.
@@ -37,11 +35,10 @@ fn iso_descriptors(opts: &IsoOptions) -> u32 {
 
 /// The files of `tree` as the extents the ISO 9660 writer stores them in,
 /// with the same directories, symlinks, special files, hard links and
-/// attributes. Also returns the block after the last file.
-fn stored(tree: &Tree, iso: &Report) -> Result<(Tree, u64), PathError> {
+/// attributes.
+fn stored(tree: &Tree, iso: &Report) -> Result<Tree, PathError> {
     let mut out = Tree::new();
     out.replace("", Node::dir().with_attrs(*tree.root().node().attrs()))?;
-    let mut end = 0u64;
     let mut first: BTreeMap<usize, Vec<u8>> = BTreeMap::new();
     let mut pending = vec![(tree.root(), Vec::new())];
     while let Some((dir, prefix)) = pending.pop() {
@@ -57,13 +54,8 @@ fn stored(tree: &Tree, iso: &Report) -> Result<(Tree, u64), PathError> {
             let new = match node.content() {
                 Some(content) => {
                     let content = match iso.extents(&path) {
-                        Some(extents) => {
-                            for extent in extents {
-                                end = end.max(extent.end().div_ceil(SECTOR as u64));
-                            }
-                            Content::stored(extents.to_vec())
-                                .map_err(|error| error.with_path(&path))?
-                        }
+                        Some(extents) => Content::stored(extents.to_vec())
+                            .map_err(|error| error.with_path(&path))?,
                         None if content.is_empty() => Content::empty(),
                         None => {
                             return Err(PathError::from(Detail::Content.corrupt::<Infallible>())
@@ -83,7 +75,7 @@ fn stored(tree: &Tree, iso: &Report) -> Result<(Tree, u64), PathError> {
             }
         }
     }
-    Ok((out, end))
+    Ok(out)
 }
 
 /// Plans a bridge image: the UDF metadata first, the ISO 9660 image after
@@ -105,10 +97,18 @@ pub(crate) fn plan_both(
     let iso = iso
         .clone()
         .with_min_blocks(iso.min_blocks().max(first.allocated_end));
+    let natural = hadris_iso::plan(tree, &iso)?;
+    let files_end = natural
+        .files()
+        .flat_map(|(_, extents)| extents)
+        .map(|extent| extent.end().div_ceil(SECTOR as u64))
+        .fold(first.allocated_end, u64::max);
+    let total = (natural.size() / SECTOR as u64 + TAIL)
+        .max(files_end + SLACK + TAIL)
+        .max(iso.min_image_blocks());
+    let iso = iso.with_min_image_blocks(total);
     let iso_report = hadris_iso::plan(tree, &iso)?;
-    let (stored, files_end) = stored(tree, &iso_report)?;
-    let files_end = files_end.max(first.allocated_end);
-    let total = (iso_report.size() / SECTOR as u64 + TAIL).max(files_end + SLACK + TAIL);
+    let stored = stored(tree, &iso_report)?;
     let contents = measure(&stored, true, true)?;
     let udf = lay_out(
         &stored,
@@ -122,7 +122,6 @@ pub(crate) fn plan_both(
         iso_report,
         stored,
         udf,
-        descriptors,
     })
 }
 
@@ -157,7 +156,8 @@ impl BridgePlan {
 /// Both file systems point at the same file data. `iso` and `udf` set each
 /// volume as `hadris_iso::plan` and [`plan`](crate::plan) take them; the
 /// writer raises [`IsoOptions::with_min_blocks`] to leave room for the UDF
-/// metadata and sizes the UDF volume itself. The report has the image size,
+/// metadata, sizes the UDF volume itself and raises
+/// [`IsoOptions::with_min_image_blocks`] to the whole image. The report has the image size,
 /// the warnings of the ISO 9660 writer then those of the UDF writer, and
 /// the extents of each file. Fails as either `plan` does.
 pub fn plan_bridge(tree: &Tree, iso: &IsoOptions, udf: &UdfOptions) -> Result<Report, PathError> {

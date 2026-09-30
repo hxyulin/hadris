@@ -7,7 +7,7 @@ use common::Paths;
 use hadris_fs::MountOptions;
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{Content, ErrorKind, Extent, Node, Permissions, SetAttr, Tree};
-use hadris_iso::{IsoId, IsoLevel, IsoOptions, Namespace};
+use hadris_iso::{Hybrid, IsoId, IsoLevel, IsoOptions, Namespace};
 use hadris_storage::{BlockSize, MemDevice};
 use hadris_udf::{UdfId, UdfOptions, UdfRevision};
 
@@ -304,4 +304,65 @@ fn iso_volume_space_covers_the_udf_tail() {
     let iso = hadris_iso::sync::IsoFs::mount(dev, MountOptions::new()).unwrap();
     assert_eq!(iso.info().volume_space_size(), blocks);
     verify(&bytes);
+}
+
+#[test]
+fn hybrid_tables_cover_the_whole_bridge_image() {
+    let u32_at =
+        |bytes: &[u8], at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+    let u64_at =
+        |bytes: &[u8], at: usize| u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap());
+    for (name, hybrid) in [
+        ("gpt", Hybrid::gpt()),
+        ("mbr", Hybrid::mbr()),
+        ("gpt_hybrid_mbr", Hybrid::gpt_hybrid_mbr()),
+    ] {
+        let tree = fixture();
+        let mut options = options(UdfRevision::V2_01);
+        options.iso = options.iso.with_hybrid(hybrid);
+        let bytes = create(&tree, &options);
+        let sectors = (bytes.len() / 512) as u64;
+        let last = sectors - 1;
+        if name == "mbr" {
+            assert_eq!(bytes[446 + 4], 0x17, "{name}");
+            let start = u64::from(u32_at(&bytes, 446 + 8));
+            let len = u64::from(u32_at(&bytes, 446 + 12));
+            assert_eq!(start + len, sectors, "{name}: the MBR covers the image");
+        } else {
+            let backup = &bytes[last as usize * 512..];
+            assert_eq!(
+                &backup[..8],
+                b"EFI PART",
+                "{name}: backup header in the last sector"
+            );
+            assert_eq!(u64_at(backup, 24), last, "{name}");
+            assert_eq!(
+                u64_at(&bytes, 512 + 32),
+                last,
+                "{name}: primary alternate LBA"
+            );
+            let last_usable = u64_at(&bytes, 512 + 48);
+            assert_eq!(u64_at(backup, 48), last_usable, "{name}");
+            assert!(last_usable < last - 32, "{name}");
+            if name == "gpt" {
+                assert_eq!(bytes[446 + 4], 0xEE, "{name}");
+                assert_eq!(u32_at(&bytes, 446 + 8), 1, "{name}");
+                assert_eq!(
+                    u64::from(u32_at(&bytes, 446 + 12)),
+                    last,
+                    "{name}: protective MBR"
+                );
+            }
+        }
+        let disk = hadris_part::sync::read(&mut MemDevice::new(
+            bytes.as_slice(),
+            BlockSize::new(512).unwrap(),
+        ))
+        .unwrap();
+        assert!(disk.partitions().count() >= 1, "{name}");
+        for partition in disk.partitions() {
+            assert!(partition.start() + partition.len() <= sectors, "{name}");
+        }
+        verify(&bytes);
+    }
 }

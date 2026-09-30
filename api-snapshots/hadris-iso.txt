@@ -980,6 +980,7 @@ pub fn hadris_iso::IsoOptions::iso1999(&self) -> bool
 pub fn hadris_iso::IsoOptions::joliet(&self) -> bool
 pub fn hadris_iso::IsoOptions::level(&self) -> hadris_iso::IsoLevel
 pub fn hadris_iso::IsoOptions::min_blocks(&self) -> u64
+pub fn hadris_iso::IsoOptions::min_image_blocks(&self) -> u64
 pub fn hadris_iso::IsoOptions::name_case(&self) -> hadris_iso::NameCase
 pub fn hadris_iso::IsoOptions::new() -> Self
 pub fn hadris_iso::IsoOptions::preserve(&self) -> hadris_iso::Preserve
@@ -995,6 +996,7 @@ pub fn hadris_iso::IsoOptions::with_iso1999(self) -> Self
 pub fn hadris_iso::IsoOptions::with_joliet(self) -> Self
 pub fn hadris_iso::IsoOptions::with_level(self, hadris_iso::IsoLevel) -> Self
 pub fn hadris_iso::IsoOptions::with_min_blocks(self, u64) -> Self
+pub fn hadris_iso::IsoOptions::with_min_image_blocks(self, u64) -> Self
 pub fn hadris_iso::IsoOptions::with_name_case(self, hadris_iso::NameCase) -> Self
 pub fn hadris_iso::IsoOptions::with_preserve(self, hadris_iso::Preserve) -> Self
 pub fn hadris_iso::IsoOptions::with_relocation(self, hadris_iso::Relocation) -> Self

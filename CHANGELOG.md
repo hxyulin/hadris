@@ -57,6 +57,8 @@ and command to its 3.0 replacement, and
   system partition is stored once for El Torito and GPT, `IsoId` and
   `IsoDate`, and ISO 9660 sessions over a mounted image. `Session::export`
   streams an edited session to a separate output device in bounded memory.
+  `IsoOptions::with_min_image_blocks` pads an image to a minimum size, with
+  the backup GPT at its end.
 - **hadris-storage:** `Partition<D>`, a byte window of a device;
   `host::FileDevice`, which reports the size of disk devices on macOS,
   FreeBSD, Windows and Linux; `Vec<u8>` as a device; `max_block_count`.
@@ -261,6 +263,9 @@ and command to its 3.0 replacement, and
 - **hadris-udf:** A logical volume descriptor with a partition map table
   length near `u32::MAX` fails with `Corrupt` on 32-bit targets instead of
   panicking on overflow.
+- **hadris-udf:** A bridge image with a GPT hybrid keeps its backup GPT in
+  the last sectors of the image instead of before the UDF tail, and its
+  hybrid partitions cover the UDF structures.
 
 ## [2.4.0] - 2026-09-08
 
