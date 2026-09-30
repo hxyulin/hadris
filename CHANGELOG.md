@@ -27,6 +27,10 @@ and command to its 3.0 replacement, and
   `copy_tree`, `read_tree`, `Finding` and `CheckReport`, a `host` module
   (`read_tree`, `write_tree`, `file`, `source_date_epoch`,
   `local_utc_offset`, `mount_options`) and the `contract` driver test kit.
+  `Content::stored` rejects length or range overflow and unwritten extents.
+  The `FileSystem` contract separates preflight rejection from partial
+  effects after an I/O failure or cancellation; a failed write has no
+  reliable byte count and is not rolled back.
 - **hadris-fat-raw:** New crate, version 0.1.0. FAT12/16/32 and exFAT
   on-disk layouts, codecs that do no I/O, device primitives and checkers
   that need no allocator.
@@ -37,19 +41,22 @@ and command to its 3.0 replacement, and
   exFAT, ISO 9660, UDF, ISO/UDF bridges, cpio, MBR, GPT and NTFS and
   reports damage; `open` mounts the first filesystem it finds.
 - **hadris-fat:** The embedded API for firmware without an allocator:
-  `embedded::{sync, r#async}::Fat<D, FILES>` reads and writes FAT12/16/32,
-  and `exfat::embedded::{sync, r#async}::ExFat<D, FILES>` reads exFAT, over
-  512-byte blocks in about 1 KiB of state. Sizes per target are in the
+  `embedded::{sync, r#async}::Fat<'mount, D, FILES>` reads and writes
+  FAT12/16/32, and `exfat::embedded::{sync, r#async}::ExFat<'mount, D, FILES>`
+  reads exFAT, over 512-byte blocks in about 1 KiB of state. A mount borrows a
+  caller-owned `MountToken`, and file handles refuse a mount they did not come
+  from. Sizes per target are in the
   [embedded guide](website/docs/guides/embedded.md).
 - **hadris-fat:** exFAT is stable as `ExFatFs`, with reads, writes,
   `format` and `check`. `fat::{sync, r#async}::write` builds a FAT volume
   from a `Tree`.
 - **hadris-fat, hadris-iso, hadris-udf:** Format extras on each driver:
   `info()`, file extents, raw records and `read_raw`, El Torito boot
-  catalogs, `MountOptions::backup_boot`, and `cluster_chain` for FAT.
+  catalogs and `MountOptions::backup_boot`.
 - **hadris-iso:** Appended partitions (`Hybrid::with_appended`) so an EFI
   system partition is stored once for El Torito and GPT, `IsoId` and
-  `IsoDate`, and ISO 9660 sessions over a mounted image.
+  `IsoDate`, and ISO 9660 sessions over a mounted image. `Session::export`
+  streams an edited session to a separate output device in bounded memory.
 - **hadris-storage:** `Partition<D>`, a byte window of a device;
   `host::FileDevice`, which reports the size of disk devices on macOS,
   FreeBSD, Windows and Linux; `Vec<u8>` as a device; `max_block_count`.
@@ -64,20 +71,14 @@ and command to its 3.0 replacement, and
 
 ### Changed
 
-- **hadris-fs:** `Content::stored` is fallible and rejects length/range overflow
-  and unwritten extents. The filesystem contract distinguishes preflight
-  rejection from partial effects after I/O failure or cancellation; failed
-  writes have no reliable byte count and do not promise rollback.
-- **hadris-iso:** `Session::export` streams an edited session to a distinct
-  output device with bounded memory and explicit output options.
-- **hadris-fat:** Embedded FAT/exFAT mounts take a caller-owned `MountToken`.
-  File handles retain its lifetime and exact identity, rejecting foreign
-  mounts without generation collisions or global atomic counters.
-
-- **All crates:** Every crate has the `std`, `alloc`, `sync` and `async`
-  feature axes, with `std` and `sync` on by default. Features only add
-  items and never change behaviour. I/O items live in the mode modules
-  (`hadris_fat::sync::FatFs`) and are not re-exported at crate roots.
+- **All crates:** The format crates, `hadris-io`, `hadris-storage`,
+  `hadris-fs` and the umbrella have the `std`, `alloc`, `sync` and `async`
+  feature axes, with `std` and `sync` on by default. `hadris-fat-raw` has
+  only `sync`, `async` and `defmt`, all off by default;
+  `hadris-common` has only `bytemuck`, and `hadris-macros` has none.
+  Features only add items and never change behaviour. I/O items live in
+  the mode modules (`hadris_fat::sync::FatFs`) and are not re-exported at
+  crate roots.
 - **All crates:** One async mode, `r#async`, whose futures are `Send`
   when the device is. The `async_send` modules are gone; non-`Send` async
   uses the `local` device traits or the embedded API.
@@ -129,10 +130,13 @@ and command to its 3.0 replacement, and
   and `hadris::open`), `hadris-cd` (use the bridge writer in
   `hadris-udf`), `hadris-archive` (use `hadris-cpio`), `hadris-path`
   (merged into `hadris-fs`), `hadris-fixed`, and the five CLI crates.
-- **Features:** `read`, `lfn`, `cache`, `tool`, `unstable-exfat`,
-  `dirty-file-panic`, `crc`, `rand`, `joliet` and `unstable-streaming`,
-  and the umbrella's `block`, `optical`, `cd`, `archive`, `path`, `fixed`
-  and `storage`.
+- **Features:** `read` wherever it existed; `write` in `hadris-iso`,
+  `hadris-udf`, `hadris-cpio` and `hadris-part`; `lfn`, `cache`, `tool`,
+  `unstable-exfat` and `dirty-file-panic` in `hadris-fat`; `crc` and
+  `rand` in `hadris-part`; `joliet` in `hadris-iso`; `unstable-streaming`;
+  `sync`, `async`, `alloc`, `std` and `optical` in `hadris-common`; and
+  the umbrella's `block`, `optical`, `cd`, `archive`, `path`, `fixed` and
+  `storage`.
 - **hadris-io:** The V2 stream traits and `hadris_io::legacy`.
 - **hadris-storage:** `WriteError`, `StorageError`, `OutOfRange`,
   `PartitionView`, and `BlockDevice` for `std::fs::File` (use
@@ -161,6 +165,14 @@ and command to its 3.0 replacement, and
   catalog's load size and boot information table.
 - **hadris-iso:** Boot code over 446 bytes and invalid El Torito load
   sizes fail instead of being cut or written.
+- **hadris-iso:** A directory holding a file with several extents is sized
+  for every extent record; records past the planned size were dropped.
+- **hadris-iso:** A session whose descriptor set grows over stored file
+  data moves those files instead of overwriting them.
+- **hadris-iso:** Opening a session on an image whose directories form a
+  cycle fails with `Corrupt` instead of looping forever.
+- **hadris-iso:** Rock Ridge continuation areas no longer cross a block
+  boundary, which Linux rejected.
 - **hadris-udf:** The writer refuses UDF 2.50 and 2.60, which need a
   metadata partition it does not write.
 - **hadris-udf:** The volume space size of a bridge image's ISO 9660 side
@@ -172,7 +184,8 @@ and command to its 3.0 replacement, and
   listing entries forever.
 - **hadris-fs:** Copying or extracting a tree whose directory entries loop
   fails with `Corrupt` instead of running forever.
-- **hadris-part:** GPT CRCs are correct with the `write` feature.
+- **hadris-part:** GPT writes always fill in the header and partition
+  array CRCs; 2.4 left them zero unless the `crc` feature was on.
 - **hadris-macros:** `send_async!` passes malformed input through to rustc
   instead of panicking.
 - **CLI:** A failed `create` no longer truncates an existing output, and

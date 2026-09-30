@@ -518,3 +518,133 @@ fn export_rebuilds_explicit_boot_info_from_stored_content() {
     );
     assert_eq!(&bytes[64..], &[0x90; 4096 - 64]);
 }
+
+#[test]
+fn growing_descriptor_sets_move_the_files_they_cover() {
+    let data = pattern(3000);
+    let mut tree = hadris_fs::Tree::new();
+    tree.insert("A.TXT", Node::file(Content::bytes(data.clone())))
+        .unwrap();
+    for mode in [SessionMode::Append, SessionMode::Rewrite] {
+        let dev = grown(image(&tree, &IsoOptions::default()));
+        let mut session = Session::open(dev).unwrap();
+        let first = session
+            .tree()
+            .get("A.TXT")
+            .and_then(Node::content)
+            .and_then(Content::stored_extents)
+            .unwrap()[0]
+            .offset();
+        assert_eq!(first, 19 * 2048);
+        session
+            .tree_mut()
+            .insert("boot.img", Node::file(Content::bytes(vec![0x90u8; 2048])))
+            .unwrap();
+        let opts = session
+            .options()
+            .with_joliet()
+            .with_el_torito(ElTorito::new().with_entry(BootEntry::bios("boot.img")));
+        let report = session.write(&opts, mode).unwrap();
+        assert!(report.extents("A.TXT").unwrap()[0].offset() >= 20 * 2048);
+        let mut iso = session.into_inner();
+        for ns in [Namespace::Primary, Namespace::Joliet] {
+            let mut view = IsoFs::mount_namespace(&mut iso, MountOptions::new(), ns).unwrap();
+            assert_eq!(view.read_to_vec("/A.TXT").unwrap(), data, "{mode:?} {ns:?}");
+        }
+    }
+}
+
+#[test]
+fn growing_descriptor_sets_refuse_to_cover_a_kept_catalog() {
+    let mut tree = hadris_fs::Tree::new();
+    tree.insert("BOOT.IMG", Node::file(Content::bytes(vec![0x90u8; 2048])))
+        .unwrap();
+    let opts = IsoOptions::default().with_el_torito(
+        ElTorito::new()
+            .with_entry(BootEntry::bios("BOOT.IMG"))
+            .with_catalog_path("BOOT.CAT"),
+    );
+    let dev = grown(image(&tree, &opts));
+    let original = dev.get_ref().clone();
+    let mut session = Session::open(dev).unwrap();
+    let opts = session.options().with_joliet().with_iso1999();
+    let err = session.write(&opts, SessionMode::Rewrite).unwrap_err();
+    assert_eq!(err.kind(), hadris_fs::ErrorKind::NoSpace);
+    assert_eq!(session.into_inner().into_inner(), original);
+}
+
+/// The byte offset of the record named `name` in the directory at `block`.
+fn record_in(bytes: &[u8], block: usize, name: &[u8]) -> usize {
+    let start = block * 2048;
+    let size = u32::from_le_bytes(bytes[start + 10..start + 14].try_into().unwrap()) as usize;
+    let mut at = start;
+    while at < start + size {
+        let len = bytes[at] as usize;
+        if len == 0 {
+            at = (at / 2048 + 1) * 2048;
+            continue;
+        }
+        let id_len = bytes[at + 32] as usize;
+        if &bytes[at + 33..at + 33 + id_len] == name {
+            return at;
+        }
+        at += len;
+    }
+    panic!("no record {name:?}");
+}
+
+#[test]
+fn directory_cycles_fail_to_open() {
+    let mut tree = hadris_fs::Tree::new();
+    tree.insert("A/B/F.TXT", Node::file(Content::bytes("f")))
+        .unwrap();
+    let mut bytes = image(&tree, &IsoOptions::default()).into_inner();
+    let extent = |bytes: &[u8], at: usize| {
+        u32::from_le_bytes(bytes[at + 2..at + 6].try_into().unwrap()) as usize
+    };
+    let root = extent(&bytes, 16 * 2048 + 156);
+    let a = extent(&bytes, record_in(&bytes, root, b"A"));
+    let b = record_in(&bytes, a, b"B");
+    bytes[b + 2..b + 6].copy_from_slice(&(root as u32).to_le_bytes());
+    bytes[b + 6..b + 10].copy_from_slice(&(root as u32).to_be_bytes());
+    let err = Session::open(MemDevice::new(bytes, common::SECTOR)).unwrap_err();
+    assert_eq!(err.kind(), hadris_fs::ErrorKind::Corrupt);
+}
+
+#[test]
+fn stored_files_keep_every_extent_record() {
+    let data = pattern(100 * 2048);
+    let mut tree = hadris_fs::Tree::new();
+    tree.insert("MANY.BIN", Node::file(Content::bytes(data.clone())))
+        .unwrap();
+    for mode in [SessionMode::Append, SessionMode::Rewrite] {
+        for rock_ridge in [false, true] {
+            let opts = match rock_ridge {
+                true => IsoOptions::default().with_rock_ridge(),
+                false => IsoOptions::default(),
+            };
+            let mut session = Session::open(grown(image(&tree, &opts))).unwrap();
+            let start = session
+                .tree()
+                .get("MANY.BIN")
+                .and_then(Node::content)
+                .and_then(Content::stored_extents)
+                .unwrap()[0]
+                .offset();
+            let pieces: Vec<_> = (0..100)
+                .map(|i| hadris_fs::Extent::new(start + i * 2048, 2048))
+                .collect();
+            session
+                .tree_mut()
+                .replace("MANY.BIN", Node::file(Content::stored(pieces).unwrap()))
+                .unwrap();
+            let opts = session.options();
+            session.write(&opts, mode).unwrap();
+            let mut iso = session.into_inner();
+            let mut view = IsoFs::mount(&mut iso, MountOptions::new()).unwrap();
+            let node = view.resolve_path("/MANY.BIN").unwrap();
+            assert_eq!(view.all_extents(node).len(), 100, "{mode:?} {rock_ridge}");
+            assert_eq!(view.read_to_vec("/MANY.BIN").unwrap(), data);
+        }
+    }
+}

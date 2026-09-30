@@ -8,10 +8,9 @@ Requirement IDs (`FILE-CLOSE-01`, `NF-CRASH-01`) refer to [`docs/v3/actions.md`]
 
 - **Recovery after power loss is partial.** Operations interrupted by cancellation or a failed write are finished or rolled back by the next write or `sync`. After a real power cut, lost clusters can remain until a check and repair tool runs. An exFAT entry set that spans two device blocks can be left with orphan entries or a bad checksum, because the recovery state is kept in memory and not rebuilt at mount. TexFAT volumes can end with the mirror bitmap out of step. (NF-CRASH-01)
 - **Async handles dropped without `close`.** In async mode `Drop` cannot await, so the size of a written file is published by the next call on the volume. If the driver is then dropped without `sync`, the size is lost. Always `close` files and `sync` the volume. (FILE-CLOSE-01)
-- **`Volume` without `alloc`** panics when a 17th distinct node is queued while its lock is held. Plan: `Volume` requires `alloc` in 3.0 (design 4.15). (HOST-CONC-01)
 - **chmod and chown are silent no-ops.** Plan: fail with `Unsupported` unless the value is what the format would report (META-TIME-02). (META-PERM-02, META-OWNER-02)
 - **Creating many files in one directory is still quadratic,** only faster than before. (NF-PERF-01)
 
 ## ISO 9660 and UDF
 
-- **The UDF and cpio CLIs accept `--revision 2.50` and `2.60`,** which the library refuses. Plan: removed with the single `hadris` CLI (design 4.17 S1). (BUILD-UDF-REV-01)
+- **`hadris udf create` and `hadris udf bridge` accept `--revision 2.50` and `2.60`,** and list them in `--help`, but the library refuses them when it plans the image, so the command fails with `Unsupported`. Plan: drop the two values from the CLI's `RevisionArg` until the writer supports a metadata partition. (BUILD-UDF-REV-01)

@@ -1,4 +1,4 @@
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -30,6 +30,8 @@ const SECTOR: u64 = SECTOR_SIZE as u64;
 type Tables512 = (Vec<u8>, Option<Vec<u8>>, Vec<u64>);
 /// Sectors of a kept boot catalog read to patch its entries.
 const CATALOG_SECTORS: u64 = 8;
+/// The deepest directory a session reads, as `hadris_fs` tree walks allow.
+const MAX_DEPTH: usize = 1024;
 
 fn text<const N: usize>(field: &raw::IsoStr<N>) -> Option<String> {
     let bytes = field.trimmed();
@@ -66,6 +68,32 @@ fn span(report: &Report, path: &str) -> Option<Extent> {
         first.offset(),
         extents.iter().map(Extent::len).sum(),
     ))
+}
+
+/// The byte ranges a session write puts inside the old image: the system
+/// area when `system` is set, and the descriptor set at block 16, which an
+/// appended session copies from `descriptors`.
+fn fixed_blocks(plan: &plan::Plan, descriptors: u64, system: bool) -> Vec<(u64, u64)> {
+    let start = u64::from(raw::DESCRIPTOR_START) * SECTOR;
+    let mut out = Vec::new();
+    if system {
+        out.push((0, start));
+    }
+    let len = plan.regions.iter().find_map(|region| match region {
+        Region::Bytes { block, data } if *block == descriptors => Some(data.len() as u64),
+        _ => None,
+    });
+    out.push((start, start + len.unwrap_or(0).div_ceil(SECTOR) * SECTOR));
+    out
+}
+
+/// Whether `len` bytes at `offset` meet a range of `fixed`.
+fn covers(fixed: &[(u64, u64)], offset: u64, len: u64) -> bool {
+    let end = offset.saturating_add(len);
+    len > 0
+        && fixed
+            .iter()
+            .any(|&(start, stop)| offset < stop && start < end)
 }
 
 /// A tree error while reading an image: the image holds what no tree can.
@@ -176,6 +204,9 @@ impl<D: BlockDevice> Session<D> {
     /// Reads the newest descriptor set, at logical sector 16, and walks the
     /// most capable tree. Fails like `IsoFs::mount`, and with
     /// [`ErrorKind::Unsupported`] for logical blocks other than 2048 bytes.
+    /// A directory listed twice, as in a cycle, fails with
+    /// [`ErrorKind::Corrupt`] and one more than 1024 levels deep with
+    /// [`ErrorKind::LimitExceeded`], both with [`Detail::DirectoryRecord`].
     pub async fn open(dev: D) -> Result<Self, MountError<D, D::Error>> {
         let mut iso = IsoFs::mount(dev, hadris_fs::MountOptions::new().read_only()).await?;
         if iso.info().block_size() != SECTOR_SIZE as u32 {
@@ -307,11 +338,16 @@ impl<D: BlockDevice> Session<D> {
     /// `opts` has hybrid boot or the image has partition tables, which
     /// then still describe the previous session.
     ///
+    /// Both modes write the descriptor set at block 16. Files there, or in
+    /// a system area that is written, are copied after the old data first;
+    /// a kept boot catalog there fails with [`ErrorKind::NoSpace`] and
+    /// [`Detail::Session`] before anything is written.
+    ///
     /// Afterwards the tree's new files point at their new extents, so the
     /// session can be written again.
     pub async fn write(&mut self, opts: &IsoOptions, mode: SessionMode) -> Result<Report, PathError> {
         check_block_size(&self.dev)?;
-        let contents = plan::measure(&self.tree, true)?;
+        let mut contents = plan::measure(&self.tree, true)?;
         let old = self.volume_blocks;
         let existing = self.partition_tables(old).await?;
         let has_tables = existing.is_some();
@@ -349,7 +385,22 @@ impl<D: BlockDevice> Session<D> {
             },
         };
         let descriptors = base.descriptors;
-        let mut plan = plan::lay_out(&self.tree, opts, &contents, base)?;
+        let rewrites_system = base.system_area || tables.is_some();
+        let mut plan = plan::lay_out(&self.tree, opts, &contents, base.clone())?;
+        let fixed = fixed_blocks(&plan, descriptors, rewrites_system);
+        if keep_catalog.is_some_and(|block| covers(&fixed, u64::from(block) * SECTOR, SECTOR)) {
+            return Err(Detail::Session.error::<Infallible>(ErrorKind::NoSpace).into());
+        }
+        let mut moved = false;
+        for info in contents.values_mut() {
+            if info.stored.as_ref().is_some_and(|extents| extents.iter().any(|extent| covers(&fixed, extent.offset(), extent.len()))) {
+                info.stored = None;
+                moved = true;
+            }
+        }
+        if moved {
+            plan = plan::lay_out(&self.tree, opts, &contents, base)?;
+        }
         check_output(&self.dev, &plan)?;
         check_contents(&self.tree, &plan)?;
         if mode == SessionMode::Append {
@@ -402,6 +453,15 @@ impl<D: BlockDevice> Session<D> {
             }
         }
         plan.regions.sort_by_key(Region::block);
+        if moved {
+            let (early, rest) = core::mem::take(&mut plan.regions).into_iter().partition(|region| match region {
+                Region::File { path, .. } => self.tree.get(path).and_then(Node::content).is_some_and(|content| content.stored_extents().is_some()),
+                _ => false,
+            });
+            plan.regions = early;
+            emit(&mut self.dev, &self.tree, &plan).await?;
+            plan.regions = rest;
+        }
         emit(&mut self.dev, &self.tree, &plan).await?;
         self.volume_blocks = plan.total_blocks;
         if keep_catalog.is_none() {
@@ -724,8 +784,9 @@ async fn read_session<D: BlockDevice>(iso: &mut IsoFs<D>) -> Result<(Tree, IsoOp
     let meta = view.stat(root).await?;
     tree.replace("", Node::dir().with_attrs(set_attr(&meta, rock_ridge))).map_err(tree_error)?;
     let mut links: BTreeMap<u64, Vec<u8>> = BTreeMap::new();
-    let mut pending: Vec<(NodeId, Vec<u8>)> = vec![(root, Vec::new())];
-    while let Some((dir, prefix)) = pending.pop() {
+    let mut pending: Vec<(NodeId, Vec<u8>, usize)> = vec![(root, Vec::new(), 0)];
+    let mut visited = BTreeSet::from([root]);
+    while let Some((dir, prefix, depth)) = pending.pop() {
         let mut cursor = DirCursor::START;
         while let Some(entry) = view.readdir(dir, cursor).await? {
             cursor = entry.next_cursor();
@@ -740,7 +801,13 @@ async fn read_session<D: BlockDevice>(iso: &mut IsoFs<D>) -> Result<(Tree, IsoOp
                     if dir == root && view.is_relocation_dir(node).await? {
                         continue;
                     }
-                    pending.push((node, path.clone()));
+                    if !visited.insert(node) {
+                        return Err(Detail::DirectoryRecord.corrupt());
+                    }
+                    if depth >= MAX_DEPTH {
+                        return Err(Detail::DirectoryRecord.error(ErrorKind::LimitExceeded));
+                    }
+                    pending.push((node, path.clone(), depth + 1));
                     Node::dir()
                 }
                 FileType::File => {
