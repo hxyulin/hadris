@@ -47,12 +47,15 @@ pub(crate) fn check_output<D: BlockDevice>(out: &D, plan: &Plan) -> Result<(), P
     Ok(())
 }
 
-/// Checks that this mode can read every file the plan writes.
+/// Checks that this mode can read every file the plan writes. Stored
+/// files are read from the output itself.
 pub(crate) fn check_contents(tree: &Tree, plan: &Plan) -> Result<(), PathError> {
     for region in &plan.regions {
         match region {
             Region::File { path, .. } => {
-                if let Some(content) = tree.get(path).and_then(|node| node.content()) {
+                if let Some(content) = tree.get(path).and_then(|node| node.content())
+                    && content.stored_extents().is_none()
+                {
                     ContentReader::check(content).map_err(|err| err.with_path(path))?;
                 }
             }
@@ -148,12 +151,17 @@ async fn zero<D: BlockDevice>(out: &mut D, from: u64, to: u64, buf: &mut [u8]) -
 enum SourceReader<'a, S> {
     Content(ContentReader<'a>),
     Stored { source: &'a mut S, content: &'a Content },
+    /// Stored content without a separate source: extents on the output.
+    Output(&'a Content),
 }
 
 impl<'a, S: BlockDevice> SourceReader<'a, S> {
     async fn open(content: &'a Content, source: Option<&'a mut S>) -> Result<Self, PathError> {
-        if content.stored_extents().is_some() && let Some(source) = source {
-            return Ok(Self::Stored { source, content });
+        if content.stored_extents().is_some() {
+            return Ok(match source {
+                Some(source) => Self::Stored { source, content },
+                None => Self::Output(content),
+            });
         }
         Ok(Self::Content(ContentReader::open(content).await?))
     }
@@ -161,49 +169,52 @@ impl<'a, S: BlockDevice> SourceReader<'a, S> {
     fn len(&self) -> u64 {
         match self {
             Self::Content(reader) => reader.len(),
-            Self::Stored { content, .. } => content.len(),
+            Self::Stored { content, .. } | Self::Output(content) => content.len(),
         }
     }
 
-    async fn read_exact_at(&mut self, mut offset: u64, mut buf: &mut [u8]) -> Result<(), PathError> {
+    async fn read_exact_at<D: BlockDevice>(&mut self, out: &mut D, offset: u64, buf: &mut [u8]) -> Result<(), PathError> {
         match self {
             Self::Content(reader) => reader.read_exact_at(offset, buf).await,
-            Self::Stored { source, content } => {
-                let len = source.block_count().saturating_mul(u64::from(source.block_size().get()));
-                for extent in content.stored_extents().unwrap_or(&[]) {
-                    if offset >= extent.len() {
-                        offset -= extent.len();
-                        continue;
-                    }
-                    let take = (extent.len() - offset).min(buf.len() as u64) as usize;
-                    let start = extent.offset().checked_add(offset)
-                        .ok_or_else(|| PathError::from(Detail::OutsideImage.corrupt::<Infallible>()))?;
-                    super::image::read_bytes(*source, len, start, &mut buf[..take]).await?;
-                    buf = &mut buf[take..];
-                    if buf.is_empty() {
-                        return Ok(());
-                    }
-                    offset = 0;
-                }
-                if buf.is_empty() {
-                    Ok(())
-                } else {
-                    Err(Detail::Content.corrupt::<Infallible>().into())
-                }
-            }
+            Self::Stored { source, content } => read_stored(*source, content, offset, buf).await,
+            Self::Output(content) => read_stored(out, content, offset, buf).await,
         }
+    }
+}
+
+async fn read_stored<D: BlockDevice>(dev: &mut D, content: &Content, mut offset: u64, mut buf: &mut [u8]) -> Result<(), PathError> {
+    let len = dev.block_count().saturating_mul(u64::from(dev.block_size().get()));
+    for extent in content.stored_extents().unwrap_or(&[]) {
+        if offset >= extent.len() {
+            offset -= extent.len();
+            continue;
+        }
+        let take = (extent.len() - offset).min(buf.len() as u64) as usize;
+        let start = extent.offset().checked_add(offset)
+            .ok_or_else(|| PathError::from(Detail::OutsideImage.corrupt::<Infallible>()))?;
+        super::image::read_bytes(dev, len, start, &mut buf[..take]).await?;
+        buf = &mut buf[take..];
+        if buf.is_empty() {
+            return Ok(());
+        }
+        offset = 0;
+    }
+    if buf.is_empty() {
+        Ok(())
+    } else {
+        Err(Detail::Content.corrupt::<Infallible>().into())
     }
 }
 
 /// The sum of the image's 32-bit words from byte 64, as a boot information
 /// table records it.
-async fn checksum<S: BlockDevice>(reader: &mut SourceReader<'_, S>, len: u64, buf: &mut [u8]) -> Result<u32, PathError> {
+async fn checksum<D: BlockDevice, S: BlockDevice>(out: &mut D, reader: &mut SourceReader<'_, S>, len: u64, buf: &mut [u8]) -> Result<u32, PathError> {
     let words_end = 64 + (len - 64) / 4 * 4;
     let mut sum = 0u32;
     let mut offset = 64;
     while offset < words_end {
         let take = (words_end - offset).min(buf.len() as u64) as usize;
-        reader.read_exact_at(offset, &mut buf[..take]).await?;
+        reader.read_exact_at(out, offset, &mut buf[..take]).await?;
         for word in buf[..take].chunks_exact(4) {
             sum = sum.wrapping_add(u32::from_le_bytes([word[0], word[1], word[2], word[3]]));
         }
@@ -227,7 +238,7 @@ async fn file<D: BlockDevice, S: BlockDevice>(
     }
     let table = match info {
         Some(info) => {
-            let sum = checksum(&mut reader, len, buf).await?;
+            let sum = checksum(out, &mut reader, len, buf).await?;
             let table = raw::Grub2BootInfoTable {
                 pvd_lba: raw::U32Le::new(raw::DESCRIPTOR_START),
                 file_lba: raw::U32Le::new(info.block),
@@ -249,7 +260,7 @@ async fn file<D: BlockDevice, S: BlockDevice>(
     let mut sector = block;
     while offset < len {
         let take = (len - offset).min(buf.len() as u64) as usize;
-        reader.read_exact_at(offset, &mut buf[..take]).await?;
+        reader.read_exact_at(out, offset, &mut buf[..take]).await?;
         if let Some((bytes, size)) = &table
             && offset == 0
         {

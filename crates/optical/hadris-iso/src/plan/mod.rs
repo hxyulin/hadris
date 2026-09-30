@@ -1139,7 +1139,41 @@ impl Planner<'_> {
             .max(self.base.first_block)
             * SECTOR;
 
-        let mut sizes = BTreeMap::new();
+        let mut placed = BTreeSet::new();
+        for &file in &files {
+            let f = &self.files[file];
+            let (key, len) = match f.kind {
+                FileKind::Data { node, len } => (node, len),
+                FileKind::Catalog { len } => (CATALOG, len),
+                _ => continue,
+            };
+            if len == 0 || self.extents.contains_key(&key) {
+                continue;
+            }
+            let mut extents = Vec::new();
+            match self
+                .contents
+                .get(&key)
+                .and_then(|info| info.stored.as_ref())
+            {
+                Some(stored) => {
+                    for extent in stored {
+                        extents.push((block_of(extent.offset())?, extent.len()));
+                    }
+                    placed.insert(key);
+                }
+                None => {
+                    let mut remaining = len;
+                    while remaining > 0 {
+                        let chunk = remaining.min(MAX_EXTENT);
+                        extents.push((0, chunk));
+                        remaining -= chunk;
+                    }
+                }
+            }
+            self.extents.insert(key, extents);
+        }
+
         for &dir in &order {
             for ti in 0..self.trees.len() {
                 if !self.has_dir(dir, ti) {
@@ -1150,8 +1184,7 @@ impl Planner<'_> {
                 let size = u32::try_from(sectors * SECTOR).map_err(|_| too_large())?;
                 self.dir_refs
                     .insert((dir, ti), (block_of(start * SECTOR)?, size));
-                sizes.insert((dir, ti), overflow_len(&records));
-                cursor = (start + sectors) * SECTOR + overflow_len(&records);
+                cursor = (start + sectors) * SECTOR + place_areas(&records).1;
             }
         }
 
@@ -1163,19 +1196,7 @@ impl Planner<'_> {
                 FileKind::Catalog { len } => (CATALOG, len),
                 _ => continue,
             };
-            if len == 0 || self.extents.contains_key(&key) {
-                continue;
-            }
-            if let Some(stored) = self
-                .contents
-                .get(&key)
-                .and_then(|info| info.stored.as_ref())
-            {
-                let mut extents = Vec::new();
-                for extent in stored {
-                    extents.push((block_of(extent.offset())?, extent.len()));
-                }
-                self.extents.insert(key, extents);
+            if len == 0 || !placed.insert(key) {
                 continue;
             }
             let mut extents = Vec::new();
@@ -2037,12 +2058,21 @@ fn dedup(records: &mut [PendingRecord], rules: Rules) {
     }
 }
 
-fn overflow_len(records: &[PendingRecord]) -> u64 {
-    records
-        .iter()
-        .filter(|r| r.split.has_overflow())
-        .map(|r| r.split.overflow.len() as u64)
-        .sum()
+/// The offset of each continuation area of `records`, in order, from the
+/// first continuation block, and the bytes they span: an area that would
+/// cross a block boundary starts the next block.
+fn place_areas(records: &[PendingRecord]) -> (Vec<u64>, u64) {
+    let mut places = Vec::new();
+    let mut at = 0u64;
+    for area in records.iter().flat_map(|r| &r.split.areas) {
+        let len = area.len() as u64;
+        if at % SECTOR + len > SECTOR {
+            at = at.div_ceil(SECTOR) * SECTOR;
+        }
+        places.push(at);
+        at += len;
+    }
+    (places, at)
 }
 
 /// The first sector and the sector count of `records` written from byte
@@ -2066,12 +2096,15 @@ fn layout_records(pos: u64, records: &[PendingRecord]) -> (u64, u64) {
 /// continuation area its `CE` entries point at.
 fn emit_records(block: u32, size: u32, records: &mut [PendingRecord]) -> PlanResult<Vec<u8>> {
     let ca_block = block + size / SECTOR_SIZE as u32;
-    let mut offset = 0u32;
+    let (places, _) = place_areas(records);
+    let mut next = places.iter();
     for record in records.iter_mut() {
-        if record.split.has_overflow() {
-            record.split.patch_ce(ca_block, offset);
-            offset += record.split.overflow.len() as u32;
-        }
+        let at: Vec<(u32, u32)> = next
+            .by_ref()
+            .take(record.split.areas.len())
+            .map(|&at| (ca_block + (at / SECTOR) as u32, (at % SECTOR) as u32))
+            .collect();
+        record.split.patch_ce(&at);
     }
     let mut out = Vec::with_capacity(size as usize);
     for record in records.iter() {
@@ -2082,9 +2115,13 @@ fn emit_records(block: u32, size: u32, records: &mut [PendingRecord]) -> PlanRes
         }
         out.extend_from_slice(bytes.as_bytes());
     }
+    if out.len() > size as usize {
+        return Err(invalid(Detail::DirectoryRecord));
+    }
     out.resize(size as usize, 0);
-    for record in records.iter() {
-        out.extend_from_slice(&record.split.overflow);
+    for (area, at) in records.iter().flat_map(|r| &r.split.areas).zip(places) {
+        out.resize(size as usize + at as usize, 0);
+        out.extend_from_slice(area);
     }
     Ok(out)
 }

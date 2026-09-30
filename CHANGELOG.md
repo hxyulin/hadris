@@ -165,6 +165,14 @@ and command to its 3.0 replacement, and
   catalog's load size and boot information table.
 - **hadris-iso:** Boot code over 446 bytes and invalid El Torito load
   sizes fail instead of being cut or written.
+- **hadris-iso:** A directory holding a file with several extents is sized
+  for every extent record; records past the planned size were dropped.
+- **hadris-iso:** A session whose descriptor set grows over stored file
+  data moves those files instead of overwriting them.
+- **hadris-iso:** Opening a session on an image whose directories form a
+  cycle fails with `Corrupt` instead of looping forever.
+- **hadris-iso:** Rock Ridge continuation areas no longer cross a block
+  boundary, which Linux rejected.
 - **hadris-udf:** The writer refuses UDF 2.50 and 2.60, which need a
   metadata partition it does not write.
 - **hadris-udf:** The volume space size of a bridge image's ISO 9660 side
