@@ -1,8 +1,9 @@
 use super::handle::{File, ReadDir};
-use super::paths::{create_dir_all, resolve_parent};
+use super::paths::{cancelled, components, resolve_parent};
 use super::super::lock::{Guard, Lock};
 use super::*;
 use crate::OpenOptions;
+use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
@@ -25,8 +26,50 @@ const fn no_follow(how: Resolve) -> Resolve {
 
 pub(super) struct Shared<F> {
     fs: Lock<F>,
-    pending: spin::Mutex<Vec<Pending>>,
+    pending: spin::Mutex<VecDeque<Pending>>,
     resolve: Resolve,
+}
+
+/// A pin held across an `.await`. Dropped before [`forget`](Self::forget)
+/// or [`keep`](Self::keep), as when its future is dropped, it queues the
+/// release for the next lock, with a close when `open` is set.
+pub(super) struct Held<'a> {
+    pending: &'a spin::Mutex<VecDeque<Pending>>,
+    node: Option<NodeId>,
+    open: bool,
+}
+
+impl<'a> Held<'a> {
+    fn new(pending: &'a spin::Mutex<VecDeque<Pending>>, node: NodeId) -> Self {
+        Self { pending, node: Some(node), open: false }
+    }
+
+    fn node(&self) -> NodeId {
+        self.node.expect("released pin")
+    }
+
+    /// Hands the pin to the caller.
+    fn keep(mut self) -> NodeId {
+        self.node.take().expect("released pin")
+    }
+
+    pub(super) fn forget<F: FileSystem + ?Sized>(mut self, fs: &mut F) {
+        if let Some(node) = self.node.take() {
+            fs.forget(node, 1);
+        }
+    }
+}
+
+impl Drop for Held<'_> {
+    fn drop(&mut self) {
+        if let Some(node) = self.node.take() {
+            let mut pending = self.pending.lock();
+            if self.open {
+                pending.push_back(Pending::Close(node));
+            }
+            pending.push_back(Pending::Forget(node));
+        }
+    }
 }
 
 io_transform! {
@@ -60,7 +103,7 @@ pub struct Volume<F> {
 pub struct VolumeGuard<'a, F: FileSystem> {
     fs: Guard<'a, F>,
     #[allow(dead_code)]
-    pending: &'a spin::Mutex<Vec<Pending>>,
+    pending: &'a spin::Mutex<VecDeque<Pending>>,
 }
 
 impl<F> Clone for Volume<F> {
@@ -98,10 +141,13 @@ impl<F: FileSystem> Drop for VolumeGuard<'_, F> {
 }
 
 /// Runs the calls dropped handles queued, in order. Close errors are
-/// ignored, as in the `Drop` that queued them.
-async fn run_pending<F: FileSystem + ?Sized>(pending: &spin::Mutex<Vec<Pending>>, fs: &mut F) {
-    let queued = core::mem::take(&mut *pending.lock());
-    for call in queued {
+/// ignored, as in the `Drop` that queued them. A call leaves the queue as it
+/// starts, so a dropped future leaves the rest queued.
+async fn run_pending<F: FileSystem + ?Sized>(pending: &spin::Mutex<VecDeque<Pending>>, fs: &mut F) {
+    loop {
+        let Some(call) = pending.lock().pop_front() else {
+            break;
+        };
         match call {
             Pending::Close(node) => {
                 let _ = fs.close(node).await;
@@ -122,7 +168,7 @@ impl<F: FileSystem> Volume<F> {
         Self {
             shared: Arc::new(Shared {
                 fs: Lock::new(fs),
-                pending: spin::Mutex::new(Vec::new()),
+                pending: spin::Mutex::new(VecDeque::new()),
                 resolve,
             }),
         }
@@ -178,9 +224,14 @@ impl<F: FileSystem> Volume<F> {
         }
         let mut pending = self.shared.pending.lock();
         if close {
-            pending.push(Pending::Close(node));
+            pending.push_back(Pending::Close(node));
         }
-        pending.push(Pending::Forget(node));
+        pending.push_back(Pending::Forget(node));
+    }
+
+    /// Guards the pin of `node` while a call on this volume awaits.
+    pub(super) fn hold(&self, node: NodeId) -> Held<'_> {
+        Held::new(&self.shared.pending, node)
     }
 
     /// Opens the file at `path` with `options`.
@@ -197,44 +248,48 @@ impl<F: FileSystem> Volume<F> {
         if options.is_write() && !fs.capabilities().writable() {
             return Err(ErrorKind::ReadOnly.into());
         }
-        let node = if options.is_create() || options.is_create_new() {
+        let mut node = if options.is_create() || options.is_create_new() {
             let (dir, name) = resolve_parent(&mut *fs, path, how).await?;
-            let found = match fs.lookup(dir, name).await {
+            let dir = self.hold(dir);
+            let found = match fs.lookup(dir.node(), name).await {
                 Ok(node) if options.is_create_new() => {
                     fs.forget(node, 1);
                     Err(ErrorKind::AlreadyExists.into())
                 }
-                Err(err) if err.kind() == ErrorKind::NotFound => fs.create(dir, name, &SetAttr::new()).await,
+                Err(err) if err.kind() == ErrorKind::NotFound => fs.create(dir.node(), name, &SetAttr::new()).await,
                 other => other,
             };
-            fs.forget(dir, 1);
-            let node = found?;
-            if how == Resolve::Follow && is_symlink(&mut *fs, node).await {
-                fs.forget(node, 1);
-                fs.resolve(path, how).await?
+            dir.forget(&mut *fs);
+            let node = self.hold(found?);
+            if how == Resolve::Follow && is_symlink(&mut *fs, node.node()).await {
+                node.forget(&mut *fs);
+                self.hold(fs.resolve(path, how).await?)
             } else {
                 node
             }
         } else {
-            fs.resolve(path, how).await?
+            self.hold(fs.resolve(path, how).await?)
         };
         let mode = if options.is_write() { OpenMode::Write } else { OpenMode::Read };
-        if let Err(err) = fs.open(node, mode).await {
-            fs.forget(node, 1);
+        if let Err(err) = fs.open(node.node(), mode).await {
+            node.forget(&mut *fs);
             return Err(err);
         }
+        node.open = true;
         if options.is_truncate() && !options.is_create_new() {
-            let emptied = match fs.stat(node).await {
-                Ok(meta) if meta.len() > 0 => fs.truncate(node, 0).await,
+            let emptied = match fs.stat(node.node()).await {
+                Ok(meta) if meta.len() > 0 => fs.truncate(node.node(), 0).await,
                 Ok(_) => Ok(()),
                 Err(err) => Err(err),
             };
             if let Err(err) = emptied {
-                let _ = fs.close(node).await;
-                fs.forget(node, 1);
+                node.open = false;
+                let _ = fs.close(node.node()).await;
+                node.forget(&mut *fs);
                 return Err(err);
             }
         }
+        let node = node.keep();
         drop(fs);
         Ok(File::new(self.clone(), node, options))
     }
@@ -252,23 +307,24 @@ impl<F: FileSystem> Volume<F> {
 
     async fn stat_path(&self, path: &[u8], how: Resolve) -> FsResult<Metadata, F::DeviceError> {
         let mut fs = self.lock().await;
-        let node = fs.resolve(path, how).await?;
-        let meta = fs.stat(node).await;
-        fs.forget(node, 1);
+        let node = self.hold(fs.resolve(path, how).await?);
+        let meta = fs.stat(node.node()).await;
+        node.forget(&mut *fs);
         meta
     }
 
     /// Lists the directory at `path`.
     pub async fn read_dir(&self, path: impl AsRef<[u8]>) -> FsResult<ReadDir<F>, F::DeviceError> {
         let mut fs = self.lock().await;
-        let node = fs.resolve(path.as_ref(), self.shared.resolve).await?;
-        match fs.stat(node).await {
+        let node = self.hold(fs.resolve(path.as_ref(), self.shared.resolve).await?);
+        match fs.stat(node.node()).await {
             Ok(meta) if meta.file_type().is_dir() => {
+                let node = node.keep();
                 drop(fs);
                 Ok(ReadDir::new(self.clone(), node))
             }
             other => {
-                fs.forget(node, 1);
+                node.forget(&mut *fs);
                 Err(other.err().unwrap_or_else(|| ErrorKind::NotADirectory.into()))
             }
         }
@@ -277,9 +333,9 @@ impl<F: FileSystem> Volume<F> {
     /// The target of the symlink at `path`.
     pub async fn read_link(&self, path: impl AsRef<[u8]>) -> FsResult<Vec<u8>, F::DeviceError> {
         let mut fs = self.lock().await;
-        let node = fs.resolve(path.as_ref(), no_follow(self.shared.resolve)).await?;
-        let target = read_link_of(&mut *fs, node).await;
-        fs.forget(node, 1);
+        let node = self.hold(fs.resolve(path.as_ref(), no_follow(self.shared.resolve)).await?);
+        let target = read_link_of(&mut *fs, node.node()).await;
+        node.forget(&mut *fs);
         target
     }
 
@@ -287,8 +343,9 @@ impl<F: FileSystem> Volume<F> {
     pub async fn create_dir(&self, path: impl AsRef<[u8]>) -> FsResult<(), F::DeviceError> {
         let mut fs = self.lock().await;
         let (dir, name) = resolve_parent(&mut *fs, path.as_ref(), self.shared.resolve).await?;
-        let made = fs.mkdir(dir, name, &SetAttr::new()).await;
-        fs.forget(dir, 1);
+        let dir = self.hold(dir);
+        let made = fs.mkdir(dir.node(), name, &SetAttr::new()).await;
+        dir.forget(&mut *fs);
         fs.forget(made?, 1);
         Ok(())
     }
@@ -296,15 +353,16 @@ impl<F: FileSystem> Volume<F> {
     /// Creates the directory at `path` and every missing parent.
     pub async fn create_dir_all(&self, path: impl AsRef<[u8]>) -> FsResult<(), F::DeviceError> {
         let mut fs = self.lock().await;
-        create_dir_all(&mut *fs, path.as_ref(), self.shared.resolve).await
+        create_dir_all(&mut *fs, &self.shared.pending, path.as_ref(), self.shared.resolve).await
     }
 
     /// Removes the file or symlink at `path`.
     pub async fn remove_file(&self, path: impl AsRef<[u8]>) -> FsResult<(), F::DeviceError> {
         let mut fs = self.lock().await;
         let (dir, name) = resolve_parent(&mut *fs, path.as_ref(), self.shared.resolve).await?;
-        let removed = fs.unlink(dir, name).await;
-        fs.forget(dir, 1);
+        let dir = self.hold(dir);
+        let removed = fs.unlink(dir.node(), name).await;
+        dir.forget(&mut *fs);
         removed
     }
 
@@ -312,8 +370,9 @@ impl<F: FileSystem> Volume<F> {
     pub async fn remove_dir(&self, path: impl AsRef<[u8]>) -> FsResult<(), F::DeviceError> {
         let mut fs = self.lock().await;
         let (dir, name) = resolve_parent(&mut *fs, path.as_ref(), self.shared.resolve).await?;
-        let removed = fs.rmdir(dir, name).await;
-        fs.forget(dir, 1);
+        let dir = self.hold(dir);
+        let removed = fs.rmdir(dir.node(), name).await;
+        dir.forget(&mut *fs);
         removed
     }
 
@@ -323,18 +382,19 @@ impl<F: FileSystem> Volume<F> {
         let path = path.as_ref();
         let how = self.shared.resolve;
         let mut fs = self.lock().await;
-        let node = fs.resolve(path, no_follow(how)).await?;
-        let emptied = match fs.stat(node).await {
+        let node = self.hold(fs.resolve(path, no_follow(how)).await?);
+        let emptied = match fs.stat(node.node()).await {
             Ok(meta) if !meta.file_type().is_dir() => Err(ErrorKind::NotADirectory.into()),
-            Ok(_) if node == fs.root() => Err(ErrorKind::InvalidInput.into()),
-            Ok(_) => empty_dir(&mut *fs, node).await,
+            Ok(_) if node.node() == fs.root() => Err(ErrorKind::InvalidInput.into()),
+            Ok(_) => empty_dir(&mut *fs, &self.shared.pending, node.node()).await,
             Err(err) => Err(err),
         };
-        fs.forget(node, 1);
+        node.forget(&mut *fs);
         emptied?;
         let (dir, name) = resolve_parent(&mut *fs, path, how).await?;
-        let removed = fs.rmdir(dir, name).await;
-        fs.forget(dir, 1);
+        let dir = self.hold(dir);
+        let removed = fs.rmdir(dir.node(), name).await;
+        dir.forget(&mut *fs);
         removed
     }
 
@@ -344,15 +404,19 @@ impl<F: FileSystem> Volume<F> {
         let how = self.shared.resolve;
         let mut fs = self.lock().await;
         let (from_dir, from_name) = resolve_parent(&mut *fs, from.as_ref(), how).await?;
+        let from_dir = self.hold(from_dir);
         let moved = match resolve_parent(&mut *fs, to.as_ref(), how).await {
             Ok((to_dir, to_name)) => {
-                let moved = fs.rename(from_dir, from_name, to_dir, to_name, RenameMode::Replace).await;
-                fs.forget(to_dir, 1);
+                let to_dir = self.hold(to_dir);
+                let moved = fs
+                    .rename(from_dir.node(), from_name, to_dir.node(), to_name, RenameMode::Replace)
+                    .await;
+                to_dir.forget(&mut *fs);
                 moved
             }
             Err(err) => Err(err),
         };
-        fs.forget(from_dir, 1);
+        from_dir.forget(&mut *fs);
         moved
     }
 
@@ -360,9 +424,9 @@ impl<F: FileSystem> Volume<F> {
     /// `path`.
     pub async fn set_attr(&self, path: impl AsRef<[u8]>, changes: &SetAttr) -> FsResult<(), F::DeviceError> {
         let mut fs = self.lock().await;
-        let node = fs.resolve(path.as_ref(), self.shared.resolve).await?;
-        let set = fs.setattr(node, changes).await;
-        fs.forget(node, 1);
+        let node = self.hold(fs.resolve(path.as_ref(), self.shared.resolve).await?);
+        let set = fs.setattr(node.node(), changes).await;
+        node.forget(&mut *fs);
         set
     }
 }
@@ -385,21 +449,25 @@ async fn read_link_of<F: FileSystem + ?Sized>(fs: &mut F, node: NodeId) -> FsRes
 }
 
 /// Empties the directory `top`, depth first.
-async fn empty_dir<F: FileSystem + ?Sized>(fs: &mut F, top: NodeId) -> FsResult<(), F::DeviceError> {
-    let mut stack: Vec<(NodeId, Vec<u8>)> = Vec::new();
+async fn empty_dir<F: FileSystem + ?Sized>(
+    fs: &mut F,
+    pending: &spin::Mutex<VecDeque<Pending>>,
+    top: NodeId,
+) -> FsResult<(), F::DeviceError> {
+    let mut stack: Vec<(Held<'_>, Vec<u8>)> = Vec::new();
     let result = loop {
-        let dir = stack.last().map_or(top, |(node, _)| *node);
+        let dir = stack.last().map_or(top, |(node, _)| node.node());
         let entry = match fs.readdir(dir, DirCursor::START).await {
             Ok(entry) => entry,
             Err(err) => break Err(err),
         };
         match entry {
             Some(entry) if entry.file_type().is_dir() => match fs.lookup(dir, entry.name()).await {
-                Ok(child) if child == top || stack.iter().any(|(node, _)| *node == child) => {
+                Ok(child) if child == top || stack.iter().any(|(node, _)| node.node() == child) => {
                     fs.forget(child, 1);
                     break Err(ErrorKind::Corrupt.into());
                 }
-                Ok(child) => stack.push((child, entry.name().as_bytes().to_vec())),
+                Ok(child) => stack.push((Held::new(pending, child), entry.name().as_bytes().to_vec())),
                 Err(err) => break Err(err),
             },
             Some(entry) => {
@@ -411,9 +479,9 @@ async fn empty_dir<F: FileSystem + ?Sized>(fs: &mut F, top: NodeId) -> FsResult<
                 let Some((node, name)) = stack.pop() else {
                     break Ok(());
                 };
-                let parent = stack.last().map_or(top, |(node, _)| *node);
+                let parent = stack.last().map_or(top, |(node, _)| node.node());
                 let removed = fs.rmdir(parent, Name::new(&name)).await;
-                fs.forget(node, 1);
+                node.forget(fs);
                 if let Err(err) = removed {
                     break Err(err);
                 }
@@ -421,8 +489,57 @@ async fn empty_dir<F: FileSystem + ?Sized>(fs: &mut F, top: NodeId) -> FsResult<
         }
     };
     for (node, _) in stack {
-        fs.forget(node, 1);
+        node.forget(fs);
     }
+    result
+}
+
+/// Creates the directory `path` and every missing parent, resolving `..`
+/// as `how` does.
+async fn create_dir_all<F: FileSystem + ?Sized>(
+    fs: &mut F,
+    pending: &spin::Mutex<VecDeque<Pending>>,
+    path: &[u8],
+    how: Resolve,
+) -> FsResult<(), F::DeviceError> {
+    let mut current = Held::new(pending, fs.root());
+    let mut rest = components(path);
+    let mut result = Ok(());
+    while let Some(component) = rest.next() {
+        if component == b"." {
+            continue;
+        }
+        let next = if component == b".." {
+            if how == Resolve::Lexical {
+                continue;
+            }
+            fs.parent(current.node()).await
+        } else if how == Resolve::Lexical && cancelled(rest.clone()) {
+            continue;
+        } else {
+            let name = Name::new(component);
+            match fs.lookup(current.node(), name).await {
+                Err(err) if err.kind() == ErrorKind::NotFound => {
+                    fs.mkdir(current.node(), name, &SetAttr::new()).await
+                }
+                other => other,
+            }
+        };
+        current.forget(fs);
+        current = Held::new(pending, next?);
+        match fs.stat(current.node()).await {
+            Ok(meta) if meta.file_type().is_dir() => {}
+            Ok(_) => {
+                result = Err(ErrorKind::NotADirectory.into());
+                break;
+            }
+            Err(err) => {
+                result = Err(err);
+                break;
+            }
+        }
+    }
+    current.forget(fs);
     result
 }
 
