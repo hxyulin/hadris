@@ -2460,6 +2460,30 @@ fn extras_map_files_and_set_label_and_serial() {
 }
 
 #[test]
+fn the_label_and_a_file_of_the_same_name_do_not_collide() {
+    use hadris_fat::{FatOptions, VolumeLabel};
+    for case in CASES {
+        let mut fs = common::formatted(case, FatOptions::new());
+        let root = fs.root();
+        let file = write(&mut fs, root, "LABEL", b"file");
+        fs.forget(file, 1);
+        fs.set_label(Some(VolumeLabel::new("LABEL").unwrap()))
+            .unwrap();
+        fs.set_label(Some(VolumeLabel::new("MYDISK").unwrap()))
+            .unwrap();
+        let file = write(&mut fs, root, "MYDISK", b"disk");
+        fs.forget(file, 1);
+        assert_eq!(fs.label_text().unwrap().as_deref(), Some("MYDISK"));
+        assert_eq!(common::names(&mut fs, "/"), ["LABEL", "MYDISK"]);
+        let image = fs.unmount().unwrap().into_inner();
+        common::assert_checks_clean(case, &image, case.name);
+        assert_eq!(fresh_read(case, &image, "/LABEL"), b"file");
+        assert_eq!(fresh_read(case, &image, "/mydisk"), b"disk");
+        fsck(&image, case.name);
+    }
+}
+
+#[test]
 fn was_dirty_reads_the_clean_bit() {
     for case in CASES {
         let mut image = common::blank(case);

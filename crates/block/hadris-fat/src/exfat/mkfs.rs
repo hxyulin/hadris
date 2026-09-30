@@ -114,16 +114,25 @@ fn plan(device_bytes: u64, block_size: u32, options: &ExFatOptions) -> Result<La
     let align_sectors = align >> sector_shift;
     let per_cluster = cluster_shift - sector_shift;
     let fat_offset = 24u64.next_multiple_of(align_sectors);
-    let mut count = (volume_sectors >> per_cluster).min(raw::MAX_CLUSTER_COUNT as u64);
-    let (fat_length, heap_offset) = loop {
+    let layout_for = |count: u64| {
         let fat_length = ((count + 2) * 4).div_ceil(sector);
         let heap_offset = (fat_offset + fat_length * fats as u64).next_multiple_of(align_sectors);
         let fits = volume_sectors.saturating_sub(heap_offset) >> per_cluster;
-        if fits >= count {
-            break (fat_length, heap_offset);
-        }
-        count = fits;
+        (fat_length, heap_offset, fits)
     };
+    let (mut count, mut high) = (
+        0,
+        (volume_sectors >> per_cluster).min(raw::MAX_CLUSTER_COUNT as u64),
+    );
+    while count < high {
+        let mid = count + (high - count).div_ceil(2);
+        if layout_for(mid).2 >= mid {
+            count = mid;
+        } else {
+            high = mid - 1;
+        }
+    }
+    let (fat_length, heap_offset, _) = layout_for(count);
     let fat_offset = u32::try_from(fat_offset).map_err(|_| ErrorKind::LimitExceeded)?;
     let fat_length = u32::try_from(fat_length).map_err(|_| ErrorKind::LimitExceeded)?;
     let heap_offset = u32::try_from(heap_offset).map_err(|_| ErrorKind::LimitExceeded)?;

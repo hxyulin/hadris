@@ -22,6 +22,9 @@ pub struct Script {
     /// The next write that covers this byte offset fails with a device
     /// error, and is then forgotten.
     pub fail_at: Option<u64>,
+    /// How many further writes covering `fail_at` fail before it is
+    /// forgotten.
+    pub fail_more: u32,
     /// Every write fails with `ErrorKind::ReadOnly`.
     pub refuse: bool,
     /// The writes and flushes that reached the device.
@@ -89,7 +92,11 @@ impl BlockDevice for Scripted {
         if let Some(fail) = script.fail_at
             && (at..at + buf.len() as u64).contains(&fail)
         {
-            script.fail_at = None;
+            if script.fail_more > 0 {
+                script.fail_more -= 1;
+            } else {
+                script.fail_at = None;
+            }
             return Err(Error::device(
                 std::io::Error::other("injected fault"),
                 "write failed",
