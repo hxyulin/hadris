@@ -78,11 +78,11 @@ pub async fn write<D: BlockDevice>(mut out: D, tree: &Tree, opts: &UdfOptions) -
 /// the report [`plan_bridge`](crate::plan_bridge) returns.
 ///
 /// The ISO 9660 image is written first, from block 0 in ascending order,
-/// with its directories after the UDF metadata; then the UDF structures,
-/// pointing at the ISO 9660 file extents, and the last block of the image.
-/// Last, the volume space size of each ISO 9660 volume descriptor is set to
-/// the whole image, UDF structures included (ECMA-119 8.4.8). Nothing is
-/// read back from the device except those descriptors.
+/// with its directories after the UDF metadata, padded to the whole image
+/// so its volume space size (ECMA-119 8.4.8), its hybrid partitions and
+/// its backup GPT cover the UDF structures too; then the UDF structures,
+/// pointing at the ISO 9660 file extents. Nothing is read back from the
+/// device.
 ///
 /// Fails before writing anything as [`plan_bridge`](crate::plan_bridge)
 /// does, and like [`write()`] for the device. Errors of either writer keep
@@ -93,28 +93,7 @@ pub async fn write_bridge<D: BlockDevice>(mut out: D, tree: &Tree, iso: &IsoOpti
     check_output(&out, plan.udf.total_blocks)?;
     super::iso::write(&mut out, tree, &plan.iso).await?;
     emit(&mut out, &plan.stored, &plan.udf).await?;
-    cover(&mut out, plan.descriptors, plan.udf.total_blocks).await?;
     Ok(plan.report())
-}
-
-/// Sets the volume space size of the first `descriptors` ISO 9660 volume
-/// descriptors to `blocks`, the whole image, so the ISO 9660 volume also
-/// covers the UDF structures after its own end.
-async fn cover<D: BlockDevice>(out: &mut D, descriptors: u32, blocks: u64) -> Result<(), Error<D::Error>> {
-    let blocks = u32::try_from(blocks).unwrap_or(u32::MAX);
-    let per_sector = SECTOR as u64 / u64::from(out.block_size().get());
-    let mut sector = [0u8; SECTOR];
-    for index in 16..16 + u64::from(descriptors) {
-        let first = BlockIndex::new(index * per_sector);
-        out.read_blocks(first, &mut sector).await?;
-        if !matches!(sector[0], 1 | 2) || &sector[1..6] != b"CD001" {
-            continue;
-        }
-        sector[80..84].copy_from_slice(&blocks.to_le_bytes());
-        sector[84..88].copy_from_slice(&blocks.to_be_bytes());
-        out.write_blocks(first, &sector).await?;
-    }
-    out.flush().await
 }
 
 async fn write_sectors<D: BlockDevice>(out: &mut D, sector: u64, data: &[u8]) -> Result<(), Error<D::Error>> {

@@ -36,6 +36,7 @@ hadris-iso = { workspace = true, default-features = false, optional = true }
 
 [dev-dependencies]
 hadris-fs = { workspace = true, features = ["contract"] }
+hadris-part = { workspace = true, features = ["std", "sync"] }
 hadris-storage = { workspace = true, features = ["std", "sync"] }
 tempfile.workspace = true
 

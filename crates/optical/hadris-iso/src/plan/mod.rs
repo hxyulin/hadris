@@ -1315,7 +1315,6 @@ impl Planner<'_> {
             block: data_end,
             data: vec![0; PADDING_BLOCKS as usize * SECTOR_SIZE],
         });
-        let end = data_end + PADDING_BLOCKS;
         let hybrid = if self.base.system_area {
             self.opts.hybrid()
         } else {
@@ -1324,8 +1323,15 @@ impl Planner<'_> {
         let gpt = matches!(
             hybrid.map(Hybrid::scheme),
             Some(PartitionScheme::Gpt | PartitionScheme::GptHybridMbr)
-        );
-        let total = if gpt || self.base.gpt_backup {
+        ) || self.base.gpt_backup;
+        let min = self.opts.min_image_blocks().min(1 << 32);
+        let min_end = if gpt {
+            (min * 4).saturating_sub(BACKUP_GPT_SECTORS) / 4
+        } else {
+            min
+        };
+        let end = (data_end + PADDING_BLOCKS).max(min_end);
+        let total = if gpt {
             (end * 4 + BACKUP_GPT_SECTORS).div_ceil(4)
         } else {
             end
