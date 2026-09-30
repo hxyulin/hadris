@@ -1002,24 +1002,44 @@ impl<D: BlockDevice> IsoFs<D> {
     /// Call again from the end of the last one for more; 0 means there are
     /// none. A file of several extents (multi-extent) has one per
     /// directory record; a directory has the one extent of its records.
+    /// Each call reads the records from the first, so a larger `out`
+    /// takes fewer reads.
     pub async fn extents(&mut self, node: NodeId, from: u64, out: &mut [hadris_fs::Extent]) -> Result<usize, Error<D::Error>> {
+        let mut count = 0;
+        self.walk_extents(node, &mut |extent| {
+            if extent.file_offset() + extent.len() <= from || extent.is_empty() {
+                return true;
+            }
+            let Some(slot) = out.get_mut(count) else {
+                return false;
+            };
+            *slot = extent;
+            count += 1;
+            true
+        })
+        .await?;
+        Ok(count)
+    }
+
+    /// Calls `each` with every extent of a file in order, including empty
+    /// ones, until it returns `false`.
+    pub(crate) async fn walk_extents(
+        &mut self,
+        node: NodeId,
+        each: &mut impl FnMut(hadris_fs::Extent) -> bool,
+    ) -> Result<(), Error<D::Error>> {
         let record = self.view.record_at(&mut self.dev, node.get()).await?;
         let mut current = (node.get(), record);
         let mut file = 0u64;
-        let mut count = 0;
         for _ in 0..MAX_EXTENTS {
             let start = self.view.extent_start(&current.1).ok_or(Detail::DirectoryRecord.corrupt())?;
             let len = u64::from(current.1.header().data_len.get());
-            if file + len > from && len > 0 {
-                let Some(slot) = out.get_mut(count) else {
-                    return Ok(count);
-                };
-                *slot = hadris_fs::Extent::new(start, len).with_file_offset(file);
-                count += 1;
+            if !each(hadris_fs::Extent::new(start, len).with_file_offset(file)) {
+                return Ok(());
             }
             file += len;
             if !current.1.header().file_flags().contains(FileFlags::NOT_FINAL) {
-                return Ok(count);
+                return Ok(());
             }
             current = self.view.following(&mut self.dev, current.0, &current.1).await?;
             if current.1.name() != record.name() {
