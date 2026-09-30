@@ -2541,6 +2541,41 @@ fn write_all_any<D: BlockDevice>(fs: &mut FatFs<D>, node: NodeId, data: &[u8]) {
 }
 
 #[test]
+fn unmount_after_a_refusal_fails_while_sizes_are_unwritten() {
+    let case = CASES[1];
+    let before = populate(case);
+    for dirty in [true, false] {
+        let (dev, script) = Scripted::new(common::device(case, before.clone()));
+        let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
+        let root = fs.root();
+        let grown = fs.lookup(root, name("grown.bin")).unwrap();
+        if dirty {
+            assert_eq!(fs.write(grown, 9000, &[1u8; 100]).unwrap(), 100);
+        }
+        let lower = fs.lookup(root, name("lower.txt")).unwrap();
+        script.borrow_mut().refuse = true;
+        let refused = fs.write(lower, 0, b"x").unwrap_err();
+        assert_eq!(refused.kind(), ErrorKind::ReadOnly);
+        assert!(fs.is_read_only());
+        fs.forget(lower, 1);
+        fs.forget(grown, 1);
+        if !dirty {
+            assert_eq!(fs.sync().map_err(|err| err.kind()), Ok(()));
+            fs.unmount().unwrap();
+            continue;
+        }
+        assert_eq!(fs.sync().unwrap_err().kind(), ErrorKind::ReadOnly);
+        let err = fs.unmount().unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::ReadOnly);
+        let image = err.into_device().into_image();
+        assert_eq!(fresh_read(case, &image, "/grown.bin").len(), 9000);
+    }
+    let dev = common::device(case, before);
+    let fs = FatFs::mount(dev, MountOptions::new().read_only()).unwrap();
+    fs.unmount().unwrap();
+}
+
+#[test]
 fn a_shrink_whose_fat_write_fails_is_cut_back_by_the_next_write() {
     let case = CASES[1];
     let (dev, script) = Scripted::new(common::device(case, common::blank(case)));

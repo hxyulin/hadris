@@ -1270,6 +1270,41 @@ fn a_grow_whose_file_entry_fails_keeps_the_old_size_and_chain() {
 }
 
 #[test]
+fn unmount_after_a_refusal_fails_while_sizes_are_unwritten() {
+    let before = populated();
+    for dirty in [true, false] {
+        let (dev, script) = Scripted::new(common::device(before.clone(), 512));
+        let mut fs = ExFatFs::mount(dev, MountOptions::new()).unwrap();
+        let root = fs.root();
+        let grown = fs.lookup(root, name("grown.bin")).unwrap();
+        if dirty {
+            assert_eq!(fs.write(grown, 9000, &[1u8; 100]).unwrap(), 100);
+        }
+        let lower = fs.lookup(root, name("lower.txt")).unwrap();
+        script.borrow_mut().refuse = true;
+        let refused = fs.write(lower, 0, b"x").unwrap_err();
+        assert_eq!(refused.kind(), ErrorKind::ReadOnly);
+        assert!(fs.is_read_only());
+        fs.forget(lower, 1);
+        fs.forget(grown, 1);
+        if !dirty {
+            assert_eq!(fs.sync().map_err(|err| err.kind()), Ok(()));
+            fs.unmount().unwrap();
+            continue;
+        }
+        assert_eq!(fs.sync().unwrap_err().kind(), ErrorKind::ReadOnly);
+        let err = fs.unmount().unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::ReadOnly);
+        let image = err.into_device().into_image();
+        let mut fresh = common::mount(&image);
+        assert_eq!(fresh.read_to_vec("/grown.bin").unwrap().len(), 9000);
+    }
+    let dev = common::device(before, 512);
+    let fs = ExFatFs::mount(dev, MountOptions::new().read_only()).unwrap();
+    fs.unmount().unwrap();
+}
+
+#[test]
 fn a_shrink_whose_fat_write_fails_is_cut_back_by_the_next_write() {
     let image = common::image(common::small(4 << 20, 4096));
     let (dev, script) = Scripted::new(common::device(image, 512));

@@ -326,8 +326,9 @@ io_transform! {
 ///
 /// A device that answers a write with `WriteError::ReadOnly` fails that
 /// operation with [`ErrorKind::ReadOnly`] and changes nothing, and the
-/// volume is read-only from then on. Other failed operations are undone as
-/// far as the device allows.
+/// volume is read-only from then on; `sync` and `unmount` then fail with
+/// [`ErrorKind::ReadOnly`] while pending sizes are left unwritten. Other
+/// failed operations are undone as far as the device allows.
 ///
 /// # Crash and cancellation safety
 ///
@@ -459,8 +460,13 @@ impl<D: BlockDevice> FatFs<D> {
     /// Syncs the volume, as `FileSystem::sync` does, and gives the device
     /// back. When the sync fails the [`MountError`] holds its error and the
     /// device.
+    ///
+    /// A volume mounted read-only has nothing to write. One that became
+    /// read-only because the device refused a write fails with
+    /// [`ErrorKind::ReadOnly`] while it still holds pending sizes, or what an
+    /// interrupted operation left, that can no longer be written.
     pub async fn unmount(mut self) -> Result<D, MountError<D, D::Error>> {
-        let synced = if self.read_only { Ok(()) } else { FileSystem::sync(&mut self).await };
+        let synced = FileSystem::sync(&mut self).await;
         match synced {
             Ok(()) => Ok(self.dev),
             Err(error) => Err(MountError::new(error, self.dev)),
@@ -825,6 +831,15 @@ impl<D: BlockDevice> FatFs<D> {
 
     fn writable(&self) -> Result<(), ErrorKind> {
         if self.read_only { Err(ErrorKind::ReadOnly) } else { Ok(()) }
+    }
+
+    /// Whether a node's size, or what an interrupted operation left, is not
+    /// yet written.
+    fn unwritten(&self) -> bool {
+        self.pending.is_some()
+            || self.run.is_some()
+            || self.fat.unmirrored().is_some()
+            || self.nodes.find(|_, node| node.dirty).is_some()
     }
 
     /// Checks that the volume is writable and finishes what an interrupted
@@ -2518,10 +2533,15 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
     /// A node whose short entry cannot be read any more does not stop the
     /// others: its pending size is dropped, the rest is written, and `sync`
     /// then fails with [`ErrorKind::Corrupt`].
+    ///
+    /// A read-only volume is not written: `sync` fails with
+    /// [`ErrorKind::ReadOnly`] when a refused write left pending sizes, or
+    /// what an interrupted operation left, unwritten, and succeeds otherwise.
     async fn sync(&mut self) -> FsResult<(), D::Error> {
-        if !self.read_only {
-            self.recover().await?;
+        if self.read_only {
+            return if self.unwritten() { Err(ErrorKind::ReadOnly.into()) } else { Ok(()) };
         }
+        self.recover().await?;
         let mut corrupt = None;
         while let Some(id) = self.nodes.find(|_, node| node.dirty) {
             match self.flush_node(id).await {

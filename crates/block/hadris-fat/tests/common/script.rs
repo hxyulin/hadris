@@ -33,6 +33,12 @@ pub struct Scripted {
     pub script: Rc<RefCell<Script>>,
 }
 
+impl std::fmt::Debug for Scripted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Scripted")
+    }
+}
+
 impl Scripted {
     pub fn new(inner: MemDevice<Vec<u8>>) -> (Self, Rc<RefCell<Script>>) {
         let script = Rc::new(RefCell::new(Script::default()));
