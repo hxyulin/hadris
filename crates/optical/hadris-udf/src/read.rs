@@ -402,10 +402,11 @@ async fn mount<D: BlockDevice>(dev: &mut D, backup: bool) -> Result<Info, Error<
     if lvd.block_size.get() != block_size {
         return Err(Detail::BlockSize.corrupt());
     }
-    let table_len = lvd.map_table_length.get() as usize;
-    let maps = lvd_block
-        .get(440..440 + table_len)
-        .filter(|_| 440 + table_len <= block_size as usize)
+    let maps = usize::try_from(lvd.map_table_length.get())
+        .ok()
+        .and_then(|len| len.checked_add(440))
+        .filter(|&end| end <= block_size as usize)
+        .and_then(|end| lvd_block.get(440..end))
         .ok_or(Detail::Descriptor.corrupt())?;
     let mut partitions = [PartitionInfo::default(); MAX_PARTITIONS];
     let mut count = 0;
