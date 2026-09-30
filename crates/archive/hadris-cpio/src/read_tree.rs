@@ -118,13 +118,29 @@ impl Groups {
     }
 }
 
+/// The length of entry data loaded into memory. [`ErrorKind::LimitExceeded`]
+/// past what a `Vec` holds on this target, as an `odc` file of 4 GiB or
+/// more on a 32-bit one.
+fn data_len<E>(len: u64) -> Result<usize, Error<E>> {
+    usize::try_from(len)
+        .ok()
+        .filter(|&len| isize::try_from(len).is_ok())
+        .ok_or_else(|| {
+            Error::new(
+                ErrorKind::LimitExceeded,
+                "entry data does not fit in memory",
+            )
+        })
+}
+
 io_transform! {
 
 async fn read_data<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeSend>(entry: &mut Entry<'_, R, B>) -> Result<Vec<u8>, Error<R::Error>> {
+    let len = data_len(entry.remaining())?;
     let mut data = Vec::new();
-    let mut chunk = alloc::vec![0u8; CHUNK.min(entry.remaining() as usize)];
-    while entry.remaining() > 0 {
-        let take = (entry.remaining() as usize).min(chunk.len());
+    let mut chunk = alloc::vec![0u8; CHUNK.min(len)];
+    while data.len() < len {
+        let take = (len - data.len()).min(chunk.len());
         let read = entry.read(&mut chunk[..take]).await?;
         if read == 0 {
             return Err(crate::error::Detail::Truncated.corrupt());
@@ -186,4 +202,24 @@ pub async fn read_tree<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeS
     Ok(tree)
 }
 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn data_past_memory_is_limit_exceeded() {
+        assert_eq!(data_len::<()>(5).ok(), Some(5));
+        let err = data_len::<()>(u64::MAX).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::LimitExceeded);
+        let four_gib = u64::from(u32::MAX) + 1;
+        #[cfg(target_pointer_width = "32")]
+        assert_eq!(
+            data_len::<()>(four_gib).unwrap_err().kind(),
+            ErrorKind::LimitExceeded
+        );
+        #[cfg(target_pointer_width = "64")]
+        assert_eq!(data_len::<()>(four_gib).ok(), Some(1 << 32));
+    }
 }
