@@ -94,10 +94,11 @@ impl<F: FileSystem> File<F> {
     /// Closes the file, publishing its size and times. It does not flush the
     /// device; call [`sync_all`](Self::sync_all) first for durability.
     pub async fn close(mut self) -> FsResult<(), F::DeviceError> {
-        self.open = false;
         let mut fs = self.vol.lock().await;
+        self.open = false;
+        let node = self.vol.hold(self.node);
         let closed = fs.close(self.node).await;
-        fs.forget(self.node, 1);
+        node.forget(&mut *fs);
         closed
     }
 }

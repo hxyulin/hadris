@@ -10,3 +10,5 @@ pub use mem_fs::MemFs;
 pub fn fixture() -> MemFs {
     super::fixture(MemFs::new, MemFs::add)
 }
+
+pub fn yield_now() {}
