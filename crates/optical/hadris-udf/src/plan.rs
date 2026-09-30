@@ -365,8 +365,10 @@ impl Planner<'_> {
         vec![0u8; SECTOR]
     }
 
-    fn seal(&self, buf: &mut [u8], id: u16, location: u32, crc_length: usize) {
-        Tag::seal(buf, id, self.version, location, crc_length.min(496));
+    /// Seals the descriptor of `size` bytes, tag included, at the start of
+    /// `buf`, with a CRC over all of it after the tag.
+    fn seal(&self, buf: &mut [u8], id: u16, location: u32, size: usize) {
+        Tag::seal(buf, id, self.version, location, size - Tag::SIZE);
     }
 
     fn id(&self, id: UdfId, field: &mut [u8]) {
@@ -381,7 +383,7 @@ impl Planner<'_> {
         };
         put(&mut buf, 16, bytemuck::bytes_of(&extent(MAIN_SEQUENCE)));
         put(&mut buf, 24, bytemuck::bytes_of(&extent(RESERVE_SEQUENCE)));
-        self.seal(&mut buf, tag::ANCHOR, location, SECTOR - 16);
+        self.seal(&mut buf, tag::ANCHOR, location, 512);
         buf
     }
 
@@ -400,7 +402,7 @@ impl Planner<'_> {
         entity(&mut buf[344..376], IMPLEMENTATION);
         put(&mut buf, 376, bytemuck::bytes_of(&self.now));
         entity(&mut buf[388..420], IMPLEMENTATION);
-        self.seal(&mut buf, tag::PRIMARY_VOLUME, location, 496);
+        self.seal(&mut buf, tag::PRIMARY_VOLUME, location, 512);
         buf
     }
 
@@ -410,7 +412,7 @@ impl Planner<'_> {
         entity(&mut buf[20..52], b"*UDF LV Info");
         charspec(&mut buf[52..116]);
         self.id(UdfId::LogicalVolume, &mut buf[116..244]);
-        self.seal(&mut buf, tag::IMPLEMENTATION_USE, location, 496);
+        self.seal(&mut buf, tag::IMPLEMENTATION_USE, location, 512);
         buf
     }
 
@@ -428,7 +430,7 @@ impl Planner<'_> {
         put(&mut buf, 188, &PARTITION_START.to_le_bytes());
         put(&mut buf, 192, &length.to_le_bytes());
         entity(&mut buf[196..228], IMPLEMENTATION);
-        self.seal(&mut buf, tag::PARTITION, location, 496);
+        self.seal(&mut buf, tag::PARTITION, location, 512);
         buf
     }
 
@@ -450,20 +452,20 @@ impl Planner<'_> {
         put(&mut buf, 432, &(SECTOR as u32).to_le_bytes());
         put(&mut buf, 436, &INTEGRITY.to_le_bytes());
         put(&mut buf, 440, &[1, 6, 1, 0, 0, 0]);
-        self.seal(&mut buf, tag::LOGICAL_VOLUME, location, 496);
+        self.seal(&mut buf, tag::LOGICAL_VOLUME, location, 446);
         buf
     }
 
     fn unallocated(&self, location: u32) -> Vec<u8> {
         let mut buf = self.sector();
         put(&mut buf, 16, &4u32.to_le_bytes());
-        self.seal(&mut buf, tag::UNALLOCATED_SPACE, location, 496);
+        self.seal(&mut buf, tag::UNALLOCATED_SPACE, location, 24);
         buf
     }
 
     fn terminating(&self, location: u32) -> Vec<u8> {
         let mut buf = self.sector();
-        self.seal(&mut buf, tag::TERMINATING, location, 0);
+        self.seal(&mut buf, tag::TERMINATING, location, 512);
         buf
     }
 
@@ -492,7 +494,7 @@ impl Planner<'_> {
         for at in [128, 130, 132] {
             put(&mut buf, at, &self.revision());
         }
-        self.seal(&mut buf, tag::INTEGRITY, INTEGRITY, 496);
+        self.seal(&mut buf, tag::INTEGRITY, INTEGRITY, 134);
         buf
     }
 
@@ -517,7 +519,7 @@ impl Planner<'_> {
         };
         put(&mut buf, 400, bytemuck::bytes_of(&root));
         self.domain(&mut buf[416..448]);
-        self.seal(&mut buf, tag::FILE_SET, 0, 496);
+        self.seal(&mut buf, tag::FILE_SET, 0, 512);
         buf
     }
 
@@ -581,7 +583,7 @@ impl Planner<'_> {
         let mut buf = self.sector();
         put(&mut buf, 0, bytemuck::bytes_of(&fe));
         put(&mut buf, 176, bytemuck::cast_slice(ads));
-        self.seal(&mut buf, tag::FILE_ENTRY, location, 160 + ads.len() * 8);
+        self.seal(&mut buf, tag::FILE_ENTRY, location, 176 + ads.len() * 8);
         Ok(buf)
     }
 
@@ -998,5 +1000,84 @@ fn collect_paths(dir: TreeEntry<'_>, extents: &BTreeMap<usize, Vec<Extent>>, rep
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hadris_fs::{Content, Node};
+
+    fn field(sector: &[u8], at: usize) -> usize {
+        u32::from_le_bytes(sector[at..at + 4].try_into().unwrap()) as usize
+    }
+
+    /// The size of the descriptor starting `sector`, by its identifier.
+    fn descriptor_len(sector: &[u8]) -> Option<usize> {
+        let tag = Tag::read(sector)?;
+        if !tag.is_checksum_valid() {
+            return None;
+        }
+        Some(match tag.identifier.get() {
+            tag::PRIMARY_VOLUME
+            | tag::ANCHOR
+            | tag::IMPLEMENTATION_USE
+            | tag::PARTITION
+            | tag::TERMINATING
+            | tag::FILE_SET => 512,
+            tag::LOGICAL_VOLUME => 440 + field(sector, 264),
+            tag::UNALLOCATED_SPACE => 24 + 8 * field(sector, 20),
+            tag::INTEGRITY => 80 + 8 * field(sector, 72) + field(sector, 76),
+            tag::FILE_ENTRY => 176 + field(sector, 168) + field(sector, 172),
+            _ => return None,
+        })
+    }
+
+    #[test]
+    fn descriptor_crcs_cover_each_whole_descriptor() {
+        let mut tree = Tree::new();
+        tree.insert("a.txt", Node::file(Content::bytes("a")))
+            .unwrap();
+        tree.insert("fragmented.bin", Node::file(Content::bytes("b")))
+            .unwrap();
+        let fragmented = tree
+            .root()
+            .children()
+            .find(|(name, _)| name.as_bytes() == b"fragmented.bin")
+            .map(|(_, child)| child.id())
+            .unwrap();
+        let fragments = (0..100u64)
+            .map(|i| Extent::new((10_000 + 2 * i) * SECTOR as u64, SECTOR as u64))
+            .collect();
+        let mut contents = BTreeMap::new();
+        contents.insert(
+            fragmented,
+            ContentInfo {
+                len: 100 * SECTOR as u64,
+                stored: Some(fragments),
+            },
+        );
+        let plan = lay_out(&tree, &UdfOptions::default(), &contents, false, Some(3)).unwrap();
+
+        let mut seen = BTreeMap::new();
+        for region in &plan.regions {
+            let Region::Bytes { data, .. } = region else {
+                continue;
+            };
+            for sector in data.chunks(SECTOR) {
+                let Some(len) = descriptor_len(sector) else {
+                    continue;
+                };
+                let tag = Tag::read(sector).unwrap();
+                let id = tag.identifier.get();
+                assert_eq!(usize::from(tag.crc_length.get()), len - 16, "tag {id}");
+                assert!(tag.is_crc_valid(&sector[16..]), "tag {id}");
+                let largest = seen.entry(id).or_insert(0);
+                *largest = len.max(*largest);
+            }
+        }
+        let ids: Vec<_> = seen.keys().copied().collect();
+        assert_eq!(ids, [1, 2, 4, 5, 6, 7, 8, 9, 256, 261]);
+        assert_eq!(seen[&tag::FILE_ENTRY], 176 + 100 * 8);
     }
 }

@@ -164,3 +164,38 @@ pub use volume::{EntityId, PartitionInfo, PartitionKind, UdfId, VolumeInfo};
 
 #[cfg(test)]
 extern crate self as hadris_udf;
+
+#[cfg(all(test, feature = "std", feature = "sync"))]
+mod tests {
+    use hadris_fs::{Content, ErrorKind, MountOptions, Node, Tree};
+    use hadris_storage::{BlockSize, MemDevice};
+
+    use crate::raw::Tag;
+
+    #[test]
+    fn map_tables_past_any_block_are_corrupt() {
+        let mut tree = Tree::new();
+        tree.insert("a", Node::file(Content::bytes("a"))).unwrap();
+        let options = crate::UdfOptions::default();
+        let size = crate::plan(&tree, &options).unwrap().size() as usize;
+        let sector = BlockSize::new(2048).unwrap();
+        let mut dev = MemDevice::new(alloc::vec![0u8; size], sector);
+        crate::sync::write(&mut dev, &tree, &options).unwrap();
+        let mut bytes = dev.into_inner();
+        for lvd in [260, 276] {
+            let block = &mut bytes[lvd * 2048..(lvd + 1) * 2048];
+            let tag = Tag::read(block).unwrap();
+            block[264..268].copy_from_slice(&u32::MAX.to_le_bytes());
+            Tag::seal(
+                block,
+                tag.identifier.get(),
+                tag.version.get(),
+                tag.location.get(),
+                usize::from(tag.crc_length.get()),
+            );
+        }
+        let err = crate::sync::UdfFs::mount(MemDevice::new(bytes, sector), MountOptions::new())
+            .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Corrupt);
+    }
+}

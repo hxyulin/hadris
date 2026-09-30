@@ -246,6 +246,21 @@ and command to its 3.0 replacement, and
 - **hadris-cpio:** `read_tree` fails with `LimitExceeded` for entry data
   that does not fit in memory, such as an `odc` file of 4 GiB or more on a
   32-bit target, instead of reporting a truncated archive.
+- **hadris-udf:** Directory metadata reports length 0, as the `Metadata`
+  contract says, instead of the size of the identifier stream.
+- **hadris-udf:** Each descriptor tag's CRC covers the whole descriptor.
+  File entries with more than 42 allocation descriptors were not fully
+  covered, the terminating descriptor was not covered at all, and the
+  logical volume, unallocated space and integrity descriptors covered
+  bytes past their end. The reader still checks the length each tag
+  records, so older images read as before.
+- **hadris-udf:** Sequential reads of a directory or file resume their
+  walk of the allocation descriptors, so listing a directory whose
+  descriptors span continuation extents takes linear time instead of
+  rewalking them for every entry.
+- **hadris-udf:** A logical volume descriptor with a partition map table
+  length near `u32::MAX` fails with `Corrupt` on 32-bit targets instead of
+  panicking on overflow.
 
 ## [2.4.0] - 2026-09-08
 
