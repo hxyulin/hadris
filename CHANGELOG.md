@@ -266,6 +266,26 @@ and command to its 3.0 replacement, and
 - **hadris-udf:** A bridge image with a GPT hybrid keeps its backup GPT in
   the last sectors of the image instead of before the UDF tail, and its
   hybrid partitions cover the UDF structures.
+- **hadris-fs:** The default `FileSystem::sync` and `fsync` succeed instead
+  of failing with `ReadOnly`, so `sync` and `File::sync_all` work on every
+  read-only mount with nothing to write, as they already did on FAT and
+  exFAT; the trait docs state the rule.
+- **hadris-fs:** The default `FileSystem::resolve` and `read_tree` leave no
+  pin when their future is dropped, and a dropped read of `read_tree`
+  content closes the file on the next lock.
+- **hadris-fs:** The contract kit checks that directories report length 0,
+  that the root is its own parent, that symlinks refuse `open` with
+  `Symlink`, that `readlink` of anything else fails with `InvalidInput`,
+  that reads past the end return 0, that names holding NUL are refused,
+  that `sync` and `fsync` succeed on a read-only mount, and, in the async
+  mode, that a dropped `resolve` leaves no pin.
+- **hadris-ntfs:** A node id that names a damaged record fails with
+  `Corrupt` and the record's detail instead of `InvalidHandle`, and
+  `readdir` lists an entry whose record cannot be read with its type
+  instead of failing, so a listing moves past a torn record.
+- **hadris-iso:** The writer reports a `Renamed` warning for each Rock
+  Ridge name longer than 768 bytes, which readers list under its ISO 9660
+  identifier.
 
 ## [2.4.0] - 2026-09-08
 

@@ -32,29 +32,33 @@ pub(super) struct Shared<F> {
 
 /// A pin held across an `.await`. Dropped before [`forget`](Self::forget)
 /// or [`keep`](Self::keep), as when its future is dropped, it queues the
-/// release for the next lock, with a close when `open` is set.
+/// release for the next lock, with a close when `open` is set. Without
+/// `pinned` it guards an open only.
 pub(super) struct Held<'a> {
     pending: &'a spin::Mutex<VecDeque<Pending>>,
     node: Option<NodeId>,
     open: bool,
+    pinned: bool,
 }
 
 impl<'a> Held<'a> {
     fn new(pending: &'a spin::Mutex<VecDeque<Pending>>, node: NodeId) -> Self {
-        Self { pending, node: Some(node), open: false }
+        Self { pending, node: Some(node), open: false, pinned: true }
     }
 
-    fn node(&self) -> NodeId {
+    pub(super) fn node(&self) -> NodeId {
         self.node.expect("released pin")
     }
 
     /// Hands the pin to the caller.
-    fn keep(mut self) -> NodeId {
+    pub(super) fn keep(mut self) -> NodeId {
         self.node.take().expect("released pin")
     }
 
     pub(super) fn forget<F: FileSystem + ?Sized>(mut self, fs: &mut F) {
-        if let Some(node) = self.node.take() {
+        if let Some(node) = self.node.take()
+            && self.pinned
+        {
             fs.forget(node, 1);
         }
     }
@@ -67,7 +71,9 @@ impl Drop for Held<'_> {
             if self.open {
                 pending.push_back(Pending::Close(node));
             }
-            pending.push_back(Pending::Forget(node));
+            if self.pinned {
+                pending.push_back(Pending::Forget(node));
+            }
         }
     }
 }
@@ -232,6 +238,12 @@ impl<F: FileSystem> Volume<F> {
     /// Guards the pin of `node` while a call on this volume awaits.
     pub(super) fn hold(&self, node: NodeId) -> Held<'_> {
         Held::new(&self.shared.pending, node)
+    }
+
+    /// Guards an open of `node`, whose pin its caller keeps, while a call on
+    /// this volume awaits.
+    pub(super) fn hold_open(&self, node: NodeId) -> Held<'_> {
+        Held { pending: &self.shared.pending, node: Some(node), open: true, pinned: false }
     }
 
     /// Opens the file at `path` with `options`.

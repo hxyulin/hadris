@@ -112,6 +112,17 @@ pub(crate) fn file_record(record: &mut [u8]) -> Result<RecordHeader, Detail> {
     Ok(header)
 }
 
+/// Whether `record`, as read and before or after a failed
+/// [`file_record`], is an in-use file record with sequence number
+/// `sequence`. The fields are in its first sector, which fixups leave
+/// intact up to the last two bytes.
+pub(crate) fn names_record(record: &[u8], sequence: u16) -> bool {
+    record.len() >= 0x30
+        && &record[..4] == b"FILE"
+        && u16_at(record, 0x10) == sequence
+        && u16_at(record, 0x16) & raw::MFT_RECORD_IN_USE != 0
+}
+
 /// A non-resident attribute's header fields.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct NonResident<'a> {
@@ -466,6 +477,9 @@ impl Iterator for Runs<'_> {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FileName<'a> {
     pub(crate) parent: u64,
+    /// The file attribute flags, [`raw::FILE_NAME_INDEX_PRESENT`] for a
+    /// directory.
+    pub(crate) flags: u32,
     pub(crate) namespace: u8,
     /// UTF-16LE name.
     pub(crate) name: &'a [u8],
@@ -477,7 +491,7 @@ pub(crate) struct FileName<'a> {
 /// @hadris-compliance partial
 /// @hadris-tests record::tests::file_names_parse_and_bound_the_name
 /// @hadris-fuzz ntfs_read
-/// @hadris-note Parses the parent reference, namespace and full UTF-16 name; the flags, the copies of times and sizes and the reparse tag are not used.
+/// @hadris-note Parses the parent reference, flags, namespace and full UTF-16 name; the copies of times and sizes and the reparse tag are not used.
 pub(crate) fn file_name(value: &[u8]) -> Result<FileName<'_>, Detail> {
     if value.len() < 0x42 {
         return Err(Detail::FileName);
@@ -489,6 +503,7 @@ pub(crate) fn file_name(value: &[u8]) -> Result<FileName<'_>, Detail> {
     }
     Ok(FileName {
         parent: u64_at(value, 0),
+        flags: u32_at(value, 0x38),
         namespace: value[0x41],
         name,
     })

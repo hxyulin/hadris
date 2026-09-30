@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use common::asynch::{MemFs, fixture};
 use common::block_on;
-use hadris_fs::r#async::{FileSystem, Volume, copy_tree, read_tree};
+use hadris_fs::r#async::{ContentReader, FileSystem, Volume, copy_tree, read_tree};
 use hadris_fs::{ErrorKind, FsResult, OpenOptions, Resolve, SetAttr};
 use hadris_io::r#async::Write as _;
 
@@ -138,6 +138,73 @@ fn dropped_path_calls_leave_no_pins() {
         vol.lock().await.stall_next();
         cancel(vol.remove_dir_all("/etc"));
         let fs = vol.into_inner().await.unwrap();
+        assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));
+    });
+}
+
+/// Polls `future` once and drops it. Whether it was still waiting.
+fn poll_once<F: core::future::Future>(future: F) -> bool {
+    let mut context = core::task::Context::from_waker(core::task::Waker::noop());
+    let mut future = core::pin::pin!(future);
+    future.as_mut().poll(&mut context).is_pending()
+}
+
+#[test]
+fn dropped_resolves_leave_no_pins() {
+    let mut fs = fixture();
+    for how in [Resolve::Lexical, Resolve::Follow, Resolve::NoFollow] {
+        for path in [
+            "/etc/conf",
+            "/link/conf",
+            "/etc/up/conf",
+            "/etc/../a.txt",
+            "/abs",
+        ] {
+            for calls in 0.. {
+                fs.stall_in(calls);
+                let mut done = None;
+                let pending =
+                    poll_once(async { done = Some(fs.resolve(path.as_bytes(), how).await) });
+                if let Some(Ok(node)) = done {
+                    fs.forget(node, 1);
+                }
+                assert_eq!(fs.open_nodes(), 1, "{how:?} {path} stalled at call {calls}");
+                if !pending {
+                    break;
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn dropped_tree_reads_leave_no_pins() {
+    block_on(async {
+        let vol = Volume::new(fixture());
+        for calls in 0.. {
+            vol.lock().await.stall_in(calls);
+            let pending = poll_once(read_tree(&vol, "/"));
+            let fs = vol.lock().await;
+            assert_eq!(
+                (fs.open_nodes(), fs.open_files()),
+                (1, 0),
+                "stalled at call {calls}"
+            );
+            drop(fs);
+            if !pending {
+                break;
+            }
+        }
+        let tree = read_tree(&vol, "/").await.unwrap();
+        let content = tree.get("/etc/conf").unwrap().content().unwrap();
+        vol.lock().await.stall_in(1);
+        assert!(poll_once(async {
+            let mut reader = ContentReader::open(content).await.unwrap();
+            reader.read_at(0, &mut [0u8; 4]).await.unwrap();
+        }));
+        assert_eq!(vol.lock().await.open_files(), 0);
+        drop(tree);
+        let fs = vol.into_inner().await.ok().unwrap();
         assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));
     });
 }

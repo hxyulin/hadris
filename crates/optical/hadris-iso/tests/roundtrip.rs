@@ -858,6 +858,25 @@ fn rock_ridge_names_too_long_to_list_fall_back_to_the_identifier() {
 }
 
 #[test]
+fn rock_ridge_names_too_long_to_list_are_reported() {
+    let mut tree = Tree::new();
+    for name in ["a", &"m".repeat(768), &"n".repeat(769)] {
+        tree.insert(name, Node::file(Content::bytes(name))).unwrap();
+    }
+    tree.insert("d", Node::dir()).unwrap();
+    tree.insert(format!("d/{}", "p".repeat(1000)), Node::dir())
+        .unwrap();
+    let report = hadris_iso::plan(&tree, &IsoOptions::default().with_rock_ridge()).unwrap();
+    let long: Vec<_> = report
+        .warnings()
+        .iter()
+        .filter(|w| w.kind() == WarningKind::Renamed)
+        .map(|w| w.path().unwrap().len())
+        .collect();
+    assert_eq!(long, [769, 2 + 1000]);
+}
+
+#[test]
 fn rock_ridge_names_of_every_length_fit_their_records() {
     for len in 1..=255 {
         let name = "a".repeat(len);

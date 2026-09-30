@@ -7,9 +7,9 @@ io_transform! {
 /// Every format implements it, and every method takes `&mut self`, so a
 /// kernel, a FUSE layer or a format tool calls it directly and shares a
 /// volume through `Volume` only when it wants to. The read half is
-/// required; the write half defaults to [`ErrorKind::ReadOnly`], so a
-/// read-only format implements only the read half and gains writes later by
-/// overriding them.
+/// required; the write half defaults to [`ErrorKind::ReadOnly`] and `sync`
+/// and `fsync` to success, so a read-only format implements only the read
+/// half and gains writes later by overriding them.
 ///
 /// The contract:
 ///
@@ -28,7 +28,9 @@ io_transform! {
 ///   After that the caller's open mode is trusted.
 /// - `close` publishes the node's size and times. `fsync` makes one node
 ///   durable and flushes the device. `sync` writes every piece of cached
-///   metadata and flushes the device.
+///   metadata and flushes the device. On a read-only mount both succeed
+///   when there is nothing to write, and fail with [`ErrorKind::ReadOnly`]
+///   when changes the mount refused to write are still pending.
 /// - `readdir` returns the entry at or after `from`, or `None` at the end;
 ///   the caller continues from the entry's `next_cursor`. `.` and `..` are
 ///   never listed, and every cursor stays at or below
@@ -148,10 +150,10 @@ pub trait FileSystem {
     }
 
     /// Makes one node durable: writes its pending data and metadata, then
-    /// flushes the device.
+    /// flushes the device. The default has nothing to write and succeeds.
     async fn fsync(&mut self, node: NodeId) -> FsResult<(), Self::DeviceError> {
         let _ = node;
-        Err(ErrorKind::ReadOnly.into())
+        Ok(())
     }
 
     /// Creates the empty file `name` in `dir` with `attrs` and pins it.
@@ -197,9 +199,10 @@ pub trait FileSystem {
         Err(ErrorKind::ReadOnly.into())
     }
 
-    /// Writes every piece of cached metadata and flushes the device.
+    /// Writes every piece of cached metadata and flushes the device. The
+    /// default has nothing to write and succeeds.
     async fn sync(&mut self) -> FsResult<(), Self::DeviceError> {
-        Err(ErrorKind::ReadOnly.into())
+        Ok(())
     }
 }
 

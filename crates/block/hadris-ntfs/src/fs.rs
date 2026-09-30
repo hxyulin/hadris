@@ -24,13 +24,25 @@ const CURSOR_SHIFT: u32 = 16;
 const NAME_BYTES: usize = 510;
 
 /// A node id the caller gave that names nothing valid is an invalid handle,
-/// unless the device failed or the volume is cut short.
+/// unless the device failed or the volume is cut short. An id that names a
+/// damaged record keeps the record's error; see `node_record`.
 fn handle<E>(err: Error<E>) -> Error<E> {
     match (err.kind(), Detail::of(&err)) {
         (ErrorKind::Io, _) | (_, Some(Detail::OutsideVolume)) => err,
         (ErrorKind::Unsupported, _) => err,
         _ => ErrorKind::InvalidHandle.into(),
     }
+}
+
+/// The metadata listed for an entry whose record cannot be read: the type
+/// its index entry records and nothing else.
+fn damaged(flags: u32) -> Metadata {
+    let file_type = if flags & raw::FILE_NAME_INDEX_PRESENT != 0 {
+        FileType::Dir
+    } else {
+        FileType::File
+    };
+    Metadata::new(file_type, Permissions::new(0))
 }
 
 /// A parsing failure as a filesystem error.
@@ -838,17 +850,19 @@ impl<D: BlockDevice> NtfsFs<D> {
         self.dev
     }
 
-    /// Reads the record of `node` into `buf`.
+    /// Reads the record of `node` into `buf`. An id whose sequence number
+    /// is that of an in-use record names it, as every id a listing hands
+    /// out does, so damage to that record keeps its error and detail; any
+    /// other failure is an invalid handle.
     async fn node_record(&mut self, node: NodeId, buf: &mut [u8]) -> FsResult<RecordHeader, D::Error> {
         let raw_id = node.get();
-        let header = read_record(&mut self.dev, &self.info, reference_record(raw_id), buf)
-            .await
-            .map_err(handle)?;
         let sequence = reference_sequence(raw_id);
-        if sequence != 0 && sequence != header.sequence {
-            return Err(ErrorKind::InvalidHandle.into());
+        match read_record(&mut self.dev, &self.info, reference_record(raw_id), buf).await {
+            Ok(header) if sequence != 0 && sequence != header.sequence => Err(ErrorKind::InvalidHandle.into()),
+            Ok(header) => Ok(header),
+            Err(err) if sequence != 0 && record::names_record(buf, sequence) => Err(err),
+            Err(err) => Err(handle(err)),
         }
-        Ok(header)
     }
 
     async fn dir_record(&mut self, node: NodeId, buf: &mut [u8]) -> FsResult<(), D::Error> {
@@ -1099,7 +1113,9 @@ impl<D: BlockDevice> FileSystem for NtfsFs<D> {
 
     /// The entry at or after `from`, with the metadata `stat` gives. A
     /// cursor holds the index node and the byte offset of the next entry in
-    /// it.
+    /// it. An entry whose record cannot be read is listed with only the type
+    /// its index entry records, and `stat` of it fails with the record's
+    /// error.
     async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         self.dir_record(dir, &mut rec).await?;
@@ -1115,7 +1131,7 @@ impl<D: BlockDevice> FileSystem for NtfsFs<D> {
         let mut block = [0u8; MAX_RECORD];
         let mut raw_cursor = from.into_raw();
         let mut name = [0u8; DirEntry::MAX_NAME];
-        let (reference, len, next) = 'found: loop {
+        let (reference, flags, len, next) = 'found: loop {
             if raw_cursor >= CURSOR_END {
                 return Ok(None);
             }
@@ -1150,11 +1166,15 @@ impl<D: BlockDevice> FileSystem for NtfsFs<D> {
                     continue;
                 }
                 let len = record::utf16_to_utf8(file_name.name, &mut name).ok_or(Detail::FileName)?;
-                break 'found (reference, len, DirCursor::from_raw(node << CURSOR_SHIFT | pos as u64));
+                break 'found (reference, file_name.flags, len, DirCursor::from_raw(node << CURSOR_SHIFT | pos as u64));
             }
         };
         let node = NodeId::new(reference).ok_or(Detail::Index)?;
-        let meta = self.stat(node).await?;
+        let meta = match self.stat(node).await {
+            Ok(meta) => meta,
+            Err(err) if err.kind() == ErrorKind::Io => return Err(err),
+            Err(_) => damaged(flags),
+        };
         let entry = DirEntry::new(Name::new(&name[..len]), node, meta, next).map_err(|_| Detail::FileName)?;
         Ok(Some(entry))
     }

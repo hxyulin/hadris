@@ -458,6 +458,44 @@ fn forged_ids_are_invalid_handles() {
 }
 
 #[test]
+fn a_listed_record_with_a_torn_fixup_is_corrupt_and_listed() {
+    let mut image = base_image();
+    let at = MFT_LCN * SECTOR + 16 * REC + SECTOR - 2;
+    image[at] ^= 0xFF;
+    let mut fs = open(image);
+    let root = fs.root();
+    let mut cursor = DirCursor::START;
+    let mut listed = Vec::new();
+    while let Some(entry) = fs.readdir(root, cursor).unwrap() {
+        cursor = entry.next_cursor();
+        listed.push((
+            entry.name().to_str().unwrap().to_string(),
+            entry.file_type(),
+        ));
+    }
+    assert_eq!(
+        listed,
+        [
+            ("HELLO.TXT".to_string(), FileType::File),
+            ("SUBDIR".to_string(), FileType::Dir),
+            ("BIN.DAT".to_string(), FileType::File),
+        ]
+    );
+    let hello = fs.lookup(root, name("HELLO.TXT")).unwrap();
+    let err = fs.stat(hello).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Corrupt);
+    assert_eq!(Detail::of(&err), Some(Detail::UpdateSequence));
+    let err = fs.open(hello, hadris_fs::OpenMode::Read).unwrap_err();
+    assert_eq!(Detail::of(&err), Some(Detail::UpdateSequence));
+    let forged = NodeId::new(reference(16) + (1 << 48)).unwrap();
+    assert_eq!(
+        fs.stat(forged).unwrap_err().kind(),
+        ErrorKind::InvalidHandle
+    );
+    assert_eq!(fs.read_to_vec("/BIN.DAT").unwrap(), b"bin");
+}
+
+#[test]
 fn attribute_lists_join_extension_records() {
     let (image, content) = listed_image(2);
     let mut fs = open(image.clone());

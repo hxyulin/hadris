@@ -224,6 +224,12 @@ pub(crate) fn primary_keeps(name: &str, stored: &[u8]) -> bool {
     stored.eq_ignore_ascii_case(name.as_bytes())
 }
 
+/// Whether readers list `name` under its Rock Ridge name: the reader lists
+/// a longer one under its ISO 9660 identifier.
+pub(crate) fn rock_ridge_lists(name: &str) -> bool {
+    name.len() <= hadris_fs::DirEntry::MAX_NAME
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -540,7 +540,7 @@ pub trait FileSystem {
     fn close(&mut self, node: NodeId) -> R<()>;
     fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> R<usize>;
 
-    // write half; every method defaults to ErrorKind::ReadOnly
+    // write half; every method but fsync and sync defaults to ErrorKind::ReadOnly
     fn setattr(&mut self, node: NodeId, changes: &SetAttr) -> R<()>;
     fn write(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> R<usize>;
     fn truncate(&mut self, node: NodeId, len: u64) -> R<()>;
@@ -580,7 +580,7 @@ The contract, stated in the trait docs:
 - Mutations are not transactions. I/O failure, a device becoming read-only, or cancellation after mutation begins can leave partial in-memory and on-disk changes; rollback is not guaranteed. Error kind alone does not establish whether mutation began. Compound helpers may have completed earlier operations before a later failure.
 - `write` keeps `Result<usize, Error<E>>`: `Ok(n)` reports confirmed progress and may be short, while `Err` has no reliable byte count. A block device can fail after an unknown partial transfer, so a progress field on every error would promise information the implementation does not have. Callers must not interpret `Err` as zero bytes written or blindly retry; `fsync`/`sync` still establish durability.
 - In async, cancellation leaves no newly acquired pin. This resource cleanup contract is independent of filesystem rollback.
-- Write methods default to `ReadOnly`, so a read-only format implements only the read half and gains writes later by overriding them.
+- Write methods default to `ReadOnly`, so a read-only format implements only the read half and gains writes later by overriding them. `fsync` and `sync` default to `Ok`: on a read-only mount they succeed when there is nothing to write and fail with `ReadOnly` only when changes the mount refused to write are pending, so `File::sync_all` and a shutdown `sync` work on any read-only mount through `AnyFs`.
 
 The `hadris-fs-contract` crate (outside 3.0 semver) checks the
 format-independent rules of this contract as a test kit, which every format
