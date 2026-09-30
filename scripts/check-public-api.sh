@@ -12,6 +12,8 @@ if ! cargo public-api --version >/dev/null 2>&1; then
   exit 1
 fi
 
+# Preview crates are not snapshotted: hadris-ntfs is left out, and hadris is
+# taken without its unstable-ntfs feature (see CONTRIBUTING.md).
 crates=(
   hadris
   hadris-common

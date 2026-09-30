@@ -353,7 +353,10 @@ overview, the website contains concepts and workflows, crate READMEs cover
 package selection and features, and rustdoc documents individual APIs. Prefer
 linking to compiled examples over duplicating snippets that can drift.
 
-Public APIs are snapshot-tested under their all-feature configurations. After
+Public APIs are snapshot-tested under their all-feature configurations.
+Preview crates are not snapshotted: `hadris-ntfs` is left out of the script's
+crate list, and the umbrella `hadris` snapshot is taken without its
+`unstable-ntfs` feature. After
 an intentional additive or breaking API change, review the diff and refresh the
 baseline with:
 
