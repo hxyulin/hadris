@@ -467,3 +467,21 @@ fn extras_read_the_descriptors_records_and_extents() {
     common::reseal(&mut dirty, sector, crc_length);
     assert!(open(dirty).was_dirty());
 }
+
+#[test]
+fn directories_report_length_zero() {
+    let mut udf = open(image(&sample(), &UdfOptions::default()));
+    for path in ["/", "/many", "/emptydir"] {
+        assert_eq!(udf.metadata(path).unwrap().len(), 0, "{path}");
+    }
+    let root = udf.root();
+    let mut cursor = DirCursor::START;
+    while let Some(entry) = udf.readdir(root, cursor).unwrap() {
+        cursor = entry.next_cursor();
+        if entry.file_type() == FileType::Dir {
+            assert_eq!(entry.metadata().len(), 0);
+        }
+    }
+    assert_eq!(names(&mut udf, "/many").len(), 80);
+    assert_eq!(udf.metadata("/readme.txt").unwrap().len(), 5);
+}

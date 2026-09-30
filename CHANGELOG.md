@@ -57,6 +57,8 @@ and command to its 3.0 replacement, and
   system partition is stored once for El Torito and GPT, `IsoId` and
   `IsoDate`, and ISO 9660 sessions over a mounted image. `Session::export`
   streams an edited session to a separate output device in bounded memory.
+  `IsoOptions::with_min_image_blocks` pads an image to a minimum size, with
+  the backup GPT at its end.
 - **hadris-storage:** `Partition<D>`, a byte window of a device;
   `host::FileDevice`, which reports the size of disk devices on macOS,
   FreeBSD, Windows and Linux; `Vec<u8>` as a device; `max_block_count`.
@@ -246,10 +248,24 @@ and command to its 3.0 replacement, and
 - **hadris-cpio:** `read_tree` fails with `LimitExceeded` for entry data
   that does not fit in memory, such as an `odc` file of 4 GiB or more on a
   32-bit target, instead of reporting a truncated archive.
+- **hadris-udf:** Directory metadata reports length 0, as the `Metadata`
+  contract says, instead of the size of the identifier stream.
+- **hadris-udf:** Each descriptor tag's CRC covers the whole descriptor.
+  File entries with more than 42 allocation descriptors were not fully
+  covered, the terminating descriptor was not covered at all, and the
+  logical volume, unallocated space and integrity descriptors covered
+  bytes past their end. The reader still checks the length each tag
+  records, so older images read as before.
+- **hadris-udf:** Sequential reads of a directory or file resume their
+  walk of the allocation descriptors, so listing a directory whose
+  descriptors span continuation extents takes linear time instead of
+  rewalking them for every entry.
+- **hadris-udf:** A logical volume descriptor with a partition map table
+  length near `u32::MAX` fails with `Corrupt` on 32-bit targets instead of
+  panicking on overflow.
 - **hadris-udf:** A bridge image with a GPT hybrid keeps its backup GPT in
   the last sectors of the image instead of before the UDF tail, and its
-  hybrid partitions cover the UDF structures, through the new
-  `IsoOptions::with_min_image_blocks`.
+  hybrid partitions cover the UDF structures.
 
 ## [2.4.0] - 2026-09-08
 
