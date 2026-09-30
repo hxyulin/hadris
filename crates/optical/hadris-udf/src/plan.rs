@@ -949,12 +949,6 @@ pub(crate) fn lay_out(
         data: planner.anchor(anchor),
     });
     let fill_gaps = bridge.is_none();
-    if !fill_gaps {
-        regions.push(Region::Bytes {
-            block: total - 1,
-            data: planner.sector(),
-        });
-    }
     regions.sort_by_key(Region::block);
 
     let mut report = Report::new();
