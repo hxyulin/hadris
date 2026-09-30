@@ -518,3 +518,41 @@ fn export_rebuilds_explicit_boot_info_from_stored_content() {
     );
     assert_eq!(&bytes[64..], &[0x90; 4096 - 64]);
 }
+
+#[test]
+fn stored_files_keep_every_extent_record() {
+    let data = pattern(100 * 2048);
+    let mut tree = hadris_fs::Tree::new();
+    tree.insert("MANY.BIN", Node::file(Content::bytes(data.clone())))
+        .unwrap();
+    for mode in [SessionMode::Append, SessionMode::Rewrite] {
+        for rock_ridge in [false, true] {
+            let opts = match rock_ridge {
+                true => IsoOptions::default().with_rock_ridge(),
+                false => IsoOptions::default(),
+            };
+            let mut session = Session::open(grown(image(&tree, &opts))).unwrap();
+            let start = session
+                .tree()
+                .get("MANY.BIN")
+                .and_then(Node::content)
+                .and_then(Content::stored_extents)
+                .unwrap()[0]
+                .offset();
+            let pieces: Vec<_> = (0..100)
+                .map(|i| hadris_fs::Extent::new(start + i * 2048, 2048))
+                .collect();
+            session
+                .tree_mut()
+                .replace("MANY.BIN", Node::file(Content::stored(pieces).unwrap()))
+                .unwrap();
+            let opts = session.options();
+            session.write(&opts, mode).unwrap();
+            let mut iso = session.into_inner();
+            let mut view = IsoFs::mount(&mut iso, MountOptions::new()).unwrap();
+            let node = view.resolve_path("/MANY.BIN").unwrap();
+            assert_eq!(view.all_extents(node).len(), 100, "{mode:?} {rock_ridge}");
+            assert_eq!(view.read_to_vec("/MANY.BIN").unwrap(), data);
+        }
+    }
+}

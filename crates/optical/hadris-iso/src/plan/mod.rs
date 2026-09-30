@@ -1139,7 +1139,41 @@ impl Planner<'_> {
             .max(self.base.first_block)
             * SECTOR;
 
-        let mut sizes = BTreeMap::new();
+        let mut placed = BTreeSet::new();
+        for &file in &files {
+            let f = &self.files[file];
+            let (key, len) = match f.kind {
+                FileKind::Data { node, len } => (node, len),
+                FileKind::Catalog { len } => (CATALOG, len),
+                _ => continue,
+            };
+            if len == 0 || self.extents.contains_key(&key) {
+                continue;
+            }
+            let mut extents = Vec::new();
+            match self
+                .contents
+                .get(&key)
+                .and_then(|info| info.stored.as_ref())
+            {
+                Some(stored) => {
+                    for extent in stored {
+                        extents.push((block_of(extent.offset())?, extent.len()));
+                    }
+                    placed.insert(key);
+                }
+                None => {
+                    let mut remaining = len;
+                    while remaining > 0 {
+                        let chunk = remaining.min(MAX_EXTENT);
+                        extents.push((0, chunk));
+                        remaining -= chunk;
+                    }
+                }
+            }
+            self.extents.insert(key, extents);
+        }
+
         for &dir in &order {
             for ti in 0..self.trees.len() {
                 if !self.has_dir(dir, ti) {
@@ -1150,7 +1184,6 @@ impl Planner<'_> {
                 let size = u32::try_from(sectors * SECTOR).map_err(|_| too_large())?;
                 self.dir_refs
                     .insert((dir, ti), (block_of(start * SECTOR)?, size));
-                sizes.insert((dir, ti), overflow_len(&records));
                 cursor = (start + sectors) * SECTOR + overflow_len(&records);
             }
         }
@@ -1163,19 +1196,7 @@ impl Planner<'_> {
                 FileKind::Catalog { len } => (CATALOG, len),
                 _ => continue,
             };
-            if len == 0 || self.extents.contains_key(&key) {
-                continue;
-            }
-            if let Some(stored) = self
-                .contents
-                .get(&key)
-                .and_then(|info| info.stored.as_ref())
-            {
-                let mut extents = Vec::new();
-                for extent in stored {
-                    extents.push((block_of(extent.offset())?, extent.len()));
-                }
-                self.extents.insert(key, extents);
+            if len == 0 || !placed.insert(key) {
                 continue;
             }
             let mut extents = Vec::new();
@@ -2081,6 +2102,9 @@ fn emit_records(block: u32, size: u32, records: &mut [PendingRecord]) -> PlanRes
             out.resize(out.len() + remaining, 0);
         }
         out.extend_from_slice(bytes.as_bytes());
+    }
+    if out.len() > size as usize {
+        return Err(invalid(Detail::DirectoryRecord));
     }
     out.resize(size as usize, 0);
     for record in records.iter() {
