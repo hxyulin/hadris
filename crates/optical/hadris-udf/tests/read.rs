@@ -1,6 +1,7 @@
 //! The reader on structures the writer does not make: every allocation
 //! descriptor form, continuation extents, embedded data, extended file
-//! entries, identifiers that cross extents, and prevailing descriptors.
+//! entries, identifiers that cross extents, prevailing descriptors, and
+//! reads that resume their walk of the allocation descriptors.
 
 mod common;
 
@@ -250,5 +251,102 @@ fn prevailing_descriptors_win() {
     assert_eq!(
         udf.info().id(hadris_udf::UdfId::LogicalVolume),
         "UDF_VOLUME"
+    );
+}
+
+/// Counts the reads of a device.
+struct Counting {
+    inner: hadris_storage::MemDevice<Vec<u8>>,
+    reads: usize,
+}
+
+impl hadris_io::ErrorType for Counting {
+    type Error = core::convert::Infallible;
+}
+
+impl hadris_storage::sync::BlockDevice for Counting {
+    fn block_size(&self) -> hadris_storage::BlockSize {
+        self.inner.block_size()
+    }
+
+    fn block_count(&self) -> u64 {
+        self.inner.block_count()
+    }
+
+    fn read_blocks(
+        &mut self,
+        first: hadris_storage::BlockIndex,
+        buf: &mut [u8],
+    ) -> Result<(), hadris_io::Error<Self::Error>> {
+        self.reads += 1;
+        self.inner.read_blocks(first, buf)
+    }
+}
+
+#[test]
+fn directory_reads_resume_their_allocation_walk() {
+    const ENTRIES: usize = 1000;
+    let mut tree = Tree::new();
+    for i in 0..ENTRIES {
+        tree.insert(format!("big/entry-{i:04}"), Node::file(Content::empty()))
+            .unwrap();
+    }
+    let mut bytes = image(&tree, &UdfOptions::default().with_min_blocks(3000));
+    let mut udf = open(bytes.clone());
+    let big = udf.resolve_path("/big").unwrap();
+    let icb = PARTITION + big.get() - 1;
+    let fe = sector(&mut bytes, icb).to_vec();
+    let len = u32::from_le_bytes(fe[176..180].try_into().unwrap());
+    let start = PARTITION + u64::from(u32::from_le_bytes(fe[180..184].try_into().unwrap()));
+    let blocks = u64::from(len.div_ceil(2048));
+    assert!(blocks > 20);
+    let free = 2000;
+    for i in 1..blocks {
+        let aed = free + i - 1;
+        let descriptors = match i + 1 < blocks {
+            true => [ad(2048, 0, start + i), ad(2048, 3, aed + 1)].concat(),
+            false => ad(len - (blocks as u32 - 1) * 2048, 0, start + i).to_vec(),
+        };
+        let block = sector(&mut bytes, aed);
+        block.fill(0);
+        block[20..24].copy_from_slice(&(descriptors.len() as u32).to_le_bytes());
+        block[24..24 + descriptors.len()].copy_from_slice(&descriptors);
+        Tag::seal(
+            block,
+            tag::ALLOCATION_EXTENT,
+            2,
+            (aed - PARTITION) as u32,
+            8 + descriptors.len(),
+        );
+    }
+    set_ads(
+        &mut bytes,
+        icb,
+        0,
+        u64::from(len),
+        &[ad(2048, 0, start), ad(2048, 3, free)].concat(),
+    );
+
+    let dev = Counting {
+        inner: hadris_storage::MemDevice::new(bytes, common::SECTOR),
+        reads: 0,
+    };
+    let mut udf = hadris_udf::sync::UdfFs::mount(dev, hadris_fs::MountOptions::new()).unwrap();
+    let before = udf.device().reads;
+    let names = udf.names("/big").unwrap();
+    assert_eq!(names.len(), ENTRIES);
+    assert_eq!(names[ENTRIES - 1], "entry-0999");
+    let listed = udf.device().reads - before;
+    assert!(
+        listed < 12 * ENTRIES,
+        "{listed} reads to list {ENTRIES} entries"
+    );
+
+    let before = udf.device().reads;
+    assert!(udf.exists("/big/entry-0999").unwrap());
+    let looked_up = udf.device().reads - before;
+    assert!(
+        looked_up < 12 * ENTRIES,
+        "{looked_up} reads to look up the last entry"
     );
 }
