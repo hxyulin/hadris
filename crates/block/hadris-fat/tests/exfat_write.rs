@@ -11,7 +11,7 @@ use hadris_fs::MountOptions;
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 
-use common::script::Scripted;
+use common::script::{Op, Scripted};
 use common::{Device, Fs, Geometry, Tool, clean, fsck, le32};
 use hadris_fat::exfat::VolumeLabel;
 use hadris_fat::exfat::sync::ExFatFs;
@@ -1267,6 +1267,38 @@ fn a_grow_whose_file_entry_fails_keeps_the_old_size_and_chain() {
     assert_eq!(findings(image.clone()), []);
     let mut fresh = common::mount(&image);
     assert_eq!(read_all(&mut fresh, node), [1u8; 100]);
+}
+
+#[test]
+fn volume_dirty_is_flushed_around_the_writes_it_covers() {
+    let image = common::image(common::small(4 << 20, 4096));
+    let (dev, script) = Scripted::new(common::device(image, 512));
+    let mut fs = ExFatFs::mount(dev, MountOptions::new()).unwrap();
+    let root = fs.root();
+    let boot = Op::Write(0, 512);
+    for round in 0..2 {
+        let node = fs
+            .create(root, name(&format!("file {round}")), &SetAttr::new())
+            .unwrap();
+        assert_eq!(fs.write(node, 0, &[1u8; 5000]).unwrap(), 5000);
+        fs.forget(node, 1);
+        fs.sync().unwrap();
+        let log = std::mem::take(&mut script.borrow_mut().log);
+        assert_eq!(log[..2], [boot, Op::Flush], "set, then flushed first");
+        let end = log.len() - 3;
+        assert_eq!(
+            log[end..],
+            [Op::Flush, boot, Op::Flush],
+            "cleared between flushes"
+        );
+        assert!(
+            log[2..end]
+                .iter()
+                .any(|op| matches!(op, Op::Write(at, _) if *at != 0))
+        );
+    }
+    let image = fs.into_inner().into_image();
+    assert_eq!(image[106] & 2, 0);
 }
 
 #[test]

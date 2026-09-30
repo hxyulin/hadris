@@ -459,13 +459,15 @@ pub async fn next<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, geo: &Geome
     }
 }
 
-/// Sets `VolumeDirty` before the first write after mounting or after
-/// [`clear_dirty`], unless it was set at mount. Every writing primitive
+/// Sets `VolumeDirty` and flushes the device before the first write after
+/// mounting or after [`clear_dirty`], unless it was set at mount, so the
+/// flag reaches the medium before what it covers. Every writing primitive
 /// here calls it before it writes.
 pub async fn begin_write<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &mut ExFat) -> FsResult<(), D::Error> {
     if vol.dirty == Dirty::Clean {
         write_flags(dev, block, vol, (vol.flags | raw::VOLUME_DIRTY) & !raw::VOLUME_CLEAR_TO_ZERO).await?;
         vol.dirty = Dirty::Marked;
+        dev.flush().await?;
     }
     Ok(())
 }
@@ -476,9 +478,12 @@ async fn write_flags<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &mu
     Ok(())
 }
 
-/// Clears `VolumeDirty` when a write since mounting set it.
+/// Clears `VolumeDirty` when a write since mounting set it, flushing the
+/// device first so what the flag covered reaches the medium before it. The
+/// caller flushes again for the cleared flag.
 pub async fn clear_dirty<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &mut ExFat) -> FsResult<(), D::Error> {
     if vol.dirty == Dirty::Marked {
+        dev.flush().await?;
         write_flags(dev, block, vol, vol.flags & !raw::VOLUME_DIRTY).await?;
         vol.dirty = Dirty::Clean;
     }

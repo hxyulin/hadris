@@ -537,7 +537,10 @@ fn entry_name(name: &Name, invalid: ErrorKind) -> Result<&str, ErrorKind> {
 ///
 /// The first write after mounting or after `sync` sets `VolumeDirty`, and
 /// `sync` clears it again, as the specification recommends; a volume that
-/// was dirty at mount stays dirty. `sync` also records `PercentInUse`.
+/// was dirty at mount stays dirty. The device is flushed after the flag is
+/// set and before it is cleared, so the medium never holds a clean flag
+/// over metadata that has not reached it. `sync` also records
+/// `PercentInUse`.
 ///
 /// A device that answers a write with `WriteError::ReadOnly` fails that
 /// operation with [`ErrorKind::ReadOnly`], and the volume is read-only from
@@ -2961,8 +2964,8 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
     }
 
     /// Writes every pending size and modification time and `PercentInUse`,
-    /// clears the `VolumeDirty` flag this driver set, then flushes the
-    /// device.
+    /// flushes the device, clears the `VolumeDirty` flag this driver set,
+    /// then flushes the device again.
     ///
     /// A node whose entry set cannot be read any more does not stop the
     /// others: its pending sizes are dropped, the rest is written and the
