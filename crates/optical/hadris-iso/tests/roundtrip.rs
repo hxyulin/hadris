@@ -807,3 +807,22 @@ fn rock_ridge_names_too_long_to_list_fall_back_to_the_identifier() {
     }
     assert_eq!(view.read_to_vec("/z").unwrap(), b"z");
 }
+
+#[test]
+fn directories_have_no_length() {
+    let tree = sample(true, true);
+    let mut iso = image(&tree, &full());
+    for ns in [
+        Namespace::Primary,
+        Namespace::RockRidge,
+        Namespace::Joliet,
+        Namespace::Enhanced,
+    ] {
+        let mut view = IsoFs::mount_namespace(&mut iso, MountOptions::new(), ns).unwrap();
+        let root = view.root();
+        assert_eq!(view.stat(root).unwrap().len(), 0, "{ns:?}");
+        let docs = view.metadata("/docs").unwrap();
+        assert!(docs.file_type().is_dir());
+        assert_eq!(docs.len(), 0, "{ns:?}");
+    }
+}

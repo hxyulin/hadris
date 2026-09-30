@@ -605,7 +605,7 @@ impl View {
             None => None,
         };
         let (mut file_type, mut len) = if header.is_directory() {
-            (FileType::Dir, u64::from(header.data_len.get()))
+            (FileType::Dir, 0)
         } else {
             let file_type = rr.and_then(|rr| rr.file_type()).unwrap_or(FileType::File);
             (file_type, self.file_len(dev, node.get(), &record).await?)
