@@ -246,6 +246,10 @@ and command to its 3.0 replacement, and
 - **hadris-cpio:** `read_tree` fails with `LimitExceeded` for entry data
   that does not fit in memory, such as an `odc` file of 4 GiB or more on a
   32-bit target, instead of reporting a truncated archive.
+- **hadris-udf:** A bridge image with a GPT hybrid keeps its backup GPT in
+  the last sectors of the image instead of before the UDF tail, and its
+  hybrid partitions cover the UDF structures, through the new
+  `IsoOptions::with_min_image_blocks`.
 
 ## [2.4.0] - 2026-09-08
 
