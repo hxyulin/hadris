@@ -232,11 +232,11 @@ impl SplitSu {
             return;
         };
         patch(&mut self.inline, at, first, self.areas[0].len());
-        for index in 1..self.areas.len().min(places.len()) {
+        for (index, &place) in places.iter().enumerate().take(self.areas.len()).skip(1) {
             let next = self.areas[index].len();
             let area = &mut self.areas[index - 1];
             let at = area.len() - CE_LEN;
-            patch(area, at, places[index], next);
+            patch(area, at, place, next);
         }
     }
 }
