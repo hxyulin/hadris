@@ -178,6 +178,11 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
 
     /// Syncs the volume and gives the device back. When the sync fails
     /// the [`MountError`] holds its error and the device.
+    ///
+    /// A volume mounted read-only has nothing to write. One that became
+    /// read-only because the device refused a write fails with
+    /// [`ErrorKind::ReadOnly`] while it still holds file sizes, or what an
+    /// interrupted operation left, that can no longer be written.
     pub async fn unmount(mut self) -> Result<D, MountError<D, D::Error>> {
         match self.sync().await {
             Ok(()) => Ok(self.dev),
@@ -690,10 +695,14 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
 
     /// Finishes what an interrupted operation left, writes the sizes of
     /// open and dropped files and the FAT32 FSInfo free count, and flushes
-    /// the device. Does nothing on a read-only volume.
+    /// the device.
+    ///
+    /// A read-only volume is not written: `sync` fails with
+    /// [`ErrorKind::ReadOnly`] when a refused write left file sizes, or
+    /// what an interrupted operation left, unwritten, and succeeds otherwise.
     pub async fn sync(&mut self) -> FsResult<(), D::Error> {
         if self.read_only {
-            return Ok(());
+            return if self.unwritten() { Err(ErrorKind::ReadOnly.into()) } else { Ok(()) };
         }
         self.recover().await?;
         for index in 0..FILES {
@@ -714,6 +723,15 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
 
     fn writable(&self) -> Result<(), ErrorKind> {
         if self.read_only { Err(ErrorKind::ReadOnly) } else { Ok(()) }
+    }
+
+    /// Whether a file's size, or what an interrupted operation left, is not
+    /// yet written.
+    fn unwritten(&self) -> bool {
+        !self.pending.is_none()
+            || self.run.is_some()
+            || self.fat.unmirrored().is_some()
+            || self.files.iter().any(|slot| !slot.is_free() && slot.has(FLAG_DIRTY))
     }
 
     /// The slot `file` names, or [`ErrorKind::InvalidHandle`].
@@ -1133,7 +1151,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
                         }
                         Slot::Short(entry) => {
                             let units = long.finish(entry.lfn_checksum()).filter(|units| !units.is_empty());
-                            if skip != Some(offset) {
+                            if skip != Some(offset) && !entry.is_label() {
                                 if check_exists && entry.is_visible() && matches(text, units, &entry, code_page, fold) {
                                     return Err(ErrorKind::AlreadyExists.into());
                                 }
@@ -1216,7 +1234,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         while let Some(offset) = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot).await? {
             match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
                 Slot::End => break,
-                Slot::Short(entry) if entry.name() == *name && skip != Some(offset) => return Ok(true),
+                Slot::Short(entry) if entry.name() == *name && !entry.is_label() && skip != Some(offset) => return Ok(true),
                 _ => {}
             }
             slot += 1;

@@ -1364,6 +1364,108 @@ fn a_shrink_whose_fat_write_fails_is_cut_back_by_the_next_write() {
     assert_eq!(common::chain(&mut fresh, node).len(), 2);
 }
 
+#[test]
+fn growing_a_contiguous_file_past_the_heap_fails_before_any_fat_write() {
+    let mut fs = common::small(4 << 20, 4096);
+    let root = fs.root();
+    let node = common::write(&mut fs, root, "big", &[7u8; 8192]);
+    fs.close(node).unwrap();
+    let image = common::image(fs);
+    let geo = Geometry::of(&image);
+    let set = geo.set(&image, geo.root, "big");
+    for clusters in [geo.count as u64 + 10, (1 << 32) + 3] {
+        let mut image = image.clone();
+        geo.unchain(&mut image, &set);
+        let len = clusters * geo.cluster as u64;
+        image[set[1] + 24..set[1] + 32].copy_from_slice(&len.to_le_bytes());
+        geo.reseal(&mut image, &set);
+        let fat = geo.fat..geo.fat + (geo.count as usize + 2) * 4;
+        let before = image[fat.clone()].to_vec();
+        let mut fs = common::mount(&image);
+        let node = fs.lookup(fs.root(), name("big")).unwrap();
+        let err = fs.write(node, len, b"x").unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Corrupt, "{clusters}");
+        fs.forget(node, 1);
+        fs.sync().unwrap();
+        let after = common::image(fs);
+        let changed: Vec<usize> = (0..before.len())
+            .filter(|&i| after[geo.fat + i] != before[i])
+            .collect();
+        assert!(changed.is_empty(), "{clusters}: FAT changed at {changed:?}");
+    }
+}
+
+#[test]
+fn a_directory_grow_whose_size_write_fails_is_cut_back() {
+    let image = common::image(common::small(4 << 20, 4096));
+    let (dev, script) = Scripted::new(common::device(image, 512));
+    let mut fs = ExFatFs::mount(dev, MountOptions::new()).unwrap();
+    let root = fs.root();
+    let dir = fs.mkdir(root, name("dir"), &SetAttr::new()).unwrap();
+    for i in 0..42 {
+        let node = fs
+            .create(dir, name(&format!("f{i}")), &SetAttr::new())
+            .unwrap();
+        fs.forget(node, 1);
+    }
+    assert_eq!(common::chain(&mut fs, dir).len(), 1);
+    script.borrow_mut().fail_at = Some(dir.get() * 32);
+    let err = fs.create(dir, name("f42"), &SetAttr::new()).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Io);
+    assert_eq!(script.borrow().fail_at, None, "the size write failed");
+    fs.sync().unwrap();
+    fs.forget(dir, 1);
+    let image = fs.into_inner().into_image();
+    assert_eq!(findings(image.clone()), []);
+    let mut fresh = common::mount(&image);
+    assert_eq!(common::chain(&mut fresh, dir).len(), 1);
+}
+
+#[test]
+fn a_rename_whose_old_set_removal_fails_leaves_one_name() {
+    for replace in [false, true] {
+        let image = common::image(common::small(4 << 20, 4096));
+        let (dev, script) = Scripted::new(common::device(image, 512));
+        let mut fs = ExFatFs::mount(dev, MountOptions::new()).unwrap();
+        let root = fs.root();
+        let dir = fs.mkdir(root, name("dir"), &SetAttr::new()).unwrap();
+        if replace {
+            let target = common::write_any(&mut fs, dir, "b.txt", &[6u8; 5000]);
+            fs.forget(target, 1);
+        }
+        let (node, at) = file_at_block_end(&mut fs, &[5u8; 9000]);
+        let from = (0..)
+            .map(|i| format!("file {i}"))
+            .find(|text| fs.lookup(root, name(text)).unwrap() == node)
+            .unwrap();
+        fs.forget(node, 1);
+        {
+            let mut script = script.borrow_mut();
+            script.fail_at = Some(at + 32);
+            script.fail_more = 1;
+        }
+        let result = fs.rename(root, name(&from), dir, name("b.txt"), RenameMode::Replace);
+        assert_eq!(
+            script.borrow().fail_at,
+            None,
+            "{replace}: the removal failed"
+        );
+        fs.sync().unwrap();
+        let image = fs.into_inner().into_image();
+        assert_eq!(findings(image.clone()), [], "{replace}: {result:?}");
+        let mut fresh = common::mount(&image);
+        let old = fresh.read_to_vec(&format!("/{from}")).ok();
+        let new = fresh.read_to_vec("/dir/b.txt").ok();
+        let moved = Some(vec![5u8; 9000]);
+        if result.is_ok() || old.is_none() {
+            assert_eq!((old, new), (None, moved), "{replace}: {result:?}");
+        } else {
+            assert_eq!(old, moved, "{replace}");
+            assert_ne!(new, moved, "{replace}");
+        }
+    }
+}
+
 /// Both FATs and both Allocation Bitmaps of a TexFAT volume.
 fn texfat_copies(image: &[u8]) -> ([&[u8]; 2], [Vec<u8>; 2]) {
     let geo = Geometry::of(image);

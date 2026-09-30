@@ -141,11 +141,14 @@ struct Skip {
     entry: Option<u64>,
     /// Slots, inclusive, that count as free and whose names do not count.
     run: Option<(u32, u32)>,
+    /// No name counts as taken: the entry planned is a volume label.
+    label: bool,
 }
 
 impl Skip {
     fn covers(&self, slot: u32, offset: u64) -> bool {
-        self.entry == Some(offset)
+        self.label
+            || self.entry == Some(offset)
             || self
                 .run
                 .is_some_and(|(first, last)| (first..=last).contains(&slot))
@@ -648,7 +651,8 @@ impl<D: BlockDevice> FatFs<D> {
                 self.stamp_label(&mut entry);
                 let start = self.dir_start(ROOT).await?;
                 let new = NewName::new("LABEL", self.code_page, raw::fold_unicode)?;
-                let plan = self.plan(start, "LABEL", false, &new, Skip::default()).await?;
+                let skip = Skip { label: true, ..Skip::default() };
+                let plan = self.plan(start, "LABEL", false, &new, skip).await?;
                 let grown = self.grow(&plan).await?;
                 self.insert_entry(start, &new, &plan, &entry, grown).await?;
             }
@@ -1288,7 +1292,7 @@ impl<D: BlockDevice> FatFs<D> {
                         let units = long
                             .finish(entry.lfn_checksum())
                             .filter(|units| !units.is_empty());
-                        if !skip.covers(slot, offset) {
+                        if !skip.covers(slot, offset) && !entry.is_label() {
                             if check_exists && entry.is_visible() && matches(text, units, &entry, self.code_page, raw::fold_unicode) {
                                 return Err(ErrorKind::AlreadyExists.into());
                             }
@@ -1369,7 +1373,7 @@ impl<D: BlockDevice> FatFs<D> {
         while let Some(offset) = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot).await? {
             match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
                 Slot::End => break,
-                Slot::Short(entry) if entry.name() == *name && !skip.covers(slot, offset) => {
+                Slot::Short(entry) if entry.name() == *name && !entry.is_label() && !skip.covers(slot, offset) => {
                     return Ok(true);
                 }
                 _ => {}
@@ -1657,6 +1661,7 @@ impl<D: BlockDevice> FatFs<D> {
         let skip = Skip {
             entry: (from == to).then_some(src.offset),
             run: Some((target.first, target.slot)),
+            label: false,
         };
         let plan = self.plan(to, text, false, new, skip).await?;
         let mut saved = SavedRun {
@@ -2515,6 +2520,7 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
                 let skip = Skip {
                     entry: (from_start == to_start).then_some(src.offset),
                     run: None,
+                    label: false,
                 };
                 let plan = self.plan(to_start, to_text, false, &new, skip).await?;
                 let grown = self.grow(&plan).await?;

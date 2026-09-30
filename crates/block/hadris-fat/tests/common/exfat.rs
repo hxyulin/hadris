@@ -82,7 +82,7 @@ pub fn mkdir(fs: &mut Fs, dir: NodeId, text: &str) -> NodeId {
 }
 
 /// The clusters of `node`'s allocation, from its extents.
-pub fn chain(fs: &mut Fs, node: NodeId) -> Vec<u32> {
+pub fn chain<D: hadris_storage::sync::BlockDevice>(fs: &mut ExFatFs<D>, node: NodeId) -> Vec<u32> {
     let geo = *fs.info();
     let size = geo.cluster_size();
     let mut clusters: Vec<u32> = Vec::new();

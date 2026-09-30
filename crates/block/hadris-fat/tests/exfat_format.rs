@@ -57,6 +57,42 @@ fn layouts_follow_the_volume_size() {
 }
 
 #[test]
+fn the_cluster_count_is_the_largest_that_fits() {
+    use common::{le32, le64};
+
+    let sizes = (1u64 << 20..8 << 20).step_by(64 << 10 | 512);
+    for size in sizes.chain([4 << 20, 100 << 20]) {
+        let mut dev = common::device(vec![0u8; size as usize], 512);
+        format(&mut dev, &ExFatOptions::new()).unwrap();
+        let image = dev.into_inner();
+        let sector = 1u64 << image[108];
+        let per_cluster = image[109];
+        let volume = le64(&image, 72);
+        let fat_offset = le32(&image, 80) as u64;
+        let fat_length = le32(&image, 84) as u64;
+        let heap = le32(&image, 88) as u64;
+        let count = le32(&image, 92) as u64;
+        let fats = image[110] as u64;
+        let align = if size >= 64 << 20 { 1 << 20 } else { 4096 } / sector;
+        assert!(fat_length >= ((count + 2) * 4).div_ceil(sector), "{size}");
+        assert!(heap >= fat_offset + fat_length * fats, "{size}");
+        assert_eq!(heap % align, 0, "{size}");
+        assert!(count <= (volume - heap) >> per_cluster, "{size}");
+        let bigger = ((count + 3) * 4).div_ceil(sector);
+        let bigger_heap = (fat_offset + bigger * fats).next_multiple_of(align);
+        assert!(
+            (volume - bigger_heap) >> per_cluster < count + 1,
+            "{size}: {} clusters fit",
+            count + 1
+        );
+        if size == 4 << 20 {
+            assert_eq!(count, 1020);
+            fsck(&image, "4 MiB");
+        }
+    }
+}
+
+#[test]
 fn options_are_checked() {
     let dev = || common::device(vec![0u8; 8 << 20], 512);
     for options in [
