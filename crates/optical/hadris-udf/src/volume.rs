@@ -433,7 +433,7 @@ impl Icb {
             file_type,
             Permissions::new(mode_of(self.permissions, self.flags)),
         )
-        .with_len(self.size)
+        .with_len(if file_type.is_dir() { 0 } else { self.size })
         .with_nlink(nlink);
         if self.uid != u32::MAX || self.gid != u32::MAX {
             meta = meta.with_owner(Owner::new(self.uid, self.gid));
