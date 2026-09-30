@@ -205,8 +205,9 @@ and command to its 3.0 replacement, and
   cluster heap fails with `Corrupt` before any FAT entry is written.
 - **hadris-fat:** exFAT `format` gives the volume the largest cluster count
   that fits; some sizes, 4 MiB among them, got one cluster fewer.
-- **hadris-fat:** `set_label` and `create` no longer fail with
-  `AlreadyExists` when a root file and the volume label share a name.
+- **hadris-fat:** `set_label` and `create`, and embedded `open` with
+  `create`, no longer fail with `AlreadyExists` when a root file and the
+  volume label share a name.
 - **hadris-fs:** Copying or extracting a tree whose directory entries loop
   fails with `Corrupt` instead of running forever.
 - **hadris-part:** GPT writes always fill in the header and partition
