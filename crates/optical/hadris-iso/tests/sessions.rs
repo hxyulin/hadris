@@ -520,6 +520,60 @@ fn export_rebuilds_explicit_boot_info_from_stored_content() {
 }
 
 #[test]
+fn growing_descriptor_sets_move_the_files_they_cover() {
+    let data = pattern(3000);
+    let mut tree = hadris_fs::Tree::new();
+    tree.insert("A.TXT", Node::file(Content::bytes(data.clone())))
+        .unwrap();
+    for mode in [SessionMode::Append, SessionMode::Rewrite] {
+        let dev = grown(image(&tree, &IsoOptions::default()));
+        let mut session = Session::open(dev).unwrap();
+        let first = session
+            .tree()
+            .get("A.TXT")
+            .and_then(Node::content)
+            .and_then(Content::stored_extents)
+            .unwrap()[0]
+            .offset();
+        assert_eq!(first, 19 * 2048);
+        session
+            .tree_mut()
+            .insert("boot.img", Node::file(Content::bytes(vec![0x90u8; 2048])))
+            .unwrap();
+        let opts = session
+            .options()
+            .with_joliet()
+            .with_el_torito(ElTorito::new().with_entry(BootEntry::bios("boot.img")));
+        let report = session.write(&opts, mode).unwrap();
+        assert!(report.extents("A.TXT").unwrap()[0].offset() >= 20 * 2048);
+        let mut iso = session.into_inner();
+        for ns in [Namespace::Primary, Namespace::Joliet] {
+            let mut view = IsoFs::mount_namespace(&mut iso, MountOptions::new(), ns).unwrap();
+            assert_eq!(view.read_to_vec("/A.TXT").unwrap(), data, "{mode:?} {ns:?}");
+        }
+    }
+}
+
+#[test]
+fn growing_descriptor_sets_refuse_to_cover_a_kept_catalog() {
+    let mut tree = hadris_fs::Tree::new();
+    tree.insert("BOOT.IMG", Node::file(Content::bytes(vec![0x90u8; 2048])))
+        .unwrap();
+    let opts = IsoOptions::default().with_el_torito(
+        ElTorito::new()
+            .with_entry(BootEntry::bios("BOOT.IMG"))
+            .with_catalog_path("BOOT.CAT"),
+    );
+    let dev = grown(image(&tree, &opts));
+    let original = dev.get_ref().clone();
+    let mut session = Session::open(dev).unwrap();
+    let opts = session.options().with_joliet().with_iso1999();
+    let err = session.write(&opts, SessionMode::Rewrite).unwrap_err();
+    assert_eq!(err.kind(), hadris_fs::ErrorKind::NoSpace);
+    assert_eq!(session.into_inner().into_inner(), original);
+}
+
+#[test]
 fn stored_files_keep_every_extent_record() {
     let data = pattern(100 * 2048);
     let mut tree = hadris_fs::Tree::new();

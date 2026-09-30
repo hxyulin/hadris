@@ -68,6 +68,32 @@ fn span(report: &Report, path: &str) -> Option<Extent> {
     ))
 }
 
+/// The byte ranges a session write puts inside the old image: the system
+/// area when `system` is set, and the descriptor set at block 16, which an
+/// appended session copies from `descriptors`.
+fn fixed_blocks(plan: &plan::Plan, descriptors: u64, system: bool) -> Vec<(u64, u64)> {
+    let start = u64::from(raw::DESCRIPTOR_START) * SECTOR;
+    let mut out = Vec::new();
+    if system {
+        out.push((0, start));
+    }
+    let len = plan.regions.iter().find_map(|region| match region {
+        Region::Bytes { block, data } if *block == descriptors => Some(data.len() as u64),
+        _ => None,
+    });
+    out.push((start, start + len.unwrap_or(0).div_ceil(SECTOR) * SECTOR));
+    out
+}
+
+/// Whether `len` bytes at `offset` meet a range of `fixed`.
+fn covers(fixed: &[(u64, u64)], offset: u64, len: u64) -> bool {
+    let end = offset.saturating_add(len);
+    len > 0
+        && fixed
+            .iter()
+            .any(|&(start, stop)| offset < stop && start < end)
+}
+
 /// A tree error while reading an image: the image holds what no tree can.
 fn tree_error<E>(_: hadris_fs::PathError) -> Error<E> {
     Error::new(
@@ -307,11 +333,16 @@ impl<D: BlockDevice> Session<D> {
     /// `opts` has hybrid boot or the image has partition tables, which
     /// then still describe the previous session.
     ///
+    /// Both modes write the descriptor set at block 16. Files there, or in
+    /// a system area that is written, are copied after the old data first;
+    /// a kept boot catalog there fails with [`ErrorKind::NoSpace`] and
+    /// [`Detail::Session`] before anything is written.
+    ///
     /// Afterwards the tree's new files point at their new extents, so the
     /// session can be written again.
     pub async fn write(&mut self, opts: &IsoOptions, mode: SessionMode) -> Result<Report, PathError> {
         check_block_size(&self.dev)?;
-        let contents = plan::measure(&self.tree, true)?;
+        let mut contents = plan::measure(&self.tree, true)?;
         let old = self.volume_blocks;
         let existing = self.partition_tables(old).await?;
         let has_tables = existing.is_some();
@@ -349,7 +380,22 @@ impl<D: BlockDevice> Session<D> {
             },
         };
         let descriptors = base.descriptors;
-        let mut plan = plan::lay_out(&self.tree, opts, &contents, base)?;
+        let rewrites_system = base.system_area || tables.is_some();
+        let mut plan = plan::lay_out(&self.tree, opts, &contents, base.clone())?;
+        let fixed = fixed_blocks(&plan, descriptors, rewrites_system);
+        if keep_catalog.is_some_and(|block| covers(&fixed, u64::from(block) * SECTOR, SECTOR)) {
+            return Err(Detail::Session.error::<Infallible>(ErrorKind::NoSpace).into());
+        }
+        let mut moved = false;
+        for info in contents.values_mut() {
+            if info.stored.as_ref().is_some_and(|extents| extents.iter().any(|extent| covers(&fixed, extent.offset(), extent.len()))) {
+                info.stored = None;
+                moved = true;
+            }
+        }
+        if moved {
+            plan = plan::lay_out(&self.tree, opts, &contents, base)?;
+        }
         check_output(&self.dev, &plan)?;
         check_contents(&self.tree, &plan)?;
         if mode == SessionMode::Append {
@@ -402,6 +448,15 @@ impl<D: BlockDevice> Session<D> {
             }
         }
         plan.regions.sort_by_key(Region::block);
+        if moved {
+            let (early, rest) = core::mem::take(&mut plan.regions).into_iter().partition(|region| match region {
+                Region::File { path, .. } => self.tree.get(path).and_then(Node::content).is_some_and(|content| content.stored_extents().is_some()),
+                _ => false,
+            });
+            plan.regions = early;
+            emit(&mut self.dev, &self.tree, &plan).await?;
+            plan.regions = rest;
+        }
         emit(&mut self.dev, &self.tree, &plan).await?;
         self.volume_blocks = plan.total_blocks;
         if keep_catalog.is_none() {
