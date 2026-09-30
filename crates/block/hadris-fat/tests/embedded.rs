@@ -860,3 +860,49 @@ fn mount_identity_survives_moves_and_ignores_disk_serials() {
     assert_eq!(remounted.read(&file, &mut buf).unwrap(), 9);
     remounted.close(file).unwrap();
 }
+
+#[test]
+fn unmount_after_a_refusal_fails_while_sizes_are_unwritten() {
+    use common::script::Scripted;
+
+    let case = CASES[0];
+    let before = common::build(case);
+    for dirty in [true, false] {
+        let (dev, script) = Scripted::new(common::device(case, before.clone()));
+        let mut token = MountToken::new();
+        let mut fat: Fat<Scripted> = Fat::mount(dev, &mut token).unwrap();
+        let root = fat.root();
+        let file = fat
+            .open(root, "README.TXT", OpenOptions::new().write())
+            .unwrap();
+        if dirty {
+            fat.seek(&file, SeekFrom::End(0)).unwrap();
+            assert_eq!(fat.write(&file, &[1u8; 5000]).unwrap(), 5000);
+        }
+        script.borrow_mut().refuse = true;
+        assert_eq!(
+            fat.create_dir(root, "x").unwrap_err().kind(),
+            ErrorKind::ReadOnly
+        );
+        assert!(fat.is_read_only());
+        if !dirty {
+            fat.close(file).unwrap();
+            assert_eq!(fat.sync().map_err(|err| err.kind()), Ok(()));
+            fat.unmount().unwrap();
+            continue;
+        }
+        drop(file);
+        assert_eq!(fat.sync().unwrap_err().kind(), ErrorKind::ReadOnly);
+        let err = fat.unmount().unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::ReadOnly);
+        let image = err.into_device().into_image();
+        let mut token = MountToken::new();
+        let mut fresh = mount(&mut token, case, image);
+        let root = fresh.root();
+        assert_eq!(read_file(&mut fresh, root, "README.TXT"), b"hello fat");
+    }
+    let options = Options::new().read_only();
+    let mut token = MountToken::new();
+    let fat: Fat<Dev> = Fat::mount_with(common::device(case, before), &mut token, options).unwrap();
+    fat.unmount().unwrap();
+}
