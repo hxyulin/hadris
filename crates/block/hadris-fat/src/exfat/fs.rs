@@ -1968,18 +1968,25 @@ impl<D: BlockDevice> ExFatFs<D> {
                 return Err(err);
             }
         };
-        if old.first != 0 {
-            self.pending = None;
-        }
         if dir_entry == ROOT_ENTRY {
+            self.pending = None;
             return Ok(DirStart { alloc, size: u64::MAX });
+        }
+        if let Some(pending) = self.pending.as_mut()
+            && let Owner::Cluster(tail) = pending.owner
+        {
+            pending.owner = Owner::Tail(tail);
         }
         let len = old_len.div_ceil(cluster_size) * cluster_size + count as u64 * cluster_size;
         let mut set = Set::new();
         self.set_at(dir_entry, &mut set).await?;
+        let kind = match self.pending {
+            Some(Pending { owner: Owner::Tail(_), .. }) => SetWrite::Revert(set.raw[1]),
+            _ => SetWrite::Update,
+        };
         set_stream(&mut set.raw[1], alloc, len, len);
         raw::seal(&mut set.raw[..set.count]);
-        self.write_set(&set, 2, SetWrite::Update).await?;
+        self.write_set(&set, 2, kind).await?;
         self.pending = None;
         if let Some(id) = self.pinned_at(dir_entry)
             && let Some(node) = self.nodes.get_mut(id)

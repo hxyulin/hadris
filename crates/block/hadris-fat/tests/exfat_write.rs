@@ -1364,6 +1364,32 @@ fn a_shrink_whose_fat_write_fails_is_cut_back_by_the_next_write() {
     assert_eq!(common::chain(&mut fresh, node).len(), 2);
 }
 
+#[test]
+fn a_directory_grow_whose_size_write_fails_is_cut_back() {
+    let image = common::image(common::small(4 << 20, 4096));
+    let (dev, script) = Scripted::new(common::device(image, 512));
+    let mut fs = ExFatFs::mount(dev, MountOptions::new()).unwrap();
+    let root = fs.root();
+    let dir = fs.mkdir(root, name("dir"), &SetAttr::new()).unwrap();
+    for i in 0..42 {
+        let node = fs
+            .create(dir, name(&format!("f{i}")), &SetAttr::new())
+            .unwrap();
+        fs.forget(node, 1);
+    }
+    assert_eq!(common::chain(&mut fs, dir).len(), 1);
+    script.borrow_mut().fail_at = Some(dir.get() * 32);
+    let err = fs.create(dir, name("f42"), &SetAttr::new()).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Io);
+    assert_eq!(script.borrow().fail_at, None, "the size write failed");
+    fs.sync().unwrap();
+    fs.forget(dir, 1);
+    let image = fs.into_inner().into_image();
+    assert_eq!(findings(image.clone()), []);
+    let mut fresh = common::mount(&image);
+    assert_eq!(common::chain(&mut fresh, dir).len(), 1);
+}
+
 /// Both FATs and both Allocation Bitmaps of a TexFAT volume.
 fn texfat_copies(image: &[u8]) -> ([&[u8]; 2], [Vec<u8>; 2]) {
     let geo = Geometry::of(image);
