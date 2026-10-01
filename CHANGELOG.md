@@ -68,8 +68,9 @@ and command to its 3.0 replacement, and
   `FromEmbedded`.
 - **hadris-ntfs:** A read-only `NtfsFs` without an allocator, in both
   modes. It stays a preview behind the umbrella's `unstable-ntfs`.
-- **Docs:** A versioned documentation site, the migration guide, and
-  guides for detection, the embedded API and each format.
+- **Docs:** A versioned documentation site, the migration guide, guides
+  for detection, the embedded API and each format, and seven use-case
+  examples that build their own images, check every result and run in CI.
 
 ### Changed
 
