@@ -138,7 +138,8 @@ impl Metadata {
         self.len
     }
 
-    /// Returns the bytes allocated on the device (`st_blocks` times 512).
+    /// Returns the bytes allocated on the device (`st_blocks` times 512), or
+    /// 0 when the driver does not report it.
     pub const fn allocated(&self) -> u64 {
         self.allocated
     }
@@ -191,7 +192,8 @@ impl Metadata {
         self.generation
     }
 
-    /// Returns the device number of a character or block device.
+    /// Returns the device number of a character or block device, or `None`
+    /// when the driver does not report it.
     pub const fn device(&self) -> Option<DeviceNumber> {
         self.device
     }
