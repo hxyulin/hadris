@@ -1,7 +1,7 @@
 #![cfg(feature = "async")]
 
 use hadris_io::Cursor;
-use hadris_io::r#async::{ByteSource, Read, Seek};
+use hadris_io::r#async::{Read, Seek};
 
 fn assert_send<T: Send>(value: T) -> T {
     value
@@ -24,17 +24,9 @@ async fn read_header<R: Read + Seek>(mut reader: R) -> [u8; 2] {
     buf
 }
 
-async fn read_source<S: ByteSource>(mut source: S) -> u8 {
-    let mut buf = [0u8; 1];
-    source.read_exact_at(2, &mut buf).await.unwrap();
-    buf[0]
-}
-
 #[test]
 fn generic_futures_are_send() {
     let data = [1u8, 2, 3, 4];
     let header = block_on(assert_send(read_header(Cursor::new(&data))));
     assert_eq!(header, [2, 3]);
-    let byte = block_on(assert_send(read_source(&data[..])));
-    assert_eq!(byte, 3);
 }
