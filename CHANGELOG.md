@@ -24,6 +24,9 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-udf:** The root directory's parent file identifier now points to
+  the root ICB rather than the File Set Descriptor, so filesystem checkers no
+  longer reject otherwise mountable UDF images.
 - **hadris-cpio-cli:** `extract` now skips, with a warning, entries whose names
   are absolute, contain `..`, or lead through a symlink extracted earlier.
   Before, such entries were written outside the output directory.

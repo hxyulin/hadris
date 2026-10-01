@@ -69,6 +69,7 @@ Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 | ECMA-167:3/10.6 | `LogicalVolumeDescriptor` | partial | `write::tests::test_roundtrip_basic_verification` | `udf_read` | The descriptor is modeled and tested, but clause-complete validation has not yet been established. |
 | ECMA-167:3/10.7.2 | `Type1PartitionMap` | partial | `descriptor::logical::tests::type1_partition_maps_parses_embedded_table` | `udf_read` | Type 1 maps are parsed, while validation of every table-level constraint is not yet established. |
 | ECMA-167:4/14.1 | `FileSetDescriptor` | partial | `write::tests::test_roundtrip_basic_verification` | `udf_read` | The descriptor is modeled and tested, but clause-complete validation has not yet been established. |
+| ECMA-167:4/14.4 | `UdfWriter::write_fids` | partial | `write::tests::root_parent_fid_points_to_root_and_child_parent_points_to_root` | | Parent FID references are tested; other FID semantics have not been audited. |
 
 ## hadris-iso
 
