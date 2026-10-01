@@ -22,7 +22,6 @@ feature) passes an `embedded-io` error through unchanged.
 - **Typed errors** - the device's error reaches the caller unchanged, with no allocation
 - **Explicit adapters** - `StdIo`, `ToStd` and `FromEmbedded` at the edges
 - **In-memory `Cursor`** - byte-slice reader and seeker for parsing
-- **Positional sources** - `ByteSource` for writer inputs that are read more than once
 
 ## Feature Flags
 
@@ -239,26 +238,6 @@ assert_eq!(ErrorKind::ReadOnly.errno().linux(), 30);
 
 let io: std::io::Error = err.into();
 assert_eq!(io.raw_os_error(), Some(5));
-```
-
-## Byte Sources
-
-`ByteSource` is a positional source of bytes with a known length. Writers use
-it for file contents so they can read the same bytes more than once without a
-seek contract. `&[u8]`, `Vec<u8>` and `&mut S` implement it, and
-`SeekSource<T>` adapts any `Read + Seek`:
-
-```rust
-use hadris_io::sync::{ByteSource, SeekSource};
-use hadris_io::Cursor;
-
-let data = [1u8, 2, 3, 4, 5, 6];
-let mut source = SeekSource::new(Cursor::new(&data)).unwrap();
-assert_eq!(source.len(), 6);
-
-let mut buf = [0u8; 2];
-source.read_exact_at(4, &mut buf).unwrap();
-assert_eq!(buf, [5, 6]);
 ```
 
 ## Documentation

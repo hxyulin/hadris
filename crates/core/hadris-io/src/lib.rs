@@ -251,19 +251,6 @@ macro_rules! try_io_result_option {
     };
 }
 
-#[cfg(any(feature = "sync", feature = "async"))]
-fn copy_from_slice_at(data: &[u8], offset: u64, buf: &mut [u8]) -> usize {
-    let Ok(start) = usize::try_from(offset) else {
-        return 0;
-    };
-    let Some(available) = data.get(start..) else {
-        return 0;
-    };
-    let count = available.len().min(buf.len());
-    buf[..count].copy_from_slice(&available[..count]);
-    count
-}
-
 /// A no-std cursor for reading from a byte slice.
 ///
 /// Implements [`sync::Read`] and [`sync::Seek`] and their async counterparts.
@@ -364,8 +351,6 @@ mod tests {
     use super::*;
     use core::convert::Infallible;
     use std::format;
-    #[cfg(feature = "alloc")]
-    use std::vec::Vec;
 
     #[test]
     fn cursor_new_starts_at_zero() {
@@ -489,41 +474,5 @@ mod tests {
             Some(Ok(0))
         }
         assert!(matches!(test_fn(), Some(Err(InvalidSeek))));
-    }
-
-    #[test]
-    fn byte_source_over_slice() {
-        let mut slice: &[u8] = &[1, 2, 3, 4];
-        let mut buf = [0u8; 3];
-        assert_eq!(slice.read_at(2, &mut buf).unwrap(), 2);
-        assert_eq!(&buf[..2], &[3, 4]);
-        assert_eq!(slice.read_at(9, &mut buf).unwrap(), 0);
-        assert_eq!(slice.read_at(u64::MAX, &mut buf).unwrap(), 0);
-    }
-
-    #[cfg(feature = "alloc")]
-    #[test]
-    fn byte_source_over_vec() {
-        let mut buf = [0u8; 3];
-        let mut vec: Vec<u8> = (0..10).collect();
-        vec.read_exact_at(5, &mut buf).unwrap();
-        assert_eq!(buf, [5, 6, 7]);
-        assert_eq!(
-            vec.read_exact_at(8, &mut buf).unwrap_err(),
-            ExactError::UnexpectedEof
-        );
-    }
-
-    #[test]
-    fn seek_source_limits_reads_to_len() {
-        let data = [0u8, 1, 2, 3, 4, 5];
-        let mut source = SeekSource::new(Cursor::new(&data)).unwrap();
-        assert_eq!(source.len(), 6);
-        let mut buf = [0u8; 4];
-        assert_eq!(source.read_at(4, &mut buf).unwrap(), 2);
-        assert_eq!(&buf[..2], &[4, 5]);
-
-        let mut short = SeekSource::with_len(Cursor::new(&data), 3);
-        assert_eq!(short.read_at(1, &mut buf).unwrap(), 2);
     }
 }

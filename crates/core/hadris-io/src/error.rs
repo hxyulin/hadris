@@ -32,7 +32,7 @@ impl ErrorType for alloc::vec::Vec<u8> {
     type Error = Infallible;
 }
 
-/// Failure of `read_exact`, `write_all` or `read_exact_at`.
+/// Failure of `read_exact` or `write_all`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ExactError<E> {

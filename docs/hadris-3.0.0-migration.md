@@ -1064,7 +1064,7 @@ follows. In V3, name I/O items through their mode module:
 | `hadris_io::IoError` | Removed. The bound is `ErrorType::Error: core::error::Error + Send + Sync + 'static` |
 | `hadris_io::{Path, PathBuf}` | Removed. Use `std::path` |
 | `hadris_io::try_io_result_option!` | `hadris_io::try_io_result_option!` |
-| (new) | `ErrorType`, `ExactError`, `StdIo`, `ToStd`, `into_std_error`, `Location`, `DetailCode`, `Errno`, `InvalidSeek`, `{sync, r#async, local}::{ByteSource, SeekSource, MaybeSend}` |
+| (new) | `ErrorType`, `ExactError`, `StdIo`, `ToStd`, `into_std_error`, `Location`, `DetailCode`, `Errno`, `InvalidSeek`, `{sync, r#async, local}::MaybeSend` |
 
 ### hadris-storage
 

@@ -354,9 +354,9 @@ pub trait Seek: ErrorType { /* seek */ }
 pub enum ExactError<E> { UnexpectedEof, WriteZero, Io(E) }
 ```
 
-- The bound is the whole error contract. A kernel writes its own enum with `Display` and an empty `impl core::error::Error`. std devices use `std::io::Error`. embedded-io errors pass through unchanged. There is no Hadris error trait to implement. The `local` traits drop `Send + Sync` from the bound.
+- The bound is the whole error contract. A kernel writes its own enum with `Display` and an empty `impl core::error::Error`. std devices use `std::io::Error`. embedded-io errors pass through unchanged. There is no Hadris error trait to implement. `ErrorType` is shared by every mode, so the `local` traits have the same bound.
 - `Send + Sync` lets code erase any device error into `PathError` or `std::io::Error` (4.6) with no extra where-clauses. It rules out errors that hold an `Rc` or a raw pointer; such a device wraps them, or uses the `local` traits.
-- `&mut T` implements each trait when `T` does, and so does `Box<T>` with `alloc`. `&[u8]` is a reader and `Vec<u8>` a writer.
+- `&mut T` implements each trait when `T` does, and so does `Box<T>` with `alloc`. `Cursor` reads a byte slice; `Read` for `&[u8]` and `Write` for `Vec<u8>` are additive later.
 - `FromEmbedded<T>` adapts an `embedded-io` or `embedded-io-async` stream. Its error is `T::Error`, unwrapped. It is the only item that names embedded-io, so the dependency sits behind an `embedded-io` feature.
 - With `std`, `into_std_error(e)` converts any device error to `std::io::Error`, returning an `io::Error` as itself. `ExactError<E>` converts with `?`.
 - With `std`, `StdIo<T>` adapts any `std::io` stream (a pipe, stdin, a decompressor) for the cpio reader and writers. A host image file does not need it: `host::FileDevice` is a `BlockDevice` (4.2), and sync `File` handles implement `std::io` directly (4.3).
@@ -927,7 +927,7 @@ Keep the `strip_async!` code generation and use it everywhere:
 | `embedded-io` | `FromEmbedded<T>` for embedded-io and embedded-io-async streams. Nothing else names embedded-io. |
 | `sync` | Sync API. On by default. |
 | `async` | Async API: `Send` futures in the shared tier, `local` futures in the embedded API. |
-| `write` | Undecided (S4 in 4.17): it either goes, leaving writers always compiled, or stays as "can create images" in every crate. Settled with the feature rework. |
+| `write` | Kept on `hadris-fat` and forwarded by the umbrella (S4 in 4.17). It only adds items. Other crates gain one in 3.x only if needed, which is additive. |
 | `unstable-*` | Enables a preview module, such as `unstable-ntfs`. Never changes stable items. |
 
 - `read` is dropped; reading is always available. `async-send` is dropped.
@@ -1237,7 +1237,7 @@ updated to the API prototype (4.18):
 | `impl_fs_driver!` | Dropped. `FileSystem`'s write methods default to `ReadOnly`, which removes the macro's job. The redesign brings it back only for duplication it can name. |
 | S6 path helpers | Path methods exist only on the shared `Volume`, as inherent methods named after `std::fs`; the bare-driver tier keeps node-level calls. `DriverExt` and `PathExt` are removed, with no extension trait in their place. |
 | Async naming | In the shared tier `r#async` means futures that are `Send` when the device is (the former `async_send`). The embedded API's `r#async` is non-`Send`. `hadris-io` and `hadris-storage` offer `sync`, `r#async` (`Send`) and `local` (non-`Send`) device traits. Features are `sync` and `async`; `async-send` is removed. |
-| S4 `write` | Undecided: dropping it leaves writers always compiled and shrinks the feature matrix; keeping it makes it stable for 3.x. Settled with the feature rework. |
+| S4 `write` | Kept (2026-10-01): removing a feature after 3.0 is a break, and it only adds items. It stays on `hadris-fat` and the umbrella. |
 
 ### 4.18 Action catalog and API prototype
 
@@ -1287,7 +1287,7 @@ Pass 4 (embedded), accepted on 2026-09-24:
 - Format and check are the shared, already alloc-free `fat::sync::{format, check}`.
 - Footprint (prototype estimate, device excluded): `Fat<(), 4>` is 760 bytes on thumbv7em and 776 on aarch64, `ExFat<(), 4>` 792 and 808: one 512-byte cache, the 80-byte geometry, the options and 32-byte FAT slots (48 for exFAT). These are historical prototype estimates; the current mount-token layout is measured by the firmware CI report. Both types are const-asserted under 2048 bytes. Stack and flash need the real crate, with `-Z emit-stack-sizes` and a size report on thumbv7em in CI.
 - Changes forced on passes 1 to 3, all additive: `local::BlockDevice` without `Send` (with a `Partition` impl), `fat::raw::fold_ascii` and `fold_unicode`, and the `embedded` modules. No signature changed.
-- Open: a combined FAT-or-exFAT type for SDXC firmware can be added later; the cancel safety of the embedded async API (NF-CANCEL-01) is not specified yet and must be tested in the real crate. Shared FAT folds Unicode while embedded folds ASCII, so a name that differs only in non-ASCII case matches in one tier and not the other; this is documented per tier.
+- Open: a combined FAT-or-exFAT type for SDXC firmware can be added later; the cancel safety of the embedded async API (NF-CANCEL-01) is tested in `hadris-fat/tests/embedded.rs`. Shared FAT folds Unicode while embedded folds ASCII, so a name that differs only in non-ASCII case matches in one tier and not the other; this is documented per tier.
 
 ---
 
@@ -1413,8 +1413,8 @@ let report = session.write(&opts, SessionMode::Append)?;   // new session after 
 ```
 
 `Session<D>` owns the device (`open(dev)` fails with `MountError`, which gives
-it back) and has `tree`, `tree_mut`, `options`, `plan`, `write`, `export` and
-`into_inner`. `Append` writes a real new session: data and descriptors after
+it back) and has `tree`, `tree_mut`, `options`, `write`, `export` and `into_inner`;
+`plan` is 3.x and additive (deferred at R6). `Append` writes a real new session: data and descriptors after
 the previous session, previous extents reused, and the descriptors at block
 16 updated as growisofs does on overwritable media. `Rewrite` replaces V2's
 in-place behaviour, keeps hybrid boot data and updates the backup GPT.
@@ -1460,7 +1460,7 @@ image as `ImageFormat::IsoUdfBridge`, then `Iso`, then `Udf`.
 
 ### 5.5 `hadris-ntfs`
 
-- `NtfsFs<D>` implements `FileSystem` with the write half at its `ReadOnly` defaults and metadata including times. Security descriptors are native (`security_descriptor(node)`), since `Metadata` stays `Copy`.
+- `NtfsFs<D>` implements `FileSystem` with the write half at its `ReadOnly` defaults and metadata including times. Security descriptors will be native (`security_descriptor(node)`, 3.x), since `Metadata` stays `Copy`.
 - Errors are `Error<E>` with an `ntfs::Detail`; `NtfsError` is gone. `raw::*` is no longer glob re-exported. `attr` types with raw `u8`/`u32` codes move to `raw`; the public API uses enums.
 - Native API for streams: `streams(node)` lists named data streams, and `read_stream_at(node, name, offset, buf)` reads one.
 - `mount` seeks to the boot sector instead of reading from the current position (falls out of `BlockDevice`).
@@ -1804,7 +1804,7 @@ stable in `hadris_fat::exfat` and `unstable-exfat` is removed. NTFS stays in
 page and long names are UTF-16. ISO primary names are d-characters, Joliet is
 UCS-2. The trait takes bytes. Does `Capabilities` describe the charset
 precisely enough for a VFS to translate names, or does each format also need
-a `NameCodec`? Still open. The 3.0 answer is `Capabilities::charset()`
+a `NameCodec`? Resolved (2026-10-01) for 3.0: the answer is `Capabilities::charset()`
 returning a non-exhaustive `Charset` (`Bytes`, `Unicode`) plus
 `max_name_bytes` in UTF-8 bytes; a finer description is additive.
 
