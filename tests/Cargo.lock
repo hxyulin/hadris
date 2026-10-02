@@ -261,7 +261,6 @@ name = "hadris-io"
 version = "2.4.0"
 dependencies = [
  "bytemuck",
- "cfg-if",
  "embedded-io",
  "embedded-io-async",
 ]
