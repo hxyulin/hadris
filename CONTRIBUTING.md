@@ -29,7 +29,26 @@ RUSTFLAGS="-D warnings" cargo check -p hadris-fat --no-default-features --featur
 RUSTFLAGS="-D warnings" cargo check -p hadris-iso --no-default-features --features "read,sync"
 ```
 
-See [CLAUDE.md](CLAUDE.md) for the full per-crate feature matrix used in CI.
+CI runs formatting, linting, documentation, and hosted tests with Rust
+**1.97.1**. Rust **1.88.0** remains the library MSRV and runs only compilation
+checks: the workspace with default and all features, plus every feature tier
+in [`scripts/ci-features.json`](scripts/ci-features.json). Each tier is checked
+separately to avoid feature unification hiding missing dependencies. Run the
+same tiers locally with:
+
+```bash
+RUSTUP_TOOLCHAIN=1.88.0 RUSTFLAGS="-D warnings" python3 scripts/check-features.py all
+# Or select core, block, optical, archive, or facades.
+```
+
+The feature checks share five runners. Linux hosts the external-tool tests
+and conformance suite alongside the workspace tests; Windows and macOS run
+the portable workspace tests. Public API snapshots retain their pinned
+nightly, and Miri retains its targeted nightly checks. Superseded runs on
+the same branch are cancelled. The Rust 1.97 Clippy commands temporarily
+allow four style-only lints (`manual_is_multiple_of`, `collapsible_if`,
+`unnecessary_sort_by`, and `byte_char_slices`) to keep the CI migration
+separate from parser and I/O refactors; other warnings remain errors.
 
 ### Conformance and interoperability suite
 

@@ -233,6 +233,8 @@ Runnable application examples live in [`examples/`](examples/) and are compiled
 as part of the Cargo workspace.
 
 **MSRV:** Rust 1.88.0 (`rust-toolchain.toml` / workspace `rust-version`).
+CI runs hosted tests and development checks with Rust 1.97.1, and checks
+compilation and feature tiers with Rust 1.88.0.
 
 Fuzz harnesses under [`fuzz/`](fuzz/) are local developer tools and are **not** part of PR CI.
 

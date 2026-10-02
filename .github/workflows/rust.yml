@@ -2,363 +2,117 @@ name: Rust CI
 
 on:
   push:
-    branches:
-      - main
-      - dev
-      - v2-dev
+    branches: [main, dev, v2-dev]
   pull_request:
-    branches:
-      - main
-      - v2-dev
+    branches: [main, v2-dev]
 
-# Least-privilege GITHUB_TOKEN. Without an explicit block the token inherits the
-# repo/org default (often write), which CodeQL flags as
-# `actions/missing-workflow-permissions` — a compromised step could otherwise
-# push code, create releases, or modify settings. This workflow only needs to
-# check out the tree.
 permissions:
   contents: read
 
+concurrency:
+  group: rust-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
+  CARGO_BUILD_WARNINGS: deny
+  RUSTUP_TOOLCHAIN: 1.97.1
 
 jobs:
-  licenses:
-    name: Dependency licenses
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          rust-version: "1.88.0"
-          command: check
-          command-arguments: licenses
-
-  # Enforce annotation grammar, evidence references, and coverage-table parity.
-  # See docs/spec-coverage.md#annotation-convention.
-  spec-annotations:
-    name: Spec annotations
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Self-test checker
-        run: python3 scripts/check-spec-annotations.py --self-test
-      - name: Check @hadris-* tags
-        run: python3 scripts/check-spec-annotations.py
-      - name: Self-test compliance catalog checker
-        run: python3 scripts/check-compliance-catalog.py --self-test
-      - name: Check compliance catalogs
-        run: python3 scripts/check-compliance-catalog.py
-
-  public-api:
-    name: Public API snapshots
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
-        with:
-          toolchain: 1.88.0
-      # cargo-public-api generates rustdoc JSON through nightly rustdoc even
-      # though the project itself remains pinned to the stable MSRV above.
-      # Pin the nightly: rustdoc's rendering of blanket impls (e.g.
-      # `std::io::Read` vs `alloc::io::read::Read`) drifts between nightlies, so
-      # an unpinned toolchain makes the snapshot diff nondeterministic. Bump
-      # this date deliberately alongside a snapshot refresh.
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
-        with:
-          toolchain: nightly-2026-09-04
-      - uses: Swatinem/rust-cache@v2
-      - name: Install cargo-public-api
-        run: cargo install cargo-public-api --version 0.52.0 --locked
-      - name: Check all-feature public API snapshots
-        # cargo-public-api 0.52.0 has no --toolchain flag but honors
-        # RUSTUP_TOOLCHAIN when it names a nightly, so this drives rustdoc with
-        # the pinned dated nightly installed above.
-        env:
-          RUSTUP_TOOLCHAIN: nightly-2026-09-04
-        run: scripts/check-public-api.sh
-
   check:
     name: Check
     runs-on: ubuntu-latest
-    # Promote rustc warnings to errors so issues like `unconditional_recursion`
-    # (see issue #23) fail CI instead of slipping through.
     env:
-      RUSTFLAGS: "-D warnings"
+      RUSTUP_TOOLCHAIN: 1.88.0
+      RUSTFLAGS: -D warnings
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
         with:
           toolchain: 1.88.0
       - uses: Swatinem/rust-cache@v2
-      - name: Check workspace (default features)
-        run: cargo check --workspace
+      - name: Check workspace at the MSRV
+        run: |
+          cargo check --workspace --locked
+          cargo check --workspace --all-features --locked
 
   check-features:
-    name: "Check ${{ matrix.crate }} (${{ matrix.tier }})"
+    name: MSRV features (${{ matrix.group }})
     runs-on: ubuntu-latest
     env:
-      RUSTFLAGS: "-D warnings"
+      RUSTUP_TOOLCHAIN: 1.88.0
+      RUSTFLAGS: -D warnings
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # hadris-fixed
-          - crate: hadris-fixed
-            tier: no-std
-            features: ""
-          - crate: hadris-fixed
-            tier: alloc-bytemuck
-            features: "alloc,bytemuck"
-
-          # hadris-path
-          - crate: hadris-path
-            tier: no-std
-            features: ""
-          - crate: hadris-path
-            tier: alloc
-            features: "alloc"
-
-          # hadris-io
-          - crate: hadris-io
-            tier: no-std
-            features: ""
-          - crate: hadris-io
-            tier: std
-            features: "std"
-          - crate: hadris-io
-            tier: async
-            features: "async,alloc"
-
-          # hadris-common
-          - crate: hadris-common
-            tier: no-std
-            features: "sync,bytemuck,optical"
-          - crate: hadris-common
-            tier: alloc
-            features: "alloc,sync,bytemuck,optical"
-          - crate: hadris-common
-            tier: std-without-sync
-            features: "std,bytemuck,optical"
-          - crate: hadris-common
-            tier: std
-            features: "std,sync,bytemuck,optical"
-
-          # hadris-storage
-          - crate: hadris-storage
-            tier: no-std-sync
-            features: "sync"
-          - crate: hadris-storage
-            tier: no-std-async
-            features: "async"
-          - crate: hadris-storage
-            tier: sync-and-async
-            features: "alloc,sync,async"
-
-          # hadris-part
-          - crate: hadris-part
-            tier: no-std
-            features: "sync,read"
-          - crate: hadris-part
-            tier: alloc
-            features: "alloc,sync,read,write"
-          - crate: hadris-part
-            tier: std
-            features: "std,sync,read,write"
-          - crate: hadris-part
-            tier: async-read
-            features: "async,read,alloc"
-          - crate: hadris-part
-            tier: hosted-async-read-write
-            features: "std,async,read,write,crc,rand"
-          - crate: hadris-part
-            tier: sync-and-async-read-write
-            features: "alloc,sync,async,read,write,crc"
-          - crate: hadris-part
-            tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,crc,rand"
-          - crate: hadris-part
-            tier: crc
-            features: "sync,read,alloc,crc"
-
-          # hadris-fat
-          - crate: hadris-fat
-            tier: no-std
-            features: "sync,read,lfn,cache,tool,unstable-exfat"
-          - crate: hadris-fat
-            tier: alloc
-            features: "alloc,sync,read,lfn,cache,tool,unstable-exfat"
-          - crate: hadris-fat
-            tier: std
-            features: "std,sync,read,write,lfn,cache,tool,unstable-exfat"
-          - crate: hadris-fat
-            tier: async-read
-            features: "alloc,async,read,lfn"
-          - crate: hadris-fat
-            tier: hosted-async-read-write
-            features: "std,async,read,write,lfn"
-          - crate: hadris-fat
-            tier: sync-and-async-read-write
-            features: "alloc,sync,async,read,write,lfn,unstable-exfat"
-          - crate: hadris-fat
-            tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,lfn,cache,tool,unstable-exfat,defmt,dirty-file-panic"
-
-          # hadris-iso
-          - crate: hadris-iso
-            tier: no-std
-            features: "sync,read,joliet"
-          - crate: hadris-iso
-            tier: alloc
-            features: "alloc,sync,read,joliet"
-          - crate: hadris-iso
-            tier: std
-            features: "std,sync,read,write,joliet"
-          - crate: hadris-iso
-            tier: async-read
-            features: "alloc,async,read,joliet"
-          - crate: hadris-iso
-            tier: hosted-async-read
-            features: "std,async,read,joliet"
-          - crate: hadris-iso
-            tier: sync-and-async-read
-            features: "alloc,sync,async,read,joliet"
-          - crate: hadris-iso
-            tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,joliet,unstable-streaming"
-
-          # hadris-udf
-          - crate: hadris-udf
-            tier: no-std
-            features: "sync,read"
-          - crate: hadris-udf
-            tier: alloc
-            features: "alloc,sync,read"
-          - crate: hadris-udf
-            tier: std
-            features: "std,sync,read,write"
-          - crate: hadris-udf
-            tier: async-read
-            features: "alloc,async,read"
-          - crate: hadris-udf
-            tier: sync-and-async-read
-            features: "alloc,sync,async,read"
-          - crate: hadris-udf
-            tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,unstable-streaming"
-
-          # hadris-cpio
-          - crate: hadris-cpio
-            tier: no-std
-            features: "sync,read"
-          - crate: hadris-cpio
-            tier: alloc
-            features: "alloc,sync,read,write"
-          - crate: hadris-cpio
-            tier: std
-            features: "std,sync,read,write"
-          - crate: hadris-cpio
-            tier: async-read
-            features: "alloc,async,read"
-          - crate: hadris-cpio
-            tier: hosted-async-read-write
-            features: "std,async,read,write"
-          - crate: hadris-cpio
-            tier: sync-and-async-read-write
-            features: "alloc,sync,async,read,write"
-          - crate: hadris-cpio
-            tier: all-capabilities
-            features: "std,alloc,sync,async,read,write"
-
-          # hadris-cd (hybrid writer is intentionally sync-only)
-          - crate: hadris-cd
-            tier: no-api
-            features: ""
-          - crate: hadris-cd
-            tier: hosted-sync-writer
-            features: "std,sync"
-
-          # standalone category facades
-          - crate: hadris-block
-            tier: no-formats
-            features: ""
-          - crate: hadris-block
-            tier: no-std-async
-            features: "alloc,async,read,detect,storage,fat,part"
-          - crate: hadris-block
-            tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,detect,storage,fat,part"
-          - crate: hadris-optical
-            tier: no-formats
-            features: ""
-          - crate: hadris-optical
-            tier: hosted-async-with-cd
-            features: "std,async,read,open,cd"
-          - crate: hadris-optical
-            tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,open,cd"
-          - crate: hadris-archive
-            tier: no-formats
-            features: ""
-          - crate: hadris-archive
-            tier: async-read-write
-            features: "alloc,async,read,write,cpio"
-          - crate: hadris-archive
-            tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,cpio"
-
-          # hadris umbrella/category forwarding
-          - crate: hadris
-            tier: no-formats
-            features: ""
-          - crate: hadris
-            tier: leaf-fat
-            features: "std,sync,read,write,fat"
-          - crate: hadris
-            tier: leaf-storage
-            features: "std,sync,storage"
-          - crate: hadris
-            tier: leaf-path
-            features: "alloc,path"
-          - crate: hadris
-            tier: leaf-fixed
-            features: "alloc,fixed"
-          - crate: hadris
-            tier: leaf-part
-            features: "std,sync,read,write,part"
-          - crate: hadris
-            tier: leaf-iso
-            features: "std,sync,read,write,iso"
-          - crate: hadris
-            tier: leaf-udf
-            features: "std,sync,read,write,udf"
-          - crate: hadris
-            tier: leaf-cd
-            features: "std,cd"
-          - crate: hadris
-            tier: leaf-cpio
-            features: "std,sync,read,write,cpio"
-          - crate: hadris
-            tier: no-std-async-block
-            features: "alloc,async,read,block"
-          - crate: hadris
-            tier: hosted-async-optical
-            features: "std,async,read,optical"
-          - crate: hadris
-            tier: dual-mode-archive
-            features: "alloc,sync,async,read,write,archive"
-          - crate: hadris
-            tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,block,optical,archive"
-
+        group: [core, block, optical, archive, facades]
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
         with:
           toolchain: 1.88.0
       - uses: Swatinem/rust-cache@v2
-      - name: Check ${{ matrix.crate }} with features "${{ matrix.features }}"
-        run: cargo check -p ${{ matrix.crate }} --no-default-features --features "${{ matrix.features }}"
+        with:
+          key: msrv-${{ matrix.group }}
+      - name: Check each feature tier independently
+        run: python3 scripts/check-features.py ${{ matrix.group }}
+
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
+        with:
+          toolchain: 1.97.1
+          components: rustfmt
+      - name: Check formatting
+        run: |
+          cargo fmt --all -- --check
+          cargo fmt --manifest-path tests/Cargo.toml --all -- --check
+      - name: Check specification annotations
+        run: |
+          python3 scripts/check-spec-annotations.py --self-test
+          python3 scripts/check-spec-annotations.py
+          python3 scripts/check-compliance-catalog.py --self-test
+          python3 scripts/check-compliance-catalog.py
+      - name: Check dependency licenses
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          rust-version: 1.97.1
+          command: check
+          command-arguments: licenses
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
+        with:
+          toolchain: 1.97.1
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            tests -> target
+      # Defer new style-only rewrites during the CI toolchain migration.
+      - name: Lint workspace and conformance suite
+        run: |
+          cargo clippy --workspace --all-targets --all-features --locked -- \
+            -D warnings -A clippy::manual_is_multiple_of -A clippy::collapsible_if \
+            -A clippy::unnecessary_sort_by -A clippy::byte_char_slices
+          cargo clippy --manifest-path tests/Cargo.toml --all-targets --locked -- \
+            -D warnings -A clippy::manual_is_multiple_of -A clippy::collapsible_if \
+            -A clippy::unnecessary_sort_by -A clippy::byte_char_slices
+      - name: Check documentation and examples
+        run: |
+          cargo doc --workspace --no-deps --all-features --locked
+          cargo test --workspace --all-features --doc --locked
+          cargo check --workspace --all-features --examples --locked
 
   test:
     name: Test
@@ -369,171 +123,69 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
         with:
-          toolchain: 1.88.0
-      - uses: Swatinem/rust-cache@v2
-      - name: Run all-feature tests
-        if: runner.os != 'Windows'
-        run: cargo test --workspace --all-features --tests
-      # `hadris-fat/defmt` is an embedded logging integration. It can be
-      # type-checked on every host, but its runtime symbols are supplied by an
-      # embedded target and therefore cannot be linked into Windows test
-      # executables. The feature matrix above still checks the complete feature
-      # combination; Windows exercises the portable hosted defaults here.
-      - name: Run portable hosted tests
-        if: runner.os == 'Windows'
-        run: |
-          cargo test --workspace --all-features --tests --exclude hadris-fat
-          cargo test -p hadris-fat --features "std,alloc,sync,async,read,write,lfn,cache,tool,unstable-exfat,dirty-file-panic" --tests
-      - name: Run block async integration tests
-        run: cargo test -p hadris-block --all-features --test async_volume
-      - name: Run optical detection integration tests
-        run: cargo test -p hadris-optical --all-features --test detect
-      - name: Run optical opening integration tests
-        run: cargo test -p hadris-optical --all-features --test open_image --test async_open_image
-      - name: Run CPIO async writer integration test
-        run: cargo test -p hadris-cpio --all-features --test async_writer
-
-  test-exfat:
-    name: Test exFAT (with external tools)
-    runs-on: ubuntu-latest
-    env:
-      HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
-        with:
-          toolchain: 1.88.0
-      - uses: Swatinem/rust-cache@v2
-      - name: Install exfatprogs
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y exfatprogs
-      - name: Run exFAT integration tests
-        run: |
-          cargo test -p hadris-fat --features "unstable-exfat,write" --lib integration_exfat:: -- --nocapture
-          cargo test -p hadris-fat --features "unstable-exfat,write" --lib exfat_roundtrip:: -- --nocapture
-
-  test-fat-conformance:
-    name: Test FAT conformance and interoperability
-    runs-on: ubuntu-latest
-    env:
-      HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
-        with:
-          toolchain: 1.88.0
-      - uses: Swatinem/rust-cache@v2
-      - name: Install FAT image tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y dosfstools mtools
-      - name: Run test harness unit tests
-        run: "cargo test --manifest-path tests/Cargo.toml --lib"
-      - name: Run FAT conformance and interoperability tests
-        run: "cargo test --manifest-path tests/Cargo.toml fat:: -- --nocapture"
-
-  test-optical:
-    name: Test optical interoperability
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
-        with:
-          toolchain: 1.88.0
-      - uses: Swatinem/rust-cache@v2
-      - name: Install optical image tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xorriso udftools p7zip-full libarchive-tools
-      - name: Run ISO conformance and interoperability tests
-        env:
-          HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
-        run: "cargo test --manifest-path tests/Cargo.toml iso:: -- --nocapture"
-      - name: Run UDF interoperability tests
-        run: >-
-          cargo test -p hadris-udf --all-features --lib integration_external:: -- --nocapture
-      - name: Qualify hybrid ISO/UDF images
-        run: cargo test -p hadris-cd --all-features --test bridge_roundtrip -- --nocapture
-
-  # CLI --help/--version smoke tests live in crates/tools/hadris-*-cli/tests/cli_smoke.rs
-  # and run under the workspace `test` job.
-
-  doc:
-    name: Docs
-    runs-on: ubuntu-latest
-    env:
-      RUSTDOCFLAGS: "-D warnings"
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
-        with:
-          toolchain: 1.88.0
-      - uses: Swatinem/rust-cache@v2
-      - name: cargo doc --workspace
-        run: cargo doc --workspace --no-deps
-      - name: Compile rustdoc examples
-        run: cargo test --workspace --all-features --doc
-      - name: Compile Cargo example targets
-        run: cargo check --workspace --all-features --examples
-
-  fmt:
-    name: Format
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
-        with:
-          toolchain: 1.88.0
-          components: rustfmt
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-      - name: Check conformance suite formatting
-        run: cargo fmt --manifest-path tests/Cargo.toml --all -- --check
-
-  clippy:
-    name: Clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
-        with:
-          toolchain: 1.88.0
-          components: clippy
+          toolchain: 1.97.1
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             . -> target
             tests -> target
-      - name: Run clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-      - name: Run clippy on conformance suite
-        run: cargo clippy --manifest-path tests/Cargo.toml --all-targets -- -D warnings
+      - name: Install interoperability tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dosfstools mtools exfatprogs xorriso udftools p7zip-full libarchive-tools
+      - name: Run all-feature tests
+        if: runner.os != 'Windows'
+        env:
+          HADRIS_REQUIRE_EXTERNAL_TOOLS: ${{ runner.os == 'Linux' && '1' || '0' }}
+        run: cargo test --workspace --all-features --tests --locked
+      # defmt runtime symbols cannot be linked into hosted Windows tests.
+      - name: Run portable hosted tests
+        if: runner.os == 'Windows'
+        run: |
+          cargo test --workspace --all-features --tests --locked --exclude hadris-fat
+          cargo test -p hadris-fat --features "std,alloc,sync,async,read,write,lfn,cache,tool,unstable-exfat,dirty-file-panic" --tests --locked
+      - name: Run conformance and interoperability suite
+        if: runner.os == 'Linux'
+        env:
+          HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
+        run: cargo test --manifest-path tests/Cargo.toml --locked -- --nocapture
+
+  public-api:
+    name: Public API snapshots
+    runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: nightly-2026-09-04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
+        with:
+          toolchain: nightly-2026-09-04
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-public-api
+        run: cargo install cargo-public-api --version 0.52.0 --locked
+      - name: Check all-feature public API snapshots
+        run: scripts/check-public-api.sh
 
   miri:
     name: Miri (UB detection)
     runs-on: ubuntu-latest
-    # Miri runs Rust through an interpreter to catch undefined behavior at
-    # runtime. We only point it at focused unit tests that exercise
-    # historically-unsafe code paths (see issues #26 and #28). Miri is too slow
-    # — and too restricted (no real I/O) — to run the full test suite, but
-    # these targeted tests catch regressions cheaply.
+    env:
+      RUSTUP_TOOLCHAIN: nightly
     steps:
       - uses: actions/checkout@v7
-      - name: Install nightly toolchain with miri
-        run: |
-          rustup toolchain install nightly --component miri
-          rustup +nightly component add miri
-      - name: Setup miri
+      - name: Install nightly with Miri
+        run: rustup toolchain install nightly --component miri --profile minimal
+      - name: Setup Miri
         run: cargo +nightly miri setup
       - uses: Swatinem/rust-cache@v2
-      - name: Miri — hadris-common (FixedFilename safety)
+      - name: Check FixedFilename safety
         run: cargo +nightly miri test -p hadris-common --lib
-      - name: Miri — hadris-fat (LFN UTF-16 / surrogate-pair safety)
+      - name: Check LFN decoding
         run: cargo +nightly miri test -p hadris-fat --lib file::lfn_unicode_tests
-      - name: Miri — hadris-fat (LFN write encoding / union safety)
+      - name: Check LFN encoding
         run: cargo +nightly miri test -p hadris-fat --lib lfn_write_safety_tests
-      - name: Miri — hadris-iso (IsoStr / IsoString safety)
+      - name: Check ISO string safety
         run: cargo +nightly miri test -p hadris-iso --lib types::iso_str_safety_tests

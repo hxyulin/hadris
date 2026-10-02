@@ -172,7 +172,7 @@ fn mbr_partition_new_saturates_end_lba() {
 #[test]
 fn geometry_helpers_saturate_on_extreme_values() {
     let geom = DiskGeometry::standard(1_000_000);
-    assert_eq!(geom.align_up(u64::MAX, 2048), u64::MAX & !2047);
+    assert_eq!(geom.align_up(u64::MAX, 2048), !2047u64);
 
     let tiny = DiskGeometry::standard(10);
     assert_eq!(tiny.gpt_last_usable_lba(128, 128), 0);
