@@ -15,7 +15,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  CARGO_BUILD_WARNINGS: deny
   RUSTUP_TOOLCHAIN: 1.97.1
 
 jobs:
@@ -60,6 +59,8 @@ jobs:
   fmt:
     name: Format
     runs-on: ubuntu-latest
+    env:
+      CARGO_BUILD_WARNINGS: deny
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
@@ -87,6 +88,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     env:
+      CARGO_BUILD_WARNINGS: deny
       RUSTDOCFLAGS: -D warnings
     steps:
       - uses: actions/checkout@v7
@@ -117,6 +119,8 @@ jobs:
   test:
     name: Test
     runs-on: ${{ matrix.os }}
+    env:
+      CARGO_BUILD_WARNINGS: deny
     strategy:
       fail-fast: false
       matrix:
@@ -136,10 +140,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y dosfstools mtools exfatprogs xorriso udftools p7zip-full libarchive-tools
+          echo "HADRIS_REQUIRE_EXTERNAL_TOOLS=1" >> "$GITHUB_ENV"
       - name: Run all-feature tests
         if: runner.os != 'Windows'
-        env:
-          HADRIS_REQUIRE_EXTERNAL_TOOLS: ${{ runner.os == 'Linux' && '1' || '0' }}
         run: cargo test --workspace --all-features --tests --locked
       # defmt runtime symbols cannot be linked into hosted Windows tests.
       - name: Run portable hosted tests
