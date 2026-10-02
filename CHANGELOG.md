@@ -10,6 +10,7 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-io:** Remove the unused direct `cfg-if` dependency.
 - **Docs site:** The documentation site is versioned. It serves the newest
   released minor at the root, every earlier released minor under `/X.Y/`
   and the unreleased docs under `/next/`, with a version dropdown and
