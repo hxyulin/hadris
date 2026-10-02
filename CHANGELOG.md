@@ -10,6 +10,8 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **CI:** Run hosted checks on Rust 1.97.1 and retain Rust 1.88 compilation
+  coverage, with grouped feature checks and shared Linux interoperability tests.
 - **hadris-io:** Remove the unused direct `cfg-if` dependency.
 - **Docs site:** The documentation site is versioned. It serves the newest
   released minor at the root, every earlier released minor under `/X.Y/`

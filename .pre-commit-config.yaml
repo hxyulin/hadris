@@ -14,7 +14,7 @@ repos:
       - id: check-added-large-files
         exclude: ^fuzz/corpus/
 
-  # Local system hooks use the repo's rustup toolchain (same as CI).
+  # Local system hooks use the repo's Rust 1.88 toolchain; CI uses Rust 1.97.1.
   # Prefer these over doublify/pre-commit-rust (unmaintained).
   - repo: local
     hooks:
