@@ -636,7 +636,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
             icb_block,
             fid_block,
             fid_bytes,
-            parent_icb_block: parent_icb,
+            parent_icb_block: if depth == 0 { icb_block } else { parent_icb },
             unique_id,
             files: allocated_files,
             subdirs: allocated_subdirs,
@@ -1357,6 +1357,11 @@ impl<W: Write + Seek> UdfWriter<W> {
     }
 
     /// Write File Identifier Descriptors for a directory
+    ///
+    /// @hadris-spec ECMA-167:4/14.4
+    /// @hadris-compliance partial
+    /// @hadris-note Parent FID references are tested; other FID semantics have not been audited.
+    /// @hadris-tests write::tests::root_parent_fid_points_to_root_and_child_parent_points_to_root
     pub fn write_fids(
         &mut self,
         location: u32,
@@ -1873,6 +1878,29 @@ mod tests {
         let dir = udf.root_dir().unwrap();
         let entry = dir.find("flaky.bin").unwrap();
         assert_eq!(udf.read_file(entry).unwrap(), payload);
+    }
+
+    #[test]
+    fn root_parent_fid_points_to_root_and_child_parent_points_to_root() {
+        let mut buffer = vec![0u8; 2 * 1024 * 1024];
+        let mut root = SimpleDir::root();
+        root.add_dir(SimpleDir::new("docs"));
+        UdfWriter::create(
+            Cursor::new(&mut buffer[..]),
+            &root,
+            UdfWriteOptions::default(),
+        )
+        .unwrap();
+
+        let parent_icb = |fid_block: usize| {
+            let offset = (290 + fid_block) * SECTOR_SIZE;
+            let (fid, _) = crate::dir::FileIdentifierDescriptor::from_bytes(&buffer[offset..])
+                .unwrap();
+            assert_ne!(fid.file_characteristics & FileCharacteristics::PARENT.bits(), 0);
+            fid.icb.logical_block_num
+        };
+        assert_eq!(parent_icb(2), 1);
+        assert_eq!(parent_icb(4), 1);
     }
 
     #[test]
