@@ -461,6 +461,17 @@ jobs:
         run: cargo test -p hadris --all-features --test detect
       - name: Run CPIO async writer integration test
         run: cargo test -p hadris-cpio --all-features --test async_writer
+      # Each use-case example builds its own images, checks them and exits
+      # non-zero on any mismatch; see examples/README.md.
+      - name: Run the use-case examples
+        shell: bash
+        run: |
+          for example in boot-media extract image-edit initramfs inspect sd-logger vfs-driver; do
+            cargo run --quiet -p "hadris-example-$example"
+          done
+          for bin in fat fat-log fat-unicode fat-async exfat; do
+            cargo run --quiet -p hadris-example-firmware --bin "$bin"
+          done
 
   # A disk device node reports no size through its metadata, so
   # `hadris_storage::file_len` asks the OS. These jobs attach a real device

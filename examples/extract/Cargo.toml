@@ -1,0 +1,11 @@
+[package]
+name = "hadris-example-extract"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+hadris = { path = "../../crates/core/hadris", features = ["udf"] }

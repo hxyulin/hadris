@@ -309,6 +309,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "hadris-example-boot-media"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "hadris",
+]
+
+[[package]]
 name = "hadris-example-cpio-create"
 version = "0.0.0"
 dependencies = [
@@ -316,6 +324,14 @@ dependencies = [
  "hadris-cpio",
  "hadris-fs",
  "hadris-io",
+]
+
+[[package]]
+name = "hadris-example-extract"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "hadris",
 ]
 
 [[package]]
@@ -340,6 +356,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "hadris-example-image-edit"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "hadris",
+]
+
+[[package]]
+name = "hadris-example-initramfs"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "hadris",
+]
+
+[[package]]
+name = "hadris-example-inspect"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "hadris",
+]
+
+[[package]]
 name = "hadris-example-partition-list"
 version = "0.0.0"
 dependencies = [
@@ -347,6 +387,22 @@ dependencies = [
  "hadris-io",
  "hadris-part",
  "hadris-storage",
+]
+
+[[package]]
+name = "hadris-example-sd-logger"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "hadris",
+]
+
+[[package]]
+name = "hadris-example-vfs-driver"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "hadris",
 ]
 
 [[package]]
