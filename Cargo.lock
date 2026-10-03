@@ -454,7 +454,7 @@ dependencies = [
 
 [[package]]
 name = "hadris"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "hadris-archive",
  "hadris-block",
@@ -465,7 +465,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-apfs"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "hadris-io",
  "hadris-storage",
@@ -473,7 +473,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-apfs-cli"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -484,14 +484,14 @@ dependencies = [
 
 [[package]]
 name = "hadris-archive"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "hadris-cpio",
 ]
 
 [[package]]
 name = "hadris-block"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "bytemuck",
  "hadris-fat",
@@ -502,7 +502,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-cd"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "hadris-io",
  "hadris-iso",
@@ -514,7 +514,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-cd-cli"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "clap",
  "hadris-cd",
@@ -526,7 +526,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-common"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "bytemuck",
  "chrono",
@@ -543,7 +543,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-cpio"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "hadris-common",
  "hadris-io",
@@ -553,7 +553,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-cpio-cli"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -596,7 +596,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-fat"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
@@ -616,7 +616,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-fat-cli"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -627,14 +627,14 @@ dependencies = [
 
 [[package]]
 name = "hadris-fixed"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "bytemuck",
 ]
 
 [[package]]
 name = "hadris-io"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "bytemuck",
  "embedded-io",
@@ -643,7 +643,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-iso"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
@@ -664,7 +664,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-iso-cli"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "clap",
  "hadris-iso",
@@ -676,14 +676,14 @@ dependencies = [
 
 [[package]]
 name = "hadris-macros"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "proc-macro2",
 ]
 
 [[package]]
 name = "hadris-ntfs"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
@@ -697,7 +697,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-optical"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "hadris-cd",
  "hadris-io",
@@ -707,7 +707,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-part"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "bytemuck",
  "crc",
@@ -719,11 +719,11 @@ dependencies = [
 
 [[package]]
 name = "hadris-path"
-version = "2.4.0"
+version = "2.5.0"
 
 [[package]]
 name = "hadris-storage"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "embedded-io",
  "hadris-io",
@@ -731,7 +731,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-udf"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
@@ -747,7 +747,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-udf-cli"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "clap",
  "hadris-udf",

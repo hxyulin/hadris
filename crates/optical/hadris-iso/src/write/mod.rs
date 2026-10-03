@@ -343,9 +343,13 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     }
 
     fn find_boot_image(&self, path: &str) -> io::Result<DirectoryRef> {
-        self.written_files
+        let image = self.written_files
             .find_file(path, self.ops.path_separator)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "boot image file not found"))
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "boot image file not found"))?;
+        if image.size == 0 {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "boot image file is empty"));
+        }
+        Ok(image)
     }
 
     fn calculate_load_size(&self, entry: &BootEntryOptions, dir_ref: &DirectoryRef) -> u16 {
@@ -578,7 +582,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         volume_space: u32,
     ) -> io::Result<()> {
         for &level in JolietLevel::all() {
-            if svd.escape_sequences != level.escape_sequence() {
+            if JolietLevel::from_escape_sequence(&svd.escape_sequences) != Some(level) {
                 continue;
             }
 
@@ -611,7 +615,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         root_dirs: &BTreeMap<EntryType, DirectoryRef>,
         volume_space: u32,
     ) -> io::Result<()> {
-        if svd.escape_sequences != [b' '; 32] {
+        if svd.header.version != 2 {
             return Ok(());
         }
 

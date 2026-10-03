@@ -2,7 +2,7 @@
 //!
 //! Each test formats a fresh image with `format_exfat`, writes content using
 //! the hadris-fat write API, then reads it back through the same API to
-//! verify byte-for-byte equality. When `fsck.exfat` is available on the host,
+//! verify byte-for-byte equality. When the platform exFAT checker is available on the host,
 //! the image is also validated externally.
 
 #![cfg(all(feature = "unstable-exfat", feature = "write"))]
@@ -82,11 +82,11 @@ fn read_root_file(image_path: &Path, name: &str) -> Vec<u8> {
 
 fn maybe_fsck(image_path: &Path) {
     if !fsck_exfat_available() {
-        eprintln!("note: fsck.exfat not available, skipping external validation");
+        eprintln!("note: exFAT checker not available, skipping external validation");
         return;
     }
     if let Err(e) = fsck_check(image_path) {
-        panic!("fsck.exfat rejected the image: {e}");
+        panic!("exFAT checker rejected the image: {e}");
     }
 }
 

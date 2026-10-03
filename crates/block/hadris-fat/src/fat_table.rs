@@ -65,7 +65,11 @@ where
     let mut current = start_cluster as usize;
     let mut iterations = 0;
 
-    while current >= 2 && iterations <= max_clusters {
+    while current >= 2 {
+        if iterations >= max_clusters {
+            return Err(Error::ClusterLoop { cluster: current as u32 });
+        }
+        validate_cluster(current as u32)?;
         chain.push(current as u32);
         iterations += 1;
 
@@ -74,6 +78,10 @@ where
         } else {
             (current * entry_size, entry_size)
         };
+
+        if offset_in_fat.checked_add(span).is_none_or(|end| end > fat_size) {
+            return Err(Error::CorruptFilesystem { context: "cluster entry outside FAT" });
+        }
 
         if offset_in_fat < window_start || offset_in_fat + span > window_start + valid_len {
             window_start = offset_in_fat;
@@ -1347,6 +1355,39 @@ impl Fat32 {
         // Link the last cluster of existing chain to the new chain
         self.write_clus(rw, last as usize, first_new).await?;
         Ok(first_new)
+    }
+}
+
+sync_only! {
+    #[cfg(all(test, feature = "std", feature = "alloc"))]
+    mod cached_chain_tests {
+        use super::*;
+        use std::io::Cursor;
+
+        #[test]
+        fn cached_chain_rejects_cycles() {
+            let mut bytes = [0u8; 16];
+            bytes[4..6].copy_from_slice(&3u16.to_le_bytes());
+            bytes[6..8].copy_from_slice(&2u16.to_le_bytes());
+            let fat = Fat::Fat16(Fat16::new(0, bytes.len(), 1, 7));
+            assert!(matches!(fat.read_chain(&mut Cursor::new(bytes), 2, 7), Err(Error::ClusterLoop { .. })));
+        }
+
+        #[test]
+        fn cached_chain_rejects_entries_outside_the_fat() {
+            let bytes = [0u8; 4];
+            let fat = Fat::Fat16(Fat16::new(0, bytes.len(), 1, 7));
+            assert!(fat.read_chain(&mut Cursor::new(bytes), 2, 7).is_err());
+        }
+
+        #[test]
+        fn cached_chain_accepts_a_chain_at_the_walk_limit() {
+            let mut bytes = [0u8; 8];
+            bytes[4..6].copy_from_slice(&3u16.to_le_bytes());
+            bytes[6..8].copy_from_slice(&0xffffu16.to_le_bytes());
+            let fat = Fat::Fat16(Fat16::new(0, bytes.len(), 1, 3));
+            assert_eq!(fat.read_chain(&mut Cursor::new(bytes), 2, 2).unwrap(), [2, 3]);
+        }
     }
 }
 

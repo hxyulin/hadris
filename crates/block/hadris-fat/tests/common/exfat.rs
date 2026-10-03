@@ -9,25 +9,94 @@ fn program_runs(program: &str) -> bool {
         .unwrap_or(false)
 }
 
-pub fn fsck_exfat_available() -> bool {
-    program_runs("fsck.exfat")
+fn checker() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "/sbin/fsck_exfat"
+    } else {
+        "fsck.exfat"
+    }
 }
 
-/// Run `fsck.exfat -n` and require a clean exit.
+pub fn fsck_exfat_available() -> bool {
+    program_runs(checker())
+}
+
+/// Run the platform exFAT checker in read-only mode.
 pub fn fsck_check(image_path: &Path) -> Result<(), String> {
-    let output = Command::new("fsck.exfat")
-        .args(["-n", image_path.to_str().unwrap()])
+    #[cfg(target_os = "macos")]
+    let device = AttachedImage::new(image_path)?;
+    #[cfg(target_os = "macos")]
+    let check_path = Path::new(&device.0);
+    #[cfg(not(target_os = "macos"))]
+    let check_path = image_path;
+    let output = Command::new(checker())
+        .arg("-n")
+        .arg(check_path)
         .output()
-        .map_err(|error| format!("failed to spawn fsck.exfat: {error}"))?;
+        .map_err(|error| format!("failed to spawn exFAT checker: {error}"))?;
 
     if output.status.success() {
         Ok(())
     } else {
         Err(format!(
-            "fsck.exfat reported errors (exit {:?}):\nstdout:\n{}\nstderr:\n{}",
+            "exFAT checker reported errors (exit {:?}):\nstdout:\n{}\nstderr:\n{}",
             output.status.code(),
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr),
         ))
+    }
+}
+
+#[cfg(target_os = "macos")]
+struct AttachedImage(String);
+
+#[cfg(target_os = "macos")]
+impl AttachedImage {
+    fn new(path: &Path) -> Result<Self, String> {
+        let output = Command::new("hdiutil")
+            .args([
+                "attach",
+                "-nomount",
+                "-readonly",
+                "-noverify",
+                "-imagekey",
+                "diskimage-class=CRawDiskImage",
+            ])
+            .arg(path)
+            .output()
+            .map_err(|error| error.to_string())?;
+        if !output.status.success() {
+            return Err(format!(
+                "hdiutil attach failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        let device = text
+            .split_whitespace()
+            .find(|word| word.starts_with("/dev/disk"))
+            .ok_or_else(|| format!("hdiutil did not return a device: {text}"))?;
+        Ok(Self(device.replacen("/dev/disk", "/dev/rdisk", 1)))
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for AttachedImage {
+    fn drop(&mut self) {
+        let result = Command::new("hdiutil")
+            .args([
+                "detach",
+                "-quiet",
+                &self.0.replace("/dev/rdisk", "/dev/disk"),
+            ])
+            .status();
+        if !matches!(&result, Ok(status) if status.success()) {
+            let message = format!("hdiutil failed to detach {}: {result:?}", self.0);
+            if std::thread::panicking() {
+                eprintln!("{message}");
+            } else {
+                panic!("{message}");
+            }
+        }
     }
 }

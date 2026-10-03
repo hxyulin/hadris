@@ -49,6 +49,43 @@ fn check(image: &[u8]) {
             .await
             .unwrap();
         assert_eq!(entries.len() as u64, FILE_COUNT);
+        assert!(
+            container
+                .resolve_path(volume, "/file0.txt/")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            container
+                .resolve_path(volume, "/file0.txt/..")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            container
+                .resolve_path(volume, "/./file0.txt")
+                .await
+                .unwrap()
+                .unwrap()
+                .file_id,
+            container
+                .resolve_path(volume, "/file0.txt")
+                .await
+                .unwrap()
+                .unwrap()
+                .file_id
+        );
+        for path in ["", "/", "/.", "/../../"] {
+            let root = container.resolve_path(volume, path).await.unwrap().unwrap();
+            assert_eq!(
+                root.file_id,
+                hadris_apfs::types::filesystem::INODE_ROOT_DIRECTORY
+            );
+            assert_eq!(root.file_type(), hadris_apfs::types::filesystem::DT_DIR);
+            assert_eq!(root.name, "/");
+        }
         for index in 0..FILE_COUNT {
             let entry = container
                 .resolve_path(volume, &file_name(index))

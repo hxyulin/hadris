@@ -30,7 +30,7 @@ impl JolietLevel {
 
     /// Get the escape sequence for this Joliet level
     pub fn escape_sequence(self) -> [u8; 32] {
-        let mut output = [b' '; 32];
+        let mut output = [0; 32];
         match self {
             Self::Level1 => output[0..3].copy_from_slice(b"%/@"),
             Self::Level2 => output[0..3].copy_from_slice(b"%/C"),

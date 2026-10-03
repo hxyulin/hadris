@@ -790,3 +790,129 @@ fn test_overlong_volume_name_returns_error_instead_of_panicking() {
     assert_eq!(error.kind(), hadris_iso::ErrorKind::InvalidInput);
     assert!(error.to_string().contains("volume name"));
 }
+
+#[test]
+fn el_torito_rejects_an_empty_boot_image() {
+    use hadris_iso::boot::options::{BootEntryOptions, BootOptions};
+    let mut options = default_options();
+    options.features.el_torito = Some(BootOptions {
+        default: BootEntryOptions {
+            boot_image_path: "boot.bin".into(),
+            ..BootEntryOptions::default()
+        },
+        ..BootOptions::default()
+    });
+    let files = InputFiles {
+        files: vec![IsoFile::File {
+            name: Arc::new("boot.bin".into()),
+            contents: vec![],
+        }],
+        path_separator: PathSeparator::ForwardSlash,
+    };
+    let error = IsoImageWriter::create(Cursor::new(Vec::new()), files, options).unwrap_err();
+    let hadris_iso::write::IsoCreationError::Io(error) = error;
+    assert_eq!(error.kind(), hadris_io::ErrorKind::InvalidInput);
+}
+
+#[test]
+fn joliet_reader_accepts_zero_and_legacy_space_padding() {
+    use hadris_iso::file::EntryType;
+    let bytes = write_bytes(
+        vec![IsoFile::File {
+            name: Arc::new("MixedCase.txt".into()),
+            contents: b"payload".to_vec(),
+        }],
+        joliet_options(),
+    );
+    for padding in [0, b' '] {
+        let mut bytes = bytes.clone();
+        let descriptor = bytes
+            .chunks_exact_mut(2048)
+            .skip(16)
+            .find(|sector| sector[0] == 2 && sector[6] == 1)
+            .unwrap();
+        descriptor[91..120].fill(padding);
+        let image = IsoImage::open(Cursor::new(bytes)).unwrap();
+        assert!(matches!(
+            image.root_dir().entry_type(),
+            EntryType::Joliet { .. }
+        ));
+    }
+}
+
+#[test]
+fn bsdtar_requires_valid_enhanced_descriptor_padding() {
+    use std::process::Command;
+    if Command::new("bsdtar").arg("--version").output().is_err() {
+        assert!(
+            std::env::var_os("HADRIS_REQUIRE_EXTERNAL_TOOLS").is_none(),
+            "bsdtar is required"
+        );
+        return;
+    }
+    let mut options = default_options();
+    options.features.long_filenames = true;
+    let name = "ENHANCED_DESCRIPTOR_PAYLOAD.TXT";
+    let bytes = write_bytes(
+        vec![IsoFile::File {
+            name: Arc::new(name.into()),
+            contents: b"payload".to_vec(),
+        }],
+        options,
+    );
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("enhanced.iso");
+    let image = IsoImage::open(Cursor::new(bytes.clone())).unwrap();
+    assert!(
+        entry_names(
+            &image,
+            image
+                .root_dirs()
+                .iter()
+                .find(|root| matches!(
+                    root.entry_type(),
+                    hadris_iso::file::EntryType::Level3 { .. }
+                ))
+                .unwrap()
+                .dir_ref()
+        )
+        .iter()
+        .any(|entry| entry == name)
+    );
+    std::fs::write(&path, &bytes).unwrap();
+    let output = Command::new("bsdtar")
+        .arg("-tf")
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .any(|line| line.trim_start_matches("./") == "ENHANCED.TXT"),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let mut invalid = bytes;
+    let descriptor = invalid
+        .chunks_exact_mut(2048)
+        .skip(16)
+        .find(|sector| sector[0] == 2 && sector[6] == 2)
+        .unwrap();
+    descriptor[88..120].fill(b' ');
+    std::fs::write(&path, invalid).unwrap();
+    let output = Command::new("bsdtar")
+        .arg("-tf")
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(
+        !String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .any(|line| line.trim_start_matches("./") == "ENHANCED.TXT")
+    );
+}

@@ -311,7 +311,7 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
             if svd.header.version == 1 {
                 // Joliet Check
                 for &level in JolietLevel::all() {
-                    if svd.escape_sequences == level.escape_sequence() {
+                    if JolietLevel::from_escape_sequence(&svd.escape_sequences) == Some(level) {
                         info.root_dirs.dirs.push(RootDir {
                             ty: EntryType::Joliet {
                                 level,

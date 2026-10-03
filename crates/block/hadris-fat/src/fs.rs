@@ -476,6 +476,12 @@ where
         let data_sectors = (total_sectors as usize).saturating_sub(metadata_sectors);
         let count_of_clusters = data_sectors / (bpb.sectors_per_cluster as usize);
 
+        if count_of_clusters >= 65525 || root_entry_count == 0 {
+            return Err(Error::CorruptFilesystem {
+                context: "invalid FAT12/16 cluster count or root directory",
+            });
+        }
+
         // Determine FAT12 vs FAT16 based on cluster count (per Microsoft spec)
         let (fat, max_cluster) = if count_of_clusters < 4085 {
             // FAT12
@@ -645,8 +651,13 @@ where
         let metadata_sectors = bpb.reserved_sector_count.get() as u64
             + bpb_ext32.sectors_per_fat_32.get() as u64 * bpb.fat_count as u64;
         let data_sectors = (total_sectors as u64).saturating_sub(metadata_sectors);
-        let max_cluster =
-            (data_sectors / bpb.sectors_per_cluster as u64).min(u32::MAX as u64 - 1) as u32 + 1; // +1 because clusters start at 2
+        let count_of_clusters = data_sectors / bpb.sectors_per_cluster as u64;
+        if count_of_clusters > 0x0fff_fff5 {
+            return Err(Error::CorruptFilesystem {
+                context: "FAT32 cluster count exceeds addressable data clusters",
+            });
+        }
+        let max_cluster = count_of_clusters as u32 + 1;
 
         // The FAT32 root directory is an ordinary cluster chain, so its first
         // cluster must be a valid data cluster; anything else would underflow

@@ -34,7 +34,7 @@ The `sync` and `async` features select parallel API namespaces backed by
 ```toml
 [dependencies]
 hadris-fat = {
-  version = "2.4.0",
+  version = "2.5.0",
   default-features = false,
   features = ["alloc", "read", "sync", "async", "lfn"]
 }
@@ -73,7 +73,7 @@ directory trees, or image construction may still require `alloc`.
 
 ```toml
 hadris-fat = {
-  version = "2.4.0",
+  version = "2.5.0",
   default-features = false,
   features = ["read", "sync"]
 }
@@ -83,7 +83,7 @@ hadris-fat = {
 
 ```toml
 hadris-iso = {
-  version = "2.4.0",
+  version = "2.5.0",
   default-features = false,
   features = ["alloc", "read", "async", "joliet"]
 }
@@ -93,7 +93,7 @@ hadris-iso = {
 
 ```toml
 hadris-fat = {
-  version = "2.4.0",
+  version = "2.5.0",
   features = ["cache", "tool"]
 }
 ```
@@ -102,7 +102,7 @@ hadris-fat = {
 
 ```toml
 hadris-cpio = {
-  version = "2.4.0",
+  version = "2.5.0",
   default-features = false,
   features = ["alloc", "read", "write", "sync"]
 }

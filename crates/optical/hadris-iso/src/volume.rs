@@ -757,7 +757,7 @@ impl SupplementaryVolumeDescriptor {
             volume_identifier: lossy_identifier(name),
             unused1: [0; 8],
             volume_space_size: U32LsbMsb::new(sectors),
-            escape_sequences: [b' '; 32],
+            escape_sequences: [0; 32],
             volume_set_size: U16LsbMsb::new(1),
             volume_sequence_number: U16LsbMsb::new(1),
             logical_block_size: U16LsbMsb::new(2048),
@@ -895,6 +895,14 @@ mod tests {
         let name = "A".repeat(40);
         let pvd = PrimaryVolumeDescriptor::new(&name, 0);
         assert_eq!(pvd.volume_identifier.to_str(), "A".repeat(32));
+    }
+
+    #[test]
+    fn supplementary_escape_sequences_are_zero_padded() {
+        assert_eq!(SupplementaryVolumeDescriptor::new_evd("TEST", 0).escape_sequences, [0; 32]);
+        for &level in crate::joliet::JolietLevel::all() {
+            assert_eq!(&level.escape_sequence()[3..], &[0; 29]);
+        }
     }
 
     #[test]

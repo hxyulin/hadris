@@ -583,15 +583,31 @@ where
     }
 
     /// Resolves a slash-separated path from the volume root directory.
+    /// Handles `.` and `..`, clamps parents at the root, and requires a
+    /// directory for intermediate components and trailing slashes.
+    /// The volume root is returned with name `/` and inode 2.
+    /// Symlinks are returned as entries rather than followed.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub async fn resolve_path(
         &mut self,
         volume: &VolumeSuperblock,
         path: &str,
     ) -> crate::Result<Option<OwnedDirectoryEntryRecord>> {
-        let mut parent = crate::types::filesystem::INODE_ROOT_DIRECTORY;
-        let mut current = None;
-        for component in path.split('/').filter(|part| !part.is_empty()) {
+        let mut directories: alloc::vec::Vec<OwnedDirectoryEntryRecord> = alloc::vec::Vec::new();
+        let mut components = path.split('/').filter(|part| !part.is_empty()).peekable();
+        while let Some(component) = components.next() {
+            if component == "." {
+                continue;
+            }
+            if component == ".." {
+                directories.pop();
+                continue;
+            }
+            let parent = directories
+                .last()
+                .map_or(crate::types::filesystem::INODE_ROOT_DIRECTORY, |entry| {
+                    entry.file_id
+                });
             let entry = match self
                 .directory_owned_entry(volume, parent, component)
                 .await?
@@ -599,10 +615,21 @@ where
                 Some(entry) => entry,
                 None => return Ok(None),
             };
-            parent = entry.file_id;
-            current = Some(entry);
+            if (components.peek().is_some() || path.ends_with('/'))
+                && entry.file_type() != crate::types::filesystem::DT_DIR
+            {
+                return Ok(None);
+            }
+            directories.push(entry);
         }
-        Ok(current)
+        Ok(Some(directories.pop().unwrap_or_else(|| {
+            OwnedDirectoryEntryRecord {
+                parent_id: crate::types::filesystem::INODE_ROOT_DIRECTORY,
+                file_id: crate::types::filesystem::INODE_ROOT_DIRECTORY,
+                flags: crate::types::filesystem::DT_DIR,
+                name: "/".into(),
+            }
+        })))
     }
 
     /// Lists owned entries in a volume's root directory when the filesystem root tree is a leaf/root node.

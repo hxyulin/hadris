@@ -15,7 +15,9 @@ is not a recovery, repair or forensic implementation.
 - Physical and virtual B-trees, including sealed volumes with hashed index
   entries and nodes stored without object headers.
 - Directory listing and path lookup, case-insensitive on volumes formatted
-  that way.
+  that way. Path lookup handles `.` and `..`, clamps parent traversal at the
+  volume root, and requires directories for intermediate components and trailing
+  slashes. Symlinks are returned without following them.
 - Inode metadata: mode, owner, BSD flags, timestamps and data-stream size.
 - File data from extents, with sparse extents and uncovered ranges read as
   zeros.

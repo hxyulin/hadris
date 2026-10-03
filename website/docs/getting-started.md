@@ -9,14 +9,14 @@ Choose the narrowest crate that covers your application:
 ```toml
 [dependencies]
 # A single filesystem:
-hadris-fat = "2.4.0"
+hadris-fat = "2.5.0"
 
 # Experimental read-only NTFS and APFS:
-hadris-ntfs = "2.4.0"
-hadris-apfs = "2.4.0"
+hadris-ntfs = "2.5.0"
+hadris-apfs = "2.5.0"
 
 # Or several storage categories:
-hadris = { version = "2.4.0", features = ["block", "optical"] }
+hadris = { version = "2.5.0", features = ["block", "optical"] }
 ```
 
 Hadris separates platform support, I/O mode, and capabilities. For a
@@ -25,7 +25,7 @@ freestanding read-only FAT consumer:
 ```toml
 [dependencies]
 hadris-fat = {
-  version = "2.4.0",
+  version = "2.5.0",
   default-features = false,
   features = ["read", "sync"]
 }

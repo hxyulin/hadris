@@ -78,8 +78,8 @@ fn drive(data: &[u8]) {
 
             // Name re-resolution oracle. Only sound when the entry's own
             // display name round-trips through `find`'s matcher (lossy OEM
-            // decoding can break that for short names) and no earlier item in
-            // this directory errored (`find` would hit the same error first).
+            // decoding can break that for short names). A lookup can also fail
+            // on later corrupt entries while scanning for an exact long name.
             if !saw_error && lookups < MAX_LOOKUPS_PER_DIR {
                 lookups += 1;
                 let self_findable = match fe.long_name() {
@@ -102,9 +102,10 @@ fn drive(data: &[u8]) {
                                 );
                             }
                         }
-                        other => {
-                            panic!("ORACLE: find({name:?}) failed to re-resolve walked entry: {other:?}")
+                        Ok(None) => {
+                            panic!("ORACLE: find({name:?}) failed to re-resolve walked entry")
                         }
+                        Err(_) => saw_error = true,
                     }
                 }
             }
