@@ -10,6 +10,9 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-fat, hadris:** An opt-in `tracing` feature requiring `std`, with
+  function spans for FAT/exFAT operations and FAT allocation/write paths in
+  sync and async modes. Default and embedded no-allocator builds omit tracing.
 - Add opt-in software APFS encryption: bounded keybag and DER parsing,
   PBKDF2-HMAC-SHA256 password derivation, AES key unwrap, and AES-XTS metadata
   and file reads on single-key volumes. Add sync/async password mounts, explicit

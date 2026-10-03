@@ -231,6 +231,7 @@ io_transform! {
 /// its field, with [`ErrorKind::Unsupported`] when the device's blocks are
 /// larger than 4096 bytes, and with [`ErrorKind::ReadOnly`] when it refuses
 /// writes. Nothing is written unless the options are valid.
+#[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat", level = "trace", skip_all))]
 pub async fn format<D: BlockDevice>(dev: &mut D, options: &ExFatOptions) -> FsResult<Geometry, D::Error> {
     Ok(format_volume(dev, options).await?.0)
 }
@@ -365,6 +366,7 @@ mod tree {
     /// names are skipped, and fields exFAT does not store are dropped.
     /// Fails as `format` and `copy_tree` do, with the tree path of the node
     /// that failed.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat", level = "trace", skip_all))]
     pub async fn write<D: BlockDevice>(mut out: D, tree: &Tree, options: &ExFatOptions) -> Result<Report, PathError> {
         let options = options.with_seed(tree_seed(options.time, options.seed, tree));
         let tree = stamped(tree, options.time)?;

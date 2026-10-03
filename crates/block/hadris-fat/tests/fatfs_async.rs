@@ -363,6 +363,10 @@ fn assert_below<F: core::future::Future>(what: &str, future: F, limit: usize) {
 /// Mount futures hold one block buffer, and directory operations hold no
 /// block-sized buffer or extra copies of a long name or an entry set.
 #[test]
+#[cfg_attr(
+    feature = "tracing",
+    ignore = "resource budgets apply without hosted tracing spans"
+)]
 fn async_futures_stay_small() {
     use hadris_fat::r#async::FatFs;
     use hadris_fat::exfat::r#async::ExFatFs;

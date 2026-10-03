@@ -454,6 +454,10 @@ fn async_matches_sync() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "tracing",
+    ignore = "resource budgets apply without hosted tracing spans"
+)]
 fn state_and_futures_stay_small() {
     use hadris_fat::embedded::r#async::Fat as AsyncFat;
 

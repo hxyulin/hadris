@@ -146,6 +146,11 @@ The 2.x binaries (`hadris-fat`, `hadris-iso`, `hadris-udf`, `hadris-cpio`,
 
 ## Key Features
 
+The optional `tracing` feature enables `std` and forwards function
+instrumentation to enabled FAT/exFAT drivers. It is disabled by default;
+see the [tracing guide](docs/tracing.md) for setup
+and the boundary between tracing and embedded measurements.
+
 - **No-std compatible** - Use in bootloaders, kernels, firmware, and embedded systems
 - **Allocation-free reading** - FAT, exFAT, ISO 9660, UDF, NTFS and CPIO read
   without a heap allocator; FAT and exFAT also write, format and check

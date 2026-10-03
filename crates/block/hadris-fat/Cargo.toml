@@ -15,7 +15,7 @@ repository.workspace = true
 # docs.rs builds with default features only, which would hide the async
 # modes. Build every mode.
 [package.metadata.docs.rs]
-features = ["std", "sync", "async", "write"]
+features = ["std", "sync", "async", "write", "tracing"]
 
 [features]
 default = ["std", "sync", "write"]
@@ -33,6 +33,7 @@ write = []
 # Derives `defmt::Format` on `FatKind` so it can be logged through
 # `defmt::info!` etc. without going through `Debug`.
 defmt = ["hadris-fat-raw/defmt"]
+tracing = ["std", "dep:tracing"]
 
 [dependencies]
 hadris-common = { workspace = true, features = ["bytemuck"] }
@@ -41,6 +42,7 @@ hadris-io = { workspace = true }
 hadris-fs = { workspace = true }
 hadris-storage = { workspace = true }
 hadris-macros = { workspace = true }
+tracing = { workspace = true, optional = true }
 
 bytemuck = { workspace = true, features = [
   "derive",
@@ -121,3 +123,7 @@ required-features = ["std", "sync", "async", "write"]
 [[test]]
 name = "embedded_exfat"
 required-features = ["std", "sync", "async", "write"]
+
+[[test]]
+name = "tracing"
+required-features = ["tracing", "sync", "async", "write"]
