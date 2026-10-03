@@ -1,6 +1,7 @@
 //! The `hadris` command: one binary for every format Hadris reads and
 //! writes, with one set of flags, overwrite rules and output handling.
 
+mod apfs;
 mod common;
 mod cpio;
 mod detect;
@@ -13,7 +14,9 @@ use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "hadris", author, version)]
-#[command(about = "Create, inspect, extract and check FAT, exFAT, ISO 9660, UDF and cpio images")]
+#[command(
+    about = "Create, inspect, extract and check FAT, exFAT, ISO 9660, UDF, APFS and cpio images"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Format,
@@ -23,6 +26,8 @@ struct Cli {
 enum Format {
     /// FAT12, FAT16, FAT32 and exFAT images
     Fat(fat::Args),
+    /// Experimental read-only APFS containers and volumes
+    Apfs(apfs::Args),
     /// ISO 9660 images with Joliet, Rock Ridge and El Torito
     Iso(iso::Args),
     /// UDF images and ISO 9660 and UDF bridge images
@@ -36,6 +41,7 @@ enum Format {
 fn main() {
     reset_sigpipe();
     let result = match Cli::parse().command {
+        Format::Apfs(args) => apfs::run(args),
         Format::Fat(args) => fat::run(args),
         Format::Iso(args) => iso::run(args).map_err(|err| anyhow::anyhow!("{err}")),
         Format::Udf(args) => udf::run(args).map_err(|err| anyhow::anyhow!("{err}")),

@@ -1657,11 +1657,9 @@ impl<D: BlockDevice> ExFatFs<D> {
             self.get_bytes(offset, &mut entry).await?;
             match entry[0] {
                 raw::ENTRY_END => return Ok(None),
-                raw::ENTRY_FILE => {
-                    if self.read_set(walk, at, entry, offset, set).await? {
-                        *slot = at + set.count as u32;
-                        return Ok(Some(at));
-                    }
+                raw::ENTRY_FILE if self.read_set(walk, at, entry, offset, set).await? => {
+                    *slot = at + set.count as u32;
+                    return Ok(Some(at));
                 }
                 _ => {}
             }

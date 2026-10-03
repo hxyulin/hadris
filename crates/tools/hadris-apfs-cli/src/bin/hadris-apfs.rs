@@ -411,7 +411,7 @@ where
                 .map(|chunk| u64::from(chunk.free_count))
                 .sum::<u64>()
         });
-    let volume_locations = match container.root_leaf_volume_object_map_values(&latest) {
+    let volume_locations = match container.volume_object_map_values(&latest) {
         Ok(values) => values,
         Err(error) => {
             eprintln!(

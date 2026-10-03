@@ -37,6 +37,7 @@ const CHUNK_INFO_BLOCK_HEADER_SIZE: usize = 40;
 
 /// Block usage summary for one space manager device slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SpaceManagerDevice {
     /// Total physical blocks provided by this device.
     pub block_count: u64,
@@ -55,6 +56,7 @@ pub struct SpaceManagerDevice {
 
 /// Minimal parsed space manager summary (`spaceman_phys_t`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SpaceManagerSummary {
     /// Common object header.
     pub object: ObjectHeader,
@@ -137,6 +139,7 @@ fn chunk_info_block_addresses(
 /// One parsed `chunk_info_t` entry describing a range of blocks.
 #[cfg(any(feature = "alloc", feature = "std"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ChunkInfo {
     /// Starting physical block address described by this chunk.
     pub address: u64,

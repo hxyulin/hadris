@@ -17,6 +17,7 @@ pub use hadris::storage
 pub use hadris::udf
 pub mod hadris::async
 #[non_exhaustive] pub enum hadris::async::AnyFs<D>
+pub hadris::async::AnyFs::Apfs(hadris_apfs::async::fs::ApfsFs<D>)
 pub hadris::async::AnyFs::ExFat(hadris_fat::exfat::async::fs::ExFatFs<D>)
 pub hadris::async::AnyFs::Fat(hadris_fat::async::fatfs::FatFs<D>)
 pub hadris::async::AnyFs::Iso(hadris_iso::async::image::IsoFs<D>)
@@ -67,6 +68,7 @@ pub use hadris::host::write_tree
 pub fn hadris::host::open(impl core::convert::AsRef<std::path::Path>) -> core::result::Result<hadris::sync::AnyFs<hadris_storage::host::FileDevice>, hadris_fs::error::PathError>
 pub mod hadris::sync
 #[non_exhaustive] pub enum hadris::sync::AnyFs<D>
+pub hadris::sync::AnyFs::Apfs(hadris_apfs::sync::fs::ApfsFs<D>)
 pub hadris::sync::AnyFs::ExFat(hadris_fat::exfat::sync::fs::ExFatFs<D>)
 pub hadris::sync::AnyFs::Fat(hadris_fat::sync::fatfs::FatFs<D>)
 pub hadris::sync::AnyFs::Iso(hadris_iso::sync::image::IsoFs<D>)
@@ -103,6 +105,7 @@ pub fn hadris::sync::AnyFs<D>::write(&mut self, hadris_fs::node::NodeId, u64, &[
 pub fn hadris::sync::detect<D: hadris_storage::sync::api::BlockDevice + ?core::marker::Sized>(&mut D) -> hadris_io::fs_error::FsResult<hadris::Detection, <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris::sync::open<D: hadris_storage::sync::api::BlockDevice>(D, hadris_fs::mount::MountOptions) -> core::result::Result<hadris::sync::AnyFs<D>, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
 #[non_exhaustive] pub enum hadris::ImageFormat
+pub hadris::ImageFormat::Apfs
 pub hadris::ImageFormat::Cpio(hadris_cpio::options::Format)
 pub hadris::ImageFormat::ExFat
 pub hadris::ImageFormat::Fat(hadris_fat_raw::entry::FatKind)

@@ -13,12 +13,17 @@ repository.workspace = true
 
 [features]
 default = ["std", "read", "sync"]
-std = ["alloc", "hadris-io/std", "hadris-storage/std"]
-alloc = []
+std = ["alloc", "hadris-io/std", "hadris-storage/std", "hadris-fs/std"]
+alloc = ["hadris-fs/alloc", "hadris-storage/alloc"]
 read = []
-sync = ["hadris-io/sync", "hadris-storage/sync"]
-async = ["hadris-io/async", "hadris-storage/async"]
+sync = ["hadris-io/sync", "hadris-storage/sync", "hadris-fs/sync"]
+async = ["hadris-io/async", "hadris-storage/async", "hadris-fs/async"]
 
 [dependencies]
 hadris-io.workspace = true
 hadris-storage.workspace = true
+hadris-fs.workspace = true
+hadris-macros.workspace = true
+
+[dev-dependencies]
+hadris-fs = { workspace = true, features = ["contract"] }

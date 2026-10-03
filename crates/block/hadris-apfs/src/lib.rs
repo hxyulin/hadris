@@ -1,6 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(async_fn_in_trait)]
 #![deny(missing_docs)]
+#![allow(clippy::duplicate_mod)]
 
 //! An experimental, read-only APFS container and volume reader.
 //!
@@ -10,6 +11,25 @@
 //!
 //! On-disk structures live in [`types`]. The readers in the `sync` and
 //! `async` modules walk them over a `hadris-storage` block device.
+//!
+//! With `alloc`, each mode also exposes `ApfsFs`, a read-only
+//! shared filesystem driver. Mounting without a selector requires
+//! exactly one volume; [`VolumeSelector`] identifies an explicit volume by
+//! UUID, object identifier, container slot or exact name. Metadata is validated
+//! and indexed once during mount. Inode identifiers remain stable across
+//! lookups, directory cursors are reusable, and data reads use bounded block
+//! scratch space for sparse and arbitrarily large files. Generic `Volume`
+//! handles follow symbolic links and expose hard-linked inodes consistently.
+//! Native container inspection remains available independently of mounting.
+//!
+//! Native I/O and driver errors are [`hadris_fs::Error`] values retaining the
+//! backend error. [`Detail::of`] identifies APFS-specific failures. Pure
+//! on-disk parsers return [`ApfsError`]. Mount failures return the original
+//! device in [`hadris_fs::MountError`].
+//!
+//! `std` implies `alloc`. `read` enables readers, `sync` enables blocking
+//! APIs, and `async` enables asynchronous APIs with `Send` futures. Without
+//! `alloc`, the native container header and block reader remains usable.
 //!
 //! ```rust,no_run
 //! use std::fs::File;
@@ -51,4 +71,18 @@ pub mod read;
 #[cfg(all(feature = "read", feature = "sync"))]
 pub mod sync;
 
-pub use error::{ApfsError, Result};
+pub use error::{ApfsError, Detail, Result};
+
+/// Selects the volume to mount within an APFS container.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum VolumeSelector<'a> {
+    /// The volume's container slot index (`fs_index`).
+    Index(u32),
+    /// The volume superblock's stable object identifier.
+    ObjectId(u64),
+    /// The volume UUID as sixteen bytes.
+    Uuid([u8; 16]),
+    /// The exact UTF-8 volume name. Duplicate names are ambiguous.
+    Name(&'a str),
+}

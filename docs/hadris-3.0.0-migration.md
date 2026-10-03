@@ -1493,3 +1493,26 @@ Writing:
 13. Replace CLI invocations with `hadris <format> <command>` (see
     [Command-line tools](#command-line-tools)) and install
     `cargo install hadris-cli`.
+
+## APFS added in V2 2.5
+
+APFS arrived after the V2 2.4 API mapped above. V3 now has a read-only
+`hadris_apfs::{sync, r#async}::ApfsFs` driver implementing `FileSystem`, so
+`Volume` paths, handles, walks and extraction can use APFS generically.
+`Container` remains available for container and volume inspection.
+
+| V2 APFS use | V3 replacement |
+|---|---|
+| Native path lookup followed by a complete-file allocation | `Volume<ApfsFs<_>>` and file handles, or `FileSystem::lookup`, `stat` and `read` at an offset |
+| Choose the first returned volume implicitly | `ApfsFs::mount` for a single volume, or `mount_volume` with `VolumeSelector::{Index,ObjectId,Uuid,Name}` |
+| I/O returned as `ApfsError::Io(ErrorKind)` | `Error<D::Error>` preserving the backend payload; `Detail::of` identifies APFS failures |
+| Device consumed on a failed open | `Container::try_open` and driver mounts return `MountError` with the device |
+| `root_leaf_volume_object_map_values` | `volume_object_map_values`, traversing all object-map leaves |
+| Standalone APFS inspection tool | Unified `hadris apfs info`, `ls`, `stat`, `cat` and `extract`; the legacy standalone binary remains available |
+
+The umbrella's `detect` feature includes APFS detection and single-volume
+mounting. `unstable-apfs` additionally exposes native APFS APIs and explicit
+selection through `open_apfs`. APFS native interfaces remain a preview;
+the shared filesystem behavior follows the V3 trait contract. The mounted
+driver indexes metadata in memory, requires `alloc` and supports `no_std`.
+See the [APFS use cases](apfs-v3-use-cases.md) for the scenarios and limits.

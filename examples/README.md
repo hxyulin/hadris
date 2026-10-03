@@ -14,6 +14,7 @@ covers.
 
 | Example | User | What it does |
 |---|---|---|
+| [`apfs-inspect`](apfs-inspect) | inspection and VFS | Mounts a read-only APFS volume, checks inode/cursor operations and sparse/linked files, extracts through the generic tree API, and selects a named volume from a container |
 | [`boot-media`](boot-media) | image builder | A GPT USB disk with a FAT ESP, a BIOS and UEFI hybrid ISO sharing one ESP, and an ISO/UDF bridge, each read back |
 | [`initramfs`](initramfs) | image builder | A microcode segment and a root archive streamed to a pipe-like sink, read back segment by segment from a non-seekable reader |
 | [`image-edit`](image-edit) | host tool | Formats FAT16 and exFAT image files, edits them through one generic function, unmounts, runs `check` and reopens read-only |

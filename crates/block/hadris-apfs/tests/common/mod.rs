@@ -7,6 +7,7 @@ pub const BLOCK: usize = 4096;
 
 /// How the volume's filesystem tree is stored.
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum Variant {
     /// Ordinary virtual tree with object headers.
     Plain,
@@ -212,6 +213,7 @@ pub fn build_image_variant(variant: Variant) -> Vec<u8> {
     put(&mut superblock, 32, b"NXSB");
     put(&mut superblock, 36, &(BLOCK as u32).to_le_bytes());
     put(&mut superblock, 40, &(IMAGE_BLOCKS as u64).to_le_bytes());
+    put(&mut superblock, 152, &18_u64.to_le_bytes());
     put(&mut superblock, 160, &1_u64.to_le_bytes());
     put(&mut superblock, 184, &VOLUME_OID.to_le_bytes());
     write(0, seal(superblock));
@@ -325,6 +327,11 @@ pub fn build_image_variant(variant: Variant) -> Vec<u8> {
         data[..contents.len()].copy_from_slice(&contents);
         write(10 + index as usize, data);
     }
+    let mut spaceman = object(18, 1, 5);
+    put(&mut spaceman, 32, &(BLOCK as u32).to_le_bytes());
+    put(&mut spaceman, 48, &(IMAGE_BLOCKS as u64).to_le_bytes());
+    put(&mut spaceman, 72, &4_u64.to_le_bytes());
+    write(18, seal(spaceman));
     image
 }
 
@@ -341,13 +348,10 @@ pub fn set_volume_incompatible_features(image: &mut [u8], flags: u64) {
 /// file's real block at logical offset `2 * BLOCK`.
 #[allow(dead_code)]
 pub fn holey_extents(index: u64) -> Vec<hadris_apfs::types::FileExtentRecord> {
-    let extent = |logical_address, physical_block| hadris_apfs::types::FileExtentRecord {
-        id: 100 + index,
-        logical_address,
-        length: BLOCK as u64,
-        flags: 0,
-        physical_block,
-        cryptography_id: 0,
+    let extent = |logical_address: u64, physical_block| {
+        let (mut key, value) = extent_entry(100 + index, BLOCK as u64, physical_block);
+        put(&mut key, 8, &logical_address.to_le_bytes());
+        hadris_apfs::types::FileExtentRecord::parse(&key, &value).unwrap()
     };
     vec![extent(0, 0), extent(2 * BLOCK as u64, 10 + index)]
 }
@@ -358,4 +362,139 @@ pub fn holey_contents(index: u64) -> Vec<u8> {
     let mut data = vec![0_u8; 2 * BLOCK];
     data.extend(file_contents(index));
     data
+}
+
+#[allow(dead_code)]
+pub fn use_case_image() -> Vec<u8> {
+    let mut image = build_image();
+    let mut linked = inode_entry(16, 100, 0o100644, file_contents(0).len() as u64);
+    put(&mut linked.1, 56, &2_i32.to_le_bytes());
+    put(
+        &mut linked.1,
+        16,
+        &1_577_836_800_123_456_789_u64.to_le_bytes(),
+    );
+    put(
+        &mut linked.1,
+        24,
+        &1_577_836_801_000_000_000_u64.to_le_bytes(),
+    );
+    put(
+        &mut linked.1,
+        32,
+        &1_577_836_802_000_000_000_u64.to_le_bytes(),
+    );
+    put(
+        &mut linked.1,
+        40,
+        &1_577_836_803_000_000_000_u64.to_le_bytes(),
+    );
+    put(&mut linked.1, 72, &501_u32.to_le_bytes());
+    put(&mut linked.1, 76, &20_u32.to_le_bytes());
+    let mut link_entry = drec_entry(2, "link", 22);
+    put(&mut link_entry.1, 16, &10_u16.to_le_bytes());
+    let target = b"file0.txt\0";
+    let xattr_name = "com.apple.fs.symlink";
+    let mut key = fs_key(22, 4);
+    key.extend_from_slice(&((xattr_name.len() + 1) as u16).to_le_bytes());
+    key.extend_from_slice(xattr_name.as_bytes());
+    key.push(0);
+    let mut value = 2_u16.to_le_bytes().to_vec();
+    value.extend_from_slice(&(target.len() as u16).to_le_bytes());
+    value.extend_from_slice(target);
+    let mut sparse = extent_entry(107, BLOCK as u64, 10);
+    put(&mut sparse.0, 8, &(2 * BLOCK as u64).to_le_bytes());
+    let entries = vec![
+        inode_entry(2, 2, 0o040755, 0),
+        drec_entry(2, "alias.txt", 16),
+        drec_entry(2, "file0.txt", 16),
+        drec_entry(2, "file1.txt", 17),
+        link_entry,
+        drec_entry(2, "sparse.txt", 23),
+        linked,
+        extent_entry(100, BLOCK as u64, 10),
+        inode_entry(17, 101, 0o100644, file_contents(1).len() as u64),
+        extent_entry(101, BLOCK as u64, 11),
+        inode_entry(22, 22, 0o120777, (target.len() - 1) as u64),
+        (key, value),
+        inode_entry(
+            23,
+            107,
+            0o100644,
+            2 * BLOCK as u64 + file_contents(0).len() as u64,
+        ),
+        extent_entry(107, BLOCK as u64, 0),
+        sparse,
+    ];
+    let block = btree_node(1028, false, true, 0, None, 0, false, &entries);
+    image[7 * BLOCK..8 * BLOCK].copy_from_slice(&block);
+    image
+}
+
+#[allow(dead_code)]
+pub fn multi_volume_image() -> Vec<u8> {
+    let mut image = build_image();
+    let mut container = image[..BLOCK].to_vec();
+    put(&mut container, 192, &2048_u64.to_le_bytes());
+    image[..BLOCK].copy_from_slice(&seal(container));
+    let omap = btree_node(
+        2,
+        true,
+        true,
+        0,
+        Some((16, 16)),
+        0x10,
+        false,
+        &[omap_entry(VOLUME_OID, 1, 3, 0), omap_entry(2048, 1, 16, 0)],
+    );
+    image[2 * BLOCK..3 * BLOCK].copy_from_slice(&omap);
+    let mut volume = image[3 * BLOCK..4 * BLOCK].to_vec();
+    put(&mut volume, 8, &2048_u64.to_le_bytes());
+    put(&mut volume, 36, &1_u32.to_le_bytes());
+    put(&mut volume, 240, &[1; 16]);
+    put(&mut volume, 704, b"Other\0");
+    image[16 * BLOCK..17 * BLOCK].copy_from_slice(&seal(volume));
+    image
+}
+
+#[allow(dead_code)]
+pub fn duplicate_volume_names_image() -> Vec<u8> {
+    let mut image = multi_volume_image();
+    let mut volume = image[16 * BLOCK..17 * BLOCK].to_vec();
+    volume[704..710].fill(0);
+    put(&mut volume, 704, b"Test");
+    image[16 * BLOCK..17 * BLOCK].copy_from_slice(&seal(volume));
+    image
+}
+
+#[allow(dead_code)]
+pub fn invalid_directory_image(case: &str) -> Vec<u8> {
+    let mut image = build_image();
+    let mut records = vec![
+        inode_entry(2, 2, 0o040755, 0),
+        drec_entry(2, "file0.txt", if case == "dangling" { 99 } else { 16 }),
+        inode_entry(16, 100, 0o100644, file_contents(0).len() as u64),
+        extent_entry(
+            100,
+            BLOCK as u64,
+            if case == "extent" {
+                IMAGE_BLOCKS as u64
+            } else {
+                10
+            },
+        ),
+    ];
+    match case {
+        "dangling" | "extent" => {}
+        "utf8" => records[1].0[12] = 0xff,
+        "type" => put(&mut records[1].1, 16, &4_u16.to_le_bytes()),
+        "duplicate" => records.push(drec_entry(2, "FILE0.TXT", 16)),
+        _ => panic!("unknown malformed directory case"),
+    }
+    let block = btree_node(1028, false, true, 0, None, 0, false, &records);
+    image[7 * BLOCK..8 * BLOCK].copy_from_slice(&block);
+    if case == "duplicate" {
+        set_volume_incompatible_features(&mut image, 1);
+    }
+    image
 }

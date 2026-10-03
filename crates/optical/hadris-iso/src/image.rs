@@ -292,7 +292,7 @@ impl View {
                         .ok_or(Detail::DirectoryRecord.corrupt())?;
                     return Ok(Some(Found { offset, record }));
                 }
-                Ok(None) => *pos = (*pos / bs + 1).checked_mul(bs).unwrap_or(u32::MAX),
+                Ok(None) => *pos = (*pos / bs + 1).saturating_mul(bs),
                 Err(()) => return Err(Detail::DirectoryRecord.corrupt()),
             }
         }

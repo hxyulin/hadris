@@ -21,6 +21,7 @@ cargo build --release -p hadris-cli
 | `hadris fat` | `info`, `stat`, `ls`, `tree`, `cat`, `extract`, `create`, `verify`, `fragmentation`, `chain` |
 | `hadris iso` | `info`, `ls`, `tree`, `cat`, `extract`, `create`, `verify`, `mkisofs` |
 | `hadris udf` | `info`, `ls`, `tree`, `cat`, `extract`, `create`, `verify`, `bridge`, `compare` |
+| `hadris apfs` | `info`, `ls`, `stat`, `cat`, `extract` (experimental, read-only) |
 | `hadris cpio` | `info`, `ls`, `cat`, `extract`, `create` |
 | `hadris detect` | Lists every format an image or device holds |
 
@@ -28,6 +29,10 @@ cargo build --release -p hadris-cli
 `hadris <format> <command> --help` for the options of a command.
 
 ```bash
+hadris apfs info container.img
+hadris apfs ls container.img / --volume-name Data
+hadris apfs cat container.img /notes.txt --volume 1
+hadris apfs extract container.img /docs --volume 1 -o out
 hadris detect disk.img
 hadris fat create ./contents -o card.img --fat-type exfat
 hadris iso create ./root -o disc.iso -J -R --boot boot/bios.img
@@ -36,6 +41,16 @@ hadris udf compare bridge.iso
 hadris cpio create ./rootfs -o - > initramfs.cpio
 hadris iso extract disc.iso -p /docs -o out
 ```
+
+APFS opens a container's sole volume automatically. Multi-volume containers
+require one selector: `--volume` (the APFS `fs_index` displayed by `info`),
+`--volume-name`, `--volume-object-id`, or `--volume-uuid`. Ambiguous names are
+refused. `info` lists volume names, object IDs and UUIDs without selecting one.
+For whole-disk images, `--gpt` opens the sole APFS GPT partition; multiple
+APFS partitions require `--partition <index>`. `--partition` also supports
+MBR entries. `--sector-size` selects the disk's logical sector size (default
+512 bytes). APFS compression,
+encryption, snapshots and writing are unsupported.
 
 ## Shared rules
 

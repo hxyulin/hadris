@@ -12,6 +12,17 @@ Each published package owns its version and may be released independently.
 
 - Merge the V2 2.5.0 history into V3, including the experimental APFS reader
   and inspection CLI adapted to V3 storage devices.
+- Complete the read-only APFS V3 driver: generic `Volume` access, inode-based
+  directory cursors, bounded random reads, sparse files, hard links, symlinks,
+  explicit multi-volume selection and backend-preserving errors in sync and
+  async modes. Add umbrella detection/mounting, native access through
+  `unstable-apfs`, unified
+  `hadris apfs` commands and checked inspection/extraction use cases.
+
+### Fixed
+
+- Select the hosted CI toolchain explicitly so the repository MSRV toolchain
+  file does not override the newer Clippy configuration.
 
 ## [3.0.0-rc.1] - Unreleased
 

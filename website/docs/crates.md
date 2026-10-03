@@ -95,7 +95,13 @@ feature is gone.
 
 ## APFS preview
 
-`hadris-apfs` provides an experimental, read-only native container and volume
-API in sync and async modes over V3 storage devices. Use it directly or use
-the standalone `hadris-apfs` inspection binary from `hadris-apfs-cli`. APFS
-is not exposed through umbrella detection or the shared `FileSystem` trait.
+`hadris-apfs` provides an experimental, read-only `ApfsFs` driver in sync and
+async modes over V3 storage devices. It implements `FileSystem`, so generic
+`Volume` file access, walks and extraction work on APFS. Mounting needs `alloc`.
+The native `Container` API exposes container and volume inspection.
+
+The umbrella's `detect` feature recognizes and mounts single-volume APFS
+containers. `unstable-apfs` exposes native inspection and selection; the unified
+CLI provides `hadris apfs` commands. A default mount requires one volume; choose explicitly by index,
+object ID, UUID or name when a container holds several. APFS remains read-only;
+encrypted, compressed and snapshot views are unsupported.

@@ -1,0 +1,15 @@
+[package]
+name = "hadris-example-apfs-inspect"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+tempfile.workspace = true
+hadris-apfs = { workspace = true, features = ["std", "sync", "read"] }
+hadris-fs = { workspace = true, features = ["std", "sync", "contract"] }
+hadris-storage = { workspace = true, features = ["std", "sync"] }
+hadris-io = { workspace = true, features = ["std", "sync"] }

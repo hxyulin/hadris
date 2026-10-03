@@ -11,6 +11,9 @@ use crate::detect::{
 };
 use hadris_fat_raw::io::BlockBuf;
 
+use super::ApfsContainer;
+#[cfg(feature = "alloc")]
+use super::ApfsFs;
 use super::{BlockDevice, IsoFs, UdfFs, exio, rawio};
 #[cfg(feature = "alloc")]
 use super::{ExFatFs, FatFs, FileSystem};
@@ -30,6 +33,7 @@ macro_rules! each {
             AnyFs::ExFat($fs) => $e,
             AnyFs::Iso($fs) => $e,
             AnyFs::Udf($fs) => $e,
+            AnyFs::Apfs($fs) => $e,
         }
     };
 }
@@ -86,7 +90,7 @@ fn damage<T, E>(result: FsResult<T, E>) -> FsResult<Option<hadris_fs::Error<core
 
 /// Finds what `dev` holds: the ISO 9660 and UDF recognition area from
 /// byte 32768, then the first sector for NTFS, exFAT, FAT, a partition
-/// table or a cpio archive. It reads a few blocks, never writes and does
+/// table, an APFS container or a cpio archive. It reads a few blocks, never writes and does
 /// not allocate.
 ///
 /// A format whose signature is present is listed with the error its mount
@@ -139,7 +143,10 @@ pub async fn detect<D: BlockDevice + ?Sized>(dev: &mut D) -> FsResult<Detection,
     let Some(mut raw) = BlockBuf::<[u8; MAX_BLOCK]>::new(block) else {
         return Ok(found);
     };
-    if signed && &sector[3..11] == b"NTFS    " {
+    if &sector[32..36] == b"NXSB" {
+        let apfs_damage = damage(ApfsContainer::open(&mut *dev).await)?;
+        found.push(ImageFormat::Apfs, apfs_damage);
+    } else if signed && &sector[3..11] == b"NTFS    " {
         found.push(ImageFormat::Ntfs, None);
     } else if signed && &sector[3..11] == b"EXFAT   " {
         found.push(ImageFormat::ExFat, damage(exio::read_boot(&mut &mut *dev, &mut raw).await)?);
@@ -185,6 +192,9 @@ pub enum AnyFs<D> {
     Iso(IsoFs<D>),
     /// A UDF volume, including the UDF side of an ISO 9660 and UDF bridge.
     Udf(UdfFs<D>),
+    /// An explicitly selected APFS volume or a container's sole volume.
+    /// Native APFS extensions are a preview and may change in 3.x minors.
+    Apfs(ApfsFs<D>),
 }
 
 #[cfg(feature = "alloc")]
@@ -208,7 +218,9 @@ impl<D: BlockDevice> AnyFs<D> {
 /// [`detect`]), and with [`ErrorKind::NotRecognized`] for a device holding
 /// no filesystem: a partition table, an archive, nothing recognized, or
 /// an NTFS volume (message `"ntfs"`), which [`detect`] lists but `open`
-/// does not reach in 3.0. The [`MountError`] gives `dev` back.
+/// does not reach in 3.0. APFS mounts a container's sole volume; containers with
+/// multiple volumes require explicit selection with `open_apfs` instead.
+/// The [`MountError`] gives `dev` back.
 #[cfg(feature = "alloc")]
 pub async fn open<D: BlockDevice>(mut dev: D, options: MountOptions) -> Result<AnyFs<D>, MountError<D, D::Error>> {
     let found = match detect(&mut dev).await {
@@ -223,6 +235,7 @@ pub async fn open<D: BlockDevice>(mut dev: D, options: MountOptions) -> Result<A
             ImageFormat::ExFat => ExFatFs::mount(dev, options).await.map(AnyFs::ExFat),
             ImageFormat::Iso => IsoFs::mount(dev, options).await.map(AnyFs::Iso),
             ImageFormat::Udf | ImageFormat::IsoUdfBridge => UdfFs::mount(dev, options).await.map(AnyFs::Udf),
+            ImageFormat::Apfs => ApfsFs::mount(dev, options).await.map(AnyFs::Apfs),
             ImageFormat::Ntfs => {
                 other.get_or_insert("ntfs");
                 continue;
@@ -252,6 +265,19 @@ pub async fn open<D: BlockDevice>(mut dev: D, options: MountOptions) -> Result<A
         hadris_fs::Error::new(ErrorKind::NotRecognized, other.unwrap_or("no filesystem recognized"))
     });
     Err(MountError::new(err, dev))
+}
+
+/// Mounts an APFS volume selected by index, object id, UUID or name.
+///
+/// Use this for containers with multiple volumes; [`open`] never chooses
+/// an arbitrary volume. Mount errors return ownership of the device.
+#[cfg(all(feature = "alloc", feature = "unstable-apfs"))]
+pub async fn open_apfs<D: BlockDevice>(
+    dev: D,
+    options: MountOptions,
+    volume: crate::apfs::VolumeSelector<'_>,
+) -> Result<AnyFs<D>, MountError<D, D::Error>> {
+    ApfsFs::mount_volume(dev, options, volume).await.map(AnyFs::Apfs)
 }
 
 #[cfg(feature = "alloc")]

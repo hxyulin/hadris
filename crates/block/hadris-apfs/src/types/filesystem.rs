@@ -24,6 +24,7 @@ pub const DT_LNK: u16 = 10;
 
 /// Common filesystem-tree key header (`j_key_t`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FileSystemKey {
     /// Object/inode identifier.
     pub id: u64,
@@ -44,6 +45,7 @@ impl FileSystemKey {
 
 /// Parsed directory entry record.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct DirectoryEntryRecord<'a> {
     /// Parent directory inode identifier.
     pub parent_id: u64,
@@ -86,6 +88,7 @@ impl<'a> DirectoryEntryRecord<'a> {
 /// Owned parsed directory entry record.
 #[cfg(any(feature = "alloc", feature = "std"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct OwnedDirectoryEntryRecord {
     /// Parent directory inode identifier.
     pub parent_id: u64,
@@ -118,6 +121,7 @@ impl OwnedDirectoryEntryRecord {
 
 /// Small parsed inode summary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct InodeRecord {
     /// Inode identifier.
     pub id: u64,
@@ -217,6 +221,7 @@ fn parse_inode_data_stream_size(value: &[u8]) -> Option<u64> {
 
 /// Parsed file extent record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FileExtentRecord {
     /// Owning filesystem object identifier.
     pub id: u64,
@@ -274,6 +279,7 @@ pub const XATTR_DATA_EMBEDDED: u16 = 0x2;
 
 /// Parsed extended attribute record (`j_xattr_key_t` and `j_xattr_val_t`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct XattrRecord<'a> {
     /// Owning inode identifier.
     pub id: u64,

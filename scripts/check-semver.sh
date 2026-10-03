@@ -48,6 +48,7 @@ fi
 
 crates=(
   hadris
+  hadris-apfs
   hadris-common
   hadris-cpio
   hadris-fat

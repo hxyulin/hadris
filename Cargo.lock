@@ -256,6 +256,7 @@ dependencies = [
 name = "hadris"
 version = "3.0.0-rc.1"
 dependencies = [
+ "hadris-apfs",
  "hadris-cpio",
  "hadris-fat",
  "hadris-fat-raw",
@@ -273,7 +274,9 @@ dependencies = [
 name = "hadris-apfs"
 version = "3.0.0-rc.1"
 dependencies = [
+ "hadris-fs",
  "hadris-io",
+ "hadris-macros",
  "hadris-storage",
 ]
 
@@ -297,6 +300,7 @@ dependencies = [
  "bytemuck",
  "clap",
  "hadris",
+ "hadris-apfs",
  "hadris-cpio",
  "hadris-fat",
  "hadris-fat-raw",
@@ -325,6 +329,18 @@ dependencies = [
  "hadris-fs",
  "hadris-io",
  "hadris-macros",
+ "tempfile",
+]
+
+[[package]]
+name = "hadris-example-apfs-inspect"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "hadris-apfs",
+ "hadris-fs",
+ "hadris-io",
+ "hadris-storage",
  "tempfile",
 ]
 

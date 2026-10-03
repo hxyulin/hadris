@@ -427,6 +427,26 @@
       "crate": "hadris",
       "tier": "all-capabilities",
       "features": "std,alloc,sync,async,write,detect,part,cpio,unstable-ntfs"
+    },
+    {
+      "crate": "hadris",
+      "tier": "apfs-native-no-std",
+      "features": "sync,unstable-apfs"
+    },
+    {
+      "crate": "hadris",
+      "tier": "apfs-selected-sync",
+      "features": "alloc,sync,detect,unstable-apfs"
+    },
+    {
+      "crate": "hadris",
+      "tier": "apfs-selected-async",
+      "features": "alloc,async,detect,unstable-apfs"
+    },
+    {
+      "crate": "hadris",
+      "tier": "apfs-selected-dual",
+      "features": "std,sync,async,detect,unstable-apfs"
     }
   ]
 }

@@ -1,6 +1,10 @@
-#![cfg(all(feature = "sync", feature = "alloc"))]
+#![cfg(all(feature = "read", feature = "sync", feature = "alloc"))]
 
 mod common;
+#[path = "common/failing_device.rs"]
+mod failing_device;
+
+use failing_device::FailingDevice;
 
 use common::*;
 use hadris_apfs::sync::Container;
@@ -65,10 +69,7 @@ fn encrypted_tree_reports_unsupported() {
     let error = container
         .root_directory_owned_entries(&volumes[0])
         .unwrap_err();
-    assert_eq!(
-        error,
-        hadris_apfs::ApfsError::InvalidValue("encrypted B-tree nodes are not supported")
-    );
+    assert_eq!(error.kind(), hadris_io::ErrorKind::Unsupported);
 }
 
 #[test]
@@ -87,8 +88,9 @@ fn a_child_named_twice_is_rejected() {
     assert_eq!(
         container
             .root_directory_owned_entries(&volumes[0])
-            .unwrap_err(),
-        hadris_apfs::ApfsError::InvalidValue("B-tree node revisited")
+            .unwrap_err()
+            .kind(),
+        hadris_io::ErrorKind::Corrupt
     );
 }
 
@@ -155,8 +157,9 @@ fn an_impossible_file_size_is_an_error() {
     assert_eq!(
         container
             .read_file(&volume, entry.file_id, usize::MAX)
-            .unwrap_err(),
-        hadris_apfs::ApfsError::InvalidValue("file is too large to read into memory")
+            .unwrap_err()
+            .kind(),
+        hadris_io::ErrorKind::Corrupt
     );
     let head = container.read_file(&volume, entry.file_id, 8).unwrap();
     assert_eq!(head, file_contents(0)[..8]);
@@ -164,26 +167,50 @@ fn an_impossible_file_size_is_an_error() {
 
 #[test]
 fn storage_errors_keep_their_portable_kind() {
-    use hadris_apfs::ApfsError;
     use hadris_io::ErrorKind;
     use hadris_storage::MemDevice;
 
-    let device = MemDevice::new(&[0u8; 512][..], BlockSize::new(512).unwrap());
+    let device = FailingDevice;
     assert!(matches!(
         Container::open(device),
-        Err(ApfsError::Io(ErrorKind::InvalidInput))
+        Err(error) if error.kind() == ErrorKind::InvalidInput
     ));
 
     let image = build_image();
     let mut container = open(&image);
     assert!(matches!(
         container.read_apfs_block(IMAGE_BLOCKS as u64, &mut [0; BLOCK]),
-        Err(ApfsError::Io(ErrorKind::InvalidInput))
+        Err(error) if error.kind() == ErrorKind::Corrupt
     ));
 
     let device = MemDevice::new(&[0u8; 8192][..], BlockSize::new(8192).unwrap());
     assert!(matches!(
         Container::open(device),
-        Err(ApfsError::InvalidValue("device block size"))
+        Err(error) if error.kind() == ErrorKind::Unsupported
     ));
+}
+
+#[test]
+fn encrypted_and_overflowing_extents_are_not_reported_as_sparse_success() {
+    let image = build_image();
+    let mut container = open(&image);
+    let mut extent = holey_extents(0).remove(0);
+    extent.cryptography_id = 7;
+    let mut buf = [0xff; 8];
+    assert_eq!(
+        container
+            .read_extents_at(&[extent], 8, 0, &mut buf)
+            .unwrap_err()
+            .kind(),
+        hadris_io::ErrorKind::Unsupported
+    );
+    extent.cryptography_id = 0;
+    extent.logical_address = u64::MAX - 2;
+    assert_eq!(
+        container
+            .read_extents_at(&[extent], 8, 0, &mut buf)
+            .unwrap_err()
+            .kind(),
+        hadris_io::ErrorKind::Corrupt
+    );
 }

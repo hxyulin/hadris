@@ -6,6 +6,7 @@ use crate::types::container::ContainerSuperblock;
 
 /// An opened APFS container's static metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ContainerInfo {
     /// Block-zero container superblock.
     pub superblock: ContainerSuperblock,

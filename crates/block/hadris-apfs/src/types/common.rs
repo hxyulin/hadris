@@ -11,6 +11,7 @@ pub type Uuid = [u8; 16];
 
 /// Physical block range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PhysicalAddressRange {
     /// Starting physical block.
     pub start: PhysicalAddress,

@@ -8,10 +8,38 @@ stability promise and may change in a minor release.
 The crate is suitable for inspecting unencrypted APFS images made by macOS. It
 is not a recovery, repair or forensic implementation.
 
-This V3 port uses `hadris-storage` devices and the portable `hadris-io` error
-kinds. Wrap read-only streams in `ReadOnly<StdIo<_>>` before using
-`StreamDevice`. APFS retains its native API; it is not part of umbrella
-detection or the `hadris-fs::FileSystem` interface.
+`sync::ApfsFs` and `r#async::ApfsFs` implement the V3 `FileSystem` trait,
+so generic `Volume` paths, file handles, walks and extraction work on APFS.
+Mounting needs an allocator, but not `std`. `Container` retains native container,
+checkpoint, object-map and space-manager inspection. I/O errors retain the
+backend's error through `hadris_fs::Error<D::Error>`.
+
+A default mount requires exactly one volume. Select another with
+`ApfsFs::mount_volume(device, options, VolumeSelector::Index(index))`, or select
+by APFS object ID, UUID or name. Failed mounts return the device through
+`MountError`. The umbrella detects and mounts single-volume APFS containers through `detect`.
+The `unstable-apfs` feature exposes native inspection and explicit volume
+selection; the unified CLI provides `hadris apfs` commands.
+
+```rust,no_run
+use hadris_apfs::sync::ApfsFs;
+use hadris_fs::{MountOptions, OpenOptions};
+use hadris_fs::sync::Volume;
+use hadris_storage::host::FileDevice;
+use std::io::Read;
+
+let device = FileDevice::open("container.img")?;
+let volume = Volume::new(ApfsFs::mount(device, MountOptions::new())?);
+for entry in volume.read_dir("/")? {
+    println!("{:?}", entry?.name());
+}
+let mut contents = Vec::new();
+volume.open("/notes.txt", OpenOptions::new().read())?.read_to_end(&mut contents)?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+The [V3 use cases](../../../docs/apfs-v3-use-cases.md) explain how inspection,
+generic file access, VFS operations and volume selection shape this API.
 
 ## Supported scope
 
@@ -34,13 +62,15 @@ detection or the `hadris-fs::FileSystem` interface.
 - The reader is read-only. Creating, modifying and repairing volumes are not
   supported.
 - Compressed files (`decmpfs`) are reported as
-  `ApfsError::Unsupported` rather than decoded.
+  `ErrorKind::Unsupported` rather than decoded.
 - Encrypted volumes and encrypted B-tree nodes are rejected.
 - Case-insensitive lookup folds case but not Unicode normalization, so a name
   must use the same normalization form as the one stored on disk.
 - Snapshots, Fusion tier-2 devices, extended attributes other than symlink
   targets, and named data streams are not exposed.
-- Every lookup walks the whole filesystem tree. Large volumes are slow.
+- Native container path lookup walks the filesystem tree. The mounted driver
+  builds an in-memory index, so mounting a large volume needs memory proportional
+  to the indexed records.
 
 Do not rely on this crate alone for recovery or forensic conclusions from
 damaged, adversarial, compressed or encrypted volumes.

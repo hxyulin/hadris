@@ -5,6 +5,7 @@ use crate::types::{le_u32, le_u64};
 
 /// Parsed B-tree fixed info (`btree_info_fixed_t`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct BTreeInfoFixed {
     /// B-tree flags.
     pub flags: u32,
@@ -18,6 +19,7 @@ pub struct BTreeInfoFixed {
 
 /// Parsed B-tree info trailer (`btree_info_t`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct BTreeInfo {
     /// Static tree information.
     pub fixed: BTreeInfoFixed,
@@ -54,6 +56,7 @@ impl BTreeInfo {
 
 /// Parsed fixed-size B-tree entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FixedEntry<'a> {
     /// Key bytes.
     pub key: &'a [u8],
@@ -64,6 +67,7 @@ pub struct FixedEntry<'a> {
 /// Owned B-tree key/value entry independent of the backing block lifetime.
 #[cfg(any(feature = "alloc", feature = "std"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct OwnedEntry {
     /// Key bytes.
     pub key: alloc::vec::Vec<u8>,
@@ -74,6 +78,7 @@ pub struct OwnedEntry {
 /// Owned B-tree node block.
 #[cfg(any(feature = "alloc", feature = "std"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct OwnedBTreeNode {
     data: alloc::vec::Vec<u8>,
     headerless: bool,
@@ -156,6 +161,7 @@ impl OwnedBTreeNode {
 
 /// Parsed B-tree node header plus backing bytes.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct BTreeNode<'a> {
     /// Common object header.
     pub object: ObjectHeader,

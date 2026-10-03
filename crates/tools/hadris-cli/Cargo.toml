@@ -1,7 +1,7 @@
 [package]
 name = "hadris-cli"
 version = "3.0.0-rc.1"
-description = "The hadris command: create, inspect, extract and check FAT, exFAT, ISO 9660, UDF and cpio images"
+description = "The hadris command: create, inspect, extract and check FAT, exFAT, ISO 9660, UDF, APFS and cpio images"
 readme = "README.md"
 keywords = ["filesystem", "disk-image", "iso9660", "fat32", "cli"]
 categories = ["command-line-utilities", "filesystem"]
@@ -17,7 +17,7 @@ path = "src/main.rs"
 doc = false
 
 [dependencies]
-hadris = { workspace = true, features = ["std", "sync", "detect"] }
+hadris = { workspace = true, features = ["std", "sync", "detect", "part", "unstable-apfs"] }
 hadris-cpio = { workspace = true, features = ["std", "sync"] }
 hadris-fat = { workspace = true, features = ["std", "sync", "write"] }
 hadris-fat-raw.workspace = true
@@ -32,6 +32,7 @@ clap.workspace = true
 tempfile.workspace = true
 
 [dev-dependencies]
+hadris-apfs = { workspace = true, features = ["std", "sync", "read"] }
 tempfile.workspace = true
 
 [target.'cfg(unix)'.dependencies]

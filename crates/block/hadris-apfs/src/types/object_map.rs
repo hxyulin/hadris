@@ -5,6 +5,7 @@ use crate::types::{le_u32, le_u64};
 
 /// Parsed object map block (`omap_phys_t`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ObjectMapBlock {
     /// Common object header.
     pub object: ObjectHeader,
@@ -52,6 +53,7 @@ impl ObjectMapBlock {
 
 /// Object map lookup key (`omap_key_t`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
 pub struct ObjectMapKey {
     /// Virtual object identifier.
     pub oid: u64,
@@ -61,6 +63,7 @@ pub struct ObjectMapKey {
 
 /// Object map lookup value (`omap_val_t`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ObjectMapValue {
     /// Value flags.
     pub flags: u32,
@@ -98,6 +101,7 @@ pub const OMAP_VAL_DELETED: u32 = 1;
 /// to the newest mapping that does not exceed a transaction identifier.
 #[cfg(any(feature = "alloc", feature = "std"))]
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct VirtualObjectMap {
     entries: alloc::collections::BTreeMap<u64, (u64, ObjectMapValue)>,
 }

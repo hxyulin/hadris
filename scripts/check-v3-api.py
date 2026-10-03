@@ -45,7 +45,8 @@ PINNED_NIGHTLY = "nightly-2026-09-04"
 # Smallest feature set per crate that still builds: `sync` alone where the
 # crate has it, otherwise the smallest useful tier in .github/workflows/rust.yml.
 MINIMAL_FEATURES = {
-    "hadris": "sync",
+    "hadris": "alloc,sync,detect",
+    "hadris-apfs": "read,sync",
     "hadris-common": "",
     "hadris-cpio": "sync",
     "hadris-fat": "sync",

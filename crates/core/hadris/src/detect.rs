@@ -26,6 +26,8 @@ pub enum ImageFormat {
     Gpt,
     /// An NTFS volume. `open` does not mount it in 3.0.
     Ntfs,
+    /// An APFS container, potentially holding several volumes.
+    Apfs,
 }
 
 /// One format `detect` found, with the error its mount would give when

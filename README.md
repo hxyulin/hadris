@@ -31,7 +31,8 @@ In 3.0, exFAT is stable as `hadris_fat::exfat::sync::ExFatFs` and
 The NTFS reader (`hadris-ntfs`, and the `unstable-ntfs` feature of
 `hadris`) is a preview whose native API may change in 3.x
 minor releases. APFS also has an experimental native API, exposed through
-`hadris-apfs` and the standalone `hadris-apfs` inspection binary. Every stable crate is covered by the public-API snapshots in
+`hadris-apfs`, `hadris::apfs` behind `unstable-apfs`, and the `hadris apfs`
+CLI commands. Every stable crate is covered by the public-API snapshots in
 [`api-snapshots/`](api-snapshots/).
 
 Problems that are understood but not fixed yet are listed in
@@ -41,7 +42,8 @@ Problems that are understood but not fixed yet are listed in
 
 ![Hadris architecture: applications use the umbrella crate over block, optical, and archive formats backed by shared I/O, paths, and storage](website/static/img/architecture.svg)
 
-The FAT, exFAT, ISO, UDF and NTFS filesystem drivers implement the `FileSystem` trait of `hadris-fs`,
+The FAT, exFAT, ISO, UDF, NTFS and APFS filesystem drivers implement the
+`FileSystem` trait of `hadris-fs`,
 so `Volume`, its file handles and generic code work on any of them. Each
 format keeps a native API for what the trait does not model: formatting,
 checking, FAT attributes, ISO namespaces and boot catalogs, NTFS streams.
@@ -104,7 +106,10 @@ organizational only: published package names such as `hadris-fat` are unchanged.
   async modes, with attribute lists, named streams and `$UpCase` case
   folding; listed by `hadris::sync::detect`
 
-- **[hadris-apfs](crates/block/hadris-apfs)** - Experimental APFS container and volume reader with a native sync/async API; used directly rather than through `hadris-fs` or umbrella detection
+- **[hadris-apfs](crates/block/hadris-apfs)** - Experimental, read-only APFS
+  driver with `Volume` support in sync and async modes, explicit volume
+  selection, and native container inspection; umbrella detection and generic mounting support APFS, while `unstable-apfs`
+  exposes native selection and inspection
 
 ### Optical Media
 

@@ -23,6 +23,7 @@
 //!   device holds, as `ImageFormat`s in a `Detection`, each with the
 //!   damage a mount would report. With `alloc`, `open` mounts the first
 //!   filesystem found as an `AnyFs`.
+//! - `apfs`: the read-only APFS preview, behind `unstable-apfs`.
 //! - `ntfs`: the NTFS preview, behind `unstable-ntfs`.
 //! - `host` (with `std` and `sync`): host files, directories and image
 //!   files for builders and tools, and `host::open` (with `detect`).
@@ -31,10 +32,11 @@
 //!
 //! One feature per format (`fat`, `part`, `iso`, `udf`, `cpio`) adds
 //! that crate. `archive` adds `cpio`, and `detect` adds `detect`, `open`
-//! and `AnyFs` with `fat`, `iso`, `udf` and `cpio`. The platform (`std`, `alloc`), mode (`sync`,
+//! and `AnyFs` with `fat`, `iso`, `udf`, `cpio` and the APFS reader. The platform (`std`, `alloc`), mode (`sync`,
 //! `async`) and `write` features are forwarded to every enabled crate.
 //! `unstable-ntfs` adds the NTFS preview, whose native API may change in
-//! 3.x minors. The default set is `std`, `sync`, `write`,
+//! 3.x minors. `unstable-apfs` exposes the native APFS preview API. Containers
+//! with multiple volumes require explicit selection with `open_apfs`. The default set is `std`, `sync`, `write`,
 //! `fat`, `iso`, `cpio` and `detect`. No feature changes what an item does.
 //!
 //! # Quick start
@@ -143,6 +145,9 @@ pub mod sync {
     }
 
     #[cfg(feature = "alloc")]
+    use hadris_apfs::sync::ApfsFs;
+    use hadris_apfs::sync::Container as ApfsContainer;
+    #[cfg(feature = "alloc")]
     use hadris_fat::exfat::sync::ExFatFs;
     #[cfg(feature = "alloc")]
     use hadris_fat::sync::FatFs;
@@ -157,6 +162,8 @@ pub mod sync {
     #[path = "open.rs"]
     mod open;
     pub use open::detect;
+    #[cfg(all(feature = "alloc", feature = "unstable-apfs"))]
+    pub use open::open_apfs;
     #[cfg(feature = "alloc")]
     pub use open::{AnyFs, open};
 }
@@ -196,3 +203,8 @@ pub use hadris_udf as udf;
 #[cfg(feature = "cpio")]
 #[cfg_attr(docsrs, doc(cfg(feature = "cpio")))]
 pub use hadris_cpio as cpio;
+
+/// The read-only APFS preview. Its native API may change in 3.x minors.
+#[cfg(feature = "unstable-apfs")]
+#[cfg_attr(docsrs, doc(cfg(feature = "unstable-apfs")))]
+pub use hadris_apfs as apfs;

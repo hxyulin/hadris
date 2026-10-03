@@ -42,6 +42,7 @@ fn name(format: ImageFormat) -> String {
         ImageFormat::Cpio(format) => format!("cpio ({format:?})"),
         ImageFormat::Mbr => "MBR partition table".into(),
         ImageFormat::Gpt => "GPT partition table".into(),
+        ImageFormat::Apfs => "APFS container".into(),
         ImageFormat::Ntfs => "NTFS".into(),
         other => format!("{other:?}"),
     }

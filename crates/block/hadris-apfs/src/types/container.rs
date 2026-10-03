@@ -15,6 +15,7 @@ pub const CONTAINER_MAX_FILE_SYSTEMS: usize = 100;
 
 /// Parsed APFS container superblock (`nx_superblock_t`).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ContainerSuperblock {
     /// Common object header.
     pub object: ObjectHeader,
@@ -115,6 +116,7 @@ impl ContainerSuperblock {
 
 /// One checkpoint map entry (`checkpoint_mapping_t`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CheckpointMapping {
     /// Mapped object's raw APFS object type.
     pub object_type: u32,
@@ -151,6 +153,7 @@ impl CheckpointMapping {
 
 /// Parsed checkpoint map block (`checkpoint_map_phys_t`).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CheckpointMapBlock {
     /// Common object header.
     pub object: ObjectHeader,

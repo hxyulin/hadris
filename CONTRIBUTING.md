@@ -30,8 +30,8 @@ RUSTFLAGS="-D warnings" cargo check -p hadris-fat --no-default-features --featur
 RUSTFLAGS="-D warnings" cargo check -p hadris-iso --no-default-features --features "sync"
 ```
 
-The full per-crate feature matrix used in CI is the `check-features` job in
-[`.github/workflows/rust.yml`](.github/workflows/rust.yml).
+The full per-crate feature matrix used by the `check-features` job is in
+[`scripts/ci-features.json`](scripts/ci-features.json).
 
 The `cross` job builds the `no_std` tiers for `thumbv6m-none-eabi`,
 `thumbv7em-none-eabihf` and `riscv32imc-unknown-none-elf`; targets without

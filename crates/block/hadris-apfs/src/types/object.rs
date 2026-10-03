@@ -7,6 +7,7 @@ pub const OBJECT_HEADER_SIZE: usize = 32;
 
 /// Common APFS object header (`obj_phys_t`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ObjectHeader {
     /// Stored Fletcher-64 checksum.
     pub checksum: u64,
@@ -41,6 +42,7 @@ impl ObjectHeader {
 /// Known APFS object types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
+#[non_exhaustive]
 pub enum ObjectType {
     /// Invalid or absent object subtype.
     Invalid = 0,

@@ -4,6 +4,9 @@ macro_rules! io_transform {
 }
 
 #[cfg(feature = "alloc")]
+use hadris_apfs::r#async::ApfsFs;
+use hadris_apfs::r#async::Container as ApfsContainer;
+#[cfg(feature = "alloc")]
 use hadris_fat::r#async::FatFs;
 #[cfg(feature = "alloc")]
 use hadris_fat::exfat::r#async::ExFatFs;
@@ -20,3 +23,6 @@ mod open;
 pub use open::detect;
 #[cfg(feature = "alloc")]
 pub use open::{AnyFs, open};
+
+#[cfg(all(feature = "alloc", feature = "unstable-apfs"))]
+pub use open::open_apfs;

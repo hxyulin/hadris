@@ -12,6 +12,7 @@ pub const VOLUME_NAME_LENGTH: usize = 256;
 
 /// Parsed APFS volume superblock (`apfs_superblock_t`).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct VolumeSuperblock {
     /// Common object header.
     pub object: ObjectHeader,

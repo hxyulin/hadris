@@ -419,3 +419,62 @@ mod asynch {
         assert!(matches!(opened, Ok(hadris::r#async::AnyFs::Iso(_))));
     }
 }
+
+#[test]
+fn apfs_container_signature_is_detected() {
+    let mut bytes = vec![0u8; 4096];
+    bytes[32..36].copy_from_slice(b"NXSB");
+    let found = formats(bytes, 512);
+    assert_eq!(found[0].0, ImageFormat::Apfs);
+}
+
+#[allow(dead_code)]
+#[path = "../../../block/hadris-apfs/tests/common/mod.rs"]
+mod apfs_fixture;
+
+#[cfg(feature = "unstable-apfs")]
+#[test]
+fn apfs_shared_open_requires_selection_for_multiple_volumes() {
+    use hadris::apfs::VolumeSelector;
+    let bytes = apfs_fixture::build_image();
+    let mut fs = open(device(bytes, 512), MountOptions::new()).unwrap();
+    assert!(matches!(fs, AnyFs::Apfs(_)));
+    assert_eq!(get(&mut fs, "/file0.txt"), apfs_fixture::file_contents(0));
+    let bytes = apfs_fixture::multi_volume_image();
+    let err = open(device(bytes, 512), MountOptions::new()).unwrap_err();
+    let mut fs = hadris::sync::open_apfs(
+        err.into_parts().1,
+        MountOptions::new(),
+        VolumeSelector::Name("Other"),
+    )
+    .unwrap();
+    assert_eq!(get(&mut fs, "/file0.txt"), apfs_fixture::file_contents(0));
+}
+
+#[test]
+fn apfs_damaged_container_remains_recognized() {
+    let mut bytes = apfs_fixture::build_image();
+    bytes[72] ^= 1;
+    assert_eq!(
+        formats(bytes, 512),
+        vec![(ImageFormat::Apfs, Some(ErrorKind::Corrupt))]
+    );
+}
+
+#[test]
+fn apfs_shared_open_works_without_native_preview_feature() {
+    let mut fs = open(
+        device(apfs_fixture::build_image(), 512),
+        MountOptions::new(),
+    )
+    .unwrap();
+    assert!(matches!(fs, AnyFs::Apfs(_)));
+    assert_eq!(get(&mut fs, "/file0.txt"), apfs_fixture::file_contents(0));
+    assert!(
+        open(
+            device(apfs_fixture::multi_volume_image(), 512),
+            MountOptions::new()
+        )
+        .is_err()
+    );
+}
