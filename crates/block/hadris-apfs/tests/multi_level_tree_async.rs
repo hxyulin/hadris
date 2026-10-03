@@ -96,3 +96,45 @@ fn encrypted_tree_reports_unsupported() {
         );
     });
 }
+
+#[test]
+fn holes_read_as_zeros() {
+    let image = build_image();
+    block_on(async {
+        let geometry = BlockGeometry::new(
+            BlockSize::new(BLOCK as u32).unwrap(),
+            BlockCount(IMAGE_BLOCKS as u64),
+        );
+        let device = SeekBlockDevice::new(Cursor::new(&image), geometry);
+        let mut container = Container::open(device).await.unwrap();
+        let expected = holey_contents(2);
+        let mut buf = vec![0xff_u8; expected.len()];
+        let n = container
+            .read_extents_at(&holey_extents(2), expected.len() as u64, 0, &mut buf)
+            .await
+            .unwrap();
+        assert_eq!(&buf[..n], expected);
+    });
+}
+
+#[test]
+fn a_child_named_twice_is_rejected() {
+    let image = build_image_variant(Variant::Revisit);
+    block_on(async {
+        let geometry = BlockGeometry::new(
+            BlockSize::new(BLOCK as u32).unwrap(),
+            BlockCount(IMAGE_BLOCKS as u64),
+        );
+        let device = SeekBlockDevice::new(Cursor::new(&image), geometry);
+        let mut container = Container::open(device).await.unwrap();
+        let superblock = container.superblock().clone();
+        let volumes = container.volume_superblocks(&superblock).await.unwrap();
+        assert_eq!(
+            container
+                .root_directory_owned_entries(&volumes[0])
+                .await
+                .unwrap_err(),
+            hadris_apfs::ApfsError::InvalidValue("B-tree node revisited")
+        );
+    });
+}

@@ -16,6 +16,7 @@ storage categories.
 |---|---|---|
 | FAT12/16/32 filesystem access | [`hadris-fat`](https://docs.rs/hadris-fat) | Complete FAT API, including formatting and mutation |
 | Experimental read-only NTFS access | [`hadris-ntfs`](https://docs.rs/hadris-ntfs) | NTFS remains a separate experimental leaf crate |
+| Experimental read-only APFS access | [`hadris-apfs`](https://docs.rs/hadris-apfs) | APFS is a separate experimental leaf crate |
 | MBR or GPT partition tables | [`hadris-part`](https://docs.rs/hadris-part) | Concrete partition parsing and writing |
 | Block-format detection and partition views | [`hadris-block`](https://docs.rs/hadris-block) | Combines storage, partitions, and FAT without erasing concrete types |
 | ISO 9660 images | [`hadris-iso`](https://docs.rs/hadris-iso) | ISO, Joliet, Rock Ridge, and El Torito APIs |
@@ -83,12 +84,12 @@ points for kernels, firmware, and other storage libraries:
 
 ## Experimental APIs
 
-The `unstable-exfat` feature and `hadris-ntfs` crate are outside the stable V2
-API promise. They are appropriate for evaluation and compatibility testing,
+The `unstable-exfat` feature and the `hadris-ntfs` and `hadris-apfs` crates are
+outside the stable V2 API promise. They are appropriate for evaluation and compatibility testing,
 but callers should expect API and behavior changes.
 
-NTFS is intentionally not opened by `hadris-block` or re-exported by the
-`hadris` umbrella. exFAT remains an opt-in feature of `hadris-fat`.
+NTFS and APFS are intentionally not opened by `hadris-block` or re-exported by
+the `hadris` umbrella. exFAT remains an opt-in feature of `hadris-fat`.
 
 ## Next steps
 

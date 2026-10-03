@@ -8,6 +8,20 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Added
+
+- **hadris-apfs:** An experimental, read-only APFS reader with sync and async
+  APIs. It reads containers, checkpoints, object maps, physical and virtual
+  B-trees (including sealed volumes), directories, inode metadata, file data
+  with sparse extents, and symlink targets. Lookups are case-insensitive on
+  case-insensitive volumes. Compressed files return `ApfsError::Unsupported`,
+  and encrypted volumes are rejected. Like `hadris-ntfs`, it is outside the
+  V2 stability promise and is not opened by `hadris-block`.
+  Contributed by Theo Paris (@theoparis) in #68.
+- **hadris-apfs-cli:** A `hadris-apfs` tool with `info`, `ls`, `stat` and `cat`
+  for APFS images and whole-disk images with a GPT.
+  Contributed by Theo Paris (@theoparis) in #68.
+
 ### Changed
 
 - **CI:** Run hosted checks on Rust 1.97.1 and retain Rust 1.88 compilation

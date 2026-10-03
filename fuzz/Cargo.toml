@@ -21,8 +21,11 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+hadris-apfs = { path = "../crates/block/hadris-apfs" }
 hadris-cpio = { path = "../crates/archive/hadris-cpio" }
 hadris-fat = { path = "../crates/block/hadris-fat", features = ["unstable-exfat"] }
+hadris-io = { path = "../crates/core/hadris-io", features = ["std"] }
+hadris-storage = { path = "../crates/core/hadris-storage", features = ["std", "sync"] }
 hadris-iso = { path = "../crates/optical/hadris-iso", features = ["read", "joliet"] }
 hadris-ntfs = { path = "../crates/block/hadris-ntfs" }
 hadris-part = { path = "../crates/block/hadris-part" }
@@ -63,6 +66,13 @@ bench = false
 [[bin]]
 name = "iso_read"
 path = "fuzz_targets/iso_read.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "apfs_read"
+path = "fuzz_targets/apfs_read.rs"
 test = false
 doc = false
 bench = false

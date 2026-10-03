@@ -96,10 +96,10 @@ jobs:
           packages=(
             hadris-fixed hadris-io hadris-path hadris-macros
             hadris-common hadris-storage hadris-part
-            hadris-fat hadris-ntfs hadris-iso hadris-udf hadris-cpio
+            hadris-fat hadris-ntfs hadris-apfs hadris-iso hadris-udf hadris-cpio
             hadris-archive hadris-block hadris-cd hadris-optical
             hadris hadris-cd-cli hadris-cpio-cli hadris-fat-cli
-            hadris-iso-cli hadris-udf-cli
+            hadris-iso-cli hadris-udf-cli hadris-apfs-cli
           )
           mapfile -t publishable < <(
             cargo metadata --no-deps --format-version 1 |
@@ -135,10 +135,10 @@ jobs:
           packages=(
             hadris-fixed hadris-io hadris-path hadris-macros
             hadris-common hadris-storage hadris-part
-            hadris-fat hadris-ntfs hadris-iso hadris-udf hadris-cpio
+            hadris-fat hadris-ntfs hadris-apfs hadris-iso hadris-udf hadris-cpio
             hadris-archive hadris-block hadris-cd hadris-optical
             hadris hadris-cd-cli hadris-cpio-cli hadris-fat-cli
-            hadris-iso-cli hadris-udf-cli
+            hadris-iso-cli hadris-udf-cli hadris-apfs-cli
           )
 
           crate_exists() {

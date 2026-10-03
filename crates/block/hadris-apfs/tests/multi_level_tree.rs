@@ -72,3 +72,87 @@ fn physical_walk_does_not_follow_virtual_links() {
     let mut container = open(&image);
     assert!(container.btree_leaf_entries(FS_ROOT_BLOCK).is_err());
 }
+
+#[test]
+fn a_child_named_twice_is_rejected() {
+    let image = build_image_variant(Variant::Revisit);
+    let mut container = open(&image);
+    let superblock = container.superblock().clone();
+    let volumes = container.volume_superblocks(&superblock).unwrap();
+    assert_eq!(
+        container
+            .root_directory_owned_entries(&volumes[0])
+            .unwrap_err(),
+        hadris_apfs::ApfsError::InvalidValue("B-tree node revisited")
+    );
+}
+
+#[test]
+fn holes_read_as_zeros() {
+    let image = build_image();
+    let mut container = open(&image);
+    let expected = holey_contents(1);
+    let size = expected.len() as u64;
+    let extents = holey_extents(1);
+
+    let mut buf = vec![0xff_u8; expected.len() + 100];
+    let n = container
+        .read_extents_at(&extents, size, 0, &mut buf)
+        .unwrap();
+    assert_eq!(&buf[..n], expected);
+
+    let mut buf = [0xff_u8; 10];
+    let n = container
+        .read_extents_at(&extents, size, 2 * BLOCK as u64 - 4, &mut buf)
+        .unwrap();
+    assert_eq!(&buf[..n], &expected[2 * BLOCK - 4..2 * BLOCK + 6]);
+    assert_eq!(
+        container
+            .read_extents_at(&extents, size, size, &mut buf)
+            .unwrap(),
+        0
+    );
+}
+
+#[test]
+fn lookups_follow_the_volume_case_sensitivity() {
+    let mut image = build_image();
+    let upper = file_name(3).to_uppercase();
+    {
+        let mut container = open(&image);
+        let superblock = container.superblock().clone();
+        let volume = container.volume_superblocks(&superblock).unwrap().remove(0);
+        assert!(container.resolve_path(&volume, &upper).unwrap().is_none());
+    }
+    set_volume_incompatible_features(&mut image, 1);
+    let mut container = open(&image);
+    let superblock = container.superblock().clone();
+    let volume = container.volume_superblocks(&superblock).unwrap().remove(0);
+    let entry = container.resolve_path(&volume, &upper).unwrap().unwrap();
+    assert_eq!(
+        container
+            .read_file(&volume, entry.file_id, usize::MAX)
+            .unwrap(),
+        file_contents(3)
+    );
+}
+
+#[test]
+fn an_impossible_file_size_is_an_error() {
+    let image = build_image_variant(Variant::HugeFile);
+    let mut container = open(&image);
+    let superblock = container.superblock().clone();
+    let volume = container.volume_superblocks(&superblock).unwrap().remove(0);
+    let entry = container
+        .resolve_path(&volume, &file_name(0))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        container
+            .read_file(&volume, entry.file_id, usize::MAX)
+            .unwrap_err(),
+        hadris_apfs::ApfsError::InvalidValue("file is too large to read into memory")
+    );
+    let head = container.read_file(&volume, entry.file_id, 8).unwrap();
+    assert_eq!(head, file_contents(0)[..8]);
+}

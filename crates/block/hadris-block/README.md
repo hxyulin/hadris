@@ -46,7 +46,8 @@ must first be narrowed with the checked partition-view APIs.
 
 The stable unified opener handles FAT12/16/32. exFAT remains an unstable
 leaf-crate preview and is detected but not opened by this facade. Experimental
-NTFS support likewise remains in the separate `hadris-ntfs` crate.
+NTFS and APFS support likewise remain in the separate `hadris-ntfs` and
+`hadris-apfs` crates.
 
 For `no_std` targets, disable default features and select one I/O mode
 explicitly.
