@@ -37,6 +37,7 @@ fn main() -> Result<()> {
     ensure!(std::fs::read(destination.path().join("file0.txt"))? == image::file_contents(0));
     ensure!(std::fs::read(destination.path().join("alias.txt"))? == image::file_contents(0));
     ensure!(std::fs::read(destination.path().join("sparse.txt"))? == image::holey_contents(0));
+    #[cfg(unix)]
     ensure!(
         std::fs::read_link(destination.path().join("link"))? == std::path::Path::new("file0.txt")
     );
