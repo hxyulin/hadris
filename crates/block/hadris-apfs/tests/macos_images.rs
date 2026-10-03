@@ -11,6 +11,7 @@ use std::process::Command;
 use hadris_apfs::ApfsError;
 use hadris_apfs::sync::Container;
 use hadris_apfs::types::VolumeSuperblock;
+use hadris_apfs::types::filesystem::DT_LNK;
 use hadris_storage::sync::SeekBlockDevice;
 use hadris_storage::{BlockCount, BlockGeometry, BlockSize};
 
@@ -192,7 +193,7 @@ fn reads_a_case_insensitive_volume_written_by_macos() {
     );
 
     let link = container.resolve_path(&volume, "/link").unwrap().unwrap();
-    assert_eq!(link.flags & 0xff, 10);
+    assert_eq!(link.file_type(), DT_LNK);
     assert_eq!(
         container
             .symlink_target(&volume, link.file_id)

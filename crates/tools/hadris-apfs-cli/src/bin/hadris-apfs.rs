@@ -5,6 +5,7 @@ use std::{fs::File, path::Path};
 use anyhow::{Context, bail};
 use clap::{Parser, Subcommand};
 use hadris_apfs::sync::Container;
+use hadris_apfs::types::filesystem::{DT_DIR, DT_LNK, DT_REG};
 use hadris_part::{Guid, PartitionTable, PartitionTableReadExt, PartitionType};
 use hadris_storage::{BlockCount, BlockGeometry, BlockSize, PartitionView, SeekBlockDevice};
 
@@ -252,7 +253,7 @@ where
         let Some(entry) = container.resolve_path(volume, path_in_volume)? else {
             continue;
         };
-        match entry.flags & 0xff {
+        match entry.file_type() {
             DT_REG => {}
             DT_DIR => bail!("{path_in_volume} is a directory"),
             DT_LNK => match container.symlink_target(volume, entry.file_id)? {
@@ -285,10 +286,6 @@ where
     bail!("file not found: {path_in_volume}")
 }
 
-const DT_DIR: u16 = 4;
-const DT_REG: u16 = 8;
-const DT_LNK: u16 = 10;
-
 fn ls(
     path: PathBuf,
     path_in_volume: String,
@@ -317,7 +314,7 @@ where
             hadris_apfs::types::filesystem::INODE_ROOT_DIRECTORY
         } else {
             match container.resolve_path(volume, path_in_volume)? {
-                Some(entry) if entry.flags & 0xff == DT_DIR => entry.file_id,
+                Some(entry) if entry.file_type() == DT_DIR => entry.file_id,
                 Some(_) => bail!("{path_in_volume} is not a directory"),
                 None => continue,
             }
@@ -325,7 +322,7 @@ where
         found = true;
         println!("{}:", volume.name().unwrap_or("<invalid utf8>"));
         for entry in container.directory_owned_entries(volume, directory_id)? {
-            let kind = entry.flags & 0xff;
+            let kind = entry.file_type();
             print!("  {} (inode {}, type {kind})", entry.name, entry.file_id);
             if kind == DT_LNK
                 && let Some(target) = container.symlink_target(volume, entry.file_id)?
@@ -477,9 +474,9 @@ where
                         "    {} -> inode {} (type {})",
                         entry.name,
                         entry.file_id,
-                        entry.flags & 0xff
+                        entry.file_type()
                     );
-                    if entry.flags & 0xff == 8
+                    if entry.file_type() == DT_REG
                         && let Ok(Some(inode)) = container.inode_record(volume, entry.file_id)
                     {
                         let stream_id = inode.private_id;

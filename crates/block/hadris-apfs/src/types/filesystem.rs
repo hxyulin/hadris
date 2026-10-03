@@ -13,6 +13,15 @@ pub const FS_TYPE_FILE_EXTENT: u8 = 8;
 /// Filesystem record type for directory entries.
 pub const FS_TYPE_DIRECTORY_RECORD: u8 = 9;
 
+/// Bits of a directory entry's flags that hold its file type.
+pub const DREC_TYPE_MASK: u16 = 0x000f;
+/// Directory entry file type for a directory.
+pub const DT_DIR: u16 = 4;
+/// Directory entry file type for a regular file.
+pub const DT_REG: u16 = 8;
+/// Directory entry file type for a symbolic link.
+pub const DT_LNK: u16 = 10;
+
 /// Common filesystem-tree key header (`j_key_t`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FileSystemKey {
@@ -40,7 +49,7 @@ pub struct DirectoryEntryRecord<'a> {
     pub parent_id: u64,
     /// Child inode identifier.
     pub file_id: u64,
-    /// Directory entry flags; low byte is the file type.
+    /// Directory entry flags; the bits in [`DREC_TYPE_MASK`] are the file type.
     pub flags: u16,
     /// Entry name.
     pub name: &'a str,
@@ -67,6 +76,11 @@ impl<'a> DirectoryEntryRecord<'a> {
                 .map_err(|_| crate::ApfsError::InvalidValue("directory name UTF-8"))?,
         })
     }
+
+    /// Returns the file type, such as [`DT_DIR`], [`DT_REG`] or [`DT_LNK`].
+    pub const fn file_type(&self) -> u16 {
+        self.flags & DREC_TYPE_MASK
+    }
 }
 
 /// Owned parsed directory entry record.
@@ -77,7 +91,7 @@ pub struct OwnedDirectoryEntryRecord {
     pub parent_id: u64,
     /// Child inode identifier.
     pub file_id: u64,
-    /// Directory entry flags; low byte is the file type.
+    /// Directory entry flags; the bits in [`DREC_TYPE_MASK`] are the file type.
     pub flags: u16,
     /// Entry name.
     pub name: alloc::string::String,
@@ -94,6 +108,11 @@ impl OwnedDirectoryEntryRecord {
             flags: entry.flags,
             name: entry.name.into(),
         })
+    }
+
+    /// Returns the file type, such as [`DT_DIR`], [`DT_REG`] or [`DT_LNK`].
+    pub const fn file_type(&self) -> u16 {
+        self.flags & DREC_TYPE_MASK
     }
 }
 
