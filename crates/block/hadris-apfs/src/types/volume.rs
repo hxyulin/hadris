@@ -7,6 +7,10 @@ use crate::types::{le_u32, le_u64, take};
 pub const VOLUME_MAGIC: [u8; 4] = *b"APSB";
 /// Incompatible feature flag: file names are compared case-insensitively.
 pub const APFS_INCOMPAT_CASE_INSENSITIVE: u64 = 0x1;
+/// Volume data is not encrypted at the APFS software layer.
+pub const APFS_FS_UNENCRYPTED: u64 = 0x1;
+/// Volume software encryption uses a single volume key.
+pub const APFS_FS_ONEKEY: u64 = 0x8;
 /// Length of the APFS volume name field.
 pub const VOLUME_NAME_LENGTH: usize = 256;
 

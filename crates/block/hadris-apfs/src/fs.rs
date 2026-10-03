@@ -264,7 +264,7 @@ impl<D: BlockDevice> ApfsFs<D> {
     /// require [`Self::mount_volume`] and fail with `InvalidInput`.
     /// Mount failures return the device for inspection or retry.
     pub async fn mount(device: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
-        Self::mount_selected(device, options, None).await
+        Self::mount_selected(device, options, None, None).await
     }
 
     /// Mounts exactly one volume selected by index, object identifier, UUID or
@@ -275,16 +275,49 @@ impl<D: BlockDevice> ApfsFs<D> {
         options: MountOptions,
         selector: VolumeSelector<'_>,
     ) -> Result<Self, MountError<D, D::Error>> {
-        Self::mount_selected(device, options, Some(selector)).await
+        Self::mount_selected(device, options, Some(selector), None).await
+    }
+
+    /// Mounts the sole software-encrypted, single-key volume using a password.
+    ///
+    /// `crypto_user` selects a crypto-user UUID, or `None` searches supported
+    /// password records. Wrong credentials return `InvalidInput` with
+    /// [`Detail::Credentials`], preserving
+    /// the device. Passwords are borrowed only during mounting. See
+    /// [`Container::unlock_volume`] for supported encryption and resource limits.
+    #[cfg(feature = "encryption")]
+    pub async fn mount_with_password(
+        device: D,
+        options: MountOptions,
+        password: &[u8],
+        crypto_user: Option<[u8; 16]>,
+    ) -> Result<Self, MountError<D, D::Error>> {
+        Self::mount_selected(device, options, None, Some((password, crypto_user))).await
+    }
+
+    /// Mounts an explicitly selected software-encrypted volume using a password.
+    ///
+    /// Volume selection is independent of the optional crypto-user UUID.
+    /// Credentials and limits behave as in [`Self::mount_with_password`].
+    #[cfg(feature = "encryption")]
+    pub async fn mount_volume_with_password(
+        device: D,
+        options: MountOptions,
+        selector: VolumeSelector<'_>,
+        password: &[u8],
+        crypto_user: Option<[u8; 16]>,
+    ) -> Result<Self, MountError<D, D::Error>> {
+        Self::mount_selected(device, options, Some(selector), Some((password, crypto_user))).await
     }
 
     async fn mount_selected(
         device: D,
         options: MountOptions,
         selector: Option<VolumeSelector<'_>>,
+        credentials: Option<(&[u8], Option<[u8; 16]>)>,
     ) -> Result<Self, MountError<D, D::Error>> {
         let mut container = Container::try_open(device).await?;
-        match Self::select_volume(&mut container, selector, options.node_limit()).await {
+        match Self::select_volume(&mut container, selector, options.node_limit(), credentials).await {
             Ok((checkpoint, volume, index)) => Ok(Self { container, checkpoint, volume, index }),
             Err(error) => Err(MountError::new(error, container.into_inner())),
         }
@@ -294,6 +327,7 @@ impl<D: BlockDevice> ApfsFs<D> {
         container: &mut Container<D>,
         selector: Option<VolumeSelector<'_>>,
         limit: Option<usize>,
+        credentials: Option<(&[u8], Option<[u8; 16]>)>,
     ) -> FsResult<(ContainerSuperblock, VolumeSuperblock, Index), D::Error> {
         let checkpoint = container.latest_superblock().await?;
         let volumes = container.volume_superblocks(&checkpoint).await?;
@@ -314,6 +348,23 @@ impl<D: BlockDevice> ApfsFs<D> {
             }
         }
         let volume = selected.ok_or_else(|| selection_error(ErrorKind::NotFound, "APFS volume not found"))?;
+        if checkpoint.flags & 4 != 0 && volume.flags & crate::types::volume::APFS_FS_UNENCRYPTED == 0 {
+            if volume.flags & crate::types::volume::APFS_FS_ONEKEY == 0 {
+                return Err(crate::ApfsError::Unsupported("APFS per-file-key encryption").into());
+            }
+            if credentials.is_none() {
+                return Err(crate::ApfsError::Unsupported("encrypted APFS volume requires credentials").into());
+            }
+        }
+        if let Some((password, crypto_user)) = credentials {
+            #[cfg(feature = "encryption")]
+            container.unlock_selected(&checkpoint, &volume, password, crypto_user).await?;
+            #[cfg(not(feature = "encryption"))]
+            {
+                let _ = (password, crypto_user);
+                return Err(ErrorKind::Unsupported.into());
+            }
+        }
         let index = Index::parse(container.filesystem_root_owned_entries(&volume).await?, limit)?;
         index.validate::<D::Error>(&volume, checkpoint.block_size, checkpoint.block_count)?;
         let root = index.inodes.get(&crate::types::filesystem::INODE_ROOT_DIRECTORY)
@@ -508,6 +559,8 @@ impl<D: BlockDevice> FileSystem for ApfsFs<D> {
     }
 
     async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
+        #[cfg(feature = "encryption")]
+        self.container.check_unlocked_volume(&self.volume)?;
         let inode = self.inode(node).await?;
         match file_type::<D::Error>(&inode)? {
             FileType::Dir => return Err(ErrorKind::IsADirectory.into()),
@@ -517,7 +570,7 @@ impl<D: BlockDevice> FileSystem for ApfsFs<D> {
         }
         if inode.is_compressed() { return Err(crate::ApfsError::Unsupported("compressed file data").into()); }
         let extents = self.index.extents(inode.private_id);
-        self.container.read_extents_at(extents, stream_size(&inode, extents), offset, buf).await
+        self.container.read_volume_extents_at(&self.volume, extents, stream_size(&inode, extents), offset, buf).await
     }
 }
 }

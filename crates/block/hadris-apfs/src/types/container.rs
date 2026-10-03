@@ -14,6 +14,9 @@ pub const CONTAINER_MAXIMUM_BLOCK_SIZE_BYTES: u32 = 65536;
 pub const CONTAINER_MAX_FILE_SYSTEMS: usize = 100;
 
 /// Parsed APFS container superblock (`nx_superblock_t`).
+/// @hadris-spec Apple-APFS:nx_superblock_t
+/// @hadris-compliance partial
+/// @hadris-note Parses checkpoint geometry and the software keylocker range; Fusion and other container extensions remain unsupported.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ContainerSuperblock {
@@ -55,6 +58,12 @@ pub struct ContainerSuperblock {
     pub reaper_oid: u64,
     /// Volume object identifiers from `nx_fs_oid`.
     pub volume_oids: [u64; CONTAINER_MAX_FILE_SYSTEMS],
+    /// Container flags, including software encryption (`NX_CRYPTO_SW`).
+    pub flags: u64,
+    /// First physical APFS block of the container keybag.
+    pub keylocker_start: u64,
+    /// Number of APFS blocks occupied by the container keybag.
+    pub keylocker_blocks: u64,
 }
 
 impl ContainerSuperblock {
@@ -105,6 +114,9 @@ impl ContainerSuperblock {
             object_map_oid: le_u64(data, 160)?,
             reaper_oid: le_u64(data, 168)?,
             volume_oids,
+            flags: le_u64(data, 1264)?,
+            keylocker_start: le_u64(data, 1296)?,
+            keylocker_blocks: le_u64(data, 1304)?,
         })
     }
 
