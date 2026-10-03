@@ -6,7 +6,7 @@ title: Build a CPIO initramfs
 
 ```toml
 [dependencies]
-hadris-cpio = "2.4.0"
+hadris-cpio = "2.5.0"
 ```
 
 ```rust

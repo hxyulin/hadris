@@ -4,8 +4,8 @@ title: Stability and compatibility
 
 # Stability and compatibility
 
-Hadris 2.4.0 is the current stable release of the V2 API, first stabilized in
-2.0.0. The public surface frozen during the release-candidate series follows
+Hadris 2.4.0 is the latest published stable release of the V2 API, first
+stabilized in 2.0.0. This branch prepares the backward-compatible 2.5.0 release. The public surface frozen during the release-candidate series follows
 Semantic Versioning: within the `2.x` series, breaking changes require a new
 major version, minor releases add backward-compatible functionality, and patch
 releases carry correctness fixes, interoperability qualification, and

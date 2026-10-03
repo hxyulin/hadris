@@ -8,6 +8,8 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-10-03
+
 ### Added
 
 - **hadris-apfs:** An experimental, read-only APFS reader with sync and async
@@ -36,10 +38,29 @@ Each published package owns its version and may be released independently.
 
 ### Tests
 
+- **APFS:** Validate macOS-generated APFS fixtures with `fsck_apfs -n`.
+- **exFAT:** Run existing writer round trips against macOS `fsck_exfat -n`
+  using temporary read-only disk-image attachments.
+
 - **ISO:** Rock Ridge relocation extraction is also checked with xorriso/libisofs
   alongside libarchive/bsdtar.
 
 ### Fixed
+
+- **hadris-fat:** Reject FAT16 and FAT32 geometries that exceed their
+  addressable data clusters. Cached FAT-chain reads now report cycles instead
+  of returning a truncated chain and reject entries outside the FAT.
+- **hadris-fat (`unstable-exfat`):** Formatting uses the largest cluster count
+  that fits and rejects cluster sizes that are not powers of two or exceed
+  32 MiB. Deletion deactivates every entry in a file's entry set and reuses
+  inactive secondary entries, eliminating orphaned entries rejected by macOS
+  `fsck_exfat`.
+- **hadris-iso:** Zero-pad Joliet and enhanced descriptor escape sequences,
+  fixing enhanced-image interoperability with libarchive. Readers and modifiers
+  continue to recognize Joliet descriptors written with legacy space padding.
+  Reject empty El Torito boot images instead of writing a zero-sector load.
+- **hadris-apfs:** Path lookup handles `.` and `..` and requires directories
+  for intermediate components and trailing slashes in both sync and async APIs.
 
 - **hadris-udf:** The root directory's parent file identifier now points to
   the root ICB rather than the File Set Descriptor, so filesystem checkers no
@@ -786,7 +807,8 @@ under Semantic Versioning.
 - **Build:** Disabled `thiserror` default features so the workspace builds as
   `no_std`. ([@aruiz](https://github.com/aruiz))
 
-[Unreleased]: https://github.com/hxyulin/hadris/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/hxyulin/hadris/compare/v2.5.0...HEAD
+[2.5.0]: https://github.com/hxyulin/hadris/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/hxyulin/hadris/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/hxyulin/hadris/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/hxyulin/hadris/compare/v2.1.0...v2.2.0

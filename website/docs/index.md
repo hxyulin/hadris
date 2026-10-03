@@ -21,7 +21,7 @@ directly to the [use-case guides](./guides/index.md).
 
 :::note Stability
 
-`2.4.0` is the current stable V2 release under Semantic Versioning. The
+`2.4.0` is the latest published stable V2 release; this branch prepares `2.5.0`. The
 `unstable-exfat` feature and experimental `hadris-ntfs` and `hadris-apfs`
 crates remain outside that stability promise.
 

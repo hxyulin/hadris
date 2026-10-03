@@ -115,14 +115,14 @@ for (idx, entry) in gpt.partitions() {
 
 ```toml
 [dependencies]
-hadris-part = { version = "2.4.0", default-features = false, features = ["read", "sync"] }
+hadris-part = { version = "2.5.0", default-features = false, features = ["read", "sync"] }
 ```
 
 ### For Desktop Applications
 
 ```toml
 [dependencies]
-hadris-part = { version = "2.4.0", features = ["write"] }  # read is already default; write enables crc
+hadris-part = { version = "2.5.0", features = ["write"] }  # read is already default; write enables crc
 ```
 
 ## Partition Types

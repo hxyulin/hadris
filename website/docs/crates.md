@@ -37,7 +37,7 @@ Examples include `hadris-fat`, `hadris-part`, `hadris-iso`, `hadris-udf`, and
 
 ```toml
 [dependencies]
-hadris-fat = "2.4.0"
+hadris-fat = "2.5.0"
 ```
 
 ## Category facades
@@ -59,7 +59,7 @@ single dependency declaration.
 ```toml
 [dependencies]
 hadris = {
-  version = "2.4.0",
+  version = "2.5.0",
   default-features = false,
   features = ["std", "sync", "read", "block", "optical"]
 }
