@@ -10,6 +10,9 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- Add a macOS APFS encryption fixture harness with native password checks,
+  read-only remount hashes and plaintext-driver comparison, and document the
+  separate software-encryption and Asahi Secure Enclave paths.
 - Merge the V2 2.5.0 history into V3, including the experimental APFS reader
   and inspection CLI adapted to V3 storage devices.
 - Complete the read-only APFS V3 driver: generic `Volume` access, inode-based

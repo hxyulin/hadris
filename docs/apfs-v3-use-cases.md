@@ -5,6 +5,9 @@ mounted volume is a filesystem. The V3 port keeps those two operations distinct
 and measures the driver through the same `FileSystem` contract as other formats.
 APFS remains an experimental, read-only format.
 
+The next qualification step is [APFS encryption](apfs-encryption.md), using
+native macOS fixtures while keeping Asahi's hardware unlock path distinct.
+
 ## Scenarios that shape the API
 
 | User | Scenario | API requirement |
