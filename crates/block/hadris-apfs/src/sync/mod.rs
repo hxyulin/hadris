@@ -569,6 +569,7 @@ where
     /// Resolves a slash-separated path from the volume root directory.
     /// Handles `.` and `..`, clamps parents at the root, and requires a
     /// directory for intermediate components and trailing slashes.
+    /// The volume root is returned with name `/` and inode 2.
     /// Symlinks are returned as entries rather than followed.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub fn resolve_path(
@@ -602,8 +603,14 @@ where
             }
             directories.push(entry);
         }
-        let current = directories.pop();
-        Ok(current)
+        Ok(Some(directories.pop().unwrap_or_else(|| {
+            OwnedDirectoryEntryRecord {
+                parent_id: crate::types::filesystem::INODE_ROOT_DIRECTORY,
+                file_id: crate::types::filesystem::INODE_ROOT_DIRECTORY,
+                flags: crate::types::filesystem::DT_DIR,
+                name: "/".into(),
+            }
+        })))
     }
 
     /// Lists owned entries in a volume's root directory when the filesystem root tree is a leaf/root node.

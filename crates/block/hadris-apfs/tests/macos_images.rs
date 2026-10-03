@@ -276,4 +276,14 @@ fn path_components_follow_native_directory_rules() {
         assert_eq!(read(&mut container, &volume, path), b"contents");
     }
     assert!(container.resolve_path(&volume, "/dir/").unwrap().is_some());
+    for path in ["", "/", "/.", "/dir/..", "/dir/../.", "/../../"] {
+        let root = container.resolve_path(&volume, path).unwrap().unwrap();
+        assert_eq!(
+            root.file_id,
+            hadris_apfs::types::filesystem::INODE_ROOT_DIRECTORY
+        );
+        assert_eq!(root.parent_id, root.file_id);
+        assert_eq!(root.file_type(), hadris_apfs::types::filesystem::DT_DIR);
+        assert_eq!(root.name, "/");
+    }
 }

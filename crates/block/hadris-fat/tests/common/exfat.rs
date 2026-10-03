@@ -83,12 +83,20 @@ impl AttachedImage {
 #[cfg(target_os = "macos")]
 impl Drop for AttachedImage {
     fn drop(&mut self) {
-        let _ = Command::new("hdiutil")
+        let result = Command::new("hdiutil")
             .args([
                 "detach",
                 "-quiet",
                 &self.0.replace("/dev/rdisk", "/dev/disk"),
             ])
             .status();
+        if !matches!(&result, Ok(status) if status.success()) {
+            let message = format!("hdiutil failed to detach {}: {result:?}", self.0);
+            if std::thread::panicking() {
+                eprintln!("{message}");
+            } else {
+                panic!("{message}");
+            }
+        }
     }
 }

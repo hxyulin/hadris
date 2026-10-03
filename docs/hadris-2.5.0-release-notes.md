@@ -41,15 +41,19 @@ The native path comparison exposed two reader defects: a trailing slash on a
 regular file was accepted, and `.` / `..` components were not resolved. Both
 sync and async readers now handle these paths and reject intermediate regular
 files, including `file/../other`. Traversal above the root stays at the root.
-Symlinks are returned without following them. Root-only paths continue to
-return no entry; callers use the root-directory APIs.
+Symlinks are returned without following them. Root-only paths return a directory entry for inode 2 named `/`.
 
 Running the existing exFAT writer round trips through macOS `fsck_exfat -n`
 exposed active orphaned secondary entries after deletion. Deletion now clears
 the InUse bit on the primary and every secondary before reclaiming the file's
 clusters; slot allocation recognizes all inactive entry types. A raw-entry
-regression verifies both deactivation and reuse. Native checker tests attach
-only temporary images read-only and detach them on exit.
+regression verifies both deactivation and reuse. Stale handles are checked against the current entry set before deletion, and
+allocation is reclaimed from current on-disk metadata. Formatting rejects
+heaps too small for the bitmap, upcase table, and root before writing. Native
+checker tests attach only temporary images read-only and report detach failures.
+The stale-handle guard cannot distinguish same-name recreation in the same slot
+with an identical creation timestamp; callers must reacquire handles after deletion.
+This limitation is tracked in [issue #230](https://github.com/hxyulin/hadris/issues/230).
 
 APFS remains an experimental reader. Unicode normalization, compressed data,
 encrypted volumes, snapshots, and following symlinks are outside its supported
@@ -74,6 +78,15 @@ scope. These limitations do not expand the stable V2 support promise.
   including workspace tests and doctests plus packaging verification of
   `hadris-fixed`, `hadris-io`, `hadris-path`, and `hadris-macros`. Full workspace
   packaging follows prerequisite publication, as described in the release script.
+
+Short local fuzz runs covered FAT reading and operations, exFAT, ISO, and APFS
+(with a populated native macOS seed). exFAT, ISO, APFS, and FAT operations
+completed two-minute runs without failures. FAT reader corpus replay exposed a
+harness assertion that rejected a legitimate error from a later malformed
+directory entry; the oracle now permits parser errors while retaining the
+missing-entry assertion. Fuzzing was stopped at the user's request before
+replaying the corrected FAT reader harness. These are smoke checks, not a
+claim of comprehensive fuzz coverage.
 
 ## Release procedure
 

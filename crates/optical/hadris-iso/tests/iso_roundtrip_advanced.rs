@@ -841,7 +841,7 @@ fn joliet_reader_accepts_zero_and_legacy_space_padding() {
 }
 
 #[test]
-fn bsdtar_reads_an_enhanced_image() {
+fn bsdtar_requires_valid_enhanced_descriptor_padding() {
     use std::process::Command;
     if Command::new("bsdtar").arg("--version").output().is_err() {
         assert!(
@@ -852,19 +852,37 @@ fn bsdtar_reads_an_enhanced_image() {
     }
     let mut options = default_options();
     options.features.long_filenames = true;
+    let name = "ENHANCED_DESCRIPTOR_PAYLOAD.TXT";
     let bytes = write_bytes(
         vec![IsoFile::File {
-            name: Arc::new("payload.txt".into()),
+            name: Arc::new(name.into()),
             contents: b"payload".to_vec(),
         }],
         options,
     );
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("enhanced.iso");
-    std::fs::write(&path, bytes).unwrap();
+    let image = IsoImage::open(Cursor::new(bytes.clone())).unwrap();
+    assert!(
+        entry_names(
+            &image,
+            image
+                .root_dirs()
+                .iter()
+                .find(|root| matches!(
+                    root.entry_type(),
+                    hadris_iso::file::EntryType::Level3 { .. }
+                ))
+                .unwrap()
+                .dir_ref()
+        )
+        .iter()
+        .any(|entry| entry == name)
+    );
+    std::fs::write(&path, &bytes).unwrap();
     let output = Command::new("bsdtar")
         .arg("-tf")
-        .arg(path)
+        .arg(&path)
         .output()
         .unwrap();
     assert!(
@@ -874,7 +892,27 @@ fn bsdtar_reads_an_enhanced_image() {
     );
     assert!(
         String::from_utf8_lossy(&output.stdout)
-            .to_ascii_lowercase()
-            .contains("payload.txt")
+            .lines()
+            .any(|line| line.trim_start_matches("./") == "ENHANCED.TXT"),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let mut invalid = bytes;
+    let descriptor = invalid
+        .chunks_exact_mut(2048)
+        .skip(16)
+        .find(|sector| sector[0] == 2 && sector[6] == 2)
+        .unwrap();
+    descriptor[88..120].fill(b' ');
+    std::fs::write(&path, invalid).unwrap();
+    let output = Command::new("bsdtar")
+        .arg("-tf")
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(
+        !String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .any(|line| line.trim_start_matches("./") == "ENHANCED.TXT")
     );
 }

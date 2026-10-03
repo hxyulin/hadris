@@ -54,13 +54,16 @@ Each published package owns its version and may be released independently.
   that fits and rejects cluster sizes that are not powers of two or exceed
   32 MiB. Deletion deactivates every entry in a file's entry set and reuses
   inactive secondary entries, eliminating orphaned entries rejected by macOS
-  `fsck_exfat`.
+  `fsck_exfat`. Reject stale deletion handles and reclaim the current on-disk
+  allocation. Reject layouts unable to hold the bitmap, upcase table, and root
+  directory before writing.
 - **hadris-iso:** Zero-pad Joliet and enhanced descriptor escape sequences,
   fixing enhanced-image interoperability with libarchive. Readers and modifiers
   continue to recognize Joliet descriptors written with legacy space padding.
   Reject empty El Torito boot images instead of writing a zero-sector load.
 - **hadris-apfs:** Path lookup handles `.` and `..` and requires directories
   for intermediate components and trailing slashes in both sync and async APIs.
+  Paths resolving to the volume root return its directory entry.
 
 - **hadris-udf:** The root directory's parent file identifier now points to
   the root ICB rather than the File Set Descriptor, so filesystem checkers no

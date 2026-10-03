@@ -253,7 +253,7 @@ impl<'a, DATA: Read + Write + Seek> ExFatFileWriter<'a, DATA> {
             prev_cluster: None,
             cluster_offset: 0,
             position: 0,
-            is_contiguous: entry.no_fat_chain,
+            is_contiguous: entry.first_cluster == 0 || entry.no_fat_chain,
             cluster_index: 0,
             new_length: entry.valid_data_length,
             allocated_length: entry.data_length,

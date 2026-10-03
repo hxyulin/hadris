@@ -3,8 +3,6 @@
 //! The main entry point for working with exFAT filesystems.
 
 #[cfg(feature = "write")]
-use alloc::string::ToString;
-#[cfg(feature = "write")]
 use alloc::vec::Vec;
 
 use hadris_common::types::endian::Endian;
@@ -19,8 +17,6 @@ use crate::io::{Read, ReadExt, SectorCursor, Seek, SeekFrom};
 use super::bitmap::AllocationBitmap;
 use super::boot::{ExFatBootSector, ExFatInfo};
 use super::dir::ExFatDir;
-#[cfg(feature = "write")]
-use super::entry::FileAttributes;
 use super::entry::{ExFatFileEntry, RawDirectoryEntry, entry_type};
 #[cfg(feature = "write")]
 use super::entry_writer::EntrySetBuilder;
@@ -540,22 +536,13 @@ where
         // Write the entry set
         self.write_entry_set(slot_cluster, slot_offset, &entries)?;
 
-        // Return the new entry
-        let now = super::time::ExFatTimestamp::now();
-        Ok(ExFatFileEntry {
-            name: name.to_string(),
-            attributes: FileAttributes::ARCHIVE,
-            first_cluster: 0,
-            data_length: 0,
-            valid_data_length: 0,
-            no_fat_chain: true,
-            name_hash: self.upcase.name_hash(name),
-            created: now,
-            modified: now,
-            accessed: now,
-            parent_cluster: slot_cluster,
-            entry_offset: self.info.cluster_to_offset(slot_cluster) + slot_offset,
-        })
+        let (mut entry, _) =
+            super::entry::parse_entry_set(&entries).ok_or(Error::CorruptFilesystem {
+                context: "invalid newly created exFAT entry set",
+            })?;
+        entry.parent_cluster = slot_cluster;
+        entry.entry_offset = self.info.cluster_to_offset(slot_cluster) + slot_offset;
+        Ok(entry)
     }
 
     /// Create a new directory.
@@ -605,43 +592,56 @@ where
     }
 
     /// Delete a file or empty directory.
+    ///
+    /// Checks the current name, creation timestamp, and entry kind for staleness.
+    /// Recreating the same name in the same slot with an identical creation
+    /// timestamp cannot be distinguished; reacquire handles after deletion.
     pub fn delete(&self, entry: &ExFatFileEntry) -> Result<()> {
-        // If it's a directory, check if it's empty
-        if entry.is_directory() {
-            let dir = ExFatDir {
-                fs: self,
-                first_cluster: entry.first_cluster,
-                is_contiguous: entry.no_fat_chain,
-                size: entry.data_length,
-            };
-
-            // Check for any entries in the directory
-            if let Some(item) = dir.entries().next() {
-                let _ = item?;
-                return Err(Error::DirectoryNotEmpty);
-            }
-        }
-
         let mut header = [0u8; 2];
         self.read_at(entry.entry_offset, &mut header)?;
         if header[0] != entry_type::FILE_DIRECTORY {
             return Err(Error::StaleEntry);
         }
+        if !(2..=18).contains(&header[1]) {
+            return Err(Error::CorruptFilesystem {
+                context: "invalid exFAT secondary count",
+            });
+        }
+        let mut entries = Vec::with_capacity(header[1] as usize + 1);
         let mut entry_types = Vec::with_capacity(header[1] as usize + 1);
-        entry_types.push(header[0]);
-        for index in 1..=u64::from(header[1]) {
-            let mut kind = [0u8; 1];
-            self.read_at(entry.entry_offset + index * 32, &mut kind)?;
-            if kind[0] & 0xc0 != 0xc0 {
-                return Err(Error::CorruptFilesystem {
-                    context: "invalid exFAT secondary entry",
-                });
+        for index in 0..=u64::from(header[1]) {
+            let mut bytes = [0u8; 32];
+            self.read_at(entry.entry_offset + index * 32, &mut bytes)?;
+            entry_types.push(bytes[0]);
+            entries.push(RawDirectoryEntry { bytes });
+        }
+        let (current, _) =
+            super::entry::parse_entry_set(&entries).ok_or(Error::CorruptFilesystem {
+                context: "invalid exFAT entry set",
+            })?;
+        if current.name != entry.name
+            || current.name_hash != entry.name_hash
+            || current.created.to_raw() != entry.created.to_raw()
+            || current.is_directory() != entry.is_directory()
+        {
+            return Err(Error::StaleEntry);
+        }
+        if current.is_directory() {
+            let dir = ExFatDir {
+                fs: self,
+                first_cluster: current.first_cluster,
+                is_contiguous: current.no_fat_chain,
+                size: current.data_length,
+            };
+            if let Some(item) = dir.entries().next() {
+                let _ = item?;
+                return Err(Error::DirectoryNotEmpty);
             }
-            entry_types.push(kind[0]);
         }
         for (index, kind) in entry_types.into_iter().enumerate() {
             self.write_at(entry.entry_offset + index as u64 * 32, &[kind & 0x7f])?;
         }
+        let entry = &current;
 
         // Free the cluster chain if there is one
         if entry.first_cluster >= 2 {
@@ -827,7 +827,35 @@ impl<DATA: Seek> core::fmt::Debug for ExFatVolume<DATA> {
 #[cfg(all(test, feature = "std", feature = "write"))]
 mod deletion_tests {
     use crate::exfat::{ExFatFormatOptions, format_exfat};
+    use crate::io::Write as _;
     use std::io::Cursor;
+
+    #[test]
+    fn stale_delete_preserves_a_replacement_and_its_allocation() {
+        let volume = format_exfat(
+            Cursor::new(alloc::vec![0u8; 2 << 20]),
+            2 << 20,
+            &ExFatFormatOptions {
+                volume_serial: Some(1),
+                ..ExFatFormatOptions::new()
+            },
+        )
+        .unwrap();
+        let old = volume.create_file(&volume.root_dir(), "old.txt").unwrap();
+        volume.delete(&old).unwrap();
+        let replacement = volume.create_file(&volume.root_dir(), "new.txt").unwrap();
+        assert_eq!(old.entry_offset, replacement.entry_offset);
+        let mut writer = volume.write_file(&replacement).unwrap();
+        writer.write_all(b"replacement contents").unwrap();
+        writer.finish().unwrap();
+        let before = volume.data.lock().data.get_ref().clone();
+        assert!(matches!(volume.delete(&old), Err(crate::Error::StaleEntry)));
+        assert_eq!(*volume.data.lock().data.get_ref(), before);
+        let current = volume.root_dir().find("new.txt").unwrap().unwrap();
+        assert!(current.first_cluster >= 2);
+        volume.delete(&replacement).unwrap();
+        assert!(volume.root_dir().find("new.txt").unwrap().is_none());
+    }
 
     #[test]
     fn delete_deactivates_and_reuses_every_entry_in_the_set() {

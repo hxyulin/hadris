@@ -232,6 +232,20 @@ pub fn calculate_layout(
         options.fat_count,
     )?;
 
+    let cluster_bytes = (bytes_per_sector * sectors_per_cluster) as u64;
+    let bitmap_clusters = u64::from(cluster_count).div_ceil(8).div_ceil(cluster_bytes);
+    let upcase_clusters =
+        (generate_compressed_upcase_table().0.len() as u64).div_ceil(cluster_bytes);
+    let metadata_clusters = bitmap_clusters + upcase_clusters + 1;
+    if u64::from(cluster_count) < metadata_clusters {
+        return Err(Error::VolumeTooSmall {
+            size: volume_size,
+            min_size: (u64::from(cluster_heap_offset)
+                + metadata_clusters * sectors_per_cluster as u64)
+                * bytes_per_sector as u64,
+        });
+    }
+
     // Generate volume serial number
     let volume_serial = options.volume_serial.unwrap_or_else(generate_serial);
 
@@ -910,6 +924,17 @@ mod tests {
                 let bigger_length = (u64::from(count) + 3).div_ceil(128);
                 assert!(24 + bigger_length * u64::from(fats) + u64::from(count) + 1 > sectors);
             }
+        }
+    }
+
+    #[test]
+    fn layout_rejects_heaps_too_small_for_metadata_without_writing() {
+        for spc in [1024, 2048] {
+            let options = ExFatFormatOptions::new().sectors_per_cluster(spc);
+            assert!(calculate_layout(2 << 20, &options).is_err());
+            let mut bytes = vec![0xa5; 2 << 20];
+            assert!(format_exfat(Cursor::new(&mut bytes[..]), 2 << 20, &options).is_err());
+            assert!(bytes.iter().all(|byte| *byte == 0xa5));
         }
     }
 

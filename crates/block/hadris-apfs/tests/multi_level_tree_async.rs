@@ -77,6 +77,15 @@ fn check(image: &[u8]) {
                 .unwrap()
                 .file_id
         );
+        for path in ["", "/", "/.", "/../../"] {
+            let root = container.resolve_path(volume, path).await.unwrap().unwrap();
+            assert_eq!(
+                root.file_id,
+                hadris_apfs::types::filesystem::INODE_ROOT_DIRECTORY
+            );
+            assert_eq!(root.file_type(), hadris_apfs::types::filesystem::DT_DIR);
+            assert_eq!(root.name, "/");
+        }
         for index in 0..FILE_COUNT {
             let entry = container
                 .resolve_path(volume, &file_name(index))
