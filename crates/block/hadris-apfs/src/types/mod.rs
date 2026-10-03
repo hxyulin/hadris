@@ -19,7 +19,9 @@ pub use container::{
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use filesystem::OwnedDirectoryEntryRecord;
-pub use filesystem::{DirectoryEntryRecord, FileExtentRecord, FileSystemKey, InodeRecord};
+pub use filesystem::{
+    DirectoryEntryRecord, FileExtentRecord, FileSystemKey, InodeRecord, XattrRecord,
+};
 pub use object::{ObjectHeader, ObjectType};
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use object_map::VirtualObjectMap;

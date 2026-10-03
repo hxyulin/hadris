@@ -15,6 +15,10 @@ pub enum Variant {
     Sealed,
     /// Nodes are mapped as encrypted.
     Encrypted,
+    /// The index root names the same child twice.
+    Revisit,
+    /// File 0 claims a size of `u64::MAX`.
+    HugeFile,
 }
 pub const VOLUME_OID: u64 = 1026;
 pub const FS_ROOT_OID: u64 = 1027;
@@ -194,6 +198,8 @@ pub fn build_image_variant(variant: Variant) -> Vec<u8> {
         Variant::Plain => 0,
         Variant::Sealed => 8,
         Variant::Encrypted => 4,
+        Variant::Revisit => 0,
+        Variant::HugeFile => 0,
     };
     let rebase = if sealed { FS_ROOT_OID } else { 0 };
     let tree_flags = if sealed { 0x80 | 0x100 } else { 0 };
@@ -266,7 +272,11 @@ pub fn build_image_variant(variant: Variant) -> Vec<u8> {
             entries.push(drec_entry(2, &file_name(index), inode(index)));
         }
         for index in range {
-            let size = file_contents(index).len() as u64;
+            let size = if variant == Variant::HugeFile && index == 0 {
+                u64::MAX
+            } else {
+                file_contents(index).len() as u64
+            };
             entries.push(inode_entry(inode(index), private(index), 0o100644, size));
             entries.push(extent_entry(private(index), BLOCK as u64, 10 + index));
         }
@@ -295,7 +305,15 @@ pub fn build_image_variant(variant: Variant) -> Vec<u8> {
             sealed,
             &[
                 child_entry(fs_key(2, 3), 1028 - rebase, sealed),
-                child_entry(drec_entry(2, &file_name(2), 0).0, 1029 - rebase, sealed),
+                child_entry(
+                    drec_entry(2, &file_name(2), 0).0,
+                    if variant == Variant::Revisit {
+                        1028
+                    } else {
+                        1029
+                    } - rebase,
+                    sealed,
+                ),
                 child_entry(drec_entry(2, &file_name(4), 0).0, 1030 - rebase, sealed),
             ],
         ),
@@ -308,4 +326,36 @@ pub fn build_image_variant(variant: Variant) -> Vec<u8> {
         write(10 + index as usize, data);
     }
     image
+}
+
+/// Sets the volume superblock's incompatible feature flags and reseals it.
+#[allow(dead_code)]
+pub fn set_volume_incompatible_features(image: &mut [u8], flags: u64) {
+    let start = 3 * BLOCK;
+    let mut volume = image[start..start + BLOCK].to_vec();
+    put(&mut volume, 56, &flags.to_le_bytes());
+    image[start..start + BLOCK].copy_from_slice(&seal(volume));
+}
+
+/// Extents for file `index` with a sparse extent, an uncovered gap and the
+/// file's real block at logical offset `2 * BLOCK`.
+#[allow(dead_code)]
+pub fn holey_extents(index: u64) -> Vec<hadris_apfs::types::FileExtentRecord> {
+    let extent = |logical_address, physical_block| hadris_apfs::types::FileExtentRecord {
+        id: 100 + index,
+        logical_address,
+        length: BLOCK as u64,
+        flags: 0,
+        physical_block,
+        cryptography_id: 0,
+    };
+    vec![extent(0, 0), extent(2 * BLOCK as u64, 10 + index)]
+}
+
+/// What [`holey_extents`] read as, for a file of `2 * BLOCK + len` bytes.
+#[allow(dead_code)]
+pub fn holey_contents(index: u64) -> Vec<u8> {
+    let mut data = vec![0_u8; 2 * BLOCK];
+    data.extend(file_contents(index));
+    data
 }

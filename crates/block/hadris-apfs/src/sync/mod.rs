@@ -6,6 +6,8 @@ use crate::types::container::ContainerSuperblock;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::types::container::{CheckpointMapBlock, CheckpointMapping};
 #[cfg(any(feature = "alloc", feature = "std"))]
+use crate::types::filesystem::{SYMLINK_XATTR_NAME, XATTR_DATA_EMBEDDED, names_match, stream_size};
+#[cfg(any(feature = "alloc", feature = "std"))]
 use crate::types::object_map::{
     BTREE_HASHED, BTREE_PHYSICAL, OMAP_VAL_ENCRYPTED, OMAP_VAL_NOHEADER, ObjectMapBlock,
     VirtualObjectMap,
@@ -13,7 +15,7 @@ use crate::types::object_map::{
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::types::{
     FileExtentRecord, FileSystemKey, InodeRecord, ObjectMapKey, ObjectMapValue, OwnedBTreeNode,
-    OwnedDirectoryEntryRecord, OwnedEntry, VolumeSuperblock,
+    OwnedDirectoryEntryRecord, OwnedEntry, VolumeSuperblock, XattrRecord,
 };
 use hadris_storage::BlockIndex;
 use hadris_storage::sync::BlockDevice;
@@ -413,6 +415,8 @@ where
         let info = root.tree_info()?;
         let virtual_children = info.fixed.flags & BTREE_PHYSICAL == 0;
         let mut leaves = alloc::vec::Vec::new();
+        let mut visited = alloc::collections::BTreeSet::new();
+        visited.insert(root_physical_block);
         let mut stack = alloc::vec![root];
         while let Some(node) = stack.pop() {
             let is_leaf = node.is_leaf()?;
@@ -438,6 +442,9 @@ where
                         }
                         _ => (child_oid, 0),
                     };
+                    if !visited.insert(child_block) {
+                        return Err(crate::ApfsError::InvalidValue("B-tree node revisited"));
+                    }
                     let child = self.read_btree_node_with_flags(child_block, child_flags)?;
                     if node.node()?.level.checked_sub(1) != Some(child.node()?.level) {
                         return Err(crate::ApfsError::InvalidValue("B-tree child level"));
@@ -552,10 +559,11 @@ where
         directory_id: u64,
         name: &str,
     ) -> crate::Result<Option<OwnedDirectoryEntryRecord>> {
+        let case_insensitive = volume.is_case_insensitive();
         Ok(self
             .directory_owned_entries(volume, directory_id)?
             .into_iter()
-            .find(|entry| entry.name == name))
+            .find(|entry| names_match(&entry.name, name, case_insensitive)))
     }
 
     /// Resolves a slash-separated path from the volume root directory.
@@ -633,28 +641,20 @@ where
         Ok(extents)
     }
 
-    /// Returns the effective file size: the inode's exact data-stream size when
-    /// present, then the inode's uncompressed size when set, otherwise the sum
-    /// of the data stream's extent lengths.
+    /// Returns the effective file size; see [`stream_size`].
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub fn file_size(&mut self, volume: &VolumeSuperblock, inode: u64) -> crate::Result<u64> {
         let inode = self
             .inode_record(volume, inode)?
             .ok_or(crate::ApfsError::InvalidValue("inode record not found"))?;
-        if let Some(size) = inode.data_stream_size {
-            return Ok(size);
-        }
-        if inode.uncompressed_size != 0 {
-            return Ok(inode.uncompressed_size);
-        }
-        Ok(self
-            .file_extents(volume, inode.private_id)?
-            .iter()
-            .map(|extent| extent.length)
-            .sum())
+        let extents = self.file_extents(volume, inode.private_id)?;
+        Ok(stream_size(&inode, &extents))
     }
 
-    /// Reads file bytes for a small uncompressed file described by filesystem extents.
+    /// Reads up to `max_bytes` from the start of an uncompressed file into
+    /// one buffer, or fails if that much memory cannot be reserved. Holes read
+    /// as zeros. Use [`Self::read_extents_at`] to stream large files. Compressed files
+    /// return [`ApfsError::Unsupported`](crate::ApfsError::Unsupported).
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub fn read_file(
         &mut self,
@@ -665,35 +665,92 @@ where
         let inode = self
             .inode_record(volume, inode)?
             .ok_or(crate::ApfsError::InvalidValue("inode record not found"))?;
-        let known_size = inode.data_stream_size.filter(|size| *size != 0).or({
-            if inode.uncompressed_size != 0 {
-                Some(inode.uncompressed_size)
-            } else {
-                None
-            }
-        });
-        let limit = match known_size {
-            Some(size) => max_bytes.min(size as usize),
-            None => max_bytes,
-        };
+        if inode.is_compressed() {
+            return Err(crate::ApfsError::Unsupported("compressed file data"));
+        }
+        let extents = self.file_extents(volume, inode.private_id)?;
+        let size = stream_size(&inode, &extents);
+        let len = usize::try_from(size).unwrap_or(usize::MAX).min(max_bytes);
         let mut output = alloc::vec::Vec::new();
-        for extent in self.file_extents(volume, inode.private_id)? {
-            if output.len() >= limit {
-                break;
+        output
+            .try_reserve_exact(len)
+            .map_err(|_| crate::ApfsError::InvalidValue("file is too large to read into memory"))?;
+        output.resize(len, 0);
+        let read = self.read_extents_at(&extents, size, 0, &mut output)?;
+        output.truncate(read);
+        Ok(output)
+    }
+
+    /// Reads file data at `offset` from extents returned by
+    /// [`Self::file_extents`] for a file of `size` bytes. Sparse extents and
+    /// ranges no extent covers read as zeros. Returns the bytes read, which
+    /// is zero at or past `size`.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub fn read_extents_at(
+        &mut self,
+        extents: &[FileExtentRecord],
+        size: u64,
+        offset: u64,
+        buf: &mut [u8],
+    ) -> crate::Result<usize> {
+        if offset >= size {
+            return Ok(0);
+        }
+        let end = size.min(offset.saturating_add(buf.len() as u64));
+        let want = (end - offset) as usize;
+        buf[..want].fill(0);
+        let block_size = u64::from(self.info.superblock.block_size);
+        let mut block = alloc::vec![0_u8; block_size as usize];
+        for extent in extents {
+            let extent_end = extent.logical_address.saturating_add(extent.length);
+            let mut pos = extent.logical_address.max(offset);
+            let stop = extent_end.min(end);
+            if extent.physical_block == 0 {
+                continue;
             }
-            let mut remaining = extent.length as usize;
-            let mut block = extent.physical_block;
-            while remaining > 0 && output.len() < limit {
-                let data = self.read_apfs_block_vec(block)?;
-                let take = remaining.min(data.len()).min(limit - output.len());
-                output.extend_from_slice(&data[..take]);
-                remaining -= take;
-                block = block
-                    .checked_add(1)
+            while pos < stop {
+                let relative = pos - extent.logical_address;
+                let physical = extent
+                    .physical_block
+                    .checked_add(relative / block_size)
                     .ok_or(crate::ApfsError::AddressOverflow)?;
+                self.read_apfs_block(physical, &mut block)?;
+                let within = (relative % block_size) as usize;
+                let n = (block_size - within as u64).min(stop - pos) as usize;
+                let out = (pos - offset) as usize;
+                buf[out..out + n].copy_from_slice(&block[within..within + n]);
+                pos += n as u64;
             }
         }
-        Ok(output)
+        Ok(want)
+    }
+
+    /// Returns a symlink's target from its `com.apple.fs.symlink` attribute,
+    /// or `None` when the inode has no such attribute.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub fn symlink_target(
+        &mut self,
+        volume: &VolumeSuperblock,
+        inode: u64,
+    ) -> crate::Result<Option<alloc::string::String>> {
+        for entry in self.filesystem_root_owned_entries(volume)? {
+            let Ok(xattr) = XattrRecord::parse(&entry.key, &entry.value) else {
+                continue;
+            };
+            if xattr.id != inode || xattr.name != SYMLINK_XATTR_NAME {
+                continue;
+            }
+            if xattr.flags & XATTR_DATA_EMBEDDED == 0 {
+                return Err(crate::ApfsError::Unsupported(
+                    "symlink target stored in a data stream",
+                ));
+            }
+            let target = xattr.data.strip_suffix(&[0]).unwrap_or(xattr.data);
+            let target = core::str::from_utf8(target)
+                .map_err(|_| crate::ApfsError::InvalidValue("symlink target UTF-8"))?;
+            return Ok(Some(target.into()));
+        }
+        Ok(None)
     }
 
     /// Reads an owned B-tree node at a physical APFS block address.

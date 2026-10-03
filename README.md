@@ -4,7 +4,7 @@
 
 Hadris is a collection of pure Rust storage and filesystem libraries for block
 devices, GPT and MBR partition tables, FAT12/16/32, ISO 9660, UDF, CPIO, and
-disk images, plus an experimental read-only NTFS reader. It supports desktop
+disk images, plus experimental read-only NTFS and APFS readers. It supports desktop
 applications as well as `no_std` bootloaders, operating-system kernels,
 firmware, and embedded devices.
 
@@ -23,7 +23,8 @@ add backward-compatible functionality, and patch releases are limited to
 correctness fixes, interoperability qualification, and documentation.
 
 The `unstable-exfat` and `unstable-streaming` previews and the experimental
-`hadris-ntfs` reader are explicitly outside this stability promise.
+`hadris-ntfs` and `hadris-apfs` readers are explicitly outside this stability
+promise.
 Stable FAT12/16/32, partition, ISO 9660, UDF, CPIO, facade, and storage APIs are
 covered by the V2 public-API snapshots.
 
@@ -88,6 +89,9 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 - **[hadris-ntfs](crates/block/hadris-ntfs)** - Experimental read-only NTFS
   reader with sync/async and `no_std` support; currently a leaf crate rather
   than part of the stable block facade
+- **[hadris-apfs](crates/block/hadris-apfs)** - Experimental read-only APFS
+  container and volume reader with sync/async and `no_std` support; a leaf
+  crate outside the block facade
 
 ### Optical Media
 
@@ -115,6 +119,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 | [hadris-cpio-cli](crates/tools/hadris-cpio-cli) | `hadris-cpio` | CPIO create/read/extract; legacy alias: `cpioutil` |
 | [hadris-udf-cli](crates/tools/hadris-udf-cli) | `hadris-udf` | UDF create/inspect/extract; legacy alias: `hadris-udf-cli` |
 | [hadris-cd-cli](crates/tools/hadris-cd-cli) | `hadris-cd` | Create, inspect, and verify hybrid ISO 9660/UDF images |
+| [hadris-apfs-cli](crates/tools/hadris-apfs-cli) | `hadris-apfs` | Experimental APFS inspect, list and read |
 
 ### Meta-crate
 

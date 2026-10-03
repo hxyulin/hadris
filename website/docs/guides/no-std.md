@@ -34,7 +34,7 @@ kernel, memory, or device-specific readers rather than depending on
 | Filesystem mutation | Add `write` and its required platform tier |
 | Both I/O modes | Enable `sync,async` and use explicit namespaces |
 
-The exact minimum differs by format. NTFS reading requires `alloc`; ISO and UDF
+The exact minimum differs by format. NTFS and APFS reading require `alloc`; ISO and UDF
 image creation require `std`. See the complete
 [feature and capability matrix](../concepts/features.md).
 

@@ -55,4 +55,4 @@ use hadris_fat::r#async::FatVolume as AsyncFatVolume;
 
 Enable `alloc` when directory names or file contents must be returned as owned
 values. FAT, ISO, CPIO, and partition parsing have narrower allocation-free
-async tiers; UDF filesystem traversal and NTFS reading require `alloc`.
+async tiers; UDF filesystem traversal, NTFS reading, and APFS reading require `alloc`.

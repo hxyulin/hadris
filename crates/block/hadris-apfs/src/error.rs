@@ -23,6 +23,8 @@ pub enum ApfsError {
     },
     /// Arithmetic overflow while calculating an address or length.
     AddressOverflow,
+    /// The image uses an APFS feature this reader does not implement.
+    Unsupported(&'static str),
     /// Underlying I/O failed.
     Io(hadris_io::ErrorKind),
 }
@@ -50,6 +52,7 @@ impl fmt::Display for ApfsError {
                 "APFS checksum mismatch: expected {expected:#x}, got {actual:#x}"
             ),
             Self::AddressOverflow => f.write_str("APFS address calculation overflowed"),
+            Self::Unsupported(feature) => write!(f, "unsupported APFS feature: {feature}"),
             Self::Io(kind) => write!(f, "APFS I/O error: {kind:?}"),
         }
     }

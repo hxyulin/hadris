@@ -249,14 +249,45 @@ where
     let latest = container.latest_superblock()?;
     let volumes = container.volume_superblocks(&latest)?;
     for volume in &volumes {
-        if let Some(entry) = container.resolve_path(volume, path_in_volume)? {
-            let bytes = container.read_file(volume, entry.file_id, usize::MAX)?;
-            std::io::stdout().lock().write_all(&bytes)?;
-            return Ok(());
+        let Some(entry) = container.resolve_path(volume, path_in_volume)? else {
+            continue;
+        };
+        match entry.flags & 0xff {
+            DT_REG => {}
+            DT_DIR => bail!("{path_in_volume} is a directory"),
+            DT_LNK => match container.symlink_target(volume, entry.file_id)? {
+                Some(target) => bail!("{path_in_volume} is a symlink to {target}"),
+                None => bail!("{path_in_volume} is a symlink"),
+            },
+            other => bail!("{path_in_volume} is not a regular file (type {other})"),
         }
+        let inode = container
+            .inode_record(volume, entry.file_id)?
+            .context("inode record not found")?;
+        if inode.is_compressed() {
+            bail!("{path_in_volume} is compressed, which this reader does not decode");
+        }
+        let extents = container.file_extents(volume, inode.private_id)?;
+        let size = hadris_apfs::types::filesystem::stream_size(&inode, &extents);
+        let mut out = std::io::stdout().lock();
+        let mut buf = vec![0_u8; 1 << 20];
+        let mut offset = 0;
+        loop {
+            let n = container.read_extents_at(&extents, size, offset, &mut buf)?;
+            if n == 0 {
+                break;
+            }
+            out.write_all(&buf[..n])?;
+            offset += n as u64;
+        }
+        return Ok(());
     }
     bail!("file not found: {path_in_volume}")
 }
+
+const DT_DIR: u16 = 4;
+const DT_REG: u16 = 8;
+const DT_LNK: u16 = 10;
 
 fn ls(
     path: PathBuf,
@@ -286,19 +317,22 @@ where
             hadris_apfs::types::filesystem::INODE_ROOT_DIRECTORY
         } else {
             match container.resolve_path(volume, path_in_volume)? {
-                Some(entry) => entry.file_id,
+                Some(entry) if entry.flags & 0xff == DT_DIR => entry.file_id,
+                Some(_) => bail!("{path_in_volume} is not a directory"),
                 None => continue,
             }
         };
         found = true;
         println!("{}:", volume.name().unwrap_or("<invalid utf8>"));
         for entry in container.directory_owned_entries(volume, directory_id)? {
-            println!(
-                "  {} (inode {}, type {})",
-                entry.name,
-                entry.file_id,
-                entry.flags & 0xff
-            );
+            let kind = entry.flags & 0xff;
+            print!("  {} (inode {}, type {kind})", entry.name, entry.file_id);
+            if kind == DT_LNK
+                && let Some(target) = container.symlink_target(volume, entry.file_id)?
+            {
+                print!(" -> {target}");
+            }
+            println!();
         }
     }
     if !found {
@@ -345,7 +379,16 @@ where
         println!("  inode: {}", inode.id);
         println!("  parent: {}", inode.parent_id);
         println!("  mode: {:#o}", inode.mode);
+        println!("  owner: {}:{}", inode.owner, inode.group);
         println!("  size: {}", container.file_size(volume, inode_id)?);
+        if inode.is_compressed() {
+            println!("  compressed: yes");
+        }
+        if u32::from(inode.mode) & 0o170000 == 0o120000
+            && let Some(target) = container.symlink_target(volume, inode_id)?
+        {
+            println!("  target: {target}");
+        }
         println!("  link/child count: {}", inode.link_or_child_count);
         println!("  created: {}", format_apfs_time(inode.create_time_ns));
         println!(
@@ -460,14 +503,12 @@ where
                     }
                     println!();
                     if read_root_file == Some(entry.name.as_str()) {
-                        let mut bytes = container.read_file(volume, entry.file_id, 1024 * 1024)?;
-                        while bytes.last() == Some(&0) {
-                            bytes.pop();
-                        }
+                        let bytes = container.read_file(volume, entry.file_id, 1024 * 1024)?;
                         println!("  contents of '{}':", entry.name);
-                        print!("{}", String::from_utf8_lossy(&bytes));
+                        let mut out = std::io::stdout().lock();
+                        out.write_all(&bytes)?;
                         if !bytes.ends_with(b"\n") {
-                            println!();
+                            writeln!(out)?;
                         }
                     }
                 }

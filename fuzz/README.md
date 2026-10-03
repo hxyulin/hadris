@@ -12,6 +12,7 @@ gate).
 | `fat_read`  | `FatFs::open` + recursive read       | BPB, FAT chain, directory + LFN parsing, file reads |
 | `exfat_read`| `ExFatVolume::open` + recursive read | boot region, entry sets, FAT/no-FAT chains, upcase |
 | `ntfs_read` | `NtfsFs::open` + recursive read      | boot sector, MFT records, attributes, index walks |
+| `apfs_read` | `Container::open` + recursive read    | container and volume superblocks, object maps, B-tree walks, extents, symlinks |
 | `part_read` | `PartitionTable::read_from`          | MBR / GPT detection and entry parsing |
 | `iso_read`  | `IsoImage::open` + recursive read    | volume descriptors, directory records, RRIP, multi-extent reads |
 | `udf_read`  | `UdfVolume::open` + recursive read   | anchor/VDS/FSD, File Entry, allocation descriptors, FIDs |
@@ -39,7 +40,7 @@ cargo +nightly fuzz run cpio_read -- -runs=0           # replay corpus only, the
 Replay every corpus after pulling or before a release:
 
 ```bash
-for t in cpio_read fat_read exfat_read ntfs_read part_read iso_read udf_read fat_ops; do
+for t in cpio_read fat_read exfat_read ntfs_read apfs_read part_read iso_read udf_read fat_ops; do
   cargo +nightly fuzz run "$t" -- -runs=0
 done
 ```

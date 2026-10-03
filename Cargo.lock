@@ -467,8 +467,6 @@ dependencies = [
 name = "hadris-apfs"
 version = "2.4.0"
 dependencies = [
- "bitflags 2.13.2",
- "hadris-common",
  "hadris-io",
  "hadris-storage",
 ]

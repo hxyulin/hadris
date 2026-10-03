@@ -5,6 +5,8 @@ use crate::types::{le_u32, le_u64, take};
 
 /// Magic value in volume superblocks (`APSB` on disk).
 pub const VOLUME_MAGIC: [u8; 4] = *b"APSB";
+/// Incompatible feature flag: file names are compared case-insensitively.
+pub const APFS_INCOMPAT_CASE_INSENSITIVE: u64 = 0x1;
 /// Length of the APFS volume name field.
 pub const VOLUME_NAME_LENGTH: usize = 256;
 
@@ -82,6 +84,11 @@ impl VolumeSuperblock {
             flags: le_u64(data, 264)?,
             volume_name: take(data, 704)?,
         })
+    }
+
+    /// Returns whether the volume compares file names case-insensitively.
+    pub const fn is_case_insensitive(&self) -> bool {
+        self.incompatible_features & APFS_INCOMPAT_CASE_INSENSITIVE != 0
     }
 
     /// Returns the volume name as UTF-8 up to the first NUL byte.
