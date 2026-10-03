@@ -444,6 +444,7 @@ jobs:
       - name: Miri - hadris-apfs (layouts and record decoding)
         run: |
           cargo +nightly miri test -p hadris-apfs --lib
+          RUSTFLAGS='--cfg aes_backend="soft"' cargo +nightly miri test -p hadris-apfs --all-features --lib crypto::tests
           cargo +nightly miri test -p hadris-apfs --all-features --test driver invalid_utf8_directory_names_are_corrupt_and_return_the_device
       - name: Miri - hadris-ntfs (records, mapping pairs, UTF-16 names)
         run: cargo +nightly miri test -p hadris-ntfs --lib

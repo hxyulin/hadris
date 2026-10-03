@@ -15,6 +15,7 @@ repository.workspace = true
 default = ["std", "read", "sync"]
 std = ["alloc", "hadris-io/std", "hadris-storage/std", "hadris-fs/std"]
 alloc = ["hadris-fs/alloc", "hadris-storage/alloc"]
+encryption = ["alloc", "read", "dep:aes", "dep:aes-kw", "dep:xts-mode", "dep:pbkdf2", "dep:sha2", "dep:hmac", "dep:zeroize"]
 read = []
 sync = ["hadris-io/sync", "hadris-storage/sync", "hadris-fs/sync"]
 async = ["hadris-io/async", "hadris-storage/async", "hadris-fs/async"]
@@ -24,6 +25,14 @@ hadris-io.workspace = true
 hadris-storage.workspace = true
 hadris-fs.workspace = true
 hadris-macros.workspace = true
+
+aes = { version = "=0.9.2", default-features = false, features = ["zeroize"], optional = true }
+aes-kw = { version = "0.3", default-features = false, features = ["zeroize"], optional = true }
+xts-mode = { version = "0.6", default-features = false, optional = true }
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"], optional = true }
+sha2 = { version = "0.10", default-features = false, optional = true }
+hmac = { version = "0.12", default-features = false, optional = true }
+zeroize = { version = "1.8", default-features = false, features = ["alloc"], optional = true }
 
 [dev-dependencies]
 hadris-fs = { workspace = true, features = ["contract"] }

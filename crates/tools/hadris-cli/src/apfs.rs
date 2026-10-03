@@ -1,4 +1,4 @@
-use std::io::{self, Write};
+use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
@@ -56,6 +56,12 @@ struct PathArgs {
     /// Volume UUID in canonical hexadecimal form
     #[arg(long, group = "volume_selector", value_parser = parse_uuid)]
     volume_uuid: Option<[u8; 16]>,
+    /// Read the volume password from one line of stdin
+    #[arg(long)]
+    password_stdin: bool,
+    /// Select an APFS crypto user; requires --password-stdin
+    #[arg(long, requires = "password_stdin", value_parser = parse_uuid)]
+    crypto_user: Option<[u8; 16]>,
 }
 
 #[derive(clap::Args)]
@@ -123,6 +129,20 @@ fn parse_uuid(value: &str) -> Result<[u8; 16], String> {
     Ok(uuid)
 }
 
+fn read_password(mut input: impl BufRead) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+    let mut password = zeroize::Zeroizing::new(Vec::new());
+    input
+        .read_until(b'\n', &mut password)
+        .context("cannot read APFS password from stdin")?;
+    if password.last() == Some(&b'\n') {
+        password.pop();
+        if password.last() == Some(&b'\r') {
+            password.pop();
+        }
+    }
+    Ok(password)
+}
+
 fn mount(args: &PathArgs) -> Result<ApfsFs<Device>> {
     let device = open_device(&args.image)?;
     let options = MountOptions::new().read_only();
@@ -132,9 +152,23 @@ fn mount(args: &PathArgs) -> Result<ApfsFs<Device>> {
         .or_else(|| args.volume_name.as_deref().map(VolumeSelector::Name))
         .or_else(|| args.volume_object_id.map(VolumeSelector::ObjectId))
         .or_else(|| args.volume_uuid.map(VolumeSelector::Uuid));
-    let mounted = match selector {
-        Some(selector) => ApfsFs::mount_volume(device, options, selector),
-        None => ApfsFs::mount(device, options),
+    let mounted = if args.password_stdin {
+        let password = read_password(io::stdin().lock())?;
+        match selector {
+            Some(selector) => ApfsFs::mount_volume_with_password(
+                device,
+                options,
+                selector,
+                &password,
+                args.crypto_user,
+            ),
+            None => ApfsFs::mount_with_password(device, options, &password, args.crypto_user),
+        }
+    } else {
+        match selector {
+            Some(selector) => ApfsFs::mount_volume(device, options, selector),
+            None => ApfsFs::mount(device, options),
+        }
     };
     mounted.with_context(|| format!("cannot mount APFS in {}", args.image.image.display()))
 }
@@ -318,6 +352,38 @@ mod tests {
                 "Data"
             ])
             .is_err()
+        );
+    }
+    #[test]
+    fn password_input_preserves_bytes_and_only_removes_line_endings() {
+        for (input, expected) in [
+            (&b"secret\nignored"[..], &b"secret"[..]),
+            (&b"secret\r\n"[..], &b"secret"[..]),
+            (&b" secret "[..], &b" secret "[..]),
+            (&b"\xff\x00\n"[..], &b"\xff\x00"[..]),
+            (&b"\n"[..], &b""[..]),
+        ] {
+            assert_eq!(&*super::read_password(input).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn crypto_user_requires_password_input_and_password_is_not_a_cli_argument() {
+        let base = ["hadris", "apfs", "cat", "image.apfs", "/file"];
+        let user = "01234567-89ab-cdef-0123-456789abcdef";
+        assert!(
+            crate::Cli::try_parse_from(base.into_iter().chain(["--crypto-user", user])).is_err()
+        );
+        assert!(
+            crate::Cli::try_parse_from(base.into_iter().chain([
+                "--password-stdin",
+                "--crypto-user",
+                user
+            ]))
+            .is_ok()
+        );
+        assert!(
+            crate::Cli::try_parse_from(base.into_iter().chain(["--password", "secret"])).is_err()
         );
     }
 }

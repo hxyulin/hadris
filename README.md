@@ -32,7 +32,10 @@ The NTFS reader (`hadris-ntfs`, and the `unstable-ntfs` feature of
 `hadris`) is a preview whose native API may change in 3.x
 minor releases. APFS also has an experimental native API, exposed through
 `hadris-apfs`, `hadris::apfs` behind `unstable-apfs`, and the `hadris apfs`
-CLI commands. Every stable crate is covered by the public-API snapshots in
+CLI commands. Opt-in software APFS password unlocking is available through
+`hadris-apfs`'s `encryption` feature or `hadris`'s `apfs-encryption` feature;
+internal Apple-silicon FileVault requires separate hardware support.
+Every stable crate is covered by the public-API snapshots in
 [`api-snapshots/`](api-snapshots/).
 
 Problems that are understood but not fixed yet are listed in

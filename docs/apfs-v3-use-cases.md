@@ -5,8 +5,8 @@ mounted volume is a filesystem. The V3 port keeps those two operations distinct
 and measures the driver through the same `FileSystem` contract as other formats.
 APFS remains an experimental, read-only format.
 
-The next qualification step is [APFS encryption](apfs-encryption.md), using
-native macOS fixtures while keeping Asahi's hardware unlock path distinct.
+Opt-in [software APFS encryption](apfs-encryption.md) is qualified against
+native macOS fixtures; Asahi's hardware unlock path remains a separate milestone.
 
 ## Scenarios that shape the API
 
@@ -15,7 +15,7 @@ native macOS fixtures while keeping Asahi's hardware unlock path distinct.
 | Inspection tool | Enumerate a container's volumes and inspect their superblocks, object maps and space manager | Keep native `Container` inspection, including volume identity and name |
 | Desktop application | Open an image, list paths and read or extract files through generic code | `ApfsFs` implements `FileSystem` and works with `Volume`, `Walk` and tree extraction |
 | Kernel or FUSE adapter | Look up names, retain inode identifiers, page directory entries and read at an offset | Stable inode-based `NodeId`, correct cursors and metadata, and bounded reads without allocating the whole file |
-| Backup or recovery tool | Read sparse files, hard links and symlink targets from an unencrypted volume | Preserve inode identity, fill holes with zeroes and expose symlinks without following them in the driver |
+| Backup or recovery tool | Read sparse files, hard links and symlink targets from an unencrypted or password-unlocked single-key volume | Preserve inode identity, fill holes with zeroes and expose symlinks without following them in the driver |
 | Multi-volume application | Select one of several volumes explicitly | Select by index, APFS object ID, UUID or name; a default mount refuses ambiguity |
 | Async service | Run the same operations through a generic async filesystem | Shared sync/async implementation and `Send` futures; preserve backend error payloads |
 | Embedded application with an allocator | Mount without `std` over its own block device | Use `hadris-io` and `hadris-storage` throughout the library |
@@ -31,7 +31,9 @@ device through `MountError`, as the other V3 drivers do.
 
 Mounting selects the current supported checkpoint and volume view. It does not
 merge APFS System and Data volumes into a macOS namespace or implement snapshots,
-encryption, compression, writes or recovery. Those limitations remain explicit.
+hardware/per-file encryption, compression, writes or recovery. Those limitations remain explicit.
+Software-encrypted single-key volumes use password mount methods independently
+of volume and crypto-user selection.
 
 ## Shared filesystem behavior
 

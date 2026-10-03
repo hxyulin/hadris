@@ -12,7 +12,7 @@ keywords = ["filesystem", "disk-image", "fat32", "iso9660", "no-std"]
 categories = ["filesystem", "embedded", "no-std"]
 
 [package.metadata.docs.rs]
-features = ["std", "sync", "async", "write", "detect", "part", "unstable-ntfs", "unstable-apfs"]
+features = ["std", "sync", "async", "write", "detect", "part", "unstable-ntfs", "unstable-apfs", "apfs-encryption"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
@@ -35,6 +35,7 @@ detect = ["fat", "iso", "udf", "cpio", "dep:hadris-fat-raw", "dep:hadris-macros"
 unstable-ntfs = ["dep:hadris-ntfs"]
 # The read-only APFS preview, whose native API may change in 3.x minors.
 unstable-apfs = ["dep:hadris-apfs", "hadris-apfs/read"]
+apfs-encryption = ["unstable-apfs", "hadris-apfs/encryption"]
 
 [dependencies]
 hadris-apfs = { workspace = true, optional = true, default-features = false }

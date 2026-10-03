@@ -17,7 +17,7 @@ path = "src/main.rs"
 doc = false
 
 [dependencies]
-hadris = { workspace = true, features = ["std", "sync", "detect", "part", "unstable-apfs"] }
+hadris = { workspace = true, features = ["std", "sync", "detect", "part", "apfs-encryption"] }
 hadris-cpio = { workspace = true, features = ["std", "sync"] }
 hadris-fat = { workspace = true, features = ["std", "sync", "write"] }
 hadris-fat-raw.workspace = true
@@ -30,6 +30,7 @@ anyhow.workspace = true
 bytemuck.workspace = true
 clap.workspace = true
 tempfile.workspace = true
+zeroize = { version = "1.8", default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
 hadris-apfs = { workspace = true, features = ["std", "sync", "read"] }

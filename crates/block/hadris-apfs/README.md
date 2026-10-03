@@ -5,7 +5,8 @@ volumes. It supports synchronous and asynchronous I/O and can be used in
 `no_std` environments with an allocator. Its API is outside the Hadris 3.x
 stability promise and may change in a minor release.
 
-The crate is suitable for inspecting unencrypted APFS images made by macOS. It
+The crate is suitable for inspecting unencrypted APFS images and, with the
+`encryption` feature, password-encrypted single-key APFS volumes made by macOS. It
 is not a recovery, repair or forensic implementation.
 
 `sync::ApfsFs` and `r#async::ApfsFs` implement the V3 `FileSystem` trait,
@@ -20,6 +21,8 @@ by APFS object ID, UUID or name. Failed mounts return the device through
 `MountError`. The umbrella detects and mounts single-volume APFS containers through `detect`.
 The `unstable-apfs` feature exposes native inspection and explicit volume
 selection; the unified CLI provides `hadris apfs` commands.
+Enable `hadris`'s `apfs-encryption` feature for password unlocking through its
+native re-export. Ordinary format detection does not enable crypto dependencies.
 
 ```rust,no_run
 use hadris_apfs::sync::ApfsFs;
@@ -43,6 +46,11 @@ generic file access, VFS operations and volume selection shape this API.
 
 ## Supported scope
 
+- Optional software encryption: container and volume keybags, password-based
+  PBKDF2-HMAC-SHA256, AES key unwrap and AES-XTS metadata/file reads on
+  `APFS_FS_ONEKEY` volumes. Crypto-user selection is independent of volume
+  selection; wrong credentials retain the device and report `InvalidInput`
+  with `Detail::Credentials`.
 - Container superblocks, the checkpoint descriptor ring and checkpoint maps.
 - Container and volume object maps, resolved at the volume's transaction.
 - Physical and virtual B-trees, including sealed volumes with hashed index
@@ -63,7 +71,10 @@ generic file access, VFS operations and volume selection shape this API.
   supported.
 - Compressed files (`decmpfs`) are reported as
   `ErrorKind::Unsupported` rather than decoded.
-- Encrypted volumes and encrypted B-tree nodes are rejected.
+- Software encryption requires the `encryption` feature and a password mount.
+  Secure Enclave/hardware encryption, per-file keys and encryption rolling are
+  not qualified. Keybags are capped at 1 MiB and 256 records, and the entire
+  password-record search is capped at 1,000,000 PBKDF2 iterations.
 - Case-insensitive lookup folds case but not Unicode normalization, so a name
   must use the same normalization form as the one stored on disk.
 - Snapshots, Fusion tier-2 devices, extended attributes other than symlink
@@ -74,6 +85,24 @@ generic file access, VFS operations and volume selection shape this API.
 
 Do not rely on this crate alone for recovery or forensic conclusions from
 damaged, adversarial, compressed or encrypted volumes.
+
+## Password unlocking
+
+`ApfsFs::mount_with_password(device, options, password, crypto_user)` mounts a
+sole encrypted volume. `mount_volume_with_password` also accepts a
+`VolumeSelector`. Passwords are borrowed as byte slices; host prompting and
+keychain access belong to the caller. `None` for `crypto_user` searches supported
+password records; an explicit UUID restricts that search.
+
+The native `Container::unlock_volume` replaces its unlocked volume, including
+when unlocking fails. Cancellation leaves a candidate key uninstalled. Retained
+keys are wiped on drop and redacted from diagnostics. Native encrypted reads
+require volume-scoped APIs: `read_volume_extents_at` and
+`read_volume_btree_node_with_flags`; the existing unscoped methods reject
+encrypted inputs. Decrypted objects still undergo checksum and bounds checks.
+
+The [encryption qualification guide](../../../docs/apfs-encryption.md) describes
+the native Apple oracle, resource limits and separate Asahi hardware path.
 
 ## Example
 
