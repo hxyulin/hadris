@@ -197,11 +197,12 @@ pub fn calculate_layout(
     };
 
     // Validate cluster size (max 32 MB)
-    let bytes_per_cluster = bytes_per_sector * sectors_per_cluster;
-    if bytes_per_cluster > 32 * 1024 * 1024 {
+    if !sectors_per_cluster.is_power_of_two()
+        || sectors_per_cluster > (32 * 1024 * 1024) / bytes_per_sector
+    {
         return Err(Error::InvalidFormatOption {
             option: "sectors_per_cluster",
-            reason: "cluster size exceeds 32 MB maximum",
+            reason: "must be a power of two with a cluster size at most 32 MB",
         });
     }
 
@@ -296,24 +297,21 @@ fn calculate_fat_and_heap(
         max_size: MAX_VOLUME_SIZE,
     };
 
-    // Initial estimate: assume a 1-sector FAT so the heap gets all remaining
-    // space, then size the FAT to cover that many clusters.
-    let cluster_heap_offset_estimate = fat_offset + fat_count;
-    let available_sectors = volume_length
-        .checked_sub(cluster_heap_offset_estimate)
-        .ok_or_else(too_small)?;
-    let cluster_count_estimate = available_sectors / sectors_per_cluster;
-
-    // FAT size needed for this many clusters (+2 for the reserved entries 0, 1).
-    let fat_entries_needed = cluster_count_estimate + 2;
-    let fat_length = fat_entries_needed.div_ceil(entries_per_sector);
-
-    // Recalculate the heap with the actual FAT size.
+    let mut cluster_count = 0;
+    let mut high = volume_length.saturating_sub(fat_offset) / sectors_per_cluster;
+    high = high.min(0xffff_fff5);
+    while cluster_count < high {
+        let candidate = cluster_count + (high - cluster_count).div_ceil(2);
+        let length = (candidate + 2).div_ceil(entries_per_sector);
+        let heap = fat_offset + length * fat_count;
+        if heap <= volume_length && candidate <= (volume_length - heap) / sectors_per_cluster {
+            cluster_count = candidate;
+        } else {
+            high = candidate - 1;
+        }
+    }
+    let fat_length = (cluster_count + 2).div_ceil(entries_per_sector);
     let cluster_heap_offset = fat_offset + fat_length * fat_count;
-    let available_sectors = volume_length
-        .checked_sub(cluster_heap_offset)
-        .ok_or_else(too_small)?;
-    let cluster_count = available_sectors / sectors_per_cluster;
 
     if cluster_count < 1 {
         return Err(too_small());
@@ -899,6 +897,30 @@ mod tests {
         );
         let expected = (volume_length - heap_offset as u64) / sectors_per_cluster as u64;
         assert_eq!(cluster_count as u64, expected);
+    }
+
+    #[test]
+    fn layout_uses_the_largest_cluster_count_that_fits() {
+        for fats in [1, 2] {
+            for sectors in (2048..16384).step_by(17) {
+                let (heap, length, count) =
+                    calculate_fat_and_heap(sectors, 24, 512, 1, fats).unwrap();
+                assert!(u64::from(heap) + u64::from(count) <= sectors);
+                assert!(u64::from(length) * 128 >= u64::from(count) + 2);
+                let bigger_length = (u64::from(count) + 3).div_ceil(128);
+                assert!(24 + bigger_length * u64::from(fats) + u64::from(count) + 1 > sectors);
+            }
+        }
+    }
+
+    #[test]
+    fn layout_rejects_invalid_cluster_sizes() {
+        for spc in [3, usize::MAX] {
+            assert!(
+                calculate_layout(4 << 20, &ExFatFormatOptions::new().sectors_per_cluster(spc))
+                    .is_err()
+            );
+        }
     }
 
     #[test]

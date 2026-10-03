@@ -71,6 +71,17 @@ fn build(name: &str, fs_type: &str, populate: impl FnOnce(&Path, &Path)) -> Imag
     let mounted = Mounted(&mount);
     populate(&mount, &scratch);
     drop(mounted);
+    let check = Command::new("/sbin/fsck_apfs")
+        .arg("-n")
+        .arg(&image.path)
+        .output()
+        .unwrap();
+    assert!(
+        check.status.success(),
+        "fsck_apfs failed: {}{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
     image
 }
 
@@ -243,4 +254,26 @@ fn case_sensitive_volume_needs_the_exact_name() {
             .unwrap()
             .is_none()
     );
+}
+
+#[test]
+fn path_components_follow_native_directory_rules() {
+    let image = build("PATHS", "APFS", |root, _| {
+        fs::write(root.join("file"), b"contents").unwrap();
+        fs::create_dir(root.join("dir")).unwrap();
+        assert!(fs::metadata(root.join("file/")).is_err());
+        assert!(fs::metadata(root.join("file/.")).is_err());
+        assert_eq!(fs::read(root.join("dir/../file")).unwrap(), b"contents");
+    });
+    let (mut container, volume) = open(&image);
+    for path in ["/file/", "/file/.", "/file/../file"] {
+        assert!(
+            container.resolve_path(&volume, path).unwrap().is_none(),
+            "{path}"
+        );
+    }
+    for path in ["/./file", "/dir/../file", "/../../file"] {
+        assert_eq!(read(&mut container, &volume, path), b"contents");
+    }
+    assert!(container.resolve_path(&volume, "/dir/").unwrap().is_some());
 }

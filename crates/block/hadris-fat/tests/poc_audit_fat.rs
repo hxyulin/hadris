@@ -514,3 +514,35 @@ fn poc_scan_fat_preallocates_from_claimed_geometry() {
         "scan_fat requested {requested} bytes of capacity from claimed BPB geometry on a 32 KiB image"
     );
 }
+
+#[test]
+fn oversized_fat16_geometry_is_rejected_before_cluster_truncation() {
+    let mut image = fat12_image();
+    image[19..21].fill(0);
+    image[32..36].copy_from_slice(&100_000u32.to_le_bytes());
+    assert!(matches!(
+        hadris_fat::FatVolume::open(Cursor::new(image)),
+        Err(hadris_fat::Error::CorruptFilesystem { .. })
+    ));
+}
+
+#[test]
+fn oversized_fat32_geometry_is_rejected_before_reserved_clusters() {
+    let mut image = fat12_image();
+    image[17..24].fill(0);
+    image[36..90].fill(0);
+    image[14..16].copy_from_slice(&2u16.to_le_bytes());
+    image[32..36].copy_from_slice(&0x1000_0020u32.to_le_bytes());
+    image[36..40].copy_from_slice(&1u32.to_le_bytes());
+    image[44..48].copy_from_slice(&2u32.to_le_bytes());
+    image[48..50].copy_from_slice(&1u16.to_le_bytes());
+    image[512..516].copy_from_slice(&0x4161_5252u32.to_le_bytes());
+    image[996..1000].copy_from_slice(&0x6141_7272u32.to_le_bytes());
+    image[1020..1024].copy_from_slice(&0xaa55_0000u32.to_le_bytes());
+    assert!(matches!(
+        hadris_fat::FatVolume::open(Cursor::new(image)),
+        Err(hadris_fat::Error::CorruptFilesystem {
+            context: "FAT32 cluster count exceeds addressable data clusters"
+        })
+    ));
+}

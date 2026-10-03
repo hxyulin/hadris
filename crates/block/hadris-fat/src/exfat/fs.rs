@@ -462,11 +462,7 @@ where
                 let entry = self.read_entry_at(offset)?;
                 let entry_type_byte = unsafe { entry.entry_type };
 
-                // Check if this is a free entry (0x00 = end, 0x05 = deleted)
-                if entry_type_byte == entry_type::END_OF_DIRECTORY
-                    || entry_type_byte == entry_type::DELETED_FILE
-                    || entry_type_byte == 0x00
-                {
+                if entry_type_byte & 0x80 == 0 {
                     if consecutive_free == 0 {
                         first_free_cluster = current_cluster;
                         first_free_offset = entry_idx as u64 * 32;
@@ -626,6 +622,27 @@ where
             }
         }
 
+        let mut header = [0u8; 2];
+        self.read_at(entry.entry_offset, &mut header)?;
+        if header[0] != entry_type::FILE_DIRECTORY {
+            return Err(Error::StaleEntry);
+        }
+        let mut entry_types = Vec::with_capacity(header[1] as usize + 1);
+        entry_types.push(header[0]);
+        for index in 1..=u64::from(header[1]) {
+            let mut kind = [0u8; 1];
+            self.read_at(entry.entry_offset + index * 32, &mut kind)?;
+            if kind[0] & 0xc0 != 0xc0 {
+                return Err(Error::CorruptFilesystem {
+                    context: "invalid exFAT secondary entry",
+                });
+            }
+            entry_types.push(kind[0]);
+        }
+        for (index, kind) in entry_types.into_iter().enumerate() {
+            self.write_at(entry.entry_offset + index as u64 * 32, &[kind & 0x7f])?;
+        }
+
         // Free the cluster chain if there is one
         if entry.first_cluster >= 2 {
             let cluster_count = if entry.no_fat_chain {
@@ -637,10 +654,6 @@ where
 
             self.free_clusters(entry.first_cluster, cluster_count, entry.no_fat_chain)?;
         }
-
-        // Mark the directory entry as deleted (0x05)
-        let deleted_marker = [entry_type::DELETED_FILE];
-        self.write_at(entry.entry_offset, &deleted_marker)?;
 
         // Persist the freed bitmap clusters so the space is reclaimed on remount.
         self.sync_bitmap()?;
@@ -808,5 +821,45 @@ impl<DATA: Seek> core::fmt::Debug for ExFatVolume<DATA> {
             .field("info", &self.info)
             .field("root_cluster", &self.root_cluster)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(all(test, feature = "std", feature = "write"))]
+mod deletion_tests {
+    use crate::exfat::{ExFatFormatOptions, format_exfat};
+    use std::io::Cursor;
+
+    #[test]
+    fn delete_deactivates_and_reuses_every_entry_in_the_set() {
+        let volume = format_exfat(
+            Cursor::new(alloc::vec![0u8; 2 << 20]),
+            2 << 20,
+            &ExFatFormatOptions {
+                volume_serial: Some(1),
+                ..ExFatFormatOptions::new()
+            },
+        )
+        .unwrap();
+        let entry = volume
+            .create_file(&volume.root_dir(), "a filename over fifteen units.txt")
+            .unwrap();
+        let mut header = [0u8; 2];
+        volume.read_at(entry.entry_offset, &mut header).unwrap();
+        assert!(header[1] >= 3);
+        volume.delete(&entry).unwrap();
+        for index in 0..=u64::from(header[1]) {
+            let mut kind = [0u8; 1];
+            volume
+                .read_at(entry.entry_offset + index * 32, &mut kind)
+                .unwrap();
+            assert_eq!(kind[0] & 0x80, 0);
+        }
+        let replacement = volume
+            .create_file(
+                &volume.root_dir(),
+                "another filename over fifteen units.txt",
+            )
+            .unwrap();
+        assert_eq!(replacement.entry_offset, entry.entry_offset);
     }
 }

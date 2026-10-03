@@ -213,7 +213,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         for svd in volume_descriptors.supplementary() {
             if svd.header.version == 1 {
                 for &level in JolietLevel::all() {
-                    if svd.escape_sequences == level.escape_sequence() {
+                    if JolietLevel::from_escape_sequence(&svd.escape_sequences) == Some(level) {
                         entry_types.push(EntryType::Joliet {
                             level,
                             supports_rrip: false,
@@ -767,7 +767,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
                     if svd.header.version == 1 {
                         // Joliet
                         for &level in JolietLevel::all() {
-                            if svd.escape_sequences == level.escape_sequence() {
+                            if JolietLevel::from_escape_sequence(&svd.escape_sequences) == Some(level) {
                                 let joliet = self
                                     .entry_types
                                     .iter()
