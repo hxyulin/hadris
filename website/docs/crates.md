@@ -92,3 +92,10 @@ feature is gone.
 - [Select platform, I/O, and capability features](./concepts/features.md)
 - [Understand the storage and I/O layers](./concepts/storage-model.md)
 - [Follow a task-oriented guide](./guides/index.md)
+
+## APFS preview
+
+`hadris-apfs` provides an experimental, read-only native container and volume
+API in sync and async modes over V3 storage devices. Use it directly or use
+the standalone `hadris-apfs` inspection binary from `hadris-apfs-cli`. APFS
+is not exposed through umbrella detection or the shared `FileSystem` trait.

@@ -1,0 +1,24 @@
+[package]
+name = "hadris-apfs"
+version = "3.0.0-rc.1"
+description = "An experimental, read-only APFS container and filesystem reader"
+readme = "README.md"
+keywords = ["apfs", "filesystem", "apple", "disk"]
+categories = ["filesystem", "no-std"]
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["std", "read", "sync"]
+std = ["alloc", "hadris-io/std", "hadris-storage/std"]
+alloc = []
+read = []
+sync = ["hadris-io/sync", "hadris-storage/sync"]
+async = ["hadris-io/async", "hadris-storage/async"]
+
+[dependencies]
+hadris-io.workspace = true
+hadris-storage.workspace = true

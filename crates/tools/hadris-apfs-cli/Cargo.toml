@@ -1,0 +1,26 @@
+[package]
+name = "hadris-apfs-cli"
+version = "3.0.0-rc.1"
+description = "CLI for inspecting APFS containers with the experimental hadris-apfs reader"
+readme = "README.md"
+keywords = ["apfs", "filesystem", "cli", "disk"]
+categories = ["command-line-utilities", "filesystem"]
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+autobins = false
+
+[[bin]]
+name = "hadris-apfs"
+path = "src/bin/hadris-apfs.rs"
+doc = false
+
+[dependencies]
+hadris-apfs = { workspace = true, features = ["std", "read", "sync"] }
+hadris-storage = { workspace = true, features = ["std", "sync"] }
+hadris-part = { workspace = true, features = ["std", "sync"] }
+clap.workspace = true
+anyhow.workspace = true
+hadris-io = { workspace = true, features = ["std", "sync"] }

@@ -145,3 +145,6 @@ cargo-fuzz writes the crashing input to `artifacts/<target>/crash-<hash>`.
   for crashes that should gate PRs; keep fuzzing for discovery.
 - Sync the grown corpus between machines with rsync and minimize periodically
   with `cargo +nightly fuzz cmin <target>`.
+
+The `apfs_read` target covers the experimental APFS reader over V3 storage
+devices. Run it with `cargo +nightly fuzz run apfs_read`.

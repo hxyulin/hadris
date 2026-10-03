@@ -20,6 +20,7 @@ edition = "2021"
 cargo-fuzz = true
 
 [dependencies]
+hadris-apfs = { path = "../crates/block/hadris-apfs", features = ["std", "read", "sync"] }
 libfuzzer-sys = "0.4"
 hadris-cpio = { path = "../crates/archive/hadris-cpio" }
 hadris-fat = { path = "../crates/block/hadris-fat" }
@@ -100,3 +101,10 @@ bench = false
 
 # Detach from the parent workspace — cargo-fuzz packages are standalone.
 [workspace]
+
+[[bin]]
+name = "apfs_read"
+path = "fuzz_targets/apfs_read.rs"
+test = false
+doc = false
+bench = false

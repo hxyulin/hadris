@@ -8,6 +8,11 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Added
+
+- Merge the V2 2.5.0 history into V3, including the experimental APFS reader
+  and inspection CLI adapted to V3 storage devices.
+
 ## [3.0.0-rc.1] - Unreleased
 
 The first release candidate of the 3.0 API. Every published crate moves to
@@ -287,6 +292,82 @@ and command to its 3.0 replacement, and
 - **hadris-iso:** The writer reports a `Renamed` warning for each Rock
   Ridge name longer than 768 bytes, which readers list under its ISO 9660
   identifier.
+
+## [2.5.0] - 2026-10-03
+
+### Added
+
+- **hadris-apfs:** An experimental, read-only APFS reader with sync and async
+  APIs. It reads containers, checkpoints, object maps, physical and virtual
+  B-trees (including sealed volumes), directories, inode metadata, file data
+  with sparse extents, and symlink targets. Lookups are case-insensitive on
+  case-insensitive volumes. Compressed files return `ApfsError::Unsupported`,
+  and encrypted volumes are rejected. Like `hadris-ntfs`, it is outside the
+  V2 stability promise and is not opened by `hadris-block`.
+  Contributed by Theo Paris (@theoparis) in #68.
+- **hadris-apfs-cli:** A `hadris-apfs` tool with `info`, `ls`, `stat` and `cat`
+  for APFS images and whole-disk images with a GPT.
+  Contributed by Theo Paris (@theoparis) in #68.
+
+### Changed
+
+- **CI:** Run hosted checks on Rust 1.97.1 and retain Rust 1.88 compilation
+  coverage, with grouped feature checks and shared Linux interoperability tests.
+- **hadris-io:** Remove the unused direct `cfg-if` dependency.
+- **Docs site:** The documentation site is versioned. It serves the newest
+  released minor at the root, every earlier released minor under `/X.Y/`
+  and the unreleased docs under `/next/`, with a version dropdown and
+  Docusaurus version banners. Snapshots are generated from the release tags
+  at build time by `npm run versions`, and a published release rebuilds the
+  site.
+
+### Tests
+
+- **APFS:** Validate macOS-generated APFS fixtures with `fsck_apfs -n`.
+- **exFAT:** Run existing writer round trips against macOS `fsck_exfat -n`
+  using temporary read-only disk-image attachments.
+
+- **ISO:** Rock Ridge relocation extraction is also checked with xorriso/libisofs
+  alongside libarchive/bsdtar.
+
+### Fixed
+
+- **hadris-fat:** Reject FAT16 and FAT32 geometries that exceed their
+  addressable data clusters. Cached FAT-chain reads now report cycles instead
+  of returning a truncated chain and reject entries outside the FAT.
+- **hadris-fat (`unstable-exfat`):** Formatting uses the largest cluster count
+  that fits and rejects cluster sizes that are not powers of two or exceed
+  32 MiB. Deletion deactivates every entry in a file's entry set and reuses
+  inactive secondary entries, eliminating orphaned entries rejected by macOS
+  `fsck_exfat`. Reject stale deletion handles and reclaim the current on-disk
+  allocation. Reject layouts unable to hold the bitmap, upcase table, and root
+  directory before writing.
+- **hadris-iso:** Zero-pad Joliet and enhanced descriptor escape sequences,
+  fixing enhanced-image interoperability with libarchive. Readers and modifiers
+  continue to recognize Joliet descriptors written with legacy space padding.
+  Reject empty El Torito boot images instead of writing a zero-sector load.
+- **hadris-apfs:** Path lookup handles `.` and `..` and requires directories
+  for intermediate components and trailing slashes in both sync and async APIs.
+  Paths resolving to the volume root return its directory entry.
+
+- **hadris-udf:** The root directory's parent file identifier now points to
+  the root ICB rather than the File Set Descriptor, so filesystem checkers no
+  longer reject otherwise mountable UDF images.
+- **hadris-cpio-cli:** `extract` now skips, with a warning, entries whose names
+  are absolute, contain `..`, or lead through a symlink extracted earlier.
+  Before, such entries were written outside the output directory.
+- **hadris-iso:** Write Rock Ridge relocation placeholders compatible with
+  libarchive/bsdtar and use only recognized relocation container names. An
+  existing root `rr_moved` or `.rr_moved` directory is reused as the container
+  when it is the name libarchive will select, so user trees and relocated paths
+  are preserved together. Creation still fails when both recognized names are
+  occupied by non-directory entries.
+- **hadris-part:** The `write` feature now enables `crc`. Without it,
+  `GptDisk` wrote GPT headers whose header and entry-array CRC32 fields were
+  zero, which firmware and partitioning tools reject. With `write` enabled,
+  reads now also verify these checksums.
+- **hadris-udf-cli:** `extract` now fails on entry names that are `.`, `..`,
+  or contain a path separator instead of writing outside the output directory.
 
 ## [2.4.0] - 2026-09-08
 

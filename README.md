@@ -4,7 +4,7 @@
 
 Hadris is a collection of pure Rust storage and filesystem libraries for block
 devices, GPT and MBR partition tables, FAT12/16/32, exFAT, ISO 9660, UDF,
-CPIO, and disk images, plus a read-only NTFS reader in preview. It supports desktop
+CPIO, and disk images, plus read-only NTFS and APFS readers in preview. It supports desktop
 applications as well as `no_std` bootloaders, operating-system kernels,
 firmware, and embedded devices.
 
@@ -18,7 +18,7 @@ those layers coherent without hiding format-specific capabilities.
 Hadris follows [Semantic Versioning](https://semver.org/). The 3.0 API
 described here is developed on the `next` branch, and `3.0.0-rc.1` is its
 first release candidate; its design and stability rules are in
-[`docs/v3-api-design.md`](docs/v3-api-design.md). `2.4.0` is the current
+[`docs/v3-api-design.md`](docs/v3-api-design.md). `2.5.0` is the current
 stable release, and the 2.x series continues on `main`. To upgrade from 2.4,
 read the [migration guide](docs/hadris-3.0.0-migration.md).
 Within a major series, breaking changes to the public API require a new major
@@ -30,7 +30,8 @@ In 3.0, exFAT is stable as `hadris_fat::exfat::sync::ExFatFs` and
 `hadris_fat::exfat::r#async::ExFatFs`, with no feature flag.
 The NTFS reader (`hadris-ntfs`, and the `unstable-ntfs` feature of
 `hadris`) is a preview whose native API may change in 3.x
-minor releases. Every stable crate is covered by the public-API snapshots in
+minor releases. APFS also has an experimental native API, exposed through
+`hadris-apfs` and the standalone `hadris-apfs` inspection binary. Every stable crate is covered by the public-API snapshots in
 [`api-snapshots/`](api-snapshots/).
 
 Problems that are understood but not fixed yet are listed in
@@ -40,7 +41,7 @@ Problems that are understood but not fixed yet are listed in
 
 ![Hadris architecture: applications use the umbrella crate over block, optical, and archive formats backed by shared I/O, paths, and storage](website/static/img/architecture.svg)
 
-Every filesystem driver implements the `FileSystem` trait of `hadris-fs`,
+The FAT, exFAT, ISO, UDF and NTFS filesystem drivers implement the `FileSystem` trait of `hadris-fs`,
 so `Volume`, its file handles and generic code work on any of them. Each
 format keeps a native API for what the trait does not model: formatting,
 checking, FAT attributes, ISO namespaces and boot catalogs, NTFS streams.
@@ -102,6 +103,8 @@ organizational only: published package names such as `hadris-fat` are unchanged.
   (preview) on block devices, allocation-free in sync, async and `Send`
   async modes, with attribute lists, named streams and `$UpCase` case
   folding; listed by `hadris::sync::detect`
+
+- **[hadris-apfs](crates/block/hadris-apfs)** - Experimental APFS container and volume reader with a native sync/async API; used directly rather than through `hadris-fs` or umbrella detection
 
 ### Optical Media
 

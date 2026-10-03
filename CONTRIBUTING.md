@@ -56,6 +56,14 @@ rustup toolchain install nightly-2026-09-04 --component llvm-tools \
 RUSTUP_TOOLCHAIN=nightly-2026-09-04 scripts/firmware-size.py --check
 ```
 
+Hosted CI formatting, linting and tests use Rust **1.97.1**; Rust **1.88.0**
+remains the library MSRV. Feature tiers are checked independently from
+[`scripts/ci-features.json`](scripts/ci-features.json):
+
+```bash
+RUSTUP_TOOLCHAIN=1.88.0 RUSTFLAGS="-D warnings" python3 scripts/check-features.py all
+```
+
 ### Conformance and interoperability suite
 
 Specification conformance and peer interoperability tests live in the

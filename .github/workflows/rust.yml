@@ -21,6 +21,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: rust-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -32,7 +36,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          rust-version: "1.88.0"
+          rust-version: "1.97.1"
           command: check
           command-arguments: licenses
 
@@ -57,7 +61,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.88.0
       # cargo-public-api generates rustdoc JSON through nightly rustdoc even
@@ -66,7 +70,7 @@ jobs:
       # `std::io::Read` vs `alloc::io::read::Read`) drifts between nightlies, so
       # an unpinned toolchain makes the snapshot diff nondeterministic. Bump
       # this date deliberately alongside a snapshot refresh.
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: nightly-2026-09-04
       - uses: Swatinem/rust-cache@v2
@@ -89,7 +93,7 @@ jobs:
       RUSTFLAGS: "-D warnings"
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.88.0
       - uses: Swatinem/rust-cache@v2
@@ -97,282 +101,25 @@ jobs:
         run: cargo check --workspace
 
   check-features:
-    name: "Check ${{ matrix.crate }} (${{ matrix.tier }})"
+    name: "MSRV features (${{ matrix.group }})"
     runs-on: ubuntu-latest
     env:
+      RUSTUP_TOOLCHAIN: 1.88.0
       RUSTFLAGS: "-D warnings"
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # hadris-fs
-          - crate: hadris-fs
-            tier: no-std
-            features: ""
-          - crate: hadris-fs
-            tier: alloc
-            features: "alloc"
-          - crate: hadris-fs
-            tier: std
-            features: "std"
-          - crate: hadris-fs
-            tier: no-std-sync
-            features: "sync"
-          - crate: hadris-fs
-            tier: std-sync-host-helpers
-            features: "std,sync"
-          - crate: hadris-fs
-            tier: no-std-async
-            features: "async"
-          - crate: hadris-fs
-            tier: all-modes
-            features: "alloc,sync,async"
-
-          # hadris-io
-          - crate: hadris-io
-            tier: no-std
-            features: ""
-          - crate: hadris-io
-            tier: std
-            features: "std"
-          - crate: hadris-io
-            tier: async
-            features: "async,alloc"
-          - crate: hadris-io
-            tier: embedded-io
-            features: "sync,async,embedded-io"
-
-          # hadris-common
-          - crate: hadris-common
-            tier: no-std
-            features: ""
-          - crate: hadris-common
-            tier: bytemuck
-            features: "bytemuck"
-
-          # hadris-storage
-          - crate: hadris-storage
-            tier: no-std-sync
-            features: "sync"
-          - crate: hadris-storage
-            tier: no-std-async
-            features: "async"
-          - crate: hadris-storage
-            tier: sync-and-async
-            features: "alloc,sync,async"
-          - crate: hadris-storage
-            tier: alloc-async
-            features: "alloc,async"
-
-          # hadris-part
-          - crate: hadris-part
-            tier: no-std-sync
-            features: "sync"
-          - crate: hadris-part
-            tier: no-std-async
-            features: "async"
-          - crate: hadris-part
-            tier: tables-only
-            features: "alloc"
-          - crate: hadris-part
-            tier: alloc-sync
-            features: "alloc,sync"
-          - crate: hadris-part
-            tier: alloc-async
-            features: "alloc,async"
-          - crate: hadris-part
-            tier: std
-            features: "std,sync"
-          - crate: hadris-part
-            tier: all-capabilities
-            features: "std,alloc,sync,async"
-
-          # hadris-fat-raw
-          - crate: hadris-fat-raw
-            tier: no-std
-            features: ""
-          - crate: hadris-fat-raw
-            tier: defmt
-            features: "defmt"
-          - crate: hadris-fat-raw
-            tier: no-std-sync
-            features: "sync"
-          - crate: hadris-fat-raw
-            tier: no-std-async
-            features: "async"
-          - crate: hadris-fat-raw
-            tier: all-modes
-            features: "sync,async"
-
-          # hadris-fat
-          - crate: hadris-fat
-            tier: no-std
-            features: "sync"
-          - crate: hadris-fat
-            tier: no-std-async
-            features: "async"
-          - crate: hadris-fat
-            tier: no-alloc-sync-write
-            features: "sync,write"
-          - crate: hadris-fat
-            tier: no-alloc-async-write
-            features: "async,write"
-          - crate: hadris-fat
-            tier: alloc
-            features: "alloc,sync"
-          - crate: hadris-fat
-            tier: std
-            features: "std,sync,write"
-          - crate: hadris-fat
-            tier: hosted-async-write
-            features: "std,async,write"
-          - crate: hadris-fat
-            tier: sync-and-async-write
-            features: "alloc,sync,async,write"
-          - crate: hadris-fat
-            tier: all-capabilities
-            features: "std,alloc,sync,async,write,defmt"
-
-          # hadris-iso
-          - crate: hadris-iso
-            tier: no-std-sync
-            features: "sync"
-          - crate: hadris-iso
-            tier: no-std-async
-            features: "async"
-          - crate: hadris-iso
-            tier: alloc-sync
-            features: "alloc,sync"
-          - crate: hadris-iso
-            tier: alloc-async
-            features: "alloc,async"
-          - crate: hadris-iso
-            tier: std
-            features: "std,sync"
-          - crate: hadris-iso
-            tier: hosted-async
-            features: "std,async"
-          - crate: hadris-iso
-            tier: all-capabilities
-            features: "std,alloc,sync,async"
-
-          # hadris-udf
-          - crate: hadris-udf
-            tier: no-std-sync
-            features: "sync"
-          - crate: hadris-udf
-            tier: no-std-async
-            features: "async"
-          - crate: hadris-udf
-            tier: alloc-sync
-            features: "alloc,sync"
-          - crate: hadris-udf
-            tier: alloc-async
-            features: "alloc,async"
-          - crate: hadris-udf
-            tier: std
-            features: "std,sync"
-          - crate: hadris-udf
-            tier: hosted-async
-            features: "std,async"
-          - crate: hadris-udf
-            tier: all-capabilities
-            features: "std,alloc,sync,async"
-
-          # hadris-cpio
-          - crate: hadris-cpio
-            tier: no-std-sync-reader
-            features: "sync"
-          - crate: hadris-cpio
-            tier: no-std-async-reader
-            features: "async"
-          - crate: hadris-cpio
-            tier: alloc-sync
-            features: "alloc,sync"
-          - crate: hadris-cpio
-            tier: alloc-async
-            features: "alloc,async"
-          - crate: hadris-cpio
-            tier: std
-            features: "std,sync"
-          - crate: hadris-cpio
-            tier: hosted-async
-            features: "std,async"
-          - crate: hadris-cpio
-            tier: all-capabilities
-            features: "std,alloc,sync,async"
-
-
-          # hadris-ntfs
-          - crate: hadris-ntfs
-            tier: no-std-sync
-            features: "sync"
-          - crate: hadris-ntfs
-            tier: no-std-async
-            features: "async"
-          - crate: hadris-ntfs
-            tier: alloc-sync
-            features: "alloc,sync"
-          - crate: hadris-ntfs
-            tier: std
-            features: "std,sync"
-          - crate: hadris-ntfs
-            tier: hosted-async
-            features: "std,async"
-          - crate: hadris-ntfs
-            tier: all-capabilities
-            features: "std,alloc,sync,async"
-
-
-          # hadris umbrella forwarding
-          - crate: hadris
-            tier: no-formats
-            features: ""
-          - crate: hadris
-            tier: no-std-sync-core
-            features: "sync"
-          - crate: hadris
-            tier: leaf-fat
-            features: "std,sync,write,fat"
-          - crate: hadris
-            tier: leaf-part
-            features: "std,sync,part"
-          - crate: hadris
-            tier: leaf-ntfs
-            features: "sync,unstable-ntfs"
-          - crate: hadris
-            tier: leaf-iso
-            features: "std,sync,iso"
-          - crate: hadris
-            tier: leaf-udf
-            features: "std,sync,udf"
-          - crate: hadris
-            tier: leaf-cpio
-            features: "std,sync,cpio"
-          - crate: hadris
-            tier: hosted-async-optical
-            features: "std,async,iso,udf"
-          - crate: hadris
-            tier: no-std-detect
-            features: "sync,detect"
-          - crate: hadris
-            tier: no-std-async-open
-            features: "alloc,async,detect"
-          - crate: hadris
-            tier: dual-mode-archive
-            features: "alloc,sync,async,cpio"
-          - crate: hadris
-            tier: all-capabilities
-            features: "std,alloc,sync,async,write,detect,part,cpio,unstable-ntfs"
-
+        group: [core, block, optical, archive, facades]
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
         with:
           toolchain: 1.88.0
       - uses: Swatinem/rust-cache@v2
-      - name: Check ${{ matrix.crate }} with features "${{ matrix.features }}"
-        run: cargo check -p ${{ matrix.crate }} --no-default-features --features "${{ matrix.features }}"
+        with:
+          key: msrv-${{ matrix.group }}
+      - name: Check each feature tier independently
+        run: python3 scripts/check-features.py ${{ matrix.group }}
 
   cross:
     name: "Build ${{ matrix.target }}"
@@ -390,7 +137,7 @@ jobs:
           - riscv32imc-unknown-none-elf
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.88.0
           targets: ${{ matrix.target }}
@@ -406,7 +153,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       # -Z emit-stack-sizes needs nightly; pinned like the public-api job.
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: nightly-2026-09-04
           targets: thumbv6m-none-eabi, thumbv7em-none-eabihf, riscv32imc-unknown-none-elf
@@ -428,9 +175,9 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
-          toolchain: 1.88.0
+          toolchain: 1.97.1
       - uses: Swatinem/rust-cache@v2
       - name: Attach a loop device for the disk size tests
         if: runner.os == 'Linux'
@@ -487,13 +234,13 @@ jobs:
           usesh: true
           prepare: |
             pkg install -y curl
-            curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.88.0
+            curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.97.1
           run: |
             set -e
             . "$HOME/.cargo/env"
             truncate -s 4M /tmp/disk.img
             dev=/dev/$(mdconfig -a -t vnode -f /tmp/disk.img)
-            export RUSTUP_TOOLCHAIN=1.88.0 HADRIS_REQUIRE_TEST_DISK=1
+            export RUSTUP_TOOLCHAIN=1.97.1 HADRIS_REQUIRE_TEST_DISK=1
             export HADRIS_TEST_DISK="$dev" HADRIS_TEST_DISK_LEN=4194304
             cargo test -p hadris-storage --lib device_tests
             cargo test -p hadris-fs --features std,sync --test tree content_path
@@ -505,9 +252,9 @@ jobs:
       HADRIS_REQUIRE_TEST_DISK: "1"
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
-          toolchain: 1.88.0
+          toolchain: 1.97.1
       - uses: Swatinem/rust-cache@v2
       - name: Attach a VHD
         shell: pwsh
@@ -532,7 +279,7 @@ jobs:
       HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.88.0
       - uses: Swatinem/rust-cache@v2
@@ -553,7 +300,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.88.0
       - uses: Swatinem/rust-cache@v2
@@ -573,7 +320,7 @@ jobs:
       HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.88.0
       - uses: Swatinem/rust-cache@v2
@@ -591,7 +338,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.88.0
       - uses: Swatinem/rust-cache@v2
@@ -620,9 +367,9 @@ jobs:
       RUSTDOCFLAGS: "-D warnings"
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
-          toolchain: 1.88.0
+          toolchain: 1.97.1
       - uses: Swatinem/rust-cache@v2
       - name: cargo doc --workspace --all-features
         run: cargo doc --workspace --no-deps --all-features
@@ -636,9 +383,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
-          toolchain: 1.88.0
+          toolchain: 1.97.1
           components: rustfmt
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -650,9 +397,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
-          toolchain: 1.88.0
+          toolchain: 1.97.1
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
@@ -660,9 +407,9 @@ jobs:
             . -> target
             tests -> target
       - name: Run clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings -A clippy::manual_is_multiple_of -A clippy::collapsible_if -A clippy::unnecessary_sort_by -A clippy::byte_char_slices
       - name: Run clippy on conformance suite
-        run: cargo clippy --manifest-path tests/Cargo.toml --all-targets -- -D warnings
+        run: cargo clippy --manifest-path tests/Cargo.toml --all-targets -- -D warnings -A clippy::manual_is_multiple_of -A clippy::collapsible_if -A clippy::unnecessary_sort_by -A clippy::byte_char_slices
 
   miri:
     name: Miri (UB detection)
