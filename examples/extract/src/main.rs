@@ -11,6 +11,8 @@
 //! cargo run -p hadris-example-extract -- work/   # keep the images and output
 //! ```
 
+use std::collections::BTreeSet;
+use std::ffi::OsString;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
@@ -118,9 +120,20 @@ fn build(path: &Path, format: ImageFormat, tree: &Tree) -> Result<()> {
     Ok(())
 }
 
-/// Checks that every directory and file under `expected` exists under
-/// `actual` with the same bytes.
+/// Checks that `actual` holds exactly the directories and files under
+/// `expected`, with the same bytes.
 fn compare(expected: &Path, actual: &Path) -> Result<()> {
+    let names = |dir: &Path| -> Result<BTreeSet<OsString>> {
+        std::fs::read_dir(dir)?
+            .map(|entry| Ok(entry?.file_name()))
+            .collect()
+    };
+    let (want, got) = (names(expected)?, names(actual)?);
+    ensure!(
+        want == got,
+        "{} holds {got:?}, expected {want:?}",
+        actual.display()
+    );
     for entry in std::fs::read_dir(expected)? {
         let entry = entry?;
         let other = actual.join(entry.file_name());

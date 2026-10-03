@@ -63,8 +63,13 @@ impl<F: FileSystem> Driver<F> {
     /// `lookup`: one reference the kernel later drops with `forget`.
     fn lookup(&mut self, parent: NodeId, name: &str) -> Op<(NodeId, Metadata)> {
         let node = self.fs.lookup(parent, Name::new(name)).map_err(errno)?;
-        let attr = self.fs.stat(node).map_err(errno)?;
-        Ok((node, attr))
+        match self.fs.stat(node) {
+            Ok(attr) => Ok((node, attr)),
+            Err(err) => {
+                self.fs.forget(node, 1);
+                Err(errno(err))
+            }
+        }
     }
 
     fn forget(&mut self, node: NodeId, count: u64) {
@@ -109,8 +114,15 @@ impl<F: FileSystem> Driver<F> {
             .fs
             .create(parent, Name::new(name), &SetAttr::new())
             .map_err(errno)?;
-        self.fs.open(node, OpenMode::Write).map_err(errno)?;
+        if let Err(err) = self.fs.open(node, OpenMode::Write) {
+            self.fs.forget(node, 1);
+            return Err(errno(err));
+        }
         Ok(node)
+    }
+
+    fn open(&mut self, node: NodeId, mode: OpenMode) -> Op<()> {
+        self.fs.open(node, mode).map_err(errno)
     }
 
     fn write(&mut self, node: NodeId, offset: u64, data: &[u8]) -> Op<usize> {
@@ -241,7 +253,9 @@ fn read_only<F: FileSystem>(vfs: &mut Driver<F>) -> Result<()> {
     ensure!(attr.file_type() == FileType::Dir);
     let (log, attr) = vfs.lookup(logs, "boot.0.log")?;
     ensure!(attr.len() == 16);
+    vfs.open(log, OpenMode::Read)?;
     ensure!(vfs.read(log, 0, 64)? == b"kernel: started\n");
+    vfs.release(log)?;
     ensure!(code(vfs.mkdir(root, "new")) == Some(Errno::EROFS));
     ensure!(code(vfs.lookup(logs, "e")) == Some(Errno::ENOENT));
     vfs.forget(log, 1);
