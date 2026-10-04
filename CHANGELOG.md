@@ -55,6 +55,10 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fat-raw:** FAT timestamp encoding clamps local timestamps before
+  calendar conversion and uses 32-bit arithmetic within the format's date
+  range, reducing measured embedded flash without additional state or
+  changes to timestamp precision, time-zone handling or device I/O.
 - **hadris-fat, hadris-fat-raw:** Embedded file addressing, cluster rounding,
   directory indexing and FAT-copy selection use bounded shifts, masks and
   toggles; allocation scans avoid modulo for wraparound. The cluster shift

@@ -208,3 +208,40 @@ cluster size, all valid sector/cluster combinations, the maximum FAT file
 length, fragmented allocation wraparound, full volumes and one or two FAT
 copies. Existing sync/async and interruption-recovery tests remain the gates
 for accepting the change.
+
+## Bounded FAT timestamp conversion
+
+FAT stores dates from 1980 through 2107. Encoding first applies the requested
+or recorded time zone and clamps local timestamps outside that range. Seconds
+relative to 1980 fit in `u32` throughout the range, so calendar and time-of-day
+conversion use 32-bit arithmetic. Precision and time-zone behavior remain the
+same, including falling back to the recorded zone when an explicit zone is
+invalid. Decoding is unchanged.
+
+Disassembly confirms that the logger no longer contains signed 64-bit division
+helpers on any of the three targets. Unsigned 64-bit division remains in raw
+block addressing and other device-offset calculations.
+
+Compared with `815c82e`, using the same pinned firmware toolchain and settings:
+
+| Target | Logger flash before | After | Saved | Async FAT flash before | After | Saved |
+|--------|--------------------:|------:|------:|-----------------------:|------:|------:|
+| `thumbv6m-none-eabi` | 40960 | 40648 | 312 | 69820 | 69508 | 312 |
+| `thumbv7em-none-eabihf` | 40520 | 40276 | 244 | 65312 | 65068 | 244 |
+| `riscv32imc-unknown-none-elf` | 47450 | 46974 | 476 | 75096 | 74620 | 476 |
+
+The full FAT and Unicode FAT examples save the same number of bytes on each
+target. Driver state remains 936 bytes, static RAM remains zero, and all
+reported mount, worst-stack and largest-frame sizes are unchanged from the
+arithmetic pass. The exFAT examples are unchanged. All firmware resource
+checks pass. The Cortex-M4 logger remains 264 bytes larger than the 40012-byte
+baseline before the write-coalescing pass, so the combined changes reduce
+write amplification at a small net flash cost.
+
+All 78 benchmark cases retain identical device counters and write-region
+totals against `815c82e`, with seven samples per case. Regression tests compare
+the bounded encoder with general `DateTime::to_civil()` conversion on every
+FAT date, at several time-of-day and sub-second boundaries. They also check
+every valid UTC offset at both date-range limits, recorded and overridden
+zones, invalid-zone fallback and the extreme supported `DateTime` values.
+No embedded-cycle speedup is inferred from the flash reduction.
