@@ -697,6 +697,9 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
             new_end,
             phase: RenamePhase::Inserting,
         });
+        if new_end != 0 {
+            self.put(new_end, &[raw::ENTRY_END]).await?;
+        }
         self.put(destination, &[raw::ENTRY_FREE]).await?;
         self.insert_entry(to_start, &new, &plan, &moved).await?;
         self.finish_rename().await

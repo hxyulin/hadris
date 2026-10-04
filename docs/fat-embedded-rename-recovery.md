@@ -16,7 +16,9 @@ during recovery preserves the chosen outcome and allows another retry.
 The destination short slot is cleared before publication begins. This prevents
 an ignored, identical short entry after a directory End marker from being mistaken
 for a newly published move. Rollback restores the original End marker; successful
-publication places a new End marker after the destination when that slot exists.
+insertion first places a new End marker after the destination when that slot exists,
+and committed recovery reapplies it. Read-only lookups before recovery cannot expose
+the previously hidden records beyond the destination run.
 Hidden trailing records therefore remain hidden after either outcome.
 
 This recovery record lives in the mounted driver. The next mutating operation or

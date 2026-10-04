@@ -88,6 +88,10 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- FAT embedded rename installs the successor directory end marker before
+  inserting the destination, keeping stale trailing records hidden even when
+  read-only lookups follow cancellation before recovery.
+
 - FAT node-driver rename recovery completes a published destination before
   reclaiming the replaced target, or restores the original target when
   publication was interrupted. Pending state survives cancelled recovery,

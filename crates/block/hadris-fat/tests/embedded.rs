@@ -788,6 +788,14 @@ mod cancel {
                             fat.rename(source, RENAME_SOURCE, target, RENAME_TARGET),
                             budget,
                         );
+                        assert_eq!(
+                            block_on(fat.metadata(target, "HIDDEN.BIN"))
+                                .err()
+                                .map(|error| error.kind()),
+                            Some(ErrorKind::NotFound),
+                            "{} directory={directory} cross={cross} budget={budget}",
+                            case.name,
+                        );
                         if result.is_none()
                             && block_on(fat.metadata(target, RENAME_TARGET)).is_err()
                         {
@@ -1122,6 +1130,14 @@ mod interrupted {
                         fat.write(&file, b"before").unwrap();
                         left.set(budget);
                         let result = fat.rename(source, RENAME_SOURCE, target, RENAME_TARGET);
+                        assert_eq!(
+                            fat.metadata(target, "HIDDEN.BIN")
+                                .err()
+                                .map(|error| error.kind()),
+                            Some(ErrorKind::NotFound),
+                            "{} directory={directory} cross={cross} budget={budget}",
+                            case.name,
+                        );
                         if result.is_err() && fat.metadata(target, RENAME_TARGET).is_err() {
                             rollback_cut = Some(budget);
                         }
