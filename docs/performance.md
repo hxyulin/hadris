@@ -19,7 +19,9 @@ cargo bench -p hadris-fat --bench performance -- --smoke
 `--filter` selects a substring of the case name
 `<fat12|fat16|fat32>/<hosted|embedded>/<workload>`. A filter matching no cases
 fails. `--samples` defaults to seven; `--smoke` uses one measured sample per
-case. Each case also gets a checked warm-up. `--help` prints the options.
+case. Each case also gets a checked warm-up. `--chain-positions N` enables
+the bounded hosted seek index (default zero); CSV records the configured bound
+in `chain_positions`. Embedded cases ignore this setting. `--help` prints the options.
 CSV goes to stdout, so Cargo's build messages on stderr do not enter the file.
 
 The 120 cases combine three variants, two synchronous drivers and these

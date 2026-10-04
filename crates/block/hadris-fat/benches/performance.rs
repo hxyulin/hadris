@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use hadris_fat::embedded::sync::Fat;
 use hadris_fat::embedded::{File, MountToken};
 use hadris_fat::sync::{FatFs, check, format};
-use hadris_fat::{FatKind, FatOptions};
+use hadris_fat::{CacheOptions, FatKind, FatOptions};
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{DirCursor, MountOptions, Name, NodeId, OpenMode, OpenOptions, SeekFrom, SetAttr};
 use hadris_storage::sync::BlockDevice;
@@ -417,6 +417,7 @@ fn sample(
     workload: Workload,
     input: &Inputs,
     verify: bool,
+    positions: usize,
 ) -> Sample {
     let counts = Cell::new(IoCounts::default());
     let written_blocks: Vec<Cell<u64>> = if verify {
@@ -454,7 +455,9 @@ fn sample(
         } else {
             MountOptions::new()
         };
-        let mut fs = FatFs::mount(dev, options).unwrap();
+        let mut fs = FatFs::mount(dev, options)
+            .unwrap()
+            .with_cache(CacheOptions::new().with_chain_positions(positions));
         if matches!(workload, Workload::Mount) {
             (mount_start.elapsed(), fs.into_inner())
         } else if matches!(workload, Workload::BootLoad) {
@@ -632,6 +635,7 @@ struct Options {
     samples: usize,
     filter: String,
     csv: bool,
+    positions: usize,
 }
 
 fn options() -> Options {
@@ -639,6 +643,7 @@ fn options() -> Options {
         samples: 7,
         filter: String::new(),
         csv: false,
+        positions: 0,
     };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -652,12 +657,19 @@ fn options() -> Options {
                 assert!(options.samples > 0, "sample count must be positive");
             }
             "--filter" => options.filter = args.next().expect("--filter needs a substring"),
+            "--chain-positions" => {
+                options.positions = args
+                    .next()
+                    .expect("--chain-positions needs an integer")
+                    .parse()
+                    .expect("invalid chain-position count")
+            }
             "--csv" => options.csv = true,
             "--smoke" => options.samples = 1,
             "--bench" => {}
             "--help" | "-h" => {
                 println!(
-                    "performance [--samples N] [--filter SUBSTRING] [--csv] [--smoke]\nCase names: fat12|fat16|fat32/hosted|embedded/<workload>"
+                    "performance [--samples N] [--filter SUBSTRING] [--csv] [--smoke] [--chain-positions N]\nCase names: fat12|fat16|fat32/hosted|embedded/<workload>"
                 );
                 std::process::exit(0);
             }
@@ -672,7 +684,7 @@ fn main() {
     let input = Inputs::new();
     if options.csv {
         println!(
-            "case,samples,volume_bytes,block_bytes,cluster_bytes,min_ns,median_ns,max_ns,payload_bytes,read_calls,write_calls,read_bytes,write_bytes,flush_calls,max_read_bytes,max_write_bytes,write_amplification,fat0_write_bytes,fat1_write_bytes,directory_write_bytes,data_write_bytes,fsinfo_write_bytes,other_write_bytes"
+            "case,samples,volume_bytes,block_bytes,cluster_bytes,min_ns,median_ns,max_ns,payload_bytes,read_calls,write_calls,read_bytes,write_bytes,flush_calls,max_read_bytes,max_write_bytes,write_amplification,fat0_write_bytes,fat1_write_bytes,directory_write_bytes,data_write_bytes,fsinfo_write_bytes,other_write_bytes,chain_positions"
         );
     } else {
         type StateDevice = MemDevice<&'static mut [u8]>;
@@ -731,14 +743,15 @@ fn main() {
                 }
                 selected += 1;
                 let image = fixture(&blank, workload, &input);
-                let warmup = sample(&image, embedded, workload, &input, true);
+                let warmup = sample(&image, embedded, workload, &input, true, options.positions);
                 validate(&warmup.image, workload, &input);
                 let counts = warmup.counts;
                 let writes = warmup.writes;
                 drop(warmup);
                 let mut timings = Vec::with_capacity(options.samples);
                 for _ in 0..options.samples {
-                    let result = sample(&image, embedded, workload, &input, false);
+                    let result =
+                        sample(&image, embedded, workload, &input, false, options.positions);
                     assert_eq!(
                         result.counts, counts,
                         "non-deterministic device I/O in {case}"
@@ -758,7 +771,7 @@ fn main() {
                 };
                 if options.csv {
                     println!(
-                        "{case},{},{size},512,{cluster_bytes},{},{median},{},{payload},{},{},{},{},{},{},{},{amplification},{},{},{},{},{},{}",
+                        "{case},{},{size},512,{cluster_bytes},{},{median},{},{payload},{},{},{},{},{},{},{},{amplification},{},{},{},{},{},{},{}",
                         options.samples,
                         timings[0],
                         timings[timings.len() - 1],
@@ -774,7 +787,8 @@ fn main() {
                         writes.directory_bytes,
                         writes.data_bytes,
                         writes.fs_info_bytes,
-                        writes.other_bytes
+                        writes.other_bytes,
+                        if embedded { 0 } else { options.positions }
                     );
                 } else {
                     println!(

@@ -31,3 +31,23 @@ Validation covers Unicode and supplementary characters, the 255-unit limit,
 short aliases, case flags, CP437/ASCII escape behavior, existing read/write/
 async/contract tests, async future sizes, targeted Miri and the allocator-only
 sync/async feature tier.
+
+## 3. Optional bounded seek index
+
+`CacheOptions` and `FatFs::with_cache` enable a global bound on learned chain
+positions. Mount defaults to zero positions; configuring a cache reads no
+I/O. A position keeps its original chain guard. Checkpoints span the file's
+cluster count, are learned on demand and are discarded before mutation or
+interrupted-operation recovery. `clear_cache` also resets traversal hints.
+
+With 32 positions, FAT32 reverse 4 KiB reads fall from 2,435 to 320 device
+calls and from 2,249.46 µs to 138.42 µs. Shuffled reads fall from 1,298 to 541
+calls and from 1,127.92 µs to 149.21 µs. Sequential/fragmented reads retain their
+I/O counts and pay extra CPU for index maintenance; enable it for seek-heavy
+workloads. [Measurements](benchmarks/fat-hosted-step3.csv).
+
+Validation covers bounded replacement, separate file identities, backward
+reads with byte comparisons on FAT12/16/32, fragmented reads and mutation/slot
+reuse across every test geometry, cyclic chains, dropped read futures,
+existing hosted sync/async/contract tests and the allocator-only feature tier.
+Public API snapshots include both modes and the umbrella reexport.

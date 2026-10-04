@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- FAT adds opt-in bounded chain-position caching through `CacheOptions` and
+  `FatFs::with_cache`, reducing repeated traversal after backward seeks.
+
 - FAT node-driver lookup and creation scans prepare folded UTF-16 queries
   once, preserving long names, short aliases, and runtime code-page behavior.
 

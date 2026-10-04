@@ -101,6 +101,15 @@ let dev = fs.unmount()?;
 # }
 ```
 
+`FatFs::mount` leaves chain indexing disabled. Enable a bounded index with
+`fs.with_cache(hadris_fat::CacheOptions::new().with_chain_positions(32))`.
+The bound applies across all files; positions are learned while reading and
+retain cycle-detection state. Mutations and interrupted-operation recovery
+invalidate the index. `clear_cache()` discards the index and buffered block
+without changing pinned metadata. External writers require a remount.
+This works with `alloc` and `no_std` in both sync and async modes. It helps
+backward seeks; sequential readers can keep indexing disabled.
+
 `unmount` syncs and gives the device back; `into_inner` gives it back
 without syncing.
 

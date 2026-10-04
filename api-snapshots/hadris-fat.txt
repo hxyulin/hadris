@@ -6,6 +6,7 @@ pub mod hadris_fat::async
 pub use hadris_fat::async::check
 pub struct hadris_fat::async::FatFs<D>
 impl<D: hadris_storage::async::api::BlockDevice> hadris_fat::async::FatFs<D>
+pub fn hadris_fat::async::FatFs<D>::clear_cache(&mut self)
 pub fn hadris_fat::async::FatFs<D>::clock(&self) -> &'static dyn hadris_fs::time::Clock
 pub fn hadris_fat::async::FatFs<D>::code_page(&self) -> &'static dyn hadris_fs::code_page::CodePage
 pub async fn hadris_fat::async::FatFs<D>::extents(&mut self, hadris_fs::node::NodeId, u64, &mut [hadris_fs::extent::Extent]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
@@ -21,6 +22,7 @@ pub async fn hadris_fat::async::FatFs<D>::set_volume_serial(&mut self, u32) -> h
 pub async fn hadris_fat::async::FatFs<D>::unmount(self) -> core::result::Result<D, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
 pub fn hadris_fat::async::FatFs<D>::utc_offset(&self) -> core::option::Option<i16>
 pub fn hadris_fat::async::FatFs<D>::was_dirty(&self) -> bool
+pub fn hadris_fat::async::FatFs<D>::with_cache(self, hadris_fat::CacheOptions) -> Self
 impl<D: hadris_storage::async::api::BlockDevice> hadris_fs::async::api::filesystem::FileSystem for hadris_fat::async::FatFs<D>
 pub type hadris_fat::async::FatFs<D>::DeviceError = <D as hadris_io::error::ErrorType>::Error
 pub fn hadris_fat::async::FatFs<D>::capabilities(&self) -> hadris_fs::caps::Capabilities
@@ -374,6 +376,7 @@ pub mod hadris_fat::sync
 pub use hadris_fat::sync::check
 pub struct hadris_fat::sync::FatFs<D>
 impl<D: hadris_storage::sync::api::BlockDevice> hadris_fat::sync::FatFs<D>
+pub fn hadris_fat::sync::FatFs<D>::clear_cache(&mut self)
 pub fn hadris_fat::sync::FatFs<D>::clock(&self) -> &'static dyn hadris_fs::time::Clock
 pub fn hadris_fat::sync::FatFs<D>::code_page(&self) -> &'static dyn hadris_fs::code_page::CodePage
 pub fn hadris_fat::sync::FatFs<D>::extents(&mut self, hadris_fs::node::NodeId, u64, &mut [hadris_fs::extent::Extent]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
@@ -389,6 +392,7 @@ pub fn hadris_fat::sync::FatFs<D>::set_volume_serial(&mut self, u32) -> hadris_i
 pub fn hadris_fat::sync::FatFs<D>::unmount(self) -> core::result::Result<D, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
 pub fn hadris_fat::sync::FatFs<D>::utc_offset(&self) -> core::option::Option<i16>
 pub fn hadris_fat::sync::FatFs<D>::was_dirty(&self) -> bool
+pub fn hadris_fat::sync::FatFs<D>::with_cache(self, hadris_fat::CacheOptions) -> Self
 impl<D: hadris_storage::sync::api::BlockDevice> hadris_fs::sync::api::filesystem::FileSystem for hadris_fat::sync::FatFs<D>
 pub type hadris_fat::sync::FatFs<D>::DeviceError = <D as hadris_io::error::ErrorType>::Error
 pub fn hadris_fat::sync::FatFs<D>::capabilities(&self) -> hadris_fs::caps::Capabilities
@@ -418,6 +422,12 @@ impl<D> core::fmt::Debug for hadris_fat::sync::FatFs<D>
 pub fn hadris_fat::sync::FatFs<D>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn hadris_fat::sync::format<D: hadris_storage::sync::api::BlockDevice>(&mut D, &hadris_fat::FatOptions) -> hadris_io::fs_error::FsResult<hadris_fat_raw::boot::Geometry, <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris_fat::sync::write<D: hadris_storage::sync::api::BlockDevice>(D, &hadris_fs::tree::Tree, &hadris_fat::FatOptions) -> core::result::Result<hadris_fs::report::Report, hadris_fs::error::PathError>
+pub struct hadris_fat::CacheOptions
+impl hadris_fat::CacheOptions
+pub const fn hadris_fat::CacheOptions::new() -> Self
+pub const fn hadris_fat::CacheOptions::with_chain_positions(self, usize) -> Self
+impl core::default::Default for hadris_fat::CacheOptions
+pub fn hadris_fat::CacheOptions::default() -> Self
 pub struct hadris_fat::FatOptions
 impl hadris_fat::FatOptions
 pub const fn hadris_fat::FatOptions::new() -> Self

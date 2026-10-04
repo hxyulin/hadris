@@ -15,6 +15,8 @@ use hadris_fs::{
     NameError, NodeId, OpenMode, RenameMode, SetAttr, Stored,
 };
 
+use crate::CacheOptions;
+use crate::cache::ChainCache;
 use crate::names::{
     CANDIDATES, NewName, Query, apply_attributes, is_exact, permissions, read_only_bit,
     set_read_only, stamp,
@@ -391,6 +393,7 @@ pub struct FatFs<D> {
     moved: bool,
     /// A known `(index, cluster)` of a FAT32 root directory's chain.
     root_hint: ChainPos,
+    chain_cache: ChainCache,
 }
 
 impl<D> fmt::Debug for FatFs<D> {
@@ -458,7 +461,56 @@ impl<D: BlockDevice> FatFs<D> {
             zone: options.utc_offset(),
             moved: false,
             root_hint: ChainPos::NONE,
+            chain_cache: ChainCache::new(0),
         })
+    }
+
+    /// Enables bounded, lazy chain-position caching. The bound is shared by
+    /// all files. Mutations and recovery discard the index; the backing device
+    /// must not be changed externally while mounted. Configuration reads no I/O.
+    pub fn with_cache(mut self, options: CacheOptions) -> Self {
+        self.chain_cache = ChainCache::new(options.positions);
+        self
+    }
+
+    /// Discards cached chain positions and the buffered device block.
+    /// Pinned metadata is retained; external device changes require a remount.
+    pub fn clear_cache(&mut self) {
+        self.chain_cache.clear();
+        self.block.invalidate();
+        self.root_hint = ChainPos::NONE;
+        self.nodes.for_each_mut(|_, node| node.hint = ChainPos::NONE);
+    }
+
+    async fn walk_file(&mut self, node: NodeId, state: &Node, hint: ChainPos, want: u32) -> FsResult<ChainPos, D::Error> {
+        let limit = self.chain_cache.limit();
+        if limit == 0 {
+            return rawio::walk(&mut self.dev, &mut self.block, &self.fat, state.first, hint, want).await;
+        }
+        let clusters = (state.size as u64).div_ceil(self.fat.geometry().cluster_size() as u64);
+        let stride = clusters.div_ceil(limit as u64).max(1) as u32;
+        if hint.is_known() && hint.index() <= want && want - hint.index() <= stride {
+            let at = rawio::walk(&mut self.dev, &mut self.block, &self.fat, state.first, hint, want).await?;
+            if at.index() % stride == 0 {
+                self.chain_cache.insert(node, state.first, at, stride);
+            }
+            return Ok(at);
+        }
+        let mut at = self.chain_cache.best(node, state.first, hint, want);
+        if !at.is_known() {
+            at = ChainPos::start(self.check_cluster(state.first)?);
+        }
+        self.chain_cache.insert(node, state.first, at, stride);
+        while at.index() < want {
+            let target = ((at.index() as u64 / stride as u64 + 1) * stride as u64).min(want as u64) as u32;
+            let reached = rawio::walk(&mut self.dev, &mut self.block, &self.fat, state.first, at, target).await?;
+            self.chain_cache.insert(node, state.first, reached, stride);
+            if reached.index() == at.index() {
+                break;
+            }
+            at = reached;
+        }
+        Ok(at)
     }
 
     /// Syncs the volume, as `FileSystem::sync` does, and gives the device
@@ -853,6 +905,7 @@ impl<D: BlockDevice> FatFs<D> {
     /// operation left.
     async fn prepare(&mut self) -> FsResult<(), D::Error> {
         self.writable()?;
+        self.chain_cache.clear();
         self.nodes.remove(RESERVED);
         self.recover().await
     }
@@ -874,6 +927,9 @@ impl<D: BlockDevice> FatFs<D> {
     }
 
     async fn finish_interrupted(&mut self) -> FsResult<(), D::Error> {
+        if self.pending.is_some() || self.fat.unmirrored().is_some() {
+            self.chain_cache.clear();
+        }
         if self.fat.unmirrored().is_some() {
             let mirrored = rawio::mirror(&mut self.dev, &mut self.block, &mut self.fat).await;
             self.note(mirrored)?;
@@ -2263,7 +2319,7 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
         while done < count {
             let pos = offset + done as u64;
             let want = (pos / cluster_size) as u32;
-            hint = rawio::walk(&mut self.dev, &mut self.block, &self.fat, state.first, hint, want).await?;
+            hint = self.walk_file(node, &state, hint, want).await?;
             if hint.index() < want {
                 return Err(ErrorKind::Corrupt.into());
             }
