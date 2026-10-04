@@ -21,7 +21,9 @@ cargo bench -p hadris-fat --bench performance -- --smoke
 fails. `--samples` defaults to seven; `--smoke` uses one measured sample per
 case. Each case also gets a checked warm-up. `--chain-positions N` enables
 the bounded hosted seek index (default zero); CSV records the configured bound
-in `chain_positions`. Embedded cases ignore this setting. `--help` prints the options.
+in `chain_positions`. `--metadata-blocks N` configures the hosted metadata
+cache (default zero), recorded in `metadata_blocks`. Embedded cases ignore
+both settings. `--help` prints the options.
 CSV goes to stdout, so Cargo's build messages on stderr do not enter the file.
 
 The 120 cases combine three variants, two synchronous drivers and these

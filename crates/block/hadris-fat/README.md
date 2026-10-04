@@ -101,12 +101,16 @@ let dev = fs.unmount()?;
 # }
 ```
 
-`FatFs::mount` leaves chain indexing disabled. Enable a bounded index with
-`fs.with_cache(hadris_fat::CacheOptions::new().with_chain_positions(32))`.
-The bound applies across all files; positions are learned while reading and
+`FatFs::mount` leaves optional caches disabled. Enable a bounded index with
+`fs.with_cache(hadris_fat::CacheOptions::new()
+    .with_chain_positions(32).with_blocks(8))`.
+The chain-position bound applies across all files; positions are learned while reading and
 retain cycle-detection state. Mutations and interrupted-operation recovery
 invalidate the index. `clear_cache()` discards the index and buffered block
-without changing pinned metadata. External writers require a remount.
+without changing pinned metadata. Metadata caching holds whole device blocks,
+bypasses payload reads and invalidates overlapping blocks before each write.
+It defers no writes. Each cache bound can be set to zero independently.
+External writers require a remount.
 This works with `alloc` and `no_std` in both sync and async modes. It helps
 backward seeks; sequential readers can keep indexing disabled.
 

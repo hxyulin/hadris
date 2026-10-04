@@ -362,6 +362,7 @@ fn assert_below<F: core::future::Future>(what: &str, future: F, limit: usize) {
 
 /// Mount futures hold one block buffer, and directory operations hold no
 /// block-sized buffer or extra copies of a long name or an entry set.
+/// FAT budgets include 64 bytes for the read-through metadata adapter.
 #[test]
 #[cfg_attr(
     feature = "tracing",
@@ -390,13 +391,13 @@ fn async_futures_stay_small() {
     assert_below(
         "FatFs rename",
         fat.rename(root, name, root, name, flags),
-        3584,
+        3648,
     );
-    assert_below("FatFs create", fat.create(root, name, &meta), 2240);
+    assert_below("FatFs create", fat.create(root, name, &meta), 2304);
     let label = Some(hadris_fat::VolumeLabel::new("DATA").unwrap());
-    assert_below("FatFs set_label", fat.set_label(label), 3584);
+    assert_below("FatFs set_label", fat.set_label(label), 3648);
     let mut out = [hadris_fs::Extent::new(0, 0); 1];
-    assert_below("FatFs extents", fat.extents(root, 0, &mut out), 512);
+    assert_below("FatFs extents", fat.extents(root, 0, &mut out), 576);
 
     let options = hadris_fs::MountOptions::new();
     assert_below("ExFatFs mount", ExFatFs::mount(empty(), options), 3 * BLOCK);

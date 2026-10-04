@@ -39,7 +39,11 @@ fn chain_index_reduces_reverse_reads_without_changing_contents() {
             };
             let mut fs = FatFs::mount(dev, MountOptions::new().read_only())
                 .unwrap()
-                .with_cache(CacheOptions::new().with_chain_positions(capacity));
+                .with_cache(
+                    CacheOptions::new()
+                        .with_chain_positions(capacity)
+                        .with_blocks(0),
+                );
             let file = fs.lookup(fs.root(), Name::new("DATA.BIN")).unwrap();
             counts.set(IoCounts::default());
             for offset in (0..data.len()).step_by(4096).rev() {
@@ -242,4 +246,66 @@ fn cancelled_growth_discards_cached_positions() {
         }
     }
     panic!("cached growth never completed");
+}
+
+#[test]
+fn metadata_cache_survives_payload_reads_and_never_caches_aligned_payload() {
+    let case = CASES[2];
+    let (image, data) = fixture(case, 32768);
+    let counts = Cell::new(IoCounts::default());
+    let dev = Counted {
+        inner: common::device(case, image),
+        counts: &counts,
+        written_blocks: None,
+    };
+    let mut fs = FatFs::mount(dev, MountOptions::new().read_only())
+        .unwrap()
+        .with_cache(CacheOptions::new().with_chain_positions(0).with_blocks(8));
+    let file = fs.lookup(fs.root(), Name::new("DATA.BIN")).unwrap();
+    fs.read(file, 1, &mut [0; 1]).unwrap();
+    counts.set(IoCounts::default());
+    let again = fs.lookup(fs.root(), Name::new("DATA.BIN")).unwrap();
+    assert_eq!(again, file);
+    assert_eq!(counts.get().read_calls, 0);
+    for _ in 0..2 {
+        let mut buf = [0; 512];
+        fs.read(file, 0, &mut buf).unwrap();
+        assert_eq!(&buf, &data[..512]);
+    }
+    assert_eq!(counts.get().read_calls, 2);
+    fs.clear_cache();
+    fs.lookup(fs.root(), Name::new("DATA.BIN")).unwrap();
+    assert_eq!(counts.get().read_calls, 3);
+}
+
+#[test]
+fn metadata_cache_recovers_after_a_failed_mirror_write() {
+    use common::script::Scripted;
+    for case in CASES[..3].iter().copied() {
+        let (image, data) = fixture(case, 32768);
+        let geo = hadris_fat_raw::parse_boot(image[..512].try_into().unwrap()).unwrap();
+        let (dev, script) = Scripted::new(common::device(case, image));
+        let mut fs = FatFs::mount(dev, MountOptions::new())
+            .unwrap()
+            .with_cache(CacheOptions::new());
+        let file = fs.lookup(fs.root(), Name::new("DATA.BIN")).unwrap();
+        let mut buf = [0; 4096];
+        fs.read(file, 28672, &mut buf).unwrap();
+        script.borrow_mut().fail_at = Some(
+            geo.fat_copy(1)
+                + case
+                    .kind
+                    .entry_offset(common::chain(&mut fs, file)[0] as u64),
+        );
+        assert_eq!(
+            fs.write(file, data.len() as u64, &[9]).unwrap_err().kind(),
+            ErrorKind::Io
+        );
+        fs.sync().unwrap();
+        assert_eq!(fs.stat(file).unwrap().len(), data.len() as u64);
+        fs.read(file, 8192, &mut buf).unwrap();
+        assert_eq!(&buf, &data[8192..12288]);
+        let image = fs.unmount().unwrap().into_image();
+        common::assert_checks_clean(case, &image, "failed cached mirror");
+    }
 }

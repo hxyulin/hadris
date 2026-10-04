@@ -16,13 +16,74 @@ use hadris_fs::{
 };
 
 use crate::CacheOptions;
-use crate::cache::ChainCache;
+use crate::cache::{Blocks, ChainCache};
 use crate::names::{
     CANDIDATES, NewName, Query, apply_attributes, is_exact, permissions, read_only_bit,
     set_read_only, stamp,
 };
 use crate::table::Table;
 use crate::{FatKind, Geometry, VolumeLabel, push_run};
+
+struct MetadataDevice<D> {
+    inner: D,
+    blocks: Blocks,
+}
+
+impl<D: hadris_io::ErrorType> hadris_io::ErrorType for MetadataDevice<D> {
+    type Error = D::Error;
+}
+
+io_transform! {
+impl<D: BlockDevice> BlockDevice for MetadataDevice<D> {
+    fn block_size(&self) -> hadris_storage::BlockSize {
+        self.inner.block_size()
+    }
+    fn block_count(&self) -> u64 {
+        self.inner.block_count()
+    }
+    fn max_block_count(&self) -> u64 {
+        self.inner.max_block_count()
+    }
+    fn disk_offset(&self) -> u64 {
+        self.inner.disk_offset()
+    }
+    fn writable(&self) -> bool {
+        self.inner.writable()
+    }
+
+    async fn read_blocks(
+        &mut self,
+        first: hadris_storage::BlockIndex,
+        buf: &mut [u8],
+    ) -> Result<(), hadris_io::Error<D::Error>> {
+        let Self { inner, blocks } = self;
+        if buf.len() == inner.block_size().get() as usize && let Some(bytes) = blocks.get(first.get()) {
+            buf.copy_from_slice(bytes);
+            return Ok(());
+        }
+        inner.read_blocks(first, buf).await?;
+        if buf.len() == inner.block_size().get() as usize {
+            blocks.insert(first.get(), buf);
+        }
+        Ok(())
+    }
+
+    async fn write_blocks(
+        &mut self,
+        first: hadris_storage::BlockIndex,
+        buf: &[u8],
+    ) -> Result<(), hadris_io::Error<D::Error>> {
+        let count = buf.len().div_ceil(self.block_size().get() as usize) as u64;
+        self.blocks.invalidate(first.get(), count);
+        self.inner.write_blocks(first, buf).await
+    }
+
+    async fn flush(&mut self) -> Result<(), hadris_io::Error<D::Error>> {
+        self.inner.flush().await
+    }
+}
+
+}
 
 /// `NodeId::new` for ids that are not 0 by construction.
 const fn node_id(raw: u64) -> NodeId {
@@ -372,7 +433,7 @@ io_transform! {
 ///
 /// Data written by an interrupted `write` may be partly on disk.
 pub struct FatFs<D> {
-    dev: D,
+    dev: MetadataDevice<D>,
     fat: Fat,
     nodes: Table<Node>,
     block: BlockBuf,
@@ -424,16 +485,17 @@ impl<D: BlockDevice> FatFs<D> {
     /// blocks are larger than 4096 bytes. The [`MountError`] gives `dev`
     /// back.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all))]
-    pub async fn mount(mut dev: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
+    pub async fn mount(dev: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
+        let mut dev = MetadataDevice { inner: dev, blocks: Blocks::new(0) };
         let read_only = options.is_read_only() || !dev.writable();
         let mut block = match new_block(dev.block_size().get() as usize) {
             Ok(block) => block,
-            Err(error) => return Err(MountError::new(error.into(), dev)),
+            Err(error) => return Err(MountError::new(error.into(), dev.inner)),
         };
         let backup = options.is_backup_boot();
         let fat = match Self::read_volume(&mut dev, &mut block, backup).await {
             Ok(fat) => fat,
-            Err(error) => return Err(MountError::new(error, dev)),
+            Err(error) => return Err(MountError::new(error, dev.inner)),
         };
         let read_only = read_only || (backup && fat.geometry().kind() == FatKind::Fat32);
         let geo = *fat.geometry();
@@ -444,7 +506,7 @@ impl<D: BlockDevice> FatFs<D> {
             0 => false,
             clean => match read_bytes(&mut dev, &mut block, at, &mut entry[..kind.entry_len()]).await {
                 Ok(()) => kind.decode(1, &entry) & clean == 0,
-                Err(error) => return Err(MountError::new(error, dev)),
+                Err(error) => return Err(MountError::new(error, dev.inner)),
             },
         };
         Ok(Self {
@@ -465,18 +527,20 @@ impl<D: BlockDevice> FatFs<D> {
         })
     }
 
-    /// Enables bounded, lazy chain-position caching. The bound is shared by
+    /// Enables bounded metadata-block caching and lazy chain-position caching. The bound is shared by
     /// all files. Mutations and recovery discard the index; the backing device
     /// must not be changed externally while mounted. Configuration reads no I/O.
     pub fn with_cache(mut self, options: CacheOptions) -> Self {
         self.chain_cache = ChainCache::new(options.positions);
+        self.dev.blocks = Blocks::new(options.blocks);
         self
     }
 
-    /// Discards cached chain positions and the buffered device block.
+    /// Discards cached chain positions, metadata blocks and the buffered block.
     /// Pinned metadata is retained; external device changes require a remount.
     pub fn clear_cache(&mut self) {
         self.chain_cache.clear();
+        self.dev.blocks.clear();
         self.block.invalidate();
         self.root_hint = ChainPos::NONE;
         self.nodes.for_each_mut(|_, node| node.hint = ChainPos::NONE);
@@ -525,15 +589,15 @@ impl<D: BlockDevice> FatFs<D> {
     pub async fn unmount(mut self) -> Result<D, MountError<D, D::Error>> {
         let synced = FileSystem::sync(&mut self).await;
         match synced {
-            Ok(()) => Ok(self.dev),
-            Err(error) => Err(MountError::new(error, self.dev)),
+            Ok(()) => Ok(self.dev.inner),
+            Err(error) => Err(MountError::new(error, self.dev.inner)),
         }
     }
 
     /// The volume's state from its boot sector, or with `backup` from the
     /// FAT32 backup boot sector. A volume whose boot sector reads as FAT12
     /// or FAT16 has no backup and is read from its boot sector.
-    async fn read_volume(dev: &mut D, block: &mut BlockBuf, backup: bool) -> FsResult<Fat, D::Error> {
+    async fn read_volume(dev: &mut MetadataDevice<D>, block: &mut BlockBuf, backup: bool) -> FsResult<Fat, D::Error> {
         let geo = match backup {
             true => match rawio::read_geometry(dev, block).await {
                 Ok(geo) if geo.kind() != FatKind::Fat32 => geo,
@@ -556,7 +620,7 @@ impl<D: BlockDevice> FatFs<D> {
     /// Returns the device without syncing; [`unmount`](Self::unmount)
     /// syncs first.
     pub fn into_inner(self) -> D {
-        self.dev
+        self.dev.inner
     }
 
     /// Whether the volume was mounted with
@@ -681,7 +745,7 @@ impl<D: BlockDevice> FatFs<D> {
     /// Reads `buf.len()` bytes of the device at byte `offset`, through the
     /// driver's block buffer.
     pub async fn read_raw(&mut self, offset: u64, buf: &mut [u8]) -> FsResult<(), D::Error> {
-        read_bytes(&mut self.dev, &mut self.block, offset, buf).await
+        read_bytes(&mut self.dev.inner, &mut self.block, offset, buf).await
     }
 
     /// Sets the volume label, or removes it with `None`: the label entry
@@ -2327,7 +2391,7 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
             let at = self.cluster_at(hint.cluster())? + within;
             let n = ((cluster_size - within) as usize).min(count - done);
             let n = rawio::run(&mut self.dev, &mut self.block, &self.fat, &mut hint, n, count - done).await?;
-            read_bytes(&mut self.dev, &mut self.block, at, &mut buf[done..done + n]).await?;
+            read_bytes(&mut self.dev.inner, &mut self.block, at, &mut buf[done..done + n]).await?;
             done += n;
         }
         if let Some(state) = self.nodes.get_mut(node) {

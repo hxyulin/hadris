@@ -51,3 +51,25 @@ reads with byte comparisons on FAT12/16/32, fragmented reads and mutation/slot
 reuse across every test geometry, cyclic chains, dropped read futures,
 existing hosted sync/async/contract tests and the allocator-only feature tier.
 Public API snapshots include both modes and the umbrella reexport.
+
+## 4. Optional metadata-block cache
+
+`CacheOptions::with_blocks` bounds a read-through LRU cache of device blocks.
+`CacheOptions::new` configures eight metadata blocks and 32 chain positions;
+plain mount still enables neither cache. File payload and raw-device reads
+bypass the metadata cache. Writes invalidate overlapping cached blocks before
+awaiting the device, without deferring writes or changing flush behavior.
+Both caches are usable with `alloc` + `no_std`.
+
+With eight metadata blocks and no chain index, FAT32 unaligned reads fall from
+1,043 to 787 calls. Short-name lookup falls from 1,008 to 129 calls. Median
+CPU time is 44.42 µs for unaligned reads and 256.46 µs for short-name lookup;
+metadata caching reduces I/O but does not remove repeated name scans.
+[Measurements](benchmarks/fat-hosted-step4.csv).
+
+Validation covers LRU bounds, range invalidation and clock wrap, payload bypass,
+metadata reuse after partial payload reads, failed mirror writes, cancellation,
+mutation/slot reuse, existing read/write/async/contract tests and the allocator-
+only tier. The async resource caps allow 64 additional bytes for the metadata
+adapter (rename/label 3,648 bytes, create 2,304 bytes, extents 576 bytes); they
+remain tested rather than ignored. Embedded resource limits are unchanged.
