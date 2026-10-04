@@ -52,6 +52,11 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- Reject malformed ISO Rock Ridge metadata, unfinished SUSP continuation
+  chains, invalid continuation pointers and directory records crossing their
+  declared directory length. Read continuation areas spanning multiple blocks
+  completely instead of silently truncating them at 2048 bytes.
+
 - Reject mismatched multi-extent file identifiers in ISO raw record mapping,
   using the same bounded continuation traversal as file reads and extent mapping.
 - Select the hosted CI toolchain explicitly so the repository MSRV toolchain

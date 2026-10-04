@@ -217,6 +217,15 @@ Export uses the supplied options for boot and partition tables; it does not
 automatically preserve the original boot configuration. `session.options()`
 preserves volume identifiers and namespaces but omits boot configuration.
 
+Rock Ridge readers reject malformed known SUSP entries and continuation
+pointers with inconsistent endian fields, zero lengths, offsets outside their
+logical block or ranges outside the image. Continuation areas can span blocks
+and are parsed with a fixed 2048-byte buffer. A record can follow at most 16
+continuation areas; an unfinished chain at that bound is corrupt. Unknown
+extensions remain skippable, and overlong Rock Ridge names retain the ISO-name
+fallback. Ordinary ISO system-use bytes are interpreted as SUSP only after the
+root's `SP` entry identifies it.
+
 ### Rock Ridge relocation
 
 ECMA-119 allows eight directory levels. With Rock Ridge, deeper directories
