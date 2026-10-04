@@ -75,3 +75,20 @@ Checksum archives place the payload checksum in the header. Streamed content
 therefore needs a preliminary checksum pass; comparisons must account for that
 format requirement. This audit does not introduce cancellation recovery or
 persistent state for an interrupted writer.
+
+## Borrowed resident payloads
+
+Memory-backed files now use the same borrowed-data path as symlinks. CRC sums
+are computed directly over resident bytes. The writer opens nonresident content
+as before, allocating reusable scratch only when it has payload to stream. A
+fresh writer's scratch length is `min(content length, 64 KiB)` for streamed data
+and zero for resident data, directories and symlinks. Scratch is retained for
+reuse rather than shrunk between entries. This is a bound from the implementation,
+not a measurement of total allocator overhead or retained report memory.
+
+The 21-sample `newc` 4 MiB resident-file workload falls from 72 to nine direct
+backend writes and from 132.08 to 59.25 microseconds. Host-streamed 4 MiB writes
+retain 72 calls and their 64 KiB maximum request. Resident output may now request
+the whole payload; `write_all` still handles short backend writes. Sync and async
+regressions use seven-byte writes and compare complete archive bytes in every
+writable format.

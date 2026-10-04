@@ -1,4 +1,3 @@
-use alloc::vec;
 use alloc::vec::Vec;
 
 use hadris_fs::{ErrorKind, FileType, Node, PathError, Report, SetAttr, Tree};
@@ -165,13 +164,19 @@ impl<W: Write> Writer<W> {
     }
 
     async fn emit(&mut self, path: &[u8], mut fields: Fields, data: Data<'_>) -> Result<(), PathError> {
-        if self.buf.len() < CHUNK {
-            self.buf = vec![0u8; CHUNK];
-        }
+        let data = match data {
+            Data::Content(content) => content.as_bytes().map_or(data, Data::Bytes),
+            _ => data,
+        };
         let mut reader = match data {
             Data::Content(content) => Some(ContentReader::open(content).await.map_err(|err| err.with_path(path))?),
             _ => None,
         };
+        let buffer_len = fields.len.min(CHUNK as u64) as usize;
+        if reader.is_some() && self.buf.len() < buffer_len {
+            self.buf.reserve_exact(buffer_len - self.buf.len());
+            self.buf.resize(buffer_len, 0);
+        }
         if self.planner.format == Format::Crc {
             fields.check = match (&data, &mut reader) {
                 (Data::Bytes(bytes), _) => header::checksum(0, bytes),

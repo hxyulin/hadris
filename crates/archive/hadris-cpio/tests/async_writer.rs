@@ -39,8 +39,9 @@ impl hadris_io::ErrorType for Sink {
 
 impl hadris_io::r#async::Write for Sink {
     fn write(&mut self, bytes: &[u8]) -> impl Future<Output = Result<usize, Infallible>> + Send {
-        self.0.extend_from_slice(bytes);
-        core::future::ready(Ok(bytes.len()))
+        let n = bytes.len().min(7);
+        self.0.extend_from_slice(&bytes[..n]);
+        core::future::ready(Ok(n))
     }
 
     fn flush(&mut self) -> impl Future<Output = Result<(), Infallible>> + Send {
@@ -164,4 +165,22 @@ fn async_hard_link_owners_follow_equivalent_tree_paths() {
         Some(&b"group"[..])
     );
     assert_eq!(tree.entry("dir/a").unwrap().links(), 1);
+}
+
+#[test]
+fn async_borrowed_payloads_handle_short_writes() {
+    let mut tree = Tree::new();
+    tree.insert("data", Node::file(Content::bytes(vec![37; 131_073])))
+        .unwrap();
+    for format in [Format::Newc, Format::Crc, Format::Odc] {
+        let expected = common::archive(&tree, format);
+        let mut out = Sink::default();
+        block_on(hadris_cpio::r#async::write(
+            &mut out,
+            &tree,
+            &CpioOptions::new().with_format(format),
+        ))
+        .unwrap();
+        assert_eq!(out.0, expected);
+    }
 }

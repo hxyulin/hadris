@@ -968,3 +968,50 @@ fn caller_buffer_must_fit_trailer_and_both_slice_views() {
         ErrorKind::LimitExceeded
     );
 }
+
+#[test]
+fn borrowed_payloads_handle_short_writes_and_keep_archive_bytes() {
+    struct ShortWriter {
+        bytes: Vec<u8>,
+        calls: usize,
+        max_request: usize,
+        limit: usize,
+    }
+    impl hadris_io::ErrorType for ShortWriter {
+        type Error = core::convert::Infallible;
+    }
+    impl Write for ShortWriter {
+        fn write(&mut self, data: &[u8]) -> Result<usize, Self::Error> {
+            self.calls += 1;
+            self.max_request = self.max_request.max(data.len());
+            let n = data.len().min(self.limit);
+            self.bytes.extend_from_slice(&data[..n]);
+            Ok(n)
+        }
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+    let mut tree = Tree::new();
+    let payload = vec![37; 131_073];
+    tree.insert("data", Node::file(Content::bytes(payload.clone())))
+        .unwrap();
+    for format in [Format::Newc, Format::Crc, Format::Odc] {
+        let expected = archive(&tree, format);
+        for limit in [7, usize::MAX] {
+            let mut out = ShortWriter {
+                bytes: Vec::new(),
+                calls: 0,
+                max_request: 0,
+                limit,
+            };
+            let report =
+                hadris_cpio::sync::write(&mut out, &tree, &CpioOptions::new().with_format(format))
+                    .unwrap();
+            assert_eq!(report.size(), expected.len() as u64);
+            assert_eq!(out.bytes, expected);
+            assert_eq!(out.max_request, payload.len());
+            assert_eq!(read_all(&out.bytes).unwrap()[0].data, payload);
+        }
+    }
+}

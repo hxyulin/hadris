@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- CPIO writers borrow memory-backed payloads directly and allocate reusable
+  scratch only for streamed content, bounded by its length and 64 KiB.
+
 - CPIO tree extraction tracks hard-link ownership using normalized path separators,
   preserving archive-order replacements under equivalent path spellings.
 
