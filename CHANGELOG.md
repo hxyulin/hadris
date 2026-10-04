@@ -20,6 +20,10 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- Extend the FAT performance harness with nested EFI file loading, backward
+  and shuffled reads, unaligned buffers, fragmented chains, and long-name
+  directory lookup/listing workloads.
+
 - Extend opt-in hosted tracing to ISO, UDF, APFS, NTFS, CPIO and partition
   operations, with umbrella forwarding, writer phase spans and credential-safe
   APFS password mounts.

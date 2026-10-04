@@ -22,7 +22,7 @@ fails. `--samples` defaults to seven; `--smoke` uses one measured sample per
 case. Each case also gets a checked warm-up. `--help` prints the options.
 CSV goes to stdout, so Cargo's build messages on stderr do not enter the file.
 
-The 78 cases combine three variants, two synchronous drivers and these
+The 120 cases combine three variants, two synchronous drivers and these
 workloads:
 
 | Workload | Operations |
@@ -33,16 +33,20 @@ workloads:
 | `append-512-end-sync` | The same log in 512-byte writes, close, sync |
 | `append-4k-end-sync` | The same log in 4 KiB writes, close, sync |
 | `write-4k`, `write-64k` | Create and sequentially write 1 MiB, close, sync |
-| `read-4k`, `read-64k` | Open and sequentially read a contiguous 1 MiB file, close |
+| `read-4k`, `read-64k`, `read-unaligned` | Open and sequentially read a contiguous 1 MiB file in 4 KiB, 64 KiB or 4093-byte chunks, close |
+| `read-reverse-4k`, `read-shuffled-4k` | Read each 4 KiB block of a 1 MiB file once, backwards or in a deterministic permutation |
+| `read-fragmented-64k` | Sequentially read 1 MiB in 64 KiB chunks from a chain reordered into even then odd physical clusters |
+| `boot-load-64k` | Mount, resolve `EFI/BOOT/BOOTAA64.EFI`, read its 1 MiB contents in 64 KiB chunks, close |
 | `create-remove-short`, `create-remove-long` | Create 64 files, write 64 bytes each, close, remove all, sync |
-| `lookup-128` | Look up and retrieve metadata for each of 128 short-name files |
-| `list-128` | Enumerate a directory containing 128 short-name files once |
+| `lookup-128`, `lookup-long-128` | Look up and retrieve metadata for each of 128 short-name or long-name files |
+| `list-128`, `list-long-128` | Enumerate a directory containing 128 short-name or long-name files once |
 
 Images are 2 MiB for FAT12, 16 MiB for FAT16 and 64 MiB for FAT32. All use
 512-byte device blocks, two FAT copies, a fixed serial number and the
 formatter's default cluster size. CSV includes volume, block and cluster
-sizes because geometry affects I/O costs. The hosted driver uses its default
-mount options; the embedded driver uses four file slots and its default
+sizes because geometry affects I/O costs. The hosted driver uses read-only
+mount options for `boot-load-64k` and default mount options otherwise; the
+embedded driver uses four file slots and its default
 ASCII name fold. Workload names use ASCII so both compare the same names.
 Hosted directory iteration calls `readdir` once per entry; embedded iteration
 uses its callback API. These measurements include each API's own costs.
@@ -55,7 +59,8 @@ uses its callback API. These measurements include each API's own costs.
 - CSV also attributes written bytes to each FAT copy, the root directory,
   file data, FSInfo and other reserved blocks. A diagnostic warm-up records
   per-block writes, then classifies them using the final image, so root
-  directory growth is included. These workloads use only the root directory.
+  directory growth is included. Writing workloads use only the root directory;
+  the nested EFI workload is read-only.
   Classification and per-block recording are outside measured samples;
   samples retain only the aggregate call counters. Region totals must equal
   the aggregate written bytes.
@@ -67,9 +72,9 @@ uses its callback API. These measurements include each API's own costs.
   The create/remove workloads divide by all bytes written before deletion.
   Mount, reads, lookup and listing report `n/a`.
 - Times cover the workload, including open/create, close and the final sync
-  for writing cases. The mount case times only mount. For all other cases,
-  mount and its I/O are excluded; the driver's block buffer starts in its
-  post-mount state.
+  for writing cases. The mount case times only mount; `boot-load-64k` includes
+  mount and its I/O. For all other cases, mount and its I/O are excluded; the
+  driver's block buffer starts in its post-mount state.
 - Formatting, fixture population, image cloning, payload and read-buffer
   allocation, checking, readback and driver destruction are outside the
   measured interval. Every sample starts from a fresh copy of the fixture.
@@ -84,8 +89,13 @@ caches. Very short cases, especially mount, are sensitive to timer noise.
 CSV reports minimum, median (upper middle sample for even counts) and maximum
 nanoseconds to expose variation. Do not interpret these timings as SD-card
 latency, flash wear, or throughput on an embedded target. This first harness
-does not measure async scheduling, fragmented files, exFAT or heap allocation
-counts.
+does not measure async scheduling, exFAT or heap allocation counts.
+The fragmented fixture uses the same allocated clusters as the contiguous
+fixture, permutes their chain and relocates their contents; every FAT copy is
+updated. Payload bytes depend on their position beyond sector boundaries,
+so readback detects swapped clusters. Shuffled reads use `(i * 73) % 256`,
+which visits every 4 KiB block exactly once. The boot case models a 1 MiB EFI
+file load, rather than executing a PE loader or reading a complete boot tree.
 
 Record the Git revision, `rustc -Vv`, host and command with each baseline.
 Use identical toolchains, features, geometry and workloads for before/after
@@ -93,6 +103,9 @@ comparisons. Compare I/O counts first and repeated timing runs second. Run
 the affected conformance and cancellation tests before accepting an
 optimization: metadata ordering and interrupted-write recovery constrain
 which writes can be combined or removed.
+
+The [bootloader and hosted FAT audit](fat-hosted-performance-audit.md) records
+the measured baseline and proposed optimization order.
 
 ## ISO reader and writer
 
@@ -220,7 +233,7 @@ Silicon host, the deterministic device counts were:
 
 FAT32's 512-byte case reduces writes by 38.3% and write amplification from
 5.062 to 3.125. Each FAT copy drops from 32256 to 16384 written bytes.
-Directory, data and FSInfo writes are unchanged. Across all 78 cases, only
+Directory, data and FSInfo writes are unchanged. Across all 120 cases, only
 the three single-cluster append workloads on embedded FAT16/32 changed I/O
 counts; no case increased them.
 
