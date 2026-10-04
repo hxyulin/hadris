@@ -1826,7 +1826,20 @@ impl<D: BlockDevice> FatFs<D> {
         if index + 1 >= need {
             return Ok(none);
         }
-        let added = self.allocate_chain(need - 1 - index, false, Owner::Tail(tail)).await?;
+        let count = need - 1 - index;
+        if count == 1 {
+            let pending = self.pending.insert(Pending::chain(0, Owner::Tail(tail)));
+            let result = rawio::allocate_after(&mut self.dev, &mut self.block, &mut self.fat, &mut pending.held, tail).await;
+            let added = match self.note(result) {
+                Ok(added) => added,
+                Err(err) => {
+                    let _ = self.recover().await;
+                    return Err(err);
+                }
+            };
+            return Ok(Growth { first: state.first, added });
+        }
+        let added = self.allocate_chain(count, false, Owner::Tail(tail)).await?;
         if let Err(err) = self.set_fat(tail, added).await {
             let _ = self.recover().await;
             return Err(err);

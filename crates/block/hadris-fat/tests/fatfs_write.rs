@@ -2628,3 +2628,49 @@ fn a_shrink_whose_fat_write_fails_is_cut_back_by_the_next_write() {
     assert_eq!(fresh.stat(node).unwrap().len(), len);
     assert_eq!(common::chain(&mut fresh, node), chain[..2]);
 }
+
+#[test]
+fn single_cluster_append_recovers_after_each_failed_write() {
+    for case in CASES[..3].iter().copied() {
+        let blank = common::blank(case);
+        let cluster = hadris_fat_raw::parse_boot(blank[..512].try_into().unwrap())
+            .unwrap()
+            .cluster_size() as usize;
+        let mut fs = open(case, blank);
+        let file = fs
+            .create(fs.root(), name("LOG.BIN"), &SetAttr::new())
+            .unwrap();
+        fs.write(file, 0, &vec![7; cluster]).unwrap();
+        let before = fs.unmount().unwrap().into_inner();
+        let mut completed = false;
+        for budget in 0..12 {
+            let dev = Faulty {
+                inner: common::device(case, before.clone()),
+                budget: Some(budget),
+                refuse: false,
+                once: true,
+            };
+            let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
+            let file = fs.lookup(fs.root(), name("LOG.BIN")).unwrap();
+            let result = fs.write(file, cluster as u64, &[9]);
+            if let Err(err) = fs.sync() {
+                assert_eq!(err.kind(), ErrorKind::Io);
+                fs.sync().unwrap();
+            }
+            let image = fs.unmount().unwrap().inner.into_inner();
+            common::assert_checks_clean(case, &image, case.name);
+            let mut fresh = open(case, image);
+            let file = fresh.lookup(fresh.root(), name("LOG.BIN")).unwrap();
+            let data = read_all(&mut fresh, file);
+            assert_eq!(&data[..cluster], &vec![7; cluster]);
+            assert_eq!(data.len(), cluster + usize::from(result.is_ok()));
+            if result.is_ok() {
+                assert_eq!(data[cluster], 9);
+                completed = true;
+                break;
+            }
+            assert_eq!(result.unwrap_err().kind(), ErrorKind::Io);
+        }
+        assert!(completed, "{} append never completed", case.name);
+    }
+}

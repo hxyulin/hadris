@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- FAT node-driver single-cluster growth combines allocation and tail linking
+  when their FAT16/32 entries share a device block.
+
 - ISO writer planning reuses final directory identifiers for both path tables, halving repeated directory-record construction.
 
 - ISO reader caches can optionally build a bounded hard-link index on demand, preserving canonical IDs and falling back to scanning for uncached keys.

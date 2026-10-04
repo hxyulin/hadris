@@ -183,3 +183,39 @@ fn embedded_single_cluster_append_combines_fat_updates() {
         fs.unmount().unwrap();
     }
 }
+
+#[test]
+fn hosted_single_cluster_append_combines_fat_updates() {
+    use hadris_fat::sync::{FatFs, format};
+    use hadris_fat::{FatKind, FatOptions};
+    use hadris_fs::sync::FileSystem;
+    use hadris_fs::{MountOptions, Name, SetAttr};
+
+    for (kind, size, expected) in [
+        (FatKind::Fat12, 2 << 20, 5),
+        (FatKind::Fat16, 16 << 20, 3),
+        (FatKind::Fat32, 64 << 20, 3),
+    ] {
+        let mut inner = MemDevice::new(vec![0; size], BlockSize::new(512).unwrap());
+        let geo = format(&mut inner, &FatOptions::new().with_kind(kind)).unwrap();
+        let counts = Cell::new(IoCounts::default());
+        let dev = Counted {
+            inner,
+            counts: &counts,
+            written_blocks: None,
+        };
+        let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
+        let file = fs
+            .create(fs.root(), Name::new("LOG.BIN"), &SetAttr::new())
+            .unwrap();
+        let cluster = geo.cluster_size() as usize;
+        fs.write(file, 0, &vec![7; cluster]).unwrap();
+        fs.close(file).unwrap();
+        counts.set(IoCounts::default());
+        fs.write(file, cluster as u64, &[9]).unwrap();
+        assert_eq!(counts.get().write_calls, expected, "{kind:?}");
+        assert_eq!(counts.get().write_bytes, expected * 512, "{kind:?}");
+        fs.close(file).unwrap();
+        fs.unmount().unwrap();
+    }
+}

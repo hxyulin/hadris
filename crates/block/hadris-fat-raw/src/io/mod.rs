@@ -368,6 +368,7 @@ impl DirWalk {
 pub(crate) struct ClusterGroup {
     base: u32,
     bits: [u64; ClusterGroup::SPAN as usize / 64],
+    high: u16,
     pub(crate) count: u32,
 }
 
@@ -379,6 +380,7 @@ impl ClusterGroup {
         Self {
             base,
             bits: [0; Self::SPAN as usize / 64],
+            high: 0,
             count: 0,
         }
     }
@@ -396,19 +398,37 @@ impl ClusterGroup {
         let bit = cluster.wrapping_sub(self.base);
         if bit < Self::SPAN && !self.has(cluster) {
             self.bits[bit as usize / 64] |= 1 << (bit % 64);
+            self.high = self.high.max(bit as u16);
             self.count += 1;
         }
     }
 
     pub(crate) fn descending(&self) -> impl Iterator<Item = u32> + '_ {
-        (0..Self::SPAN)
+        self.bits[..=self.high as usize / 64]
+            .iter()
+            .enumerate()
             .rev()
-            .filter(|&bit| self.bits[bit as usize / 64] & (1 << (bit % 64)) != 0)
-            .map(|bit| self.base + bit)
+            .flat_map(move |(word, &bits)| {
+                let mut bits = bits;
+                core::iter::from_fn(move || {
+                    if bits == 0 {
+                        return None;
+                    }
+                    let bit = 63 - bits.leading_zeros();
+                    bits &= !(1u64 << bit);
+                    Some(self.base + word as u32 * 64 + bit)
+                })
+            })
     }
 
     pub(crate) fn lowest(&self) -> u32 {
-        self.descending().last().unwrap_or(self.base)
+        self.bits
+            .iter()
+            .enumerate()
+            .find(|(_, bits)| **bits != 0)
+            .map_or(self.base, |(word, bits)| {
+                self.base + word as u32 * 64 + bits.trailing_zeros()
+            })
     }
 }
 
@@ -494,4 +514,29 @@ pub mod local {
         mirror, mkfs, next, read_backup_geometry, read_fat, read_geometry, read_slot, run, set,
         slot_offset, walk, write_fs_info, write_slots,
     };
+}
+
+#[cfg(test)]
+mod group_tests {
+    use super::ClusterGroup;
+
+    #[test]
+    fn sparse_groups_iterate_only_members_in_order() {
+        let mut group = ClusterGroup::new(100);
+        assert_eq!(group.lowest(), 100);
+        assert_eq!(group.descending().next(), None);
+        for bit in [0, 63, 64, 127, 1024, 2047, 64, 2048] {
+            group.add(100 + bit);
+        }
+        assert_eq!(group.count, 6);
+        assert_eq!(group.lowest(), 100);
+        assert_eq!(
+            group.descending().collect::<std::vec::Vec<_>>(),
+            [2147, 1124, 227, 164, 163, 100]
+        );
+        let mut group = ClusterGroup::new(9);
+        group.add(86);
+        assert_eq!(group.lowest(), 86);
+        assert_eq!(group.descending().collect::<std::vec::Vec<_>>(), [86]);
+    }
 }

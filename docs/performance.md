@@ -105,7 +105,9 @@ optimization: metadata ordering and interrupted-write recovery constrain
 which writes can be combined or removed.
 
 The [bootloader and hosted FAT audit](fat-hosted-performance-audit.md) records
-the measured baseline and proposed optimization order.
+the measured baseline and proposed optimization order;
+[implemented optimizations](fat-hosted-optimizations.md) record each change
+and its validation.
 
 ## ISO reader and writer
 

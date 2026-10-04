@@ -501,3 +501,70 @@ fn dropped_operations_leave_no_lost_clusters_or_unequal_fats() {
         common::fsck(&dev.0.into_inner(), "dropped operations");
     }
 }
+
+#[test]
+fn single_cluster_append_recovers_at_every_await() {
+    use hadris_fat::r#async::FatFs;
+    use hadris_fs::r#async::FileSystem;
+    for case in CASES[..3].iter().copied() {
+        let blank = common::blank(case);
+        let cluster = hadris_fat_raw::parse_boot(blank[..512].try_into().unwrap())
+            .unwrap()
+            .cluster_size() as usize;
+        let mut fs =
+            hadris_fat::sync::FatFs::mount(common::device(case, blank), MountOptions::new())
+                .unwrap();
+        let root = hadris_fs::sync::FileSystem::root(&fs);
+        let file = hadris_fs::sync::FileSystem::create(
+            &mut fs,
+            root,
+            Name::new("LOG.BIN"),
+            &SetAttr::new(),
+        )
+        .unwrap();
+        hadris_fs::sync::FileSystem::write(&mut fs, file, 0, &vec![7; cluster]).unwrap();
+        let before = fs.unmount().unwrap().into_inner();
+        let mut completed = false;
+        for budget in 0..100 {
+            let mut fs = cancel::run_for(
+                FatFs::mount(
+                    cancel::YieldDev(common::device(case, before.clone())),
+                    MountOptions::new(),
+                ),
+                usize::MAX,
+            )
+            .unwrap()
+            .unwrap();
+            let file = cancel::run_for(fs.lookup(fs.root(), Name::new("LOG.BIN")), usize::MAX)
+                .unwrap()
+                .unwrap();
+            let result = cancel::run_for(fs.write(file, cluster as u64, &[9]), budget);
+            cancel::run_for(fs.sync(), usize::MAX).unwrap().unwrap();
+            let image = cancel::run_for(fs.unmount(), usize::MAX)
+                .unwrap()
+                .unwrap()
+                .0
+                .into_inner();
+            common::assert_checks_clean(case, &image, case.name);
+            let mut fresh = hadris_fat::sync::FatFs::mount(
+                common::device(case, image),
+                MountOptions::new().read_only(),
+            )
+            .unwrap();
+            let root = hadris_fs::sync::FileSystem::root(&fresh);
+            let file = hadris_fs::sync::FileSystem::lookup(&mut fresh, root, Name::new("LOG.BIN"))
+                .unwrap();
+            let mut data = vec![0; cluster + 1];
+            let n = hadris_fs::sync::FileSystem::read(&mut fresh, file, 0, &mut data).unwrap();
+            assert_eq!(&data[..cluster], &vec![7; cluster]);
+            assert_eq!(n, cluster + usize::from(result.is_some()));
+            if let Some(result) = result {
+                assert_eq!(result.unwrap(), 1);
+                assert_eq!(data[cluster], 9);
+                completed = true;
+                break;
+            }
+        }
+        assert!(completed, "{} append never completed", case.name);
+    }
+}
