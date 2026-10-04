@@ -14,178 +14,34 @@ use crate::rock_ridge::{S_IFBLK, S_IFCHR, S_IFDIR, S_IFLNK, S_IFREG};
 impl Planner<'_> {
     /// The records of `dir` in tree `ti`, sorted by identifier.
     pub(super) fn records(&self, dir: usize, ti: usize) -> PlanResult<Vec<PendingRecord>> {
-        let (tree, rules) = self.trees[ti];
-        let rr = self.rock_ridge && tree == TreeKind::Primary;
+        let (kind, rules) = self.trees[ti];
+        let builder = DirectoryBuilder {
+            planner: self,
+            tree: ti,
+            kind,
+            rules,
+            rock_ridge: self.rock_ridge && kind == TreeKind::Primary,
+        };
         let d = &self.dirs[dir];
         let mut records = Vec::new();
-        let now = self.record_time(&d.meta);
-
-        let dot = if rr {
-            let mut b = SuBuilder::default();
-            if dir == 0 {
-                b.sp();
-            }
-            self.posix(
-                &mut b,
-                &d.meta,
-                S_IFDIR,
-                0o755,
-                self.dir_links(dir),
-                d.serial,
-            );
-            b.nm_current();
-            if dir == 0 {
-                b.er();
-            }
-            b.split(inline_space(1))
+        records.push(builder.special(dir, false));
+        records.push(builder.special(dir, true));
+        let placeholders = if builder.rock_ridge {
+            &d.placeholders[..]
         } else {
-            SplitSu::default()
+            &[]
         };
-        records.push(PendingRecord {
-            name: vec![0],
-            split: dot,
-            extent: self.dir_ref(dir, ti),
-            flags: FileFlags::DIRECTORY,
-            time: now,
-        });
-
-        let parent = self.parent_in(dir, ti);
-        let dotdot = if rr {
-            let p = &self.dirs[parent];
-            let mut b = SuBuilder::default();
-            self.posix(
-                &mut b,
-                &p.meta,
-                S_IFDIR,
-                0o755,
-                self.dir_links(parent),
-                p.serial,
-            );
-            b.nm_parent();
-            if d.moved_to.is_some() {
-                b.pl(self.dir_ref(d.parent, ti).0);
-            }
-            b.split(inline_space(1))
-        } else {
-            SplitSu::default()
-        };
-        records.push(PendingRecord {
-            name: vec![1],
-            split: dotdot,
-            extent: self.dir_ref(parent, ti),
-            flags: FileFlags::DIRECTORY,
-            time: self.record_time(&self.dirs[parent].meta),
-        });
-
-        let mut children: Vec<(usize, bool)> = self
+        let children = self
             .subdirs_in(dir, ti)
             .iter()
             .map(|&child| (child, false))
-            .collect();
-        if rr {
-            children.extend(d.placeholders.iter().map(|&child| (child, true)));
-        }
+            .chain(placeholders.iter().map(|&child| (child, true)));
         for (child, placeholder) in children {
-            let c = &self.dirs[child];
-            let iso_name = if placeholder || tree != TreeKind::Primary {
-                &c.name
-            } else {
-                &c.iso_name
-            };
-            let name = rules.directory(iso_name);
-            let split = if rr {
-                let mut b = SuBuilder::default();
-                self.posix(
-                    &mut b,
-                    &c.meta,
-                    S_IFDIR,
-                    0o755,
-                    self.dir_links(child),
-                    c.serial,
-                );
-                b.nm(c.name.as_bytes());
-                if placeholder {
-                    b.cl(self.dir_ref(child, ti).0);
-                } else if c.moved_to.is_some() {
-                    b.re();
-                }
-                b.split(inline_space(name.len()))
-            } else {
-                SplitSu::default()
-            };
-            let flags = if placeholder {
-                FileFlags::empty()
-            } else {
-                FileFlags::DIRECTORY
-            };
-            records.push(PendingRecord {
-                name,
-                split,
-                extent: self.dir_ref(child, ti),
-                flags,
-                time: self.record_time(&c.meta),
-            });
+            records.push(builder.child(child, placeholder));
         }
-
         for &file in &d.files {
-            let f = &self.files[file];
-            if !rr && matches!(f.kind, FileKind::Symlink { .. } | FileKind::Device { .. }) {
-                continue;
-            }
-            let name = rules.file(&f.name);
-            let split = if rr {
-                let mut b = SuBuilder::default();
-                let (type_mode, default) = match f.kind {
-                    FileKind::Symlink { .. } => (S_IFLNK, 0o777),
-                    FileKind::Device {
-                        kind: FileType::BlockDevice,
-                        ..
-                    } => (S_IFBLK, 0o600),
-                    FileKind::Device { .. } => (S_IFCHR, 0o600),
-                    _ => (S_IFREG, 0o644),
-                };
-                self.posix(
-                    &mut b,
-                    &f.meta,
-                    type_mode,
-                    default,
-                    f.links,
-                    self.file_serial(f),
-                );
-                b.nm(f.name.as_bytes());
-                match f.kind {
-                    FileKind::Symlink { .. } => {
-                        if let Some(target) = self.tree.get(&f.path).and_then(Node::target) {
-                            b.sl(target);
-                        }
-                    }
-                    FileKind::Device { number, .. } => b.pn(number.major(), number.minor()),
-                    _ => {}
-                }
-                b.split(inline_space(name.len()))
-            } else {
-                SplitSu::default()
-            };
-            let extents = self.file_extents(f);
-            let time = self.record_time(&f.meta);
-            let last = extents.len() - 1;
-            for (index, (block, len)) in extents.into_iter().enumerate() {
-                let flags = if index == last {
-                    FileFlags::empty()
-                } else {
-                    FileFlags::NOT_FINAL
-                };
-                let len = u32::try_from(len).map_err(|_| too_large())?;
-                records.push(PendingRecord {
-                    name: name.clone(),
-                    split: split.clone(),
-                    extent: (block, len),
-                    flags,
-                    time,
-                });
-            }
+            builder.append_file(file, &mut records)?;
         }
-
         dedup(&mut records, rules);
         records.sort_by(|a, b| {
             let rank = |name: &[u8]| match name {
@@ -198,6 +54,160 @@ impl Planner<'_> {
                 .then_with(|| a.name.cmp(&b.name))
         });
         Ok(records)
+    }
+}
+
+struct DirectoryBuilder<'a, 'tree> {
+    planner: &'a Planner<'tree>,
+    tree: usize,
+    kind: TreeKind,
+    rules: Rules,
+    rock_ridge: bool,
+}
+
+impl DirectoryBuilder<'_, '_> {
+    fn directory_posix(&self, builder: &mut SuBuilder, dir: usize) {
+        let d = &self.planner.dirs[dir];
+        self.planner.posix(
+            builder,
+            &d.meta,
+            S_IFDIR,
+            0o755,
+            self.planner.dir_links(dir),
+            d.serial,
+        );
+    }
+
+    fn special(&self, dir: usize, parent: bool) -> PendingRecord {
+        let p = self.planner;
+        let target = if parent {
+            p.parent_in(dir, self.tree)
+        } else {
+            dir
+        };
+        let split = if self.rock_ridge {
+            let mut b = SuBuilder::default();
+            if !parent && dir == 0 {
+                b.sp();
+            }
+            self.directory_posix(&mut b, target);
+            if parent {
+                b.nm_parent();
+                if p.dirs[dir].moved_to.is_some() {
+                    b.pl(p.dir_ref(p.dirs[dir].parent, self.tree).0);
+                }
+            } else {
+                b.nm_current();
+                if dir == 0 {
+                    b.er();
+                }
+            }
+            b.split(inline_space(1))
+        } else {
+            SplitSu::default()
+        };
+        PendingRecord {
+            name: vec![u8::from(parent)],
+            split,
+            extent: p.dir_ref(target, self.tree),
+            flags: FileFlags::DIRECTORY,
+            time: p.record_time(&p.dirs[target].meta),
+        }
+    }
+
+    fn child(&self, child: usize, placeholder: bool) -> PendingRecord {
+        let p = self.planner;
+        let c = &p.dirs[child];
+        let source = if placeholder || self.kind != TreeKind::Primary {
+            &c.name
+        } else {
+            &c.iso_name
+        };
+        let name = self.rules.directory(source);
+        let split = if self.rock_ridge {
+            let mut b = SuBuilder::default();
+            self.directory_posix(&mut b, child);
+            b.nm(c.name.as_bytes());
+            if placeholder {
+                b.cl(p.dir_ref(child, self.tree).0);
+            } else if c.moved_to.is_some() {
+                b.re();
+            }
+            b.split(inline_space(name.len()))
+        } else {
+            SplitSu::default()
+        };
+        PendingRecord {
+            name,
+            split,
+            extent: p.dir_ref(child, self.tree),
+            flags: if placeholder {
+                FileFlags::empty()
+            } else {
+                FileFlags::DIRECTORY
+            },
+            time: p.record_time(&c.meta),
+        }
+    }
+
+    fn append_file(&self, file: usize, records: &mut Vec<PendingRecord>) -> PlanResult<()> {
+        let p = self.planner;
+        let f = &p.files[file];
+        if !self.rock_ridge && matches!(f.kind, FileKind::Symlink { .. } | FileKind::Device { .. })
+        {
+            return Ok(());
+        }
+        let name = self.rules.file(&f.name);
+        let split = if self.rock_ridge {
+            let mut b = SuBuilder::default();
+            let (type_mode, default) = match f.kind {
+                FileKind::Symlink { .. } => (S_IFLNK, 0o777),
+                FileKind::Device {
+                    kind: FileType::BlockDevice,
+                    ..
+                } => (S_IFBLK, 0o600),
+                FileKind::Device { .. } => (S_IFCHR, 0o600),
+                _ => (S_IFREG, 0o644),
+            };
+            p.posix(
+                &mut b,
+                &f.meta,
+                type_mode,
+                default,
+                f.links,
+                p.file_serial(f),
+            );
+            b.nm(f.name.as_bytes());
+            match f.kind {
+                FileKind::Symlink { .. } => {
+                    if let Some(target) = p.tree.get(&f.path).and_then(Node::target) {
+                        b.sl(target);
+                    }
+                }
+                FileKind::Device { number, .. } => b.pn(number.major(), number.minor()),
+                _ => {}
+            }
+            b.split(inline_space(name.len()))
+        } else {
+            SplitSu::default()
+        };
+        let extents = p.file_extents(f);
+        let last = extents.len() - 1;
+        let time = p.record_time(&f.meta);
+        for (index, (block, len)) in extents.into_iter().enumerate() {
+            records.push(PendingRecord {
+                name: name.clone(),
+                split: split.clone(),
+                extent: (block, u32::try_from(len).map_err(|_| too_large())?),
+                flags: if index == last {
+                    FileFlags::empty()
+                } else {
+                    FileFlags::NOT_FINAL
+                },
+                time,
+            });
+        }
+        Ok(())
     }
 }
 

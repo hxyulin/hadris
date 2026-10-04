@@ -1,7 +1,7 @@
 use super::directory::{emit_records, layout_records, place_areas};
 use super::{
-    BACKUP_GPT_SECTORS, CATALOG, FileKind, MAX_EXTENT, PADDING_BLOCKS, Plan, PlanResult, Planner,
-    Region, SECTOR, block_of, too_large,
+    BACKUP_GPT_SECTORS, CATALOG, FileKind, MAX_EXTENT, PADDING_BLOCKS, PathTableLocation, Plan,
+    PlanResult, Planner, Region, SECTOR, block_of, too_large,
 };
 use alloc::collections::BTreeSet;
 use alloc::string::String;
@@ -85,52 +85,8 @@ impl Planner<'_> {
             });
         }
 
-        let mut tables = Vec::new();
-        for ti in 0..self.trees.len() {
-            let l = self.path_table(ti, false)?;
-            let m = self.path_table(ti, true)?;
-            let size = u32::try_from(l.len()).map_err(|_| too_large())?;
-            let l_block = cursor.div_ceil(SECTOR);
-            let m_block = l_block + (l.len() as u64).div_ceil(SECTOR);
-            cursor = (m_block + (m.len() as u64).div_ceil(SECTOR)) * SECTOR;
-            tables.push((
-                block_of(l_block * SECTOR)?,
-                block_of(m_block * SECTOR)?,
-                size,
-            ));
-            regions.push(Region::Bytes {
-                block: l_block,
-                data: l,
-            });
-            regions.push(Region::Bytes {
-                block: m_block,
-                data: m,
-            });
-        }
-
-        let catalog = self.boot_catalog()?;
-        let catalog_block = match (&catalog, self.extents.get(&CATALOG)) {
-            (Some(bytes), Some(extent)) => {
-                let block = extent[0].0;
-                let mut data = bytes.clone();
-                data.resize(extent[0].1 as usize, 0);
-                regions.push(Region::Bytes {
-                    block: u64::from(block),
-                    data,
-                });
-                Some(block)
-            }
-            (Some(bytes), None) => {
-                let block = cursor.div_ceil(SECTOR);
-                cursor = block * SECTOR + bytes.len() as u64;
-                regions.push(Region::Bytes {
-                    block,
-                    data: bytes.clone(),
-                });
-                Some(block_of(block * SECTOR)?)
-            }
-            _ => self.base.keep_catalog,
-        };
+        let tables = self.place_path_tables(&mut cursor, &mut regions)?;
+        let catalog_block = self.place_catalog(&mut cursor, &mut regions)?;
 
         let data_end = cursor.div_ceil(SECTOR);
         regions.push(Region::Bytes {
@@ -185,6 +141,62 @@ impl Planner<'_> {
             total_blocks: total,
             fill_gaps: self.base.fill_gaps,
             report,
+        })
+    }
+
+    fn place_path_tables(
+        &self,
+        cursor: &mut u64,
+        regions: &mut Vec<Region>,
+    ) -> PlanResult<Vec<PathTableLocation>> {
+        let mut tables = Vec::new();
+        for ti in 0..self.trees.len() {
+            let l = self.path_table(ti, false)?;
+            let m = self.path_table(ti, true)?;
+            let size = u32::try_from(l.len()).map_err(|_| too_large())?;
+            let l_block = cursor.div_ceil(SECTOR);
+            let m_block = l_block + (l.len() as u64).div_ceil(SECTOR);
+            *cursor = (m_block + (m.len() as u64).div_ceil(SECTOR)) * SECTOR;
+            tables.push(PathTableLocation {
+                little: block_of(l_block * SECTOR)?,
+                big: block_of(m_block * SECTOR)?,
+                size,
+            });
+            regions.push(Region::Bytes {
+                block: l_block,
+                data: l,
+            });
+            regions.push(Region::Bytes {
+                block: m_block,
+                data: m,
+            });
+        }
+
+        Ok(tables)
+    }
+
+    fn place_catalog(
+        &self,
+        cursor: &mut u64,
+        regions: &mut Vec<Region>,
+    ) -> PlanResult<Option<u32>> {
+        Ok(match (self.boot_catalog()?, self.extents.get(&CATALOG)) {
+            (Some(mut data), Some(extent)) => {
+                let block = extent[0].0;
+                data.resize(extent[0].1 as usize, 0);
+                regions.push(Region::Bytes {
+                    block: u64::from(block),
+                    data,
+                });
+                Some(block)
+            }
+            (Some(data), None) => {
+                let block = cursor.div_ceil(SECTOR);
+                *cursor = block * SECTOR + data.len() as u64;
+                regions.push(Region::Bytes { block, data });
+                Some(block_of(block * SECTOR)?)
+            }
+            _ => self.base.keep_catalog,
         })
     }
 

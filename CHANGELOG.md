@@ -32,7 +32,9 @@ Each published package owns its version and may be released independently.
 ### Changed
 
 - Separate ISO directory encoding and image placement from tree preparation,
-  with explicit placement phases shared by image and session writes.
+  with explicit placement phases shared by image and session writes. Share
+  directory metadata construction, iterate relocated children without a temporary
+  list, name path-table locations and move boot catalog buffers into the plan.
 
 ### Fixed
 

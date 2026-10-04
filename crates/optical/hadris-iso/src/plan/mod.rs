@@ -254,6 +254,12 @@ struct Planner<'a> {
     dir_refs: BTreeMap<(usize, usize), (u32, u32)>,
 }
 
+struct PathTableLocation {
+    little: u32,
+    big: u32,
+    size: u32,
+}
+
 const CATALOG: usize = usize::MAX;
 
 fn invalid(detail: Detail) -> PlanError {
@@ -1147,21 +1153,21 @@ impl Planner<'_> {
     fn descriptors(
         &self,
         volume_blocks: u32,
-        tables: &[(u32, u32, u32)],
+        tables: &[PathTableLocation],
         catalog: Option<u32>,
     ) -> PlanResult<Vec<u8>> {
         let mut out = Vec::new();
         for (ti, (tree, _)) in self.trees.iter().enumerate() {
-            let (l, m, size) = tables[ti];
+            let table = &tables[ti];
             let mut d: PrimaryVolumeDescriptor = bytemuck::Zeroable::zeroed();
             d.header = VolumeDescriptorHeader::new(raw::DescriptorType::Primary);
             d.volume_space_size = U32Both::new(volume_blocks);
             d.volume_set_size = U16Both::new(1);
             d.volume_sequence_number = U16Both::new(1);
             d.logical_block_size = U16Both::new(SECTOR_SIZE as u16);
-            d.path_table_size = U32Both::new(size);
-            d.type_l_path_table = U32Le::new(l);
-            d.type_m_path_table = U32Be::new(m);
+            d.path_table_size = U32Both::new(table.size);
+            d.type_l_path_table = U32Le::new(table.little);
+            d.type_m_path_table = U32Be::new(table.big);
             d.root = self.root_record(ti);
             d.creation_date = self.date(IsoDate::Created);
             d.modification_date = self.date(IsoDate::Modified);

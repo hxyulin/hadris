@@ -53,6 +53,12 @@ modules. New images and session writes share this planner. This separation
 allows changes to record construction or placement without changing writer I/O
 or either public API mode.
 
+Directory construction uses a builder for one namespace, with separate paths
+for special records (`.` and `..`), child directories and file extents. Directory
+POSIX metadata setup is shared; physical and relocated children are iterated
+directly. Path-table locations use named little-endian, big-endian and size
+fields, and the boot catalog's owned buffer is moved into the output plan.
+
 ## Usage
 
 ### Reading an image
