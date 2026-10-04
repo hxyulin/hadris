@@ -11,6 +11,9 @@ Each published package owns its version and may be released independently.
 - UDF readers honor extended allocation information lengths, exclude allocation
   padding from file data, validate recorded lengths, and reject transformed extents.
 
+- UDF mounts preserve device failures when falling back to the reserve descriptor
+  sequence.
+
 - CPIO `odc` writers include payloads for every hard-link name and report each
   stored extent, preventing empty-file extraction with GNU `cpio`.
 

@@ -392,7 +392,11 @@ async fn mount<D: BlockDevice>(dev: &mut D, backup: bool) -> Result<Info, Error<
     let found = match sequence(dev, len, block_size, first).await {
         Ok(found) => found,
         Err(err) if err.kind() == ErrorKind::Io => return Err(err),
-        Err(err) => sequence(dev, len, block_size, second).await.map_err(|_| err)?,
+        Err(err) => match sequence(dev, len, block_size, second).await {
+            Ok(found) => found,
+            Err(fallback) if fallback.kind() == ErrorKind::Io => return Err(fallback),
+            Err(_) => return Err(err),
+        },
     };
 
     let Some((_, lvd_block)) = found.logical else {
@@ -863,7 +867,8 @@ impl<D: BlockDevice> UdfFs<D> {
     /// sequence, with [`ErrorKind::Corrupt`] when the structures are
     /// invalid, and with [`ErrorKind::Unsupported`] for partition maps
     /// other than type 1 or device blocks above 4096 bytes. The device
-    /// comes back in the [`MountError`].
+    /// comes back in the [`MountError`]. Device failures, including reads of
+    /// the reserve sequence, retain their [`ErrorKind::Io`] and device error.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all))]
     pub async fn mount(mut dev: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
         match mount(&mut dev, options.is_backup_boot()).await {
