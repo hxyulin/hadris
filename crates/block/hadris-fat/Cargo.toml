@@ -140,3 +140,8 @@ required-features = ["std", "sync", "write"]
 [[test]]
 name = "fatfs_cache"
 required-features = ["std", "sync", "write"]
+
+[[bench]]
+name = "exfat_performance"
+harness = false
+required-features = ["std", "sync", "async", "write"]
