@@ -46,6 +46,7 @@ struct Position {
     node: NodeId,
     first: u32,
     at: ChainPos,
+    bucket: u32,
 }
 
 pub(crate) struct ChainCache {
@@ -94,17 +95,23 @@ impl ChainCache {
         if self.limit == 0 || !at.is_known() {
             return;
         }
-        if let Some(entry) = self.entries.iter_mut().find(|entry| {
-            entry.node == node
-                && entry.first == first
-                && entry.at.index() / stride == at.index() / stride
-        }) {
+        let bucket = at.index() / stride;
+        if let Some(entry) = self
+            .entries
+            .iter_mut()
+            .find(|entry| entry.node == node && entry.first == first && entry.bucket == bucket)
+        {
             if at.index() < entry.at.index() {
                 entry.at = at;
             }
             return;
         }
-        let entry = Position { node, first, at };
+        let entry = Position {
+            node,
+            first,
+            at,
+            bucket,
+        };
         if self.entries.len() < self.limit {
             self.entries.push(entry);
         } else {

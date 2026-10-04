@@ -36,7 +36,7 @@ pay extra CPU for cache maintenance. The [hosted optimization report](fat-hosted
 records separate cache measurements and tests for each step.
 CSV goes to stdout, so Cargo's build messages on stderr do not enter the file.
 
-The 120 cases combine three variants, two synchronous drivers and these
+The 126 cases combine three variants, two synchronous drivers and these
 workloads:
 
 | Workload | Operations |
@@ -47,7 +47,7 @@ workloads:
 | `append-512-end-sync` | The same log in 512-byte writes, close, sync |
 | `append-4k-end-sync` | The same log in 4 KiB writes, close, sync |
 | `write-4k`, `write-64k` | Create and sequentially write 1 MiB, close, sync |
-| `read-4k`, `read-64k`, `read-unaligned` | Open and sequentially read a contiguous 1 MiB file in 4 KiB, 64 KiB or 4093-byte chunks, close |
+| `read-128`, `read-4k`, `read-64k`, `read-unaligned` | Open and sequentially read a contiguous 1 MiB file in 128-byte, 4 KiB, 64 KiB or 4093-byte chunks, close |
 | `read-reverse-4k`, `read-shuffled-4k` | Read each 4 KiB block of a 1 MiB file once, backwards or in a deterministic permutation |
 | `read-fragmented-64k` | Sequentially read 1 MiB in 64 KiB chunks from a chain reordered into even then odd physical clusters |
 | `boot-load-64k` | Mount, resolve `EFI/BOOT/BOOTAA64.EFI`, read its 1 MiB contents in 64 KiB chunks, close |

@@ -65,6 +65,41 @@ fn chain_index_reduces_reverse_reads_without_changing_contents() {
 }
 
 #[test]
+fn indexed_small_forward_reads_and_later_seeks_match_uncached_reads() {
+    for case in CASES {
+        let (image, data) = fixture(case, 32768);
+        for blocks in [0, 8] {
+            let mut fs = FatFs::mount(
+                common::device(case, image.clone()),
+                MountOptions::new().read_only(),
+            )
+            .unwrap()
+            .with_cache(
+                CacheOptions::new()
+                    .with_chain_positions(4)
+                    .with_blocks(blocks),
+            );
+            let file = fs.lookup(fs.root(), Name::new("DATA.BIN")).unwrap();
+            let mut offset = 0;
+            let mut buf = [0; 73];
+            while offset < data.len() {
+                let n = fs.read(file, offset as u64, &mut buf).unwrap();
+                assert_eq!(&buf[..n], &data[offset..offset + n]);
+                offset += n;
+            }
+            for offset in [1, 16383, 4093, 32000, 512, 0] {
+                let n = fs.read(file, offset as u64, &mut buf).unwrap();
+                assert_eq!(&buf[..n], &data[offset..offset + n]);
+            }
+            assert_eq!(fs.read(file, data.len() as u64, &mut buf).unwrap(), 0);
+            fs.clear_cache();
+            assert_eq!(fs.read(file, 1, &mut buf).unwrap(), buf.len());
+            assert_eq!(&buf, &data[1..1 + buf.len()]);
+        }
+    }
+}
+
+#[test]
 fn chain_index_reads_fragmented_files_and_resets_after_mutations() {
     for case in CASES {
         let mut fs = FatFs::mount(

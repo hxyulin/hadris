@@ -186,7 +186,7 @@ enum Workload {
     ListLong,
 }
 
-const WORKLOADS: [(&str, Workload); 20] = [
+const WORKLOADS: [(&str, Workload); 21] = [
     ("mount", Workload::Mount),
     (
         "append-64-end-sync",
@@ -236,6 +236,7 @@ const WORKLOADS: [(&str, Workload); 20] = [
             flush_each: false,
         },
     ),
+    ("read-128", Workload::Read { chunk: 128 }),
     ("read-4k", Workload::Read { chunk: 4096 }),
     ("read-64k", Workload::Read { chunk: 65536 }),
     ("read-unaligned", Workload::Read { chunk: 4093 }),

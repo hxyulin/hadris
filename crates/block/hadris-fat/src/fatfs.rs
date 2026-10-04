@@ -558,6 +558,9 @@ impl<D: BlockDevice> FatFs<D> {
         if limit == 0 {
             return rawio::walk(&mut self.dev, &mut self.block, &self.fat, state.first, hint, want).await;
         }
+        if hint.is_known() && hint.index() == want {
+            return Ok(hint);
+        }
         let clusters = (state.size as u64).div_ceil(self.fat.geometry().cluster_size() as u64);
         let stride = clusters.div_ceil(limit as u64).max(1) as u32;
         if hint.is_known() && hint.index() <= want && want - hint.index() <= stride {

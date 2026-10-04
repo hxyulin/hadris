@@ -115,7 +115,7 @@ reads and measures 36.54 µs versus the baseline's 32.67 µs: the configured
 caches offer no I/O gain for this forward-only workload. Choose cache bounds
 for the application's access pattern rather than enabling them universally.
 
-Final validation: 335 passing crate tests/doctests across the full dual-mode
+Validation of the original five optimizations: 335 passing crate tests/doctests across the full dual-mode
 suite and the final added raw-layer regression, all 15 FAT/raw CI feature tiers
 on Rust 1.88 with warnings denied, workspace check with warnings denied,
 formatting, targeted clippy, public API snapshots and sync/async/local parity.
@@ -142,3 +142,51 @@ eight blocks. FAT32 4 KiB writes measure 152.88 µs versus 164.92 µs in the
 previous combined run; FAT12 64 KiB writes measure 457.92 µs versus 606.92 µs.
 I/O counts are identical. Short-name create/remove measures 167.75 µs versus
 162.88 µs, so these CPU timings do not establish improvement in every case.
+
+## 7. Cheaper indexed forward reads
+
+Reads whose hint already identifies the requested cluster return that hint
+without computing checkpoint spacing or searching the index. Checkpoints
+store their bucket at insertion, avoiding repeated division while comparing
+cached positions. Mutations still clear the index before file size changes,
+so a node's checkpoint spacing remains consistent. Chain guards and
+replacement policy are unchanged.
+
+The new `read-128` benchmark reads 1 MiB in 8,192 calls, exercising repeated
+reads within each cluster. Paired 21-sample runs use the same harness and
+32-position/eight-block configuration, with the previous commit as baseline.
+Median CPU times are:
+
+| Variant | Before | After | Device reads (unchanged) |
+|---------|-------:|------:|------------------------:|
+| FAT12 | 197.83 µs | 169.00 µs | 2,056 |
+| FAT16 | 189.33 µs | 145.04 µs | 2,054 |
+| FAT32 | 199.42 µs | 171.54 µs | 2,066 |
+
+[Before](benchmarks/fat-hosted-small-read-before.csv),
+[after](benchmarks/fat-hosted-small-read-after.csv).
+The [existing-workload run](benchmarks/fat-hosted-step7.csv) retains every
+I/O count from step 6 and shows mixed CPU changes: FAT32 4 KiB reads are
+41.42 µs versus 41.33 µs, while unaligned reads are 47.67 µs versus 52.54 µs.
+The improvement is primarily for small reads; it is not a universal
+sequential-read speedup.
+
+Validation includes small forward reads across every test geometry followed
+by backward/scattered seeks and cache clearing, with metadata caching on and
+off. Existing cyclic-chain detection, cancellation, reverse-read counts,
+async resource guards and payload tests also pass.
+
+## Further work
+
+Directory indexing and packing-safe FAT12 allocation batching remain separate
+follow-ups. A 64-block metadata cache reduces FAT32 long-name lookup reads to
+33 versus 2,001 with eight blocks, but CPU remains about 915 µs versus
+947 µs: removing repeated entry scanning needs a directory-level index.
+FAT12 bulk allocation still updates packed entries individually and requires
+its own block-boundary and interruption-recovery design before batching.
+
+The two follow-up commits pass the full 337-test FAT/raw dual-mode suite,
+allocator-only sync/async/write checks with warnings denied, workspace
+checking with warnings denied, formatting and clippy. All 126 benchmark
+smoke cases validate their output; all 60 existing hosted cases retain their
+device-call, byte and flush counts after the forward-read change.

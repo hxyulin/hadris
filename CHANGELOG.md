@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- FAT indexed reads reuse a current-cluster hint immediately and precompute
+  checkpoint buckets to reduce forward-read cache bookkeeping.
+
 - FAT metadata caching reuses allocated block buffers after invalidation and
   cache clearing, avoiding repeated allocation during metadata writes.
 
