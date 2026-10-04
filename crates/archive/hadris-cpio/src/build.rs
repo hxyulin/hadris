@@ -319,14 +319,17 @@ pub(crate) fn plan_tree<'t>(
                 };
                 fields.ino = group.0;
                 fields.nlink = entry.links() as u64;
-                group.1.push(out.len());
+                let repeat = planner.format == Format::Odc;
+                if !repeat {
+                    group.1.push(out.len());
+                }
                 let last = group.1.len() == entry.links();
                 let names = if last {
                     core::mem::take(&mut group.1)
                 } else {
                     Vec::new()
                 };
-                let data = match last {
+                let data = match repeat || last {
                     true => data,
                     false => {
                         fields.len = 0;
@@ -339,6 +342,9 @@ pub(crate) fn plan_tree<'t>(
                     fields,
                     data,
                 });
+                if repeat {
+                    planner.extent(&path, start, fields.len);
+                }
                 for index in names {
                     let name = out[index].path.clone();
                     planner.extent(&name, start, fields.len);

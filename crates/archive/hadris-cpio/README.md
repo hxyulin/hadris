@@ -9,7 +9,7 @@ the shared `hadris_fs::Tree` input of the other Hadris writers.
 - Reads `newc` (`070701`), `newc` with checksums (`070702`), `odc`
   (`070707`) and old binary archives in either byte order.
 - Writes `newc`, `newc` with checksums and `odc`.
-- Regular files, directories, symlinks, hard links (GNU cpio layout), device
+- Regular files, directories, symlinks, hard links (format-specific GNU cpio layouts), device
   nodes, FIFOs and sockets.
 - Works on pipes: the reader and writer need only `Read` and `Write`.
 - The same API blocking (`sync`) and asynchronous with `Send` futures
@@ -122,3 +122,9 @@ This project is licensed under the [MIT license](../../../LICENSE-MIT).
 The opt-in `tracing` feature enables `std` and emits operation spans through the
 application’s subscriber. It is disabled by default. See the
 [tracing guide](../../../docs/tracing.md) for targets, metadata and async behavior.
+
+The [streaming audit and benchmark](../../../docs/cpio-performance.md) records
+I/O counts, workload boundaries and native `cpio` interoperability checks.
+
+Hard links share one payload in `newc` and checksum `newc`; `odc` stores a
+payload for every name, with each name reporting its own data offset.

@@ -1,4 +1,3 @@
-use alloc::vec;
 use alloc::vec::Vec;
 
 use hadris_fs::{ErrorKind, FileType, Node, PathError, Report, SetAttr, Tree};
@@ -124,8 +123,8 @@ io_transform! {
 /// mode, so an error there writes nothing. Entries follow the tree
 /// depth-first, each directory before its children, children in name
 /// order; the root itself is not an entry. The names of a hard link share
-/// one inode, and the last of them in that order carries the data, as GNU
-/// cpio writes them. Report offsets count from the first byte this call
+/// one inode. In `newc` and checksum `newc`, only the last name carries the
+/// data; in `odc`, every name carries it. Report offsets count from the first byte this call
 /// writes. `out` is flushed, not closed.
 #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all))]
 pub async fn write<W: Write>(out: W, tree: &Tree, options: &CpioOptions) -> Result<Report, PathError> {
@@ -159,19 +158,24 @@ impl<W: Write> Writer<W> {
             .map_err(|err| PathError::from(err).with_path(path))?;
         self.put(&raw[..len]).await?;
         self.put(path).await?;
-        self.put(&[0]).await?;
-        self.put(&[0u8; 3][..header::name_padding(self.planner.format, namesize)]).await?;
+        self.put(&[0u8; 4][..1 + header::name_padding(self.planner.format, namesize)]).await?;
         Ok(())
     }
 
     async fn emit(&mut self, path: &[u8], mut fields: Fields, data: Data<'_>) -> Result<(), PathError> {
-        if self.buf.len() < CHUNK {
-            self.buf = vec![0u8; CHUNK];
-        }
+        let data = match data {
+            Data::Content(content) => content.as_bytes().map_or(data, Data::Bytes),
+            _ => data,
+        };
         let mut reader = match data {
             Data::Content(content) => Some(ContentReader::open(content).await.map_err(|err| err.with_path(path))?),
             _ => None,
         };
+        let buffer_len = fields.len.min(CHUNK as u64) as usize;
+        if reader.is_some() && self.buf.len() < buffer_len {
+            self.buf.reserve_exact(buffer_len - self.buf.len());
+            self.buf.resize(buffer_len, 0);
+        }
         if self.planner.format == Format::Crc {
             fields.check = match (&data, &mut reader) {
                 (Data::Bytes(bytes), _) => header::checksum(0, bytes),
@@ -239,10 +243,10 @@ impl<W: Write> Writer<W> {
     }
 
     /// Appends the file `node` under every name in `paths`, as a hard link
-    /// group: one inode, a link count of `paths.len()`, and the data on the
-    /// last name only, as GNU cpio writes them. Every name carries the
-    /// node's attributes, and the report gives every name the data's
-    /// extent.
+    /// group: one inode and a link count of `paths.len()`. In `newc` and
+    /// checksum `newc`, only the last name carries data and all names report
+    /// that extent. In `odc`, every name carries data and reports its own
+    /// extent. Every name carries the node's attributes.
     ///
     /// Fails like [`append`](Self::append) before writing anything, and
     /// with [`ErrorKind::InvalidInput`] when `paths` is empty or `node` is
@@ -260,21 +264,25 @@ impl<W: Write> Writer<W> {
         check_data(&data, last.as_ref())?;
         fields.ino = self.planner.ino();
         fields.nlink = paths.len() as u64;
-        let empty = Fields { len: 0, ..fields };
+        let repeat = self.planner.format == Format::Odc;
+        let preceding = if repeat { fields } else { Fields { len: 0, ..fields } };
         for path in first {
-            self.planner.check(path.as_ref(), &empty)?;
+            self.planner.check(path.as_ref(), &preceding)?;
         }
         self.planner.check(last.as_ref(), &fields)?;
         for path in first {
-            self.planner.entry(path.as_ref(), &empty, node.attrs())?;
+            let start = self.planner.entry(path.as_ref(), &preceding, node.attrs())?;
+            if repeat {
+                self.planner.extent(path.as_ref(), start, fields.len);
+            }
         }
         let start = self.planner.entry(last.as_ref(), &fields, node.attrs())?;
         self.planner.take_ino();
-        for path in paths {
+        for path in if repeat { core::slice::from_ref(last) } else { paths } {
             self.planner.extent(path.as_ref(), start, fields.len);
         }
         for path in first {
-            self.emit(path.as_ref(), empty, Data::None).await?;
+            self.emit(path.as_ref(), preceding, if repeat { data } else { Data::None }).await?;
         }
         self.emit(last.as_ref(), fields, data).await
     }

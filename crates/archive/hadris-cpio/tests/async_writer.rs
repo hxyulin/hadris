@@ -1,3 +1,5 @@
+mod common;
+
 use core::convert::Infallible;
 use core::future::Future;
 use core::task::{Context, Poll};
@@ -37,8 +39,9 @@ impl hadris_io::ErrorType for Sink {
 
 impl hadris_io::r#async::Write for Sink {
     fn write(&mut self, bytes: &[u8]) -> impl Future<Output = Result<usize, Infallible>> + Send {
-        self.0.extend_from_slice(bytes);
-        core::future::ready(Ok(bytes.len()))
+        let n = bytes.len().min(7);
+        self.0.extend_from_slice(&bytes[..n]);
+        core::future::ready(Ok(n))
     }
 
     fn flush(&mut self) -> impl Future<Output = Result<(), Infallible>> + Send {
@@ -134,4 +137,65 @@ fn custom_buffer_segments_and_offsets_are_send() {
         assert!(reader.next_entry().await.unwrap().is_none());
         assert!(!reader.next_segment().await.unwrap());
     }));
+}
+
+#[test]
+fn async_hard_link_owners_follow_equivalent_tree_paths() {
+    let mut linked = common::newc_entry(b"dir//a", 0o100644, b"old", None);
+    linked[38..46].copy_from_slice(b"00000002");
+    let mut final_link = common::newc_entry(b"b", 0o100644, b"group", None);
+    final_link[38..46].copy_from_slice(b"00000002");
+    let bytes = [
+        linked,
+        common::newc_entry(b"dir/a/", 0o100644, b"replacement", None),
+        final_link,
+        common::trailer(),
+    ]
+    .concat();
+    let tree = block_on(hadris_cpio::r#async::read_tree(
+        &mut hadris_cpio::r#async::CpioReader::new(Cursor::new(&bytes)),
+    ))
+    .unwrap();
+    assert_eq!(
+        tree.get("dir/a").unwrap().content().unwrap().as_bytes(),
+        Some(&b"replacement"[..])
+    );
+    assert_eq!(
+        tree.get("b").unwrap().content().unwrap().as_bytes(),
+        Some(&b"group"[..])
+    );
+    assert_eq!(tree.entry("dir/a").unwrap().links(), 1);
+}
+
+#[test]
+fn async_borrowed_payloads_handle_short_writes() {
+    let mut tree = Tree::new();
+    tree.insert("data", Node::file(Content::bytes(vec![37; 131_073])))
+        .unwrap();
+    for format in [Format::Newc, Format::Crc, Format::Odc] {
+        let expected = common::archive(&tree, format);
+        let mut out = Sink::default();
+        block_on(hadris_cpio::r#async::write(
+            &mut out,
+            &tree,
+            &CpioOptions::new().with_format(format),
+        ))
+        .unwrap();
+        assert_eq!(out.0, expected);
+    }
+}
+
+#[test]
+fn async_odc_hard_links_store_each_payload() {
+    let options = CpioOptions::new().with_format(Format::Odc);
+    let node = Node::file(Content::bytes(vec![37; 70_001]));
+    let mut out = Sink::default();
+    let mut writer = hadris_cpio::r#async::Writer::new(&mut out, &options);
+    block_on(writer.append_hard_links(&["a", "b", "c"], &node)).unwrap();
+    let (_, report) = block_on(writer.finish()).unwrap();
+    for entry in common::read_all(&out.0).unwrap() {
+        assert_eq!(entry.data, vec![37; 70_001]);
+        assert_eq!(report.extents(entry.name).unwrap()[0].len(), 70_001);
+    }
+    assert_ne!(report.extents("a"), report.extents("b"));
 }

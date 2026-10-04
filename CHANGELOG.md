@@ -8,6 +8,17 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- CPIO `odc` writers include payloads for every hard-link name and report each
+  stored extent, preventing empty-file extraction with GNU `cpio`.
+
+- CPIO writers combine name terminators and alignment padding into one write.
+
+- CPIO writers borrow memory-backed payloads directly and allocate reusable
+  scratch only for streamed content, bounded by its length and 64 KiB.
+
+- CPIO tree extraction tracks hard-link ownership using normalized path separators,
+  preserving archive-order replacements under equivalent path spellings.
+
 - Hosted exFAT appends reuse guarded chain positions when finding the tail,
   avoiding repeated traversal of the full existing allocation.
 

@@ -461,6 +461,33 @@ fn read_tree_replaces_hard_link_names_in_archive_order() {
 }
 
 #[test]
+fn hard_link_owners_follow_equivalent_tree_paths() {
+    for (first, replacement) in [
+        (&b"dir//a"[..], &b"dir/a"[..]),
+        (&b"dir/a"[..], &b"dir//a/"[..]),
+        (&b"./dir///a"[..], &b"/dir/a"[..]),
+    ] {
+        let tree = tree_of(&[
+            linked(first, 7, 2, b"old"),
+            newc_entry(replacement, 0o100644, b"replacement", None),
+            linked(b"b", 7, 2, b"group"),
+        ])
+        .unwrap();
+        assert_eq!(bytes_at(&tree, "dir/a"), Some(&b"replacement"[..]));
+        assert_eq!(bytes_at(&tree, "b"), Some(&b"group"[..]));
+        assert_eq!(tree.entry("dir/a").unwrap().links(), 1);
+        assert_eq!(tree.entry("b").unwrap().links(), 1);
+    }
+    let tree = tree_of(&[
+        linked(b"dir//a", 7, 2, b"old"),
+        linked(b"dir/a/", 7, 2, b"new"),
+    ])
+    .unwrap();
+    assert_eq!(bytes_at(&tree, "dir/a"), Some(&b"new"[..]));
+    assert_eq!(tree.entry("dir/a").unwrap().links(), 1);
+}
+
+#[test]
 fn crc_reader_rejects_corrupt_data() {
     let mut bytes = archive(&sample_tree(), Format::Crc);
     let at = bytes
@@ -940,4 +967,146 @@ fn caller_buffer_must_fit_trailer_and_both_slice_views() {
         reader.next_entry().unwrap_err().kind(),
         ErrorKind::LimitExceeded
     );
+}
+
+#[test]
+fn borrowed_payloads_handle_short_writes_and_keep_archive_bytes() {
+    struct ShortWriter {
+        bytes: Vec<u8>,
+        calls: usize,
+        max_request: usize,
+        limit: usize,
+    }
+    impl hadris_io::ErrorType for ShortWriter {
+        type Error = core::convert::Infallible;
+    }
+    impl Write for ShortWriter {
+        fn write(&mut self, data: &[u8]) -> Result<usize, Self::Error> {
+            self.calls += 1;
+            self.max_request = self.max_request.max(data.len());
+            let n = data.len().min(self.limit);
+            self.bytes.extend_from_slice(&data[..n]);
+            Ok(n)
+        }
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+    let mut tree = Tree::new();
+    let payload = vec![37; 131_073];
+    tree.insert("data", Node::file(Content::bytes(payload.clone())))
+        .unwrap();
+    for format in [Format::Newc, Format::Crc, Format::Odc] {
+        let expected = archive(&tree, format);
+        for limit in [7, usize::MAX] {
+            let mut out = ShortWriter {
+                bytes: Vec::new(),
+                calls: 0,
+                max_request: 0,
+                limit,
+            };
+            let report =
+                hadris_cpio::sync::write(&mut out, &tree, &CpioOptions::new().with_format(format))
+                    .unwrap();
+            assert_eq!(report.size(), expected.len() as u64);
+            assert_eq!(out.bytes, expected);
+            assert_eq!(out.max_request, payload.len());
+            assert_eq!(read_all(&out.bytes).unwrap()[0].data, payload);
+        }
+    }
+}
+
+#[test]
+fn writer_combines_name_terminator_and_padding_at_every_alignment() {
+    struct Counted {
+        bytes: Vec<u8>,
+        writes: usize,
+        limit: usize,
+    }
+    impl hadris_io::ErrorType for Counted {
+        type Error = core::convert::Infallible;
+    }
+    impl Write for Counted {
+        fn write(&mut self, data: &[u8]) -> Result<usize, Self::Error> {
+            let n = data.len().min(self.limit);
+            self.bytes.extend_from_slice(&data[..n]);
+            self.writes += 1;
+            Ok(n)
+        }
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+    for format in [Format::Newc, Format::Crc, Format::Odc] {
+        for len in 1..=8 {
+            let name = vec![b'x'; len];
+            for limit in [1, usize::MAX] {
+                let mut out = Counted {
+                    bytes: Vec::new(),
+                    writes: 0,
+                    limit,
+                };
+                let mut writer = Writer::new(&mut out, &CpioOptions::new().with_format(format));
+                writer.append(&name, &Node::dir()).unwrap();
+                writer.finish().unwrap();
+                if limit == usize::MAX {
+                    assert_eq!(out.writes, 6);
+                }
+                let entries = read_all(&out.bytes).unwrap();
+                assert_eq!(entries.len(), 1);
+                assert_eq!(entries[0].name.as_bytes(), name);
+                assert_eq!(entries[0].file_type, FileType::Dir);
+                if matches!(format, Format::Newc | Format::Crc) {
+                    assert_eq!(out.bytes.len(), (110 + len + 1).next_multiple_of(4) + 124);
+                    assert_eq!(&out.bytes[38..46], b"00000002");
+                    let start = 110 + name.len();
+                    let end = (start + 1).next_multiple_of(4);
+                    assert!(out.bytes[start..end].iter().all(|&byte| byte == 0));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn odc_hard_links_store_each_payload_and_report_its_own_extent() {
+    let options = CpioOptions::new().with_format(Format::Odc);
+    for len in [0, 4, 70_001] {
+        let data = vec![37; len];
+        let node = Node::file(Content::bytes(data.clone()));
+        let mut tree = Tree::new();
+        tree.insert("a", node.clone()).unwrap();
+        tree.link("a", "b").unwrap();
+        tree.link("a", "c").unwrap();
+        let mut out = StdIo::new(Vec::new());
+        let report = hadris_cpio::sync::write(&mut out, &tree, &options).unwrap();
+        let bytes = out.into_inner();
+        let plan = hadris_cpio::plan(&tree, &options).unwrap();
+        let mut streamed = StdIo::new(Vec::new());
+        let mut writer = Writer::new(&mut streamed, &options);
+        writer.append_hard_links(&["a", "b", "c"], &node).unwrap();
+        let (_, streaming_report) = writer.finish().unwrap();
+        assert_eq!(streamed.into_inner(), bytes);
+        assert_eq!(report.size(), bytes.len() as u64);
+        assert_eq!(plan.size(), report.size());
+        let entries = read_all(&bytes).unwrap();
+        assert_eq!(entries.len(), 3);
+        let mut offsets = Vec::new();
+        for entry in entries {
+            assert_eq!(entry.data, data);
+            assert_eq!(entry.ino, 1);
+            assert_eq!(entry.nlink, 3);
+            let extent = report.extents(&entry.name).unwrap()[0];
+            assert_eq!(extent.len(), len as u64);
+            assert_eq!(plan.extents(&entry.name), report.extents(&entry.name));
+            assert_eq!(
+                streaming_report.extents(&entry.name),
+                report.extents(&entry.name)
+            );
+            let offset = extent.offset() as usize;
+            assert_eq!(&bytes[offset..offset + len], data);
+            offsets.push(offset);
+        }
+        assert!(offsets.windows(2).all(|pair| pair[0] < pair[1]));
+    }
 }
