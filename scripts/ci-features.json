@@ -189,8 +189,13 @@
     },
     {
       "crate": "hadris-fat",
+      "tier": "hosted-tracing",
+      "features": "tracing,sync,async,write"
+    },
+    {
+      "crate": "hadris-fat",
       "tier": "all-capabilities",
-      "features": "std,alloc,sync,async,write,defmt"
+      "features": "std,alloc,sync,async,write,defmt,tracing"
     },
     {
       "crate": "hadris-ntfs",
@@ -440,8 +445,13 @@
     },
     {
       "crate": "hadris",
+      "tier": "leaf-fat-tracing",
+      "features": "sync,async,write,fat,tracing"
+    },
+    {
+      "crate": "hadris",
       "tier": "all-capabilities",
-      "features": "std,alloc,sync,async,write,detect,part,cpio,unstable-ntfs"
+      "features": "std,alloc,sync,async,write,detect,part,cpio,unstable-ntfs,tracing"
     },
     {
       "crate": "hadris",

@@ -137,6 +137,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// [`ErrorKind::Corrupt`] when the boot sector is not a valid FAT12,
     /// FAT16 or FAT32 boot sector or describes a volume larger than the
     /// device. The [`MountError`] gives `dev` back.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all))]
     pub async fn mount_with(mut dev: D, owner: &'mount mut MountToken, options: Options) -> Result<Self, MountError<D, D::Error>> {
         const { assert!(FILES <= u8::MAX as usize, "at most 255 file slots") };
         if dev.block_size().get() as usize != BLOCK {
@@ -183,6 +184,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// read-only because the device refused a write fails with
     /// [`ErrorKind::ReadOnly`] while it still holds file sizes, or what an
     /// interrupted operation left, that can no longer be written.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all))]
     pub async fn unmount(mut self) -> Result<D, MountError<D, D::Error>> {
         match self.sync().await {
             Ok(()) => Ok(self.dev),
@@ -225,6 +227,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// Opens the subdirectory `name` of `parent`. `.` is `parent` and `..`
     /// its parent. Fails with [`ErrorKind::NotFound`] or
     /// [`ErrorKind::NotADirectory`].
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all))]
     pub async fn open_dir(&mut self, parent: Dir, name: &str) -> FsResult<Dir, D::Error> {
         let start = self.start(parent)?;
         match name {
@@ -245,6 +248,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// calling `each` with every entry but `.` and `..` until it returns
     /// `ControlFlow::Break`. Continue a listing from the
     /// [`next_cursor`](Entry::next_cursor) of the last entry seen.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all))]
     pub async fn list(
         &mut self,
         dir: Dir,
@@ -284,6 +288,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// [`ErrorKind::IsADirectory`] for a directory,
     /// [`ErrorKind::InvalidInput`] for contradictory options, and as
     /// `create_dir` does for a name FAT cannot hold.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all))]
     pub async fn open(&mut self, dir: Dir, name: &str, options: OpenOptions) -> FsResult<File<'mount>, D::Error> {
         options.validate().map_err(ErrorKind::from)?;
         if options.is_write() {
@@ -332,36 +337,38 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// Reads from the file's position and advances it. Returns 0 at the
     /// end. Fails with [`ErrorKind::InvalidInput`] when the file was not
     /// opened for reading.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all, fields(bytes = buf.len())))]
     pub async fn read(&mut self, file: &File<'_>, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         let index = self.slot(file)?;
         let state = self.files[index];
         if !state.has(FLAG_READ) {
             return Err(ErrorKind::InvalidInput.into());
         }
-        let (pos, size) = (state.pos as u64, state.size as u64);
+        let (pos, size) = (state.pos, state.size);
         if pos >= size || buf.is_empty() {
             return Ok(0);
         }
-        let count = (size - pos).min(buf.len() as u64) as usize;
-        let cluster_size = self.fat.geometry().cluster_size() as u64;
+        let count = ((size - pos) as u64).min(buf.len() as u64) as usize;
+        let cluster_size = self.fat.geometry().cluster_size();
+        let shift = self.fat.geometry().cluster_shift();
         let mut hint = state.at;
         let mut done = 0;
         while done < count {
-            let at = pos + done as u64;
-            let want = (at / cluster_size) as u32;
+            let at = pos + done as u32;
+            let want = at >> shift;
             hint = rawio::walk(&mut self.dev, &mut self.block, &self.fat, state.first, hint, want).await?;
             if hint.index() < want {
                 return Err(ErrorKind::Corrupt.into());
             }
-            let within = at % cluster_size;
-            let offset = self.fat.cluster_at(hint.cluster())? + within;
+            let within = at & (cluster_size - 1);
+            let offset = self.fat.cluster_at(hint.cluster())? + within as u64;
             let n = ((cluster_size - within) as usize).min(count - done);
             let n = rawio::run(&mut self.dev, &mut self.block, &self.fat, &mut hint, n, count - done).await?;
             rawio::read_bytes(&mut self.dev, &mut self.block, offset, &mut buf[done..done + n]).await?;
             done += n;
         }
         let slot = &mut self.files[index];
-        slot.pos = (pos + count as u64) as u32;
+        slot.pos = pos + count as u32;
         slot.at = hint;
         Ok(count)
     }
@@ -373,6 +380,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// [`ErrorKind::FileTooLarge`], and a full volume with
     /// [`ErrorKind::NoSpace`]. The new size reaches the directory entry at
     /// `flush`, `close`, `sync` or `unmount`.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all, fields(bytes = buf.len())))]
     pub async fn write(&mut self, file: &File<'_>, buf: &[u8]) -> FsResult<usize, D::Error> {
         let index = self.slot(file)?;
         if !self.files[index].has(FLAG_WRITE) {
@@ -412,6 +420,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// past it. Fails with [`ErrorKind::InvalidInput`] when the file was
     /// not opened for writing and [`ErrorKind::FileTooLarge`] past
     /// 4 GiB - 1.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all, fields(len = len)))]
     pub async fn set_len(&mut self, file: &File<'_>, len: u64) -> FsResult<(), D::Error> {
         let index = self.slot(file)?;
         if !self.files[index].has(FLAG_WRITE) {
@@ -426,6 +435,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
 
     /// Writes the file's size and modification time to its entry and
     /// flushes the device.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all))]
     pub async fn flush(&mut self, file: &File<'_>) -> FsResult<(), D::Error> {
         let index = self.slot(file)?;
         self.publish(index).await?;
@@ -436,6 +446,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// entry, without flushing the device, and frees its slot. When the
     /// write fails the slot stays taken until `sync` or `unmount` writes
     /// it.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all))]
     pub async fn close(&mut self, file: File<'_>) -> FsResult<(), D::Error> {
         let index = self.slot(&file)?;
         self.publish(index).await?;
@@ -700,6 +711,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// A read-only volume is not written: `sync` fails with
     /// [`ErrorKind::ReadOnly`] when a refused write left file sizes, or
     /// what an interrupted operation left, unwritten, and succeeds otherwise.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all))]
     pub async fn sync(&mut self) -> FsResult<(), D::Error> {
         if self.read_only {
             return if self.unwritten() { Err(ErrorKind::ReadOnly.into()) } else { Ok(()) };
@@ -874,6 +886,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
 
     /// Writes `count` bytes of `data`, or zeros, at `pos` of the file in
     /// slot `index`, growing it and zero-filling a gap past its end.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all, fields(index = index, pos = pos, count = count)))]
     async fn write_at(&mut self, index: usize, pos: u64, data: Option<&[u8]>, count: usize) -> FsResult<(), D::Error> {
         let state = self.files[index];
         let end = pos + count as u64;
@@ -902,6 +915,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
 
     /// Changes the size of the file in slot `index` to `len`.
     async fn resize(&mut self, index: usize, len: u64) -> FsResult<(), D::Error> {
+        debug_assert!(len <= MAX_FILE_SIZE);
         let state = self.files[index];
         let old = state.size as u64;
         if len > old {
@@ -910,7 +924,9 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         if len == old {
             return Ok(());
         }
-        let keep = len.div_ceil(self.fat.geometry().cluster_size() as u64) as u32;
+        let cluster_size = self.fat.geometry().cluster_size();
+        let bytes = len as u32;
+        let keep = (bytes >> self.fat.geometry().cluster_shift()) + u32::from(bytes & (cluster_size - 1) != 0);
         let first = if keep == 0 { 0 } else { state.first };
         if keep == 0 && state.first != 0 {
             self.pending = Pending::chain(state.first, Owner::Entry(state.entry));
@@ -953,8 +969,12 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// Extends a file's chain to hold `end` bytes, linking the new
     /// clusters, which stay pending until the caller records the size.
     /// Returns the first cluster and a position for writing.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all, fields(end = end)))]
     async fn cover(&mut self, state: &FileSlot, end: u64) -> FsResult<(u32, ChainPos), D::Error> {
-        let need = end.div_ceil(self.fat.geometry().cluster_size() as u64) as u32;
+        debug_assert!(end <= MAX_FILE_SIZE);
+        let cluster_size = self.fat.geometry().cluster_size();
+        let bytes = end as u32;
+        let need = (bytes >> self.fat.geometry().cluster_shift()) + u32::from(bytes & (cluster_size - 1) != 0);
         if need == 0 {
             return Ok((state.first, state.at));
         }
@@ -980,16 +1000,26 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         }
         let tail = reached.cluster();
         self.pending = Pending::chain(0, Owner::Tail(tail));
-        let added = self.allocate(need - 1 - reached.index()).await?;
-        if let Err(err) = self.set_fat(tail, added).await {
-            let _ = self.recover().await;
-            return Err(err);
+        let count = need - 1 - reached.index();
+        if count == 1 {
+            let result = rawio::allocate_after(&mut self.dev, &mut self.block, &mut self.fat, &mut self.pending.held, tail).await;
+            if let Err(err) = self.note(result) {
+                let _ = self.recover().await;
+                return Err(err);
+            }
+        } else {
+            let added = self.allocate(count).await?;
+            if let Err(err) = self.set_fat(tail, added).await {
+                let _ = self.recover().await;
+                return Err(err);
+            }
         }
         Ok((state.first, reached))
     }
 
     /// Allocates a chain of `count` clusters into the pending chain and
     /// returns its first cluster. On failure what was taken is freed.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all, fields(count = count)))]
     async fn allocate(&mut self, count: u32) -> FsResult<u32, D::Error> {
         let result = rawio::allocate_run(&mut self.dev, &mut self.block, &mut self.fat, Some(&mut self.pending.held), count).await;
         match self.note(result) {
@@ -1003,6 +1033,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
 
     /// Allocates a chain of `count` zeroed clusters one by one into the
     /// pending chain and returns its first cluster.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all, fields(count = count)))]
     async fn allocate_zeroed(&mut self, count: u32) -> FsResult<u32, D::Error> {
         let cluster_size = self.fat.geometry().cluster_size() as usize;
         let (mut first, mut last) = (0, 0);
@@ -1036,22 +1067,24 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
 
     /// Writes `len` bytes of `data`, or zeros, at byte `pos` of the chain at
     /// `first`, and returns the position of the last cluster written.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all, fields(first = first, pos = pos, len = len)))]
     async fn fill(&mut self, first: u32, hint: ChainPos, pos: u64, data: Option<&[u8]>, len: usize) -> FsResult<ChainPos, D::Error> {
         if len == 0 {
             return Ok(hint);
         }
-        let cluster_size = self.fat.geometry().cluster_size() as u64;
+        let cluster_size = self.fat.geometry().cluster_size();
+        let shift = self.fat.geometry().cluster_shift();
         let mut hint = hint;
         let mut done = 0;
         while done < len {
-            let at = pos + done as u64;
-            let want = (at / cluster_size) as u32;
+            let at = (pos + done as u64) as u32;
+            let want = at >> shift;
             hint = rawio::walk(&mut self.dev, &mut self.block, &self.fat, first, hint, want).await?;
             if hint.index() < want {
                 return Err(ErrorKind::Corrupt.into());
             }
-            let within = at % cluster_size;
-            let offset = self.fat.cluster_at(hint.cluster())? + within;
+            let within = at & (cluster_size - 1);
+            let offset = self.fat.cluster_at(hint.cluster())? + within as u64;
             let n = ((cluster_size - within) as usize).min(len - done);
             let n = rawio::run(&mut self.dev, &mut self.block, &self.fat, &mut hint, n, len - done).await?;
             let result = match data {
@@ -1190,7 +1223,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
                         return Err(ErrorKind::NoSpace.into());
                     }
                     let per_cluster = self.fat.geometry().cluster_size() / ENTRY_SIZE as u32;
-                    (start, (needed - run_len).div_ceil(per_cluster), walk.pos().cluster())
+                    (start, (needed - run_len + per_cluster - 1) >> (self.fat.geometry().cluster_shift() - ENTRY_SIZE.trailing_zeros()), walk.pos().cluster())
                 }
             };
             let short = if new.lossless && taken & 1 == 0 {

@@ -420,6 +420,7 @@ impl<D: BlockDevice> FatFs<D> {
     /// than the device, and with [`ErrorKind::Unsupported`] when the device's
     /// blocks are larger than 4096 bytes. The [`MountError`] gives `dev`
     /// back.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all))]
     pub async fn mount(mut dev: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
         let read_only = options.is_read_only() || !dev.writable();
         let mut block = match new_block(dev.block_size().get() as usize) {
@@ -468,6 +469,7 @@ impl<D: BlockDevice> FatFs<D> {
     /// read-only because the device refused a write fails with
     /// [`ErrorKind::ReadOnly`] while it still holds pending sizes, or what an
     /// interrupted operation left, that can no longer be written.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all))]
     pub async fn unmount(mut self) -> Result<D, MountError<D, D::Error>> {
         let synced = FileSystem::sync(&mut self).await;
         match synced {
@@ -747,6 +749,7 @@ impl<D: BlockDevice> FatFs<D> {
     }
 
     /// Creates `name` in `dir` as a file or directory and pins it.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all, fields(dir = ?dir, is_dir = is_dir)))]
     async fn create_node(
         &mut self,
         dir: NodeId,
@@ -1744,6 +1747,7 @@ impl<D: BlockDevice> FatFs<D> {
     /// returns its first cluster. The chain stays pending, to be linked
     /// through `owner`; the caller clears `pending` once it is. Nothing is
     /// left allocated on failure.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all, fields(count = count, zero = zero)))]
     async fn allocate_chain(&mut self, count: u32, zero: bool, owner: Owner) -> FsResult<u32, D::Error> {
         let pending = self.pending.insert(Pending::chain(0, owner));
         let allocated = if zero {
@@ -1767,6 +1771,7 @@ impl<D: BlockDevice> FatFs<D> {
 
     /// Allocates a chain of `count` zeroed clusters one by one, recording
     /// them in the pending allocation.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all, fields(count = count)))]
     async fn allocate_zeroed(&mut self, count: u32) -> FsResult<u32, D::Error> {
         let (mut first, mut last) = (0, 0);
         for _ in 0..count {
@@ -1805,6 +1810,7 @@ impl<D: BlockDevice> FatFs<D> {
     /// Extends a file's chain to hold `end` bytes. The new clusters are
     /// linked but not zeroed, and stay pending until the caller has
     /// recorded the new size.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all, fields(end = end)))]
     async fn cover(&mut self, state: &Node, end: u64) -> FsResult<Growth, D::Error> {
         let need = end.div_ceil(self.fat.geometry().cluster_size() as u64) as u32;
         let none = Growth { first: state.first, added: 0 };
@@ -1838,6 +1844,7 @@ impl<D: BlockDevice> FatFs<D> {
 
     /// Writes `len` bytes of `data`, or zeros, at byte `pos` of the chain at
     /// `first`, and returns a hint for the last cluster written.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all, fields(first = first, pos = pos, len = len)))]
     async fn fill(
         &mut self,
         first: u32,
@@ -2071,6 +2078,7 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
 
     /// Finds `name` in `dir` and pins the result. Case is ignored, and the
     /// short name of an entry with a long name matches too.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all, fields(dir = ?dir)))]
     async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
         name.check()?;
         let start = self.dir_start(dir).await?;
@@ -2145,6 +2153,7 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
     /// volume label and deleted entries are skipped. The raw cursor is the
     /// index of a directory slot. A directory whose cluster chain loops
     /// fails with [`ErrorKind::Corrupt`] once the walk comes back around.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all, fields(dir = ?dir)))]
     async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
         let start = self.dir_start(dir).await?;
         let Ok(mut slot) = u32::try_from(from.into_raw()) else {
@@ -2219,6 +2228,7 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
     /// Reads from a file at `offset`. Returns 0 at or past the end. A chain
     /// that ends before the file's size or loops fails with
     /// [`ErrorKind::Corrupt`].
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all, fields(node = ?node, offset = offset, bytes = buf.len())))]
     async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         if node == ROOT {
             return Err(ErrorKind::IsADirectory.into());
@@ -2317,6 +2327,7 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
     /// The new size of a pinned file is written by `close`,
     /// `fsync` or `sync`, with the modification time and the archive
     /// attribute.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all, fields(node = ?node, offset = offset, bytes = buf.len())))]
     async fn write(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, D::Error> {
         self.prepare().await?;
         let (id, state) = self.file_node(node).await?;
@@ -2361,6 +2372,7 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
     /// past it. A changed size sets the archive attribute; the same size
     /// changes nothing. A length past 4 GiB - 1 fails with
     /// [`ErrorKind::FileTooLarge`].
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all, fields(node = ?node, len = len)))]
     async fn truncate(&mut self, node: NodeId, len: u64) -> FsResult<(), D::Error> {
         self.prepare().await?;
         let (id, state) = self.file_node(node).await?;
@@ -2411,6 +2423,7 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
 
     /// Writes the node's pending size and modification time, then flushes
     /// the device.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all, fields(node = ?node)))]
     async fn fsync(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         self.publish_node(node).await?;
         self.flush_device().await
@@ -2427,6 +2440,7 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
     /// dot or space, refused rather than stripped so a created name is the
     /// name listed), and [`ErrorKind::NoSpace`] when a FAT12/16 root
     /// directory is full or a directory would pass 65536 entries.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all, fields(dir = ?dir)))]
     async fn create(&mut self, dir: NodeId, name: &Name, attrs: &SetAttr) -> FsResult<NodeId, D::Error> {
         self.create_node(dir, name, false, attrs).await
     }
@@ -2442,6 +2456,7 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
     /// [`ErrorKind::Busy`] while the node is open. A node that is pinned but
     /// not open is removed; its id then answers [`ErrorKind::NotFound`]
     /// until its last `forget`.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all, fields(dir = ?dir)))]
     async fn unlink(&mut self, dir: NodeId, name: &Name) -> FsResult<(), D::Error> {
         self.remove_entry(dir, name, false).await
     }
@@ -2543,6 +2558,7 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
     /// A read-only volume is not written: `sync` fails with
     /// [`ErrorKind::ReadOnly`] when a refused write left pending sizes, or
     /// what an interrupted operation left, unwritten, and succeeds otherwise.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all))]
     async fn sync(&mut self) -> FsResult<(), D::Error> {
         if self.read_only {
             return if self.unwritten() { Err(ErrorKind::ReadOnly.into()) } else { Ok(()) };

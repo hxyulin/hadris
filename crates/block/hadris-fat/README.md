@@ -16,6 +16,14 @@ systems, SD cards, and USB drives.
 - **Checker** - A read-only `fsck` that reports each problem it finds
 - **exFAT** - `ExFatFs` reads, writes, formats and checks exFAT, including TexFAT volumes with two FATs
 
+## Performance measurements
+
+Run `cargo bench -p hadris-fat --bench performance` for FAT12/16/32
+workloads through both `sync::FatFs` and `embedded::sync::Fat`. It reports
+device reads, writes, transferred bytes, flushes, write amplification and
+runtime. The [performance guide](../../../docs/performance.md) describes
+the workloads, CSV baselines, measurement limits and firmware-size checks.
+
 ## Quick Start
 
 ### The `FatFs` Driver
@@ -226,6 +234,7 @@ cargo run -p hadris-fat --example shared_volume -- disk.img
 | `async` | Asynchronous API with `Send` futures in `r#async` | `hadris-io/async` |
 | `std` | `hadris_storage::host::FileDevice` for image files and `SystemClock` | `std`, `alloc` |
 | `defmt` | `defmt::Format` for `FatKind` | `defmt` |
+| `tracing` | [Function spans](../../../docs/tracing.md) for FAT/exFAT operations and FAT allocation/write paths; disabled by default | `std`, `alloc`, `tracing` |
 
 Default features: `write`, `std`, `sync`
 

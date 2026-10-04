@@ -16,7 +16,8 @@ needs an allocator:
 
 - **Layouts** of the boot sector, BPB, FSInfo sector and directory entries,
   with their constants
-- **Boot sectors**: `parse_boot` checks one and returns its `Geometry`
+- **Boot sectors**: `parse_boot` checks one and returns its `Geometry`,
+  including `cluster_shift()` for the validated power-of-two cluster size
 - **FAT entries**: `FatKind` encodes and decodes entries of every width and
   classifies chain links; `ChainGuard` finds loops in a chain without memory
   proportional to it
@@ -43,6 +44,10 @@ from one source. They are generic over a `hadris-storage` block device and
 borrow a caller-lent `BlockBuf` of one device block, so they still need no
 allocator:
 
+- `read_bytes`, `write_bytes` and `write_zeros` use a block cursor over any
+  nonzero device block size that fits `BlockBuf`. Reads and data writes transfer
+  whole blocks directly, while partial blocks use the cache. Zero-filling
+  batches as many whole blocks as the buffer holds.
 - `read_geometry` and `read_fat` read the boot and FSInfo sectors into a
   `Fat`, which tracks the free count and allocation hint
 - `get`, `set` and `mirror` read and write FAT entries on every copy, the
@@ -51,6 +56,9 @@ allocator:
   `free_chain` take and free clusters a device block of entries at a time,
   recording their progress in a `Held` so a driver can finish an
   interrupted one
+- `allocate_after` extends a chain by one cluster, combining allocation and
+  the tail link into one write per FAT copy on FAT16/32 when the entries share
+  a device block; the caller retains the held cluster for recovery
 - `slot_offset` with a `DirWalk` that keeps its chain position,
   `read_slot`, `write_slots` and `clear_slots` for directories
 - `mkfs` writes a volume that `layout::plan` planned

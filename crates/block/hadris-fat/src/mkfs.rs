@@ -90,6 +90,7 @@ io_transform! {
 /// it refuses writes. Nothing is written unless the options are valid; a
 /// format that fails later, or is interrupted, leaves a device that does
 /// not mount.
+#[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all))]
 pub async fn format<D: BlockDevice>(dev: &mut D, options: &FatOptions) -> FsResult<Geometry, D::Error> {
     Ok(format_volume(dev, options).await?.0)
 }
@@ -243,6 +244,7 @@ mod tree {
     /// skipped, and fields FAT does not store are dropped. Fails as
     /// `format` and `copy_tree` do, with the tree path of the node that
     /// failed.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all))]
     pub async fn write<D: BlockDevice>(mut out: D, tree: &Tree, options: &FatOptions) -> Result<Report, PathError> {
         let options = options.with_seed(tree_seed(options.time, options.seed, tree));
         let tree = stamped(tree, options.time)?;

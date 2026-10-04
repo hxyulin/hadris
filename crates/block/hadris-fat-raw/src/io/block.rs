@@ -37,23 +37,30 @@ pub async fn read_bytes<D: BlockDevice>(
     offset: u64,
     out: &mut [u8],
 ) -> FsResult<(), D::Error> {
+    if out.is_empty() {
+        return Ok(());
+    }
     let size = block.size;
-    let mut done = 0;
-    while done < out.len() {
-        let pos = offset + done as u64;
-        let index = pos / size as u64;
-        let at = (pos % size as u64) as usize;
-        let whole = (out.len() - done) / size * size;
-        if at == 0 && whole > 0 {
-            dev.read_blocks(BlockIndex::new(index), &mut out[done..done + whole])
-                .await?;
-            done += whole;
+    let mut index = offset / size as u64;
+    let mut at = (offset % size as u64) as usize;
+    let mut out = out;
+    while !out.is_empty() {
+        let blocks = if at == 0 { out.len() / size } else { 0 };
+        if blocks > 0 {
+            let first = BlockIndex::new(index);
+            index = index.wrapping_add(blocks as u64);
+            let (chunk, tail) = out.split_at_mut(blocks * size);
+            out = tail;
+            dev.read_blocks(first, chunk).await?;
             continue;
         }
         load(dev, block, index).await?;
-        let n = (size - at).min(out.len() - done);
-        out[done..done + n].copy_from_slice(&block.data[at..at + n]);
-        done += n;
+        let n = (size - at).min(out.len());
+        let (chunk, tail) = out.split_at_mut(n);
+        chunk.copy_from_slice(&block.data[at..at + n]);
+        out = tail;
+        index += 1;
+        at = 0;
     }
     Ok(())
 }
@@ -88,44 +95,53 @@ pub(super) async fn put<D: BlockDevice>(
     data: Option<&[u8]>,
     len: usize,
 ) -> FsResult<(), D::Error> {
+    if len == 0 {
+        return Ok(());
+    }
     let size = block.size;
-    let mut done = 0;
-    while done < len {
-        let pos = offset + done as u64;
-        let index = pos / size as u64;
-        let at = (pos % size as u64) as usize;
-        let whole = (len - done) / size * size;
-        if data.is_none() && at == 0 && whole > 0 {
-            let chunk = whole.min(block.capacity() / size * size);
-            block.scratch(chunk).fill(0);
-            dev.write_blocks(BlockIndex::new(index), &block.data[..chunk]).await?;
-            done += chunk;
+    let mut index = offset / size as u64;
+    let mut at = (offset % size as u64) as usize;
+    let mut data = data;
+    let mut remaining = len;
+    while remaining > 0 {
+        let blocks = if at == 0 { remaining / size } else { 0 };
+        if blocks > 0 {
+            let blocks = if data.is_none() { blocks.min(block.capacity() / size) } else { blocks };
+            let chunk = blocks * size;
+            let bytes = match data {
+                Some(bytes) => {
+                    if block.cached.is_some_and(|cached| cached >= index && cached - index < blocks as u64) {
+                        block.cached = None;
+                    }
+                    data = Some(&bytes[chunk..]);
+                    &bytes[..chunk]
+                }
+                None => {
+                    block.scratch(chunk).fill(0);
+                    &block.data[..chunk]
+                }
+            };
+            let first = BlockIndex::new(index);
+            remaining -= chunk;
+            index = index.wrapping_add(blocks as u64);
+            dev.write_blocks(first, bytes).await?;
             continue;
         }
-        if let Some(data) = data
-            && at == 0
-            && whole > 0
-        {
-            let blocks = index..index + (whole / size) as u64;
-            if block.cached.is_some_and(|cached| blocks.contains(&cached)) {
-                block.cached = None;
-            }
-            dev.write_blocks(BlockIndex::new(index), &data[done..done + whole]).await?;
-            done += whole;
-            continue;
-        }
-        let n = (size - at).min(len - done);
-        if n < size {
-            load(dev, block, index).await?;
-        }
+        let n = (size - at).min(remaining);
+        load(dev, block, index).await?;
         block.cached = None;
         match data {
-            Some(data) => block.data[at..at + n].copy_from_slice(&data[done..done + n]),
+            Some(bytes) => {
+                block.data[at..at + n].copy_from_slice(&bytes[..n]);
+                data = Some(&bytes[n..]);
+            }
             None => block.data[at..at + n].fill(0),
         }
         dev.write_blocks(BlockIndex::new(index), &block.data[..size]).await?;
         block.cached = Some(index);
-        done += n;
+        remaining -= n;
+        index += 1;
+        at = 0;
     }
     Ok(())
 }

@@ -181,6 +181,7 @@
 //! | `async`  | No      | Asynchronous API with `Send` futures in `r#async` |
 //! | `write`  | Yes     | `format`, and with `alloc` `write`, in each mode; `FatFs` and `ExFatFs` write without it |
 //! | `defmt`  | No      | `defmt::Format` for `FatKind` |
+//! | `tracing` | No | Function spans for FAT/exFAT operations and FAT allocation/write paths; enables `std` |
 //!
 //! No feature changes what an item does: `FatFs` always reads and writes long
 //! names.

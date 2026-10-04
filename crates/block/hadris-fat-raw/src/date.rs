@@ -9,6 +9,8 @@
 use hadris_fs::{CivilDate, CivilTime, DateTime};
 
 const NANOS_PER_TENTH: u32 = 10_000_000;
+const EPOCH_SECONDS: i64 = 315_532_800;
+const END_SECONDS: i64 = 4_354_819_200;
 
 /// The earliest encodable instant, 1980-01-01 00:00:00.
 pub const MIN: (u16, u16, u8) = ((1 << 5) | 1, 0, 0);
@@ -73,28 +75,69 @@ pub fn encode(time: DateTime, zone: Option<i16>) -> (u16, u16, u8) {
         Some(_) => time.with_utc_offset_minutes(zone).unwrap_or(time),
         None => time,
     };
-    let (date, clock) = time.to_civil();
-    if date.year() < 1980 {
+    let local = time.unix_seconds() + time.utc_offset_minutes().unwrap_or(0) as i64 * 60;
+    if local < EPOCH_SECONDS {
         return MIN;
     }
-    if date.year() > 2107 {
+    if local >= END_SECONDS {
         return MAX;
     }
+    let seconds = (local - EPOCH_SECONDS) as u32;
+    let days = seconds / 86_400;
+    let clock = seconds % 86_400;
+    // Hinnant's civil-from-days, with 32-bit seconds from 1980 through 2107.
+    let z = days + 723_120;
+    let era = z / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + u32::from(month <= 2);
+    let second = (clock % 60) as u8;
     let (packed_date, packed_time) = pack(
-        date.year() as u16,
-        date.month(),
-        date.day(),
-        clock.hour(),
-        clock.minute(),
-        clock.second(),
+        year as u16,
+        month as u8,
+        day as u8,
+        (clock / 3600) as u8,
+        (clock / 60 % 60) as u8,
+        second,
     );
-    let tenths = (clock.second() % 2) * 100 + (time.nanoseconds() / NANOS_PER_TENTH) as u8;
+    let tenths = (second % 2) * 100 + (time.nanoseconds() / NANOS_PER_TENTH) as u8;
     (packed_date, packed_time, tenths)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn reference_encode(time: DateTime, zone: Option<i16>) -> (u16, u16, u8) {
+        let time = match zone {
+            Some(_) => time.with_utc_offset_minutes(zone).unwrap_or(time),
+            None => time,
+        };
+        let (date, clock) = time.to_civil();
+        if date.year() < 1980 {
+            return MIN;
+        }
+        if date.year() > 2107 {
+            return MAX;
+        }
+        let (date, packed_time) = pack(
+            date.year() as u16,
+            date.month(),
+            date.day(),
+            clock.hour(),
+            clock.minute(),
+            clock.second(),
+        );
+        (
+            date,
+            packed_time,
+            (clock.second() % 2) * 100 + (time.nanoseconds() / NANOS_PER_TENTH) as u8,
+        )
+    }
 
     fn at(year: i32, month: u8, day: u8, hour: u8, minute: u8, second: u8) -> DateTime {
         DateTime::from_civil(
@@ -173,5 +216,63 @@ mod tests {
         );
         assert_eq!(decode(date, clock, 0, Some(i16::MAX)), None);
         assert_eq!(encode(utc, Some(i16::MAX)), encode(utc, None));
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "exhaustive arithmetic comparison runs in native CI")]
+    fn encode_matches_civil_conversion_on_every_fat_day() {
+        assert_eq!(EPOCH_SECONDS, at(1980, 1, 1, 0, 0, 0).unix_seconds());
+        assert_eq!(END_SECONDS, at(2108, 1, 1, 0, 0, 0).unix_seconds());
+        let mut day = EPOCH_SECONDS;
+        while day < END_SECONDS {
+            for second in [0, 1, 43_259, 43_800, 86_399] {
+                for nanos in [0, 9_999_999, 10_000_000, 990_000_000, 999_999_999] {
+                    let time = DateTime::new(day + second, nanos).unwrap();
+                    assert_eq!(encode(time, None), reference_encode(time, None));
+                }
+            }
+            for offset in [-1439, -300, 0, 330, 1439] {
+                let time = DateTime::new(day, 999_999_999)
+                    .unwrap()
+                    .with_utc_offset_minutes(Some(offset))
+                    .unwrap();
+                assert_eq!(encode(time, None), reference_encode(time, None));
+                assert_eq!(
+                    encode(time, Some(-offset)),
+                    reference_encode(time, Some(-offset))
+                );
+            }
+            day += 86_400;
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "exhaustive arithmetic comparison runs in native CI")]
+    fn encode_clamps_in_local_time_at_range_boundaries() {
+        for recorded in [None, Some(-1439), Some(1439)] {
+            for seconds in [
+                DateTime::MIN.unix_seconds(),
+                EPOCH_SECONDS - 86_400,
+                EPOCH_SECONDS - 1,
+                EPOCH_SECONDS,
+                EPOCH_SECONDS + 86_400,
+                END_SECONDS - 86_400,
+                END_SECONDS - 1,
+                END_SECONDS,
+                END_SECONDS + 86_400,
+                DateTime::MAX.unix_seconds(),
+            ] {
+                let time = DateTime::new(seconds, 999_999_999)
+                    .unwrap()
+                    .with_utc_offset_minutes(recorded)
+                    .unwrap();
+                for zone in [None, Some(i16::MIN), Some(i16::MAX)] {
+                    assert_eq!(encode(time, zone), reference_encode(time, zone));
+                }
+                for zone in -1439..=1439 {
+                    assert_eq!(encode(time, Some(zone)), reference_encode(time, Some(zone)));
+                }
+            }
+        }
     }
 }

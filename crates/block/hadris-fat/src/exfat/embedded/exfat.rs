@@ -98,6 +98,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> ExFat<'mount, D, FILES> {
     /// sector does not name exFAT, and with [`ErrorKind::Corrupt`] when
     /// neither boot region is valid or the volume is larger than the
     /// device. The [`MountError`] gives `dev` back.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat::embedded", level = "trace", skip_all))]
     pub async fn mount_with(mut dev: D, owner: &'mount mut MountToken, options: Options) -> Result<Self, MountError<D, D::Error>> {
         const { assert!(FILES <= u8::MAX as usize, "at most 255 file slots") };
         if dev.block_size().get() as usize != BLOCK {
@@ -149,6 +150,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> ExFat<'mount, D, FILES> {
     /// directories do not record their parent, so `..` fails with
     /// [`ErrorKind::Unsupported`]. Fails with [`ErrorKind::NotFound`] or
     /// [`ErrorKind::NotADirectory`].
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat::embedded", level = "trace", skip_all))]
     pub async fn open_dir(&mut self, parent: Dir, name: &str) -> FsResult<Dir, D::Error> {
         match name {
             "." => return Ok(parent),
@@ -170,6 +172,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> ExFat<'mount, D, FILES> {
     /// calling `each` with every file and directory until it returns
     /// `ControlFlow::Break`. Continue a listing from the
     /// [`next_cursor`](Entry::next_cursor) of the last entry seen.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat::embedded", level = "trace", skip_all))]
     pub async fn list(
         &mut self,
         dir: Dir,
@@ -195,6 +198,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> ExFat<'mount, D, FILES> {
     /// that write fail with [`ErrorKind::ReadOnly`]. Fails with
     /// [`ErrorKind::LimitExceeded`] when every slot is taken and
     /// [`ErrorKind::IsADirectory`] for a directory.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat::embedded", level = "trace", skip_all))]
     pub async fn open(&mut self, dir: Dir, name: &str, options: OpenOptions) -> FsResult<File<'mount>, D::Error> {
         let index = self.check_open(options)?;
         let mut found = Named::new();
@@ -218,6 +222,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> ExFat<'mount, D, FILES> {
 
     /// Reads from the file's position and advances it. Returns 0 at the
     /// end. Bytes past `ValidDataLength` read as zeros.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat::embedded", level = "trace", skip_all, fields(bytes = buf.len())))]
     pub async fn read(&mut self, file: &File<'_>, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         let index = self.slot(file)?;
         let state = self.files[index];

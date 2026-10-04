@@ -64,6 +64,14 @@ remains the library MSRV. Feature tiers are checked independently from
 RUSTUP_TOOLCHAIN=1.88.0 RUSTFLAGS="-D warnings" python3 scripts/check-features.py all
 ```
 
+### Performance measurements
+
+The FAT benchmark measures device calls and bytes as well as runtime for the
+hosted and embedded drivers. Run it with
+`cargo bench -p hadris-fat --bench performance`; see
+[`docs/performance.md`](docs/performance.md) for filtering, CSV baselines,
+measurement boundaries and embedded flash/stack measurements.
+
 ### Conformance and interoperability suite
 
 Specification conformance and peer interoperability tests live in the

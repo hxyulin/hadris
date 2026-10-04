@@ -1,0 +1,79 @@
+# Function tracing
+
+`hadris-fat` offers an opt-in `tracing` feature. The umbrella `hadris` forwards
+it to `hadris-fat` when the `fat` feature is enabled. This first set of spans
+covers FAT/exFAT mount, file reads/writes, directory lookup/iteration,
+create/unlink, sync and truncation, along with FAT allocation and write-path
+helpers. The embedded API's corresponding operations are also instrumented
+when tracing is enabled, for diagnosis on a hosted build.
+
+```toml
+[dependencies]
+hadris-fat = { version = "3.0.0-rc.1", features = ["tracing"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+```
+
+The application installs a subscriber; Hadris never installs a global one:
+
+```rust,ignore
+tracing_subscriber::fmt()
+    .with_env_filter("hadris::fat=trace,hadris::exfat=trace")
+    .with_file(true)
+    .with_line_number(true)
+    .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
+    .init();
+```
+
+Spans use the `TRACE` level and targets `hadris::fat`, `hadris::exfat` and
+their `::embedded` children. Each span carries its function name, module,
+source file and line. Selected operations also record node/directory IDs,
+offsets, requested byte counts, lengths and allocation counts. Devices,
+buffers, file contents and error payloads are skipped, so instrumentation
+does not add `Debug` or `Display` requirements to generic device types.
+Subscriber-specific layers can export these spans for visualization or
+profiling. Async spans enter on each poll and exit when it returns; no span
+guard stays entered across an await or after cancellation.
+
+`tracing` explicitly enables `std` (which already enables `alloc` in Hadris).
+It is disabled by default. The plain `sync`/`async` and `alloc` tiers remain
+available without it; enabling tracing selects the hosted tier even with
+`default-features = false`. Cargo unifies features for a crate, so every
+dependency must leave tracing and `std` disabled for a no-allocator firmware
+build. No custom observer API or global callback registry is needed.
+
+```bash
+cargo check -p hadris-fat --no-default-features --features sync,write
+cargo check -p hadris-fat --no-default-features --features alloc,async,write
+cargo check -p hadris-fat --no-default-features --features tracing,sync,async,write
+cargo test -p hadris-fat --all-features --test tracing
+```
+
+Measure normal performance with tracing disabled. Enabling it adds callsite
+checks and retained span state in async futures, and collecting spans adds
+subscriber overhead, even though filesystem results and on-disk ordering
+are unchanged. The future-size budget tests are ignored in tracing builds
+and run separately with tracing disabled in CI; their size limits are unchanged.
+
+## Reading the spans
+
+The nested spans show how an operation is divided between chain growth,
+allocation and data transfer. Repeated `allocate(count = 1)` spans during
+small appends identify incremental growth; `cover` without an allocation
+shows that the existing chain was sufficient. Requested byte counts and
+offsets let you compare small writes with block-aligned transfers.
+
+With `FmtSpan::CLOSE` and timestamps enabled, the formatter reports busy
+time (while the span was entered) and idle time (while it existed without
+being entered). For async calls, idle time can include device waits and
+executor scheduling. Busy time is elapsed time, not a hardware CPU-cycle
+measurement. Parent timings include nested calls and should not be summed
+with their children. See the
+[subscriber documentation](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/fmt/struct.SubscriberBuilder.html#method.with_span_events).
+
+These spans do not count device requests, distinguish FAT/metadata/data
+traffic, measure heap/stack/flash, or record explicit success, failure and
+cancellation outcomes. A closed span alone does not mean the call succeeded.
+Use a counting device for exact I/O totals and the firmware-size script for
+embedded resource costs. Run the embedded driver on a host with tracing to
+inspect its control flow, then benchmark and build firmware with tracing
+disabled.
