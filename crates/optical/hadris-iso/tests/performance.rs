@@ -105,6 +105,137 @@ macro_rules! cases {
                     assert_eq!(data, [i as u8; 16]);
                     assert_eq!(fs.stat(alias).await.unwrap().nlink(), 2);
                 }
+                #[cfg(feature = "cache")]
+                for capacity in [1, 512] {
+                    let options = hadris_iso::CacheOptions::new()
+                        .with_blocks(32)
+                        .with_records(256)
+                        .with_links(capacity);
+                    let dev = Counted {
+                        inner: common::image(&linked(), &IsoOptions::new().with_rock_ridge()),
+                        reads: reads.clone(),
+                    };
+                    let mut indexed = IsoFs::mount(dev, MountOptions::new())
+                        .await
+                        .unwrap()
+                        .with_cache(options);
+                    reads.store(0, Ordering::Relaxed);
+                    for i in 0..128 {
+                        let a = indexed
+                            .lookup(indexed.root(), Name::new(format!("f{i:04}.txt").as_bytes()))
+                            .await
+                            .unwrap();
+                        let b = indexed
+                            .lookup(indexed.root(), Name::new(format!("l{i:04}.txt").as_bytes()))
+                            .await
+                            .unwrap();
+                        assert_eq!(a, b);
+                    }
+                    if capacity == 512 {
+                        assert!(reads.load(Ordering::Relaxed) <= 32);
+                    }
+                    let mut cursor = hadris_fs::DirCursor::START;
+                    let mut count = 0;
+                    while let Some(entry) = indexed.readdir(indexed.root(), cursor).await.unwrap() {
+                        assert_eq!(*entry.metadata(), indexed.stat(entry.node()).await.unwrap());
+                        cursor = entry.next_cursor();
+                        count += 1;
+                    }
+                    assert_eq!(count, 256);
+                    indexed.clear_cache();
+                    let a = indexed
+                        .lookup(indexed.root(), Name::new("f0127.txt"))
+                        .await
+                        .unwrap();
+                    assert_eq!(
+                        a,
+                        indexed
+                            .lookup(indexed.root(), Name::new("l0127.txt"))
+                            .await
+                            .unwrap()
+                    );
+                }
+                #[cfg(feature = "cache")]
+                {
+                    let mut image =
+                        common::image(&linked(), &IsoOptions::new().with_rock_ridge()).into_inner();
+                    for at in 0..image.len() - 44 {
+                        if image[at..at + 4] == *b"PX\x2c\x01" {
+                            image[at + 36..at + 44].fill(0);
+                        }
+                    }
+                    let dev = Counted {
+                        inner: MemDevice::new(image, common::SECTOR),
+                        reads: reads.clone(),
+                    };
+                    let mut indexed = IsoFs::mount(dev, MountOptions::new())
+                        .await
+                        .unwrap()
+                        .with_cache(hadris_iso::CacheOptions::new().with_links(512));
+                    let a = indexed
+                        .lookup(indexed.root(), Name::new("f0127.txt"))
+                        .await
+                        .unwrap();
+                    assert_eq!(
+                        a,
+                        indexed
+                            .lookup(indexed.root(), Name::new("l0127.txt"))
+                            .await
+                            .unwrap()
+                    );
+                }
+                #[cfg(feature = "cache")]
+                {
+                    let mut tree = Tree::new();
+                    tree.insert("a", Node::file(Content::bytes("a"))).unwrap();
+                    tree.link("a", "z").unwrap();
+                    tree.insert("b", Node::file(Content::bytes("b"))).unwrap();
+                    let bytes =
+                        common::image(&tree, &IsoOptions::new().with_rock_ridge()).into_inner();
+                    let dev = Counted {
+                        inner: MemDevice::new(bytes.clone(), common::SECTOR),
+                        reads: reads.clone(),
+                    };
+                    let mut probe = IsoFs::mount(dev, MountOptions::new()).await.unwrap();
+                    let a = probe.lookup(probe.root(), Name::new("a")).await.unwrap();
+                    let b = probe.lookup(probe.root(), Name::new("b")).await.unwrap();
+                    let mut bad = bytes;
+                    let start = b.get() as usize;
+                    let px = (start..start + bad[start] as usize - 4)
+                        .find(|&at| bad[at..at + 4] == *b"PX\x2c\x01")
+                        .unwrap();
+                    bad[px + 2] = 4;
+                    let dev = Counted {
+                        inner: MemDevice::new(bad, common::SECTOR),
+                        reads: reads.clone(),
+                    };
+                    let mut indexed = IsoFs::mount(dev, MountOptions::new())
+                        .await
+                        .unwrap()
+                        .with_cache(hadris_iso::CacheOptions::new().with_links(8));
+                    assert_eq!(
+                        indexed
+                            .lookup(indexed.root(), Name::new("a"))
+                            .await
+                            .unwrap(),
+                        a
+                    );
+                    assert_eq!(
+                        indexed
+                            .lookup(indexed.root(), Name::new("b"))
+                            .await
+                            .unwrap_err()
+                            .kind(),
+                        ErrorKind::Corrupt
+                    );
+                    assert_eq!(
+                        indexed
+                            .lookup(indexed.root(), Name::new("a"))
+                            .await
+                            .unwrap(),
+                        a
+                    );
+                }
                 let mut plain = Tree::new();
                 for i in 0..128 {
                     plain
@@ -223,6 +354,7 @@ fn cancelled_cache_miss_is_not_retained() {
     struct Paused {
         inner: Counted,
         paused: Arc<AtomicBool>,
+        failed: Arc<AtomicBool>,
     }
     impl hadris_io::ErrorType for Paused {
         type Error = core::convert::Infallible;
@@ -247,6 +379,12 @@ fn cancelled_cache_miss_is_not_retained() {
                 }
             })
             .await;
+            if self.failed.load(Ordering::Relaxed) {
+                return Err(hadris_io::Error::new(
+                    hadris_io::ErrorKind::Io,
+                    "injected failure",
+                ));
+            }
             hadris_storage::sync::BlockDevice::read_blocks(&mut self.inner, first, buf)
         }
     }
@@ -255,12 +393,14 @@ fn cancelled_cache_miss_is_not_retained() {
         .unwrap();
     let reads = Arc::new(AtomicU64::new(0));
     let paused = Arc::new(AtomicBool::new(false));
+    let failed = Arc::new(AtomicBool::new(false));
     let dev = Paused {
         inner: Counted {
             inner: common::image(&tree, &hadris_iso::IsoOptions::new()),
             reads: reads.clone(),
         },
         paused: paused.clone(),
+        failed: failed.clone(),
     };
     let mut fs = common::block_on(hadris_iso::r#async::IsoFs::mount(dev, MountOptions::new()))
         .unwrap()
@@ -281,4 +421,39 @@ fn cancelled_cache_miss_is_not_retained() {
     assert_eq!(reads.load(Ordering::Relaxed), 1);
     common::block_on(fs.stat(node)).unwrap();
     assert_eq!(reads.load(Ordering::Relaxed), 1);
+    fs.clear_cache();
+    failed.store(true, Ordering::Relaxed);
+    assert_eq!(
+        common::block_on(fs.stat(node)).unwrap_err().kind(),
+        hadris_fs::ErrorKind::Io
+    );
+    failed.store(false, Ordering::Relaxed);
+    assert_eq!(common::block_on(fs.stat(node)).unwrap().len(), 4);
+
+    tree.link("file", "alias").unwrap();
+    let dev = Paused {
+        inner: Counted {
+            inner: common::image(&tree, &hadris_iso::IsoOptions::new().with_rock_ridge()),
+            reads: reads.clone(),
+        },
+        paused: paused.clone(),
+        failed: failed.clone(),
+    };
+    let mut fs = common::block_on(hadris_iso::r#async::IsoFs::mount(dev, MountOptions::new()))
+        .unwrap()
+        .with_cache(hadris_iso::CacheOptions::new().with_links(8));
+    common::block_on(fs.stat(fs.root())).unwrap();
+    paused.store(true, Ordering::Relaxed);
+    {
+        let root = fs.root();
+        let mut future = core::pin::pin!(fs.lookup(root, Name::new("file")));
+        let mut cx = core::task::Context::from_waker(core::task::Waker::noop());
+        assert!(core::future::Future::poll(future.as_mut(), &mut cx).is_pending());
+    }
+    paused.store(false, Ordering::Relaxed);
+    let a = common::block_on(fs.lookup(fs.root(), Name::new("file"))).unwrap();
+    assert_eq!(
+        a,
+        common::block_on(fs.lookup(fs.root(), Name::new("alias"))).unwrap()
+    );
 }

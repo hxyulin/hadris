@@ -311,3 +311,9 @@ The image must remain unchanged while cached metadata is retained.
 Without `with_cache`, reading remains allocation-free, even with the feature
 enabled. The feature implies `alloc` and works with both sync and async APIs
 without requiring `std`.
+
+`CacheOptions::with_links` additionally bounds a lazy canonical hard-link
+index, disabled by default. Its first hard-link lookup scans directory records
+in path-table order, storing the earliest serial and extent keys up to that
+bound. Unindexed keys use the normal scan. A cancelled or failed build publishes
+no partial index; subsequent lookups use the normal scan until `clear_cache`.

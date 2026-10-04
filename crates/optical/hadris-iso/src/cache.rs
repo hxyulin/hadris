@@ -1,4 +1,5 @@
-use alloc::vec::Vec;
+use crate::rock_ridge::LinkKey;
+use alloc::{collections::BTreeMap, vec::Vec};
 
 use crate::raw::{DirectoryRecord, SECTOR_SIZE};
 
@@ -10,6 +11,7 @@ use crate::raw::{DirectoryRecord, SECTOR_SIZE};
 pub struct CacheOptions {
     pub(crate) blocks: usize,
     pub(crate) records: usize,
+    pub(crate) links: usize,
 }
 impl CacheOptions {
     /// Caches up to eight logical metadata sectors and 32 parsed records.
@@ -17,6 +19,7 @@ impl CacheOptions {
         Self {
             blocks: 8,
             records: 32,
+            links: 0,
         }
     }
     /// Sets the number of logical metadata sectors; zero disables sector caching.
@@ -27,6 +30,14 @@ impl CacheOptions {
     /// Sets the number of parsed records; zero disables record caching.
     pub const fn with_records(mut self, capacity: usize) -> Self {
         self.records = capacity;
+        self
+    }
+    /// Sets the number of canonical hard-link keys indexed on the first link lookup.
+    ///
+    /// Zero (the default) disables indexing. Each record can contribute a
+    /// serial and an extent key. Keys beyond the bound use the ordinary scan.
+    pub const fn with_links(mut self, capacity: usize) -> Self {
+        self.links = capacity;
         self
     }
 }
@@ -94,17 +105,25 @@ impl<T: Copy> Entries<T> {
 pub(crate) struct ReaderCache {
     pub(crate) blocks: Entries<[u8; SECTOR_SIZE]>,
     pub(crate) records: Entries<DirectoryRecord>,
+    pub(crate) links: BTreeMap<LinkKey, u64>,
+    pub(crate) link_capacity: usize,
+    pub(crate) links_attempted: bool,
 }
 impl ReaderCache {
     pub(crate) fn new(options: CacheOptions) -> Self {
         Self {
             blocks: Entries::new(options.blocks),
             records: Entries::new(options.records),
+            links: BTreeMap::new(),
+            link_capacity: options.links,
+            links_attempted: false,
         }
     }
     pub(crate) fn clear(&mut self) {
         self.blocks.clear();
         self.records.clear();
+        self.links.clear();
+        self.links_attempted = false;
     }
 }
 #[cfg(test)]

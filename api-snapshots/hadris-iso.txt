@@ -943,6 +943,7 @@ pub struct hadris_iso::CacheOptions
 impl hadris_iso::CacheOptions
 pub const fn hadris_iso::CacheOptions::new() -> Self
 pub const fn hadris_iso::CacheOptions::with_blocks(self, usize) -> Self
+pub const fn hadris_iso::CacheOptions::with_links(self, usize) -> Self
 pub const fn hadris_iso::CacheOptions::with_records(self, usize) -> Self
 impl core::default::Default for hadris_iso::CacheOptions
 pub fn hadris_iso::CacheOptions::default() -> Self

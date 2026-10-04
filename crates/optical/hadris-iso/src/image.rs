@@ -12,7 +12,7 @@ use crate::error::{Detail, Error};
 use crate::info::{DescriptorScan, Info, Root};
 use crate::namespace::{Namespace, Namespaces};
 use crate::raw::{self, DirectoryRecord, FileFlags, SECTOR_SIZE};
-use crate::rock_ridge::{RockRidgeInfo, Scan};
+use crate::rock_ridge::{LinkKey, RockRidgeInfo, Scan};
 use crate::volume_info::VolumeInfo;
 
 /// The largest device block the reader buffers.
@@ -211,15 +211,6 @@ impl Block {
 enum PathTableQuery {
     Extent(u64),
     Number(u64),
-}
-
-/// What the names of one hard-linked file share.
-#[derive(Clone, Copy)]
-enum LinkKey {
-    /// The Rock Ridge `PX` serial number.
-    Serial(u32),
-    /// The byte offset of the data.
-    Extent(u64),
 }
 
 /// A listed entry: its id and name length.
@@ -503,10 +494,30 @@ impl View {
         Ok(self.first_link(dev, key, skip).await?.unwrap_or(offset))
     }
 
+    async fn first_link<D: BlockDevice>(&mut self, dev: &mut D, key: LinkKey, skip: u8) -> Result<Option<u64>, Error<D::Error>> {
+        #[cfg(feature = "cache")]
+        {
+            let build = self.cache.as_ref().is_some_and(|cache|cache.link_capacity>0 && !cache.links_attempted);
+            if build {
+                if let Some(cache) = &mut self.cache { cache.links_attempted=true; }
+                // An optional index must not fail a lookup on an unrelated record.
+                let _ = self.scan_links(dev, None, skip).await;
+            }
+            if let Some(offset) = self.cache.as_ref().and_then(|cache|cache.links.get(&key)).copied() {
+                return Ok(Some(offset));
+            }
+        }
+        self.scan_links(dev, Some(key), skip).await
+    }
+
     /// The first record in path table order of the hard-linked file `key`
     /// names.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
-    async fn first_link<D: BlockDevice>(&mut self, dev: &mut D, key: LinkKey, skip: u8) -> Result<Option<u64>, Error<D::Error>> {
+    async fn scan_links<D: BlockDevice>(&mut self, dev: &mut D, key: Option<LinkKey>, skip: u8) -> Result<Option<u64>, Error<D::Error>> {
+        #[cfg(feature = "cache")]
+        let mut index = alloc::collections::BTreeMap::new();
+        #[cfg(feature = "cache")]
+        let limit = self.cache.as_ref().map_or(0, |cache|cache.link_capacity);
         let (table, size) = self.root.path_table;
         let base = u64::from(table) * self.bs();
         let mut pos = 0u64;
@@ -535,16 +546,34 @@ impl View {
                 if info.links().unwrap_or(1) <= 1 || info.is_relocated() || info.child_link().is_some() {
                     continue;
                 }
+                #[cfg(feature = "cache")]
+                if key.is_none() {
+                    let serial = info.serial().filter(|&serial|serial != 0).map(LinkKey::Serial);
+                    let extent = if record.header().data_len.get()>0 { self.extent_start(&record).map(LinkKey::Extent) } else { None };
+                    for candidate in [serial, extent].into_iter().flatten() {
+                        if index.len() < limit { index.entry(candidate).or_insert(found.offset); }
+                    }
+                    if index.len() == limit {
+                        if let Some(cache) = &mut self.cache { cache.links = index; }
+                        return Ok(None);
+                    }
+                    continue;
+                }
                 let same = match key {
-                    LinkKey::Serial(serial) => info.serial() == Some(serial),
-                    LinkKey::Extent(extent) => {
+                    Some(LinkKey::Serial(serial)) => info.serial() == Some(serial),
+                    Some(LinkKey::Extent(extent)) => {
                         record.header().data_len.get() > 0 && self.extent_start(&record) == Some(extent)
                     }
+                    None => false,
                 };
                 if same {
                     return Ok(Some(found.offset));
                 }
             }
+        }
+        #[cfg(feature = "cache")]
+        if key.is_none() {
+            if let Some(cache) = &mut self.cache { cache.links = index; }
         }
         Ok(None)
     }
