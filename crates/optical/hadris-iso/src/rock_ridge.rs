@@ -1,3 +1,12 @@
+/// What the names of one hard-linked file share.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum LinkKey {
+    /// The Rock Ridge `PX` serial number.
+    Serial(u32),
+    /// The byte offset of the data.
+    Extent(u64),
+}
+
 use hadris_fs::{DateTime, DeviceNumber, ErrorKind, FileType};
 
 use crate::raw::{

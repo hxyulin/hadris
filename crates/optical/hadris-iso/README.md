@@ -299,3 +299,28 @@ This project is licensed under the [MIT license](../../../LICENSE-MIT).
 The opt-in `tracing` feature enables `std` and emits operation spans through the
 application’s subscriber. It is disabled by default. See the
 [tracing guide](../../../docs/tracing.md) for targets, metadata and async behavior.
+
+### Optional reader cache
+
+Enable `cache` and call `IsoFs::with_cache(CacheOptions::new())` after mounting
+to cache up to eight logical metadata sectors and 32 parsed directory records.
+`with_blocks` and `with_records` set independent capacities; zero disables that
+part. The cache allocates those capacities and never caches file payloads.
+The image must remain unchanged while cached metadata is retained.
+`clear_cache` discards retained metadata; remount if volume descriptors change.
+Without `with_cache`, reading remains allocation-free, even with the feature
+enabled. The feature implies `alloc` and works with both sync and async APIs
+without requiring `std`.
+
+`CacheOptions::with_links` additionally bounds a lazy canonical hard-link
+index, disabled by default. Its first hard-link lookup scans directory records
+in path-table order, storing the earliest serial and extent keys up to that
+bound. Unindexed keys use the normal scan. A cancelled or failed build publishes
+no partial index; subsequent lookups use the normal scan until `clear_cache`.
+
+### Performance measurements
+
+`cargo bench -p hadris-iso --bench performance --features cache` reports device
+calls, transferred bytes and min/median/max runtime for reader and writer
+workloads. See [the performance guide](../../../docs/performance.md) for cache
+settings, filtering, CSV baselines and measurement boundaries.

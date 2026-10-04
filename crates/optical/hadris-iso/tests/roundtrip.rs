@@ -913,3 +913,91 @@ fn directories_have_no_length() {
         assert_eq!(docs.len(), 0, "{ns:?}");
     }
 }
+
+#[test]
+fn path_tables_use_final_directory_identifiers() {
+    use hadris_iso::raw::{DirectoryRecord, FileFlags};
+    fn table(bytes: &[u8], start: usize, size: usize, big: bool) -> Vec<(Vec<u8>, u32, u16)> {
+        let mut entries = Vec::new();
+        let mut pos = start;
+        while pos < start + size {
+            let len = bytes[pos] as usize;
+            let block = bytes[pos + 2..pos + 6].try_into().unwrap();
+            let parent = bytes[pos + 6..pos + 8].try_into().unwrap();
+            entries.push((
+                bytes[pos + 8..pos + 8 + len].to_vec(),
+                if big {
+                    u32::from_be_bytes(block)
+                } else {
+                    u32::from_le_bytes(block)
+                },
+                if big {
+                    u16::from_be_bytes(parent)
+                } else {
+                    u16::from_le_bytes(parent)
+                },
+            ));
+            pos += 8 + len + len % 2;
+        }
+        assert_eq!(pos, start + size);
+        entries
+    }
+    let mut tree = Tree::new();
+    for i in 0..32 {
+        tree.insert(
+            format!("long directory number {i:04}/file"),
+            Node::file(Content::bytes("data")),
+        )
+        .unwrap();
+    }
+    tree.insert("a/b/c/d/e/f/g/h/i/file", Node::file(Content::bytes("deep")))
+        .unwrap();
+    let bytes = image(&tree, &full().with_level(IsoLevel::L1)).into_inner();
+    for descriptor in bytes[16 * 2048..]
+        .chunks_exact(2048)
+        .take_while(|sector| sector[0] != 255)
+    {
+        if !matches!(descriptor[0], 1 | 2) {
+            continue;
+        }
+        let le = |at| u32::from_le_bytes(descriptor[at..at + 4].try_into().unwrap()) as usize;
+        let size = le(132);
+        let little = table(&bytes, le(140) * 2048, size, false);
+        let big = table(
+            &bytes,
+            u32::from_be_bytes(descriptor[148..152].try_into().unwrap()) as usize * 2048,
+            size,
+            true,
+        );
+        assert_eq!(little, big);
+        for (name, extent, parent) in little.iter().skip(1) {
+            let start = little[usize::from(*parent) - 1].1 as usize * 2048;
+            let dot = DirectoryRecord::parse(&bytes[start..start + 2048])
+                .unwrap()
+                .unwrap();
+            let size = dot.header().data_len.get() as usize;
+            let mut pos = 0;
+            let mut matched = false;
+            while pos < size {
+                let end = (pos / 2048 + 1) * 2048;
+                match DirectoryRecord::parse(&bytes[start + pos..start + end.min(size)]).unwrap() {
+                    Some(record) => {
+                        if record.header().file_flags().contains(FileFlags::DIRECTORY)
+                            && record.header().extent.get() == *extent
+                            && record.name() == name
+                        {
+                            matched = true;
+                            break;
+                        }
+                        pos += record.len();
+                    }
+                    None => pos = end,
+                }
+            }
+            assert!(
+                matched,
+                "path table identifier must match its parent's directory record"
+            );
+        }
+    }
+}

@@ -365,6 +365,16 @@
       "features": "tracing,sync,async"
     },
     {
+      "crate": "hadris-iso",
+      "tier": "cached-sync",
+      "features": "cache,sync"
+    },
+    {
+      "crate": "hadris-iso",
+      "tier": "cached-async",
+      "features": "cache,async"
+    },
+    {
       "crate": "hadris-udf",
       "tier": "hosted-tracing",
       "features": "tracing,sync,async"

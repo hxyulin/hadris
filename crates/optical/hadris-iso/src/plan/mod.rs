@@ -28,7 +28,7 @@ use crate::options::{
     BootEntry, BootInfo, Hybrid, IsoLevel, IsoOptions, PartitionScheme, Preserve, Relocation,
 };
 use crate::raw::{
-    self, BootRecordVolumeDescriptor, DecDateTime, DirDateTime, FileFlags, IsoStr, PathTableHeader,
+    self, BootRecordVolumeDescriptor, DecDateTime, DirDateTime, IsoStr, PathTableHeader,
     PrimaryVolumeDescriptor, RootDirectoryRecord, SECTOR_SIZE, SupplementaryVolumeDescriptor,
     U16Both, U32Be, U32Both, U32Le, VolumeDescriptorHeader, VolumeDescriptorSetTerminator,
 };
@@ -955,7 +955,12 @@ impl Planner<'_> {
     // -----------------------------------------------------------------------
     // Path tables.
 
-    fn path_table(&self, ti: usize, big_endian: bool) -> PlanResult<Vec<u8>> {
+    fn path_table(
+        &self,
+        ti: usize,
+        big_endian: bool,
+        names: &[Option<Vec<u8>>],
+    ) -> PlanResult<Vec<u8>> {
         let rules = self.trees[ti].1;
         let mut out = Vec::new();
         let push = |out: &mut Vec<u8>, name: &[u8], extent: u32, parent: u16| {
@@ -979,24 +984,16 @@ impl Planner<'_> {
                 .subdirs_in(dir, ti)
                 .iter()
                 .map(|&child| {
-                    let source = match self.trees[ti].0 {
-                        TreeKind::Primary => &self.dirs[child].iso_name,
-                        _ => &self.dirs[child].name,
-                    };
-                    (rules.directory(source), child)
+                    let name = names[child].clone().unwrap_or_else(|| {
+                        let source = match self.trees[ti].0 {
+                            TreeKind::Primary => &self.dirs[child].iso_name,
+                            _ => &self.dirs[child].name,
+                        };
+                        rules.directory(source)
+                    });
+                    (name, child)
                 })
                 .collect();
-            let records = self.records(dir, ti)?;
-            for (name, child) in &mut children {
-                let extent = self.dir_ref(*child, ti).0;
-                if let Some(record) = records.iter().find(|r| {
-                    r.flags.contains(FileFlags::DIRECTORY)
-                        && r.extent.0 == extent
-                        && r.name.len() > 1
-                }) {
-                    *name = record.name.clone();
-                }
-            }
             children.sort_by(|a, b| a.0.cmp(&b.0));
             for (name, child) in children {
                 number = number.checked_add(1).ok_or(too_large())?;
