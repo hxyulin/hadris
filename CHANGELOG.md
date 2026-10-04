@@ -88,6 +88,12 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- FAT node-driver rename recovery completes a published destination before
+  reclaiming the replaced target, or restores the original target when
+  publication was interrupted. Pending state survives cancelled recovery,
+  preserves pinned nodes and directory parents, and keeps stale entries after
+  the directory end marker hidden.
+
 - FAT embedded rename recovery completes a published move or rolls back an
   incomplete destination while the driver remains alive. Recovery survives
   repeated cancellation and write failures, preserves open files and directory

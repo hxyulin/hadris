@@ -231,6 +231,20 @@ struct SavedRun {
     raw: [[u8; ENTRY_SIZE as usize]; lfn::MAX_ENTRIES + 1],
 }
 
+struct PendingRename {
+    source: Run,
+    destination: Run,
+    offset: u64,
+    entry: ShortEntry,
+    dot_dot: Option<(u32, u32)>,
+    source_id: Option<NodeId>,
+    target_id: Option<NodeId>,
+    saved: Option<alloc::boxed::Box<SavedRun>>,
+    end: Option<u64>,
+    publishing: bool,
+    committed: bool,
+}
+
 /// Clusters added to a file's chain, to undo on failure.
 #[derive(Clone, Copy)]
 struct Growth {
@@ -448,6 +462,7 @@ pub struct FatFs<D> {
     /// Long-name slots an interrupted operation may have left without
     /// their short entry.
     run: Option<Run>,
+    rename: Option<alloc::boxed::Box<PendingRename>>,
     read_only: bool,
     /// FAT entry 1's clean bit was clear at mount.
     was_dirty: bool,
@@ -522,6 +537,7 @@ impl<D: BlockDevice> FatFs<D> {
             block,
             pending: None,
             run: None,
+            rename: None,
             read_only,
             was_dirty,
             clock: options.clock(),
@@ -971,6 +987,7 @@ impl<D: BlockDevice> FatFs<D> {
     fn unwritten(&self) -> bool {
         self.pending.is_some()
             || self.run.is_some()
+            || self.rename.is_some()
             || self.fat.unmirrored().is_some()
             || self.nodes.find(|_, node| node.dirty).is_some()
     }
@@ -993,11 +1010,77 @@ impl<D: BlockDevice> FatFs<D> {
             Err(err) if err.kind() == ErrorKind::Corrupt => {
                 self.fat.forget_unmirrored();
                 self.run = None;
+                self.rename = None;
                 self.pending = None;
                 Ok(())
             }
             other => other,
         }
+    }
+
+    async fn rename_end(&mut self) -> FsResult<(), D::Error> {
+        let rename = self.rename.as_ref().unwrap();
+        if rename.end.is_none() {
+            return Ok(());
+        }
+        let destination = rename.destination;
+        let mut walk = DirWalk::new(destination.dir);
+        if let Some(offset) = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, destination.short + 1).await? {
+            self.put_bytes(offset, &[raw::ENTRY_END]).await?;
+        }
+        Ok(())
+    }
+
+    async fn finish_rename(&mut self) -> FsResult<(), D::Error> {
+        let Some(rename) = self.rename.as_ref() else {
+            return Ok(());
+        };
+        let committed = rename.committed;
+        if !committed && rename.publishing {
+            let offset = rename.offset;
+            let expected = rename.entry.encode();
+            let found = rawio::read_slot(&mut self.dev, &mut self.block, offset).await?;
+            if matches!(found, Slot::Short(entry) if entry.is_visible() && entry.encode() == expected) {
+                self.rename.as_mut().unwrap().committed = true;
+            } else {
+                self.rename.as_mut().unwrap().publishing = false;
+            }
+        }
+        if self.rename.as_ref().unwrap().committed {
+            self.rename_end().await?;
+            if let Some((dir, parent)) = self.rename.as_ref().unwrap().dot_dot {
+                self.set_dot_dot(dir, parent).await?;
+            }
+            let source = self.rename.as_ref().unwrap().source;
+            self.clear_slots(source.dir, source.first, source.short + 1).await?;
+            let rename = self.rename.as_ref().unwrap();
+            let (target_id, source_id, offset) = (rename.target_id, rename.source_id, rename.offset);
+            if let Some(id) = target_id {
+                self.mark_unlinked(id);
+            }
+            if let Some(node) = source_id.and_then(|id| self.nodes.get_mut(id)) {
+                node.entry = offset;
+                self.moved = true;
+            }
+        } else {
+            let destination = self.rename.as_ref().unwrap().destination;
+            self.clear_slots(destination.dir, destination.first, destination.short + 1).await?;
+            let len = self.rename.as_ref().unwrap().saved.as_ref().map_or(0, |saved| saved.len);
+            let mut walk = DirWalk::new(destination.dir);
+            for index in 0..len {
+                let saved = self.rename.as_ref().unwrap().saved.as_ref().unwrap();
+                let slot = saved.first + index;
+                let raw = saved.raw[index as usize];
+                let at = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot).await?.ok_or(ErrorKind::Corrupt)?;
+                self.put_bytes(at, &raw).await?;
+            }
+            if let Some(end) = self.rename.as_ref().unwrap().end {
+                self.put_bytes(end, &[raw::ENTRY_END]).await?;
+            }
+        }
+        self.run = None;
+        self.rename = None;
+        Ok(())
     }
 
     async fn finish_interrupted(&mut self) -> FsResult<(), D::Error> {
@@ -1008,6 +1091,7 @@ impl<D: BlockDevice> FatFs<D> {
             let mirrored = rawio::mirror(&mut self.dev, &mut self.block, &mut self.fat).await;
             self.note(mirrored)?;
         }
+        self.finish_rename().await?;
         if let Some(run) = self.run {
             let mut walk = DirWalk::new(run.dir);
             let short = match rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, run.short).await? {
@@ -1578,6 +1662,7 @@ impl<D: BlockDevice> FatFs<D> {
                 {
                     pending.owner = Owner::Entry(offset);
                 }
+                let rename = &mut self.rename;
                 let result = rawio::write_slots(
                     &mut self.dev,
                     &mut self.block,
@@ -1587,6 +1672,9 @@ impl<D: BlockDevice> FatFs<D> {
                     plan.slots,
                     |index| {
                         if index + 1 == plan.slots {
+                            if let Some(rename) = rename.as_mut() {
+                                rename.publishing = true;
+                            }
                             entry.encode()
                         } else {
                             let (sequence, units) = new.encoded.entry(index as usize);
@@ -1608,6 +1696,10 @@ impl<D: BlockDevice> FatFs<D> {
             }
             Err(err) => err,
         };
+        if self.rename.is_some() {
+            let _ = self.recover().await;
+            return Err(err);
+        }
         if self.clear_slots(dir, plan.start, plan.start + written).await.is_ok() {
             self.run = None;
         }
@@ -1710,11 +1802,47 @@ impl<D: BlockDevice> FatFs<D> {
         self.put_bytes(at, &entry.encode()).await
     }
 
-    /// Writes `moved` under the name `new` where `plan` found room in `to`,
-    /// which [`grow`](Self::grow) has grown by `grown`, then frees `src`'s
-    /// short entry. On failure the new entry is cleared
-    /// and `saved` written back. `src`'s long-name slots are left to the
-    /// caller.
+    #[allow(clippy::too_many_arguments)]
+    async fn begin_rename(
+        &mut self,
+        from: DirStart,
+        src: &Located,
+        to: DirStart,
+        plan: &Plan,
+        mut entry: ShortEntry,
+        dot_dot: Option<(u32, u32, u32)>,
+        src_id: Option<NodeId>,
+        target_id: Option<NodeId>,
+        saved: Option<alloc::boxed::Box<SavedRun>>,
+    ) -> FsResult<(), D::Error> {
+        entry.set_name(plan.short);
+        entry.set_nt_case(plan.nt_case);
+        let short = plan.start + plan.slots - 1;
+        let mut walk = DirWalk::new(to);
+        let mut end = None;
+        let mut offset = 0;
+        for slot in plan.start..=short {
+            offset = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot).await?.ok_or(ErrorKind::Corrupt)?;
+            if end.is_none() && matches!(rawio::read_slot(&mut self.dev, &mut self.block, offset).await?, Slot::End) {
+                end = Some(offset);
+            }
+        }
+        self.rename = Some(alloc::boxed::Box::new(PendingRename {
+            source: Run { dir: from, first: src.first, short: src.slot },
+            destination: Run { dir: to, first: plan.start, short },
+            offset,
+            entry,
+            dot_dot: dot_dot.map(|(dir, _, parent)| (dir, parent)),
+            source_id: src_id,
+            target_id,
+            end,
+            publishing: false,
+            saved,
+            committed: false,
+        }));
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn move_entry(
         &mut self,
@@ -1727,39 +1855,25 @@ impl<D: BlockDevice> FatFs<D> {
         moved: ShortEntry,
         dot_dot: Option<(u32, u32, u32)>,
         src_id: Option<NodeId>,
-        saved: Option<&SavedRun>,
     ) -> FsResult<(), D::Error> {
-        let mut entry = moved;
-        entry.set_name(plan.short);
-        entry.set_nt_case(plan.nt_case);
-        let offset = match self.insert_entry(to, new, plan, &entry, grown).await {
-            Ok(offset) => offset,
-            Err(err) => {
-                self.restore_run(to, saved).await;
-                return Err(err);
-            }
-        };
-        let end = plan.start + plan.slots;
-        if let Some((dir, _, parent)) = dot_dot
-            && let Err(err) = self.set_dot_dot(dir, parent).await
-        {
-            let _ = self.clear_slots(to, plan.start, end).await;
-            self.restore_run(to, saved).await;
+        if self.rename.is_none() {
+            self.begin_rename(from, src, to, plan, moved, dot_dot, src_id, None, None).await?;
+        }
+        let offset = self.rename.as_ref().unwrap().offset;
+        if let Err(err) = self.put_bytes(offset, &[raw::ENTRY_FREE]).await {
+            let _ = self.recover().await;
             return Err(err);
         }
-        self.run = Run::of(from, src.first, src.slot);
-        if let Err(err) = self.put_bytes(src.offset, &[raw::ENTRY_FREE]).await {
-            self.run = None;
-            if let Some((dir, old, _)) = dot_dot {
-                let _ = self.set_dot_dot(dir, old).await;
-            }
-            let _ = self.clear_slots(to, plan.start, end).await;
-            self.restore_run(to, saved).await;
+        if let Err(err) = self.rename_end().await {
+            let _ = self.recover().await;
             return Err(err);
         }
-        if let Some(node) = src_id.and_then(|id| self.nodes.get_mut(id)) {
-            node.entry = offset;
-            self.moved = true;
+        let entry = self.rename.as_ref().unwrap().entry;
+        self.insert_entry(to, new, plan, &entry, grown).await?;
+        self.rename.as_mut().unwrap().committed = true;
+        if let Err(err) = self.finish_rename().await {
+            let _ = self.recover().await;
+            return Err(err);
         }
         Ok(())
     }
@@ -1802,13 +1916,14 @@ impl<D: BlockDevice> FatFs<D> {
             label: false,
         };
         let plan = self.plan(to, text, false, new, skip).await?;
-        let mut saved = SavedRun {
+        let mut saved = alloc::boxed::Box::new(SavedRun {
             first: target.first,
             len: 0,
             raw: [[0; ENTRY_SIZE as usize]; lfn::MAX_ENTRIES + 1],
-        };
+        });
         self.save_run(to, target.slot, &mut saved).await?;
         let grown = self.grow(&plan).await?;
+        self.begin_rename(from, src, to, &plan, moved, dot_dot, src_id, target_id, Some(saved)).await?;
         let held = (target_first != 0).then(|| Pending::chain(target_first, Owner::Removed(target.offset)));
         self.pending = held;
         self.run = Run::of(to, target.first, target.slot);
@@ -1817,29 +1932,17 @@ impl<D: BlockDevice> FatFs<D> {
             Err(err) => Err(err),
         };
         if let Err(err) = cleared {
-            self.restore_run(to, Some(&saved)).await;
-            self.run = None;
             let _ = self.recover().await;
             return Err(err);
         }
         if let Err(err) = self
-            .move_entry(from, src, to, new, &plan, grown, moved, dot_dot, src_id, Some(&saved))
+            .move_entry(from, src, to, new, &plan, grown, moved, dot_dot, src_id)
             .await
         {
-            self.pending = held;
             let _ = self.recover().await;
             return Err(err);
         }
-        self.pending = held;
-        if let Some(id) = target_id {
-            self.mark_unlinked(id);
-        }
-        self.clear_slots(from, src.first, src.slot).await?;
-        self.run = None;
-        if target_first != 0 {
-            self.free_chain(target_first).await?;
-        }
-        Ok(())
+        self.recover().await
     }
 
     /// Reads slots `saved.first..=last` of `dir`, at most one long name and
@@ -1856,19 +1959,6 @@ impl<D: BlockDevice> FatFs<D> {
         }
         saved.len = len;
         Ok(())
-    }
-
-    /// Writes back the slots `save_run` read, as far as the device allows.
-    async fn restore_run(&mut self, dir: DirStart, saved: Option<&SavedRun>) {
-        let Some(saved) = saved else {
-            return;
-        };
-        let mut walk = DirWalk::new(dir);
-        for (slot, raw) in (saved.first..).zip(&saved.raw[..saved.len as usize]) {
-            if let Ok(Some(at)) = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot).await {
-                let _ = self.put_bytes(at, raw).await;
-            }
-        }
     }
 
     /// Stores `value` as the FAT entry of `cluster`, in the active copy
@@ -2622,6 +2712,11 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
     /// pinned target fails with [`ErrorKind::Busy`].
     /// Moving a directory into itself or below, or a `to` that `create`
     /// would refuse, fails with [`ErrorKind::InvalidInput`].
+    ///
+    /// While this driver remains mounted, the next mutation or `sync` resolves
+    /// an interrupted rename: it restores an unpublished replacement target,
+    /// or finishes removing the source after the destination is published.
+    /// This recovery state is held in memory, not a persistent journal.
     async fn rename(
         &mut self,
         from_dir: NodeId,
@@ -2679,12 +2774,10 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
                 };
                 let plan = self.plan(to_start, to_text, false, &new, skip).await?;
                 let grown = self.grow(&plan).await?;
-                self.move_entry(from_start, &src, to_start, &new, &plan, grown, moved, dot_dot, src_id, None)
+                self.move_entry(from_start, &src, to_start, &new, &plan, grown, moved, dot_dot, src_id)
                     .await?;
             }
         }
-        self.clear_slots(from_start, src.first, src.slot).await?;
-        self.run = None;
         Ok(())
     }
 

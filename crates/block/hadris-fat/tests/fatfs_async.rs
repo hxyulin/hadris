@@ -662,3 +662,590 @@ fn multi_cluster_append_recovers_at_every_await() {
         }
     }
 }
+
+#[test]
+fn nonempty_rename_recovers_at_every_await_and_keeps_pinned_nodes() {
+    use hadris_fat::r#async::FatFs;
+    use hadris_fs::sync::FileSystem as _;
+    const SOURCE: &str = "source file with a long name.txt";
+    const TARGET: &str = "destination file with a long name.txt";
+    for case in CASES {
+        for (cross, replace, directory) in [
+            (false, false, false),
+            (true, false, false),
+            (true, true, false),
+            (true, false, true),
+            (true, true, true),
+        ] {
+            let mut original = common::formatted(case, hadris_fat::FatOptions::new());
+            let root = original.root();
+            let from = original
+                .mkdir(root, Name::new("FROM"), &SetAttr::new())
+                .unwrap();
+            let to = original
+                .mkdir(root, Name::new("TO"), &SetAttr::new())
+                .unwrap();
+            let destination = if cross { to } else { from };
+            let source_data = vec![7; 2700];
+            let target_data = vec![9; 1800];
+            let source = if directory {
+                let dir = original
+                    .mkdir(from, Name::new(SOURCE), &SetAttr::new())
+                    .unwrap();
+                let child = original
+                    .create(dir, Name::new("CHILD.BIN"), &SetAttr::new())
+                    .unwrap();
+                original.write(child, 0, &source_data).unwrap();
+                original.close(child).unwrap();
+                dir
+            } else {
+                let file = original
+                    .create(from, Name::new(SOURCE), &SetAttr::new())
+                    .unwrap();
+                original.write(file, 0, &source_data).unwrap();
+                original.close(file).unwrap();
+                file
+            };
+            original.forget(source, 1);
+            if replace {
+                if directory {
+                    original
+                        .mkdir(destination, Name::new(TARGET), &SetAttr::new())
+                        .unwrap();
+                } else {
+                    let file = original
+                        .create(destination, Name::new(TARGET), &SetAttr::new())
+                        .unwrap();
+                    original.write(file, 0, &target_data).unwrap();
+                    original.close(file).unwrap();
+                }
+            }
+            let image = original.unmount().unwrap().into_inner();
+            let mut completed = false;
+            for budget in 0..240 {
+                let mut fs = cancel::run_for(
+                    FatFs::mount(
+                        cancel::YieldDev(common::device(case, image.clone())),
+                        MountOptions::new(),
+                    ),
+                    usize::MAX,
+                )
+                .unwrap()
+                .unwrap()
+                .with_cache(hadris_fat::CacheOptions::new());
+                let root = fs.root();
+                let from = cancel::run_for(fs.lookup(root, Name::new("FROM")), usize::MAX)
+                    .unwrap()
+                    .unwrap();
+                let to = if cross {
+                    cancel::run_for(fs.lookup(root, Name::new("TO")), usize::MAX)
+                        .unwrap()
+                        .unwrap()
+                } else {
+                    from
+                };
+                let source = cancel::run_for(fs.lookup(from, Name::new(SOURCE)), usize::MAX)
+                    .unwrap()
+                    .unwrap();
+                let mut expected = source_data.clone();
+                if !directory {
+                    cancel::run_for(
+                        fs.write(source, source_data.len() as u64, &[11; 100]),
+                        usize::MAX,
+                    )
+                    .unwrap()
+                    .unwrap();
+                    expected.extend_from_slice(&[11; 100]);
+                }
+                let target = replace.then(|| {
+                    cancel::run_for(fs.lookup(to, Name::new(TARGET)), usize::MAX)
+                        .unwrap()
+                        .unwrap()
+                });
+                let result = cancel::run_for(
+                    fs.rename(
+                        from,
+                        Name::new(SOURCE),
+                        to,
+                        Name::new(TARGET),
+                        RenameMode::Replace,
+                    ),
+                    budget,
+                );
+                cancel::run_for(fs.sync(), usize::MAX).unwrap().unwrap();
+                let old = cancel::run_for(fs.lookup(from, Name::new(SOURCE)), usize::MAX).unwrap();
+                let committed = old.is_err();
+                if committed {
+                    assert_eq!(old.unwrap_err().kind(), ErrorKind::NotFound);
+                    assert_eq!(
+                        cancel::run_for(fs.lookup(to, Name::new(TARGET)), usize::MAX)
+                            .unwrap()
+                            .unwrap(),
+                        source
+                    );
+                    if let Some(target) = target {
+                        assert_eq!(
+                            cancel::run_for(fs.stat(target), usize::MAX)
+                                .unwrap()
+                                .unwrap_err()
+                                .kind(),
+                            ErrorKind::NotFound
+                        );
+                    }
+                } else {
+                    assert_eq!(old.unwrap(), source);
+                    if let Some(target) = target {
+                        assert_eq!(
+                            cancel::run_for(fs.lookup(to, Name::new(TARGET)), usize::MAX)
+                                .unwrap()
+                                .unwrap(),
+                            target
+                        );
+                    } else {
+                        assert_eq!(
+                            cancel::run_for(fs.lookup(to, Name::new(TARGET)), usize::MAX)
+                                .unwrap()
+                                .unwrap_err()
+                                .kind(),
+                            ErrorKind::NotFound
+                        );
+                    }
+                }
+                let file = if directory {
+                    assert_eq!(
+                        cancel::run_for(fs.parent(source), usize::MAX)
+                            .unwrap()
+                            .unwrap(),
+                        if committed { to } else { from }
+                    );
+                    cancel::run_for(fs.lookup(source, Name::new("CHILD.BIN")), usize::MAX)
+                        .unwrap()
+                        .unwrap()
+                } else {
+                    source
+                };
+                let mut data = vec![0; expected.len()];
+                assert_eq!(
+                    cancel::run_for(fs.read(file, 0, &mut data), usize::MAX)
+                        .unwrap()
+                        .unwrap(),
+                    data.len()
+                );
+                assert_eq!(data, expected);
+                if !directory && replace && !committed {
+                    let mut data = vec![0; target_data.len()];
+                    cancel::run_for(fs.read(target.unwrap(), 0, &mut data), usize::MAX)
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(data, target_data);
+                }
+                let image = cancel::run_for(fs.unmount(), usize::MAX)
+                    .unwrap()
+                    .unwrap()
+                    .0
+                    .into_inner();
+                common::assert_checks_clean(
+                    case,
+                    &image,
+                    &format!(
+                        "rename await {budget}: cross={cross}, replace={replace}, dir={directory}"
+                    ),
+                );
+                if let Some(result) = result {
+                    result.unwrap();
+                    completed = true;
+                    break;
+                }
+            }
+            assert!(completed, "rename never completed");
+        }
+    }
+}
+
+#[test]
+fn cancelled_rename_does_not_publish_stale_entries_beyond_directory_end() {
+    use hadris_fat::r#async::FatFs;
+    use hadris_fs::sync::FileSystem as _;
+    const TARGET: &str = "A replacement long name.txt";
+    for case in CASES[..3].iter().copied() {
+        let mut original = common::formatted(case, hadris_fat::FatOptions::new());
+        let file = original
+            .create(original.root(), Name::new("OLD.TXT"), &SetAttr::new())
+            .unwrap();
+        original.write(file, 0, b"preserved").unwrap();
+        let mut image = original.unmount().unwrap().into_inner();
+        let geo = hadris_fat_raw::parse_boot(image[..512].try_into().unwrap()).unwrap();
+        let base = match geo.root() {
+            hadris_fat_raw::RootLocation::Fixed { start, .. } => start,
+            hadris_fat_raw::RootLocation::Cluster(first) => geo.cluster_offset(first).unwrap(),
+        } as usize;
+        let short = 1 + hadris_fat_raw::lfn::Encoded::new(TARGET).unwrap().entries();
+        let mut probe = hadris_fat::sync::FatFs::mount(
+            common::device(case, image.clone()),
+            MountOptions::new(),
+        )
+        .unwrap();
+        probe
+            .rename(
+                probe.root(),
+                Name::new("OLD.TXT"),
+                probe.root(),
+                Name::new(TARGET),
+                RenameMode::NoReplace,
+            )
+            .unwrap();
+        let renamed = probe.unmount().unwrap().into_inner();
+        image[base + short * 32..base + (short + 1) * 32]
+            .copy_from_slice(&renamed[base + short * 32..base + (short + 1) * 32]);
+        let garbage =
+            hadris_fat_raw::ShortEntry::new(*b"GARBAGE BIN", hadris_fat_raw::ATTR_ARCHIVE);
+        image[base + (short + 1) * 32..base + (short + 2) * 32].copy_from_slice(&garbage.encode());
+        common::assert_checks_clean(case, &image, "stale entries hidden after End");
+        let mut completed = false;
+        for budget in 0..120 {
+            let mut fs = cancel::run_for(
+                FatFs::mount(
+                    cancel::YieldDev(common::device(case, image.clone())),
+                    MountOptions::new(),
+                ),
+                usize::MAX,
+            )
+            .unwrap()
+            .unwrap()
+            .with_cache(hadris_fat::CacheOptions::new());
+            let root = fs.root();
+            let source = cancel::run_for(fs.lookup(root, Name::new("OLD.TXT")), usize::MAX)
+                .unwrap()
+                .unwrap();
+            let result = cancel::run_for(
+                fs.rename(
+                    root,
+                    Name::new("OLD.TXT"),
+                    root,
+                    Name::new(TARGET),
+                    RenameMode::NoReplace,
+                ),
+                budget,
+            );
+            cancel::run_for(fs.sync(), usize::MAX).unwrap().unwrap();
+            let old = cancel::run_for(fs.lookup(root, Name::new("OLD.TXT")), usize::MAX).unwrap();
+            let new = cancel::run_for(fs.lookup(root, Name::new(TARGET)), usize::MAX).unwrap();
+            assert!(old.is_ok() ^ new.is_ok(), "{} budget {budget}", case.name);
+            assert_eq!(old.or(new).unwrap(), source);
+            assert_eq!(
+                cancel::run_for(fs.lookup(root, Name::new("GARBAGE.BIN")), usize::MAX)
+                    .unwrap()
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::NotFound
+            );
+            let mut buf = [0; 9];
+            cancel::run_for(fs.read(source, 0, &mut buf), usize::MAX)
+                .unwrap()
+                .unwrap();
+            assert_eq!(&buf, b"preserved");
+            let image = cancel::run_for(fs.unmount(), usize::MAX)
+                .unwrap()
+                .unwrap()
+                .0
+                .into_inner();
+            common::assert_checks_clean(
+                case,
+                &image,
+                &format!("stale destination budget {budget}"),
+            );
+            if let Some(result) = result {
+                result.unwrap();
+                completed = true;
+                break;
+            }
+        }
+        assert!(completed);
+    }
+}
+
+#[test]
+fn rename_recovery_itself_survives_cancellation_at_every_await() {
+    use hadris_fat::r#async::FatFs;
+    use hadris_fs::sync::FileSystem as _;
+    let case = CASES[2];
+    let mut original = common::formatted(case, hadris_fat::FatOptions::new());
+    let root = original.root();
+    let from = original
+        .mkdir(root, Name::new("FROM"), &SetAttr::new())
+        .unwrap();
+    original
+        .mkdir(root, Name::new("TO"), &SetAttr::new())
+        .unwrap();
+    let directory = original
+        .mkdir(from, Name::new("SOURCE"), &SetAttr::new())
+        .unwrap();
+    let child = original
+        .create(directory, Name::new("DATA.BIN"), &SetAttr::new())
+        .unwrap();
+    original.write(child, 0, &[7; 2700]).unwrap();
+    let image = original.unmount().unwrap().into_inner();
+    let mount = || {
+        let mut fs = cancel::run_for(
+            FatFs::mount(
+                cancel::YieldDev(common::device(case, image.clone())),
+                MountOptions::new(),
+            ),
+            usize::MAX,
+        )
+        .unwrap()
+        .unwrap()
+        .with_cache(hadris_fat::CacheOptions::new());
+        let root = fs.root();
+        let from = cancel::run_for(fs.lookup(root, Name::new("FROM")), usize::MAX)
+            .unwrap()
+            .unwrap();
+        let to = cancel::run_for(fs.lookup(root, Name::new("TO")), usize::MAX)
+            .unwrap()
+            .unwrap();
+        let source = cancel::run_for(fs.lookup(from, Name::new("SOURCE")), usize::MAX)
+            .unwrap()
+            .unwrap();
+        (fs, from, to, source)
+    };
+    let mut rename_budget = None;
+    for budget in 0..120 {
+        let (mut fs, from, to, _) = mount();
+        if let Some(result) = cancel::run_for(
+            fs.rename(
+                from,
+                Name::new("SOURCE"),
+                to,
+                Name::new("Moved directory with a long name"),
+                RenameMode::NoReplace,
+            ),
+            budget,
+        ) {
+            result.unwrap();
+            rename_budget = Some(budget - 1);
+            break;
+        }
+    }
+    let rename_budget = rename_budget.unwrap();
+    for recovery_budget in 0..120 {
+        let (mut fs, from, to, source) = mount();
+        assert!(
+            cancel::run_for(
+                fs.rename(
+                    from,
+                    Name::new("SOURCE"),
+                    to,
+                    Name::new("Moved directory with a long name"),
+                    RenameMode::NoReplace
+                ),
+                rename_budget
+            )
+            .is_none()
+        );
+        let result = cancel::run_for(fs.sync(), recovery_budget);
+        cancel::run_for(fs.sync(), usize::MAX).unwrap().unwrap();
+        assert_eq!(
+            cancel::run_for(
+                fs.lookup(to, Name::new("Moved directory with a long name")),
+                usize::MAX
+            )
+            .unwrap()
+            .unwrap(),
+            source
+        );
+        assert_eq!(
+            cancel::run_for(fs.lookup(from, Name::new("SOURCE")), usize::MAX)
+                .unwrap()
+                .unwrap_err()
+                .kind(),
+            ErrorKind::NotFound
+        );
+        assert_eq!(
+            cancel::run_for(fs.parent(source), usize::MAX)
+                .unwrap()
+                .unwrap(),
+            to
+        );
+        let child = cancel::run_for(fs.lookup(source, Name::new("DATA.BIN")), usize::MAX)
+            .unwrap()
+            .unwrap();
+        let mut data = vec![0; 2700];
+        cancel::run_for(fs.read(child, 0, &mut data), usize::MAX)
+            .unwrap()
+            .unwrap();
+        assert_eq!(data, vec![7; 2700]);
+        let image = cancel::run_for(fs.unmount(), usize::MAX)
+            .unwrap()
+            .unwrap()
+            .0
+            .into_inner();
+        common::assert_checks_clean(
+            case,
+            &image,
+            &format!("rename recovery await {recovery_budget}"),
+        );
+        if let Some(result) = result {
+            result.unwrap();
+            return;
+        }
+    }
+    panic!("rename recovery never completed");
+}
+
+#[test]
+fn cancelled_replacement_rollback_cannot_commit_restored_identical_empty_metadata() {
+    use hadris_fat::r#async::FatFs;
+    use hadris_fs::sync::FileSystem as _;
+    let case = CASES[0];
+    let mut original = common::formatted(case, hadris_fat::FatOptions::new());
+    let root = original.root();
+    original
+        .create(root, Name::new("SOURCE.TXT"), &SetAttr::new())
+        .unwrap();
+    original
+        .create(root, Name::new("TARGET.TXT"), &SetAttr::new())
+        .unwrap();
+    let image = original.unmount().unwrap().into_inner();
+    let mount = || {
+        let mut fs = cancel::run_for(
+            FatFs::mount(
+                cancel::YieldDev(common::device(case, image.clone())),
+                MountOptions::new(),
+            ),
+            usize::MAX,
+        )
+        .unwrap()
+        .unwrap()
+        .with_cache(hadris_fat::CacheOptions::new());
+        let root = fs.root();
+        let source = cancel::run_for(fs.lookup(root, Name::new("SOURCE.TXT")), usize::MAX)
+            .unwrap()
+            .unwrap();
+        let target = cancel::run_for(fs.lookup(root, Name::new("TARGET.TXT")), usize::MAX)
+            .unwrap()
+            .unwrap();
+        (fs, root, source, target)
+    };
+    for rename_budget in 0..80 {
+        let (mut baseline, root, _, _) = mount();
+        let rename_result = cancel::run_for(
+            baseline.rename(
+                root,
+                Name::new("SOURCE.TXT"),
+                root,
+                Name::new("TARGET.TXT"),
+                RenameMode::Replace,
+            ),
+            rename_budget,
+        );
+        cancel::run_for(baseline.sync(), usize::MAX)
+            .unwrap()
+            .unwrap();
+        let committed = cancel::run_for(baseline.lookup(root, Name::new("SOURCE.TXT")), usize::MAX)
+            .unwrap()
+            .is_err();
+        for recovery_budget in 0..80 {
+            let (mut fs, root, source, target) = mount();
+            cancel::run_for(
+                fs.rename(
+                    root,
+                    Name::new("SOURCE.TXT"),
+                    root,
+                    Name::new("TARGET.TXT"),
+                    RenameMode::Replace,
+                ),
+                rename_budget,
+            );
+            let recovery_result = cancel::run_for(fs.sync(), recovery_budget);
+            cancel::run_for(fs.sync(), usize::MAX).unwrap().unwrap();
+            let old =
+                cancel::run_for(fs.lookup(root, Name::new("SOURCE.TXT")), usize::MAX).unwrap();
+            assert_eq!(
+                old.is_err(),
+                committed,
+                "rename {rename_budget}, recovery {recovery_budget}"
+            );
+            let new = cancel::run_for(fs.lookup(root, Name::new("TARGET.TXT")), usize::MAX)
+                .unwrap()
+                .unwrap();
+            assert_eq!(new, if committed { source } else { target });
+            if committed {
+                assert_eq!(
+                    cancel::run_for(fs.stat(target), usize::MAX)
+                        .unwrap()
+                        .unwrap_err()
+                        .kind(),
+                    ErrorKind::NotFound
+                );
+            }
+            let image = cancel::run_for(fs.unmount(), usize::MAX)
+                .unwrap()
+                .unwrap()
+                .0
+                .into_inner();
+            common::assert_checks_clean(case, &image, "identical empty replacement recovery");
+            if let Some(result) = recovery_result {
+                result.unwrap();
+                break;
+            }
+            assert!(recovery_budget < 79);
+        }
+        if let Some(result) = rename_result {
+            result.unwrap();
+            return;
+        }
+    }
+    panic!("empty replacement never completed");
+}
+
+#[test]
+fn cancelled_nonempty_rename_at_budget_five_does_not_leave_cross_links() {
+    use hadris_fat::r#async::FatFs;
+    use hadris_fs::sync::FileSystem as _;
+    let case = CASES[2];
+    let mut original = common::formatted(case, hadris_fat::FatOptions::new());
+    let file = original
+        .create(original.root(), Name::new("OLD.TXT"), &SetAttr::new())
+        .unwrap();
+    original.write(file, 0, b"preserved").unwrap();
+    let image = original.unmount().unwrap().into_inner();
+    let mut fs = cancel::run_for(
+        FatFs::mount(
+            cancel::YieldDev(common::device(case, image)),
+            MountOptions::new(),
+        ),
+        usize::MAX,
+    )
+    .unwrap()
+    .unwrap()
+    .with_cache(hadris_fat::CacheOptions::new());
+    let root = fs.root();
+    let source = cancel::run_for(fs.lookup(root, Name::new("OLD.TXT")), usize::MAX)
+        .unwrap()
+        .unwrap();
+    assert!(
+        cancel::run_for(
+            fs.rename(
+                root,
+                Name::new("OLD.TXT"),
+                root,
+                Name::new("A replacement long name.txt"),
+                RenameMode::NoReplace
+            ),
+            5
+        )
+        .is_none()
+    );
+    cancel::run_for(fs.sync(), usize::MAX).unwrap().unwrap();
+    let mut buf = [0; 9];
+    cancel::run_for(fs.read(source, 0, &mut buf), usize::MAX)
+        .unwrap()
+        .unwrap();
+    assert_eq!(&buf, b"preserved");
+    let image = cancel::run_for(fs.unmount(), usize::MAX)
+        .unwrap()
+        .unwrap()
+        .0
+        .into_inner();
+    common::assert_checks_clean(case, &image, "cancelled nonempty rename budget five");
+}
