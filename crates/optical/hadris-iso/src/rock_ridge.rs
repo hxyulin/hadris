@@ -2,7 +2,7 @@ use hadris_fs::{DateTime, DeviceNumber, ErrorKind, FileType};
 
 use crate::raw::{
     ContinuationArea, DecDateTime, DirDateTime, NmFlags, PnEntry, PxEntry, RRIP_IDENTIFIERS,
-    SlComponentFlags, SuspEntries, TfFlags,
+    SlComponentFlags, TfFlags,
 };
 
 pub(crate) const S_IFMT: u32 = 0o170_000;
@@ -213,19 +213,68 @@ impl<'a> Scan<'a> {
         }
     }
 
-    /// Takes the entries of one area. A `CE` entry leaves the next area in
-    /// [`next`](Self::next); the caller reads it and feeds it here.
-    pub(crate) fn feed(&mut self, area: &[u8], skip: usize) {
-        self.next = None;
-        for entry in SuspEntries::new(area, skip) {
-            let data = entry.data;
-            match &entry.signature {
+    /// Takes complete entries of an area, possibly in several chunks. Returns
+    /// whether a terminator or padding ended the area. The caller takes `next`
+    /// before feeding a new continuation area.
+    pub(crate) fn feed(&mut self, area: &[u8], skip: usize) -> bool {
+        let mut rest = area.get(skip..).unwrap_or(&[]);
+        while rest.len() >= 4 {
+            if rest[0] == 0 {
+                return true;
+            }
+            let len = usize::from(rest[2]);
+            if len < 4 || len > rest.len() {
+                self.malformed = true;
+                return true;
+            }
+            let signature = [rest[0], rest[1]];
+            let version = rest[3];
+            let data = &rest[4..len];
+            rest = &rest[len..];
+            if version != 1
+                && matches!(
+                    &signature,
+                    b"SP"
+                        | b"CE"
+                        | b"ER"
+                        | b"ST"
+                        | b"RR"
+                        | b"PX"
+                        | b"PN"
+                        | b"TF"
+                        | b"NM"
+                        | b"SL"
+                        | b"CL"
+                        | b"PL"
+                        | b"RE"
+                )
+            {
+                self.malformed = true;
+                return true;
+            }
+            match &signature {
+                b"ST" => {
+                    self.malformed |= !data.is_empty();
+                    return true;
+                }
                 b"SP" if data.len() >= 3 && data[..2] == [0xBE, 0xEF] => self.sp = Some(data[2]),
                 b"CE" if data.len() >= 24 => {
-                    self.next = Some(bytemuck::pod_read_unaligned(&data[..24]));
+                    let ce: ContinuationArea = bytemuck::pod_read_unaligned(&data[..24]);
+                    if self.next.is_some()
+                        || !ce.block.is_consistent()
+                        || !ce.offset.is_consistent()
+                        || !ce.length.is_consistent()
+                    {
+                        self.malformed = true;
+                    }
+                    self.next = Some(ce);
                 }
                 b"ER" if data.len() >= 4 => {
                     let id_len = usize::from(data[0]);
+                    let total = 4 + id_len + usize::from(data[1]) + usize::from(data[2]);
+                    if total > data.len() {
+                        self.malformed = true;
+                    }
                     let id = data.get(4..4 + id_len).unwrap_or(&[]);
                     if RRIP_IDENTIFIERS.contains(&id) {
                         self.rrip = true;
@@ -260,10 +309,14 @@ impl<'a> Scan<'a> {
                     self.info.parent_link = Some(block.get());
                 }
                 b"RE" => self.info.relocated = true,
-                b"PX" | b"PN" | b"CL" | b"PL" | b"CE" | b"SP" => self.malformed = true,
+                b"PX" | b"PN" | b"CL" | b"PL" | b"CE" | b"SP" | b"ER" | b"TF" | b"NM" | b"SL" => {
+                    self.malformed = true
+                }
                 _ => {}
             }
         }
+        self.malformed |= rest.iter().any(|&byte| byte != 0);
+        false
     }
 
     fn times(&mut self, data: &[u8]) {
@@ -363,6 +416,7 @@ impl<'a> Scan<'a> {
                 sink.push(content);
             }
         }
+        self.malformed |= !rest.is_empty();
         if !entry_continues {
             self.link_done = true;
         }

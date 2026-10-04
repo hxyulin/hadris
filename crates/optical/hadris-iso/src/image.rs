@@ -322,7 +322,8 @@ impl View {
                 block.index = index;
             }
             let within = (*pos % bs) as usize;
-            let data = &block.data[within..bs as usize];
+            let take = (bs as usize - within).min((dir.size - *pos) as usize);
+            let data = &block.data[within..within + take];
             match DirectoryRecord::parse(data) {
                 Ok(Some(record)) => {
                     let offset = dir.start + u64::from(*pos);
@@ -374,26 +375,70 @@ impl View {
         skip: u8,
         scan: &mut Scan<'_>,
     ) -> Result<(), Error<D::Error>> {
+        scan.next = None;
         scan.feed(record.system_use(), usize::from(skip));
         let mut area = [0u8; SECTOR_SIZE];
-        for _ in 0..MAX_CONTINUATIONS {
-            let Some(ce) = scan.next else {
+        for count in 0..=MAX_CONTINUATIONS {
+            if scan.malformed {
+                return Err(Detail::SystemUse.corrupt());
+            }
+            let Some(ce) = scan.next.take() else {
                 return Ok(());
             };
-            let len = (ce.length.get() as usize).min(SECTOR_SIZE);
-            let offset = u64::from(ce.block.get()) * self.bs() + u64::from(ce.offset.get());
-            if len == 0 {
-                return Ok(());
+            if count == MAX_CONTINUATIONS {
+                return Err(Detail::SystemUse.corrupt());
             }
-            read_bytes(dev, self.len, offset, &mut area[..len]).await?;
-            scan.feed(&area[..len], 0);
+            let len = u64::from(ce.length.get());
+            let offset = u64::from(ce.block.get()) * self.bs() + u64::from(ce.offset.get());
+            if len == 0 || u64::from(ce.offset.get()) >= self.bs() || offset.checked_add(len).is_none_or(|end| end > self.len) {
+                return Err(Detail::SystemUse.corrupt());
+            }
+            let mut left = len;
+            let mut at = offset;
+            let mut held = 0;
+            while left > 0 {
+                let take = left.min((area.len() - held) as u64) as usize;
+                read_bytes(dev, self.len, at, &mut area[held..held + take]).await?;
+                at += take as u64;
+                left -= take as u64;
+                let used = held + take;
+                let mut end = 0;
+                while used - end >= 4 {
+                    let entry_len = usize::from(area[end + 2]);
+                    if area[end] == 0 || entry_len < 4 {
+                        end = used;
+                        break;
+                    }
+                    if entry_len > used - end {
+                        break;
+                    }
+                    end += entry_len;
+                }
+                if left == 0 {
+                    end = used;
+                }
+                if scan.feed(&area[..end], 0) {
+                    break;
+                }
+                if scan.malformed {
+                    break;
+                }
+                held = used - end;
+                if held >= 255 {
+                    return Err(Detail::SystemUse.corrupt());
+                }
+                area.copy_within(end..used, 0);
+            }
         }
-        Ok(())
+        Err(Detail::SystemUse.corrupt())
     }
 
     /// Whether the root's `.` record starts a Rock Ridge area.
     async fn detect_rock_ridge<D: BlockDevice>(&mut self, dev: &mut D) -> Result<Option<u8>, Error<D::Error>> {
         let dot = self.record_at(dev, self.root_id().get()).await?;
+        if !dot.system_use().starts_with(b"SP\x07\x01\xbe\xef") {
+            return Ok(None);
+        }
         let mut scan = Scan::new();
         self.scan(dev, &dot, 0, &mut scan).await?;
         Ok(match scan.sp {

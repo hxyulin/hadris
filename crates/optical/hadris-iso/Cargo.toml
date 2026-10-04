@@ -62,3 +62,7 @@ required-features = ["std", "sync"]
 [[test]]
 name = "multi_extent"
 required-features = ["std", "sync"]
+
+[[test]]
+name = "malformed"
+required-features = ["std", "sync"]
