@@ -169,12 +169,10 @@ pub async fn next<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &Fat, 
 pub async fn set<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &mut Fat, cluster: u32, value: u32) -> FsResult<(), D::Error> {
     fat.check_cluster(cluster)?;
     let copies = fat.geo.copies();
+    if fat.split.is_some() || fat.unmirrored.is_some_and(|other| other != (cluster, cluster)) {
+        mirror(dev, block, fat).await?;
+    }
     if copies > 1 {
-        if let Some(other) = fat.unmirrored
-            && other != (cluster, cluster)
-        {
-            mirror(dev, block, fat).await?;
-        }
         fat.unmirrored = Some((cluster, cluster));
     }
     for step in 0..copies {
@@ -186,8 +184,12 @@ pub async fn set<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &mut Fa
 
 /// Copies the active FAT entries an interrupted [`set`], `allocate_run` or
 /// `free_chain` left [`unmirrored`](Fat::unmirrored) to the other copies,
-/// where they differ.
+/// where they differ. An interrupted active FAT12 entry spanning two device
+/// blocks is completed first, so recovery never follows a partial link.
 pub async fn mirror<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &mut Fat) -> FsResult<(), D::Error> {
+    if let Some((cluster, value, _)) = fat.split {
+        put_entry(dev, block, fat, 0, cluster, value).await?;
+    }
     let Some((first, last)) = fat.unmirrored else {
         return Ok(());
     };
@@ -228,8 +230,14 @@ async fn put_entry<D: BlockDevice>(
     let at = fat.geo.fat_copy(copy) + kind.entry_offset(cluster as u64);
     let mut bytes = [0u8; 4];
     read_bytes(dev, block, at, &mut bytes[..len]).await?;
-    let was_free = kind.decode(cluster as u64, &bytes) & kind.mask() == 0;
+    let split = step == 0 && at % block.size as u64 + len as u64 > block.size as u64;
+    let was_free = fat.split.filter(|&(pending, _, _)| pending == cluster)
+        .map_or_else(|| kind.decode(cluster as u64, &bytes) & kind.mask() == 0, |(_, _, free)| free);
     kind.encode(cluster as u64, value, &mut bytes);
+    if split {
+        fat.split = Some((cluster, value, was_free));
+        fat.unmirrored = Some((cluster, cluster));
+    }
     put(dev, block, at, Some(&bytes[..len]), len).await?;
     let is_free = value & kind.mask() == 0;
     if step == 0 && was_free != is_free {
@@ -238,6 +246,9 @@ async fn put_entry<D: BlockDevice>(
         } else {
             fat.adjust_free(0, 1);
         }
+    }
+    if split {
+        fat.split = None;
     }
     Ok(())
 }

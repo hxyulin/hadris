@@ -104,6 +104,7 @@ pub struct Fat {
     fs_info: Option<u64>,
     info_dirty: bool,
     unmirrored: Option<(u32, u32)>,
+    split: Option<(u32, u32, bool)>,
 }
 
 impl Fat {
@@ -117,6 +118,7 @@ impl Fat {
             fs_info: None,
             info_dirty: false,
             unmirrored: None,
+            split: None,
         }
     }
 
@@ -151,8 +153,9 @@ impl Fat {
         self.info_dirty
     }
 
-    /// The clusters, first and last, whose FAT entries may differ between
-    /// the copies because a write to them was interrupted.
+    /// The clusters, first and last, whose FAT entries need repair after an
+    /// interrupted write, including a split active FAT12 entry on volumes
+    /// with a single copy.
     pub const fn unmirrored(&self) -> Option<(u32, u32)> {
         self.unmirrored
     }
@@ -161,6 +164,7 @@ impl Fat {
     /// the volume turned out too damaged to copy them.
     pub fn forget_unmirrored(&mut self) {
         self.unmirrored = None;
+        self.split = None;
     }
 
     /// Whether `cluster` is a data cluster.
