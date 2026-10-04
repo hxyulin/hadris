@@ -94,8 +94,8 @@ async fn read_info<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>>
 
 /// A mounted ISO 9660 image, read through one of its directory trees.
 ///
-/// It reads the volume descriptors once, when mounted, and needs no
-/// allocator. [`mount`](Self::mount) reads the most capable tree the image
+/// It reads the volume descriptors once, when mounted. Reading without
+/// an explicitly configured cache needs no allocator. [`mount`](Self::mount) reads the most capable tree the image
 /// has (Rock Ridge, then Joliet, then the enhanced tree, then the primary
 /// tree); [`mount_namespace`](Self::mount_namespace) picks one. It
 /// implements the read-only `hadris_fs` `FileSystem` trait.

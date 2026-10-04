@@ -317,3 +317,10 @@ index, disabled by default. Its first hard-link lookup scans directory records
 in path-table order, storing the earliest serial and extent keys up to that
 bound. Unindexed keys use the normal scan. A cancelled or failed build publishes
 no partial index; subsequent lookups use the normal scan until `clear_cache`.
+
+### Performance measurements
+
+`cargo bench -p hadris-iso --bench performance --features cache` reports device
+calls, transferred bytes and min/median/max runtime for reader and writer
+workloads. See [the performance guide](../../../docs/performance.md) for cache
+settings, filtering, CSV baselines and measurement boundaries.

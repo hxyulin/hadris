@@ -72,3 +72,8 @@ required-features = ["std", "sync"]
 [[test]]
 name = "performance"
 required-features = ["std", "sync"]
+
+[[bench]]
+name = "performance"
+harness = false
+required-features = ["std", "sync"]

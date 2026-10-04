@@ -94,6 +94,78 @@ the affected conformance and cancellation tests before accepting an
 optimization: metadata ordering and interrupted-write recovery constrain
 which writes can be combined or removed.
 
+## ISO reader and writer
+
+Run `cargo bench -p hadris-iso --bench performance --features cache` for
+282 cases covering lookup, listing, repeated metadata operations, single-extent
+file reads and image planning/writing. Without `cache`, it runs 114 cases.
+`HADRIS_ISO_BENCH_FILTER` filters labels by substring;
+`HADRIS_ISO_BENCH_SAMPLES` sets the number of measured samples (default seven).
+CSV is written to stdout, so it can be redirected to a baseline file.
+
+Each case has one warm-up and starts from a fresh image copy and mount.
+Mount and buffer allocation are excluded except in mount cases. Cache setup
+is outside the operation timer except in mount cases. `cache0` disables the
+reader cache; `cache1` uses 64 logical metadata blocks and 128 parsed records;
+`cache2` adds an index capped at 1,024 hard-link keys. Payload data is never
+cached by the reader. Cache state established during setup is retained, and
+repeated-operation cases retain state within the operation. These cache
+capacities are benchmark settings, not the `CacheOptions` defaults.
+
+Counts are successful device calls and transferred bytes, including rereads.
+The CSV retains logical/backing columns for compatibility with the audit's
+storage-cache experiments; they are equal here because the ISO cache avoids
+issuing device requests. One device call may transfer many blocks. Every
+sample must reproduce both counters. Lookup hits, misses, listing counts and
+read progress are checked; the last file-read buffer is checked outside the
+timer. Planning/writing counts must also agree across samples.
+
+Times include counter overhead, name construction, metadata parsing and
+memory copies. They are release-mode host measurements, with min/median/max
+reported; they do not measure physical storage latency or async scheduling.
+Fixture construction, image copying, allocations for the fixture/read buffer,
+mount and destruction are excluded from non-mount cases. Writer timings
+include internal planning and the final memory-device flush.
+
+Using the same harness and Rust 1.97.1 on an Apple M3 Pro, the baseline at
+`91e952ef` and the first optimization series have these device counts:
+
+| Workload | Before reads | After, no cache | After, configured cache |
+|---|---:|---:|---:|
+| Missing lookup, 512 files plus 512 hard links | 19,138 | 66 | 65 |
+| Lookup all 512 originals with hard links | 1,756,192 | 18,560 | 34 |
+| List all 1,024 linked entries | 22,210 | 21,698 | 66 |
+| List 512 ordinary Rock Ridge files | 1,570 | 1,058 | 33 |
+| Read 1 MiB in 4 KiB chunks, 2 KiB device blocks | 512 | 512 | 256 |
+
+The linked rows use `cache2`; ordinary rows use `cache1`. A missing lookup
+never builds the link index. The first matching hard-link lookup pays for
+index construction: five reads without the cache versus 34 with `cache2`
+in this fixture. Bounded or failed index builds fall back to ordinary scans
+for unindexed identities. Parsed-record eviction is also measured by tests.
+
+The uncached linked lookup-all median falls from about 1.93 seconds to
+25 ms. Indexed listing falls from about 22 ms to 0.54 ms. Cached ordinary
+listing reads 67,584 bytes rather than the baseline's 3,215,360; cached 4 KiB
+file reads transfer exactly the 1 MiB payload because its record is retained.
+Small payload reads can still reread sectors: use the storage cache separately
+if payload buffering is wanted.
+
+For 513 directories and three namespaces, tracing records 3,078 directory
+record constructions instead of 6,156. Plan-only time falls from about
+6.8 ms to 3.7 ms. The writer retains final child identifiers while emitting
+directories and reuses them in both endian path tables, without retaining all
+full directory records. Peak temporary allocation was not measured. A fixture
+with colliding identifiers, relocated directories, symlinks, hard links and
+three namespaces is byte-for-byte identical before and after the writer
+change; raw path-table tests and the independent ISO oracle remain the gates.
+
+Reading without `with_cache` requires no allocator, even when the feature is
+enabled. With the feature enabled, the mount stores optional cache state;
+sector/record storage is allocated only when configured and the link map grows
+on demand up to its key limit. Target stack/flash and host driver state should
+be measured separately before using caching on constrained devices.
+
 ## Function tracing
 
 See the [tracing guide](tracing.md) for the opt-in hosted instrumentation,

@@ -72,6 +72,11 @@ hosted and embedded drivers. Run it with
 [`docs/performance.md`](docs/performance.md) for filtering, CSV baselines,
 measurement boundaries and embedded flash/stack measurements.
 
+The ISO benchmark runs with
+`cargo bench -p hadris-iso --bench performance --features cache`; the same
+performance guide documents its workloads, cache settings and measurement
+boundaries.
+
 ### Conformance and interoperability suite
 
 Specification conformance and peer interoperability tests live in the
