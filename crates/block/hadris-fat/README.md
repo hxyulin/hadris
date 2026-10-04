@@ -110,6 +110,14 @@ invalidate the index. `clear_cache()` discards the index and buffered block
 without changing pinned metadata. Metadata caching holds whole device blocks,
 bypasses payload reads and invalidates overlapping blocks before each write.
 It defers no writes. Each cache bound can be set to zero independently.
+For repeated name lookups, add `.with_directory_entries(128)` to index a
+bounded prefix of one directory. This is disabled by default, including in
+`CacheOptions::new()`. Lookups learn entries as they scan; later misses resume
+from the validated prefix's original chain position, and hits verify folded
+long names and short aliases. Switching directories replaces the prefix and
+mutations discard it. Entries beyond the bound remain accessible by scanning.
+The index retains each cached long name (up to 255 UTF-16 units) and its short
+entry; choose its bound separately from the metadata-block budget.
 External writers require a remount.
 This works with `alloc` and `no_std` in both sync and async modes. It helps
 backward seeks; sequential readers can keep indexing disabled.

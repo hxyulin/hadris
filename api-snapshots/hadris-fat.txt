@@ -427,6 +427,7 @@ impl hadris_fat::CacheOptions
 pub const fn hadris_fat::CacheOptions::new() -> Self
 pub const fn hadris_fat::CacheOptions::with_blocks(self, usize) -> Self
 pub const fn hadris_fat::CacheOptions::with_chain_positions(self, usize) -> Self
+pub const fn hadris_fat::CacheOptions::with_directory_entries(self, usize) -> Self
 impl core::default::Default for hadris_fat::CacheOptions
 pub fn hadris_fat::CacheOptions::default() -> Self
 pub struct hadris_fat::FatOptions

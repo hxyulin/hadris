@@ -180,6 +180,7 @@ struct Found {
 }
 
 /// A named entry: its short entry and the slots its name occupies.
+#[derive(Clone, Copy)]
 struct Located {
     /// The first slot of the entry, its first long-name fragment if it has a
     /// valid long name.
@@ -189,6 +190,47 @@ struct Located {
     entry: ShortEntry,
     /// Whether the query equals the entry's name exactly.
     exact: bool,
+}
+
+struct IndexedName {
+    located: Located,
+    long: Option<alloc::boxed::Box<[u16]>>,
+    long_hash: Option<u64>,
+    short_hash: u64,
+}
+
+struct DirectoryIndex {
+    limit: usize,
+    start: Option<DirStart>,
+    entries: alloc::vec::Vec<IndexedName>,
+    walk: DirWalk,
+    slot: u32,
+}
+
+impl DirectoryIndex {
+    fn new(limit: usize) -> Self {
+        Self {
+            limit,
+            start: None,
+            entries: alloc::vec::Vec::with_capacity(limit),
+            walk: DirWalk::new(DirStart::Chain(0)),
+            slot: 0,
+        }
+    }
+
+    fn clear(&mut self) {
+        self.start = None;
+        self.entries.clear();
+        self.slot = 0;
+    }
+
+    fn select(&mut self, start: DirStart) {
+        if self.start != Some(start) {
+            self.clear();
+            self.start = Some(start);
+            self.walk = DirWalk::new(start);
+        }
+    }
 }
 
 /// Where a new entry goes.
@@ -476,6 +518,7 @@ pub struct FatFs<D> {
     /// A known `(index, cluster)` of a FAT32 root directory's chain.
     root_hint: ChainPos,
     chain_cache: ChainCache,
+    directory_index: Option<alloc::boxed::Box<DirectoryIndex>>,
 }
 
 impl<D> fmt::Debug for FatFs<D> {
@@ -546,27 +589,38 @@ impl<D: BlockDevice> FatFs<D> {
             moved: false,
             root_hint: ChainPos::NONE,
             chain_cache: ChainCache::new(0),
+            directory_index: None,
         })
     }
 
-    /// Enables bounded metadata-block caching and lazy chain-position caching. The bound is shared by
+    /// Enables bounded metadata-block caching, lazy chain-position caching and
+    /// optional directory-prefix indexing. The chain-position bound is shared by
     /// all files. Mutations and recovery discard the index; the backing device
     /// must not be changed externally while mounted. Configuration reads no I/O.
     pub fn with_cache(mut self, options: CacheOptions) -> Self {
         self.chain_cache = ChainCache::new(options.positions);
         self.dev.blocks = Blocks::new(options.blocks);
+        self.directory_index = (options.directory_entries != 0)
+            .then(|| alloc::boxed::Box::new(DirectoryIndex::new(options.directory_entries)));
         self
     }
 
-    /// Discards cached chain positions, metadata blocks and the buffered block.
+    /// Discards cached directory names, chain positions, metadata blocks and the buffered block.
     /// Allocated metadata-block storage is retained for reuse.
     /// Pinned metadata is retained; external device changes require a remount.
     pub fn clear_cache(&mut self) {
         self.chain_cache.clear();
+        self.invalidate_directory();
         self.dev.blocks.clear();
         self.block.invalidate();
         self.root_hint = ChainPos::NONE;
         self.nodes.for_each_mut(|_, node| node.hint = ChainPos::NONE);
+    }
+
+    fn invalidate_directory(&mut self) {
+        if let Some(index) = &mut self.directory_index {
+            index.clear();
+        }
     }
 
     async fn walk_file(&mut self, node: NodeId, state: &Node, hint: ChainPos, want: u32) -> FsResult<ChainPos, D::Error> {
@@ -997,6 +1051,7 @@ impl<D: BlockDevice> FatFs<D> {
     async fn prepare(&mut self) -> FsResult<(), D::Error> {
         self.writable()?;
         self.chain_cache.clear();
+        self.invalidate_directory();
         self.nodes.remove(RESERVED);
         self.recover().await
     }
@@ -1084,8 +1139,9 @@ impl<D: BlockDevice> FatFs<D> {
     }
 
     async fn finish_interrupted(&mut self) -> FsResult<(), D::Error> {
-        if self.pending.is_some() || self.fat.unmirrored().is_some() {
+        if self.pending.is_some() || self.run.is_some() || self.fat.unmirrored().is_some() {
             self.chain_cache.clear();
+            self.invalidate_directory();
         }
         if self.fat.unmirrored().is_some() {
             let mirrored = rawio::mirror(&mut self.dev, &mut self.block, &mut self.fat).await;
@@ -1274,6 +1330,7 @@ impl<D: BlockDevice> FatFs<D> {
     }
 
     async fn put(&mut self, offset: u64, data: Option<&[u8]>, len: usize) -> FsResult<(), D::Error> {
+        self.invalidate_directory();
         let result = write_bytes(&mut self.dev, &mut self.block, offset, data, len).await;
         self.note(result)
     }
@@ -1414,11 +1471,40 @@ impl<D: BlockDevice> FatFs<D> {
         let prepared = Query::new(query, raw::fold_unicode);
         let mut walk = DirWalk::new(start);
         let mut slot = 0;
+        if let Some(index) = &mut self.directory_index {
+            index.select(start);
+            if let Some(hash) = prepared.fingerprint() {
+                for cached in &index.entries {
+                    if (cached.long_hash == Some(hash) || cached.short_hash == hash)
+                        && prepared.matches(cached.long.as_deref(), &cached.located.entry, self.code_page, raw::fold_unicode)
+                    {
+                        let mut located = cached.located;
+                        located.exact = is_exact(query, cached.long.as_deref(), &located.entry, self.code_page);
+                        return Ok(Some(located));
+                    }
+                }
+            }
+            walk = index.walk;
+            slot = index.slot;
+        }
         let mut long = Assembler::new();
         while let Some(found) = self.next_visible(&mut walk, &mut slot, &mut long).await? {
             let units = long.finish(found.entry.lfn_checksum());
             let named = units.is_some();
             let units = units.filter(|units| !units.is_empty());
+            if let Some(index) = &mut self.directory_index
+                && index.entries.len() < index.limit
+            {
+                let short_hash = crate::names::short_fingerprint(&found.entry, self.code_page);
+                index.entries.push(IndexedName {
+                    located: Located { first: if named { found.long_start } else { found.slot }, slot: found.slot, offset: found.offset, entry: found.entry, exact: false },
+                    long: units.map(Into::into),
+                    long_hash: units.map(|units| crate::names::name_hash(units.iter().copied().map(raw::fold_unicode))),
+                    short_hash,
+                });
+                index.walk = walk;
+                index.slot = slot;
+            }
             if prepared.matches(units, &found.entry, self.code_page, raw::fold_unicode) {
                 return Ok(Some(Located {
                     first: if named { found.long_start } else { found.slot },
@@ -1651,6 +1737,7 @@ impl<D: BlockDevice> FatFs<D> {
         entry: &ShortEntry,
         grown: u32,
     ) -> FsResult<u64, D::Error> {
+        self.invalidate_directory();
         self.run = Run::of(dir, plan.start, plan.start + plan.slots - 1);
         let checksum = entry.lfn_checksum();
         let mut walk = DirWalk::new(dir);
@@ -1709,6 +1796,7 @@ impl<D: BlockDevice> FatFs<D> {
 
     /// Marks slots `from..to` of `dir` deleted.
     async fn clear_slots(&mut self, dir: DirStart, from: u32, to: u32) -> FsResult<(), D::Error> {
+        self.invalidate_directory();
         let result = rawio::clear_slots(&mut self.dev, &mut self.block, &self.fat, dir, from, to).await;
         self.note(result)
     }

@@ -17,6 +17,10 @@ Each published package owns its version and may be released independently.
 - Embedded exFAT reads coalesce adjacent allocation clusters into device reads,
   preserving initialized-data boundaries and guarded fragmented-chain traversal.
 
+- FAT adds opt-in bounded directory-prefix indexing through
+  `CacheOptions::with_directory_entries`, avoiding repeated parsing and traversal
+  during lookups while retaining short aliases and mutation recovery.
+
 - FAT indexed reads reuse a current-cluster hint immediately and precompute
   checkpoint buckets to reduce forward-read cache bookkeeping.
 

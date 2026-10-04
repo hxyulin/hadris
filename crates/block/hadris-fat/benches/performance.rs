@@ -418,8 +418,7 @@ fn sample(
     workload: Workload,
     input: &Inputs,
     verify: bool,
-    positions: usize,
-    blocks: usize,
+    cache: CacheOptions,
 ) -> Sample {
     let counts = Cell::new(IoCounts::default());
     let written_blocks: Vec<Cell<u64>> = if verify {
@@ -457,11 +456,7 @@ fn sample(
         } else {
             MountOptions::new()
         };
-        let mut fs = FatFs::mount(dev, options).unwrap().with_cache(
-            CacheOptions::new()
-                .with_chain_positions(positions)
-                .with_blocks(blocks),
-        );
+        let mut fs = FatFs::mount(dev, options).unwrap().with_cache(cache);
         if matches!(workload, Workload::Mount) {
             (mount_start.elapsed(), fs.into_inner())
         } else if matches!(workload, Workload::BootLoad) {
@@ -641,6 +636,7 @@ struct Options {
     csv: bool,
     positions: usize,
     blocks: usize,
+    directory_entries: usize,
 }
 
 fn options() -> Options {
@@ -650,6 +646,7 @@ fn options() -> Options {
         csv: false,
         positions: 0,
         blocks: 0,
+        directory_entries: 0,
     };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -670,6 +667,13 @@ fn options() -> Options {
                     .parse()
                     .expect("invalid chain-position count")
             }
+            "--directory-entries" => {
+                options.directory_entries = args
+                    .next()
+                    .expect("--directory-entries needs an integer")
+                    .parse()
+                    .expect("invalid directory entry count");
+            }
             "--metadata-blocks" => {
                 options.blocks = args
                     .next()
@@ -682,7 +686,7 @@ fn options() -> Options {
             "--bench" => {}
             "--help" | "-h" => {
                 println!(
-                    "performance [--samples N] [--filter SUBSTRING] [--csv] [--smoke] [--chain-positions N] [--metadata-blocks N]\nCase names: fat12|fat16|fat32/hosted|embedded/<workload>"
+                    "performance [--samples N] [--filter SUBSTRING] [--csv] [--smoke] [--chain-positions N] [--metadata-blocks N] [--directory-entries N]\nCase names: fat12|fat16|fat32/hosted|embedded/<workload>"
                 );
                 std::process::exit(0);
             }
@@ -695,9 +699,13 @@ fn options() -> Options {
 fn main() {
     let options = options();
     let input = Inputs::new();
+    let cache = CacheOptions::new()
+        .with_chain_positions(options.positions)
+        .with_blocks(options.blocks)
+        .with_directory_entries(options.directory_entries);
     if options.csv {
         println!(
-            "case,samples,volume_bytes,block_bytes,cluster_bytes,min_ns,median_ns,max_ns,payload_bytes,read_calls,write_calls,read_bytes,write_bytes,flush_calls,max_read_bytes,max_write_bytes,write_amplification,fat0_write_bytes,fat1_write_bytes,directory_write_bytes,data_write_bytes,fsinfo_write_bytes,other_write_bytes,chain_positions,metadata_blocks"
+            "case,samples,volume_bytes,block_bytes,cluster_bytes,min_ns,median_ns,max_ns,payload_bytes,read_calls,write_calls,read_bytes,write_bytes,flush_calls,max_read_bytes,max_write_bytes,write_amplification,fat0_write_bytes,fat1_write_bytes,directory_write_bytes,data_write_bytes,fsinfo_write_bytes,other_write_bytes,chain_positions,metadata_blocks,directory_entries"
         );
     } else {
         type StateDevice = MemDevice<&'static mut [u8]>;
@@ -756,30 +764,14 @@ fn main() {
                 }
                 selected += 1;
                 let image = fixture(&blank, workload, &input);
-                let warmup = sample(
-                    &image,
-                    embedded,
-                    workload,
-                    &input,
-                    true,
-                    options.positions,
-                    options.blocks,
-                );
+                let warmup = sample(&image, embedded, workload, &input, true, cache);
                 validate(&warmup.image, workload, &input);
                 let counts = warmup.counts;
                 let writes = warmup.writes;
                 drop(warmup);
                 let mut timings = Vec::with_capacity(options.samples);
                 for _ in 0..options.samples {
-                    let result = sample(
-                        &image,
-                        embedded,
-                        workload,
-                        &input,
-                        false,
-                        options.positions,
-                        options.blocks,
-                    );
+                    let result = sample(&image, embedded, workload, &input, false, cache);
                     assert_eq!(
                         result.counts, counts,
                         "non-deterministic device I/O in {case}"
@@ -799,7 +791,7 @@ fn main() {
                 };
                 if options.csv {
                     println!(
-                        "{case},{},{size},512,{cluster_bytes},{},{median},{},{payload},{},{},{},{},{},{},{},{amplification},{},{},{},{},{},{},{},{}",
+                        "{case},{},{size},512,{cluster_bytes},{},{median},{},{payload},{},{},{},{},{},{},{},{amplification},{},{},{},{},{},{},{},{},{}",
                         options.samples,
                         timings[0],
                         timings[timings.len() - 1],
@@ -817,7 +809,12 @@ fn main() {
                         writes.fs_info_bytes,
                         writes.other_bytes,
                         if embedded { 0 } else { options.positions },
-                        if embedded { 0 } else { options.blocks }
+                        if embedded { 0 } else { options.blocks },
+                        if embedded {
+                            0
+                        } else {
+                            options.directory_entries
+                        }
                     );
                 } else {
                     println!(
