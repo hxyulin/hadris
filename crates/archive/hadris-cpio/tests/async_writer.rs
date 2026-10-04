@@ -184,3 +184,18 @@ fn async_borrowed_payloads_handle_short_writes() {
         assert_eq!(out.0, expected);
     }
 }
+
+#[test]
+fn async_odc_hard_links_store_each_payload() {
+    let options = CpioOptions::new().with_format(Format::Odc);
+    let node = Node::file(Content::bytes(vec![37; 70_001]));
+    let mut out = Sink::default();
+    let mut writer = hadris_cpio::r#async::Writer::new(&mut out, &options);
+    block_on(writer.append_hard_links(&["a", "b", "c"], &node)).unwrap();
+    let (_, report) = block_on(writer.finish()).unwrap();
+    for entry in common::read_all(&out.0).unwrap() {
+        assert_eq!(entry.data, vec![37; 70_001]);
+        assert_eq!(report.extents(entry.name).unwrap()[0].len(), 70_001);
+    }
+    assert_ne!(report.extents("a"), report.extents("b"));
+}

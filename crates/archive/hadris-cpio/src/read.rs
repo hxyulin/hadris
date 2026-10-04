@@ -211,8 +211,9 @@ impl<R, B: AsRef<[u8]>> Entry<'_, R, B> {
         DateTime::from_unix_seconds(i64::try_from(self.header().mtime).ok()?).ok()
     }
 
-    /// The length of the data. Zero for all but one name of a hard link
-    /// group written by GNU cpio or Hadris.
+    /// The length of the data. In `newc` and checksum `newc`, GNU cpio and
+    /// Hadris write data for only one hard-link name; `odc` repeats it for
+    /// every name.
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> u64 {
         self.header().len

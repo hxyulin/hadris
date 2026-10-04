@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- CPIO `odc` writers include payloads for every hard-link name and report each
+  stored extent, preventing empty-file extraction with GNU `cpio`.
+
 - CPIO writers combine name terminators and alignment padding into one write.
 
 - CPIO writers borrow memory-backed payloads directly and allocate reusable

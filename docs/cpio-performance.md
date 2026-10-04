@@ -11,6 +11,15 @@ overwrite the replacement. Ownership now uses the same separator normalization.
 Ordinary paths remain borrowed. Sync and async regressions cover replacements
 and repeated names.
 
+The new native interoperability test also exposed an existing `odc` writer bug:
+it used the `newc` convention of carrying data only on the last hard-link name.
+GNU cpio 2.15 restored that archive as empty files; macOS bsdcpio accepted it.
+The [FreeBSD format reference](https://man.freebsd.org/cgi/man.cgi?query=cpio&sektion=5)
+describes payload repetition for the older formats. Both tree writing and
+`append_hard_links` now include each `odc` name's payload and report its own
+physical extent. `newc` and checksum `newc` continue sharing the last payload.
+GNU cpio and macOS bsdcpio both pass the final interoperability tests.
+
 ## Harness
 
 ```console
@@ -25,7 +34,8 @@ skipping payloads, loading a `Tree` and writing an archive; direct streams and
 
 - 256 independent files of 17 bytes.
 - A 4 MiB memory-backed file.
-- 256 hard links sharing 4,097 bytes, with the payload on the last name.
+- 256 hard links sharing 4,097 bytes: the last name carries data in `newc`
+  and checksum `newc`; every name carries data in corrected `odc` output.
 - 128 directories and 128 symlinks.
 - A 17-byte host file.
 - A 4 MiB host file.
@@ -104,20 +114,23 @@ with one-byte short writes.
 
 | `newc` writing workload | Caller buffer | Writes before → after | Median time before → after |
 |---|---:|---:|---:|
-| 4 MiB resident file | none | 72 → 7 | 132.08 → 65.67 µs |
-| 4 MiB resident file | 8 KiB | 66 → 3 | 137.04 → 66.67 µs |
-| 17-byte host file | none | 10 → 8 | 10.71 → 9.83 µs |
-| 4 MiB host file | none | 72 → 70 | 182.79 → 179.88 µs |
-| 256 small resident files | none | 1,284 → 1,283 | 64.88 → 63.21 µs |
-| 256 hard links | none | 774 → 773 | 57.21 → 59.58 µs |
+| 4 MiB resident file | none | 72 → 7 | 132.08 → 66.42 µs |
+| 4 MiB resident file | 8 KiB | 66 → 3 | 137.04 → 57.54 µs |
+| 17-byte host file | none | 10 → 8 | 10.71 → 11.04 µs |
+| 4 MiB host file | none | 72 → 70 | 182.79 → 203.38 µs |
+| 256 small resident files | none | 1,284 → 1,283 | 64.88 → 64.00 µs |
+| 256 hard links | none | 774 → 773 | 57.21 → 62.21 µs |
 
 The uniform small-file names already need no name padding, so that fixture saves
-only the trailer's extra call. The hard-link timing is slightly worse in this
-run despite fewer calls; this is not evidence of a broad throughput improvement.
+only the trailer's extra call. Some small and streamed workloads are slower in this run despite fewer calls;
+these measurements do not establish a broad throughput improvement.
 The substantial gain is the resident bulk-file path. Host-streamed input remains
 chunked, and caller buffering already coalesces most metadata writes.
 
-All cases preserve transferred archive bytes and flush counts. Read, skip and
-tree-loading cases retain their read calls, transferred bytes and request sizes.
+The baseline predates the `odc` correctness fix. Its eight `odc`/hard-link cases
+are not performance comparisons against valid output: their archive grows from
+25,176 to 1,069,911 bytes because all 256 names must carry their data. All other
+136 cases preserve transferred archive bytes and flush counts, and their read,
+skip and tree-loading cases retain read calls and request sizes.
 The reader has no new buffer, allocator dependency or eager index. No public API
 or feature changes are needed for these optimizations.

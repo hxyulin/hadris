@@ -50,8 +50,15 @@ fn native_cpio_extracts_hadris_archives() {
             "{format:?}: {}",
             String::from_utf8_lossy(&output.stderr)
         );
-        assert_eq!(fs::read(destination.path().join("dir/data")).unwrap(), data);
-        assert_eq!(fs::read(destination.path().join("alias")).unwrap(), data);
+        for name in ["dir/data", "alias"] {
+            let actual = fs::read(destination.path().join(name)).unwrap();
+            assert!(
+                actual == data,
+                "{format:?}: {name} has {} bytes, expected {}",
+                actual.len(),
+                data.len()
+            );
+        }
         assert!(
             fs::read(destination.path().join("empty"))
                 .unwrap()

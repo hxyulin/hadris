@@ -1067,3 +1067,46 @@ fn writer_combines_name_terminator_and_padding_at_every_alignment() {
         }
     }
 }
+
+#[test]
+fn odc_hard_links_store_each_payload_and_report_its_own_extent() {
+    let options = CpioOptions::new().with_format(Format::Odc);
+    for len in [0, 4, 70_001] {
+        let data = vec![37; len];
+        let node = Node::file(Content::bytes(data.clone()));
+        let mut tree = Tree::new();
+        tree.insert("a", node.clone()).unwrap();
+        tree.link("a", "b").unwrap();
+        tree.link("a", "c").unwrap();
+        let mut out = StdIo::new(Vec::new());
+        let report = hadris_cpio::sync::write(&mut out, &tree, &options).unwrap();
+        let bytes = out.into_inner();
+        let plan = hadris_cpio::plan(&tree, &options).unwrap();
+        let mut streamed = StdIo::new(Vec::new());
+        let mut writer = Writer::new(&mut streamed, &options);
+        writer.append_hard_links(&["a", "b", "c"], &node).unwrap();
+        let (_, streaming_report) = writer.finish().unwrap();
+        assert_eq!(streamed.into_inner(), bytes);
+        assert_eq!(report.size(), bytes.len() as u64);
+        assert_eq!(plan.size(), report.size());
+        let entries = read_all(&bytes).unwrap();
+        assert_eq!(entries.len(), 3);
+        let mut offsets = Vec::new();
+        for entry in entries {
+            assert_eq!(entry.data, data);
+            assert_eq!(entry.ino, 1);
+            assert_eq!(entry.nlink, 3);
+            let extent = report.extents(&entry.name).unwrap()[0];
+            assert_eq!(extent.len(), len as u64);
+            assert_eq!(plan.extents(&entry.name), report.extents(&entry.name));
+            assert_eq!(
+                streaming_report.extents(&entry.name),
+                report.extents(&entry.name)
+            );
+            let offset = extent.offset() as usize;
+            assert_eq!(&bytes[offset..offset + len], data);
+            offsets.push(offset);
+        }
+        assert!(offsets.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+}
