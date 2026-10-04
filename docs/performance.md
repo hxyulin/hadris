@@ -166,10 +166,10 @@ stack 4408 bytes. The async FAT example grows by 1504 flash bytes and 72
 reported worst-stack bytes. These are target/compiler measurements, not
 universal size guarantees. The firmware resource checks pass.
 
-Baselines were compared against the embedded implementation at `3ea242e`,
-using the same counter harness, toolchain, fixtures and seven samples per
-case. Runtime is host-dependent; device counts and target resource costs are
-the acceptance evidence for this change.
+Baselines were compared against the embedded implementation before write
+coalescing, using the same counter harness, toolchain, fixtures and seven
+samples per case. Runtime is host-dependent; device counts and target resource
+costs are the acceptance evidence for this change.
 
 ## Embedded arithmetic pass
 
@@ -222,7 +222,8 @@ Disassembly confirms that the logger no longer contains signed 64-bit division
 helpers on any of the three targets. Unsigned 64-bit division remains in raw
 block addressing and other device-offset calculations.
 
-Compared with `815c82e`, using the same pinned firmware toolchain and settings:
+Compared with the arithmetic pass above, using the same pinned firmware toolchain
+and settings:
 
 | Target | Logger flash before | After | Saved | Async FAT flash before | After | Saved |
 |--------|--------------------:|------:|------:|-----------------------:|------:|------:|
@@ -239,9 +240,61 @@ baseline before the write-coalescing pass, so the combined changes reduce
 write amplification at a small net flash cost.
 
 All 78 benchmark cases retain identical device counters and write-region
-totals against `815c82e`, with seven samples per case. Regression tests compare
-the bounded encoder with general `DateTime::to_civil()` conversion on every
+totals against the arithmetic pass, with seven samples per case. Regression
+tests compare the bounded encoder with general `DateTime::to_civil()` conversion on every
 FAT date, at several time-of-day and sub-second boundaries. They also check
 every valid UTC offset at both date-range limits, recorded and overridden
 zones, invalid-zone fallback and the extreme supported `DateTime` values.
 No embedded-cycle speedup is inferred from the flash reduction.
+
+## Raw block addressing
+
+The shared block primitives compute the initial quotient and remainder once
+per nonempty byte-range operation. Reads advance the output slice and block
+index; writes advance the input slice, remaining byte count and block index.
+After a leading partial block, subsequent transfers start at block boundaries.
+Bulk data and zero writes share one device-write await, reducing duplicated
+async transfer code. Partial writes still read, patch and write
+through the caller's buffer. Empty operations return before address arithmetic.
+
+Device block sizes remain arbitrary nonzero values that fit the buffer,
+including non-power-of-two sizes. No block-size exponent, new buffer fields,
+heap allocation or new runtime dependency is introduced. Device requests and
+cache invalidation retain their previous ordering. Disassembly of the logger
+on each target confirms that the unsigned 64-bit division call in `read_bytes`
+and `put` moved out of the transfer loop. Initial offset division and division
+in other raw primitives still need the unsigned helpers; target cycles have
+not been measured.
+
+Compared with the timestamp pass above, using the same pinned firmware toolchain
+and settings:
+
+| Target | Logger flash before | After | Saved | Async FAT flash before | After | Saved |
+|--------|--------------------:|------:|------:|-----------------------:|------:|------:|
+| `thumbv6m-none-eabi` | 40648 | 40588 | 60 | 69508 | 69416 | 92 |
+| `thumbv7em-none-eabihf` | 40276 | 40236 | 40 | 65068 | 64904 | 164 |
+| `riscv32imc-unknown-none-elf` | 46974 | 46914 | 60 | 74620 | 74328 | 292 |
+
+The full FAT and Unicode FAT examples save the same amount as the logger on
+each target. The exFAT example saves 96, 68 and 50 bytes respectively. Static
+RAM remains zero, FAT driver state remains 936 bytes and exFAT state remains
+1016 bytes. FAT mount and reported sync worst-stack sizes decrease by 8 bytes
+on both Cortex-M targets and remain unchanged on RISC-V. Reported async FAT
+worst stack decreases by 64, 32 and 48 bytes respectively. The Cortex-M0 async
+example's largest Hadris frame grows by 8 bytes to 544 bytes; other largest
+frames are unchanged. All firmware resource checks pass.
+
+All 78 benchmark cases, with seven samples per case, retain identical device
+calls, bytes, flushes, maximum request sizes, write amplification and write-
+region totals against the timestamp pass. The Cortex-M4 logger is now 224
+bytes larger than the original 40012-byte baseline before write coalescing,
+while retaining the earlier metadata-write reductions.
+
+Direct regression tests cover cold and warm caches, aligned and partial
+transfers, buffer capacities that are not block multiples, device block sizes
+from 1 to 4096 bytes, offsets above 4 GiB and near the `u64` limit, empty
+operations and device refusals. They inject failure at each transfer, including
+partial device effects, and drop both Send and local async futures before and
+after each device transfer. The same tests also pass against the committed
+implementation, checking behavior preservation independently of the cursor
+refactor.

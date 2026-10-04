@@ -55,6 +55,11 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fat-raw:** Byte-range reads, writes and zero-filling compute their
+  initial block address once and advance a block cursor between transfers.
+  Bulk data and zero writes share a transfer path, reducing measured FAT and
+  exFAT firmware size without additional buffer state or allocator requirements.
+  Arbitrary block sizes, device requests and interruption behavior are preserved.
 - **hadris-fat-raw:** FAT timestamp encoding clamps local timestamps before
   calendar conversion and uses 32-bit arithmetic within the format's date
   range, reducing measured embedded flash without additional state or
