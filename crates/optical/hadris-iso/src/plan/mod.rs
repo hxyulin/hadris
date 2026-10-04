@@ -4,15 +4,15 @@
 //! writes the [`Region`]s it returns in ascending order. Every structure is
 //! computed here, so the writer writes each block once and in order.
 
-use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
+use alloc::collections::{BTreeMap, VecDeque};
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::convert::Infallible;
 
 use hadris_fs::{
-    Content, DateTime, DeviceNumber, ErrorKind, Extent, Field, FileType, Name, Node, PathError,
-    Report, SetAttr, Tree, TreeEntry, Warning, WarningKind,
+    Content, DateTime, DeviceNumber, ErrorKind, Extent, Field, FileType, Name, PathError, Report,
+    SetAttr, Tree, TreeEntry, Warning, WarningKind,
 };
 use hadris_part::gpt::types as part_types;
 use hadris_part::{
@@ -28,19 +28,19 @@ use crate::options::{
     BootEntry, BootInfo, Hybrid, IsoLevel, IsoOptions, PartitionScheme, Preserve, Relocation,
 };
 use crate::raw::{
-    self, BootRecordVolumeDescriptor, DecDateTime, DirDateTime, DirectoryRecord, FileFlags, IsoStr,
-    PathTableHeader, PrimaryVolumeDescriptor, RootDirectoryRecord, SECTOR_SIZE,
-    SupplementaryVolumeDescriptor, U16Both, U32Be, U32Both, U32Le, VolumeDescriptorHeader,
-    VolumeDescriptorSetTerminator,
+    self, BootRecordVolumeDescriptor, DecDateTime, DirDateTime, FileFlags, IsoStr, PathTableHeader,
+    PrimaryVolumeDescriptor, RootDirectoryRecord, SECTOR_SIZE, SupplementaryVolumeDescriptor,
+    U16Both, U32Be, U32Both, U32Le, VolumeDescriptorHeader, VolumeDescriptorSetTerminator,
 };
-use crate::rock_ridge::{S_IFBLK, S_IFCHR, S_IFDIR, S_IFLNK, S_IFREG};
 use crate::volume_info::{IsoDate, IsoId};
 
+mod directory;
+mod layout;
 pub(crate) mod names;
 pub(crate) mod susp;
 
 use names::Rules;
-use susp::{SplitSu, SuBuilder, inline_space};
+use susp::SuBuilder;
 
 type PlanError = Error<Infallible>;
 type PlanResult<T> = Result<T, PlanError>;
@@ -252,6 +252,12 @@ struct Planner<'a> {
     /// The first block and length of each appended partition.
     appended: Vec<(u32, u64)>,
     dir_refs: BTreeMap<(usize, usize), (u32, u32)>,
+}
+
+struct PathTableLocation {
+    little: u32,
+    big: u32,
+    size: u32,
 }
 
 const CATALOG: usize = usize::MAX;
@@ -934,436 +940,12 @@ impl Planner<'_> {
         }
     }
 
-    /// The records of `dir` in tree `ti`, sorted by identifier.
-    fn records(&self, dir: usize, ti: usize) -> PlanResult<Vec<PendingRecord>> {
-        let (tree, rules) = self.trees[ti];
-        let rr = self.rock_ridge && tree == TreeKind::Primary;
-        let d = &self.dirs[dir];
-        let mut records = Vec::new();
-        let now = self.record_time(&d.meta);
-
-        let dot = if rr {
-            let mut b = SuBuilder::default();
-            if dir == 0 {
-                b.sp();
-            }
-            self.posix(
-                &mut b,
-                &d.meta,
-                S_IFDIR,
-                0o755,
-                self.dir_links(dir),
-                d.serial,
-            );
-            b.nm_current();
-            if dir == 0 {
-                b.er();
-            }
-            b.split(inline_space(1))
-        } else {
-            SplitSu::default()
-        };
-        records.push(PendingRecord {
-            name: vec![0],
-            split: dot,
-            extent: self.dir_ref(dir, ti),
-            flags: FileFlags::DIRECTORY,
-            time: now,
-        });
-
-        let parent = self.parent_in(dir, ti);
-        let dotdot = if rr {
-            let p = &self.dirs[parent];
-            let mut b = SuBuilder::default();
-            self.posix(
-                &mut b,
-                &p.meta,
-                S_IFDIR,
-                0o755,
-                self.dir_links(parent),
-                p.serial,
-            );
-            b.nm_parent();
-            if d.moved_to.is_some() {
-                b.pl(self.dir_ref(d.parent, ti).0);
-            }
-            b.split(inline_space(1))
-        } else {
-            SplitSu::default()
-        };
-        records.push(PendingRecord {
-            name: vec![1],
-            split: dotdot,
-            extent: self.dir_ref(parent, ti),
-            flags: FileFlags::DIRECTORY,
-            time: self.record_time(&self.dirs[parent].meta),
-        });
-
-        let mut children: Vec<(usize, bool)> = self
-            .subdirs_in(dir, ti)
-            .iter()
-            .map(|&child| (child, false))
-            .collect();
-        if rr {
-            children.extend(d.placeholders.iter().map(|&child| (child, true)));
-        }
-        for (child, placeholder) in children {
-            let c = &self.dirs[child];
-            let iso_name = if placeholder || tree != TreeKind::Primary {
-                &c.name
-            } else {
-                &c.iso_name
-            };
-            let name = rules.directory(iso_name);
-            let split = if rr {
-                let mut b = SuBuilder::default();
-                self.posix(
-                    &mut b,
-                    &c.meta,
-                    S_IFDIR,
-                    0o755,
-                    self.dir_links(child),
-                    c.serial,
-                );
-                b.nm(c.name.as_bytes());
-                if placeholder {
-                    b.cl(self.dir_ref(child, ti).0);
-                } else if c.moved_to.is_some() {
-                    b.re();
-                }
-                b.split(inline_space(name.len()))
-            } else {
-                SplitSu::default()
-            };
-            let flags = if placeholder {
-                FileFlags::empty()
-            } else {
-                FileFlags::DIRECTORY
-            };
-            records.push(PendingRecord {
-                name,
-                split,
-                extent: self.dir_ref(child, ti),
-                flags,
-                time: self.record_time(&c.meta),
-            });
-        }
-
-        for &file in &d.files {
-            let f = &self.files[file];
-            if !rr && matches!(f.kind, FileKind::Symlink { .. } | FileKind::Device { .. }) {
-                continue;
-            }
-            let name = rules.file(&f.name);
-            let split = if rr {
-                let mut b = SuBuilder::default();
-                let (type_mode, default) = match f.kind {
-                    FileKind::Symlink { .. } => (S_IFLNK, 0o777),
-                    FileKind::Device {
-                        kind: FileType::BlockDevice,
-                        ..
-                    } => (S_IFBLK, 0o600),
-                    FileKind::Device { .. } => (S_IFCHR, 0o600),
-                    _ => (S_IFREG, 0o644),
-                };
-                self.posix(
-                    &mut b,
-                    &f.meta,
-                    type_mode,
-                    default,
-                    f.links,
-                    self.file_serial(f),
-                );
-                b.nm(f.name.as_bytes());
-                match f.kind {
-                    FileKind::Symlink { .. } => {
-                        if let Some(target) = self.tree.get(&f.path).and_then(Node::target) {
-                            b.sl(target);
-                        }
-                    }
-                    FileKind::Device { number, .. } => b.pn(number.major(), number.minor()),
-                    _ => {}
-                }
-                b.split(inline_space(name.len()))
-            } else {
-                SplitSu::default()
-            };
-            let extents = self.file_extents(f);
-            let time = self.record_time(&f.meta);
-            let last = extents.len() - 1;
-            for (index, (block, len)) in extents.into_iter().enumerate() {
-                let flags = if index == last {
-                    FileFlags::empty()
-                } else {
-                    FileFlags::NOT_FINAL
-                };
-                let len = u32::try_from(len).map_err(|_| too_large())?;
-                records.push(PendingRecord {
-                    name: name.clone(),
-                    split: split.clone(),
-                    extent: (block, len),
-                    flags,
-                    time,
-                });
-            }
-        }
-
-        dedup(&mut records, rules);
-        records.sort_by(|a, b| {
-            let rank = |name: &[u8]| match name {
-                [0] => 0,
-                [1] => 1,
-                _ => 2,
-            };
-            rank(&a.name)
-                .cmp(&rank(&b.name))
-                .then_with(|| a.name.cmp(&b.name))
-        });
-        Ok(records)
-    }
-
     // -----------------------------------------------------------------------
     // Layout.
 
     fn descriptor_count(&self) -> u64 {
         let boot = self.opts.el_torito().is_some() || self.base.keep_catalog.is_some();
         1 + self.trees.len() as u64 + u64::from(boot)
-    }
-
-    fn layout(mut self) -> PlanResult<Plan> {
-        let order = self.preorder();
-        let files = self.file_order(&order);
-        let desc_end = self.base.descriptors + self.descriptor_count();
-        let mut cursor = desc_end
-            .max(self.opts.min_blocks())
-            .max(self.base.first_block)
-            * SECTOR;
-
-        let mut placed = BTreeSet::new();
-        for &file in &files {
-            let f = &self.files[file];
-            let (key, len) = match f.kind {
-                FileKind::Data { node, len } => (node, len),
-                FileKind::Catalog { len } => (CATALOG, len),
-                _ => continue,
-            };
-            if len == 0 || self.extents.contains_key(&key) {
-                continue;
-            }
-            let mut extents = Vec::new();
-            match self
-                .contents
-                .get(&key)
-                .and_then(|info| info.stored.as_ref())
-            {
-                Some(stored) => {
-                    for extent in stored {
-                        extents.push((block_of(extent.offset())?, extent.len()));
-                    }
-                    placed.insert(key);
-                }
-                None => {
-                    let mut remaining = len;
-                    while remaining > 0 {
-                        let chunk = remaining.min(MAX_EXTENT);
-                        extents.push((0, chunk));
-                        remaining -= chunk;
-                    }
-                }
-            }
-            self.extents.insert(key, extents);
-        }
-
-        for &dir in &order {
-            for ti in 0..self.trees.len() {
-                if !self.has_dir(dir, ti) {
-                    continue;
-                }
-                let records = self.records(dir, ti)?;
-                let (start, sectors) = layout_records(cursor, &records);
-                let size = u32::try_from(sectors * SECTOR).map_err(|_| too_large())?;
-                self.dir_refs
-                    .insert((dir, ti), (block_of(start * SECTOR)?, size));
-                cursor = (start + sectors) * SECTOR + place_areas(&records).1;
-            }
-        }
-
-        let mut file_regions = Vec::new();
-        for &file in &files {
-            let f = &self.files[file];
-            let (key, len) = match f.kind {
-                FileKind::Data { node, len } => (node, len),
-                FileKind::Catalog { len } => (CATALOG, len),
-                _ => continue,
-            };
-            if len == 0 || !placed.insert(key) {
-                continue;
-            }
-            let mut extents = Vec::new();
-            let mut remaining = len;
-            let mut at = cursor.div_ceil(SECTOR) * SECTOR;
-            let first = at;
-            while remaining > 0 {
-                let chunk = remaining.min(MAX_EXTENT);
-                extents.push((block_of(at)?, chunk));
-                at += chunk;
-                remaining -= chunk;
-            }
-            cursor = at;
-            self.extents.insert(key, extents);
-            if key != CATALOG {
-                file_regions.push((first / SECTOR, key, f.path.clone(), len));
-            }
-        }
-
-        let mut regions = Vec::new();
-        for partition in self.opts.hybrid().map_or(&[][..], Hybrid::appended) {
-            let content = partition.content().clone();
-            let block = cursor.div_ceil(SECTOR);
-            self.appended
-                .push((block_of(block * SECTOR)?, content.len()));
-            cursor = block * SECTOR + content.len();
-            regions.push(Region::Content {
-                block,
-                content,
-                info: None,
-            });
-        }
-        for &dir in &order {
-            for ti in 0..self.trees.len() {
-                if !self.has_dir(dir, ti) {
-                    continue;
-                }
-                let (start, size) = self.dir_ref(dir, ti);
-                let mut records = self.records(dir, ti)?;
-                let data = emit_records(start, size, &mut records)?;
-                regions.push(Region::Bytes {
-                    block: u64::from(start),
-                    data,
-                });
-            }
-        }
-
-        let (infos, appended_infos) = self.info_tables()?;
-        for region in &mut regions {
-            if let Region::Content { block, info, .. } = region {
-                let index = self
-                    .appended
-                    .iter()
-                    .position(|&(start, _)| u64::from(start) == *block);
-                *info = index.and_then(|index| appended_infos.get(&index).copied());
-            }
-        }
-        for (block, node, path, len) in file_regions {
-            regions.push(Region::File {
-                block,
-                path,
-                len,
-                info: infos.get(&node).copied(),
-            });
-        }
-
-        let mut tables = Vec::new();
-        for ti in 0..self.trees.len() {
-            let l = self.path_table(ti, false)?;
-            let m = self.path_table(ti, true)?;
-            let size = u32::try_from(l.len()).map_err(|_| too_large())?;
-            let l_block = cursor.div_ceil(SECTOR);
-            let m_block = l_block + (l.len() as u64).div_ceil(SECTOR);
-            cursor = (m_block + (m.len() as u64).div_ceil(SECTOR)) * SECTOR;
-            tables.push((
-                block_of(l_block * SECTOR)?,
-                block_of(m_block * SECTOR)?,
-                size,
-            ));
-            regions.push(Region::Bytes {
-                block: l_block,
-                data: l,
-            });
-            regions.push(Region::Bytes {
-                block: m_block,
-                data: m,
-            });
-        }
-
-        let catalog = self.boot_catalog()?;
-        let catalog_block = match (&catalog, self.extents.get(&CATALOG)) {
-            (Some(bytes), Some(extent)) => {
-                let block = extent[0].0;
-                let mut data = bytes.clone();
-                data.resize(extent[0].1 as usize, 0);
-                regions.push(Region::Bytes {
-                    block: u64::from(block),
-                    data,
-                });
-                Some(block)
-            }
-            (Some(bytes), None) => {
-                let block = cursor.div_ceil(SECTOR);
-                cursor = block * SECTOR + bytes.len() as u64;
-                regions.push(Region::Bytes {
-                    block,
-                    data: bytes.clone(),
-                });
-                Some(block_of(block * SECTOR)?)
-            }
-            _ => self.base.keep_catalog,
-        };
-
-        let data_end = cursor.div_ceil(SECTOR);
-        regions.push(Region::Bytes {
-            block: data_end,
-            data: vec![0; PADDING_BLOCKS as usize * SECTOR_SIZE],
-        });
-        let hybrid = if self.base.system_area {
-            self.opts.hybrid()
-        } else {
-            None
-        };
-        let gpt = matches!(
-            hybrid.map(Hybrid::scheme),
-            Some(PartitionScheme::Gpt | PartitionScheme::GptHybridMbr)
-        ) || self.base.gpt_backup;
-        let min = self.opts.min_image_blocks().min(1 << 32);
-        let min_end = if gpt {
-            (min * 4).saturating_sub(BACKUP_GPT_SECTORS) / 4
-        } else {
-            min
-        };
-        let end = (data_end + PADDING_BLOCKS).max(min_end);
-        let total = if gpt {
-            (end * 4 + BACKUP_GPT_SECTORS).div_ceil(4)
-        } else {
-            end
-        };
-        let volume_blocks = u32::try_from(total).map_err(|_| too_large())?;
-
-        let descriptors = self.descriptors(volume_blocks, &tables, catalog_block)?;
-        regions.push(Region::Bytes {
-            block: self.base.descriptors,
-            data: descriptors,
-        });
-
-        if self.base.system_area {
-            let (system, tail) = self.system_area(end, total)?;
-            regions.push(Region::Bytes {
-                block: 0,
-                data: system,
-            });
-            if let Some((block, data)) = tail {
-                regions.push(Region::Bytes { block, data });
-            }
-        }
-
-        regions.sort_by_key(Region::block);
-        let report = self.report(total);
-        Ok(Plan {
-            regions,
-            end_blocks: end,
-            total_blocks: total,
-            fill_gaps: self.base.fill_gaps,
-            report,
-        })
     }
 
     // -----------------------------------------------------------------------
@@ -1571,21 +1153,21 @@ impl Planner<'_> {
     fn descriptors(
         &self,
         volume_blocks: u32,
-        tables: &[(u32, u32, u32)],
+        tables: &[PathTableLocation],
         catalog: Option<u32>,
     ) -> PlanResult<Vec<u8>> {
         let mut out = Vec::new();
         for (ti, (tree, _)) in self.trees.iter().enumerate() {
-            let (l, m, size) = tables[ti];
+            let table = &tables[ti];
             let mut d: PrimaryVolumeDescriptor = bytemuck::Zeroable::zeroed();
             d.header = VolumeDescriptorHeader::new(raw::DescriptorType::Primary);
             d.volume_space_size = U32Both::new(volume_blocks);
             d.volume_set_size = U16Both::new(1);
             d.volume_sequence_number = U16Both::new(1);
             d.logical_block_size = U16Both::new(SECTOR_SIZE as u16);
-            d.path_table_size = U32Both::new(size);
-            d.type_l_path_table = U32Le::new(l);
-            d.type_m_path_table = U32Be::new(m);
+            d.path_table_size = U32Both::new(table.size);
+            d.type_l_path_table = U32Le::new(table.little);
+            d.type_m_path_table = U32Be::new(table.big);
             d.root = self.root_record(ti);
             d.creation_date = self.date(IsoDate::Created);
             d.modification_date = self.date(IsoDate::Modified);
@@ -2018,136 +1600,4 @@ fn guid(key: &str, seed: u64, tree: u64) -> Guid {
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
     Guid::from_bytes(bytes)
-}
-
-/// A directory record before it is written.
-#[derive(Debug, Clone)]
-struct PendingRecord {
-    name: Vec<u8>,
-    split: SplitSu,
-    extent: (u32, u32),
-    flags: FileFlags,
-    time: DirDateTime,
-}
-
-impl PendingRecord {
-    fn build(&self) -> PlanResult<DirectoryRecord> {
-        let mut record = DirectoryRecord::new(&self.name, &self.split.inline)
-            .ok_or(invalid(Detail::DirectoryRecord))?;
-        let header = record.header_mut();
-        header.extent = U32Both::new(self.extent.0);
-        header.data_len = U32Both::new(self.extent.1);
-        header.date_time = self.time;
-        header.flags = self.flags.bits();
-        header.volume_sequence_number = U16Both::new(1);
-        Ok(record)
-    }
-
-    fn len(&self) -> u64 {
-        let su_start = (33 + self.name.len() + 1) & !1;
-        ((su_start + self.split.inline.len() + 1) & !1) as u64
-    }
-}
-
-/// Gives names that repeat in a directory a `_n` suffix; the records of one
-/// multi-extent file keep one name.
-fn dedup(records: &mut [PendingRecord], rules: Rules) {
-    let mut seen = BTreeSet::new();
-    let mut start = 0;
-    while start < records.len() {
-        if matches!(records[start].name[..], [0] | [1]) {
-            start += 1;
-            continue;
-        }
-        let mut end = start + 1;
-        while end < records.len() && records[end - 1].flags.contains(FileFlags::NOT_FINAL) {
-            end += 1;
-        }
-        let original = records[start].name.clone();
-        let unique = if seen.contains(&original) {
-            let mut n = 1;
-            loop {
-                let candidate = rules.dedup(&original, n);
-                n += 1;
-                if !seen.contains(&candidate) {
-                    break candidate;
-                }
-            }
-        } else {
-            original
-        };
-        seen.insert(unique.clone());
-        for record in &mut records[start..end] {
-            record.name = unique.clone();
-        }
-        start = end;
-    }
-}
-
-/// The offset of each continuation area of `records`, in order, from the
-/// first continuation block, and the bytes they span: an area that would
-/// cross a block boundary starts the next block.
-fn place_areas(records: &[PendingRecord]) -> (Vec<u64>, u64) {
-    let mut places = Vec::new();
-    let mut at = 0u64;
-    for area in records.iter().flat_map(|r| &r.split.areas) {
-        let len = area.len() as u64;
-        if at % SECTOR + len > SECTOR {
-            at = at.div_ceil(SECTOR) * SECTOR;
-        }
-        places.push(at);
-        at += len;
-    }
-    (places, at)
-}
-
-/// The first sector and the sector count of `records` written from byte
-/// `pos`: a record that does not fit a sector starts the next one.
-fn layout_records(pos: u64, records: &[PendingRecord]) -> (u64, u64) {
-    let start = pos.div_ceil(SECTOR) * SECTOR;
-    let mut at = start;
-    for record in records {
-        let len = record.len();
-        let remaining = SECTOR - at % SECTOR;
-        if len > remaining {
-            at += remaining;
-        }
-        at += len;
-    }
-    let end = at.div_ceil(SECTOR) * SECTOR;
-    (start / SECTOR, (end - start) / SECTOR)
-}
-
-/// The bytes of a directory at `block` of `size` bytes, followed by the
-/// continuation area its `CE` entries point at.
-fn emit_records(block: u32, size: u32, records: &mut [PendingRecord]) -> PlanResult<Vec<u8>> {
-    let ca_block = block + size / SECTOR_SIZE as u32;
-    let (places, _) = place_areas(records);
-    let mut next = places.iter();
-    for record in records.iter_mut() {
-        let at: Vec<(u32, u32)> = next
-            .by_ref()
-            .take(record.split.areas.len())
-            .map(|&at| (ca_block + (at / SECTOR) as u32, (at % SECTOR) as u32))
-            .collect();
-        record.split.patch_ce(&at);
-    }
-    let mut out = Vec::with_capacity(size as usize);
-    for record in records.iter() {
-        let bytes = record.build()?;
-        let remaining = SECTOR_SIZE - out.len() % SECTOR_SIZE;
-        if bytes.len() > remaining {
-            out.resize(out.len() + remaining, 0);
-        }
-        out.extend_from_slice(bytes.as_bytes());
-    }
-    if out.len() > size as usize {
-        return Err(invalid(Detail::DirectoryRecord));
-    }
-    out.resize(size as usize, 0);
-    for (area, at) in records.iter().flat_map(|r| &r.split.areas).zip(places) {
-        out.resize(size as usize + at as usize, 0);
-        out.extend_from_slice(area);
-    }
-    Ok(out)
 }

@@ -36,6 +36,29 @@ desktop tools as well as `no_std` bootloaders, kernels and firmware.
 No feature changes what an item does. Joliet, Rock Ridge, El Torito and the
 enhanced tree are always available.
 
+## Internal structure
+
+The reader in `src/image.rs` uses one allocation-free `RecordChain` cursor
+for file lengths, data reads, extent mapping and raw record mapping. The cursor
+owns continuation traversal, identifier validation and the record limit; it
+fetches the next record only when requested. Directory iteration keeps its
+block buffer and uses the same identifier check when skipping continuations.
+
+The writer separates tree preparation (`src/plan/mod.rs`), directory record
+construction and encoding (`src/plan/directory.rs`), image placement
+(`src/plan/layout.rs`) and device I/O (`src/write.rs`). Placement prepares file
+extent sizes, places directories, then places file data before emitting the
+remaining structures. Names and SUSP continuation encoding have their own
+modules. New images and session writes share this planner. This separation
+allows changes to record construction or placement without changing writer I/O
+or either public API mode.
+
+Directory construction uses a builder for one namespace, with separate paths
+for special records (`.` and `..`), child directories and file extents. Directory
+POSIX metadata setup is shared; physical and relocated children are iterated
+directly. Path-table locations use named little-endian, big-endian and size
+fields, and the boot catalog's owned buffer is moved into the output plan.
+
 ## Usage
 
 ### Reading an image

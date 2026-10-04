@@ -145,9 +145,48 @@ struct Dir {
 }
 
 /// A record found while walking a directory.
+#[derive(Clone, Copy)]
 struct Found {
     offset: u64,
     record: DirectoryRecord,
+}
+
+struct RecordChain {
+    current: Found,
+    count: usize,
+}
+
+impl RecordChain {
+    fn new(offset: u64, record: DirectoryRecord) -> Self {
+        Self {
+            current: Found { offset, record },
+            count: 0,
+        }
+    }
+
+    async fn next<D: BlockDevice>(&mut self, view: &View, dev: &mut D) -> Result<Option<Found>, Error<D::Error>> {
+        if self.count != 0 {
+            if !self.current.record.header().file_flags().contains(FileFlags::NOT_FINAL) {
+                return Ok(None);
+            }
+            if self.count == MAX_EXTENTS {
+                return Err(Detail::MultiExtent.corrupt());
+            }
+            let (offset, record) = view.following(dev, self.current.offset, &self.current.record).await?;
+            check_continuation(&self.current.record, &record)?;
+            self.current = Found { offset, record };
+        }
+        self.count += 1;
+        Ok(Some(self.current))
+    }
+}
+
+fn check_continuation<E>(first: &DirectoryRecord, next: &DirectoryRecord) -> Result<(), Error<E>> {
+    if next.name() == first.name() {
+        Ok(())
+    } else {
+        Err(Detail::MultiExtent.corrupt())
+    }
 }
 
 /// The logical block a walk has loaded.
@@ -310,20 +349,20 @@ impl View {
         first: &DirectoryRecord,
     ) -> Result<(), Error<D::Error>> {
         let mut last = *first;
-        for _ in 0..MAX_EXTENTS {
-            if !last.header().file_flags().contains(FileFlags::NOT_FINAL) {
-                return Ok(());
+        let mut count = 1;
+        while last.header().file_flags().contains(FileFlags::NOT_FINAL) {
+            if count == MAX_EXTENTS {
+                return Err(Detail::MultiExtent.corrupt());
             }
             let next = self
                 .next_record(dev, dir, pos, block)
                 .await?
                 .ok_or(Detail::MultiExtent.corrupt())?;
-            if next.record.name() != first.name() {
-                return Err(Detail::MultiExtent.corrupt());
-            }
+            check_continuation(first, &next.record)?;
             last = next.record;
+            count += 1;
         }
-        Err(Detail::MultiExtent.corrupt())
+        Ok(())
     }
 
     /// Follows the system use area of `record` through its continuation
@@ -659,19 +698,12 @@ impl View {
 
     /// The whole length of the file whose first record is `record`.
     async fn file_len<D: BlockDevice>(&self, dev: &mut D, offset: u64, record: &DirectoryRecord) -> Result<u64, Error<D::Error>> {
-        let mut total = u64::from(record.header().data_len.get());
-        let mut current = (offset, *record);
-        for _ in 0..MAX_EXTENTS {
-            if !current.1.header().file_flags().contains(FileFlags::NOT_FINAL) {
-                return Ok(total);
-            }
-            current = self.following(dev, current.0, &current.1).await?;
-            if current.1.name() != record.name() {
-                return Err(Detail::MultiExtent.corrupt());
-            }
-            total += u64::from(current.1.header().data_len.get());
+        let mut total = 0;
+        let mut chain = RecordChain::new(offset, *record);
+        while let Some(found) = chain.next(self, dev).await? {
+            total += u64::from(found.record.header().data_len.get());
         }
-        Err(Detail::MultiExtent.corrupt())
+        Ok(total)
     }
 
     /// The record after the one at `offset`, in the same block or at the
@@ -695,10 +727,10 @@ impl View {
         if record.header().is_directory() {
             return Err(ErrorKind::IsADirectory.into());
         }
-        let mut current = (node.get(), record);
+        let mut chain = RecordChain::new(node.get(), record);
         let mut start = 0u64;
-        for _ in 0..MAX_EXTENTS {
-            let header = *current.1.header();
+        while let Some(found) = chain.next(self, dev).await? {
+            let header = *found.record.header();
             if header.file_unit_size != 0 || header.interleave_gap_size != 0 || header.volume_sequence_number.get() > 1 {
                 return Err(Detail::Interleaved.error(ErrorKind::Unsupported));
             }
@@ -706,21 +738,13 @@ impl View {
             if offset < start + len {
                 let within = offset - start;
                 let take = usize::try_from(len - within).unwrap_or(usize::MAX).min(buf.len());
-                let base = self.extent_start(&current.1).ok_or(ErrorKind::Corrupt)?;
+                let base = self.extent_start(&found.record).ok_or(ErrorKind::Corrupt)?;
                 read_bytes(dev, self.len, base + within, &mut buf[..take]).await?;
                 return Ok(take);
             }
             start += len;
-            if !header.file_flags().contains(FileFlags::NOT_FINAL) {
-                return Ok(0);
-            }
-            let next = self.following(dev, current.0, &current.1).await?;
-            if next.1.name() != record.name() {
-                return Err(Detail::MultiExtent.corrupt());
-            }
-            current = next;
         }
-        Err(Detail::MultiExtent.corrupt())
+        Ok(0)
     }
 
     async fn parent<D: BlockDevice>(&self, dev: &mut D, dir: NodeId) -> FsResult<NodeId, D::Error> {
@@ -1029,43 +1053,35 @@ impl<D: BlockDevice> IsoFs<D> {
         each: &mut impl FnMut(hadris_fs::Extent) -> bool,
     ) -> Result<(), Error<D::Error>> {
         let record = self.view.record_at(&mut self.dev, node.get()).await?;
-        let mut current = (node.get(), record);
+        let mut chain = RecordChain::new(node.get(), record);
         let mut file = 0u64;
-        for _ in 0..MAX_EXTENTS {
-            let start = self.view.extent_start(&current.1).ok_or(Detail::DirectoryRecord.corrupt())?;
-            let len = u64::from(current.1.header().data_len.get());
+        while let Some(found) = chain.next(&self.view, &mut self.dev).await? {
+            let start = self.view.extent_start(&found.record).ok_or(Detail::DirectoryRecord.corrupt())?;
+            let len = u64::from(found.record.header().data_len.get());
             if !each(hadris_fs::Extent::new(start, len).with_file_offset(file)) {
                 return Ok(());
             }
             file += len;
-            if !current.1.header().file_flags().contains(FileFlags::NOT_FINAL) {
-                return Ok(());
-            }
-            current = self.view.following(&mut self.dev, current.0, &current.1).await?;
-            if current.1.name() != record.name() {
-                return Err(Detail::MultiExtent.corrupt());
-            }
         }
-        Err(Detail::MultiExtent.corrupt())
+        Ok(())
     }
 
     /// Locates a node's directory records: the record its id names (a
     /// directory's `.` record) and, for a file of several extents, the
     /// records that follow it. Read them with [`read_raw`](Self::read_raw).
     /// Returns how many it filled; fails with [`ErrorKind::LimitExceeded`]
-    /// when `out` is too short.
+    /// when `out` is too short, and [`ErrorKind::Corrupt`] when continuation
+    /// records have different file identifiers.
     pub async fn records(&mut self, node: NodeId, out: &mut [hadris_fs::Extent]) -> Result<usize, Error<D::Error>> {
         let record = self.view.record_at(&mut self.dev, node.get()).await?;
-        let mut current = (node.get(), record);
-        for count in 0..MAX_EXTENTS {
-            let len = u64::from(current.1.header().len);
-            *out.get_mut(count).ok_or(ErrorKind::LimitExceeded)? = hadris_fs::Extent::new(current.0, len);
-            if !current.1.header().file_flags().contains(FileFlags::NOT_FINAL) {
-                return Ok(count + 1);
-            }
-            current = self.view.following(&mut self.dev, current.0, &current.1).await?;
+        let mut chain = RecordChain::new(node.get(), record);
+        let mut count = 0;
+        while let Some(found) = chain.next(&self.view, &mut self.dev).await? {
+            let len = u64::from(found.record.header().len);
+            *out.get_mut(count).ok_or(ErrorKind::LimitExceeded)? = hadris_fs::Extent::new(found.offset, len);
+            count += 1;
         }
-        Err(Detail::MultiExtent.corrupt())
+        Ok(count)
     }
 }
 

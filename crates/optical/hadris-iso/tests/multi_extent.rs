@@ -167,3 +167,145 @@ fn listing_the_end_of_a_4_gib_directory_stops() {
         ErrorKind::Corrupt
     );
 }
+
+fn record_chain_image(mismatched: bool) -> (Vec<u8>, hadris_fs::NodeId) {
+    use hadris_iso::raw::{DirectoryRecord, FileFlags, U16Both, U32Both};
+
+    fn record(name: &[u8], block: u32, len: u32, flags: FileFlags) -> DirectoryRecord {
+        let mut record = DirectoryRecord::new(name, &[]).unwrap();
+        let header = record.header_mut();
+        header.extent = U32Both::new(block);
+        header.data_len = U32Both::new(len);
+        header.volume_sequence_number = U16Both::new(1);
+        header.flags = flags.bits();
+        record
+    }
+
+    let mut bytes = vec![0; 64 * 2048];
+    let dot = record(&[0], 20, 4096, FileFlags::DIRECTORY);
+    let dotdot = record(&[1], 20, 4096, FileFlags::DIRECTORY);
+    let pvd = &mut bytes[16 * 2048..17 * 2048];
+    pvd[..7].copy_from_slice(b"\x01CD001\x01");
+    pvd[80..88].copy_from_slice(bytemuck::bytes_of(&U32Both::new(64)));
+    pvd[120..124].copy_from_slice(bytemuck::bytes_of(&U16Both::new(1)));
+    pvd[124..128].copy_from_slice(bytemuck::bytes_of(&U16Both::new(1)));
+    pvd[128..132].copy_from_slice(bytemuck::bytes_of(&U16Both::new(2048)));
+    pvd[156..190].copy_from_slice(dot.as_bytes());
+    bytes[17 * 2048..17 * 2048 + 7].copy_from_slice(b"\xffCD001\x01");
+    let root = 20 * 2048;
+    bytes[root..root + dot.len()].copy_from_slice(dot.as_bytes());
+    bytes[root + dot.len()..root + dot.len() + dotdot.len()].copy_from_slice(dotdot.as_bytes());
+    let first = root + dot.len() + dotdot.len();
+    let head = record(b"CHAIN.BIN;1", 40, 3, FileFlags::NOT_FINAL);
+    bytes[first..first + head.len()].copy_from_slice(head.as_bytes());
+    let name = if mismatched {
+        &b"OTHER.BIN;1"[..]
+    } else {
+        &b"CHAIN.BIN;1"[..]
+    };
+    let empty = record(name, 41, 0, FileFlags::NOT_FINAL);
+    let tail = record(name, 41, 5, FileFlags::empty());
+    let next = 21 * 2048;
+    bytes[next..next + empty.len()].copy_from_slice(empty.as_bytes());
+    bytes[next + empty.len()..next + empty.len() + tail.len()].copy_from_slice(tail.as_bytes());
+    bytes[40 * 2048..40 * 2048 + 3].copy_from_slice(b"abc");
+    bytes[41 * 2048..41 * 2048 + 5].copy_from_slice(b"defgh");
+    (bytes, hadris_fs::NodeId::new(first as u64).unwrap())
+}
+
+macro_rules! chain_use_cases {
+    ($mode:ident, $name:ident, $run:ident) => {
+        #[test]
+        fn $name() {
+            $run!(async {
+                use hadris_fs::$mode::FileSystem;
+                use hadris_fs::{DirCursor, Extent};
+                use hadris_iso::Detail;
+                use hadris_iso::$mode::IsoFs;
+                use hadris_storage::MemDevice;
+
+                let (bytes, node) = record_chain_image(false);
+                let mut iso =
+                    IsoFs::mount(MemDevice::new(bytes, common::SECTOR), MountOptions::new())
+                        .await
+                        .unwrap();
+                assert_eq!(iso.stat(node).await.unwrap().len(), 8);
+                let mut buf = [0; 8];
+                assert_eq!(iso.read(node, 0, &mut buf).await.unwrap(), 3);
+                assert_eq!(&buf[..3], b"abc");
+                assert_eq!(iso.read(node, 3, &mut buf).await.unwrap(), 5);
+                assert_eq!(&buf[..5], b"defgh");
+                assert_eq!(iso.read(node, 8, &mut buf).await.unwrap(), 0);
+
+                let mut extents = [Extent::new(0, 0); 3];
+                assert_eq!(iso.extents(node, 0, &mut extents).await.unwrap(), 2);
+                assert_eq!(extents[0], Extent::new(40 * 2048, 3));
+                assert_eq!(extents[1], Extent::new(41 * 2048, 5).with_file_offset(3));
+                assert_eq!(iso.extents(node, 3, &mut extents[..1]).await.unwrap(), 1);
+                assert_eq!(extents[0], Extent::new(41 * 2048, 5).with_file_offset(3));
+                assert_eq!(iso.records(node, &mut extents).await.unwrap(), 3);
+                assert_eq!(extents[0].offset(), node.get());
+                assert_eq!(extents[1].offset(), 21 * 2048);
+                assert_eq!(extents[2].offset(), 21 * 2048 + extents[1].len());
+                assert_eq!(
+                    iso.records(node, &mut []).await.unwrap_err().kind(),
+                    ErrorKind::LimitExceeded
+                );
+
+                let entry = iso
+                    .readdir(iso.root(), DirCursor::START)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(entry.node(), node);
+                assert!(
+                    iso.readdir(iso.root(), entry.next_cursor())
+                        .await
+                        .unwrap()
+                        .is_none()
+                );
+
+                let (bytes, node) = record_chain_image(true);
+                let mut iso =
+                    IsoFs::mount(MemDevice::new(bytes, common::SECTOR), MountOptions::new())
+                        .await
+                        .unwrap();
+                assert_eq!(iso.read(node, 0, &mut buf).await.unwrap(), 3);
+                for error in [
+                    iso.stat(node).await.unwrap_err(),
+                    iso.read(node, 3, &mut buf).await.unwrap_err(),
+                    iso.extents(node, 0, &mut extents).await.unwrap_err(),
+                    iso.records(node, &mut extents).await.unwrap_err(),
+                    iso.readdir(iso.root(), DirCursor::START).await.unwrap_err(),
+                ] {
+                    assert_eq!(error.kind(), ErrorKind::Corrupt);
+                    assert_eq!(Detail::of(&error), Some(Detail::MultiExtent));
+                }
+            });
+        }
+    };
+}
+
+macro_rules! sync_case {
+    ($($body:tt)*) => { common::block_on(hadris_macros::strip_async! { $($body)* }) };
+}
+
+#[cfg(feature = "async")]
+macro_rules! async_case {
+    ($body:expr) => {
+        common::block_on($body)
+    };
+}
+
+chain_use_cases!(
+    sync,
+    record_chains_share_validation_and_skip_sector_padding,
+    sync_case
+);
+
+#[cfg(feature = "async")]
+chain_use_cases!(
+    r#async,
+    async_record_chains_share_validation_and_skip_sector_padding,
+    async_case
+);
