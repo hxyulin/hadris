@@ -3,13 +3,13 @@ use super::{
     BACKUP_GPT_SECTORS, CATALOG, FileKind, MAX_EXTENT, PADDING_BLOCKS, PathTableLocation, Plan,
     PlanResult, Planner, Region, SECTOR, block_of, too_large,
 };
-use alloc::collections::BTreeSet;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::options::{Hybrid, PartitionScheme};
-use crate::raw::SECTOR_SIZE;
+use crate::raw::{FileFlags, SECTOR_SIZE};
 
 struct PlacedFile {
     block: u64,
@@ -36,6 +36,7 @@ impl Planner<'_> {
         self.place_directories(&order, &mut cursor)?;
         let file_regions = self.place_files(&files, &mut placed, &mut cursor)?;
 
+        let mut directory_names = vec![vec![None; self.dirs.len()]; self.trees.len()];
         let mut regions = Vec::new();
         for partition in self.opts.hybrid().map_or(&[][..], Hybrid::appended) {
             let content = partition.content().clone();
@@ -50,12 +51,25 @@ impl Planner<'_> {
             });
         }
         for &dir in &order {
-            for ti in 0..self.trees.len() {
+            for (ti, child_names) in directory_names.iter_mut().enumerate() {
                 if !self.has_dir(dir, ti) {
                     continue;
                 }
                 let (start, size) = self.dir_ref(dir, ti);
                 let mut records = self.records(dir, ti)?;
+                let mut names = BTreeMap::new();
+                for record in &records {
+                    if record.flags.contains(FileFlags::DIRECTORY) && record.name.len() > 1 {
+                        names
+                            .entry(record.extent.0)
+                            .or_insert(record.name.as_slice());
+                    }
+                }
+                for &child in self.subdirs_in(dir, ti) {
+                    if let Some(name) = names.get(&self.dir_ref(child, ti).0) {
+                        child_names[child] = Some(name.to_vec());
+                    }
+                }
                 let data = emit_records(start, size, &mut records)?;
                 regions.push(Region::Bytes {
                     block: u64::from(start),
@@ -89,7 +103,8 @@ impl Planner<'_> {
             });
         }
 
-        let tables = self.place_path_tables(&mut cursor, &mut regions)?;
+        let tables = self.place_path_tables(&mut cursor, &mut regions, &directory_names)?;
+        drop(directory_names);
         let catalog_block = self.place_catalog(&mut cursor, &mut regions)?;
 
         let data_end = cursor.div_ceil(SECTOR);
@@ -152,11 +167,12 @@ impl Planner<'_> {
         &self,
         cursor: &mut u64,
         regions: &mut Vec<Region>,
+        names: &[Vec<Option<Vec<u8>>>],
     ) -> PlanResult<Vec<PathTableLocation>> {
         let mut tables = Vec::new();
-        for ti in 0..self.trees.len() {
-            let l = self.path_table(ti, false)?;
-            let m = self.path_table(ti, true)?;
+        for (ti, names) in names.iter().enumerate() {
+            let l = self.path_table(ti, false, names)?;
+            let m = self.path_table(ti, true, names)?;
             let size = u32::try_from(l.len()).map_err(|_| too_large())?;
             let l_block = cursor.div_ceil(SECTOR);
             let m_block = l_block + (l.len() as u64).div_ceil(SECTOR);
