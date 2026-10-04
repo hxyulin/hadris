@@ -587,27 +587,44 @@ impl Walk {
             }
             let source = if self.aed_at.is_some() { &self.aed[..] } else { &icb.block[..] };
             let bytes = &source[self.pos..self.pos + size];
-            let (length, kind, at) = match size {
+            let (length, information, kind, at) = match size {
                 8 => {
                     let ad: ShortAd = bytemuck::pod_read_unaligned(bytes);
                     let at = Location { partition: icb.at.partition, block: ad.position.get() };
-                    (ad.len(), ad.extent_type(), at)
+                    (ad.len(), ad.len(), ad.extent_type(), at)
                 }
                 16 => {
                     let ad: LongAd = bytemuck::pod_read_unaligned(bytes);
-                    (ad.len(), ad.extent_type(), Location::from_long(&ad))
+                    (ad.len(), ad.len(), ad.extent_type(), Location::from_long(&ad))
                 }
                 _ => {
                     let ad: ExtAd = bytemuck::pod_read_unaligned(bytes);
+                    let recorded = ad.recorded_length.get();
+                    let information = ad.information_length.get();
+                    if recorded > ad.len() {
+                        return Err(bad());
+                    }
+                    match ad.extent_type() {
+                        extent::RECORDED if recorded != information => {
+                            return Err(Detail::AllocationDescriptor.error(ErrorKind::Unsupported));
+                        }
+                        extent::ALLOCATED | extent::UNALLOCATED if recorded != 0 || information > ad.len() => {
+                            return Err(bad());
+                        }
+                        _ => {}
+                    }
                     let at = Location {
                         partition: ad.location.partition.get(),
                         block: ad.location.block.get(),
                     };
-                    (ad.len(), ad.extent_type(), at)
+                    (ad.len(), information, ad.extent_type(), at)
                 }
             };
             self.pos += size;
             if length == 0 {
+                if information != 0 {
+                    return Err(bad());
+                }
                 self.done = true;
                 return Ok(None);
             }
@@ -627,13 +644,18 @@ impl Walk {
                 }
                 extent::RECORDED => {
                     let offset = info.offset(at.partition, at.block, length)?;
-                    return Ok(Some(Piece::Disk { offset, len: length }));
+                    if information != 0 {
+                        return Ok(Some(Piece::Disk { offset, len: u64::from(information) }));
+                    }
                 }
                 extent::ALLOCATED => {
                     let offset = info.offset::<D::Error>(at.partition, at.block, length).ok();
-                    return Ok(Some(Piece::Zero { len: length, offset }));
+                    if information != 0 {
+                        return Ok(Some(Piece::Zero { len: u64::from(information), offset }));
+                    }
                 }
-                _ => return Ok(Some(Piece::Zero { len: length, offset: None })),
+                _ if information != 0 => return Ok(Some(Piece::Zero { len: u64::from(information), offset: None })),
+                _ => {}
             }
         }
     }
