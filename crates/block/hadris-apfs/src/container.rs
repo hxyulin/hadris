@@ -44,11 +44,13 @@ where
     D: BlockDevice,
 {
     /// Opens an APFS container whose block 0 is at device block 0.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn open(device: D) -> hadris_fs::FsResult<Self, D::Error> {
         Self::try_open(device).await.map_err(hadris_fs::MountError::into_error)
     }
 
     /// Opens a container, returning ownership of the device on failure.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn try_open(mut device: D) -> core::result::Result<Self, hadris_fs::MountError<D, D::Error>> {
         match Self::read_info(&mut device).await {
             Ok(info) => {
@@ -117,6 +119,7 @@ where
     /// only during this call; retained keys are redacted and wiped on drop.
     /// Keybags are limited to 1 MiB each and total PBKDF2 work to 1,000,000 iterations.
     #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn unlock_volume(
         &mut self,
         volume: &VolumeSuperblock,
@@ -210,6 +213,7 @@ where
     }
 
     /// Reads one APFS container block by APFS physical block number.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(block = block)))]
     pub async fn read_apfs_block(&mut self, block: u64, buffer: &mut [u8]) -> hadris_fs::FsResult<(), D::Error> {
         if buffer.len() != self.info.superblock.block_size as usize {
             return Err(crate::ApfsError::InvalidValue("APFS block buffer length").into());
@@ -471,6 +475,7 @@ where
     /// snapshots), and resolving unconditionally to the newest one can return
     /// an object from a later filesystem state than the one being read.
     #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn object_map_lookup(
         &mut self,
         object_map: ObjectMapBlock,
@@ -590,6 +595,7 @@ where
     /// Walks a B-tree whose child links are physical block addresses and
     /// returns owned leaf entries in traversal order.
     #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn btree_leaf_entries(
         &mut self,
         root_physical_block: u64,
@@ -731,6 +737,7 @@ where
     /// The volume root is returned with name `/` and inode 2.
     /// Symlinks are returned as entries rather than followed.
     #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn resolve_path(
         &mut self,
         volume: &VolumeSuperblock,
@@ -846,6 +853,7 @@ where
     /// as zeros. Use [`Self::read_extents_at`] to stream large files. Compressed files
     /// return [`hadris_fs::ErrorKind::Unsupported`].
     #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn read_file(
         &mut self,
         volume: &VolumeSuperblock,
@@ -895,6 +903,7 @@ where
     /// in [`Self::read_extents_at`]. The caller's buffer is unchanged on a
     /// credential or extent preflight failure.
     #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(offset = offset, bytes = buf.len())))]
     pub async fn read_volume_extents_at(
         &mut self,
         volume: &VolumeSuperblock,

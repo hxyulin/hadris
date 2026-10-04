@@ -432,6 +432,7 @@ impl View {
 
     /// The first record in path table order of the hard-linked file `key`
     /// names.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
     async fn first_link<D: BlockDevice>(&self, dev: &mut D, key: LinkKey, skip: u8) -> Result<Option<u64>, Error<D::Error>> {
         let (table, size) = self.root.path_table;
         let base = u64::from(table) * self.bs();
@@ -697,6 +698,7 @@ impl View {
     }
 
     /// The whole length of the file whose first record is `record`.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
     async fn file_len<D: BlockDevice>(&self, dev: &mut D, offset: u64, record: &DirectoryRecord) -> Result<u64, Error<D::Error>> {
         let mut total = 0;
         let mut chain = RecordChain::new(offset, *record);
@@ -770,6 +772,7 @@ impl View {
     /// The parent of the directory at byte `start`, from the path table,
     /// for trees whose `..` records point at the directory itself (the
     /// Joliet trees libisofs writes).
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
     async fn path_table_parent<D: BlockDevice>(&self, dev: &mut D, start: u64) -> Result<u64, Error<D::Error>> {
         let parent = self.path_table_find(dev, PathTableQuery::Extent(start / self.bs())).await?;
         Ok(self.path_table_find(dev, PathTableQuery::Number(parent)).await? * self.bs())
@@ -837,6 +840,7 @@ impl<D: BlockDevice> IsoFs<D> {
     /// descriptor is not ISO 9660, with [`ErrorKind::Corrupt`] when the
     /// descriptor set is invalid, and with [`ErrorKind::Unsupported`] for
     /// device blocks above 4096 bytes. The [`MountError`] gives `dev` back.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
     pub async fn mount(dev: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
         Self::mount_namespace(dev, options, Namespace::Preferred).await
     }
@@ -844,6 +848,7 @@ impl<D: BlockDevice> IsoFs<D> {
     /// Mounts the image on `dev` as [`mount`](Self::mount) does, reading
     /// the tree `namespace` names. Fails with [`ErrorKind::NotFound`] and
     /// [`Detail::NoNamespace`] when the image has no such tree.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
     pub async fn mount_namespace(
         mut dev: D,
         options: MountOptions,
@@ -866,6 +871,7 @@ impl<D: BlockDevice> IsoFs<D> {
 
     /// Gives the device back. The image is read-only, so there is nothing
     /// to sync and this never fails.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
     pub async fn unmount(self) -> Result<D, MountError<D, D::Error>> {
         Ok(self.dev)
     }
@@ -897,6 +903,7 @@ impl<D: BlockDevice> IsoFs<D> {
     }
 
     /// Reads `buf.len()` bytes from byte `offset` of the image.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all, fields(offset = offset, bytes = buf.len())))]
     pub async fn read_raw(&mut self, offset: u64, buf: &mut [u8]) -> Result<(), Error<D::Error>> {
         read_bytes(&mut self.dev, self.view.len, offset, buf).await
     }
@@ -1028,6 +1035,7 @@ impl<D: BlockDevice> IsoFs<D> {
     /// directory record; a directory has the one extent of its records.
     /// Each call reads the records from the first, so a larger `out`
     /// takes fewer reads.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all, fields(node = ?node)))]
     pub async fn extents(&mut self, node: NodeId, from: u64, out: &mut [hadris_fs::Extent]) -> Result<usize, Error<D::Error>> {
         let mut count = 0;
         self.walk_extents(node, &mut |extent| {
@@ -1072,6 +1080,7 @@ impl<D: BlockDevice> IsoFs<D> {
     /// Returns how many it filled; fails with [`ErrorKind::LimitExceeded`]
     /// when `out` is too short, and [`ErrorKind::Corrupt`] when continuation
     /// records have different file identifiers.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all, fields(node = ?node)))]
     pub async fn records(&mut self, node: NodeId, out: &mut [hadris_fs::Extent]) -> Result<usize, Error<D::Error>> {
         let record = self.view.record_at(&mut self.dev, node.get()).await?;
         let mut chain = RecordChain::new(node.get(), record);
@@ -1102,6 +1111,7 @@ impl<D: BlockDevice> FileSystem for IsoFs<D> {
     }
 
     /// The volume's size; an ISO image has no free blocks.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
     async fn statfs(&mut self) -> FsResult<FsStats, D::Error> {
         Ok(FsStats::new(u64::from(self.view.info.volume_blocks), 0, self.view.info.block_size))
     }
@@ -1112,6 +1122,7 @@ impl<D: BlockDevice> FileSystem for IsoFs<D> {
         self.view.label(&mut self.dev, buf).await
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all, fields(dir = ?dir)))]
     async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
         self.view.lookup(&mut self.dev, dir, name).await
     }
@@ -1123,28 +1134,33 @@ impl<D: BlockDevice> FileSystem for IsoFs<D> {
 
     /// The directory containing `dir`, from its `..` record, or its Rock
     /// Ridge `PL` entry when it was relocated.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all, fields(dir = ?dir)))]
     async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
         self.view.parent(&mut self.dev, dir).await
     }
 
     /// Rock Ridge mode, owner, links and times when the mount reads Rock
     /// Ridge, the record's time as the modification time otherwise.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all, fields(node = ?node)))]
     async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
         self.view.stat(&mut self.dev, node).await
     }
 
     /// The cursor is the byte offset of the next record in the directory.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all, fields(dir = ?dir)))]
     async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
         self.view.readdir(&mut self.dev, dir, from).await
     }
 
     /// [`ErrorKind::InvalidInput`] for other nodes and outside the Rock
     /// Ridge tree.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all, fields(node = ?node, bytes = buf.len())))]
     async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
         let len = self.view.readlink(&mut self.dev, node, buf).await?;
         Ok(&buf[..len])
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all, fields(node = ?node)))]
     async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
         let meta = self.view.stat(&mut self.dev, node).await?;
         match meta.file_type() {
@@ -1155,12 +1171,14 @@ impl<D: BlockDevice> FileSystem for IsoFs<D> {
         }
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all, fields(node = ?node)))]
     async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         let _ = node;
         Ok(())
     }
 
     /// Follows multi-extent records; a call reads from one extent at most.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all, fields(node = ?node, offset = offset, bytes = buf.len())))]
     async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         self.view.read(&mut self.dev, node, offset, buf).await
     }

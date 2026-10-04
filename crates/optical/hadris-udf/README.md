@@ -124,3 +124,7 @@ and 2.60, which require a metadata partition. Writing to a mounted volume
 ## License
 
 Licensed under the [MIT license](../../../LICENSE-MIT).
+
+The opt-in `tracing` feature enables `std` and emits operation spans through the
+application’s subscriber. It is disabled by default. See the
+[tracing guide](../../../docs/tracing.md) for targets, metadata and async behavior.

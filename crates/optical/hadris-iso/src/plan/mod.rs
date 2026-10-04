@@ -377,6 +377,10 @@ fn join(parent: &str, name: &str) -> String {
 /// [`ErrorKind::LimitExceeded`] for MBR boot code over 446 bytes;
 /// [`ErrorKind::FileTooLarge`] for a file of 4 GiB or more below Level 3;
 /// and [`ErrorKind::Unsupported`] for content stored on another image.
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(target = "hadris::iso", level = "trace", skip_all)
+)]
 pub fn plan(tree: &Tree, opts: &IsoOptions) -> Result<Report, PathError> {
     let contents = measure(tree, false)?;
     Ok(lay_out(tree, opts, &contents, Base::image())?.report)

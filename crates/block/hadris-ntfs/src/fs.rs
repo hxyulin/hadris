@@ -765,6 +765,7 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// @hadris-tests read::open_blank_volume, crafted::open_rejects_bad_boot_sectors, crafted::fragmented_mft_is_followed
     /// @hadris-fuzz ntfs_read
     /// @hadris-note Reads `$MFT` from its base record and extension records and checks file references; `$MFTMirr` recovery is not supported.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all))]
     pub async fn mount(mut dev: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
         let _ = options;
         match mount(&mut dev).await {
@@ -775,6 +776,7 @@ impl<D: BlockDevice> NtfsFs<D> {
 
     /// Gives the device back. The volume is read-only, so there is nothing
     /// to sync and this never fails.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all))]
     pub async fn unmount(self) -> Result<D, MountError<D, D::Error>> {
         Ok(self.dev)
     }
@@ -952,6 +954,7 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// @hadris-tests crafted::named_streams_are_listed_and_read, read::named_streams_read_back
     /// @hadris-fuzz ntfs_read
     /// @hadris-note Lists and reads named `$DATA` attributes; other attribute types are not exposed as streams.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node)))]
     pub async fn streams(&mut self, node: NodeId, mut visit: impl FnMut(&str, u64)) -> FsResult<(), D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         self.node_record(node, &mut rec).await?;
@@ -977,6 +980,7 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// Reads from the named data stream `stream` of a node at `offset`.
     /// Stream names compare case-insensitively. [`ErrorKind::NotFound`]
     /// when the node has no such stream.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node, offset = offset, bytes = buf.len())))]
     pub async fn read_stream_at(
         &mut self,
         node: NodeId,
@@ -1037,6 +1041,7 @@ impl<D: BlockDevice> FileSystem for NtfsFs<D> {
     /// @hadris-tests crafted::names_fold_case_through_upcase, read::large_directory_lists_every_entry
     /// @hadris-fuzz ntfs_read
     /// @hadris-note Walks every index node instead of descending the B-tree by key.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(dir = ?dir)))]
     async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
         name.check()?;
         let Ok(query) = name.to_str() else {
@@ -1116,6 +1121,7 @@ impl<D: BlockDevice> FileSystem for NtfsFs<D> {
     /// it. An entry whose record cannot be read is listed with only the type
     /// its index entry records, and `stat` of it fails with the record's
     /// error.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(dir = ?dir)))]
     async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         self.dir_record(dir, &mut rec).await?;
@@ -1182,6 +1188,7 @@ impl<D: BlockDevice> FileSystem for NtfsFs<D> {
     /// Metadata of a node: type, size, the four times and the DOS
     /// attributes of `$STANDARD_INFORMATION`, and the number of names that
     /// are not DOS aliases. A directory's size is 0.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node)))]
     async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         let header = self.node_record(node, &mut rec).await?;
@@ -1249,6 +1256,7 @@ impl<D: BlockDevice> FileSystem for NtfsFs<D> {
     /// @hadris-tests read::files_read_back, crafted::streams_past_the_volume_fail, crafted::attribute_lists_join_extension_records
     /// @hadris-fuzz ntfs_read
     /// @hadris-note Reads resident, non-resident, sparse and partly initialized streams, also across extension records; compressed and encrypted streams are unsupported.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node, offset = offset, bytes = buf.len())))]
     async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         if self.node_record(node, &mut rec).await?.is_dir() {
@@ -1264,6 +1272,7 @@ impl<D: BlockDevice> FileSystem for NtfsFs<D> {
 
     /// The volume's clusters and the free ones, counted from `$Bitmap`
     /// once and then kept.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all))]
     async fn statfs(&mut self) -> FsResult<FsStats, D::Error> {
         let total = self.info.geo.total_clusters;
         let free = match self.info.free_clusters {
@@ -1285,6 +1294,7 @@ impl<D: BlockDevice> FileSystem for NtfsFs<D> {
 
     /// The directory containing `dir`, from its `$FILE_NAME`. The root is
     /// its own parent.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(dir = ?dir)))]
     async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         self.dir_record(dir, &mut rec).await?;
@@ -1331,6 +1341,7 @@ impl<D: BlockDevice> FileSystem for NtfsFs<D> {
 
     /// Opens a file for reading. Directories fail with
     /// [`ErrorKind::IsADirectory`], writing with [`ErrorKind::ReadOnly`].
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node)))]
     async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         if self.node_record(node, &mut rec).await?.is_dir() {
@@ -1342,6 +1353,7 @@ impl<D: BlockDevice> FileSystem for NtfsFs<D> {
         Ok(())
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node)))]
     async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         let _ = node;
         Ok(())
@@ -1349,6 +1361,7 @@ impl<D: BlockDevice> FileSystem for NtfsFs<D> {
 
     /// NTFS here has no symlinks: every node fails with
     /// [`ErrorKind::InvalidInput`].
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node, bytes = buf.len())))]
     async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         self.node_record(node, &mut rec).await?;

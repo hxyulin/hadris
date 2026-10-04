@@ -127,6 +127,7 @@ io_transform! {
 /// one inode, and the last of them in that order carries the data, as GNU
 /// cpio writes them. Report offsets count from the first byte this call
 /// writes. `out` is flushed, not closed.
+#[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all))]
 pub async fn write<W: Write>(out: W, tree: &Tree, options: &CpioOptions) -> Result<Report, PathError> {
     let (entries, report) = plan_tree(tree, options)?;
     for entry in &entries {
@@ -222,6 +223,7 @@ impl<W: Write> Writer<W> {
     /// does, and with [`ErrorKind::InvalidInput`] for an empty symlink
     /// target, and [`ErrorKind::Unsupported`] for content this mode cannot
     /// read.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all, fields(node = ?node)))]
     pub async fn append(&mut self, path: impl AsRef<[u8]>, node: &Node) -> Result<(), PathError> {
         let path = path.as_ref();
         self.check_idle()?;
@@ -245,6 +247,7 @@ impl<W: Write> Writer<W> {
     /// Fails like [`append`](Self::append) before writing anything, and
     /// with [`ErrorKind::InvalidInput`] when `paths` is empty or `node` is
     /// not a file.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all, fields(node = ?node)))]
     pub async fn append_hard_links<P: AsRef<[u8]>>(&mut self, paths: &[P], node: &Node) -> Result<(), PathError> {
         self.check_idle()?;
         let Some((last, first)) = paths.split_last() else {
@@ -284,6 +287,7 @@ impl<W: Write> Writer<W> {
     /// fails with [`ErrorKind::InvalidInput`]. Fails like
     /// [`append`](Self::append), and with [`ErrorKind::Unsupported`] for
     /// [`Format::Crc`], whose header holds a checksum of the data.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all, fields(len = len)))]
     pub async fn append_file(&mut self, path: impl AsRef<[u8]>, attrs: &SetAttr, len: u64) -> Result<EntryWriter<'_, W>, PathError> {
         let path = path.as_ref();
         self.check_idle()?;
@@ -312,6 +316,7 @@ impl<W: Write> Writer<W> {
     /// Writes the trailer, flushes, and returns the stream with the report:
     /// the bytes written with the trailer, what cpio dropped, and where each
     /// file's data starts, counted from the first byte this writer wrote.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all))]
     pub async fn finish(mut self) -> Result<(W, Report), PathError> {
         self.check_idle()?;
         self.planner.trailer()?;
@@ -324,6 +329,7 @@ impl<W: Write> EntryWriter<'_, W> {
     /// Ends the entry with its padding. Fails with
     /// [`ErrorKind::InvalidInput`] naming the entry when fewer bytes than
     /// its length were written.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all))]
     pub async fn finish(self) -> Result<(), PathError> {
         if self.remaining != 0 {
             return Err(error(Detail::Entry, ErrorKind::InvalidInput, &self.path));
@@ -338,6 +344,7 @@ impl<W: Write> EntryWriter<'_, W> {
 impl<W: Write> Write for EntryWriter<'_, W> {
     /// Writes data of the entry. Fails with [`ErrorKind::InvalidInput`]
     /// past its length.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all, fields(bytes = buf.len())))]
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         if buf.len() as u64 > self.remaining {
             return Err(Detail::Entry.invalid());
@@ -348,6 +355,7 @@ impl<W: Write> Write for EntryWriter<'_, W> {
         Ok(written)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all))]
     async fn flush(&mut self) -> Result<(), Self::Error> {
         self.writer.out.flush().await.map_err(|err| Error::device(err, "flushing the archive failed"))
     }

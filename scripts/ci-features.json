@@ -271,6 +271,21 @@
       "crate": "hadris-apfs",
       "tier": "encryption-without-mode",
       "features": "encryption"
+    },
+    {
+      "crate": "hadris-apfs",
+      "tier": "hosted-tracing",
+      "features": "tracing,sync,async,read,encryption"
+    },
+    {
+      "crate": "hadris-ntfs",
+      "tier": "hosted-tracing",
+      "features": "tracing,sync,async"
+    },
+    {
+      "crate": "hadris-part",
+      "tier": "hosted-tracing",
+      "features": "tracing,sync,async"
     }
   ],
   "optical": [
@@ -343,6 +358,16 @@
       "crate": "hadris-udf",
       "tier": "all-capabilities",
       "features": "std,alloc,sync,async"
+    },
+    {
+      "crate": "hadris-iso",
+      "tier": "hosted-tracing",
+      "features": "tracing,sync,async"
+    },
+    {
+      "crate": "hadris-udf",
+      "tier": "hosted-tracing",
+      "features": "tracing,sync,async"
     }
   ],
   "archive": [
@@ -380,6 +405,11 @@
       "crate": "hadris-cpio",
       "tier": "all-capabilities",
       "features": "std,alloc,sync,async"
+    },
+    {
+      "crate": "hadris-cpio",
+      "tier": "hosted-tracing",
+      "features": "tracing,sync,async"
     }
   ],
   "facades": [
@@ -482,6 +512,11 @@
       "crate": "hadris",
       "tier": "encrypted-apfs-async",
       "features": "async,apfs-encryption"
+    },
+    {
+      "crate": "hadris",
+      "tier": "hosted-all-format-tracing",
+      "features": "tracing,sync,async,detect,part,unstable-ntfs,apfs-encryption"
     }
   ]
 }

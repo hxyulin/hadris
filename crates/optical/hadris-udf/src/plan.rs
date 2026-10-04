@@ -742,6 +742,10 @@ pub(crate) fn measure(
 /// [`ErrorKind::NameTooLong`] for a name over 254 bytes of OSTA Compressed
 /// Unicode, [`ErrorKind::FileTooLarge`] for a file of more than 234 GiB,
 /// and [`ErrorKind::Unsupported`] for content stored on another image.
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(target = "hadris::udf", level = "trace", skip_all)
+)]
 pub fn plan(tree: &Tree, opts: &UdfOptions) -> Result<Report, PathError> {
     let contents = measure(tree, false, false)?;
     Ok(lay_out(tree, opts, &contents, true, None)?.report)

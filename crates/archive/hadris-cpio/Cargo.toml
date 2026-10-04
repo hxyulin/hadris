@@ -13,7 +13,7 @@ categories = ["filesystem", "encoding", "no-std"]
 readme = "README.md"
 
 [package.metadata.docs.rs]
-features = ["std", "sync", "async"]
+features = ["std", "sync", "async", "tracing"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
@@ -25,7 +25,10 @@ std = ["alloc", "hadris-io/std", "hadris-fs/std"]
 sync = ["hadris-io/sync", "hadris-fs/sync"]
 async = ["hadris-io/async", "hadris-fs/async"]
 
+tracing = ["std", "dep:tracing"]
+
 [dependencies]
+tracing = { workspace = true, optional = true }
 hadris-io = { workspace = true, default-features = false }
 hadris-fs = { workspace = true, default-features = false }
 hadris-macros = { workspace = true }

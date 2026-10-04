@@ -842,6 +842,7 @@ impl<D: BlockDevice> UdfFs<D> {
     /// invalid, and with [`ErrorKind::Unsupported`] for partition maps
     /// other than type 1 or device blocks above 4096 bytes. The device
     /// comes back in the [`MountError`].
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all))]
     pub async fn mount(mut dev: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
         match mount(&mut dev, options.is_backup_boot()).await {
             Ok(info) => Ok(Self { dev, info, dir_walk: Resume::default(), file_walk: Resume::default() }),
@@ -851,6 +852,7 @@ impl<D: BlockDevice> UdfFs<D> {
 
     /// Gives the device back. The volume is read-only, so there is nothing
     /// to sync and this never fails.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all))]
     pub async fn unmount(self) -> Result<D, MountError<D, D::Error>> {
         Ok(self.dev)
     }
@@ -869,6 +871,7 @@ impl<D: BlockDevice> UdfFs<D> {
     }
 
     /// Reads `buf.len()` bytes from byte `offset` of the device.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all, fields(offset = offset, bytes = buf.len())))]
     pub async fn read_raw(&mut self, offset: u64, buf: &mut [u8]) -> Result<(), Error<D::Error>> {
         read_bytes(&mut self.dev, self.info.len, offset, buf).await
     }
@@ -916,6 +919,7 @@ impl<D: BlockDevice> UdfFs<D> {
     /// means there are none. Allocated but unrecorded extents are marked
     /// unwritten, holes are left out, and data embedded in the file entry
     /// is one extent inside it.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all, fields(node = ?node)))]
     pub async fn extents(&mut self, node: NodeId, from: u64, out: &mut [hadris_fs::Extent]) -> FsResult<usize, D::Error> {
         let icb = self.icb(node).await?;
         let mut walk = Walk::new(&icb);
@@ -950,6 +954,7 @@ impl<D: BlockDevice> UdfFs<D> {
     /// Locates a node's on-disk record: its file entry, one logical block.
     /// Returns how many it filled; fails with [`ErrorKind::LimitExceeded`]
     /// when `out` is empty.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all, fields(node = ?node)))]
     pub async fn records(&mut self, node: NodeId, out: &mut [hadris_fs::Extent]) -> FsResult<usize, D::Error> {
         let at = Location::of(node).ok_or(ErrorKind::InvalidHandle)?;
         let block_size = u64::from(self.info.block_size);
@@ -978,6 +983,7 @@ impl<D: BlockDevice> FileSystem for UdfFs<D> {
 
     /// The partitions' size, and the free space a closed integrity
     /// descriptor records.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all))]
     async fn statfs(&mut self) -> FsResult<FsStats, D::Error> {
         let total = self.info.partitions().iter().map(|p| u64::from(p.len())).sum();
         Ok(FsStats::new(total, self.info.free_blocks.unwrap_or(0), self.info.block_size))
@@ -994,6 +1000,7 @@ impl<D: BlockDevice> FileSystem for UdfFs<D> {
         Ok(core::str::from_utf8(out).ok())
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all, fields(dir = ?dir)))]
     async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
         name.check()?;
         let icb = self.dir(dir).await?;
@@ -1020,6 +1027,7 @@ impl<D: BlockDevice> FileSystem for UdfFs<D> {
 
     /// The directory containing `dir`, from its parent identifier. The
     /// root is its own parent.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all, fields(dir = ?dir)))]
     async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
         let icb = self.dir(dir).await?;
         let mut pos = 0;
@@ -1036,6 +1044,7 @@ impl<D: BlockDevice> FileSystem for UdfFs<D> {
     /// Type, size, times (creation only from extended file entries),
     /// permissions, owner and link count. A symlink's size is the length of
     /// its target.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all, fields(node = ?node)))]
     async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
         let icb = self.icb(node).await?;
         self.icb_metadata(&icb).await
@@ -1048,6 +1057,7 @@ impl<D: BlockDevice> FileSystem for UdfFs<D> {
     /// directory stays readable; `stat` and `open` on it fail with
     /// [`ErrorKind::Corrupt`]. A damaged identifier ends the listing with
     /// that error, since the next one cannot be found.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all, fields(dir = ?dir)))]
     async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
         let icb = self.dir(dir).await?;
         let mut pos = from.into_raw();
@@ -1077,6 +1087,7 @@ impl<D: BlockDevice> FileSystem for UdfFs<D> {
 
     /// The target's path components joined with `/`.
     /// [`ErrorKind::InvalidInput`] for other nodes.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all, fields(node = ?node, bytes = buf.len())))]
     async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
         let icb = self.icb(node).await?;
         if icb.fs_type() != Some(FileType::Symlink) {
@@ -1086,6 +1097,7 @@ impl<D: BlockDevice> FileSystem for UdfFs<D> {
         Ok(&buf[..len])
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all, fields(node = ?node)))]
     async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
         let icb = self.icb(node).await?;
         match icb.fs_type() {
@@ -1097,12 +1109,14 @@ impl<D: BlockDevice> FileSystem for UdfFs<D> {
         }
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all, fields(node = ?node)))]
     async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         let _ = node;
         Ok(())
     }
 
     /// Allocated but unrecorded extents read as zeros.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all, fields(node = ?node, offset = offset, bytes = buf.len())))]
     async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         let icb = self.icb(node).await?;
         match icb.fs_type() {

@@ -21,11 +21,14 @@ std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std"]
 sync = ["hadris-io/sync", "hadris-storage/sync"]
 async = ["hadris-io/async", "hadris-storage/async"]
 
+tracing = ["std", "dep:tracing"]
+
 [package.metadata.docs.rs]
-features = ["std", "sync", "async"]
+features = ["std", "sync", "async", "tracing"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
+tracing = { workspace = true, optional = true }
 hadris-io = { workspace = true, default-features = false }
 hadris-fs = { workspace = true, default-features = false }
 hadris-storage = { workspace = true, default-features = false }
