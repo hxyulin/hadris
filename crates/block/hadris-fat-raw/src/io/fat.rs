@@ -22,7 +22,7 @@ fn same_fat_block(fat: &Fat, size: u64, a: u32, b: u32) -> bool {
     let geo = &fat.geo;
     let kind = geo.kind();
     (0..geo.copies()).all(|step| {
-        let base = geo.fat_copy((geo.active_fat() + step) % geo.fat_count());
+        let base = geo.fat_copy(geo.active_fat() ^ step);
         (base + kind.entry_offset(a as u64)) / size == (base + kind.entry_offset(b as u64)) / size
     })
 }
@@ -197,7 +197,7 @@ pub async fn mirror<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &mut
         for cluster in first..=last.min(fat.geo.max_cluster()) {
             let value = get(dev, block, fat, cluster).await? & kind.mask();
             for step in 1..count {
-                let copy = (fat.geo.active_fat() + step) % count;
+                let copy = fat.geo.active_fat() ^ step;
                 let at = fat.geo.fat_copy(copy) + kind.entry_offset(cluster as u64);
                 let mut bytes = [0u8; 4];
                 read_bytes(dev, block, at, &mut bytes[..kind.entry_len()]).await?;
@@ -224,7 +224,7 @@ async fn put_entry<D: BlockDevice>(
 ) -> FsResult<(), D::Error> {
     let kind = fat.geo.kind();
     let len = kind.entry_len();
-    let copy = (fat.geo.active_fat() + step) % fat.geo.fat_count();
+    let copy = fat.geo.active_fat() ^ step;
     let at = fat.geo.fat_copy(copy) + kind.entry_offset(cluster as u64);
     let mut bytes = [0u8; 4];
     read_bytes(dev, block, at, &mut bytes[..len]).await?;
@@ -308,26 +308,67 @@ pub async fn allocate<D: BlockDevice>(
     fat: &mut Fat,
     held: Option<&mut Held>,
 ) -> FsResult<u32, D::Error> {
+    let cluster = find_free(dev, block, fat).await?;
+    if let Some(held) = held {
+        if held.head == 0 {
+            held.head = cluster;
+        } else {
+            held.extra = cluster;
+        }
+    }
+    set(dev, block, fat, cluster, fat.geo.kind().end_of_chain()).await?;
+    fat.next_free = after(fat, cluster);
+    fat.info_dirty = true;
+    Ok(cluster)
+}
+
+/// Allocates one cluster and links the end of a chain, `tail`, to it.
+/// On FAT16/32, when both entries share a device block in every written
+/// FAT copy, both updates use one block write per copy, active copy first.
+/// Otherwise allocation precedes linking, as with [`allocate`] and [`set`].
+///
+/// `held` must be empty and `tail` must end its chain. The new cluster is
+/// recorded as `held.head()` before any write. On failure or cancellation,
+/// the caller must [`mirror`] unfinished copies, detach `tail` if it links
+/// the held cluster, then free that cluster. No data bytes are initialized.
+/// A nonempty `held` or a tail that already links another cluster fails
+/// with [`ErrorKind::InvalidInput`] before changing the volume.
+pub async fn allocate_after<D: BlockDevice>(
+    dev: &mut D,
+    block: &mut BlockBuf,
+    fat: &mut Fat,
+    held: &mut Held,
+    tail: u32,
+) -> FsResult<u32, D::Error> {
+    if *held != Held::NONE || next(dev, block, fat, tail).await?.is_some() {
+        return Err(ErrorKind::InvalidInput.into());
+    }
+    let cluster = find_free(dev, block, fat).await?;
+    held.head = cluster;
+    let end = fat.geo.kind().end_of_chain();
+    if fat.geo.kind() != FatKind::Fat12 && same_fat_block(fat, block.size as u64, tail, cluster) {
+        let mut group = ClusterGroup::new(cluster);
+        group.add(cluster);
+        patch(dev, block, fat, &group, Some(end), Some(tail)).await?;
+    } else {
+        set(dev, block, fat, cluster, end).await?;
+        set(dev, block, fat, tail, cluster).await?;
+    }
+    fat.next_free = after(fat, cluster);
+    fat.info_dirty = true;
+    Ok(cluster)
+}
+
+async fn find_free<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &mut Fat) -> FsResult<u32, D::Error> {
     let max = fat.geo.max_cluster();
     let kind = fat.geo.kind();
     let count = max - FIRST_DATA_CLUSTER + 1;
-    let from = fat.next_free.clamp(FIRST_DATA_CLUSTER, max) - FIRST_DATA_CLUSTER;
-    for step in 0..count {
-        let cluster = FIRST_DATA_CLUSTER + (from + step) % count;
-        if get(dev, block, fat, cluster).await? & kind.mask() != 0 {
-            continue;
+    let mut cluster = fat.next_free.clamp(FIRST_DATA_CLUSTER, max);
+    for _ in 0..count {
+        if get(dev, block, fat, cluster).await? & kind.mask() == 0 {
+            return Ok(cluster);
         }
-        if let Some(held) = held {
-            if held.head == 0 {
-                held.head = cluster;
-            } else {
-                held.extra = cluster;
-            }
-        }
-        set(dev, block, fat, cluster, kind.end_of_chain()).await?;
-        fat.next_free = after(fat, cluster);
-        fat.info_dirty = true;
-        return Ok(cluster);
+        cluster = after(fat, cluster);
     }
     if fat.free != Some(0) {
         fat.free = Some(0);
@@ -377,7 +418,10 @@ pub async fn allocate_run<D: BlockDevice>(
     let max = fat.geo.max_cluster();
     let total = max - FIRST_DATA_CLUSTER + 1;
     let from = fat.next_free.clamp(FIRST_DATA_CLUSTER, max) - FIRST_DATA_CLUSTER;
-    let at = |step: u32| FIRST_DATA_CLUSTER + (from + step) % total;
+    let at = |step: u32| {
+        let relative = from + step;
+        FIRST_DATA_CLUSTER + if relative >= total { relative - total } else { relative }
+    };
     let mut found = 0;
     let mut last = None;
     for step in 0..total {
@@ -420,7 +464,7 @@ pub async fn allocate_run<D: BlockDevice>(
             held.head = if head == end { 0 } else { head };
             held.extra = group.lowest();
         }
-        patch(dev, block, fat, &group, Some(head)).await?;
+        patch(dev, block, fat, &group, Some(head), None).await?;
         head = group.lowest();
         if let Some(held) = held.as_deref_mut() {
             held.head = head;
@@ -482,7 +526,7 @@ pub async fn free_chain<D: BlockDevice>(
         if group.count > 0 {
             let after = next.as_ref().ok().copied().flatten();
             *held = Held::new(after.unwrap_or(0), start);
-            patch(dev, block, fat, &group, None).await?;
+            patch(dev, block, fat, &group, None, None).await?;
         }
         match next? {
             Some(next) => cluster = next,
@@ -498,20 +542,23 @@ pub async fn free_chain<D: BlockDevice>(
 /// copy, one block write per copy, active copy first. With `chain`, the
 /// clusters are linked in ascending order and the highest points to
 /// `chain`; without, they are freed. The free count follows the active
-/// copy.
+/// copy. When present, `tail` shares the block and is linked to the group.
 async fn patch<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
     fat: &mut Fat,
     group: &ClusterGroup,
     chain: Option<u32>,
+    tail: Option<u32>,
 ) -> FsResult<(), D::Error> {
     let kind = fat.geo.kind();
     let len = kind.entry_len();
     let size = block.size as u64;
     let copies = fat.geo.copies();
     if copies > 1 {
-        let range = (group.lowest(), group.descending().next().unwrap_or(group.lowest()));
+        let low = group.lowest();
+        let high = group.descending().next().unwrap_or(low);
+        let range = (low.min(tail.unwrap_or(low)), high.max(tail.unwrap_or(high)));
         if let Some(other) = fat.unmirrored
             && other != range
         {
@@ -520,7 +567,7 @@ async fn patch<D: BlockDevice>(
         fat.unmirrored = Some(range);
     }
     for step in 0..copies {
-        let base = fat.geo.fat_copy((fat.geo.active_fat() + step) % fat.geo.fat_count());
+        let base = fat.geo.fat_copy(fat.geo.active_fat() ^ step);
         let index = (base + kind.entry_offset(group.lowest() as u64)) / size;
         load(dev, block, index).await?;
         let data = block.contents_mut();
@@ -541,6 +588,13 @@ async fn patch<D: BlockDevice>(
             if chain.is_some() {
                 value = cluster;
             }
+        }
+        if let Some(tail) = tail {
+            let at = (base + kind.entry_offset(tail as u64) - index * size) as usize;
+            let Some(entry) = data.get_mut(at..at + len) else {
+                return Err(ErrorKind::Corrupt.into());
+            };
+            kind.encode(tail as u64, group.lowest(), entry);
         }
         store(dev, block, index).await?;
         if step == 0 && taken != freed {
@@ -600,12 +654,12 @@ pub async fn slot_offset<D: BlockDevice>(
         }
         DirStart::Chain(first) => {
             let per_cluster = fat.geo.cluster_size() / ENTRY_SIZE as u32;
-            let want = slot / per_cluster;
+            let want = slot >> (fat.geo.cluster_shift() - ENTRY_SIZE.trailing_zeros());
             walk.at = self::walk(dev, block, fat, first, walk.at, want).await?;
             if walk.at.index < want {
                 return Ok(None);
             }
-            let within = (slot % per_cluster) as u64 * ENTRY_SIZE as u64;
+            let within = (slot & (per_cluster - 1)) as u64 * ENTRY_SIZE as u64;
             Ok(Some(fat.cluster_at(walk.at.cluster)? + within))
         }
     }

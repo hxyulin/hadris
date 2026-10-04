@@ -16,7 +16,8 @@ needs an allocator:
 
 - **Layouts** of the boot sector, BPB, FSInfo sector and directory entries,
   with their constants
-- **Boot sectors**: `parse_boot` checks one and returns its `Geometry`
+- **Boot sectors**: `parse_boot` checks one and returns its `Geometry`,
+  including `cluster_shift()` for the validated power-of-two cluster size
 - **FAT entries**: `FatKind` encodes and decodes entries of every width and
   classifies chain links; `ChainGuard` finds loops in a chain without memory
   proportional to it
@@ -51,6 +52,9 @@ allocator:
   `free_chain` take and free clusters a device block of entries at a time,
   recording their progress in a `Held` so a driver can finish an
   interrupted one
+- `allocate_after` extends a chain by one cluster, combining allocation and
+  the tail link into one write per FAT copy on FAT16/32 when the entries share
+  a device block; the caller retains the held cluster for recovery
 - `slot_offset` with a `DirWalk` that keeps its chain position,
   `read_slot`, `write_slots` and `clear_slots` for directories
 - `mkfs` writes a volume that `layout::plan` planned

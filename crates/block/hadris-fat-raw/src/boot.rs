@@ -83,6 +83,7 @@ pub struct Geometry {
     kind: FatKind,
     sector_size: u32,
     cluster_size: u32,
+    cluster_shift: u8,
     reserved_sectors: u16,
     fat_start: u64,
     fat_size: u64,
@@ -107,9 +108,14 @@ impl Geometry {
         self.sector_size
     }
 
-    /// Bytes per cluster, at most 32 KiB.
+    /// Bytes per cluster, a power of two from 512 bytes through 32 KiB.
     pub const fn cluster_size(&self) -> u32 {
         self.cluster_size
+    }
+
+    /// The base-2 exponent of [`cluster_size`](Self::cluster_size), from 9 through 15.
+    pub const fn cluster_shift(&self) -> u32 {
+        self.cluster_shift as u32
     }
 
     /// Sectors before the first FAT.
@@ -392,6 +398,7 @@ fn geometry16(bpb: &RawBpb) -> Result<Geometry, BootError> {
         },
         sector_size: sector_size as u32,
         cluster_size: bpb.sectors_per_cluster as u32 * sector_size as u32,
+        cluster_shift: (bpb.sectors_per_cluster as u32 * sector_size as u32).trailing_zeros() as u8,
         fat_start,
         fat_size: fat_sectors * sector_size,
         fat_count: bpb.fat_count,
@@ -437,6 +444,7 @@ fn geometry32(bpb: &RawBpb, ext: &RawBpbExt32) -> Result<Geometry, BootError> {
         kind: FatKind::Fat32,
         sector_size: sector_size as u32,
         cluster_size: bpb.sectors_per_cluster as u32 * sector_size as u32,
+        cluster_shift: (bpb.sectors_per_cluster as u32 * sector_size as u32).trailing_zeros() as u8,
         fat_start,
         fat_size: fat_sectors * sector_size,
         fat_count: bpb.fat_count,
@@ -498,6 +506,40 @@ mod tests {
             check_bpb(&bpb(4096, 16, 1, 2, 224, 9, 2880)),
             Err(BootError::Corrupt(_))
         ));
+    }
+
+    #[test]
+    fn cluster_shift_matches_every_valid_sector_and_cluster_size() {
+        for sector_size in [512, 1024, 2048, 4096] {
+            for shift in 9..=15 {
+                let cluster_size = 1 << shift;
+                if cluster_size < sector_size as u32 {
+                    continue;
+                }
+                let spc = (cluster_size / sector_size as u32) as u8;
+                let mut sector = [0; BOOT_SECTOR_LEN];
+                let small = bpb(sector_size, spc, 1, 2, 128, 16, 2048);
+                let mut ext: RawBpbExt16 = bytemuck::Zeroable::zeroed();
+                ext.signature_word = BOOT_SIGNATURE.to_le_bytes();
+                sector[..BPB_LEN].copy_from_slice(bytemuck::bytes_of(&small));
+                sector[BPB_LEN..].copy_from_slice(bytemuck::bytes_of(&ext));
+                let geo = parse_boot(&sector).unwrap();
+                assert_eq!(geo.cluster_size(), cluster_size);
+                assert_eq!(geo.cluster_shift(), shift);
+
+                let large = bpb(sector_size, spc, 32, 2, 0, 0, 2048);
+                let mut ext: RawBpbExt32 = bytemuck::Zeroable::zeroed();
+                ext.sectors_per_fat_32.set(16);
+                ext.root_cluster.set(2);
+                ext.signature_word.set(BOOT_SIGNATURE);
+                sector[..BPB_LEN].copy_from_slice(bytemuck::bytes_of(&large));
+                sector[BPB_LEN..].copy_from_slice(bytemuck::bytes_of(&ext));
+                let geo = parse_boot(&sector).unwrap();
+                assert_eq!(geo.kind(), FatKind::Fat32);
+                assert_eq!(geo.cluster_size(), cluster_size);
+                assert_eq!(geo.cluster_shift(), shift);
+            }
+        }
     }
 
     #[test]

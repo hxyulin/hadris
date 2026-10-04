@@ -228,6 +228,91 @@ fn writes_what_fatfs_check_and_fsck_accept() {
 }
 
 #[test]
+fn file_growth_and_truncation_cover_every_cluster_size() {
+    use hadris_fat::FatOptions;
+
+    for sector in [512, 4096] {
+        for shift in 9..=15 {
+            let cluster = 1usize << shift;
+            if cluster < sector as usize {
+                continue;
+            }
+            let case = Case { sector, ..CASES[0] };
+            let before =
+                common::formatted(case, FatOptions::new().with_cluster_size(cluster as u32))
+                    .into_inner()
+                    .into_inner();
+            let mut token = MountToken::new();
+            let mut fs = mount(&mut token, case, before);
+            assert_eq!(fs.info().cluster_shift(), shift);
+            let root = fs.root();
+            let file = fs
+                .open(
+                    root,
+                    "BOUND.BIN",
+                    OpenOptions::new().read().write().create(),
+                )
+                .unwrap();
+            let mut expected = Vec::new();
+            for len in [
+                0,
+                1,
+                cluster - 1,
+                cluster,
+                cluster + 1,
+                2 * cluster - 1,
+                2 * cluster,
+                2 * cluster + 1,
+                cluster,
+                cluster - 1,
+            ] {
+                fs.set_len(&file, len as u64).unwrap();
+                expected.resize(len, 0);
+                if len != 0 {
+                    fs.seek(&file, SeekFrom::Start((len - 1) as u64)).unwrap();
+                    fs.write(&file, &[9]).unwrap();
+                    expected[len - 1] = 9;
+                }
+                fs.seek(&file, SeekFrom::Start(0)).unwrap();
+                let mut data = vec![0xCC; len + 17];
+                assert_eq!(fs.read(&file, &mut data).unwrap(), len);
+                assert_eq!(&data[..len], expected);
+                assert_eq!(&data[len..], &[0xCC; 17]);
+            }
+            let end = 3 * cluster + 7;
+            fs.seek(&file, SeekFrom::Start(end as u64)).unwrap();
+            fs.write(&file, b"tail").unwrap();
+            expected.resize(end, 0);
+            expected.extend_from_slice(b"tail");
+            fs.seek(&file, SeekFrom::Start(u32::MAX as u64 - 1))
+                .unwrap();
+            assert_eq!(
+                fs.write(&file, &[1, 2]).unwrap_err().kind(),
+                ErrorKind::NoSpace
+            );
+            assert_eq!(
+                fs.set_len(&file, u32::MAX as u64).unwrap_err().kind(),
+                ErrorKind::NoSpace
+            );
+            fs.seek(&file, SeekFrom::Start(u32::MAX as u64)).unwrap();
+            assert_eq!(
+                fs.write(&file, &[1]).unwrap_err().kind(),
+                ErrorKind::FileTooLarge
+            );
+            fs.close(file).unwrap();
+            let bytes = fs.unmount().unwrap().into_inner();
+            common::assert_checks_clean(
+                case,
+                &bytes,
+                &format!("sector {sector} cluster {cluster}"),
+            );
+            let mut hosted = common::mount(case, &bytes);
+            assert_eq!(common::read(&mut hosted, "/BOUND.BIN"), expected);
+        }
+    }
+}
+
+#[test]
 fn remove_dir_all_empties_a_tree() {
     let case = CASES[2];
     let mut mount_token_0 = MountToken::new();
@@ -634,6 +719,53 @@ mod cancel {
             common::fsck(&bytes, case.name);
         }
     }
+
+    #[test]
+    fn single_cluster_append_recovers_at_every_await() {
+        for case in CASES[..3].iter().copied() {
+            let blank = common::blank(case);
+            let cluster = hadris_fat_raw::parse_boot(blank[..512].try_into().unwrap())
+                .unwrap()
+                .cluster_size() as usize;
+            let mut token = MountToken::new();
+            let mut fs = mount(&mut token, case, blank);
+            let root = fs.root();
+            write_file(&mut fs, root, "LOG.BIN", &vec![7; cluster]);
+            let before = fs.unmount().unwrap().into_inner();
+            for budget in 0..100 {
+                let mut token = MountToken::new();
+                let mut fs: Vol = block_on(AsyncFat::mount(
+                    Yielding(common::device(case, before.clone())),
+                    &mut token,
+                ))
+                .unwrap();
+                let file =
+                    block_on(fs.open(fs.root(), "LOG.BIN", OpenOptions::new().write().append()))
+                        .unwrap();
+                let result = run_for(fs.write(&file, &[9]), budget);
+                block_on(fs.sync()).unwrap();
+                block_on(fs.close(file)).unwrap();
+                let image = block_on(fs.unmount()).unwrap().0.into_inner();
+                common::assert_checks_clean(
+                    case,
+                    &image,
+                    &format!("{} append budget {budget}", case.name),
+                );
+                let mut token = MountToken::new();
+                let mut fs = mount(&mut token, case, image);
+                let root = fs.root();
+                let data = read_file(&mut fs, root, "LOG.BIN");
+                assert_eq!(&data[..cluster], &vec![7; cluster]);
+                assert_eq!(data.len(), cluster + usize::from(result.is_some()));
+                if let Some(result) = result {
+                    assert_eq!(result.unwrap(), 1);
+                    assert_eq!(data[cluster], 9);
+                    break;
+                }
+                assert!(budget < 99, "append never completed");
+            }
+        }
+    }
 }
 
 #[test]
@@ -815,6 +947,56 @@ mod interrupted {
                         break;
                     }
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn single_cluster_append_recovers_after_each_failed_write() {
+        for case in CASES[..3].iter().copied() {
+            let blank = common::blank(case);
+            let cluster = hadris_fat_raw::parse_boot(blank[..512].try_into().unwrap())
+                .unwrap()
+                .cluster_size() as usize;
+            let mut token = MountToken::new();
+            let mut fs = mount(&mut token, case, blank);
+            let root = fs.root();
+            write_file(&mut fs, root, "LOG.BIN", &vec![7; cluster]);
+            let before = fs.unmount().unwrap().into_inner();
+            for budget in 0..10 {
+                let left = Rc::new(Cell::new(usize::MAX));
+                let dev = Faulty {
+                    inner: common::device(case, before.clone()),
+                    budget: left.clone(),
+                };
+                let mut token = MountToken::new();
+                let mut fs: Fat<Faulty> = Fat::mount(dev, &mut token).unwrap();
+                let file = fs
+                    .open(fs.root(), "LOG.BIN", OpenOptions::new().write().append())
+                    .unwrap();
+                left.set(budget);
+                let result = fs.write(&file, &[9]);
+                left.set(usize::MAX);
+                fs.sync().unwrap();
+                fs.close(file).unwrap();
+                let image = fs.unmount().unwrap().inner.into_inner();
+                assert_eq!(
+                    findings(case, &image),
+                    [],
+                    "{} append budget {budget}",
+                    case.name
+                );
+                let mut token = MountToken::new();
+                let mut fs = mount(&mut token, case, image);
+                let root = fs.root();
+                let data = read_file(&mut fs, root, "LOG.BIN");
+                assert_eq!(&data[..cluster], &vec![7; cluster]);
+                assert_eq!(data.len(), cluster + usize::from(result.is_ok()));
+                if result.is_ok() {
+                    assert_eq!(data[cluster], 9);
+                    break;
+                }
+                assert!(budget < 9, "append never completed");
             }
         }
     }

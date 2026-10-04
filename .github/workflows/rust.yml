@@ -211,6 +211,9 @@ jobs:
           cargo test -p hadris-fat-raw --features "sync,async" --tests
       - name: Run FAT future-size budgets without tracing
         run: cargo test -p hadris-fat --features async --test fatfs_async --test embedded --test embedded_exfat stay_small
+      - name: Run FAT performance harness smoke check
+        if: runner.os == 'Linux'
+        run: cargo bench -p hadris-fat --bench performance -- --smoke
       - name: Run detection and opening integration tests
         run: cargo test -p hadris --all-features --test detect
       - name: Run CPIO async writer integration test

@@ -124,6 +124,15 @@ required-features = ["std", "sync", "async", "write"]
 name = "embedded_exfat"
 required-features = ["std", "sync", "async", "write"]
 
+[[bench]]
+name = "performance"
+harness = false
+required-features = ["std", "sync", "write"]
+
 [[test]]
 name = "tracing"
 required-features = ["tracing", "sync", "async", "write"]
+
+[[test]]
+name = "performance_counters"
+required-features = ["std", "sync", "write"]

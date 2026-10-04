@@ -10,6 +10,13 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- A dependency-free FAT performance harness covering hosted and embedded
+  FAT12/16/32 drivers, with device I/O counts, write amplification, repeatable
+  timing samples, CSV write-region attribution and host driver-state sizes.
+- **hadris-fat-raw:** Added `io::{sync, r#async, local}::allocate_after` with
+  caller-owned recovery state for single-cluster chain extension.
+- **hadris-fat-raw:** Added `Geometry::cluster_shift()` for the validated
+  cluster-size exponent, available without I/O mode features or an allocator.
 - **hadris-fat, hadris:** An opt-in `tracing` feature requiring `std`, with
   function spans for FAT/exFAT operations and FAT allocation/write paths in
   sync and async modes. Default and embedded no-allocator builds omit tracing.
@@ -45,6 +52,18 @@ Each published package owns its version and may be released independently.
   using the same bounded continuation traversal as file reads and extent mapping.
 - Select the hosted CI toolchain explicitly so the repository MSRV toolchain
   file does not override the newer Clippy configuration.
+
+### Changed
+
+- **hadris-fat, hadris-fat-raw:** Embedded file addressing, cluster rounding,
+  directory indexing and FAT-copy selection use bounded shifts, masks and
+  toggles; allocation scans avoid modulo for wraparound. The cluster shift
+  is computed during boot parsing. Device I/O and recovery ordering are
+  preserved, with smaller measured firmware on all CI targets.
+- **hadris-fat:** Embedded FAT16/32 single-cluster file growth combines
+  allocation and the tail link when their entries share a device block in
+  every written FAT copy, reducing metadata reads and writes without extra
+  driver state. FAT12 and cross-block links retain the separate-write path.
 
 ## [3.0.0-rc.1] - Unreleased
 

@@ -344,30 +344,31 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         if !state.has(FLAG_READ) {
             return Err(ErrorKind::InvalidInput.into());
         }
-        let (pos, size) = (state.pos as u64, state.size as u64);
+        let (pos, size) = (state.pos, state.size);
         if pos >= size || buf.is_empty() {
             return Ok(0);
         }
-        let count = (size - pos).min(buf.len() as u64) as usize;
-        let cluster_size = self.fat.geometry().cluster_size() as u64;
+        let count = ((size - pos) as u64).min(buf.len() as u64) as usize;
+        let cluster_size = self.fat.geometry().cluster_size();
+        let shift = self.fat.geometry().cluster_shift();
         let mut hint = state.at;
         let mut done = 0;
         while done < count {
-            let at = pos + done as u64;
-            let want = (at / cluster_size) as u32;
+            let at = pos + done as u32;
+            let want = at >> shift;
             hint = rawio::walk(&mut self.dev, &mut self.block, &self.fat, state.first, hint, want).await?;
             if hint.index() < want {
                 return Err(ErrorKind::Corrupt.into());
             }
-            let within = at % cluster_size;
-            let offset = self.fat.cluster_at(hint.cluster())? + within;
+            let within = at & (cluster_size - 1);
+            let offset = self.fat.cluster_at(hint.cluster())? + within as u64;
             let n = ((cluster_size - within) as usize).min(count - done);
             let n = rawio::run(&mut self.dev, &mut self.block, &self.fat, &mut hint, n, count - done).await?;
             rawio::read_bytes(&mut self.dev, &mut self.block, offset, &mut buf[done..done + n]).await?;
             done += n;
         }
         let slot = &mut self.files[index];
-        slot.pos = (pos + count as u64) as u32;
+        slot.pos = pos + count as u32;
         slot.at = hint;
         Ok(count)
     }
@@ -914,6 +915,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
 
     /// Changes the size of the file in slot `index` to `len`.
     async fn resize(&mut self, index: usize, len: u64) -> FsResult<(), D::Error> {
+        debug_assert!(len <= MAX_FILE_SIZE);
         let state = self.files[index];
         let old = state.size as u64;
         if len > old {
@@ -922,7 +924,9 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         if len == old {
             return Ok(());
         }
-        let keep = len.div_ceil(self.fat.geometry().cluster_size() as u64) as u32;
+        let cluster_size = self.fat.geometry().cluster_size();
+        let bytes = len as u32;
+        let keep = (bytes >> self.fat.geometry().cluster_shift()) + u32::from(bytes & (cluster_size - 1) != 0);
         let first = if keep == 0 { 0 } else { state.first };
         if keep == 0 && state.first != 0 {
             self.pending = Pending::chain(state.first, Owner::Entry(state.entry));
@@ -967,7 +971,10 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// Returns the first cluster and a position for writing.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all, fields(end = end)))]
     async fn cover(&mut self, state: &FileSlot, end: u64) -> FsResult<(u32, ChainPos), D::Error> {
-        let need = end.div_ceil(self.fat.geometry().cluster_size() as u64) as u32;
+        debug_assert!(end <= MAX_FILE_SIZE);
+        let cluster_size = self.fat.geometry().cluster_size();
+        let bytes = end as u32;
+        let need = (bytes >> self.fat.geometry().cluster_shift()) + u32::from(bytes & (cluster_size - 1) != 0);
         if need == 0 {
             return Ok((state.first, state.at));
         }
@@ -993,10 +1000,19 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         }
         let tail = reached.cluster();
         self.pending = Pending::chain(0, Owner::Tail(tail));
-        let added = self.allocate(need - 1 - reached.index()).await?;
-        if let Err(err) = self.set_fat(tail, added).await {
-            let _ = self.recover().await;
-            return Err(err);
+        let count = need - 1 - reached.index();
+        if count == 1 {
+            let result = rawio::allocate_after(&mut self.dev, &mut self.block, &mut self.fat, &mut self.pending.held, tail).await;
+            if let Err(err) = self.note(result) {
+                let _ = self.recover().await;
+                return Err(err);
+            }
+        } else {
+            let added = self.allocate(count).await?;
+            if let Err(err) = self.set_fat(tail, added).await {
+                let _ = self.recover().await;
+                return Err(err);
+            }
         }
         Ok((state.first, reached))
     }
@@ -1056,18 +1072,19 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         if len == 0 {
             return Ok(hint);
         }
-        let cluster_size = self.fat.geometry().cluster_size() as u64;
+        let cluster_size = self.fat.geometry().cluster_size();
+        let shift = self.fat.geometry().cluster_shift();
         let mut hint = hint;
         let mut done = 0;
         while done < len {
-            let at = pos + done as u64;
-            let want = (at / cluster_size) as u32;
+            let at = (pos + done as u64) as u32;
+            let want = at >> shift;
             hint = rawio::walk(&mut self.dev, &mut self.block, &self.fat, first, hint, want).await?;
             if hint.index() < want {
                 return Err(ErrorKind::Corrupt.into());
             }
-            let within = at % cluster_size;
-            let offset = self.fat.cluster_at(hint.cluster())? + within;
+            let within = at & (cluster_size - 1);
+            let offset = self.fat.cluster_at(hint.cluster())? + within as u64;
             let n = ((cluster_size - within) as usize).min(len - done);
             let n = rawio::run(&mut self.dev, &mut self.block, &self.fat, &mut hint, n, len - done).await?;
             let result = match data {
@@ -1206,7 +1223,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
                         return Err(ErrorKind::NoSpace.into());
                     }
                     let per_cluster = self.fat.geometry().cluster_size() / ENTRY_SIZE as u32;
-                    (start, (needed - run_len).div_ceil(per_cluster), walk.pos().cluster())
+                    (start, (needed - run_len + per_cluster - 1) >> (self.fat.geometry().cluster_shift() - ENTRY_SIZE.trailing_zeros()), walk.pos().cluster())
                 }
             };
             let short = if new.lossless && taken & 1 == 0 {
