@@ -8,6 +8,27 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- Hosted exFAT appends reuse guarded chain positions when finding the tail,
+  avoiding repeated traversal of the full existing allocation.
+
+- Hosted exFAT contiguous reads size NoFatChain runs directly while checking
+  their final cluster against the allocation heap.
+
+- Embedded exFAT reads coalesce adjacent allocation clusters into device reads,
+  preserving initialized-data boundaries and guarded fragmented-chain traversal.
+
+- FAT adds opt-in bounded directory-prefix indexing through
+  `CacheOptions::with_directory_entries`, avoiding repeated parsing and traversal
+  during lookups while retaining short aliases and mutation recovery.
+
+- FAT12 batches packed allocation entries and same-block append tail updates,
+  preserving neighboring nibbles and split-entry recovery while reducing FAT
+  traffic. Multi-cluster requests preflight free space before modifying the FAT.
+
+- Interrupted FAT12 entries spanning device blocks are completed in the active
+  FAT before mirroring or reclaiming chains, preserving unrelated files and
+  exactly-once free-cluster accounting.
+
 - FAT indexed reads reuse a current-cluster hint immediately and precompute
   checkpoint buckets to reduce forward-read cache bookkeeping.
 
@@ -87,6 +108,21 @@ Each published package owns its version and may be released independently.
   list, name path-table locations and move boot catalog buffers into the plan.
 
 ### Fixed
+
+- FAT embedded rename installs the successor directory end marker before
+  inserting the destination, keeping stale trailing records hidden even when
+  read-only lookups follow cancellation before recovery.
+
+- FAT node-driver rename recovery completes a published destination before
+  reclaiming the replaced target, or restores the original target when
+  publication was interrupted. Pending state survives cancelled recovery,
+  preserves pinned nodes and directory parents, and keeps stale entries after
+  the directory end marker hidden.
+
+- FAT embedded rename recovery completes a published move or rolls back an
+  incomplete destination while the driver remains alive. Recovery survives
+  repeated cancellation and write failures, preserves open files and directory
+  parents, and keeps stale entries after the directory end marker hidden.
 
 - Reject malformed ISO Rock Ridge metadata, unfinished SUSP continuation
   chains, invalid continuation pointers and directory records crossing their

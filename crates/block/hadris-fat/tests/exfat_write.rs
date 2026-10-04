@@ -1724,3 +1724,108 @@ fn overwrite_error_can_leave_partial_data() {
     }
     assert!(saw_partial);
 }
+
+#[test]
+fn hinted_append_recovers_at_every_failed_write() {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    struct FailOnce {
+        inner: Device,
+        budget: Rc<Cell<Option<usize>>>,
+    }
+    impl hadris_io::ErrorType for FailOnce {
+        type Error = core::convert::Infallible;
+    }
+    impl BlockDevice for FailOnce {
+        fn block_size(&self) -> BlockSize {
+            self.inner.block_size()
+        }
+        fn block_count(&self) -> u64 {
+            self.inner.block_count()
+        }
+        fn writable(&self) -> bool {
+            true
+        }
+        fn read_blocks(
+            &mut self,
+            at: BlockIndex,
+            buf: &mut [u8],
+        ) -> Result<(), Error<Self::Error>> {
+            self.inner.read_blocks(at, buf)
+        }
+        fn write_blocks(&mut self, at: BlockIndex, buf: &[u8]) -> Result<(), Error<Self::Error>> {
+            match self.budget.get() {
+                Some(0) => {
+                    self.budget.set(None);
+                    return Err(Error::new(ErrorKind::Io, "injected write failure"));
+                }
+                Some(left) => self.budget.set(Some(left - 1)),
+                None => {}
+            }
+            self.inner.write_blocks(at, buf)
+        }
+        fn flush(&mut self) -> Result<(), Error<Self::Error>> {
+            Ok(())
+        }
+    }
+    for cluster in [512, 4096] {
+        let original = common::payload(131_072, 9);
+        let mut fs = common::small(4 << 20, cluster);
+        let root = fs.root();
+        common::write(&mut fs, root, "hint.bin", &original);
+        fs.sync().unwrap();
+        let base = common::image(fs);
+        for contiguous in [false, true] {
+            let mut image = base.clone();
+            if contiguous {
+                let geo = Geometry::of(&image);
+                let set = geo.set(&image, geo.root, "hint.bin");
+                geo.unchain(&mut image, &set);
+            }
+            let mut completed = false;
+            for writes in 0..300 {
+                let budget = Rc::new(Cell::new(None));
+                let mut fs = ExFatFs::mount(
+                    FailOnce {
+                        inner: common::device(image.clone(), 512),
+                        budget: budget.clone(),
+                    },
+                    MountOptions::new(),
+                )
+                .unwrap();
+                let node = fs.lookup(fs.root(), name("hint.bin")).unwrap();
+                fs.read(node, original.len() as u64 - 1, &mut [0]).unwrap();
+                budget.set(Some(writes));
+                let result = fs.write(node, original.len() as u64 + 33, &[0x77; 4096]);
+                budget.set(None);
+                fs.sync().unwrap();
+                let finished = result.is_ok();
+                if let Err(error) = result {
+                    assert_eq!(error.kind(), ErrorKind::Io);
+                }
+                let mut dev = fs.into_inner().inner;
+                assert!(
+                    common::check_dev(&mut dev, 4096).1.is_empty(),
+                    "{cluster} {contiguous} {writes}"
+                );
+                let actual = common::read(&mut common::mount(&dev.into_inner()), "hint.bin");
+                assert_eq!(&actual[..original.len()], &original);
+                if finished {
+                    assert_eq!(actual.len(), original.len() + 33 + 4096);
+                    assert!(
+                        actual[original.len()..original.len() + 33]
+                            .iter()
+                            .all(|&b| b == 0)
+                    );
+                    assert!(actual[original.len() + 33..].iter().all(|&b| b == 0x77));
+                    completed = true;
+                    break;
+                } else {
+                    assert_eq!(actual, original);
+                }
+            }
+            assert!(completed);
+        }
+    }
+}

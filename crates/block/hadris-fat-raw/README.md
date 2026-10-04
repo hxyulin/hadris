@@ -58,7 +58,10 @@ allocator:
   interrupted one
 - `allocate_after` extends a chain by one cluster; `allocate_run_after` extends
   it by several. They combine allocation and the tail link into one write per
-  FAT copy on FAT16/32 when the entries share a device block. The caller keeps
+  FAT copy when the complete entries share a device block. FAT12 batches
+  packed entries while preserving neighboring nibbles; split entries use
+  separate transfers and retain their intended value for interrupted recovery.
+  The caller keeps
   the `Held` state and follows each function's recovery contract after failure
   or cancellation
 - `slot_offset` with a `DirWalk` that keeps its chain position,

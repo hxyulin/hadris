@@ -2677,15 +2677,10 @@ fn single_cluster_append_recovers_after_each_failed_write() {
 
 #[test]
 fn multi_cluster_append_recovers_after_each_failed_write() {
-    for case in [CASES[0], CASES[1], CASES[2], CASES[4]] {
+    for (case, clusters) in common::growth_cases() {
         let blank = common::blank(case);
         let geo = hadris_fat_raw::parse_boot(blank[..512].try_into().unwrap()).unwrap();
         let cluster = geo.cluster_size() as usize;
-        let clusters = if case.kind == hadris_fat::FatKind::Fat12 {
-            3
-        } else {
-            case.block as usize / case.kind.entry_len() - 5
-        };
         let old = vec![7; clusters * cluster];
         let new = vec![9; 16 * cluster];
         let mut fs = open(case, blank);
@@ -2743,4 +2738,183 @@ fn multi_cluster_append_recovers_after_each_failed_write() {
             );
         }
     }
+}
+
+#[test]
+fn nonempty_rename_recovers_after_each_failed_write() {
+    for case in CASES {
+        for (replace, directory) in [(false, false), (true, false), (false, true), (true, true)] {
+            let mut original = common::formatted(case, hadris_fat::FatOptions::new());
+            let root = original.root();
+            let from = original.mkdir(root, name("FROM"), &SetAttr::new()).unwrap();
+            let to = original.mkdir(root, name("TO"), &SetAttr::new()).unwrap();
+            let source = if directory {
+                original
+                    .mkdir(from, name("source long name.txt"), &SetAttr::new())
+                    .unwrap()
+            } else {
+                original
+                    .create(from, name("source long name.txt"), &SetAttr::new())
+                    .unwrap()
+            };
+            let file = if directory {
+                original
+                    .create(source, name("DATA.BIN"), &SetAttr::new())
+                    .unwrap()
+            } else {
+                source
+            };
+            original.write(file, 0, &[7; 2700]).unwrap();
+            original.close(file).unwrap();
+            if replace {
+                if directory {
+                    original
+                        .mkdir(to, name("destination long name.txt"), &SetAttr::new())
+                        .unwrap();
+                } else {
+                    let target = original
+                        .create(to, name("destination long name.txt"), &SetAttr::new())
+                        .unwrap();
+                    original.write(target, 0, &[9; 1800]).unwrap();
+                    original.close(target).unwrap();
+                }
+            }
+            let image = original.unmount().unwrap().into_inner();
+            let mut completed = false;
+            for budget in 0..100 {
+                let mut fs = FatFs::mount(
+                    Faulty {
+                        inner: common::device(case, image.clone()),
+                        budget: Some(budget),
+                        refuse: false,
+                        once: true,
+                    },
+                    MountOptions::new(),
+                )
+                .unwrap()
+                .with_cache(hadris_fat::CacheOptions::new());
+                let root = fs.root();
+                let from = fs.lookup(root, name("FROM")).unwrap();
+                let to = fs.lookup(root, name("TO")).unwrap();
+                let source = fs.lookup(from, name("source long name.txt")).unwrap();
+                let target =
+                    replace.then(|| fs.lookup(to, name("destination long name.txt")).unwrap());
+                let result = fs.rename(
+                    from,
+                    name("source long name.txt"),
+                    to,
+                    name("destination long name.txt"),
+                    RenameMode::Replace,
+                );
+                if let Err(err) = &result {
+                    assert_eq!(err.kind(), ErrorKind::Io);
+                }
+                if let Err(err) = fs.sync() {
+                    assert_eq!(err.kind(), ErrorKind::Io);
+                    fs.sync().unwrap();
+                }
+                let old = fs.lookup(from, name("source long name.txt"));
+                let committed = old.is_err();
+                if committed {
+                    assert_eq!(
+                        fs.lookup(to, name("destination long name.txt")).unwrap(),
+                        source
+                    );
+                    if let Some(target) = target {
+                        assert_eq!(fs.stat(target).unwrap_err().kind(), ErrorKind::NotFound);
+                    }
+                } else {
+                    assert_eq!(old.unwrap(), source);
+                }
+                let file = if directory {
+                    assert_eq!(
+                        fs.parent(source).unwrap(),
+                        if committed { to } else { from }
+                    );
+                    fs.lookup(source, name("DATA.BIN")).unwrap()
+                } else {
+                    source
+                };
+                let mut data = vec![0; 2700];
+                fs.read(file, 0, &mut data).unwrap();
+                assert_eq!(data, vec![7; 2700]);
+                if !committed && replace && !directory {
+                    let mut data = vec![0; 1800];
+                    fs.read(target.unwrap(), 0, &mut data).unwrap();
+                    assert_eq!(data, vec![9; 1800]);
+                }
+                let image = fs.unmount().unwrap().inner.into_inner();
+                common::assert_checks_clean(
+                    case,
+                    &image,
+                    &format!("rename failed write {budget}, replace {replace}, dir {directory}"),
+                );
+                if result.is_ok() {
+                    completed = true;
+                    break;
+                }
+            }
+            assert!(completed);
+        }
+    }
+}
+
+#[test]
+fn committed_replacement_survives_repeated_source_cleanup_failures() {
+    let case = CASES[2];
+    let mut original = common::formatted(case, hadris_fat::FatOptions::new());
+    let root = original.root();
+    let from = original.mkdir(root, name("FROM"), &SetAttr::new()).unwrap();
+    let to = original.mkdir(root, name("TO"), &SetAttr::new()).unwrap();
+    let mut extents = [hadris_fs::Extent::new(0, 0)];
+    original.extents(from, 0, &mut extents).unwrap();
+    let source_block = extents[0].offset();
+    let source = original
+        .create(from, name("source long name.txt"), &SetAttr::new())
+        .unwrap();
+    original.write(source, 0, &[7; 2700]).unwrap();
+    let target = original
+        .create(to, name("target long name.txt"), &SetAttr::new())
+        .unwrap();
+    original.write(target, 0, &[9; 1800]).unwrap();
+    let image = original.unmount().unwrap().into_inner();
+    let (dev, script) = Scripted::new(common::device(case, image));
+    let mut fs = FatFs::mount(dev, MountOptions::new())
+        .unwrap()
+        .with_cache(hadris_fat::CacheOptions::new());
+    let root = fs.root();
+    let from = fs.lookup(root, name("FROM")).unwrap();
+    let to = fs.lookup(root, name("TO")).unwrap();
+    let source = fs.lookup(from, name("source long name.txt")).unwrap();
+    script.borrow_mut().fail_at = Some(source_block);
+    script.borrow_mut().fail_more = 10;
+    assert_eq!(
+        fs.rename(
+            from,
+            name("source long name.txt"),
+            to,
+            name("target long name.txt"),
+            RenameMode::Replace
+        )
+        .unwrap_err()
+        .kind(),
+        ErrorKind::Io
+    );
+    for _ in 0..3 {
+        assert_eq!(fs.sync().unwrap_err().kind(), ErrorKind::Io);
+    }
+    script.borrow_mut().fail_at = None;
+    fs.sync().unwrap();
+    assert_eq!(fs.lookup(to, name("target long name.txt")).unwrap(), source);
+    assert_eq!(
+        fs.lookup(from, name("source long name.txt"))
+            .unwrap_err()
+            .kind(),
+        ErrorKind::NotFound
+    );
+    let mut data = vec![0; 2700];
+    fs.read(source, 0, &mut data).unwrap();
+    assert_eq!(data, vec![7; 2700]);
+    let image = fs.unmount().unwrap().into_image();
+    common::assert_checks_clean(case, &image, "repeated replacement cleanup failures");
 }

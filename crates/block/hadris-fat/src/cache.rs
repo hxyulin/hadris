@@ -10,20 +10,31 @@ use hadris_fs::NodeId;
 pub struct CacheOptions {
     pub(crate) positions: usize,
     pub(crate) blocks: usize,
+    pub(crate) directory_entries: usize,
 }
 
 impl CacheOptions {
     /// Keeps up to 32 chain positions and eight metadata device blocks.
+    /// Directory indexing remains disabled until explicitly configured.
     pub const fn new() -> Self {
         Self {
             positions: 32,
             blocks: 8,
+            directory_entries: 0,
         }
     }
 
     /// Sets the total chain-position bound; zero disables indexing.
     pub const fn with_chain_positions(mut self, capacity: usize) -> Self {
         self.positions = capacity;
+        self
+    }
+    /// Caches up to `capacity` parsed entries in one directory's prefix.
+    /// Entries are learned during lookups, without an upfront directory scan.
+    /// Switching directories replaces the prefix; overflow falls back to scanning
+    /// beyond it. Zero (the default) disables directory indexing.
+    pub const fn with_directory_entries(mut self, capacity: usize) -> Self {
+        self.directory_entries = capacity;
         self
     }
     /// Sets the metadata-block bound; zero disables block caching.

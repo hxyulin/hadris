@@ -439,3 +439,198 @@ fn mount_identity_survives_moves_and_ignores_disk_serials() {
     assert_eq!(remounted.read(&file, &mut buf).unwrap(), 11);
     remounted.close(file).unwrap();
 }
+
+#[path = "../benches/support/mod.rs"]
+#[allow(dead_code)]
+mod performance_support;
+
+#[test]
+fn coalesces_runs_without_reading_uninitialized_data_or_crossing_fragments() {
+    use performance_support::{Counted, IoCounts};
+    use std::cell::Cell;
+
+    for cluster in [512, 4096] {
+        let data = (0..131_123)
+            .map(|i: u32| ((i.wrapping_mul(0x9e37_79b9)) >> 17) as u8)
+            .collect::<Vec<_>>();
+        let mut fs = common::small(4 << 20, cluster);
+        let root = fs.root();
+        common::write(&mut fs, root, "runs.bin", &data);
+        fs.sync().unwrap();
+        let original = common::image(fs);
+        for allocation in ["chained", "contiguous", "fragmented"] {
+            let mut image = original.clone();
+            let geo = Geometry::of(&image);
+            let set = geo.set(&image, geo.root, "runs.bin");
+            let first = common::le32(&image, set[1] + 20);
+            if allocation == "contiguous" {
+                geo.unchain(&mut image, &set);
+            } else if allocation == "fragmented" {
+                let count = geo.chain(&image, first).len();
+                for index in (1..count).step_by(2) {
+                    geo.relocate(&mut image, first, index, geo.count + 1 - index as u32);
+                }
+            }
+            let valid = 65_537usize;
+            image[set[1] + 8..set[1] + 16].copy_from_slice(&(valid as u64).to_le_bytes());
+            geo.reseal(&mut image, &set);
+            let counts = Cell::new(IoCounts::default());
+            let dev = Counted {
+                inner: common::device(image, 512),
+                counts: &counts,
+                written_blocks: None,
+            };
+            let mut token = MountToken::new();
+            let mut fat: ExFat<_> = ExFat::mount(dev, &mut token).unwrap();
+            let file = fat
+                .open(fat.root(), "runs.bin", OpenOptions::new().read())
+                .unwrap();
+            counts.set(IoCounts::default());
+            let mut out = vec![0xcc; data.len() + 17];
+            assert_eq!(fat.read(&file, &mut out).unwrap(), data.len());
+            assert_eq!(&out[..valid], &data[..valid]);
+            assert!(out[valid..data.len()].iter().all(|&byte| byte == 0));
+            assert!(out[data.len()..].iter().all(|&byte| byte == 0xcc));
+            let calls = counts.get().read_calls;
+            if allocation != "fragmented" {
+                assert!(calls < 10, "{cluster} {allocation}: {calls}");
+            }
+            for offset in [513, 32_769, 65_535, 65_537, 100_000] {
+                fat.seek(&file, SeekFrom::Start(offset as u64)).unwrap();
+                let mut out = [0xcc; 8193];
+                assert_eq!(fat.read(&file, &mut out).unwrap(), out.len());
+                for (i, &byte) in out.iter().enumerate() {
+                    assert_eq!(
+                        byte,
+                        if offset + i < valid {
+                            data[offset + i]
+                        } else {
+                            0
+                        }
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn coalesced_reads_reject_cycles_and_contiguous_heap_overflow() {
+    let mut fs = common::small(4 << 20, 512);
+    let root = fs.root();
+    common::write(&mut fs, root, "bad.bin", &[0x55; 65536]);
+    fs.sync().unwrap();
+    let original = common::image(fs);
+    for contiguous in [false, true] {
+        let mut image = original.clone();
+        let geo = Geometry::of(&image);
+        let set = geo.set(&image, geo.root, "bad.bin");
+        let first = common::le32(&image, set[1] + 20);
+        if contiguous {
+            geo.unchain(&mut image, &set);
+            common::put32(&mut image, set[1] + 20, geo.count + 1);
+            geo.reseal(&mut image, &set);
+        } else {
+            geo.set_fat(&mut image, first + 1, first);
+        }
+        let mut token = MountToken::new();
+        let mut fat = mount(&mut token, &image);
+        let file = fat
+            .open(fat.root(), "bad.bin", OpenOptions::new().read())
+            .unwrap();
+        assert_eq!(
+            fat.read(&file, &mut [0; 65536]).unwrap_err().kind(),
+            ErrorKind::Corrupt
+        );
+    }
+}
+
+#[path = "common/cancel.rs"]
+mod cancellation;
+
+#[test]
+fn cancelling_coalesced_reads_preserves_the_file_position() {
+    use hadris_fat::exfat::embedded::r#async::ExFat as AsyncFat;
+    for contiguous in [false, true] {
+        let data = common::payload(65_537, 11);
+        let mut fs = common::small(4 << 20, 512);
+        let root = fs.root();
+        common::write(&mut fs, root, "runs.bin", &data);
+        fs.sync().unwrap();
+        let mut image = common::image(fs);
+        if contiguous {
+            let geo = Geometry::of(&image);
+            let set = geo.set(&image, geo.root, "runs.bin");
+            geo.unchain(&mut image, &set);
+        }
+        let mut completed = false;
+        for polls in 0..40 {
+            let mut token = MountToken::new();
+            let dev = cancellation::YieldDev(common::device(image.clone(), 512));
+            let mut fat: AsyncFat<_> = block_on(AsyncFat::mount(dev, &mut token)).unwrap();
+            let file =
+                block_on(fat.open(fat.root(), "runs.bin", OpenOptions::new().read())).unwrap();
+            let mut out = vec![0; data.len()];
+            if let Some(result) = cancellation::run_for(fat.read(&file, &mut out), polls) {
+                assert_eq!(result.unwrap(), data.len());
+                assert_eq!(out, data);
+                completed = true;
+                break;
+            }
+            out.fill(0);
+            assert_eq!(block_on(fat.read(&file, &mut out)).unwrap(), data.len());
+            assert_eq!(out, data);
+        }
+        assert!(completed);
+    }
+}
+
+impl hadris_storage::local::BlockDevice for cancellation::YieldDev {
+    fn block_size(&self) -> BlockSize {
+        hadris_storage::r#async::BlockDevice::block_size(self)
+    }
+    fn block_count(&self) -> u64 {
+        hadris_storage::r#async::BlockDevice::block_count(self)
+    }
+    async fn read_blocks(
+        &mut self,
+        at: hadris_storage::BlockIndex,
+        buf: &mut [u8],
+    ) -> Result<(), hadris_io::Error<Self::Error>> {
+        hadris_storage::r#async::BlockDevice::read_blocks(self, at, buf).await
+    }
+}
+
+#[test]
+fn hosted_append_uses_a_guarded_tail_hint_without_rescanning() {
+    use performance_support::{Counted, IoCounts};
+    use std::cell::Cell;
+
+    let mut fs = common::small(8 << 20, 512);
+    let root = fs.root();
+    common::write(&mut fs, root, "hint.bin", &vec![0x42; 1 << 20]);
+    fs.sync().unwrap();
+    let image = common::image(fs);
+    let counts = Cell::new(IoCounts::default());
+    let dev = Counted {
+        inner: common::device(image, 512),
+        counts: &counts,
+        written_blocks: None,
+    };
+    let mut fs =
+        hadris_fat::exfat::sync::ExFatFs::mount(dev, hadris_fs::MountOptions::new()).unwrap();
+    let node = fs
+        .lookup(fs.root(), hadris_fs::Name::new("hint.bin"))
+        .unwrap();
+    fs.read(node, (1 << 20) - 1, &mut [0]).unwrap();
+    counts.set(IoCounts::default());
+    fs.write(node, 1 << 20, &[0x55; 512]).unwrap();
+    assert_eq!(counts.get().read_calls, 9, "{:?}", counts.get());
+    assert_eq!(counts.get().write_calls, 5, "{:?}", counts.get());
+    fs.truncate(node, 513).unwrap();
+    fs.write(node, 513, &[0x66; 1024]).unwrap();
+    let mut data = vec![0; 1537];
+    fs.read(node, 0, &mut data).unwrap();
+    assert_eq!(&data[..513], &[0x42; 513]);
+    assert_eq!(&data[513..], &[0x66; 1024]);
+}

@@ -403,3 +403,47 @@ fn cyclic_chains_are_corrupt_instead_of_repeating() {
         Err(ErrorKind::Corrupt)
     );
 }
+
+#[test]
+fn contiguous_runs_respect_valid_data_and_heap_bounds() {
+    for cluster in [512, 4096] {
+        let data = common::payload(131_123, 23);
+        let mut fs = common::small(4 << 20, cluster);
+        let root = fs.root();
+        common::write(&mut fs, root, "runs.bin", &data);
+        fs.sync().unwrap();
+        let mut image = common::image(fs);
+        let geo = Geometry::of(&image);
+        let set = geo.set(&image, geo.root, "runs.bin");
+        geo.unchain(&mut image, &set);
+        let valid = 65_537usize;
+        image[set[1] + 8..set[1] + 16].copy_from_slice(&(valid as u64).to_le_bytes());
+        geo.reseal(&mut image, &set);
+        let mut fs = common::mount(&image);
+        let node = fs.resolve_path("runs.bin").unwrap();
+        for offset in [0, 513, 32_769, 65_535, 65_537, 100_000] {
+            let mut out = vec![0xcc; data.len()];
+            let n = fs.read(node, offset as u64, &mut out).unwrap();
+            assert_eq!(n, data.len() - offset);
+            for (i, &byte) in out[..n].iter().enumerate() {
+                assert_eq!(
+                    byte,
+                    if offset + i < valid {
+                        data[offset + i]
+                    } else {
+                        0
+                    }
+                );
+            }
+            assert!(out[n..].iter().all(|&byte| byte == 0xcc));
+        }
+        put32(&mut image, set[1] + 20, geo.count + 1);
+        geo.reseal(&mut image, &set);
+        let mut fs = common::mount(&image);
+        let node = fs.resolve_path("runs.bin").unwrap();
+        assert_eq!(
+            fs.read(node, 0, &mut [0; 65536]).unwrap_err().kind(),
+            ErrorKind::Corrupt
+        );
+    }
+}

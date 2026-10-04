@@ -38,7 +38,7 @@ defmt = { version = "1.0", optional = true }
 
 [dev-dependencies]
 hadris-io = { workspace = true }
-hadris-storage = { workspace = true, features = ["sync"] }
+hadris-storage = { workspace = true, features = ["sync", "alloc"] }
 
 [[test]]
 name = "io"
@@ -46,4 +46,8 @@ required-features = ["sync"]
 
 [[test]]
 name = "block_io"
+required-features = ["sync"]
+
+[[test]]
+name = "fat12_recovery"
 required-features = ["sync"]

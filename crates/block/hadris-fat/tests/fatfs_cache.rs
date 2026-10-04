@@ -344,3 +344,413 @@ fn metadata_cache_recovers_after_a_failed_mirror_write() {
         common::assert_checks_clean(case, &image, "failed cached mirror");
     }
 }
+
+fn directory_fixture(case: common::Case) -> (Vec<u8>, Vec<String>) {
+    let mut fs = FatFs::mount(
+        common::device(case, common::blank(case)),
+        MountOptions::new(),
+    )
+    .unwrap();
+    let names: Vec<_> = (0..48)
+        .map(|i| format!("Résumé supplementary 😀 long filename {i:03}.txt"))
+        .collect();
+    for (i, name) in names.iter().enumerate() {
+        let file = fs
+            .create(fs.root(), Name::new(name), &SetAttr::new())
+            .unwrap();
+        fs.write(file, 0, &[i as u8]).unwrap();
+        fs.close(file).unwrap();
+    }
+    (fs.unmount().unwrap().into_inner(), names)
+}
+
+#[test]
+fn directory_index_learns_prefix_and_bounds_overflow_without_changing_names() {
+    for case in CASES {
+        let (image, names) = directory_fixture(case);
+        let run = |capacity| {
+            let counts = Cell::new(IoCounts::default());
+            let dev = Counted {
+                inner: common::device(case, image.clone()),
+                counts: &counts,
+                written_blocks: None,
+            };
+            let mut fs = FatFs::mount(dev, MountOptions::new().read_only())
+                .unwrap()
+                .with_cache(
+                    CacheOptions::new()
+                        .with_chain_positions(0)
+                        .with_blocks(0)
+                        .with_directory_entries(capacity),
+                );
+            counts.set(IoCounts::default());
+            for (i, name) in names.iter().enumerate() {
+                let file = fs
+                    .lookup(fs.root(), Name::new(&name.to_lowercase()))
+                    .unwrap();
+                let mut byte = [0];
+                fs.read(file, 0, &mut byte).unwrap();
+                assert_eq!(byte, [i as u8]);
+                fs.close(file).unwrap();
+            }
+            let first_pass = counts.get().read_calls;
+            counts.set(IoCounts::default());
+            for name in names.iter().rev() {
+                let file = fs.lookup(fs.root(), Name::new(name)).unwrap();
+                fs.close(file).unwrap();
+            }
+            let repeated = counts.get().read_calls;
+            assert_eq!(
+                fs.lookup(fs.root(), Name::new("missing long name"))
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::NotFound
+            );
+            fs.clear_cache();
+            fs.lookup(fs.root(), Name::new(&names[0])).unwrap();
+            (first_pass, repeated)
+        };
+        let baseline = run(0);
+        let indexed = run(48);
+        assert!(
+            indexed.0 < baseline.0,
+            "{}: {indexed:?} {baseline:?}",
+            case.name
+        );
+        assert_eq!(indexed.1, 0, "{}", case.name);
+        for capacity in [1, 4] {
+            run(capacity);
+        }
+    }
+}
+
+#[test]
+fn directory_index_invalidates_mutations_and_preserves_dirty_pins() {
+    for case in CASES {
+        let mut fs = FatFs::mount(
+            common::device(case, common::blank(case)),
+            MountOptions::new(),
+        )
+        .unwrap()
+        .with_cache(CacheOptions::new().with_directory_entries(8));
+        let root = fs.root();
+        let a = fs
+            .create(root, Name::new("OLD.TXT"), &SetAttr::new())
+            .unwrap();
+        let dir = fs.mkdir(root, Name::new("DIR"), &SetAttr::new()).unwrap();
+        fs.lookup(root, Name::new("OLD.TXT")).unwrap();
+        fs.write(a, 0, &[7; 20]).unwrap();
+        assert_eq!(fs.lookup(root, Name::new("old.txt")).unwrap(), a);
+        fs.sync().unwrap();
+        fs.forget(a, 3);
+        let a = fs.lookup(root, Name::new("OLD.TXT")).unwrap();
+        assert_eq!(fs.stat(a).unwrap().len(), 20);
+        fs.rename(
+            root,
+            Name::new("OLD.TXT"),
+            dir,
+            Name::new("Moved long name.txt"),
+            RenameMode::NoReplace,
+        )
+        .unwrap();
+        assert_eq!(
+            fs.lookup(root, Name::new("OLD.TXT")).unwrap_err().kind(),
+            ErrorKind::NotFound
+        );
+        let moved = fs.lookup(dir, Name::new("moved long name.txt")).unwrap();
+        fs.unlink(dir, Name::new("Moved long name.txt")).unwrap();
+        assert_eq!(
+            fs.lookup(dir, Name::new("Moved long name.txt"))
+                .unwrap_err()
+                .kind(),
+            ErrorKind::NotFound
+        );
+        let replacement = fs
+            .create(dir, Name::new("REPLACED.TXT"), &SetAttr::new())
+            .unwrap();
+        fs.write(replacement, 0, &[9]).unwrap();
+        let replacement = fs.lookup(dir, Name::new("replaced.txt")).unwrap();
+        let mut byte = [0];
+        fs.read(replacement, 0, &mut byte).unwrap();
+        assert_eq!(byte, [9]);
+        fs.forget(moved, 1);
+        fs.sync().unwrap();
+        let image = fs.unmount().unwrap().into_inner();
+        common::assert_checks_clean(case, &image, "indexed directory mutation");
+    }
+}
+
+#[cfg(feature = "async")]
+#[test]
+fn directory_prefix_survives_lookup_cancellation_at_every_await() {
+    use hadris_fat::r#async::FatFs;
+    use hadris_fs::r#async::FileSystem;
+    let case = CASES[2];
+    let (image, names) = directory_fixture(case);
+    for budget in 0..200 {
+        let mut fs = cancel::run_for(
+            FatFs::mount(
+                cancel::YieldDev(common::device(case, image.clone())),
+                MountOptions::new().read_only(),
+            ),
+            usize::MAX,
+        )
+        .unwrap()
+        .unwrap()
+        .with_cache(
+            CacheOptions::new()
+                .with_blocks(0)
+                .with_directory_entries(48),
+        );
+        let result = cancel::run_for(fs.lookup(fs.root(), Name::new(&names[47])), budget);
+        for name in &names {
+            let file = cancel::run_for(fs.lookup(fs.root(), Name::new(name)), usize::MAX)
+                .unwrap()
+                .unwrap();
+            cancel::run_for(fs.close(file), usize::MAX)
+                .unwrap()
+                .unwrap();
+        }
+        if result.is_some() {
+            return;
+        }
+    }
+    panic!("indexed lookup never completed");
+}
+
+#[test]
+fn directory_index_matches_long_names_and_their_short_aliases() {
+    let case = CASES[0];
+    let (image, names) = directory_fixture(case);
+    let geo = hadris_fat_raw::parse_boot(image[..512].try_into().unwrap()).unwrap();
+    let hadris_fat_raw::RootLocation::Fixed { start, size } = geo.root() else {
+        unreachable!()
+    };
+    let aliases: Vec<_> = image[start as usize..(start + size) as usize]
+        .chunks_exact(32)
+        .filter_map(|bytes| {
+            let hadris_fat_raw::Slot::Short(entry) =
+                hadris_fat_raw::Slot::parse(bytes.try_into().unwrap())
+            else {
+                return None;
+            };
+            if !entry.is_visible() {
+                return None;
+            }
+            let mut buf = [0; hadris_fat_raw::short_name::DISPLAY_MAX];
+            let len = hadris_fat_raw::short_name::display(
+                &entry.name(),
+                entry.nt_case(),
+                |b| hadris_fs::CodePage::decode(&hadris_fs::Cp437, b),
+                &mut buf,
+            );
+            Some(String::from_utf8(buf[..len].to_vec()).unwrap())
+        })
+        .collect();
+    assert_eq!(aliases.len(), names.len());
+    let mut fs = FatFs::mount(common::device(case, image), MountOptions::new().read_only())
+        .unwrap()
+        .with_cache(CacheOptions::new().with_directory_entries(48));
+    for (name, alias) in names.iter().zip(&aliases) {
+        let long = fs.lookup(fs.root(), Name::new(name)).unwrap();
+        assert_eq!(
+            fs.lookup(fs.root(), Name::new(&alias.to_lowercase()))
+                .unwrap(),
+            long
+        );
+        fs.forget(long, 2);
+    }
+    for (name, alias) in names.iter().zip(&aliases).rev() {
+        let short = fs.lookup(fs.root(), Name::new(alias)).unwrap();
+        assert_eq!(fs.lookup(fs.root(), Name::new(name)).unwrap(), short);
+        fs.forget(short, 2);
+    }
+}
+
+#[test]
+fn directory_prefix_keeps_chain_guard_when_missing_names_encounter_cycles() {
+    let case = CASES[2];
+    let (mut image, names) = directory_fixture(case);
+    let geo = hadris_fat_raw::parse_boot(image[..512].try_into().unwrap()).unwrap();
+    let hadris_fat_raw::RootLocation::Cluster(first) = geo.root() else {
+        unreachable!()
+    };
+    let mut cluster = first;
+    loop {
+        let base = geo.cluster_offset(cluster).unwrap() as usize;
+        for slot in image[base..base + geo.cluster_size() as usize].chunks_exact_mut(32) {
+            if slot[0] == 0 {
+                slot[0] = 0xe5;
+            }
+        }
+        let at = (geo.fat_copy(0) + case.kind.entry_offset(cluster as u64)) as usize;
+        let next = case
+            .kind
+            .decode(cluster as u64, &image[at..at + case.kind.entry_len()]);
+        if case.kind.is_end_of_chain(next) {
+            for copy in 0..geo.fat_count() {
+                let at = (geo.fat_copy(copy) + case.kind.entry_offset(cluster as u64)) as usize;
+                case.kind.encode(
+                    cluster as u64,
+                    first,
+                    &mut image[at..at + case.kind.entry_len()],
+                );
+            }
+            break;
+        }
+        cluster = next;
+    }
+    for capacity in [1, 48, 128] {
+        let mut fs = FatFs::mount(
+            common::device(case, image.clone()),
+            MountOptions::new().read_only(),
+        )
+        .unwrap()
+        .with_cache(CacheOptions::new().with_directory_entries(capacity));
+        fs.lookup(fs.root(), Name::new(&names[0])).unwrap();
+        for _ in 0..2 {
+            assert_eq!(
+                fs.lookup(fs.root(), Name::new("missing long name"))
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::Corrupt
+            );
+        }
+        fs.lookup(fs.root(), Name::new(&names[0])).unwrap();
+    }
+}
+
+#[cfg(feature = "async")]
+#[test]
+fn directory_index_discards_names_before_cancelled_rename_writes() {
+    use hadris_fat::r#async::FatFs;
+    use hadris_fs::r#async::FileSystem;
+    let case = CASES[2];
+    let mut original = hadris_fat::sync::FatFs::mount(
+        common::device(case, common::blank(case)),
+        MountOptions::new(),
+    )
+    .unwrap();
+    let file = original
+        .create(original.root(), Name::new("OLD.TXT"), &SetAttr::new())
+        .unwrap();
+    original.close(file).unwrap();
+    let image = original.unmount().unwrap().into_inner();
+    for budget in 0..100 {
+        let mut fs = cancel::run_for(
+            FatFs::mount(
+                cancel::YieldDev(common::device(case, image.clone())),
+                MountOptions::new(),
+            ),
+            usize::MAX,
+        )
+        .unwrap()
+        .unwrap()
+        .with_cache(CacheOptions::new().with_directory_entries(8));
+        let root = fs.root();
+        cancel::run_for(fs.lookup(root, Name::new("OLD.TXT")), usize::MAX)
+            .unwrap()
+            .unwrap();
+        let result = cancel::run_for(
+            fs.rename(
+                root,
+                Name::new("OLD.TXT"),
+                root,
+                Name::new("A replacement long name.txt"),
+                RenameMode::NoReplace,
+            ),
+            budget,
+        );
+        cancel::run_for(fs.sync(), usize::MAX).unwrap().unwrap();
+        for name in ["OLD.TXT", "A replacement long name.txt"] {
+            let before = cancel::run_for(fs.lookup(root, Name::new(name)), usize::MAX)
+                .unwrap()
+                .map_err(|err| err.kind());
+            fs.clear_cache();
+            let after = cancel::run_for(fs.lookup(root, Name::new(name)), usize::MAX)
+                .unwrap()
+                .map_err(|err| err.kind());
+            assert_eq!(before, after);
+            if let Ok(file) = after {
+                assert_eq!(
+                    cancel::run_for(fs.stat(file), usize::MAX)
+                        .unwrap()
+                        .unwrap()
+                        .len(),
+                    0
+                );
+            }
+        }
+        let image = cancel::run_for(fs.unmount(), usize::MAX)
+            .unwrap()
+            .unwrap()
+            .0
+            .into_inner();
+        common::assert_checks_clean(
+            case,
+            &image,
+            &format!("cancelled indexed rename budget {budget}"),
+        );
+        if result.is_some() {
+            return;
+        }
+    }
+    panic!("indexed rename never completed");
+}
+
+#[cfg(feature = "async")]
+#[test]
+#[ignore = "pre-existing cancelled rename can leave cross-linked entries; directory indexing is disabled"]
+fn cancelled_nonempty_rename_can_leave_a_cross_link_without_directory_indexing() {
+    use hadris_fat::r#async::FatFs;
+    use hadris_fs::r#async::FileSystem;
+    let case = CASES[2];
+    let mut original = hadris_fat::sync::FatFs::mount(
+        common::device(case, common::blank(case)),
+        MountOptions::new(),
+    )
+    .unwrap();
+    let file = original
+        .create(original.root(), Name::new("OLD.TXT"), &SetAttr::new())
+        .unwrap();
+    original.write(file, 0, b"preserved").unwrap();
+    let image = original.unmount().unwrap().into_inner();
+    let mut fs = cancel::run_for(
+        FatFs::mount(
+            cancel::YieldDev(common::device(case, image)),
+            MountOptions::new(),
+        ),
+        usize::MAX,
+    )
+    .unwrap()
+    .unwrap()
+    .with_cache(CacheOptions::new().with_directory_entries(0));
+    let root = fs.root();
+    cancel::run_for(fs.lookup(root, Name::new("OLD.TXT")), usize::MAX)
+        .unwrap()
+        .unwrap();
+    assert!(
+        cancel::run_for(
+            fs.rename(
+                root,
+                Name::new("OLD.TXT"),
+                root,
+                Name::new("A replacement long name.txt"),
+                RenameMode::NoReplace
+            ),
+            5
+        )
+        .is_none()
+    );
+    cancel::run_for(fs.sync(), usize::MAX).unwrap().unwrap();
+    let image = cancel::run_for(fs.unmount(), usize::MAX)
+        .unwrap()
+        .unwrap()
+        .0
+        .into_inner();
+    common::assert_checks_clean(
+        case,
+        &image,
+        "cancelled nonempty rename without directory indexing",
+    );
+}

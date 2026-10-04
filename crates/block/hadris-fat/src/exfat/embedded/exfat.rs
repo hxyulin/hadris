@@ -246,8 +246,10 @@ impl<'mount, D: BlockDevice, const FILES: usize> ExFat<'mount, D, FILES> {
             let want = u32::try_from(offset >> self.geo.cluster_shift()).map_err(|_| ErrorKind::Corrupt)?;
             at = self.locate(&head, at, want).await?;
             let within = offset & (cluster_size - 1);
-            let n = (cluster_size - within).min((count - done) as u64).min(valid - offset) as usize;
+            let max = ((count - done) as u64).min(valid - offset) as usize;
+            let n = (cluster_size - within).min(max as u64) as usize;
             let disk = self.geo.cluster_offset(at.cluster()).ok_or(ErrorKind::Corrupt)? + within;
+            let n = self.read_run(&head, &mut at, within, n, max).await?;
             rawio::read_bytes(&mut self.dev, &mut self.block, disk, &mut buf[done..done + n]).await?;
             done += n;
         }
@@ -362,6 +364,26 @@ impl<'mount, D: BlockDevice, const FILES: usize> ExFat<'mount, D, FILES> {
             }
         }
         Ok(at)
+    }
+
+    async fn read_run(&mut self, head: &Head, at: &mut ChainPos, within: u64, mut len: usize, max: usize) -> FsResult<usize, D::Error> {
+        if head.contiguous() {
+            let extra = (within + max as u64 - 1) >> self.geo.cluster_shift();
+            let extra = u32::try_from(extra).map_err(|_| ErrorKind::Corrupt)?;
+            let cluster = at.cluster().checked_add(extra).filter(|&cluster| self.geo.is_cluster(cluster)).ok_or(ErrorKind::Corrupt)?;
+            let index = at.index().checked_add(extra).ok_or(ErrorKind::Corrupt)?;
+            *at = ChainPos::new(index, cluster);
+            return Ok(max);
+        }
+        while len < max {
+            let next = exio::next(&mut self.dev, &mut self.block, &self.geo, at.cluster()).await?;
+            let Some(next) = next.filter(|&next| next == at.cluster() + 1) else { break; };
+            if !at.advance(next) {
+                return Err(ErrorKind::Corrupt.into());
+            }
+            len = len.saturating_add(self.geo.cluster_size() as usize).min(max);
+        }
+        Ok(len)
     }
 
     /// Finds `name` in `dir` into `found`.

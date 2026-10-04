@@ -1,0 +1,4 @@
+case,samples,volume_bytes,block_bytes,cluster_bytes,min_ns,median_ns,max_ns,payload_bytes,read_calls,write_calls,read_bytes,write_bytes,flush_calls,max_read_bytes,max_write_bytes,write_amplification,fat0_write_bytes,fat1_write_bytes,directory_write_bytes,data_write_bytes,fsinfo_write_bytes,other_write_bytes,chain_positions,metadata_blocks,directory_entries
+fat12/hosted/boot-load-64k,21,2097152,512,512,31917,35209,39917,1048576,27,0,1054208,0,0,65536,0,n/a,0,0,0,0,0,0,0,64,128
+fat16/hosted/boot-load-64k,21,16777216,512,1024,22417,24375,26875,1048576,26,0,1053696,0,0,65536,0,n/a,0,0,0,0,0,0,0,64,128
+fat32/hosted/boot-load-64k,21,67108864,512,512,34334,35875,42583,1048576,39,0,1060352,0,0,65536,0,n/a,0,0,0,0,0,0,0,64,128

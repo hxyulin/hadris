@@ -4,6 +4,9 @@ Start with device I/O counts when optimizing write amplification. Runtime,
 driver state, heap use, stack use and flash size are separate measurements;
 an improvement in one can cost more in another.
 
+The separate [exFAT audit](exfat-performance.md) covers hosted and embedded
+read runs and append traversal, with device counts and reproducible CSV data.
+
 ## FAT benchmark
 
 The harness needs no new dependencies and uses Cargo's optimized bench
@@ -22,8 +25,9 @@ fails. `--samples` defaults to seven; `--smoke` uses one measured sample per
 case. Each case also gets a checked warm-up. `--chain-positions N` enables
 the bounded hosted seek index (default zero); CSV records the configured bound
 in `chain_positions`. `--metadata-blocks N` configures the hosted metadata
-cache (default zero), recorded in `metadata_blocks`. Embedded cases ignore
-both settings. `--help` prints the options.
+cache (default zero), recorded in `metadata_blocks`. `--directory-entries N`
+sets the directory-prefix entry bound (default zero), recorded in
+`directory_entries`. Embedded cases ignore these settings. `--help` prints the options.
 
 Plain `FatFs::mount` enables neither optional cache. With `alloc`, including
 `no_std` bootloaders, `with_cache(CacheOptions::new())` enables 32 learned
@@ -34,6 +38,17 @@ repeated FAT/directory reads. File payload reads bypass the metadata cache;
 writes invalidate overlapping entries immediately. Sequential workloads can
 pay extra CPU for cache maintenance. The [hosted optimization report](fat-hosted-optimizations.md)
 records separate cache measurements and tests for each step.
+Directory-prefix indexing is separately opt-in with
+`with_directory_entries(N)`. It learns validated entries during ordinary
+lookups and retains their original chain-walk guard to resume subsequent
+misses safely. It holds one directory at a time; switching directories or
+mutating the filesystem discards the prefix. Use it for repeated lookups in a
+stable directory; no full scan is performed for a cold single-name lookup.
+See the [directory-index measurements](fat-directory-index-performance.md)
+for CPU results and small-capacity fallback behavior.
+
+The [FAT12 allocation report](fat12-allocation-batching.md) measures packed-entry
+batching for both hosted and allocator-free embedded drivers.
 CSV goes to stdout, so Cargo's build messages on stderr do not enter the file.
 
 The 126 cases combine three variants, two synchronous drivers and these

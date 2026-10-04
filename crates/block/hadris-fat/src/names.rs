@@ -160,6 +160,13 @@ impl Query {
         query
     }
 
+    pub(crate) fn fingerprint(&self) -> Option<u64> {
+        self.overflow
+            .as_deref()
+            .or_else(|| self.units.get(..self.len))
+            .map(|units| name_hash(units.iter().copied()))
+    }
+
     pub(crate) fn matches(
         &self,
         long: Option<&[u16]>,
@@ -215,6 +222,30 @@ impl Query {
         core::str::from_utf8(&short[..len])
             .is_ok_and(|short| query.iter().copied().eq(short.encode_utf16().map(fold)))
     }
+}
+
+#[cfg(feature = "alloc")]
+pub(crate) fn name_hash(units: impl Iterator<Item = u16>) -> u64 {
+    units.fold(0xcbf29ce484222325, |hash, unit| {
+        (hash ^ unit as u64).wrapping_mul(0x100000001b3)
+    })
+}
+
+#[cfg(feature = "alloc")]
+pub(crate) fn short_fingerprint(entry: &ShortEntry, code_page: &dyn CodePage) -> u64 {
+    let mut short = [0u8; short_name::DISPLAY_MAX];
+    let len = short_name::display(
+        &entry.name(),
+        entry.nt_case(),
+        |byte| code_page.decode(byte),
+        &mut short,
+    );
+    name_hash(
+        core::str::from_utf8(&short[..len])
+            .unwrap_or("")
+            .encode_utf16()
+            .map(raw::fold_unicode),
+    )
 }
 
 /// Whether `query` names the entry, by its long name or its short name,
@@ -456,5 +487,48 @@ mod query_tests {
             &Cp437,
             raw::fold_unicode
         ));
+    }
+}
+
+#[cfg(all(test, feature = "alloc"))]
+mod index_name_tests {
+    use super::*;
+    use hadris_fs::{Ascii, Cp437};
+
+    struct HighOnly;
+    impl CodePage for HighOnly {
+        fn decode(&self, byte: u8) -> char {
+            assert!(byte >= 0x80);
+            'é'
+        }
+        fn encode(&self, _: char) -> Option<u8> {
+            None
+        }
+    }
+
+    #[test]
+    fn short_index_hash_matches_ascii_case_and_code_page_queries() {
+        let mut entry = ShortEntry::new(*b"LOWER   TXT", raw::ATTR_ARCHIVE);
+        entry.set_nt_case(raw::NT_LOWER_BASE | raw::NT_LOWER_EXTENSION);
+        for query in ["lower.txt", "LOWER.TXT"] {
+            assert_eq!(
+                Query::new(query, raw::fold_unicode).fingerprint(),
+                Some(short_fingerprint(&entry, &HighOnly))
+            );
+        }
+        for (name, query, page) in [
+            (*b"\x82AB     TXT", "éab.txt", &Cp437 as &dyn CodePage),
+            (
+                *b"\x82AB     TXT",
+                "\u{f782}ab.txt",
+                &Ascii as &dyn CodePage,
+            ),
+            (*b"\x05AB     TXT", "σab.txt", &Cp437 as &dyn CodePage),
+        ] {
+            let entry = ShortEntry::new(name, raw::ATTR_ARCHIVE);
+            let query = Query::new(query, raw::fold_unicode);
+            assert!(query.matches(None, &entry, page, raw::fold_unicode));
+            assert_eq!(query.fingerprint(), Some(short_fingerprint(&entry, page)));
+        }
     }
 }

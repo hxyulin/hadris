@@ -2028,16 +2028,18 @@ impl<D: BlockDevice> ExFatFs<D> {
             self.set_fat(tail, raw::FAT_END).await?;
             tail
         } else {
-            let mut cluster = self.check_cluster(node.first)?;
-            let mut steps = 0;
-            while let Some(next) = self.next_cluster(cluster).await? {
-                cluster = next;
-                steps += 1;
-                if steps > self.vol.geometry().cluster_count() {
+            let clusters = node.len.div_ceil(self.vol.geometry().cluster_size());
+            let mut at = if node.hint.cluster() != 0 && (node.hint.index() as u64) < clusters {
+                node.hint
+            } else {
+                ChainPos::start(self.check_cluster(node.first)?)
+            };
+            while let Some(next) = self.next_cluster(at.cluster()).await? {
+                if !at.advance(next) || at.index() > self.vol.geometry().cluster_count() {
                     return Err(ErrorKind::Corrupt.into());
                 }
             }
-            cluster
+            at.cluster()
         };
         if let Some(pending) = self.pending.as_mut()
             && pending.owner == Owner::None
@@ -2473,17 +2475,17 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// the length and leaves `at` at the run's last cluster.
     async fn run(&mut self, alloc: Alloc, at: &mut ChainPos, mut n: usize, max: usize) -> FsResult<usize, D::Error> {
         let cluster_size = self.vol.geometry().cluster_size() as usize;
+        if alloc.contiguous {
+            let extra = u32::try_from((max - n).div_ceil(cluster_size)).map_err(|_| ErrorKind::Corrupt)?;
+            let cluster = at.cluster().checked_add(extra).ok_or(ErrorKind::Corrupt)?;
+            let index = at.index().checked_add(extra).ok_or(ErrorKind::Corrupt)?;
+            *at = ChainPos::new(index, self.check_cluster(cluster)?);
+            return Ok(max);
+        }
         while n < max {
-            let next = if alloc.contiguous {
-                Some(at.cluster() + 1).filter(|&next| self.vol.geometry().is_cluster(next))
-            } else {
-                self.next_cluster(at.cluster()).await?
-            };
-            match next {
+            match self.next_cluster(at.cluster()).await? {
                 Some(next) if next == at.cluster() + 1 => {
-                    if alloc.contiguous {
-                        *at = ChainPos::new(at.index() + 1, next);
-                    } else if !at.advance(next) {
+                    if !at.advance(next) {
                         return Err(ErrorKind::Corrupt.into());
                     }
                     n = n.saturating_add(cluster_size).min(max);
