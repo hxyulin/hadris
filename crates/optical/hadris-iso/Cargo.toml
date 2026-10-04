@@ -14,7 +14,7 @@ categories = ["filesystem", "embedded", "no-std"]
 exclude = ["/spec"]
 
 [package.metadata.docs.rs]
-features = ["std", "sync", "async", "tracing"]
+features = ["std", "sync", "async", "tracing", "cache"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
@@ -25,6 +25,8 @@ alloc = ["hadris-io/alloc", "hadris-fs/alloc", "hadris-storage/alloc", "dep:hadr
 std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std", "hadris-part/std"]
 sync = ["hadris-io/sync", "hadris-fs/sync", "hadris-storage/sync", "hadris-part?/sync"]
 async = ["hadris-io/async", "hadris-fs/async", "hadris-storage/async", "hadris-part?/async"]
+
+cache = ["alloc"]
 
 tracing = ["std", "dep:tracing", "hadris-part?/tracing"]
 

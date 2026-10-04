@@ -129,12 +129,14 @@ pub struct IsoFs<D> {
 }
 
 /// The device-independent state of a mount.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 struct View {
     info: Info,
     namespace: Namespace,
     root: Root,
     len: u64,
+    #[cfg(feature = "cache")]
+    cache: Option<crate::cache::ReaderCache>,
 }
 
 /// A directory: where its records are.
@@ -164,7 +166,7 @@ impl RecordChain {
         }
     }
 
-    async fn next<D: BlockDevice>(&mut self, view: &View, dev: &mut D) -> Result<Option<Found>, Error<D::Error>> {
+    async fn next<D: BlockDevice>(&mut self, view: &mut View, dev: &mut D) -> Result<Option<Found>, Error<D::Error>> {
         if self.count != 0 {
             if !self.current.record.header().file_flags().contains(FileFlags::NOT_FINAL) {
                 return Ok(None);
@@ -246,6 +248,8 @@ impl View {
             namespace,
             root,
             len,
+            #[cfg(feature = "cache")]
+            cache: None,
         }
     }
 
@@ -274,23 +278,47 @@ impl View {
         block.checked_mul(self.bs())
     }
 
-    async fn record_at<D: BlockDevice>(&self, dev: &mut D, offset: u64) -> Result<DirectoryRecord, Error<D::Error>> {
+    async fn metadata_sector<D: BlockDevice>(&mut self, dev: &mut D, offset: u64, out: &mut [u8]) -> Result<(), Error<D::Error>> {
+        #[cfg(feature = "cache")]
+        if let Some(bytes) = self.cache.as_mut().and_then(|cache|cache.blocks.get(offset)) {
+            out.copy_from_slice(&bytes[..out.len()]);
+            return Ok(());
+        }
+        read_bytes(dev, self.len, offset, out).await?;
+        #[cfg(feature = "cache")]
+        if let Some(cache) = &mut self.cache {
+            let mut bytes = [0; SECTOR_SIZE];
+            bytes[..out.len()].copy_from_slice(out);
+            cache.blocks.insert(offset, bytes);
+        }
+        Ok(())
+    }
+
+    async fn record_at<D: BlockDevice>(&mut self, dev: &mut D, offset: u64) -> Result<DirectoryRecord, Error<D::Error>> {
+        #[cfg(feature = "cache")]
+        if let Some(record) = self.cache.as_mut().and_then(|cache|cache.records.get(offset)) {
+            return Ok(record);
+        }
         let bs = self.bs();
         if offset == 0 {
             return Err(Detail::DirectoryRecord.corrupt());
         }
         let mut block = [0u8; SECTOR_SIZE];
         let block = &mut block[..bs as usize];
-        read_bytes(dev, self.len, offset - offset % bs, block).await?;
+        self.metadata_sector(dev, offset - offset % bs, block).await?;
         let within = (offset % bs) as usize;
         match DirectoryRecord::parse(&block[within..]) {
-            Ok(Some(record)) => Ok(record),
+            Ok(Some(record)) => {
+                #[cfg(feature = "cache")]
+                if let Some(cache) = &mut self.cache { cache.records.insert(offset, record); }
+                Ok(record)
+            },
             _ => Err(Detail::DirectoryRecord.corrupt()),
         }
     }
 
     /// The directory a node names: its `.` record, or a directory record.
-    async fn dir_of<D: BlockDevice>(&self, dev: &mut D, node: NodeId) -> FsResult<Dir, D::Error> {
+    async fn dir_of<D: BlockDevice>(&mut self, dev: &mut D, node: NodeId) -> FsResult<Dir, D::Error> {
         let record = self.record_at(dev, node.get()).await.map_err(|err| handle(err, node, self))?;
         if !record.header().is_directory() {
             return Err(ErrorKind::NotADirectory.into());
@@ -307,7 +335,7 @@ impl View {
     /// The record at `pos` in `dir`, skipping sector padding. Advances
     /// `pos` past it.
     async fn next_record<D: BlockDevice>(
-        &self,
+        &mut self,
         dev: &mut D,
         dir: Dir,
         pos: &mut u32,
@@ -318,7 +346,7 @@ impl View {
             let index = u64::from(*pos / bs);
             if block.index != index {
                 let data = &mut block.data[..bs as usize];
-                read_bytes(dev, self.len, dir.start + index * u64::from(bs), data).await?;
+                self.metadata_sector(dev, dir.start + index * u64::from(bs), data).await?;
                 block.index = index;
             }
             let within = (*pos % bs) as usize;
@@ -342,7 +370,7 @@ impl View {
     /// Skips the continuation records of a multi-extent file whose first
     /// record `first` was just read.
     async fn skip_continuations<D: BlockDevice>(
-        &self,
+        &mut self,
         dev: &mut D,
         dir: Dir,
         pos: &mut u32,
@@ -369,7 +397,7 @@ impl View {
     /// Follows the system use area of `record` through its continuation
     /// areas into `scan`.
     async fn scan<D: BlockDevice>(
-        &self,
+        &mut self,
         dev: &mut D,
         record: &DirectoryRecord,
         skip: u8,
@@ -452,7 +480,7 @@ impl View {
     /// file in path table order, so all its names share one id: records
     /// with its `PX` serial number, or without one, at its data extent.
     async fn link_id<D: BlockDevice>(
-        &self,
+        &mut self,
         dev: &mut D,
         offset: u64,
         record: &DirectoryRecord,
@@ -478,7 +506,7 @@ impl View {
     /// The first record in path table order of the hard-linked file `key`
     /// names.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
-    async fn first_link<D: BlockDevice>(&self, dev: &mut D, key: LinkKey, skip: u8) -> Result<Option<u64>, Error<D::Error>> {
+    async fn first_link<D: BlockDevice>(&mut self, dev: &mut D, key: LinkKey, skip: u8) -> Result<Option<u64>, Error<D::Error>> {
         let (table, size) = self.root.path_table;
         let base = u64::from(table) * self.bs();
         let mut pos = 0u64;
@@ -524,7 +552,7 @@ impl View {
     /// The displayed name and metadata, or `None` for records
     /// the listing hides.
     async fn list<D: BlockDevice>(
-        &self,
+        &mut self,
         dev: &mut D,
         found: &Found,
         out: &mut [u8],
@@ -557,7 +585,7 @@ impl View {
     }
 
     async fn listed_id<D: BlockDevice>(
-        &self,
+        &mut self,
         dev: &mut D,
         found: &Found,
         rr: Option<RockRidgeInfo>,
@@ -609,7 +637,7 @@ impl View {
     }
 
     /// Writes the volume identifier of this view's descriptor into `buf`.
-    async fn label<'b, D: BlockDevice>(&self, dev: &mut D, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
+    async fn label<'b, D: BlockDevice>(&mut self, dev: &mut D, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
         let mut sector = [0u8; SECTOR_SIZE];
         let mut len = None;
         for index in 0..self.info.descriptors {
@@ -644,7 +672,7 @@ impl View {
         }
     }
 
-    async fn lookup<D: BlockDevice>(&self, dev: &mut D, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
+    async fn lookup<D: BlockDevice>(&mut self, dev: &mut D, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
         name.check()?;
         let dir = self.dir_of(dev, dir).await?;
         let mut pos = 0;
@@ -671,7 +699,7 @@ impl View {
         }
     }
 
-    async fn readdir<D: BlockDevice>(&self, dev: &mut D, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
+    async fn readdir<D: BlockDevice>(&mut self, dev: &mut D, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
         let dir = self.dir_of(dev, dir).await?;
         let Ok(mut pos) = u32::try_from(from.into_raw()) else {
             return Ok(None);
@@ -695,7 +723,7 @@ impl View {
         Ok(None)
     }
 
-    async fn stat<D: BlockDevice>(&self, dev: &mut D, node: NodeId) -> FsResult<Metadata, D::Error> {
+    async fn stat<D: BlockDevice>(&mut self, dev: &mut D, node: NodeId) -> FsResult<Metadata, D::Error> {
         let record = self.record_at(dev, node.get()).await.map_err(|err| handle(err, node, self))?;
         let rr = match self.rock_ridge() {
             Some(skip) => {
@@ -709,7 +737,7 @@ impl View {
     }
 
     async fn record_metadata<D: BlockDevice>(
-        &self,
+        &mut self,
         dev: &mut D,
         node: NodeId,
         record: &DirectoryRecord,
@@ -769,7 +797,7 @@ impl View {
 
     /// The whole length of the file whose first record is `record`.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
-    async fn file_len<D: BlockDevice>(&self, dev: &mut D, offset: u64, record: &DirectoryRecord) -> Result<u64, Error<D::Error>> {
+    async fn file_len<D: BlockDevice>(&mut self, dev: &mut D, offset: u64, record: &DirectoryRecord) -> Result<u64, Error<D::Error>> {
         let mut total = 0;
         let mut chain = RecordChain::new(offset, *record);
         while let Some(found) = chain.next(self, dev).await? {
@@ -780,7 +808,7 @@ impl View {
 
     /// The record after the one at `offset`, in the same block or at the
     /// start of the next.
-    async fn following<D: BlockDevice>(&self, dev: &mut D, offset: u64, record: &DirectoryRecord) -> Result<(u64, DirectoryRecord), Error<D::Error>> {
+    async fn following<D: BlockDevice>(&mut self, dev: &mut D, offset: u64, record: &DirectoryRecord) -> Result<(u64, DirectoryRecord), Error<D::Error>> {
         let bs = self.bs();
         let next = offset + record.len() as u64;
         if next % bs != 0 {
@@ -794,7 +822,7 @@ impl View {
         Ok((next, self.record_at(dev, next).await?))
     }
 
-    async fn read<D: BlockDevice>(&self, dev: &mut D, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
+    async fn read<D: BlockDevice>(&mut self, dev: &mut D, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         let record = self.record_at(dev, node.get()).await.map_err(|err| handle(err, node, self))?;
         if record.header().is_directory() {
             return Err(ErrorKind::IsADirectory.into());
@@ -819,7 +847,7 @@ impl View {
         Ok(0)
     }
 
-    async fn parent<D: BlockDevice>(&self, dev: &mut D, dir: NodeId) -> FsResult<NodeId, D::Error> {
+    async fn parent<D: BlockDevice>(&mut self, dev: &mut D, dir: NodeId) -> FsResult<NodeId, D::Error> {
         let dir = self.dir_of(dev, dir).await?;
         let dot = self.record_at(dev, dir.start).await?;
         let dotdot = self.record_at(dev, dir.start + dot.len() as u64).await?;
@@ -843,14 +871,14 @@ impl View {
     /// for trees whose `..` records point at the directory itself (the
     /// Joliet trees libisofs writes).
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
-    async fn path_table_parent<D: BlockDevice>(&self, dev: &mut D, start: u64) -> Result<u64, Error<D::Error>> {
+    async fn path_table_parent<D: BlockDevice>(&mut self, dev: &mut D, start: u64) -> Result<u64, Error<D::Error>> {
         let parent = self.path_table_find(dev, PathTableQuery::Extent(start / self.bs())).await?;
         Ok(self.path_table_find(dev, PathTableQuery::Number(parent)).await? * self.bs())
     }
 
     /// Scans the little-endian path table for a directory's extent, giving
     /// its parent's number, or for a record number, giving its extent.
-    async fn path_table_find<D: BlockDevice>(&self, dev: &mut D, want: PathTableQuery) -> Result<u64, Error<D::Error>> {
+    async fn path_table_find<D: BlockDevice>(&mut self, dev: &mut D, want: PathTableQuery) -> Result<u64, Error<D::Error>> {
         let (table, size) = self.root.path_table;
         let base = u64::from(table) * self.bs();
         let mut pos = 0u64;
@@ -873,7 +901,7 @@ impl View {
         Err(Detail::DirectoryRecord.corrupt())
     }
 
-    async fn readlink<D: BlockDevice>(&self, dev: &mut D, link: NodeId, buf: &mut [u8]) -> FsResult<usize, D::Error> {
+    async fn readlink<D: BlockDevice>(&mut self, dev: &mut D, link: NodeId, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         let Some(skip) = self.rock_ridge() else {
             return Err(ErrorKind::InvalidInput.into());
         };
@@ -886,7 +914,7 @@ impl View {
         Ok(scan.link_len()?)
     }
 
-    async fn rock_ridge_info<D: BlockDevice>(&self, dev: &mut D, node: NodeId) -> Result<Option<RockRidgeInfo>, Error<D::Error>> {
+    async fn rock_ridge_info<D: BlockDevice>(&mut self, dev: &mut D, node: NodeId) -> Result<Option<RockRidgeInfo>, Error<D::Error>> {
         let skip = match (self.namespace, self.info.rock_ridge) {
             (Namespace::RockRidge | Namespace::Primary, Some(skip)) => skip,
             _ => return Ok(None),
@@ -937,6 +965,25 @@ impl<D: BlockDevice> IsoFs<D> {
             }),
             None => Err(MountError::new(Detail::NoNamespace.error(ErrorKind::NotFound), dev)),
         }
+    }
+
+    /// Enables bounded caches for metadata sectors and parsed directory records.
+    ///
+    /// Payload reads remain direct. This allocates storage for the configured
+    /// capacities; mounting without this method still uses no allocator.
+    /// The image must remain unchanged while cached data is retained.
+    #[cfg(feature = "cache")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "cache")))]
+    pub fn with_cache(mut self, options: crate::CacheOptions) -> Self {
+        self.view.cache = Some(crate::cache::ReaderCache::new(options));
+        self
+    }
+
+    /// Discards cached metadata while retaining the configured storage.
+    #[cfg(feature = "cache")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "cache")))]
+    pub fn clear_cache(&mut self) {
+        if let Some(cache) = &mut self.view.cache { cache.clear(); }
     }
 
     /// Gives the device back. The image is read-only, so there is nothing
@@ -1133,7 +1180,7 @@ impl<D: BlockDevice> IsoFs<D> {
         let record = self.view.record_at(&mut self.dev, node.get()).await?;
         let mut chain = RecordChain::new(node.get(), record);
         let mut file = 0u64;
-        while let Some(found) = chain.next(&self.view, &mut self.dev).await? {
+        while let Some(found) = chain.next(&mut self.view, &mut self.dev).await? {
             let start = self.view.extent_start(&found.record).ok_or(Detail::DirectoryRecord.corrupt())?;
             let len = u64::from(found.record.header().data_len.get());
             if !each(hadris_fs::Extent::new(start, len).with_file_offset(file)) {
@@ -1155,7 +1202,7 @@ impl<D: BlockDevice> IsoFs<D> {
         let record = self.view.record_at(&mut self.dev, node.get()).await?;
         let mut chain = RecordChain::new(node.get(), record);
         let mut count = 0;
-        while let Some(found) = chain.next(&self.view, &mut self.dev).await? {
+        while let Some(found) = chain.next(&mut self.view, &mut self.dev).await? {
             let len = u64::from(found.record.header().len);
             *out.get_mut(count).ok_or(ErrorKind::LimitExceeded)? = hadris_fs::Extent::new(found.offset, len);
             count += 1;

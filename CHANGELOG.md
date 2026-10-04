@@ -8,6 +8,8 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- ISO adds an opt-in `cache` feature with bounded metadata-sector and parsed-record caches, configurable through `CacheOptions` and `IsoFs::with_cache`.
+
 - ISO directory listing reuses parsed file records and Rock Ridge metadata instead of rereading them for `stat`.
 
 - ISO lookup compares names before resolving canonical hard-link IDs, avoiding global link scans for nonmatching entries.

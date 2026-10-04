@@ -80,6 +80,7 @@
 //! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
 //! | `alloc` | via `std` | The writer, sessions and the `Tree` input |
 //! | `sync` | Yes | The blocking API in `sync` |
+//! | `cache` | No | Opt-in bounded reader metadata caches; implies `alloc` |
 //! | `async` | No | The asynchronous API with `Send` futures in `r#async` |
 //!
 //! No feature changes what an item does.
@@ -100,6 +101,12 @@ extern crate alloc;
 
 #[cfg(all(feature = "std", not(test)))]
 extern crate std;
+
+#[cfg(feature = "cache")]
+mod cache;
+#[cfg(feature = "cache")]
+#[cfg_attr(docsrs, doc(cfg(feature = "cache")))]
+pub use cache::CacheOptions;
 
 mod boot;
 mod error;
