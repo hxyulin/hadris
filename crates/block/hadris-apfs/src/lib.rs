@@ -6,7 +6,7 @@
 //! An experimental, read-only APFS container and volume reader.
 //!
 //! The API is outside the Hadris 3.x stability promise and may change in a
-//! minor release. Compressed files, encryption, snapshots and writes are not
+//! minor release. Compressed files, hardware/per-file encryption, snapshots and writes are not
 //! supported; see the README for the full scope.
 //!
 //! On-disk structures live in [`types`]. The readers in the `sync` and
@@ -21,6 +21,13 @@
 //! scratch space for sparse and arbitrarily large files. Generic `Volume`
 //! handles follow symbolic links and expose hard-linked inodes consistently.
 //! Native container inspection remains available independently of mounting.
+//! With `encryption`, password mounts unlock software-encrypted single-key
+//! volumes. `ApfsFs::mount_with_password` and `mount_volume_with_password` borrow
+//! credentials independently of volume selection. Native encrypted reads require
+//! an explicit volume through `read_volume_extents_at` or
+//! `read_volume_btree_node_with_flags`. Keybags and password-derivation work are
+//! bounded; wrong credentials report [`Detail::Credentials`] and preserve the
+//! device. Retained keys are redacted and wiped on drop.
 //!
 //! Native I/O and driver errors are [`hadris_fs::Error`] values retaining the
 //! backend error. [`Detail::of`] identifies APFS-specific failures. Pure
@@ -30,6 +37,7 @@
 //! `std` implies `alloc`. `read` enables readers, `sync` enables blocking
 //! APIs, and `async` enables asynchronous APIs with `Send` futures. Without
 //! `alloc`, the native container header and block reader remains usable.
+//! `encryption` implies `read` and `alloc` and adds optional crypto dependencies.
 //!
 //! ```rust,no_run
 //! use std::fs::File;
@@ -59,6 +67,9 @@
 extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
+
+#[cfg(all(feature = "encryption", any(feature = "sync", feature = "async")))]
+mod crypto;
 
 /// Error types returned by APFS readers and writers.
 pub mod error;

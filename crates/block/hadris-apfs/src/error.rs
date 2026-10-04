@@ -68,6 +68,8 @@ pub enum Detail {
     Feature = 5,
     /// The container needs an explicit volume selection.
     VolumeSelection = 6,
+    /// Software-encryption credentials did not unlock the selected volume.
+    Credentials = 7,
 }
 
 impl Detail {
@@ -86,6 +88,7 @@ impl Detail {
             4 => Some(Self::Address),
             5 => Some(Self::Feature),
             6 => Some(Self::VolumeSelection),
+            7 => Some(Self::Credentials),
             _ => None,
         }
     }

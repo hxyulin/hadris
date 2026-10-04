@@ -1,4 +1,4 @@
-use std::io::{self, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
@@ -56,6 +56,12 @@ struct PathArgs {
     /// Volume UUID in canonical hexadecimal form
     #[arg(long, group = "volume_selector", value_parser = parse_uuid)]
     volume_uuid: Option<[u8; 16]>,
+    /// Read the volume password from one line of stdin
+    #[arg(long)]
+    password_stdin: bool,
+    /// Select an APFS crypto user; requires --password-stdin
+    #[arg(long, requires = "password_stdin", value_parser = parse_uuid)]
+    crypto_user: Option<[u8; 16]>,
 }
 
 #[derive(clap::Args)]
@@ -123,6 +129,25 @@ fn parse_uuid(value: &str) -> Result<[u8; 16], String> {
     Ok(uuid)
 }
 
+fn read_password(mut input: impl BufRead) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+    const MAX_PASSWORD_LINE: usize = 4096;
+    let mut password = zeroize::Zeroizing::new(Vec::with_capacity(MAX_PASSWORD_LINE));
+    (&mut input)
+        .take(MAX_PASSWORD_LINE as u64)
+        .read_until(b'\n', &mut password)
+        .context("cannot read APFS password from stdin")?;
+    if password.len() == MAX_PASSWORD_LINE && password.last() != Some(&b'\n') {
+        bail!("APFS password line is too long (limit: 4096 bytes including line ending)");
+    }
+    if password.last() == Some(&b'\n') {
+        password.pop();
+        if password.last() == Some(&b'\r') {
+            password.pop();
+        }
+    }
+    Ok(password)
+}
+
 fn mount(args: &PathArgs) -> Result<ApfsFs<Device>> {
     let device = open_device(&args.image)?;
     let options = MountOptions::new().read_only();
@@ -132,9 +157,23 @@ fn mount(args: &PathArgs) -> Result<ApfsFs<Device>> {
         .or_else(|| args.volume_name.as_deref().map(VolumeSelector::Name))
         .or_else(|| args.volume_object_id.map(VolumeSelector::ObjectId))
         .or_else(|| args.volume_uuid.map(VolumeSelector::Uuid));
-    let mounted = match selector {
-        Some(selector) => ApfsFs::mount_volume(device, options, selector),
-        None => ApfsFs::mount(device, options),
+    let mounted = if args.password_stdin {
+        let password = read_password(io::stdin().lock())?;
+        match selector {
+            Some(selector) => ApfsFs::mount_volume_with_password(
+                device,
+                options,
+                selector,
+                &password,
+                args.crypto_user,
+            ),
+            None => ApfsFs::mount_with_password(device, options, &password, args.crypto_user),
+        }
+    } else {
+        match selector {
+            Some(selector) => ApfsFs::mount_volume(device, options, selector),
+            None => ApfsFs::mount(device, options),
+        }
     };
     mounted.with_context(|| format!("cannot mount APFS in {}", args.image.image.display()))
 }
@@ -318,6 +357,95 @@ mod tests {
                 "Data"
             ])
             .is_err()
+        );
+    }
+    #[test]
+    fn password_input_preserves_bytes_and_only_removes_line_endings() {
+        for (input, expected) in [
+            (&b"secret\nignored"[..], &b"secret"[..]),
+            (&b"secret\r\n"[..], &b"secret"[..]),
+            (&b" secret "[..], &b" secret "[..]),
+            (&b"\xff\x00\n"[..], &b"\xff\x00"[..]),
+            (&b"\n"[..], &b""[..]),
+        ] {
+            assert_eq!(&*super::read_password(input).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn password_input_is_bounded_even_across_small_reads() {
+        for ending in [&b"\n"[..], &b"\r\n"[..], &b""[..]] {
+            let payload = vec![b'x'; 4096 - ending.len().max(1)];
+            let mut line = payload.clone();
+            line.extend_from_slice(ending);
+            let reader = std::io::BufReader::with_capacity(7, line.as_slice());
+            let password = super::read_password(reader).unwrap();
+            assert_eq!(&*password, &payload);
+            assert_eq!(password.capacity(), 4096);
+        }
+        for length in [4096, 4097, 8192] {
+            let mut line = vec![b'x'; length];
+            line.push(b'\n');
+            let mut reader = std::io::BufReader::with_capacity(7, line.as_slice());
+            let error = super::read_password(&mut reader).unwrap_err();
+            assert!(error.to_string().contains("APFS password line is too long"));
+            assert!(!error.to_string().contains("xxxx"));
+            let mut remaining = Vec::new();
+            std::io::Read::read_to_end(&mut reader, &mut remaining).unwrap();
+            assert_eq!(remaining, line[4096..]);
+        }
+        assert!(super::read_password(&vec![b'x'; 4096][..]).is_err());
+    }
+
+    #[test]
+    fn password_read_errors_keep_context_without_password_bytes() {
+        struct FailingReader(bool);
+
+        impl std::io::Read for FailingReader {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                unreachable!()
+            }
+        }
+
+        impl std::io::BufRead for FailingReader {
+            fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+                if self.0 {
+                    Err(std::io::Error::other("test read failure"))
+                } else {
+                    Ok(b"secret")
+                }
+            }
+
+            fn consume(&mut self, amount: usize) {
+                assert_eq!(amount, 6);
+                self.0 = true;
+            }
+        }
+
+        let error = super::read_password(FailingReader(false)).unwrap_err();
+        let message = format!("{error:#}");
+        assert!(message.contains("cannot read APFS password from stdin"));
+        assert!(message.contains("test read failure"));
+        assert!(!message.contains("secret"));
+    }
+
+    #[test]
+    fn crypto_user_requires_password_input_and_password_is_not_a_cli_argument() {
+        let base = ["hadris", "apfs", "cat", "image.apfs", "/file"];
+        let user = "01234567-89ab-cdef-0123-456789abcdef";
+        assert!(
+            crate::Cli::try_parse_from(base.into_iter().chain(["--crypto-user", user])).is_err()
+        );
+        assert!(
+            crate::Cli::try_parse_from(base.into_iter().chain([
+                "--password-stdin",
+                "--crypto-user",
+                user
+            ]))
+            .is_ok()
+        );
+        assert!(
+            crate::Cli::try_parse_from(base.into_iter().chain(["--password", "secret"])).is_err()
         );
     }
 }

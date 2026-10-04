@@ -28,6 +28,15 @@ pub struct Container<D> {
     device: D,
     info: ContainerInfo,
     device_block_size: u32,
+    #[cfg(feature = "encryption")]
+    unlocked: Option<UnlockedVolume>,
+}
+
+#[cfg(feature = "encryption")]
+#[derive(Debug)]
+struct UnlockedVolume {
+    uuid: [u8; 16],
+    key: crate::crypto::VolumeKey,
 }
 
 impl<D> Container<D>
@@ -44,7 +53,10 @@ where
         match Self::read_info(&mut device).await {
             Ok(info) => {
                 let device_block_size = device.block_size().get();
-                Ok(Self { device, info, device_block_size })
+                Ok(Self { device, info, device_block_size,
+                    #[cfg(feature = "encryption")]
+                    unlocked: None,
+                })
             }
             Err(error) => Err(hadris_fs::MountError::new(error, device)),
         }
@@ -93,6 +105,108 @@ where
     /// Returns the block-zero superblock.
     pub const fn superblock(&self) -> &ContainerSuperblock {
         &self.info.superblock
+    }
+
+    /// Unlocks one software-encrypted, single-key volume with a password.
+    ///
+    /// `crypto_user` restricts the search to a crypto-user UUID; `None` tries
+    /// supported password records. Incorrect credentials return `InvalidInput`
+    /// with [`crate::Detail::Credentials`].
+    /// Hardware and per-file-key encryption are unsupported. This replaces any
+    /// previous unlocked volume, including on failure. Passwords are borrowed
+    /// only during this call; retained keys are redacted and wiped on drop.
+    /// Keybags are limited to 1 MiB each and total PBKDF2 work to 1,000,000 iterations.
+    #[cfg(feature = "encryption")]
+    pub async fn unlock_volume(
+        &mut self,
+        volume: &VolumeSuperblock,
+        password: &[u8],
+        crypto_user: Option<[u8; 16]>,
+    ) -> hadris_fs::FsResult<(), D::Error> {
+        self.unlocked = None;
+        let checkpoint = self.latest_superblock().await?;
+        if !self.volume_superblocks(&checkpoint).await?.contains(volume) {
+            return Err(hadris_fs::ErrorKind::InvalidInput.into());
+        }
+        self.unlock_selected(&checkpoint, volume, password, crypto_user).await
+    }
+
+    #[cfg(feature = "encryption")]
+    pub(crate) async fn unlock_selected(
+        &mut self,
+        checkpoint: &ContainerSuperblock,
+        volume: &VolumeSuperblock,
+        password: &[u8],
+        crypto_user: Option<[u8; 16]>,
+    ) -> hadris_fs::FsResult<(), D::Error> {
+        self.unlocked = None;
+        if volume.flags & crate::types::volume::APFS_FS_UNENCRYPTED != 0 {
+            return Err(hadris_fs::Error::new(hadris_fs::ErrorKind::InvalidInput, "APFS volume is not software encrypted"));
+        }
+        if checkpoint.flags & 4 == 0 || volume.flags & crate::types::volume::APFS_FS_ONEKEY == 0 {
+            return Err(crate::ApfsError::Unsupported("APFS hardware or per-file-key encryption").into());
+        }
+        let container_data = self.read_keybag(checkpoint.keylocker_start, checkpoint.keylocker_blocks, &checkpoint.uuid).await?;
+        let container_bag = crate::crypto::Keybag::parse(&container_data, crate::crypto::CONTAINER_KEYBAG)?;
+        let (start, blocks) = container_bag.volume_records_range(&volume.volume_id)?;
+        let records_data = self.read_keybag(start, blocks, &volume.volume_id).await?;
+        let records_bag = crate::crypto::Keybag::parse(&records_data, crate::crypto::VOLUME_KEYBAG)?;
+        let key = crate::crypto::unlock_volume_key(&container_bag, &records_bag, &volume.volume_id, crypto_user.as_ref(), password, 1_000_000)?
+            .ok_or_else(|| hadris_fs::Error::new(hadris_fs::ErrorKind::InvalidInput, "APFS credentials did not unlock the volume").with_detail(crate::Detail::Credentials.code()))?;
+        self.verify_unlocked_root(volume, &key).await?;
+        self.unlocked = Some(UnlockedVolume { uuid: volume.volume_id, key });
+        Ok(())
+    }
+
+    #[cfg(feature = "encryption")]
+    async fn verify_unlocked_root(&mut self, volume: &VolumeSuperblock, key: &crate::crypto::VolumeKey) -> hadris_fs::FsResult<(), D::Error> {
+        let root = self.resolve_volume_object(volume, volume.root_tree_oid).await?
+            .ok_or(crate::ApfsError::InvalidValue("volume root tree object not found"))?;
+        let mut data = self.read_apfs_block_vec(root.address).await?;
+        if root.flags & OMAP_VAL_ENCRYPTED != 0 {
+            let sector = root.address.checked_mul(u64::from(self.info.superblock.block_size / 512))
+                .ok_or(crate::ApfsError::AddressOverflow)?;
+            key.decrypt(&mut data, sector)?;
+        }
+        Self::parse_btree_data(data, root.flags)?;
+        Ok(())
+    }
+
+    #[cfg(feature = "encryption")]
+    pub(crate) fn check_unlocked_volume(&self, volume: &VolumeSuperblock) -> hadris_fs::FsResult<(), D::Error> {
+        if volume.flags & (crate::types::volume::APFS_FS_ONEKEY | crate::types::volume::APFS_FS_UNENCRYPTED) == crate::types::volume::APFS_FS_ONEKEY
+            && self.unlocked.as_ref().is_none_or(|unlocked| unlocked.uuid != volume.volume_id)
+        {
+            return Err(hadris_fs::Error::new(hadris_fs::ErrorKind::InvalidInput, "APFS selected volume is not unlocked")
+                .with_detail(crate::Detail::Credentials.code()));
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "encryption")]
+    async fn read_keybag(
+        &mut self,
+        start: u64,
+        blocks: u64,
+        uuid: &[u8; 16],
+    ) -> hadris_fs::FsResult<zeroize::Zeroizing<alloc::vec::Vec<u8>>, D::Error> {
+        let size = u64::from(self.info.superblock.block_size);
+        if blocks == 0 || start == 0 || start.checked_add(blocks).is_none_or(|end| end > self.info.superblock.block_count) {
+            return Err(crate::ApfsError::InvalidValue("keybag range outside container").into());
+        }
+        let bytes = blocks.checked_mul(size).ok_or(crate::ApfsError::AddressOverflow)?;
+        if bytes > 1024 * 1024 {
+            return Err(hadris_fs::ErrorKind::LimitExceeded.into());
+        }
+        let mut data = zeroize::Zeroizing::new(alloc::vec::Vec::new());
+        data.try_reserve_exact(bytes as usize).map_err(|_| hadris_fs::ErrorKind::LimitExceeded)?;
+        data.resize(bytes as usize, 0);
+        for (index, block) in data.chunks_exact_mut(size as usize).enumerate() {
+            self.read_apfs_block(start + index as u64, block).await?;
+        }
+        let first_sector = start.checked_mul(size / 512).ok_or(crate::ApfsError::AddressOverflow)?;
+        crate::crypto::decrypt_keybag(&mut data, uuid, first_sector)?;
+        Ok(data)
     }
 
     /// Reads one APFS container block by APFS physical block number.
@@ -480,7 +594,7 @@ where
         &mut self,
         root_physical_block: u64,
     ) -> hadris_fs::FsResult<alloc::vec::Vec<OwnedEntry>, D::Error> {
-        self.walk_btree(root_physical_block, 0, 0, None).await
+        self.walk_btree(root_physical_block, 0, 0, None, None).await
     }
 
     #[cfg(any(feature = "alloc", feature = "std"))]
@@ -490,10 +604,12 @@ where
         root_flags: u32,
         root_oid: u64,
         virtual_map: Option<&VirtualObjectMap>,
+        volume: Option<&VolumeSuperblock>,
     ) -> hadris_fs::FsResult<alloc::vec::Vec<OwnedEntry>, D::Error> {
-        let root = self
-            .read_btree_node_with_flags(root_physical_block, root_flags)
-            .await?;
+        let root = match volume {
+            Some(volume) => self.read_volume_btree_node_with_flags(volume, root_physical_block, root_flags).await?,
+            None => self.read_btree_node_with_flags(root_physical_block, root_flags).await?,
+        };
         let info = root.tree_info()?;
         let virtual_children = info.fixed.flags & BTREE_PHYSICAL == 0;
         let mut leaves = alloc::vec::Vec::new();
@@ -527,9 +643,10 @@ where
                     if !visited.insert(child_block) {
                         return Err(crate::ApfsError::InvalidValue("B-tree node revisited").into());
                     }
-                    let child = self
-                        .read_btree_node_with_flags(child_block, child_flags)
-                        .await?;
+                    let child = match volume {
+                        Some(volume) => self.read_volume_btree_node_with_flags(volume, child_block, child_flags).await?,
+                        None => self.read_btree_node_with_flags(child_block, child_flags).await?,
+                    };
                     if node.node()?.level.checked_sub(1) != Some(child.node()?.level) {
                         return Err(crate::ApfsError::InvalidValue("B-tree child level").into());
                     }
@@ -560,6 +677,10 @@ where
         &mut self,
         volume: &VolumeSuperblock,
     ) -> hadris_fs::FsResult<alloc::vec::Vec<OwnedEntry>, D::Error> {
+        #[cfg(feature = "encryption")]
+        if self.unlocked.is_some() {
+            self.check_unlocked_volume(volume)?;
+        }
         let root = self
             .resolve_volume_object(volume, volume.root_tree_oid)
             .await?
@@ -567,7 +688,7 @@ where
                 "volume root tree object not found",
             ))?;
         let map = self.volume_object_map(volume).await?;
-        self.walk_btree(root.address, root.flags, volume.root_tree_oid, Some(&map))
+        self.walk_btree(root.address, root.flags, volume.root_tree_oid, Some(&map), Some(volume))
             .await
     }
 
@@ -746,15 +867,16 @@ where
             .try_reserve_exact(len)
             .map_err(|_| crate::ApfsError::InvalidValue("file is too large to read into memory"))?;
         output.resize(len, 0);
-        let read = self.read_extents_at(&extents, size, 0, &mut output).await?;
+        let read = self.read_volume_extents_at(volume, &extents, size, 0, &mut output).await?;
         output.truncate(read);
         Ok(output)
     }
 
-    /// Reads file data at `offset` from extents returned by
+    /// Reads unencrypted file data at `offset` from extents returned by
     /// [`Self::file_extents`] for a file of `size` bytes. Sparse extents and
     /// ranges no extent covers read as zeros. Returns the bytes read, which
-    /// is zero at or past `size`.
+    /// is zero at or past `size`. Encrypted extents require the volume-scoped
+    /// [`Self::read_volume_extents_at`] API, even when a volume is unlocked.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub async fn read_extents_at(
         &mut self,
@@ -763,13 +885,60 @@ where
         offset: u64,
         buf: &mut [u8],
     ) -> hadris_fs::FsResult<usize, D::Error> {
+        self.read_extents_inner(extents, size, offset, buf, false).await
+    }
+
+    /// Reads extents belonging to `volume`, including software-encrypted data.
+    ///
+    /// Encrypted extents require that exact volume to be unlocked. Extents must
+    /// be obtained from this volume's filesystem tree. Holes and EOF behave as
+    /// in [`Self::read_extents_at`]. The caller's buffer is unchanged on a
+    /// credential or extent preflight failure.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub async fn read_volume_extents_at(
+        &mut self,
+        volume: &VolumeSuperblock,
+        extents: &[FileExtentRecord],
+        size: u64,
+        offset: u64,
+        buf: &mut [u8],
+    ) -> hadris_fs::FsResult<usize, D::Error> {
+        #[cfg(feature = "encryption")]
+        {
+            self.check_unlocked_volume(volume)?;
+            if extents.iter().any(|extent| extent.cryptography_id != 0)
+                && self.unlocked.as_ref().is_none_or(|unlocked| unlocked.uuid != volume.volume_id)
+            {
+                return Err(hadris_fs::Error::new(hadris_fs::ErrorKind::InvalidInput, "APFS selected volume is not unlocked")
+                    .with_detail(crate::Detail::Credentials.code()));
+            }
+        }
+        #[cfg(not(feature = "encryption"))]
+        let _ = volume;
+        self.read_extents_inner(extents, size, offset, buf, true).await
+    }
+
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    async fn read_extents_inner(
+        &mut self,
+        extents: &[FileExtentRecord],
+        size: u64,
+        offset: u64,
+        buf: &mut [u8],
+        volume_scoped: bool,
+    ) -> hadris_fs::FsResult<usize, D::Error> {
         if offset >= size || buf.is_empty() {
             return Ok(0);
         }
         for extent in extents {
             extent.logical_address.checked_add(extent.length).ok_or(crate::ApfsError::AddressOverflow)?;
-            if extent.cryptography_id != 0 {
+            if extent.cryptography_id != 0 && (!volume_scoped || !self.has_volume_key()) {
                 return Err(crate::ApfsError::Unsupported("encrypted file extents").into());
+            }
+            if extent.cryptography_id != 0 {
+                extent.cryptography_id.checked_add(extent.length.div_ceil(u64::from(self.info.superblock.block_size)))
+                    .and_then(|end| end.checked_mul(u64::from(self.info.superblock.block_size / 512)))
+                    .ok_or(crate::ApfsError::AddressOverflow)?;
             }
             if extent.physical_block != 0 {
                 let blocks = extent.length.div_ceil(u64::from(self.info.superblock.block_size));
@@ -798,6 +967,13 @@ where
                     .checked_add(relative / block_size)
                     .ok_or(crate::ApfsError::AddressOverflow)?;
                 self.read_apfs_block(physical, &mut block).await?;
+                #[cfg(feature = "encryption")]
+                if extent.cryptography_id != 0 {
+                    let tweak = extent.cryptography_id.checked_add(relative / block_size)
+                        .and_then(|block| block.checked_mul(block_size / 512))
+                        .ok_or(crate::ApfsError::AddressOverflow)?;
+                    self.unlocked.as_ref().ok_or(hadris_fs::ErrorKind::InvalidInput)?.key.decrypt(&mut block, tweak)?;
+                }
                 let within = (relative % block_size) as usize;
                 let n = (block_size - within as u64).min(stop - pos) as usize;
                 let out = (pos - offset) as usize;
@@ -856,16 +1032,76 @@ where
         omap_flags: u32,
     ) -> hadris_fs::FsResult<OwnedBTreeNode, D::Error> {
         if omap_flags & OMAP_VAL_ENCRYPTED != 0 {
+            return Err(crate::ApfsError::Unsupported("encrypted B-tree nodes require volume-scoped reads").into());
+        }
+        self.read_scoped_btree_node(physical_block, omap_flags).await
+    }
+
+    /// Reads a mapped B-tree node belonging to an explicitly identified volume.
+    /// Encrypted nodes require that volume's key; mappings must come from its
+    /// object map. Checksums and structural validation follow decryption.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub async fn read_volume_btree_node_with_flags(
+        &mut self,
+        volume: &VolumeSuperblock,
+        physical_block: u64,
+        omap_flags: u32,
+    ) -> hadris_fs::FsResult<OwnedBTreeNode, D::Error> {
+        #[cfg(feature = "encryption")]
+        if omap_flags & OMAP_VAL_ENCRYPTED != 0 {
+            if self.unlocked.as_ref().is_none_or(|unlocked| unlocked.uuid != volume.volume_id) {
+                if self.unlocked.is_none() {
+                    return Err(crate::ApfsError::Unsupported("encrypted B-tree nodes").into());
+                }
+                return Err(hadris_fs::Error::new(hadris_fs::ErrorKind::InvalidInput, "APFS selected volume is not unlocked")
+                    .with_detail(crate::Detail::Credentials.code()));
+            }
+        }
+        #[cfg(not(feature = "encryption"))]
+        let _ = volume;
+        self.read_scoped_btree_node(physical_block, omap_flags).await
+    }
+
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    async fn read_scoped_btree_node(
+        &mut self,
+        physical_block: u64,
+        omap_flags: u32,
+    ) -> hadris_fs::FsResult<OwnedBTreeNode, D::Error> {
+        if omap_flags & OMAP_VAL_ENCRYPTED != 0 && !self.has_volume_key() {
             return Err(crate::ApfsError::Unsupported(
                 "encrypted B-tree nodes",
             ).into());
         }
         let data = self.read_apfs_block_vec(physical_block).await?;
+        #[cfg(feature = "encryption")]
+        let data = {
+        let mut data = data;
+        if omap_flags & OMAP_VAL_ENCRYPTED != 0 {
+            let first_sector = physical_block.checked_mul(u64::from(self.info.superblock.block_size / 512))
+                .ok_or(crate::ApfsError::AddressOverflow)?;
+            self.unlocked.as_ref().ok_or(hadris_fs::ErrorKind::InvalidInput)?.key.decrypt(&mut data, first_sector)?;
+        }
+        data
+        };
+        Self::parse_btree_data(data, omap_flags)
+    }
+
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    fn parse_btree_data(data: alloc::vec::Vec<u8>, omap_flags: u32) -> hadris_fs::FsResult<OwnedBTreeNode, D::Error> {
         if omap_flags & OMAP_VAL_NOHEADER != 0 {
             return Ok(OwnedBTreeNode::parse_headerless(data)?);
         }
         verify_object(&data)?;
         Ok(OwnedBTreeNode::parse(data)?)
+    }
+
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    fn has_volume_key(&self) -> bool {
+        #[cfg(feature = "encryption")]
+        { self.unlocked.is_some() }
+        #[cfg(not(feature = "encryption"))]
+        { false }
     }
 
     /// Consumes the reader and returns the wrapped device.

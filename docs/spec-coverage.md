@@ -123,3 +123,10 @@ Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 | MBR:partition-entry | `RawMbrEntry` | unknown | `roundtrip::mbr_layout_roundtrip` | `part_read` | Behavior is tested, including EBR chains, but authoritative source text was unavailable for this audit. |
 | UEFI:GPT-Header | `RawGptHeader` | unknown | `read::backup_gpt_replaces_a_corrupt_primary`, `roundtrip::gpt_layout_roundtrip` | `part_read` | Behavior is tested, but authoritative source text was unavailable for this audit. |
 | UEFI:GPT-Entry | `RawGptEntry` | unknown | `roundtrip::gpt_layout_roundtrip`, `roundtrip::utf16_names_roundtrip` | `part_read` | Behavior is tested, but authoritative source text was unavailable for this audit. |
+
+## hadris-apfs
+
+| Spec | Item | Compliance | Tests | Fuzz | Notes |
+|------|------|------------|-------|------|-------|
+| Apple-APFS:nx_superblock_t | `ContainerSuperblock` | partial | | | Parses checkpoint geometry and the software keylocker range; Fusion and other container extensions remain unsupported. |
+| Apple-APFS:Encryption | `Keybag` | partial | | | Validates software keybags and unwraps single-key password records; hardware and per-file keys are unsupported. |

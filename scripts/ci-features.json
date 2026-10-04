@@ -250,7 +250,22 @@
     {
       "crate": "hadris-apfs",
       "tier": "all-capabilities",
-      "features": "std,alloc,sync,async,read"
+      "features": "std,alloc,sync,async,read,encryption"
+    },
+    {
+      "crate": "hadris-apfs",
+      "tier": "encrypted-no-std-sync",
+      "features": "encryption,sync"
+    },
+    {
+      "crate": "hadris-apfs",
+      "tier": "encrypted-no-std-async",
+      "features": "encryption,async"
+    },
+    {
+      "crate": "hadris-apfs",
+      "tier": "encryption-without-mode",
+      "features": "encryption"
     }
   ],
   "optical": [
@@ -447,6 +462,16 @@
       "crate": "hadris",
       "tier": "apfs-selected-dual",
       "features": "std,sync,async,detect,unstable-apfs"
+    },
+    {
+      "crate": "hadris",
+      "tier": "encrypted-apfs-sync",
+      "features": "sync,apfs-encryption"
+    },
+    {
+      "crate": "hadris",
+      "tier": "encrypted-apfs-async",
+      "features": "async,apfs-encryption"
     }
   ]
 }

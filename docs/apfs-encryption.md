@@ -1,6 +1,7 @@
 # APFS encryption and the Asahi read-only driver
 
-The next driver milestone is password-unlocked, software-encrypted APFS volumes.
+The driver supports password-unlocked, software-encrypted single-key APFS volumes
+through the opt-in `encryption` feature (`apfs-encryption` in the umbrella crate).
 Native macOS tools provide the independent producer and reader oracle. This is
 one part of the eventual Asahi FUSE goal; it does not establish access to an
 Apple-silicon Mac's internal FileVault Data volume.
@@ -31,7 +32,7 @@ Run on macOS, from the repository root:
 cargo build -p hadris-cli
 python3 scripts/apfs-encryption-fixtures.py \
   --output /tmp/hadris-apfs-encryption-fixtures \
-  --hadris target/debug/hadris
+  --hadris target/debug/hadris --encrypted-reads
 ```
 
 The output directory must not exist. The script creates two disposable 64 MiB
@@ -56,10 +57,46 @@ macOS version and passed checks. Native verifier and crypto-user output are
 retained alongside the images. Binary fixtures stay outside the repository.
 On failure, partial artifacts remain for diagnosis; rerun with a new directory.
 
-The optional `--hadris` check captures today's baseline: plaintext file reads
-must match every native hash, and the encrypted volume must fail explicitly
-with `encrypted B-tree nodes`. That baseline must change when actual unlock
-support lands; it is not an encryption-success test.
+The `--hadris --encrypted-reads` oracle requires plaintext and decrypted reads
+to match every native hash, checks symlink following, explicit crypto-user
+selection and generic extraction, and rejects absent or wrong credentials.
+Use `--reuse` with an existing output directory to repeat only the driver checks;
+these checks can also run on Linux because native production is already complete.
+The manifest's public password is only for these deterministic test images.
+
+## Unlock and read APIs
+
+`ApfsFs::mount_with_password(device, options, password, crypto_user)` mounts a
+sole software-encrypted volume. `mount_volume_with_password` adds a separate
+`VolumeSelector`. Passwords are borrowed byte slices, and an optional crypto-user
+UUID restricts the password-record search. Wrong credentials return
+`ErrorKind::InvalidInput` with `Detail::Credentials`; mount failures return the
+device. Generic `MountOptions` does not contain APFS credentials.
+
+Native readers use `Container::unlock_volume`. Its key is tied to one volume,
+replaced on an unlock attempt, redacted in `Debug`, and wiped on drop. Candidate
+keys remain local until verification succeeds, including across async
+cancellation. `read_volume_extents_at` and `read_volume_btree_node_with_flags`
+require the volume explicitly; unscoped native reads reject encrypted inputs.
+Mappings and extents must come from that volume's metadata.
+
+Both modes share software crypto and parsing. Async APIs await device I/O;
+password derivation itself is bounded CPU work performed within the mount call.
+Keybags are capped at 1 MiB each and 256 records, and the entire password search
+is capped at 1,000,000 PBKDF2 iterations. Unsupported individual wrapping formats
+are skipped during automatic crypto-user selection, while malformed and failed
+record-HMAC checks remain fatal. Explicitly selected unsupported users fail.
+
+The implementation supports `APFS_FS_ONEKEY` software volumes. Hardware and
+per-file-key encryption are rejected; encryption rolling is not qualified.
+Password-based PBKDF2-SHA256, AES-KW and 512-byte AES-XTS are implemented with
+RustCrypto primitives and mode dependencies. RFC3394, PBKDF2 and IEEE XTS known
+answers accompany native image tests. DER record HMACs and object checksums are
+validated; these do not authenticate the overall filesystem against an attacker.
+
+The CLI accepts `--password-stdin` for `ls`, `stat`, `cat` and `extract`, plus
+optional `--crypto-user <uuid>`. It reads one byte line and removes only LF/CRLF;
+the password buffer is wiped on drop. Passwords are not accepted in arguments.
 
 ## Use cases for the unlock API
 
@@ -73,15 +110,13 @@ support lands; it is not an encryption-success test.
 | Sync, async and `no_std` with allocation | Share parsing and crypto logic; keep host prompting and keychain access outside the library |
 | Internal storage on Asahi | Accept an appropriate storage/unlock backend; do not assume a portable software volume key exists |
 
-Implement and test keybag parsing and password/key unwrapping before wiring
-decryption into metadata and extent reads. Use vetted cryptographic primitives,
-test vectors and the native images, and keep credentials out of diagnostics.
-Do not treat an object checksum as cryptographic authentication. Decrypted
-metadata must still pass the ordinary APFS structural and bounds checks.
+Decrypted metadata still passes the ordinary APFS structural and bounds checks.
+Native tests cover sync/async mounts, sparse and offset reads, hard links,
+symlinks, explicit identities, credential failures, key invalidation and async
+unlock cancellation. Synthetic regressions cover malformed DER and keybags,
+HMAC tampering, excessive KDF work and unsupported wrapping formats.
 
-Keep volume selection independent of credentials. Evolve a mount/unlock API
-through these scenarios rather than adding APFS passwords to generic
-`MountOptions`. The storage backend remains responsible for hardware inline
+Volume selection stays independent of credentials. The storage backend remains responsible for hardware inline
 decryption; APFS software encryption remains format-specific.
 
 After software encryption, the FUSE qualification work still includes xattrs

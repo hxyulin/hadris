@@ -49,8 +49,16 @@ refused. `info` lists volume names, object IDs and UUIDs without selecting one.
 For whole-disk images, `--gpt` opens the sole APFS GPT partition; multiple
 APFS partitions require `--partition <index>`. `--partition` also supports
 MBR entries. `--sector-size` selects the disk's logical sector size (default
-512 bytes). APFS compression,
-encryption, snapshots and writing are unsupported.
+512 bytes). Password-encrypted, single-key software APFS volumes accept
+`--password-stdin` on `ls`, `stat`, `cat` and `extract`; the password is one line
+from standard input, with only its LF/CRLF terminator removed. Input is limited
+to 4096 bytes including the line ending; a line that reaches the limit without
+an LF terminator is rejected. The password buffer is reserved before reading
+and zeroized after use. Add
+`--crypto-user <uuid>` to select a crypto user explicitly. Passwords are not
+accepted as command-line arguments. `info` inspects volume identity without
+unlocking. APFS compression, hardware/per-file encryption, snapshots and writing
+remain unsupported.
 
 ## Shared rules
 
