@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- FAT metadata caching reuses allocated block buffers after invalidation and
+  cache clearing, avoiding repeated allocation during metadata writes.
+
 - FAT node-driver multi-cluster growth batches tail linking with the final
   FAT16/32 allocation group, using the new raw `allocate_run_after` primitive.
   FAT12 keeps its packed-entry recovery path.

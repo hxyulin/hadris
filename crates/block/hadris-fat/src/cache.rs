@@ -142,9 +142,11 @@ impl Blocks {
     fn tick(&mut self) -> u64 {
         if self.clock == u64::MAX {
             for entry in &mut self.entries {
-                entry.used = 0;
+                if entry.used != 0 {
+                    entry.used = 1;
+                }
             }
-            self.clock = 0;
+            self.clock = 1;
         }
         self.clock += 1;
         self.clock
@@ -155,7 +157,10 @@ impl Blocks {
             return None;
         }
         let used = self.tick();
-        let entry = self.entries.iter_mut().find(|entry| entry.index == index)?;
+        let entry = self
+            .entries
+            .iter_mut()
+            .find(|entry| entry.used != 0 && entry.index == index)?;
         entry.used = used;
         Some(&entry.data)
     }
@@ -165,29 +170,48 @@ impl Blocks {
             return;
         }
         let used = self.tick();
-        if let Some(entry) = self.entries.iter_mut().find(|entry| entry.index == index) {
+        let slot = self
+            .entries
+            .iter()
+            .position(|entry| entry.used != 0 && entry.index == index)
+            .or_else(|| self.entries.iter().position(|entry| entry.used == 0))
+            .or_else(|| {
+                if self.entries.len() == self.limit {
+                    self.entries
+                        .iter()
+                        .enumerate()
+                        .min_by_key(|(_, entry)| entry.used)
+                        .map(|(slot, _)| slot)
+                } else {
+                    None
+                }
+            });
+        if let Some(slot) = slot {
+            let entry = &mut self.entries[slot];
+            entry.index = index;
             entry.data.copy_from_slice(bytes);
             entry.used = used;
-        } else if self.entries.len() < self.limit {
+        } else {
             self.entries.push(Block {
                 index,
                 data: bytes.into(),
                 used,
             });
-        } else if let Some(entry) = self.entries.iter_mut().min_by_key(|entry| entry.used) {
-            entry.index = index;
-            entry.data.copy_from_slice(bytes);
-            entry.used = used;
         }
     }
 
     pub(crate) fn invalidate(&mut self, first: u64, count: u64) {
-        self.entries
-            .retain(|entry| entry.index < first || entry.index - first >= count);
+        for entry in &mut self.entries {
+            if entry.index >= first && entry.index - first < count {
+                entry.used = 0;
+            }
+        }
     }
 
     pub(crate) fn clear(&mut self) {
-        self.entries.clear();
+        for entry in &mut self.entries {
+            entry.used = 0;
+        }
         self.clock = 0;
     }
 }
@@ -214,11 +238,48 @@ mod tests {
         cache.invalidate(u64::MAX, 1);
         assert_eq!(cache.get(u64::MAX), None);
         cache.clear();
-        assert!(cache.entries.is_empty());
+        assert!(cache.entries.iter().all(|entry| entry.used == 0));
         let mut disabled = Blocks::new(0);
         disabled.insert(0, &[0; 512]);
         assert_eq!(disabled.get(0), None);
         assert_eq!(disabled.entries.capacity(), 0);
+    }
+
+    #[test]
+    fn block_buffers_survive_invalidation_and_clear() {
+        for size in [512, 4096] {
+            let mut cache = Blocks::new(2);
+            cache.insert(4, &alloc::vec![1; size]);
+            cache.insert(5, &alloc::vec![2; size]);
+            let addresses: Vec<_> = cache
+                .entries
+                .iter()
+                .map(|entry| entry.data.as_ptr())
+                .collect();
+            for round in 0..32 {
+                cache.invalidate(4, 1);
+                assert_eq!(cache.get(4), None);
+                assert_eq!(cache.get(5), Some(alloc::vec![2; size].as_slice()));
+                cache.clock = u64::MAX;
+                assert_eq!(cache.get(4), None);
+                cache.insert(4, &alloc::vec![round; size]);
+                assert_eq!(cache.get(4), Some(alloc::vec![round; size].as_slice()));
+                assert_eq!(cache.entries.len(), 2);
+                for (entry, address) in cache.entries.iter().zip(&addresses) {
+                    assert_eq!(entry.data.as_ptr(), *address);
+                }
+            }
+            cache.clear();
+            assert_eq!(cache.get(4), None);
+            assert_eq!(cache.get(5), None);
+            cache.insert(u64::MAX, &alloc::vec![3; size]);
+            cache.insert(8, &alloc::vec![4; size]);
+            assert_eq!(cache.get(u64::MAX), Some(alloc::vec![3; size].as_slice()));
+            assert_eq!(cache.get(8), Some(alloc::vec![4; size].as_slice()));
+            for (entry, address) in cache.entries.iter().zip(&addresses) {
+                assert_eq!(entry.data.as_ptr(), *address);
+            }
+        }
     }
 
     #[test]

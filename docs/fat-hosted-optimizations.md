@@ -123,3 +123,22 @@ The firmware budget checker passes on thumbv6m, thumbv7em and riscv32imc.
 The FAT conformance suite passes nine tests; four optional peer/native tests
 remain ignored. No physical-media timing or native mounted-image run is
 claimed by these measurements.
+
+## 6. Reuse invalidated metadata buffers
+
+Invalidation and `clear_cache` mark block slots unavailable without dropping
+their buffers. Misses refill invalid slots before allocating new buffers or
+replacing live LRU entries. The bound and device I/O are unchanged; cache
+storage remains allocated until the cache configuration is replaced or the
+filesystem is dropped. Clock wrap preserves the distinction between invalid
+slots and live entries, including block index `u64::MAX`.
+
+The reuse regression retains the same owned buffers across 32 invalidation
+cycles and explicit clearing for 512-byte and 4 KiB blocks. Existing failed
+mirror writes, cancellation, payload bypass, mutation and async resource
+checks also pass, along with the allocator-only sync/async/write tier.
+The [seven-sample run](benchmarks/fat-hosted-step6.csv) uses 32 positions and
+eight blocks. FAT32 4 KiB writes measure 152.88 µs versus 164.92 µs in the
+previous combined run; FAT12 64 KiB writes measure 457.92 µs versus 606.92 µs.
+I/O counts are identical. Short-name create/remove measures 167.75 µs versus
+162.88 µs, so these CPU timings do not establish improvement in every case.

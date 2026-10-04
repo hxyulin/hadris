@@ -543,6 +543,7 @@ impl<D: BlockDevice> FatFs<D> {
     }
 
     /// Discards cached chain positions, metadata blocks and the buffered block.
+    /// Allocated metadata-block storage is retained for reuse.
     /// Pinned metadata is retained; external device changes require a remount.
     pub fn clear_cache(&mut self) {
         self.chain_cache.clear();
