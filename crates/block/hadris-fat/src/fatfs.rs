@@ -15,12 +15,81 @@ use hadris_fs::{
     NameError, NodeId, OpenMode, RenameMode, SetAttr, Stored,
 };
 
+use crate::CacheOptions;
+use crate::cache::{Blocks, ChainCache};
 use crate::names::{
-    CANDIDATES, NewName, apply_attributes, is_exact, matches, permissions, read_only_bit,
+    CANDIDATES, NewName, Query, apply_attributes, is_exact, permissions, read_only_bit,
     set_read_only, stamp,
 };
 use crate::table::Table;
 use crate::{FatKind, Geometry, VolumeLabel, push_run};
+
+struct MetadataDevice<D> {
+    inner: D,
+    blocks: Blocks,
+}
+
+impl<D: hadris_io::ErrorType> hadris_io::ErrorType for MetadataDevice<D> {
+    type Error = D::Error;
+}
+
+io_transform! {
+impl<D: BlockDevice> BlockDevice for MetadataDevice<D> {
+    fn block_size(&self) -> hadris_storage::BlockSize {
+        self.inner.block_size()
+    }
+    fn block_count(&self) -> u64 {
+        self.inner.block_count()
+    }
+    fn max_block_count(&self) -> u64 {
+        self.inner.max_block_count()
+    }
+    fn disk_offset(&self) -> u64 {
+        self.inner.disk_offset()
+    }
+    fn writable(&self) -> bool {
+        self.inner.writable()
+    }
+
+    async fn read_blocks(
+        &mut self,
+        first: hadris_storage::BlockIndex,
+        buf: &mut [u8],
+    ) -> Result<(), hadris_io::Error<D::Error>> {
+        let Self { inner, blocks } = self;
+        if !blocks.enabled() {
+            return inner.read_blocks(first, buf).await;
+        }
+        if buf.len() == inner.block_size().get() as usize && let Some(bytes) = blocks.get(first.get()) {
+            buf.copy_from_slice(bytes);
+            return Ok(());
+        }
+        inner.read_blocks(first, buf).await?;
+        if buf.len() == inner.block_size().get() as usize {
+            blocks.insert(first.get(), buf);
+        }
+        Ok(())
+    }
+
+    async fn write_blocks(
+        &mut self,
+        first: hadris_storage::BlockIndex,
+        buf: &[u8],
+    ) -> Result<(), hadris_io::Error<D::Error>> {
+        if !self.blocks.enabled() {
+            return self.inner.write_blocks(first, buf).await;
+        }
+        let count = buf.len().div_ceil(self.block_size().get() as usize) as u64;
+        self.blocks.invalidate(first.get(), count);
+        self.inner.write_blocks(first, buf).await
+    }
+
+    async fn flush(&mut self) -> Result<(), hadris_io::Error<D::Error>> {
+        self.inner.flush().await
+    }
+}
+
+}
 
 /// `NodeId::new` for ids that are not 0 by construction.
 const fn node_id(raw: u64) -> NodeId {
@@ -370,7 +439,7 @@ io_transform! {
 ///
 /// Data written by an interrupted `write` may be partly on disk.
 pub struct FatFs<D> {
-    dev: D,
+    dev: MetadataDevice<D>,
     fat: Fat,
     nodes: Table<Node>,
     block: BlockBuf,
@@ -391,6 +460,7 @@ pub struct FatFs<D> {
     moved: bool,
     /// A known `(index, cluster)` of a FAT32 root directory's chain.
     root_hint: ChainPos,
+    chain_cache: ChainCache,
 }
 
 impl<D> fmt::Debug for FatFs<D> {
@@ -421,16 +491,17 @@ impl<D: BlockDevice> FatFs<D> {
     /// blocks are larger than 4096 bytes. The [`MountError`] gives `dev`
     /// back.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all))]
-    pub async fn mount(mut dev: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
+    pub async fn mount(dev: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
+        let mut dev = MetadataDevice { inner: dev, blocks: Blocks::new(0) };
         let read_only = options.is_read_only() || !dev.writable();
         let mut block = match new_block(dev.block_size().get() as usize) {
             Ok(block) => block,
-            Err(error) => return Err(MountError::new(error.into(), dev)),
+            Err(error) => return Err(MountError::new(error.into(), dev.inner)),
         };
         let backup = options.is_backup_boot();
         let fat = match Self::read_volume(&mut dev, &mut block, backup).await {
             Ok(fat) => fat,
-            Err(error) => return Err(MountError::new(error, dev)),
+            Err(error) => return Err(MountError::new(error, dev.inner)),
         };
         let read_only = read_only || (backup && fat.geometry().kind() == FatKind::Fat32);
         let geo = *fat.geometry();
@@ -441,7 +512,7 @@ impl<D: BlockDevice> FatFs<D> {
             0 => false,
             clean => match read_bytes(&mut dev, &mut block, at, &mut entry[..kind.entry_len()]).await {
                 Ok(()) => kind.decode(1, &entry) & clean == 0,
-                Err(error) => return Err(MountError::new(error, dev)),
+                Err(error) => return Err(MountError::new(error, dev.inner)),
             },
         };
         Ok(Self {
@@ -458,7 +529,62 @@ impl<D: BlockDevice> FatFs<D> {
             zone: options.utc_offset(),
             moved: false,
             root_hint: ChainPos::NONE,
+            chain_cache: ChainCache::new(0),
         })
+    }
+
+    /// Enables bounded metadata-block caching and lazy chain-position caching. The bound is shared by
+    /// all files. Mutations and recovery discard the index; the backing device
+    /// must not be changed externally while mounted. Configuration reads no I/O.
+    pub fn with_cache(mut self, options: CacheOptions) -> Self {
+        self.chain_cache = ChainCache::new(options.positions);
+        self.dev.blocks = Blocks::new(options.blocks);
+        self
+    }
+
+    /// Discards cached chain positions, metadata blocks and the buffered block.
+    /// Allocated metadata-block storage is retained for reuse.
+    /// Pinned metadata is retained; external device changes require a remount.
+    pub fn clear_cache(&mut self) {
+        self.chain_cache.clear();
+        self.dev.blocks.clear();
+        self.block.invalidate();
+        self.root_hint = ChainPos::NONE;
+        self.nodes.for_each_mut(|_, node| node.hint = ChainPos::NONE);
+    }
+
+    async fn walk_file(&mut self, node: NodeId, state: &Node, hint: ChainPos, want: u32) -> FsResult<ChainPos, D::Error> {
+        let limit = self.chain_cache.limit();
+        if limit == 0 {
+            return rawio::walk(&mut self.dev, &mut self.block, &self.fat, state.first, hint, want).await;
+        }
+        if hint.is_known() && hint.index() == want {
+            return Ok(hint);
+        }
+        let clusters = (state.size as u64).div_ceil(self.fat.geometry().cluster_size() as u64);
+        let stride = clusters.div_ceil(limit as u64).max(1) as u32;
+        if hint.is_known() && hint.index() <= want && want - hint.index() <= stride {
+            let at = rawio::walk(&mut self.dev, &mut self.block, &self.fat, state.first, hint, want).await?;
+            if at.index() % stride == 0 {
+                self.chain_cache.insert(node, state.first, at, stride);
+            }
+            return Ok(at);
+        }
+        let mut at = self.chain_cache.best(node, state.first, hint, want);
+        if !at.is_known() {
+            at = ChainPos::start(self.check_cluster(state.first)?);
+        }
+        self.chain_cache.insert(node, state.first, at, stride);
+        while at.index() < want {
+            let target = ((at.index() as u64 / stride as u64 + 1) * stride as u64).min(want as u64) as u32;
+            let reached = rawio::walk(&mut self.dev, &mut self.block, &self.fat, state.first, at, target).await?;
+            self.chain_cache.insert(node, state.first, reached, stride);
+            if reached.index() == at.index() {
+                break;
+            }
+            at = reached;
+        }
+        Ok(at)
     }
 
     /// Syncs the volume, as `FileSystem::sync` does, and gives the device
@@ -473,15 +599,15 @@ impl<D: BlockDevice> FatFs<D> {
     pub async fn unmount(mut self) -> Result<D, MountError<D, D::Error>> {
         let synced = FileSystem::sync(&mut self).await;
         match synced {
-            Ok(()) => Ok(self.dev),
-            Err(error) => Err(MountError::new(error, self.dev)),
+            Ok(()) => Ok(self.dev.inner),
+            Err(error) => Err(MountError::new(error, self.dev.inner)),
         }
     }
 
     /// The volume's state from its boot sector, or with `backup` from the
     /// FAT32 backup boot sector. A volume whose boot sector reads as FAT12
     /// or FAT16 has no backup and is read from its boot sector.
-    async fn read_volume(dev: &mut D, block: &mut BlockBuf, backup: bool) -> FsResult<Fat, D::Error> {
+    async fn read_volume(dev: &mut MetadataDevice<D>, block: &mut BlockBuf, backup: bool) -> FsResult<Fat, D::Error> {
         let geo = match backup {
             true => match rawio::read_geometry(dev, block).await {
                 Ok(geo) if geo.kind() != FatKind::Fat32 => geo,
@@ -504,7 +630,7 @@ impl<D: BlockDevice> FatFs<D> {
     /// Returns the device without syncing; [`unmount`](Self::unmount)
     /// syncs first.
     pub fn into_inner(self) -> D {
-        self.dev
+        self.dev.inner
     }
 
     /// Whether the volume was mounted with
@@ -629,7 +755,7 @@ impl<D: BlockDevice> FatFs<D> {
     /// Reads `buf.len()` bytes of the device at byte `offset`, through the
     /// driver's block buffer.
     pub async fn read_raw(&mut self, offset: u64, buf: &mut [u8]) -> FsResult<(), D::Error> {
-        read_bytes(&mut self.dev, &mut self.block, offset, buf).await
+        read_bytes(&mut self.dev.inner, &mut self.block, offset, buf).await
     }
 
     /// Sets the volume label, or removes it with `None`: the label entry
@@ -853,6 +979,7 @@ impl<D: BlockDevice> FatFs<D> {
     /// operation left.
     async fn prepare(&mut self) -> FsResult<(), D::Error> {
         self.writable()?;
+        self.chain_cache.clear();
         self.nodes.remove(RESERVED);
         self.recover().await
     }
@@ -874,6 +1001,9 @@ impl<D: BlockDevice> FatFs<D> {
     }
 
     async fn finish_interrupted(&mut self) -> FsResult<(), D::Error> {
+        if self.pending.is_some() || self.fat.unmirrored().is_some() {
+            self.chain_cache.clear();
+        }
         if self.fat.unmirrored().is_some() {
             let mirrored = rawio::mirror(&mut self.dev, &mut self.block, &mut self.fat).await;
             self.note(mirrored)?;
@@ -897,6 +1027,9 @@ impl<D: BlockDevice> FatFs<D> {
         };
         let (head, extra) = (pending.held.head(), pending.held.extra());
         let mut owned = head != 0 && self.links(pending.owner, head).await?;
+        if matches!(pending.owner, Owner::Tail(_)) && !owned && extra != 0 {
+            owned = self.links(pending.owner, extra).await?;
+        }
         if let Owner::Tail(tail) = pending.owner
             && owned
         {
@@ -1194,6 +1327,7 @@ impl<D: BlockDevice> FatFs<D> {
 
     /// Finds the visible entry named `query`, by long or short name.
     async fn find_entry(&mut self, start: DirStart, query: &str) -> FsResult<Option<Located>, D::Error> {
+        let prepared = Query::new(query, raw::fold_unicode);
         let mut walk = DirWalk::new(start);
         let mut slot = 0;
         let mut long = Assembler::new();
@@ -1201,7 +1335,7 @@ impl<D: BlockDevice> FatFs<D> {
             let units = long.finish(found.entry.lfn_checksum());
             let named = units.is_some();
             let units = units.filter(|units| !units.is_empty());
-            if matches(query, units, &found.entry, self.code_page, raw::fold_unicode) {
+            if prepared.matches(units, &found.entry, self.code_page, raw::fold_unicode) {
                 return Ok(Some(Located {
                     first: if named { found.long_start } else { found.slot },
                     slot: found.slot,
@@ -1260,6 +1394,7 @@ impl<D: BlockDevice> FatFs<D> {
         new: &NewName<'_>,
         skip: Skip,
     ) -> FsResult<Plan, D::Error> {
+        let prepared = Query::new(text, raw::fold_unicode);
         let needed = new.slots();
         let mut walk = DirWalk::new(dir);
         let mut long = Assembler::new();
@@ -1296,7 +1431,7 @@ impl<D: BlockDevice> FatFs<D> {
                             .finish(entry.lfn_checksum())
                             .filter(|units| !units.is_empty());
                         if !skip.covers(slot, offset) && !entry.is_label() {
-                            if check_exists && entry.is_visible() && matches(text, units, &entry, self.code_page, raw::fold_unicode) {
+                            if check_exists && entry.is_visible() && prepared.matches(units, &entry, self.code_page, raw::fold_unicode) {
                                 return Err(ErrorKind::AlreadyExists.into());
                             }
                             for (bit, candidate) in new.candidates.iter().enumerate() {
@@ -1826,11 +1961,16 @@ impl<D: BlockDevice> FatFs<D> {
         if index + 1 >= need {
             return Ok(none);
         }
-        let added = self.allocate_chain(need - 1 - index, false, Owner::Tail(tail)).await?;
-        if let Err(err) = self.set_fat(tail, added).await {
-            let _ = self.recover().await;
-            return Err(err);
-        }
+        let count = need - 1 - index;
+        let pending = self.pending.insert(Pending::chain(0, Owner::Tail(tail)));
+        let result = rawio::allocate_run_after(&mut self.dev, &mut self.block, &mut self.fat, &mut pending.held, tail, count).await;
+        let added = match self.note(result) {
+            Ok(added) => added,
+            Err(err) => {
+                let _ = self.recover().await;
+                return Err(err);
+            }
+        };
         Ok(Growth { first: state.first, added })
     }
 
@@ -2248,7 +2388,7 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
         while done < count {
             let pos = offset + done as u64;
             let want = (pos / cluster_size) as u32;
-            hint = rawio::walk(&mut self.dev, &mut self.block, &self.fat, state.first, hint, want).await?;
+            hint = self.walk_file(node, &state, hint, want).await?;
             if hint.index() < want {
                 return Err(ErrorKind::Corrupt.into());
             }
@@ -2256,7 +2396,7 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
             let at = self.cluster_at(hint.cluster())? + within;
             let n = ((cluster_size - within) as usize).min(count - done);
             let n = rawio::run(&mut self.dev, &mut self.block, &self.fat, &mut hint, n, count - done).await?;
-            read_bytes(&mut self.dev, &mut self.block, at, &mut buf[done..done + n]).await?;
+            read_bytes(&mut self.dev.inner, &mut self.block, at, &mut buf[done..done + n]).await?;
             done += n;
         }
         if let Some(state) = self.nodes.get_mut(node) {

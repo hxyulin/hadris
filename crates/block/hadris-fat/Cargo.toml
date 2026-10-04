@@ -136,3 +136,7 @@ required-features = ["tracing", "sync", "async", "write"]
 [[test]]
 name = "performance_counters"
 required-features = ["std", "sync", "write"]
+
+[[test]]
+name = "fatfs_cache"
+required-features = ["std", "sync", "write"]

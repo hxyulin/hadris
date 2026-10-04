@@ -362,6 +362,7 @@ fn assert_below<F: core::future::Future>(what: &str, future: F, limit: usize) {
 
 /// Mount futures hold one block buffer, and directory operations hold no
 /// block-sized buffer or extra copies of a long name or an entry set.
+/// FAT budgets include 64 bytes for the read-through metadata adapter.
 #[test]
 #[cfg_attr(
     feature = "tracing",
@@ -390,13 +391,13 @@ fn async_futures_stay_small() {
     assert_below(
         "FatFs rename",
         fat.rename(root, name, root, name, flags),
-        3584,
+        3648,
     );
-    assert_below("FatFs create", fat.create(root, name, &meta), 2240);
+    assert_below("FatFs create", fat.create(root, name, &meta), 2304);
     let label = Some(hadris_fat::VolumeLabel::new("DATA").unwrap());
-    assert_below("FatFs set_label", fat.set_label(label), 3584);
+    assert_below("FatFs set_label", fat.set_label(label), 3648);
     let mut out = [hadris_fs::Extent::new(0, 0); 1];
-    assert_below("FatFs extents", fat.extents(root, 0, &mut out), 512);
+    assert_below("FatFs extents", fat.extents(root, 0, &mut out), 576);
 
     let options = hadris_fs::MountOptions::new();
     assert_below("ExFatFs mount", ExFatFs::mount(empty(), options), 3 * BLOCK);
@@ -499,5 +500,165 @@ fn dropped_operations_leave_no_lost_clusters_or_unequal_fats() {
         .unwrap();
         assert!(report.is_clean(), "{}: {findings:?}", case.name);
         common::fsck(&dev.0.into_inner(), "dropped operations");
+    }
+}
+
+#[test]
+fn single_cluster_append_recovers_at_every_await() {
+    use hadris_fat::r#async::FatFs;
+    use hadris_fs::r#async::FileSystem;
+    for case in CASES[..3].iter().copied() {
+        let blank = common::blank(case);
+        let cluster = hadris_fat_raw::parse_boot(blank[..512].try_into().unwrap())
+            .unwrap()
+            .cluster_size() as usize;
+        let mut fs =
+            hadris_fat::sync::FatFs::mount(common::device(case, blank), MountOptions::new())
+                .unwrap();
+        let root = hadris_fs::sync::FileSystem::root(&fs);
+        let file = hadris_fs::sync::FileSystem::create(
+            &mut fs,
+            root,
+            Name::new("LOG.BIN"),
+            &SetAttr::new(),
+        )
+        .unwrap();
+        hadris_fs::sync::FileSystem::write(&mut fs, file, 0, &vec![7; cluster]).unwrap();
+        let before = fs.unmount().unwrap().into_inner();
+        let mut completed = false;
+        for budget in 0..100 {
+            let mut fs = cancel::run_for(
+                FatFs::mount(
+                    cancel::YieldDev(common::device(case, before.clone())),
+                    MountOptions::new(),
+                ),
+                usize::MAX,
+            )
+            .unwrap()
+            .unwrap();
+            let file = cancel::run_for(fs.lookup(fs.root(), Name::new("LOG.BIN")), usize::MAX)
+                .unwrap()
+                .unwrap();
+            let result = cancel::run_for(fs.write(file, cluster as u64, &[9]), budget);
+            cancel::run_for(fs.sync(), usize::MAX).unwrap().unwrap();
+            let image = cancel::run_for(fs.unmount(), usize::MAX)
+                .unwrap()
+                .unwrap()
+                .0
+                .into_inner();
+            common::assert_checks_clean(case, &image, case.name);
+            let mut fresh = hadris_fat::sync::FatFs::mount(
+                common::device(case, image),
+                MountOptions::new().read_only(),
+            )
+            .unwrap();
+            let root = hadris_fs::sync::FileSystem::root(&fresh);
+            let file = hadris_fs::sync::FileSystem::lookup(&mut fresh, root, Name::new("LOG.BIN"))
+                .unwrap();
+            let mut data = vec![0; cluster + 1];
+            let n = hadris_fs::sync::FileSystem::read(&mut fresh, file, 0, &mut data).unwrap();
+            assert_eq!(&data[..cluster], &vec![7; cluster]);
+            assert_eq!(n, cluster + usize::from(result.is_some()));
+            if let Some(result) = result {
+                assert_eq!(result.unwrap(), 1);
+                assert_eq!(data[cluster], 9);
+                completed = true;
+                break;
+            }
+        }
+        assert!(completed, "{} append never completed", case.name);
+    }
+}
+
+#[test]
+fn multi_cluster_append_recovers_at_every_await() {
+    use hadris_fat::r#async::FatFs;
+    use hadris_fs::r#async::FileSystem;
+    for case in [CASES[0], CASES[1], CASES[2], CASES[4]] {
+        let blank = common::blank(case);
+        let geo = hadris_fat_raw::parse_boot(blank[..512].try_into().unwrap()).unwrap();
+        let cluster = geo.cluster_size() as usize;
+        let clusters = if case.kind == hadris_fat::FatKind::Fat12 {
+            3
+        } else {
+            case.block as usize / case.kind.entry_len() - 5
+        };
+        let old = vec![7; clusters * cluster];
+        let new = vec![9; 16 * cluster];
+        let mut fs =
+            hadris_fat::sync::FatFs::mount(common::device(case, blank), MountOptions::new())
+                .unwrap();
+        let root = hadris_fs::sync::FileSystem::root(&fs);
+        let file = hadris_fs::sync::FileSystem::create(
+            &mut fs,
+            root,
+            Name::new("LOG.BIN"),
+            &SetAttr::new(),
+        )
+        .unwrap();
+        hadris_fs::sync::FileSystem::write(&mut fs, file, 0, &old).unwrap();
+        let before = fs.unmount().unwrap().into_inner();
+        for cached in [false, true] {
+            let mut completed = false;
+            for budget in 0..200 {
+                let mut fs = cancel::run_for(
+                    FatFs::mount(
+                        cancel::YieldDev(common::device(case, before.clone())),
+                        MountOptions::new(),
+                    ),
+                    usize::MAX,
+                )
+                .unwrap()
+                .unwrap();
+                if cached {
+                    fs = fs.with_cache(hadris_fat::CacheOptions::new());
+                }
+                let file = cancel::run_for(fs.lookup(fs.root(), Name::new("LOG.BIN")), usize::MAX)
+                    .unwrap()
+                    .unwrap();
+                cancel::run_for(
+                    fs.read(file, (old.len() - cluster) as u64, &mut vec![0; cluster]),
+                    usize::MAX,
+                )
+                .unwrap()
+                .unwrap();
+                let result = cancel::run_for(fs.write(file, old.len() as u64, &new), budget);
+                cancel::run_for(fs.sync(), usize::MAX).unwrap().unwrap();
+                let image = cancel::run_for(fs.unmount(), usize::MAX)
+                    .unwrap()
+                    .unwrap()
+                    .0
+                    .into_inner();
+                common::assert_checks_clean(
+                    case,
+                    &image,
+                    &format!("{} poll {budget} cached {cached}", case.name),
+                );
+                let mut fresh = hadris_fat::sync::FatFs::mount(
+                    common::device(case, image),
+                    MountOptions::new().read_only(),
+                )
+                .unwrap();
+                let root = hadris_fs::sync::FileSystem::root(&fresh);
+                let file =
+                    hadris_fs::sync::FileSystem::lookup(&mut fresh, root, Name::new("LOG.BIN"))
+                        .unwrap();
+                let mut data = vec![0; old.len() + new.len()];
+                let n = hadris_fs::sync::FileSystem::read(&mut fresh, file, 0, &mut data).unwrap();
+                assert_eq!(&data[..old.len()], &old);
+                assert_eq!(n, old.len() + if result.is_some() { new.len() } else { 0 });
+                if let Some(result) = result {
+                    assert_eq!(result.unwrap(), new.len());
+                    assert_eq!(&data[old.len()..], &new);
+                    completed = true;
+                    break;
+                }
+            }
+            assert!(
+                completed,
+                "{} multi-cluster append never completed",
+                case.name
+            );
+        }
     }
 }

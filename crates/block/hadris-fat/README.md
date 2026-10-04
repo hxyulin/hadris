@@ -31,7 +31,7 @@ the workloads, CSV baselines, measurement limits and firmware-size checks.
 `FatFs` is the node-based driver, available as
 `sync::FatFs` and `r#async::FatFs`. It mounts any
 `hadris-storage` block device, needs `alloc` for its node table (its only
-I/O buffer is one device block of at most 4096 bytes), and implements the `hadris-fs`
+I/O buffer with caching disabled is one device block of at most 4096 bytes), and implements the `hadris-fs`
 `FileSystem` trait, so `Volume` and its `File` and `ReadDir` handles work
 on it. Long names are always read and written: a name
 that fits 8.3 in one case per part is stored as a short entry alone, and
@@ -100,6 +100,19 @@ let dev = fs.unmount()?;
 # Ok(())
 # }
 ```
+
+`FatFs::mount` leaves optional caches disabled. Enable a bounded index with
+`fs.with_cache(hadris_fat::CacheOptions::new()
+    .with_chain_positions(32).with_blocks(8))`.
+The chain-position bound applies across all files; positions are learned while reading and
+retain cycle-detection state. Mutations and interrupted-operation recovery
+invalidate the index. `clear_cache()` discards the index and buffered block
+without changing pinned metadata. Metadata caching holds whole device blocks,
+bypasses payload reads and invalidates overlapping blocks before each write.
+It defers no writes. Each cache bound can be set to zero independently.
+External writers require a remount.
+This works with `alloc` and `no_std` in both sync and async modes. It helps
+backward seeks; sequential readers can keep indexing disabled.
 
 `unmount` syncs and gives the device back; `into_inner` gives it back
 without syncing.

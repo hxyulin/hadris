@@ -227,11 +227,15 @@ extern crate self as hadris_fat;
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+#[cfg(feature = "alloc")]
+mod cache;
 #[cfg(any(feature = "sync", feature = "async"))]
 mod names;
 mod options;
 #[cfg(feature = "alloc")]
 mod table;
+#[cfg(feature = "alloc")]
+pub use cache::CacheOptions;
 
 #[cfg(any(feature = "sync", feature = "async"))]
 pub mod embedded;

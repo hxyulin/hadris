@@ -8,6 +8,28 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- FAT indexed reads reuse a current-cluster hint immediately and precompute
+  checkpoint buckets to reduce forward-read cache bookkeeping.
+
+- FAT metadata caching reuses allocated block buffers after invalidation and
+  cache clearing, avoiding repeated allocation during metadata writes.
+
+- FAT node-driver multi-cluster growth batches tail linking with the final
+  FAT16/32 allocation group, using the new raw `allocate_run_after` primitive.
+  FAT12 keeps its packed-entry recovery path.
+
+- FAT adds configurable metadata-block caching, with payload reads bypassing
+  the cache and overlapping writes invalidating entries before I/O.
+
+- FAT adds opt-in bounded chain-position caching through `CacheOptions` and
+  `FatFs::with_cache`, reducing repeated traversal after backward seeks.
+
+- FAT node-driver lookup and creation scans prepare folded UTF-16 queries
+  once, preserving long names, short aliases, and runtime code-page behavior.
+
+- FAT node-driver single-cluster growth combines allocation and tail linking
+  when their FAT16/32 entries share a device block.
+
 - ISO writer planning reuses final directory identifiers for both path tables, halving repeated directory-record construction.
 
 - ISO reader caches can optionally build a bounded hard-link index on demand, preserving canonical IDs and falling back to scanning for uncached keys.
@@ -19,6 +41,10 @@ Each published package owns its version and may be released independently.
 - ISO lookup compares names before resolving canonical hard-link IDs, avoiding global link scans for nonmatching entries.
 
 ### Added
+
+- Extend the FAT performance harness with nested EFI file loading, backward
+  and shuffled reads, unaligned buffers, fragmented chains, and long-name
+  directory lookup/listing workloads.
 
 - Extend opt-in hosted tracing to ISO, UDF, APFS, NTFS, CPIO and partition
   operations, with umbrella forwarding, writer phase spans and credential-safe
