@@ -219,6 +219,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "exhaustive arithmetic comparison runs in native CI")]
     fn encode_matches_civil_conversion_on_every_fat_day() {
         assert_eq!(EPOCH_SECONDS, at(1980, 1, 1, 0, 0, 0).unix_seconds());
         assert_eq!(END_SECONDS, at(2108, 1, 1, 0, 0, 0).unix_seconds());
@@ -246,6 +247,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "exhaustive arithmetic comparison runs in native CI")]
     fn encode_clamps_in_local_time_at_range_boundaries() {
         for recorded in [None, Some(-1439), Some(1439)] {
             for seconds in [
