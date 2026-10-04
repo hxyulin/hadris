@@ -2028,16 +2028,18 @@ impl<D: BlockDevice> ExFatFs<D> {
             self.set_fat(tail, raw::FAT_END).await?;
             tail
         } else {
-            let mut cluster = self.check_cluster(node.first)?;
-            let mut steps = 0;
-            while let Some(next) = self.next_cluster(cluster).await? {
-                cluster = next;
-                steps += 1;
-                if steps > self.vol.geometry().cluster_count() {
+            let clusters = node.len.div_ceil(self.vol.geometry().cluster_size());
+            let mut at = if node.hint.cluster() != 0 && (node.hint.index() as u64) < clusters {
+                node.hint
+            } else {
+                ChainPos::start(self.check_cluster(node.first)?)
+            };
+            while let Some(next) = self.next_cluster(at.cluster()).await? {
+                if !at.advance(next) || at.index() > self.vol.geometry().cluster_count() {
                     return Err(ErrorKind::Corrupt.into());
                 }
             }
-            cluster
+            at.cluster()
         };
         if let Some(pending) = self.pending.as_mut()
             && pending.owner == Owner::None

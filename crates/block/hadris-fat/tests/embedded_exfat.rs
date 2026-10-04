@@ -600,3 +600,37 @@ impl hadris_storage::local::BlockDevice for cancellation::YieldDev {
         hadris_storage::r#async::BlockDevice::read_blocks(self, at, buf).await
     }
 }
+
+#[test]
+fn hosted_append_uses_a_guarded_tail_hint_without_rescanning() {
+    use performance_support::{Counted, IoCounts};
+    use std::cell::Cell;
+
+    let mut fs = common::small(8 << 20, 512);
+    let root = fs.root();
+    common::write(&mut fs, root, "hint.bin", &vec![0x42; 1 << 20]);
+    fs.sync().unwrap();
+    let image = common::image(fs);
+    let counts = Cell::new(IoCounts::default());
+    let dev = Counted {
+        inner: common::device(image, 512),
+        counts: &counts,
+        written_blocks: None,
+    };
+    let mut fs =
+        hadris_fat::exfat::sync::ExFatFs::mount(dev, hadris_fs::MountOptions::new()).unwrap();
+    let node = fs
+        .lookup(fs.root(), hadris_fs::Name::new("hint.bin"))
+        .unwrap();
+    fs.read(node, (1 << 20) - 1, &mut [0]).unwrap();
+    counts.set(IoCounts::default());
+    fs.write(node, 1 << 20, &[0x55; 512]).unwrap();
+    assert_eq!(counts.get().read_calls, 9, "{:?}", counts.get());
+    assert_eq!(counts.get().write_calls, 5, "{:?}", counts.get());
+    fs.truncate(node, 513).unwrap();
+    fs.write(node, 513, &[0x66; 1024]).unwrap();
+    let mut data = vec![0; 1537];
+    fs.read(node, 0, &mut data).unwrap();
+    assert_eq!(&data[..513], &[0x42; 513]);
+    assert_eq!(&data[513..], &[0x66; 1024]);
+}

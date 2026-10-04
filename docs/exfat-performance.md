@@ -58,3 +58,52 @@ reads retain the same guarded traversal. The 21-sample results are in
 noise matters, so this change primarily removes work proportional to the
 number of clusters within each request. Regressions exercise unaligned starts,
 ValidDataLength transitions, EOF and a run exceeding the cluster heap.
+
+## Hosted append tail hints
+
+`docs/benchmarks/exfat-tail-hint.csv` records the final 21-sample run. Growth of
+a chained file reuses its existing complete ChainPos, including its cycle
+guard, when its index is within the file allocation. It still follows the FAT
+to EOF; a hint is not treated as proof of an end marker. Shrinking and recovery
+reset hints, and NoFatChain conversion retains its existing path.
+
+| Cluster size | Write request | Baseline reads | Final reads | Baseline median | Final median |
+|---|---|---:|---:|---:|---:|
+| 512 B | 512 B | 23,846 | 8,198 | 15.13 ms | 0.368 ms |
+| 512 B | 64 KiB | 255 | 135 | 208.25 us | 96.71 us |
+| 4 KiB | 512 B | 1,164 | 1,026 | 391.46 us | 121.46 us |
+| 4 KiB | 64 KiB | 83 | 75 | 43.88 us | 28.92 us |
+
+Write counts and bytes do not change. The first row's saved reads total
+8,011,776 bytes. Failure at every append write and cancellation at every
+append await cover 512-byte and 4 KiB clusters, initialized-to-zero gaps, and
+NoFatChain conversion. Every recovered image passes the structural checker
+and remounted exact-content comparison. A read-count regression bounds a
+warmed-tail append on a 2,048-cluster file, and exercises shrink then append.
+
+The three optimizations add no public API or driver-state cache. They are
+independent of the optional FAT12/16/32 hosted caches. Remaining opportunities
+include exFAT directory scan costs and batched NoFatChain-to-FAT conversion;
+this change does not redesign allocation or name handling.
+
+## Validation and firmware budgets
+
+The final change passes 344 FAT/raw tests and doctests, including the new
+regressions, the sync/async/local contract tests, and native macOS formatter
+and kernel-reader tests. All 15 FAT/raw MSRV feature tiers, workspace warnings
+checking, formatting and clippy pass. No public API, unsafe block, name decoding
+logic, or allocation-write ordering changes.
+
+The pinned nightly firmware budget check passes for all three bare-metal
+targets. The exFAT reader retains 1,016-byte driver state and zero static RAM.
+
+| Target | exFAT flash | Mount stack | Largest Hadris frame |
+|---|---:|---:|---:|
+| thumbv6m-none-eabi | 14,128 B | 1,928 B | 688 B |
+| thumbv7em-none-eabihf | 13,956 B | 1,856 B | 688 B |
+| riscv32imc-unknown-none-elf | 16,372 B | 1,856 B | 688 B |
+
+These are compiler estimates of direct-call stack usage; indirect callees and
+compiler builtins are excluded by the firmware script. The existing unrelated
+20 KiB FAT logger flash target remains an open goal, while the enforced 44 KiB
+ceiling passes.

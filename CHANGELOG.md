@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- Hosted exFAT appends reuse guarded chain positions when finding the tail,
+  avoiding repeated traversal of the full existing allocation.
+
 - Hosted exFAT contiguous reads size NoFatChain runs directly while checking
   their final cluster against the allocation heap.
 

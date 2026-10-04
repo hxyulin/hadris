@@ -4,6 +4,9 @@ Start with device I/O counts when optimizing write amplification. Runtime,
 driver state, heap use, stack use and flash size are separate measurements;
 an improvement in one can cost more in another.
 
+The separate [exFAT audit](exfat-performance.md) covers hosted and embedded
+read runs and append traversal, with device counts and reproducible CSV data.
+
 ## FAT benchmark
 
 The harness needs no new dependencies and uses Cargo's optimized bench
