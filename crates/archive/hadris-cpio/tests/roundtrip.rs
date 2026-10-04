@@ -461,6 +461,33 @@ fn read_tree_replaces_hard_link_names_in_archive_order() {
 }
 
 #[test]
+fn hard_link_owners_follow_equivalent_tree_paths() {
+    for (first, replacement) in [
+        (&b"dir//a"[..], &b"dir/a"[..]),
+        (&b"dir/a"[..], &b"dir//a/"[..]),
+        (&b"./dir///a"[..], &b"/dir/a"[..]),
+    ] {
+        let tree = tree_of(&[
+            linked(first, 7, 2, b"old"),
+            newc_entry(replacement, 0o100644, b"replacement", None),
+            linked(b"b", 7, 2, b"group"),
+        ])
+        .unwrap();
+        assert_eq!(bytes_at(&tree, "dir/a"), Some(&b"replacement"[..]));
+        assert_eq!(bytes_at(&tree, "b"), Some(&b"group"[..]));
+        assert_eq!(tree.entry("dir/a").unwrap().links(), 1);
+        assert_eq!(tree.entry("b").unwrap().links(), 1);
+    }
+    let tree = tree_of(&[
+        linked(b"dir//a", 7, 2, b"old"),
+        linked(b"dir/a/", 7, 2, b"new"),
+    ])
+    .unwrap();
+    assert_eq!(bytes_at(&tree, "dir/a"), Some(&b"new"[..]));
+    assert_eq!(tree.entry("dir/a").unwrap().links(), 1);
+}
+
+#[test]
 fn crc_reader_rejects_corrupt_data() {
     let mut bytes = archive(&sample_tree(), Format::Crc);
     let at = bytes

@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- CPIO tree extraction tracks hard-link ownership using normalized path separators,
+  preserving archive-order replacements under equivalent path spellings.
+
 - Hosted exFAT appends reuse guarded chain positions when finding the tail,
   avoiding repeated traversal of the full existing allocation.
 

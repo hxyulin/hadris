@@ -1,3 +1,5 @@
+mod common;
+
 use core::convert::Infallible;
 use core::future::Future;
 use core::task::{Context, Poll};
@@ -134,4 +136,32 @@ fn custom_buffer_segments_and_offsets_are_send() {
         assert!(reader.next_entry().await.unwrap().is_none());
         assert!(!reader.next_segment().await.unwrap());
     }));
+}
+
+#[test]
+fn async_hard_link_owners_follow_equivalent_tree_paths() {
+    let mut linked = common::newc_entry(b"dir//a", 0o100644, b"old", None);
+    linked[38..46].copy_from_slice(b"00000002");
+    let mut final_link = common::newc_entry(b"b", 0o100644, b"group", None);
+    final_link[38..46].copy_from_slice(b"00000002");
+    let bytes = [
+        linked,
+        common::newc_entry(b"dir/a/", 0o100644, b"replacement", None),
+        final_link,
+        common::trailer(),
+    ]
+    .concat();
+    let tree = block_on(hadris_cpio::r#async::read_tree(
+        &mut hadris_cpio::r#async::CpioReader::new(Cursor::new(&bytes)),
+    ))
+    .unwrap();
+    assert_eq!(
+        tree.get("dir/a").unwrap().content().unwrap().as_bytes(),
+        Some(&b"replacement"[..])
+    );
+    assert_eq!(
+        tree.get("b").unwrap().content().unwrap().as_bytes(),
+        Some(&b"group"[..])
+    );
+    assert_eq!(tree.entry("dir/a").unwrap().links(), 1);
 }

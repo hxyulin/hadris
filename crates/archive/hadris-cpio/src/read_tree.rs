@@ -1,3 +1,4 @@
+use alloc::borrow::Cow;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
@@ -14,7 +15,7 @@ const CHUNK: usize = 64 * 1024;
 
 /// The path of an entry relative to the archive root: leading `/` and
 /// `./` removed. `None` for the root itself.
-fn relative_path(name: &[u8]) -> Option<&[u8]> {
+fn relative_path(name: &[u8]) -> Option<Cow<'_, [u8]>> {
     let mut path = name;
     loop {
         if let Some(rest) = path.strip_prefix(b"/") {
@@ -25,10 +26,23 @@ fn relative_path(name: &[u8]) -> Option<&[u8]> {
             break;
         }
     }
-    match path {
-        b"" | b"." => None,
-        path => Some(path),
+    if matches!(path, b"" | b".") {
+        return None;
     }
+    if !path.ends_with(b"/") && !path.windows(2).any(|pair| pair == b"//") {
+        return Some(Cow::Borrowed(path));
+    }
+    let mut normalized = Vec::with_capacity(path.len());
+    for part in path
+        .split(|&byte| byte == b'/')
+        .filter(|part| !part.is_empty())
+    {
+        if !normalized.is_empty() {
+            normalized.push(b'/');
+        }
+        normalized.extend_from_slice(part);
+    }
+    Some(Cow::Owned(normalized))
 }
 
 /// Adds `node` at `path`, replacing what an earlier entry put there, as
@@ -153,7 +167,7 @@ async fn read_data<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeSend>
 /// Reads the archive from `reader` up to its trailer, or the end of the
 /// stream, into a [`Tree`].
 ///
-/// Names lose a leading `/` or `./`, and the entry `.` sets the root's
+/// Names lose a leading `/` or `./` and repeated separators, and the entry `.` sets the root's
 /// attributes; a name with a `..` component fails with
 /// [`ErrorKind::InvalidInput`]. A later entry replaces an earlier one of
 /// the same name, in archive order, hard link names included. File data is
@@ -192,13 +206,13 @@ pub async fn read_tree<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeS
             continue;
         };
         if file_type != FileType::File || entry.nlink() < 2 {
-            groups.release(path);
-            put(&mut tree, path, node).map_err(with_path)?;
+            groups.release(&path);
+            put(&mut tree, &path, node).map_err(with_path)?;
             continue;
         }
         let dev: DeviceNumber = entry.dev();
         let key = (dev.major(), dev.minor(), entry.ino());
-        groups.add(&mut tree, key, path, node, entry.len() > 0).map_err(with_path)?;
+        groups.add(&mut tree, key, &path, node, entry.len() > 0).map_err(with_path)?;
     }
     Ok(tree)
 }
