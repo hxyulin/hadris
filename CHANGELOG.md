@@ -88,6 +88,11 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- FAT embedded rename recovery completes a published move or rolls back an
+  incomplete destination while the driver remains alive. Recovery survives
+  repeated cancellation and write failures, preserves open files and directory
+  parents, and keeps stale entries after the directory end marker hidden.
+
 - Reject malformed ISO Rock Ridge metadata, unfinished SUSP continuation
   chains, invalid continuation pointers and directory records crossing their
   declared directory length. Read continuation areas spanning multiple blocks

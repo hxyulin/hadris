@@ -49,6 +49,27 @@ struct Located {
     exact: bool,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RenamePhase {
+    Inserting,
+    Publishing,
+    Committed,
+    RollingBack,
+}
+
+#[derive(Clone, Copy)]
+struct Rename {
+    source: Run,
+    source_offset: u64,
+    destination: u64,
+    directory: u32,
+    parent: u32,
+    expected: [u8; 32],
+    old_end: u64,
+    new_end: u64,
+    phase: RenamePhase,
+}
+
 /// What a directory scan looks for.
 #[derive(Clone, Copy)]
 enum Query<'q> {
@@ -107,6 +128,7 @@ pub struct Fat<'mount, D, const FILES: usize = 4> {
     files: [FileSlot; FILES],
     pending: Pending,
     run: Option<Run>,
+    rename: Option<Rename>,
     next_generation: u16,
     read_only: bool,
     was_dirty: bool,
@@ -172,6 +194,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
             files: [FileSlot::FREE; FILES],
             pending: Pending::NONE,
             run: None,
+            rename: None,
             next_generation: 0,
             was_dirty,
         })
@@ -614,8 +637,8 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// another entry, and with [`ErrorKind::InvalidInput`] when a directory
     /// would move into itself. A change of case only is allowed.
     ///
-    /// The new entry is written before the old one is cleared, so an
-    /// interruption can leave the node under both names.
+    /// While this driver remains alive, the next mutation or `sync` completes
+    /// a published move or rolls back an incomplete destination after interruption.
     pub async fn rename(&mut self, from_dir: Dir, from: &str, to_dir: Dir, to: &str) -> FsResult<(), D::Error> {
         self.prepare().await?;
         let from_start = self.start(from_dir)?;
@@ -647,21 +670,36 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         if !is_dir {
             moved.set_attributes(moved.attributes() | raw::ATTR_ARCHIVE);
         }
-        let offset = self.insert_entry(to_start, &new, &plan, &moved).await?;
-        for slot in self.files.iter_mut() {
-            if !slot.is_free() && slot.entry == src.offset {
-                slot.entry = offset;
+        let mut walk = DirWalk::new(to_start);
+        let mut old_end = 0;
+        let mut destination = 0;
+        for slot in plan.start..plan.start + plan.slots {
+            destination = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot)
+                .await?
+                .ok_or(ErrorKind::Corrupt)?;
+            if old_end == 0 && matches!(rawio::read_slot(&mut self.dev, &mut self.block, destination).await?, Slot::End) {
+                old_end = destination;
             }
         }
+        let new_end = if old_end != 0 {
+            rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, plan.start + plan.slots).await?.unwrap_or(0)
+        } else { 0 };
         let (old_parent, new_parent) = (self.parent_cluster(from_start), self.parent_cluster(to_start));
-        if is_dir && old_parent != new_parent {
-            self.set_dot_dot(moved.first_cluster(kind), new_parent).await?;
-        }
-        self.run = Some(Run { dir: from_start, first: src.first, short: src.slot });
-        self.put(src.offset, &[raw::ENTRY_FREE]).await?;
-        self.clear(from_start, src.first, src.slot).await?;
-        self.run = None;
-        Ok(())
+        self.run = Some(Run { dir: to_start, first: plan.start, short: plan.start + plan.slots - 1 });
+        self.rename = Some(Rename {
+            source: Run { dir: from_start, first: src.first, short: src.slot },
+            source_offset: src.offset,
+            destination,
+            directory: if is_dir && old_parent != new_parent { moved.first_cluster(kind) } else { 0 },
+            parent: new_parent,
+            expected: moved.encode(),
+            old_end,
+            new_end,
+            phase: RenamePhase::Inserting,
+        });
+        self.put(destination, &[raw::ENTRY_FREE]).await?;
+        self.insert_entry(to_start, &new, &plan, &moved).await?;
+        self.finish_rename().await
     }
 
     /// The volume label from the label entry of the root directory, or
@@ -742,6 +780,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     fn unwritten(&self) -> bool {
         !self.pending.is_none()
             || self.run.is_some()
+            || self.rename.is_some()
             || self.fat.unmirrored().is_some()
             || self.files.iter().any(|slot| !slot.is_free() && slot.has(FLAG_DIRTY))
     }
@@ -1305,6 +1344,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         let checksum = entry.lfn_checksum();
         let mut walk = DirWalk::new(dir);
         let mut written = 0;
+        let rename = &mut self.rename;
         let result = rawio::write_slots(
             &mut self.dev,
             &mut self.block,
@@ -1314,6 +1354,9 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
             plan.slots,
             |index| {
                 if index + 1 == plan.slots {
+                    if let Some(rename) = rename {
+                        rename.phase = RenamePhase::Publishing;
+                    }
                     entry.encode()
                 } else {
                     let (sequence, units) = new.encoded.entry(index as usize);
@@ -1509,6 +1552,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
             Err(err) if err.kind() == ErrorKind::Corrupt => {
                 self.fat.forget_unmirrored();
                 self.run = None;
+                self.rename = None;
                 self.pending = Pending::NONE;
                 Ok(())
             }
@@ -1521,6 +1565,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
             let mirrored = rawio::mirror(&mut self.dev, &mut self.block, &mut self.fat).await;
             self.note(mirrored)?;
         }
+        self.finish_rename().await?;
         if let Some(run) = self.run {
             let mut walk = DirWalk::new(run.dir);
             let short = match rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, run.short).await? {
@@ -1568,6 +1613,47 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
             }
         }
         self.pending = Pending::NONE;
+        Ok(())
+    }
+
+    async fn finish_rename(&mut self) -> FsResult<(), D::Error> {
+        let Some(mut rename) = self.rename else { return Ok(()); };
+        rename.phase = match rename.phase {
+            RenamePhase::Inserting => RenamePhase::RollingBack,
+            RenamePhase::Publishing => {
+                if matches!(rawio::read_slot(&mut self.dev, &mut self.block, rename.destination).await?, Slot::Short(entry) if entry.is_visible() && entry.encode() == rename.expected) {
+                    RenamePhase::Committed
+                } else { RenamePhase::RollingBack }
+            }
+            decided => decided,
+        };
+        self.rename = Some(rename);
+        if rename.phase == RenamePhase::RollingBack {
+            if let Some(run) = self.run {
+                self.clear(run.dir, run.first, run.short + 1).await?;
+            }
+            if rename.old_end != 0 {
+                self.put(rename.old_end, &[raw::ENTRY_END]).await?;
+            }
+            self.run = None;
+            self.rename = None;
+            return Ok(());
+        }
+        if rename.new_end != 0 {
+            self.put(rename.new_end, &[raw::ENTRY_END]).await?;
+        }
+        if rename.directory != 0 {
+            self.set_dot_dot(rename.directory, rename.parent).await?;
+        }
+        for slot in self.files.iter_mut() {
+            if !slot.is_free() && slot.entry == rename.source_offset {
+                slot.entry = rename.destination;
+            }
+        }
+        self.put(rename.source_offset, &[raw::ENTRY_FREE]).await?;
+        self.clear(rename.source.dir, rename.source.first, rename.source.short).await?;
+        self.run = None;
+        self.rename = None;
         Ok(())
     }
 

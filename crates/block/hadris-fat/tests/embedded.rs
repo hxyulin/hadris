@@ -575,6 +575,108 @@ fn state_and_futures_stay_small() {
     );
 }
 
+const RENAME_SOURCE: &str = "original long name.bin";
+const RENAME_TARGET: &str = "renamed entry with another long name.bin";
+
+fn rename_fixture(case: Case, directory: bool) -> Vec<u8> {
+    let mut token = MountToken::new();
+    let mut fat = mount(&mut token, case, common::blank(case));
+    let root = fat.root();
+    let source = fat.create_dir(root, "PARENT_A").unwrap();
+    fat.create_dir(root, "PARENT_B").unwrap();
+    let parent = if directory {
+        fat.create_dir(source, RENAME_SOURCE).unwrap()
+    } else {
+        source
+    };
+    let name = if directory {
+        "child.bin"
+    } else {
+        RENAME_SOURCE
+    };
+    let file = fat
+        .open(parent, name, OpenOptions::new().write().create())
+        .unwrap();
+    fat.write(&file, &common::payload(9000, 17)).unwrap();
+    fat.close(file).unwrap();
+    fat.unmount().unwrap().into_inner()
+}
+
+fn rename_stale_fixture(case: Case, directory: bool, cross: bool) -> Vec<u8> {
+    use common::FsPaths;
+    let mut image = rename_fixture(case, directory);
+    let mut token = MountToken::new();
+    let mut fat = mount(&mut token, case, image.clone());
+    let source = fat.open_dir(fat.root(), "PARENT_A").unwrap();
+    let target = if cross {
+        fat.open_dir(fat.root(), "PARENT_B").unwrap()
+    } else {
+        source
+    };
+    let file_parent = if directory {
+        fat.open_dir(source, RENAME_SOURCE).unwrap()
+    } else {
+        source
+    };
+    let file_name = if directory {
+        "child.bin"
+    } else {
+        RENAME_SOURCE
+    };
+    let file = fat
+        .open(file_parent, file_name, OpenOptions::new().write().append())
+        .unwrap();
+    fat.write(&file, b"before").unwrap();
+    fat.close(file).unwrap();
+    fat.rename(source, RENAME_SOURCE, target, RENAME_TARGET)
+        .unwrap();
+    let renamed = fat.unmount().unwrap().into_inner();
+    let mut fs = common::mount(case, &renamed);
+    let parent = if cross { "PARENT_B" } else { "PARENT_A" };
+    let node = fs
+        .resolve_path(&format!("/{parent}/{RENAME_TARGET}"))
+        .unwrap();
+    let mut record = [hadris_fs::Extent::new(0, 0)];
+    assert_eq!(fs.records(node, &mut record).unwrap(), 1);
+    let at = record[0].offset() as usize;
+    let expected = &renamed[at..at + 32];
+    let mut fs = common::mount(case, &image);
+    let node = fs.resolve_path(parent).unwrap();
+    assert_eq!(fs.extents(node, 0, &mut record).unwrap(), 1);
+    let first = record[0].offset() as usize;
+    let end = (first..first + record[0].len() as usize)
+        .step_by(32)
+        .find(|&at| image[at] == 0)
+        .unwrap();
+    let destination = end + RENAME_TARGET.encode_utf16().count().div_ceil(13) * 32;
+    image[destination..destination + 32].copy_from_slice(expected);
+    image[destination + 32..destination + 64].copy_from_slice(expected);
+    image[destination + 32..destination + 43].copy_from_slice(b"HIDDEN  BIN");
+    common::assert_checks_clean(case, &image, "hidden stale rename entries");
+    image
+}
+
+fn check_rename_image(case: Case, image: &[u8], directory: bool, cross: bool, suffix: &[u8]) {
+    use common::FsPaths;
+    common::assert_checks_clean(case, image, "interrupted embedded rename");
+    let mut fs = common::mount(case, image);
+    let old = format!("/PARENT_A/{RENAME_SOURCE}");
+    let new = format!(
+        "/{}/{RENAME_TARGET}",
+        if cross { "PARENT_B" } else { "PARENT_A" }
+    );
+    let source = fs.resolve_path(&old).is_ok();
+    let target = fs.resolve_path(&new).is_ok();
+    assert_ne!(source, target, "exactly one rename owner must remain");
+    let mut path = if target { new } else { old };
+    if directory {
+        path.push_str("/child.bin");
+    }
+    let mut expected = common::payload(9000, 17);
+    expected.extend_from_slice(suffix);
+    assert_eq!(common::read(&mut fs, &path), expected);
+}
+
 mod cancel {
     use super::*;
     use core::future::Future;
@@ -643,6 +745,139 @@ mod cancel {
     }
 
     type Vol<'m> = AsyncFat<'m, Yielding, 16>;
+    #[test]
+    fn rename_and_its_recovery_can_be_cancelled_at_every_await() {
+        for case in cases() {
+            for directory in [false, true] {
+                for cross in [false, true] {
+                    let image = rename_stale_fixture(case, directory, cross);
+                    let mut recovery_cut = None;
+                    let mut rollback_cut = None;
+                    let mut finished = false;
+                    for budget in 0..200 {
+                        let mut token = MountToken::new();
+                        let mut fat: Vol = block_on(AsyncFat::mount(
+                            Yielding(common::device(case, image.clone())),
+                            &mut token,
+                        ))
+                        .unwrap();
+                        let source = block_on(fat.open_dir(fat.root(), "PARENT_A")).unwrap();
+                        let target = if cross {
+                            block_on(fat.open_dir(fat.root(), "PARENT_B")).unwrap()
+                        } else {
+                            source
+                        };
+                        let file_parent = if directory {
+                            block_on(fat.open_dir(source, RENAME_SOURCE)).unwrap()
+                        } else {
+                            source
+                        };
+                        let file_name = if directory {
+                            "child.bin"
+                        } else {
+                            RENAME_SOURCE
+                        };
+                        let file = block_on(fat.open(
+                            file_parent,
+                            file_name,
+                            OpenOptions::new().read().write().append(),
+                        ))
+                        .unwrap();
+                        block_on(fat.write(&file, b"before")).unwrap();
+                        let result = run_for(
+                            fat.rename(source, RENAME_SOURCE, target, RENAME_TARGET),
+                            budget,
+                        );
+                        if result.is_none()
+                            && block_on(fat.metadata(target, RENAME_TARGET)).is_err()
+                        {
+                            rollback_cut = Some(budget);
+                        }
+                        if result.is_none()
+                            && block_on(fat.metadata(target, RENAME_TARGET)).is_ok()
+                            && block_on(fat.metadata(source, RENAME_SOURCE)).is_ok()
+                        {
+                            recovery_cut = Some(budget);
+                        }
+                        block_on(fat.sync()).unwrap();
+                        if directory {
+                            let moved = block_on(fat.open_dir(target, RENAME_TARGET)).ok();
+                            if let Some(moved) = moved {
+                                assert_eq!(block_on(fat.open_dir(moved, "..")).unwrap(), target);
+                            }
+                        }
+                        block_on(fat.write(&file, b"after")).unwrap();
+                        block_on(fat.close(file)).unwrap();
+                        let image = block_on(fat.unmount()).unwrap().0.into_inner();
+                        check_rename_image(case, &image, directory, cross, b"beforeafter");
+                        if let Some(result) = result {
+                            result.unwrap();
+                            finished = true;
+                            break;
+                        }
+                    }
+                    assert!(finished);
+                    let recovery_cut =
+                        recovery_cut.expect("must cancel after destination publication");
+                    for recovery_cut in
+                        [rollback_cut.expect("must interrupt rollback"), recovery_cut]
+                    {
+                        let mut finished = false;
+                        for budget in 0..200 {
+                            let mut token = MountToken::new();
+                            let mut fat: Vol = block_on(AsyncFat::mount(
+                                Yielding(common::device(case, image.clone())),
+                                &mut token,
+                            ))
+                            .unwrap();
+                            let source = block_on(fat.open_dir(fat.root(), "PARENT_A")).unwrap();
+                            let target = if cross {
+                                block_on(fat.open_dir(fat.root(), "PARENT_B")).unwrap()
+                            } else {
+                                source
+                            };
+                            let file_parent = if directory {
+                                block_on(fat.open_dir(source, RENAME_SOURCE)).unwrap()
+                            } else {
+                                source
+                            };
+                            let file_name = if directory {
+                                "child.bin"
+                            } else {
+                                RENAME_SOURCE
+                            };
+                            let file = block_on(fat.open(
+                                file_parent,
+                                file_name,
+                                OpenOptions::new().read().write().append(),
+                            ))
+                            .unwrap();
+                            block_on(fat.write(&file, b"before")).unwrap();
+                            assert!(
+                                run_for(
+                                    fat.rename(source, RENAME_SOURCE, target, RENAME_TARGET),
+                                    recovery_cut
+                                )
+                                .is_none()
+                            );
+                            let result = run_for(fat.sync(), budget);
+                            block_on(fat.sync()).unwrap();
+                            block_on(fat.write(&file, b"after")).unwrap();
+                            block_on(fat.close(file)).unwrap();
+                            let image = block_on(fat.unmount()).unwrap().0.into_inner();
+                            check_rename_image(case, &image, directory, cross, b"beforeafter");
+                            if let Some(result) = result {
+                                result.unwrap();
+                                finished = true;
+                                break;
+                            }
+                        }
+                        assert!(finished, "recovery must complete");
+                    }
+                }
+            }
+        }
+    }
 
     async fn step(fat: &mut Vol<'_>, kind: u64, i: u64) -> Result<(), ErrorKind> {
         let root = fat.root();
@@ -844,6 +1079,146 @@ mod interrupted {
         }
     }
 
+    #[test]
+    fn rename_and_its_recovery_retry_after_every_failed_write() {
+        for case in cases() {
+            for directory in [false, true] {
+                for cross in [false, true] {
+                    let image = rename_stale_fixture(case, directory, cross);
+                    let mut recovery_cut = None;
+                    let mut rollback_cut = None;
+                    let mut finished = false;
+                    for budget in 0..100 {
+                        let left = Rc::new(Cell::new(usize::MAX));
+                        let dev = Faulty {
+                            inner: common::device(case, image.clone()),
+                            budget: left.clone(),
+                        };
+                        let mut token = MountToken::new();
+                        let mut fat: Fat<Faulty, 16> = Fat::mount(dev, &mut token).unwrap();
+                        let source = fat.open_dir(fat.root(), "PARENT_A").unwrap();
+                        let target = if cross {
+                            fat.open_dir(fat.root(), "PARENT_B").unwrap()
+                        } else {
+                            source
+                        };
+                        let file_parent = if directory {
+                            fat.open_dir(source, RENAME_SOURCE).unwrap()
+                        } else {
+                            source
+                        };
+                        let file_name = if directory {
+                            "child.bin"
+                        } else {
+                            RENAME_SOURCE
+                        };
+                        let file = fat
+                            .open(
+                                file_parent,
+                                file_name,
+                                OpenOptions::new().read().write().append(),
+                            )
+                            .unwrap();
+                        fat.write(&file, b"before").unwrap();
+                        left.set(budget);
+                        let result = fat.rename(source, RENAME_SOURCE, target, RENAME_TARGET);
+                        if result.is_err() && fat.metadata(target, RENAME_TARGET).is_err() {
+                            rollback_cut = Some(budget);
+                        }
+                        if result.is_err()
+                            && fat.metadata(target, RENAME_TARGET).is_ok()
+                            && fat.metadata(source, RENAME_SOURCE).is_ok()
+                        {
+                            recovery_cut = Some(budget);
+                        }
+                        left.set(usize::MAX);
+                        fat.sync().unwrap();
+                        if directory {
+                            if let Ok(moved) = fat.open_dir(target, RENAME_TARGET) {
+                                assert_eq!(fat.open_dir(moved, "..").unwrap(), target);
+                            }
+                        }
+                        fat.write(&file, b"after").unwrap();
+                        fat.close(file).unwrap();
+                        let image = fat.unmount().unwrap().inner.into_inner();
+                        check_rename_image(case, &image, directory, cross, b"beforeafter");
+                        match result {
+                            Ok(()) => {
+                                finished = true;
+                                break;
+                            }
+                            Err(error) => assert_eq!(error.kind(), ErrorKind::Io),
+                        }
+                    }
+                    assert!(finished);
+                    let recovery_cut =
+                        recovery_cut.expect("must fail after destination publication");
+                    for recovery_cut in
+                        [rollback_cut.expect("must interrupt rollback"), recovery_cut]
+                    {
+                        let mut finished = false;
+                        for budget in 0..100 {
+                            let left = Rc::new(Cell::new(usize::MAX));
+                            let dev = Faulty {
+                                inner: common::device(case, image.clone()),
+                                budget: left.clone(),
+                            };
+                            let mut token = MountToken::new();
+                            let mut fat: Fat<Faulty, 16> = Fat::mount(dev, &mut token).unwrap();
+                            let source = fat.open_dir(fat.root(), "PARENT_A").unwrap();
+                            let target = if cross {
+                                fat.open_dir(fat.root(), "PARENT_B").unwrap()
+                            } else {
+                                source
+                            };
+                            let file_parent = if directory {
+                                fat.open_dir(source, RENAME_SOURCE).unwrap()
+                            } else {
+                                source
+                            };
+                            let file_name = if directory {
+                                "child.bin"
+                            } else {
+                                RENAME_SOURCE
+                            };
+                            let file = fat
+                                .open(
+                                    file_parent,
+                                    file_name,
+                                    OpenOptions::new().read().write().append(),
+                                )
+                                .unwrap();
+                            fat.write(&file, b"before").unwrap();
+                            left.set(recovery_cut);
+                            assert_eq!(
+                                fat.rename(source, RENAME_SOURCE, target, RENAME_TARGET)
+                                    .unwrap_err()
+                                    .kind(),
+                                ErrorKind::Io
+                            );
+                            left.set(budget);
+                            let result = fat.sync();
+                            left.set(usize::MAX);
+                            fat.sync().unwrap();
+                            fat.write(&file, b"after").unwrap();
+                            fat.close(file).unwrap();
+                            let image = fat.unmount().unwrap().inner.into_inner();
+                            check_rename_image(case, &image, directory, cross, b"beforeafter");
+                            match result {
+                                Ok(()) => {
+                                    finished = true;
+                                    break;
+                                }
+                                Err(error) => assert_eq!(error.kind(), ErrorKind::Io),
+                            }
+                        }
+                        assert!(finished);
+                    }
+                }
+            }
+        }
+    }
+
     fn run(fat: &mut Fat<Faulty>, op: u32) -> Result<(), hadris_fs::Error<std::io::Error>> {
         let root = fat.root();
         let write = OpenOptions::new().write();
@@ -891,8 +1266,7 @@ mod interrupted {
 
     /// Cutting each operation after each of its writes leaves only what a
     /// power cut may leave, and `sync` on the same `Fat` afterwards cleans
-    /// up what it can: everything but a rename cut between its two entries
-    /// and a torn FAT12 entry.
+    /// up what it can, except a torn FAT12 entry.
     #[test]
     fn cut_operations_leave_repairable_volumes() {
         use Detail as K;
@@ -940,7 +1314,7 @@ mod interrupted {
                     // two writes, and a cut between them leaves a torn link
                     // that recovery cannot trust.
                     let torn = case.kind == hadris_fat::FatKind::Fat12;
-                    if result.is_ok() || !(rename || torn) {
+                    if result.is_ok() || rename || !torn {
                         assert_eq!(findings(case, &synced), [], "{context} then sync");
                     }
                     if result.is_ok() {
