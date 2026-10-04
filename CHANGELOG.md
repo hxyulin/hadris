@@ -13,7 +13,8 @@ Each published package owns its version and may be released independently.
 - Add opt-in software APFS encryption: bounded keybag and DER parsing,
   PBKDF2-HMAC-SHA256 password derivation, AES key unwrap, and AES-XTS metadata
   and file reads on single-key volumes. Add sync/async password mounts, explicit
-  crypto-user selection, volume-scoped native reads and CLI `--password-stdin`.
+  crypto-user selection, volume-scoped native reads and CLI `--password-stdin`
+  with a preallocated, zeroizing buffer and a 4096-byte input limit.
   Verify decrypted reads and extraction against Apple-generated images; hardware
   encryption and per-file keys remain unsupported.
 - Add a macOS APFS encryption fixture harness with native password checks,
