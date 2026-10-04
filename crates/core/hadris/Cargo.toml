@@ -12,7 +12,7 @@ keywords = ["filesystem", "disk-image", "fat32", "iso9660", "no-std"]
 categories = ["filesystem", "embedded", "no-std"]
 
 [package.metadata.docs.rs]
-features = ["std", "sync", "async", "write", "detect", "part", "unstable-ntfs", "unstable-apfs", "apfs-encryption"]
+features = ["std", "sync", "async", "write", "detect", "part", "unstable-ntfs", "unstable-apfs", "apfs-encryption", "tracing"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
@@ -23,7 +23,7 @@ sync = ["hadris-io/sync", "hadris-storage/sync", "hadris-fs/sync", "hadris-fat?/
 async = ["hadris-io/async", "hadris-storage/async", "hadris-fs/async", "hadris-fat?/async", "hadris-part?/async", "hadris-ntfs?/async", "hadris-iso?/async", "hadris-udf?/async", "hadris-cpio?/async", "hadris-apfs?/async", "hadris-fat-raw?/async"]
 # FAT formatting.
 write = ["hadris-fat?/write"]
-tracing = ["std", "hadris-fat?/tracing"]
+tracing = ["std", "hadris-fat?/tracing", "hadris-iso?/tracing", "hadris-udf?/tracing", "hadris-apfs?/tracing", "hadris-ntfs?/tracing", "hadris-part?/tracing", "hadris-cpio?/tracing"]
 fat = ["dep:hadris-fat"]
 part = ["dep:hadris-part"]
 iso = ["dep:hadris-iso"]
@@ -56,5 +56,10 @@ hadris-cpio = { workspace = true, optional = true, default-features = false }
 name = "detect"
 required-features = ["std", "sync", "write", "detect", "part"]
 
+[[test]]
+name = "tracing"
+required-features = ["tracing", "sync", "async", "iso", "udf", "cpio", "part", "unstable-ntfs", "apfs-encryption"]
+
 [dev-dependencies]
+tracing.workspace = true
 hadris-apfs = { workspace = true, features = ["std", "sync", "read"] }

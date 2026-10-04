@@ -13,6 +13,7 @@ use crate::rock_ridge::{S_IFBLK, S_IFCHR, S_IFDIR, S_IFLNK, S_IFREG};
 
 impl Planner<'_> {
     /// The records of `dir` in tree `ti`, sorted by identifier.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all, fields(dir = ?dir)))]
     pub(super) fn records(&self, dir: usize, ti: usize) -> PlanResult<Vec<PendingRecord>> {
         let (kind, rules) = self.trees[ti];
         let builder = DirectoryBuilder {

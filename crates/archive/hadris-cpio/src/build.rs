@@ -382,6 +382,10 @@ pub(crate) fn plan_tree<'t>(
 /// [`ErrorKind::FileTooLarge`], another value that does not fit its field
 /// with [`ErrorKind::LimitExceeded`], and [`Format::Binary`] with
 /// [`ErrorKind::Unsupported`]. Errors carry the tree path.
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(target = "hadris::cpio", level = "trace", skip_all)
+)]
 pub fn plan(tree: &Tree, options: &CpioOptions) -> Result<Report, PathError> {
     plan_tree(tree, options).map(|(_, report)| report)
 }

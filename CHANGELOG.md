@@ -10,6 +10,10 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- Extend opt-in hosted tracing to ISO, UDF, APFS, NTFS, CPIO and partition
+  operations, with umbrella forwarding, writer phase spans and credential-safe
+  APFS password mounts.
+
 - A dependency-free FAT performance harness covering hosted and embedded
   FAT12/16/32 drivers, with device I/O counts, write amplification, repeatable
   timing samples, CSV write-region attribution and host driver-state sizes.

@@ -20,7 +20,10 @@ read = []
 sync = ["hadris-io/sync", "hadris-storage/sync", "hadris-fs/sync"]
 async = ["hadris-io/async", "hadris-storage/async", "hadris-fs/async"]
 
+tracing = ["std", "dep:tracing"]
+
 [dependencies]
+tracing = { workspace = true, optional = true }
 hadris-io.workspace = true
 hadris-storage.workspace = true
 hadris-fs.workspace = true

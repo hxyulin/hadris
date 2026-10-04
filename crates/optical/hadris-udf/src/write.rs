@@ -64,6 +64,7 @@ io_transform! {
 /// with [`ErrorKind::Unsupported`] naming the file whose content this mode
 /// cannot read. An error from a file's content carries the file's path
 /// ([`PathError::path`]).
+#[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all))]
 pub async fn write<D: BlockDevice>(mut out: D, tree: &Tree, opts: &UdfOptions) -> Result<Report, PathError> {
     check_block_size(&out)?;
     let contents = plan::measure(tree, false, true)?;
@@ -87,6 +88,7 @@ pub async fn write<D: BlockDevice>(mut out: D, tree: &Tree, opts: &UdfOptions) -
 /// Fails before writing anything as [`plan_bridge`](crate::plan_bridge)
 /// does, and like [`write()`] for the device. Errors of either writer keep
 /// their kind, detail code and path.
+#[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all))]
 pub async fn write_bridge<D: BlockDevice>(mut out: D, tree: &Tree, iso: &IsoOptions, udf: &UdfOptions) -> Result<Report, PathError> {
     check_block_size(&out)?;
     let plan = bridge::plan_both(tree, iso, udf)?;
@@ -115,6 +117,7 @@ async fn zero<D: BlockDevice>(out: &mut D, from: u64, to: u64, buf: &mut [u8]) -
 
 /// Writes the regions of `plan` in order, zero-filling the gaps when the
 /// plan asks for it, and flushes.
+#[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all))]
 async fn emit<D: BlockDevice>(out: &mut D, tree: &Tree, plan: &Plan) -> Result<(), PathError> {
     let mut next = 0;
     let mut buf = vec![0u8; CHUNK];
@@ -145,6 +148,7 @@ async fn emit<D: BlockDevice>(out: &mut D, tree: &Tree, plan: &Plan) -> Result<(
     Ok(())
 }
 
+#[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all, fields(len = len, block = block, bytes = buf.len())))]
 async fn file<D: BlockDevice>(
     out: &mut D,
     tree: &Tree,

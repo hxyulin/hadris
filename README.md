@@ -147,7 +147,7 @@ The 2.x binaries (`hadris-fat`, `hadris-iso`, `hadris-udf`, `hadris-cpio`,
 ## Key Features
 
 The optional `tracing` feature enables `std` and forwards function
-instrumentation to enabled FAT/exFAT drivers. It is disabled by default;
+instrumentation to enabled filesystem, archive and partition crates. It is disabled by default;
 see the [tracing guide](docs/tracing.md) for setup
 and the boundary between tracing and embedded measurements.
 

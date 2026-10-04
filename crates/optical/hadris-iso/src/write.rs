@@ -28,6 +28,7 @@ io_transform! {
 /// and with [`ErrorKind::Unsupported`] naming the file whose content this
 /// mode cannot read. An error from a file's content carries the file's path
 /// ([`PathError::path`]).
+#[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
 pub async fn write<D: BlockDevice>(mut out: D, tree: &Tree, opts: &IsoOptions) -> Result<Report, PathError> {
     check_block_size(&out)?;
     let contents = plan::measure(tree, false)?;
@@ -86,6 +87,7 @@ pub(crate) async fn emit<D: BlockDevice>(out: &mut D, tree: &Tree, plan: &Plan) 
     emit_from(out, tree, plan, None::<&mut D>).await
 }
 
+#[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
 pub(crate) async fn emit_from<D: BlockDevice, S: BlockDevice>(
     out: &mut D,
     tree: &Tree,
@@ -223,6 +225,7 @@ async fn checksum<D: BlockDevice, S: BlockDevice>(out: &mut D, reader: &mut Sour
     Ok(sum)
 }
 
+#[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all, fields(block = block, bytes = buf.len())))]
 async fn file<D: BlockDevice, S: BlockDevice>(
     out: &mut D,
     content: &Content,

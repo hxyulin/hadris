@@ -1,11 +1,11 @@
 # Function tracing
 
-`hadris-fat` offers an opt-in `tracing` feature. The umbrella `hadris` forwards
-it to `hadris-fat` when the `fat` feature is enabled. This first set of spans
-covers FAT/exFAT mount, file reads/writes, directory lookup/iteration,
-create/unlink, sync and truncation, along with FAT allocation and write-path
-helpers. The embedded API's corresponding operations are also instrumented
-when tracing is enabled, for diagnosis on a hosted build.
+The filesystem and partition crates offer an opt-in `tracing` feature:
+`hadris-fat`, `hadris-iso`, `hadris-udf`, `hadris-apfs`, `hadris-ntfs`,
+`hadris-cpio` and `hadris-part`. The umbrella `hadris` forwards it to enabled
+formats without enabling additional format features. ISO forwards it to its
+partition writer, and UDF forwards it to ISO for bridge planning and emission.
+Applications use the same subscriber for every format.
 
 ```toml
 [dependencies]
@@ -17,18 +17,19 @@ The application installs a subscriber; Hadris never installs a global one:
 
 ```rust,ignore
 tracing_subscriber::fmt()
-    .with_env_filter("hadris::fat=trace,hadris::exfat=trace")
+    .with_env_filter("hadris=trace")
     .with_file(true)
     .with_line_number(true)
     .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
     .init();
 ```
 
-Spans use the `TRACE` level and targets `hadris::fat`, `hadris::exfat` and
-their `::embedded` children. Each span carries its function name, module,
+Spans use the `TRACE` level and targets `hadris::fat`, `hadris::exfat`,
+`hadris::iso`, `hadris::udf`, `hadris::apfs`, `hadris::ntfs`, `hadris::cpio`
+and `hadris::part`. FAT and exFAT also have `::embedded` children. Each span carries its function name, module,
 source file and line. Selected operations also record node/directory IDs,
 offsets, requested byte counts, lengths and allocation counts. Devices,
-buffers, file contents and error payloads are skipped, so instrumentation
+buffers, file contents, paths, credentials and error payloads are skipped, so instrumentation
 does not add `Debug` or `Display` requirements to generic device types.
 Subscriber-specific layers can export these spans for visualization or
 profiling. Async spans enter on each poll and exit when it returns; no span
@@ -77,3 +78,25 @@ Use a counting device for exact I/O totals and the firmware-size script for
 embedded resource costs. Run the embedded driver on a host with tracing to
 inspect its control flow, then benchmark and build firmware with tracing
 disabled.
+
+## Coverage by format
+
+| Target | Operations |
+| --- | --- |
+| `hadris::fat`, `hadris::exfat` | Mount, file and directory operations, allocation, sync and formatting; hosted and embedded APIs |
+| `hadris::iso` | Mount, file and directory operations, raw and extent reads, planning, placement, directory construction, image writes and sessions |
+| `hadris::udf` | Mount, file and directory operations, raw and extent reads, planning, image and ISO bridge writes |
+| `hadris::apfs` | Mount and password mount, file and directory operations, container opening, unlocking, B-tree traversal, object-map lookup and native reads |
+| `hadris::ntfs` | Mount, file and directory operations, stream listing and named stream reads |
+| `hadris::cpio` | Entry and segment iteration, streaming reads, tree reads, planning, append and streaming writes |
+| `hadris::part` | Partition scanning, table reads, writes and creation |
+
+Shared sources instrument each supported sync, Send async and local async mode.
+This is operation and phase tracing: individual block transfers and every parser
+helper are not instrumented. Format-neutral I/O and storage traits remain free
+of span policy; wrap a device to collect transfer counters.
+
+APFS password mounts and unlocking use `skip_all`, with no return or error
+recording. Passwords, crypto-user identifiers, keys and decrypted bytes never
+become span fields. Failed calls still produce spans, so use the returned result
+to determine success.

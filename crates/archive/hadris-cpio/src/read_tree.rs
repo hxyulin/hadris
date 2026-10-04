@@ -161,6 +161,7 @@ async fn read_data<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeSend>
 /// and have a link count above 1 become hard links, with the data and
 /// attributes of the last name that carries data, as GNU cpio writes them.
 /// Errors carry the entry name.
+#[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all))]
 pub async fn read_tree<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeSend>(reader: &mut CpioReader<R, B>) -> Result<Tree, PathError> {
     let mut tree = Tree::new();
     let mut groups = Groups::default();

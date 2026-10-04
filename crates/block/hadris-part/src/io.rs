@@ -222,6 +222,7 @@ fn extended_range(record: &RawMbr) -> Option<(u64, u64)> {
 /// are invalid, [`ErrorKind::Unsupported`] unless the block size is a power
 /// of two of at least 512 bytes, and [`ErrorKind::Io`] when the device fails.
 #[cfg(feature = "alloc")]
+#[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::part", level = "trace", skip_all))]
 pub async fn read<D: BlockDevice>(dev: &mut D) -> Result<Disk, Error<D::Error>> {
     let (size, block_count) = geometry(dev)?;
     let mut buf = alloc::vec![0u8; size.get() as usize];
@@ -272,6 +273,7 @@ pub async fn read<D: BlockDevice>(dev: &mut D) -> Result<Disk, Error<D::Error>> 
 /// It validates as [`read`] does, including both GPT CRCs and the fallback
 /// to the backup GPT, and lists partitions in the same order. Blocks larger
 /// than 4096 bytes fail with [`ErrorKind::Unsupported`].
+#[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::part", level = "trace", skip_all))]
 pub async fn scan<D: BlockDevice>(
     dev: &mut D,
     mut f: impl FnMut(Partition) -> ControlFlow<()>,
@@ -326,6 +328,7 @@ pub async fn scan<D: BlockDevice>(
 /// image),
 /// and [`ErrorKind::ReadOnly`] when the device refuses writes.
 #[cfg(feature = "alloc")]
+#[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::part", level = "trace", skip_all))]
 pub async fn write<D: BlockDevice>(dev: &mut D, disk: &Disk) -> Result<(), Error<D::Error>> {
     if dev.block_size() != disk.block_size() {
         return Err(Detail::BlockSize.error(ErrorKind::InvalidInput));
@@ -371,6 +374,7 @@ pub async fn write<D: BlockDevice>(dev: &mut D, disk: &Disk) -> Result<(), Error
 /// # fn main() {}
 /// ```
 #[cfg(feature = "alloc")]
+#[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::part", level = "trace", skip_all))]
 pub async fn create<D: BlockDevice>(
     dev: &mut D,
     layout: &DiskLayout,

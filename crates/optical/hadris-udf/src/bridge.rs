@@ -160,6 +160,10 @@ impl BridgePlan {
 /// [`IsoOptions::with_min_image_blocks`] to the whole image. The report has the image size,
 /// the warnings of the ISO 9660 writer then those of the UDF writer, and
 /// the extents of each file. Fails as either `plan` does.
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(target = "hadris::udf", level = "trace", skip_all)
+)]
 pub fn plan_bridge(tree: &Tree, iso: &IsoOptions, udf: &UdfOptions) -> Result<Report, PathError> {
     Ok(plan_both(tree, iso, udf)?.report())
 }

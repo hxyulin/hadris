@@ -272,6 +272,7 @@ impl<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeSend> CpioReader<R,
     /// padding or checksum, or an archive cut off inside an entry, and with
     /// [`Detail::Trailer`] when a trailer is required and missing. Names whose
     /// encoded size (including NUL) exceeds the buffer return `LimitExceeded`.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all))]
     pub async fn next_entry(&mut self) -> Result<Option<Entry<'_, R, B>>, Error<R::Error>> {
         match self.advance().await {
             Ok(true) => Ok(Some(Entry { reader: self })),
@@ -293,6 +294,7 @@ impl<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeSend> CpioReader<R,
     /// the next header is valid; `next_entry` validates it. Returns `false` at EOF.
     /// Calling this before reaching a trailer or EOF returns `InvalidInput`.
     /// After a successful call, read that segment before calling this again.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all))]
     pub async fn next_segment(&mut self) -> Result<bool, Error<R::Error>> {
         if self.state == State::Done {
             return Ok(false);
@@ -461,6 +463,7 @@ impl<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeSend> CpioReader<R,
 }
 
 impl<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeSend> Read for Entry<'_, R, B> {
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all, fields(bytes = buf.len())))]
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         let result = self.reader.read_data(buf).await;
         if result.is_err() {

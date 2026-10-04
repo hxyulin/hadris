@@ -373,6 +373,7 @@ dependencies = [
  "hadris-part",
  "hadris-storage",
  "hadris-udf",
+ "tracing",
 ]
 
 [[package]]
@@ -388,6 +389,7 @@ dependencies = [
  "hmac",
  "pbkdf2",
  "sha2",
+ "tracing",
  "xts-mode",
  "zeroize",
 ]
@@ -443,6 +445,7 @@ dependencies = [
  "hadris-io",
  "hadris-macros",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]
@@ -627,6 +630,7 @@ dependencies = [
  "hadris-part",
  "hadris-storage",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]
@@ -646,6 +650,7 @@ dependencies = [
  "hadris-macros",
  "hadris-storage",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]
@@ -658,6 +663,7 @@ dependencies = [
  "hadris-io",
  "hadris-macros",
  "hadris-storage",
+ "tracing",
 ]
 
 [[package]]
@@ -681,6 +687,7 @@ dependencies = [
  "hadris-part",
  "hadris-storage",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]

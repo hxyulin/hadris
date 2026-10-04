@@ -207,6 +207,7 @@ impl<D: BlockDevice> Session<D> {
     /// A directory listed twice, as in a cycle, fails with
     /// [`ErrorKind::Corrupt`] and one more than 1024 levels deep with
     /// [`ErrorKind::LimitExceeded`], both with [`Detail::DirectoryRecord`].
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
     pub async fn open(dev: D) -> Result<Self, MountError<D, D::Error>> {
         let mut iso = IsoFs::mount(dev, hadris_fs::MountOptions::new().read_only()).await?;
         if iso.info().block_size() != SECTOR_SIZE as u32 {
@@ -275,6 +276,7 @@ impl<D: BlockDevice> Session<D> {
     /// Validation and output capacity checks run before writing. Source or
     /// output I/O failures may leave an incomplete output image. File read
     /// errors carry the path in [`PathError::path`].
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
     pub async fn export<O: BlockDevice>(&mut self, mut out: O, opts: &IsoOptions) -> Result<Report, PathError> {
         check_block_size(&out)?;
         let mut contents = plan::measure(&self.tree, true)?;
@@ -345,6 +347,7 @@ impl<D: BlockDevice> Session<D> {
     ///
     /// Afterwards the tree's new files point at their new extents, so the
     /// session can be written again.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
     pub async fn write(&mut self, opts: &IsoOptions, mode: SessionMode) -> Result<Report, PathError> {
         check_block_size(&self.dev)?;
         let mut contents = plan::measure(&self.tree, true)?;

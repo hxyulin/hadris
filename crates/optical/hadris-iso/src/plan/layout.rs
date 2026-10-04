@@ -19,6 +19,10 @@ struct PlacedFile {
 }
 
 impl Planner<'_> {
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(target = "hadris::iso", level = "trace", skip_all)
+    )]
     pub(super) fn layout(mut self) -> PlanResult<Plan> {
         let order = self.preorder();
         let files = self.file_order(&order);

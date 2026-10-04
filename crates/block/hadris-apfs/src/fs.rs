@@ -263,6 +263,7 @@ impl<D: BlockDevice> ApfsFs<D> {
     /// Containers with no volumes fail with `NotFound`; multiple volumes
     /// require [`Self::mount_volume`] and fail with `InvalidInput`.
     /// Mount failures return the device for inspection or retry.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn mount(device: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
         Self::mount_selected(device, options, None, None).await
     }
@@ -270,6 +271,7 @@ impl<D: BlockDevice> ApfsFs<D> {
     /// Mounts exactly one volume selected by index, object identifier, UUID or
     /// exact name. Missing selectors fail with `NotFound`; duplicate matches
     /// fail with `InvalidInput`. Names are case sensitive for selection.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn mount_volume(
         device: D,
         options: MountOptions,
@@ -286,6 +288,7 @@ impl<D: BlockDevice> ApfsFs<D> {
     /// the device. Passwords are borrowed only during mounting. See
     /// [`Container::unlock_volume`] for supported encryption and resource limits.
     #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn mount_with_password(
         device: D,
         options: MountOptions,
@@ -300,6 +303,7 @@ impl<D: BlockDevice> ApfsFs<D> {
     /// Volume selection is independent of the optional crypto-user UUID.
     /// Credentials and limits behave as in [`Self::mount_with_password`].
     #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn mount_volume_with_password(
         device: D,
         options: MountOptions,
@@ -406,6 +410,7 @@ impl<D: BlockDevice> ApfsFs<D> {
     }
 
     /// Unmounts the read-only driver and returns its device.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn unmount(self) -> Result<D, MountError<D, D::Error>> {
         Ok(self.container.into_inner())
     }
@@ -462,6 +467,7 @@ impl<D: BlockDevice> FileSystem for ApfsFs<D> {
         NodeId::new(crate::types::filesystem::INODE_ROOT_DIRECTORY).unwrap()
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     async fn statfs(&mut self) -> FsResult<FsStats, D::Error> {
         let summary = self.container.space_manager_summary(&self.checkpoint).await?;
         if summary.main_device.free_count > summary.main_device.block_count {
@@ -484,6 +490,7 @@ impl<D: BlockDevice> FileSystem for ApfsFs<D> {
         Ok(Some(core::str::from_utf8(target).map_err(|_| ErrorKind::Corrupt)?))
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(dir = ?dir)))]
     async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
         name.check()?;
         self.directory(dir).await?;
@@ -501,6 +508,7 @@ impl<D: BlockDevice> FileSystem for ApfsFs<D> {
         let _ = (node, count);
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(dir = ?dir)))]
     async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
         let inode = self.directory(dir).await?;
         if dir == self.root() { return Ok(dir); }
@@ -509,11 +517,13 @@ impl<D: BlockDevice> FileSystem for ApfsFs<D> {
         Ok(parent)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(node = ?node)))]
     async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
         let inode = self.inode(node).await?;
         self.metadata(&inode).await
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(dir = ?dir)))]
     async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
         self.directory(dir).await?;
         if from.into_raw() > DirCursor::MAX_RAW { return Err(ErrorKind::InvalidInput.into()); }
@@ -531,6 +541,7 @@ impl<D: BlockDevice> FileSystem for ApfsFs<D> {
         Ok(Some(DirEntry::new(Name::from_bytes(name.as_bytes()), node, metadata, DirCursor::from_raw(next))?))
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(node = ?node, bytes = buf.len())))]
     async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
         let inode = self.inode(node).await?;
         if !file_type::<D::Error>(&inode)?.is_symlink() { return Err(ErrorKind::InvalidInput.into()); }
@@ -540,6 +551,7 @@ impl<D: BlockDevice> FileSystem for ApfsFs<D> {
         Ok(output)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(node = ?node)))]
     async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
         let inode = self.inode(node).await?;
         match file_type::<D::Error>(&inode)? {
@@ -553,11 +565,13 @@ impl<D: BlockDevice> FileSystem for ApfsFs<D> {
         Ok(())
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(node = ?node)))]
     async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         let _ = node;
         Ok(())
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(node = ?node, offset = offset, bytes = buf.len())))]
     async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         #[cfg(feature = "encryption")]
         self.container.check_unlocked_volume(&self.volume)?;

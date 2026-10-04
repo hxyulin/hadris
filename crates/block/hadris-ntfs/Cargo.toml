@@ -13,7 +13,7 @@ license.workspace = true
 repository.workspace = true
 
 [package.metadata.docs.rs]
-features = ["std", "sync", "async"]
+features = ["std", "sync", "async", "tracing"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
@@ -25,7 +25,10 @@ std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std"]
 sync = ["hadris-io/sync", "hadris-fs/sync", "hadris-storage/sync"]
 async = ["hadris-io/async", "hadris-fs/async", "hadris-storage/async"]
 
+tracing = ["std", "dep:tracing"]
+
 [dependencies]
+tracing = { workspace = true, optional = true }
 bytemuck = { workspace = true, features = ["derive", "min_const_generics"] }
 hadris-io = { workspace = true, default-features = false }
 hadris-fs = { workspace = true, default-features = false }
