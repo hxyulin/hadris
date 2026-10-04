@@ -221,6 +221,47 @@ fn allocate_after_preserves_reserved_bits_and_writes_only_the_active_fat() {
 }
 
 #[test]
+fn allocate_run_after_preserves_reserved_bits_on_the_active_fat() {
+    let mut image = vec![0; 64 * MIB];
+    let (mut dev, mut block) = format(&mut image, FatKind::Fat32);
+    io::write_bytes(&mut dev, &mut block, 40, &[0x81, 0]).unwrap();
+    let geo = io::read_geometry(&mut dev, &mut block).unwrap();
+    let mut fat = io::read_fat(&mut dev, &mut block, geo).unwrap();
+    let tail = io::allocate(&mut dev, &mut block, &mut fat, None).unwrap();
+    let first = fat.next_free();
+    for (cluster, stored) in [(tail, 0xAFFF_FFF8u32), (first, 0xB000_0000)] {
+        let at = geo.fat_copy(1) + FatKind::Fat32.entry_offset(cluster as u64);
+        io::write_bytes(&mut dev, &mut block, at, &stored.to_le_bytes()).unwrap();
+    }
+    let mut held = Held::NONE;
+    assert_eq!(
+        io::allocate_run_after(&mut dev, &mut block, &mut fat, &mut held, tail, 4).unwrap(),
+        first
+    );
+    assert_eq!(
+        io::get_copy(&mut dev, &mut block, &fat, 1, tail).unwrap(),
+        0xA000_0000 | first
+    );
+    assert_eq!(
+        io::get_copy(&mut dev, &mut block, &fat, 1, first).unwrap(),
+        0xB000_0000 | (first + 1)
+    );
+    for cluster in tail..first + 4 {
+        assert_eq!(
+            io::get_copy(&mut dev, &mut block, &fat, 0, cluster).unwrap(),
+            0
+        );
+    }
+    assert_eq!(
+        io::get_copy(&mut dev, &mut block, &fat, 1, first + 3).unwrap(),
+        FatKind::Fat32.end_of_chain()
+    );
+    assert_eq!(held.head(), first);
+    assert_eq!(held.extra(), 0);
+    assert_eq!(fat.unmirrored(), None);
+}
+
+#[test]
 fn allocation_wraps_past_occupied_clusters_and_stops_on_full_volumes() {
     for copies in [1, 2] {
         let mut image = vec![0; 64 * MIB];
@@ -418,4 +459,74 @@ fn check_paths_decode_stored_names() {
             .all(|(detail, ..)| *detail == Detail::SizeMismatch)
     );
     assert!(found[1].2.contains("/\\xe9T.TXT"), "{}", found[1].2);
+}
+
+#[test]
+fn allocate_run_after_links_batches_across_fat_blocks_and_checks_inputs() {
+    for (kind, size) in [
+        (FatKind::Fat12, 2 * MIB),
+        (FatKind::Fat16, 32 * MIB),
+        (FatKind::Fat32, 64 * MIB),
+    ] {
+        for copies in [1, 2] {
+            let mut image = vec![0; size];
+            let (mut dev, mut block) = format_copies(&mut image, kind, copies);
+            let geo = io::read_geometry(&mut dev, &mut block).unwrap();
+            let mut fat = io::read_fat(&mut dev, &mut block, geo).unwrap();
+            let free = io::count_free(&mut dev, &mut block, &mut fat).unwrap();
+            let first = io::allocate_run(&mut dev, &mut block, &mut fat, None, 120).unwrap();
+            let mut tail = first;
+            while let Some(next) = io::next(&mut dev, &mut block, &fat, tail).unwrap() {
+                tail = next;
+            }
+            let mut held = Held::NONE;
+            let head = io::allocate_run_after(&mut dev, &mut block, &mut fat, &mut held, tail, 300)
+                .unwrap();
+            assert_eq!(held, Held::new(head, 0));
+            assert_eq!(
+                io::next(&mut dev, &mut block, &fat, tail).unwrap(),
+                Some(head)
+            );
+            let mut cluster = head;
+            let mut count = 0;
+            loop {
+                let stored = io::get(&mut dev, &mut block, &fat, cluster).unwrap();
+                for copy in 0..copies {
+                    assert_eq!(
+                        io::get_copy(&mut dev, &mut block, &fat, copy, cluster).unwrap(),
+                        stored
+                    );
+                }
+                count += 1;
+                match io::next(&mut dev, &mut block, &fat, cluster).unwrap() {
+                    Some(next) => cluster = next,
+                    None => break,
+                }
+            }
+            assert_eq!(count, 300);
+            assert_eq!(fat.free_clusters(), Some(free - 420));
+            let mut empty = Held::NONE;
+            assert_eq!(
+                io::allocate_run_after(&mut dev, &mut block, &mut fat, &mut empty, cluster, 0)
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::InvalidInput
+            );
+            assert_eq!(empty, Held::NONE);
+            assert_eq!(
+                io::allocate_run_after(&mut dev, &mut block, &mut fat, &mut empty, tail, 2)
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::InvalidInput
+            );
+            assert_eq!(empty, Held::NONE);
+            assert_eq!(
+                io::allocate_run_after(&mut dev, &mut block, &mut fat, &mut held, cluster, 2)
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::InvalidInput
+            );
+            assert_eq!(fat.free_clusters(), Some(free - 420));
+        }
+    }
 }

@@ -73,3 +73,53 @@ mutation/slot reuse, existing read/write/async/contract tests and the allocator-
 only tier. The async resource caps allow 64 additional bytes for the metadata
 adapter (rename/label 3,648 bytes, create 2,304 bytes, extents 576 bytes); they
 remain tested rather than ignored. Embedded resource limits are unchanged.
+
+## 5. Batched growth and tail linking
+
+`allocate_run_after` combines the old tail link with the final FAT16/32
+allocation group when both occupy the same device block in every FAT copy.
+Recovery recognizes a tail pointing at either the completed head or the
+in-progress group, mirrors interrupted entries, detaches the old tail and
+reclaims the allocation. FAT12 retains its packed-entry path. Disabled
+metadata caches bypass lookup and invalidation bookkeeping immediately.
+
+Without optional caches, FAT32 writes for a 1 MiB file fall from 1,314 to 804
+with 4 KiB requests, and from 114 to 84 with 64 KiB requests. Bytes written
+fall from 1,590,272 to 1,329,152 and from 1,098,752 to 1,083,392 respectively.
+Median CPU times after all five changes are 138.54 µs and 89.96 µs, versus
+1,698.79 µs and 262.17 µs in the original baseline. These cumulative runtime
+improvements also include the bitmap iteration fix in step 1; the batching
+change accounts for the write-count reductions. FAT12's 64 KiB workload
+retains 8,225 writes and measures 305.12 µs versus the baseline's 273.79 µs;
+the series is not a CPU improvement for every workload.
+[Measurements](benchmarks/fat-hosted-step5.csv).
+
+Validation covers allocation across multiple FAT blocks on FAT12/16/32 with
+one and two FAT copies, FAT32 reserved bits and active-copy selection, invalid
+inputs, direct hosted write counts, and
+failure at every write/cancellation at every await during multi-cluster
+growth with both caches enabled and disabled. The failure fixtures cover
+512-byte and 4 KiB device geometries and independently validate the resulting
+allocation graph and file contents. Existing hosted and embedded tests,
+feature tiers, API snapshots, firmware budgets and the FAT conformance suite
+provide the final series checks.
+
+## Configuring both caches
+
+The [combined run](benchmarks/fat-hosted-combined.csv) uses 32 chain positions
+and eight metadata blocks after all five changes. FAT32 reverse and shuffled
+4 KiB reads use 283 and 296 device calls respectively (baseline: 2,435 and
+1,298), with medians of 140.33 µs and 145.38 µs. Short-name lookup uses 129
+calls (baseline: 1,008), measuring 291.12 µs. The boot-load case retains 39
+reads and measures 36.54 µs versus the baseline's 32.67 µs: the configured
+caches offer no I/O gain for this forward-only workload. Choose cache bounds
+for the application's access pattern rather than enabling them universally.
+
+Final validation: 335 passing crate tests/doctests across the full dual-mode
+suite and the final added raw-layer regression, all 15 FAT/raw CI feature tiers
+on Rust 1.88 with warnings denied, workspace check with warnings denied,
+formatting, targeted clippy, public API snapshots and sync/async/local parity.
+The firmware budget checker passes on thumbv6m, thumbv7em and riscv32imc.
+The FAT conformance suite passes nine tests; four optional peer/native tests
+remain ignored. No physical-media timing or native mounted-image run is
+claimed by these measurements.

@@ -56,9 +56,11 @@ allocator:
   `free_chain` take and free clusters a device block of entries at a time,
   recording their progress in a `Held` so a driver can finish an
   interrupted one
-- `allocate_after` extends a chain by one cluster, combining allocation and
-  the tail link into one write per FAT copy on FAT16/32 when the entries share
-  a device block; the caller retains the held cluster for recovery
+- `allocate_after` extends a chain by one cluster; `allocate_run_after` extends
+  it by several. They combine allocation and the tail link into one write per
+  FAT copy on FAT16/32 when the entries share a device block. The caller keeps
+  the `Held` state and follows each function's recovery contract after failure
+  or cancellation
 - `slot_offset` with a `DirWalk` that keeps its chain position,
   `read_slot`, `write_slots` and `clear_slots` for directories
 - `mkfs` writes a volume that `layout::plan` planned

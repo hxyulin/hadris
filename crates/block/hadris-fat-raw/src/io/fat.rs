@@ -393,8 +393,44 @@ pub async fn allocate_run<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
     fat: &mut Fat,
+    held: Option<&mut Held>,
+    count: u32,
+) -> FsResult<u32, D::Error> {
+    allocate_run_inner(dev, block, fat, held, count, None).await
+}
+
+/// Allocates `count` clusters and links an end-of-chain `tail` to them.
+/// On FAT16/32, the final allocation group and tail use one write per FAT
+/// copy when they share a device block. FAT12 retains packed-entry writes.
+///
+/// `count` must be nonzero and `held` empty. As with [`allocate_after`],
+/// failure or cancellation requires mirroring, detaching `tail` if it links
+/// either `held.head()` or `held.extra()`, then reclaiming the extra chain and
+/// head (stopping at already-free clusters). No file data is initialized.
+pub async fn allocate_run_after<D: BlockDevice>(
+    dev: &mut D,
+    block: &mut BlockBuf,
+    fat: &mut Fat,
+    held: &mut Held,
+    tail: u32,
+    count: u32,
+) -> FsResult<u32, D::Error> {
+    if count == 1 {
+        return allocate_after(dev, block, fat, held, tail).await;
+    }
+    if count == 0 || *held != Held::NONE || next(dev, block, fat, tail).await?.is_some() {
+        return Err(ErrorKind::InvalidInput.into());
+    }
+    allocate_run_inner(dev, block, fat, Some(held), count, Some(tail)).await
+}
+
+async fn allocate_run_inner<D: BlockDevice>(
+    dev: &mut D,
+    block: &mut BlockBuf,
+    fat: &mut Fat,
     mut held: Option<&mut Held>,
     count: u32,
+    tail: Option<u32>,
 ) -> FsResult<u32, D::Error> {
     let kind = fat.geo.kind();
     if kind == FatKind::Fat12 || count <= 1 {
@@ -411,6 +447,9 @@ pub async fn allocate_run<D: BlockDevice>(
                 first = cluster;
             }
             last = cluster;
+        }
+        if let Some(tail) = tail {
+            set(dev, block, fat, tail, first).await?;
         }
         return Ok(first);
     }
@@ -443,6 +482,8 @@ pub async fn allocate_run<D: BlockDevice>(
     let end = kind.end_of_chain();
     let mut head = end;
     let mut top = last + 1;
+    let mut left = count;
+    let mut linked = false;
     while top > 0 {
         let high = at(top - 1);
         let mut group = ClusterGroup::new(high.saturating_sub(ClusterGroup::SPAN - 1));
@@ -460,16 +501,22 @@ pub async fn allocate_run<D: BlockDevice>(
         if group.count == 0 {
             continue;
         }
+        let link = tail.filter(|&tail| left == group.count && same_fat_block(fat, size, tail, group.lowest()));
         if let Some(held) = held.as_deref_mut() {
             held.head = if head == end { 0 } else { head };
             held.extra = group.lowest();
         }
-        patch(dev, block, fat, &group, Some(head), None).await?;
+        patch(dev, block, fat, &group, Some(head), link).await?;
+        linked |= link.is_some();
+        left -= group.count;
         head = group.lowest();
         if let Some(held) = held.as_deref_mut() {
             held.head = head;
             held.extra = 0;
         }
+    }
+    if let Some(tail) = tail.filter(|_| !linked) {
+        set(dev, block, fat, tail, head).await?;
     }
     fat.next_free = after(fat, at(last));
     Ok(head)

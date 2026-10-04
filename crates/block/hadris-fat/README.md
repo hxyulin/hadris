@@ -31,7 +31,7 @@ the workloads, CSV baselines, measurement limits and firmware-size checks.
 `FatFs` is the node-based driver, available as
 `sync::FatFs` and `r#async::FatFs`. It mounts any
 `hadris-storage` block device, needs `alloc` for its node table (its only
-I/O buffer is one device block of at most 4096 bytes), and implements the `hadris-fs`
+I/O buffer with caching disabled is one device block of at most 4096 bytes), and implements the `hadris-fs`
 `FileSystem` trait, so `Volume` and its `File` and `ReadDir` handles work
 on it. Long names are always read and written: a name
 that fits 8.3 in one case per part is stored as a short entry alone, and

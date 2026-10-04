@@ -2674,3 +2674,73 @@ fn single_cluster_append_recovers_after_each_failed_write() {
         assert!(completed, "{} append never completed", case.name);
     }
 }
+
+#[test]
+fn multi_cluster_append_recovers_after_each_failed_write() {
+    for case in [CASES[0], CASES[1], CASES[2], CASES[4]] {
+        let blank = common::blank(case);
+        let geo = hadris_fat_raw::parse_boot(blank[..512].try_into().unwrap()).unwrap();
+        let cluster = geo.cluster_size() as usize;
+        let clusters = if case.kind == hadris_fat::FatKind::Fat12 {
+            3
+        } else {
+            case.block as usize / case.kind.entry_len() - 5
+        };
+        let old = vec![7; clusters * cluster];
+        let new = vec![9; 16 * cluster];
+        let mut fs = open(case, blank);
+        let file = fs
+            .create(fs.root(), name("LOG.BIN"), &SetAttr::new())
+            .unwrap();
+        fs.write(file, 0, &old).unwrap();
+        let before = fs.unmount().unwrap().into_inner();
+        for cached in [false, true] {
+            let mut completed = false;
+            for budget in 0..100 {
+                let dev = Faulty {
+                    inner: common::device(case, before.clone()),
+                    budget: Some(budget),
+                    refuse: false,
+                    once: true,
+                };
+                let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
+                if cached {
+                    fs = fs.with_cache(hadris_fat::CacheOptions::new());
+                }
+                let file = fs.lookup(fs.root(), name("LOG.BIN")).unwrap();
+                fs.read(file, (old.len() - cluster) as u64, &mut vec![0; cluster])
+                    .unwrap();
+                let result = fs.write(file, old.len() as u64, &new);
+                if let Err(err) = fs.sync() {
+                    assert_eq!(err.kind(), ErrorKind::Io);
+                    fs.sync().unwrap();
+                }
+                let image = fs.unmount().unwrap().inner.into_inner();
+                common::assert_checks_clean(
+                    case,
+                    &image,
+                    &format!("{} budget {budget} cached {cached}", case.name),
+                );
+                let mut fresh = open(case, image);
+                let file = fresh.lookup(fresh.root(), name("LOG.BIN")).unwrap();
+                let data = read_all(&mut fresh, file);
+                assert_eq!(&data[..old.len()], &old);
+                assert_eq!(
+                    data.len(),
+                    old.len() + if result.is_ok() { new.len() } else { 0 }
+                );
+                if result.is_ok() {
+                    assert_eq!(&data[old.len()..], &new);
+                    completed = true;
+                    break;
+                }
+                assert_eq!(result.unwrap_err().kind(), ErrorKind::Io);
+            }
+            assert!(
+                completed,
+                "{} multi-cluster append never completed",
+                case.name
+            );
+        }
+    }
+}

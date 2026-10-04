@@ -57,6 +57,9 @@ impl<D: BlockDevice> BlockDevice for MetadataDevice<D> {
         buf: &mut [u8],
     ) -> Result<(), hadris_io::Error<D::Error>> {
         let Self { inner, blocks } = self;
+        if !blocks.enabled() {
+            return inner.read_blocks(first, buf).await;
+        }
         if buf.len() == inner.block_size().get() as usize && let Some(bytes) = blocks.get(first.get()) {
             buf.copy_from_slice(bytes);
             return Ok(());
@@ -73,6 +76,9 @@ impl<D: BlockDevice> BlockDevice for MetadataDevice<D> {
         first: hadris_storage::BlockIndex,
         buf: &[u8],
     ) -> Result<(), hadris_io::Error<D::Error>> {
+        if !self.blocks.enabled() {
+            return self.inner.write_blocks(first, buf).await;
+        }
         let count = buf.len().div_ceil(self.block_size().get() as usize) as u64;
         self.blocks.invalidate(first.get(), count);
         self.inner.write_blocks(first, buf).await
@@ -1017,6 +1023,9 @@ impl<D: BlockDevice> FatFs<D> {
         };
         let (head, extra) = (pending.held.head(), pending.held.extra());
         let mut owned = head != 0 && self.links(pending.owner, head).await?;
+        if matches!(pending.owner, Owner::Tail(_)) && !owned && extra != 0 {
+            owned = self.links(pending.owner, extra).await?;
+        }
         if let Owner::Tail(tail) = pending.owner
             && owned
         {
@@ -1949,23 +1958,15 @@ impl<D: BlockDevice> FatFs<D> {
             return Ok(none);
         }
         let count = need - 1 - index;
-        if count == 1 {
-            let pending = self.pending.insert(Pending::chain(0, Owner::Tail(tail)));
-            let result = rawio::allocate_after(&mut self.dev, &mut self.block, &mut self.fat, &mut pending.held, tail).await;
-            let added = match self.note(result) {
-                Ok(added) => added,
-                Err(err) => {
-                    let _ = self.recover().await;
-                    return Err(err);
-                }
-            };
-            return Ok(Growth { first: state.first, added });
-        }
-        let added = self.allocate_chain(count, false, Owner::Tail(tail)).await?;
-        if let Err(err) = self.set_fat(tail, added).await {
-            let _ = self.recover().await;
-            return Err(err);
-        }
+        let pending = self.pending.insert(Pending::chain(0, Owner::Tail(tail)));
+        let result = rawio::allocate_run_after(&mut self.dev, &mut self.block, &mut self.fat, &mut pending.held, tail, count).await;
+        let added = match self.note(result) {
+            Ok(added) => added,
+            Err(err) => {
+                let _ = self.recover().await;
+                return Err(err);
+            }
+        };
         Ok(Growth { first: state.first, added })
     }
 

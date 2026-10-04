@@ -24,6 +24,16 @@ the bounded hosted seek index (default zero); CSV records the configured bound
 in `chain_positions`. `--metadata-blocks N` configures the hosted metadata
 cache (default zero), recorded in `metadata_blocks`. Embedded cases ignore
 both settings. `--help` prints the options.
+
+Plain `FatFs::mount` enables neither optional cache. With `alloc`, including
+`no_std` bootloaders, `with_cache(CacheOptions::new())` enables 32 learned
+chain positions and eight read-through metadata blocks. Configure the bounds
+with `with_chain_positions` and `with_blocks`; zero disables either one.
+Use the chain index for backward or scattered reads and metadata caching for
+repeated FAT/directory reads. File payload reads bypass the metadata cache;
+writes invalidate overlapping entries immediately. Sequential workloads can
+pay extra CPU for cache maintenance. The [hosted optimization report](fat-hosted-optimizations.md)
+records separate cache measurements and tests for each step.
 CSV goes to stdout, so Cargo's build messages on stderr do not enter the file.
 
 The 120 cases combine three variants, two synchronous drivers and these

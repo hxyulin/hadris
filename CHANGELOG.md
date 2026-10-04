@@ -8,6 +8,10 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- FAT node-driver multi-cluster growth batches tail linking with the final
+  FAT16/32 allocation group, using the new raw `allocate_run_after` primitive.
+  FAT12 keeps its packed-entry recovery path.
+
 - FAT adds configurable metadata-block caching, with payload reads bypassing
   the cache and overlapping writes invalidating entries before I/O.
 

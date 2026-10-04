@@ -135,6 +135,10 @@ impl Blocks {
         }
     }
 
+    pub(crate) fn enabled(&self) -> bool {
+        self.limit != 0
+    }
+
     fn tick(&mut self) -> u64 {
         if self.clock == u64::MAX {
             for entry in &mut self.entries {
