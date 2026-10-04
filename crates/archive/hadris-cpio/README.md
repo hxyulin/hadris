@@ -122,3 +122,6 @@ This project is licensed under the [MIT license](../../../LICENSE-MIT).
 The opt-in `tracing` feature enables `std` and emits operation spans through the
 application’s subscriber. It is disabled by default. See the
 [tracing guide](../../../docs/tracing.md) for targets, metadata and async behavior.
+
+The [streaming audit and benchmark](../../../docs/cpio-performance.md) records
+I/O counts, workload boundaries and native `cpio` interoperability checks.

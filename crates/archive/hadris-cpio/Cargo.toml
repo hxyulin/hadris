@@ -45,3 +45,12 @@ required-features = ["std", "sync"]
 [[test]]
 name = "async_writer"
 required-features = ["std", "sync"]
+
+[[bench]]
+name = "performance"
+harness = false
+required-features = ["std", "sync"]
+
+[[test]]
+name = "interop"
+required-features = ["std", "sync"]

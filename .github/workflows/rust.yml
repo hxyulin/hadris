@@ -216,6 +216,9 @@ jobs:
         run: cargo bench -p hadris-fat --bench performance -- --smoke
       - name: Run detection and opening integration tests
         run: cargo test -p hadris --all-features --test detect
+      - name: Run CPIO performance harness smoke check
+        if: runner.os == 'Linux'
+        run: cargo bench -p hadris-cpio --bench performance -- --smoke
       - name: Run CPIO async writer integration test
         run: cargo test -p hadris-cpio --all-features --test async_writer
       # Each use-case example builds its own images, checks them and exits

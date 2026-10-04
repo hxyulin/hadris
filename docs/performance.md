@@ -414,3 +414,10 @@ partial device effects, and drop both Send and local async futures before and
 after each device transfer. The same tests also pass against the committed
 implementation, checking behavior preservation independently of the cursor
 refactor.
+
+## CPIO streaming benchmark
+
+The [CPIO audit](cpio-performance.md) covers direct and buffered streaming reads,
+skips, tree loading and writing, including hard links and host-backed content.
+Run `cargo bench -p hadris-cpio --bench performance -- --smoke` for its 144
+verified cases, or use `--samples 21 --csv` for measurements.
