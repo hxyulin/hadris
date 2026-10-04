@@ -39,9 +39,10 @@ includes payload allocation and hard-link reconstruction; tree verification and
 destruction are outside timing. Streamed host inputs use temporary files and a
 warm filesystem cache; timings do not represent physical disk latency.
 
-Every case verifies archive bytes or restored trees before measuring and
-requires identical counters across samples. The smoke run also verifies each
-measured sample. Native `cpio` independently extracts Hadris `newc`, checksum
+Writer cases compare complete archive bytes, tree-loading cases compare restored
+nodes and hard links, and read/skip cases check entry counts before measuring.
+Every case requires identical counters across samples. The smoke run repeats
+these checks in each measured sample. Native `cpio` independently extracts Hadris `newc`, checksum
 `newc` and `odc` archives, checking payloads, empty files, hard links and symlinks
 on Unix. Hadris also reads native `newc` and `odc` archives. Missing tools skip
 locally unless `HADRIS_REQUIRE_EXTERNAL_TOOLS` is set.
@@ -92,3 +93,31 @@ retain 72 calls and their 64 KiB maximum request. Resident output may now reques
 the whole payload; `write_all` still handles short backend writes. Sync and async
 regressions use seven-byte writes and compare complete archive bytes in every
 writable format.
+
+## Combined results
+
+`benchmarks/cpio-streaming-after.csv` records the final 21-sample run on the same
+machine and compiler. Terminators and name padding now use one write for every
+alignment. Directory-only regressions require six direct writes for an entry
+plus trailer, check all eight name lengths in all writable formats, and repeat
+with one-byte short writes.
+
+| `newc` writing workload | Caller buffer | Writes before → after | Median time before → after |
+|---|---:|---:|---:|
+| 4 MiB resident file | none | 72 → 7 | 132.08 → 65.67 µs |
+| 4 MiB resident file | 8 KiB | 66 → 3 | 137.04 → 66.67 µs |
+| 17-byte host file | none | 10 → 8 | 10.71 → 9.83 µs |
+| 4 MiB host file | none | 72 → 70 | 182.79 → 179.88 µs |
+| 256 small resident files | none | 1,284 → 1,283 | 64.88 → 63.21 µs |
+| 256 hard links | none | 774 → 773 | 57.21 → 59.58 µs |
+
+The uniform small-file names already need no name padding, so that fixture saves
+only the trailer's extra call. The hard-link timing is slightly worse in this
+run despite fewer calls; this is not evidence of a broad throughput improvement.
+The substantial gain is the resident bulk-file path. Host-streamed input remains
+chunked, and caller buffering already coalesces most metadata writes.
+
+All cases preserve transferred archive bytes and flush counts. Read, skip and
+tree-loading cases retain their read calls, transferred bytes and request sizes.
+The reader has no new buffer, allocator dependency or eager index. No public API
+or feature changes are needed for these optimizations.

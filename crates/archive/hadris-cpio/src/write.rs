@@ -158,8 +158,7 @@ impl<W: Write> Writer<W> {
             .map_err(|err| PathError::from(err).with_path(path))?;
         self.put(&raw[..len]).await?;
         self.put(path).await?;
-        self.put(&[0]).await?;
-        self.put(&[0u8; 3][..header::name_padding(self.planner.format, namesize)]).await?;
+        self.put(&[0u8; 4][..1 + header::name_padding(self.planner.format, namesize)]).await?;
         Ok(())
     }
 

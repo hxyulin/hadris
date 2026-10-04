@@ -1015,3 +1015,55 @@ fn borrowed_payloads_handle_short_writes_and_keep_archive_bytes() {
         }
     }
 }
+
+#[test]
+fn writer_combines_name_terminator_and_padding_at_every_alignment() {
+    struct Counted {
+        bytes: Vec<u8>,
+        writes: usize,
+        limit: usize,
+    }
+    impl hadris_io::ErrorType for Counted {
+        type Error = core::convert::Infallible;
+    }
+    impl Write for Counted {
+        fn write(&mut self, data: &[u8]) -> Result<usize, Self::Error> {
+            let n = data.len().min(self.limit);
+            self.bytes.extend_from_slice(&data[..n]);
+            self.writes += 1;
+            Ok(n)
+        }
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+    for format in [Format::Newc, Format::Crc, Format::Odc] {
+        for len in 1..=8 {
+            let name = vec![b'x'; len];
+            for limit in [1, usize::MAX] {
+                let mut out = Counted {
+                    bytes: Vec::new(),
+                    writes: 0,
+                    limit,
+                };
+                let mut writer = Writer::new(&mut out, &CpioOptions::new().with_format(format));
+                writer.append(&name, &Node::dir()).unwrap();
+                writer.finish().unwrap();
+                if limit == usize::MAX {
+                    assert_eq!(out.writes, 6);
+                }
+                let entries = read_all(&out.bytes).unwrap();
+                assert_eq!(entries.len(), 1);
+                assert_eq!(entries[0].name.as_bytes(), name);
+                assert_eq!(entries[0].file_type, FileType::Dir);
+                if matches!(format, Format::Newc | Format::Crc) {
+                    assert_eq!(out.bytes.len(), (110 + len + 1).next_multiple_of(4) + 124);
+                    assert_eq!(&out.bytes[38..46], b"00000002");
+                    let start = 110 + name.len();
+                    let end = (start + 1).next_multiple_of(4);
+                    assert!(out.bytes[start..end].iter().all(|&byte| byte == 0));
+                }
+            }
+        }
+    }
+}

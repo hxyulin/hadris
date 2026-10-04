@@ -8,6 +8,8 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- CPIO writers combine name terminators and alignment padding into one write.
+
 - CPIO writers borrow memory-backed payloads directly and allocate reusable
   scratch only for streamed content, bounded by its length and 64 KiB.
 
