@@ -933,9 +933,8 @@ impl<D: BlockDevice> UdfFs<D> {
         let mut meta = icb.metadata(file_type);
         if file_type == FileType::Symlink {
             let mut target = [0u8; 4096];
-            if let Ok(len) = link_target(&self.info, &mut self.dev, icb, &mut target).await {
-                meta = meta.with_len(len as u64);
-            }
+            let len = link_target(&self.info, &mut self.dev, icb, &mut target).await?;
+            meta = meta.with_len(len as u64);
         }
         Ok(meta)
     }
@@ -1070,7 +1069,9 @@ impl<D: BlockDevice> FileSystem for UdfFs<D> {
 
     /// Type, size, times (creation only from extended file entries),
     /// permissions, owner and link count. A symlink's size is the length of
-    /// its target.
+    /// its target. Invalid target components fail with [`ErrorKind::Corrupt`],
+    /// device failures with [`ErrorKind::Io`], and targets exceeding the
+    /// metadata buffer with [`ErrorKind::LimitExceeded`].
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all, fields(node = ?node)))]
     async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
         let icb = self.icb(node).await?;
