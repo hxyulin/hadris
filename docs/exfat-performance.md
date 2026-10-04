@@ -46,3 +46,15 @@ cluster against the heap, and advances the full chain guard for chained runs.
 Regression tests cover partial clusters, seeks, short ValidDataLength, unchanged
 bytes beyond EOF, fragmentation, cycles, heap overflow, and cancellation at
 every await while preserving file position. Driver state is unchanged.
+
+## Hosted contiguous run sizing
+
+The hosted driver now sizes NoFatChain runs arithmetically, checking the final
+cluster and index instead of iterating every intermediate cluster. Chained
+reads retain the same guarded traversal. The 21-sample results are in
+`docs/benchmarks/exfat-hosted-runs.csv`: device counts and bytes remain identical;
+512-byte-cluster contiguous reads measure 15.42 microseconds against the
+17.58-microsecond original baseline. Timings are small enough that memory-device
+noise matters, so this change primarily removes work proportional to the
+number of clusters within each request. Regressions exercise unaligned starts,
+ValidDataLength transitions, EOF and a run exceeding the cluster heap.

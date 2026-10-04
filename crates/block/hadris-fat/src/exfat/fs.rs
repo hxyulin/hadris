@@ -2473,17 +2473,17 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// the length and leaves `at` at the run's last cluster.
     async fn run(&mut self, alloc: Alloc, at: &mut ChainPos, mut n: usize, max: usize) -> FsResult<usize, D::Error> {
         let cluster_size = self.vol.geometry().cluster_size() as usize;
+        if alloc.contiguous {
+            let extra = u32::try_from((max - n).div_ceil(cluster_size)).map_err(|_| ErrorKind::Corrupt)?;
+            let cluster = at.cluster().checked_add(extra).ok_or(ErrorKind::Corrupt)?;
+            let index = at.index().checked_add(extra).ok_or(ErrorKind::Corrupt)?;
+            *at = ChainPos::new(index, self.check_cluster(cluster)?);
+            return Ok(max);
+        }
         while n < max {
-            let next = if alloc.contiguous {
-                Some(at.cluster() + 1).filter(|&next| self.vol.geometry().is_cluster(next))
-            } else {
-                self.next_cluster(at.cluster()).await?
-            };
-            match next {
+            match self.next_cluster(at.cluster()).await? {
                 Some(next) if next == at.cluster() + 1 => {
-                    if alloc.contiguous {
-                        *at = ChainPos::new(at.index() + 1, next);
-                    } else if !at.advance(next) {
+                    if !at.advance(next) {
                         return Err(ErrorKind::Corrupt.into());
                     }
                     n = n.saturating_add(cluster_size).min(max);

@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- Hosted exFAT contiguous reads size NoFatChain runs directly while checking
+  their final cluster against the allocation heap.
+
 - Embedded exFAT reads coalesce adjacent allocation clusters into device reads,
   preserving initialized-data boundaries and guarded fragmented-chain traversal.
 
