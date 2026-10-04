@@ -21,6 +21,10 @@ Each published package owns its version and may be released independently.
   `CacheOptions::with_directory_entries`, avoiding repeated parsing and traversal
   during lookups while retaining short aliases and mutation recovery.
 
+- FAT12 batches packed allocation entries and same-block append tail updates,
+  preserving neighboring nibbles and split-entry recovery while reducing FAT
+  traffic. Multi-cluster requests preflight free space before modifying the FAT.
+
 - Interrupted FAT12 entries spanning device blocks are completed in the active
   FAT before mirroring or reclaiming chains, preserving unrelated files and
   exactly-once free-cluster accounting.

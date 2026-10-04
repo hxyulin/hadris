@@ -1282,14 +1282,13 @@ mod interrupted {
 
     /// Cutting each operation after each of its writes leaves only what a
     /// power cut may leave, and `sync` on the same `Fat` afterwards cleans
-    /// up what it can, except a torn FAT12 entry.
+    /// up every interrupted operation.
     #[test]
     fn cut_operations_leave_repairable_volumes() {
         use Detail as K;
         for case in [CASES[0], CASES[2]] {
             let before = common::build(case);
             for op in 0..9 {
-                let rename = matches!(op, 2 | 3);
                 let allowed: &[Detail] = match op {
                     2 | 3 => &[K::CrossLink, K::OrphanLfn, K::DotEntries, K::LostClusters],
                     4..=7 => &[K::LostClusters, K::SizeMismatch, K::OrphanLfn],
@@ -1326,13 +1325,7 @@ mod interrupted {
                     left.set(usize::MAX);
                     fat.sync().unwrap();
                     let synced = fat.into_inner().inner.into_inner();
-                    // A FAT12 entry that straddles two device blocks takes
-                    // two writes, and a cut between them leaves a torn link
-                    // that recovery cannot trust.
-                    let torn = case.kind == hadris_fat::FatKind::Fat12;
-                    if result.is_ok() || rename || !torn {
-                        assert_eq!(findings(case, &synced), [], "{context} then sync");
-                    }
+                    assert_eq!(findings(case, &synced), [], "{context} then sync");
                     if result.is_ok() {
                         break;
                     }

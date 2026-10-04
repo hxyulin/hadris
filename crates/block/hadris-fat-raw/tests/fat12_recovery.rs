@@ -227,6 +227,57 @@ mod asynchronous {
     }
 
     #[test]
+    fn batched_allocations_recover_after_every_cancelled_await() {
+        use hadris_fat_raw::io::Held;
+        for sector in [512, 4096] {
+            for size in [512, 4096] {
+                for copies in [1, 2] {
+                    for parity in [0, 1] {
+                        let (image, geo, fat, boundary, victim) =
+                            fixture(sector, size, copies, parity);
+                        if boundary == 0 {
+                            continue;
+                        }
+                        let free = fat.free_clusters().unwrap();
+                        let mut complete = false;
+                        for budget in 0..320 {
+                            let mut dev = Device {
+                                inner: MemDevice::new(image.clone(), BlockSize::new(size).unwrap()),
+                                budget: None,
+                            };
+                            let mut block = BlockBuf::<[u8; 4096]>::new(size as usize).unwrap();
+                            let mut fat = fat;
+                            let mut held = Held::NONE;
+                            let result = run(
+                                aio::allocate_run(
+                                    &mut dev,
+                                    &mut block,
+                                    &mut fat,
+                                    Some(&mut held),
+                                    free - 1,
+                                ),
+                                budget,
+                            );
+                            run(aio::mirror(&mut dev, &mut block, &mut fat), usize::MAX)
+                                .unwrap()
+                                .unwrap();
+                            reclaim(&mut dev, &mut block, &mut fat, held.extra());
+                            reclaim(&mut dev, &mut block, &mut fat, held.head());
+                            check(dev, geo, fat, boundary, victim, 0, free);
+                            if let Some(result) = result {
+                                result.unwrap();
+                                complete = true;
+                                break;
+                            }
+                        }
+                        assert!(complete);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn split_entry_and_repair_can_be_cancelled_at_every_await() {
         let mut covered = [false; 2];
         for sector in [512, 4096] {
@@ -291,5 +342,148 @@ mod asynchronous {
             }
         }
         assert_eq!(covered, [true, true]);
+    }
+}
+
+fn reclaim(dev: &mut Device, block: &mut BlockBuf, fat: &mut Fat, first: u32) {
+    let mut cluster = first;
+    for _ in 0..fat.geometry().max_cluster() {
+        if cluster == 0 {
+            return;
+        }
+        let value = io::get(dev, block, fat, cluster).unwrap();
+        if value == 0 {
+            return;
+        }
+        let next = FatKind::Fat12
+            .next(value, fat.geometry().max_cluster())
+            .unwrap();
+        io::set(dev, block, fat, cluster, 0).unwrap();
+        cluster = next.unwrap_or(0);
+    }
+    panic!("cyclic held allocation");
+}
+
+#[test]
+fn batched_allocations_recover_from_each_failed_write_without_touching_live_entries() {
+    use hadris_fat_raw::io::Held;
+    for sector in [512, 4096] {
+        for size in [512, 4096] {
+            for copies in [1, 2] {
+                for parity in [0, 1] {
+                    let (image, geo, fat, boundary, victim) = fixture(sector, size, copies, parity);
+                    if boundary == 0 {
+                        continue;
+                    }
+                    let free = fat.free_clusters().unwrap();
+                    let mut complete = false;
+                    for budget in 0..100 {
+                        let mut dev = Device {
+                            inner: MemDevice::new(image.clone(), BlockSize::new(size).unwrap()),
+                            budget: Some(budget),
+                        };
+                        let mut block = BlockBuf::<[u8; 4096]>::new(size as usize).unwrap();
+                        let mut fat = fat;
+                        let mut held = Held::NONE;
+                        let result = io::allocate_run(
+                            &mut dev,
+                            &mut block,
+                            &mut fat,
+                            Some(&mut held),
+                            free - 1,
+                        );
+                        dev.budget = None;
+                        io::mirror(&mut dev, &mut block, &mut fat).unwrap();
+                        reclaim(&mut dev, &mut block, &mut fat, held.extra());
+                        reclaim(&mut dev, &mut block, &mut fat, held.head());
+                        check(dev, geo, fat, boundary, victim, 0, free);
+                        if result.is_ok() {
+                            complete = true;
+                            break;
+                        }
+                        assert_eq!(result.unwrap_err().kind(), ErrorKind::Io);
+                    }
+                    assert!(complete);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn fragmented_batches_preserve_neighbors_wrap_and_reject_full_requests_before_writing() {
+    use hadris_fat_raw::io::Held;
+    for size in [512, 4096] {
+        for copies in [1, 2] {
+            let (image, geo, mut fat, _, _) = fixture(512, size, copies, 1);
+            let mut dev = Device {
+                inner: MemDevice::new(image, BlockSize::new(size).unwrap()),
+                budget: None,
+            };
+            let mut block = BlockBuf::<[u8; 4096]>::new(size as usize).unwrap();
+            let take = fat.free_clusters().unwrap() - 3;
+            io::allocate_run(&mut dev, &mut block, &mut fat, None, take).unwrap();
+            for c in 2..=geo.max_cluster() {
+                if io::get(&mut dev, &mut block, &fat, c).unwrap() != 0 {
+                    io::set(&mut dev, &mut block, &mut fat, c, 0xFFF).unwrap();
+                }
+            }
+            for c in [2, 4, 6, 8, 10, 12, 16, 18] {
+                io::set(&mut dev, &mut block, &mut fat, c, 0).unwrap();
+            }
+            io::set(&mut dev, &mut block, &mut fat, geo.max_cluster() - 1, 0xFFF).unwrap();
+            let before = dev.inner.get_ref().clone();
+            let free = fat.free_clusters().unwrap();
+            let mut held = Held::NONE;
+            assert_eq!(
+                io::allocate_run(&mut dev, &mut block, &mut fat, Some(&mut held), free + 1)
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::NoSpace
+            );
+            assert_eq!(held, Held::NONE);
+            assert_eq!(dev.inner.get_ref(), &before);
+            let mut order = (fat.next_free()..=geo.max_cluster())
+                .chain(2..fat.next_free())
+                .filter(|&c| stored(&before, geo, 0, c) == 0);
+            let expected: Vec<_> = order.by_ref().take(8).collect();
+            assert_eq!(expected.len(), 8);
+            assert!(
+                expected.windows(2).any(|pair| pair[1] < pair[0]),
+                "allocation must wrap"
+            );
+            let first =
+                io::allocate_run(&mut dev, &mut block, &mut fat, Some(&mut held), 8).unwrap();
+            assert_eq!(first, expected[0]);
+            assert_eq!(held.head(), first);
+            assert_eq!(held.extra(), 0);
+            assert_eq!(fat.free_clusters(), Some(free - 8));
+            for copy in 0..copies {
+                for c in 2..=geo.max_cluster() {
+                    let want = expected
+                        .iter()
+                        .position(|&allocated| allocated == c)
+                        .map_or_else(
+                            || stored(&before, geo, copy, c),
+                            |at| expected.get(at + 1).copied().unwrap_or(0xFF8),
+                        );
+                    assert_eq!(
+                        stored(dev.inner.get_ref(), geo, copy, c),
+                        want,
+                        "copy {copy}, cluster {c}"
+                    );
+                }
+            }
+            io::allocate_run(&mut dev, &mut block, &mut fat, None, free - 8).unwrap();
+            let mut held = Held::NONE;
+            assert_eq!(
+                io::allocate_run(&mut dev, &mut block, &mut fat, Some(&mut held), 2)
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::NoSpace
+            );
+            assert_eq!(held, Held::NONE);
+            assert_eq!(fat.free_clusters(), Some(0));
+        }
     }
 }

@@ -156,7 +156,7 @@ fn embedded_single_cluster_append_combines_fat_updates() {
     use hadris_fs::OpenOptions;
 
     for (kind, size, expected) in [
-        (FatKind::Fat12, 2 << 20, 5),
+        (FatKind::Fat12, 2 << 20, 3),
         (FatKind::Fat16, 16 << 20, 3),
         (FatKind::Fat32, 64 << 20, 3),
     ] {
@@ -192,7 +192,7 @@ fn hosted_single_cluster_append_combines_fat_updates() {
     use hadris_fs::{MountOptions, Name, SetAttr};
 
     for (kind, size, expected) in [
-        (FatKind::Fat12, 2 << 20, 5),
+        (FatKind::Fat12, 2 << 20, 3),
         (FatKind::Fat16, 16 << 20, 3),
         (FatKind::Fat32, 64 << 20, 3),
     ] {
@@ -226,7 +226,11 @@ fn hosted_multi_cluster_append_combines_tail_and_allocation_group() {
     use hadris_fat::{FatKind, FatOptions};
     use hadris_fs::sync::FileSystem;
     use hadris_fs::{MountOptions, Name, SetAttr};
-    for (kind, size) in [(FatKind::Fat16, 16 << 20), (FatKind::Fat32, 64 << 20)] {
+    for (kind, size) in [
+        (FatKind::Fat12, 2 << 20),
+        (FatKind::Fat16, 16 << 20),
+        (FatKind::Fat32, 64 << 20),
+    ] {
         let mut inner = MemDevice::new(vec![0; size], BlockSize::new(512).unwrap());
         let geo = format(&mut inner, &FatOptions::new().with_kind(kind)).unwrap();
         let counts = Cell::new(IoCounts::default());

@@ -70,6 +70,38 @@ pub const CASES: [Case; 5] = [
     },
 ];
 
+pub fn growth_cases() -> Vec<(Case, usize)> {
+    let mut out = vec![(CASES[1], 251), (CASES[2], 123), (CASES[4], 2043)];
+    let fat12_4k_blocks = Case {
+        name: "fat12 with 512-byte sectors on 4096-byte blocks",
+        block: 4096,
+        ..CASES[0]
+    };
+    let fat12_4k_sectors = Case {
+        name: "fat12 with 4096-byte sectors and blocks",
+        size: 16 << 20,
+        sector: 4096,
+        block: 4096,
+        ..CASES[0]
+    };
+    for case in [CASES[0], CASES[3], fat12_4k_blocks, fat12_4k_sectors] {
+        let image = blank(case);
+        let geo = hadris_fat_raw::parse_boot(image[..512].try_into().unwrap()).unwrap();
+        out.push((case, 3));
+        for boundary in (3..geo.max_cluster())
+            .filter(|&c| {
+                (geo.fat_copy(0) + c as u64 * 3 / 2) % case.block as u64 == case.block as u64 - 1
+            })
+            .take(2)
+        {
+            for first in [boundary - 1, boundary, boundary + 1] {
+                out.push((case, (first - 2) as usize));
+            }
+        }
+    }
+    out
+}
+
 pub const LONG_NAME: &str = "A long file name.txt";
 pub const UNICODE_NAME: &str = "\u{DC}n\u{EF}c\u{F6}d\u{E9} \u{F1}ame \u{1F600}.txt";
 pub const INNER: &str = "/Nested Dir/inner";

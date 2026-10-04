@@ -2677,15 +2677,10 @@ fn single_cluster_append_recovers_after_each_failed_write() {
 
 #[test]
 fn multi_cluster_append_recovers_after_each_failed_write() {
-    for case in [CASES[0], CASES[1], CASES[2], CASES[4]] {
+    for (case, clusters) in common::growth_cases() {
         let blank = common::blank(case);
         let geo = hadris_fat_raw::parse_boot(blank[..512].try_into().unwrap()).unwrap();
         let cluster = geo.cluster_size() as usize;
-        let clusters = if case.kind == hadris_fat::FatKind::Fat12 {
-            3
-        } else {
-            case.block as usize / case.kind.entry_len() - 5
-        };
         let old = vec![7; clusters * cluster];
         let new = vec![9; 16 * cluster];
         let mut fs = open(case, blank);

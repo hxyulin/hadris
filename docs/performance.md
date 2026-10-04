@@ -46,6 +46,9 @@ mutating the filesystem discards the prefix. Use it for repeated lookups in a
 stable directory; no full scan is performed for a cold single-name lookup.
 See the [directory-index measurements](fat-directory-index-performance.md)
 for CPU results and small-capacity fallback behavior.
+
+The [FAT12 allocation report](fat12-allocation-batching.md) measures packed-entry
+batching for both hosted and allocator-free embedded drivers.
 CSV goes to stdout, so Cargo's build messages on stderr do not enter the file.
 
 The 126 cases combine three variants, two synchronous drivers and these

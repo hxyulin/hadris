@@ -23,7 +23,11 @@ fn same_fat_block(fat: &Fat, size: u64, a: u32, b: u32) -> bool {
     let kind = geo.kind();
     (0..geo.copies()).all(|step| {
         let base = geo.fat_copy(geo.active_fat() ^ step);
-        (base + kind.entry_offset(a as u64)) / size == (base + kind.entry_offset(b as u64)) / size
+        let a = base + kind.entry_offset(a as u64);
+        let b = base + kind.entry_offset(b as u64);
+        a / size == b / size
+            && (a + kind.entry_len() as u64 - 1) / size == a / size
+            && (b + kind.entry_len() as u64 - 1) / size == b / size
     })
 }
 
@@ -334,7 +338,7 @@ pub async fn allocate<D: BlockDevice>(
 }
 
 /// Allocates one cluster and links the end of a chain, `tail`, to it.
-/// On FAT16/32, when both entries share a device block in every written
+/// When both entries share a device block in every written
 /// FAT copy, both updates use one block write per copy, active copy first.
 /// Otherwise allocation precedes linking, as with [`allocate`] and [`set`].
 ///
@@ -357,7 +361,7 @@ pub async fn allocate_after<D: BlockDevice>(
     let cluster = find_free(dev, block, fat).await?;
     held.head = cluster;
     let end = fat.geo.kind().end_of_chain();
-    if fat.geo.kind() != FatKind::Fat12 && same_fat_block(fat, block.size as u64, tail, cluster) {
+    if same_fat_block(fat, block.size as u64, tail, cluster) {
         let mut group = ClusterGroup::new(cluster);
         group.add(cluster);
         patch(dev, block, fat, &group, Some(end), Some(tail)).await?;
@@ -393,11 +397,10 @@ async fn find_free<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &mut 
 /// `count` is 0. The clusters are not zeroed.
 ///
 /// Every written entry points to an allocated cluster or ends the chain.
-/// On FAT16 and FAT32 the entries are written a device block at a time,
-/// from the chain's end back to its start; on FAT12, or for one cluster,
-/// the clusters are taken one by one with [`allocate`] and each linked to
-/// the one before. With `held`, what is written is recorded there before
-/// it is written: `head` is the part of the chain already linked, and
+/// Entries are written a device block at a time from the chain's end back
+/// to its start. FAT12 entries crossing a block boundary are written
+/// individually; one-cluster requests use [`allocate`]. With `held`, what is
+/// written is recorded there before it is written: `head` is the part of the chain already linked, and
 /// `extra` a cluster taken but not yet linked to it. On failure the
 /// clusters stay allocated, for the caller to free from `held`.
 pub async fn allocate_run<D: BlockDevice>(
@@ -411,8 +414,9 @@ pub async fn allocate_run<D: BlockDevice>(
 }
 
 /// Allocates `count` clusters and links an end-of-chain `tail` to them.
-/// On FAT16/32, the final allocation group and tail use one write per FAT
-/// copy when they share a device block. FAT12 retains packed-entry writes.
+/// The final allocation group and tail use one write per FAT
+/// copy when they share a device block. Packed FAT12 entries preserve the
+/// neighboring entry; entries crossing a block boundary use separate writes.
 ///
 /// `count` must be nonzero and `held` empty. As with [`allocate_after`],
 /// failure or cancellation requires mirroring, detaching `tail` if it links
@@ -444,7 +448,7 @@ async fn allocate_run_inner<D: BlockDevice>(
     tail: Option<u32>,
 ) -> FsResult<u32, D::Error> {
     let kind = fat.geo.kind();
-    if kind == FatKind::Fat12 || count <= 1 {
+    if count <= 1 {
         let (mut first, mut last) = (0, 0);
         for _ in 0..count {
             let cluster = allocate(dev, block, fat, held.as_deref_mut()).await?;
@@ -497,10 +501,27 @@ async fn allocate_run_inner<D: BlockDevice>(
     let mut linked = false;
     while top > 0 {
         let high = at(top - 1);
+        if !same_fat_block(fat, size, high, high) {
+            if get(dev, block, fat, high).await? & kind.mask() == 0 {
+                if let Some(held) = held.as_deref_mut() {
+                    held.head = if head == end { 0 } else { head };
+                    held.extra = high;
+                }
+                set(dev, block, fat, high, head).await?;
+                head = high;
+                left -= 1;
+                if let Some(held) = held.as_deref_mut() {
+                    held.head = head;
+                    held.extra = 0;
+                }
+            }
+            top -= 1;
+            continue;
+        }
         let mut group = ClusterGroup::new(high.saturating_sub(ClusterGroup::SPAN - 1));
         while top > 0 {
             let cluster = at(top - 1);
-            if cluster > high || !same_fat_block(fat, size, cluster, high) {
+            if cluster > high || !group.spans(cluster) || !same_fat_block(fat, size, cluster, high) {
                 break;
             }
             let free = get(dev, block, fat, cluster).await? & kind.mask() == 0;
