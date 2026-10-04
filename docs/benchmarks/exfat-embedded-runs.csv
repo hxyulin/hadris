@@ -1,0 +1,17 @@
+cluster_bytes,allocation,driver,workload,median_ns,reads,writes,read_bytes,write_bytes,flushes
+512,chained,hosted,read-64k,27208,33,0,1057280,0,0
+512,chained,embedded,read-64k,27834,33,0,1057280,0,0
+512,contiguous,hosted,read-64k,17542,16,0,1048576,0,0
+512,contiguous,embedded,read-64k,16084,16,0,1048576,0,0
+512,fragmented,hosted,read-64k,79083,4095,0,2096640,0,0
+512,fragmented,embedded,read-64k,64792,4095,0,2096640,0,0
+512,chained,hosted,write-512,14639333,23846,8195,12209152,4195840,2
+512,chained,hosted,write-64k,197167,255,83,130560,1082880,2
+4096,chained,hosted,read-64k,16500,19,0,1050112,0,0
+4096,chained,embedded,read-64k,17292,19,0,1050112,0,0
+4096,contiguous,hosted,read-64k,15417,16,0,1048576,0,0
+4096,contiguous,embedded,read-64k,14500,16,0,1048576,0,0
+4096,fragmented,hosted,read-64k,36125,511,0,1179136,0,0
+4096,fragmented,embedded,read-64k,37542,511,0,1179136,0,0
+4096,chained,hosted,write-512,389458,1164,2819,595968,1443328,2
+4096,chained,hosted,write-64k,44625,83,69,42496,1075712,2

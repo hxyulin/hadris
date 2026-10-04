@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- Embedded exFAT reads coalesce adjacent allocation clusters into device reads,
+  preserving initialized-data boundaries and guarded fragmented-chain traversal.
+
 - FAT indexed reads reuse a current-cluster hint immediately and precompute
   checkpoint buckets to reduce forward-read cache bookkeeping.
 

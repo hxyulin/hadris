@@ -30,3 +30,19 @@ Small hosted writes also stand out: 512-byte requests with 512-byte clusters
 need 23,846 reads and 8,195 writes, with a median CPU time of 15.13 ms. The tail
 linker walks the entire existing chain for each growth operation. This provides
 a separate candidate for reusing the node's already guarded chain position.
+
+## Embedded read runs
+
+`docs/benchmarks/exfat-embedded-runs.csv` captures the first optimization.
+At 512-byte clusters, contiguous reads drop from 2,048 calls to 16 (29.04 to
+16.08 microseconds), and adjacent FAT chains drop from 2,065 to 33 calls
+(40.79 to 27.83 microseconds). At 4 KiB clusters the same counts drop from
+256 to 16 and from 259 to 19. Fully fragmented reads retain their original
+counts, and their CPU timings vary slightly; there is no claimed fragmented
+read speedup. Device bytes stay identical in all cases.
+
+The reader coalesces only initialized bytes, validates the final contiguous
+cluster against the heap, and advances the full chain guard for chained runs.
+Regression tests cover partial clusters, seeks, short ValidDataLength, unchanged
+bytes beyond EOF, fragmentation, cycles, heap overflow, and cancellation at
+every await while preserving file position. Driver state is unchanged.
