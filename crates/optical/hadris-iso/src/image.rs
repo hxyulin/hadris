@@ -222,8 +222,8 @@ enum LinkKey {
 
 /// A listed entry: its id and name length.
 struct Listed {
-    node: NodeId,
     len: usize,
+    rr: Option<RockRidgeInfo>,
 }
 
 /// A node id no record can have (zero, odd, or past both the volume and
@@ -521,7 +521,7 @@ impl View {
         Ok(None)
     }
 
-    /// The name, type and id a record lists under, or `None` for records
+    /// The displayed name and metadata, or `None` for records
     /// the listing hides.
     async fn list<D: BlockDevice>(
         &self,
@@ -534,13 +534,6 @@ impl View {
         if record.is_dot() || header.file_flags().contains(FileFlags::ASSOCIATED_FILE) {
             return Ok(None);
         }
-        let is_dir = header.is_directory();
-        let end = self.len.max(u64::from(self.info.volume_blocks) * self.bs());
-        let dir_id = |start: Option<u64>| match start {
-            Some(start) if start != 0 && start < end => NodeId::new(start).ok_or(Detail::DirectoryRecord.corrupt()),
-            Some(start) if start != 0 => Err(Detail::OutsideImage.corrupt()),
-            _ => Err(Detail::DirectoryRecord.corrupt()),
-        };
         if let Some(skip) = self.rock_ridge() {
             let mut name = [0u8; DirEntry::MAX_NAME];
             let mut scan = Scan::new().with_name(&mut name);
@@ -553,30 +546,44 @@ impl View {
                 _ => crate::name::sanitize(crate::name::strip_version(record.name()), out),
             }
             .ok_or(Error::from(ErrorKind::NameTooLong))?;
-            let info = scan.info;
-            if let Some(block) = info.child_link() {
-                let start = u64::from(block).checked_mul(self.bs());
-                return Ok(Some(Listed { node: dir_id(start)?, len }));
-            }
-            let node = if is_dir {
-                dir_id(self.extent_start(record))?
-            } else {
-                let node = self.link_id(dev, found.offset, record, &info, skip).await?;
-                NodeId::new(node).ok_or(Detail::DirectoryRecord.corrupt())?
-            };
-            return Ok(Some(Listed { node, len }));
+            return Ok(Some(Listed { len, rr: Some(scan.info) }));
         }
         let len = match self.namespace {
             Namespace::Joliet => crate::name::decode_ucs2(record.name(), out),
             _ => crate::name::sanitize(crate::name::strip_version(record.name()), out),
         }
         .ok_or(Error::from(ErrorKind::NameTooLong))?;
-        let node = if is_dir {
-            dir_id(self.extent_start(record))?
-        } else {
-            NodeId::new(found.offset).ok_or(Detail::DirectoryRecord.corrupt())?
+        Ok(Some(Listed { len, rr: None }))
+    }
+
+    async fn listed_id<D: BlockDevice>(
+        &self,
+        dev: &mut D,
+        found: &Found,
+        rr: Option<RockRidgeInfo>,
+    ) -> Result<NodeId, Error<D::Error>> {
+        let record = &found.record;
+        let is_dir = record.header().is_directory();
+        let end = self.len.max(u64::from(self.info.volume_blocks) * self.bs());
+        let dir_id = |start: Option<u64>| match start {
+            Some(start) if start != 0 && start < end => NodeId::new(start).ok_or(Detail::DirectoryRecord.corrupt()),
+            Some(start) if start != 0 => Err(Detail::OutsideImage.corrupt()),
+            _ => Err(Detail::DirectoryRecord.corrupt()),
         };
-        Ok(Some(Listed { node, len }))
+        if let Some(info) = rr {
+            if let Some(block) = info.child_link() {
+                return dir_id(u64::from(block).checked_mul(self.bs()));
+            }
+            if !is_dir {
+                let offset = self.link_id(dev, found.offset, record, &info, self.rock_ridge().unwrap_or(0)).await?;
+                return NodeId::new(offset).ok_or(Detail::DirectoryRecord.corrupt());
+            }
+        }
+        if is_dir {
+            dir_id(self.extent_start(record))
+        } else {
+            NodeId::new(found.offset).ok_or(Detail::DirectoryRecord.corrupt())
+        }
     }
 
     fn case_insensitive(&self) -> bool {
@@ -652,13 +659,16 @@ impl View {
             };
             let listed_name = &buf[..listed.len];
             if listed_name == name.as_bytes() {
-                return Ok(listed.node);
+                return self.listed_id(dev, &found, listed.rr).await;
             }
             if folded.is_none() && self.case_insensitive() && listed_name.eq_ignore_ascii_case(name.as_bytes()) {
-                folded = Some(listed.node);
+                folded = Some((found, listed.rr));
             }
         }
-        folded.ok_or(ErrorKind::NotFound.into())
+        match folded {
+            Some((found, rr)) => self.listed_id(dev, &found, rr).await,
+            None => Err(ErrorKind::NotFound.into()),
+        }
     }
 
     async fn readdir<D: BlockDevice>(&self, dev: &mut D, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
@@ -672,9 +682,10 @@ impl View {
             let listed = self.list(dev, &found, &mut out).await?;
             self.skip_continuations(dev, dir, &mut pos, &mut block, &found.record).await?;
             if let Some(listed) = listed {
-                let meta = self.stat(dev, listed.node).await?;
+                let node = self.listed_id(dev, &found, listed.rr).await?;
+                let meta = self.stat(dev, node).await?;
                 let next = DirCursor::from_raw(u64::from(pos));
-                return Ok(Some(DirEntry::new(Name::new(&out[..listed.len]), listed.node, meta, next)?));
+                return Ok(Some(DirEntry::new(Name::new(&out[..listed.len]), node, meta, next)?));
             }
         }
         Ok(None)

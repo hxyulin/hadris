@@ -8,6 +8,8 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- ISO lookup compares names before resolving canonical hard-link IDs, avoiding global link scans for nonmatching entries.
+
 ### Added
 
 - Extend opt-in hosted tracing to ISO, UDF, APFS, NTFS, CPIO and partition
