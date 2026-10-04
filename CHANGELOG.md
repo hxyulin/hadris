@@ -29,8 +29,15 @@ Each published package owns its version and may be released independently.
   `unstable-apfs`, unified
   `hadris apfs` commands and checked inspection/extraction use cases.
 
+### Changed
+
+- Separate ISO directory encoding and image placement from tree preparation,
+  with explicit placement phases shared by image and session writes.
+
 ### Fixed
 
+- Reject mismatched multi-extent file identifiers in ISO raw record mapping,
+  using the same bounded continuation traversal as file reads and extent mapping.
 - Select the hosted CI toolchain explicitly so the repository MSRV toolchain
   file does not override the newer Clippy configuration.
 
