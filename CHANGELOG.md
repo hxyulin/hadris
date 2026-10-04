@@ -8,6 +8,8 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- ISO directory listing reuses parsed file records and Rock Ridge metadata instead of rereading them for `stat`.
+
 - ISO lookup compares names before resolving canonical hard-link IDs, avoiding global link scans for nonmatching entries.
 
 ### Added

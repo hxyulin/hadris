@@ -85,6 +85,11 @@ macro_rules! cases {
                     reads.load(Ordering::Relaxed) <= 32,
                     "a miss must not resolve hard-link IDs"
                 );
+                let mut cursor = hadris_fs::DirCursor::START;
+                while let Some(entry) = fs.readdir(root, cursor).await.unwrap() {
+                    assert_eq!(*entry.metadata(), fs.stat(entry.node()).await.unwrap());
+                    cursor = entry.next_cursor();
+                }
                 for i in [0, 63, 127] {
                     let original = fs
                         .lookup(root, Name::new(format!("f{i:04}.txt").as_bytes()))
@@ -100,6 +105,30 @@ macro_rules! cases {
                     assert_eq!(data, [i as u8; 16]);
                     assert_eq!(fs.stat(alias).await.unwrap().nlink(), 2);
                 }
+                let mut plain = Tree::new();
+                for i in 0..128 {
+                    plain
+                        .insert(format!("f{i:04}.txt"), Node::file(Content::bytes([42; 16])))
+                        .unwrap();
+                }
+                let dev = Counted {
+                    inner: common::image(&plain, &IsoOptions::new().with_rock_ridge()),
+                    reads: reads.clone(),
+                };
+                let mut fs = IsoFs::mount(dev, MountOptions::new()).await.unwrap();
+                reads.store(0, Ordering::Relaxed);
+                let mut cursor = hadris_fs::DirCursor::START;
+                let mut count = 0;
+                while let Some(entry) = fs.readdir(fs.root(), cursor).await.unwrap() {
+                    assert_eq!(entry.metadata().len(), 16);
+                    cursor = entry.next_cursor();
+                    count += 1;
+                }
+                assert_eq!(count, 128);
+                assert!(
+                    reads.load(Ordering::Relaxed) < 300,
+                    "listing should reuse the parsed file record"
+                );
             });
         }
     };

@@ -683,7 +683,11 @@ impl View {
             self.skip_continuations(dev, dir, &mut pos, &mut block, &found.record).await?;
             if let Some(listed) = listed {
                 let node = self.listed_id(dev, &found, listed.rr).await?;
-                let meta = self.stat(dev, node).await?;
+                let meta = if node.get() == found.offset {
+                    self.record_metadata(dev, node, &found.record, listed.rr).await?
+                } else {
+                    self.stat(dev, node).await?
+                };
                 let next = DirCursor::from_raw(u64::from(pos));
                 return Ok(Some(DirEntry::new(Name::new(&out[..listed.len]), node, meta, next)?));
             }
@@ -693,7 +697,6 @@ impl View {
 
     async fn stat<D: BlockDevice>(&self, dev: &mut D, node: NodeId) -> FsResult<Metadata, D::Error> {
         let record = self.record_at(dev, node.get()).await.map_err(|err| handle(err, node, self))?;
-        let header = *record.header();
         let rr = match self.rock_ridge() {
             Some(skip) => {
                 let mut scan = Scan::new();
@@ -702,11 +705,22 @@ impl View {
             }
             None => None,
         };
+        self.record_metadata(dev, node, &record, rr).await
+    }
+
+    async fn record_metadata<D: BlockDevice>(
+        &self,
+        dev: &mut D,
+        node: NodeId,
+        record: &DirectoryRecord,
+        rr: Option<RockRidgeInfo>,
+    ) -> FsResult<Metadata, D::Error> {
+        let header = *record.header();
         let (mut file_type, mut len) = if header.is_directory() {
             (FileType::Dir, 0)
         } else {
             let file_type = rr.and_then(|rr| rr.file_type()).unwrap_or(FileType::File);
-            (file_type, self.file_len(dev, node.get(), &record).await?)
+            (file_type, self.file_len(dev, node.get(), record).await?)
         };
         let mut times = [None, header.date_time.to_datetime(), None, None];
         let mut permissions = Permissions::new(if file_type.is_dir() { 0o555 } else { 0o444 });
@@ -726,7 +740,7 @@ impl View {
             if rr.is_symlink() {
                 let mut target = [0u8; 4096];
                 let mut scan = Scan::new().with_link(&mut target);
-                self.scan(dev, &record, self.rock_ridge().unwrap_or(0), &mut scan).await?;
+                self.scan(dev, record, self.rock_ridge().unwrap_or(0), &mut scan).await?;
                 file_type = FileType::Symlink;
                 len = scan.link_len()? as u64;
             }
