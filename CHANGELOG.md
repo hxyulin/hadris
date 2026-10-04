@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- FAT node-driver lookup and creation scans prepare folded UTF-16 queries
+  once, preserving long names, short aliases, and runtime code-page behavior.
+
 - FAT node-driver single-cluster growth combines allocation and tail linking
   when their FAT16/32 entries share a device block.
 

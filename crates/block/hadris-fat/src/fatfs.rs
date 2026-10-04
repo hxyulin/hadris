@@ -16,7 +16,7 @@ use hadris_fs::{
 };
 
 use crate::names::{
-    CANDIDATES, NewName, apply_attributes, is_exact, matches, permissions, read_only_bit,
+    CANDIDATES, NewName, Query, apply_attributes, is_exact, permissions, read_only_bit,
     set_read_only, stamp,
 };
 use crate::table::Table;
@@ -1194,6 +1194,7 @@ impl<D: BlockDevice> FatFs<D> {
 
     /// Finds the visible entry named `query`, by long or short name.
     async fn find_entry(&mut self, start: DirStart, query: &str) -> FsResult<Option<Located>, D::Error> {
+        let prepared = Query::new(query, raw::fold_unicode);
         let mut walk = DirWalk::new(start);
         let mut slot = 0;
         let mut long = Assembler::new();
@@ -1201,7 +1202,7 @@ impl<D: BlockDevice> FatFs<D> {
             let units = long.finish(found.entry.lfn_checksum());
             let named = units.is_some();
             let units = units.filter(|units| !units.is_empty());
-            if matches(query, units, &found.entry, self.code_page, raw::fold_unicode) {
+            if prepared.matches(units, &found.entry, self.code_page, raw::fold_unicode) {
                 return Ok(Some(Located {
                     first: if named { found.long_start } else { found.slot },
                     slot: found.slot,
@@ -1260,6 +1261,7 @@ impl<D: BlockDevice> FatFs<D> {
         new: &NewName<'_>,
         skip: Skip,
     ) -> FsResult<Plan, D::Error> {
+        let prepared = Query::new(text, raw::fold_unicode);
         let needed = new.slots();
         let mut walk = DirWalk::new(dir);
         let mut long = Assembler::new();
@@ -1296,7 +1298,7 @@ impl<D: BlockDevice> FatFs<D> {
                             .finish(entry.lfn_checksum())
                             .filter(|units| !units.is_empty());
                         if !skip.covers(slot, offset) && !entry.is_label() {
-                            if check_exists && entry.is_visible() && matches(text, units, &entry, self.code_page, raw::fold_unicode) {
+                            if check_exists && entry.is_visible() && prepared.matches(units, &entry, self.code_page, raw::fold_unicode) {
                                 return Err(ErrorKind::AlreadyExists.into());
                             }
                             for (bit, candidate) in new.candidates.iter().enumerate() {

@@ -103,6 +103,120 @@ pub(crate) fn short_name(
     short_name::generate(text, suffix, |ch| code_page.encode(fold_char(ch, fold)))
 }
 
+#[cfg(feature = "alloc")]
+pub(crate) struct Query {
+    units: [u16; 24],
+    overflow: Option<alloc::boxed::Box<[u16]>>,
+    len: usize,
+    short: bool,
+    ascii: Option<[u16; 11]>,
+}
+
+#[cfg(feature = "alloc")]
+impl Query {
+    pub(crate) fn new(text: &str, fold: fn(u16) -> u16) -> Self {
+        let mut query = Self {
+            units: [0; 24],
+            overflow: None,
+            len: text.encode_utf16().count(),
+            short: text.chars().nth(short_name::DISPLAY_CHARS).is_none(),
+            ascii: None,
+        };
+        if query.len > lfn::MAX_UNITS {
+            return query;
+        }
+        if query.len <= query.units.len() {
+            for (out, unit) in query.units.iter_mut().zip(text.encode_utf16()) {
+                *out = fold(unit);
+            }
+        } else {
+            query.overflow = Some(
+                text.encode_utf16()
+                    .map(fold)
+                    .collect::<alloc::vec::Vec<_>>()
+                    .into_boxed_slice(),
+            );
+        }
+        if text.is_ascii() {
+            let (base, ext) = text.rsplit_once('.').unwrap_or((text, ""));
+            if !base.is_empty()
+                && base.len() <= 8
+                && ext.len() <= 3
+                && !base.contains('.')
+                && !base.contains(' ')
+                && !ext.contains(' ')
+                && !text.ends_with('.')
+            {
+                let mut name = [fold(b' ' as u16); 11];
+                for (out, byte) in name[..8].iter_mut().zip(base.bytes()) {
+                    *out = fold(byte as u16);
+                }
+                for (out, byte) in name[8..].iter_mut().zip(ext.bytes()) {
+                    *out = fold(byte as u16);
+                }
+                query.ascii = Some(name);
+            }
+        }
+        query
+    }
+
+    pub(crate) fn matches(
+        &self,
+        long: Option<&[u16]>,
+        entry: &ShortEntry,
+        code_page: &dyn CodePage,
+        fold: fn(u16) -> u16,
+    ) -> bool {
+        let Some(query) = self
+            .overflow
+            .as_deref()
+            .or_else(|| self.units.get(..self.len))
+        else {
+            return false;
+        };
+        if long.is_some_and(|units| query.iter().copied().eq(units.iter().copied().map(fold))) {
+            return true;
+        }
+        if !self.short {
+            return false;
+        }
+        let stored = entry.name();
+        if let Some(ascii) = self.ascii
+            && stored[0] != 0x05
+            && stored.is_ascii()
+        {
+            return stored
+                .iter()
+                .enumerate()
+                .zip(ascii)
+                .all(|((i, &byte), wanted)| {
+                    let lower = entry.nt_case()
+                        & if i < 8 {
+                            raw::NT_LOWER_BASE
+                        } else {
+                            raw::NT_LOWER_EXTENSION
+                        }
+                        != 0;
+                    let byte = if lower {
+                        byte.to_ascii_lowercase()
+                    } else {
+                        byte
+                    };
+                    fold(byte as u16) == wanted
+                });
+        }
+        let mut short = [0u8; short_name::DISPLAY_MAX];
+        let len = short_name::display(
+            &entry.name(),
+            entry.nt_case(),
+            |byte| code_page.decode(byte),
+            &mut short,
+        );
+        core::str::from_utf8(&short[..len])
+            .is_ok_and(|short| query.iter().copied().eq(short.encode_utf16().map(fold)))
+    }
+}
+
 /// Whether `query` names the entry, by its long name or its short name,
 /// with case folded by `fold`.
 pub(crate) fn matches(
@@ -234,4 +348,113 @@ pub(crate) fn metadata(entry: &ShortEntry, dir: bool, len: u64, zone: Option<i16
         meta = meta.with_accessed(time);
     }
     meta
+}
+
+#[cfg(all(test, feature = "alloc"))]
+mod query_tests {
+    use super::*;
+    use hadris_fs::{Ascii, Cp437};
+
+    #[test]
+    fn prepared_queries_preserve_long_names_aliases_and_code_pages() {
+        let entry = ShortEntry::new(*b"UNICO~1 TXT", 0);
+        let long: alloc::vec::Vec<_> = "Ünicödé 😀.txt".encode_utf16().collect();
+        assert!(Query::new("ünicödé 😀.TXT", raw::fold_unicode).matches(
+            Some(&long),
+            &entry,
+            &Cp437,
+            raw::fold_unicode
+        ));
+        assert!(Query::new("unico~1.txt", raw::fold_unicode).matches(
+            Some(&long),
+            &entry,
+            &Cp437,
+            raw::fold_unicode
+        ));
+        assert!(!Query::new("Ünicödé 😁.txt", raw::fold_unicode).matches(
+            Some(&long),
+            &entry,
+            &Cp437,
+            raw::fold_unicode
+        ));
+        assert!(!Query::new("Ünicödé 😀.txt", raw::fold_unicode).matches(
+            Some(&[0xd800]),
+            &entry,
+            &Cp437,
+            raw::fold_unicode
+        ));
+        let mut ascii = ShortEntry::new(*b"MAXALIASBIN", 0);
+        ascii.set_nt_case(raw::NT_LOWER_BASE | raw::NT_LOWER_EXTENSION);
+        assert!(Query::new("maxalias.bin", raw::fold_unicode).matches(
+            None,
+            &ascii,
+            &Cp437,
+            raw::fold_unicode
+        ));
+        assert!(!Query::new("maxalias.bin.", raw::fold_unicode).matches(
+            None,
+            &ascii,
+            &Cp437,
+            raw::fold_unicode
+        ));
+        let no_ext = ShortEntry::new(*b"KERNEL     ", 0);
+        assert!(Query::new("kernel", raw::fold_unicode).matches(
+            None,
+            &no_ext,
+            &Cp437,
+            raw::fold_unicode
+        ));
+        assert!(!Query::new("kernel.", raw::fold_unicode).matches(
+            None,
+            &no_ext,
+            &Cp437,
+            raw::fold_unicode
+        ));
+        let entry = ShortEntry::new(*b"\x05ABC    TXT", 0);
+        assert!(Query::new("σabc.txt", raw::fold_unicode).matches(
+            None,
+            &entry,
+            &Cp437,
+            raw::fold_unicode
+        ));
+        assert!(!Query::new("σabc.txt", raw::fold_unicode).matches(
+            None,
+            &entry,
+            &Ascii,
+            raw::fold_unicode
+        ));
+        assert!(Query::new("\u{f7e5}abc.txt", raw::fold_unicode).matches(
+            None,
+            &entry,
+            &Ascii,
+            raw::fold_unicode
+        ));
+    }
+
+    #[test]
+    fn prepared_queries_handle_the_utf16_limit() {
+        let entry = ShortEntry::new(*b"SHORT   TXT", 0);
+        let max = alloc::string::String::from("😀") + &"x".repeat(253);
+        let units: alloc::vec::Vec<_> = max.encode_utf16().collect();
+        assert_eq!(units.len(), lfn::MAX_UNITS);
+        assert!(Query::new(&max, raw::fold_unicode).matches(
+            Some(&units),
+            &entry,
+            &Cp437,
+            raw::fold_unicode
+        ));
+        let over = max + "x";
+        assert!(!Query::new(&over, raw::fold_unicode).matches(
+            Some(&units),
+            &entry,
+            &Cp437,
+            raw::fold_unicode
+        ));
+        assert!(!Query::new("short.txt.extra", raw::fold_unicode).matches(
+            None,
+            &entry,
+            &Cp437,
+            raw::fold_unicode
+        ));
+    }
 }
