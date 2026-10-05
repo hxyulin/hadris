@@ -8,6 +8,10 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- APFS object-map lookups preserve full object identifiers and deleted mappings;
+  volume enumeration resolves each live volume at the container checkpoint,
+  excluding historical and future versions.
+
 - UDF allocation walks resume in place, reducing temporary buffer movement
   during directory traversal and file reads.
 

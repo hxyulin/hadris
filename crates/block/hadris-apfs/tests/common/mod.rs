@@ -498,3 +498,18 @@ pub fn invalid_directory_image(case: &str) -> Vec<u8> {
     }
     image
 }
+
+#[allow(dead_code)]
+pub fn object_map_versions_image(entries: &[(u64, u64, u64, u32)], xid: u64) -> Vec<u8> {
+    let mut image = build_image();
+    let entries: Vec<_> = entries
+        .iter()
+        .map(|&(oid, xid, address, flags)| omap_entry(oid, xid, address, flags))
+        .collect();
+    let node = btree_node(2, true, true, 0, Some((16, 16)), 0x10, false, &entries);
+    image[2 * BLOCK..3 * BLOCK].copy_from_slice(&node);
+    let mut superblock = image[..BLOCK].to_vec();
+    put(&mut superblock, 16, &xid.to_le_bytes());
+    image[..BLOCK].copy_from_slice(&seal(superblock));
+    image
+}

@@ -214,3 +214,136 @@ fn encrypted_and_overflowing_extents_are_not_reported_as_sparse_success() {
         hadris_io::ErrorKind::Corrupt
     );
 }
+
+#[test]
+fn object_map_lookup_preserves_full_identifiers_and_deletions() {
+    let high_oid = VOLUME_OID | (1 << 60);
+    let image = object_map_versions_image(
+        &[
+            (VOLUME_OID, 1, 3, 0),
+            (VOLUME_OID, 2, 0, 1),
+            (VOLUME_OID, 3, 3, 0),
+            (high_oid, 4, 23, 0),
+        ],
+        3,
+    );
+    let mut container = open(&image);
+    let superblock = container.superblock().clone();
+    let map = container.object_map(&superblock).unwrap();
+    assert_eq!(
+        container.object_map_lookup(map, VOLUME_OID, 0).unwrap(),
+        None
+    );
+    assert_eq!(
+        container
+            .object_map_lookup(map, VOLUME_OID, 1)
+            .unwrap()
+            .unwrap()
+            .address,
+        3
+    );
+    assert_eq!(
+        container.object_map_lookup(map, VOLUME_OID, 2).unwrap(),
+        None
+    );
+    assert_eq!(
+        container
+            .object_map_lookup(map, VOLUME_OID, 4)
+            .unwrap()
+            .unwrap()
+            .address,
+        3
+    );
+    assert_eq!(
+        container
+            .object_map_lookup(map, high_oid, 4)
+            .unwrap()
+            .unwrap()
+            .address,
+        23
+    );
+    #[cfg(feature = "async")]
+    {
+        use core::future::Future;
+        use core::task::{Context, Poll, Waker};
+        let mut future = core::pin::pin!(async {
+            let dev = hadris_storage::MemDevice::new(image, BlockSize::new(BLOCK as u32).unwrap());
+            let mut container = hadris_apfs::r#async::Container::open(dev).await.unwrap();
+            let superblock = container.superblock().clone();
+            let map = container.object_map(&superblock).await.unwrap();
+            assert_eq!(
+                container
+                    .object_map_lookup(map, VOLUME_OID, 2)
+                    .await
+                    .unwrap(),
+                None
+            );
+            assert_eq!(
+                container
+                    .object_map_lookup(map, VOLUME_OID, 4)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .address,
+                3
+            );
+            assert_eq!(
+                container
+                    .object_map_lookup(map, high_oid, 4)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .address,
+                23
+            );
+        });
+        let mut cx = Context::from_waker(Waker::noop());
+        assert!(matches!(future.as_mut().poll(&mut cx), Poll::Ready(())));
+    }
+}
+
+#[test]
+fn volume_enumeration_resolves_one_live_version_per_checkpoint() {
+    for deleted in [false, true] {
+        let image = object_map_versions_image(
+            &[
+                (VOLUME_OID, 1, 3, 0),
+                (
+                    VOLUME_OID,
+                    2,
+                    if deleted { 0 } else { 3 },
+                    u32::from(deleted),
+                ),
+                (VOLUME_OID, 3, 23, 0),
+                (VOLUME_OID | (1 << 60), 1, 23, 0),
+            ],
+            2,
+        );
+        let mut container = open(&image);
+        let superblock = container.superblock().clone();
+        let volumes = container.volume_superblocks(&superblock).unwrap();
+        assert_eq!(volumes.len(), usize::from(!deleted));
+        if !deleted {
+            let dev = hadris_storage::MemDevice::new(
+                image.clone(),
+                BlockSize::new(BLOCK as u32).unwrap(),
+            );
+            hadris_apfs::sync::ApfsFs::mount(dev, hadris_fs::MountOptions::new()).unwrap();
+        }
+        #[cfg(feature = "async")]
+        {
+            use core::future::Future;
+            use core::task::{Context, Poll, Waker};
+            let mut future = core::pin::pin!(async {
+                let dev =
+                    hadris_storage::MemDevice::new(image, BlockSize::new(BLOCK as u32).unwrap());
+                let mut container = hadris_apfs::r#async::Container::open(dev).await.unwrap();
+                let superblock = container.superblock().clone();
+                let volumes = container.volume_superblocks(&superblock).await.unwrap();
+                assert_eq!(volumes.len(), usize::from(!deleted));
+            });
+            let mut cx = Context::from_waker(Waker::noop());
+            assert!(matches!(future.as_mut().poll(&mut cx), Poll::Ready(())));
+        }
+    }
+}

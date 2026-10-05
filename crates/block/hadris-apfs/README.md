@@ -155,3 +155,10 @@ Licensed under the [MIT license](../../../LICENSE-MIT).
 The opt-in `tracing` feature enables `std` and emits operation spans through the
 application’s subscriber. It is disabled by default. See the
 [tracing guide](../../../docs/tracing.md) for targets, metadata and async behavior.
+
+
+Object-map lookups match full object identifiers and select the newest mapping
+at or before the requested transaction. A deleted mapping returns no object
+without resurrecting an older version. Volume enumeration uses the container
+checkpoint transaction to resolve each live volume once; historical and future
+mappings remain available through the raw mapping inspection APIs.
