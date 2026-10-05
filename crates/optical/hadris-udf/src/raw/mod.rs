@@ -381,8 +381,8 @@ pub struct LongAd {
 ///
 /// @hadris-spec ECMA-167:4/14.14.3
 /// @hadris-compliance partial
-/// @hadris-note Read like long allocation descriptors; the recorded and information lengths are not used.
-/// @hadris-tests read::allocation_descriptors_of_every_form_read_back
+/// @hadris-note Information lengths determine logical data ranges; recorded lengths must match for recorded data. Transformed extents are unsupported.
+/// @hadris-tests read::allocation_descriptors_of_every_form_read_back, read::extended_allocations_use_information_lengths, read::extended_allocations_validate_recorded_lengths, read::extended_allocations_follow_continuations_and_skip_empty_information
 /// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, bytemuck::Pod, bytemuck::Zeroable)]

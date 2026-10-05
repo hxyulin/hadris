@@ -350,3 +350,234 @@ fn directory_reads_resume_their_allocation_walk() {
         "{looked_up} reads to look up the last entry"
     );
 }
+
+fn ext_ad(length: u32, recorded: u32, information: u32, kind: u32, block: u64) -> [u8; 20] {
+    let mut out = [0u8; 20];
+    out[..4].copy_from_slice(&(length | kind << 30).to_le_bytes());
+    out[4..8].copy_from_slice(&recorded.to_le_bytes());
+    out[8..12].copy_from_slice(&information.to_le_bytes());
+    out[12..16].copy_from_slice(&((block - PARTITION) as u32).to_le_bytes());
+    out
+}
+
+#[test]
+fn extended_allocations_use_information_lengths() {
+    let (base, icb, data, free) = volume();
+    for kind in 0..=2 {
+        let mut bytes = base.clone();
+        sector(&mut bytes, data).fill(0x11);
+        sector(&mut bytes, data + 1).fill(0x22);
+        sector(&mut bytes, free).fill(0x33);
+        let ads = [
+            ext_ad(4096, if kind == 0 { 2048 } else { 0 }, 2048, kind, data),
+            ext_ad(2048, 2048, 2048, 0, free),
+        ]
+        .concat();
+        set_ads(&mut bytes, icb, 2, 4096, &ads);
+        let expected = [
+            vec![if kind == 0 { 0x11 } else { 0 }; 2048],
+            vec![0x33; 2048],
+        ]
+        .concat();
+        let mut udf = open(bytes.clone());
+        assert_eq!(udf.read_to_vec("/f.bin").unwrap(), expected);
+        let node = udf.resolve_path("/f.bin").unwrap();
+        let mut extents = [hadris_fs::Extent::new(0, 0); 2];
+        let count = udf.extents(node, 0, &mut extents).unwrap();
+        assert_eq!(count, if kind == 2 { 1 } else { 2 });
+        if kind != 2 {
+            assert_eq!(extents[0].len(), 2048);
+            assert_eq!(extents[0].is_unwritten(), kind == 1);
+        }
+        assert_eq!(
+            extents[count - 1],
+            hadris_fs::Extent::new(free * 2048, 2048).with_file_offset(2048)
+        );
+        #[cfg(feature = "async")]
+        common::block_on(async {
+            use hadris_fs::r#async::FileSystem;
+            let mut udf = hadris_udf::r#async::UdfFs::mount(
+                hadris_storage::MemDevice::new(bytes, common::SECTOR),
+                hadris_fs::MountOptions::new(),
+            )
+            .await
+            .unwrap();
+            let node = udf
+                .resolve(b"/f.bin", hadris_fs::Resolve::Lexical)
+                .await
+                .unwrap();
+            let mut out = vec![0; 4096];
+            assert_eq!(udf.read(node, 0, &mut out).await.unwrap(), 4096);
+            assert_eq!(out, expected);
+            assert_eq!(udf.extents(node, 0, &mut extents).await.unwrap(), count);
+            let mut tail = [0; 32];
+            assert_eq!(udf.read(node, 2032, &mut tail).await.unwrap(), 32);
+            assert_eq!(&tail, &expected[2032..2064]);
+        });
+    }
+}
+
+#[test]
+fn extended_allocations_validate_recorded_lengths() {
+    let (base, icb, data, _) = volume();
+    for (recorded, information, kind, error) in [
+        (4097, 2048, 0, hadris_fs::ErrorKind::Corrupt),
+        (1 << 30, 2048, 0, hadris_fs::ErrorKind::Corrupt),
+        (1024, 2048, 0, hadris_fs::ErrorKind::Unsupported),
+        (2048, 1024, 0, hadris_fs::ErrorKind::Unsupported),
+        (1, 2048, 1, hadris_fs::ErrorKind::Corrupt),
+        (0, 4097, 2, hadris_fs::ErrorKind::Corrupt),
+    ] {
+        let mut bytes = base.clone();
+        set_ads(
+            &mut bytes,
+            icb,
+            2,
+            2048,
+            &ext_ad(4096, recorded, information, kind, data),
+        );
+        let mut udf = open(bytes.clone());
+        assert_eq!(udf.read_to_vec("/f.bin").unwrap_err().kind(), error);
+        let node = udf.resolve_path("/f.bin").unwrap();
+        let mut extents = [hadris_fs::Extent::new(0, 0); 2];
+        assert_eq!(
+            udf.extents(node, 0, &mut extents).unwrap_err().kind(),
+            error
+        );
+        #[cfg(feature = "async")]
+        common::block_on(async {
+            use hadris_fs::r#async::FileSystem;
+            let mut udf = hadris_udf::r#async::UdfFs::mount(
+                hadris_storage::MemDevice::new(bytes, common::SECTOR),
+                hadris_fs::MountOptions::new(),
+            )
+            .await
+            .unwrap();
+            let node = udf
+                .resolve(b"/f.bin", hadris_fs::Resolve::Lexical)
+                .await
+                .unwrap();
+            assert_eq!(
+                udf.read(node, 0, &mut [0; 2048]).await.unwrap_err().kind(),
+                error
+            );
+            assert_eq!(
+                udf.extents(node, 0, &mut extents).await.unwrap_err().kind(),
+                error
+            );
+        });
+    }
+}
+
+#[test]
+fn extended_allocations_follow_continuations_and_skip_empty_information() {
+    let (mut bytes, icb, data, free) = volume();
+    let descriptors = [
+        ext_ad(2048, 0, 0, 0, free + 1),
+        ext_ad(2048, 2048, 2048, 0, data),
+    ]
+    .concat();
+    let block = sector(&mut bytes, free);
+    block.fill(0);
+    block[20..24].copy_from_slice(&(descriptors.len() as u32).to_le_bytes());
+    block[24..24 + descriptors.len()].copy_from_slice(&descriptors);
+    Tag::seal(
+        block,
+        tag::ALLOCATION_EXTENT,
+        2,
+        (free - PARTITION) as u32,
+        8 + descriptors.len(),
+    );
+    set_ads(&mut bytes, icb, 2, 2048, &ext_ad(2048, 0, 0, 3, free));
+    let expected = pattern(5000, 7);
+    assert_eq!(
+        open(bytes.clone()).read_to_vec("/f.bin").unwrap(),
+        &expected[..2048]
+    );
+    #[cfg(feature = "async")]
+    common::block_on(async {
+        use hadris_fs::r#async::FileSystem;
+        let mut udf = hadris_udf::r#async::UdfFs::mount(
+            hadris_storage::MemDevice::new(bytes, common::SECTOR),
+            hadris_fs::MountOptions::new(),
+        )
+        .await
+        .unwrap();
+        let node = udf
+            .resolve(b"/f.bin", hadris_fs::Resolve::Lexical)
+            .await
+            .unwrap();
+        let mut out = vec![0; 2048];
+        assert_eq!(udf.read(node, 0, &mut out).await.unwrap(), 2048);
+        assert_eq!(out, &expected[..2048]);
+    });
+}
+
+#[test]
+fn transformed_icbs_reject_reads_and_extents() {
+    use hadris_fs::sync::FileSystem;
+    use hadris_fs::{ErrorKind, Extent};
+    use hadris_udf::raw::IcbFlags;
+
+    let (base, icb, data, _) = volume();
+    let mut long = [0u8; 16];
+    long[..8].copy_from_slice(&ad(2048, 0, data));
+    for (kind, ads) in [
+        (0, ad(2048, 0, data).to_vec()),
+        (1, long.to_vec()),
+        (2, ext_ad(2048, 2048, 2048, 0, data).to_vec()),
+        (3, vec![0x77; 32]),
+    ] {
+        let mut bytes = base.clone();
+        set_ads(
+            &mut bytes,
+            icb,
+            kind,
+            if kind == 3 { 32 } else { 2048 },
+            &ads,
+        );
+        let fe = sector(&mut bytes, icb);
+        let flags = u16::from_le_bytes([fe[34], fe[35]]) | IcbFlags::TRANSFORMED.bits();
+        fe[34..36].copy_from_slice(&flags.to_le_bytes());
+        reseal(&mut bytes, icb, 160 + ads.len());
+        let mut udf = open(bytes.clone());
+        let node = udf.resolve_path("/f.bin").unwrap();
+        let mut out = [0xa5; 32];
+        let sentinel = Extent::new(123, 456);
+        let mut extents = [sentinel; 2];
+        assert_eq!(
+            udf.read(node, 0, &mut out).unwrap_err().kind(),
+            ErrorKind::Unsupported
+        );
+        assert_eq!(out, [0xa5; 32]);
+        assert_eq!(
+            udf.extents(node, 0, &mut extents).unwrap_err().kind(),
+            ErrorKind::Unsupported
+        );
+        assert_eq!(extents, [sentinel; 2]);
+        #[cfg(feature = "async")]
+        common::block_on(async {
+            use hadris_fs::r#async::FileSystem;
+            let mut udf = hadris_udf::r#async::UdfFs::mount(
+                hadris_storage::MemDevice::new(bytes, common::SECTOR),
+                hadris_fs::MountOptions::new(),
+            )
+            .await
+            .unwrap();
+            let node = udf
+                .resolve(b"/f.bin", hadris_fs::Resolve::Lexical)
+                .await
+                .unwrap();
+            assert_eq!(
+                udf.read(node, 0, &mut out).await.unwrap_err().kind(),
+                ErrorKind::Unsupported
+            );
+            assert_eq!(out, [0xa5; 32]);
+            assert_eq!(
+                udf.extents(node, 0, &mut extents).await.unwrap_err().kind(),
+                ErrorKind::Unsupported
+            );
+            assert_eq!(extents, [sentinel; 2]);
+        });
+    }
+}

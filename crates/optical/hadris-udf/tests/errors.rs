@@ -296,3 +296,189 @@ fn the_writer_refuses_what_it_cannot_store() {
     );
     assert!(dev.get_ref().iter().all(|&b| b == 0));
 }
+
+#[derive(Debug)]
+struct FailingDevice {
+    inner: MemDevice<Vec<u8>>,
+    fail: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl FailingDevice {
+    fn new(bytes: Vec<u8>, fail: u64) -> Self {
+        Self {
+            inner: MemDevice::new(bytes, SECTOR),
+            fail: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(fail)),
+        }
+    }
+
+    fn read(
+        &mut self,
+        first: hadris_storage::BlockIndex,
+        buf: &mut [u8],
+    ) -> Result<(), hadris_io::Error<std::io::Error>> {
+        use hadris_storage::sync::BlockDevice;
+        let fail = self.fail.load(std::sync::atomic::Ordering::Relaxed);
+        if first.get() <= fail && fail - first.get() < (buf.len() / 2048) as u64 {
+            return Err(hadris_io::Error::device(
+                std::io::Error::from_raw_os_error(5),
+                "injected device failure",
+            ));
+        }
+        self.inner
+            .read_blocks(first, buf)
+            .map_err(|err| err.map_device(|never| match never {}))
+    }
+}
+
+impl hadris_io::ErrorType for FailingDevice {
+    type Error = std::io::Error;
+}
+
+impl hadris_storage::sync::BlockDevice for FailingDevice {
+    fn block_size(&self) -> BlockSize {
+        SECTOR
+    }
+    fn block_count(&self) -> u64 {
+        hadris_storage::sync::BlockDevice::block_count(&self.inner)
+    }
+    fn read_blocks(
+        &mut self,
+        first: hadris_storage::BlockIndex,
+        buf: &mut [u8],
+    ) -> Result<(), hadris_io::Error<Self::Error>> {
+        self.read(first, buf)
+    }
+}
+
+#[cfg(feature = "async")]
+impl hadris_storage::r#async::BlockDevice for FailingDevice {
+    fn block_size(&self) -> BlockSize {
+        SECTOR
+    }
+    fn block_count(&self) -> u64 {
+        hadris_storage::sync::BlockDevice::block_count(&self.inner)
+    }
+    async fn read_blocks(
+        &mut self,
+        first: hadris_storage::BlockIndex,
+        buf: &mut [u8],
+    ) -> Result<(), hadris_io::Error<Self::Error>> {
+        self.read(first, buf)
+    }
+}
+
+fn assert_device_failure(err: hadris_io::Error<std::io::Error>) {
+    assert_eq!(err.kind(), ErrorKind::Io);
+    assert_eq!(err.into_device_error().unwrap().raw_os_error(), Some(5));
+}
+
+#[test]
+fn reserve_sequence_preserves_device_failures() {
+    let base = good();
+    for backup in [false, true] {
+        let (primary, fallback) = if backup { (273, 257) } else { (257, 273) };
+        let mut bytes = base.clone();
+        bytes[primary * 2048 + 30] ^= 1;
+        let options = if backup {
+            MountOptions::new().backup_boot()
+        } else {
+            MountOptions::new()
+        };
+        let failed =
+            UdfFs::mount(FailingDevice::new(bytes.clone(), fallback as u64), options).unwrap_err();
+        assert_device_failure(failed.into_error());
+        #[cfg(feature = "async")]
+        common::block_on(async {
+            let failed = hadris_udf::r#async::UdfFs::mount(
+                FailingDevice::new(bytes, fallback as u64),
+                options,
+            )
+            .await
+            .unwrap_err();
+            assert_device_failure(failed.into_error());
+        });
+    }
+}
+
+fn symlink_image() -> (Vec<u8>, NodeId, u64) {
+    let mut tree = Tree::new();
+    tree.insert("link", Node::symlink("target")).unwrap();
+    let bytes = image(&tree, &UdfOptions::default());
+    let node = open(bytes.clone()).resolve_path("/link").unwrap();
+    let icb = 290 + node.get() - 1;
+    let entry = &bytes[icb as usize * 2048..];
+    let payload = 290 + u64::from(u32::from_le_bytes(entry[180..184].try_into().unwrap()));
+    (bytes, node, payload)
+}
+
+#[test]
+fn symlink_metadata_preserves_device_failures() {
+    let (bytes, node, payload) = symlink_image();
+    let dev = FailingDevice::new(bytes.clone(), u64::MAX);
+    let fail = dev.fail.clone();
+    let mut udf = UdfFs::mount(dev, MountOptions::new()).unwrap();
+    assert_eq!(udf.stat(node).unwrap().len(), 6);
+    fail.store(payload, std::sync::atomic::Ordering::Relaxed);
+    assert_device_failure(udf.stat(node).unwrap_err());
+    assert_device_failure(udf.readlink(node, &mut [0; 64]).unwrap_err());
+    assert_device_failure(
+        udf.readdir(udf.root(), hadris_fs::DirCursor::START)
+            .unwrap_err(),
+    );
+    #[cfg(feature = "async")]
+    common::block_on(async {
+        use hadris_fs::r#async::FileSystem;
+        let dev = FailingDevice::new(bytes, u64::MAX);
+        let fail = dev.fail.clone();
+        let mut udf = hadris_udf::r#async::UdfFs::mount(dev, MountOptions::new())
+            .await
+            .unwrap();
+        assert_eq!(udf.stat(node).await.unwrap().len(), 6);
+        fail.store(payload, std::sync::atomic::Ordering::Relaxed);
+        assert_device_failure(udf.stat(node).await.unwrap_err());
+        assert_device_failure(udf.readlink(node, &mut [0; 64]).await.unwrap_err());
+        assert_device_failure(
+            udf.readdir(udf.root(), hadris_fs::DirCursor::START)
+                .await
+                .unwrap_err(),
+        );
+    });
+}
+
+#[test]
+fn malformed_symlinks_fail_stat_and_list_with_damaged_metadata() {
+    let (mut bytes, node, payload) = symlink_image();
+    bytes[payload as usize * 2048] = 99;
+    let mut udf = open(bytes.clone());
+    assert_eq!(udf.stat(node).unwrap_err().kind(), ErrorKind::Corrupt);
+    assert_eq!(
+        udf.readlink(node, &mut [0; 64]).unwrap_err().kind(),
+        ErrorKind::Corrupt
+    );
+    let entry = udf
+        .readdir(udf.root(), hadris_fs::DirCursor::START)
+        .unwrap()
+        .unwrap();
+    assert_eq!(entry.node(), node);
+    assert_eq!(entry.metadata().len(), 0);
+    assert_eq!(
+        entry.metadata().permissions(),
+        hadris_fs::Permissions::new(0)
+    );
+    #[cfg(feature = "async")]
+    common::block_on(async {
+        use hadris_fs::r#async::FileSystem;
+        let mut udf =
+            hadris_udf::r#async::UdfFs::mount(MemDevice::new(bytes, SECTOR), MountOptions::new())
+                .await
+                .unwrap();
+        assert_eq!(udf.stat(node).await.unwrap_err().kind(), ErrorKind::Corrupt);
+        let entry = udf
+            .readdir(udf.root(), hadris_fs::DirCursor::START)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(entry.node(), node);
+        assert_eq!(entry.metadata().len(), 0);
+    });
+}

@@ -10,9 +10,9 @@ use crate::UdfRevision;
 use crate::error::{Detail, Error};
 use crate::raw::{
     self, AllocationExtentDescriptor, AnchorVolumeDescriptorPointer, EntityId, ExtAd,
-    FileCharacteristics, FileIdentifierDescriptor, FileSetDescriptor, LogicalVolumeDescriptor,
-    LogicalVolumeIntegrityDescriptor, LongAd, PathComponent, ShortAd, Tag, allocation, extent, tag,
-    vsd,
+    FileCharacteristics, FileIdentifierDescriptor, FileSetDescriptor, IcbFlags,
+    LogicalVolumeDescriptor, LogicalVolumeIntegrityDescriptor, LongAd, PathComponent, ShortAd, Tag,
+    allocation, extent, tag, vsd,
 };
 use crate::volume::{
     EntityId as Entity, Icb, Identifier, Info, Location, MAX_BLOCK, MAX_PARTITIONS, PartitionInfo,
@@ -392,7 +392,11 @@ async fn mount<D: BlockDevice>(dev: &mut D, backup: bool) -> Result<Info, Error<
     let found = match sequence(dev, len, block_size, first).await {
         Ok(found) => found,
         Err(err) if err.kind() == ErrorKind::Io => return Err(err),
-        Err(err) => sequence(dev, len, block_size, second).await.map_err(|_| err)?,
+        Err(err) => match sequence(dev, len, block_size, second).await {
+            Ok(found) => found,
+            Err(fallback) if fallback.kind() == ErrorKind::Io => return Err(fallback),
+            Err(_) => return Err(err),
+        },
     };
 
     let Some((_, lvd_block)) = found.logical else {
@@ -562,6 +566,9 @@ impl Walk {
 
     /// The next stretch of data, or `None` after the last descriptor.
     async fn next<D: BlockDevice>(&mut self, info: &Info, dev: &mut D, icb: &Icb) -> Result<Option<Piece>, Error<D::Error>> {
+        if icb.flags.contains(IcbFlags::TRANSFORMED) {
+            return Err(Detail::AllocationDescriptor.error(ErrorKind::Unsupported));
+        }
         let bad = || Detail::AllocationDescriptor.corrupt();
         loop {
             if self.done {
@@ -587,27 +594,44 @@ impl Walk {
             }
             let source = if self.aed_at.is_some() { &self.aed[..] } else { &icb.block[..] };
             let bytes = &source[self.pos..self.pos + size];
-            let (length, kind, at) = match size {
+            let (length, information, kind, at) = match size {
                 8 => {
                     let ad: ShortAd = bytemuck::pod_read_unaligned(bytes);
                     let at = Location { partition: icb.at.partition, block: ad.position.get() };
-                    (ad.len(), ad.extent_type(), at)
+                    (ad.len(), ad.len(), ad.extent_type(), at)
                 }
                 16 => {
                     let ad: LongAd = bytemuck::pod_read_unaligned(bytes);
-                    (ad.len(), ad.extent_type(), Location::from_long(&ad))
+                    (ad.len(), ad.len(), ad.extent_type(), Location::from_long(&ad))
                 }
                 _ => {
                     let ad: ExtAd = bytemuck::pod_read_unaligned(bytes);
+                    let recorded = ad.recorded_length.get();
+                    let information = ad.information_length.get();
+                    if recorded > ad.len() {
+                        return Err(bad());
+                    }
+                    match ad.extent_type() {
+                        extent::RECORDED if recorded != information => {
+                            return Err(Detail::AllocationDescriptor.error(ErrorKind::Unsupported));
+                        }
+                        extent::ALLOCATED | extent::UNALLOCATED if recorded != 0 || information > ad.len() => {
+                            return Err(bad());
+                        }
+                        _ => {}
+                    }
                     let at = Location {
                         partition: ad.location.partition.get(),
                         block: ad.location.block.get(),
                     };
-                    (ad.len(), ad.extent_type(), at)
+                    (ad.len(), information, ad.extent_type(), at)
                 }
             };
             self.pos += size;
             if length == 0 {
+                if information != 0 {
+                    return Err(bad());
+                }
                 self.done = true;
                 return Ok(None);
             }
@@ -627,13 +651,18 @@ impl Walk {
                 }
                 extent::RECORDED => {
                     let offset = info.offset(at.partition, at.block, length)?;
-                    return Ok(Some(Piece::Disk { offset, len: length }));
+                    if information != 0 {
+                        return Ok(Some(Piece::Disk { offset, len: u64::from(information) }));
+                    }
                 }
                 extent::ALLOCATED => {
                     let offset = info.offset::<D::Error>(at.partition, at.block, length).ok();
-                    return Ok(Some(Piece::Zero { len: length, offset }));
+                    if information != 0 {
+                        return Ok(Some(Piece::Zero { len: u64::from(information), offset }));
+                    }
                 }
-                _ => return Ok(Some(Piece::Zero { len: length, offset: None })),
+                _ if information != 0 => return Ok(Some(Piece::Zero { len: u64::from(information), offset: None })),
+                _ => {}
             }
         }
     }
@@ -841,7 +870,8 @@ impl<D: BlockDevice> UdfFs<D> {
     /// sequence, with [`ErrorKind::Corrupt`] when the structures are
     /// invalid, and with [`ErrorKind::Unsupported`] for partition maps
     /// other than type 1 or device blocks above 4096 bytes. The device
-    /// comes back in the [`MountError`].
+    /// comes back in the [`MountError`]. Device failures, including reads of
+    /// the reserve sequence, retain their [`ErrorKind::Io`] and device error.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all))]
     pub async fn mount(mut dev: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
         match mount(&mut dev, options.is_backup_boot()).await {
@@ -906,9 +936,8 @@ impl<D: BlockDevice> UdfFs<D> {
         let mut meta = icb.metadata(file_type);
         if file_type == FileType::Symlink {
             let mut target = [0u8; 4096];
-            if let Ok(len) = link_target(&self.info, &mut self.dev, icb, &mut target).await {
-                meta = meta.with_len(len as u64);
-            }
+            let len = link_target(&self.info, &mut self.dev, icb, &mut target).await?;
+            meta = meta.with_len(len as u64);
         }
         Ok(meta)
     }
@@ -918,7 +947,7 @@ impl<D: BlockDevice> UdfFs<D> {
     /// many it filled. Call again from the end of the last one for more; 0
     /// means there are none. Allocated but unrecorded extents are marked
     /// unwritten, holes are left out, and data embedded in the file entry
-    /// is one extent inside it.
+    /// is one extent inside it. Transformed content returns [`ErrorKind::Unsupported`].
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all, fields(node = ?node)))]
     pub async fn extents(&mut self, node: NodeId, from: u64, out: &mut [hadris_fs::Extent]) -> FsResult<usize, D::Error> {
         let icb = self.icb(node).await?;
@@ -1043,7 +1072,9 @@ impl<D: BlockDevice> FileSystem for UdfFs<D> {
 
     /// Type, size, times (creation only from extended file entries),
     /// permissions, owner and link count. A symlink's size is the length of
-    /// its target.
+    /// its target. Invalid target components fail with [`ErrorKind::Corrupt`],
+    /// device failures with [`ErrorKind::Io`], and targets exceeding the
+    /// metadata buffer with [`ErrorKind::LimitExceeded`].
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all, fields(node = ?node)))]
     async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
         let icb = self.icb(node).await?;
@@ -1116,6 +1147,7 @@ impl<D: BlockDevice> FileSystem for UdfFs<D> {
     }
 
     /// Allocated but unrecorded extents read as zeros.
+    /// Transformed content returns [`ErrorKind::Unsupported`].
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all, fields(node = ?node, offset = offset, bytes = buf.len())))]
     async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         let icb = self.icb(node).await?;

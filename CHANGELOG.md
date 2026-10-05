@@ -8,6 +8,16 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- UDF readers honor extended allocation information lengths, exclude allocation
+  padding from file data, validate recorded lengths, and reject transformed extents and ICBs.
+
+- UDF mounts preserve device failures when falling back to the reserve descriptor
+  sequence.
+
+- UDF symlink metadata propagates target read and decoding failures instead of
+  reporting encoded component lengths; directory listing retains damaged-entry
+  fallback for malformed targets while preserving device failures.
+
 - CPIO `odc` writers include payloads for every hard-link name and report each
   stored extent, preventing empty-file extraction with GNU `cpio`.
 
