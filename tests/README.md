@@ -140,7 +140,7 @@ HADRIS_TESTS_PERF_FILTER=udf cargo bench --manifest-path tests/Cargo.toml --benc
 
 The runner writes `performance/v3.csv` under `HADRIS_TESTS_REPORT_DIR` (default
 `tests/target/reports`). Each row records one sample's elapsed nanoseconds,
-requested read/write calls and bytes, flushes and I/O failures. Keep the raw
+requested read/write calls and bytes, flushes, I/O failures and stream seeks. Keep the raw
 samples to compare medians and spread rather than relying on a single run.
 The default is 21 samples plus one discarded warm-up for each workload.
 The format filter is a substring; a filter matching nothing fails.
@@ -170,3 +170,11 @@ shared synchronous infrastructure is available to new format and peer adapters;
 external CLI timings need separate labels because process startup and host I/O
 have different measurement boundaries. NTFS, APFS and streaming cpio workloads
 remain follow-ups requiring suitable fixtures and workload boundaries.
+
+The `peers` benchmark compares Hadris with buffered/unbuffered rust-fatfs,
+dosfstools/mtools, xorriso, mkisofs/genisoimage and bsdtar on shared host
+workflows. Run `cargo bench --manifest-path tests/Cargo.toml --bench peers`.
+See [peer performance and reference coverage](../docs/peer-performance.md)
+for timings, counter boundaries, larger fixtures and more complete references.
+Both runners accept `HADRIS_TESTS_PERF_FILES` (32 by default); use a FAT32,
+exFAT, ISO or UDF filter for large directories.

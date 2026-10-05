@@ -106,6 +106,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fscommon"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "315ce685aca5ddcc5a3e7e436ef47d4a5d0064462849b6f0f628c28140103531"
+dependencies = [
+ "log",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -216,6 +225,7 @@ name = "hadris-tests"
 version = "0.0.0"
 dependencies = [
  "fatfs",
+ "fscommon",
  "hadris-fat",
  "hadris-fs",
  "hadris-io",

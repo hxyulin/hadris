@@ -81,7 +81,10 @@ The detached conformance harness also runs common V3 filesystem workloads with
 per-sample timing and I/O CSV output. Run
 `cargo bench --manifest-path tests/Cargo.toml --bench performance`; see
 [`tests/README.md`](tests/README.md#v3-performance-harness) for measurement
-boundaries and smoke-check settings.
+boundaries and smoke-check settings. The `peers` benchmark compares host
+workflows against independent implementations;
+[`docs/peer-performance.md`](docs/peer-performance.md) documents the reference
+coverage and comparison boundaries.
 
 ### Conformance and interoperability suite
 

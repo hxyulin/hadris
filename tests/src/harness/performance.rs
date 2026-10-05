@@ -15,6 +15,7 @@ pub struct IoCounts {
     pub write_bytes: u64,
     pub flush_calls: u64,
     pub failures: u64,
+    pub seek_calls: u64,
 }
 
 /// Place below a cache to measure backend I/O, or above it for driver requests.
@@ -87,6 +88,68 @@ impl<D: BlockDevice> BlockDevice for Counted<D> {
     }
 }
 
+/// Counts requested stream reads/writes for peers using `std::io`.
+pub struct CountedStream<D> {
+    inner: D,
+    counts: Rc<Cell<IoCounts>>,
+}
+
+impl<D> CountedStream<D> {
+    pub fn new(inner: D) -> (Self, Rc<Cell<IoCounts>>) {
+        let counts = Rc::new(Cell::new(IoCounts::default()));
+        (
+            Self {
+                inner,
+                counts: counts.clone(),
+            },
+            counts,
+        )
+    }
+}
+
+impl<D: std::io::Read> std::io::Read for CountedStream<D> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let result = self.inner.read(buf);
+        let mut counts = self.counts.get();
+        counts.read_calls += 1;
+        counts.read_bytes += buf.len() as u64;
+        counts.failures += u64::from(result.is_err());
+        self.counts.set(counts);
+        result
+    }
+}
+
+impl<D: std::io::Write> std::io::Write for CountedStream<D> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let result = self.inner.write(buf);
+        let mut counts = self.counts.get();
+        counts.write_calls += 1;
+        counts.write_bytes += buf.len() as u64;
+        counts.failures += u64::from(result.is_err());
+        self.counts.set(counts);
+        result
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        let result = self.inner.flush();
+        let mut counts = self.counts.get();
+        counts.flush_calls += 1;
+        counts.failures += u64::from(result.is_err());
+        self.counts.set(counts);
+        result
+    }
+}
+
+impl<D: std::io::Seek> std::io::Seek for CountedStream<D> {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        let result = self.inner.seek(pos);
+        let mut counts = self.counts.get();
+        counts.seek_calls += 1;
+        counts.failures += u64::from(result.is_err());
+        self.counts.set(counts);
+        result
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Measurement {
     pub elapsed: Duration,
@@ -109,13 +172,13 @@ impl Measurement {
         )
     }
 
-    pub const CSV_HEADER: &str = "format,workload,sample,elapsed_ns,read_calls,read_bytes,write_calls,write_bytes,flush_calls,io_failures";
+    pub const CSV_HEADER: &str = "format,workload,sample,elapsed_ns,read_calls,read_bytes,write_calls,write_bytes,flush_calls,io_failures,seek_calls";
 
     pub fn csv_row(&self, format: &str, workload: &str, sample: usize) -> String {
         let quote = |text: &str| format!("\"{}\"", text.replace('"', "\"\""));
         let io = self.io;
         format!(
-            "{},{},{sample},{},{},{},{},{},{},{}",
+            "{},{},{sample},{},{},{},{},{},{},{},{}",
             quote(format),
             quote(workload),
             self.elapsed.as_nanos(),
@@ -124,7 +187,8 @@ impl Measurement {
             io.write_calls,
             io.write_bytes,
             io.flush_calls,
-            io.failures
+            io.failures,
+            io.seek_calls
         )
     }
 }
@@ -133,6 +197,102 @@ impl Measurement {
 mod tests {
     use super::*;
     use hadris_storage::MemDevice;
+
+    #[test]
+    fn stream_errors_preserve_the_error_and_count_failures() {
+        use std::io::{self, Read, Seek, SeekFrom, Write};
+        struct Refused;
+        impl Read for Refused {
+            fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                Err(io::ErrorKind::PermissionDenied.into())
+            }
+        }
+        impl Write for Refused {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                Err(io::ErrorKind::PermissionDenied.into())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Err(io::ErrorKind::PermissionDenied.into())
+            }
+        }
+        impl Seek for Refused {
+            fn seek(&mut self, _: SeekFrom) -> io::Result<u64> {
+                Err(io::ErrorKind::PermissionDenied.into())
+            }
+        }
+        let (mut stream, counts) = CountedStream::new(Refused);
+        let (_, measured) = Measurement::run(&counts, || {
+            assert_eq!(
+                stream.read(&mut [0; 4]).unwrap_err().kind(),
+                io::ErrorKind::PermissionDenied
+            );
+            assert_eq!(
+                stream.write(&[0; 8]).unwrap_err().kind(),
+                io::ErrorKind::PermissionDenied
+            );
+            assert_eq!(
+                stream.flush().unwrap_err().kind(),
+                io::ErrorKind::PermissionDenied
+            );
+            assert_eq!(
+                stream.seek(SeekFrom::Start(0)).unwrap_err().kind(),
+                io::ErrorKind::PermissionDenied
+            );
+        });
+        assert_eq!(
+            measured.io,
+            IoCounts {
+                read_calls: 1,
+                read_bytes: 4,
+                write_calls: 1,
+                write_bytes: 8,
+                flush_calls: 1,
+                seek_calls: 1,
+                failures: 4
+            }
+        );
+    }
+
+    #[test]
+    fn stream_counts_requests_and_forwards_seeks() {
+        use std::io::{Cursor, Read, Seek, SeekFrom, Write};
+        let (mut stream, counts) = CountedStream::new(Cursor::new(vec![1, 2]));
+        let (_, first) = Measurement::run(&counts, || {
+            let mut bytes = [0; 4];
+            assert_eq!(stream.read(&mut bytes).unwrap(), 2);
+            assert_eq!(bytes, [1, 2, 0, 0]);
+            assert_eq!(stream.seek(SeekFrom::Start(0)).unwrap(), 0);
+            stream.write_all(&[3, 4, 5, 6]).unwrap();
+            stream.flush().unwrap();
+        });
+        assert_eq!(
+            first.io,
+            IoCounts {
+                read_calls: 1,
+                read_bytes: 4,
+                write_calls: 1,
+                write_bytes: 4,
+                flush_calls: 1,
+                failures: 0,
+                seek_calls: 1
+            }
+        );
+        let (_, second) = Measurement::run(&counts, || {
+            stream.seek(SeekFrom::Start(0)).unwrap();
+            let mut bytes = [0; 4];
+            stream.read_exact(&mut bytes).unwrap();
+            assert_eq!(bytes, [3, 4, 5, 6]);
+        });
+        assert_eq!(
+            second.io,
+            IoCounts {
+                read_calls: 1,
+                read_bytes: 4,
+                seek_calls: 1,
+                ..IoCounts::default()
+            }
+        );
+    }
 
     #[test]
     fn counter_placement_distinguishes_cache_hits() {
@@ -190,7 +350,8 @@ mod tests {
                 write_calls: 1,
                 write_bytes: 512,
                 flush_calls: 1,
-                failures: 1
+                failures: 1,
+                seek_calls: 0
             }
         );
         let (_, second) = Measurement::run(&counts, || dev.flush().unwrap());

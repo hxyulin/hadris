@@ -1,3 +1,7 @@
+#[path = "support/fixture.rs"]
+mod fixture;
+
+use fixture::{Fixture, PAYLOAD};
 use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::hint::black_box;
@@ -5,7 +9,7 @@ use std::hint::black_box;
 use hadris_fat::exfat::{ExFatOptions, sync::ExFatFs};
 use hadris_fat::{FatKind, FatOptions, sync::FatFs};
 use hadris_fs::sync::FileSystem;
-use hadris_fs::{Content, DirCursor, ErrorKind, MountOptions, Name, Node, OpenMode, Tree};
+use hadris_fs::{DirCursor, ErrorKind, MountOptions, Name, OpenMode, Tree};
 use hadris_iso::{IsoOptions, sync::IsoFs};
 use hadris_storage::{BlockSize, MemDevice};
 use hadris_tests::harness::performance::{Counted, Measurement};
@@ -13,7 +17,6 @@ use hadris_tests::harness::{EntryData, Workspace, write_report};
 use hadris_udf::{UdfOptions, sync::UdfFs};
 
 type Device<'a> = Counted<MemDevice<&'a [u8]>>;
-const PAYLOAD: &str = "PAYLOAD.BIN";
 
 #[derive(Clone, Copy)]
 enum Format {
@@ -83,6 +86,7 @@ fn measure<'a, F: FileSystem<DeviceError = Infallible>>(
     bytes: &'a [u8],
     payload: &[u8],
     samples: usize,
+    file_count: usize,
     mount: impl Fn(Device<'a>) -> F,
     rows: &mut Vec<String>,
 ) {
@@ -116,7 +120,7 @@ fn measure<'a, F: FileSystem<DeviceError = Infallible>>(
                 let offsets = [65536, 0, 122880, 4096, 98304];
                 let mut chunks = [[0u8; 4096]; 5];
                 let mut lengths = [0; 5];
-                let mut names = Vec::with_capacity(33);
+                let mut names = Vec::with_capacity(file_count + 1);
                 let (observed, measured) = Measurement::run(&counts, || match workload {
                     "list" => {
                         let mut cursor = DirCursor::START;
@@ -155,7 +159,7 @@ fn measure<'a, F: FileSystem<DeviceError = Infallible>>(
                 });
                 match workload {
                     "list" => {
-                        assert_eq!(observed, 33);
+                        assert_eq!(observed, file_count + 1);
                         let mut actual: Vec<_> = names
                             .iter()
                             .map(|entry| {
@@ -164,8 +168,9 @@ fn measure<'a, F: FileSystem<DeviceError = Infallible>>(
                             })
                             .collect();
                         actual.sort();
-                        let mut expected: Vec<_> =
-                            (0..32).map(|index| format!("F{index:07}.TXT")).collect();
+                        let mut expected: Vec<_> = (0..file_count)
+                            .map(|index| format!("F{index:07}.TXT"))
+                            .collect();
                         expected.push(PAYLOAD.to_string());
                         expected.sort();
                         assert_eq!(actual, expected);
@@ -222,17 +227,12 @@ fn main() {
     });
     assert!(samples > 0);
     let filter = std::env::var("HADRIS_TESTS_PERF_FILTER").unwrap_or_default();
-    let payload: Vec<u8> = (0..131072).map(|i| (i * 17 + i / 251) as u8).collect();
-    let mut tree = Tree::new();
-    for index in 0..32 {
-        tree.insert(
-            format!("F{index:07}.TXT"),
-            Node::file(Content::bytes(b"fixture".as_slice())),
-        )
-        .unwrap();
-    }
-    tree.insert(PAYLOAD, Node::file(Content::bytes(payload.clone())))
-        .unwrap();
+    let Fixture {
+        tree,
+        payload,
+        entries,
+    } = Fixture::new();
+    let file_count = entries.len() - 1;
     let mut rows = vec![Measurement::CSV_HEADER.to_string()];
     for format in [
         Format::Fat(FatKind::Fat12),
@@ -246,14 +246,21 @@ fn main() {
         if !name.contains(&filter) {
             continue;
         }
+        if matches!(format, Format::Fat(FatKind::Fat12 | FatKind::Fat16)) {
+            assert!(
+                file_count <= 128,
+                "use fat32/iso/udf/exfat filters for large directories"
+            );
+        }
         let bytes = format.image(&tree);
-        verify_oracle(format, &bytes, &payload);
+        verify_oracle(format, &bytes, &entries);
         match format {
             Format::Fat(_) => measure(
                 name,
                 &bytes,
                 &payload,
                 samples,
+                file_count,
                 |dev| FatFs::mount(dev, MountOptions::new()).unwrap(),
                 &mut rows,
             ),
@@ -262,6 +269,7 @@ fn main() {
                 &bytes,
                 &payload,
                 samples,
+                file_count,
                 |dev| ExFatFs::mount(dev, MountOptions::new()).unwrap(),
                 &mut rows,
             ),
@@ -270,6 +278,7 @@ fn main() {
                 &bytes,
                 &payload,
                 samples,
+                file_count,
                 |dev| IsoFs::mount(dev, MountOptions::new()).unwrap(),
                 &mut rows,
             ),
@@ -278,6 +287,7 @@ fn main() {
                 &bytes,
                 &payload,
                 samples,
+                file_count,
                 |dev| UdfFs::mount(dev, MountOptions::new()).unwrap(),
                 &mut rows,
             ),
@@ -287,15 +297,7 @@ fn main() {
     write_report("performance", "v3.csv", &rows.join("\n")).unwrap();
 }
 
-fn verify_oracle(format: Format, bytes: &[u8], payload: &[u8]) {
-    let mut expected = BTreeMap::new();
-    for index in 0..32 {
-        expected.insert(
-            format!("/F{index:07}.TXT"),
-            EntryData::File(b"fixture".to_vec()),
-        );
-    }
-    expected.insert(format!("/{PAYLOAD}"), EntryData::File(payload.to_vec()));
+fn verify_oracle(format: Format, bytes: &[u8], expected: &BTreeMap<String, EntryData>) {
     let actual = match format {
         Format::Fat(kind) => {
             let workspace = Workspace::new("performance", "oracle").unwrap();
@@ -328,5 +330,5 @@ fn verify_oracle(format: Format, bytes: &[u8], payload: &[u8]) {
         Format::Iso => hadris_tests::iso::spec::snapshot(bytes).unwrap().entries,
         Format::Udf => return,
     };
-    assert_eq!(actual, expected);
+    assert_eq!(&actual, expected);
 }

@@ -36,6 +36,11 @@ name = "performance"
 path = "benches/performance.rs"
 harness = false
 
+[[bench]]
+name = "peers"
+path = "benches/peers.rs"
+harness = false
+
 [dependencies]
 hadris-fat = { path = "../crates/block/hadris-fat", default-features = false, features = ["std", "sync", "write"] }
 hadris-fs = { path = "../crates/core/hadris-fs", default-features = false, features = ["std", "sync"] }
@@ -45,5 +50,6 @@ hadris-iso = { path = "../crates/optical/hadris-iso", default-features = false, 
 hadris-udf = { path = "../crates/optical/hadris-udf", default-features = false, features = ["std", "sync"] }
 fatfs = { git = "https://github.com/rafalh/rust-fatfs", rev = "2aefc2a027ce94ed0671752814dac203f0450e11", default-features = false, features = ["alloc", "lfn", "std", "unicode"] }
 tempfile = "3"
+fscommon = "0.1"
 
 [workspace]

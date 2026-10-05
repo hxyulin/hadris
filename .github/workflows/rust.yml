@@ -347,6 +347,11 @@ jobs:
         env:
           HADRIS_TESTS_PERF_SAMPLES: "1"
         run: cargo bench --manifest-path tests/Cargo.toml --bench performance
+      - name: Run FAT peer performance smoke check
+        env:
+          HADRIS_TESTS_PERF_SAMPLES: "1"
+          HADRIS_TESTS_PERF_FILTER: "fat"
+        run: cargo bench --manifest-path tests/Cargo.toml --bench peers
       - name: Run FAT conformance and interoperability tests
         run: "cargo test --manifest-path tests/Cargo.toml fat:: -- --skip exfat:: --nocapture"
 
@@ -362,7 +367,13 @@ jobs:
       - name: Install optical image tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y xorriso udftools p7zip-full libarchive-tools
+          sudo apt-get install -y xorriso genisoimage udftools p7zip-full libarchive-tools
+      - name: Run ISO peer performance smoke check
+        env:
+          HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
+          HADRIS_TESTS_PERF_SAMPLES: "1"
+          HADRIS_TESTS_PERF_FILTER: "iso"
+        run: cargo bench --manifest-path tests/Cargo.toml --bench peers
       - name: Run ISO conformance and interoperability tests
         env:
           HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"

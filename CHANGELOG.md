@@ -8,6 +8,10 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- The performance harness compares shared host workflows with rust-fatfs,
+  dosfstools/mtools, xorriso, mkisofs/genisoimage and bsdtar, including larger
+  directory fixtures, output image sizes and stream seek counts.
+
 - The detached test harness measures common V3 filesystem workloads across
   FAT12/16/32, exFAT, ISO and UDF, reporting per-sample time and requested device I/O.
 
