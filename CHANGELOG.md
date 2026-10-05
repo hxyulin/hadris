@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- UDF documents and tests optional bounded caching through the shared storage
+  adapter; the reader benchmark measures cache capacity and underlying device I/O.
+
 - UDF directory reads reuse identifier bytes for CRC validation and name decoding,
   avoiding duplicate name reads without enabling a cache or allocating memory.
 

@@ -697,3 +697,105 @@ fn directory_identifiers_avoid_duplicate_name_reads() {
     let looked_up = udf.device().reads - before;
     assert!(looked_up < 2200, "{looked_up} reads to find the last entry");
 }
+
+#[test]
+fn bounded_storage_cache_preserves_udf_reads() {
+    use hadris_fs::sync::FileSystem;
+    let tree = common::sample();
+    let bytes = image(&tree, &UdfOptions::default());
+    let expected = pattern(70_000, 1);
+    for block in [512, 2048] {
+        for capacity in [1, 8, 32] {
+            let dev = hadris_storage::MemDevice::new(
+                bytes.clone(),
+                hadris_storage::BlockSize::new(block).unwrap(),
+            );
+            let mut udf = hadris_udf::sync::UdfFs::mount(
+                hadris_storage::sync::Cache::new(dev, capacity),
+                hadris_fs::MountOptions::new(),
+            )
+            .unwrap();
+            assert_eq!(udf.names("/many").unwrap().len(), 80);
+            assert_eq!(udf.read_to_vec("/docs/big.bin").unwrap(), expected);
+            let node = udf.resolve_path("/docs/big.bin").unwrap();
+            let mut out = [0; 4096];
+            for offset in [60_000, 1, 30_003, 0] {
+                assert_eq!(udf.read(node, offset, &mut out).unwrap(), out.len());
+                assert_eq!(
+                    &out,
+                    &expected[offset as usize..offset as usize + out.len()]
+                );
+            }
+            assert_eq!(udf.names("/many").unwrap().len(), 80);
+            let link = udf.resolve_path("/docs/rel").unwrap();
+            assert_eq!(udf.readlink(link, &mut out).unwrap(), b"../readme.txt");
+            assert!(!udf.device().is_dirty());
+            #[cfg(feature = "async")]
+            common::block_on(async {
+                use hadris_fs::r#async::FileSystem;
+                let dev = hadris_storage::MemDevice::new(
+                    bytes.clone(),
+                    hadris_storage::BlockSize::new(block).unwrap(),
+                );
+                let mut udf = hadris_udf::r#async::UdfFs::mount(
+                    hadris_storage::r#async::Cache::new(dev, capacity),
+                    hadris_fs::MountOptions::new(),
+                )
+                .await
+                .unwrap();
+                let node = udf
+                    .resolve(b"/docs/big.bin", hadris_fs::Resolve::Lexical)
+                    .await
+                    .unwrap();
+                for offset in [60_000, 1, 30_003, 0] {
+                    assert_eq!(udf.read(node, offset, &mut out).await.unwrap(), out.len());
+                    assert_eq!(
+                        &out,
+                        &expected[offset as usize..offset as usize + out.len()]
+                    );
+                }
+                let dir = udf
+                    .resolve(b"/many", hadris_fs::Resolve::Lexical)
+                    .await
+                    .unwrap();
+                let mut cursor = hadris_fs::DirCursor::START;
+                let mut entries = 0;
+                while let Some(entry) = udf.readdir(dir, cursor).await.unwrap() {
+                    cursor = entry.next_cursor();
+                    entries += 1;
+                }
+                assert_eq!(entries, 80);
+                assert!(!udf.device().is_dirty());
+            });
+        }
+    }
+}
+
+#[test]
+fn bounded_storage_cache_reduces_udf_metadata_reads() {
+    use hadris_fs::sync::FileSystem;
+    let mut tree = Tree::new();
+    for i in 0..1000 {
+        tree.insert(format!("entry-{i:04}"), Node::file(Content::empty()))
+            .unwrap();
+    }
+    let dev = Counting {
+        inner: hadris_storage::MemDevice::new(image(&tree, &UdfOptions::default()), common::SECTOR),
+        reads: 0,
+    };
+    let mut udf = hadris_udf::sync::UdfFs::mount(
+        hadris_storage::sync::Cache::new(dev, 8),
+        hadris_fs::MountOptions::new(),
+    )
+    .unwrap();
+    let before = udf.device().get_ref().reads;
+    assert_eq!(udf.names("/").unwrap().len(), 1000);
+    let listed = udf.device().get_ref().reads - before;
+    assert!(listed < 1100, "{listed} reads for 1000 cached entries");
+    let node = udf.resolve_path("/entry-0999").unwrap();
+    let before = udf.device().get_ref().reads;
+    for _ in 0..100 {
+        udf.stat(node).unwrap();
+    }
+    assert!(udf.device().get_ref().reads - before <= 1);
+}

@@ -2,7 +2,7 @@ use hadris_fs::sync::FileSystem;
 use hadris_fs::{Content, DirCursor, MountOptions, Name, Node, Tree};
 use hadris_storage::{BlockIndex, BlockSize, MemDevice, sync::BlockDevice};
 use hadris_udf::{UdfOptions, sync::UdfFs};
-use std::{hint::black_box, time::Instant};
+use std::{cell::Cell, hint::black_box, rc::Rc, time::Instant};
 
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
 struct Counts {
@@ -11,7 +11,7 @@ struct Counts {
 }
 struct Counted {
     inner: MemDevice<Vec<u8>>,
-    counts: Counts,
+    counts: Rc<Cell<Counts>>,
 }
 impl hadris_io::ErrorType for Counted {
     type Error = core::convert::Infallible;
@@ -29,8 +29,10 @@ impl BlockDevice for Counted {
         buf: &mut [u8],
     ) -> Result<(), hadris_io::Error<Self::Error>> {
         self.inner.read_blocks(first, buf)?;
-        self.counts.calls += 1;
-        self.counts.bytes += buf.len() as u64;
+        let mut counts = self.counts.get();
+        counts.calls += 1;
+        counts.bytes += buf.len() as u64;
+        self.counts.set(counts);
         Ok(())
     }
 }
@@ -51,16 +53,6 @@ fn image(entries: usize) -> Vec<u8> {
     hadris_udf::sync::write(&mut dev, &tree, &options).unwrap();
     dev.into_inner()
 }
-fn mount(bytes: &[u8], block: u32) -> UdfFs<Counted> {
-    UdfFs::mount(
-        Counted {
-            inner: MemDevice::new(bytes.to_vec(), BlockSize::new(block).unwrap()),
-            counts: Counts::default(),
-        },
-        MountOptions::new(),
-    )
-    .unwrap()
-}
 #[derive(Clone, Copy)]
 enum Op {
     Mount,
@@ -71,11 +63,32 @@ enum Op {
     Read(usize),
     Scattered,
 }
-fn row(bytes: &[u8], block: u32, entries: usize, label: &str, op: Op, samples: usize) {
+struct Settings {
+    samples: usize,
+    cache: usize,
+}
+
+fn row<D: BlockDevice>(
+    bytes: &[u8],
+    block: u32,
+    entries: usize,
+    label: &str,
+    op: Op,
+    settings: &Settings,
+    make: impl Fn(Counted) -> D,
+) {
+    let Settings { samples, cache } = *settings;
     let mut times = Vec::new();
     let mut counts = None;
     for sample in 0..=samples {
-        let mut fs = mount(bytes, block);
+        let io = Rc::new(Cell::new(Counts::default()));
+        let device = || {
+            make(Counted {
+                inner: MemDevice::new(bytes.to_vec(), BlockSize::new(block).unwrap()),
+                counts: io.clone(),
+            })
+        };
+        let mut fs = UdfFs::mount(device(), MountOptions::new()).unwrap();
         let node = match op {
             Op::Stat | Op::Read(_) | Op::Scattered => {
                 Some(fs.lookup(fs.root(), Name::new("payload")).unwrap())
@@ -89,18 +102,17 @@ fn row(bytes: &[u8], block: u32, entries: usize, label: &str, op: Op, samples: u
                 _ => 4096,
             }
         ];
-        let before = match op {
-            Op::Mount => Counts::default(),
-            _ => fs.device().counts,
-        };
-        let mount_dev = matches!(op, Op::Mount).then(|| Counted {
-            inner: MemDevice::new(bytes.to_vec(), BlockSize::new(block).unwrap()),
-            counts: Counts::default(),
-        });
+        let mount_dev = matches!(op, Op::Mount).then(device);
+        io.set(Counts::default());
+        let mut previous = None;
         let start = Instant::now();
         match op {
             Op::Mount => {
-                fs = UdfFs::mount(mount_dev.unwrap(), MountOptions::new()).unwrap();
+                previous = Some(core::mem::replace(
+                    &mut fs,
+                    UdfFs::mount(mount_dev.unwrap(), MountOptions::new()).unwrap(),
+                ));
+                black_box(fs.info());
             }
             Op::List => {
                 let mut cursor = DirCursor::START;
@@ -151,12 +163,10 @@ fn row(bytes: &[u8], block: u32, entries: usize, label: &str, op: Op, samples: u
             }
         }
         let elapsed = start.elapsed().as_nanos();
+        drop(previous);
         if sample > 0 {
             times.push(elapsed);
-            let current = Counts {
-                calls: fs.device().counts.calls - before.calls,
-                bytes: fs.device().counts.bytes - before.bytes,
-            };
+            let current = io.get();
             if let Some(previous) = counts {
                 assert!(previous == current);
             }
@@ -166,7 +176,7 @@ fn row(bytes: &[u8], block: u32, entries: usize, label: &str, op: Op, samples: u
     times.sort_unstable();
     let counts = counts.unwrap();
     println!(
-        "{entries}/{block}/{label},{},{},{}",
+        "{entries}/{block}/{label},{cache},{},{},{}",
         times[times.len() / 2],
         counts.calls,
         counts.bytes
@@ -177,7 +187,10 @@ fn main() {
         std::env::var("HADRIS_UDF_BENCH_SAMPLES").map_or(7, |s| s.parse().unwrap());
     assert!(samples > 0);
     let filter = std::env::var("HADRIS_UDF_BENCH_FILTER").unwrap_or_default();
-    println!("case,median_ns,read_calls,read_bytes");
+    let cache: usize =
+        std::env::var("HADRIS_UDF_BENCH_CACHE_BLOCKS").map_or(0, |s| s.parse().unwrap());
+    let settings = Settings { samples, cache };
+    println!("case,cache_blocks,median_ns,read_calls,read_bytes");
     let mut selected = 0;
     for entries in [32, 1000] {
         let bytes = image(entries);
@@ -193,7 +206,13 @@ fn main() {
                 ("read-scattered", Op::Scattered),
             ] {
                 if format!("{entries}/{block}/{label}").contains(&filter) {
-                    row(&bytes, block, entries, label, op, samples);
+                    if cache == 0 {
+                        row(&bytes, block, entries, label, op, &settings, |dev| dev);
+                    } else {
+                        row(&bytes, block, entries, label, op, &settings, |dev| {
+                            hadris_storage::sync::Cache::new(dev, cache)
+                        });
+                    }
                     selected += 1;
                 }
             }

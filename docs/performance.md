@@ -428,6 +428,7 @@ verified cases, or use `--samples 21 --csv` for measurements.
 cargo bench -p hadris-udf --bench performance > udf-baseline.csv
 HADRIS_UDF_BENCH_SAMPLES=21 cargo bench -p hadris-udf --bench performance
 HADRIS_UDF_BENCH_FILTER=1000/2048 cargo bench -p hadris-udf --bench performance
+HADRIS_UDF_BENCH_CACHE_BLOCKS=32 cargo bench -p hadris-udf --bench performance
 ```
 
 The dependency-free harness emits CSV with median nanoseconds, device read calls,
@@ -443,4 +444,13 @@ Workloads cover 32 and 1,000 numbered entries plus one 1 MiB payload, with 512-
 and 2,048-byte devices: mounting, listing, last-entry and missing-name lookup,
 100 metadata requests, sequential 4 KiB and 64 KiB reads, and 256 scattered
 4 KiB reads. These are memory-device CPU measurements and deterministic device
-counts, not physical-drive latency measurements. No optional cache is enabled.
+counts, not physical-drive latency measurements. `HADRIS_UDF_BENCH_CACHE_BLOCKS`
+defaults to zero (uncached). A positive value wraps the counted device in the
+shared storage cache, so counts record reads reaching the underlying device.
+Cache construction and cloning stay outside timing; mounting and the payload
+lookup can warm cached blocks before non-mount measurements. Each sample starts
+with a new cache, rather than retaining cached data from earlier samples.
+The CSV records the configured capacity in `cache_blocks`.
+
+The [UDF reader report](udf-performance.md) compares the uncached baseline,
+identifier reuse and optional cache sizes, including the 512-byte eviction case.
