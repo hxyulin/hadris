@@ -95,8 +95,8 @@ pub(crate) struct Geometry {
     pub(crate) total_clusters: u64,
     pub(crate) mft_offset: u64,
     pub(crate) serial: u64,
-    /// Bytes on the device.
-    pub(crate) device_len: u64,
+    /// Bytes declared by the boot sector.
+    pub(crate) volume_len: u64,
 }
 
 impl Geometry {
@@ -125,6 +125,12 @@ impl Geometry {
             return Err(Detail::RecordSize);
         }
         let total_sectors = boot.sector_count();
+        let volume_len = total_sectors
+            .checked_mul(u64::from(sector_size))
+            .ok_or(Detail::Geometry)?;
+        if volume_len > device_len {
+            return Err(Detail::Geometry);
+        }
         let total_clusters = total_sectors / per_cluster;
         let mft_cluster = boot.mft_cluster();
         if total_clusters == 0 || mft_cluster >= total_clusters {
@@ -142,7 +148,7 @@ impl Geometry {
             total_clusters,
             mft_offset,
             serial: boot.serial(),
-            device_len,
+            volume_len,
         })
     }
 }

@@ -213,11 +213,14 @@ async fn read_runs<D: BlockDevice>(
             match run.lcn {
                 None => out.fill(0),
                 Some(lcn) => {
+                    if lcn.checked_add(run.len).is_none_or(|end| end > geo.total_clusters) {
+                        return Err(Detail::OutsideVolume.into());
+                    }
                     let at = lcn
                         .checked_mul(geo.cluster_size)
                         .and_then(|at| at.checked_add(from - start))
                         .ok_or(Detail::DataRun)?;
-                    read_bytes(dev, geo.device_len, at, out).await?;
+                    read_bytes(dev, geo.volume_len, at, out).await?;
                 }
             }
             filled += n;
@@ -669,7 +672,7 @@ async fn mount<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>> {
 
     let size = geo.mft_record_size;
     let mut rec = [0u8; MAX_RECORD];
-    read_bytes(dev, device_len, geo.mft_offset, &mut rec[..size]).await?;
+    read_bytes(dev, geo.volume_len, geo.mft_offset, &mut rec[..size]).await?;
     record::file_record(&mut rec[..size])?;
     let rec = &rec[..size];
     let mft = match record::find_instance(rec, raw::ATTR_DATA, &[], 0)? {

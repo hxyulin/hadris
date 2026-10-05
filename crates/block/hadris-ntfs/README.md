@@ -100,3 +100,9 @@ Licensed under the [MIT license](../../../LICENSE-MIT).
 The opt-in `tracing` feature enables `std` and emits operation spans through the
 application’s subscriber. It is disabled by default. See the
 [tracing guide](../../../docs/tracing.md) for targets, metadata and async behavior.
+
+
+The reader validates the boot sector's declared volume size against the device.
+MFT records and physical mapping pairs must fit inside that volume; bytes in a
+larger device's trailing region are not exposed as file contents. Sparse runs
+and uninitialized file tails retain their zero-fill behavior.

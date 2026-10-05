@@ -693,3 +693,87 @@ fn block_on<F: core::future::Future>(future: F) -> F::Output {
         }
     }
 }
+
+#[test]
+fn declared_volume_must_fit_the_device() {
+    for sectors in [(IMAGE_LEN / SECTOR + 1) as u64, u64::MAX] {
+        let mut image = base_image();
+        image[40..48].copy_from_slice(&sectors.to_le_bytes());
+        assert_eq!(Detail::of(&open_err(image.clone())), Some(Detail::Geometry));
+        block_on(async {
+            let err = hadris_ntfs::r#async::NtfsFs::mount(device(image), MountOptions::new())
+                .await
+                .unwrap_err();
+            assert_eq!(Detail::of(&err.into_error()), Some(Detail::Geometry));
+        });
+    }
+}
+
+#[test]
+fn mapping_pairs_cannot_read_the_device_tail_outside_the_volume() {
+    for (lcn, clusters, valid) in [(399u16, 1u8, true), (400, 1, false), (399, 2, false)] {
+        let mut image = base_image();
+        image[40..48].copy_from_slice(&400u64.to_le_bytes());
+        image[lcn as usize * SECTOR..lcn as usize * SECTOR + SECTOR].fill(0xA5);
+        let [low, high] = lcn.to_le_bytes();
+        let bin = non_resident(
+            raw::ATTR_DATA,
+            &[],
+            u64::from(clusters - 1),
+            512,
+            512,
+            &[0x21, clusters, low, high, 0],
+        );
+        put(
+            &mut image,
+            18,
+            &file_record(FILE, &[named(5, "BIN.DAT", false), bin]),
+        );
+        let mut fs = open(image.clone());
+        let node = fs.lookup(fs.root(), name("BIN.DAT")).unwrap();
+        let mut out = [0xCC; 16];
+        let result = fs.read(node, 0, &mut out);
+        if valid {
+            assert_eq!(result.unwrap(), out.len());
+            assert_eq!(out, [0xA5; 16]);
+        } else {
+            assert_eq!(result.unwrap_err().kind(), ErrorKind::Corrupt);
+            assert_eq!(out, [0xCC; 16]);
+        }
+        block_on(async {
+            use hadris_fs::r#async::FileSystem;
+            let mut fs = hadris_ntfs::r#async::NtfsFs::mount(device(image), MountOptions::new())
+                .await
+                .unwrap();
+            let node = fs.lookup(fs.root(), name("BIN.DAT")).await.unwrap();
+            let mut out = [0xCC; 16];
+            let result = fs.read(node, 0, &mut out).await;
+            if valid {
+                assert_eq!(result.unwrap(), out.len());
+                assert_eq!(out, [0xA5; 16]);
+            } else {
+                assert_eq!(result.unwrap_err().kind(), ErrorKind::Corrupt);
+                assert_eq!(out, [0xCC; 16]);
+            }
+        });
+    }
+}
+
+#[test]
+fn initial_mft_record_must_fit_the_declared_volume() {
+    let mut image = base_image();
+    let record = image[MFT_LCN * SECTOR..MFT_LCN * SECTOR + REC].to_vec();
+    image[399 * SECTOR..399 * SECTOR + REC].copy_from_slice(&record);
+    image[40..48].copy_from_slice(&400u64.to_le_bytes());
+    image[48..56].copy_from_slice(&399u64.to_le_bytes());
+    assert_eq!(
+        Detail::of(&open_err(image.clone())),
+        Some(Detail::OutsideVolume)
+    );
+    block_on(async {
+        let err = hadris_ntfs::r#async::NtfsFs::mount(device(image), MountOptions::new())
+            .await
+            .unwrap_err();
+        assert_eq!(Detail::of(err.error()), Some(Detail::OutsideVolume));
+    });
+}
