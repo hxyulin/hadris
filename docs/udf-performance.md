@@ -101,8 +101,8 @@ unaligned/backward reads, symlinks and directories. Cold cache failures preserve
 the original device error, and retry after clearing the injected failure works.
 Strict external interoperability with 7-Zip, `mkudffs` and `udfinfo` passes.
 
-Useful separate follow-ups are a fragmented-allocation benchmark, profiling CRC
-and name decoding, and writer allocation/copy reduction. An internal ICB cache
+The follow-up measurements below cover fragmented allocation, CRC and name
+decoding. Writer allocation/copy reduction remains a separate investigation. An internal ICB cache
 would duplicate some existing cache benefits and add reader state; these results
 do not justify enabling one by default. Read-ahead and whole-directory loading
 remain unimplemented.
@@ -113,3 +113,101 @@ remain unimplemented.
 - [Identifier reuse](benchmarks/udf-reader-identifiers.csv)
 - [Eight cached blocks](benchmarks/udf-reader-cache8.csv)
 - [32 cached blocks](benchmarks/udf-reader-cache32.csv)
+
+## Fragmented allocation follow-up
+
+The expanded harness has 108 cases per cache capacity, with 21 measured samples
+on the same host/toolchain. These are measurements of the current reader, not
+additional production optimizations. All three layouts contain the same names
+and logical payload. The inline layout holds 128 file extents in the file entry;
+the chained layout has 127 file AEDs and, for 1,000 entries, 25 directory AEDs.
+
+Successful backend calls on the 1,000-entry, 2,048-byte-device cases:
+
+| Workload | Contiguous | Fragmented inline | Fragmented AED | AED + cache 8 | AED + cache 32 |
+|---|---:|---:|---:|---:|---:|
+| list | 4,030 | 4,030 | 7,847 | 1,052 | 1,052 |
+| lookup-last | 2,026 | 2,026 | 5,839 | 51 | 51 |
+| read-4k | 512 | 512 | 1,143 | 384 | 384 |
+| read-scattered | 512 | 512 | 11,292 | 10,980 | 10,932 |
+
+Of the 11,292 scattered-read calls, 10,780 fetch AED blocks: repeated traversal
+is the dominant I/O amplification. The uncached workload transfers 23,650,304
+bytes to return 1,048,576 bytes. A 32-block cache still fetches AEDs 10,480 times;
+it reduces total calls by only 3.2%. In this memory-device run its median rises
+from 1.271 ms to 2.122 ms, about 67%, because it retains too little of the chain
+and adds bookkeeping. In contrast, it reduces listing AED reads from 3,817 to
+25 and last-entry lookup AED reads from 3,813 to 25.
+
+Inline fragmentation demonstrates a separate CPU cost: sequential 4 KiB reads
+still make 512 calls, but take 0.971 ms versus 0.262 ms for contiguous allocation.
+The file entry contains substantially more CRC-covered allocation bytes and is
+validated for every read. That is a likely contributor based on the code and
+isolated CRC measurements; this run does not quantify its exact share.
+
+Every measured sample checks names and payload content and reproduces its
+case's device counts. 7-Zip 26.02 independently extracts all names and the exact
+payload from both directory sizes in the contiguous and inline layouts. It
+rejects the AED layouts: its [UDF parser](https://github.com/ip7z/7zip/blob/main/CPP/7zip/Archive/Udf/UdfIn.cpp)
+collects continuation descriptors as extents, while its
+[extent checks](https://github.com/ip7z/7zip/blob/main/CPP/7zip/Archive/Udf/UdfIn.h)
+require recorded extents and their lengths to sum to file size. Independent
+interoperability coverage is therefore limited to the four non-AED images.
+The fixture padding keeps closing anchors within 7-Zip's bounded scan after
+used extents. No writer behavior was changed for this measurement.
+
+## Native CPU profiles and isolated kernels
+
+Native macOS `sample` captured six seconds at one millisecond intervals for each
+uncached workload, after `PROFILE_READY`. These optimized builds include debug
+symbols. Percentages below are disjoint top-of-stack samples, not inclusive
+call-tree percentages; the output omits individual functions with fewer than
+five samples. Copies combine `memmove`/`memcpy`; clearing combines
+`memset`/`bzero`. `check_tag` includes validation and inlined CRC work, so its
+percentage is not an exact CRC percentage.
+
+| Workload | Copy | Clear | Tag validation | Name decoding |
+|---|---:|---:|---:|---:|
+| Contiguous list | 37.0% | 11.3% | 36.0% | 1.6% |
+| AED list | 36.4% | 13.1% | 34.7% | 1.4% |
+| Contiguous lookup-last | 46.1% | 32.0% | 0.1% | 6.9% |
+| AED scattered reads | 54.8% | 1.2% | 23.7% | 0.0% |
+
+The counted device wrapper also appears in the samples and can include inlined
+device work. Profiling and runtime therefore include instrumentation overhead;
+these are directional measurements, not a precise cost model of an unwrapped
+reader on a physical device. Copy samples alone do not identify each buffer's
+contribution. Code inspection identifies `Walk::resume`, which returns a walker
+containing a 4 KiB AED buffer, and file-entry movement as candidates to measure
+with separate changes.
+
+Isolated CRC medians are 98.6 ns for 52 bytes, 416.9 ns for 168 bytes, 2.748 us
+for 1,024 bytes and 5.529 us for 2,048 bytes. Short ASCII decoding takes 9.3 ns;
+241-byte ASCII and UTF-16 inputs take 160.7 ns and 192.1 ns respectively.
+These kernels compile the existing implementations, but their call context and
+inlining may differ from the driver. Native sampling supports prioritizing
+buffer handling and validation ahead of name-decoder changes.
+
+The next proposed order is:
+
+1. Initialize/resume the allocation walker in place to reduce movement of its
+   4 KiB buffer, then measure whether buffer initialization can be reduced
+   safely. Preserve fully initialized Rust storage and cancellation behavior.
+2. Reduce continuation replay for backward/scattered reads, potentially with
+   an optional bounded position index. Preserve traversal limits and malformed
+   chain handling when resuming from learned positions.
+3. Evaluate CRC acceleration after the buffer work, including flash-size and
+   `no_std` costs. Keep all current CRC validation.
+4. Revisit name decoding only if later profiles make it a meaningful cost.
+
+Each production optimization should have its own commit, correctness coverage
+and before/after run of this expanded harness. No new cache, reader API or
+production driver changes are included in this follow-up.
+
+Follow-up data:
+
+- [Fragmented workloads, uncached](benchmarks/udf-fragmented-uncached.csv)
+- [Fragmented workloads, cache 8](benchmarks/udf-fragmented-cache8.csv)
+- [Fragmented workloads, cache 32](benchmarks/udf-fragmented-cache32.csv)
+- [CRC and name kernels](benchmarks/udf-kernels.csv)
+- [Aggregated native top-of-stack samples](benchmarks/udf-profile-samples.csv)

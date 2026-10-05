@@ -71,3 +71,8 @@ required-features = ["std", "sync", "async"]
 name = "performance"
 harness = false
 required-features = ["std", "sync"]
+
+[[bench]]
+name = "kernels"
+harness = false
+required-features = ["std", "sync"]
