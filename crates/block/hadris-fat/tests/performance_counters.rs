@@ -327,3 +327,58 @@ fn bulk_short_name_creation_avoids_quadratic_directory_reads() {
     .unwrap();
     assert!(counts.get().read_calls < 6000, "{:?}", counts.get());
 }
+
+#[test]
+fn first_small_writes_skip_reads_only_for_exclusive_device_blocks() {
+    use hadris_fat::sync::{FatFs, format};
+    use hadris_fat::{FatKind, FatOptions};
+    use hadris_fs::sync::FileSystem;
+    use hadris_fs::{MountOptions, Name, SetAttr};
+
+    for (block, cluster, max_reads) in [(512, 512, 3), (4096, 512, 4), (4096, 4096, 2)] {
+        let mut inner = MemDevice::new(vec![0xa5; 2 << 20], BlockSize::new(block).unwrap());
+        format(
+            &mut inner,
+            &FatOptions::new()
+                .with_kind(FatKind::Fat12)
+                .with_sector_size(512)
+                .with_cluster_size(cluster),
+        )
+        .unwrap();
+        let counts = Cell::new(IoCounts::default());
+        let dev = Counted {
+            inner,
+            counts: &counts,
+            written_blocks: None,
+        };
+        let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
+        let root = fs.root();
+        let neighbour = fs
+            .create(root, Name::new("OTHER.BIN"), &SetAttr::new())
+            .unwrap();
+        fs.write(neighbour, 0, &vec![0x7c; cluster as usize])
+            .unwrap();
+        let file = fs
+            .create(root, Name::new("SMALL.BIN"), &SetAttr::new())
+            .unwrap();
+        counts.set(IoCounts::default());
+        fs.write(file, 0, b"original").unwrap();
+        assert!(counts.get().read_calls <= max_reads, "{:?}", counts.get());
+        fs.write(file, 1, b"XX").unwrap();
+        let mut data = [0; 8];
+        fs.read(file, 0, &mut data).unwrap();
+        assert_eq!(&data, b"oXXginal");
+        let mut other = vec![0; cluster as usize];
+        fs.read(neighbour, 0, &mut other).unwrap();
+        assert_eq!(other, vec![0x7c; cluster as usize]);
+        let sparse = fs
+            .create(root, Name::new("SPARSE.BIN"), &SetAttr::new())
+            .unwrap();
+        fs.write(sparse, 7, b"end").unwrap();
+        let mut sparse_data = [0; 10];
+        fs.read(sparse, 0, &mut sparse_data).unwrap();
+        assert_eq!(&sparse_data[..7], &[0; 7]);
+        assert_eq!(&sparse_data[7..], b"end");
+        fs.unmount().unwrap();
+    }
+}

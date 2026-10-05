@@ -2254,12 +2254,15 @@ impl<D: BlockDevice> FatFs<D> {
     }
 
     /// Writes `len` bytes of `data`, or zeros, at byte `pos` of the chain at
-    /// `first`, and returns a hint for the last cluster written.
+    /// `first`, and returns a hint for the last cluster written. `fresh` means
+    /// the whole chain was just allocated for this file, allowing unused bytes
+    /// in an exclusive device block to be zeroed without reading them.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all, fields(first = first, pos = pos, len = len)))]
     async fn fill(
         &mut self,
         first: u32,
         hint: ChainPos,
+        fresh: bool,
         pos: u64,
         data: Option<&[u8]>,
         len: usize,
@@ -2281,7 +2284,19 @@ impl<D: BlockDevice> FatFs<D> {
             let offset = self.cluster_at(hint.cluster())? + within;
             let n = ((cluster_size - within) as usize).min(len - done);
             let n = rawio::run(&mut self.dev, &mut self.block, &self.fat, &mut hint, n, len - done).await?;
-            self.put_data(offset, data.map(|data| &data[done..done + n]), n).await?;
+            let size = self.block.block_size();
+            if fresh && within == 0 && cluster_size >= size as u64 && offset % size as u64 == 0 && n < size {
+                self.invalidate_directory();
+                let bytes = self.block.contents_mut();
+                bytes.fill(0);
+                if let Some(data) = data {
+                    bytes[..n].copy_from_slice(&data[done..done + n]);
+                }
+                let result = rawio::store(&mut self.dev, &mut self.block, offset / size as u64).await;
+                self.note(result)?;
+            } else {
+                self.put_data(offset, data.map(|data| &data[done..done + n]), n).await?;
+            }
             done += n;
         }
         Ok(hint)
@@ -2754,12 +2769,12 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
         let old = state.size as u64;
         let hint = if growth.first == state.first { state.hint } else { ChainPos::NONE };
         let filled = if offset > old {
-            self.fill(growth.first, hint, old, None, (offset - old) as usize).await
+            self.fill(growth.first, hint, state.first == 0, old, None, (offset - old) as usize).await
         } else {
             Ok(hint)
         };
         let written = match filled {
-            Ok(hint) => self.fill(growth.first, hint, offset, Some(&buf[..count]), count).await,
+            Ok(hint) => self.fill(growth.first, hint, state.first == 0, offset, Some(&buf[..count]), count).await,
             Err(err) => Err(err),
         };
         let hint = match written {
@@ -2794,7 +2809,7 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
         if len > old {
             let growth = self.cover(&state, len).await?;
             let hint = if growth.first == state.first { state.hint } else { ChainPos::NONE };
-            let published = match self.fill(growth.first, hint, old, None, (len - old) as usize).await {
+            let published = match self.fill(growth.first, hint, state.first == 0, old, None, (len - old) as usize).await {
                 Ok(hint) => self.publish(id, &state, growth.first, len as u32, hint).await,
                 Err(err) => Err(err),
             };

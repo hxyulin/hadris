@@ -278,3 +278,36 @@ HADRIS_TESTS_CHAN_FATFS="$PWD/tests/target/chan-fatfs/chan-fatfs" \
 The helper must first be built with `python3 scripts/build-fatfs-peer.py`, and
 mtools and dosfstools must be on `PATH`. Each case validates names and file
 contents outside its timer; counters reported zero I/O failures throughout.
+
+### Additional first-write I/O reduction
+
+A follow-up avoids reading a partial device block when the entire block belongs
+to a file's newly allocated chain and the write starts at that block's beginning.
+The driver builds a zero-padded block in its existing buffer and writes it once.
+Existing allocations and clusters smaller than the device block retain the
+read/patch/write path, preserving neighboring data. Sparse first writes still
+zero the gap.
+
+Two alternating 21-sample before/after trials on 2026-10-06 produced:
+
+| Trial | Before | After | Requested image reads before / after |
+|---|---:|---:|---:|
+| 1 | 39.08 ms | 39.33 ms | 4,528 / 3,528 |
+| 2 | 40.10 ms | 39.13 ms | 4,528 / 3,528 |
+
+This removes one 512-byte read for each small file, or 1,000 calls and 500 KiB
+of requested image reads for the fixture. Image writes remain at 7,593. The
+alternating trials do not establish a meaningful elapsed-time improvement;
+this change reduces I/O without allocating another buffer. Validation includes
+small clusters sharing a 4096-byte device block, overwrites and sparse writes.
+
+An eight-block metadata-cache experiment was not retained: alternating medians
+were 39.70/39.64 ms and 39.76/39.44 ms without/with that cache, and reads fell
+only from 4,528 to 4,401. The small elapsed differences did not justify adding
+a cache to the bulk writer.
+
+Review also found that the on-disk `0x05` first-byte escape must be excluded
+from the ASCII insertion index: it represents OEM byte `0xE5`, which a custom
+code page can decode to an ASCII character. Such directories now use regular
+planning, preserving case-insensitive duplicate rejection. The regression
+fails before the fix and passes with it, including a targeted Miri run.
