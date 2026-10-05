@@ -26,6 +26,7 @@ enum Peer {
     RustFatfs,
     RustFatfsBuffered,
     Mtools,
+    ChanFatfs,
     Xorriso,
     Mkisofs(&'static str),
     Bsdtar,
@@ -37,6 +38,7 @@ impl Peer {
             Self::RustFatfs => "rust-fatfs/unbuffered",
             Self::RustFatfsBuffered => "rust-fatfs/buffered",
             Self::Mtools => "dosfstools+mtools",
+            Self::ChanFatfs => "chan-fatfs/helper",
             Self::Xorriso => "xorriso/libisofs",
             Self::Mkisofs(program) => program,
             Self::Bsdtar => "bsdtar/libarchive",
@@ -45,6 +47,16 @@ impl Peer {
     fn available(self) -> bool {
         match self {
             Self::Hadris | Self::RustFatfs | Self::RustFatfsBuffered => true,
+            Self::ChanFatfs => match std::env::var_os("HADRIS_TESTS_CHAN_FATFS") {
+                Some(path) => {
+                    assert!(
+                        Path::new(&path).is_file(),
+                        "configured ChaN helper does not exist"
+                    );
+                    true
+                }
+                None => false,
+            },
             Self::Mtools => ["mkfs.fat", "mcopy", "mdir"]
                 .iter()
                 .all(|program| require_or_skip(program, "--help")),
@@ -136,6 +148,59 @@ struct FatWork<'a> {
     mtools: Option<&'a mtools::MtoolsFatAdapter>,
 }
 
+fn chan_job(
+    workload: &str,
+    image: &Path,
+    case: FatCase,
+    source: &Path,
+    destination: &Path,
+) -> Outcome {
+    let output = std::process::Command::new(std::env::var_os("HADRIS_TESTS_CHAN_FATFS").unwrap())
+        .arg(workload)
+        .arg(image)
+        .arg(case.bits.to_string())
+        .arg(case.size.to_string())
+        .arg(if workload == "extract-tree" {
+            destination
+        } else {
+            source
+        })
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let values: Vec<u64> = stderr
+        .lines()
+        .find_map(|line| line.strip_prefix("IO,"))
+        .unwrap()
+        .split(',')
+        .map(|value| value.parse().unwrap())
+        .collect();
+    assert_eq!(values.len(), 7);
+    Outcome {
+        names: (workload == "list").then(|| {
+            String::from_utf8(output.stdout)
+                .unwrap()
+                .lines()
+                .map(str::to_owned)
+                .collect()
+        }),
+        io: Some(IoCounts {
+            read_calls: values[0],
+            read_bytes: values[1],
+            write_calls: values[2],
+            write_bytes: values[3],
+            flush_calls: values[4],
+            failures: values[5],
+            seek_calls: values[6],
+        }),
+    }
+}
+
 fn fat_job(peer: Peer, workload: &str, image: &Path, work: FatWork<'_>) -> Outcome {
     let FatWork {
         case,
@@ -145,6 +210,7 @@ fn fat_job(peer: Peer, workload: &str, image: &Path, work: FatWork<'_>) -> Outco
     } = work;
     let creating = workload == "format-empty" || workload == "create-image";
     match peer {
+        Peer::ChanFatfs => chan_job(workload, image, case, source, destination),
         Peer::Hadris => {
             if creating {
                 let (mut dev, counts) =
@@ -448,6 +514,10 @@ fn record(
             peer.name()
         ));
     }
+    eprintln!(
+        "completed {} {format} {workload}: {samples} samples",
+        peer.name()
+    );
 }
 
 fn main() {
@@ -471,6 +541,7 @@ fn main() {
             Peer::RustFatfs,
             Peer::RustFatfsBuffered,
             Peer::Mtools,
+            Peer::ChanFatfs,
         ]
         .into_iter()
         .filter(|peer| peer.available())

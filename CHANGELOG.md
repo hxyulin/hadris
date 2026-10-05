@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- The performance harness optionally compares FAT workflows with a pinned,
+  officially patched ChaN FatFs C helper and records its sector-callback I/O.
+
 - The performance harness compares shared host workflows with rust-fatfs,
   dosfstools/mtools, xorriso, mkisofs/genisoimage and bsdtar, including larger
   directory fixtures, output image sizes and stream seek counts.

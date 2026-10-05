@@ -347,10 +347,15 @@ jobs:
         env:
           HADRIS_TESTS_PERF_SAMPLES: "1"
         run: cargo bench --manifest-path tests/Cargo.toml --bench performance
+      - name: Build pinned ChaN FatFs peer
+        run: python3 scripts/build-fatfs-peer.py
+      - name: Test ChaN FatFs helper
+        run: python3 scripts/test-fatfs-peer.py tests/target/chan-fatfs/chan-fatfs
       - name: Run FAT peer performance smoke check
         env:
           HADRIS_TESTS_PERF_SAMPLES: "1"
           HADRIS_TESTS_PERF_FILTER: "fat"
+          HADRIS_TESTS_CHAN_FATFS: tests/target/chan-fatfs/chan-fatfs
         run: cargo bench --manifest-path tests/Cargo.toml --bench peers
       - name: Run FAT conformance and interoperability tests
         run: "cargo test --manifest-path tests/Cargo.toml fat:: -- --skip exfat:: --nocapture"
