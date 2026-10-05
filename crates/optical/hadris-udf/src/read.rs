@@ -10,9 +10,9 @@ use crate::UdfRevision;
 use crate::error::{Detail, Error};
 use crate::raw::{
     self, AllocationExtentDescriptor, AnchorVolumeDescriptorPointer, EntityId, ExtAd,
-    FileCharacteristics, FileIdentifierDescriptor, FileSetDescriptor, LogicalVolumeDescriptor,
-    LogicalVolumeIntegrityDescriptor, LongAd, PathComponent, ShortAd, Tag, allocation, extent, tag,
-    vsd,
+    FileCharacteristics, FileIdentifierDescriptor, FileSetDescriptor, IcbFlags,
+    LogicalVolumeDescriptor, LogicalVolumeIntegrityDescriptor, LongAd, PathComponent, ShortAd, Tag,
+    allocation, extent, tag, vsd,
 };
 use crate::volume::{
     EntityId as Entity, Icb, Identifier, Info, Location, MAX_BLOCK, MAX_PARTITIONS, PartitionInfo,
@@ -566,6 +566,9 @@ impl Walk {
 
     /// The next stretch of data, or `None` after the last descriptor.
     async fn next<D: BlockDevice>(&mut self, info: &Info, dev: &mut D, icb: &Icb) -> Result<Option<Piece>, Error<D::Error>> {
+        if icb.flags.contains(IcbFlags::TRANSFORMED) {
+            return Err(Detail::AllocationDescriptor.error(ErrorKind::Unsupported));
+        }
         let bad = || Detail::AllocationDescriptor.corrupt();
         loop {
             if self.done {
@@ -944,7 +947,7 @@ impl<D: BlockDevice> UdfFs<D> {
     /// many it filled. Call again from the end of the last one for more; 0
     /// means there are none. Allocated but unrecorded extents are marked
     /// unwritten, holes are left out, and data embedded in the file entry
-    /// is one extent inside it.
+    /// is one extent inside it. Transformed content returns [`ErrorKind::Unsupported`].
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all, fields(node = ?node)))]
     pub async fn extents(&mut self, node: NodeId, from: u64, out: &mut [hadris_fs::Extent]) -> FsResult<usize, D::Error> {
         let icb = self.icb(node).await?;
@@ -1144,6 +1147,7 @@ impl<D: BlockDevice> FileSystem for UdfFs<D> {
     }
 
     /// Allocated but unrecorded extents read as zeros.
+    /// Transformed content returns [`ErrorKind::Unsupported`].
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all, fields(node = ?node, offset = offset, bytes = buf.len())))]
     async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         let icb = self.icb(node).await?;
