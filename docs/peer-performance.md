@@ -22,8 +22,9 @@ HADRIS_TESTS_PERF_FILTER=fat32 HADRIS_TESTS_PERF_FILES=1000 \
 
 The default fixture has 32 small files and a 128 KiB patterned payload. Both
 runners share this fixture. `HADRIS_TESTS_PERF_FILES` changes the small-file
-count. Large root directories require the FAT32, exFAT, ISO or UDF filters;
-the FAT12/16 benchmark fixtures deliberately cap the count at 128 to stay
+count. Large directories use FAT32, exFAT, ISO or UDF filters with
+`performance`, and FAT32 or ISO with `peers`. The FAT12/16 benchmark fixtures
+deliberately cap the count at 128 to stay
 within their fixed roots. The FAT size/type is pinned to 2 MiB/FAT12,
 16 MiB/FAT16, or 64 MiB/FAT32. Formatters choose their own remaining geometry.
 

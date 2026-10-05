@@ -176,5 +176,6 @@ dosfstools/mtools, xorriso, mkisofs/genisoimage and bsdtar on shared host
 workflows. Run `cargo bench --manifest-path tests/Cargo.toml --bench peers`.
 See [peer performance and reference coverage](../docs/peer-performance.md)
 for timings, counter boundaries, larger fixtures and more complete references.
-Both runners accept `HADRIS_TESTS_PERF_FILES` (32 by default); use a FAT32,
-exFAT, ISO or UDF filter for large directories.
+Both runners accept `HADRIS_TESTS_PERF_FILES` (32 by default). For large
+directories, use a FAT32, exFAT, ISO or UDF filter with `performance`, and a
+FAT32 or ISO filter with `peers`.
