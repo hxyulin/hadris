@@ -8,6 +8,18 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- Hosted FAT first writes into newly allocated, exclusive device blocks avoid
+  reading old free-space data for small payloads; shared blocks retain their
+  existing bytes. Short-name insertion indexing falls back for the escaped
+  high-byte prefix `0x05`, preserving custom code-page alias collisions.
+
+- FAT bulk image writing avoids repeated directory scans for dense ASCII 8.3
+  names using a bounded insertion index. Directory-cached mounts use the same
+  optimization, with normal planning retained for complex names and layouts.
+
+- Hosted FAT entry insertion resumes from the directory position reached by its
+  planner, avoiding a second traversal of the directory chain.
+
 - The peer performance runner supports sustained FAT32 profiling loops and
   controlled cache probes, with setup and validation outside the profile window.
 

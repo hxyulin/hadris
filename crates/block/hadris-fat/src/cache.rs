@@ -32,7 +32,9 @@ impl CacheOptions {
     /// Caches up to `capacity` parsed entries in one directory's prefix.
     /// Entries are learned during lookups, without an upfront directory scan.
     /// Switching directories replaces the prefix; overflow falls back to scanning
-    /// beyond it. Zero (the default) disables directory indexing.
+    /// beyond it. Creations in dense ASCII 8.3 directories also retain a sorted
+    /// name set, bounded by `min(capacity, 2048)` entries, to avoid rescanning.
+    /// Zero (the default) disables directory indexing and this insertion set.
     pub const fn with_directory_entries(mut self, capacity: usize) -> Self {
         self.directory_entries = capacity;
         self

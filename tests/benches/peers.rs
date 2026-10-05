@@ -531,6 +531,13 @@ fn main() {
         .map_or(21, |text| text.parse::<usize>().unwrap());
     assert!(samples > 0);
     let filter = std::env::var("HADRIS_TESTS_PERF_FILTER").unwrap_or_default();
+    let peer_filter = std::env::var("HADRIS_TESTS_PERF_PEERS").unwrap_or_default();
+    let selected = |peer: &Peer| {
+        peer_filter.is_empty()
+            || peer_filter
+                .split(',')
+                .any(|name| name.trim() == peer.name())
+    };
     let fixture = Fixture::new();
     let workspace = Workspace::new("performance", "peers").unwrap();
     let source = workspace.path.join("source");
@@ -550,6 +557,7 @@ fn main() {
             Peer::ChanFatfs,
         ]
         .into_iter()
+        .filter(selected)
         .filter(|peer| peer.available())
         .collect()
     } else {
@@ -657,6 +665,7 @@ fn main() {
             Peer::Bsdtar,
         ]
         .into_iter()
+        .filter(selected)
         .filter(|peer| peer.available())
         .collect();
         let common = workspace.path.join("common.iso");

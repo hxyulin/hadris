@@ -754,3 +754,219 @@ fn cancelled_nonempty_rename_can_leave_a_cross_link_without_directory_indexing()
         "cancelled nonempty rename without directory indexing",
     );
 }
+
+#[test]
+fn append_planning_preserves_collisions_holes_and_capacity_fallback() {
+    for case in CASES {
+        for capacity in [1, 8, 64] {
+            let mut fs = FatFs::mount(
+                common::device(case, common::blank(case)),
+                MountOptions::new(),
+            )
+            .unwrap()
+            .with_cache(
+                CacheOptions::new()
+                    .with_blocks(0)
+                    .with_directory_entries(capacity),
+            );
+            let root = fs.root();
+            for i in 0..40 {
+                let name = format!("F{i:07}.TXT");
+                let file = fs.create(root, Name::new(&name), &SetAttr::new()).unwrap();
+                fs.write(file, 0, &[i as u8]).unwrap();
+                fs.close(file).unwrap();
+                fs.forget(file, 1);
+                assert_eq!(
+                    fs.create(root, Name::new(&name.to_ascii_lowercase()), &SetAttr::new())
+                        .unwrap_err()
+                        .kind(),
+                    ErrorKind::AlreadyExists
+                );
+            }
+            fs.unlink(root, Name::new("F0000003.TXT")).unwrap();
+            let replacement = fs
+                .create(root, Name::new("REUSED.TXT"), &SetAttr::new())
+                .unwrap();
+            fs.write(replacement, 0, b"new").unwrap();
+            fs.forget(replacement, 1);
+            fs.rename(
+                root,
+                Name::new("F0000004.TXT"),
+                root,
+                Name::new("RENAMED.TXT"),
+                RenameMode::NoReplace,
+            )
+            .unwrap();
+            assert_eq!(
+                fs.create(root, Name::new("renamed.txt"), &SetAttr::new())
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::AlreadyExists
+            );
+            let long = fs
+                .create(root, Name::new("A long file name.txt"), &SetAttr::new())
+                .unwrap();
+            fs.forget(long, 1);
+            assert_eq!(
+                fs.create(root, Name::new("ALONGF~1.TXT"), &SetAttr::new())
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::AlreadyExists
+            );
+            fs.clear_cache();
+            assert_eq!(fs.read_to_vec("REUSED.TXT").unwrap(), b"new");
+            for i in (0..40).filter(|i| ![3, 4].contains(i)) {
+                assert_eq!(fs.read_to_vec(&format!("F{i:07}.TXT")).unwrap(), [i as u8]);
+            }
+            let image = fs.unmount().unwrap().into_inner();
+            common::assert_checks_clean(case, &image, "append planning");
+        }
+    }
+}
+
+#[cfg(feature = "async")]
+#[test]
+fn append_planning_recovers_cancelled_creation_at_every_await() {
+    use hadris_fat::r#async::FatFs;
+    use hadris_fs::r#async::FileSystem;
+
+    let case = CASES[2];
+    let image = common::blank(case);
+    for budget in 0..100 {
+        let mut fs = cancel::run_for(
+            FatFs::mount(
+                cancel::YieldDev(common::device(case, image.clone())),
+                MountOptions::new(),
+            ),
+            usize::MAX,
+        )
+        .unwrap()
+        .unwrap()
+        .with_cache(
+            CacheOptions::new()
+                .with_blocks(0)
+                .with_directory_entries(64),
+        );
+        let root = fs.root();
+        for i in 0..16 {
+            let file = cancel::run_for(
+                fs.create(root, Name::new(&format!("F{i:07}.TXT")), &SetAttr::new()),
+                usize::MAX,
+            )
+            .unwrap()
+            .unwrap();
+            fs.forget(file, 1);
+        }
+        let result = cancel::run_for(
+            fs.create(root, Name::new("NEW.TXT"), &SetAttr::new()),
+            budget,
+        );
+        cancel::run_for(fs.sync(), usize::MAX).unwrap().unwrap();
+        let present = cancel::run_for(fs.lookup(root, Name::new("NEW.TXT")), usize::MAX)
+            .unwrap()
+            .is_ok();
+        let created = cancel::run_for(
+            fs.create(root, Name::new("new.txt"), &SetAttr::new()),
+            usize::MAX,
+        )
+        .unwrap();
+        if present {
+            assert_eq!(created.unwrap_err().kind(), ErrorKind::AlreadyExists);
+        } else {
+            created.unwrap();
+        }
+        let image = cancel::run_for(fs.unmount(), usize::MAX)
+            .unwrap()
+            .unwrap()
+            .0
+            .into_inner();
+        common::assert_checks_clean(case, &image, &format!("cancelled append budget {budget}"));
+        if result.is_some() {
+            return;
+        }
+    }
+    panic!("append creation never completed");
+}
+
+#[test]
+fn append_planning_honours_fixed_root_limits() {
+    for case in CASES[..2].iter().copied() {
+        let mut fs = common::formatted(case, hadris_fat::FatOptions::new().with_root_entries(16))
+            .with_cache(CacheOptions::new().with_directory_entries(64));
+        let root = fs.root();
+        for i in 0..16 {
+            let file = fs
+                .create(root, Name::new(&format!("F{i:07}.TXT")), &SetAttr::new())
+                .unwrap();
+            fs.forget(file, 1);
+        }
+        assert_eq!(
+            fs.create(root, Name::new("FULL.TXT"), &SetAttr::new())
+                .unwrap_err()
+                .kind(),
+            ErrorKind::NoSpace
+        );
+        assert_eq!(
+            fs.create(root, Name::new("f0000000.txt"), &SetAttr::new())
+                .unwrap_err()
+                .kind(),
+            ErrorKind::AlreadyExists
+        );
+        fs.unlink(root, Name::new("F0000000.TXT")).unwrap();
+        let file = fs
+            .create(root, Name::new("REUSED.TXT"), &SetAttr::new())
+            .unwrap();
+        fs.forget(file, 1);
+        let image = fs.unmount().unwrap().into_inner();
+        common::assert_checks_clean(case, &image, "fixed root append limit");
+    }
+}
+
+#[test]
+fn append_planning_preserves_high_byte_aliases_that_decode_as_ascii() {
+    struct AliasPage;
+    impl hadris_fs::CodePage for AliasPage {
+        fn decode(&self, byte: u8) -> char {
+            if byte == 0xe5 {
+                'A'
+            } else {
+                hadris_fs::Cp437.decode(byte)
+            }
+        }
+        fn encode(&self, ch: char) -> Option<u8> {
+            hadris_fs::Cp437.encode(ch)
+        }
+    }
+    static PAGE: AliasPage = AliasPage;
+    for case in CASES[..if cfg!(miri) { 1 } else { 3 }].iter().copied() {
+        let mut fs = common::formatted(case, hadris_fat::FatOptions::new());
+        let file = fs
+            .create(fs.root(), Name::new("ALPHA.TXT"), &SetAttr::new())
+            .unwrap();
+        fs.forget(file, 1);
+        let mut image = fs.unmount().unwrap().into_inner();
+        let geo = hadris_fat_raw::parse_boot(image[..512].try_into().unwrap()).unwrap();
+        let offset = match geo.root() {
+            hadris_fat_raw::RootLocation::Fixed { start, .. } => start,
+            hadris_fat_raw::RootLocation::Cluster(first) => geo.cluster_offset(first).unwrap(),
+        };
+        image[offset as usize] = 0x05;
+        let mut fs = FatFs::mount(
+            common::device(case, image),
+            MountOptions::new().with_code_page(&PAGE),
+        )
+        .unwrap()
+        .with_cache(CacheOptions::new().with_directory_entries(64));
+        let root = fs.root();
+        let file = fs
+            .create(root, Name::new("SAFE.TXT"), &SetAttr::new())
+            .unwrap();
+        fs.forget(file, 1);
+        assert_eq!(
+            fs.create(root, Name::new("ALPHA.TXT"), &SetAttr::new())
+                .unwrap_err()
+                .kind(),
+            ErrorKind::AlreadyExists
+        );
+    }
+}

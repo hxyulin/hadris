@@ -118,6 +118,13 @@ long names and short aliases. Switching directories replaces the prefix and
 mutations discard it. Entries beyond the bound remain accessible by scanning.
 The index retains each cached long name (up to 255 UTF-16 units) and its short
 entry; choose its bound separately from the metadata-block budget.
+With directory indexing enabled, consecutive 8.3 creations also retain a
+sorted set of short names and an insertion position for one dense directory.
+This set uses at most `min(capacity, 2048) * 11` bytes of name storage. Long
+names, non-ASCII short names, deleted slots and capacity overflow use the
+normal planner. Namespace changes and recovery discard the set; file content
+and metadata updates preserve it. The bulk `write` helper enables this
+planning set internally with a 2048-name bound, without enabling read caches.
 External writers require a remount.
 This works with `alloc` and `no_std` in both sync and async modes. It helps
 backward seeks; sequential readers can keep indexing disabled.
