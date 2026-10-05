@@ -482,3 +482,46 @@ fn malformed_symlinks_fail_stat_and_list_with_damaged_metadata() {
         assert_eq!(entry.metadata().len(), 0);
     });
 }
+
+#[test]
+fn cached_symlink_reads_preserve_device_failures_and_retry() {
+    let (bytes, node, payload) = symlink_image();
+    let dev = FailingDevice::new(bytes.clone(), payload);
+    let fail = dev.fail.clone();
+    let mut udf = UdfFs::mount(
+        hadris_storage::sync::Cache::new(dev, 8),
+        MountOptions::new(),
+    )
+    .unwrap();
+    assert_device_failure(udf.stat(node).unwrap_err());
+    assert_device_failure(udf.readlink(node, &mut [0; 64]).unwrap_err());
+    assert_device_failure(
+        udf.readdir(udf.root(), hadris_fs::DirCursor::START)
+            .unwrap_err(),
+    );
+    fail.store(u64::MAX, std::sync::atomic::Ordering::Relaxed);
+    assert_eq!(udf.stat(node).unwrap().len(), 6);
+    assert_eq!(udf.readlink(node, &mut [0; 64]).unwrap(), b"target");
+    #[cfg(feature = "async")]
+    common::block_on(async {
+        use hadris_fs::r#async::FileSystem;
+        let dev = FailingDevice::new(bytes, payload);
+        let fail = dev.fail.clone();
+        let mut udf = hadris_udf::r#async::UdfFs::mount(
+            hadris_storage::r#async::Cache::new(dev, 8),
+            MountOptions::new(),
+        )
+        .await
+        .unwrap();
+        assert_device_failure(udf.stat(node).await.unwrap_err());
+        assert_device_failure(udf.readlink(node, &mut [0; 64]).await.unwrap_err());
+        assert_device_failure(
+            udf.readdir(udf.root(), hadris_fs::DirCursor::START)
+                .await
+                .unwrap_err(),
+        );
+        fail.store(u64::MAX, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(udf.stat(node).await.unwrap().len(), 6);
+        assert_eq!(udf.readlink(node, &mut [0; 64]).await.unwrap(), b"target");
+    });
+}

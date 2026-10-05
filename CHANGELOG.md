@@ -8,6 +8,15 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- UDF allocation walks resume in place, reducing temporary buffer movement
+  during directory traversal and file reads.
+
+- UDF documents and tests optional bounded caching through the shared storage
+  adapter; the reader benchmark measures cache capacity and underlying device I/O.
+
+- UDF directory reads reuse identifier bytes for CRC validation and name decoding,
+  avoiding duplicate name reads without enabling a cache or allocating memory.
+
 - UDF readers honor extended allocation information lengths, exclude allocation
   padding from file data, validate recorded lengths, and reject transformed extents and ICBs.
 

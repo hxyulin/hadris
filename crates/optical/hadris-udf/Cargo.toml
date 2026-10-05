@@ -66,3 +66,13 @@ required-features = ["std", "sync"]
 [[test]]
 name = "bridge"
 required-features = ["std", "sync", "async"]
+
+[[bench]]
+name = "performance"
+harness = false
+required-features = ["std", "sync"]
+
+[[bench]]
+name = "kernels"
+harness = false
+required-features = ["std", "sync"]

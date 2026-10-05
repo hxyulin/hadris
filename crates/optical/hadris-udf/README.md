@@ -56,6 +56,31 @@ or N-1 for logical blocks of 512 to 4096 bytes, uses the prevailing
 descriptors and falls back to the reserve sequence. `hadris_fs::sync::Volume`
 gives it paths, shared access and `File` handles.
 
+### Optional block caching
+
+With `hadris-storage`'s `alloc` feature, wrap the device in its shared cache
+before mounting. The same pattern works with `r#async::Cache` and
+`r#async::UdfFs`, including `no_std` callers with an allocator.
+
+```rust,no_run
+use hadris_fs::MountOptions;
+use hadris_storage::{host::FileDevice, sync::Cache};
+use hadris_udf::sync::UdfFs;
+
+let dev = FileDevice::open("movie.udf").unwrap();
+let udf = UdfFs::mount(Cache::new(dev, 32), MountOptions::new()).unwrap();
+```
+
+The bound counts device blocks, rather than UDF logical blocks: 32 blocks
+hold up to 16 KiB of payload on a 512-byte device or 64 KiB on a 2,048-byte
+device, plus cache bookkeeping. Cache slots allocate as they are used.
+Large reads bypass the cache; small reads can cache file data as well as
+metadata. Too few slots can increase I/O through eviction, and LRU maintenance
+can cost CPU on memory devices. UDF performs no writes through the adapter.
+The default `UdfFs::mount(dev, ...)` remains allocation-free and uncached.
+See the [UDF benchmark](../../../docs/performance.md#udf-benchmark) for measured
+tradeoffs and commands.
+
 ## Writing
 
 ```rust,no_run

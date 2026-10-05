@@ -581,3 +581,362 @@ fn transformed_icbs_reject_reads_and_extents() {
         });
     }
 }
+
+#[test]
+fn identifier_names_reuse_crc_bytes_across_chunks() {
+    use hadris_fs::sync::FileSystem;
+    use hadris_udf::raw::FileIdentifierDescriptor;
+
+    let name = "λ".repeat(120);
+    let mut tree = Tree::new();
+    tree.insert(&name, Node::file(Content::bytes("contents")))
+        .unwrap();
+    let base = image(&tree, &UdfOptions::default());
+    let udf = open(base.clone());
+    let icb = PARTITION + udf.root().get() - 1;
+    let mut bytes = base.clone();
+    let fe = sector(&mut bytes, icb);
+    let data = PARTITION + u64::from(u32::from_le_bytes(fe[180..184].try_into().unwrap()));
+    let parent: FileIdentifierDescriptor =
+        bytemuck::pod_read_unaligned(&sector(&mut bytes, data)[..38]);
+    let at = parent.total_len();
+    let original = sector(&mut bytes, data)[at..].to_vec();
+    let fid: FileIdentifierDescriptor = bytemuck::pod_read_unaligned(&original[..38]);
+    let original_name = 38 + usize::from(fid.implementation_use_length.get());
+    let raw_name = &original[original_name..original_name + usize::from(fid.identifier_length)];
+    for implementation in [0, 480, 1000] {
+        for covered in [0, 1, 22, 23, 38 + implementation + raw_name.len() - 16] {
+            let mut bytes = base.clone();
+            let len = (38 + implementation + raw_name.len() + 3) & !3;
+            let block = sector(&mut bytes, data);
+            let record = &mut block[at..at + len];
+            record.fill(0);
+            record[..38].copy_from_slice(&original[..38]);
+            record[36..38].copy_from_slice(&(implementation as u16).to_le_bytes());
+            record[38..38 + implementation].fill(0x55);
+            record[38 + implementation..38 + implementation + raw_name.len()]
+                .copy_from_slice(raw_name);
+            Tag::seal(
+                record,
+                tag::FILE_IDENTIFIER,
+                fid.tag.version.get(),
+                fid.tag.location.get(),
+                covered,
+            );
+            set_ads(
+                &mut bytes,
+                icb,
+                0,
+                (at + len) as u64,
+                &ad((at + len) as u32, 0, data),
+            );
+            if covered <= 22 {
+                let dev = Counting {
+                    inner: hadris_storage::MemDevice::new(bytes.clone(), common::SECTOR),
+                    reads: 0,
+                };
+                let mut udf =
+                    hadris_udf::sync::UdfFs::mount(dev, hadris_fs::MountOptions::new()).unwrap();
+                let before = udf.device().reads;
+                udf.lookup(udf.root(), hadris_fs::Name::new(&name)).unwrap();
+                let reads = udf.device().reads - before;
+                assert!(
+                    reads <= 5,
+                    "{reads} reads with {implementation} bytes outside CRC coverage"
+                );
+            }
+            let mut udf = open(bytes.clone());
+            assert_eq!(udf.names("/").unwrap(), std::slice::from_ref(&name));
+            assert_eq!(udf.read_to_vec(&format!("/{name}")).unwrap(), b"contents");
+            #[cfg(feature = "async")]
+            common::block_on(async {
+                use hadris_fs::r#async::FileSystem;
+                let mut udf = hadris_udf::r#async::UdfFs::mount(
+                    hadris_storage::MemDevice::new(bytes.clone(), common::SECTOR),
+                    hadris_fs::MountOptions::new(),
+                )
+                .await
+                .unwrap();
+                let node = udf
+                    .lookup(udf.root(), hadris_fs::Name::new(&name))
+                    .await
+                    .unwrap();
+                let mut out = [0; 8];
+                assert_eq!(udf.read(node, 0, &mut out).await.unwrap(), 8);
+                assert_eq!(&out, b"contents");
+            });
+            if covered == 38 + implementation + raw_name.len() - 16 {
+                sector(&mut bytes, data)[at + 38 + implementation + raw_name.len() - 1] ^= 1;
+                assert_eq!(
+                    open(bytes).names("/").unwrap_err().kind(),
+                    hadris_fs::ErrorKind::Corrupt
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn directory_identifiers_avoid_duplicate_name_reads() {
+    let mut tree = Tree::new();
+    for i in 0..1000 {
+        tree.insert(format!("entry-{i:04}"), Node::file(Content::empty()))
+            .unwrap();
+    }
+    let dev = Counting {
+        inner: hadris_storage::MemDevice::new(image(&tree, &UdfOptions::default()), common::SECTOR),
+        reads: 0,
+    };
+    let mut udf = hadris_udf::sync::UdfFs::mount(dev, hadris_fs::MountOptions::new()).unwrap();
+    let before = udf.device().reads;
+    assert_eq!(udf.names("/").unwrap().len(), 1000);
+    let listed = udf.device().reads - before;
+    assert!(listed < 4200, "{listed} reads for 1000 entries");
+    let before = udf.device().reads;
+    assert!(udf.exists("/entry-0999").unwrap());
+    let looked_up = udf.device().reads - before;
+    assert!(looked_up < 2200, "{looked_up} reads to find the last entry");
+}
+
+#[test]
+fn bounded_storage_cache_preserves_udf_reads() {
+    use hadris_fs::sync::FileSystem;
+    let tree = common::sample();
+    let bytes = image(&tree, &UdfOptions::default());
+    let expected = pattern(70_000, 1);
+    for block in [512, 2048] {
+        for capacity in [1, 8, 32] {
+            let dev = hadris_storage::MemDevice::new(
+                bytes.clone(),
+                hadris_storage::BlockSize::new(block).unwrap(),
+            );
+            let mut udf = hadris_udf::sync::UdfFs::mount(
+                hadris_storage::sync::Cache::new(dev, capacity),
+                hadris_fs::MountOptions::new(),
+            )
+            .unwrap();
+            assert_eq!(udf.names("/many").unwrap().len(), 80);
+            assert_eq!(udf.read_to_vec("/docs/big.bin").unwrap(), expected);
+            let node = udf.resolve_path("/docs/big.bin").unwrap();
+            let mut out = [0; 4096];
+            for offset in [60_000, 1, 30_003, 0] {
+                assert_eq!(udf.read(node, offset, &mut out).unwrap(), out.len());
+                assert_eq!(
+                    &out,
+                    &expected[offset as usize..offset as usize + out.len()]
+                );
+            }
+            assert_eq!(udf.names("/many").unwrap().len(), 80);
+            let link = udf.resolve_path("/docs/rel").unwrap();
+            assert_eq!(udf.readlink(link, &mut out).unwrap(), b"../readme.txt");
+            assert!(!udf.device().is_dirty());
+            #[cfg(feature = "async")]
+            common::block_on(async {
+                use hadris_fs::r#async::FileSystem;
+                let dev = hadris_storage::MemDevice::new(
+                    bytes.clone(),
+                    hadris_storage::BlockSize::new(block).unwrap(),
+                );
+                let mut udf = hadris_udf::r#async::UdfFs::mount(
+                    hadris_storage::r#async::Cache::new(dev, capacity),
+                    hadris_fs::MountOptions::new(),
+                )
+                .await
+                .unwrap();
+                let node = udf
+                    .resolve(b"/docs/big.bin", hadris_fs::Resolve::Lexical)
+                    .await
+                    .unwrap();
+                for offset in [60_000, 1, 30_003, 0] {
+                    assert_eq!(udf.read(node, offset, &mut out).await.unwrap(), out.len());
+                    assert_eq!(
+                        &out,
+                        &expected[offset as usize..offset as usize + out.len()]
+                    );
+                }
+                let dir = udf
+                    .resolve(b"/many", hadris_fs::Resolve::Lexical)
+                    .await
+                    .unwrap();
+                let mut cursor = hadris_fs::DirCursor::START;
+                let mut entries = 0;
+                while let Some(entry) = udf.readdir(dir, cursor).await.unwrap() {
+                    cursor = entry.next_cursor();
+                    entries += 1;
+                }
+                assert_eq!(entries, 80);
+                assert!(!udf.device().is_dirty());
+            });
+        }
+    }
+}
+
+#[test]
+fn bounded_storage_cache_reduces_udf_metadata_reads() {
+    use hadris_fs::sync::FileSystem;
+    let mut tree = Tree::new();
+    for i in 0..1000 {
+        tree.insert(format!("entry-{i:04}"), Node::file(Content::empty()))
+            .unwrap();
+    }
+    let dev = Counting {
+        inner: hadris_storage::MemDevice::new(image(&tree, &UdfOptions::default()), common::SECTOR),
+        reads: 0,
+    };
+    let mut udf = hadris_udf::sync::UdfFs::mount(
+        hadris_storage::sync::Cache::new(dev, 8),
+        hadris_fs::MountOptions::new(),
+    )
+    .unwrap();
+    let before = udf.device().get_ref().reads;
+    assert_eq!(udf.names("/").unwrap().len(), 1000);
+    let listed = udf.device().get_ref().reads - before;
+    assert!(listed < 1100, "{listed} reads for 1000 cached entries");
+    let node = udf.resolve_path("/entry-0999").unwrap();
+    let before = udf.device().get_ref().reads;
+    for _ in 0..100 {
+        udf.stat(node).unwrap();
+    }
+    assert!(udf.device().get_ref().reads - before <= 1);
+}
+
+#[test]
+fn resumed_continuations_preserve_backward_and_cross_file_reads() {
+    use hadris_fs::sync::FileSystem;
+    let (mut bytes, icb, data, free) = volume();
+    let expected = pattern(5000, 7);
+    for (aed, previous, size, block, next) in [
+        (free, 0, 2048, data + 1, Some(free + 1)),
+        (free + 1, (free - PARTITION) as u32, 904, data + 2, None),
+    ] {
+        let mut descriptors = ad(size, 0, block).to_vec();
+        if let Some(next) = next {
+            descriptors.extend_from_slice(&ad(2048, 3, next));
+        }
+        let buf = sector(&mut bytes, aed);
+        buf.fill(0);
+        buf[16..20].copy_from_slice(&previous.to_le_bytes());
+        buf[20..24].copy_from_slice(&(descriptors.len() as u32).to_le_bytes());
+        buf[24..24 + descriptors.len()].copy_from_slice(&descriptors);
+        Tag::seal(
+            buf,
+            tag::ALLOCATION_EXTENT,
+            2,
+            (aed - PARTITION) as u32,
+            8 + descriptors.len(),
+        );
+    }
+    set_ads(
+        &mut bytes,
+        icb,
+        0,
+        5000,
+        &[ad(2048, 0, data), ad(2048, 3, free)].concat(),
+    );
+    let mut udf = open(bytes.clone());
+    let file = udf.resolve_path("/f.bin").unwrap();
+    let other = udf.resolve_path("/many/file-000.txt").unwrap();
+    let mut out = [0; 300];
+    for offset in [2050, 2300, 4090, 4500, 0, 2500] {
+        assert_eq!(udf.read(file, offset, &mut out).unwrap(), out.len());
+        assert_eq!(
+            &out,
+            &expected[offset as usize..offset as usize + out.len()]
+        );
+        assert_eq!(udf.read(other, 0, &mut out).unwrap(), 6);
+        assert_eq!(&out[..6], b"file 0");
+        assert_eq!(udf.read(file, offset, &mut out).unwrap(), out.len());
+        assert_eq!(
+            &out,
+            &expected[offset as usize..offset as usize + out.len()]
+        );
+    }
+    assert_eq!(udf.read(file, 5000, &mut out).unwrap(), 0);
+    #[cfg(feature = "async")]
+    common::block_on(async {
+        use hadris_fs::r#async::FileSystem;
+        let pending = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(u64::MAX));
+        let dev = PausingDevice {
+            inner: hadris_storage::MemDevice::new(bytes, common::SECTOR),
+            pending: pending.clone(),
+        };
+        let mut udf = hadris_udf::r#async::UdfFs::mount(dev, hadris_fs::MountOptions::new())
+            .await
+            .unwrap();
+        let file = udf
+            .resolve(b"/f.bin", hadris_fs::Resolve::Lexical)
+            .await
+            .unwrap();
+        let other = udf
+            .resolve(b"/many/file-000.txt", hadris_fs::Resolve::Lexical)
+            .await
+            .unwrap();
+        for offset in [2050, 2300, 4090, 4500, 0, 2500] {
+            assert_eq!(udf.read(file, offset, &mut out).await.unwrap(), out.len());
+            assert_eq!(
+                &out,
+                &expected[offset as usize..offset as usize + out.len()]
+            );
+            assert_eq!(udf.read(other, 0, &mut out).await.unwrap(), 6);
+            assert_eq!(&out[..6], b"file 0");
+            assert_eq!(udf.read(file, offset, &mut out).await.unwrap(), out.len());
+            assert_eq!(
+                &out,
+                &expected[offset as usize..offset as usize + out.len()]
+            );
+        }
+        assert_eq!(udf.read(file, 5000, &mut out).await.unwrap(), 0);
+        for (blocked, offset) in [(free, 2300), (free + 1, 4500)] {
+            assert_eq!(udf.read(file, offset, &mut out).await.unwrap(), out.len());
+            pending.store(blocked, std::sync::atomic::Ordering::Relaxed);
+            {
+                use core::future::Future;
+                use core::task::{Context, Poll, Waker};
+                let mut read = core::pin::pin!(udf.read(file, offset + 100, &mut out));
+                let mut cx = Context::from_waker(Waker::noop());
+                assert!(matches!(read.as_mut().poll(&mut cx), Poll::Pending));
+            }
+            pending.store(u64::MAX, std::sync::atomic::Ordering::Relaxed);
+            assert_eq!(
+                udf.read(file, offset + 100, &mut out).await.unwrap(),
+                out.len()
+            );
+            assert_eq!(
+                &out,
+                &expected[offset as usize + 100..offset as usize + 400]
+            );
+        }
+    });
+}
+
+#[cfg(feature = "async")]
+struct PausingDevice {
+    inner: hadris_storage::MemDevice<Vec<u8>>,
+    pending: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
+#[cfg(feature = "async")]
+impl hadris_io::ErrorType for PausingDevice {
+    type Error = core::convert::Infallible;
+}
+
+#[cfg(feature = "async")]
+impl hadris_storage::r#async::BlockDevice for PausingDevice {
+    fn block_size(&self) -> hadris_storage::BlockSize {
+        common::SECTOR
+    }
+    fn block_count(&self) -> u64 {
+        hadris_storage::sync::BlockDevice::block_count(&self.inner)
+    }
+    async fn read_blocks(
+        &mut self,
+        first: hadris_storage::BlockIndex,
+        buf: &mut [u8],
+    ) -> Result<(), hadris_io::Error<Self::Error>> {
+        let at = self.pending.load(std::sync::atomic::Ordering::Relaxed);
+        if first.get() <= at && at - first.get() < (buf.len() / 2048) as u64 {
+            core::future::pending::<()>().await;
+        }
+        hadris_storage::sync::BlockDevice::read_blocks(&mut self.inner, first, buf)
+    }
+}

@@ -421,3 +421,82 @@ The [CPIO audit](cpio-performance.md) covers direct and buffered streaming reads
 skips, tree loading and writing, including hard links and host-backed content.
 Run `cargo bench -p hadris-cpio --bench performance -- --smoke` for its 144
 verified cases, or use `--samples 21 --csv` for measurements.
+
+## UDF benchmark
+
+```bash
+cargo bench -p hadris-udf --bench performance > udf-baseline.csv
+HADRIS_UDF_BENCH_SAMPLES=21 cargo bench -p hadris-udf --bench performance
+HADRIS_UDF_BENCH_FILTER=1000/2048 cargo bench -p hadris-udf --bench performance
+HADRIS_UDF_BENCH_CACHE_BLOCKS=32 cargo bench -p hadris-udf --bench performance
+```
+
+The dependency-free harness emits CSV with median nanoseconds, device read calls,
+device bytes, and calls/bytes overlapping allocation extent descriptor (AED)
+blocks. It checks every directory name in order and exact payload slices, uses one
+warm-up and seven measured samples by default, and rejects zero samples or a
+filter matching no cases. Each sample starts with a newly mounted reader.
+Image construction, memory-device cloning, payload lookup and buffer allocation
+are outside timing; mount cases time only mounting. Other cases exclude mounting
+and setup from both timing and I/O counts. File reads time their payload checks
+as well as reading. Mount cases count all mount reads.
+
+Workloads cover 32 and 1,000 numbered entries plus one 1 MiB payload, with 512-
+and 2,048-byte devices: mounting, listing, last-entry and missing-name lookup,
+100 metadata requests, sequential aligned and unaligned 4 KiB reads, 64 KiB
+reads, and 256 scattered
+4 KiB reads. These are memory-device CPU measurements and deterministic device
+counts, not physical-drive latency measurements. `HADRIS_UDF_BENCH_CACHE_BLOCKS`
+defaults to zero (uncached). A positive value wraps the counted device in the
+shared storage cache, so counts record reads reaching the underlying device.
+Cache construction and cloning stay outside timing; mounting and the payload
+lookup can warm cached blocks before non-mount measurements. Each sample starts
+with a new cache, rather than retaining cached data from earlier samples.
+The CSV records the configured capacity in `cache_blocks`.
+
+The [UDF reader report](udf-performance.md) compares the uncached baseline,
+identifier reuse and optional cache sizes, including the 512-byte eviction case.
+
+The 108 cases combine those workloads with contiguous allocation, fragmented
+inline allocation descriptors, and fragmented AED chains. Directory data uses
+2 KiB runs and payload data uses 8 KiB runs, separated by one block. The chained
+fixture puts one data descriptor in each AED and links to the next; the 1 MiB
+payload has 127 AEDs. These deliberate stress patterns are not a distribution
+of fragmentation on real media. AED calls count backend requests overlapping
+at least one known AED block; AED bytes count only the covered physical blocks.
+The payload varies by logical block to detect misplaced extents. Its slice
+comparison replaces the earlier uniform-byte validation, so payload runtimes
+must not be compared directly with the original identifier-reuse CSVs.
+
+Export the six generated images for independent inspection:
+
+```bash
+HADRIS_UDF_BENCH_SAMPLES=1 HADRIS_UDF_BENCH_EXPORT_DIR=/tmp/udf-fixtures \
+  cargo bench -p hadris-udf --bench performance
+HADRIS_UDF_BENCH_SAMPLES=21 cargo bench -p hadris-udf --bench kernels
+```
+
+The kernel harness measures the existing CRC implementation and compiles the
+private name module as benchmark-local code, without exposing a library API.
+It checks CRC against an independent bitwise oracle and checks decoded strings
+before timing. Each row reports the median of batches after one warm-up;
+`iterations` records the batch size. Compiler inlining and call context can
+differ from the actual driver, so these isolate costs rather than decompose
+whole-operation runtime exactly.
+
+On macOS, use native sampling to profile repeated operations after setup:
+
+```bash
+CARGO_PROFILE_BENCH_DEBUG=2 cargo bench -p hadris-udf --bench performance --no-run
+HADRIS_UDF_BENCH_SAMPLES=1 HADRIS_UDF_BENCH_PROFILE_SECONDS=30 \
+  HADRIS_UDF_BENCH_FILTER=1000/2048/fragmented-aed/read-scattered \
+  target/release/deps/performance-<artifact-hash>
+# In another terminal, use the PID printed in PROFILE_READY:
+sample <pid> 6 1 -file /tmp/udf-sample.txt
+```
+
+Profiling requires an exact case filter and excludes mount cases. The repeated
+operation uses the final sample's mounted reader and buffers, avoiding fixture
+construction, device cloning and mounting in the sampled interval. Ordinary
+CSV samples still use fresh readers. Cache settings also apply to profiling;
+the recorded native profiles use no storage cache.
