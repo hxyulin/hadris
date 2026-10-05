@@ -211,3 +211,57 @@ Follow-up data:
 - [Fragmented workloads, cache 32](benchmarks/udf-fragmented-cache32.csv)
 - [CRC and name kernels](benchmarks/udf-kernels.csv)
 - [Aggregated native top-of-stack samples](benchmarks/udf-profile-samples.csv)
+
+
+## In-place allocation walker
+
+The first follow-up initializes `Walk` inside `read_stream` and resumes it
+through a mutable reference. Previously, `Walk::resume` constructed the walker
+and returned it together with the logical position through `Result`; that
+return value included its 4 KiB AED buffer. The new return value is only the
+logical position. The buffer remains fully initialized, temporary and bounded;
+there is no new reader field, allocation or public API.
+
+A fresh paired run uses baseline `6ccda20b` and this change, with the same Rust
+1.97.1 toolchain, optimized profile, host, fixtures and 21 samples. Uncached
+1,000-entry, 2,048-byte-device median microseconds:
+
+| Workload | Before | After | Reduction |
+|---|---:|---:|---:|
+| Contiguous list | 2,098.0 | 1,898.8 | 9.5% |
+| Contiguous lookup-last | 532.1 | 339.0 | 36.3% |
+| Inline-fragmented lookup-last | 517.3 | 343.8 | 33.5% |
+| AED lookup-last | 917.0 | 705.1 | 23.1% |
+| Contiguous read-4k | 263.9 | 237.0 | 10.2% |
+| AED read-4k | 346.0 | 303.8 | 12.2% |
+| AED scattered reads | 1,296.1 | 1,274.1 | 1.7% |
+
+Device calls, bytes and AED counts match the baseline exactly across all 108
+uncached cases. This is a CPU optimization; the scattered workload's chain
+replay remains. Runtime varies between runs, particularly in short cases and
+unchanged mount/metadata operations, so small differences are not evidence of
+an improvement. An earlier run also showed the larger lookup improvement.
+
+Regression coverage exercises two continuation blocks, forward and backward
+reads, reads spanning a continuation boundary, switching files and EOF in sync
+and async modes. The async test cancels while reloading each saved AED, then
+retries and verifies exact bytes. Existing malformed-chain and traversal-limit
+tests remain in place.
+
+- [Fresh uncached baseline](benchmarks/udf-walker-before.csv)
+- [In-place walker](benchmarks/udf-walker-after.csv)
+
+
+Cached runs at capacities 8 and 32 also reproduce all baseline I/O counts,
+for 324 checked cases in total. Their CSVs are
+[cache 8](benchmarks/udf-walker-cache8.csv) and
+[cache 32](benchmarks/udf-walker-cache32.csv).
+
+A repeat of the native profiles shows contiguous lookup's copy share falling
+from 46.1% to 18.7%. Its clearing share rises from 32.0% to 47.9% as total runtime
+falls; that percentage increase does not establish increased clearing cost.
+Contiguous listing's copy share falls from 37.0% to 30.8%. Scattered AED reads
+remain dominated by copying and validation. The same sampling and
+instrumentation limits apply to the
+[post-change samples](benchmarks/udf-walker-profile.csv). Buffer clearing is a
+separate candidate and remains unchanged in this commit.

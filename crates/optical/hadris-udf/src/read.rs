@@ -518,22 +518,21 @@ impl Walk {
         }
     }
 
-    /// The walk of `icb` from `resume`, or from the first descriptor when
-    /// `resume` is of another entry or after `offset`. Also returns the
-    /// byte of the data the next piece starts at.
-    async fn resume<D: BlockDevice>(info: &Info, dev: &mut D, icb: &Icb, resume: &Resume, offset: u64) -> Result<(Self, u64), Error<D::Error>> {
-        let mut walk = Self::new(icb);
+    /// Resumes a newly initialized walk of `icb`, or keeps its first
+    /// descriptor when `resume` is of another entry or after `offset`. Returns the byte
+    /// of the data the next piece starts at.
+    async fn resume<D: BlockDevice>(&mut self, info: &Info, dev: &mut D, icb: &Icb, resume: &Resume, offset: u64) -> Result<u64, Error<D::Error>> {
         if resume.icb != Some(icb.at) || resume.offset > offset {
-            return Ok((walk, 0));
+            return Ok(0);
         }
         if let Some(at) = resume.aed_at {
-            walk.load(info, dev, at).await?;
+            self.load(info, dev, at).await?;
         }
-        walk.pos = resume.pos;
-        walk.end = resume.end;
-        walk.steps = resume.steps;
-        walk.hops = resume.hops;
-        Ok((walk, resume.offset))
+        self.pos = resume.pos;
+        self.end = resume.end;
+        self.steps = resume.steps;
+        self.hops = resume.hops;
+        Ok(resume.offset)
     }
 
     /// Where the walk of `icb` stands, before the piece at byte `offset`.
@@ -683,7 +682,8 @@ async fn read_stream<D: BlockDevice>(
         return Ok(0);
     }
     let want = usize::try_from(icb.size - offset).unwrap_or(usize::MAX).min(buf.len());
-    let (mut walk, mut pos) = Walk::resume(info, dev, icb, resume, offset).await?;
+    let mut walk = Walk::new(icb);
+    let mut pos = walk.resume(info, dev, icb, resume, offset).await?;
     let mut done = 0usize;
     while done < want {
         let mark = walk.mark(icb, pos);

@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- UDF allocation walks resume in place, reducing temporary buffer movement
+  during directory traversal and file reads.
+
 - UDF documents and tests optional bounded caching through the shared storage
   adapter; the reader benchmark measures cache capacity and underlying device I/O.
 
