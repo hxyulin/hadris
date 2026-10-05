@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- The detached test harness measures common V3 filesystem workloads across
+  FAT12/16/32, exFAT, ISO and UDF, reporting per-sample time and requested device I/O.
+
 - NTFS mounts reject declared volumes larger than the device and bound MFT
   records and physical data runs to the declared volume, including on devices
   with trailing data.

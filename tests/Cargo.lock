@@ -221,7 +221,21 @@ dependencies = [
  "hadris-io",
  "hadris-iso",
  "hadris-storage",
+ "hadris-udf",
  "tempfile",
+]
+
+[[package]]
+name = "hadris-udf"
+version = "3.0.0-rc.1"
+dependencies = [
+ "bitflags",
+ "bytemuck",
+ "hadris-fs",
+ "hadris-io",
+ "hadris-iso",
+ "hadris-macros",
+ "hadris-storage",
 ]
 
 [[package]]
