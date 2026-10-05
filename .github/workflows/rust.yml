@@ -343,6 +343,39 @@ jobs:
           sudo apt-get install -y dosfstools mtools
       - name: Run test harness unit tests
         run: "cargo test --manifest-path tests/Cargo.toml --lib"
+      - name: Run V3 performance harness smoke check
+        env:
+          HADRIS_TESTS_PERF_SAMPLES: "1"
+        run: cargo bench --manifest-path tests/Cargo.toml --bench performance
+      - name: Cache pinned ChaN FatFs sources
+        uses: actions/cache@v4
+        with:
+          path: |
+            tests/target/chan-fatfs/ff16.zip
+            tests/target/chan-fatfs/ff16p1.diff
+            tests/target/chan-fatfs/ff16p2.diff
+          key: chan-fatfs-${{ hashFiles('scripts/build-fatfs-peer.py') }}
+      - name: Build pinned ChaN FatFs peer
+        run: python3 scripts/build-fatfs-peer.py
+      - name: Test ChaN FatFs helper
+        run: python3 scripts/test-fatfs-peer.py tests/target/chan-fatfs/chan-fatfs
+      - name: Run FAT peer performance smoke check
+        env:
+          HADRIS_TESTS_PERF_SAMPLES: "1"
+          HADRIS_TESTS_PERF_FILTER: "fat"
+          HADRIS_TESTS_CHAN_FATFS: "${{ github.workspace }}/tests/target/chan-fatfs/chan-fatfs"
+        run: cargo bench --manifest-path tests/Cargo.toml --bench peers
+      - name: Run cached FAT32 profile smoke check
+        env:
+          HADRIS_TESTS_PERF_FILES: "1000"
+          HADRIS_TESTS_PROFILE_WORKLOAD: lookup-all
+          HADRIS_TESTS_PROFILE_SECONDS: "1"
+          HADRIS_TESTS_PROFILE_CACHE: "1"
+        run: |
+          cargo bench --manifest-path tests/Cargo.toml --bench peers > profile-smoke.log 2>&1 || {
+            cat profile-smoke.log
+            exit 1
+          }
       - name: Run FAT conformance and interoperability tests
         run: "cargo test --manifest-path tests/Cargo.toml fat:: -- --skip exfat:: --nocapture"
 
@@ -358,7 +391,13 @@ jobs:
       - name: Install optical image tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y xorriso udftools p7zip-full libarchive-tools
+          sudo apt-get install -y xorriso genisoimage udftools p7zip-full libarchive-tools
+      - name: Run ISO peer performance smoke check
+        env:
+          HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
+          HADRIS_TESTS_PERF_SAMPLES: "1"
+          HADRIS_TESTS_PERF_FILTER: "iso"
+        run: cargo bench --manifest-path tests/Cargo.toml --bench peers
       - name: Run ISO conformance and interoperability tests
         env:
           HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"

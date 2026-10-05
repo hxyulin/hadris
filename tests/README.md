@@ -129,3 +129,53 @@ tree; bsdtar hides it. Install libarchive (`libarchive-tools` on Debian/Ubuntu)
 and xorriso, or use the repository flake. Optical CI requires these tools; local
 runs skip a test if its tool is unavailable unless
 `HADRIS_REQUIRE_EXTERNAL_TOOLS=1` is set.
+
+## V3 performance harness
+
+```bash
+cargo bench --manifest-path tests/Cargo.toml --bench performance
+HADRIS_TESTS_PERF_SAMPLES=1 cargo bench --manifest-path tests/Cargo.toml --bench performance
+HADRIS_TESTS_PERF_FILTER=udf cargo bench --manifest-path tests/Cargo.toml --bench performance
+```
+
+The runner writes `performance/v3.csv` under `HADRIS_TESTS_REPORT_DIR` (default
+`tests/target/reports`). Each row records one sample's elapsed nanoseconds,
+requested read/write calls and bytes, flushes, I/O failures and stream seeks. Keep the raw
+samples to compare medians and spread rather than relying on a single run.
+The default is 21 samples plus one discarded warm-up for each workload.
+The format filter is a substring; a filter matching nothing fails.
+
+FAT12/16/32, exFAT, ISO and UDF run the same V3 `FileSystem` operations:
+mount, root listing, last-file lookup, missing-file lookup, stat, 4 KiB and
+64 KiB reads, and five scattered 4 KiB reads. Each image has 32 small files
+and a 128 KiB patterned payload. FAT, exFAT and ISO fixtures pass the
+independent raw-image oracles before measurement. Every driver must return
+the expected names and payload bytes; UDF has no raw oracle in this package.
+
+Every sample mounts a fresh read-only memory device. Mount is timed separately;
+other windows exclude mounting, file lookup/open for stat/read, buffer setup,
+correctness verification, close, destruction and reporting. Listing includes
+collecting inline entries into a preallocated vector. Lookup includes forgetting
+the returned pin. Scattered reads use preallocated buffers. These measure CPU
+and requested I/O on memory, including the counter overhead; they do not measure
+physical disk latency, OS-cache behavior, peak memory, or async execution.
+Record the Rust version, machine and revision alongside saved comparisons.
+CI runs one sample as a correctness smoke check, with no timing threshold.
+
+`harness::performance::Counted` forwards V3 device geometry, capacity, disk
+offset and writability. Put it below `hadris_storage::Cache` to measure backend
+I/O, or above a cache to measure driver requests. Counters include failed calls
+and requested bytes, and `Measurement::run` resets them for each window. This
+shared synchronous infrastructure is available to new format and peer adapters;
+external CLI timings need separate labels because process startup and host I/O
+have different measurement boundaries. NTFS, APFS and streaming cpio workloads
+remain follow-ups requiring suitable fixtures and workload boundaries.
+
+The `peers` benchmark compares Hadris with buffered/unbuffered rust-fatfs,
+dosfstools/mtools, xorriso, mkisofs/genisoimage and bsdtar on shared host
+workflows. Run `cargo bench --manifest-path tests/Cargo.toml --bench peers`.
+See [peer performance and reference coverage](../docs/peer-performance.md)
+for timings, counter boundaries, larger fixtures and more complete references.
+Both runners accept `HADRIS_TESTS_PERF_FILES` (32 by default). For large
+directories, use a FAT32, exFAT, ISO or UDF filter with `performance`, and a
+FAT32 or ISO filter with `peers`.
