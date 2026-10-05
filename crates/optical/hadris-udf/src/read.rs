@@ -92,7 +92,7 @@ struct Resume {
 struct Fid {
     characteristics: FileCharacteristics,
     icb: Location,
-    name_at: u64,
+    name: [u8; 255],
     name_len: usize,
     next: u64,
 }
@@ -749,42 +749,55 @@ async fn fid_at<D: BlockDevice>(info: &Info, dev: &mut D, dir: &Icb, resume: &mu
     if covered + 16 > total {
         return Err(bad());
     }
-    let mut crc = 0u16;
-    let mut at = 16u64;
-    while at < 16 + covered {
-        let take = (16 + covered - at).min(FID_BUFFER as u64) as usize;
+    let crc_end = 16 + covered;
+    let mut crc = raw::crc16_update(0, &buf[16..crc_end.min(38) as usize]);
+    let name_at = 38 + u64::from(fid.implementation_use_length.get());
+    let name_len = usize::from(fid.identifier_length);
+    let name_end = name_at + name_len as u64;
+    let characteristics = FileCharacteristics::from_bits_retain(fid.characteristics);
+    let want_name = name_len > 0 && !characteristics.intersects(FileCharacteristics::DELETED | FileCharacteristics::PARENT);
+    let end = crc_end.max(if want_name { name_end } else { 38 });
+    let mut name = [0u8; 255];
+    let mut at = 38u64;
+    while at < end {
+        if at >= crc_end && at < name_at {
+            at = name_at;
+        }
+        if at >= end {
+            break;
+        }
+        let chunk_end = if at < crc_end && name_at > crc_end { crc_end } else { end };
+        let take = (chunk_end - at).min(FID_BUFFER as u64) as usize;
         read_exact(info, dev, dir, resume, pos + at, &mut buf[..take], Detail::FileIdentifier).await?;
-        crc = raw::crc16_update(crc, &buf[..take]);
+        if at < crc_end {
+            crc = raw::crc16_update(crc, &buf[..(crc_end - at).min(take as u64) as usize]);
+        }
+        let start = at.max(name_at);
+        let end = (at + take as u64).min(name_end);
+        if start < end {
+            name[(start - name_at) as usize..(end - name_at) as usize]
+                .copy_from_slice(&buf[(start - at) as usize..(end - at) as usize]);
+        }
         at += take as u64;
     }
     if crc != tag.crc.get() {
         return Err(bad());
     }
     Ok(Fid {
-        characteristics: FileCharacteristics::from_bits_retain(fid.characteristics),
+        characteristics,
         icb: Location::from_long(&fid.icb),
-        name_at: pos + 38 + u64::from(fid.implementation_use_length.get()),
-        name_len: usize::from(fid.identifier_length),
+        name,
+        name_len,
         next: pos + total,
     })
 }
 
 /// The name of `fid`, decoded into `out`.
-async fn fid_name<D: BlockDevice>(
-    info: &Info,
-    dev: &mut D,
-    dir: &Icb,
-    resume: &mut Resume,
-    fid: &Fid,
-    out: &mut [u8],
-) -> Result<usize, Error<D::Error>> {
+fn fid_name<E>(fid: &Fid, out: &mut [u8]) -> Result<usize, Error<E>> {
     if fid.name_len == 0 {
         return Err(Detail::FileIdentifier.corrupt());
     }
-    let mut raw = [0u8; 255];
-    let raw = &mut raw[..fid.name_len];
-    read_exact(info, dev, dir, resume, fid.name_at, raw, Detail::FileIdentifier).await?;
-    crate::name::decode_name(raw, out).ok_or(Detail::FileIdentifier.corrupt())
+    crate::name::decode_name(&fid.name[..fid.name_len], out).ok_or(Detail::FileIdentifier.corrupt())
 }
 
 /// Writes the target of the symlink `icb` into `out`.
@@ -1041,7 +1054,7 @@ impl<D: BlockDevice> FileSystem for UdfFs<D> {
             if fid.characteristics.intersects(FileCharacteristics::DELETED | FileCharacteristics::PARENT) {
                 continue;
             }
-            let len = fid_name(&self.info, &mut self.dev, &icb, &mut self.dir_walk, &fid, &mut buf).await?;
+            let len = fid_name(&fid, &mut buf)?;
             if &buf[..len] == name.as_bytes() {
                 return fid_node(&self.info, &fid);
             }
@@ -1099,7 +1112,7 @@ impl<D: BlockDevice> FileSystem for UdfFs<D> {
             if fid.characteristics.intersects(FileCharacteristics::DELETED | FileCharacteristics::PARENT) {
                 continue;
             }
-            let len = fid_name(&self.info, &mut self.dev, &icb, &mut self.dir_walk, &fid, &mut buf).await?;
+            let len = fid_name(&fid, &mut buf)?;
             let node = fid_node(&self.info, &fid)?;
             let meta = match icb_at(&self.info, &mut self.dev, fid.icb).await {
                 Ok(child) => self.icb_metadata(&child).await,

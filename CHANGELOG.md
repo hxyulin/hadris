@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- UDF directory reads reuse identifier bytes for CRC validation and name decoding,
+  avoiding duplicate name reads without enabling a cache or allocating memory.
+
 - UDF readers honor extended allocation information lengths, exclude allocation
   padding from file data, validate recorded lengths, and reject transformed extents and ICBs.
 
