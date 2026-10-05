@@ -151,3 +151,72 @@ use `HADRISCONF`; label values are not part of the file-content comparison.
 This deliberate metadata difference should be considered when interpreting
 formatting timings. The reference remains unmodified apart from official
 patches and configuration.
+
+## Profiling FAT32 root operations
+
+The peer runner has a diagnostic loop separate from its CSV comparison mode:
+
+```sh
+CARGO_PROFILE_BENCH_DEBUG=2 cargo bench --manifest-path tests/Cargo.toml --bench peers --no-run
+HADRIS_TESTS_PERF_FILES=1000 \
+HADRIS_TESTS_PROFILE_WORKLOAD=extract-tree \
+HADRIS_TESTS_PROFILE_SECONDS=10 \
+  cargo bench --manifest-path tests/Cargo.toml --bench peers
+```
+
+Attach a platform sampler to the PID printed by `PROFILE_READY`. On macOS,
+`sample PID 5 1 -fullPaths -file profile.txt` collects five seconds of stacks.
+Fixture construction is before that marker; final output validation is after
+it. Source images pass the raw FAT oracle before read profiling. Creation
+and extraction validate the final output, and recorded operations reject I/O
+failures. Extraction cleanup between operations appears in sampled stacks but
+is outside each `PROFILE_SAMPLE` timer. Do not treat sampled operation timings
+as an unprofiled performance baseline.
+
+Workloads are `create-image`, `extract-tree`, `lookup-all`, and `copy-tree`.
+`HADRIS_TESTS_PROFILE_PEER` selects `hadris` (default),
+`rust-fatfs/unbuffered` or `rust-fatfs/buffered`; lookup and copy-tree probes
+are Hadris-only. Setting `HADRIS_TESTS_PROFILE_CACHE` enables 256 chain
+positions and enough directory-index entries for this fixture.
+`HADRIS_TESTS_PROFILE_BLOCKS` selects the metadata-block bound (default 16).
+Caching is available for lookup, extraction and copy-tree. The copy-tree
+probe formats, mounts and copies a previously prepared host tree, allowing
+cache configuration before copying. It does not reproduce the public writer's
+stamping, serial seeding and preflight work, so compare cached/uncached probes
+to each other rather than directly to the public `write` workflow.
+
+A 2026-10-05 M3 Pro run with 1,000 small files plus the 128 KiB payload found:
+
+| Probe | Cache disabled | Cache enabled | Requested image reads |
+|---|---:|---:|---|
+| Lookup every name after a fresh mount | 49.50 ms | 0.53 ms | 62,741 -> 75 |
+| Extract every file | 111.24 ms | 58.05 ms | 63,916 -> 1,181 |
+| Copy-tree probe, 16 blocks | 85.55 ms | 122.42 ms | 72,353 -> 38,996 |
+| Copy-tree probe, 256 blocks | 85.55 ms | 96.90 ms | 72,353 -> 5,325 |
+
+These are medians from short sequential unprofiled loops, not the earlier
+fixed-21-sample dataset. Every iteration remounts; the enabled-cache read probes
+learn entries lazily during that iteration. The larger copy-tree cache reduced
+reads without a corresponding elapsed-time improvement in this run. Cache
+lookup/maintenance and repeated scans still do work.
+
+Five-second optimized/debug-symbol stack samples show about 55% of creation
+samples inside `FatFs::plan` and about 60% inside `create_node` (inclusive,
+so these percentages overlap). In extraction, lookup accounts for about 44%
+of operation samples and host file writes about 54%. Cleanup accounts for
+about 22% of all sampled stacks and is excluded from those operation shares.
+The separate lookup loop spends most of its time in repeated directory scans
+and image reads/seeks. Prioritize the existing directory index for host
+extraction, then investigate bulk insertion planning; cache sizing alone is
+not a demonstrated creation optimization.
+
+For rust-fatfs, approximately 99% of sampled creation stacks are split between
+name lookup and insertion-space scans. A standalone in-memory reproduction
+produces 25,122,520 read calls and 25,157,141 seeks for 1,000 seven-byte files,
+with no formatting, validation, unmount or host disk work in that counter
+window. Directory records are deserialized using small field reads, and
+`File::read` seeks before reading. `fscommon::BufStream` invalidates its read
+buffer on every seek, explaining why that buffering variant barely reduces
+this workload's read-call count. The reproduction, scaling results and
+possible improvements are reported in
+[rust-fatfs issue #123](https://github.com/rafalh/rust-fatfs/issues/123).

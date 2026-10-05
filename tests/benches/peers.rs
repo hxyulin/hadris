@@ -1,5 +1,7 @@
 #[path = "support/fixture.rs"]
 mod fixture;
+#[path = "support/profile.rs"]
+mod profile;
 
 use std::cell::Cell;
 use std::fs::{self, File, OpenOptions};
@@ -521,6 +523,10 @@ fn record(
 }
 
 fn main() {
+    if std::env::var_os("HADRIS_TESTS_PROFILE_WORKLOAD").is_some() {
+        profile::run();
+        return;
+    }
     let samples = std::env::var("HADRIS_TESTS_PERF_SAMPLES")
         .map_or(21, |text| text.parse::<usize>().unwrap());
     assert!(samples > 0);

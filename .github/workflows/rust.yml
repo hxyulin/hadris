@@ -357,6 +357,17 @@ jobs:
           HADRIS_TESTS_PERF_FILTER: "fat"
           HADRIS_TESTS_CHAN_FATFS: "${{ github.workspace }}/tests/target/chan-fatfs/chan-fatfs"
         run: cargo bench --manifest-path tests/Cargo.toml --bench peers
+      - name: Run cached FAT32 profile smoke check
+        env:
+          HADRIS_TESTS_PERF_FILES: "1000"
+          HADRIS_TESTS_PROFILE_WORKLOAD: lookup-all
+          HADRIS_TESTS_PROFILE_SECONDS: "1"
+          HADRIS_TESTS_PROFILE_CACHE: "1"
+        run: |
+          cargo bench --manifest-path tests/Cargo.toml --bench peers > profile-smoke.log 2>&1 || {
+            cat profile-smoke.log
+            exit 1
+          }
       - name: Run FAT conformance and interoperability tests
         run: "cargo test --manifest-path tests/Cargo.toml fat:: -- --skip exfat:: --nocapture"
 

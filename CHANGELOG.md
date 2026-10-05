@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- The peer performance runner supports sustained FAT32 profiling loops and
+  controlled cache probes, with setup and validation outside the profile window.
+
 - The performance harness optionally compares FAT workflows with a pinned,
   officially patched ChaN FatFs C helper and records its sector-callback I/O.
 
