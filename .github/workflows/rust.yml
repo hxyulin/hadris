@@ -355,7 +355,7 @@ jobs:
         env:
           HADRIS_TESTS_PERF_SAMPLES: "1"
           HADRIS_TESTS_PERF_FILTER: "fat"
-          HADRIS_TESTS_CHAN_FATFS: tests/target/chan-fatfs/chan-fatfs
+          HADRIS_TESTS_CHAN_FATFS: "${{ github.workspace }}/tests/target/chan-fatfs/chan-fatfs"
         run: cargo bench --manifest-path tests/Cargo.toml --bench peers
       - name: Run FAT conformance and interoperability tests
         run: "cargo test --manifest-path tests/Cargo.toml fat:: -- --skip exfat:: --nocapture"
