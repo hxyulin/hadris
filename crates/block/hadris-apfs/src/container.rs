@@ -10,7 +10,7 @@ use crate::types::container::{CheckpointMapBlock, CheckpointMapping};
 use crate::types::filesystem::{SYMLINK_XATTR_NAME, XATTR_DATA_EMBEDDED, names_match, stream_size};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::types::object_map::{
-    BTREE_HASHED, BTREE_PHYSICAL, OMAP_VAL_ENCRYPTED, OMAP_VAL_NOHEADER, ObjectMapBlock,
+    BTREE_HASHED, BTREE_PHYSICAL, OMAP_VAL_DELETED, OMAP_VAL_ENCRYPTED, OMAP_VAL_NOHEADER, ObjectMapBlock,
     VirtualObjectMap,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -443,22 +443,22 @@ where
             .await?
             .into_iter()
             .filter(|(key, _)| {
-                superblock.volume_oids.contains(&key.oid)
-                    || superblock
-                        .volume_oids
-                        .contains(&(key.oid & 0x0fff_ffff_ffff_ffff))
+                key.oid != 0 && superblock.volume_oids.contains(&key.oid)
             })
             .collect())
     }
 
-    /// Reads volume superblocks referenced by the container superblock.
+    /// Reads each live volume superblock as of the container superblock's transaction.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub async fn volume_superblocks(
         &mut self,
         superblock: &ContainerSuperblock,
     ) -> hadris_fs::FsResult<alloc::vec::Vec<VolumeSuperblock>, D::Error> {
         let mut volumes = alloc::vec::Vec::new();
-        for (_key, value) in self.volume_object_map_values(superblock).await? {
+        let values = self.volume_object_map_values(superblock).await?;
+        let map = VirtualObjectMap::new(&values, superblock.object.transaction_identifier);
+        for &oid in superblock.volume_oids.iter().filter(|&&oid| oid != 0) {
+            let Some(value) = map.resolve(oid) else { continue; };
             let data = self.read_apfs_block_vec(value.address).await?;
             verify_object(&data)?;
             volumes.push(VolumeSuperblock::parse(&data)?);
@@ -474,6 +474,7 @@ where
     /// contain multiple versions of the same virtual OID (e.g. across
     /// snapshots), and resolving unconditionally to the newest one can return
     /// an object from a later filesystem state than the one being read.
+    /// Deleted mappings return `None` without falling back to older versions.
     #[cfg(any(feature = "alloc", feature = "std"))]
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn object_map_lookup(
@@ -487,11 +488,11 @@ where
             .await?
             .into_iter()
             .filter(|(key, _)| {
-                (key.oid == oid || (key.oid & 0x0fff_ffff_ffff_ffff) == oid)
-                    && key.xid <= max_transaction_id
+                key.oid == oid && key.xid <= max_transaction_id
             })
             .max_by_key(|(key, _)| key.xid)
-            .map(|(_, value)| value))
+            .map(|(_, value)| value)
+            .filter(|value| value.flags & OMAP_VAL_DELETED == 0))
     }
 
     /// Resolves a virtual object identifier through a volume object map,
