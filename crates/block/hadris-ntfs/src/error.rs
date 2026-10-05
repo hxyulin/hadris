@@ -47,7 +47,7 @@ pub enum Detail {
     /// An `$ATTRIBUTE_LIST` is malformed or names a missing attribute, or
     /// `$MFT` has more than the 32 extents the reader keeps.
     AttributeList = 15,
-    /// A structure lies outside the device.
+    /// A structure lies outside the declared volume.
     OutsideVolume = 16,
 }
 
@@ -69,7 +69,7 @@ impl Detail {
             Self::Compressed => "compressed stream",
             Self::Encrypted => "encrypted stream",
             Self::AttributeList => "malformed or unsupported $ATTRIBUTE_LIST",
-            Self::OutsideVolume => "a structure lies outside the device",
+            Self::OutsideVolume => "a structure lies outside the declared volume",
         }
     }
 

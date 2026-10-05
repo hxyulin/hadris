@@ -8,6 +8,10 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- NTFS mounts reject declared volumes larger than the device and bound MFT
+  records and physical data runs to the declared volume, including on devices
+  with trailing data.
+
 - APFS object-map lookups preserve full object identifiers and deleted mappings;
   volume enumeration resolves each live volume at the container checkpoint,
   excluding historical and future versions.
