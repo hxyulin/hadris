@@ -421,3 +421,26 @@ The [CPIO audit](cpio-performance.md) covers direct and buffered streaming reads
 skips, tree loading and writing, including hard links and host-backed content.
 Run `cargo bench -p hadris-cpio --bench performance -- --smoke` for its 144
 verified cases, or use `--samples 21 --csv` for measurements.
+
+## UDF benchmark
+
+```bash
+cargo bench -p hadris-udf --bench performance > udf-baseline.csv
+HADRIS_UDF_BENCH_SAMPLES=21 cargo bench -p hadris-udf --bench performance
+HADRIS_UDF_BENCH_FILTER=1000/2048 cargo bench -p hadris-udf --bench performance
+```
+
+The dependency-free harness emits CSV with median nanoseconds, device read calls,
+and device bytes. It checks directory entry counts and payload bytes, uses one
+warm-up and seven measured samples by default, and rejects zero samples or a
+filter matching no cases. Each sample starts with a newly mounted reader.
+Image construction, memory-device cloning, payload lookup and buffer allocation
+are outside timing; mount cases time only mounting. Other cases exclude mounting
+and setup from both timing and I/O counts. File reads time their payload checks
+as well as reading. Mount cases count all mount reads.
+
+Workloads cover 32 and 1,000 numbered entries plus one 1 MiB payload, with 512-
+and 2,048-byte devices: mounting, listing, last-entry and missing-name lookup,
+100 metadata requests, sequential 4 KiB and 64 KiB reads, and 256 scattered
+4 KiB reads. These are memory-device CPU measurements and deterministic device
+counts, not physical-drive latency measurements. No optional cache is enabled.
