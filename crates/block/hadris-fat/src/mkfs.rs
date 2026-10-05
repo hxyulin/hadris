@@ -243,13 +243,15 @@ mod tree {
     /// `copy_tree`: symlinks, special files and extra hard-link names are
     /// skipped, and fields FAT does not store are dropped. Fails as
     /// `format` and `copy_tree` do, with the tree path of the node that
-    /// failed.
+    /// failed. Dense ASCII 8.3 directories use a bounded insertion set with
+    /// at most 2048 short names (22 KiB of name storage); other layouts use
+    /// normal directory planning.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all))]
     pub async fn write<D: BlockDevice>(mut out: D, tree: &Tree, options: &FatOptions) -> Result<Report, PathError> {
         let options = options.with_seed(tree_seed(options.time, options.seed, tree));
         let tree = stamped(tree, options.time)?;
         let (_, volume) = format_volume(&mut out, &options).await?;
-        let mut fs = FatFs::mount(out, MountOptions::new()).await?;
+        let mut fs = FatFs::mount(out, MountOptions::new()).await?.with_append_planning();
         let root = fs.root();
         let mut report = copy_tree(&tree, &mut fs, root).await?;
         fs.unmount().await?;

@@ -296,3 +296,34 @@ fn hosted_insertion_reuses_the_planners_directory_position() {
     fs.forget(node, 1);
     fs.unmount().unwrap();
 }
+
+#[test]
+fn bulk_short_name_creation_avoids_quadratic_directory_reads() {
+    use hadris_fat::sync::write;
+    use hadris_fat::{FatKind, FatOptions};
+    use hadris_fs::{Content, Node, Tree};
+
+    let mut tree = Tree::new();
+    for i in 0..1000 {
+        tree.insert(
+            format!("F{i:07}.TXT"),
+            Node::file(Content::bytes(b"fixture")),
+        )
+        .unwrap();
+    }
+    let counts = Cell::new(IoCounts::default());
+    let mut dev = Counted {
+        inner: MemDevice::new(vec![0; 64 << 20], BlockSize::new(512).unwrap()),
+        counts: &counts,
+        written_blocks: None,
+    };
+    write(
+        &mut dev,
+        &tree,
+        &FatOptions::new()
+            .with_kind(FatKind::Fat32)
+            .with_cluster_size(512),
+    )
+    .unwrap();
+    assert!(counts.get().read_calls < 6000, "{:?}", counts.get());
+}

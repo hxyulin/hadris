@@ -8,6 +8,10 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- FAT bulk image writing avoids repeated directory scans for dense ASCII 8.3
+  names using a bounded insertion index. Directory-cached mounts use the same
+  optimization, with normal planning retained for complex names and layouts.
+
 - Hosted FAT entry insertion resumes from the directory position reached by its
   planner, avoiding a second traversal of the directory chain.
 

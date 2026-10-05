@@ -233,6 +233,28 @@ impl DirectoryIndex {
     }
 }
 
+struct AppendIndex {
+    limit: usize,
+    dir: DirStart,
+    names: alloc::vec::Vec<[u8; 11]>,
+    slot: u32,
+    hint: ChainPos,
+}
+
+impl AppendIndex {
+    const LIMIT: usize = 2048;
+
+    fn insert(&mut self, name: [u8; 11]) {
+        if let Err(at) = self.names.binary_search(&name) {
+            if self.names.len() == self.names.capacity() {
+                let capacity = (self.names.capacity().max(4) * 2).min(self.limit);
+                self.names.reserve_exact(capacity - self.names.len());
+            }
+            self.names.insert(at, name);
+        }
+    }
+}
+
 /// Where a new entry goes.
 struct Plan {
     hint: ChainPos,
@@ -520,6 +542,8 @@ pub struct FatFs<D> {
     root_hint: ChainPos,
     chain_cache: ChainCache,
     directory_index: Option<alloc::boxed::Box<DirectoryIndex>>,
+    append_index: Option<AppendIndex>,
+    append_limit: usize,
 }
 
 impl<D> fmt::Debug for FatFs<D> {
@@ -591,14 +615,20 @@ impl<D: BlockDevice> FatFs<D> {
             root_hint: ChainPos::NONE,
             chain_cache: ChainCache::new(0),
             directory_index: None,
+            append_index: None,
+            append_limit: 0,
         })
     }
 
     /// Enables bounded metadata-block caching, lazy chain-position caching and
     /// optional directory-prefix indexing. The chain-position bound is shared by
     /// all files. Mutations and recovery discard the index; the backing device
-    /// must not be changed externally while mounted. Configuration reads no I/O.
+    /// must not be changed externally while mounted. Directory indexing also
+    /// enables a bounded short-name insertion set, retained across file data
+    /// and metadata updates. Configuration reads no I/O.
     pub fn with_cache(mut self, options: CacheOptions) -> Self {
+        self.append_index = None;
+        self.append_limit = options.directory_entries.min(AppendIndex::LIMIT);
         self.chain_cache = ChainCache::new(options.positions);
         self.dev.blocks = Blocks::new(options.blocks);
         self.directory_index = (options.directory_entries != 0)
@@ -606,10 +636,17 @@ impl<D: BlockDevice> FatFs<D> {
         self
     }
 
+    #[cfg(feature = "write")]
+    pub(crate) fn with_append_planning(mut self) -> Self {
+        self.append_limit = AppendIndex::LIMIT;
+        self
+    }
+
     /// Discards cached directory names, chain positions, metadata blocks and the buffered block.
     /// Allocated metadata-block storage is retained for reuse.
     /// Pinned metadata is retained; external device changes require a remount.
     pub fn clear_cache(&mut self) {
+        self.append_index = None;
         self.chain_cache.clear();
         self.invalidate_directory();
         self.dev.blocks.clear();
@@ -974,6 +1011,7 @@ impl<D: BlockDevice> FatFs<D> {
         self.nodes
             .insert(reserved, placeholder)
             .map_err(|_| ErrorKind::LimitExceeded)?;
+        let append = self.append_index.take();
         let node = match self.create_entry(start, &new, &plan, is_dir, attrs).await {
             Ok(node) => node,
             Err(err) => {
@@ -981,6 +1019,14 @@ impl<D: BlockDevice> FatFs<D> {
                 return Err(err);
             }
         };
+        if let Some(mut append) = append {
+            if append.names.len() < self.append_limit {
+                append.insert(plan.short);
+                append.slot = plan.start + plan.slots;
+                append.hint = plan.hint;
+                self.append_index = Some(append);
+            }
+        }
         self.nodes.remove(reserved);
         let id = self.free_id(node.entry).ok_or(ErrorKind::LimitExceeded)?;
         self.nodes
@@ -1140,7 +1186,8 @@ impl<D: BlockDevice> FatFs<D> {
     }
 
     async fn finish_interrupted(&mut self) -> FsResult<(), D::Error> {
-        if self.pending.is_some() || self.run.is_some() || self.fat.unmirrored().is_some() {
+        if self.pending.is_some() || self.run.is_some() || self.rename.is_some() || self.fat.unmirrored().is_some() {
+            self.append_index = None;
             self.chain_cache.clear();
             self.invalidate_directory();
         }
@@ -1331,6 +1378,11 @@ impl<D: BlockDevice> FatFs<D> {
     }
 
     async fn put(&mut self, offset: u64, data: Option<&[u8]>, len: usize) -> FsResult<(), D::Error> {
+        self.append_index = None;
+        self.put_data(offset, data, len).await
+    }
+
+    async fn put_data(&mut self, offset: u64, data: Option<&[u8]>, len: usize) -> FsResult<(), D::Error> {
         self.invalidate_directory();
         let result = write_bytes(&mut self.dev, &mut self.block, offset, data, len).await;
         self.note(result)
@@ -1396,7 +1448,7 @@ impl<D: BlockDevice> FatFs<D> {
         let next = Node { first, size, hint, ..*state };
         let mut entry = self.read_short(state.entry).await?;
         self.touch(&mut entry, &next);
-        self.put_bytes(state.entry, &entry.encode()).await?;
+        self.put_data(state.entry, Some(&entry.encode()), ENTRY_SIZE as usize).await?;
         if let Some(id) = id {
             if let Some(node) = self.nodes.get_mut(id) {
                 node.first = first;
@@ -1565,6 +1617,24 @@ impl<D: BlockDevice> FatFs<D> {
         new: &NewName<'_>,
         skip: Skip,
     ) -> FsResult<Plan, D::Error> {
+        let eligible = self.append_limit != 0 && check_exists && new.short_only() && skip.entry.is_none() && skip.run.is_none() && !skip.label;
+        if eligible && let Some(index) = &self.append_index && index.dir == dir {
+            if index.names.binary_search(&new.candidates[0]).is_ok() {
+                return Err(ErrorKind::AlreadyExists.into());
+            }
+            let start = index.slot;
+            let mut walk = DirWalk::resume(dir, index.hint);
+            let available = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, start).await?.is_some();
+            if start >= raw::MAX_DIR_ENTRIES || (!available && matches!(dir, DirStart::Fixed { .. })) {
+                return Err(ErrorKind::NoSpace.into());
+            }
+            return Ok(Plan {
+                hint: walk.pos(), start, slots: 1, grow: u32::from(!available),
+                tail: walk.pos().cluster(), short: new.candidates[0], nt_case: new.case_bits.unwrap_or(0),
+            });
+        }
+        self.append_index = None;
+        let mut append = eligible.then(|| AppendIndex { limit: self.append_limit, dir, names: alloc::vec::Vec::new(), slot: 0, hint: ChainPos::NONE });
         let prepared = Query::new(text, raw::fold_unicode);
         let needed = new.slots();
         let mut walk = DirWalk::new(dir);
@@ -1590,14 +1660,28 @@ impl<D: BlockDevice> FatFs<D> {
                         true
                     }
                     Slot::Free => {
+                        append = None;
                         long.reset();
                         true
                     }
                     Slot::Long(part) => {
+                        append = None;
                         long.push(&part);
                         false
                     }
                     Slot::Short(entry) => {
+                        if !entry.is_label() {
+                            let name = entry.name();
+                            if !name.is_ascii() || name.iter().any(u8::is_ascii_lowercase) {
+                                append = None;
+                            } else if let Some(index) = &mut append {
+                                if index.names.len() == self.append_limit {
+                                    append = None;
+                                } else {
+                                    index.insert(name);
+                                }
+                            }
+                        }
                         let units = long
                             .finish(entry.lfn_checksum())
                             .filter(|units| !units.is_empty());
@@ -1652,6 +1736,11 @@ impl<D: BlockDevice> FatFs<D> {
         } else {
             self.hashed_short(dir, text, skip).await?
         };
+        if let Some(mut index) = append {
+            index.slot = start;
+            index.hint = walk.pos();
+            self.append_index = Some(index);
+        }
         Ok(Plan {
             hint: walk.pos(),
             start,
@@ -1739,6 +1828,7 @@ impl<D: BlockDevice> FatFs<D> {
         entry: &ShortEntry,
         grown: u32,
     ) -> FsResult<u64, D::Error> {
+        self.append_index = None;
         self.invalidate_directory();
         self.run = Run::of(dir, plan.start, plan.start + plan.slots - 1);
         let checksum = entry.lfn_checksum();
@@ -1798,6 +1888,7 @@ impl<D: BlockDevice> FatFs<D> {
 
     /// Marks slots `from..to` of `dir` deleted.
     async fn clear_slots(&mut self, dir: DirStart, from: u32, to: u32) -> FsResult<(), D::Error> {
+        self.append_index = None;
         self.invalidate_directory();
         let result = rawio::clear_slots(&mut self.dev, &mut self.block, &self.fat, dir, from, to).await;
         self.note(result)
@@ -2094,7 +2185,7 @@ impl<D: BlockDevice> FatFs<D> {
             let result = rawio::allocate(&mut self.dev, &mut self.block, &mut self.fat, held).await;
             let cluster = self.note(result)?;
             let at = self.fat.cluster_at(cluster)?;
-            self.put(at, None, self.fat.geometry().cluster_size() as usize).await?;
+            self.put_data(at, None, self.fat.geometry().cluster_size() as usize).await?;
             if last != 0 {
                 self.set_fat(last, cluster).await?;
                 if let Some(pending) = self.pending.as_mut() {
@@ -2190,7 +2281,7 @@ impl<D: BlockDevice> FatFs<D> {
             let offset = self.cluster_at(hint.cluster())? + within;
             let n = ((cluster_size - within) as usize).min(len - done);
             let n = rawio::run(&mut self.dev, &mut self.block, &self.fat, &mut hint, n, len - done).await?;
-            self.put(offset, data.map(|data| &data[done..done + n]), n).await?;
+            self.put_data(offset, data.map(|data| &data[done..done + n]), n).await?;
             done += n;
         }
         Ok(hint)
@@ -2631,7 +2722,7 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
         if let Some(time) = changes.accessed() {
             entry.set_accessed_date(date::encode(time, self.zone).0);
         }
-        self.put_bytes(state.entry, &entry.encode()).await?;
+        self.put_data(state.entry, Some(&entry.encode()), ENTRY_SIZE as usize).await?;
         if let Some(id) = id {
             self.clean(id);
         }
