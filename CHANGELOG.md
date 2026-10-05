@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- Hosted FAT entry insertion resumes from the directory position reached by its
+  planner, avoiding a second traversal of the directory chain.
+
 - The peer performance runner supports sustained FAT32 profiling loops and
   controlled cache probes, with setup and validation outside the profile window.
 

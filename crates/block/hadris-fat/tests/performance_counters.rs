@@ -258,3 +258,41 @@ fn hosted_multi_cluster_append_combines_tail_and_allocation_group() {
         fs.unmount().unwrap();
     }
 }
+
+#[test]
+fn hosted_insertion_reuses_the_planners_directory_position() {
+    use hadris_fat::sync::{FatFs, format};
+    use hadris_fat::{FatKind, FatOptions};
+    use hadris_fs::sync::FileSystem;
+    use hadris_fs::{MountOptions, Name, SetAttr};
+
+    let mut inner = MemDevice::new(vec![0; 64 << 20], BlockSize::new(512).unwrap());
+    format(
+        &mut inner,
+        &FatOptions::new()
+            .with_kind(FatKind::Fat32)
+            .with_cluster_size(512),
+    )
+    .unwrap();
+    let counts = Cell::new(IoCounts::default());
+    let dev = Counted {
+        inner,
+        counts: &counts,
+        written_blocks: None,
+    };
+    let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
+    let root = fs.root();
+    for i in 0..1000 {
+        let node = fs
+            .create(root, Name::new(&format!("F{i:07}.TXT")), &SetAttr::new())
+            .unwrap();
+        fs.forget(node, 1);
+    }
+    counts.set(IoCounts::default());
+    let node = fs
+        .create(root, Name::new("LAST.TXT"), &SetAttr::new())
+        .unwrap();
+    assert!(counts.get().read_calls <= 125, "{:?}", counts.get());
+    fs.forget(node, 1);
+    fs.unmount().unwrap();
+}

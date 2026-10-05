@@ -235,6 +235,7 @@ impl DirectoryIndex {
 
 /// Where a new entry goes.
 struct Plan {
+    hint: ChainPos,
     /// The first slot of the run.
     start: u32,
     slots: u32,
@@ -1652,6 +1653,7 @@ impl<D: BlockDevice> FatFs<D> {
             self.hashed_short(dir, text, skip).await?
         };
         Ok(Plan {
+            hint: walk.pos(),
             start,
             slots: needed,
             grow,
@@ -1740,7 +1742,7 @@ impl<D: BlockDevice> FatFs<D> {
         self.invalidate_directory();
         self.run = Run::of(dir, plan.start, plan.start + plan.slots - 1);
         let checksum = entry.lfn_checksum();
-        let mut walk = DirWalk::new(dir);
+        let mut walk = DirWalk::resume(dir, plan.hint);
         let mut written = 0;
         let result = match rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, plan.start + plan.slots - 1).await {
             Ok(Some(offset)) => {
