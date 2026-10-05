@@ -1672,7 +1672,7 @@ impl<D: BlockDevice> FatFs<D> {
                     Slot::Short(entry) => {
                         if !entry.is_label() {
                             let name = entry.name();
-                            if !name.is_ascii() || name.iter().any(u8::is_ascii_lowercase) {
+                            if name[0] == 0x05 || !name.is_ascii() || name.iter().any(u8::is_ascii_lowercase) {
                                 append = None;
                             } else if let Some(index) = &mut append {
                                 if index.names.len() == self.append_limit {

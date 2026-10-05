@@ -921,3 +921,52 @@ fn append_planning_honours_fixed_root_limits() {
         common::assert_checks_clean(case, &image, "fixed root append limit");
     }
 }
+
+#[test]
+fn append_planning_preserves_high_byte_aliases_that_decode_as_ascii() {
+    struct AliasPage;
+    impl hadris_fs::CodePage for AliasPage {
+        fn decode(&self, byte: u8) -> char {
+            if byte == 0xe5 {
+                'A'
+            } else {
+                hadris_fs::Cp437.decode(byte)
+            }
+        }
+        fn encode(&self, ch: char) -> Option<u8> {
+            hadris_fs::Cp437.encode(ch)
+        }
+    }
+    static PAGE: AliasPage = AliasPage;
+    for case in CASES[..if cfg!(miri) { 1 } else { 3 }].iter().copied() {
+        let mut fs = common::formatted(case, hadris_fat::FatOptions::new());
+        let file = fs
+            .create(fs.root(), Name::new("ALPHA.TXT"), &SetAttr::new())
+            .unwrap();
+        fs.forget(file, 1);
+        let mut image = fs.unmount().unwrap().into_inner();
+        let geo = hadris_fat_raw::parse_boot(image[..512].try_into().unwrap()).unwrap();
+        let offset = match geo.root() {
+            hadris_fat_raw::RootLocation::Fixed { start, .. } => start,
+            hadris_fat_raw::RootLocation::Cluster(first) => geo.cluster_offset(first).unwrap(),
+        };
+        image[offset as usize] = 0x05;
+        let mut fs = FatFs::mount(
+            common::device(case, image),
+            MountOptions::new().with_code_page(&PAGE),
+        )
+        .unwrap()
+        .with_cache(CacheOptions::new().with_directory_entries(64));
+        let root = fs.root();
+        let file = fs
+            .create(root, Name::new("SAFE.TXT"), &SetAttr::new())
+            .unwrap();
+        fs.forget(file, 1);
+        assert_eq!(
+            fs.create(root, Name::new("ALPHA.TXT"), &SetAttr::new())
+                .unwrap_err()
+                .kind(),
+            ErrorKind::AlreadyExists
+        );
+    }
+}
