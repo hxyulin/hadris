@@ -153,6 +153,10 @@ This deliberate metadata difference should be considered when interpreting
 formatting timings. The reference remains unmodified apart from official
 patches and configuration.
 
+`HADRIS_TESTS_PERF_PEERS` accepts comma-separated implementation names, such as
+`hadris,chan-fatfs/helper,dosfstools+mtools`, to restrict comparisons to those
+peers. An unset variable runs every available peer.
+
 ## Profiling FAT32 root operations
 
 The peer runner has a diagnostic loop separate from its CSV comparison mode:
@@ -221,3 +225,56 @@ buffer on every seek, explaining why that buffering variant barely reduces
 this workload's read-call count. The reproduction, scaling results and
 possible improvements are reported in
 [rust-fatfs issue #123](https://github.com/rafalh/rust-fatfs/issues/123).
+
+## FAT bulk creation after profiling fixes
+
+A fresh 2026-10-06 Apple M3 Pro comparison used 21 measured samples per case,
+1,000 seven-byte files and one 128 KiB payload in a 64 MiB FAT32 image.
+Each configuration used the same host-workflow timer and raw-oracle validation.
+The original library was `d1eeb6f8`; insertion-position reuse was `109730ae`;
+bounded short-name planning was `c53490f7`.
+
+| Implementation / configuration | Create median | Requested image reads | Image writes |
+|---|---:|---:|---:|
+| Hadris before these fixes | 94.82 ms | 72,353 | 7,593 |
+| Hadris insertion-position reuse only | 92.16 ms | 67,017 | 7,593 |
+| Hadris both fixes | 40.48 ms | 4,528 | 7,593 |
+| dosfstools + mtools | 36.48 ms | Not instrumented | Not instrumented |
+| ChaN FatFs helper | 133.55 ms | 127,393 | 6,739 |
+
+The combined change is 2.34 times faster than the fresh baseline, with 93.7%
+fewer requested image reads. It is about 11% slower than mtools and 3.30 times
+faster than the FatFs helper in this run. These are separate sequential sample
+sets with warm OS caches, not simultaneous trials or cold-device measurements.
+The older 150.30 ms Hadris result above came from a different run; use the fresh
+94.82 ms baseline for this change's improvement. rust-fatfs was excluded from
+this focused rerun, so its earlier measurements are not new comparison data.
+
+Insertion now resumes from the chain position reached during planning. Bulk
+writing also retains a sorted, bounded set of short names and the next insertion
+slot for a dense ASCII 8.3 directory. Long names, non-ASCII short names, deleted
+slots, directory switches and capacity overflow retain the regular planning
+path. Namespace mutations and interrupted-operation recovery discard the set.
+File contents and metadata updates can retain it. Ordinary mounts leave this
+set disabled; directory-cached mounts enable it within their requested entry
+bound, capped at 2048. The bulk writer enables a 2048-name set internally,
+using at most 22 KiB of name storage and no additional metadata-block cache.
+
+Uncached extraction did not improve: 117.08 ms before versus 115.24 ms after,
+with 63,916 reads in both configurations. The current mtools and FatFs helper
+extraction medians were 70.64 ms and 86.24 ms. The existing directory-index
+read probes above remain the evidence for pursuing that separate gap.
+
+To reproduce the final focused comparison:
+
+```sh
+HADRIS_TESTS_PERF_FILTER=fat32 HADRIS_TESTS_PERF_FILES=1000 \
+HADRIS_TESTS_PERF_SAMPLES=21 \
+HADRIS_TESTS_PERF_PEERS=hadris,chan-fatfs/helper,dosfstools+mtools \
+HADRIS_TESTS_CHAN_FATFS="$PWD/tests/target/chan-fatfs/chan-fatfs" \
+  cargo bench --manifest-path tests/Cargo.toml --bench peers
+```
+
+The helper must first be built with `python3 scripts/build-fatfs-peer.py`, and
+mtools and dosfstools must be on `PATH`. Each case validates names and file
+contents outside its timer; counters reported zero I/O failures throughout.
