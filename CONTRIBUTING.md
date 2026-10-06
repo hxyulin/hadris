@@ -68,6 +68,27 @@ remains the library MSRV. Feature tiers are checked independently from
 RUSTUP_TOOLCHAIN=1.88.0 RUSTFLAGS="-D warnings" python3 scripts/check-features.py all
 ```
 
+### CI coverage
+
+Rust CI always reports the required `Check`, `Test (ubuntu-latest)`, `Format`
+and `Clippy` contexts. Workflow path globs select expensive jobs:
+
+| Changed inputs | Coverage |
+|---|---|
+| Library/example sources, fixtures, manifests, toolchain or build-check tooling | Workspace tests, MSRV tiers, embedded builds, Miri, docs and interoperability |
+| Detached `tests/` suite | Suite formatting, Clippy and conformance/interoperability jobs |
+| Native-tool setup or peer helper scripts | Native and interoperability jobs |
+| Specification catalogs or checkers | Specification checks |
+| Manifests, lockfiles or license policy | Dependency licenses |
+| README, website or unrelated prose | Documentation workflow; Rust builds/tests are skipped |
+
+The path-filter action's rules live in `rust.yml`; no custom change-detection
+script is needed. Required checks still complete for docs-only PRs, and a
+failed scope job fails `Check`. V3 guardrails use workflow-level paths because
+they are not required branch-protection contexts. Rust source changes retain
+full platform coverage. CodeQL is configured separately through GitHub's
+code-scanning settings.
+
 ### Performance measurements
 
 The FAT benchmark measures device calls and bytes as well as runtime for the
