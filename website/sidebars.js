@@ -5,6 +5,7 @@ module.exports = {
   docs: [
     "index",
     "getting-started",
+    "migration",
     "crates",
     {
       type: "category",

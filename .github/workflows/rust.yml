@@ -283,7 +283,7 @@ jobs:
         shell: bash
         run: |
           cargo run --quiet -p hadris-storage --no-default-features --features sync --example aligned_device
-          for example in apfs-inspect boot-media extract image-edit initramfs inspect sd-logger vfs-driver; do
+          for example in apfs-inspect boot-media extract image-edit initramfs inspect migrate-v3 sd-logger vfs-driver; do
             cargo run --quiet -p "hadris-example-$example"
           done
           for bin in fat fat-log fat-unicode fat-async exfat; do

@@ -7,7 +7,9 @@ title: Stability and compatibility
 This source tree prepares Hadris 3.0.0-rc.1. Hadris 2.5.0 is the current
 stable release of V2, whose source is retained at the
 [`v2.5.0` tag](https://github.com/hxyulin/hadris/tree/v2.5.0).
-Both follow Semantic Versioning: within a major series,
+The candidate is currently source-only; see [installation](./getting-started.md).
+The default site documents rc.1, and archived V2 pages are available in the
+version selector. Released stable APIs follow Semantic Versioning: within a major series,
 breaking changes require a new major version, minor releases add
 backward-compatible functionality, and patch releases carry correctness
 fixes, interoperability qualification, and documentation.

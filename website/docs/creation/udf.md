@@ -5,30 +5,32 @@ title: Create UDF filesystems
 # Create UDF filesystems
 
 `hadris-udf` writes mastered, read-only type 1 UDF volumes from a
-`hadris_fs::Tree`. `write_bridge` writes a shared ISO/UDF bridge image.
+`hadris::fs::Tree`. `write_bridge` writes a shared ISO/UDF bridge image.
 
 ## Dependency
 
 ```toml
-[dependencies]
-hadris-fs = { version = "3.0.0-rc.1", features = ["std", "sync"] }
-hadris-udf = "3.0.0-rc.1"
-hadris-storage = "3.0.0-rc.1"
+[dependencies.hadris]
+version = "3.0.0-rc.1"
+git = "https://github.com/hxyulin/hadris"
+branch = "main"
+default-features = false
+features = ["std", "sync", "udf", "iso"]
 ```
 
 ## Create a volume
 
 ```rust,no_run
-use hadris_fs::{Content, Node, Tree};
-use hadris_udf::UdfOptions;
+use hadris::fs::{Content, Node, Tree};
+use hadris::udf::UdfOptions;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut tree = Tree::new();
     tree.insert("README.txt", Node::file(Content::bytes("Hello from a UDF image\n")))?;
     tree.insert("docs/guide.txt", Node::file(Content::bytes("UDF guide\n")))?;
 
-    let target = hadris_storage::host::FileDevice::new(std::fs::File::create("volume.udf")?)?;
-    let report = hadris_udf::sync::write(target, &tree, &UdfOptions::default())?;
+    let target = hadris::storage::host::FileDevice::new(std::fs::File::create("volume.udf")?)?;
+    let report = hadris::udf::sync::write(target, &tree, &UdfOptions::default())?;
     println!("wrote {} bytes", report.size());
     Ok(())
 }
@@ -36,15 +38,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 A `FileDevice` over a host file grows as the writer writes it, and so does a
 `Vec<u8>`. For a fixed-size device such as a
-`MemDevice`, size it with `hadris_udf::plan(&tree, &options)` first, which
+`MemDevice`, size it with `hadris::udf::plan(&tree, &options)` first, which
 does no I/O; `write` refuses a device that is too small before writing
-anything. `hadris_fs::host::read_tree` imports a host directory without
+anything. `hadris::fs::host::read_tree` imports a host directory without
 reading the files until the image is written.
 
 ## Select a mastered revision
 
 ```rust
-use hadris_udf::{UdfId, UdfOptions, UdfRevision};
+use hadris::udf::{UdfId, UdfOptions, UdfRevision};
 
 let options = UdfOptions::default()
     .with_id(UdfId::Volume, "ARCHIVE_2026")
@@ -72,8 +74,8 @@ from `with_seed`, or the time, and the tree's paths, sizes and times;
 
 Do not concatenate separate ISO and UDF images. A bridge coordinates
 descriptor locations, directory ICBs and payload extents.
-`hadris_udf::sync::write_bridge(dev, &tree, &iso_options, &udf_options)`
-writes one, and `hadris_udf::plan_bridge` plans it without I/O. Both
+`hadris::udf::sync::write_bridge(dev, &tree, &iso_options, &udf_options)`
+writes one, and `hadris::udf::plan_bridge` plans it without I/O. Both
 namespaces point at the same file data. From the command line:
 
 ```bash

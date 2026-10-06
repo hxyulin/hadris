@@ -2,10 +2,10 @@ use std::fs::File;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
-use hadris_io::StdIo;
-use hadris_part::PartitionKind;
-use hadris_storage::sync::StreamDevice;
-use hadris_storage::{BlockSize, ReadOnly};
+use hadris::io::StdIo;
+use hadris::part::PartitionKind;
+use hadris::storage::sync::StreamDevice;
+use hadris::storage::{BlockSize, ReadOnly};
 
 fn main() -> Result<()> {
     let (image_path, block_size) = arguments()?;
@@ -13,7 +13,7 @@ fn main() -> Result<()> {
         .with_context(|| format!("failed to open {}", image_path.display()))?;
     let mut device = StreamDevice::new(ReadOnly::new(StdIo::new(image)), block_size)
         .with_context(|| format!("failed to size {}", image_path.display()))?;
-    let disk = hadris_part::sync::read(&mut device)
+    let disk = hadris::part::sync::read(&mut device)
         .with_context(|| format!("failed to read partitions from {}", image_path.display()))?;
 
     println!(

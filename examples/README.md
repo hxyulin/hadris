@@ -1,8 +1,24 @@
 # Hadris examples
 
-Runnable, task-oriented applications showing how the published crates fit
-together. Each directory is a small workspace package and is compiled by
+Runnable, task-oriented applications showing how the V3 crates fit together. Each directory is a small workspace package and is compiled by
 `cargo check --workspace`.
+
+## Start with the V3 migration
+
+```sh
+cargo run --locked -p hadris-example-migrate-v3
+```
+
+[`migrate-v3`](migrate-v3) uses only `hadris`, builds a FAT image, writes through
+`Volume`, closes and unmounts, reads through the bare `FileSystem` driver and
+embedded FAT handles, then reads an ISO through the same generic function.
+It needs no input and runs in CI. The
+[migration guide](../docs/hadris-3.0.0-migration.md) maps the V2 calls it replaces.
+
+The tool examples `fat-list`, `partition-list` and `cpio-create` also use one
+Hadris dependency with explicit formats. Workspace paths select this checkout;
+[the installation guide](../website/docs/getting-started.md) gives the
+`3.0.0-rc.1` Git recipe for an external application.
 
 ## Use cases
 
@@ -14,6 +30,7 @@ covers.
 
 | Example | User | What it does |
 |---|---|---|
+| [`migrate-v3`](migrate-v3) | migration | One dependency, path handles, generic FAT/ISO reads and embedded FAT handles |
 | [`apfs-inspect`](apfs-inspect) | inspection and VFS | Mounts a read-only APFS volume, checks inode/cursor operations and sparse/linked files, extracts through the generic tree API, and selects a named volume from a container |
 | [`boot-media`](boot-media) | image builder | A GPT USB disk with a FAT ESP, a BIOS and UEFI hybrid ISO sharing one ESP, and an ISO/UDF bridge, each read back |
 | [`initramfs`](initramfs) | image builder | A microcode segment and a root archive streamed to a pipe-like sink, read back segment by segment from a non-seekable reader |

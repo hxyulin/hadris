@@ -18,7 +18,7 @@ directly when the hardware addresses whole blocks.
 
 ```toml
 [dependencies]
-hadris-io = { version = "3.0.0-rc.1", default-features = false, features = ["sync"] }
+hadris-io = { version = "3.0.0-rc.1", git = "https://github.com/hxyulin/hadris", branch = "main", default-features = false, features = ["sync"] }
 ```
 
 `hadris_io::sync::Read`, `Write` and `Seek` report the implementor's own error
@@ -100,7 +100,7 @@ through unchanged.
 ```toml
 [dependencies]
 embedded-io = "0.7"
-hadris-io = { version = "3.0.0-rc.1", default-features = false, features = ["sync", "embedded-io"] }
+hadris-io = { version = "3.0.0-rc.1", git = "https://github.com/hxyulin/hadris", branch = "main", default-features = false, features = ["sync", "embedded-io"] }
 ```
 
 ```rust,no_run
@@ -151,7 +151,7 @@ Allocation-free firmware uses `hadris::fat::embedded::sync::Fat` instead.
 
 ```toml
 [dependencies]
-hadris = { version = "3.0.0-rc.1", default-features = false, features = ["alloc", "sync", "fat"] }
+hadris = { version = "3.0.0-rc.1", git = "https://github.com/hxyulin/hadris", branch = "main", default-features = false, features = ["alloc", "sync", "fat"] }
 ```
 
 ```rust,no_run

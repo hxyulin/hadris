@@ -5,18 +5,20 @@ title: FAT and exFAT on a microcontroller
 # Use FAT and exFAT on a microcontroller
 
 Firmware without an allocator uses the embedded API of `hadris-fat`:
-`hadris_fat::embedded::sync::Fat` reads and writes FAT12, FAT16 and FAT32,
-and `hadris_fat::exfat::embedded::sync::ExFat` reads exFAT. Both have an
+`hadris::fat::embedded::sync::Fat` reads and writes FAT12, FAT16 and FAT32,
+and `hadris::fat::exfat::embedded::sync::ExFat` reads exFAT. Both have an
 `r#async` twin for single-threaded executors such as Embassy. They are
 built on the `hadris-fat-raw` device primitives rather than on `FatFs`,
 keep one 512-byte block buffer and a fixed number of file slots, and need
 neither `std` nor `alloc`.
 
 ```toml
-[dependencies]
-hadris-fat = { version = "3.0.0-rc.1", default-features = false, features = ["sync", "write"] }
-hadris-fs = { version = "3.0.0-rc.1", default-features = false }
-hadris-storage = { version = "3.0.0-rc.1", default-features = false, features = ["sync"] }
+[dependencies.hadris]
+version = "3.0.0-rc.1"
+git = "https://github.com/hxyulin/hadris"
+branch = "main"
+default-features = false
+features = ["sync", "write", "fat"]
 ```
 
 `write` adds `format`; drop it if the firmware only mounts cards that are
@@ -25,8 +27,8 @@ already formatted. Use `async` in place of `sync` for the async API.
 ## Provide a device
 
 The embedded API takes a device whose blocks are 512 bytes. Sync firmware
-implements `hadris_storage::sync::BlockDevice`; async firmware implements
-`hadris_storage::local::BlockDevice`, whose futures need not be `Send`.
+implements `hadris::storage::sync::BlockDevice`; async firmware implements
+`hadris::storage::local::BlockDevice`, whose futures need not be `Send`.
 [Adapt a custom device](./custom-io.md) shows the trait. An SD card driver
 maps `read_blocks` and `write_blocks` onto its block commands.
 
@@ -34,11 +36,11 @@ maps `read_blocks` and `write_blocks` onto its block commands.
 
 ```rust,ignore
 use core::ops::ControlFlow;
-use hadris_fat::embedded::{MountToken, Options, sync::Fat};
-use hadris_fs::{DirCursor, OpenOptions};
+use hadris::fat::embedded::{MountToken, Options, sync::Fat};
+use hadris::fs::{DirCursor, OpenOptions};
 
 let mut token = MountToken::new();
-let mut fat: Fat<_> = Fat::mount_with(card, &mut token, Options::new())?;
+let mut fat: Fat<'_, _> = Fat::mount_with(card, &mut token, Options::new())?;
 let root = fat.root();
 let logs = fat.create_dir_all(root, "data/logs")?;
 let log = fat.open(logs, "boot.txt", OpenOptions::new().write().create().append())?;
@@ -76,13 +78,19 @@ not link it.
 
 ## Power loss and cancelled futures
 
-Writes follow the same ordering as `FatFs`: clusters are marked in the FAT
-before anything points to them, long names go before their short entry, and
-the active FAT copy is written first. A power cut or a dropped async future
-leaves at worst lost clusters, which the next writing call or `sync` on the
-same `Fat` frees. A file's size reaches its entry at `flush`, `close`,
-`sync` and `unmount`, so call `flush` after a record that must survive a
-reset.
+The drivers order writes and retain some recovery state in memory for failed
+or cancelled operations. A later write or `sync` on the same mounted driver
+can finish that recovery. This state does not survive a reset: power loss can
+leave lost clusters, torn metadata or partially completed renames. The API
+provides no transaction or rollback guarantee; see the
+[known durability limits](https://github.com/hxyulin/hadris/blob/main/KNOWN_ISSUES.md).
+
+A file's size reaches its entry at `flush`, `close`, `sync` and `unmount`.
+Call `flush` after a record that must be durable, and close files before
+unmounting. The device's `flush` must reach persistent storage. Async DMA
+adapters must stop accessing borrowed buffers when their future is dropped;
+[device requirements](./custom-io.md#hardware-alignment-and-transfer-limits)
+describe this boundary.
 
 ## Budget
 

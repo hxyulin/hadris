@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - "README.md"
+      - "docs/hadris-3.0.0-migration.md"
+      - "examples/README.md"
       - "crates/**"
       - "scripts/check-docs.py"
       - "website/**"
@@ -12,6 +14,8 @@ on:
   pull_request:
     paths:
       - "README.md"
+      - "docs/hadris-3.0.0-migration.md"
+      - "examples/README.md"
       - "crates/**/README.md"
       - "scripts/check-docs.py"
       - "website/**"
@@ -37,7 +41,7 @@ jobs:
           fetch-depth: 0
       - name: Self-test documentation checker
         run: python3 scripts/check-docs.py --self-test
-      - name: Check documentation links and package READMEs
+      - name: Check documentation links, TOML recipes and package READMEs
         run: python3 scripts/check-docs.py
       - uses: actions/setup-node@v7
         with:
@@ -54,9 +58,9 @@ jobs:
         working-directory: website
         run: npm run build
 
-  # One build serves every version: the newest released minor at the root,
-  # older released minors under X.Y/ (generated from the release tags) and
-  # unreleased docs from main under next/. Set DOCS_DOMAIN (for
+  # One build serves current V3 docs at the root, release snapshots under
+  # X.Y/ and redirects from next/. Source API docs remain under next/api/.
+  # Set DOCS_DOMAIN (for
   # example docs.example.org) after configuring that custom domain for Pages.
   build:
     if: github.event_name != 'pull_request'
@@ -70,7 +74,7 @@ jobs:
           ref: main
           fetch-depth: 0
           fetch-tags: true
-      - name: Check documentation links and package READMEs
+      - name: Check documentation links, TOML recipes and package READMEs
         run: python3 scripts/check-docs.py
       - uses: actions/setup-node@v7
         with:

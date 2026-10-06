@@ -9,8 +9,12 @@ advance. Detection is non-destructive: it only reads identifying metadata and
 never writes. Opening performs the format's full validation.
 
 ```toml
-[dependencies]
-hadris = "3.0.0-rc.1"
+[dependencies.hadris]
+version = "3.0.0-rc.1"
+git = "https://github.com/hxyulin/hadris"
+branch = "main"
+default-features = false
+features = ["std", "sync", "detect"]
 ```
 
 The default features include `detect`, which adds `fat`, `iso`, `udf` and

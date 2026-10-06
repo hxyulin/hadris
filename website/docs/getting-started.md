@@ -2,62 +2,100 @@
 title: Getting started
 ---
 
-# Getting started
+# Getting started with 3.0.0-rc.1
 
-Choose the narrowest crate that covers your application:
+Use `hadris` for a single dependency that reaches the format drivers, shared
+filesystem API, block devices and stream adapters. Disable defaults to choose
+only the formats and I/O mode the application needs.
+
+## Get the release candidate
+
+The repository prepares `3.0.0-rc.1`; it is not published on crates.io yet.
+This recipe selects the rc.1 manifests from `main`:
 
 ```toml
-[dependencies]
-# A single filesystem:
-hadris-fat = "3.0.0-rc.1"
-
-# Read-only NTFS (preview):
-hadris-ntfs = "3.0.0-rc.1"
-
-# Or several storage categories:
-hadris = { version = "3.0.0-rc.1", features = ["udf", "part"] }
+[dependencies.hadris]
+version = "3.0.0-rc.1"
+git = "https://github.com/hxyulin/hadris"
+branch = "main"
+default-features = false
+features = ["std", "sync", "fat"]
 ```
 
-Hadris separates platform support, I/O mode, and capabilities. For a
-freestanding FAT or exFAT consumer, which needs an allocator for the
-driver's node table but not `std`:
+Use a reviewed `rev` instead of `branch` for a reproducible Git dependency.
+After rc.1 is published, remove `git` and `branch` to select it from crates.io.
+A plain `version = "3"` cannot select a prerelease. The recipes in these guides
+include the Git source so they work before publication.
 
-```toml
-[dependencies]
-hadris-fat = {
-  version = "3.0.0-rc.1",
-  default-features = false,
-  features = ["alloc", "sync"]
+For source examples and the CLI:
+
+```sh
+git clone https://github.com/hxyulin/hadris.git
+cd hadris
+cargo run --locked -p hadris-example-migrate-v3
+cargo run --locked -p hadris-cli -- --help
+```
+
+The migration example builds its own FAT and ISO images and verifies path
+handles, generic filesystem reads and the allocation-free FAT API. It needs
+no input or external image tools.
+
+## Read a FAT image
+
+```rust,no_run
+use hadris::fat::sync::FatFs;
+use hadris::fs::MountOptions;
+use hadris::fs::sync::Volume;
+use hadris::host::FileDevice;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let device = FileDevice::open("disk.img")?;
+    let fs = FatFs::mount(device, MountOptions::new().read_only())?;
+    let volume = Volume::new(fs);
+    for entry in volume.read_dir("/")? {
+        println!("{}", String::from_utf8_lossy(entry?.name().as_bytes()));
+    }
+    Ok(())
 }
 ```
 
-For hosted applications, the default features provide the synchronous API
-with `std`. Every I/O type is named through its mode module
-(`hadris_fat::sync::FatFs`, `hadris_iso::r#async::IsoFs`), so the same code
-reads the same way whichever modes are enabled.
+`hadris::fat`, `hadris::fs`, `hadris::storage` and `hadris::io` are re-exports
+of the same public APIs offered by the individual crates. The umbrella does
+not require detection or additional formats when defaults are disabled.
+[Choose individual crates](./crates.md) when managing those dependencies and
+versions directly is useful.
 
-Every filesystem driver implements the `hadris-fs` `FileSystem` trait, which
-works on node ids. Wrap a driver in `hadris_fs::sync::Volume` for paths and
-methods named after `std::fs` (`read_dir`, `open`, `metadata`,
-`create_dir_all`) and to share it between handles and threads.
+## Pick the interface and features
 
-The NTFS reader is a preview and is outside the stability promise. Its crate
-README documents the supported read-only scope and known gaps.
+| Application | Features on `hadris` | Interface |
+|---|---|---|
+| Host FAT reader/editor | `std`, `sync`, `fat` | `fat::sync::FatFs` and `fs::sync::Volume` |
+| Host FAT formatter | Add `write` | `fat::sync::format` or `write` |
+| Unknown host image | `std`, `sync`, `detect`; add `part` for partition operations | `host::open` or `sync::detect` |
+| Allocator-equipped FAT kernel | `alloc`, `sync`, `fat` | Bare `FileSystem` driver; sync `Volume` requires `std` |
+| Allocated async FAT | `alloc`, `async`, `fat` | `fat::r#async::FatFs` and async `Volume` |
+| Allocation-free FAT firmware | `sync`, `fat` | `fat::embedded::sync::Fat`; 512-byte device blocks |
+| Allocation-free ISO/UDF reader | `sync`, `iso` or `udf` | Bare `FileSystem` driver |
+| Streaming CPIO | `sync`, `cpio`; add `alloc` for writing | `cpio::sync::CpioReader` or `Writer` |
 
-For the complete support table and feature recipes, see
-[Features and capabilities](./concepts/features.md).
+`std` implies `alloc`, but neither selects an I/O mode. `write` adds FAT and
+exFAT formatting; ordinary file mutation is already available in their drivers.
+Reading is always compiled in stable format crates. The APFS preview retains
+its `read` feature internally.
+
+Use `Volume` for paths and handles, and the bare `FileSystem` trait for node
+operations and platform integrations. Close written files and explicitly
+unmount when errors from metadata publication or device flush must be reported.
+The shared async tier requires `Send` devices/futures. The embedded FAT/exFAT
+tier supports local futures; see [async support boundaries](./guides/async-io.md).
 
 ## Next steps
 
-- [Choose a crate](./crates.md)
-- [Understand the storage and I/O model](./concepts/storage-model.md)
-- [Detect and open an unknown image](./guides/detect-open-images.md)
-- [Read a FAT image](./guides/read-fat-image.md)
-- [Inspect a partition table](./guides/read-partition-table.md)
-- [Open FAT inside a partition](./guides/open-partitioned-fat.md)
-- [Read an ISO](./guides/read-iso.md)
-- [Read UDF](./guides/read-udf.md)
-- [Create an ISO](./creation/iso.md)
-- [Build a CPIO initramfs](./guides/build-initramfs.md)
-- [Use asynchronous I/O](./guides/async-io.md)
-- [Configure a `no_std` target](./guides/no-std.md)
+- [Migrate a 2.x application](./migration.md)
+- [Read and edit FAT](./guides/read-fat-image.md)
+- [Detect an unknown image](./guides/detect-open-images.md)
+- [Open a filesystem inside a partition](./guides/open-partitioned-fat.md)
+- [Read ISO](./guides/read-iso.md) or [UDF](./guides/read-udf.md)
+- [Create an ISO](./creation/iso.md) or [build an initramfs](./guides/build-initramfs.md)
+- [Select features](./concepts/features.md) for [no_std](./guides/no-std.md) or [firmware](./guides/embedded.md)
+- [Browse the compiled examples](https://github.com/hxyulin/hadris/blob/main/examples/README.md)
