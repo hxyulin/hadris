@@ -23,8 +23,8 @@
       "summary": "The tag checksum is the modulo-256 sum of tag bytes zero through three and five through fifteen.",
       "direction": "both",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/raw/mod.rs", "name": "Tag::is_checksum_valid"}],
-      "tests": [{"path": "crates/optical/hadris-udf/src/raw/mod.rs", "name": "tag_seal_and_parse_roundtrip", "kind": "unit"}],
+      "symbols": [{"path": "crates/optical/hadris-udf-raw/src/raw/mod.rs", "name": "Tag::is_checksum_valid"}],
+      "tests": [{"path": "crates/optical/hadris-udf-raw/src/raw/mod.rs", "name": "tag_seal_and_parse_roundtrip", "kind": "unit"}],
       "gap": null
     },
     {
@@ -35,7 +35,7 @@
       "summary": "The reserved descriptor-tag byte is zero.",
       "direction": "both",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/volume.rs", "name": "check_tag"}, {"path": "crates/optical/hadris-udf/src/raw/mod.rs", "name": "Tag::seal"}],
+      "symbols": [{"path": "crates/optical/hadris-udf/src/volume.rs", "name": "check_tag"}, {"path": "crates/optical/hadris-udf-raw/src/raw/mod.rs", "name": "Tag::seal"}],
       "tests": [{"path": "crates/optical/hadris-udf/src/volume.rs", "name": "tags_are_checked_for_version_reserved_byte_location_and_crc", "kind": "unit"}],
       "gap": null
     },
@@ -47,8 +47,8 @@
       "summary": "A nonempty descriptor CRC covers the declared payload length using CRC-ITU-T.",
       "direction": "both",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/raw/mod.rs", "name": "Tag::is_crc_valid"}, {"path": "crates/optical/hadris-udf/src/raw/mod.rs", "name": "Tag::seal"}],
-      "tests": [{"path": "crates/optical/hadris-udf/src/volume.rs", "name": "tags_are_checked_for_version_reserved_byte_location_and_crc", "kind": "unit"}, {"path": "crates/optical/hadris-udf/src/raw/mod.rs", "name": "crc_matches_the_itu_reference", "kind": "unit"}],
+      "symbols": [{"path": "crates/optical/hadris-udf-raw/src/raw/mod.rs", "name": "Tag::is_crc_valid"}, {"path": "crates/optical/hadris-udf-raw/src/raw/mod.rs", "name": "Tag::seal"}],
+      "tests": [{"path": "crates/optical/hadris-udf/src/volume.rs", "name": "tags_are_checked_for_version_reserved_byte_location_and_crc", "kind": "unit"}, {"path": "crates/optical/hadris-udf-raw/src/raw/mod.rs", "name": "crc_matches_the_itu_reference", "kind": "unit"}],
       "gap": null
     },
     {
@@ -95,7 +95,7 @@
       "summary": "A File Identifier Descriptor uses its defined fixed fields, variable fields, and four-byte padding.",
       "direction": "read",
       "status": "partial",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/read.rs", "name": "fid_at"}, {"path": "crates/optical/hadris-udf/src/raw/file.rs", "name": "FileIdentifierDescriptor"}],
+      "symbols": [{"path": "crates/optical/hadris-udf/src/read.rs", "name": "fid_at"}, {"path": "crates/optical/hadris-udf-raw/src/raw/file.rs", "name": "FileIdentifierDescriptor"}],
       "tests": [{"path": "crates/optical/hadris-udf/tests/roundtrip.rs", "name": "every_tree_reads_back", "kind": "integration"}, {"path": "crates/optical/hadris-udf/tests/read.rs", "name": "identifiers_cross_extent_boundaries", "kind": "integration"}, {"path": "crates/optical/hadris-udf/tests/errors.rs", "name": "malformed_volumes_are_refused", "kind": "integration"}, {"path": "crates/optical/hadris-udf/tests/errors.rs", "name": "malformed_identifier_fields_are_refused", "kind": "integration"}],
       "gap": "Fixed fields, bounds, tag location, reserved bits, implementation-use length and padding are checked across extents; implementation-use payloads and stream-directory semantics are not interpreted."
     },

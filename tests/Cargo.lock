@@ -248,7 +248,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-udf"
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 dependencies = [
  "bitflags",
  "bytemuck",
@@ -257,6 +257,15 @@ dependencies = [
  "hadris-iso",
  "hadris-macros",
  "hadris-storage",
+ "hadris-udf-raw",
+]
+
+[[package]]
+name = "hadris-udf-raw"
+version = "0.1.0"
+dependencies = [
+ "bitflags",
+ "bytemuck",
 ]
 
 [[package]]

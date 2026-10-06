@@ -8,6 +8,11 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **hadris-udf-raw:** Extracted the existing on-disk layouts and I/O-free
+  codecs into an independently versioned, allocation-free `no_std` crate.
+  `hadris-udf::raw` remains compatible and uses the same implementation.
+  The driver advances to `3.0.0-rc.2` for the crate-boundary change.
+
 - **hadris-iso-raw:** Extracted the existing on-disk layouts and I/O-free
   codecs into an independently versioned, allocation-free `no_std` crate.
   `hadris-iso::raw` remains compatible and uses the same implementation.

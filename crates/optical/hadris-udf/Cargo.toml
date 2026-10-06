@@ -1,7 +1,7 @@
 [package]
 name = "hadris-udf"
 autotests = false
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -28,6 +28,7 @@ async = ["hadris-io/async", "hadris-fs/async", "hadris-storage/async", "hadris-i
 tracing = ["std", "dep:tracing", "hadris-iso?/tracing"]
 
 [dependencies]
+hadris-udf-raw = { workspace = true }
 tracing = { workspace = true, optional = true }
 bitflags = { workspace = true }
 bytemuck = { workspace = true, features = ["derive", "min_const_generics"] }
@@ -76,3 +77,6 @@ required-features = ["std", "sync"]
 name = "kernels"
 harness = false
 required-features = ["std", "sync"]
+
+[[test]]
+name = "raw_compat"

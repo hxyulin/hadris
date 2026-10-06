@@ -62,6 +62,7 @@ crates=(
   hadris-part
   hadris-storage
   hadris-udf
+  hadris-udf-raw
 )
 
 metadata="$(cargo metadata --no-deps --format-version 1)"

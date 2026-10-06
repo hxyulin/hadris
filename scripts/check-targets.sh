@@ -23,6 +23,7 @@ no_alloc=(
   "hadris-part:sync,async"
   "hadris-iso-raw:"
   "hadris-iso:sync,async"
+  "hadris-udf-raw:"
   "hadris-udf:sync,async"
   "hadris-cpio:sync,async"
   "hadris-ntfs:sync,async"

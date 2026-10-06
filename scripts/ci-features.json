@@ -290,6 +290,11 @@
   ],
   "optical": [
     {
+      "crate": "hadris-udf-raw",
+      "tier": "no-std-codecs",
+      "features": ""
+    },
+    {
       "crate": "hadris-iso-raw",
       "tier": "no-std-codecs",
       "features": ""

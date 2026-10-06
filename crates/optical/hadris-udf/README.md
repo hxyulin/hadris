@@ -157,3 +157,10 @@ Licensed under the [MIT license](../../../LICENSE-MIT).
 The opt-in `tracing` feature enables `std` and emits operation spans through the
 application’s subscriber. It is disabled by default. See the
 [tracing guide](../../../docs/tracing.md) for targets, metadata and async behavior.
+
+## Standalone codecs
+
+The on-disk layouts and I/O-free codecs live in
+[`hadris-udf-raw`](../hadris-udf-raw). Existing `hadris_udf::raw`
+paths remain available and refer to the same types. The raw crate needs
+neither an allocator nor a sync/async feature.
