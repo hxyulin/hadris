@@ -400,6 +400,50 @@ mod device_tests {
     }
 
     #[test]
+    fn file_device_explicit_block_size_reads_writes_and_grows() {
+        let path = temp_path("4k");
+        let size = BlockSize::new(4096).unwrap();
+        std::fs::write(&path, [5u8; 8193]).unwrap();
+        let file = std::fs::File::options()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        let mut dev = FileDevice::with_block_size(file, size).unwrap();
+        assert_eq!(dev.block_size(), size);
+        assert_eq!(dev.block_count(), 2);
+        assert_eq!(dev.max_block_count(), u64::MAX / 4096);
+        assert_eq!(
+            kind(dev.read_blocks(BlockIndex::new(0), &mut [0; 512])),
+            ErrorKind::InvalidInput
+        );
+        assert_eq!(
+            kind(dev.write_blocks(BlockIndex::new(u64::MAX), &[0; 4096])),
+            ErrorKind::InvalidInput
+        );
+        dev.write_blocks(BlockIndex::new(3), &[9; 4096]).unwrap();
+        assert_eq!(dev.block_count(), 4);
+        let mut block = [0; 4096];
+        dev.read_blocks(BlockIndex::new(2), &mut block).unwrap();
+        assert_eq!(block[0], 5);
+        assert!(block[1..].iter().all(|&byte| byte == 0));
+        dev.read_blocks(BlockIndex::new(3), &mut block).unwrap();
+        assert_eq!(block, [9; 4096]);
+        drop(dev);
+        let mut dev = FileDevice::open_with_block_size(&path, size).unwrap();
+        assert_eq!(dev.block_count(), 4);
+        assert_eq!(dev.max_block_count(), 4);
+        assert!(!dev.writable());
+        assert_eq!(
+            kind(dev.write_blocks(BlockIndex::new(0), &block)),
+            ErrorKind::ReadOnly
+        );
+        drop(dev);
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), 16384);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn file_device_errors_keep_the_os_error() {
         let path = temp_path("missing");
         let err = FileDevice::open(&path).unwrap_err();
@@ -539,10 +583,15 @@ mod device_tests {
         let file = std::fs::File::open(&disk).unwrap();
         assert_eq!(crate::host::file_len(&file).unwrap(), len);
         let mut file = FileDevice::new(file).unwrap();
-        assert_eq!(file.block_count(), len / 512);
-        assert_eq!(file.max_block_count(), len / 512);
-        let mut block = [0u8; 512];
-        file.read_blocks(BlockIndex::new(len / 512 - 1), &mut block)
+        let size: u32 = std::env::var("HADRIS_TEST_DISK_BLOCK_SIZE")
+            .unwrap_or_else(|_| std::string::String::from("512"))
+            .parse()
+            .unwrap();
+        assert_eq!(file.block_size().get(), size);
+        assert_eq!(file.block_count(), len / u64::from(size));
+        assert_eq!(file.max_block_count(), file.block_count());
+        let mut block = std::vec![0u8; size as usize];
+        file.read_blocks(BlockIndex::new(file.block_count() - 1), &mut block)
             .unwrap();
     }
 }

@@ -44,9 +44,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-The block size comes from the device: `host::FileDevice` has 512-byte blocks,
-and a `hadris_storage::sync::StreamDevice` over any stream takes the block
-size you give it, such as 4096 for a 4Kn disk image. GPT CRCs are always
+The block size comes from the device. `host::FileDevice` queries physical
+devices and defaults regular image files to 512-byte blocks. For an image
+copied from a 4Kn disk, use
+`FileDevice::open_with_block_size(path, BlockSize::new(4096).unwrap())`.
+A `hadris_storage::sync::StreamDevice` also takes an explicit block size. GPT CRCs are always
 checked; when the primary copy is damaged the table is read from the backup,
 and `damaged_copy` says so. MBR logical partitions in an extended partition
 are listed from index 4, as Linux numbers them.

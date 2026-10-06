@@ -148,8 +148,12 @@ fn content_path_reads_a_disk_device() {
     let content = host::file(disk).unwrap();
     let mut reader = ContentReader::open(&content).unwrap();
     assert_eq!(reader.len(), len);
-    let mut block = [0u8; 512];
-    reader.read_exact_at(len - 512, &mut block).unwrap();
+    let size: usize = std::env::var("HADRIS_TEST_DISK_BLOCK_SIZE")
+        .unwrap_or_else(|_| String::from("512"))
+        .parse()
+        .unwrap();
+    let mut block = vec![0u8; size];
+    reader.read_exact_at(len - size as u64, &mut block).unwrap();
 }
 
 #[cfg(feature = "async")]

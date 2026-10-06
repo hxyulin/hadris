@@ -376,3 +376,31 @@ fn runs_are_whole_blocks_and_end_with_block_zero() {
     };
     assert_eq!(gpt.damaged_copy(), None::<GptCopy>);
 }
+
+#[test]
+fn file_device_preserves_4k_gpt_geometry() {
+    use hadris_storage::host::FileDevice;
+
+    let path = std::env::temp_dir().join(format!("hadris-part-gpt-4k-{}.img", std::process::id()));
+    let layout = DiskLayout::gpt(disk_guid())
+        .partition(PartitionSpec::new(types::EFI_SYSTEM, Size::Remaining));
+    let mut dev = device(2048, B4K);
+    let expected = create(&mut dev, &layout).unwrap();
+    std::fs::write(&path, dev.into_inner()).unwrap();
+    let mut file = FileDevice::open_with_block_size(&path, B4K).unwrap();
+    assert_eq!(read(&mut file).unwrap(), expected);
+    drop(file);
+    let opened = std::fs::File::options()
+        .read(true)
+        .write(true)
+        .open(&path)
+        .unwrap();
+    let mut file = FileDevice::with_block_size(opened, B4K).unwrap();
+    write(&mut file, &expected).unwrap();
+    file.flush().unwrap();
+    let mut bytes = MemDevice::new(std::fs::read(&path).unwrap(), B4K);
+    check_header(&bytes, 1, 2047, 2);
+    assert_eq!(read(&mut bytes).unwrap(), expected);
+    drop(file);
+    std::fs::remove_file(path).unwrap();
+}

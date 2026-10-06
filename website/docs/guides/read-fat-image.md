@@ -52,8 +52,9 @@ fn main() -> Result<()> {
 }
 ```
 
-`host::FileDevice` is a block device with 512-byte blocks; `FatFs` also opens any
-other `hadris-storage` device, such as a `MemDevice` over bytes already in
+`host::FileDevice` defaults image files to 512-byte blocks and queries the
+logical block size of physical devices. Use `open_with_block_size` to specify
+an image's geometry. `FatFs` also opens any other `hadris-storage` device, such as a `MemDevice` over bytes already in
 memory. Lookups ignore case, and long names are always read. Files opened
 with `vol.open(path, OpenOptions::new().read())` implement `std::io::Read`
 and `Seek`, and `hadris_fs::sync::read_tree(&vol, "/")` followed by
