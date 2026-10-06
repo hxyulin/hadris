@@ -36,8 +36,8 @@ minor releases. APFS also has an experimental native API, exposed through
 CLI commands. Opt-in software APFS password unlocking is available through
 `hadris-apfs`'s `encryption` feature or `hadris`'s `apfs-encryption` feature;
 internal Apple-silicon FileVault requires separate hardware support.
-Every stable crate is covered by the public-API snapshots in
-[`api-snapshots/`](api-snapshots/).
+Public API compatibility is checked with `cargo semver-checks`; feature-tier
+builds, contract tests and the non-exhaustive lint cover separate API rules.
 
 Problems that are understood but not fixed yet are listed in
 [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md).

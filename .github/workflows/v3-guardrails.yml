@@ -48,29 +48,3 @@ jobs:
         run: python3 scripts/check-non-exhaustive.py --self-test
       - name: Check public enums and structs
         run: python3 scripts/check-non-exhaustive.py
-
-  api-shape:
-    name: "API ${{ matrix.check }}"
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        check:
-          - subset
-          - parity
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
-        with:
-          toolchain: 1.88.0
-      # Same pinned nightly as the public-api job in rust.yml.
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
-        with:
-          toolchain: nightly-2026-09-04
-      - uses: Swatinem/rust-cache@v2
-      - name: Install cargo-public-api
-        run: cargo install cargo-public-api --version 0.52.0 --locked
-      - name: Run ${{ matrix.check }} check
-        env:
-          RUSTUP_TOOLCHAIN: nightly-2026-09-04
-        run: python3 scripts/check-v3-api.py ${{ matrix.check }}

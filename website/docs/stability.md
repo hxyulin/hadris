@@ -40,6 +40,7 @@ trait, but its native methods may change in 3.x minor releases.
   for its own breaking changes. The umbrella `hadris` bumps its major when a
   crate it re-exports does. `hadris-fat-raw` versions separately from 0.1.0.
 
-Public API snapshots cover every stable crate and run in CI, together with
-`cargo semver-checks` against each crate's latest 3.x release. Format behavior is
+`cargo semver-checks` checks compatibility against each crate's latest 3.x
+release, with feature builds, sync/async contract tests and the non-exhaustive
+lint covering separate API rules. Format behavior is
 also tracked in the repository's specification-compliance catalog.

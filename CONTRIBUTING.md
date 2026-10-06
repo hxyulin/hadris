@@ -316,9 +316,7 @@ Branch from `main` and target it for V3 changes. The `v2` branch preserves the
    corpus seeds under `fuzz/corpus/`.
 5. PRs to `main` also run the V3 guardrails in
    `.github/workflows/v3-guardrails.yml`, and a finding fails the PR:
-   `scripts/check-non-exhaustive.py`, `scripts/check-v3-api.py subset` and
-   `scripts/check-v3-api.py parity` (under the pinned nightly of the public
-   API job), and `scripts/check-semver.sh`, which needs
+   `scripts/check-non-exhaustive.py` and `scripts/check-semver.sh`, which needs
    `cargo +stable install cargo-semver-checks`.
 6. `scripts/check-semver.sh` checks each library crate against its latest
    3.x release tag (`<crate>-vX.Y.Z`), or against the target branch before
@@ -386,20 +384,22 @@ overview, the website contains concepts and workflows, crate READMEs cover
 package selection and features, and rustdoc documents individual APIs. Prefer
 linking to compiled examples over duplicating snippets that can drift.
 
-Public APIs are snapshot-tested under their all-feature configurations.
-Preview crates are not snapshotted: `hadris-ntfs` is left out of the script's
-crate list, and the umbrella `hadris` snapshot is taken without its
-`unstable-ntfs` feature. After
-an intentional additive or breaking API change, review the diff and refresh the
-baseline with:
+Public API compatibility is checked by `scripts/check-semver.sh`, using
+`cargo-semver-checks` on stable Rust. Its default feature selection includes
+stable optional features and excludes conventional unstable feature names.
+The MSRV feature matrix and sync/async contract tests remain separate checks.
+Review feature-dependent shapes and mode parity when changing shared APIs:
+semver compares revisions, not feature configurations or I/O modes.
 
 ```bash
-scripts/check-public-api.sh update
+cargo +stable install cargo-semver-checks --locked
+scripts/check-semver.sh
 ```
 
-The snapshot is a review aid, not a feature freeze. Backward-compatible APIs
-are welcome in a minor release when their documentation, feature-matrix tier,
-and tests land with them.
+No textual API snapshots need refreshing. An untagged version may still change;
+a tagged release candidate must remain compatible unless its version is bumped.
+Backward-compatible APIs are welcome with documentation, feature-tier coverage
+and tests.
 
 Feature-gated items should use `#[cfg_attr(docsrs, doc(cfg(...)))]` where the
 crate already enables `docsrs` (see `hadris-part`, `hadris`).

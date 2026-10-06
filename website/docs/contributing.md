@@ -6,7 +6,7 @@ title: Contributing
 
 See the repository's
 [contribution guide](https://github.com/hxyulin/hadris/blob/main/CONTRIBUTING.md)
-for the Rust toolchain, feature checks, API snapshots, specification annotations,
+for the Rust toolchain, feature checks, semver checks, specification annotations,
 and pull-request workflow.
 
 For documentation changes:

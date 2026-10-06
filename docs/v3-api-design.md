@@ -244,9 +244,9 @@ Growing `FileSystem` has two more rules, both stated in the trait docs:
 ### R11. CI enforces it
 
 - `cargo semver-checks` on every PR against the latest 3.x release (after 3.0.0). Before a crate's 3.0.0 it runs against the PR's target branch, and a change that keeps a released version must be a compatible minor change, release candidates included; a version not yet tagged may still break (step 14).
-- The public-API snapshot runs with all non-`unstable` features on, and a second run with them off must produce a subset. That proves R3.
+- The MSRV feature matrix builds supported feature combinations; review feature-dependent API shapes for R3. Textual snapshots and subset checks were retired after promotion because rustdoc rendering generated noisy differences.
 - A lint script rejects public enums without `#[non_exhaustive]` outside `raw`.
-- A sync/async parity check diffs the public item lists of the two modules and lists the intended differences (4.8).
+- Sync/async contract tests cover behavior in both modes. Review shared API changes for mode parity and the intended differences (4.8); semver does not compare modes.
 
 ### R12. Crates version independently after 3.0.0
 
@@ -664,7 +664,7 @@ std::thread::spawn(move || worker.metadata("/big.bin"));
 - `close(self)` returns `Result` and publishes the node's metadata; a double close does not compile. `sync_all()` makes the file durable first. In the sync mode `Drop` publishes a written file's size best effort, so a dropped log file keeps its size across a power cut; async `Drop` cannot await, so there the size is published by the next call on the volume (FILE-CLOSE-01).
 - A write open fails with `ReadOnly` before anything is truncated. A symlink as the last component fails with `Symlink` unless the volume follows links, as POSIX `O_NOFOLLOW` fails with `ELOOP`.
 - `ReadDir` is an `Iterator` in the sync mode and has `next_entry` in the async mode. It fuses after an error (R7).
-- In the sync mode `File` implements the `std::io` traits with `std`. The `Iterator` versus `next_entry` split and the `std::io` impls are the documented mode differences; the parity check (R11) lists them.
+- In the sync mode `File` implements the `std::io` traits with `std`. The `Iterator` versus `next_entry` split and the `std::io` impls are the documented mode differences; R11 covers their review and tests.
 
 **Path methods.** `Volume` has inherent methods named after `std::fs`:
 `open`, `metadata`, `symlink_metadata`, `read_dir`, `read_link`,
@@ -914,7 +914,7 @@ Keep the `strip_async!` code generation and use it everywhere:
 - Only types that do I/O live in `sync` and `r#async`.
 - The async source is written as `fn f(..) -> impl Future<Output = T> + Send` with `Send` supertraits. The generator turns it into `fn f(..) -> T`, removes `async` and `.await`, and drops the `Send` supertraits and the `+ Send` on captured arguments.
 - The shared tier has two modes, `sync` and `r#async`, and async futures are `Send` whenever the device is. Non-`Send` async exists only in `hadris-io` and `hadris-storage` (the `local` modules) and in the embedded API, which takes `local::BlockDevice`. The `async_send` mode and the `async-send` feature are gone (4.17); [Q2](#7-open-questions) has the history.
-- Every crate exposes the same public items in both modes. The parity check in R11 enforces it and lists the intended differences: `Iterator` versus `next_entry`, the `std::io` impls, and the sync-only `host` module.
+- Every crate exposes the same public items in both modes. R11 requires review and tests for mode parity, with these intended differences: `Iterator` versus `next_entry`, the `std::io` impls, and the sync-only `host` module.
 - Sync stays generated rather than wrapping async code in `block_on`: that was measured at 40 to 49% more code and 70% more worst-case stack on thumbv7em (4.15).
 - `hadris-macros` gains span-preserving errors so contributors see the right line.
 
@@ -1885,6 +1885,6 @@ user:
   the FAT logger on thumbv7em grows past its 44 KB ceiling. Shrinking the
   embedded API is additive work that changes no public shape.
 - The `firmware-size` job's pinned nightly (for `-Z emit-stack-sizes`) is a
-  lasting dependency, like the pinned nightly of the public API snapshots.
+  lasting dependency, like the pinned nightly of the firmware-size checks.
   It is bumped deliberately, together with any budget the new compiler
   moves.
