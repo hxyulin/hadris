@@ -327,6 +327,38 @@ macro_rules! raw_test {
                         assert_eq!(state.lock().unwrap().flags(), before);
                         assert!(!fat.needs_sync());
                     }
+                    for size in [1, 3, 5, 512, 4096] {
+                        let original = flag_image(case, false, false);
+                        let geo = hadris_fat_raw::parse_boot(original[..512].try_into().unwrap())
+                            .unwrap();
+                        let mut expected = original.clone();
+                        for copy in 0..geo.fat_count() {
+                            let kind = geo.kind();
+                            let at = (geo.fat_copy(copy) + kind.entry_offset(1)) as usize;
+                            let value = kind.decode(1, &expected[at..at + kind.entry_len()])
+                                & !kind.clean_bit();
+                            kind.encode(1, value, &mut expected[at..at + kind.entry_len()]);
+                        }
+                        let mut dev = hadris_storage::MemDevice::new(
+                            original.clone(),
+                            BlockSize::new(size).unwrap(),
+                        );
+                        let mut block = BlockBuf::<[u8; 4096]>::new(size as usize).unwrap();
+                        let mut fat = io::read_fat(&mut dev, &mut block, geo).await.unwrap();
+                        io::begin_write(&mut dev, &mut block, &mut fat)
+                            .await
+                            .unwrap();
+                        assert_eq!(dev.get_ref(), &expected, "{} block size {size}", case.name);
+                        io::clear_dirty(&mut dev, &mut block, &mut fat)
+                            .await
+                            .unwrap();
+                        assert_eq!(
+                            dev.into_inner(),
+                            original,
+                            "{} block size {size}",
+                            case.name
+                        );
+                    }
                     for failure in 0..5 {
                         let (mut dev, state) = Device::new(common::blank(case));
                         let geo = state.lock().unwrap().geo;

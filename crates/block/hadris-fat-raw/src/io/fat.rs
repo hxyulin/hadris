@@ -169,16 +169,18 @@ pub async fn clear_dirty<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat:
 
 async fn write_clean_bit<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &Fat, clean: bool) -> FsResult<(), D::Error> {
     let kind = fat.geo.kind();
-    let mask = kind.clean_bit();
+    let byte = kind.clean_bit().trailing_zeros() / 8;
+    let mask = (kind.clean_bit() >> (byte * 8)) as u8;
     for step in 0..fat.geo.copies() {
-        let at = fat.geo.fat_copy(fat.geo.active_fat() ^ step) + kind.entry_offset(1);
-        let mut entry = [0u8; 4];
-        read_bytes(dev, block, at, &mut entry[..kind.entry_len()]).await?;
-        let before = kind.decode(1, &entry);
+        let at = fat.geo.fat_copy(fat.geo.active_fat() ^ step) + kind.entry_offset(1) + byte as u64;
+        let index = at / block.size as u64;
+        let within = (at % block.size as u64) as usize;
+        load(dev, block, index).await?;
+        let before = block.contents()[within];
         let after = if clean { before | mask } else { before & !mask };
         if before != after {
-            kind.encode(1, after, &mut entry);
-            write_bytes(dev, block, at, &entry[..kind.entry_len()]).await?;
+            block.contents_mut()[within] = after;
+            store(dev, block, index).await?;
         }
     }
     Ok(())

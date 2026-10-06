@@ -1227,6 +1227,7 @@ fn permissions_follow_the_read_only_attribute() {
     assert!(meta.attributes().contains(Attributes::READ_ONLY));
     assert_eq!(meta.owner(), None);
     fs.forget(created, 1);
+    fs.sync().unwrap();
     fsck(&image(fs), "permissions");
 }
 

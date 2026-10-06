@@ -64,6 +64,8 @@ Each published package owns its version and may be released independently.
   and restore the clean bit after a successful sync or unmount. Interrupted
   marker updates are retried; volumes dirty at mount or with unrecoverable
   corruption stay dirty. Other reserved bits and inactive FATs are preserved.
+  Dirty-marker I/O reuses the block cache to retain existing async future-size
+  budgets without additional allocations.
 
 - V3 development, documentation and releases now use `main`; the `v2` branch
   preserves the previous maintenance line. Unreleased documentation keeps its
