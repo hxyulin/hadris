@@ -164,3 +164,13 @@ The on-disk layouts and I/O-free codecs live in
 [`hadris-udf-raw`](../hadris-udf-raw). Existing `hadris_udf::raw`
 paths remain available and refer to the same types. The raw crate needs
 neither an allocator nor a sync/async feature.
+
+## Local asynchronous access
+
+Enable `async-local` for the `local` API, whose device and filesystem futures
+need not implement `Send`. Enable `alloc` for FAT/exFAT drivers and for
+`hadris_fs::local::Volume` and its handles. The existing `async` feature and
+`r#async` API retain their `Send` contract.
+
+See the [local async guide](../../../docs/local-async.md) for supported
+operations, platform requirements and the runnable non-`Send` example.

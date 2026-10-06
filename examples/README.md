@@ -80,3 +80,9 @@ Crate examples cover single-crate tasks:
 These programs favor readable error messages and conventional host filesystem
 I/O. For `no_std`, async, and format-authoring variants, see the task-oriented
 documentation site under [`website/docs/guides`](../website/docs/guides).
+
+### Local asynchronous filesystem access
+
+`cargo run -p hadris-example-local-async` exercises FAT, exFAT, ISO and UDF
+with an `Rc`-backed device whose I/O futures suspend. It needs no async runtime
+dependency. See [the local async guide](../docs/local-async.md).

@@ -84,6 +84,21 @@
       "crate": "hadris-storage",
       "tier": "alloc-async",
       "features": "alloc,async"
+    },
+    {
+      "crate": "hadris-fs",
+      "tier": "local-no-std",
+      "features": "async-local"
+    },
+    {
+      "crate": "hadris-fs",
+      "tier": "local-alloc",
+      "features": "alloc,async-local"
+    },
+    {
+      "crate": "hadris-fs",
+      "tier": "all-async-modes",
+      "features": "alloc,sync,async,async-local"
     }
   ],
   "block": [
@@ -286,6 +301,31 @@
       "crate": "hadris-part",
       "tier": "hosted-tracing",
       "features": "tracing,sync,async"
+    },
+    {
+      "crate": "hadris-fat",
+      "tier": "local-no-std",
+      "features": "async-local"
+    },
+    {
+      "crate": "hadris-fat",
+      "tier": "local-alloc",
+      "features": "alloc,async-local"
+    },
+    {
+      "crate": "hadris-fat",
+      "tier": "all-async-modes",
+      "features": "alloc,sync,async,async-local"
+    },
+    {
+      "crate": "hadris-fat",
+      "tier": "local-no-alloc-write",
+      "features": "async-local,write"
+    },
+    {
+      "crate": "hadris-fat",
+      "tier": "local-alloc-write",
+      "features": "alloc,async-local,write"
     }
   ],
   "optical": [
@@ -388,6 +428,36 @@
       "crate": "hadris-udf",
       "tier": "hosted-tracing",
       "features": "tracing,sync,async"
+    },
+    {
+      "crate": "hadris-iso",
+      "tier": "local-no-std",
+      "features": "async-local"
+    },
+    {
+      "crate": "hadris-iso",
+      "tier": "local-alloc",
+      "features": "alloc,async-local"
+    },
+    {
+      "crate": "hadris-iso",
+      "tier": "all-async-modes",
+      "features": "alloc,sync,async,async-local"
+    },
+    {
+      "crate": "hadris-udf",
+      "tier": "local-no-std",
+      "features": "async-local"
+    },
+    {
+      "crate": "hadris-udf",
+      "tier": "local-alloc",
+      "features": "alloc,async-local"
+    },
+    {
+      "crate": "hadris-udf",
+      "tier": "all-async-modes",
+      "features": "alloc,sync,async,async-local"
     }
   ],
   "archive": [

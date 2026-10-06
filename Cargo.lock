@@ -533,6 +533,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "hadris-example-local-async"
+version = "0.0.0"
+dependencies = [
+ "hadris-fat",
+ "hadris-fs",
+ "hadris-io",
+ "hadris-iso",
+ "hadris-storage",
+ "hadris-udf",
+ "static_assertions",
+]
+
+[[package]]
 name = "hadris-example-migrate-v3"
 version = "0.0.0"
 dependencies = [

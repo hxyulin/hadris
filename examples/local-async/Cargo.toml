@@ -1,0 +1,16 @@
+[package]
+name = "hadris-example-local-async"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+hadris-fs = { workspace = true, features = ["std", "sync", "async", "async-local", "contract"] }
+hadris-io = { workspace = true, features = ["std", "async"] }
+hadris-storage = { workspace = true, features = ["std", "sync", "async"] }
+hadris-fat = { workspace = true, features = ["std", "sync", "async-local", "write"] }
+hadris-iso = { workspace = true, features = ["std", "sync", "async", "async-local"] }
+hadris-udf = { workspace = true, features = ["std", "sync", "async-local"] }
+static_assertions.workspace = true

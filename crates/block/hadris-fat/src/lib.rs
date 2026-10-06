@@ -179,6 +179,7 @@
 //! | `alloc`  | No      | `FatFs`, `ExFatFs` and the tree writers `write`; without it the embedded API, `check`, `format` and the raw layer |
 //! | `sync`   | Yes     | Synchronous API in `sync` |
 //! | `async`  | No      | Asynchronous API with `Send` futures in `r#async` |
+//! | `async-local` | No | Local asynchronous API without `Send` device or future bounds |
 //! | `write`  | Yes     | `format`, and with `alloc` `write`, in each mode; `FatFs` and `ExFatFs` write without it |
 //! | `defmt`  | No      | `defmt::Format` for `FatKind` |
 //! | `tracing` | No | Function spans for FAT/exFAT operations and FAT allocation/write paths; enables `std` |
@@ -229,7 +230,11 @@ extern crate alloc;
 
 #[cfg(feature = "alloc")]
 mod cache;
-#[cfg(any(feature = "sync", feature = "async"))]
+#[cfg(any(
+    feature = "sync",
+    feature = "async",
+    all(feature = "alloc", feature = "async-local")
+))]
 mod names;
 mod options;
 #[cfg(feature = "alloc")]
@@ -284,14 +289,20 @@ pub mod sync {
 #[cfg(feature = "async")]
 pub mod r#async;
 
-#[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
+#[cfg(all(
+    feature = "alloc",
+    any(feature = "sync", feature = "async", feature = "async-local")
+))]
 use names::{permissions, read_only_bit};
 
 /// Adds the run `(file offset, device offset, bytes)` to `out` from
 /// `*count` on when it holds bytes of the file from `from`, cut to the
 /// file's `len` and split where its bytes past `valid` read as zeros.
 /// Returns true when `out` was full before the run was added whole.
-#[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
+#[cfg(all(
+    feature = "alloc",
+    any(feature = "sync", feature = "async", feature = "async-local")
+))]
 fn push_run(
     out: &mut [hadris_fs::Extent],
     count: &mut usize,
@@ -325,3 +336,7 @@ pub use hadris_fat_raw::{Detail, FatKind, Geometry};
 #[cfg(feature = "write")]
 pub use options::FatOptions;
 pub use options::VolumeLabel;
+
+/// Local asynchronous FAT operations without `Send` device or future bounds.
+#[cfg(feature = "async-local")]
+pub mod local;

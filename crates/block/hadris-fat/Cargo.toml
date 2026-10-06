@@ -20,6 +20,7 @@ features = ["std", "sync", "async", "write", "tracing"]
 [features]
 default = ["std", "sync", "write"]
 sync = ["hadris-io/sync", "hadris-fs/sync", "hadris-storage/sync", "hadris-fat-raw/sync"]
+async-local = ["hadris-io/async", "hadris-storage/async", "hadris-fs/async-local", "hadris-fat-raw/async"]
 async = ["hadris-io/async", "hadris-fs/async", "hadris-storage/async", "hadris-fat-raw/async"]
 alloc = ["hadris-io/alloc", "hadris-fs/alloc", "hadris-storage/alloc"]
 std = [

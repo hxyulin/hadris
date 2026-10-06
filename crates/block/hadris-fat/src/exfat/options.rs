@@ -40,7 +40,10 @@ impl VolumeLabel {
     }
 
     /// A label as read from a volume, unchecked.
-    #[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
+    #[cfg(all(
+        feature = "alloc",
+        any(feature = "sync", feature = "async", feature = "async-local")
+    ))]
     pub(crate) fn from_disk(units: [u16; MAX_LABEL_UNITS], len: u8) -> Self {
         Self {
             units,
@@ -121,7 +124,10 @@ impl fmt::Debug for VolumeLabel {
 /// # fn main() {}
 /// ```
 #[cfg(feature = "write")]
-#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
+#[cfg_attr(
+    not(any(feature = "sync", feature = "async", feature = "async-local")),
+    allow(dead_code)
+)]
 #[derive(Debug, Clone, Copy)]
 pub struct ExFatOptions {
     pub(crate) size: Option<u64>,

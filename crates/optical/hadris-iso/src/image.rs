@@ -1138,6 +1138,7 @@ impl<D: BlockDevice> IsoFs<D> {
         Ok(Some(raw::VolumeDescriptor::from_bytes(sector)))
     }
 
+    sessions_only! {
     /// The primary volume descriptor.
     #[cfg(feature = "alloc")]
     pub(crate) async fn primary_descriptor(&mut self) -> Result<raw::PrimaryVolumeDescriptor, Error<D::Error>> {
@@ -1155,6 +1156,8 @@ impl<D: BlockDevice> IsoFs<D> {
     #[cfg(feature = "alloc")]
     pub(crate) fn catalog_block(&self) -> Option<u32> {
         self.view.info.boot_catalog
+    }
+
     }
 
     /// Reads the El Torito boot catalog into `buf` and checks it, or

@@ -1,4 +1,9 @@
 #[allow(unused_macros)]
+macro_rules! sessions_only {
+    ($($item:tt)*) => { $($item)* };
+}
+
+#[allow(unused_macros)]
 macro_rules! io_transform {
     ($($item:tt)*) => { $($item)* };
 }

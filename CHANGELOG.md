@@ -8,6 +8,10 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- Add an opt-in `async-local` filesystem tier for non-`Send` devices:
+  shared `FileSystem`, volumes and handles, FAT/exFAT operations and ISO/UDF
+  readers. Lazy local `read_tree` and optical writers remain out of scope.
+
 - **hadris-cpio-raw:** Extracted the existing on-disk layouts and I/O-free
   codecs into an independently versioned, allocation-free `no_std` crate.
   `hadris-cpio::raw` remains compatible and uses the same implementation.

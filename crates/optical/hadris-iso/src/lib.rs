@@ -82,6 +82,7 @@
 //! | `sync` | Yes | The blocking API in `sync` |
 //! | `cache` | No | Opt-in bounded reader metadata caches; implies `alloc` |
 //! | `async` | No | The asynchronous API with `Send` futures in `r#async` |
+//! | `async-local` | No | Local asynchronous API without `Send` device or future bounds |
 //!
 //! No feature changes what an item does.
 
@@ -131,6 +132,11 @@ pub mod raw {
 #[path = ""]
 pub mod sync {
     //! The blocking API.
+
+    #[allow(unused_macros)]
+    macro_rules! sessions_only {
+        ($($item:tt)*) => { $($item)* };
+    }
 
     macro_rules! io_transform {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
@@ -182,3 +188,8 @@ pub use volume_info::{IsoDate, IsoId, VolumeInfo};
 
 #[cfg(test)]
 extern crate self as hadris_iso;
+
+/// Local asynchronous reading without `Send` device or future bounds.
+/// Image writers and sessions are not included in this initial tier.
+#[cfg(feature = "async-local")]
+pub mod local;

@@ -91,7 +91,10 @@ impl TryFrom<&str> for VolumeLabel {
 /// # fn main() {}
 /// ```
 #[cfg(feature = "write")]
-#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
+#[cfg_attr(
+    not(any(feature = "sync", feature = "async", feature = "async-local")),
+    allow(dead_code)
+)]
 #[derive(Debug, Clone, Copy)]
 pub struct FatOptions {
     pub(crate) kind: Option<FatKind>,
@@ -254,7 +257,10 @@ impl Default for FatOptions {
 
 /// The serial of a volume made at `time`, or from `seed`.
 #[cfg(feature = "write")]
-#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
+#[cfg_attr(
+    not(any(feature = "sync", feature = "async", feature = "async-local")),
+    allow(dead_code)
+)]
 pub(crate) fn serial(time: DateTime, seed: Option<u64>) -> u32 {
     match seed {
         Some(seed) => {

@@ -21,6 +21,7 @@ default = ["std", "sync"]
 alloc = ["hadris-io/alloc", "hadris-storage/alloc", "dep:async-lock", "dep:spin"]
 std = ["alloc", "hadris-io/std", "hadris-storage/std", "async-lock?/std", "dep:libc"]
 sync = ["hadris-io/sync", "dep:hadris-macros"]
+async-local = ["hadris-io/async", "hadris-storage/async", "dep:hadris-macros"]
 async = ["hadris-io/async", "dep:hadris-macros"]
 # The driver contract kit: `contract::check` in each enabled mode.
 contract = []

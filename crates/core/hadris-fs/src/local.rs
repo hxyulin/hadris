@@ -1,12 +1,12 @@
 #[allow(unused_macros)]
 macro_rules! send_only {
-    ($($item:tt)*) => { $($item)* };
+    ($($item:tt)*) => {};
 }
 
 #[allow(unused_imports)]
-use hadris_io::r#async as io;
+use hadris_io::local as io;
 macro_rules! io_transform {
-    ($($item:tt)*) => { hadris_macros::send_async! { $($item)* } };
+    ($($item:tt)*) => { $($item)* };
 }
 
 #[allow(unused_macros)]

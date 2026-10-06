@@ -50,7 +50,10 @@ pub use hadris_fat_raw::exfat::{Detail, Geometry};
 
 /// Reads a little-endian `u16` at `at`.
 #[cfg_attr(
-    not(all(feature = "alloc", any(feature = "sync", feature = "async"))),
+    not(all(
+        feature = "alloc",
+        any(feature = "sync", feature = "async", feature = "async-local")
+    )),
     allow(dead_code)
 )]
 pub(crate) fn le16(bytes: &[u8], at: usize) -> u16 {
@@ -59,7 +62,10 @@ pub(crate) fn le16(bytes: &[u8], at: usize) -> u16 {
 
 /// Reads a little-endian `u32` at `at`.
 #[cfg_attr(
-    not(all(feature = "alloc", any(feature = "sync", feature = "async"))),
+    not(all(
+        feature = "alloc",
+        any(feature = "sync", feature = "async", feature = "async-local")
+    )),
     allow(dead_code)
 )]
 pub(crate) fn le32(bytes: &[u8], at: usize) -> u32 {
@@ -68,7 +74,10 @@ pub(crate) fn le32(bytes: &[u8], at: usize) -> u32 {
 
 /// Reads a little-endian `u64` at `at`.
 #[cfg_attr(
-    not(all(feature = "alloc", any(feature = "sync", feature = "async"))),
+    not(all(
+        feature = "alloc",
+        any(feature = "sync", feature = "async", feature = "async-local")
+    )),
     allow(dead_code)
 )]
 pub(crate) fn le64(bytes: &[u8], at: usize) -> u64 {
@@ -137,6 +146,42 @@ pub mod r#async {
 
     #[cfg(feature = "alloc")]
     use hadris_fs::r#async as fsapi;
+
+    #[cfg(feature = "alloc")]
+    #[path = "fs.rs"]
+    mod fs;
+    pub use exio::check;
+    #[cfg(feature = "alloc")]
+    pub use fs::ExFatFs;
+    #[cfg(feature = "write")]
+    #[path = "mkfs.rs"]
+    mod mkfs;
+    #[cfg(feature = "write")]
+    pub use mkfs::format;
+    #[cfg(all(feature = "alloc", feature = "write"))]
+    pub use mkfs::write;
+}
+
+#[cfg(feature = "async-local")]
+#[path = ""]
+pub mod local {
+    //! The local asynchronous exFAT API without `Send` bounds.
+
+    #[allow(unused_macros)]
+    macro_rules! io_transform {
+        ($($item:tt)*) => { $($item)* };
+    }
+
+    #[cfg(any(feature = "alloc", feature = "write"))]
+    use crate::local::block_io;
+    #[cfg(feature = "write")]
+    use crate::local::mkfs as fatmkfs;
+    use hadris_fat_raw::exfat::io::local as exio;
+    #[cfg(any(feature = "alloc", feature = "write"))]
+    use hadris_storage::local as storage;
+
+    #[cfg(feature = "alloc")]
+    use hadris_fs::local as fsapi;
 
     #[cfg(feature = "alloc")]
     #[path = "fs.rs"]

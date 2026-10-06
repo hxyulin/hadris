@@ -250,6 +250,7 @@ pub(crate) fn short_fingerprint(entry: &ShortEntry, code_page: &dyn CodePage) ->
 
 /// Whether `query` names the entry, by its long name or its short name,
 /// with case folded by `fold`.
+#[cfg(any(feature = "sync", feature = "async"))]
 pub(crate) fn matches(
     query: &str,
     long: Option<&[u16]>,

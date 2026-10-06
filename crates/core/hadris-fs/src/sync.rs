@@ -1,3 +1,8 @@
+#[allow(unused_macros)]
+macro_rules! send_only {
+    ($($item:tt)*) => { $($item)* };
+}
+
 #[allow(unused_imports)]
 use hadris_io::sync as io;
 macro_rules! io_transform {

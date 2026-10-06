@@ -23,6 +23,7 @@ alloc = ["hadris-io/alloc", "hadris-fs/alloc", "hadris-storage/alloc", "dep:hadr
 # Implies `alloc`; `std::io::Error` conversions and host files as tree content.
 std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std", "hadris-iso/std"]
 sync = ["hadris-io/sync", "hadris-fs/sync", "hadris-storage/sync", "hadris-iso?/sync"]
+async-local = ["hadris-io/async", "hadris-storage/async", "hadris-fs/async-local"]
 async = ["hadris-io/async", "hadris-fs/async", "hadris-storage/async", "hadris-iso?/async"]
 
 tracing = ["std", "dep:tracing", "hadris-iso?/tracing"]

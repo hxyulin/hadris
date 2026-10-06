@@ -5,6 +5,7 @@ use crate::tree::AsyncSource;
 #[cfg(feature = "sync")]
 use crate::tree::SyncSource;
 use crate::tree::{Content, Repr};
+#[cfg(any(feature = "sync", feature = "async"))]
 use alloc::sync::Arc;
 
 fn stored() -> PathError {
@@ -17,14 +18,17 @@ fn stored() -> PathError {
 io_transform! {
 
 sync_only! {
+    #[cfg(any(feature = "sync", feature = "async"))]
     const SYNC: bool = true;
 }
 async_only! {
+    #[cfg(any(feature = "sync", feature = "async"))]
     const SYNC: bool = false;
 }
 
 /// Lazy content of the sync mode when `sync`, else of the async mode, is
 /// readable only by writers of that mode.
+#[cfg(any(feature = "sync", feature = "async"))]
 fn same_mode(sync: bool) -> Result<(), PathError> {
     if sync == SYNC {
         Ok(())
