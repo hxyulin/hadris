@@ -8,6 +8,15 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- Host file devices query physical devices' logical block sizes on Linux,
+  macOS, FreeBSD and Windows, and accept explicit image geometry through
+  `open_with_block_size` and `with_block_size`, including 4Kn GPT images.
+  Unknown device geometry is refused instead of assuming 512-byte sectors.
+- The device contract documents arbitrary buffer addresses, transfer splitting,
+  durable flushes and async buffer lifetimes, with a compiled allocation-free
+  aligned-buffer example. Migration and design docs clarify that local devices
+  and futures may be non-`Send`, while error bounds apply in every mode.
+
 - UDF create/bridge commands advertise only writable revisions through 2.01
   and reject 2.50/2.60 during argument parsing, before accessing the source
   or output.

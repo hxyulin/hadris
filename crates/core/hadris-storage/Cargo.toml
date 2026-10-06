@@ -18,10 +18,17 @@ features = ["std", "sync", "async"]
 [features]
 default = ["std", "sync"]
 alloc = ["hadris-io/alloc"]
-std = ["alloc", "hadris-io/std"]
+std = ["alloc", "hadris-io/std", "dep:libc"]
 sync = ["hadris-io/sync"]
 async = ["hadris-io/async"]
 
 [dependencies]
 hadris-io = { workspace = true }
 hadris-macros.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { workspace = true, optional = true }
+
+[[example]]
+name = "aligned_device"
+required-features = ["sync"]

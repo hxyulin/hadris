@@ -140,27 +140,26 @@ in the same way.
 
 ## Implement a block device for FAT
 
-`hadris_fat::sync::FatFs` mounts any `hadris_storage::sync::BlockDevice`.
+`hadris::fat::sync::FatFs` mounts any `hadris::storage::sync::BlockDevice`.
 A device reports its block size and count and reads whole blocks; a read-only
 device leaves `write_blocks` to its default, which answers kind
-`ReadOnly`. Every method returns `hadris_io::Error` over the device's own
+`ReadOnly`. Every method returns `hadris::io::Error` over the device's own
 error type, which implements `core::error::Error`; `Error::device` wraps a
 device failure with a static message, and `FatFs` passes it on unchanged.
-No allocator is needed.
+The device adapter needs no allocator; `FatFs` itself needs `alloc`.
+Allocation-free firmware uses `hadris::fat::embedded::sync::Fat` instead.
 
 ```toml
 [dependencies]
-hadris-fat = { version = "3.0.0-rc.1", default-features = false, features = ["sync"] }
-hadris-io = { version = "3.0.0-rc.1", default-features = false, features = ["sync"] }
-hadris-storage = { version = "3.0.0-rc.1", default-features = false, features = ["sync"] }
+hadris = { version = "3.0.0-rc.1", default-features = false, features = ["alloc", "sync", "fat"] }
 ```
 
 ```rust,no_run
 use core::fmt;
 
-use hadris_io::{Error, ErrorType, Location};
-use hadris_storage::sync::BlockDevice;
-use hadris_storage::{BlockIndex, BlockSize};
+use hadris::io::{Error, ErrorType, Location};
+use hadris::storage::sync::BlockDevice;
+use hadris::storage::{BlockIndex, BlockSize};
 
 #[derive(Debug)]
 struct FirmwareError;
@@ -199,13 +198,13 @@ impl BlockDevice for FirmwareDisk {
 }
 
 let disk = FirmwareDisk { blocks: 131_072 };
-let volume = hadris_fat::sync::FatFs::mount(disk, hadris_fs::MountOptions::new());
+let volume = hadris::fat::sync::FatFs::mount(disk, hadris::fs::MountOptions::new());
 ```
 
 A byte stream implementing the `hadris-io` traits becomes a block device
-through `hadris_storage::sync::StreamDevice`, and
-`hadris_storage::host::FileDevice`, `Vec<u8>` and
-`hadris_storage::MemDevice` are block devices already.
+through `hadris::storage::sync::StreamDevice`, and
+`hadris::storage::host::FileDevice`, `Vec<u8>` and
+`hadris::storage::MemDevice` are block devices already.
 
 ## Device requirements
 
@@ -227,3 +226,43 @@ size from the on-disk metadata.
 
 For memory-backed parsing without `std`, use `hadris_storage::MemDevice` over
 a caller-provided byte slice, or `hadris_io::Cursor` for a stream.
+
+## Hardware alignment and transfer limits
+
+Hadris may pass a caller's subslice directly to `read_blocks` or `write_blocks`.
+Only the length is block-aligned: the memory address has no additional alignment
+guarantee. Implementations must accept any address and any whole-block length.
+Use an appropriately aligned bounce buffer or DMA-accessible buffer when the
+controller requires one, and split a large request into supported transfers.
+Reject invalid lengths, out-of-range requests and address overflow before
+starting hardware I/O.
+
+[UEFI Block I/O](https://uefi.org/specs/UEFI/2.11/13_Protocols_Media_Access.html)
+exposes `IoAlign` separately from `BlockSize`; similarly, a DMA controller may
+require memory from a particular region. Keep those requirements
+inside the device adapter. The
+[compiled aligned-device example](https://github.com/hxyulin/hadris/blob/main/crates/core/hadris-storage/examples/aligned_device.rs)
+uses a fixed 512-byte buffer aligned to 64 bytes and transfers one block at a
+time, with no allocation. Run it with:
+
+```sh
+cargo run -p hadris-storage --no-default-features --features sync --example aligned_device
+```
+
+Replace the example's `Controller` implementation with the hardware protocol.
+Each synchronous controller call must complete its transfer before returning.
+For async DMA, keep buffers valid throughout the transfer, and finish or stop
+hardware access before returning or when the future is dropped. If a cancellation
+path cannot stop the controller, use driver-owned storage that stays valid until
+the transfer completes; hardware must never keep accessing a released borrow.
+Successful block operations transfer the whole requested buffer. A failed write
+may already have transferred earlier blocks and does not promise rollback.
+
+`local::BlockDevice` allows non-`Send` devices and futures for single-threaded
+executors. Its error still implements `core::error::Error + Send + Sync + 'static`,
+as it does in the other modes.
+
+Raw NOR/NAND flash needs erase handling and a layer that supplies block overwrite
+semantics; the [`embedded-storage` NOR contract](https://docs.rs/embedded-storage/latest/embedded_storage/nor_flash/trait.NorFlash.html)
+exposes separate erase and write granularities. Use a flash adapter or translation layer before presenting it as a
+rewritable `BlockDevice`.
