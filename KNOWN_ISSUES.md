@@ -18,5 +18,4 @@ Requirement IDs (`FILE-CLOSE-01`, `NF-CRASH-01`) refer to [`docs/v3/actions.md`]
 
 - **ISO file versions.** `lookup` compares names with the version stripped, so an explicit `A.TXT;2` is never found, and `readdir` lists every version under the same name. The highest version wins only when the image stores versions in ECMA-119 order. (DIR-LOOKUP-03)
 - **The Rock Ridge relocation directory is listed.** `IsoFs` hides the relocated children but still lists `rr_moved` itself, so extraction through `read_tree` creates an empty `rr_moved/`. `Session` hides it. (BUILD-ISO-RR-02)
-- **A Rock Ridge `TF` entry without a modification time drops the directory record's time,** because `TF` replaces all four times. (META-TIME-01)
 - **`hadris udf create` and `hadris udf bridge` accept `--revision 2.50` and `2.60`,** and list them in `--help`, but the library refuses them when it plans the image, so the command fails with `Unsupported`. Plan: drop the two values from the CLI's `RevisionArg` until the writer supports a metadata partition. (BUILD-UDF-REV-01)

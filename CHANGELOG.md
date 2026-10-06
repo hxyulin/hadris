@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- ISO Rock Ridge metadata preserves the directory-record modification time
+  when a partial `TF` entry supplies only creation, access or change time.
+
 - Repository editor defaults include EditorConfig, VS Code workspace and
   conformance-suite integration, LF text attributes and focused search ignores.
   Local Nix state and nested Rust build output are ignored consistently.
