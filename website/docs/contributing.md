@@ -5,7 +5,7 @@ title: Contributing
 # Contributing
 
 See the repository's
-[contribution guide](https://github.com/hxyulin/hadris/blob/main/CONTRIBUTING.md)
+[contribution guide](https://github.com/hxyulin/hadris/blob/next/CONTRIBUTING.md)
 for the Rust toolchain, feature checks, API snapshots, specification annotations,
 and pull-request workflow.
 
@@ -22,7 +22,8 @@ Run `npm run build` before submitting a pull request.
 
 The site is versioned. `website/docs` holds the unreleased docs, served
 under `next/`. The docs of each released minor are generated from its
-newest `vX.Y.Z` tag and are not committed; the newest release is served at
+newest release tag (`vX.Y.Z` for 2.x, the umbrella crate's
+`hadris-vX.Y.Z` from 3.0) and are not committed; the newest release is served at
 the root. To build the site with every version, from a clone with full
 history and tags:
 

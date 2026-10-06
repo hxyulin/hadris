@@ -225,7 +225,7 @@ def main():
     for target in targets:
         if target not in TARGET_TO_FMT:
             # udf_read / part_read: no reference adapter, skip silently.
-            if target not in ("udf_read", "part_read", "fat_ops"):
+            if target not in ("udf_read", "part_read", "fat_ops", "exfat_ops"):
                 print(f"{target}: unknown target, skipped", file=sys.stderr)
             continue
         fmt = TARGET_TO_FMT[target]

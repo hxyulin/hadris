@@ -1,69 +1,30 @@
 //! Hybrid MBR/GPT boot sectors written alongside the ISO 9660 image.
 
-use std::io::Cursor;
-use std::sync::Arc;
+use hadris_fs::{Content, Node, Tree};
+use hadris_iso::{BootEntry, ElTorito, Hybrid, IsoId, IsoOptions};
+use hadris_tests::iso::hadris::write_tree;
 
-use hadris_iso::boot::EmulationType;
-use hadris_iso::boot::options::{BootEntryOptions, BootOptions};
-use hadris_iso::read::PathSeparator;
-use hadris_iso::write::options::{
-    BaseIsoLevel, CreationFeatures, HybridBootOptions, IsoFormatOptions,
-};
-use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
-
-fn hybrid_image(volume_name: &str, hybrid_boot: HybridBootOptions) -> Vec<u8> {
+fn hybrid_image(volume_name: &str, hybrid_boot: Hybrid) -> Vec<u8> {
     let mut boot_image = vec![0u8; 2048];
     boot_image[0] = 0xEB;
     boot_image[1] = 0xFE;
-    let files = InputFiles {
-        path_separator: PathSeparator::ForwardSlash,
-        files: vec![IsoFile::File {
-            name: Arc::new("boot.bin".to_string()),
-            contents: boot_image,
-        }],
-    };
-    let boot_options = BootOptions {
-        write_boot_catalog: true,
-        default: BootEntryOptions {
-            boot_image_path: "boot.bin".to_string(),
-            load_size: Some(std::num::NonZeroU16::new(4).unwrap()),
-            boot_info_table: false,
-            grub2_boot_info: false,
-            emulation: EmulationType::NoEmulation,
-        },
-        entries: vec![],
-    };
-    let format_options = IsoFormatOptions {
-        volume_name: volume_name.to_string(),
-        system_id: None,
-        volume_set_id: None,
-        publisher_id: None,
-        preparer_id: None,
-        application_id: None,
-        sector_size: 2048,
-        path_separator: PathSeparator::ForwardSlash,
-        features: CreationFeatures {
-            filenames: BaseIsoLevel::Level1 {
-                supports_lowercase: false,
-                supports_rrip: false,
-            },
-            long_filenames: false,
-            joliet: None,
-            rock_ridge: None,
-            el_torito: Some(boot_options),
-            hybrid_boot: Some(hybrid_boot),
-        },
-        strict_charset: false,
-    };
-    let mut iso_buffer = Cursor::new(vec![0u8; 512 * 2048]);
-    IsoImageWriter::create(&mut iso_buffer, files, format_options)
-        .expect("Failed to create hybrid ISO");
-    iso_buffer.into_inner()
+    let mut tree = Tree::new();
+    tree.insert("boot.bin", Node::file(Content::bytes(boot_image)))
+        .unwrap();
+    let options = IsoOptions::default()
+        .with_id(IsoId::Volume, volume_name)
+        .with_el_torito(
+            ElTorito::new()
+                .with_entry(BootEntry::bios("boot.bin").with_load_size(4))
+                .with_catalog_path("boot.catalog"),
+        )
+        .with_hybrid(hybrid_boot);
+    write_tree(&tree, &options).expect("Failed to create hybrid ISO")
 }
 
 #[test]
 fn test_hybrid_boot_mbr() {
-    let iso_data = hybrid_image("HYBRID_TEST", HybridBootOptions::mbr());
+    let iso_data = hybrid_image("HYBRID_TEST", Hybrid::mbr());
     assert_eq!(iso_data[510], 0x55, "MBR signature byte 1 incorrect");
     assert_eq!(iso_data[511], 0xAA, "MBR signature byte 2 incorrect");
     assert_eq!(iso_data[446], 0x80, "Partition should be bootable");
@@ -76,7 +37,7 @@ fn test_hybrid_boot_mbr() {
 
 #[test]
 fn test_hybrid_boot_gpt() {
-    let iso_data = hybrid_image("GPT_TEST", HybridBootOptions::gpt());
+    let iso_data = hybrid_image("GPT_TEST", Hybrid::gpt());
     assert_eq!(iso_data[510], 0x55, "MBR signature byte 1 incorrect");
     assert_eq!(iso_data[511], 0xAA, "MBR signature byte 2 incorrect");
     assert_eq!(
@@ -89,7 +50,7 @@ fn test_hybrid_boot_gpt() {
 
 #[test]
 fn test_hybrid_boot_dual() {
-    let iso_data = hybrid_image("DUAL_BOOT", HybridBootOptions::hybrid());
+    let iso_data = hybrid_image("DUAL_BOOT", Hybrid::gpt_hybrid_mbr());
     assert_eq!(iso_data[510], 0x55);
     assert_eq!(iso_data[511], 0xAA);
     assert_eq!(&iso_data[512..520], b"EFI PART", "GPT signature incorrect");

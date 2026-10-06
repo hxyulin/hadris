@@ -12,14 +12,14 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$REPO_ROOT"
 
 SESSION="${1:-fuzz}"
-TARGETS="fat_read exfat_read ntfs_read iso_read udf_read cpio_read part_read fat_ops"
+TARGETS="fat_read exfat_read ntfs_read iso_read udf_read cpio_read part_read fat_ops exfat_ops"
 
 max_len_for() {
     case "$1" in
         part_read | ntfs_read | cpio_read) echo 65536 ;;
         fat_read | exfat_read) echo 131072 ;;
         iso_read | udf_read) echo 1048576 ;;
-        fat_ops) echo 4096 ;;
+        fat_ops | exfat_ops) echo 4096 ;;
         *) echo 65536 ;;
     esac
 }

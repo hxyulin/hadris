@@ -6,6 +6,7 @@ use crate::types::container::ContainerSuperblock;
 
 /// An opened APFS container's static metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ContainerInfo {
     /// Block-zero container superblock.
     pub superblock: ContainerSuperblock,
@@ -18,7 +19,7 @@ impl ContainerInfo {
             .ok_or(crate::ApfsError::InvalidValue("container block size"))?;
         Ok(BlockGeometry::new(
             block_size,
-            BlockCount(self.superblock.block_count),
+            BlockCount::new(self.superblock.block_count),
         ))
     }
 }

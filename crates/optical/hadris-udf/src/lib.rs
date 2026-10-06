@@ -1,83 +1,99 @@
 //! # Hadris UDF
 //!
-//! A pure Rust Universal Disk Format (UDF) filesystem library for optical media
-//! and disk images. It supports hosted applications and `no_std` bootloaders,
-//! kernels, firmware, and embedded systems.
+//! Universal Disk Format (ECMA-167 and the OSTA UDF specification) volumes:
+//! an allocation-free reader and a writer that builds volumes from a shared
+//! input tree.
 //!
-//! UDF (ECMA-167) is the filesystem used for:
-//! - DVD-ROM, DVD-Video, DVD-RAM
-//! - Blu-ray discs
-//! - Large USB drives (files >4GB)
-//! - Packet writing to CD/DVD-RW
+//! ## Reading
+//!
+//! `UdfFs` opens a volume on a `hadris_storage` block device, in each mode
+//! (`sync::UdfFs`, `r#async::UdfFs`). It implements
+//! the `hadris_fs` `FileSystem` trait read-only, so `Volume` and its
+//! handles work on it. Node ids are ICB
+//! locations and need no node table. Reading needs no allocator.
+//!
+//! ```rust
+//! # #[cfg(all(feature = "sync", feature = "std"))]
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use std::io::Read;
+//!
+//! use hadris_fs::sync::Volume;
+//! use hadris_fs::{Content, MountOptions, Node, OpenOptions, Tree};
+//! use hadris_storage::{BlockSize, MemDevice};
+//! use hadris_udf::{UdfId, UdfOptions, plan};
+//! use hadris_udf::sync::{UdfFs, write};
+//!
+//! let mut tree = Tree::new();
+//! tree.insert("docs/readme.txt", Node::file(Content::bytes("hello")))?;
+//! let options = UdfOptions::new().with_id(UdfId::Volume, "DOCS");
+//! let size = plan(&tree, &options)?.size();
+//! let mut dev = MemDevice::new(vec![0u8; size as usize], BlockSize::new(2048).unwrap());
+//! write(&mut dev, &tree, &options)?;
+//!
+//! let udf = UdfFs::mount(dev, MountOptions::new())?;
+//! assert_eq!(udf.info().id(UdfId::Volume), "DOCS");
+//! let vol = Volume::new(udf);
+//! let mut text = String::new();
+//! vol.open("/docs/readme.txt", OpenOptions::new().read())?.read_to_string(&mut text)?;
+//! assert_eq!(text, "hello");
+//! # Ok(())
+//! # }
+//! # #[cfg(not(all(feature = "sync", feature = "std")))]
+//! # fn main() {}
+//! ```
+//!
+//! The reader handles UDF 1.02 to 2.01 volumes with type 1 partitions:
+//! logical blocks of 512 to 4096 bytes, the prevailing descriptors of the
+//! main or reserve sequence, file entries and extended file entries,
+//! short, long, extended and embedded allocation descriptors with
+//! continuation extents, symbolic links and hard links. Virtual, sparable
+//! and metadata partitions (UDF 1.50 packet writing and 2.50) are refused
+//! as [`ErrorKind::Unsupported`](hadris_fs::ErrorKind::Unsupported).
+//! The on-disk layouts are in [`raw`].
+//!
+//! ## Writing
+//!
+//! `write` (in each mode, with `alloc`) lays out a `hadris_fs::Tree` as a
+//! UDF volume on a block device, as [`UdfOptions`] says, and returns a
+//! `hadris_fs::Report` of its size, where each file went, and what it could
+//! not store. [`plan`] returns the same report without I/O, so the device
+//! can be sized first. The output is reproducible: the writer reads no
+//! clock, and dates the volume with [`UdfOptions::with_time`], 1980-01-01
+//! by default.
+//!
+//! `write_bridge` writes an ISO 9660 and UDF bridge image, as DVD-Video
+//! uses: both file systems point at the same file data. It takes the
+//! `hadris_iso::IsoOptions` of the ISO 9660 half, and [`plan_bridge`]
+//! returns its report without I/O.
+//!
+//! Reading fails with [`hadris_fs::Error`]; [`Detail::of`] names the
+//! structure or option at fault, and a device without a UDF recognition
+//! sequence fails with
+//! [`ErrorKind::NotRecognized`](hadris_fs::ErrorKind::NotRecognized).
+//! Writing fails with [`hadris_fs::PathError`], which carries the path of
+//! the file whose content failed; [`Detail::from_code`] reads its detail.
 //!
 //! ## Features
 //!
-//! This crate supports:
-//! - **UDF 1.02**: DVD-ROM (read-only)
-//! - **UDF 1.50**: DVD-RAM, packet writing (planned)
-//! - **UDF 2.01**: DVD-RW, streaming (planned)
+//! | Feature | Default | Description |
+//! |---|---|---|
+//! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
+//! | `alloc` | via `std` | The writers, `plan` and `plan_bridge` |
+//! | `sync` | Yes | The blocking API in `sync` |
+//! | `async` | No | The asynchronous API with `Send` futures in `r#async` |
 //!
-//! ## Quick Start
-//!
-//! ```rust,no_run
-//! use std::fs::File;
-//! use std::io::BufReader;
-//! use hadris_udf::UdfVolume;
-//!
-//! // Open a UDF image file
-//! let file = File::open("movie.udf").unwrap();
-//! let reader = BufReader::new(file);
-//! let udf = UdfVolume::open(reader).unwrap();
-//!
-//! // Read volume info
-//! let info = udf.info();
-//! println!("Volume: {}", info.volume_id);
-//!
-//! // List root directory
-//! let root = udf.root_dir().unwrap();
-//! for entry in root.entries() {
-//!     println!("{} ({})", entry.name(), entry.size);
-//! }
-//!
-//! // Read a file's contents
-//! # let entry = root.entries().next().unwrap();
-//! let bytes = udf.read_file(&entry).unwrap();
-//! # let _ = bytes;
-//! ```
-//!
-//! ## Feature Flags
-//!
-//! | Feature | Description |
-//! |---------|-------------|
-//! | `read` | Read support (default) |
-//! | `alloc` | Heap allocation without full std |
-//! | `std` | Full standard library support |
-//! | `write` | Write/format support (requires std) |
-//! | `sync` | Synchronous API under [`sync`] (default) |
-//! | `async` | Asynchronous read API under `hadris_udf::r#async` |
-//!
-//! `std` does not select an I/O mode. The `write` implementation is currently
-//! synchronous-only; enabling `write` and `async` together does not expose an
-//! async write API.
-//!
-//! ## Known Limitations
-//!
-//! - Extended allocation descriptors and stream directories are not supported.
-//! - Packet writing / sparing tables / Blu-ray-specific features are not implemented.
-//! - Directory listing reads each file ICB to populate
-//!   [`dir::UdfDirEntry::size`] (one extra seek per file).
-//!
-//! ## Specification References
-//!
-//! - ECMA-167: Volume and File Structure for Write-Once and Rewritable Media
-//! - OSTA UDF Specification (udf260.pdf)
+//! No feature changes what an item does.
 
 #![cfg_attr(not(test), no_std)]
-#![allow(async_fn_in_trait)]
 #![deny(missing_docs)]
+#![allow(async_fn_in_trait)]
 // Sync and async APIs intentionally compile the same source modules twice.
 #![allow(clippy::duplicate_mod)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(
+    not(all(feature = "alloc", any(feature = "sync", feature = "async"))),
+    allow(dead_code)
+)]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -85,217 +101,101 @@ extern crate alloc;
 #[cfg(all(feature = "std", not(test)))]
 extern crate std;
 
-#[cfg(test)]
-extern crate self as hadris_udf;
-
-// ---------------------------------------------------------------------------
-// Shared types (compiled once, not duplicated by sync/async modules)
-// ---------------------------------------------------------------------------
-
+#[cfg(feature = "alloc")]
+mod bridge;
 mod error;
+mod name;
+#[cfg(feature = "alloc")]
+mod options;
+#[cfg(feature = "alloc")]
+mod plan;
+mod revision;
 mod time;
+mod volume;
 
-pub use error::{Error, Result};
-pub use time::UdfTimestamp;
-
-// ---------------------------------------------------------------------------
-// Sync module
-// ---------------------------------------------------------------------------
+pub mod raw;
 
 #[cfg(feature = "sync")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sync")))]
 #[path = ""]
 pub mod sync {
-    //! Synchronous UDF filesystem API.
-    //!
-    //! All I/O operations use synchronous `Read`/`Write`/`Seek` traits.
-
-    pub use hadris_io::Result as IoResult;
-    pub use hadris_io::sync::{Parsable, Read, ReadExt, Seek, Writable, Write};
-    pub use hadris_io::{Error, ErrorKind, SeekFrom};
+    //! The blocking API.
 
     macro_rules! io_transform {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
     }
 
-    #[allow(unused_macros)]
-    macro_rules! sync_only {
-        ($($item:tt)*) => { $($item)* };
-    }
-
-    #[allow(unused_macros)]
-    macro_rules! async_only {
-        ($($item:tt)*) => {};
-    }
-
-    #[path = "."]
-    mod __inner {
-        pub mod descriptor;
-        #[cfg(feature = "alloc")]
-        pub mod dir;
-        #[cfg(feature = "alloc")]
-        pub mod file;
-        #[cfg(feature = "alloc")]
-        pub mod fs;
-        sync_only! {
-            #[cfg(feature = "write")]
-            pub mod write;
-        }
-    }
     #[cfg(feature = "alloc")]
-    pub use __inner::dir::UdfDir;
+    use hadris_fs::sync as fs;
     #[cfg(feature = "alloc")]
-    pub use __inner::file::FileType;
-    pub use __inner::*;
+    use hadris_iso::sync as iso;
+    use hadris_storage::sync as storage;
 
+    use hadris_fs::sync::FileSystem;
+
+    #[path = "read.rs"]
+    mod read;
+    pub use read::UdfFs;
     #[cfg(feature = "alloc")]
-    pub use __inner::fs::{UdfVolume, UdfVolumeInfo};
+    #[path = "write.rs"]
+    mod write;
+    #[cfg(feature = "alloc")]
+    pub use write::{write, write_bridge};
 }
 
-// ---------------------------------------------------------------------------
-// Async module
-// ---------------------------------------------------------------------------
-
+/// The asynchronous API with `Send` futures, for generic code on
+/// multi-threaded executors, generated from the same source as `sync`.
 #[cfg(feature = "async")]
-#[path = ""]
-pub mod r#async {
-    //! Asynchronous UDF filesystem API.
-    //!
-    //! All I/O operations use async `Read`/`Write`/`Seek` traits.
+#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
+pub mod r#async;
 
-    pub use hadris_io::Result as IoResult;
-    pub use hadris_io::r#async::{Parsable, Read, ReadExt, Seek, Writable, Write};
-    pub use hadris_io::{Error, ErrorKind, SeekFrom};
-
-    macro_rules! io_transform {
-        ($($item:tt)*) => { $($item)* };
-    }
-
-    #[allow(unused_macros)]
-    macro_rules! sync_only {
-        ($($item:tt)*) => {};
-    }
-
-    #[allow(unused_macros)]
-    macro_rules! async_only {
-        ($($item:tt)*) => { $($item)* };
-    }
-
-    #[path = "."]
-    mod __inner {
-        pub mod descriptor;
-        #[cfg(feature = "alloc")]
-        pub mod dir;
-        #[cfg(feature = "alloc")]
-        pub mod file;
-        #[cfg(feature = "alloc")]
-        pub mod fs;
-    }
-    #[cfg(feature = "alloc")]
-    pub use __inner::dir::UdfDir;
-    #[cfg(feature = "alloc")]
-    pub use __inner::file::FileType;
-    pub use __inner::*;
-
-    #[cfg(feature = "alloc")]
-    pub use __inner::fs::{UdfVolume, UdfVolumeInfo};
-}
-
-// ---------------------------------------------------------------------------
-// Default re-exports for backwards compatibility (sync)
-// ---------------------------------------------------------------------------
-
-#[cfg(feature = "sync")]
-pub use sync::*;
-
-// When only async is enabled (no sync), re-export async module contents
-// so that shared modules (dir.rs, file.rs) can use `crate::descriptor::*`.
-#[cfg(all(feature = "async", not(feature = "sync")))]
-pub use r#async::*;
-
-/// UDF revision numbers
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct UdfRevision(u16);
-
-impl UdfRevision {
-    /// UDF 1.02 - DVD-ROM
-    pub const V1_02: Self = Self(0x0102);
-    /// UDF 1.50 - DVD-RAM, packet writing
-    pub const V1_50: Self = Self(0x0150);
-    /// UDF 2.00 - DVD-RW
-    pub const V2_00: Self = Self(0x0200);
-    /// UDF 2.01 - DVD-RW streaming
-    pub const V2_01: Self = Self(0x0201);
-    /// UDF 2.50 - Blu-ray
-    pub const V2_50: Self = Self(0x0250);
-    /// UDF 2.60 - Blu-ray pseudo-overwrite
-    pub const V2_60: Self = Self(0x0260);
-
-    /// Create a revision from raw value
-    pub const fn from_raw(value: u16) -> Self {
-        Self(value)
-    }
-
-    /// Get the raw revision value
-    pub const fn to_raw(self) -> u16 {
-        self.0
-    }
-
-    /// Get the major version number
-    pub const fn major(self) -> u8 {
-        ((self.0 >> 8) & 0xFF) as u8
-    }
-
-    /// Get the minor version number
-    pub const fn minor(self) -> u8 {
-        (self.0 & 0xFF) as u8
-    }
-}
-
-impl core::fmt::Display for UdfRevision {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}.{:02x}", self.major(), self.minor())
-    }
-}
-
-/// Sector size for UDF (always 2048 bytes for optical media)
-pub const SECTOR_SIZE: usize = 2048;
-
-/// Location of the first Anchor Volume Descriptor Pointer
-pub const AVDP_LOCATION: u32 = 256;
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+pub use bridge::plan_bridge;
+pub use error::Detail;
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+pub use options::UdfOptions;
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+pub use plan::plan;
+pub use revision::UdfRevision;
+pub use volume::{EntityId, PartitionInfo, PartitionKind, UdfId, VolumeInfo};
 
 #[cfg(test)]
+extern crate self as hadris_udf;
+
+#[cfg(all(test, feature = "std", feature = "sync"))]
 mod tests {
-    extern crate std;
-    use super::*;
-    use std::format;
+    use hadris_fs::{Content, ErrorKind, MountOptions, Node, Tree};
+    use hadris_storage::{BlockSize, MemDevice};
+
+    use crate::raw::Tag;
 
     #[test]
-    fn test_udf_revision() {
-        let rev = UdfRevision::V2_01;
-        assert_eq!(rev.major(), 2);
-        assert_eq!(rev.minor(), 1);
-        assert_eq!(rev.to_raw(), 0x0201);
-    }
-
-    #[test]
-    fn test_udf_revision_display() {
-        assert_eq!(format!("{}", UdfRevision::V1_02), "1.02");
-        assert_eq!(format!("{}", UdfRevision::V2_50), "2.50");
+    fn map_tables_past_any_block_are_corrupt() {
+        let mut tree = Tree::new();
+        tree.insert("a", Node::file(Content::bytes("a"))).unwrap();
+        let options = crate::UdfOptions::default();
+        let size = crate::plan(&tree, &options).unwrap().size() as usize;
+        let sector = BlockSize::new(2048).unwrap();
+        let mut dev = MemDevice::new(alloc::vec![0u8; size], sector);
+        crate::sync::write(&mut dev, &tree, &options).unwrap();
+        let mut bytes = dev.into_inner();
+        for lvd in [260, 276] {
+            let block = &mut bytes[lvd * 2048..(lvd + 1) * 2048];
+            let tag = Tag::read(block).unwrap();
+            block[264..268].copy_from_slice(&u32::MAX.to_le_bytes());
+            Tag::seal(
+                block,
+                tag.identifier.get(),
+                tag.version.get(),
+                tag.location.get(),
+                usize::from(tag.crc_length.get()),
+            );
+        }
+        let err = crate::sync::UdfFs::mount(MemDevice::new(bytes, sector), MountOptions::new())
+            .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Corrupt);
     }
 }
-
-#[cfg(all(test, feature = "async", feature = "alloc", feature = "read"))]
-#[path = "../tests/async_read.rs"]
-mod async_read;
-#[cfg(all(test, feature = "sync", feature = "write"))]
-#[path = "../tests/comprehensive_udf.rs"]
-mod comprehensive_udf;
-#[cfg(all(test, feature = "std", feature = "sync", feature = "read"))]
-#[path = "../tests/integration_external.rs"]
-mod integration_external;
-#[cfg(all(test, feature = "std", feature = "sync", feature = "write"))]
-#[path = "../tests/poc_audit_udf.rs"]
-mod poc_audit_udf;
-#[cfg(all(test, feature = "std", feature = "sync", feature = "write"))]
-#[path = "../tests/poc_fuzz_udf.rs"]
-mod poc_fuzz_udf;

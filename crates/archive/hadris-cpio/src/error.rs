@@ -1,106 +1,145 @@
 use core::fmt;
 
-/// Errors that can occur during CPIO archive operations.
-#[derive(Debug)]
-pub enum Error {
-    /// An I/O error occurred while reading or writing the archive.
-    Io(hadris_io::Error),
-    /// The header magic bytes are not `070701` or `070702`.
-    InvalidMagic {
-        /// Six bytes read from the archive magic field.
-        found: [u8; 6],
-    },
-    /// A header field contains non-hexadecimal characters.
-    InvalidHexField {
-        /// Name of the malformed header field.
-        field: &'static str,
-    },
-    /// The entry filename is empty or could not be read.
-    InvalidFilename,
-    /// A decoded header violates a newc field invariant.
-    InvalidHeader {
-        /// Description of the violated invariant.
-        reason: &'static str,
-    },
-    /// The archive ended without a `TRAILER!!!` sentinel.
-    MissingTrailer,
-    /// The CRC checksum in a `070702` entry does not match the computed value.
-    ChecksumMismatch {
-        /// Checksum stored in the entry header.
-        expected: u32,
-        /// Checksum computed from the entry contents.
-        computed: u32,
-    },
-    /// A caller-provided data buffer does not match the entry's file size.
-    BufferSizeMismatch {
-        /// The entry's file size in bytes.
-        expected: usize,
-        /// The length of the provided buffer.
-        actual: usize,
-    },
-    /// A hard link references a target path that was not seen earlier in the archive.
-    #[cfg(feature = "write")]
-    UnresolvedHardLink {
-        /// Inode number assigned to the unresolved target.
-        ino: u32,
-    },
-    /// The filename exceeds the maximum length representable in a newc header.
-    #[cfg(feature = "write")]
-    FilenameTooLong,
-    /// The file data exceeds the maximum size representable in a newc header (4 GiB).
-    #[cfg(feature = "write")]
-    FileTooLarge,
+pub(crate) use hadris_fs::Error;
+use hadris_fs::{DetailCode, ErrorKind};
+use hadris_io::ExactError;
+
+const DOMAIN: &str = "hadris-cpio";
+
+/// What exactly went wrong, beyond the [`ErrorKind`].
+///
+/// Callers match on the kind; the detail tells a tool which part of the
+/// archive or which input it concerns. Read it back from an [`Error`] with
+/// [`Detail::of`], or from a [`PathError`](hadris_fs::PathError) with
+/// [`Detail::from_code`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Detail {
+    /// A header starts with no known cpio magic.
+    Magic = 1,
+    /// A header field is not a valid number, or a value does not fit its
+    /// field.
+    Field = 2,
+    /// A name is empty, too long, not NUL-terminated, or the reserved
+    /// trailer name.
+    Name = 3,
+    /// Alignment padding is not zero.
+    Padding = 4,
+    /// The check field of a `070701` entry is not zero.
+    Check = 5,
+    /// The data of a `070702` entry does not sum to its check field.
+    Checksum = 6,
+    /// The trailer has data, is missing where required, or is cut off.
+    Trailer = 7,
+    /// The archive ends inside an entry.
+    Truncated = 8,
+    /// An entry cannot be written: an empty symlink target, an empty hard
+    /// link group, or a node kind the format cannot store.
+    Entry = 10,
+    /// The format cannot be written, such as old binary cpio.
+    Format = 11,
 }
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Detail {
+    const fn description(self) -> &'static str {
         match self {
-            Self::Io(e) => write!(f, "I/O error: {e:?}"),
-            Self::InvalidMagic { found } => {
-                write!(
-                    f,
-                    "invalid CPIO magic: expected 070701 or 070702, found {:?}",
-                    core::str::from_utf8(found).unwrap_or("<invalid>")
-                )
-            }
-            Self::InvalidHexField { field } => {
-                write!(f, "invalid hex field: {field}")
-            }
-            Self::InvalidFilename => write!(f, "invalid filename"),
-            Self::InvalidHeader { reason } => write!(f, "invalid CPIO header: {reason}"),
-            Self::MissingTrailer => write!(f, "missing TRAILER!!! sentinel"),
-            Self::ChecksumMismatch { expected, computed } => {
-                write!(
-                    f,
-                    "checksum mismatch: expected {expected:#010x}, computed {computed:#010x}"
-                )
-            }
-            Self::BufferSizeMismatch { expected, actual } => {
-                write!(
-                    f,
-                    "buffer size mismatch: entry is {expected} bytes, buffer is {actual} bytes"
-                )
-            }
-            #[cfg(feature = "write")]
-            Self::UnresolvedHardLink { ino } => {
-                write!(f, "unresolved hard link: inode {ino}")
-            }
-            #[cfg(feature = "write")]
-            Self::FilenameTooLong => write!(f, "filename too long"),
-            #[cfg(feature = "write")]
-            Self::FileTooLarge => write!(f, "file too large"),
+            Self::Magic => "unknown cpio magic",
+            Self::Field => "invalid or oversized header field",
+            Self::Name => "invalid entry name",
+            Self::Padding => "alignment padding is not zero",
+            Self::Check => "070701 check field is not zero",
+            Self::Checksum => "070702 checksum mismatch",
+            Self::Trailer => "invalid or missing trailer",
+            Self::Truncated => "archive ends inside an entry",
+            Self::Entry => "entry cannot be written",
+            Self::Format => "format cannot be written",
         }
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for Error {}
-
-impl<E: hadris_io::IoError> From<hadris_io::Error<E>> for Error {
-    fn from(e: hadris_io::Error<E>) -> Self {
-        Self::Io(e.erase())
+impl fmt::Display for Detail {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.description())
     }
 }
 
-/// Convenience type alias for `core::result::Result<T, Error>`.
-pub type Result<T> = core::result::Result<T, Error>;
+impl Detail {
+    const ALL: [Self; 10] = [
+        Self::Magic,
+        Self::Field,
+        Self::Name,
+        Self::Padding,
+        Self::Check,
+        Self::Checksum,
+        Self::Trailer,
+        Self::Truncated,
+        Self::Entry,
+        Self::Format,
+    ];
+
+    /// The detail a cpio operation recorded on `err`, if any.
+    pub fn of<E>(err: &Error<E>) -> Option<Self> {
+        err.detail().and_then(Self::from_code)
+    }
+
+    /// The detail `code` stands for, when it is one of this crate's codes.
+    pub fn from_code(code: DetailCode) -> Option<Self> {
+        let code = code.code_in(DOMAIN)?;
+        Self::ALL.into_iter().find(|detail| *detail as u16 == code)
+    }
+
+    /// The code this detail is recorded with, in the `hadris-cpio` domain.
+    /// Codes never change meaning.
+    pub const fn code(self) -> DetailCode {
+        DetailCode::new(DOMAIN, self as u16)
+    }
+
+    pub(crate) fn error<E>(self, kind: ErrorKind) -> Error<E> {
+        Error::new(kind, self.description()).with_detail(self.code())
+    }
+
+    pub(crate) fn corrupt<E>(self) -> Error<E> {
+        self.error(ErrorKind::Corrupt)
+    }
+
+    pub(crate) fn invalid<E>(self) -> Error<E> {
+        self.error(ErrorKind::InvalidInput)
+    }
+}
+
+impl From<Detail> for DetailCode {
+    fn from(detail: Detail) -> Self {
+        detail.code()
+    }
+}
+
+/// A short read of the archive: truncated, or the stream failed.
+pub(crate) fn read_failed<E>(err: ExactError<E>) -> Error<E> {
+    match err {
+        ExactError::Io(err) => Error::device(err, "reading the archive failed"),
+        _ => Detail::Truncated.corrupt(),
+    }
+}
+
+/// A failed write of the archive.
+pub(crate) fn write_failed<E>(err: ExactError<E>) -> Error<E> {
+    match err {
+        ExactError::Io(err) => Error::device(err, "writing the archive failed"),
+        _ => Error::new(ErrorKind::NoSpace, "the output accepted no bytes"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn details_round_trip_through_their_codes() {
+        for detail in Detail::ALL {
+            let err: Error<()> = Error::new(ErrorKind::Corrupt, "").with_detail(detail.code());
+            assert_eq!(Detail::of(&err), Some(detail));
+        }
+        let foreign = DetailCode::new("another-crate", Detail::ALL[0] as u16);
+        assert_eq!(Detail::from_code(foreign), None);
+    }
+}

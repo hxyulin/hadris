@@ -1,34 +1,37 @@
-use hadris_fat::time::TimeProvider;
-use hadris_fat::{FatDateTime, FatVolume, FatVolumeBuilder};
 use std::fs::File;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-#[derive(Debug)]
-struct SystemClock;
-
-impl TimeProvider for SystemClock {
-    fn now(&self) -> FatDateTime {
-        FatDateTime::now()
-    }
-}
-
-static CLOCK: SystemClock = SystemClock;
+use hadris_fat::sync::FatFs;
+use hadris_fs::MountOptions;
+use hadris_fs::sync::{FileSystem, Volume};
+use hadris_fs::{OpenOptions, SystemClock};
+use hadris_storage::host::FileDevice;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "disk.img".to_owned());
     let file = File::options().read(true).write(true).open(path)?;
-    let volume: FatVolume<_> = FatVolumeBuilder::new(file).time_provider(&CLOCK).open()?;
+    let fs = FatFs::mount(
+        FileDevice::new(file)?,
+        MountOptions::new().with_clock(&SystemClock),
+    )?;
+    let kind = fs.info().kind();
 
-    // FatVolume is Send when its backing storage is Send. A mutex provides
-    // exclusive access while Arc lets workers share ownership of the handle.
-    let volume = Arc::new(Mutex::new(volume));
-    let worker_volume = Arc::clone(&volume);
-    let fat_type = std::thread::spawn(move || worker_volume.lock().unwrap().fat_type())
-        .join()
-        .expect("volume worker panicked");
+    // Volume puts the filesystem behind a lock, so its path methods work on
+    // `&self` and an Arc shares it between threads.
+    let volume = Arc::new(Volume::new(fs));
+    let worker = Arc::clone(&volume);
+    std::thread::spawn(move || -> Result<(), hadris_fs::Error<std::io::Error>> {
+        let options = OpenOptions::new().write().create().truncate();
+        let mut file = worker.open("/hello.txt", options)?;
+        file.write(b"hello from a thread")?;
+        file.close()
+    })
+    .join()
+    .expect("volume worker panicked")?;
+    volume.lock().sync()?;
 
-    println!("mounted {fat_type}");
+    println!("mounted {kind:?}, wrote /hello.txt");
     Ok(())
 }

@@ -1,0 +1,282 @@
+use super::volume::{Held, Volume};
+use super::*;
+use crate::tree::Content;
+use crate::{DeviceNumber, Node, PathError, Tree};
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+
+/// The longest symlink target read, as Linux `PATH_MAX`.
+const MAX_LINK_TARGET: usize = 4096;
+
+/// A buffer for the target of a symlink whose metadata reports `len` bytes.
+/// [`ErrorKind::LimitExceeded`] above [`MAX_LINK_TARGET`].
+fn link_buffer(len: u64) -> Result<Vec<u8>, ErrorKind> {
+    match usize::try_from(len) {
+        Ok(0) => Ok(alloc::vec![0u8; MAX_LINK_TARGET]),
+        Ok(len) if len <= MAX_LINK_TARGET => Ok(alloc::vec![0u8; len]),
+        _ => Err(ErrorKind::LimitExceeded),
+    }
+}
+
+/// Directories a tree walk descends before [`ErrorKind::LimitExceeded`].
+const MAX_TREE_DEPTH: usize = 1024;
+
+/// Checks that a walk may enter the directory `child` below the directories
+/// of `path`, the current path from the top: a directory already on it is a
+/// cycle, which only a corrupt volume holds.
+fn enter(
+    path: impl ExactSizeIterator<Item = NodeId>,
+    child: NodeId,
+) -> Result<(), ErrorKind> {
+    if path.len() >= MAX_TREE_DEPTH {
+        return Err(ErrorKind::LimitExceeded);
+    }
+    let mut path = path;
+    if path.any(|node| node == child) {
+        return Err(ErrorKind::Corrupt);
+    }
+    Ok(())
+}
+
+/// The attributes of a tree node that reproduce `meta`.
+pub(super) fn attrs_of(meta: &Metadata) -> SetAttr {
+    let mut attrs = SetAttr::new()
+        .with_permissions(meta.permissions())
+        .with_attributes(meta.attributes());
+    if let Some(time) = meta.created() {
+        attrs = attrs.with_created(time);
+    }
+    if let Some(time) = meta.modified() {
+        attrs = attrs.with_modified(time);
+    }
+    if let Some(time) = meta.accessed() {
+        attrs = attrs.with_accessed(time);
+    }
+    if let Some(owner) = meta.owner() {
+        attrs = attrs.with_owner(owner);
+    }
+    attrs
+}
+
+/// A pinned file of a volume, read through a clone of the volume.
+struct VolumeContent<F: FileSystem> {
+    vol: Volume<F>,
+    node: NodeId,
+}
+
+impl<F: FileSystem> Drop for VolumeContent<F> {
+    fn drop(&mut self) {
+        self.vol.release(self.node, false);
+    }
+}
+
+io_transform! {
+
+impl<F: FileSystem> VolumeContent<F> {
+    async fn read(&self, offset: u64, buf: &mut [u8]) -> Result<usize, PathError> {
+        let mut fs = self.vol.lock().await;
+        fs.open(self.node, OpenMode::Read).await?;
+        let open = self.vol.hold_open(self.node);
+        let read = fs.read(self.node, offset, buf).await;
+        open.keep();
+        let closed = fs.close(self.node).await;
+        let n = read?;
+        closed?;
+        Ok(n)
+    }
+}
+
+/// Turns the file or directory at `path` on `vol` into a [`Tree`] whose file
+/// content is read lazily through a clone of the volume, so converting a
+/// large volume needs no memory for file data.
+///
+/// For a directory the tree's root takes the directory's attributes and
+/// holds its contents; a file becomes the only node of the tree, under the
+/// name its directory lists it by, which on a case-insensitive volume may
+/// differ from the spelling in `path` (one scan of the directory). Symlinks, device nodes, FIFOs and sockets are kept, and a file
+/// listed again under the same node id becomes a hard link. Attributes are
+/// what the volume reports. `path` resolves lexically.
+///
+/// Each file keeps its node pinned until the last clone of its content is
+/// dropped, and the tree holds a clone of the volume, so
+/// [`Volume::into_inner`] fails while the tree lives. The content is read
+/// only by writers of this mode. Errors carry the path on the volume; a
+/// directory that leads back to one on its own path fails with
+/// [`ErrorKind::Corrupt`], and a tree more than 1024 directories deep with
+/// [`ErrorKind::LimitExceeded`].
+pub async fn read_tree<F: FileSystem + Send + 'static>(vol: &Volume<F>, path: impl AsRef<[u8]>) -> Result<Tree, PathError> {
+    let path = path.as_ref();
+    let mut fs = vol.lock().await;
+    let top = vol.hold(fs.resolve(path, Resolve::Lexical).await.map_err(|err| PathError::from(err).with_path(path))?);
+    let mut tree = Tree::new();
+    let meta = match fs.stat(top.node()).await {
+        Ok(meta) => meta,
+        Err(err) => {
+            top.forget(&mut *fs);
+            return Err(PathError::from(err).with_path(path));
+        }
+    };
+    if !meta.file_type().is_dir() {
+        let name = match stored_name(&mut *fs, vol, path, top.node()).await {
+            Ok(name) => name,
+            Err(err) => {
+                top.forget(&mut *fs);
+                return Err(PathError::from(err).with_path(path));
+            }
+        };
+        let node = node_of(&mut *fs, vol, top, &meta).await.map_err(|err| err.with_path(path))?;
+        tree.insert(&name, node)?;
+        return Ok(tree);
+    }
+    if let Err(err) = tree.replace("/", Node::dir().with_attrs(attrs_of(&meta))) {
+        top.forget(&mut *fs);
+        return Err(err);
+    }
+    let mut stack: Vec<(Held<'_>, DirCursor, Vec<u8>)> = alloc::vec![(top, DirCursor::START, Vec::new())];
+    let mut seen: Vec<(NodeId, Vec<u8>)> = Vec::new();
+    let result = walk(&mut *fs, vol, &mut tree, &mut stack, &mut seen).await;
+    for (node, ..) in stack {
+        node.forget(&mut *fs);
+    }
+    result.map(|()| tree)
+}
+
+/// The name `node`, found at `path`, is listed under in its directory: the
+/// stored spelling, which on a case-insensitive volume may differ from the
+/// one in `path`. The last component of `path` when the directory does not
+/// list it.
+async fn stored_name<F: FileSystem>(
+    fs: &mut F,
+    vol: &Volume<F>,
+    path: &[u8],
+    node: NodeId,
+) -> FsResult<Vec<u8>, F::DeviceError> {
+    let given = path.rsplit(|&byte| byte == b'/').find(|part| !part.is_empty()).unwrap_or(path).to_vec();
+    let mut parent_path = path.to_vec();
+    parent_path.extend_from_slice(b"/..");
+    let parent = vol.hold(fs.resolve(&parent_path, Resolve::Lexical).await?);
+    let mut cursor = DirCursor::START;
+    let found = loop {
+        match fs.readdir(parent.node(), cursor).await {
+            Ok(Some(entry)) if entry.node() == node => break Ok(entry.name().as_bytes().to_vec()),
+            Ok(Some(entry)) => cursor = entry.next_cursor(),
+            Ok(None) => break Ok(given),
+            Err(err) => break Err(err),
+        }
+    };
+    parent.forget(fs);
+    found
+}
+
+async fn walk<'v, F: FileSystem + Send + 'static>(
+    fs: &mut F,
+    vol: &'v Volume<F>,
+    tree: &mut Tree,
+    stack: &mut Vec<(Held<'v>, DirCursor, Vec<u8>)>,
+    seen: &mut Vec<(NodeId, Vec<u8>)>,
+) -> Result<(), PathError> {
+    while let Some((dir, cursor, prefix)) = stack.last_mut() {
+        let dir = dir.node();
+        let entry = match fs.readdir(dir, *cursor).await {
+            Ok(Some(entry)) => entry,
+            Ok(None) => {
+                if let Some((done, ..)) = stack.pop() {
+                    done.forget(fs);
+                }
+                continue;
+            }
+            Err(err) => return Err(PathError::from(err).with_path(&prefix[..])),
+        };
+        *cursor = entry.next_cursor();
+        let mut path = prefix.clone();
+        path.push(b'/');
+        path.extend_from_slice(entry.name().as_bytes());
+        let child = vol.hold(fs.lookup(dir, entry.name()).await.map_err(|err| PathError::from(err).with_path(&path))?);
+        let meta = match fs.stat(child.node()).await {
+            Ok(meta) => meta,
+            Err(err) => {
+                child.forget(fs);
+                return Err(PathError::from(err).with_path(&path));
+            }
+        };
+        if meta.file_type().is_dir() {
+            let entered = enter(stack.iter().map(|(node, ..)| node.node()), child.node())
+                .map_err(PathError::from)
+                .and_then(|()| tree.insert(&path, Node::dir().with_attrs(attrs_of(&meta))));
+            if let Err(err) = entered {
+                child.forget(fs);
+                return Err(err.with_path(&path));
+            }
+            stack.push((child, DirCursor::START, path));
+            continue;
+        }
+        if meta.file_type().is_file() && meta.nlink() > 1 {
+            if let Some((_, first)) = seen.iter().find(|(node, _)| *node == child.node()) {
+                child.forget(fs);
+                tree.link(first, &path)?;
+                continue;
+            }
+            seen.push((child.node(), path.clone()));
+        }
+        let node = node_of(fs, vol, child, &meta).await.map_err(|err| err.with_path(&path))?;
+        tree.insert(&path, node)?;
+    }
+    Ok(())
+}
+
+/// The tree node for the pinned non-directory `node`. A file's content
+/// keeps the pin and releases it when dropped; for anything else the pin is
+/// forgotten here.
+async fn node_of<F: FileSystem + Send + 'static>(
+    fs: &mut F,
+    vol: &Volume<F>,
+    node: Held<'_>,
+    meta: &Metadata,
+) -> Result<Node, PathError> {
+    let attrs = attrs_of(meta);
+    let made = match meta.file_type() {
+        FileType::File => {
+            let content = VolumeContent { vol: vol.clone(), node: node.keep() };
+            return Ok(Node::file(lazy(content, meta.len())).with_attrs(attrs));
+        }
+        FileType::Symlink => match link_buffer(meta.len()) {
+            Ok(mut target) => match fs.readlink(node.node(), &mut target).await {
+                Ok(target) => Ok(Node::symlink(target)),
+                Err(err) => Err(PathError::from(err)),
+            },
+            Err(kind) => Err(PathError::from(kind)),
+        },
+        FileType::CharDevice | FileType::BlockDevice => {
+            Ok(Node::special(meta.file_type(), Some(meta.device().unwrap_or(DeviceNumber::new(0, 0)))))
+        }
+        other => Ok(Node::special(other, None)),
+    };
+    node.forget(fs);
+    Ok(made?.with_attrs(attrs))
+}
+
+}
+
+sync_only! {
+    impl<F: FileSystem + Send + 'static> crate::tree::SyncSource for VolumeContent<F> {
+        fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<usize, PathError> {
+            self.read(offset, buf)
+        }
+    }
+
+    fn lazy<F: FileSystem + Send + 'static>(content: VolumeContent<F>, len: u64) -> Content {
+        Content::sync_source(Arc::new(content), len)
+    }
+}
+
+async_only! {
+    impl<F: FileSystem + 'static> crate::tree::AsyncSource for VolumeContent<F> {
+        fn read_at<'a>(&'a self, offset: u64, buf: &'a mut [u8]) -> crate::tree::ReadFuture<'a> {
+            alloc::boxed::Box::pin(self.read(offset, buf))
+        }
+    }
+
+    fn lazy<F: FileSystem + 'static>(content: VolumeContent<F>, len: u64) -> Content {
+        Content::async_source(Arc::new(content), len)
+    }
+}

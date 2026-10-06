@@ -10,17 +10,27 @@ that the target needs:
 ```toml
 [dependencies]
 hadris-fat = {
-  version = "2.5.0",
+  version = "3.0.0-rc.1",
   default-features = false,
-  features = ["read", "sync"]
+  features = ["alloc", "sync"]
 }
 ```
 
-Add `alloc` for APIs backed by `Vec`, `String`, or owned trees. Add `write`
-only when mutation or image creation is required. `std` implies allocation but
-does not implicitly select `sync` or `async`.
+No crate has a `read` feature: reading is always compiled. `FatFs` and
+`ExFatFs` read and write with `alloc`, which holds their node table, and the
+`write` feature adds `format` and, with `alloc`, the tree writer `write`.
+FAT and exFAT `format` and `check` run on an unmounted device without an
+allocator, and the ISO 9660, UDF and NTFS readers and the CPIO reader need
+no allocator either.
 
-All storage I/O flows through `hadris-io`, allowing callers to adapt firmware,
+Add `alloc` for the FAT and exFAT drivers, for the image writers (ISO 9660,
+UDF, the ISO/UDF bridge, CPIO, FAT and exFAT), which take a
+`hadris_fs::Tree`, and for owned names, `copy_tree`, `read_tree` and the
+async `Volume`.
+`std` implies `alloc` but does not select `sync` or `async`.
+
+All storage I/O flows through `hadris-storage` block devices (every
+filesystem driver) or `hadris-io` streams (CPIO), so callers adapt firmware,
 kernel, memory, or device-specific readers rather than depending on
 `std::io`.
 
@@ -28,15 +38,17 @@ kernel, memory, or device-specific readers rather than depending on
 
 | Need | Features |
 |---|---|
-| Allocation-free synchronous reader | `read,sync` |
-| Allocation-free asynchronous reader | `read,async` |
-| Owned names or buffers | Add `alloc` |
-| Filesystem mutation | Add `write` and its required platform tier |
-| Both I/O modes | Enable `sync,async` and use explicit namespaces |
+| Allocation-free synchronous reader | `sync` |
+| Allocation-free asynchronous reader | `async` |
+| FAT read and write or exFAT read without an allocator (the embedded API) | `sync` or `async` |
+| FAT or exFAT shared drivers (`FatFs`, `ExFatFs`) | Add `alloc` |
+| FAT or exFAT formatting | Add `alloc` and `write` |
+| Image writers, owned names or buffers | Add `alloc` |
+| Several I/O modes | Enable each; the APIs live in separate namespaces |
 
-The exact minimum differs by format. NTFS and APFS reading require `alloc`; ISO and UDF
-image creation require `std`. See the complete
-[feature and capability matrix](../concepts/features.md).
+See the complete [feature and capability matrix](../concepts/features.md).
 
 For integration examples, see [Adapt a custom device](./custom-io.md) and
-[Use asynchronous I/O](./async-io.md).
+[Use asynchronous I/O](./async-io.md). Firmware on a microcontroller should
+read [Use FAT and exFAT on a microcontroller](./embedded.md), which has the
+flash and stack budget per target.

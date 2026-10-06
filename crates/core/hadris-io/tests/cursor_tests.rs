@@ -1,9 +1,12 @@
+#![cfg(feature = "sync")]
+
 //! Integration tests for `hadris_io::Cursor`.
 //!
 //! These tests exercise the public API of `Cursor` through
 //! the `Read` and `Seek` trait implementations.
 
-use hadris_io::{Cursor, Read, ReadExt, Seek, SeekFrom};
+use hadris_io::sync::{Read, Seek};
+use hadris_io::{Cursor, SeekFrom};
 
 #[test]
 fn cursor_sequential_reads() {
@@ -49,17 +52,6 @@ fn cursor_seek_and_read_interleaved() {
 }
 
 #[test]
-fn cursor_read_struct_integration() {
-    // Write a known u32 in native byte order and read it back
-    let value: u32 = 0xDEAD_BEEF;
-    let bytes = value.to_ne_bytes();
-    let mut cursor = Cursor::new(&bytes);
-
-    let read_back: u32 = cursor.read_struct().unwrap();
-    assert_eq!(read_back, value);
-}
-
-#[test]
 fn cursor_empty_data() {
     let data = [];
     let mut cursor = Cursor::new(&data);
@@ -87,7 +79,7 @@ fn cursor_stream_position() {
     cursor.seek(SeekFrom::Start(50)).unwrap();
     assert_eq!(cursor.stream_position().unwrap(), 50);
 
-    cursor.seek_relative(10).unwrap();
+    cursor.seek(SeekFrom::Current(10)).unwrap();
     assert_eq!(cursor.stream_position().unwrap(), 60);
 }
 

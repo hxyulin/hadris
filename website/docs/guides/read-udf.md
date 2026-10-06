@@ -6,39 +6,49 @@ title: Read and extract UDF
 
 ```toml
 [dependencies]
-hadris-udf = "2.5.0"
+hadris-fs = { version = "3.0.0-rc.1", features = ["std", "sync"] }
+hadris-udf = "3.0.0-rc.1"
+hadris-storage = "3.0.0-rc.1"
 ```
 
-The UDF reader exposes owned directory metadata and reads a selected file into
-a byte vector.
+`UdfFs` opens a volume on any `hadris_storage` block device, such as a host
+file, and implements the `hadris-fs` `FileSystem` trait, so `Volume`, its
+handles and the host helpers work on it.
 
 ```rust,no_run
-use hadris_udf::UdfVolume;
-use std::{fs, fs::File};
+use std::io::Read;
+
+use hadris_fs::{MountOptions, OpenOptions};
+use hadris_fs::sync::Volume;
+use hadris_udf::UdfId;
+use hadris_udf::sync::UdfFs;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let volume = UdfVolume::open(File::open("disc.udf")?)?;
-    println!("volume: {}", volume.info().volume_id);
+    let udf = UdfFs::mount(hadris_storage::host::FileDevice::open("disc.udf")?, MountOptions::new())?;
+    println!("volume: {}", udf.info().id(UdfId::LogicalVolume));
+    let vol = Volume::new(udf);
 
-    let root = volume.root_dir()?;
-    for entry in root.entries() {
-        let kind = if entry.is_dir() { "dir " } else { "file" };
-        println!("{kind} {:>10} {}", entry.size, entry.name());
+    for entry in vol.read_dir("/")? {
+        let entry = entry?;
+        let kind = if entry.file_type().is_dir() { "dir " } else { "file" };
+        println!("{kind} {}", String::from_utf8_lossy(entry.name().as_bytes()));
     }
 
-    let entry = root.find("README.TXT").ok_or("README.TXT not found")?;
-    let contents = volume.read_file(entry)?;
-    fs::write("README.TXT", contents)?;
-
+    let mut readme = Vec::new();
+    vol.open("/README.TXT", OpenOptions::new().read())?
+        .read_to_end(&mut readme)?;
+    std::fs::write("README.TXT", readme)?;
+    let tree = hadris_fs::sync::read_tree(&vol, "/")?;
+    hadris_fs::host::write_tree("out", &tree)?;
     Ok(())
 }
 ```
 
-`read_file` rejects directory entries and validates the file's allocation
-descriptors before returning data. Do not join an untrusted on-disk filename
-directly to an extraction directory; reject absolute paths and parent
-components first.
+`host::write_tree` refuses names with separators or `..` components and never
+writes through an existing host symlink, so an untrusted image cannot escape
+the target directory.
 
-For an unknown ISO/UDF image, open through `hadris-optical` so bridge-image
-selection is explicit. The `hadris-udf` CLI provides recursive listing and
-extraction for hosted workflows.
+For an unknown ISO/UDF image, `hadris::sync::detect` lists a bridge as
+`IsoUdfBridge`, `Iso` and `Udf`, and `hadris::sync::open` mounts its UDF side.
+The `hadris udf` command provides listing and extraction for hosted
+workflows.

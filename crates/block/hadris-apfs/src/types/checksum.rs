@@ -7,7 +7,7 @@ use crate::types::le_u64;
 /// APFS stores the checksum in the first eight bytes; those bytes are skipped
 /// for checksum purposes.
 pub fn fletcher64(data: &[u8]) -> crate::Result<u64> {
-    if data.len() < 8 || !data.len().is_multiple_of(4) {
+    if data.len() < 8 || data.len() % 4 != 0 {
         return Err(crate::ApfsError::InvalidValue("checksum block length"));
     }
 

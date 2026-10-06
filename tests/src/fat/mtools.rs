@@ -164,7 +164,7 @@ impl MtoolsFatAdapter {
             .stdout)
     }
 
-    fn list_dir(&self, path: &str) -> Result<Vec<(String, bool)>, String> {
+    pub fn list_dir(&self, path: &str) -> Result<Vec<(String, bool)>, String> {
         let pattern = if path == "/" {
             "::*".to_string()
         } else {
@@ -194,6 +194,27 @@ impl MtoolsFatAdapter {
                 Ok((normalize_path(path), directory))
             })
             .collect()
+    }
+
+    pub fn copy_in(&self, sources: &[std::path::PathBuf]) -> Result<(), String> {
+        let mut args: Vec<OsString> = sources.iter().map(|path| path.as_os_str().into()).collect();
+        args.push("::/".into());
+        self.run_write("mcopy", ClashPolicy::Skip, args).map(|_| ())
+    }
+
+    pub fn extract_root(&self, destination: &Path) -> Result<(), String> {
+        std::fs::create_dir_all(destination).map_err(|error| error.to_string())?;
+        self.run(
+            "mcopy",
+            vec![
+                "-i".into(),
+                self.image.as_os_str().into(),
+                "-s".into(),
+                "::*".into(),
+                destination.as_os_str().into(),
+            ],
+        )
+        .map(|_| ())
     }
 
     fn read_attrs(&self, paths: &[String]) -> Result<BTreeMap<String, u8>, String> {

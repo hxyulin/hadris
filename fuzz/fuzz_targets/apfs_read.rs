@@ -14,10 +14,10 @@ use hadris_apfs::types::filesystem::{
 };
 use hadris_apfs::types::{FileExtentRecord, InodeRecord, OwnedEntry};
 use hadris_io::Cursor;
-use hadris_storage::sync::SeekBlockDevice;
+use hadris_storage::sync::StreamDevice;
 use hadris_storage::{BlockCount, BlockGeometry, BlockSize};
 
-type Apfs<'a> = Container<SeekBlockDevice<Cursor<'a>>>;
+type Apfs<'a> = Container<StreamDevice<hadris_storage::ReadOnly<Cursor<'a>>>>;
 
 /// Total file bytes read per input, including zero-filled holes.
 const BYTE_BUDGET: usize = 64 * 1024 * 1024;
@@ -65,9 +65,9 @@ fn read_pass(
 fn drive(data: &[u8]) {
     let geometry = BlockGeometry::new(
         BlockSize::new(512).unwrap(),
-        BlockCount(data.len() as u64 / 512),
+        BlockCount::new(data.len() as u64 / 512),
     );
-    let Ok(mut container) = Container::open(SeekBlockDevice::new(Cursor::new(data), geometry))
+    let Ok(mut container) = Container::open(StreamDevice::with_block_count(hadris_storage::ReadOnly::new(Cursor::new(data)), geometry.logical_block_size(), geometry.block_count().get()))
     else {
         return;
     };

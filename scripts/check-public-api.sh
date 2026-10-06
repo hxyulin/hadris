@@ -12,21 +12,19 @@ if ! cargo public-api --version >/dev/null 2>&1; then
   exit 1
 fi
 
+# Preview crates are not snapshotted: hadris-ntfs and hadris-apfs are left out, and hadris is
+# taken without its unstable-ntfs feature (see CONTRIBUTING.md).
 crates=(
   hadris
-  hadris-archive
-  hadris-block
-  hadris-cd
   hadris-common
   hadris-cpio
   hadris-fat
-  hadris-fixed
+  hadris-fat-raw
+  hadris-fs
   hadris-io
   hadris-iso
   hadris-macros
-  hadris-optical
   hadris-part
-  hadris-path
   hadris-storage
   hadris-udf
 )
@@ -38,24 +36,10 @@ trap 'rm -rf "$tmp_dir"' EXIT
 
 for crate in "${crates[@]}"; do
   generated="$tmp_dir/$crate.txt"
-  if [[ "$crate" == "hadris-fat" ]]; then
-    # The unstable exFAT preview is intentionally outside the V2 API
-    # stability promise. Snapshot every stable hadris-fat capability without
-    # treating preview symbols as frozen public API.
+  if [[ "$crate" == "hadris" ]]; then
     cargo public-api -p "$crate" \
       --no-default-features \
-      --features "std,sync,async,read,write,lfn,cache,tool,defmt,dirty-file-panic" \
-      -sss --color never >"$generated"
-  elif [[ "$crate" == "hadris-iso" ]]; then
-    # The unstable streaming input is outside the V2 API stability promise.
-    cargo public-api -p "$crate" \
-      --no-default-features \
-      --features "std,alloc,sync,async,read,write,joliet" \
-      -sss --color never >"$generated"
-  elif [[ "$crate" == "hadris-udf" ]]; then
-    cargo public-api -p "$crate" \
-      --no-default-features \
-      --features "std,alloc,sync,async,read,write" \
+      --features "std,alloc,sync,async,write,detect,part,cpio" \
       -sss --color never >"$generated"
   else
     cargo public-api -p "$crate" --all-features -sss --color never >"$generated"

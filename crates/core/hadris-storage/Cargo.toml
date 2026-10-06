@@ -1,6 +1,6 @@
 [package]
 name = "hadris-storage"
-version = "2.5.0"
+version = "3.0.0-rc.1"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -11,6 +11,10 @@ readme = "README.md"
 keywords = ["block-device", "storage", "sector", "embedded", "no-std"]
 categories = ["no-std", "filesystem"]
 
+# docs.rs builds with default features only, which would hide the modes.
+[package.metadata.docs.rs]
+features = ["std", "sync", "async"]
+
 [features]
 default = ["std", "sync"]
 alloc = ["hadris-io/alloc"]
@@ -20,4 +24,4 @@ async = ["hadris-io/async"]
 
 [dependencies]
 hadris-io = { workspace = true }
-embedded-io.workspace = true
+hadris-macros.workspace = true

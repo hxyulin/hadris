@@ -1,178 +1,115 @@
-//! # hadris-ntfs
+//! # Hadris NTFS
 //!
-//! A `no_std`-compatible library for reading NTFS filesystems (read-only).
+//! A read-only NTFS reader that needs no allocator.
 //!
-//! ## Quick Start
+//! `NtfsFs` opens a volume on a `hadris_storage` block device, in each mode
+//! (`sync::NtfsFs`, `r#async::NtfsFs`). It implements the `hadris_fs`
+//! `FileSystem` trait read-only, so `Volume` and its handles work on it.
+//! Node ids are file references and need no node table.
 //!
 //! ```rust,no_run
-//! use std::fs::File;
-//! use hadris_ntfs::sync::{NtfsFs, NtfsFsReadExt};
+//! # #[cfg(all(feature = "sync", feature = "std"))]
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use std::io::Read;
 //!
-//! let file = File::open("disk.img").unwrap();
-//! let fs = NtfsFs::open(file).unwrap();
-//! let root = fs.root_dir();
-//! let entries = root.entries().unwrap();
-//! for entry in &entries {
-//!     println!("{} ({})", entry.name(), if entry.is_directory() { "dir" } else { "file" });
+//! use hadris_fs::{MountOptions, OpenOptions};
+//! use hadris_fs::sync::Volume;
+//! use hadris_ntfs::sync::NtfsFs;
+//!
+//! let image = hadris_storage::host::FileDevice::open("disk.img")?;
+//! let vol = Volume::new(NtfsFs::mount(image, MountOptions::new())?);
+//! for entry in vol.read_dir("/")? {
+//!     let entry = entry?;
+//!     println!("{:?}", entry.name());
 //! }
+//! let mut readme = Vec::new();
+//! vol.open("/docs/readme.txt", OpenOptions::new().read())?.read_to_end(&mut readme)?;
+//! # Ok(())
+//! # }
+//! # #[cfg(not(all(feature = "sync", feature = "std")))]
+//! # fn main() {}
 //! ```
 //!
-//! ## Feature Flags
+//! Beyond the trait, `NtfsFs` reads named data streams
+//! (`streams`, `read_stream_at`).
 //!
-//! | Feature  | Default | Description |
-//! |----------|---------|-------------|
-//! | `std`    | Yes     | Standard library support (enables `alloc`) |
-//! | `alloc`  | Yes     | Heap allocation without full std |
-//! | `sync`   | Yes     | Synchronous API via `hadris-io` sync traits |
-//! | `async`  | No      | Asynchronous API via `hadris-io` async traits |
-//! | `read`   | Yes     | Read operations (requires `alloc`) |
+//! ## Supported scope
 //!
-//! ## Dual Sync/Async Architecture
+//! The reader checks the boot sector and update sequence arrays, reads
+//! resident, non-resident, sparse and partly initialized streams, follows
+//! `$ATTRIBUTE_LIST` entries into extension records (also for `$MFT`, up to
+//! 32 extents), walks directory indexes through their allocation bitmaps,
+//! compares Win32 names through the volume's `$UpCase` table and POSIX
+//! names exactly, and checks the sequence numbers of file references. MFT
+//! and index records of up to 4096 bytes and device blocks of up to 4096
+//! bytes are supported. Listings leave out DOS aliases and the metadata
+//! files, which a lookup by name still finds.
 //!
-//! This crate provides both synchronous and asynchronous APIs through
-//! a compile-time code transformation system. The same implementation
-//! source is compiled twice:
+//! It does not yet recover from `$MFTMirr`, decode compressed or encrypted
+//! streams (they fail with
+//! [`ErrorKind::Unsupported`](hadris_fs::ErrorKind::Unsupported)), interpret
+//! reparse points, read security descriptors, or descend the index B-tree
+//! by key. NTFS is a preview in Hadris 3.0: the `FileSystem` implementation
+//! follows the frozen trait, the native methods may still change. The
+//! on-disk layouts are in [`raw`].
 //!
-//! - **`sync`** module: synchronous API (enabled by the `sync` feature)
-//! - **`async`** module: asynchronous API (enabled by `async` feature)
+//! Errors are [`hadris_fs::Error`]; [`Detail::of`] names the structure at
+//! fault. A device without an NTFS boot sector fails with
+//! [`ErrorKind::NotRecognized`](hadris_fs::ErrorKind::NotRecognized).
 //!
-//! With the default `sync` and `read` features, the synchronous API types are
-//! re-exported at the crate root for convenience. The `std` feature does not
-//! select an I/O mode.
+//! ## Features
 //!
-//! ## Supported Scope
+//! | Feature | Default | Description |
+//! |---|---|---|
+//! | `std` | Yes | Implies `alloc`; forwards `std` to `hadris-fs` and `hadris-storage` |
+//! | `alloc` | via `std` | Forwards `alloc` to `hadris-fs` and `hadris-storage` |
+//! | `sync` | Yes | The blocking API in `sync` |
+//! | `async` | No | The asynchronous API with `Send` futures in `r#async` |
 //!
-//! The reader supports validated boot geometry, update-sequence-protected
-//! MFT/index records, resident and non-resident unnamed data, sparse runs,
-//! initialized-size zero filling, directory index allocation/bitmaps, NTFS
-//! filename namespaces, and `$UpCase` collation.
-//!
-//! It does not yet resolve `$ATTRIBUTE_LIST` extension records, recover from
-//! `$MFTMirr`, decode compressed or encrypted streams, expose named alternate
-//! data streams, or interpret reparse points. See the internal compliance
-//! matrix in `docs/spec-coverage.md`.
+//! No feature changes what an item does.
 
 #![cfg_attr(not(test), no_std)]
-#![allow(async_fn_in_trait)]
-#![allow(clippy::duplicate_mod)]
 #![deny(missing_docs)]
-
-#[cfg(all(feature = "std", not(test)))]
-extern crate std;
-
-#[cfg(test)]
-extern crate self as hadris_ntfs;
+#![allow(async_fn_in_trait)]
+// Sync and async APIs intentionally compile the same source modules twice.
+#![allow(clippy::duplicate_mod)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-// ---------------------------------------------------------------------------
-// Shared types (compiled once, not duplicated by sync/async modules)
-// ---------------------------------------------------------------------------
+#[cfg(all(feature = "std", not(test)))]
+extern crate std;
 
-#[cfg(feature = "read")]
-pub mod attr;
-pub mod error;
+mod error;
+mod record;
+mod volume;
+
 pub mod raw;
 
-// ---------------------------------------------------------------------------
-// Sync module
-// ---------------------------------------------------------------------------
-
-#[cfg(all(feature = "sync", feature = "read"))]
+#[cfg(feature = "sync")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sync")))]
 #[path = ""]
 pub mod sync {
-    //! Synchronous NTFS filesystem API.
-    //!
-    //! All I/O operations use synchronous `Read`/`Seek` traits.
-
-    pub use hadris_io::Result as IoResult;
-    pub use hadris_io::sync::{Parsable, Read, ReadExt, Seek};
-    pub use hadris_io::{Error, ErrorKind, SeekFrom};
+    //! The blocking API.
 
     macro_rules! io_transform {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
     }
 
-    #[allow(unused_macros)]
-    macro_rules! sync_only {
-        ($($item:tt)*) => { $($item)* };
-    }
+    use hadris_fs::sync::FileSystem;
+    use hadris_storage::sync as storage;
 
-    #[allow(unused_macros)]
-    macro_rules! async_only {
-        ($($item:tt)*) => {};
-    }
-
-    #[path = "."]
-    mod __inner {
-        pub mod dir;
-        pub mod fs;
-        pub mod io;
-        pub mod read;
-    }
-    pub use __inner::*;
-
-    pub use __inner::dir::{NtfsDir, NtfsEntry};
-    pub use __inner::fs::NtfsFs;
-    pub use __inner::read::{FileReader, NtfsFsReadExt};
+    #[path = "fs.rs"]
+    mod fs;
+    pub use fs::NtfsFs;
 }
 
-// ---------------------------------------------------------------------------
-// Async module
-// ---------------------------------------------------------------------------
+/// The asynchronous API with `Send` futures, for generic code on
+/// multi-threaded executors, generated from the same source as `sync`.
+#[cfg(feature = "async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
+pub mod r#async;
 
-#[cfg(all(feature = "async", feature = "read"))]
-#[path = ""]
-pub mod r#async {
-    //! Asynchronous NTFS filesystem API.
-    //!
-    //! All I/O operations use async `Read`/`Seek` traits.
-
-    pub use hadris_io::Result as IoResult;
-    pub use hadris_io::r#async::{Parsable, Read, ReadExt, Seek};
-    pub use hadris_io::{Error, ErrorKind, SeekFrom};
-
-    macro_rules! io_transform {
-        ($($item:tt)*) => { $($item)* };
-    }
-
-    #[allow(unused_macros)]
-    macro_rules! sync_only {
-        ($($item:tt)*) => {};
-    }
-
-    #[allow(unused_macros)]
-    macro_rules! async_only {
-        ($($item:tt)*) => { $($item)* };
-    }
-
-    #[path = "."]
-    mod __inner {
-        pub mod dir;
-        pub mod fs;
-        pub mod io;
-        pub mod read;
-    }
-    pub use __inner::*;
-}
-
-// ---------------------------------------------------------------------------
-// Default re-exports (sync)
-// ---------------------------------------------------------------------------
-
-#[cfg(all(feature = "sync", feature = "read"))]
-pub use sync::*;
-
-pub use error::{NtfsError, Result};
-pub use raw::*;
-
-#[cfg(all(test, feature = "alloc", feature = "sync", feature = "read"))]
-#[path = "../tests/compliance.rs"]
-mod compliance;
-#[cfg(all(test, feature = "alloc", feature = "sync", feature = "read"))]
-#[path = "../tests/read.rs"]
-mod integration_read;
-#[cfg(all(test, feature = "alloc", feature = "sync", feature = "read"))]
-#[path = "../tests/poc_audit_ntfs.rs"]
-mod poc_audit_ntfs;
+pub use error::Detail;

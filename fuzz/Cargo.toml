@@ -20,13 +20,14 @@ edition = "2021"
 cargo-fuzz = true
 
 [dependencies]
+hadris-apfs = { path = "../crates/block/hadris-apfs", features = ["std", "read", "sync"] }
 libfuzzer-sys = "0.4"
-hadris-apfs = { path = "../crates/block/hadris-apfs" }
 hadris-cpio = { path = "../crates/archive/hadris-cpio" }
-hadris-fat = { path = "../crates/block/hadris-fat", features = ["unstable-exfat"] }
-hadris-io = { path = "../crates/core/hadris-io", features = ["std"] }
-hadris-storage = { path = "../crates/core/hadris-storage", features = ["std", "sync"] }
-hadris-iso = { path = "../crates/optical/hadris-iso", features = ["read", "joliet"] }
+hadris-fat = { path = "../crates/block/hadris-fat" }
+hadris-fs = { path = "../crates/core/hadris-fs" }
+hadris-io = { path = "../crates/core/hadris-io" }
+hadris-storage = { path = "../crates/core/hadris-storage" }
+hadris-iso = { path = "../crates/optical/hadris-iso" }
 hadris-ntfs = { path = "../crates/block/hadris-ntfs" }
 hadris-part = { path = "../crates/block/hadris-part" }
 hadris-udf = { path = "../crates/optical/hadris-udf" }
@@ -50,6 +51,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "exfat_ops"
+path = "fuzz_targets/exfat_ops.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "fat_read"
 path = "fuzz_targets/fat_read.rs"
 test = false
@@ -66,13 +74,6 @@ bench = false
 [[bin]]
 name = "iso_read"
 path = "fuzz_targets/iso_read.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
-name = "apfs_read"
-path = "fuzz_targets/apfs_read.rs"
 test = false
 doc = false
 bench = false
@@ -100,3 +101,10 @@ bench = false
 
 # Detach from the parent workspace — cargo-fuzz packages are standalone.
 [workspace]
+
+[[bin]]
+name = "apfs_read"
+path = "fuzz_targets/apfs_read.rs"
+test = false
+doc = false
+bench = false

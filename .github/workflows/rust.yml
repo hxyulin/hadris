@@ -2,10 +2,22 @@ name: Rust CI
 
 on:
   push:
-    branches: [main, dev, v2-dev]
+    branches:
+      - main
+      - next
+      - dev
+      - v2-dev
   pull_request:
-    branches: [main, v2-dev]
+    branches:
+      - main
+      - next
+      - v2-dev
 
+# Least-privilege GITHUB_TOKEN. Without an explicit block the token inherits the
+# repo/org default (often write), which CodeQL flags as
+# `actions/missing-workflow-permissions` — a compromised step could otherwise
+# push code, create releases, or modify settings. This workflow only needs to
+# check out the tree.
 permissions:
   contents: read
 
@@ -18,29 +30,100 @@ env:
   RUSTUP_TOOLCHAIN: 1.97.1
 
 jobs:
+  licenses:
+    name: Dependency licenses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          rust-version: "1.97.1"
+          command: check
+          command-arguments: licenses
+
+  # Enforce annotation grammar, evidence references, and coverage-table parity.
+  # See docs/spec-coverage.md#annotation-convention.
+  spec-annotations:
+    name: Spec annotations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Self-test checker
+        run: python3 scripts/check-spec-annotations.py --self-test
+      - name: Check @hadris-* tags
+        run: python3 scripts/check-spec-annotations.py
+      - name: Self-test compliance catalog checker
+        run: python3 scripts/check-compliance-catalog.py --self-test
+      - name: Check compliance catalogs
+        run: python3 scripts/check-compliance-catalog.py
+
+  public-api:
+    name: Public API snapshots
+    runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: 1.88.0
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.88.0
+      # cargo-public-api generates rustdoc JSON through nightly rustdoc even
+      # though the project itself remains pinned to the stable MSRV above.
+      # Pin the nightly: rustdoc's rendering of blanket impls (e.g.
+      # `std::io::Read` vs `alloc::io::read::Read`) drifts between nightlies, so
+      # an unpinned toolchain makes the snapshot diff nondeterministic. Bump
+      # this date deliberately alongside a snapshot refresh.
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: nightly-2026-09-04
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-public-api
+        run: cargo install cargo-public-api --version 0.52.0 --locked
+      - name: Check all-feature public API snapshots
+        # cargo-public-api 0.52.0 has no --toolchain flag but honors
+        # RUSTUP_TOOLCHAIN when it names a nightly, so this drives rustdoc with
+        # the pinned dated nightly installed above.
+        env:
+          RUSTUP_TOOLCHAIN: nightly-2026-09-04
+        run: scripts/check-public-api.sh
+
   check:
     name: Check
     runs-on: ubuntu-latest
+    # Promote rustc warnings to errors so issues like `unconditional_recursion`
+    # (see issue #23) fail CI instead of slipping through.
     env:
       RUSTUP_TOOLCHAIN: 1.88.0
-      RUSTFLAGS: -D warnings
+      RUSTFLAGS: "-D warnings"
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.88.0
       - uses: Swatinem/rust-cache@v2
-      - name: Check workspace at the MSRV
-        run: |
-          cargo check --workspace --locked
-          cargo check --workspace --all-features --locked
+      - name: Check workspace (default features)
+        run: cargo check --workspace
+
+  default-tests:
+    name: Test default features
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: "-D warnings"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.97.1
+      - uses: Swatinem/rust-cache@v2
+      - name: Test workspace with default features
+        run: cargo test --workspace --locked
 
   check-features:
-    name: MSRV features (${{ matrix.group }})
+    name: "MSRV features (${{ matrix.group }})"
     runs-on: ubuntu-latest
     env:
       RUSTUP_TOOLCHAIN: 1.88.0
-      RUSTFLAGS: -D warnings
+      RUSTFLAGS: "-D warnings"
     strategy:
       fail-fast: false
       matrix:
@@ -56,43 +139,331 @@ jobs:
       - name: Check each feature tier independently
         run: python3 scripts/check-features.py ${{ matrix.group }}
 
+  cross:
+    name: "Build ${{ matrix.target }}"
+    runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: 1.88.0
+      RUSTFLAGS: "-D warnings"
+    strategy:
+      fail-fast: false
+      matrix:
+        # NF-TARGET-01: thumbv6m and riscv32imc have no compare-and-swap,
+        # so they build the tiers without an allocator only.
+        target:
+          - thumbv6m-none-eabi
+          - thumbv7em-none-eabihf
+          - riscv32imc-unknown-none-elf
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.88.0
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Build the no_std tiers
+        run: scripts/check-targets.sh ${{ matrix.target }}
+
+  firmware-size:
+    name: Embedded flash and stack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # -Z emit-stack-sizes needs nightly; pinned like the public-api job.
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: nightly-2026-09-04
+          targets: thumbv6m-none-eabi, thumbv7em-none-eabihf, riscv32imc-unknown-none-elf
+          components: llvm-tools
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: firmware
+      - name: Measure the embedded API (NF-STACK-01, NF-STACK-02, NF-FLASH-01)
+        env:
+          RUSTUP_TOOLCHAIN: nightly-2026-09-04
+        run: python3 scripts/firmware-size.py --check
+
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.97.1
+      - uses: Swatinem/rust-cache@v2
+      - name: Attach a loop device for the disk size tests
+        if: runner.os == 'Linux'
+        run: |
+          truncate -s 4M "$RUNNER_TEMP/disk.img"
+          dev=$(sudo losetup --find --show "$RUNNER_TEMP/disk.img")
+          sudo chmod a+r "$dev"
+          {
+            echo "HADRIS_TEST_DISK=$dev"
+            echo "HADRIS_TEST_DISK_LEN=4194304"
+            echo "HADRIS_REQUIRE_TEST_DISK=1"
+          } >> "$GITHUB_ENV"
+      - name: Run all-feature tests
+        if: runner.os != 'Windows'
+        run: cargo test --workspace --all-features --tests
+      # `hadris-fat/defmt` is an embedded logging integration. It can be
+      # type-checked on every host, but its runtime symbols are supplied by an
+      # embedded target and therefore cannot be linked into Windows test
+      # executables. The feature matrix above still checks the complete feature
+      # combination; Windows exercises the portable hosted defaults here.
+      - name: Run portable hosted tests
+        if: runner.os == 'Windows'
+        run: |
+          cargo test --workspace --all-features --tests --exclude hadris-fat --exclude hadris-fat-raw
+          cargo test -p hadris-fat --features "std,alloc,sync,async,write,tracing" --tests
+          cargo test -p hadris-fat-raw --features "sync,async" --tests
+      - name: Run FAT future-size budgets without tracing
+        run: cargo test -p hadris-fat --features async --test fatfs_async --test embedded --test embedded_exfat stay_small
+      - name: Run FAT performance harness smoke check
+        if: runner.os == 'Linux'
+        run: cargo bench -p hadris-fat --bench performance -- --smoke
+      - name: Run detection and opening integration tests
+        run: cargo test -p hadris --all-features --test detect
+      - name: Run CPIO performance harness smoke check
+        if: runner.os == 'Linux'
+        run: cargo bench -p hadris-cpio --bench performance -- --smoke
+      - name: Run CPIO async writer integration test
+        run: cargo test -p hadris-cpio --all-features --test async_writer
+      # Each use-case example builds its own images, checks them and exits
+      # non-zero on any mismatch; see examples/README.md.
+      - name: Run the use-case examples
+        shell: bash
+        run: |
+          for example in apfs-inspect boot-media extract image-edit initramfs inspect sd-logger vfs-driver; do
+            cargo run --quiet -p "hadris-example-$example"
+          done
+          for bin in fat fat-log fat-unicode fat-async exfat; do
+            cargo run --quiet -p hadris-example-firmware --bin "$bin"
+          done
+
+  # A disk device node reports no size through its metadata, so
+  # `hadris_storage::file_len` asks the OS. These jobs attach a real device
+  # where the platform needs its own request.
+  test-device-freebsd:
+    name: Test disk device size (FreeBSD)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Measure an md device in a FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          prepare: |
+            pkg install -y curl
+            curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.97.1
+          run: |
+            set -e
+            . "$HOME/.cargo/env"
+            truncate -s 4M /tmp/disk.img
+            dev=/dev/$(mdconfig -a -t vnode -f /tmp/disk.img)
+            export RUSTUP_TOOLCHAIN=1.97.1 HADRIS_REQUIRE_TEST_DISK=1
+            export HADRIS_TEST_DISK="$dev" HADRIS_TEST_DISK_LEN=4194304
+            cargo test -p hadris-storage --lib device_tests
+            cargo test -p hadris-fs --features std,sync --test tree content_path
+
+  test-device-windows:
+    name: Test disk device size (Windows)
+    runs-on: windows-latest
+    env:
+      HADRIS_REQUIRE_TEST_DISK: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.97.1
+      - uses: Swatinem/rust-cache@v2
+      - name: Attach a VHD
+        shell: pwsh
+        run: |
+          $vhd = Join-Path $env:RUNNER_TEMP "disk.vhd"
+          $script = Join-Path $env:RUNNER_TEMP "attach.txt"
+          "create vdisk file=`"$vhd`" maximum=4 type=fixed`r`nattach vdisk" | Set-Content -Encoding ascii $script
+          diskpart /s $script
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $disk = Get-DiskImage -ImagePath $vhd | Get-Disk
+          "HADRIS_TEST_DISK=\\.\PhysicalDrive$($disk.Number)" >> $env:GITHUB_ENV
+          "HADRIS_TEST_DISK_LEN=$($disk.Size)" >> $env:GITHUB_ENV
+      - name: Measure the VHD as a block device
+        run: cargo test -p hadris-storage --lib device_tests
+      - name: Read the VHD as tree content
+        run: cargo test -p hadris-fs --features std,sync --test tree content_path
+
+  test-exfat:
+    name: Test exFAT (with external tools)
+    runs-on: ubuntu-latest
+    env:
+      HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.88.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Install exfatprogs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y exfatprogs
+      - name: Run exFAT tests against fsck.exfat and mkfs.exfat
+        run: |
+          cargo test -p hadris-fat --features "std,sync,async,write" \
+            --test exfat_read --test exfat_write --test exfat_format --test exfat_check \
+            --test exfat_contract --test exfat_native --test exfat_async -- --nocapture
+      - name: Run exFAT conformance and interoperability tests
+        run: "cargo test --manifest-path tests/Cargo.toml exfat:: -- --nocapture"
+
+  test-ntfs:
+    name: Test NTFS (with ntfsprogs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.88.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Install ntfsprogs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ntfs-3g
+      # Tests that populate a volume through an ntfs-3g FUSE mount skip
+      # without FUSE permissions; scripts/test-ntfs.sh runs them all.
+      - name: Run NTFS tests against mkntfs volumes
+        run: cargo test -p hadris-ntfs --all-features -- --nocapture
+
+  test-fat-conformance:
+    name: Test FAT conformance and interoperability
+    runs-on: ubuntu-latest
+    env:
+      HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.88.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Install FAT image tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dosfstools mtools
+      - name: Run test harness unit tests
+        run: "cargo test --manifest-path tests/Cargo.toml --lib"
+      - name: Run V3 performance harness smoke check
+        env:
+          HADRIS_TESTS_PERF_SAMPLES: "1"
+        run: cargo bench --manifest-path tests/Cargo.toml --bench performance
+      - name: Cache pinned ChaN FatFs sources
+        uses: actions/cache@v4
+        with:
+          path: |
+            tests/target/chan-fatfs/ff16.zip
+            tests/target/chan-fatfs/ff16p1.diff
+            tests/target/chan-fatfs/ff16p2.diff
+          key: chan-fatfs-${{ hashFiles('scripts/build-fatfs-peer.py') }}
+      - name: Build pinned ChaN FatFs peer
+        run: python3 scripts/build-fatfs-peer.py
+      - name: Test ChaN FatFs helper
+        run: python3 scripts/test-fatfs-peer.py tests/target/chan-fatfs/chan-fatfs
+      - name: Run FAT peer performance smoke check
+        env:
+          HADRIS_TESTS_PERF_SAMPLES: "1"
+          HADRIS_TESTS_PERF_FILTER: "fat"
+          HADRIS_TESTS_CHAN_FATFS: "${{ github.workspace }}/tests/target/chan-fatfs/chan-fatfs"
+        run: cargo bench --manifest-path tests/Cargo.toml --bench peers
+      - name: Run cached FAT32 profile smoke check
+        env:
+          HADRIS_TESTS_PERF_FILES: "1000"
+          HADRIS_TESTS_PROFILE_WORKLOAD: lookup-all
+          HADRIS_TESTS_PROFILE_SECONDS: "1"
+          HADRIS_TESTS_PROFILE_CACHE: "1"
+        run: |
+          cargo bench --manifest-path tests/Cargo.toml --bench peers > profile-smoke.log 2>&1 || {
+            cat profile-smoke.log
+            exit 1
+          }
+      - name: Run FAT conformance and interoperability tests
+        run: "cargo test --manifest-path tests/Cargo.toml fat:: -- --skip exfat:: --nocapture"
+
+  test-optical:
+    name: Test optical interoperability
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.88.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Install optical image tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xorriso genisoimage udftools p7zip-full libarchive-tools
+      - name: Run ISO peer performance smoke check
+        env:
+          HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
+          HADRIS_TESTS_PERF_SAMPLES: "1"
+          HADRIS_TESTS_PERF_FILTER: "iso"
+        run: cargo bench --manifest-path tests/Cargo.toml --bench peers
+      - name: Run ISO conformance and interoperability tests
+        env:
+          HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
+        run: "cargo test --manifest-path tests/Cargo.toml iso:: -- --nocapture"
+      - name: Run UDF interoperability tests
+        env:
+          HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
+        run: cargo test -p hadris-udf --all-features --test interop -- --nocapture
+      - name: Qualify hybrid ISO/UDF images
+        run: cargo test -p hadris-udf --all-features --test bridge -- --nocapture
+
+  # CLI tests live in crates/tools/hadris-cli/tests
+  # and run under the workspace `test` job.
+
+  doc:
+    name: Docs
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: "-D warnings"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.97.1
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo doc --workspace --all-features
+        run: cargo doc --workspace --no-deps --all-features
+      - name: Compile rustdoc examples
+        run: cargo test --workspace --all-features --doc
+      - name: Compile Cargo example targets
+        run: cargo check --workspace --all-features --examples
+
   fmt:
     name: Format
     runs-on: ubuntu-latest
-    env:
-      CARGO_BUILD_WARNINGS: deny
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.97.1
           components: rustfmt
       - name: Check formatting
-        run: |
-          cargo fmt --all -- --check
-          cargo fmt --manifest-path tests/Cargo.toml --all -- --check
-      - name: Check specification annotations
-        run: |
-          python3 scripts/check-spec-annotations.py --self-test
-          python3 scripts/check-spec-annotations.py
-          python3 scripts/check-compliance-catalog.py --self-test
-          python3 scripts/check-compliance-catalog.py
-      - name: Check dependency licenses
-        uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          rust-version: 1.97.1
-          command: check
-          command-arguments: licenses
+        run: cargo fmt --all -- --check
+      - name: Check conformance suite formatting
+        run: cargo fmt --manifest-path tests/Cargo.toml --all -- --check
 
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
-    env:
-      CARGO_BUILD_WARNINGS: deny
-      RUSTDOCFLAGS: -D warnings
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.97.1
           components: clippy
@@ -101,94 +472,40 @@ jobs:
           workspaces: |
             . -> target
             tests -> target
-      # Defer new style-only rewrites during the CI toolchain migration.
-      - name: Lint workspace and conformance suite
-        run: |
-          cargo clippy --workspace --all-targets --all-features --locked -- \
-            -D warnings -A clippy::manual_is_multiple_of -A clippy::collapsible_if \
-            -A clippy::unnecessary_sort_by -A clippy::byte_char_slices
-          cargo clippy --manifest-path tests/Cargo.toml --all-targets --locked -- \
-            -D warnings -A clippy::manual_is_multiple_of -A clippy::collapsible_if \
-            -A clippy::unnecessary_sort_by -A clippy::byte_char_slices
-      - name: Check documentation and examples
-        run: |
-          cargo doc --workspace --no-deps --all-features --locked
-          cargo test --workspace --all-features --doc --locked
-          cargo check --workspace --all-features --examples --locked
-
-  test:
-    name: Test
-    runs-on: ${{ matrix.os }}
-    env:
-      CARGO_BUILD_WARNINGS: deny
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
-        with:
-          toolchain: 1.97.1
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            . -> target
-            tests -> target
-      - name: Install interoperability tools
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y dosfstools mtools exfatprogs xorriso udftools p7zip-full libarchive-tools
-          echo "HADRIS_REQUIRE_EXTERNAL_TOOLS=1" >> "$GITHUB_ENV"
-      - name: Run all-feature tests
-        if: runner.os != 'Windows'
-        run: cargo test --workspace --all-features --tests --locked
-      # defmt runtime symbols cannot be linked into hosted Windows tests.
-      - name: Run portable hosted tests
-        if: runner.os == 'Windows'
-        run: |
-          cargo test --workspace --all-features --tests --locked --exclude hadris-fat
-          cargo test -p hadris-fat --features "std,alloc,sync,async,read,write,lfn,cache,tool,unstable-exfat,dirty-file-panic" --tests --locked
-      - name: Run conformance and interoperability suite
-        if: runner.os == 'Linux'
-        env:
-          HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
-        run: cargo test --manifest-path tests/Cargo.toml --locked -- --nocapture
-
-  public-api:
-    name: Public API snapshots
-    runs-on: ubuntu-latest
-    env:
-      RUSTUP_TOOLCHAIN: nightly-2026-09-04
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
-        with:
-          toolchain: nightly-2026-09-04
-      - uses: Swatinem/rust-cache@v2
-      - name: Install cargo-public-api
-        run: cargo install cargo-public-api --version 0.52.0 --locked
-      - name: Check all-feature public API snapshots
-        run: scripts/check-public-api.sh
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings -A clippy::manual_is_multiple_of -A clippy::collapsible_if -A clippy::unnecessary_sort_by -A clippy::byte_char_slices
+      - name: Run clippy on conformance suite
+        run: cargo clippy --manifest-path tests/Cargo.toml --all-targets -- -D warnings -A clippy::manual_is_multiple_of -A clippy::collapsible_if -A clippy::unnecessary_sort_by -A clippy::byte_char_slices
 
   miri:
     name: Miri (UB detection)
     runs-on: ubuntu-latest
-    env:
-      RUSTUP_TOOLCHAIN: nightly
+    # Miri runs Rust through an interpreter to catch undefined behavior at
+    # runtime. We only point it at focused unit tests that exercise
+    # historically-unsafe code paths (see issues #26 and #28). Miri is too slow
+    # — and too restricted (no real I/O) — to run the full test suite, but
+    # these targeted tests catch regressions cheaply.
     steps:
       - uses: actions/checkout@v7
-      - name: Install nightly with Miri
-        run: rustup toolchain install nightly --component miri --profile minimal
-      - name: Setup Miri
+      - name: Install nightly toolchain with miri
+        run: |
+          rustup toolchain install nightly --component miri
+          rustup +nightly component add miri
+      - name: Setup miri
         run: cargo +nightly miri setup
       - uses: Swatinem/rust-cache@v2
-      - name: Check FixedFilename safety
+      - name: Miri — hadris-common (FixedFilename safety)
         run: cargo +nightly miri test -p hadris-common --lib
-      - name: Check LFN decoding
-        run: cargo +nightly miri test -p hadris-fat --lib file::lfn_unicode_tests
-      - name: Check LFN encoding
-        run: cargo +nightly miri test -p hadris-fat --lib lfn_write_safety_tests
-      - name: Check ISO string safety
-        run: cargo +nightly miri test -p hadris-iso --lib types::iso_str_safety_tests
+      - name: Miri - hadris-fat-raw (LFN UTF-16, surrogate pairs and name decoding)
+        run: cargo +nightly miri test -p hadris-fat-raw --lib
+      - name: Miri - hadris-iso (on-disk layouts, name and Rock Ridge decoding)
+        run: "cargo +nightly miri test -p hadris-iso --lib -- raw:: name:: rock_ridge::"
+      - name: Miri - hadris-part (on-disk layouts, CRC, UTF-16 partition names)
+        run: cargo +nightly miri test -p hadris-part --lib
+      - name: Miri - hadris-apfs (layouts and record decoding)
+        run: |
+          cargo +nightly miri test -p hadris-apfs --lib
+          RUSTFLAGS='--cfg aes_backend="soft"' cargo +nightly miri test -p hadris-apfs --all-features --lib crypto::tests
+          cargo +nightly miri test -p hadris-apfs --all-features --test driver invalid_utf8_directory_names_are_corrupt_and_return_the_device
+      - name: Miri - hadris-ntfs (records, mapping pairs, UTF-16 names)
+        run: cargo +nightly miri test -p hadris-ntfs --lib

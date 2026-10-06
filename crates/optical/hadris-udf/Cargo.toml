@@ -1,49 +1,78 @@
 [package]
 name = "hadris-udf"
 autotests = false
-version = "2.5.0"
+version = "3.0.0-rc.1"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
 readme = "README.md"
-description = "Pure Rust UDF filesystem library for optical media and disk images with no-std support"
+description = "Pure Rust UDF library with allocation-free reading and a writer for standalone and ISO 9660 bridge volumes"
 keywords = ["udf", "disk-image", "optical-disc", "filesystem", "no-std"]
 categories = ["filesystem", "embedded", "no-std"]
 
 [package.metadata.docs.rs]
-features = ["std", "read", "write", "sync", "async", "unstable-streaming"]
+features = ["std", "sync", "async", "tracing"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["std", "read", "sync"]
-# Read support
-read = ["hadris-common/bytemuck"]
-# Heap allocation without full std
-alloc = ["hadris-io/alloc", "hadris-path/alloc"]
-# Standard library support (includes alloc)
-std = ["hadris-io/std", "hadris-common/std", "hadris-common/bytemuck", "alloc", "dep:thiserror"]
-# Write/format support (requires std)
-write = ["alloc", "std", "read"]
-# Synchronous API
-sync = ["hadris-io/sync", "hadris-common/sync"]
-# Asynchronous API
-async = ["hadris-io/async", "hadris-common/async"]
-# Unstable streaming input for the writer (`SimpleFile::from_source`, `FileSource`).
-# Outside the V2 stability promise; enabling it adds a field to `SimpleFile`.
-unstable-streaming = ["write"]
+default = ["std", "sync"]
+# The writers and `plan`; the bridge writer takes `hadris-iso` options.
+alloc = ["hadris-io/alloc", "hadris-fs/alloc", "hadris-storage/alloc", "dep:hadris-iso", "hadris-iso/alloc"]
+# Implies `alloc`; `std::io::Error` conversions and host files as tree content.
+std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std", "hadris-iso/std"]
+sync = ["hadris-io/sync", "hadris-fs/sync", "hadris-storage/sync", "hadris-iso?/sync"]
+async = ["hadris-io/async", "hadris-fs/async", "hadris-storage/async", "hadris-iso?/async"]
+
+tracing = ["std", "dep:tracing", "hadris-iso?/tracing"]
 
 [dependencies]
-bitflags = { workspace = true, features = ["bytemuck"] }
-bytemuck = { workspace = true, features = ["derive"] }
-thiserror = { workspace = true, optional = true }
-hadris-io = { workspace = true }
-hadris-path = { workspace = true }
+tracing = { workspace = true, optional = true }
+bitflags = { workspace = true }
+bytemuck = { workspace = true, features = ["derive", "min_const_generics"] }
+hadris-io = { workspace = true, default-features = false }
+hadris-fs = { workspace = true, default-features = false }
+hadris-storage = { workspace = true, default-features = false }
 hadris-macros = { workspace = true }
-hadris-common = { workspace = true, features = ["alloc"] }
-spin.workspace = true
+hadris-iso = { workspace = true, default-features = false, optional = true }
 
 [dev-dependencies]
-static_assertions.workspace = true
+hadris-fs = { workspace = true, features = ["contract"] }
+hadris-part = { workspace = true, features = ["std", "sync"] }
+hadris-storage = { workspace = true, features = ["std", "sync"] }
 tempfile.workspace = true
+
+[[test]]
+name = "roundtrip"
+required-features = ["std", "sync"]
+
+[[test]]
+name = "contract"
+required-features = ["std", "sync"]
+
+[[test]]
+name = "errors"
+required-features = ["std", "sync"]
+
+[[test]]
+name = "read"
+required-features = ["std", "sync"]
+
+[[test]]
+name = "interop"
+required-features = ["std", "sync"]
+
+[[test]]
+name = "bridge"
+required-features = ["std", "sync", "async"]
+
+[[bench]]
+name = "performance"
+harness = false
+required-features = ["std", "sync"]
+
+[[bench]]
+name = "kernels"
+harness = false
+required-features = ["std", "sync"]

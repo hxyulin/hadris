@@ -1,15 +1,34 @@
 //! Proc macros for dual sync/async code generation in Hadris.
+//!
+//! Provides `strip_async!`, which removes `async`/`.await` from token streams
+//! so the same source compiles as sync code, and `send_async!`, which makes
+//! the futures of async trait methods `Send` for the `r#async` mode.
 
 #![deny(missing_docs)]
-//!
-//! Provides `strip_async!` which removes `async`/`.await` from token streams,
-//! enabling the same source to compile as both sync and async code.
 
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use proc_macro2::TokenTree;
+
+mod send;
+
+/// Makes the futures of every `async fn` in a trait declaration `Send`.
+///
+/// In each trait, `async fn f(..) -> R` becomes
+/// `fn f(..) -> impl Future<Output = R> + Send` and a default body becomes
+/// `async move { body }`. The trait gains a `Send` supertrait, plus `Sync`
+/// when one of its async methods takes `&self`, so generic impls can prove
+/// their futures `Send`. Impls keep `async fn`, and everything outside trait
+/// declarations passes through unchanged.
+///
+/// Used inside `r#async` modules via `io_transform!`, next to the `sync`
+/// modules (`strip_async!`).
+#[proc_macro]
+pub fn send_async(input: TokenStream) -> TokenStream {
+    TokenStream::from(send::transform(TokenStream2::from(input)))
+}
 
 /// Strips all `async` keywords and `.await` expressions from the input.
 ///
@@ -45,7 +64,7 @@ fn strip_async_from_stream(input: TokenStream2) -> TokenStream2 {
                         continue;
                     }
                 }
-                // `async` not followed by `fn`/`move`/`unsafe` — keep it
+                // `async` not followed by `fn`/`move`/`unsafe`: keep it
                 // (shouldn't normally happen in our codebase, but be safe)
                 output.extend(core::iter::once(token));
             }

@@ -1,0 +1,4 @@
+case,samples,volume_bytes,block_bytes,cluster_bytes,min_ns,median_ns,max_ns,payload_bytes,read_calls,write_calls,read_bytes,write_bytes,flush_calls,max_read_bytes,max_write_bytes,write_amplification,fat0_write_bytes,fat1_write_bytes,directory_write_bytes,data_write_bytes,fsinfo_write_bytes,other_write_bytes,chain_positions,metadata_blocks
+fat12/hosted/read-128,21,2097152,512,512,193750,197833,316542,1048576,2056,0,1052672,0,0,512,0,n/a,0,0,0,0,0,0,32,8
+fat16/hosted/read-128,21,16777216,512,1024,180042,189334,207792,1048576,2054,0,1051648,0,0,512,0,n/a,0,0,0,0,0,0,32,8
+fat32/hosted/read-128,21,67108864,512,512,187667,199417,210792,1048576,2066,0,1057792,0,0,512,0,n/a,0,0,0,0,0,0,32,8

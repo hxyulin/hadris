@@ -1,98 +1,139 @@
 # hadris-udf
 
-A pure Rust Universal Disk Format (UDF) filesystem library for optical media
-and disk images, with `std` and `no_std` support. It is suitable for desktop
-image tools, bootloaders, kernels, firmware, and embedded systems.
+A pure Rust Universal Disk Format (UDF) library for optical media and disk
+images, for desktop image tools as well as `no_std` bootloaders, kernels and
+firmware.
 
-UDF (ECMA-167) is the filesystem used for DVD-ROM, DVD-Video, DVD-RAM, Blu-ray discs, large USB drives (files >4GB), and packet writing to CD/DVD-RW.
+UDF (ECMA-167 with the OSTA UDF specification) is the filesystem of DVD-ROM,
+DVD-Video, Blu-ray and many large removable drives.
 
 ## Features
 
-- **Read** UDF 1.02 images (DVD-ROM)
-- **Write/format** UDF filesystems from scratch
-- **no\_std** compatible (with `alloc`)
-- Descriptor-level access for building hybrid images
+- **Read** UDF 1.02 to 2.01 volumes with type 1 partitions, without an
+  allocator, through the `hadris-fs` `FileSystem` trait: path lookup,
+  streaming reads, metadata with times, permissions and owners, symlinks and
+  hard links
+- **Write** standalone volumes from a `hadris_fs::Tree`, reproducibly,
+  with a report of where each file went
+- **Bridge** images that share their file data between ISO 9660 and UDF, as
+  DVD-Video uses: `plan_bridge` and `write_bridge`
+- The same API in `sync`, `r#async`
 
-## Quick Start
+## Reading
 
 ```toml
 [dependencies]
-hadris-udf = "2.5.0"
+hadris-udf = "3.0.0-rc.1"
+hadris-fs = { version = "3.0.0-rc.1", features = ["std", "sync"] }
 ```
 
 ```rust,no_run
-use std::fs::File;
-use std::io::BufReader;
-use hadris_udf::UdfVolume;
+use std::io::Read;
 
-let file = File::open("movie.udf").unwrap();
-let reader = BufReader::new(file);
-let udf = UdfVolume::open(reader).unwrap();
+use hadris_fs::{MountOptions, OpenOptions};
+use hadris_fs::sync::Volume;
+use hadris_udf::UdfId;
+use hadris_udf::sync::UdfFs;
 
-let info = udf.info();
-println!("Volume: {}", info.volume_id);
+let file = hadris_storage::host::FileDevice::open("movie.udf").unwrap();
+let udf = UdfFs::mount(file, MountOptions::new()).unwrap();
+println!("Volume: {} (UDF {})", udf.info().id(UdfId::LogicalVolume), udf.info().revision());
 
-for entry in udf.root_dir().unwrap().entries() {
-    println!("{}", entry.name());
+let vol = Volume::new(udf);
+for entry in vol.read_dir("/").unwrap() {
+    println!("{}", String::from_utf8_lossy(entry.unwrap().name().as_bytes()));
+}
+let mut readme = Vec::new();
+vol.open("/README.TXT", OpenOptions::new().read())
+    .unwrap()
+    .read_to_end(&mut readme)
+    .unwrap();
+```
+
+`UdfFs` opens any `hadris_storage` block device: a host `FileDevice`, a
+`MemDevice`, a `Partition` of a disk. It finds the anchor at block 256, N-256
+or N-1 for logical blocks of 512 to 4096 bytes, uses the prevailing
+descriptors and falls back to the reserve sequence. `hadris_fs::sync::Volume`
+gives it paths, shared access and `File` handles.
+
+### Optional block caching
+
+With `hadris-storage`'s `alloc` feature, wrap the device in its shared cache
+before mounting. The same pattern works with `r#async::Cache` and
+`r#async::UdfFs`, including `no_std` callers with an allocator.
+
+```rust,no_run
+use hadris_fs::MountOptions;
+use hadris_storage::{host::FileDevice, sync::Cache};
+use hadris_udf::sync::UdfFs;
+
+let dev = FileDevice::open("movie.udf").unwrap();
+let udf = UdfFs::mount(Cache::new(dev, 32), MountOptions::new()).unwrap();
+```
+
+The bound counts device blocks, rather than UDF logical blocks: 32 blocks
+hold up to 16 KiB of payload on a 512-byte device or 64 KiB on a 2,048-byte
+device, plus cache bookkeeping. Cache slots allocate as they are used.
+Large reads bypass the cache; small reads can cache file data as well as
+metadata. Too few slots can increase I/O through eviction, and LRU maintenance
+can cost CPU on memory devices. UDF performs no writes through the adapter.
+The default `UdfFs::mount(dev, ...)` remains allocation-free and uncached.
+See the [UDF benchmark](../../../docs/performance.md#udf-benchmark) for measured
+tradeoffs and commands.
+
+## Writing
+
+```rust,no_run
+use hadris_fs::{Content, Node, Tree, host};
+use hadris_udf::sync::write;
+use hadris_udf::{UdfId, UdfOptions, UdfRevision};
+
+let mut tree = Tree::new();
+tree.insert("readme.txt", Node::file(Content::bytes("Hello, World!"))).unwrap();
+tree.insert("video.bin", Node::file(host::file("/data/video.bin").unwrap())).unwrap();
+
+let options = UdfOptions::default()
+    .with_id(UdfId::Volume, "MY_DISC")
+    .with_revision(UdfRevision::V2_01);
+let out = hadris_storage::host::FileDevice::new(std::fs::File::create("disc.udf").unwrap()).unwrap();
+let report = write(out, &tree, &options).unwrap();
+println!("{} bytes", report.size());
+for warning in report.warnings() {
+    eprintln!("{warning}");
 }
 ```
 
-### Writing a UDF image
+The writer stores files, directories, symlinks and hard links with their
+modification and access times, permissions and owners. Creation times, DOS
+attributes and special files are reported as warnings. Output is
+reproducible: the writer reads no clock, and `with_time` dates the volume,
+1980-01-01 by default. `plan` returns the report without I/O, to size a
+device first.
 
-Enable the writer explicitly:
-
-```toml
-[dependencies]
-hadris-udf = { version = "2.5.0", features = ["write"] }
-```
-
-```rust,no_run
-use hadris_udf::write::{UdfWriter, UdfWriteOptions, SimpleFile, SimpleDir};
-use std::io::Cursor;
-
-let mut buffer = vec![0u8; 10 * 1024 * 1024];
-let mut cursor = Cursor::new(&mut buffer[..]);
-
-let mut root = SimpleDir::new("");
-root.add_file(SimpleFile::new("readme.txt", b"Hello, World!".to_vec()));
-
-let options = UdfWriteOptions::default();
-let output = UdfWriter::create(cursor, &root, options).expect("Create failed");
-let _cursor = output.into_inner();
-```
-
-With the `unstable-streaming` feature, `SimpleFile::from_source` takes a
-`FileSource` (a length plus a way to open a reader) instead of a `Vec<u8>`, and
-the writer streams the contents when the image is written. The feature is
-outside the V2 stability promise, and enabling it adds a public `source` field
-to `SimpleFile`, so construct files through `SimpleFile::new` or
-`SimpleFile::from_source` rather than a struct literal.
+`write_bridge` writes an ISO 9660 image, then a UDF volume over the same
+file data, from one tree and the `IsoOptions` and `UdfOptions` of the two
+volumes; `plan_bridge` returns its report.
 
 ## Feature Flags
 
 | Feature | Default | Description |
 |---------|---------|-------------|
-| `read`  | Yes     | Read support |
-| `alloc` | No      | Heap allocation without full std |
-| `std`   | Yes     | Full standard library support |
-| `write` | No      | Mastered image creation; requires `std`, `alloc`, and `read` |
-| `sync`  | Yes     | Synchronous filesystem API |
-| `async` | No      | Asynchronous filesystem API |
-| `unstable-streaming` | No | Unstable: stream file contents from a reader while writing (`SimpleFile::from_source`); requires `write` |
+| `std` | Yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
+| `alloc` | via `std` | The writers, `plan` and `plan_bridge` |
+| `sync` | Yes | The blocking API in `sync` |
+| `async` | No | The asynchronous API with `Send` futures in `r#async` |
 
-`std` and the I/O mode are independent. Default features select `std`, `read`,
-and `sync`; custom builds may select `sync`, `async`, or both.
+No feature changes what an item does.
 
 ## UDF scope
 
-The reader and writer support mastered, read-only Type-1 images. The writer can
-label output as UDF 1.02, 1.50, 2.00, 2.01, 2.50, or 2.60 and emits the matching
-NSR identifier. This does not implement the rewritable-media features often
-associated with those revisions, such as packet writing, VAT, sparing tables,
-metadata partitions, or pseudo-overwrite.
-
-Use the oldest mastered revision accepted by the target consumers and validate
-the result with those consumers.
+The writer produces mastered, read-only type 1 volumes and can label them
+UDF 1.02, 1.50, 2.00 or 2.01; 2.00 and later use ECMA-167 3rd edition
+structures. Packet writing, virtual allocation tables, sparing tables,
+metadata partitions and named streams are not implemented; the reader
+refuses such partitions as unsupported, and the writer refuses UDF 2.50
+and 2.60, which require a metadata partition. Writing to a mounted volume
+(`FileSystem` write methods) reports read-only for now.
 
 ## Documentation
 
@@ -108,3 +149,7 @@ the result with those consumers.
 ## License
 
 Licensed under the [MIT license](../../../LICENSE-MIT).
+
+The opt-in `tracing` feature enables `std` and emits operation spans through the
+application’s subscriber. It is disabled by default. See the
+[tracing guide](../../../docs/tracing.md) for targets, metadata and async behavior.

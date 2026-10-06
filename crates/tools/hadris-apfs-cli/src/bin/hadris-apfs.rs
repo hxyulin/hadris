@@ -1,13 +1,15 @@
-use std::io::{Seek, SeekFrom, Write};
+use std::io::Write;
+use std::path::Path;
 use std::path::PathBuf;
-use std::{fs::File, path::Path};
 
 use anyhow::{Context, bail};
 use clap::{Parser, Subcommand};
 use hadris_apfs::sync::Container;
 use hadris_apfs::types::filesystem::{DT_DIR, DT_LNK, DT_REG};
-use hadris_part::{Guid, PartitionTable, PartitionTableReadExt, PartitionType};
-use hadris_storage::{BlockCount, BlockGeometry, BlockSize, PartitionView, SeekBlockDevice};
+use hadris_part::PartitionKind;
+use hadris_storage::BlockSize;
+use hadris_storage::ReadOnly;
+use hadris_storage::sync::StreamDevice;
 
 #[derive(Debug, Parser)]
 #[command(version, about = "Inspect APFS containers")]
@@ -176,51 +178,36 @@ fn open_container(
     partition: Option<usize>,
     action: Action,
 ) -> anyhow::Result<()> {
-    let mut file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let block_size = BlockSize::new(sector_size).context("sector size must be non-zero")?;
-    let len = file
-        .seek(SeekFrom::End(0))
-        .context("determining container size")?;
-    file.rewind().context("rewinding container")?;
-    if u64::from(sector_size) > len {
-        bail!("sector size exceeds input size");
-    }
+    let file = std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
+    let len = hadris_storage::host::file_len(&file).context("determining container size")?;
+    let mut device = StreamDevice::with_block_count(
+        ReadOnly::new(hadris_io::StdIo::new(file)),
+        block_size,
+        len / u64::from(sector_size),
+    );
     if gpt || partition.is_some() {
-        let table =
-            PartitionTable::read_from(&mut file, sector_size).context("reading partition table")?;
-        let selected = table
+        let disk = hadris_part::sync::read(&mut device).context("reading partition table")?;
+        let selected = disk
             .partitions()
-            .into_iter()
-            .find(|part| match (partition, part.partition_type) {
-                (Some(index), _) => part.index == index,
-                (None, PartitionType::Gpt(guid)) => guid == Guid::APPLE_APFS,
+            .find(|part| match (partition, part.kind()) {
+                (Some(index), _) => part.index() == index,
+                (None, PartitionKind::Gpt(guid)) => guid == hadris_part::gpt::types::APPLE_APFS,
                 (None, _) => false,
             })
             .context("no matching APFS partition found")?;
-        let offset = selected
-            .start_lba
-            .checked_mul(u64::from(sector_size))
-            .context("partition offset overflow")?;
-        let length = selected
-            .size_sectors
-            .checked_mul(u64::from(sector_size))
-            .context("partition length overflow")?;
-        let view = PartitionView::new(&mut file, offset, length)
-            .map_err(|error| anyhow::anyhow!("creating partition view: {error}"))?;
-        let device = SeekBlockDevice::new(
-            view,
-            BlockGeometry::new(block_size, BlockCount(selected.size_sectors)),
-        );
-        let mut container = Container::open(device).with_context(|| {
+        let view =
+            hadris_part::sync::open(device, &selected).context("opening partition device")?;
+        let mut container = Container::open(view).with_context(|| {
             format!(
                 "opening APFS partition {} at LBA {}",
-                selected.index, selected.start_lba
+                selected.index(),
+                selected.start()
             )
         })?;
         action.run(&mut container)
     } else {
-        let geometry = BlockGeometry::new(block_size, BlockCount(len / u64::from(sector_size)));
-        let mut container = Container::open(SeekBlockDevice::new(file, geometry)).or_else(|error| {
+        let mut container = Container::open(device).or_else(|error| {
             bail!("opening APFS container failed: {error}. If this is a full-disk/GPT image, retry with --gpt")
         })?;
         action.run(&mut container)
@@ -424,7 +411,7 @@ where
                 .map(|chunk| u64::from(chunk.free_count))
                 .sum::<u64>()
         });
-    let volume_locations = match container.root_leaf_volume_object_map_values(&latest) {
+    let volume_locations = match container.volume_object_map_values(&latest) {
         Ok(values) => values,
         Err(error) => {
             eprintln!(

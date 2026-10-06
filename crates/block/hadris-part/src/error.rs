@@ -1,280 +1,269 @@
-//! Error types for partition operations.
+use core::fmt;
 
-use core::fmt::{self, Debug, Display};
+pub(crate) use hadris_fs::Error;
+use hadris_fs::{DetailCode, ErrorKind};
 
-/// Errors that can occur during partition table operations.
-#[derive(Debug)]
-pub enum Error {
-    /// An I/O error occurred.
-    Io(hadris_io::Error),
+const DOMAIN: &str = "hadris-part";
 
-    /// The MBR signature (0x55AA) is invalid.
-    InvalidMbrSignature {
-        /// The actual signature bytes found.
-        found: [u8; 2],
-    },
-
-    /// The GPT signature ("EFI PART") is invalid.
-    InvalidGptSignature {
-        /// The actual signature bytes found.
-        found: [u8; 8],
-    },
-
-    /// The GPT header CRC32 checksum does not match.
-    GptHeaderCrcMismatch {
-        /// The expected CRC32 value (from header).
-        expected: u32,
-        /// The actual CRC32 value (calculated).
-        actual: u32,
-    },
-
-    /// The GPT partition entry array CRC32 checksum does not match.
-    GptEntriesCrcMismatch {
-        /// The expected CRC32 value (from header).
-        expected: u32,
-        /// The actual CRC32 value (calculated).
-        actual: u32,
-    },
-
-    /// The backup GPT header could not be read from its declared LBA.
-    BackupHeaderIo {
-        /// LBA declared by the primary header for the backup header.
-        lba: u64,
-        /// Underlying I/O failure.
-        source: hadris_io::Error,
-    },
-
-    /// The backup GPT header signature is invalid.
-    InvalidBackupGptSignature {
-        /// The actual signature bytes found.
-        found: [u8; 8],
-    },
-
-    /// The backup GPT header CRC32 checksum does not match.
-    BackupGptHeaderCrcMismatch {
-        /// The expected CRC32 value stored in the backup header.
-        expected: u32,
-        /// The calculated CRC32 value.
-        actual: u32,
-    },
-
-    /// Two partitions overlap.
-    PartitionOverlap {
-        /// Index of the first overlapping partition.
-        index1: usize,
-        /// Index of the second overlapping partition.
-        index2: usize,
-        /// Starting LBA of the overlap.
-        overlap_start: u64,
-        /// Ending LBA of the overlap.
-        overlap_end: u64,
-    },
-
-    /// Too many partitions requested.
-    TooManyPartitions {
-        /// Maximum number of partitions allowed.
-        max: usize,
-        /// Number of partitions requested.
-        requested: usize,
-    },
-
-    /// A partition extends beyond the disk boundary.
-    PartitionOutOfBounds {
-        /// Index of the offending partition.
-        index: usize,
-        /// Ending LBA of the partition.
-        partition_end: u64,
-        /// Last usable LBA of the disk.
-        disk_end: u64,
-    },
-
-    /// The partition entry size is invalid.
-    InvalidPartitionEntrySize {
-        /// The invalid size.
-        size: u32,
-    },
-
-    /// A logical block is too small to contain the requested structure.
-    InvalidBlockSize {
-        /// Supplied logical block size in bytes.
-        size: u32,
-        /// Minimum required size in bytes.
-        minimum: u32,
-    },
-
-    /// The backup GPT header does not match the primary.
-    BackupHeaderMismatch,
-
-    /// No protective MBR found on a GPT disk.
-    NoProtectiveMbr,
-
-    /// Invalid hybrid MBR configuration.
-    InvalidHybridMbr {
-        /// Description of the error.
-        reason: &'static str,
-    },
-
-    /// The disk is too small for the requested partitions.
-    DiskTooSmall {
-        /// Required size in sectors.
-        required: u64,
-        /// Available size in sectors.
-        available: u64,
-    },
-
-    /// A required feature is not available.
-    FeatureNotAvailable(&'static str),
-
-    /// A partition is not properly aligned.
-    MisalignedPartition {
-        /// The misaligned LBA.
-        lba: u64,
-        /// The required alignment in sectors.
-        required_alignment: u64,
-    },
+/// What exactly went wrong, beyond the [`ErrorKind`].
+///
+/// Callers match on the kind; the detail tells a tool which structure or
+/// partition to report. Read it back from an [`Error`] with [`Detail::of`],
+/// or from a [`TableError`] with [`TableError::detail`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Detail {
+    /// Block 0 lacks the `55 AA` boot signature, so the disk has no
+    /// partition table.
+    NoTable = 1,
+    /// An MBR or EBR entry is invalid: a boot indicator other than `0x00`
+    /// or `0x80`, or a second extended partition.
+    MbrEntry = 2,
+    /// The chain of extended boot records loops, leaves the extended
+    /// partition, or is too long.
+    EbrChain = 3,
+    /// A GPT header field is invalid: signature, revision, size, location or
+    /// usable range.
+    GptHeader = 4,
+    /// A GPT header fails its CRC.
+    GptHeaderCrc = 5,
+    /// The GPT entry size, count or array location is invalid.
+    GptEntries = 6,
+    /// A GPT entry array fails its CRC.
+    GptEntriesCrc = 7,
+    /// The block size is not a power of two of at least 512 bytes, or does
+    /// not match the table's.
+    BlockSize = 8,
+    /// The partition would overlap another partition or a structure of the
+    /// table itself; [`TableError::index`] and [`TableError::other`] name
+    /// them.
+    Overlap = 9,
+    /// The partition lies outside the usable area of the disk or the
+    /// extended partition; [`TableError::index`] names it.
+    OutOfBounds = 10,
+    /// Every slot of the table is in use.
+    TableFull = 11,
+    /// No partition has the index asked for; [`TableError::index`] names
+    /// it.
+    NoSuchPartition = 12,
+    /// A logical partition needs an extended partition, or a second
+    /// extended partition was requested.
+    Extended = 13,
+    /// The extended partition still holds logical partitions.
+    ExtendedInUse = 14,
+    /// A partition name is too long or contains a NUL.
+    Name = 15,
+    /// A hybrid MBR mirror is invalid.
+    Mirror = 16,
+    /// The disk is too small for the table or the layout.
+    DiskTooSmall = 17,
+    /// A value does not fit its 32-bit MBR field.
+    FieldOverflow = 18,
+    /// The partition kind does not belong to this table (a GUID in an MBR,
+    /// a type code in a GPT), or is the unused kind.
+    Kind = 19,
+    /// A flag the table cannot store.
+    Flags = 20,
+    /// A partition size is zero, or `Size::Remaining` is not last.
+    Size = 21,
+    /// Boot code longer than 446 bytes.
+    Bootstrap = 22,
 }
 
-impl Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Detail {
+    const fn description(self) -> &'static str {
         match self {
-            Self::Io(err) => write!(f, "I/O error: {err}"),
-            Self::InvalidMbrSignature { found } => {
-                write!(
-                    f,
-                    "invalid MBR signature: expected 0x55AA, found 0x{:02X}{:02X}",
-                    found[0], found[1]
-                )
-            }
-            Self::InvalidGptSignature { found } => {
-                write!(
-                    f,
-                    "invalid GPT signature: expected 'EFI PART', found {found:?}"
-                )
-            }
-            Self::GptHeaderCrcMismatch { expected, actual } => {
-                write!(
-                    f,
-                    "GPT header CRC mismatch: expected 0x{expected:08X}, got 0x{actual:08X}"
-                )
-            }
-            Self::GptEntriesCrcMismatch { expected, actual } => {
-                write!(
-                    f,
-                    "GPT entries CRC mismatch: expected 0x{expected:08X}, got 0x{actual:08X}"
-                )
-            }
-            Self::InvalidBlockSize { size, minimum } => {
-                write!(f, "invalid block size {size}; minimum is {minimum} bytes")
-            }
-            Self::BackupHeaderIo { lba, source } => {
-                write!(f, "failed to read backup GPT header at LBA {lba}: {source}")
-            }
-            Self::InvalidBackupGptSignature { found } => {
-                write!(
-                    f,
-                    "invalid backup GPT signature: expected 'EFI PART', found {found:?}"
-                )
-            }
-            Self::BackupGptHeaderCrcMismatch { expected, actual } => {
-                write!(
-                    f,
-                    "backup GPT header CRC mismatch: expected 0x{expected:08X}, got 0x{actual:08X}"
-                )
-            }
-            Self::PartitionOverlap {
-                index1,
-                index2,
-                overlap_start,
-                overlap_end,
-            } => {
-                write!(
-                    f,
-                    "partitions {index1} and {index2} overlap (LBA {overlap_start}-{overlap_end})"
-                )
-            }
-            Self::TooManyPartitions { max, requested } => {
-                write!(
-                    f,
-                    "too many partitions: maximum is {max}, requested {requested}"
-                )
-            }
-            Self::PartitionOutOfBounds {
-                index,
-                partition_end,
-                disk_end,
-            } => {
-                write!(
-                    f,
-                    "partition {index} extends beyond disk (ends at LBA {partition_end}, disk ends at {disk_end})"
-                )
-            }
-            Self::InvalidPartitionEntrySize { size } => {
-                write!(
-                    f,
-                    "invalid partition entry size: {size} (must be 128 * 2^n)"
-                )
-            }
-            Self::BackupHeaderMismatch => {
-                write!(f, "backup GPT header does not match primary")
-            }
-            Self::NoProtectiveMbr => {
-                write!(f, "no protective MBR found on GPT disk")
-            }
-            Self::InvalidHybridMbr { reason } => {
-                write!(f, "invalid hybrid MBR: {reason}")
-            }
-            Self::DiskTooSmall {
-                required,
-                available,
-            } => {
-                write!(
-                    f,
-                    "disk too small: requires {required} sectors, only {available} available"
-                )
-            }
-            Self::FeatureNotAvailable(feature) => {
-                write!(f, "feature not available: {feature}")
-            }
-            Self::MisalignedPartition {
-                lba,
-                required_alignment,
-            } => {
-                write!(
-                    f,
-                    "partition at LBA {lba} is not aligned to {required_alignment} sectors"
-                )
-            }
+            Self::NoTable => "no partition table signature",
+            Self::MbrEntry => "invalid MBR partition entry",
+            Self::EbrChain => "invalid extended boot record chain",
+            Self::GptHeader => "invalid GPT header",
+            Self::GptHeaderCrc => "GPT header CRC mismatch",
+            Self::GptEntries => "invalid GPT partition entry array",
+            Self::GptEntriesCrc => "GPT partition entry array CRC mismatch",
+            Self::BlockSize => "unsupported or mismatched block size",
+            Self::Overlap => "partitions overlap",
+            Self::OutOfBounds => "partition outside the usable area",
+            Self::TableFull => "partition table is full",
+            Self::NoSuchPartition => "no such partition",
+            Self::Extended => "logical partitions need exactly one extended partition",
+            Self::ExtendedInUse => "extended partition holds logical partitions",
+            Self::Name => "invalid partition name",
+            Self::Mirror => "invalid hybrid MBR mirror",
+            Self::DiskTooSmall => "disk too small",
+            Self::FieldOverflow => "value does not fit a 32-bit MBR field",
+            Self::Kind => "partition kind does not fit the table",
+            Self::Flags => "flag not supported by the table",
+            Self::Size => "invalid partition size",
+            Self::Bootstrap => "boot code longer than 446 bytes",
         }
     }
 }
 
-impl<E: hadris_io::IoError> From<hadris_io::Error<E>> for Error {
-    fn from(err: hadris_io::Error<E>) -> Self {
-        Self::Io(err.erase())
+impl Detail {
+    const ALL: [Self; 22] = [
+        Self::NoTable,
+        Self::MbrEntry,
+        Self::EbrChain,
+        Self::GptHeader,
+        Self::GptHeaderCrc,
+        Self::GptEntries,
+        Self::GptEntriesCrc,
+        Self::BlockSize,
+        Self::Overlap,
+        Self::OutOfBounds,
+        Self::TableFull,
+        Self::NoSuchPartition,
+        Self::Extended,
+        Self::ExtendedInUse,
+        Self::Name,
+        Self::Mirror,
+        Self::DiskTooSmall,
+        Self::FieldOverflow,
+        Self::Kind,
+        Self::Flags,
+        Self::Size,
+        Self::Bootstrap,
+    ];
+
+    /// The detail a partition table operation recorded on `err`, if any.
+    pub fn of<E>(err: &Error<E>) -> Option<Self> {
+        err.detail().and_then(Self::from_code)
+    }
+
+    /// The detail `code` stands for, when it is one of this crate's codes.
+    pub fn from_code(code: DetailCode) -> Option<Self> {
+        let code = code.code_in(DOMAIN)?;
+        Self::ALL.into_iter().find(|detail| *detail as u16 == code)
+    }
+
+    /// The code this detail is recorded with, in the `hadris-part` domain.
+    /// Codes never change meaning.
+    pub const fn code(self) -> DetailCode {
+        DetailCode::new(DOMAIN, self as u16)
+    }
+
+    pub(crate) fn error<E>(self, kind: ErrorKind) -> Error<E> {
+        Error::new(kind, self.description()).with_detail(self.code())
+    }
+
+    pub(crate) fn corrupt<E>(self) -> Error<E> {
+        self.error(ErrorKind::Corrupt)
     }
 }
 
-#[cfg(all(feature = "write", any(feature = "sync", feature = "async")))]
-impl Error {
-    /// An on-disk LBA field whose byte offset is not representable.
-    pub(crate) fn lba_offset_overflow() -> Self {
-        Self::Io(hadris_io::Error::new(
-            hadris_io::ErrorKind::InvalidInput,
-            "LBA value overflows byte offset",
-        ))
+impl From<Detail> for DetailCode {
+    fn from(detail: Detail) -> Self {
+        detail.code()
+    }
+}
+
+impl fmt::Display for Detail {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.description())
+    }
+}
+
+/// Error of a table operation that touches no device: an edit, a layout,
+/// a name.
+///
+/// Converts with `?` into [`Error<E>`](hadris_fs::Error), keeping the kind
+/// and the detail code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TableError {
+    kind: ErrorKind,
+    detail: Detail,
+    index: Option<usize>,
+    other: Option<usize>,
+}
+
+impl TableError {
+    pub(crate) const fn new(kind: ErrorKind, detail: Detail) -> Self {
+        Self {
+            kind,
+            detail,
+            index: None,
+            other: None,
+        }
+    }
+
+    pub(crate) const fn invalid(detail: Detail) -> Self {
+        Self::new(ErrorKind::InvalidInput, detail)
+    }
+
+    pub(crate) const fn at(mut self, index: usize) -> Self {
+        self.index = Some(index);
+        self
+    }
+
+    pub(crate) const fn overlapping(mut self, other: usize) -> Self {
+        self.other = Some(other);
+        self
+    }
+
+    /// What went wrong.
+    pub const fn kind(&self) -> ErrorKind {
+        self.kind
+    }
+
+    /// Which structure or partition it concerns.
+    pub const fn detail(&self) -> Detail {
+        self.detail
+    }
+
+    /// The index of the partition it concerns, when there is one.
+    pub const fn index(&self) -> Option<usize> {
+        self.index
+    }
+
+    /// For [`Detail::Overlap`], the index of the partition overlapped; the
+    /// same as [`index`](Self::index) when the partition overlaps a
+    /// structure of the table itself.
+    pub const fn other(&self) -> Option<usize> {
+        self.other
+    }
+}
+
+impl fmt::Display for TableError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match (self.detail, self.index, self.other) {
+            (Detail::Overlap, Some(index), Some(other)) => {
+                write!(f, "partition {index} would overlap partition {other}")
+            }
+            (Detail::OutOfBounds, Some(index), _) => {
+                write!(f, "partition {index} lies outside the usable area")
+            }
+            (Detail::NoSuchPartition, Some(index), _) => write!(f, "no partition {index}"),
+            (detail, _, _) => detail.fmt(f),
+        }
+    }
+}
+
+impl core::error::Error for TableError {}
+
+impl<E> From<TableError> for Error<E> {
+    fn from(err: TableError) -> Self {
+        err.detail.error(err.kind)
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Io(err) => Some(err),
-            Self::BackupHeaderIo { source, .. } => Some(source),
-            _ => None,
-        }
+impl From<TableError> for std::io::Error {
+    fn from(err: TableError) -> Self {
+        std::io::Error::new(err.kind.into(), err)
     }
 }
 
-/// A specialized `Result` type for partition operations.
-pub type Result<T> = core::result::Result<T, Error>;
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn details_round_trip_through_their_codes() {
+        for detail in Detail::ALL {
+            let err: Error<()> = Error::new(ErrorKind::Corrupt, "").with_detail(detail.code());
+            assert_eq!(Detail::of(&err), Some(detail));
+        }
+        let foreign = DetailCode::new("another-crate", Detail::ALL[0] as u16);
+        assert_eq!(Detail::from_code(foreign), None);
+    }
+}

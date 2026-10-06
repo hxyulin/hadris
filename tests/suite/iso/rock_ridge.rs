@@ -2,62 +2,61 @@
 //! xorriso when it is available.
 
 use std::fs;
-use std::io::Cursor;
-use std::sync::Arc;
 
-use hadris_iso::read::PathSeparator;
-use hadris_iso::susp::{SystemUseField, SystemUseIter};
-use hadris_iso::write::options::{CreationFeatures, IsoFormatOptions};
-use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
+use hadris_fs::Resolve;
+use hadris_fs::sync::{FileSystem, Volume, read_tree};
+use hadris_fs::{Content, Node, Tree};
+use hadris_iso::raw::{DirectoryRecord, SuspEntries};
+use hadris_iso::{IsoId, IsoOptions, Namespace};
+use hadris_tests::harness::files::read_path;
+use hadris_tests::iso::hadris::write_tree;
 use hadris_tests::iso::xorriso;
 use tempfile::TempDir;
 
-use super::open;
+use super::{open, open_ns, volume_id};
+
+fn le32(bytes: &[u8]) -> u32 {
+    u32::from_le_bytes(bytes[..4].try_into().unwrap())
+}
 
 #[test]
 fn test_hadris_rockridge_roundtrip() {
-    let files = InputFiles {
-        path_separator: PathSeparator::ForwardSlash,
-        files: vec![
-            IsoFile::File {
-                name: Arc::new("hello.txt".to_string()),
-                contents: b"Hello, Rock Ridge!\n".to_vec(),
-            },
-            IsoFile::Directory {
-                name: Arc::new("subdir".to_string()),
-                children: vec![IsoFile::File {
-                    name: Arc::new("nested.txt".to_string()),
-                    contents: b"Nested content\n".to_vec(),
-                }],
-            },
-        ],
-    };
-    let format_options = IsoFormatOptions {
-        volume_name: "RRIP_TEST".to_string(),
-        system_id: None,
-        volume_set_id: None,
-        publisher_id: None,
-        preparer_id: None,
-        application_id: None,
-        sector_size: 2048,
-        path_separator: PathSeparator::ForwardSlash,
-        features: CreationFeatures::rock_ridge(),
-        strict_charset: false,
-    };
-    let mut buffer = Cursor::new(vec![0u8; 4 * 1024 * 1024]);
-    IsoImageWriter::create(&mut buffer, files, format_options)
-        .expect("Failed to create Rock Ridge ISO");
-    let iso_data = buffer.into_inner();
+    let mut tree = Tree::new();
+    tree.insert(
+        "hello.txt",
+        Node::file(Content::bytes("Hello, Rock Ridge!\n")),
+    )
+    .unwrap();
+    tree.insert(
+        "subdir/nested.txt",
+        Node::file(Content::bytes("Nested content\n")),
+    )
+    .unwrap();
+    let options = IsoOptions::default()
+        .with_id(IsoId::Volume, "RRIP_TEST")
+        .with_rock_ridge();
+    let iso_data = write_tree(&tree, &options).expect("Failed to create Rock Ridge ISO");
 
-    let image = open(iso_data.clone());
-    let pvd = image.read_pvd().unwrap();
-    assert_eq!(pvd.volume_identifier.to_str().trim(), "RRIP_TEST");
+    let mut image = open(iso_data.clone());
+    assert_eq!(volume_id(&mut image), "RRIP_TEST");
+    let pvd = super::primary(&mut image);
+    let root_start = pvd.root.header.extent.get() as usize * 2048;
+    let root_len = pvd.root.header.data_len.get() as usize;
+    let root_dir = &iso_data[root_start..root_start + root_len];
 
-    let root = image.root_dir();
-    let dir = root.iter(&image);
-    let mut entries = dir.entries();
+    let mut records = Vec::new();
+    let mut pos = 0;
+    while pos < root_dir.len() {
+        match DirectoryRecord::parse(&root_dir[pos..]).expect("valid directory record") {
+            Some(record) => {
+                pos += record.len();
+                records.push(record);
+            }
+            None => pos = (pos / 2048 + 1) * 2048,
+        }
+    }
 
-    let dot_entry = entries.next().unwrap().unwrap();
+    let dot_entry = &records[0];
     assert_eq!(dot_entry.name(), b"\x00", "First entry should be dot");
     let su = dot_entry.system_use();
     assert!(!su.is_empty(), "Dot entry should have system use data");
@@ -65,22 +64,22 @@ fn test_hadris_rockridge_roundtrip() {
     let mut found_sp = false;
     let mut found_ce = false;
     let mut found_px = false;
-    let mut ce_sector = 0u64;
-    let mut ce_offset = 0u64;
-    let mut ce_length = 0usize;
-    for field in SystemUseIter::new(su, 0) {
-        match field {
-            SystemUseField::SuspIdentifier(sp) => {
-                assert!(sp.is_valid(), "SP check bytes should be 0xBEEF");
+    let mut ce = (0usize, 0usize, 0usize);
+    for entry in SuspEntries::new(su, 0) {
+        match &entry.signature {
+            b"SP" => {
+                assert_eq!(&entry.data[..2], &[0xBE, 0xEF], "SP check bytes");
                 found_sp = true;
             }
-            SystemUseField::ContinuationArea(ce) => {
-                ce_sector = ce.sector.read() as u64;
-                ce_offset = ce.offset.read() as u64;
-                ce_length = ce.length.read() as usize;
+            b"CE" => {
+                ce = (
+                    le32(&entry.data[0..]) as usize,
+                    le32(&entry.data[8..]) as usize,
+                    le32(&entry.data[16..]) as usize,
+                );
                 found_ce = true;
             }
-            SystemUseField::PosixAttributes(_) => found_px = true,
+            b"PX" => found_px = true,
             _ => {}
         }
     }
@@ -90,24 +89,25 @@ fn test_hadris_rockridge_roundtrip() {
     assert!(found_ce, "Root dot should have CE entry (for full ER)");
     assert!(found_px, "Root dot should have PX entry");
 
+    let (ce_block, ce_offset, ce_length) = ce;
     assert!(ce_length > 0, "CE length should be non-zero");
-    let byte_pos = ce_sector * 2048 + ce_offset;
-    let mut ce_buf = vec![0u8; ce_length];
-    image
-        .read_bytes_at(byte_pos, &mut ce_buf)
-        .expect("Failed to read CE area");
+    let ce_start = ce_block * 2048 + ce_offset;
+    let ce_buf = &iso_data[ce_start..ce_start + ce_length];
     let mut found_er = false;
-    for field in SystemUseIter::new(&ce_buf, 0) {
-        if let SystemUseField::ExtensionReference(er) = field {
-            let id_start = 4usize;
-            let id_end = id_start + er.identifier_len as usize;
-            if id_end <= er.buf.len() && &er.buf[id_start..id_end] == b"RRIP_1991A" {
+    for entry in SuspEntries::new(ce_buf, 0) {
+        if &entry.signature == b"ER" {
+            let (id_len, descriptor_len, source_len) = (
+                entry.data[0] as usize,
+                entry.data[1] as usize,
+                entry.data[2] as usize,
+            );
+            if entry.data.get(4..4 + id_len) == Some(b"RRIP_1991A".as_slice()) {
                 found_er = true;
                 assert!(
-                    er.descriptor_len > 0,
+                    descriptor_len > 0,
                     "Full ER should have non-empty descriptor"
                 );
-                assert!(er.source_len > 0, "Full ER should have non-empty source");
+                assert!(source_len > 0, "Full ER should have non-empty source");
             }
         }
     }
@@ -116,7 +116,7 @@ fn test_hadris_rockridge_roundtrip() {
         "Continuation area should contain ER with RRIP_1991A identifier"
     );
 
-    let dotdot_entry = entries.next().unwrap().unwrap();
+    let dotdot_entry = &records[1];
     assert_eq!(
         dotdot_entry.name(),
         b"\x01",
@@ -127,18 +127,9 @@ fn test_hadris_rockridge_roundtrip() {
         "Dotdot entry should have system use data"
     );
 
-    let mut found_file_with_nm = false;
-    for entry_result in entries {
-        let entry = entry_result.unwrap();
-        if entry.is_special() {
-            continue;
-        }
-        for field in SystemUseIter::new(entry.system_use(), 0) {
-            if let SystemUseField::AlternateName(_) = field {
-                found_file_with_nm = true;
-            }
-        }
-    }
+    let found_file_with_nm = records[2..].iter().any(|record| {
+        SuspEntries::new(record.system_use(), 0).any(|entry| &entry.signature == b"NM")
+    });
     assert!(
         found_file_with_nm,
         "File/directory entries should have NM entries"
@@ -163,5 +154,63 @@ fn test_hadris_rockridge_roundtrip() {
         );
         let output = xorriso::inspect(&iso_path, &["-ls", "/"]);
         println!("xorriso ls /: {}", String::from_utf8_lossy(&output.stdout));
+    }
+}
+
+/// The names of a Rock Ridge hard link share one node id, so importing
+/// the image keeps them linked (integrate-2). Checked on an image Hadris
+/// writes (shared `PX` serial) and one xorriso writes with `--hardlinks`.
+#[test]
+fn hard_links_share_a_node_id() {
+    let mut tree = Tree::new();
+    tree.insert("a.txt", Node::file(Content::bytes("data\n")))
+        .unwrap();
+    tree.insert("other.txt", Node::file(Content::bytes("other\n")))
+        .unwrap();
+    tree.link("a.txt", "sub/b.txt").unwrap();
+    let options = IsoOptions::default().with_rock_ridge();
+    let mut images = vec![("hadris", write_tree(&tree, &options).unwrap())];
+    let temp = TempDir::new().unwrap();
+    if xorriso::require() {
+        let source = temp.path().join("source");
+        fs::create_dir_all(source.join("sub")).unwrap();
+        fs::write(source.join("a.txt"), "data\n").unwrap();
+        fs::write(source.join("other.txt"), "other\n").unwrap();
+        fs::hard_link(source.join("a.txt"), source.join("sub/b.txt")).unwrap();
+        let image = temp.path().join("xorriso.iso");
+        xorriso::mkisofs(&source, &image, "LINKS", &["-R", "--hardlinks"]).unwrap();
+        images.push(("xorriso", fs::read(image).unwrap()));
+    }
+    for (producer, bytes) in images {
+        let mut view = open_ns(bytes.clone(), Namespace::RockRidge);
+        let a = view.resolve(b"/a.txt", Resolve::Lexical).unwrap();
+        let b = view.resolve(b"/sub/b.txt", Resolve::Lexical).unwrap();
+        let other = view.resolve(b"/other.txt", Resolve::Lexical).unwrap();
+        assert_eq!(a, b, "{producer}");
+        assert_ne!(a, other, "{producer}");
+        assert_eq!(view.stat(b).unwrap().nlink(), 2);
+        assert_eq!(read_path(&mut view, "/sub/b.txt").unwrap(), b"data\n");
+        let sub = view.resolve(b"/sub", Resolve::Lexical).unwrap();
+        let entry = view
+            .readdir(sub, hadris_fs::DirCursor::START)
+            .unwrap()
+            .unwrap();
+        assert_eq!(entry.node(), a, "{producer}");
+        for node in [a, b, other, sub] {
+            view.forget(node, 1);
+        }
+
+        let vol = Volume::new(open_ns(bytes, Namespace::RockRidge));
+        let imported = read_tree(&vol, "/").unwrap();
+        assert_eq!(
+            imported.entry("sub/b.txt").unwrap().links(),
+            2,
+            "{producer}"
+        );
+        assert_eq!(
+            imported.entry("a.txt").unwrap().id(),
+            imported.entry("sub/b.txt").unwrap().id(),
+            "{producer}"
+        );
     }
 }

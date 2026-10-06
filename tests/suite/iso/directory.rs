@@ -1,32 +1,25 @@
 //! Directory records, file extents, and multi-sector directories.
 
 use std::fs;
-use std::io::Cursor;
-use std::sync::Arc;
 
-use hadris_iso::read::{IsoImage, PathSeparator};
-use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, IsoFormatOptions};
-use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
+use hadris_fs::{Content, Node, Tree};
+use hadris_iso::{IsoId, IsoOptions, Namespace};
+use hadris_tests::iso::hadris::write_tree;
 use hadris_tests::iso::xorriso;
 use tempfile::TempDir;
 
-use super::{open, open_file, xorriso_sample_image};
+use super::{first_extent, list, open_file_ns, open_ns, xorriso_sample_image};
 
 #[test]
 fn test_read_directory_structure() {
     let Some((_temp, iso_path)) = xorriso_sample_image(xorriso::create_minimal) else {
         return;
     };
-    let image = open_file(&iso_path);
-    let root = image.root_dir();
-    let mut entries: Vec<String> = Vec::new();
-    for entry_result in root.iter(&image).entries() {
-        let entry = entry_result.expect("Failed to read directory entry");
-        let name = String::from_utf8_lossy(entry.name()).to_string();
-        if name != "\x00" && name != "\x01" {
-            entries.push(name);
-        }
-    }
+    let mut view = open_file_ns(&iso_path, Namespace::Primary);
+    let entries: Vec<String> = list(&mut view, "/")
+        .into_iter()
+        .map(|(name, _, _)| name)
+        .collect();
 
     assert!(entries.iter().any(|n| n.to_uppercase().contains("SUBDIR")));
     assert!(entries.iter().any(|n| n.to_uppercase().contains("DEEP")));
@@ -51,19 +44,17 @@ fn test_iso_file_content() {
     xorriso::create_minimal(&content_dir, &iso_path).unwrap();
 
     let iso_data = fs::read(&iso_path).unwrap();
-    let image = open(iso_data.clone());
-    let root = image.root_dir();
+    let mut view = open_ns(iso_data.clone(), Namespace::Primary);
     let mut found_file = false;
-    for entry_result in root.iter(&image).entries() {
-        let entry = entry_result.expect("Failed to read directory entry");
-        let name = String::from_utf8_lossy(entry.name()).to_string();
-        if name.to_uppercase().contains("TEST") && !entry.is_directory() {
+    for (name, node, meta) in list(&mut view, "/") {
+        if name.to_uppercase().contains("TEST") && !meta.file_type().is_dir() {
             found_file = true;
-            let header = entry.header();
-            let extent = header.extent.read() as usize;
-            let size = header.data_len.read() as usize;
-            let offset = extent * 2048;
-            assert_eq!(&iso_data[offset..offset + size], test_content);
+            let extent = first_extent(&mut view, node);
+            let offset = extent.offset() as usize;
+            assert_eq!(
+                &iso_data[offset..offset + extent.len() as usize],
+                test_content
+            );
             break;
         }
     }
@@ -83,16 +74,12 @@ fn test_large_file() {
     fs::write(content_dir.join("large.bin"), &large_content).unwrap();
     xorriso::create_minimal(&content_dir, &iso_path).unwrap();
 
-    let image = open_file(&iso_path);
-    let root = image.root_dir();
+    let mut view = open_file_ns(&iso_path, Namespace::Primary);
     let mut found_file = false;
-    for entry_result in root.iter(&image).entries() {
-        let entry = entry_result.expect("Failed to read directory entry");
-        let name = String::from_utf8_lossy(entry.name()).to_string();
-        if name.to_uppercase().contains("LARGE") && !entry.is_directory() {
+    for (name, _, meta) in list(&mut view, "/") {
+        if name.to_uppercase().contains("LARGE") && !meta.file_type().is_dir() {
             found_file = true;
-            let size = entry.header().data_len.read() as usize;
-            assert_eq!(size, 1024 * 1024, "Large file should be 1MB");
+            assert_eq!(meta.len(), 1024 * 1024, "Large file should be 1MB");
             break;
         }
     }
@@ -105,53 +92,24 @@ fn test_large_file() {
 fn test_multi_sector_directory() {
     const NUM_FILES: usize = 100;
 
-    let files: Vec<IsoFile> = (0..NUM_FILES)
-        .map(|i| IsoFile::File {
-            name: Arc::new(format!("FILE{i:03}.TXT")),
-            contents: format!("Content of file {i}\n").into_bytes(),
-        })
-        .collect();
-    let input_files = InputFiles {
-        path_separator: PathSeparator::ForwardSlash,
-        files,
-    };
-    let format_options = IsoFormatOptions {
-        volume_name: "MULTISECTOR".to_string(),
-        system_id: None,
-        volume_set_id: None,
-        publisher_id: None,
-        preparer_id: None,
-        application_id: None,
-        sector_size: 2048,
-        path_separator: PathSeparator::ForwardSlash,
-        features: CreationFeatures {
-            filenames: BaseIsoLevel::Level1 {
-                supports_lowercase: false,
-                supports_rrip: false,
-            },
-            long_filenames: false,
-            joliet: None,
-            rock_ridge: None,
-            el_torito: None,
-            hybrid_boot: None,
-        },
-        strict_charset: false,
-    };
-    let mut iso_buffer = Cursor::new(vec![0u8; 1024 * 2048]);
-    IsoImageWriter::create(&mut iso_buffer, input_files, format_options)
-        .expect("Failed to create ISO");
-
-    let image = IsoImage::open(Cursor::new(iso_buffer.into_inner())).expect("Failed to open ISO");
-    let root = image.root_dir();
-    let mut file_names = Vec::new();
-    for entry in root.iter(&image).entries() {
-        let entry = entry.expect("Failed to read directory entry");
-        let name = String::from_utf8_lossy(entry.name()).to_string();
-        if name == "\0" || name == "\x01" {
-            continue;
-        }
-        file_names.push(name);
+    let mut tree = Tree::new();
+    for i in 0..NUM_FILES {
+        tree.insert(
+            format!("FILE{i:03}.TXT"),
+            Node::file(Content::bytes(
+                format!("Content of file {i}\n").into_bytes(),
+            )),
+        )
+        .unwrap();
     }
+    let options = IsoOptions::default().with_id(IsoId::Volume, "MULTISECTOR");
+    let bytes = write_tree(&tree, &options).expect("Failed to create ISO");
+
+    let mut view = open_ns(bytes, Namespace::Primary);
+    let file_names: Vec<String> = list(&mut view, "/")
+        .into_iter()
+        .map(|(name, _, _)| name)
+        .collect();
     assert_eq!(
         file_names.len(),
         NUM_FILES,

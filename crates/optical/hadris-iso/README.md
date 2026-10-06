@@ -1,229 +1,257 @@
 # Hadris ISO
 
-A pure Rust ISO 9660 filesystem and ISO image library with allocation-free
-reading plus full-featured read/write support for Joliet, Rock Ridge (RRIP),
-SUSP, El Torito, and ISO 9660:1999. Hadris ISO is designed for desktop
-applications and `no_std` bootloaders, operating-system kernels, firmware, and
-embedded systems working with CD-ROM, DVD, and bootable optical-disc images.
+ISO 9660 images for Rust: an allocation-free reader for every tree an image
+can carry, and a reproducible writer with Joliet, Rock Ridge, El Torito and
+hybrid MBR/GPT boot. It runs on any `hadris-storage` block device, in
+desktop tools as well as `no_std` bootloaders, kernels and firmware.
 
-## Features
+## Overview
 
-- **Read & Write Support** - Full-featured ISO creation and extraction; file
-  contents can be streamed from a reader while the image is written, so large
-  inputs never have to be held in memory
-- **Zero-allocation Reader** - Navigate ISO 9660 and Joliet trees and stream
-  multi-extent files entirely through caller-owned buffers
-- **No-std Compatible** - Use the sync or async reader in bootloaders, firmware,
-  and custom kernels without a global allocator
-- **El-Torito Boot** - Create bootable CD/DVD images for BIOS systems
-- **Joliet Extension** - UTF-16 Unicode filenames (up to 64 characters)
-- **Rock Ridge (RRIP) Extension** - POSIX filesystem semantics (long names, permissions, symlinks)
-- **SUSP (System Use Sharing Protocol)** - Standardized extension framework
-- **ISO 9660:1999** - Long filenames up to 207 characters with proper Level 2/3 compliance
-
-## Quick Start
-
-### Reading an ISO
-
-```rust
-use std::fs::File;
-use std::io::BufReader;
-use hadris_iso::read::IsoImage;
-
-let file = File::open("image.iso")?;
-let reader = BufReader::new(file);
-let image = IsoImage::open(reader)?;
-
-// Iterate through root directory
-let root = image.root_dir();
-for entry in root.iter(&image).entries() {
-    let entry = entry?;
-    println!("File: {:?}", String::from_utf8_lossy(entry.name()));
-}
-```
-
-### Creating a Bootable ISO
-
-```rust
-use std::io::Cursor;
-use std::sync::Arc;
-use hadris_iso::boot::options::{BootEntryOptions, BootOptions};
-use hadris_iso::boot::EmulationType;
-use hadris_iso::read::PathSeparator;
-use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, IsoFormatOptions};
-use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
-
-// Prepare files
-let files = InputFiles {
-    path_separator: PathSeparator::ForwardSlash,
-    files: vec![
-        IsoFile::File {
-            name: Arc::new("boot.bin".to_string()),
-            contents: boot_image_bytes,
-        },
-    ],
-};
-
-// Configure boot options
-let boot_options = BootOptions {
-    write_boot_catalog: true,
-    default: BootEntryOptions {
-        boot_image_path: "boot.bin".to_string(),
-        load_size: Some(std::num::NonZeroU16::new(4).unwrap()),
-        boot_info_table: false,
-        grub2_boot_info: false,
-        emulation: EmulationType::NoEmulation,
-    },
-    entries: vec![],
-};
-
-// Create ISO
-let format_options = IsoFormatOptions {
-    volume_name: "BOOTABLE".to_string(),
-    sector_size: 2048,
-    path_separator: PathSeparator::ForwardSlash,
-    features: CreationFeatures {
-        filenames: BaseIsoLevel::Level1 {
-            supports_lowercase: false,
-            supports_rrip: false,
-        },
-        long_filenames: false,
-        joliet: None,
-        rock_ridge: None,
-        el_torito: Some(boot_options),
-        ..CreationFeatures::default()
-    },
-    system_id: None,
-    volume_set_id: None,
-    publisher_id: None,
-    preparer_id: None,
-    application_id: None,
-    strict_charset: false,
-};
-
-let mut buffer = Cursor::new(vec![0u8; 1024 * 1024]);
-IsoImageWriter::create(&mut buffer, files, format_options)?;
-```
-
-With the `unstable-streaming` feature, a file can be added without loading it
-into memory: give the input tree an `InputEntryKind::Source` instead of a
-`File`. A `FileSource` carries the length and a way to open a reader; the writer
-opens it once, when the file's extents are written, and streams the contents in
-fixed-size chunks. The feature is outside the V2 stability promise, and enabling
-it adds the `Source` variant to `InputEntryKind`, so exhaustive matches on that
-enum must account for it.
-
-```rust,ignore
-use std::sync::Arc;
-use hadris_iso::write::{FileSource, InputEntry, InputEntryKind, InputMetadata};
-
-let entry = InputEntry {
-    name: Arc::new("movie.mkv".to_string()),
-    kind: InputEntryKind::Source(FileSource::from_path("movie.mkv")?),
-    metadata: InputMetadata::default(),
-};
-```
+- **One reader for every tree.** `IsoFs::mount` reads the most capable tree
+  an image has and `IsoFs::mount_namespace` picks the primary tree, Rock
+  Ridge names and metadata over it, the Joliet tree or the ISO 9660:1999
+  enhanced tree. `IsoFs` is a `hadris-fs` `FileSystem`, so `Volume`, its
+  handles and `read_tree` work on it.
+- **No allocator needed to read.** Mounts, lookups, listings and file reads
+  use fixed buffers; only the boot catalog listing needs `alloc`.
+- **A writer driven by a shared tree.** `write` lays out a
+  `hadris_fs::Tree` as `IsoOptions` says and returns a `hadris_fs::Report`
+  of the image size, where each file went and what could not be stored.
+  `plan` gives the same report without I/O. The writer reads no clock:
+  `with_time` dates the image, so images are reproducible.
+- **Sessions.** `Session` reads an image back into a tree whose files point
+  at their extents, and writes it again as a new session or rebuilt in
+  place.
+- **Sync, async and `Send` async** APIs generated from one source.
 
 ## Feature Flags
 
-| Feature | Description | Dependencies |
-|---------|-------------|--------------|
-| `read` | Allocation-free ISO 9660/Joliet navigation and streamed file reads | No heap allocator |
-| `alloc` | Owned collections, names, RRIP enrichment, and convenience reads | `read`, `alloc` crate |
-| `std` | Full standard library support | `std`, `alloc` |
-| `sync` | Synchronous API under `hadris_iso::sync` | — |
-| `async` | Asynchronous read API under `hadris_iso::r#async` | — |
-| `write` | Synchronous ISO creation/formatting | `std`, `alloc` |
-| `joliet` | Allocating Joliet encode/write helpers; allocation-free Joliet reading is part of `read` | `alloc` |
-| `unstable-streaming` | Unstable: stream file contents from a reader while writing (`InputEntryKind::Source`) | `write` |
+| Feature | Description | Default |
+|---------|-------------|---------|
+| `std` | Implies `alloc`; `std::io::Error` conversions and host files as tree content | Yes |
+| `alloc` | The writer, sessions, `BootCatalog` and the `Tree` input | via `std` |
+| `sync` | Blocking API in `hadris_iso::sync` | Yes |
+| `async` | Asynchronous API in `hadris_iso::r#async` | - |
 
-`std` selects platform integration but does not select an I/O mode. The default
-configuration enables `sync`; custom configurations should select `sync`,
-`async`, or both explicitly. Write and modification APIs are currently available
-only under `sync`.
+No feature changes what an item does. Joliet, Rock Ridge, El Torito and the
+enhanced tree are always available.
 
-### For Bootloaders (minimal footprint)
+## Internal structure
 
-```toml
-[dependencies]
-hadris-iso = { version = "2.5.0", default-features = false, features = ["read", "sync"] }
-```
+The reader in `src/image.rs` uses one allocation-free `RecordChain` cursor
+for file lengths, data reads, extent mapping and raw record mapping. The cursor
+owns continuation traversal, identifier validation and the record limit; it
+fetches the next record only when requested. Directory iteration keeps its
+block buffer and uses the same identifier check when skipping continuations.
 
-The `read` feature exposes `IsoReader`, which opens and navigates ISO 9660 and
-Joliet trees without heap allocation. It performs nested path lookup, groups
-multi-extent files, and streams file contents into caller-owned buffers in
-both synchronous and asynchronous configurations:
+The writer separates tree preparation (`src/plan/mod.rs`), directory record
+construction and encoding (`src/plan/directory.rs`), image placement
+(`src/plan/layout.rs`) and device I/O (`src/write.rs`). Placement prepares file
+extent sizes, places directories, then places file data before emitting the
+remaining structures. Names and SUSP continuation encoding have their own
+modules. New images and session writes share this planner. This separation
+allows changes to record construction or placement without changing writer I/O
+or either public API mode.
 
-```rust
-use hadris_iso::read::IsoReader;
+Directory construction uses a builder for one namespace, with separate paths
+for special records (`.` and `..`), child directories and file extents. Directory
+POSIX metadata setup is shared; physical and relocated children are iterated
+directly. Path-table locations use named little-endian, big-endian and size
+fields, and the boot catalog's owned buffer is moved into the output plan.
 
-let mut image = IsoReader::open(device)?;
-if let Some(entry) = image.find_path("BOOT/KERNEL.BIN")? {
-    let mut file = image.open_file(&entry)?;
-    while file.read_chunk(&mut scratch)? != 0 {
-        // Consume the initialized part of `scratch`.
-    }
+## Usage
+
+### Reading an image
+
+```rust,no_run
+use std::io::Read;
+
+use hadris_fs::sync::Volume;
+use hadris_fs::{MountOptions, OpenOptions};
+use hadris_iso::sync::IsoFs;
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+// Rock Ridge if present, then Joliet, the enhanced tree, the primary tree.
+let iso = IsoFs::mount(hadris_storage::host::FileDevice::open("image.iso")?, MountOptions::new())?;
+println!("trees: {:?}", iso.namespaces().iter().collect::<Vec<_>>());
+let vol = Volume::new(iso);
+for item in vol.read_dir("/")? {
+    let item = item?;
+    println!("{:?} {}", item.file_type(), String::from_utf8_lossy(item.name().as_bytes()));
 }
-# Ok::<(), hadris_iso::Error>(())
+let mut config = String::new();
+vol.open("/boot/grub/grub.cfg", OpenOptions::new().read())?.read_to_string(&mut config)?;
+let tree = hadris_fs::sync::read_tree(&vol, "/")?;
+std::fs::create_dir_all("out")?;
+hadris_fs::host::write_tree("out", &tree)?;
+# Ok(())
+# }
 ```
 
-The reader prefers the highest recognized Joliet namespace. Use
-`primary_root()` with `find_path_in()` when raw ISO 9660 naming is required.
-Rock Ridge enrichment remains part of the allocation-backed `IsoImage` API;
-the allocation-free reader exposes raw system-use bytes for custom handling.
+In the primary and enhanced trees, `lookup` tries the exact name first and
+then ignores ASCII case, and version suffixes (`;1`) are not part of listed
+names. `IsoFs::info` returns the primary volume descriptor's block size,
+volume size, identifiers (`IsoId`) and dates (`IsoDate`);
+`IsoFs::rock_ridge` the Rock Ridge entries of a node; `IsoFs::records` where
+its directory records lie and `IsoFs::extents` where its data lies, both
+read with `IsoFs::read_raw`; and `IsoFs::boot_catalog(&mut buf)` the El
+Torito catalog, parsed from the caller's buffer, with `IsoFs::boot_image`
+locating each entry's image. The on-disk layouts are in `hadris_iso::raw`.
 
-### For Kernels with Heap (no-std + alloc)
+### Without an allocator
 
 ```toml
 [dependencies]
-hadris-iso = { version = "2.5.0", default-features = false, features = ["read", "alloc", "sync"] }
+hadris-iso = { version = "3.0.0-rc.1", default-features = false, features = ["sync"] }
 ```
 
-### For Desktop Applications (full features)
+`IsoFs::mount` takes any `BlockDevice` whose blocks are at most 4096
+bytes; the image's logical block size may be 512, 1024 or 2048 bytes. Every
+read goes through one fixed-size buffer.
 
-```toml
-[dependencies]
-hadris-iso = "2.5.0"  # Uses default features
+### Writing an image
+
+```rust,no_run
+use hadris_fs::host::{self, TreeOptions};
+use hadris_fs::{Content, NoClock, Node};
+use hadris_iso::{IsoId, IsoOptions};
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let (mut tree, _skipped) = host::read_tree("rootfs", &TreeOptions::new())?;
+tree.insert("README.txt", Node::file(Content::bytes("Built with hadris-iso\n")))?;
+
+let options = IsoOptions::default()
+    .with_id(IsoId::Volume, "MY_DISC")
+    .with_id(IsoId::Publisher, "Example")
+    .with_joliet()
+    .with_rock_ridge()
+    .with_time(host::source_date_epoch()?.unwrap_or(NoClock::TIME));
+
+let size = hadris_iso::plan(&tree, &options)?.size();
+let file = std::fs::File::options()
+    .read(true)
+    .write(true)
+    .create(true)
+    .truncate(true)
+    .open("out.iso")?;
+let report = hadris_iso::sync::write(hadris_storage::host::FileDevice::new(file)?, &tree, &options)?;
+assert_eq!(report.size(), size);
+for warning in report.warnings() {
+    eprintln!("warning: {warning}");
+}
+# Ok(())
+# }
 ```
+
+`IsoLevel` (`L1`, `L2`, `L3`) sets the primary tree's name rules and file
+sizes and `NameCase` whether names keep their case. `with_id` and
+`with_date` set the descriptor identifiers and dates; identifiers are stored
+as given and must fit their fields. `with_iso1999` adds an ISO 9660:1999
+tree. Rock
+Ridge stores permissions, owners, times, symlinks, device nodes and hard
+links; without it they are dropped with a warning. File contents come from
+bytes, a host file (`host::file`) or a mounted volume (`read_tree`), and are
+read once while the image is written.
+
+### Bootable images
+
+```rust,no_run
+use hadris_fs::Content;
+use hadris_iso::{AppendedPartition, BootEntry, BootInfo, ElTorito, Hybrid, IsoOptions};
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let esp = Content::bytes(std::fs::read("efi.img")?);
+let options = IsoOptions::default()
+    .with_el_torito(
+        ElTorito::new()
+            .with_entry(
+                BootEntry::bios("boot/bios.img")
+                    .with_load_size(4)
+                    .with_boot_info(BootInfo::Table),
+            )
+            .with_entry(BootEntry::uefi_appended(0))
+            .with_catalog_path("boot/boot.cat"),
+    )
+    .with_hybrid(Hybrid::gpt_hybrid_mbr().with_appended(AppendedPartition::esp(esp)));
+# Ok(())
+# }
+```
+
+`Hybrid::mbr`, `gpt` and `gpt_hybrid_mbr` add partition tables for USB
+sticks. `with_appended` stores a partition after the files, so an EFI
+system partition is stored once for the GPT and for El Torito
+(`BootEntry::uefi_appended`). Without one, the GPT's EFI system partition is
+the image of the only UEFI boot entry, `BootEntry::uefi(path)`. Without
+`with_catalog_path` the boot catalog is not listed in any tree.
+
+### Sessions
+
+```rust,no_run
+use hadris_fs::{Content, Node};
+use hadris_iso::SessionMode;
+use hadris_iso::sync::Session;
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let file = std::fs::File::options().read(true).write(true).open("image.iso")?;
+let mut session = Session::open(hadris_storage::host::FileDevice::new(file)?)?;
+session.tree_mut().insert("notes.txt", Node::file(Content::bytes("added later")))?;
+session.tree_mut().remove("old.log")?;
+let options = session.options();
+session.write(&options, SessionMode::Append)?;
+# Ok(())
+# }
+```
+
+`Append` writes a new descriptor set and the new files after the old
+volume and copies the descriptors to sector 16, so every reader sees the new
+session. `Rewrite` rebuilds the directories in place and keeps the old file
+data where it is. Unchanged files are never copied.
+
+To remaster onto a separate device, use
+`session.export(&mut output, &options)?`. This streams existing extents from
+the source and writes added or replaced content into a fresh image, using a
+bounded transfer buffer. The source and output must have separate backing
+storage. The session remains usable afterwards. `session.tree()` contains
+stored extents and cannot be passed directly to the standalone `write`.
+Export uses the supplied options for boot and partition tables; it does not
+automatically preserve the original boot configuration. `session.options()`
+preserves volume identifiers and namespaces but omits boot configuration.
+
+Rock Ridge readers reject malformed known SUSP entries and continuation
+pointers with inconsistent endian fields, zero lengths, offsets outside their
+logical block or ranges outside the image. Continuation areas can span blocks
+and are parsed with a fixed 2048-byte buffer. A record can follow at most 16
+continuation areas; an unfinished chain at that bound is corrupt. Unknown
+extensions remain skippable, and overlong Rock Ridge names retain the ISO-name
+fallback. Ordinary ISO system-use bytes are interpreted as SUSP only after the
+root's `SP` entry identifies it.
+
+### Rock Ridge relocation
+
+ECMA-119 allows eight directory levels. With Rock Ridge, deeper directories
+move into a relocation directory and appear in their real place to Rock
+Ridge readers. It is `rr_moved` (`Relocation::RrMoved`, the default) or
+`.rr_moved` (`IsoOptions::with_relocation(Relocation::DotRrMoved)`), the only
+names libarchive (`bsdtar`) reads relocated directories from. A root
+directory with that name is reused and keeps its own entries; a root file
+with that name fails. libarchive takes the first root directory with either
+name for the relocation directory, so a root directory with the other name
+that would come first in the directory fails with `Detail::Relocation`:
+`.rr_moved` with `NameCase::Preserve`, or `rr_moved` when the relocation
+directory is `.rr_moved`. `Relocation::Refuse` fails instead. Joliet and
+enhanced trees keep the real hierarchy.
 
 ## Extension Support
 
 | Extension | Read | Write | Notes |
 |-----------|------|-------|-------|
-| ISO 9660 Level 1-3 | Yes | Yes | Allocation-free navigation and multi-extent streaming available |
-| ISO 9660:1999 | Yes | Yes | Long filenames up to 207 chars (Level 2/3 compliance) |
-| SUSP | Yes | Yes | System Use Sharing Protocol for extension framework |
-| Joliet | Yes | Yes | Allocation-free UTF-16BE lookup/decoding; owned helpers with `alloc` |
-| Rock Ridge (RRIP) | Yes | Yes | Allocation-backed metadata enrichment; raw system-use bytes remain available without `alloc` |
-| El-Torito | Yes | Yes | BIOS bootable images |
-| Hybrid Boot (MBR/GPT) | - | Yes | USB bootable images (MBR, GPT, or dual) |
-
-## Comparison with Other Tools
-
-| Feature | hadris-iso | cdfs | iso9660-rs | xorriso |
-|---------|------------|------|------------|---------|
-| Read | Yes | Yes | Yes | Yes |
-| Write | Yes | No | No | Yes |
-| No-std | Yes | No | No | No |
-| El-Torito | Yes | No | No | Yes |
-| Rock Ridge | Yes | Yes | Partial | Yes |
-| Joliet | Yes | Yes | Yes | Yes |
-| Language | Rust | Rust | Rust | C |
-
-## Examples
-
-Run the examples with:
-
-```bash
-# Read an ISO and display its contents
-cargo run --example read_iso -- path/to/image.iso
-
-# Extract files from an ISO
-cargo run --example extract_files -- path/to/image.iso ./output
-
-# Create a bootable ISO
-cargo run --example create_bootable_iso
-```
+| ISO 9660 Levels 1-3 | Yes | Yes | Multi-extent files above 4 GiB at Level 3 |
+| ISO 9660:1999 | Yes | Yes | Enhanced volume descriptor tree |
+| SUSP | Yes | Yes | Continuation areas both ways |
+| Rock Ridge (RRIP) | Yes | Yes | PX, PN, NM, SL, TF, CL, PL, RE; not SF or RR |
+| Joliet | Yes | Yes | UCS-2 (BMP) names, levels 1-3 |
+| El Torito | Yes | Yes | Sections, emulation modes, boot info tables |
+| Hybrid MBR/GPT | - | Yes | Through `hadris-part` |
 
 ## Compatibility
 
@@ -241,13 +269,21 @@ oracle and measures widely available ISO readers. Current bounded results are:
 The [compliance profile](../../../docs/compliance/hadris-iso.md) contains the
 producer matrix, methodology, and known peer deviations.
 
+## Examples
+
+```bash
+cargo run -p hadris-iso --example read_iso -- path/to/image.iso
+cargo run -p hadris-iso --example extract_files -- path/to/image.iso ./output
+cargo run -p hadris-iso --example create_bootable_iso -- bootable.iso
+```
+
 ## Specification References
 
 - ECMA-119 (ISO 9660)
 - IEEE P1281 (System Use Sharing Protocol / SUSP)
 - IEEE P1282 (Rock Ridge Interchange Protocol / RRIP)
 - Joliet Specification (Microsoft)
-- El-Torito Bootable CD-ROM Format Specification
+- El Torito Bootable CD-ROM Format Specification
 
 ## Documentation
 
@@ -260,13 +296,31 @@ producer matrix, methodology, and known peer deviations.
 
 This project is licensed under the [MIT license](../../../LICENSE-MIT).
 
-### Rock Ridge relocation
+The opt-in `tracing` feature enables `std` and emits operation spans through the
+application’s subscriber. It is disabled by default. See the
+[tracing guide](../../../docs/tracing.md) for targets, metadata and async behavior.
 
-Deep or overlong directory paths use a Rock Ridge relocation container compatible
-with libarchive/bsdtar. The writer prefers an unoccupied `rr_moved` or `.rr_moved`
-root name, but only when that name would be the first recognized directory in ISO
-File Identifier order. If a user directory already occupies the name libarchive
-will select, that directory is reused as the container: relocated entries are
-marked `RE` and the original user tree stays in place. Creation fails only when
-relocation is needed and both recognized names are occupied by non-directory
-entries. Shallow trees that do not need relocation may use either name freely.
+### Optional reader cache
+
+Enable `cache` and call `IsoFs::with_cache(CacheOptions::new())` after mounting
+to cache up to eight logical metadata sectors and 32 parsed directory records.
+`with_blocks` and `with_records` set independent capacities; zero disables that
+part. The cache allocates those capacities and never caches file payloads.
+The image must remain unchanged while cached metadata is retained.
+`clear_cache` discards retained metadata; remount if volume descriptors change.
+Without `with_cache`, reading remains allocation-free, even with the feature
+enabled. The feature implies `alloc` and works with both sync and async APIs
+without requiring `std`.
+
+`CacheOptions::with_links` additionally bounds a lazy canonical hard-link
+index, disabled by default. Its first hard-link lookup scans directory records
+in path-table order, storing the earliest serial and extent keys up to that
+bound. Unindexed keys use the normal scan. A cancelled or failed build publishes
+no partial index; subsequent lookups use the normal scan until `clear_cache`.
+
+### Performance measurements
+
+`cargo bench -p hadris-iso --bench performance --features cache` reports device
+calls, transferred bytes and min/median/max runtime for reader and writer
+workloads. See [the performance guide](../../../docs/performance.md) for cache
+settings, filtering, CSV baselines and measurement boundaries.

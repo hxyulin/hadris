@@ -1,37 +1,25 @@
 [package]
 name = "hadris-common"
-version = "2.5.0"
+version = "3.0.0-rc.1"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Common types and functions used by Hadris"
+description = "Internal types and functions shared by the Hadris crates; not for direct use"
 readme = "README.md"
-keywords = ["filesystem", "endian", "crc", "iso-string"]
+keywords = ["filesystem", "endian"]
 categories = ["no-std", "filesystem"]
 include = ["src/**/*", "Cargo.toml"]
 
 [features]
-default = ["bytemuck", "std"]
-sync = ["hadris-io/sync"]
-async = ["hadris-io/async"]
-alloc = ["hadris-fixed/alloc", "hadris-io/alloc", "hadris-path/alloc"]
-std = ["dep:chrono", "chrono?/std", "dep:crc", "dep:rand", "alloc", "hadris-io/std"]
-bytemuck = ["dep:bytemuck", "hadris-fixed/bytemuck"]
-optical = ["alloc"]  # Mode-neutral optical types; writer traits also require `sync`.
+default = ["bytemuck"]
+bytemuck = ["dep:bytemuck"]
 
 [dependencies]
 bytemuck = { workspace = true, optional = true, features = ["derive"] }
 zerocopy = { workspace = true }
-chrono = { workspace = true, optional = true }
-crc = { version = "3.2.1", optional = true }
-rand = { version = "0.10.2", optional = true }
-heapless = "0.9.3"
-hadris-io = { workspace = true }  # For I/O traits in optical module
-hadris-fixed = { workspace = true }
-hadris-path = { workspace = true }
 
 [dev-dependencies]
-criterion.workspace = true
+bytemuck = { workspace = true, features = ["derive"] }
 static_assertions.workspace = true

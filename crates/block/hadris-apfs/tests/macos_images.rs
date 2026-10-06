@@ -1,4 +1,9 @@
-#![cfg(all(target_os = "macos", feature = "std", feature = "sync"))]
+#![cfg(all(
+    target_os = "macos",
+    feature = "read",
+    feature = "std",
+    feature = "sync"
+))]
 //! Reads APFS images that macOS builds and fills with `hdiutil`: nested and
 //! large directories, files with holes, compressed files, symlinks, hard
 //! links, and case-insensitive and case-sensitive names.
@@ -8,11 +13,10 @@ use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use hadris_apfs::ApfsError;
 use hadris_apfs::sync::Container;
 use hadris_apfs::types::VolumeSuperblock;
 use hadris_apfs::types::filesystem::DT_LNK;
-use hadris_storage::sync::SeekBlockDevice;
+use hadris_storage::sync::StreamDevice;
 use hadris_storage::{BlockCount, BlockGeometry, BlockSize};
 
 const MANY: usize = 1500;
@@ -85,11 +89,21 @@ fn build(name: &str, fs_type: &str, populate: impl FnOnce(&Path, &Path)) -> Imag
     image
 }
 
-fn open(image: &Image) -> (Container<SeekBlockDevice<File>>, VolumeSuperblock) {
+fn open(
+    image: &Image,
+) -> (
+    Container<StreamDevice<hadris_storage::ReadOnly<hadris_io::StdIo<File>>>>,
+    VolumeSuperblock,
+) {
     let file = File::open(&image.path).unwrap();
     let blocks = file.metadata().unwrap().len() / 512;
-    let geometry = BlockGeometry::new(BlockSize::new(512).unwrap(), BlockCount(blocks));
-    let mut container = Container::open(SeekBlockDevice::new(file, geometry)).unwrap();
+    let geometry = BlockGeometry::new(BlockSize::new(512).unwrap(), BlockCount::new(blocks));
+    let mut container = Container::open(StreamDevice::with_block_count(
+        hadris_storage::ReadOnly::new(hadris_io::StdIo::new(file)),
+        geometry.logical_block_size(),
+        geometry.block_count().get(),
+    ))
+    .unwrap();
     let latest = container.latest_superblock().unwrap();
     let mut volumes = container.volume_superblocks(&latest).unwrap();
     assert_eq!(volumes.len(), 1);
@@ -97,7 +111,7 @@ fn open(image: &Image) -> (Container<SeekBlockDevice<File>>, VolumeSuperblock) {
 }
 
 fn read(
-    container: &mut Container<SeekBlockDevice<File>>,
+    container: &mut Container<StreamDevice<hadris_storage::ReadOnly<hadris_io::StdIo<File>>>>,
     volume: &VolumeSuperblock,
     path: &str,
 ) -> Vec<u8> {
@@ -233,9 +247,41 @@ fn reads_a_case_insensitive_volume_written_by_macos() {
     assert_eq!(
         container
             .read_file(&volume, compressed.file_id, usize::MAX)
-            .unwrap_err(),
-        ApfsError::Unsupported("compressed file data")
+            .unwrap_err()
+            .kind(),
+        hadris_io::ErrorKind::Unsupported
     );
+
+    use hadris_fs::sync::FileSystem;
+    use hadris_fs::{MountOptions, Name, Resolve};
+    let mut driver =
+        hadris_apfs::sync::ApfsFs::mount(container.into_inner(), MountOptions::new()).unwrap();
+    let root = driver.root();
+    let first = driver.lookup(root, Name::new("first")).unwrap();
+    let second = driver.lookup(root, Name::new("second")).unwrap();
+    assert_eq!(first, second);
+    assert_eq!(driver.stat(first).unwrap().nlink(), 2);
+    let compressed = driver.lookup(root, Name::new("compressed.txt")).unwrap();
+    assert_eq!(
+        driver.read(compressed, 0, &mut [0; 8]).unwrap_err().kind(),
+        hadris_io::ErrorKind::Unsupported
+    );
+    let vol = hadris_fs::sync::Volume::with_resolve(driver, Resolve::Follow);
+    let mut sparse = vol
+        .open("/sparse.bin", hadris_fs::OpenOptions::new().read())
+        .unwrap();
+    let mut contents = vec![0; sparse_contents().len()];
+    assert_eq!(sparse.read(&mut contents).unwrap(), contents.len());
+    assert_eq!(contents, sparse_contents());
+    sparse.close().unwrap();
+    assert_eq!(vol.read_link("/link").unwrap(), b"hello.txt");
+    let mut linked = vol
+        .open("/link", hadris_fs::OpenOptions::new().read())
+        .unwrap();
+    let mut contents = [0; 32];
+    let n = linked.read(&mut contents).unwrap();
+    assert_eq!(&contents[..n], b"hello apfs\n");
+    linked.close().unwrap();
 }
 
 #[test]

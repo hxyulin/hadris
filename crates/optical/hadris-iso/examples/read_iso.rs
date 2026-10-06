@@ -1,122 +1,62 @@
-//! Example: Reading an ISO Image
+//! Prints what an ISO image holds: its trees, volume name, boot catalog and
+//! the root directory of its most capable tree.
 //!
-//! This example demonstrates how to open an ISO image and list its contents.
-//!
-//! Run with: `cargo run --example read_iso -- path/to/image.iso`
+//! ```text
+//! cargo run -p hadris-iso --example read_iso -- image.iso
+//! ```
 
-use std::env;
-use std::fs::File;
-use std::io::BufReader;
+use hadris_fs::sync::FileSystem;
+use hadris_fs::{DirCursor, MountOptions};
+use hadris_iso::IsoId;
+use hadris_iso::sync::IsoFs;
 
-use hadris_iso::directory::FileFlags;
-use hadris_iso::read::IsoImage;
-use hadris_iso::volume::VolumeDescriptor;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let path = std::env::args()
+        .nth(1)
+        .ok_or("usage: read_iso <image.iso>")?;
+    let mut iso = IsoFs::mount(
+        hadris_storage::host::FileDevice::open(path)?,
+        MountOptions::new(),
+    )?;
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: {} <iso-file>", args[0]);
-        eprintln!();
-        eprintln!("Example: {} ubuntu.iso", args[0]);
-        std::process::exit(1);
-    }
-
-    let iso_path = &args[1];
-    println!("Opening ISO: {iso_path}");
-    println!();
-
-    // Open the ISO file
-    let file = File::open(iso_path).expect("Failed to open ISO file");
-    let reader = BufReader::new(file);
-    let image = IsoImage::open(reader).expect("Failed to parse ISO image");
-
-    // Display volume information
-    println!("=== Volume Information ===");
-    let pvd = image
-        .read_pvd()
-        .expect("Failed to read primary volume descriptor");
+    let info = iso.info();
     println!(
-        "Volume Identifier: {}",
-        pvd.volume_identifier.to_str().trim()
+        "Volume: {}",
+        String::from_utf8_lossy(info.id(IsoId::Volume))
     );
     println!(
-        "Volume Set Identifier: {}",
-        pvd.volume_set_identifier.to_str().trim()
+        "Blocks: {} of {} bytes",
+        info.volume_space_size(),
+        info.block_size()
     );
-    println!("Publisher: {}", pvd.publisher_identifier.to_str().trim());
-    println!("Data Preparer: {}", pvd.preparer_identifier.to_str().trim());
-    println!("Volume Size: {} sectors", pvd.volume_space_size.read());
-    println!(
-        "Logical Block Size: {} bytes",
-        pvd.logical_block_size.read()
-    );
-    println!();
-
-    // List volume descriptors
-    println!("=== Volume Descriptors ===");
-    for (i, vd_result) in image.read_volume_descriptors().enumerate() {
-        match vd_result {
-            Ok(vd) => {
-                let desc = match &vd {
-                    VolumeDescriptor::Primary(_) => "Primary Volume Descriptor",
-                    VolumeDescriptor::Supplementary(svd) => {
-                        if svd.header.version == 2 {
-                            "Enhanced Volume Descriptor"
-                        } else {
-                            "Supplementary Volume Descriptor (Joliet)"
-                        }
-                    }
-                    VolumeDescriptor::BootRecord(_) => "Boot Record (El-Torito)",
-                    VolumeDescriptor::End(_) => "Volume Set Terminator",
-                    VolumeDescriptor::Unknown(_) => "Unknown Volume Descriptor",
-                };
-                println!("  [{i}] {desc}");
-            }
-            Err(e) => {
-                eprintln!("  [{i}] Error reading descriptor: {e:?}");
-            }
+    println!("Trees: {:?}", iso.namespaces().iter().collect::<Vec<_>>());
+    let mut buf = [0u8; 2048];
+    if let Some(catalog) = iso.boot_catalog(&mut buf)? {
+        for entry in catalog.entries() {
+            let image = iso.boot_image(&entry);
+            println!(
+                "Boot: {:?} {:?}, {} bytes at byte {}",
+                entry.platform(),
+                entry.emulation(),
+                image.len(),
+                image.offset()
+            );
         }
     }
-    println!();
 
-    // List root directory contents
-    println!("=== Root Directory Contents ===");
-    let root = image.root_dir();
-    list_directory(&image, &root, 0);
-}
-
-fn list_directory<R: hadris_io::Read + hadris_io::Seek>(
-    image: &IsoImage<R>,
-    dir: &hadris_iso::read::RootDir,
-    indent: usize,
-) {
-    let prefix = "  ".repeat(indent);
-    let iter = dir.iter(image);
-
-    for entry_result in iter.entries() {
-        let entry = match entry_result {
-            Ok(e) => e,
-            Err(e) => {
-                eprintln!("{prefix}Error reading entry: {e:?}");
-                continue;
-            }
-        };
-
-        let name = String::from_utf8_lossy(entry.name());
-
-        // Skip special entries (. and ..)
-        if name == "\x00" || name == "\x01" {
-            continue;
-        }
-
-        let header = entry.header();
-        let flags = FileFlags::from_bits_truncate(header.flags);
-        let size = header.data_len.read();
-
-        if flags.contains(FileFlags::DIRECTORY) {
-            println!("{prefix}{name}/");
-        } else {
-            println!("{prefix}{name} ({size} bytes)");
-        }
+    let view = &mut iso;
+    println!("Root of the {:?} tree:", view.namespace());
+    let root = view.root();
+    let mut cursor = DirCursor::START;
+    while let Some(entry) = view.readdir(root, cursor)? {
+        cursor = entry.next_cursor();
+        let meta = entry.metadata();
+        println!(
+            "  {:?} {:>10} {}",
+            meta.file_type(),
+            meta.len(),
+            String::from_utf8_lossy(entry.name().as_bytes())
+        );
     }
+    Ok(())
 }

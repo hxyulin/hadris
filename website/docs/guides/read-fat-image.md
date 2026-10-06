@@ -10,41 +10,59 @@ filesystem.
 ```toml
 [dependencies]
 anyhow = "1"
-hadris-fat = "2.5.0"
+hadris-fat = "3.0.0-rc.1"
+hadris-fs = "3.0.0-rc.1"
+hadris-storage = "3.0.0-rc.1"
 ```
 
 ```rust,no_run
+use std::io::Read;
+
 use anyhow::{Context, Result};
-use hadris_fat::{FatVolume, FatVolumeReadExt};
-use std::fs::File;
+use hadris_fat::sync::FatFs;
+use hadris_fs::sync::Volume;
+use hadris_fs::{ErrorKind, MountOptions, OpenOptions};
+use hadris_storage::host::FileDevice;
 
 fn main() -> Result<()> {
-    let image = File::open("disk.img").context("open disk.img")?;
-    let volume = FatVolume::open(image).context("open FAT filesystem")?;
+    let image = FileDevice::open("disk.img").context("open disk.img")?;
+    let fs = FatFs::mount(image, MountOptions::new().read_only())
+        .context("open FAT filesystem")?;
+    let vol = Volume::new(fs);
 
-    let root = volume.root_dir();
-    let mut entries = root.entries();
-    while let Some(entry) = entries.next_entry() {
+    for entry in vol.read_dir("/").context("open root directory")? {
         let entry = entry.context("read directory entry")?;
-        let file = entry.as_entry().context("unsupported directory record")?;
-        let kind = if file.is_directory() { "dir " } else { "file" };
-        println!("{kind} {:>10} {}", file.len(), file.name());
+        let name = entry.name().to_str().context("name is not UTF-8")?;
+        let meta = entry.metadata();
+        let kind = if meta.file_type().is_dir() { "dir " } else { "file" };
+        println!("{kind} {:>10} {name}", meta.len());
     }
 
-    if let Some(readme) = root.find("README.TXT")? {
-        let mut reader = volume.read_file(&readme)?;
-        let mut contents = Vec::new();
-        std::io::Read::read_to_end(&mut reader, &mut contents)?;
-        println!("{}", String::from_utf8_lossy(&contents));
+    match vol.open("/README.TXT", OpenOptions::new().read()) {
+        Ok(mut file) => {
+            let mut contents = Vec::new();
+            file.read_to_end(&mut contents)?;
+            println!("{}", String::from_utf8_lossy(&contents));
+        }
+        Err(err) if err.kind() == ErrorKind::NotFound => {}
+        Err(err) => return Err(err.into()),
     }
 
     Ok(())
 }
 ```
 
+`host::FileDevice` is a block device with 512-byte blocks; `FatFs` also opens any
+other `hadris-storage` device, such as a `MemDevice` over bytes already in
+memory. Lookups ignore case, and long names are always read. Files opened
+with `vol.open(path, OpenOptions::new().read())` implement `std::io::Read`
+and `Seek`, and `hadris_fs::sync::read_tree(&vol, "/")` followed by
+`hadris_fs::host::write_tree("out", &tree)` copies the whole tree to the host. Short names are read in CP437
+unless `MountOptions::with_code_page` names another code page.
+
 Directory iteration surfaces malformed entries and I/O failures as errors; do
 not discard them with `while let Some(Ok(...))` in production code.
 
-Use `OpenOptions` and the write APIs when the same image must be modified. For
+Mount without `read_only` when the same image must be modified. For
 a partitioned disk, follow [Open FAT inside a partition](./open-partitioned-fat.md)
 instead of opening the whole disk as a filesystem.

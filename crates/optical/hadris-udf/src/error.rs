@@ -1,112 +1,173 @@
-//! UDF-specific error types
+use core::fmt;
 
-use hadris_io as io;
+pub(crate) use hadris_fs::Error;
+use hadris_fs::{DetailCode, ErrorKind};
 
-/// Errors that can occur when reading or writing UDF filesystems
-#[derive(Debug)]
-pub enum Error {
-    /// I/O error
-    Io(io::Error),
-    /// Invalid or missing Volume Recognition Sequence
-    InvalidVrs,
-    /// Invalid or missing Volume Descriptor Sequence
-    InvalidVds(&'static str),
-    /// Invalid or missing File Set Descriptor
-    InvalidFsd,
-    /// No Anchor Volume Descriptor Pointer found
-    NoAnchor,
-    /// Invalid descriptor tag
-    InvalidTag {
-        /// Descriptor tag identifier required at this location.
-        expected: u16,
-        /// Descriptor tag identifier found on the medium.
-        found: u16,
-    },
-    /// Descriptor CRC mismatch
-    CrcMismatch {
-        /// CRC stored in the descriptor tag.
-        expected: u16,
-        /// CRC computed from the descriptor payload.
-        computed: u16,
-    },
-    /// Invalid partition reference
-    InvalidPartition(u16),
-    /// Invalid ICB (Information Control Block)
-    InvalidIcb,
-    /// File not found
-    NotFound,
-    /// Not a directory
-    NotADirectory,
-    /// Not a file
-    NotAFile,
-    /// Path too long
-    PathTooLong,
-    /// Invalid filename encoding
-    InvalidEncoding,
-    /// Allocation descriptors do not fit in a File Entry sector
-    TooManyAllocationDescriptors,
-    /// Directory nesting exceeds the supported depth
-    DirectoryNestingTooDeep,
-    /// byte casting failed - the data buffer size doesn't match the target struct size.
-    PodCastError(bytemuck::PodCastError),
+const DOMAIN: &str = "hadris-udf";
+
+/// What exactly went wrong, beyond the [`ErrorKind`].
+///
+/// Callers match on the kind; the detail tells a tool which structure or
+/// option to report. Read it back from an [`Error`] with [`Detail::of`],
+/// or from a [`PathError`](hadris_fs::PathError) with
+/// [`Detail::from_code`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Detail {
+    /// The Volume Recognition Sequence has no NSR descriptor inside an
+    /// extended area: the device holds no UDF volume. The kind is
+    /// [`ErrorKind::NotRecognized`].
+    RecognitionSequence = 1,
+    /// No Anchor Volume Descriptor Pointer is valid.
+    Anchor = 2,
+    /// Neither volume descriptor sequence holds a primary, a logical volume
+    /// and a partition descriptor.
+    DescriptorSequence = 3,
+    /// A descriptor tag is wrong: its checksum, CRC, identifier, version or
+    /// location.
+    Descriptor = 4,
+    /// The logical block size is not a power of two from 512 to 4096, it
+    /// disagrees with the anchor, or the device block is larger.
+    BlockSize = 5,
+    /// A partition map other than type 1 (virtual, sparable or metadata
+    /// partitions), or, when writing, a revision that needs one: UDF 2.50
+    /// and later require a metadata partition.
+    PartitionMap = 6,
+    /// A partition reference names no partition, or an extent runs past its
+    /// partition.
+    Partition = 7,
+    /// The File Set Descriptor is invalid.
+    FileSet = 8,
+    /// A File Entry or Extended File Entry is invalid.
+    Icb = 9,
+    /// A list of allocation descriptors is invalid, too long, or ends
+    /// before the file.
+    AllocationDescriptor = 10,
+    /// A File Identifier Descriptor is invalid.
+    FileIdentifier = 11,
+    /// A symbolic link's path components are invalid.
+    PathComponent = 12,
+    /// A structure lies outside the device.
+    OutsideImage = 13,
+    /// A volume identifier does not fit its field.
+    Identifier = 14,
+    /// The image would exceed the 32-bit block numbers of UDF.
+    ImageTooLarge = 15,
+    /// A time lies outside the years 1 to 9999 a timestamp holds.
+    Timestamp = 16,
+    /// A file of the tree changed or vanished between measuring and
+    /// writing.
+    Content = 17,
+    /// A file's content is extents on the device: a standalone volume
+    /// cannot use them, and in a bridge volume they must be whole aligned
+    /// blocks after the UDF structures.
+    StoredContent = 18,
+    /// The output device's block size does not divide 2048.
+    OutputBlockSize = 19,
 }
 
-impl<E: io::IoError> From<io::Error<E>> for Error {
-    fn from(err: io::Error<E>) -> Self {
-        Self::Io(err.erase())
-    }
-}
-
-impl core::fmt::Display for Error {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl Detail {
+    const fn description(self) -> &'static str {
         match self {
-            Self::Io(e) => write!(f, "I/O error: {e}"),
-            Self::InvalidVrs => write!(f, "invalid or missing Volume Recognition Sequence"),
-            Self::InvalidVds(reason) => {
-                write!(f, "invalid or missing Volume Descriptor Sequence. {reason}")
-            }
-            Self::InvalidFsd => write!(f, "invalid or missing File Set Descriptor."),
-            Self::NoAnchor => write!(f, "no Anchor Volume Descriptor Pointer found"),
-            Self::InvalidTag { expected, found } => {
-                write!(
-                    f,
-                    "invalid descriptor tag: expected {expected}, found {found}"
-                )
-            }
-            Self::CrcMismatch { expected, computed } => {
-                write!(
-                    f,
-                    "CRC mismatch: expected {expected:04x}, computed {computed:04x}"
-                )
-            }
-            Self::InvalidPartition(num) => write!(f, "invalid partition reference: {num}"),
-            Self::InvalidIcb => write!(f, "invalid Information Control Block"),
-            Self::NotFound => write!(f, "file or directory not found"),
-            Self::NotADirectory => write!(f, "not a directory"),
-            Self::NotAFile => write!(f, "not a file"),
-            Self::PathTooLong => write!(f, "path too long"),
-            Self::InvalidEncoding => write!(f, "invalid filename encoding"),
-            Self::TooManyAllocationDescriptors => {
-                write!(f, "allocation descriptors exceed one File Entry sector")
-            }
-            Self::DirectoryNestingTooDeep => write!(f, "directory nesting too deep"),
-            Self::PodCastError(err) => write!(
-                f,
-                "byte casting failed - the data buffer size doesn't match the target struct size. {err}"
-            ),
+            Self::RecognitionSequence => "no NSR descriptor in the volume recognition sequence",
+            Self::Anchor => "no valid anchor volume descriptor pointer",
+            Self::DescriptorSequence => "incomplete volume descriptor sequence",
+            Self::Descriptor => "invalid descriptor tag",
+            Self::BlockSize => "unsupported logical or device block size",
+            Self::PartitionMap => "unsupported partition map",
+            Self::Partition => "a partition reference or extent is out of bounds",
+            Self::FileSet => "invalid file set descriptor",
+            Self::Icb => "invalid file entry",
+            Self::AllocationDescriptor => "invalid allocation descriptors",
+            Self::FileIdentifier => "invalid file identifier descriptor",
+            Self::PathComponent => "invalid symbolic link path components",
+            Self::OutsideImage => "a structure lies outside the device",
+            Self::Identifier => "volume identifier too long",
+            Self::ImageTooLarge => "image exceeds 32-bit block numbers",
+            Self::Timestamp => "time outside the years 1 to 9999",
+            Self::Content => "a file changed after it was measured",
+            Self::StoredContent => "stored content does not fit the volume",
+            Self::OutputBlockSize => "output block size does not divide 2048",
         }
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Io(e) => Some(e),
-            _ => None,
-        }
+impl fmt::Display for Detail {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.description())
     }
 }
 
-/// Result type for UDF operations
-pub type Result<T> = core::result::Result<T, Error>;
+impl Detail {
+    const ALL: [Self; 19] = [
+        Self::RecognitionSequence,
+        Self::Anchor,
+        Self::DescriptorSequence,
+        Self::Descriptor,
+        Self::BlockSize,
+        Self::PartitionMap,
+        Self::Partition,
+        Self::FileSet,
+        Self::Icb,
+        Self::AllocationDescriptor,
+        Self::FileIdentifier,
+        Self::PathComponent,
+        Self::OutsideImage,
+        Self::Identifier,
+        Self::ImageTooLarge,
+        Self::Timestamp,
+        Self::Content,
+        Self::StoredContent,
+        Self::OutputBlockSize,
+    ];
+
+    /// The detail a UDF operation recorded on `err`, if any.
+    pub fn of<E>(err: &Error<E>) -> Option<Self> {
+        err.detail().and_then(Self::from_code)
+    }
+
+    /// The detail `code` stands for, when it is one of this crate's codes.
+    pub fn from_code(code: DetailCode) -> Option<Self> {
+        let code = code.code_in(DOMAIN)?;
+        Self::ALL.into_iter().find(|detail| *detail as u16 == code)
+    }
+
+    /// The code this detail is recorded with, in the `hadris-udf` domain.
+    /// Codes never change meaning.
+    pub const fn code(self) -> DetailCode {
+        DetailCode::new(DOMAIN, self as u16)
+    }
+
+    pub(crate) fn error<E>(self, kind: ErrorKind) -> Error<E> {
+        Error::new(kind, self.description()).with_detail(self.code())
+    }
+
+    pub(crate) fn corrupt<E>(self) -> Error<E> {
+        self.error(ErrorKind::Corrupt)
+    }
+
+    pub(crate) fn invalid<E>(self) -> Error<E> {
+        self.error(ErrorKind::InvalidInput)
+    }
+}
+
+impl From<Detail> for DetailCode {
+    fn from(detail: Detail) -> Self {
+        detail.code()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn details_round_trip_through_their_codes() {
+        for detail in Detail::ALL {
+            let err: Error<()> = Error::new(ErrorKind::Corrupt, "").with_detail(detail.code());
+            assert_eq!(Detail::of(&err), Some(detail));
+        }
+        let foreign = DetailCode::new("another-crate", Detail::ALL[0] as u16);
+        assert_eq!(Detail::from_code(foreign), None);
+    }
+}

@@ -1,0 +1,7 @@
+case,samples,volume_bytes,block_bytes,cluster_bytes,min_ns,median_ns,max_ns,payload_bytes,read_calls,write_calls,read_bytes,write_bytes,flush_calls,max_read_bytes,max_write_bytes,write_amplification,fat0_write_bytes,fat1_write_bytes,directory_write_bytes,data_write_bytes,fsinfo_write_bytes,other_write_bytes,chain_positions,metadata_blocks,directory_entries
+fat12/hosted/lookup-long-128,21,2097152,512,512,77541,79458,126917,0,32,0,16384,0,0,512,0,n/a,0,0,0,0,0,0,0,64,128
+fat12/hosted/lookup-128,21,2097152,512,512,36125,44500,48208,0,8,0,4096,0,0,512,0,n/a,0,0,0,0,0,0,0,64,128
+fat16/hosted/lookup-long-128,21,16777216,512,1024,75500,80291,309625,0,32,0,16384,0,0,512,0,n/a,0,0,0,0,0,0,0,64,128
+fat16/hosted/lookup-128,21,16777216,512,1024,34834,37000,44750,0,8,0,4096,0,0,512,0,n/a,0,0,0,0,0,0,0,64,128
+fat32/hosted/lookup-long-128,21,67108864,512,512,82167,85958,162750,0,33,0,16896,0,0,512,0,n/a,0,0,0,0,0,0,0,64,128
+fat32/hosted/lookup-128,21,67108864,512,512,42708,47500,88542,0,9,0,4608,0,0,512,0,n/a,0,0,0,0,0,0,0,64,128

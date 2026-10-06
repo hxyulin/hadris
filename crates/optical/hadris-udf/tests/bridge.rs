@@ -1,0 +1,368 @@
+//! Hybrid images read back through both the ISO 9660 and the UDF reader,
+//! and both trees point at the same file data.
+
+mod common;
+
+use common::Paths;
+use hadris_fs::MountOptions;
+use hadris_fs::sync::FileSystem;
+use hadris_fs::{Content, ErrorKind, Extent, Node, Permissions, SetAttr, Tree};
+use hadris_iso::{Hybrid, IsoId, IsoLevel, IsoOptions, Namespace};
+use hadris_storage::{BlockSize, MemDevice};
+use hadris_udf::{UdfId, UdfOptions, UdfRevision};
+
+const SECTOR: usize = 2048;
+const VOLUME: &str = "BRIDGE_TEST";
+
+fn large() -> Vec<u8> {
+    (0..5000).map(|i| (i % 251) as u8).collect()
+}
+
+fn fixture() -> Tree {
+    let mut tree = Tree::new();
+    tree.insert("EMPTY.TXT", Node::file(Content::empty()))
+        .unwrap();
+    tree.insert("DOCS/LARGE.BIN", Node::file(Content::bytes(large())))
+        .unwrap();
+    tree.insert(
+        "DOCS/NESTED/NOTE.TXT",
+        Node::file(Content::bytes("qualified through both namespaces"))
+            .with_attrs(SetAttr::new().with_permissions(Permissions::new(0o640))),
+    )
+    .unwrap();
+    tree.link("DOCS/LARGE.BIN", "DOCS/COPY.BIN").unwrap();
+    tree.insert("LINK", Node::symlink("DOCS/NESTED/NOTE.TXT"))
+        .unwrap();
+    tree
+}
+
+struct Options {
+    iso: IsoOptions,
+    udf: UdfOptions,
+}
+
+fn cd_iso() -> IsoOptions {
+    IsoOptions::default()
+        .with_id(IsoId::Volume, "CDROM")
+        .with_level(IsoLevel::L2)
+        .with_joliet()
+        .with_iso1999()
+}
+
+fn options(revision: UdfRevision) -> Options {
+    Options {
+        iso: cd_iso().with_id(IsoId::Volume, VOLUME).with_rock_ridge(),
+        udf: UdfOptions::default()
+            .with_id(UdfId::Volume, VOLUME)
+            .with_revision(revision),
+    }
+}
+
+fn create(tree: &Tree, options: &Options) -> Vec<u8> {
+    let report = hadris_udf::plan_bridge(tree, &options.iso, &options.udf).unwrap();
+    let mut dev = MemDevice::new(
+        vec![0u8; report.size() as usize],
+        BlockSize::new(2048).unwrap(),
+    );
+    let written =
+        hadris_udf::sync::write_bridge(&mut dev, tree, &options.iso, &options.udf).unwrap();
+    assert_eq!(written, report);
+    dev.into_inner()
+}
+
+fn tag_at(bytes: &[u8], sector: usize) -> u16 {
+    u16::from_le_bytes([bytes[sector * SECTOR], bytes[sector * SECTOR + 1]])
+}
+
+fn verify(bytes: &[u8]) {
+    let dev = MemDevice::new(bytes, BlockSize::new(2048).unwrap());
+    let mut iso = dev;
+    let mut view = hadris_iso::sync::IsoFs::mount_namespace(
+        &mut iso,
+        MountOptions::new(),
+        Namespace::RockRidge,
+    )
+    .unwrap();
+    assert_eq!(view.read_to_vec("/EMPTY.TXT").unwrap(), b"");
+    assert_eq!(view.read_to_vec("/DOCS/LARGE.BIN").unwrap(), large());
+    let mut iso_extents = Vec::new();
+    for path in ["/DOCS/LARGE.BIN", "/DOCS/NESTED/NOTE.TXT"] {
+        let node = view.resolve_path(path).unwrap();
+        let mut extents = [Extent::new(0, 0); 8];
+        let n = view.extents(node, 0, &mut extents).unwrap();
+        iso_extents.push(extents[..n].to_vec());
+    }
+
+    let mut udf = hadris_udf::sync::UdfFs::mount(
+        MemDevice::new(bytes, BlockSize::new(2048).unwrap()),
+        MountOptions::new(),
+    )
+    .unwrap();
+    assert_eq!(udf.info().id(hadris_udf::UdfId::Volume), VOLUME);
+    assert_eq!(udf.read_to_vec("/EMPTY.TXT").unwrap(), b"");
+    assert_eq!(udf.read_to_vec("/DOCS/LARGE.BIN").unwrap(), large());
+    assert_eq!(udf.read_to_vec("/DOCS/COPY.BIN").unwrap(), large());
+    assert_eq!(
+        udf.read_to_vec("/DOCS/NESTED/NOTE.TXT").unwrap(),
+        b"qualified through both namespaces"
+    );
+    assert_eq!(
+        udf.metadata("/DOCS/NESTED/NOTE.TXT").unwrap().permissions(),
+        Permissions::new(0o640)
+    );
+    let link = udf.resolve_path("/LINK").unwrap();
+    let mut target = [0u8; 64];
+    let n = udf.readlink(link, &mut target).unwrap().len();
+    assert_eq!(&target[..n], b"DOCS/NESTED/NOTE.TXT");
+    assert_eq!(
+        udf.resolve_path("/DOCS/COPY.BIN").unwrap(),
+        udf.resolve_path("/DOCS/LARGE.BIN").unwrap()
+    );
+    for (path, iso) in ["/DOCS/LARGE.BIN", "/DOCS/NESTED/NOTE.TXT"]
+        .into_iter()
+        .zip(iso_extents)
+    {
+        let node = udf.resolve_path(path).unwrap();
+        let mut extents = [Extent::new(0, 0); 8];
+        let n = udf.extents(node, 0, &mut extents).unwrap();
+        assert_eq!(extents[..n], iso[..], "{path} shares its data");
+    }
+}
+
+#[test]
+fn bridge_reads_back_through_iso_and_udf() {
+    for revision in [UdfRevision::V1_02, UdfRevision::V2_01] {
+        let tree = fixture();
+        let bytes = create(&tree, &options(revision));
+        verify(&bytes);
+    }
+}
+
+#[test]
+fn bridge_layout_follows_udf_and_ecma_119() {
+    let tree = fixture();
+    let bytes = create(&tree, &options(UdfRevision::V1_02));
+    let last = bytes.len() / SECTOR - 1;
+    assert_eq!(tag_at(&bytes, 256), 2, "anchor at 256");
+    assert_eq!(tag_at(&bytes, last - 256), 2, "anchor at N-256");
+    assert_ne!(tag_at(&bytes, last), 2);
+    for (index, id) in [1u16, 4, 5, 6, 7, 8].into_iter().enumerate() {
+        assert_eq!(tag_at(&bytes, 257 + index), id);
+        assert_eq!(tag_at(&bytes, 273 + index), id);
+    }
+    assert_eq!(tag_at(&bytes, 289), 9, "integrity descriptor");
+    assert_eq!(tag_at(&bytes, 290), 256, "file set descriptor");
+    let field = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+    assert_eq!(
+        (field(256 * SECTOR + 16), field(256 * SECTOR + 20)),
+        (16 * 2048, 257)
+    );
+    assert_eq!(
+        (field(256 * SECTOR + 24), field(256 * SECTOR + 28)),
+        (16 * 2048, 273)
+    );
+    assert_eq!(
+        field(289 * SECTOR + 28),
+        1,
+        "the integrity descriptor is closed"
+    );
+    assert_eq!(field(260 * SECTOR + 268), 1, "one partition map");
+    assert_eq!(
+        field(259 * SECTOR + 188),
+        290,
+        "the partition starts after the integrity descriptor"
+    );
+    let mut udf = hadris_udf::sync::UdfFs::mount(
+        MemDevice::new(bytes.as_slice(), BlockSize::new(2048).unwrap()),
+        MountOptions::new(),
+    )
+    .unwrap();
+    let large = udf.resolve_path("/DOCS/LARGE.BIN").unwrap();
+    let entry = (290 + large.get() - 1) as usize * SECTOR;
+    assert_eq!(
+        u16::from_le_bytes([bytes[entry + 34], bytes[entry + 35]]) & 7,
+        0,
+        "short allocation descriptors"
+    );
+
+    let terminator = (16..32)
+        .find(|&s| bytes[s * SECTOR] == 255 && &bytes[s * SECTOR + 1..s * SECTOR + 6] == b"CD001")
+        .unwrap();
+    for (index, id) in [b"BEA01", b"NSR02", b"TEA01"].into_iter().enumerate() {
+        let at = (terminator + 1 + index) * SECTOR;
+        assert_eq!(&bytes[at + 1..at + 6], id);
+    }
+    let bytes = create(&tree, &options(UdfRevision::V2_01));
+    let at = (terminator + 2) * SECTOR;
+    assert_eq!(&bytes[at + 1..at + 6], b"NSR03");
+}
+
+#[test]
+fn reports_devices_and_modes_agree() {
+    let tree = fixture();
+    let options = options(UdfRevision::V1_02);
+    let bytes = create(&tree, &options);
+    let report = hadris_udf::plan_bridge(&tree, &options.iso, &options.udf).unwrap();
+    assert_eq!(
+        report.extents("DOCS/COPY.BIN"),
+        report.extents("DOCS/LARGE.BIN")
+    );
+    let large = report.extents("DOCS/LARGE.BIN").unwrap()[0];
+    assert_eq!(
+        &bytes[large.offset() as usize..][..5000],
+        self::large().as_slice()
+    );
+    assert_eq!(report.size(), bytes.len() as u64);
+
+    let file = tempfile_like();
+    let dev = hadris_storage::host::FileDevice::new(file.0.try_clone().unwrap()).unwrap();
+    let written = hadris_udf::sync::write_bridge(dev, &tree, &options.iso, &options.udf).unwrap();
+    assert_eq!(written.size(), file.0.metadata().unwrap().len());
+    let mut host = Vec::new();
+    std::io::Read::read_to_end(&mut std::fs::File::open(&file.1).unwrap(), &mut host).unwrap();
+    assert_eq!(host, bytes);
+
+    let expected = bytes;
+    let block_on = |future: std::pin::Pin<&mut dyn core::future::Future<Output = ()>>| {
+        let mut future = future;
+        let mut cx = core::task::Context::from_waker(core::task::Waker::noop());
+        while future.as_mut().poll(&mut cx).is_pending() {}
+    };
+    let run = async {
+        let mut dev = MemDevice::new(vec![0u8; expected.len()], BlockSize::new(2048).unwrap());
+        hadris_udf::r#async::write_bridge(&mut dev, &tree, &options.iso, &options.udf)
+            .await
+            .unwrap();
+        assert_eq!(dev.get_ref(), &expected);
+        let mut dev = MemDevice::new(vec![0u8; expected.len()], BlockSize::new(2048).unwrap());
+        let report = hadris_udf::plan_bridge(&tree, &options.iso, &options.udf).unwrap();
+        assert_eq!(report.size(), expected.len() as u64);
+        hadris_udf::r#async::write_bridge(&mut dev, &tree, &options.iso, &options.udf)
+            .await
+            .unwrap();
+        assert_eq!(dev.get_ref(), &expected);
+    };
+    block_on(std::pin::pin!(run));
+    let _ = std::fs::remove_file(&file.1);
+}
+
+fn tempfile_like() -> (std::fs::File, std::path::PathBuf) {
+    let path = std::env::temp_dir().join(format!("hadris-udf-bridge-{}.iso", std::process::id()));
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&path)
+        .unwrap();
+    (file, path)
+}
+
+#[test]
+fn writer_errors_keep_their_detail() {
+    let tree = fixture();
+    let mut dev = MemDevice::new(vec![0u8; 8 << 20], BlockSize::new(4096).unwrap());
+    let err = hadris_udf::sync::write_bridge(&mut dev, &tree, &cd_iso(), &UdfOptions::default())
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Unsupported);
+    assert_eq!(
+        err.detail().and_then(hadris_udf::Detail::from_code),
+        Some(hadris_udf::Detail::OutputBlockSize)
+    );
+
+    let mut long = Tree::new();
+    long.insert("n".repeat(255), Node::file(Content::empty()))
+        .unwrap();
+    let err =
+        hadris_udf::plan_bridge(&long, &IsoOptions::default(), &UdfOptions::default()).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::NameTooLong);
+}
+
+#[test]
+fn iso_volume_space_covers_the_udf_tail() {
+    let tree = fixture();
+    let mut options = options(UdfRevision::V2_01);
+    options.iso = options.iso.with_joliet();
+    let bytes = create(&tree, &options);
+    let blocks = (bytes.len() / SECTOR) as u32;
+    let mut descriptors = 0;
+    for sector in 16.. {
+        let at = sector * SECTOR;
+        match bytes[at] {
+            255 => break,
+            1 | 2 => {
+                let field = &bytes[at + 80..at + 88];
+                assert_eq!(field[..4], blocks.to_le_bytes(), "sector {sector}");
+                assert_eq!(field[4..], blocks.to_be_bytes(), "sector {sector}");
+                descriptors += 1;
+            }
+            _ => {}
+        }
+    }
+    assert!(descriptors >= 2);
+    let dev = MemDevice::new(bytes.as_slice(), BlockSize::new(2048).unwrap());
+    let iso = hadris_iso::sync::IsoFs::mount(dev, MountOptions::new()).unwrap();
+    assert_eq!(iso.info().volume_space_size(), blocks);
+    verify(&bytes);
+}
+
+#[test]
+fn hybrid_tables_cover_the_whole_bridge_image() {
+    let u32_at =
+        |bytes: &[u8], at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+    let u64_at =
+        |bytes: &[u8], at: usize| u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap());
+    for (name, hybrid) in [
+        ("gpt", Hybrid::gpt()),
+        ("mbr", Hybrid::mbr()),
+        ("gpt_hybrid_mbr", Hybrid::gpt_hybrid_mbr()),
+    ] {
+        let tree = fixture();
+        let mut options = options(UdfRevision::V2_01);
+        options.iso = options.iso.with_hybrid(hybrid);
+        let bytes = create(&tree, &options);
+        let sectors = (bytes.len() / 512) as u64;
+        let last = sectors - 1;
+        if name == "mbr" {
+            assert_eq!(bytes[446 + 4], 0x17, "{name}");
+            let start = u64::from(u32_at(&bytes, 446 + 8));
+            let len = u64::from(u32_at(&bytes, 446 + 12));
+            assert_eq!(start + len, sectors, "{name}: the MBR covers the image");
+        } else {
+            let backup = &bytes[last as usize * 512..];
+            assert_eq!(
+                &backup[..8],
+                b"EFI PART",
+                "{name}: backup header in the last sector"
+            );
+            assert_eq!(u64_at(backup, 24), last, "{name}");
+            assert_eq!(
+                u64_at(&bytes, 512 + 32),
+                last,
+                "{name}: primary alternate LBA"
+            );
+            let last_usable = u64_at(&bytes, 512 + 48);
+            assert_eq!(u64_at(backup, 48), last_usable, "{name}");
+            assert!(last_usable < last - 32, "{name}");
+            if name == "gpt" {
+                assert_eq!(bytes[446 + 4], 0xEE, "{name}");
+                assert_eq!(u32_at(&bytes, 446 + 8), 1, "{name}");
+                assert_eq!(
+                    u64::from(u32_at(&bytes, 446 + 12)),
+                    last,
+                    "{name}: protective MBR"
+                );
+            }
+        }
+        let disk = hadris_part::sync::read(&mut MemDevice::new(
+            bytes.as_slice(),
+            BlockSize::new(512).unwrap(),
+        ))
+        .unwrap();
+        assert!(disk.partitions().count() >= 1, "{name}");
+        for partition in disk.partitions() {
+            assert!(partition.start() + partition.len() <= sectors, "{name}");
+        }
+        verify(&bytes);
+    }
+}

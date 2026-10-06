@@ -1,122 +1,20 @@
 //! Endian types for cross-platform compatibility.
 //!
 //! This module provides a set of types that can be used to read and write data in different endian
-//! formats. The `EndianType` enum represents the endianness of the system, and the `Endianness`
-//! trait provides methods to read and write data in the specified endianness.
+//! formats. The `Endianness` trait provides methods to read and write data in the specified
+//! endianness.
 //!
 //! The number types, [`u16`], [`u32`], and [`u64`], have a counterpart with endianness, which are
 //! [`crate::types::number::U16`], [`crate::types::number::U32`], and [`crate::types::number::U64`]. These types are used to read and write data in the specified
 //! endianness, defined at the type level.
-
-/// The endianness of the system.
-///
-/// This enum represents the endianness of the system at runtime. It can be used
-/// to read and write data in the specified endianness.
-///
-/// NativeEndian is the default, and the fastest endianness, due to compatibility with the
-/// current architecture. However, compiler optimizations will also optimize away LittleEndian and
-/// BigEndian if the system is the same endianness.
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum EndianType {
-    /// Native endianness.
-    #[default]
-    NativeEndian,
-    /// Little endianness.
-    ///
-    /// This means that the least significant byte is stored at the lowest address.
-    /// For example, the byte order of the number `0x1234` is `0x3412`.
-    LittleEndian,
-    /// Big endianness.
-    ///
-    /// This means that the most significant byte is stored at the lowest address.
-    /// For example, the byte order of the number `0x1234` is `0x1234`.
-    BigEndian,
-}
-
-impl core::fmt::Display for EndianType {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::NativeEndian => write!(f, "native"),
-            Self::LittleEndian => write!(f, "little-endian"),
-            Self::BigEndian => write!(f, "big-endian"),
-        }
-    }
-}
-
-impl EndianType {
-    /// Returns whether this byte order is little-endian on the current target.
-    pub const fn is_le(&self) -> bool {
-        #[cfg(target_endian = "little")]
-        {
-            matches!(self, Self::LittleEndian | Self::NativeEndian)
-        }
-        #[cfg(target_endian = "big")]
-        {
-            matches!(self, Self::LittleEndian)
-        }
-    }
-    /// Reads a `u16` from the given bytes in the specified endianness.
-    pub fn read_u16(&self, bytes: [u8; 2]) -> u16 {
-        match self {
-            EndianType::NativeEndian => u16::from_ne_bytes(bytes),
-            EndianType::LittleEndian => u16::from_le_bytes(bytes),
-            EndianType::BigEndian => u16::from_be_bytes(bytes),
-        }
-    }
-
-    /// Reads a `u32` from the given bytes in the specified endianness.
-    pub fn read_u32(&self, bytes: [u8; 4]) -> u32 {
-        match self {
-            EndianType::NativeEndian => u32::from_ne_bytes(bytes),
-            EndianType::LittleEndian => u32::from_le_bytes(bytes),
-            EndianType::BigEndian => u32::from_be_bytes(bytes),
-        }
-    }
-
-    /// Writes a `u32` to the given bytes in the specified endianness.
-    pub fn read_u64(&self, bytes: [u8; 8]) -> u64 {
-        match self {
-            EndianType::NativeEndian => u64::from_ne_bytes(bytes),
-            EndianType::LittleEndian => u64::from_le_bytes(bytes),
-            EndianType::BigEndian => u64::from_be_bytes(bytes),
-        }
-    }
-
-    /// Returns the byte representation of a `u16` in the specified endianness.
-    pub fn u16_bytes(&self, value: u16) -> [u8; 2] {
-        match self {
-            EndianType::NativeEndian => value.to_ne_bytes(),
-            EndianType::LittleEndian => value.to_le_bytes(),
-            EndianType::BigEndian => value.to_be_bytes(),
-        }
-    }
-
-    /// Returns the byte representation of a `u32` in the specified endianness.
-    pub fn u32_bytes(&self, value: u32) -> [u8; 4] {
-        match self {
-            EndianType::NativeEndian => value.to_ne_bytes(),
-            EndianType::LittleEndian => value.to_le_bytes(),
-            EndianType::BigEndian => value.to_be_bytes(),
-        }
-    }
-
-    /// Returns the byte representation of a `u64` in the specified endianness.
-    pub fn u64_bytes(&self, value: u64) -> [u8; 8] {
-        match self {
-            EndianType::NativeEndian => value.to_ne_bytes(),
-            EndianType::LittleEndian => value.to_le_bytes(),
-            EndianType::BigEndian => value.to_be_bytes(),
-        }
-    }
-}
 
 /// A trait that represents the endianness of a type.
 ///
 /// This trait shouldn`t be implemented directly, but rather through the [`Endian`] trait.
 /// See [`crate::types::number::U16`], [`crate::types::number::U32`], and [`crate::types::number::U64`] for examples.
 pub trait Endianness: Copy + Sized {
-    /// Returns the endianness at runtime.
-    fn get() -> EndianType;
+    /// Whether this byte order is little-endian.
+    fn is_le() -> bool;
 
     /// Reads a `u16` from the given bytes in the specified endianness.
     fn get_u16(bytes: [u8; 2]) -> u16;
@@ -135,7 +33,7 @@ pub trait Endianness: Copy + Sized {
     #[inline]
     fn get_u24(bytes: [u8; 3]) -> u32 {
         let mut buf = [0u8; 4];
-        if Self::get().is_le() {
+        if Self::is_le() {
             buf[..3].copy_from_slice(&bytes);
         } else {
             buf[1..].copy_from_slice(&bytes);
@@ -148,7 +46,7 @@ pub trait Endianness: Copy + Sized {
     fn set_u24(value: u32, bytes: &mut [u8; 3]) {
         let mut buf = [0u8; 4];
         Self::set_u32(value, &mut buf);
-        if Self::get().is_le() {
+        if Self::is_le() {
             bytes.copy_from_slice(&buf[..3]);
         } else {
             bytes.copy_from_slice(&buf[1..]);
@@ -160,7 +58,7 @@ pub trait Endianness: Copy + Sized {
 ///
 /// This zero-sized-type can be used where a generic type parameter is expected for endianness.
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable, bytemuck::Pod))]
 pub struct NativeEndian;
 
@@ -168,7 +66,7 @@ pub struct NativeEndian;
 ///
 /// This zero-sized-type can be used where a generic type parameter is expected for endianness.
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable, bytemuck::Pod))]
 pub struct LittleEndian;
 
@@ -176,14 +74,14 @@ pub struct LittleEndian;
 ///
 /// This zero-sized-type can be used where a generic type parameter is expected for endianness.
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable, bytemuck::Pod))]
 pub struct BigEndian;
 
 impl Endianness for NativeEndian {
     #[inline]
-    fn get() -> EndianType {
-        EndianType::NativeEndian
+    fn is_le() -> bool {
+        cfg!(target_endian = "little")
     }
 
     #[inline]
@@ -219,8 +117,8 @@ impl Endianness for NativeEndian {
 
 impl Endianness for LittleEndian {
     #[inline]
-    fn get() -> EndianType {
-        EndianType::LittleEndian
+    fn is_le() -> bool {
+        true
     }
 
     #[inline]
@@ -255,8 +153,8 @@ impl Endianness for LittleEndian {
 }
 impl Endianness for BigEndian {
     #[inline]
-    fn get() -> EndianType {
-        EndianType::BigEndian
+    fn is_le() -> bool {
+        false
     }
 
     #[inline]
@@ -290,18 +188,6 @@ impl Endianness for BigEndian {
     }
 }
 
-/// A trait that represents a type that can be bytemuck::Pod and bytemuck::Zeroable, if the
-/// `bytemuck` feature is enabled.
-#[cfg(feature = "bytemuck")]
-pub trait MaybePod: bytemuck::Pod + bytemuck::Zeroable {}
-#[cfg(feature = "bytemuck")]
-impl<T: bytemuck::Pod + bytemuck::Zeroable> MaybePod for T {}
-/// Marker trait that accepts any type when the `bytemuck` feature is disabled.
-#[cfg(not(feature = "bytemuck"))]
-pub trait MaybePod {}
-#[cfg(not(feature = "bytemuck"))]
-impl<T> MaybePod for T {}
-
 /// A trait that represents a type with endianness.
 ///
 /// This trait is used to read and write data in the specified endianness.
@@ -309,31 +195,28 @@ impl<T> MaybePod for T {}
 /// endianness.
 ///
 /// The `Output` type parameter represents the type that the trait will return when reading or
-/// writing data. This type should be a primitive type or a struct that implements the `Pod` and
-/// `Zeroable` traits from the `bytemuck` crate, if the `bytemuck` feature is enabled.
+/// writing data, usually a primitive integer.
 ///
 /// The `LsbType` and `MsbType` type parameters are variants of the type that the trait will return
 /// when reading or writing data.
 pub trait Endian {
     /// The type that the trait will return when reading or writing data.
     ///
-    /// This type should return a primitive type or a struct that implements the `Pod` and
-    /// `Zeroable` traits from the `bytemuck` crate, if the `bytemuck` feature is enabled.
     /// This type can be endianness-specific, for example, the `crate::types::number::U16` type is a struct that outputs
     /// a `u16` value in the specified endianness.
-    type Output: MaybePod;
+    type Output;
 
     /// The Little Endian variant of the type.
     ///
     /// This type should return a little-endian variant of the type, for example, the LSB type for
     /// a `crate::types::number::U16` is a `crate::types::number::U16<LittleEndian>` type.
-    type LsbType: MaybePod + Endian<Output = Self::Output>;
+    type LsbType: Endian<Output = Self::Output>;
 
     /// The Big Endian variant of the type.
     ///
     /// This type should return a big-endian variant of the type, for example, the MSB type for
     /// a `crate::types::number::U16` is a `crate::types::number::U16<BigEndian>` type.
-    type MsbType: MaybePod + Endian<Output = Self::Output>;
+    type MsbType: Endian<Output = Self::Output>;
 
     /// Creates a new instance of the type with the given value.
     fn new(value: Self::Output) -> Self;
@@ -343,7 +226,7 @@ pub trait Endian {
     fn set(&mut self, value: Self::Output);
 }
 
-#[cfg(all(test, feature = "std"))]
+#[cfg(test)]
 mod tests {
     #[test]
     fn test_from_le_bytes() {

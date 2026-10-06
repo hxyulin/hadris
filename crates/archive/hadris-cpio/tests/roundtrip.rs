@@ -1,578 +1,1112 @@
-use hadris_cpio::mode::FileType;
-use hadris_cpio::read::CpioArchiveReader;
-use hadris_cpio::write::file_tree::{FileNode, FileTree};
-use hadris_cpio::write::{CpioArchiveWriter, CpioWriteOptions};
+use hadris_io::sync::Read;
+mod common;
 
-fn write_archive(tree: &FileTree, use_crc: bool) -> Vec<u8> {
-    CpioArchiveWriter::new(Vec::new(), CpioWriteOptions { use_crc })
-        .finish(tree)
-        .expect("write failed")
+use common::{archive, newc_entry, read_all, read_all_with, trailer};
+use hadris_cpio::sync::{CpioReader, Writer, read_tree};
+use hadris_cpio::{CpioOptions, Detail, Format, ReaderOptions};
+use hadris_fs::{
+    Content, DateTime, DeviceNumber, ErrorKind, Extent, Field, FileType, Node, Owner, Permissions,
+    SetAttr, Tree, WarningKind,
+};
+use hadris_io::sync::Write;
+use hadris_io::{Cursor, StdIo};
+
+fn sample_tree() -> Tree {
+    let mut tree = Tree::new();
+    let attrs = SetAttr::new()
+        .with_permissions(Permissions::new(0o755))
+        .with_owner(Owner::new(1000, 100))
+        .with_modified(DateTime::from_unix_seconds(1_700_000_000).unwrap());
+    tree.insert(
+        "init",
+        Node::file(Content::bytes(b"#!/bin/sh\n".to_vec())).with_attrs(attrs),
+    )
+    .unwrap();
+    tree.insert("etc/empty", Node::file(Content::empty()))
+        .unwrap();
+    tree.insert("etc/big.bin", Node::file(Content::bytes(vec![7u8; 70_001])))
+        .unwrap();
+    tree.insert("dev", Node::dir()).unwrap();
+    tree.insert(
+        "dev/console",
+        Node::special(FileType::CharDevice, Some(DeviceNumber::new(5, 1))),
+    )
+    .unwrap();
+    tree.insert(
+        "dev/sda",
+        Node::special(FileType::BlockDevice, Some(DeviceNumber::new(8, 0))),
+    )
+    .unwrap();
+    tree.insert("bin/sh", Node::symlink("busybox")).unwrap();
+    tree
 }
 
 #[test]
-fn roundtrip_single_file() {
-    let mut tree = FileTree::new();
-    tree.add(FileNode::file(
-        "hello.txt",
-        b"Hello, world!\n".to_vec(),
-        0o644,
-    ));
-
-    let archive = write_archive(&tree, false);
-
-    let mut reader = CpioArchiveReader::new(archive.as_slice());
-    let entry = reader
-        .next_entry_alloc()
-        .unwrap()
-        .expect("expected an entry");
-
-    assert_eq!(entry.name_str().unwrap(), "hello.txt");
-    assert_eq!(entry.header().permissions(), 0o644);
-    assert_eq!(entry.file_type(), FileType::Regular);
-    assert_eq!(entry.file_size(), 14);
-
-    let data = reader.read_entry_data_alloc(&entry).unwrap();
-    assert_eq!(data, b"Hello, world!\n");
-
-    // Next should be None (TRAILER)
-    assert!(reader.next_entry_alloc().unwrap().is_none());
+fn every_format_reads_back() {
+    for format in [Format::Newc, Format::Crc, Format::Odc] {
+        let entries = read_all(&archive(&sample_tree(), format)).unwrap();
+        let names: Vec<_> = entries.iter().map(|entry| entry.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "bin",
+                "bin/sh",
+                "dev",
+                "dev/console",
+                "dev/sda",
+                "etc",
+                "etc/big.bin",
+                "etc/empty",
+                "init"
+            ],
+            "{format:?}"
+        );
+        let get = |name: &str| entries.iter().find(|entry| entry.name == name).unwrap();
+        let init = get("init");
+        assert_eq!(init.mode, 0o100755);
+        assert_eq!((init.uid, init.gid, init.mtime), (1000, 100, 1_700_000_000));
+        assert_eq!(init.data, b"#!/bin/sh\n");
+        assert_eq!(get("bin").file_type, FileType::Dir);
+        assert_eq!(get("bin").mode, 0o040755);
+        assert_eq!(get("bin").nlink, 2);
+        assert_eq!(get("bin/sh").file_type, FileType::Symlink);
+        assert_eq!(get("bin/sh").mode, 0o120777);
+        assert_eq!(get("bin/sh").data, b"busybox");
+        assert_eq!(get("dev/console").file_type, FileType::CharDevice);
+        assert_eq!(get("dev/console").rdev, (5, 1));
+        assert_eq!(get("dev/sda").file_type, FileType::BlockDevice);
+        assert_eq!(get("dev/sda").rdev, (8, 0));
+        assert_eq!(get("etc/big.bin").data, vec![7u8; 70_001]);
+        assert!(get("etc/empty").data.is_empty());
+        let inos: Vec<_> = entries.iter().map(|entry| entry.ino).collect();
+        assert_eq!(inos, (1..=9).collect::<Vec<_>>());
+    }
 }
 
 #[test]
-fn roundtrip_directory_with_files() {
-    let mut tree = FileTree::new();
-    tree.add(FileNode::dir(
-        "etc",
-        vec![
-            FileNode::file("config.cfg", b"key=value\n".to_vec(), 0o644),
-            FileNode::file("hosts", b"127.0.0.1 localhost\n".to_vec(), 0o644),
-        ],
-        0o755,
-    ));
-
-    let archive = write_archive(&tree, false);
-    let mut reader = CpioArchiveReader::new(archive.as_slice());
-
-    // First: the directory
-    let entry = reader.next_entry_alloc().unwrap().unwrap();
-    assert_eq!(entry.name_str().unwrap(), "etc");
-    assert_eq!(entry.file_type(), FileType::Directory);
-    assert_eq!(entry.header().permissions(), 0o755);
-    reader.skip_entry_data_owned(&entry).unwrap();
-
-    // Second: etc/config.cfg
-    let entry = reader.next_entry_alloc().unwrap().unwrap();
-    assert_eq!(entry.name_str().unwrap(), "etc/config.cfg");
-    let data = reader.read_entry_data_alloc(&entry).unwrap();
-    assert_eq!(data, b"key=value\n");
-
-    // Third: etc/hosts
-    let entry = reader.next_entry_alloc().unwrap().unwrap();
-    assert_eq!(entry.name_str().unwrap(), "etc/hosts");
-    let data = reader.read_entry_data_alloc(&entry).unwrap();
-    assert_eq!(data, b"127.0.0.1 localhost\n");
-
-    // Trailer
-    assert!(reader.next_entry_alloc().unwrap().is_none());
-}
-
-#[test]
-fn roundtrip_symlink() {
-    let mut tree = FileTree::new();
-    tree.add(FileNode::symlink("link", "/usr/bin/target"));
-
-    let archive = write_archive(&tree, false);
-    let mut reader = CpioArchiveReader::new(archive.as_slice());
-
-    let entry = reader.next_entry_alloc().unwrap().unwrap();
-    assert_eq!(entry.name_str().unwrap(), "link");
-    assert_eq!(entry.file_type(), FileType::Symlink);
-
-    let data = reader.read_entry_data_alloc(&entry).unwrap();
-    assert_eq!(core::str::from_utf8(&data).unwrap(), "/usr/bin/target");
-
-    assert!(reader.next_entry_alloc().unwrap().is_none());
-}
-
-#[test]
-fn roundtrip_device_node() {
-    let mut tree = FileTree::new();
-    tree.add(FileNode::device("null", FileType::CharDevice, 1, 3, 0o666));
-    tree.add(FileNode::device("sda", FileType::BlockDevice, 8, 0, 0o660));
-
-    let archive = write_archive(&tree, false);
-    let mut reader = CpioArchiveReader::new(archive.as_slice());
-
-    let entry = reader.next_entry_alloc().unwrap().unwrap();
-    assert_eq!(entry.name_str().unwrap(), "null");
-    assert_eq!(entry.file_type(), FileType::CharDevice);
-    assert_eq!(entry.header().rdevmajor, 1);
-    assert_eq!(entry.header().rdevminor, 3);
-    reader.skip_entry_data_owned(&entry).unwrap();
-
-    let entry = reader.next_entry_alloc().unwrap().unwrap();
-    assert_eq!(entry.name_str().unwrap(), "sda");
-    assert_eq!(entry.file_type(), FileType::BlockDevice);
-    assert_eq!(entry.header().rdevmajor, 8);
-    assert_eq!(entry.header().rdevminor, 0);
-    reader.skip_entry_data_owned(&entry).unwrap();
-
-    assert!(reader.next_entry_alloc().unwrap().is_none());
-}
-
-#[test]
-fn roundtrip_fifo() {
-    let mut tree = FileTree::new();
-    tree.add(FileNode::fifo("mypipe", 0o644));
-
-    let archive = write_archive(&tree, false);
-    let mut reader = CpioArchiveReader::new(archive.as_slice());
-
-    let entry = reader.next_entry_alloc().unwrap().unwrap();
-    assert_eq!(entry.name_str().unwrap(), "mypipe");
-    assert_eq!(entry.file_type(), FileType::Fifo);
-    assert_eq!(entry.header().permissions(), 0o644);
-    reader.skip_entry_data_owned(&entry).unwrap();
-
-    assert!(reader.next_entry_alloc().unwrap().is_none());
-}
-
-#[test]
-fn roundtrip_hard_link() {
-    let mut tree = FileTree::new();
-    tree.add(FileNode::file("original", b"data here".to_vec(), 0o644));
-    tree.add(FileNode::hard_link("linked", "original"));
-
-    let archive = write_archive(&tree, false);
-    let mut reader = CpioArchiveReader::new(archive.as_slice());
-
-    // First entry: original file
-    let entry = reader.next_entry_alloc().unwrap().unwrap();
-    assert_eq!(entry.name_str().unwrap(), "original");
-    assert_eq!(entry.header().nlink, 2); // 1 + 1 hard link
-    let data = reader.read_entry_data_alloc(&entry).unwrap();
-    assert_eq!(data, b"data here");
-
-    // Second entry: hard link (same inode, filesize=0)
-    let entry = reader.next_entry_alloc().unwrap().unwrap();
-    assert_eq!(entry.name_str().unwrap(), "linked");
-    assert_eq!(entry.file_size(), 0);
-    reader.skip_entry_data_owned(&entry).unwrap();
-
-    assert!(reader.next_entry_alloc().unwrap().is_none());
-}
-
-#[test]
-fn roundtrip_crc_checksum() {
-    let mut tree = FileTree::new();
-    let contents = b"CRC test data for verification".to_vec();
-    tree.add(FileNode::file("crc_test.bin", contents.clone(), 0o644));
-
-    // Write with CRC
-    let archive = write_archive(&tree, true);
-
-    let mut reader = CpioArchiveReader::new(archive.as_slice());
-    let entry = reader.next_entry_alloc().unwrap().unwrap();
-
-    assert_eq!(entry.magic(), hadris_cpio::CpioMagic::NewcCrc);
-    assert_eq!(entry.name_str().unwrap(), "crc_test.bin");
-
-    // Verify the CRC value is non-zero
-    let expected_crc: u32 = contents.iter().map(|&b| b as u32).sum();
-    assert_eq!(entry.header().check, expected_crc);
-
-    let data = reader.read_entry_data_alloc(&entry).unwrap();
-    assert_eq!(data, contents);
-}
-
-#[test]
-fn crc_reader_rejects_corrupt_data() {
-    let mut tree = FileTree::new();
-    tree.add(FileNode::file("crc.bin", b"checksum".to_vec(), 0o644));
-    let mut archive = write_archive(&tree, true);
-
-    let data_offset = {
-        let mut reader = CpioArchiveReader::new(archive.as_slice());
-        let _entry = reader.next_entry_alloc().unwrap().unwrap();
-        reader.offset() as usize
-    };
-    archive[data_offset] ^= 0xff;
-
-    let mut reader = CpioArchiveReader::new(archive.as_slice());
-    let entry = reader.next_entry_alloc().unwrap().unwrap();
-    assert!(matches!(
-        reader.read_entry_data_alloc(&entry),
-        Err(hadris_cpio::Error::ChecksumMismatch { .. })
-    ));
-}
-
-#[test]
-fn reader_rejects_non_nul_filename_terminator() {
-    let mut tree = FileTree::new();
-    tree.add(FileNode::file("name", Vec::new(), 0o644));
-    let mut archive = write_archive(&tree, false);
-    archive[110 + "name".len()] = b'X';
-
-    let mut reader = CpioArchiveReader::new(archive.as_slice());
-    assert!(matches!(
-        reader.next_entry_alloc(),
-        Err(hadris_cpio::Error::InvalidFilename)
-    ));
+fn the_plan_is_the_report_and_locates_data() {
+    let tree = sample_tree();
+    for format in [Format::Newc, Format::Crc, Format::Odc] {
+        let options = CpioOptions::new().with_format(format);
+        let plan = hadris_cpio::plan(&tree, &options).unwrap();
+        let mut out = StdIo::new(Vec::new());
+        let report = hadris_cpio::sync::write(&mut out, &tree, &options).unwrap();
+        let bytes = out.into_inner();
+        assert_eq!(plan, report);
+        assert_eq!(report.size(), bytes.len() as u64);
+        let [extent] = report.extents("/init").unwrap() else {
+            panic!("one extent")
+        };
+        let at = extent.offset() as usize;
+        assert_eq!(&bytes[at..at + extent.len() as usize], b"#!/bin/sh\n");
+        assert_eq!(report.extents("etc/empty").unwrap()[0].len(), 0);
+        assert!(report.extents("bin/sh").is_none());
+        assert!(report.warnings().is_empty());
+    }
 }
 
 #[test]
 fn hard_link_group_uses_total_link_count() {
-    let mut tree = FileTree::new();
-    tree.add(FileNode::file("original", b"data".to_vec(), 0o644));
-    tree.add(FileNode::hard_link("one", "original"));
-    tree.add(FileNode::hard_link("two", "original"));
-    let archive = write_archive(&tree, false);
-    let mut reader = CpioArchiveReader::new(archive.as_slice());
+    let mut tree = Tree::new();
+    let attrs = SetAttr::new().with_owner(Owner::new(9, 0));
+    tree.insert(
+        "a",
+        Node::file(Content::bytes(b"data".to_vec())).with_attrs(attrs),
+    )
+    .unwrap();
+    tree.link("a", "b/c").unwrap();
+    tree.link("a", "d").unwrap();
+    let bytes = archive(&tree, Format::Newc);
+    let entries = read_all(&bytes).unwrap();
+    let links: Vec<_> = entries
+        .iter()
+        .filter(|entry| entry.file_type == FileType::File)
+        .map(|entry| {
+            (
+                entry.name.as_str(),
+                entry.ino,
+                entry.nlink,
+                entry.uid,
+                entry.data.len(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        links,
+        [("a", 1, 3, 9, 0), ("b/c", 1, 3, 9, 0), ("d", 1, 3, 9, 4)]
+    );
+    assert_eq!(entries[1].name, "b");
+    assert_eq!(entries[1].ino, 2);
 
-    for _ in 0..3 {
-        let entry = reader.next_entry_alloc().unwrap().unwrap();
-        assert_eq!(entry.header().nlink, 3);
-        assert!(entry.header().is_hard_link());
-        reader.skip_entry_data_owned(&entry).unwrap();
-    }
+    let report = hadris_cpio::plan(&tree, &CpioOptions::new()).unwrap();
+    let extent = report.extents("d").unwrap()[0];
+    assert_eq!(report.extents("a").unwrap(), [extent]);
+    assert_eq!(report.extents("b/c").unwrap(), [extent]);
+    let at = extent.offset() as usize;
+    assert_eq!(&bytes[at..at + 4], b"data");
 }
 
 #[test]
-fn writer_rejects_empty_symlink_target() {
-    let mut tree = FileTree::new();
-    tree.add(FileNode::symlink("link", ""));
-    assert!(
-        CpioArchiveWriter::new(Vec::new(), CpioWriteOptions::default())
-            .finish(&tree)
-            .is_err()
+fn streaming_appends_every_kind() {
+    let mut writer = Writer::new(StdIo::new(Vec::new()), &CpioOptions::default());
+    writer
+        .append("pipe", &Node::special(FileType::Fifo, None))
+        .unwrap();
+    writer
+        .append("sock", &Node::special(FileType::Socket, None))
+        .unwrap();
+    let file = Node::file(Content::bytes(b"x".to_vec()));
+    writer.append_hard_links(&["one", "two"], &file).unwrap();
+    let mut entry = writer.append_file("made", &SetAttr::new(), 5).unwrap();
+    entry.write_all(b"he").unwrap();
+    assert_eq!(
+        entry.write(b"llo!").unwrap_err().kind(),
+        ErrorKind::InvalidInput
+    );
+    entry.write_all(b"llo").unwrap();
+    entry.finish().unwrap();
+    assert_eq!(writer.entries(), 5);
+    let (out, report) = writer.finish().unwrap();
+    let bytes = out.into_inner();
+    assert_eq!(report.size(), bytes.len() as u64);
+    let made = report.extents("made").unwrap()[0];
+    assert_eq!(made, Extent::new(made.offset(), 5));
+    assert_eq!(&bytes[made.offset() as usize..][..5], b"hello");
+    assert_eq!(report.extents("one"), report.extents("two"));
+    let entries = read_all(&bytes).unwrap();
+    assert_eq!(entries[0].file_type, FileType::Fifo);
+    assert_eq!(entries[0].mode, 0o010644);
+    assert_eq!(entries[1].file_type, FileType::Socket);
+    assert_eq!((entries[2].ino, entries[3].ino), (3, 3));
+    assert_eq!((entries[2].data.len(), entries[3].data.len()), (0, 1));
+    assert_eq!(
+        (entries[4].ino, entries[4].data.as_slice()),
+        (4, &b"hello"[..])
     );
 }
 
 #[test]
-fn roundtrip_offset_based_seek() {
-    let mut tree = FileTree::new();
-    tree.add(FileNode::file("first.txt", b"first".to_vec(), 0o644));
-    tree.add(FileNode::file("second.txt", b"second".to_vec(), 0o644));
-    tree.add(FileNode::file("third.txt", b"third".to_vec(), 0o644));
+fn an_unfinished_entry_blocks_the_writer() {
+    let mut writer = Writer::new(StdIo::new(Vec::new()), &CpioOptions::default());
+    let mut entry = writer.append_file("short", &SetAttr::new(), 3).unwrap();
+    entry.write_all(b"ab").unwrap();
+    let err = entry.finish().unwrap_err();
+    assert_eq!(
+        (err.kind(), err.path()),
+        (ErrorKind::InvalidInput, Some(&b"short"[..]))
+    );
+    assert_eq!(
+        writer.append("x", &Node::dir()).unwrap_err().kind(),
+        ErrorKind::InvalidInput
+    );
+    assert_eq!(writer.finish().unwrap_err().kind(), ErrorKind::InvalidInput);
 
-    let archive = write_archive(&tree, false);
-    let cursor = hadris_io::Cursor::new(&archive);
-    let mut reader = CpioArchiveReader::new(cursor);
-
-    // Read first, record second's offset
-    let e1 = reader.next_entry_alloc().unwrap().unwrap();
-    reader.skip_entry_data_owned(&e1).unwrap();
-
-    let e2 = reader.next_entry_alloc().unwrap().unwrap();
-    let second_offset = e2.entry_offset();
-    assert_eq!(e2.name_str().unwrap(), "second.txt");
-    reader.skip_entry_data_owned(&e2).unwrap();
-
-    // Skip third
-    let e3 = reader.next_entry_alloc().unwrap().unwrap();
-    reader.skip_entry_data_owned(&e3).unwrap();
-
-    // Seek back to second
-    reader.seek_to_entry(second_offset).unwrap();
-    let e2_again = reader.next_entry_alloc().unwrap().unwrap();
-    assert_eq!(e2_again.name_str().unwrap(), "second.txt");
-    let data = reader.read_entry_data_alloc(&e2_again).unwrap();
-    assert_eq!(data, b"second");
+    let mut crc = Writer::new(
+        StdIo::new(Vec::new()),
+        &CpioOptions::new().with_format(Format::Crc),
+    );
+    assert_eq!(
+        crc.append_file("f", &SetAttr::new(), 1).unwrap_err().kind(),
+        ErrorKind::Unsupported
+    );
 }
 
 #[test]
-fn no_alloc_reader_with_fixed_buffer() {
-    let mut tree = FileTree::new();
-    tree.add(FileNode::file(
-        "buf_test.txt",
-        b"buffer test".to_vec(),
-        0o644,
-    ));
+fn writer_rejects_empty_symlink_target() {
+    let mut writer = Writer::new(StdIo::new(Vec::new()), &CpioOptions::default());
+    let err = writer.append("link", &Node::symlink("")).unwrap_err();
+    assert_eq!(
+        (err.kind(), err.detail().and_then(Detail::from_code)),
+        (ErrorKind::InvalidInput, Some(Detail::Entry))
+    );
+    assert_eq!(writer.bytes_written(), 0);
+}
 
-    let archive = write_archive(&tree, false);
-    let mut reader = CpioArchiveReader::new(archive.as_slice());
+#[test]
+fn writer_rejects_bad_names_and_fields_before_writing() {
+    let mut writer = Writer::new(StdIo::new(Vec::new()), &CpioOptions::default());
+    for (name, kind) in [
+        ("", ErrorKind::InvalidInput),
+        ("TRAILER!!!", ErrorKind::InvalidInput),
+        (&"a".repeat(4096)[..], ErrorKind::NameTooLong),
+    ] {
+        let err = writer.append(name, &Node::dir()).unwrap_err();
+        assert_eq!((err.kind(), err.path()), (kind, Some(name.as_bytes())));
+    }
+    let old = SetAttr::new().with_modified(DateTime::from_unix_seconds(-1).unwrap());
+    assert_eq!(
+        writer
+            .append("old", &Node::dir().with_attrs(old))
+            .unwrap_err()
+            .kind(),
+        ErrorKind::LimitExceeded
+    );
+    assert_eq!(writer.bytes_written(), 0);
 
-    let mut name_buf = [0u8; 256];
-    let entry = reader.next_entry_with_buf(&mut name_buf).unwrap().unwrap();
-    assert_eq!(entry.name_str().unwrap(), "buf_test.txt");
-    assert_eq!(entry.file_size(), 11);
+    let mut odc = Writer::new(
+        StdIo::new(Vec::new()),
+        &CpioOptions::default().with_format(Format::Odc),
+    );
+    let big_uid = SetAttr::new().with_owner(Owner::new(1 << 18, 0));
+    assert_eq!(
+        odc.append("x", &Node::dir().with_attrs(big_uid))
+            .unwrap_err()
+            .kind(),
+        ErrorKind::LimitExceeded
+    );
+    let device = Node::special(FileType::CharDevice, Some(DeviceNumber::new(1, 300)));
+    assert_eq!(
+        odc.append("d", &device).unwrap_err().kind(),
+        ErrorKind::LimitExceeded
+    );
+    let mut binary = Writer::new(
+        StdIo::new(Vec::new()),
+        &CpioOptions::default().with_format(Format::Binary),
+    );
+    assert_eq!(
+        binary.append("x", &Node::dir()).unwrap_err().kind(),
+        ErrorKind::Unsupported
+    );
+}
 
-    let mut data_buf = [0u8; 11];
-    reader.read_entry_data(&entry, &mut data_buf).unwrap();
-    assert_eq!(&data_buf, b"buffer test");
+#[test]
+fn files_over_the_format_limit_are_too_large() {
+    let mut tree = Tree::new();
+    let huge = Content::stored([Extent::new(0, u64::from(u32::MAX) + 1)]).unwrap();
+    tree.insert("big", Node::file(huge)).unwrap();
+    let err = hadris_cpio::plan(&tree, &CpioOptions::default()).unwrap_err();
+    assert_eq!(
+        (err.kind(), err.path()),
+        (ErrorKind::FileTooLarge, Some(&b"big"[..]))
+    );
 
-    assert!(reader.next_entry_with_buf(&mut name_buf).unwrap().is_none());
+    let odc = CpioOptions::default().with_format(Format::Odc);
+    assert!(hadris_cpio::plan(&tree, &odc).is_ok());
+    let mut tree = Tree::new();
+    let huge = Content::stored([Extent::new(0, Format::Odc.max_file_size() + 1)]).unwrap();
+    tree.insert("big", Node::file(huge)).unwrap();
+    assert_eq!(
+        hadris_cpio::plan(&tree, &odc).unwrap_err().kind(),
+        ErrorKind::FileTooLarge
+    );
+    assert_eq!(Format::Newc.max_file_size(), u64::from(u32::MAX));
+}
+
+#[test]
+fn unreadable_content_fails_before_writing() {
+    let mut tree = Tree::new();
+    tree.insert("a", Node::file(Content::bytes("a"))).unwrap();
+    tree.insert(
+        "b",
+        Node::file(Content::stored([Extent::new(0, 4)]).unwrap()),
+    )
+    .unwrap();
+    let mut out = StdIo::new(Vec::new());
+    let err = hadris_cpio::sync::write(&mut out, &tree, &CpioOptions::new()).unwrap_err();
+    assert_eq!(
+        (err.kind(), err.path()),
+        (ErrorKind::Unsupported, Some(&b"b"[..]))
+    );
+    assert!(out.into_inner().is_empty());
+}
+
+#[test]
+fn dropped_metadata_is_reported() {
+    let mut tree = Tree::new();
+    let time = DateTime::new(5, 500).unwrap();
+    let attrs = SetAttr::new().with_modified(time).with_accessed(time);
+    tree.insert("f", Node::file(Content::empty()).with_attrs(attrs))
+        .unwrap();
+    tree.insert("g", Node::file(Content::empty()).with_attrs(attrs))
+        .unwrap();
+    let mut out = StdIo::new(Vec::new());
+    let report = hadris_cpio::sync::write(&mut out, &tree, &CpioOptions::default()).unwrap();
+    let warnings: Vec<_> = report
+        .warnings()
+        .iter()
+        .map(|warning| (warning.kind(), warning.count(), warning.path()))
+        .collect();
+    assert_eq!(
+        warnings,
+        [
+            (WarningKind::Dropped(Field::Accessed), 2, None),
+            (WarningKind::Dropped(Field::Modified), 2, None)
+        ]
+    );
+}
+
+#[test]
+fn the_options_time_fills_unset_modification_times() {
+    let mut tree = Tree::new();
+    tree.insert("a", Node::file(Content::empty())).unwrap();
+    let set = SetAttr::new().with_modified(DateTime::from_unix_seconds(7).unwrap());
+    tree.insert("b", Node::dir().with_attrs(set)).unwrap();
+    let options = CpioOptions::new().with_time(DateTime::from_unix_seconds(1_000).unwrap());
+    let mut out = StdIo::new(Vec::new());
+    hadris_cpio::sync::write(&mut out, &tree, &options).unwrap();
+    let mtimes: Vec<_> = read_all(&out.into_inner())
+        .unwrap()
+        .iter()
+        .map(|entry| entry.mtime)
+        .collect();
+    assert_eq!(mtimes, [1_000, 7]);
+}
+
+#[test]
+fn read_tree_restores_what_write_wrote() {
+    let mut tree = sample_tree();
+    tree.link("init", "sbin/init").unwrap();
+    tree.link("init", "linuxrc").unwrap();
+    let bytes = archive(&tree, Format::Newc);
+    let back = read_tree(&mut CpioReader::new(Cursor::new(&bytes))).unwrap();
+    assert_eq!(archive(&back, Format::Newc), bytes);
+    let init = back.entry("sbin/init").unwrap();
+    assert_eq!(init.links(), 3);
+    assert_eq!(
+        init.node().content().unwrap().as_bytes(),
+        Some(&b"#!/bin/sh\n"[..])
+    );
+    assert_eq!(
+        back.get("dev/console").unwrap().device(),
+        Some(DeviceNumber::new(5, 1))
+    );
+}
+
+#[test]
+fn read_tree_takes_relative_paths_and_refuses_parents() {
+    let mut archive = newc_entry(b".", 0o040700, b"", None);
+    archive.extend(newc_entry(b"./a", 0o100644, b"x", None));
+    archive.extend(newc_entry(b"/b/c", 0o100644, b"y", None));
+    archive.extend(trailer());
+    let tree = read_tree(&mut CpioReader::new(Cursor::new(&archive))).unwrap();
+    assert_eq!(
+        tree.root().node().attrs().permissions(),
+        Some(Permissions::new(0o700))
+    );
+    assert_eq!(
+        tree.get("a").unwrap().content().unwrap().as_bytes(),
+        Some(&b"x"[..])
+    );
+    assert_eq!(
+        tree.get("b/c").unwrap().content().unwrap().as_bytes(),
+        Some(&b"y"[..])
+    );
+
+    let mut archive = newc_entry(b"a/../../x", 0o100644, b"", None);
+    archive.extend(trailer());
+    let err = read_tree(&mut CpioReader::new(Cursor::new(&archive))).unwrap_err();
+    assert_eq!(
+        (err.kind(), err.path()),
+        (ErrorKind::InvalidInput, Some(&b"a/../../x"[..]))
+    );
+}
+
+/// A regular file of the hard link group `ino` with `nlink` names.
+fn linked(name: &[u8], ino: u32, nlink: u32, data: &[u8]) -> Vec<u8> {
+    let mut entry = newc_entry(name, 0o100644, data, None);
+    entry[6..14].copy_from_slice(format!("{ino:08X}").as_bytes());
+    entry[38..46].copy_from_slice(format!("{nlink:08X}").as_bytes());
+    entry
+}
+
+fn tree_of(entries: &[Vec<u8>]) -> Result<Tree, hadris_fs::PathError> {
+    let mut archive = entries.concat();
+    archive.extend(trailer());
+    read_tree(&mut CpioReader::new(Cursor::new(&archive)))
+}
+
+fn bytes_at<'a>(tree: &'a Tree, path: &str) -> Option<&'a [u8]> {
+    tree.get(path)?.content()?.as_bytes()
+}
+
+#[test]
+fn read_tree_takes_a_repeated_hard_link_name_once() {
+    let tree = tree_of(&[linked(b"x", 7, 2, b""), linked(b"x", 7, 2, b"data")]).unwrap();
+    assert_eq!(bytes_at(&tree, "x"), Some(&b"data"[..]));
+    assert_eq!(tree.entry("x").unwrap().links(), 1);
+
+    let tree = tree_of(&[
+        linked(b"x", 7, 3, b""),
+        linked(b"y", 7, 3, b""),
+        linked(b"x", 7, 3, b"data"),
+    ])
+    .unwrap();
+    assert_eq!(bytes_at(&tree, "x"), Some(&b"data"[..]));
+    assert_eq!(tree.entry("y").unwrap().id(), tree.entry("x").unwrap().id());
+}
+
+#[test]
+fn read_tree_replaces_hard_link_names_in_archive_order() {
+    let tree = tree_of(&[
+        linked(b"a", 7, 2, b""),
+        newc_entry(b"a", 0o040755, b"", None),
+        newc_entry(b"a/b", 0o100644, b"y", None),
+        linked(b"c", 7, 2, b"data"),
+    ])
+    .unwrap();
+    assert_eq!(tree.get("a").unwrap().file_type(), FileType::Dir);
+    assert_eq!(bytes_at(&tree, "a/b"), Some(&b"y"[..]));
+    assert_eq!(bytes_at(&tree, "c"), Some(&b"data"[..]));
+    assert_eq!(tree.entry("c").unwrap().links(), 1);
+
+    let tree = tree_of(&[
+        linked(b"a", 7, 2, b""),
+        linked(b"b", 7, 2, b"data"),
+        newc_entry(b"a", 0o100644, b"new", None),
+    ])
+    .unwrap();
+    assert_eq!(bytes_at(&tree, "a"), Some(&b"new"[..]));
+    assert_eq!(bytes_at(&tree, "b"), Some(&b"data"[..]));
+    assert_eq!(tree.entry("b").unwrap().links(), 1);
+}
+
+#[test]
+fn hard_link_owners_follow_equivalent_tree_paths() {
+    for (first, replacement) in [
+        (&b"dir//a"[..], &b"dir/a"[..]),
+        (&b"dir/a"[..], &b"dir//a/"[..]),
+        (&b"./dir///a"[..], &b"/dir/a"[..]),
+    ] {
+        let tree = tree_of(&[
+            linked(first, 7, 2, b"old"),
+            newc_entry(replacement, 0o100644, b"replacement", None),
+            linked(b"b", 7, 2, b"group"),
+        ])
+        .unwrap();
+        assert_eq!(bytes_at(&tree, "dir/a"), Some(&b"replacement"[..]));
+        assert_eq!(bytes_at(&tree, "b"), Some(&b"group"[..]));
+        assert_eq!(tree.entry("dir/a").unwrap().links(), 1);
+        assert_eq!(tree.entry("b").unwrap().links(), 1);
+    }
+    let tree = tree_of(&[
+        linked(b"dir//a", 7, 2, b"old"),
+        linked(b"dir/a/", 7, 2, b"new"),
+    ])
+    .unwrap();
+    assert_eq!(bytes_at(&tree, "dir/a"), Some(&b"new"[..]));
+    assert_eq!(tree.entry("dir/a").unwrap().links(), 1);
+}
+
+#[test]
+fn crc_reader_rejects_corrupt_data() {
+    let mut bytes = archive(&sample_tree(), Format::Crc);
+    let at = bytes
+        .windows(7)
+        .position(|window| window == b"busybox")
+        .unwrap();
+    bytes[at] ^= 1;
+    let err = read_all(&bytes).unwrap_err();
+    assert_eq!(
+        (err.kind(), err.detail().and_then(Detail::from_code)),
+        (ErrorKind::Corrupt, Some(Detail::Checksum))
+    );
+
+    let mut reader = CpioReader::new(Cursor::new(&bytes));
+    let err = loop {
+        match reader.next_entry() {
+            Ok(Some(_)) => continue,
+            Ok(None) => panic!("the skipped data must be checked"),
+            Err(err) => break err,
+        }
+    };
+    assert_eq!(
+        err.detail().and_then(Detail::from_code),
+        Some(Detail::Checksum)
+    );
+    assert!(reader.next_entry().unwrap().is_none());
+}
+
+#[test]
+fn reader_rejects_non_nul_filename_terminator() {
+    let mut bytes = newc_entry(b"ab", 0o100644, b"", None);
+    bytes[112] = b'c';
+    assert_eq!(
+        read_all(&bytes)
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
+        Some(Detail::Name)
+    );
+
+    let mut garbage = newc_entry(b"a\0b", 0o100644, b"", None);
+    garbage[110..114].copy_from_slice(b"a\0b\0");
+    assert_eq!(
+        read_all(&garbage)
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
+        Some(Detail::Name)
+    );
+    assert_eq!(
+        read_all(&newc_entry(b"", 0o100644, b"", None))
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
+        Some(Detail::Name)
+    );
+}
+
+#[test]
+fn names_that_are_not_utf8_stay_bytes() {
+    let bytes = newc_entry(b"caf\xE9", 0o100644, b"", None);
+    let mut reader = CpioReader::new(Cursor::new(&bytes));
+    let entry = reader.next_entry().unwrap().unwrap();
+    assert_eq!(entry.path(), b"caf\xE9");
+    assert!(entry.path_str().is_err());
 }
 
 #[test]
 fn alignment_padding_edge_cases() {
-    // Test names and data at various alignment boundaries
-    let mut tree = FileTree::new();
-
-    // Name "a" (1 byte) + NUL = 2 bytes namesize, header+name = 112, pad = 0
-    tree.add(FileNode::file("a", b"x".to_vec(), 0o644));
-
-    // Name "ab" (2 bytes) + NUL = 3 bytes namesize, header+name = 113, pad = 3
-    tree.add(FileNode::file("ab", b"xy".to_vec(), 0o644));
-
-    // Name "abc" (3 bytes) + NUL = 4 bytes namesize, header+name = 114, pad = 2
-    tree.add(FileNode::file("abc", b"xyz".to_vec(), 0o644));
-
-    // Name "abcd" (4 bytes) + NUL = 5 bytes namesize, header+name = 115, pad = 1
-    tree.add(FileNode::file("abcd", b"wxyz".to_vec(), 0o644));
-
-    // Data sizes: 1, 2, 3, 4 bytes with corresponding padding
-    let archive = write_archive(&tree, false);
-    let mut reader = CpioArchiveReader::new(archive.as_slice());
-
-    for (expected_name, expected_data) in [
-        ("a", b"x" as &[u8]),
-        ("ab", b"xy"),
-        ("abc", b"xyz"),
-        ("abcd", b"wxyz"),
-    ] {
-        let entry = reader.next_entry_alloc().unwrap().unwrap();
-        assert_eq!(entry.name_str().unwrap(), expected_name);
-        let data = reader.read_entry_data_alloc(&entry).unwrap();
-        assert_eq!(data, expected_data);
+    for len in 0..8 {
+        let name = "n".repeat(len + 1);
+        let data = vec![0xAB; len];
+        let mut bytes = newc_entry(name.as_bytes(), 0o100644, &data, None);
+        assert_eq!(bytes.len() % 4, 0);
+        bytes.extend(trailer());
+        let entries = read_all(&bytes).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, name);
+        assert_eq!(entries[0].data, data);
     }
-
-    assert!(reader.next_entry_alloc().unwrap().is_none());
 }
 
 #[test]
 fn reader_rejects_nonzero_name_and_data_padding() {
-    let mut tree = FileTree::new();
-    tree.add(FileNode::file("ab", b"xy".to_vec(), 0o644));
-    let archive = write_archive(&tree, false);
-
-    // HEADER_SIZE + namesize ("ab\0") is 113, so bytes 113..116 pad the name.
-    let mut bad_name_padding = archive.clone();
-    bad_name_padding[113] = 1;
-    let mut reader = CpioArchiveReader::new(bad_name_padding.as_slice());
-    assert!(matches!(
-        reader.next_entry_alloc(),
-        Err(hadris_cpio::Error::InvalidHeader {
-            reason: "alignment padding must be zero"
-        })
-    ));
-
-    // The two-byte body starts at 116, so bytes 118..120 pad the data.
-    let mut bad_data_padding = archive;
-    bad_data_padding[118] = 1;
-    let mut reader = CpioArchiveReader::new(bad_data_padding.as_slice());
-    let entry = reader.next_entry_alloc().unwrap().unwrap();
-    assert!(matches!(
-        reader.read_entry_data_alloc(&entry),
-        Err(hadris_cpio::Error::InvalidHeader {
-            reason: "alignment padding must be zero"
-        })
-    ));
+    let mut name_pad = newc_entry(b"xy", 0o100644, b"abc", None);
+    name_pad[113] = 1;
+    assert_eq!(
+        read_all(&name_pad)
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
+        Some(Detail::Padding)
+    );
+    let mut data_pad = newc_entry(b"x", 0o100644, b"abc", None);
+    let last = data_pad.len() - 1;
+    data_pad[last] = 1;
+    assert_eq!(
+        read_all(&data_pad)
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
+        Some(Detail::Padding)
+    );
 }
 
 #[test]
 fn trailer_detection() {
-    // An archive with no entries should still have a TRAILER
-    let tree = FileTree::new();
-    let archive = write_archive(&tree, false);
-    let mut reader = CpioArchiveReader::new(archive.as_slice());
-    assert!(reader.next_entry_alloc().unwrap().is_none());
+    let mut bytes = newc_entry(b"a", 0o100644, b"1", None);
+    bytes.extend(trailer());
+    bytes.extend(newc_entry(b"hidden", 0o100644, b"2", None));
+    let mut reader = CpioReader::new(Cursor::new(&bytes));
+    assert!(reader.next_entry().unwrap().is_some());
+    assert!(reader.next_entry().unwrap().is_none());
+    assert!(reader.next_entry().unwrap().is_none());
 }
 
 #[test]
 fn reader_rejects_trailer_with_nonzero_filesize() {
-    let tree = FileTree::new();
-    let mut archive = write_archive(&tree, false);
-    archive[54..62].copy_from_slice(b"00000001");
-
-    let mut reader = CpioArchiveReader::new(archive.as_slice());
-    assert!(matches!(
-        reader.next_entry_alloc(),
-        Err(hadris_cpio::Error::InvalidHeader {
-            reason: "TRAILER!!! c_filesize must be zero"
-        })
-    ));
+    let bytes = newc_entry(b"TRAILER!!!", 0, b"x", None);
+    assert_eq!(
+        read_all(&bytes)
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
+        Some(Detail::Trailer)
+    );
 }
 
 #[test]
 fn reader_accepts_aligned_eof_without_trailer() {
-    let mut tree = FileTree::new();
-    tree.add(FileNode::file("ab", b"xy".to_vec(), 0o644));
-    let archive = write_archive(&tree, false);
+    let bytes = newc_entry(b"a", 0o100644, b"12345", None);
+    assert_eq!(read_all(&bytes).unwrap().len(), 1);
+    let strict = ReaderOptions::new().with_strict_trailer();
+    let err = read_all_with(&bytes, strict).unwrap_err();
+    assert_eq!(
+        (err.kind(), err.detail().and_then(Detail::from_code)),
+        (ErrorKind::Corrupt, Some(Detail::Trailer))
+    );
 
-    let trailer_offset = {
-        let mut reader = CpioArchiveReader::new(archive.as_slice());
-        let entry = reader.next_entry_alloc().unwrap().unwrap();
-        reader.read_entry_data_alloc(&entry).unwrap();
-        reader.offset() as usize
-    };
-    let trailerless = &archive[..trailer_offset];
-
-    let mut reader = CpioArchiveReader::new(trailerless);
-    let entry = reader.next_entry_alloc().unwrap().unwrap();
-    assert_eq!(reader.read_entry_data_alloc(&entry).unwrap(), b"xy");
-    assert!(reader.next_entry_alloc().unwrap().is_none());
-
-    let mut reader = CpioArchiveReader::new(trailerless);
-    let mut name = [0_u8; 8];
-    let entry = reader.next_entry_with_buf(&mut name).unwrap().unwrap();
-    let mut data = [0_u8; 2];
-    reader.read_entry_data(&entry, &mut data).unwrap();
-    assert_eq!(&data, b"xy");
-    assert!(reader.next_entry_with_buf(&mut name).unwrap().is_none());
+    let mut cut = bytes.clone();
+    cut.extend_from_slice(&trailer()[..60]);
+    assert_eq!(
+        read_all(&cut)
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
+        Some(Detail::Truncated)
+    );
+    let data_cut = &bytes[..bytes.len() - 5];
+    assert_eq!(
+        read_all(data_cut)
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
+        Some(Detail::Truncated)
+    );
 }
 
 #[test]
-fn error_invalid_magic() {
-    let mut bad_archive = vec![0u8; 110];
-    bad_archive[0..6].copy_from_slice(b"999999");
-
-    let mut reader = CpioArchiveReader::new(bad_archive.as_slice());
-    let result = reader.next_entry_alloc();
-    assert!(result.is_err());
-
-    match result.unwrap_err() {
-        hadris_cpio::Error::InvalidMagic { found } => {
-            assert_eq!(&found, b"999999");
+fn concatenated_archives_read_on_request() {
+    let mut first = newc_entry(b"microcode", 0o100644, b"ucode", None);
+    first.extend(trailer());
+    first.resize(512, 0);
+    first.extend(newc_entry(b"init", 0o100755, b"sh", None));
+    first.extend(trailer());
+    let mut reader = CpioReader::new(Cursor::new(&first));
+    let mut names = Vec::new();
+    loop {
+        while let Some(entry) = reader.next_entry().unwrap() {
+            names.push(entry.path_str().unwrap().to_string());
         }
-        e => panic!("expected InvalidMagic, got {e}"),
+        if !reader.next_segment().unwrap() {
+            break;
+        }
+    }
+    assert_eq!(names, ["microcode", "init"]);
+}
+
+#[test]
+fn malformed_headers_are_corrupt() {
+    let mut magic = newc_entry(b"a", 0o100644, b"", None);
+    magic[5] = b'9';
+    let err = read_all(&magic).unwrap_err();
+    assert_eq!(
+        (err.kind(), Detail::of(&err)),
+        (ErrorKind::NotRecognized, Some(Detail::Magic))
+    );
+    let mut second = newc_entry(b"a", 0o100644, b"", None);
+    second.extend_from_slice(&magic);
+    let err = read_all(&second).unwrap_err();
+    assert_eq!(
+        (err.kind(), Detail::of(&err)),
+        (ErrorKind::Corrupt, Some(Detail::Magic))
+    );
+    let mut hex = newc_entry(b"a", 0o100644, b"", None);
+    assert_eq!(
+        read_all(&hex[..50])
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
+        Some(Detail::Truncated)
+    );
+    hex[20] = b'z';
+    assert_eq!(
+        read_all(&hex)
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
+        Some(Detail::Field)
+    );
+    let mut check = newc_entry(b"a", 0o100644, b"", None);
+    check[109] = b'1';
+    assert_eq!(
+        read_all(&check)
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
+        Some(Detail::Check)
+    );
+    let mut kind = newc_entry(b"a", 0o100644, b"", None);
+    kind[14..22].copy_from_slice(b"000F01A4");
+    assert_eq!(
+        read_all(&kind)
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
+        Some(Detail::Field)
+    );
+    let mut name = newc_entry(b"a", 0o100644, b"", None);
+    name[94..102].copy_from_slice(b"00001001");
+    assert_eq!(
+        read_all(&name)
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
+        Some(Detail::Name)
+    );
+}
+
+#[test]
+fn huge_claimed_sizes_end_with_an_error() {
+    let mut bytes = newc_entry(b"x", 0o100644, b"", None);
+    bytes[54..62].copy_from_slice(b"FFFFFFFF");
+    let mut reader = CpioReader::new(Cursor::new(&bytes));
+    let entry = reader.next_entry().unwrap().unwrap();
+    assert_eq!(entry.len(), u64::from(u32::MAX));
+    let _ = entry;
+    assert_eq!(
+        reader
+            .next_entry()
+            .unwrap_err()
+            .detail()
+            .and_then(Detail::from_code),
+        Some(Detail::Truncated)
+    );
+}
+
+#[test]
+fn odc_and_binary_archives_read() {
+    let odc = archive(&sample_tree(), Format::Odc);
+    assert_eq!(&odc[..6], b"070707");
+    let mut reader = CpioReader::new(Cursor::new(&odc));
+    let entry = reader.next_entry().unwrap().unwrap();
+    assert_eq!(entry.format(), Format::Odc);
+    assert_eq!(entry.offset(), 0);
+    assert_eq!(entry.data_offset(), 76 + entry.path().len() as u64 + 1);
+
+    let mut binary = Vec::new();
+    for little in [true, false] {
+        let word = |value: u16| {
+            if little {
+                value.to_le_bytes()
+            } else {
+                value.to_be_bytes()
+            }
+        };
+        for (name, mode, data) in [
+            (&b"hi\0"[..], 0o100644u16, &b"abc"[..]),
+            (b"TRAILER!!!\0", 0, b""),
+        ] {
+            let words = [
+                0o070707,
+                1,
+                2,
+                mode,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                name.len() as u16,
+                0,
+                data.len() as u16,
+            ];
+            for value in words {
+                binary.extend_from_slice(&word(value));
+            }
+            binary.extend_from_slice(name);
+            if name.len() % 2 == 1 {
+                binary.push(0);
+            }
+            binary.extend_from_slice(data);
+            if data.len() % 2 == 1 {
+                binary.push(0);
+            }
+        }
+        let mut reader = CpioReader::new(Cursor::new(&binary));
+        let entry = reader.next_entry().unwrap().unwrap();
+        assert_eq!((entry.offset(), entry.data_offset()), (0, 30));
+        let entries = read_all(&binary).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            (entries[0].name.as_str(), &entries[0].data[..]),
+            ("hi", &b"abc"[..])
+        );
+        binary.clear();
     }
 }
 
 #[test]
-fn error_truncated_header() {
-    let short = b"07070";
-    let mut reader = CpioArchiveReader::new(short.as_slice());
-    let result = reader.next_entry_alloc();
-    assert!(result.is_err());
+fn metadata_of_an_entry() {
+    let bytes = archive(&sample_tree(), Format::Newc);
+    let mut reader = CpioReader::new(Cursor::new(&bytes));
+    while let Some(entry) = reader.next_entry().unwrap() {
+        if entry.path() == b"init" {
+            let meta = entry.metadata();
+            assert_eq!(meta.file_type(), FileType::File);
+            assert_eq!(meta.len(), 10);
+            assert_eq!(meta.permissions(), Permissions::new(0o755));
+            assert_eq!(meta.owner(), Some(Owner::new(1000, 100)));
+            assert_eq!(
+                meta.modified(),
+                Some(DateTime::from_unix_seconds(1_700_000_000).unwrap())
+            );
+        }
+    }
 }
 
 #[test]
-fn error_buffer_too_small() {
-    let mut tree = FileTree::new();
-    tree.add(FileNode::file(
-        "very_long_filename.txt",
-        b"data".to_vec(),
-        0o644,
-    ));
-
-    let archive = write_archive(&tree, false);
-    let mut reader = CpioArchiveReader::new(archive.as_slice());
-
-    // Buffer too small for the filename
-    let mut tiny_buf = [0u8; 2];
-    let result = reader.next_entry_with_buf(&mut tiny_buf);
-    assert!(result.is_err());
+fn caller_buffer_limits_include_nul_and_preserve_non_utf8_paths() {
+    let bytes = newc_entry(b"a\xff", 0o100644, b"data", None);
+    let mut storage = [0u8; 3];
+    let mut reader =
+        CpioReader::with_buffer(Cursor::new(&bytes), &mut storage[..], ReaderOptions::new());
+    let mut entry = reader.next_entry().unwrap().unwrap();
+    assert_eq!(entry.path(), b"a\xff");
+    assert!(entry.path_str().is_err());
+    assert_eq!((entry.offset(), entry.data_offset()), (0, 116));
+    let mut data = [0; 4];
+    entry.read_exact(&mut data).unwrap();
+    assert_eq!(&data, b"data");
+    assert_eq!(entry.data_offset(), 116);
+    assert!(reader.next_entry().unwrap().is_none());
+    for capacity in [0, 1, 2] {
+        let mut reader =
+            CpioReader::with_buffer(Cursor::new(&bytes), vec![0; capacity], ReaderOptions::new());
+        assert_eq!(
+            reader.next_entry().unwrap_err().kind(),
+            ErrorKind::LimitExceeded
+        );
+        assert!(reader.next_entry().unwrap().is_none());
+    }
 }
 
 #[test]
-fn roundtrip_all_node_types() {
-    let mut tree = FileTree::new();
-    tree.add(FileNode::file_with_owner(
-        "regular.txt",
-        b"content".to_vec(),
-        0o755,
-        1000,
-        1000,
-        1234567890,
-    ));
-    tree.add(FileNode::dir_with_owner(
-        "mydir",
-        vec![FileNode::file("inner.txt", b"inner".to_vec(), 0o600)],
-        0o755,
-        0,
-        0,
-        1234567890,
-    ));
-    tree.add(FileNode::symlink("mylink", "/target"));
-    tree.add(FileNode::device(
-        "mynull",
-        FileType::CharDevice,
-        1,
-        3,
-        0o666,
-    ));
-    tree.add(FileNode::fifo("myfifo", 0o644));
-
-    let archive = write_archive(&tree, false);
-    let mut reader = CpioArchiveReader::new(archive.as_slice());
-
-    // Regular file
-    let entry = reader.next_entry_alloc().unwrap().unwrap();
-    assert_eq!(entry.name_str().unwrap(), "regular.txt");
-    assert_eq!(entry.file_type(), FileType::Regular);
-    assert_eq!(entry.header().uid, 1000);
-    assert_eq!(entry.header().gid, 1000);
-    assert_eq!(entry.header().mtime, 1234567890);
-    assert_eq!(entry.header().permissions(), 0o755);
-    let data = reader.read_entry_data_alloc(&entry).unwrap();
-    assert_eq!(data, b"content");
-
-    // Directory
-    let entry = reader.next_entry_alloc().unwrap().unwrap();
-    assert_eq!(entry.name_str().unwrap(), "mydir");
-    assert_eq!(entry.file_type(), FileType::Directory);
-    reader.skip_entry_data_owned(&entry).unwrap();
-
-    // Inner file
-    let entry = reader.next_entry_alloc().unwrap().unwrap();
-    assert_eq!(entry.name_str().unwrap(), "mydir/inner.txt");
-    let data = reader.read_entry_data_alloc(&entry).unwrap();
-    assert_eq!(data, b"inner");
-
-    // Symlink
-    let entry = reader.next_entry_alloc().unwrap().unwrap();
-    assert_eq!(entry.name_str().unwrap(), "mylink");
-    assert_eq!(entry.file_type(), FileType::Symlink);
-    let data = reader.read_entry_data_alloc(&entry).unwrap();
-    assert_eq!(core::str::from_utf8(&data).unwrap(), "/target");
-
-    // Char device
-    let entry = reader.next_entry_alloc().unwrap().unwrap();
-    assert_eq!(entry.name_str().unwrap(), "mynull");
-    assert_eq!(entry.file_type(), FileType::CharDevice);
-    reader.skip_entry_data_owned(&entry).unwrap();
-
-    // FIFO
-    let entry = reader.next_entry_alloc().unwrap().unwrap();
-    assert_eq!(entry.name_str().unwrap(), "myfifo");
-    assert_eq!(entry.file_type(), FileType::Fifo);
-    reader.skip_entry_data_owned(&entry).unwrap();
-
-    // Trailer
-    assert!(reader.next_entry_alloc().unwrap().is_none());
+fn caller_buffer_accepts_names_beyond_default_limit() {
+    let path = vec![b'x'; hadris_cpio::raw::PATH_MAX + 1];
+    let bytes = newc_entry(&path, 0o100644, b"", None);
+    let mut default = CpioReader::new(Cursor::new(&bytes));
+    assert_eq!(
+        default.next_entry().unwrap_err().kind(),
+        ErrorKind::LimitExceeded
+    );
+    let mut reader = CpioReader::with_buffer(
+        Cursor::new(&bytes),
+        vec![0; path.len() + 1],
+        ReaderOptions::new(),
+    );
+    assert_eq!(reader.next_entry().unwrap().unwrap().path(), path);
 }
 
 #[test]
-fn roundtrip_empty_file() {
-    let mut tree = FileTree::new();
-    tree.add(FileNode::file("empty", Vec::new(), 0o644));
-
-    let archive = write_archive(&tree, false);
-    let mut reader = CpioArchiveReader::new(archive.as_slice());
-
-    let entry = reader.next_entry_alloc().unwrap().unwrap();
-    assert_eq!(entry.name_str().unwrap(), "empty");
-    assert_eq!(entry.file_size(), 0);
-
-    let data = reader.read_entry_data_alloc(&entry).unwrap();
-    assert!(data.is_empty());
-
-    assert!(reader.next_entry_alloc().unwrap().is_none());
+fn custom_buffer_still_validates_termination() {
+    let mut bytes = newc_entry(b"abc", 0o100644, b"", None);
+    bytes[113] = b'x';
+    let mut reader = CpioReader::with_buffer(Cursor::new(&bytes), [0; 4], ReaderOptions::new());
+    assert_eq!(reader.next_entry().unwrap_err().kind(), ErrorKind::Corrupt);
 }
 
 #[test]
-fn roundtrip_large_data() {
-    // Test with data larger than the skip buffer size (256 bytes)
-    let large_data: Vec<u8> = (0..1024).map(|i| (i % 256) as u8).collect();
-    let mut tree = FileTree::new();
-    tree.add(FileNode::file("large.bin", large_data.clone(), 0o644));
+fn segment_state_offsets_and_pending_byte_recovery() {
+    let mut bytes = trailer();
+    bytes.resize(512, 0);
+    let second = newc_entry(b"x", 0o100644, b"abc", None);
+    bytes.extend(&second);
+    bytes.extend(trailer());
+    bytes.extend([0; 16]);
+    let mut reader = CpioReader::new(Cursor::new(&bytes));
+    assert_eq!(
+        reader.next_segment().unwrap_err().kind(),
+        ErrorKind::InvalidInput
+    );
+    assert!(reader.next_entry().unwrap().is_none());
+    assert!(reader.next_segment().unwrap());
+    assert_eq!(reader.offset(), 513);
+    assert_eq!(
+        reader.next_segment().unwrap_err().kind(),
+        ErrorKind::InvalidInput
+    );
+    let (mut input, buffer, pending) = reader.into_parts();
+    assert_eq!(buffer.len(), hadris_cpio::raw::PATH_MAX);
+    assert_eq!(pending, Some(b'0'));
+    let mut next = [0];
+    input.read_exact(&mut next).unwrap();
+    assert_eq!(next[0], second[1]);
 
-    let archive = write_archive(&tree, false);
-    let mut reader = CpioArchiveReader::new(archive.as_slice());
+    let mut reader = CpioReader::new(Cursor::new(&bytes));
+    assert!(reader.next_entry().unwrap().is_none());
+    assert!(reader.next_segment().unwrap());
+    let entry = reader.next_entry().unwrap().unwrap();
+    assert_eq!((entry.offset(), entry.data_offset()), (512, 624));
+    assert_eq!(entry.path(), b"x");
+    assert!(reader.next_entry().unwrap().is_none());
+    assert!(!reader.next_segment().unwrap());
+    assert!(!reader.next_segment().unwrap());
+    assert_eq!(reader.offset(), bytes.len() as u64);
+}
 
-    let entry = reader.next_entry_alloc().unwrap().unwrap();
-    assert_eq!(entry.file_size(), 1024);
-    let data = reader.read_entry_data_alloc(&entry).unwrap();
-    assert_eq!(data, large_data);
+#[test]
+fn segment_probe_does_not_claim_header_validity() {
+    let mut bytes = trailer();
+    bytes.extend(b"garbage");
+    let mut reader = CpioReader::new(Cursor::new(&bytes));
+    assert!(reader.next_entry().unwrap().is_none());
+    assert!(reader.next_segment().unwrap());
+    assert_eq!(reader.next_entry().unwrap_err().kind(), ErrorKind::Corrupt);
+    assert!(!reader.next_segment().unwrap());
+}
+
+#[test]
+fn crc_trailer_checksum_is_verified() {
+    let bytes = newc_entry(b"TRAILER!!!", 0, b"", Some(1));
+    let mut reader = CpioReader::new(Cursor::new(&bytes));
+    let error = reader.next_entry().unwrap_err();
+    assert_eq!(Detail::of(&error), Some(Detail::Checksum));
+}
+
+#[test]
+fn caller_buffer_must_fit_trailer_and_both_slice_views() {
+    let mut bytes = newc_entry(b"x", 0o100644, b"", None);
+    bytes.extend(trailer());
+    let mut reader = CpioReader::with_buffer(Cursor::new(&bytes), [0; 2], ReaderOptions::new());
+    assert_eq!(reader.next_entry().unwrap().unwrap().path(), b"x");
+    assert_eq!(
+        reader.next_entry().unwrap_err().kind(),
+        ErrorKind::LimitExceeded
+    );
+
+    struct UnequalViews([u8; 16]);
+    impl AsRef<[u8]> for UnequalViews {
+        fn as_ref(&self) -> &[u8] {
+            &self.0[..1]
+        }
+    }
+    impl AsMut<[u8]> for UnequalViews {
+        fn as_mut(&mut self) -> &mut [u8] {
+            &mut self.0
+        }
+    }
+    let mut reader = CpioReader::with_buffer(
+        Cursor::new(&bytes),
+        UnequalViews([0; 16]),
+        ReaderOptions::new(),
+    );
+    assert_eq!(
+        reader.next_entry().unwrap_err().kind(),
+        ErrorKind::LimitExceeded
+    );
+}
+
+#[test]
+fn borrowed_payloads_handle_short_writes_and_keep_archive_bytes() {
+    struct ShortWriter {
+        bytes: Vec<u8>,
+        calls: usize,
+        max_request: usize,
+        limit: usize,
+    }
+    impl hadris_io::ErrorType for ShortWriter {
+        type Error = core::convert::Infallible;
+    }
+    impl Write for ShortWriter {
+        fn write(&mut self, data: &[u8]) -> Result<usize, Self::Error> {
+            self.calls += 1;
+            self.max_request = self.max_request.max(data.len());
+            let n = data.len().min(self.limit);
+            self.bytes.extend_from_slice(&data[..n]);
+            Ok(n)
+        }
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+    let mut tree = Tree::new();
+    let payload = vec![37; 131_073];
+    tree.insert("data", Node::file(Content::bytes(payload.clone())))
+        .unwrap();
+    for format in [Format::Newc, Format::Crc, Format::Odc] {
+        let expected = archive(&tree, format);
+        for limit in [7, usize::MAX] {
+            let mut out = ShortWriter {
+                bytes: Vec::new(),
+                calls: 0,
+                max_request: 0,
+                limit,
+            };
+            let report =
+                hadris_cpio::sync::write(&mut out, &tree, &CpioOptions::new().with_format(format))
+                    .unwrap();
+            assert_eq!(report.size(), expected.len() as u64);
+            assert_eq!(out.bytes, expected);
+            assert_eq!(out.max_request, payload.len());
+            assert_eq!(read_all(&out.bytes).unwrap()[0].data, payload);
+        }
+    }
+}
+
+#[test]
+fn writer_combines_name_terminator_and_padding_at_every_alignment() {
+    struct Counted {
+        bytes: Vec<u8>,
+        writes: usize,
+        limit: usize,
+    }
+    impl hadris_io::ErrorType for Counted {
+        type Error = core::convert::Infallible;
+    }
+    impl Write for Counted {
+        fn write(&mut self, data: &[u8]) -> Result<usize, Self::Error> {
+            let n = data.len().min(self.limit);
+            self.bytes.extend_from_slice(&data[..n]);
+            self.writes += 1;
+            Ok(n)
+        }
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+    for format in [Format::Newc, Format::Crc, Format::Odc] {
+        for len in 1..=8 {
+            let name = vec![b'x'; len];
+            for limit in [1, usize::MAX] {
+                let mut out = Counted {
+                    bytes: Vec::new(),
+                    writes: 0,
+                    limit,
+                };
+                let mut writer = Writer::new(&mut out, &CpioOptions::new().with_format(format));
+                writer.append(&name, &Node::dir()).unwrap();
+                writer.finish().unwrap();
+                if limit == usize::MAX {
+                    assert_eq!(out.writes, 6);
+                }
+                let entries = read_all(&out.bytes).unwrap();
+                assert_eq!(entries.len(), 1);
+                assert_eq!(entries[0].name.as_bytes(), name);
+                assert_eq!(entries[0].file_type, FileType::Dir);
+                if matches!(format, Format::Newc | Format::Crc) {
+                    assert_eq!(out.bytes.len(), (110 + len + 1).next_multiple_of(4) + 124);
+                    assert_eq!(&out.bytes[38..46], b"00000002");
+                    let start = 110 + name.len();
+                    let end = (start + 1).next_multiple_of(4);
+                    assert!(out.bytes[start..end].iter().all(|&byte| byte == 0));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn odc_hard_links_store_each_payload_and_report_its_own_extent() {
+    let options = CpioOptions::new().with_format(Format::Odc);
+    for len in [0, 4, 70_001] {
+        let data = vec![37; len];
+        let node = Node::file(Content::bytes(data.clone()));
+        let mut tree = Tree::new();
+        tree.insert("a", node.clone()).unwrap();
+        tree.link("a", "b").unwrap();
+        tree.link("a", "c").unwrap();
+        let mut out = StdIo::new(Vec::new());
+        let report = hadris_cpio::sync::write(&mut out, &tree, &options).unwrap();
+        let bytes = out.into_inner();
+        let plan = hadris_cpio::plan(&tree, &options).unwrap();
+        let mut streamed = StdIo::new(Vec::new());
+        let mut writer = Writer::new(&mut streamed, &options);
+        writer.append_hard_links(&["a", "b", "c"], &node).unwrap();
+        let (_, streaming_report) = writer.finish().unwrap();
+        assert_eq!(streamed.into_inner(), bytes);
+        assert_eq!(report.size(), bytes.len() as u64);
+        assert_eq!(plan.size(), report.size());
+        let entries = read_all(&bytes).unwrap();
+        assert_eq!(entries.len(), 3);
+        let mut offsets = Vec::new();
+        for entry in entries {
+            assert_eq!(entry.data, data);
+            assert_eq!(entry.ino, 1);
+            assert_eq!(entry.nlink, 3);
+            let extent = report.extents(&entry.name).unwrap()[0];
+            assert_eq!(extent.len(), len as u64);
+            assert_eq!(plan.extents(&entry.name), report.extents(&entry.name));
+            assert_eq!(
+                streaming_report.extents(&entry.name),
+                report.extents(&entry.name)
+            );
+            let offset = extent.offset() as usize;
+            assert_eq!(&bytes[offset..offset + len], data);
+            offsets.push(offset);
+        }
+        assert!(offsets.windows(2).all(|pair| pair[0] < pair[1]));
+    }
 }

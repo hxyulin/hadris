@@ -9,35 +9,40 @@ Choose the narrowest crate that covers your application:
 ```toml
 [dependencies]
 # A single filesystem:
-hadris-fat = "2.5.0"
+hadris-fat = "3.0.0-rc.1"
 
-# Experimental read-only NTFS and APFS:
-hadris-ntfs = "2.5.0"
-hadris-apfs = "2.5.0"
+# Read-only NTFS (preview):
+hadris-ntfs = "3.0.0-rc.1"
 
 # Or several storage categories:
-hadris = { version = "2.5.0", features = ["block", "optical"] }
+hadris = { version = "3.0.0-rc.1", features = ["udf", "part"] }
 ```
 
 Hadris separates platform support, I/O mode, and capabilities. For a
-freestanding read-only FAT consumer:
+freestanding FAT or exFAT consumer, which needs an allocator for the
+driver's node table but not `std`:
 
 ```toml
 [dependencies]
 hadris-fat = {
-  version = "2.5.0",
+  version = "3.0.0-rc.1",
   default-features = false,
-  features = ["read", "sync"]
+  features = ["alloc", "sync"]
 }
 ```
 
-For hosted applications, default features provide the ergonomic synchronous
-configuration. Use explicit `sync` or `async` namespaces in new code when an
-application enables both modes.
+For hosted applications, the default features provide the synchronous API
+with `std`. Every I/O type is named through its mode module
+(`hadris_fat::sync::FatFs`, `hadris_iso::r#async::IsoFs`), so the same code
+reads the same way whichever modes are enabled.
 
-The NTFS and APFS readers are experimental leaf crates and are outside the V2
-stability freeze. Each crate README documents the supported read-only scope and known
-gaps.
+Every filesystem driver implements the `hadris-fs` `FileSystem` trait, which
+works on node ids. Wrap a driver in `hadris_fs::sync::Volume` for paths and
+methods named after `std::fs` (`read_dir`, `open`, `metadata`,
+`create_dir_all`) and to share it between handles and threads.
+
+The NTFS reader is a preview and is outside the stability promise. Its crate
+README documents the supported read-only scope and known gaps.
 
 For the complete support table and feature recipes, see
 [Features and capabilities](./concepts/features.md).

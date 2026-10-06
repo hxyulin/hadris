@@ -1,111 +1,216 @@
 //! # hadris-fat
 //!
 //! A pure Rust, `no_std`-compatible library for reading, writing, and formatting
-//! FAT12, FAT16, and FAT32 filesystems, plus an opt-in unstable exFAT preview.
+//! FAT12, FAT16, FAT32 and exFAT filesystems.
 //! It is suitable for disk-image tools, bootloaders, kernels, firmware,
 //! embedded devices, SD cards, and USB drives.
 //!
-//! ## Quick Start
+//! ## The driver: `FatFs`
+//!
+//! `FatFs` is the node-based driver, generated for each mode
+//! (`sync::FatFs`, `r#async::FatFs`). It mounts any
+//! `hadris_storage` block device, needs `alloc` for its node table, and implements the
+//! `hadris_fs` `FileSystem` trait, so `Volume`, its handles and the
+//! `hadris-fs` tree helpers work on it. It reads and writes files and
+//! directories: `create`, `mkdir`, `unlink`, `rmdir`, `rename`, `write`,
+//! `truncate`, `setattr`, `close`, `fsync` and `sync`. Sizes of pinned
+//! files are kept in the node table until one of the last three; see the
+//! `FatFs` docs for durability and crash safety.
 //!
 //! ```rust,no_run
-//! use std::fs::File;
-//! use hadris_fat::sync::FatVolume;
+//! # #[cfg(all(feature = "sync", feature = "std"))]
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use std::io::{Read, Write};
 //!
-//! let file = File::open("disk.img").unwrap();
-//! let fs = FatVolume::open(file).unwrap();
-//! let root = fs.root_dir();
-//! let mut iter = root.entries();
-//! while let Some(Ok(entry)) = iter.next_entry() {
-//!     println!("{}", entry.name());
+//! use hadris_fat::sync::FatFs;
+//! use hadris_fs::sync::{FileSystem, Volume};
+//! use hadris_fs::{MountOptions, OpenOptions};
+//! use hadris_storage::{BlockSize, MemDevice};
+//!
+//! let image = std::fs::read("disk.img")?;
+//! let dev = MemDevice::new(image, BlockSize::new(512).unwrap());
+//! let fs = FatFs::mount(dev, MountOptions::new())?;
+//! let vol = Volume::new(fs);
+//! for entry in vol.read_dir("/EFI")? {
+//!     println!("{:?}", entry?.name());
 //! }
-//! ```
-//!
-//! ## Builder: custom providers and FAT caching
-//!
-//! [`FatVolume::builder`] configures the clock and
-//! OEM-codepage providers — and, with the `cache` feature, an LRU FAT-sector
-//! cache — before mounting:
-//!
-//! ```rust,no_run
-//! # #[cfg(feature = "cache")]
-//! # {
-//! use hadris_fat::sync::FatVolume;
-//! use std::fs::OpenOptions;
-//!
-//! let disk = OpenOptions::new()
-//!     .read(true)
-//!     .write(true)
-//!     .open("disk.img")
-//!     .unwrap();
-//! let fs = FatVolume::builder(disk)
-//!     .fat_cache(16)
-//!     .open()
-//!     .unwrap();
-//!
-//! // Normal FatVolume operations use the installed cache transparently.
-//! let _root = fs.root_dir();
-//!
-//! // After cached writes, flush before dropping the volume.
-//! fs.flush().unwrap();
+//! let mut config = Vec::new();
+//! vol.open("/boot/grub.cfg", OpenOptions::new().read())?
+//!     .read_to_end(&mut config)?;
+//! let mut backup = vol.open(
+//!     "/boot/grub.cfg.bak",
+//!     OpenOptions::new().write().create().truncate(),
+//! )?;
+//! backup.write_all(&config)?;
+//! backup.close()?;
+//! vol.lock().sync()?;
+//! # Ok(())
 //! # }
+//! # #[cfg(not(all(feature = "sync", feature = "std")))]
+//! # fn main() {}
 //! ```
 //!
-//! Without `cache`, omit `.fat_cache(...)`. A zero capacity also disables the
-//! cache. The cache is sync-only; async operations access the FAT directly.
-//! See [`FatVolumeBuilder`].
+//! [`MountOptions`](hadris_fs::MountOptions) choose read-only, the
+//! [`Clock`](hadris_fs::Clock) that stamps entries, the UTC offset of the
+//! volume's timestamps, the [`CodePage`](hadris_fs::CodePage) of short
+//! names (CP437 by default) and a cap on pinned nodes. A failed mount
+//! returns a [`MountError`](hadris_fs::MountError) that gives the device
+//! back, and `unmount` syncs and gives it back too.
+//!
+//! ## exFAT: `ExFatFs`
+//!
+//! [`exfat`] holds `ExFatFs`, a sibling of `FatFs` with the same shape:
+//! `exfat::sync::ExFatFs` and its `r#async` twin, each
+//! with `check` and, with `write`, `format` and `write`. It needs `alloc`
+//! and implements `FileSystem`.
+//!
+//! ## Firmware: the embedded API
+//!
+//! [`embedded`] holds `Fat<'mount, D, const FILES: usize = 4>`, a handle-based
+//! FAT12/16/32 driver for firmware without an allocator, in
+//! `embedded::sync` and `embedded::r#async` (over a `local::BlockDevice`,
+//! whose futures need not be `Send`). It is built on the raw layer, not on
+//! `FatFs`: one 512-byte block buffer, no node table, ASCII name folding
+//! unless asked for Unicode, and under 1 KiB of state with four file
+//! slots. [`exfat::embedded`] holds `ExFat`, its read-only exFAT
+//! counterpart.
+//!
+//! ```rust
+//! # #[cfg(all(feature = "sync", feature = "write", feature = "std"))]
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use core::ops::ControlFlow;
+//!
+//! use hadris_fat::embedded::{MountToken, sync::Fat};
+//! use hadris_fat::{FatOptions, sync::format};
+//! use hadris_fs::{DirCursor, OpenOptions};
+//! use hadris_storage::{BlockSize, MemDevice};
+//!
+//! let mut dev = MemDevice::new(vec![0u8; 4 << 20], BlockSize::new(512).unwrap());
+//! format(&mut dev, &FatOptions::new())?;
+//! let mut token = MountToken::new();
+//! let mut fat: Fat<_> = Fat::mount(dev, &mut token)?;
+//! let logs = fat.create_dir_all(fat.root(), "data/logs")?;
+//! let log = fat.open(logs, "boot.txt", OpenOptions::new().write().create().append())?;
+//! fat.write(&log, b"booted\n")?;
+//! fat.close(log)?;
+//! fat.list(logs, DirCursor::START, |entry| {
+//!     assert!(entry.chars().eq("boot.txt".chars()));
+//!     ControlFlow::Continue(())
+//! })?;
+//! let dev = fat.unmount()?;
+//! # let _ = dev;
+//! # Ok(())
+//! # }
+//! # #[cfg(not(all(feature = "sync", feature = "write", feature = "std")))]
+//! # fn main() {}
+//! ```
+//!
+//! ## Formatting and writing trees
+//!
+//! With the `write` feature, `format(&mut dev, &opts)` (in each mode) lays
+//! out a FAT12, FAT16 or FAT32 volume and returns its [`Geometry`]; it needs
+//! no allocator, and the caller mounts the volume with its own
+//! `MountOptions`. [`FatOptions`] sets the variant, size, label, time,
+//! seed or serial, sector and cluster size, alignment, partition offset and
+//! the other boot sector fields; everything defaults from the device. With
+//! `alloc`, `write(dev, &tree, &opts)` formats and copies a
+//! `hadris_fs::Tree` into the volume, returning a `hadris_fs::Report`.
+//!
+//! ```rust
+//! # #[cfg(all(feature = "sync", feature = "write", feature = "std"))]
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use hadris_fat::sync::{FatFs, format, write};
+//! use hadris_fat::{FatKind, FatOptions, VolumeLabel};
+//! use hadris_fs::sync::Volume;
+//! use hadris_fs::{Content, MountOptions, Node, OpenOptions, Tree};
+//! use hadris_storage::{BlockSize, MemDevice};
+//!
+//! let mut dev = MemDevice::new(vec![0u8; 8 << 20], BlockSize::new(512).unwrap());
+//! let options = FatOptions::new().with_label(VolumeLabel::new("DATA")?);
+//! assert_eq!(format(&mut dev, &options)?.kind(), FatKind::Fat12);
+//! let vol = Volume::new(FatFs::mount(dev, MountOptions::new())?);
+//! let mut file = vol.open("/hello.txt", OpenOptions::new().write().create())?;
+//! file.write(b"hello")?;
+//! file.close()?;
+//!
+//! let mut tree = Tree::new();
+//! tree.insert("docs/readme.txt", Node::file(Content::bytes("hi")))?;
+//! let mut image = Vec::new();
+//! let report = write(&mut image, &tree, &options.with_size(4 << 20))?;
+//! assert_eq!(report.size(), 4 << 20);
+//! # Ok(())
+//! # }
+//! # #[cfg(not(all(feature = "sync", feature = "write", feature = "std")))]
+//! # fn main() {}
+//! ```
+//!
+//! ## Checking
+//!
+//! `check` (in each mode, no allocator) reads an unmounted volume without
+//! changing it and passes each `hadris_fs::Finding` to a callback: boot
+//! sector, FSInfo and FAT copy problems, a dirty volume, broken, cyclic,
+//! cross-linked and lost chains, chains that do not fit their file, bad
+//! names, dot entries, misplaced labels and broken long-name runs. Each
+//! finding has a [`Detail`] code and the path of its entry.
+//!
+//! ```rust
+//! # #[cfg(all(feature = "sync", feature = "write", feature = "std"))]
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use hadris_fat::sync::{check, format};
+//! use hadris_fat::FatOptions;
+//! use hadris_storage::{BlockSize, MemDevice};
+//!
+//! let mut dev = MemDevice::new(vec![0u8; 8 << 20], BlockSize::new(512).unwrap());
+//! format(&mut dev, &FatOptions::new())?;
+//! let mut scratch = [0u8; 4096];
+//! let report = check(&mut dev, &mut scratch, |finding| println!("{finding}"))?;
+//! assert!(report.is_clean());
+//! # Ok(())
+//! # }
+//! # #[cfg(not(all(feature = "sync", feature = "write", feature = "std")))]
+//! # fn main() {}
+//! ```
 //!
 //! ## Feature Flags
 //!
 //! | Feature  | Default | Description |
 //! |----------|---------|-------------|
-//! | `std`    | Yes     | Standard library support (enables `alloc` and chrono clock) |
-//! | `alloc`  | No      | Heap allocation without full std |
-//! | `sync`   | No      | Synchronous API via `hadris-io` sync traits |
-//! | `async`  | No      | Asynchronous API via `hadris-io` async traits |
-//! | `read`   | Yes     | Read operations |
-//! | `write`  | Yes     | Write operations (requires `alloc` + `read`) |
-//! | `lfn`    | Yes     | Long filename (VFAT) support |
-//! | `cache`  | No      | FAT sector caching for reduced I/O |
-//! | `tool`   | No      | Analysis and diagnostic utilities |
-//! | `unstable-exfat` | No | Unstable, sync-only exFAT preview |
+//! | `std`    | Yes     | Standard library support (enables `alloc`); `hadris_storage::host::FileDevice` and `SystemClock` from the storage and fs crates |
+//! | `alloc`  | No      | `FatFs`, `ExFatFs` and the tree writers `write`; without it the embedded API, `check`, `format` and the raw layer |
+//! | `sync`   | Yes     | Synchronous API in `sync` |
+//! | `async`  | No      | Asynchronous API with `Send` futures in `r#async` |
+//! | `write`  | Yes     | `format`, and with `alloc` `write`, in each mode; `FatFs` and `ExFatFs` write without it |
+//! | `defmt`  | No      | `defmt::Format` for `FatKind` |
+//! | `tracing` | No | Function spans for FAT/exFAT operations and FAT allocation/write paths; enables `std` |
 //!
-//! ## Known Limitations
+//! No feature changes what an item does: `FatFs` always reads and writes long
+//! names.
 //!
-//! - **async + cache:** The FAT-sector cache is sync-only; async operations
-//!   access the FAT directly.
-//! - **exFAT:** The `unstable-exfat` preview is outside the V2 API stability
-//!   promise and is not recommended for irreplaceable data. It is sync-only
-//!   and does not support fragmented allocation bitmap / upcase metadata,
-//!   directory growth, general cross-cluster entry-set placement, TexFAT, or
-//!   repair workflows. Enable the preview and see the `exfat` module for its
-//!   qualified scope.
+//! ## Sync and async
 //!
-//! ## Dual Sync/Async Architecture
-//!
-//! This crate provides both synchronous and asynchronous APIs through
-//! a compile-time code transformation system. The same implementation
-//! source is compiled twice:
-//!
-//! - **`sync`** module: synchronous API (enabled by `sync` feature)
-//! - **`async`** module: asynchronous API (enabled by `async` feature)
-//!
-//! `std` does not select an I/O mode. The default feature set enables `sync`
-//! explicitly, and synchronous API types are re-exported at the crate root
-//! whenever `sync` is enabled.
+//! The same source is compiled once per enabled mode: `sync` and `r#async`,
+//! whose futures are `Send` when the device is. Each holds `FatFs`, `check` and, with `write`, `format` and `write`. The crate root holds only the mode-independent types.
 //!
 //! ## Modules
 //!
-//! - `error` — Error types for FAT operations
-//! - `file` — Short filename (8.3) types and validation
-//! - `raw` — On-disk structures: boot sector, BPB, directory entries
-//! - `sync::fs` — Filesystem handle and metadata
-//! - `sync::dir` — Directory iteration and entry types
-//! - `sync::read` — Read extension trait for file content
-//! - `sync::write` — Write extension trait for file modification
-//! - `sync::fat_table` — FAT table access (FAT12/16/32)
-//! - `sync::cache` — Optional FAT sector caching
-//! - `sync::format` — Filesystem formatting (requires `write`)
-//! - `sync::tool` — Analysis and verification (requires `tool`)
+//! - `sync::FatFs`, `r#async::FatFs`: the driver
+//! - `sync::format`, `sync::write` and their `async` versions: the
+//!   formatter and the tree writer (require `write`)
+//! - `sync::check` and its `async` versions: the checker, from
+//!   `hadris-fat-raw`
+//! - `exfat`: the exFAT driver, `ExFatFs`, with its own `sync` and
+//!   `r#async` modes, formatter and checker
+//! - `Detail` and `exfat::Detail`: what exactly is wrong with a volume, read
+//!   from mount and read errors with `Detail::of`
+//!
+//! ## The raw layer
+//!
+//! The on-disk layouts, the I/O-free codecs and the device primitives the
+//! drivers are built on are the separate `hadris-fat-raw` crate, which has
+//! its own version. This crate re-exports only what its own signatures use:
+//! [`FatKind`], [`Geometry`], [`Detail`], `exfat::Geometry`,
+//! `exfat::Detail` and the `check` functions.
+//! Depend on `hadris-fat-raw` directly to use the rest.
 
 #![cfg_attr(not(test), no_std)]
 #![deny(missing_docs)]
@@ -122,201 +227,101 @@ extern crate self as hadris_fat;
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-// ---------------------------------------------------------------------------
-// Shared types (compiled once, not duplicated by sync/async modules)
-// ---------------------------------------------------------------------------
+#[cfg(feature = "alloc")]
+mod cache;
+#[cfg(any(feature = "sync", feature = "async"))]
+mod names;
+mod options;
+#[cfg(feature = "alloc")]
+mod table;
+#[cfg(feature = "alloc")]
+pub use cache::CacheOptions;
 
-pub mod error;
-/// FAT filename types, including 8.3 and long-file-name helpers.
-pub mod file;
-pub mod oem;
-/// Raw on-disk FAT structures and attribute flags.
-pub mod raw;
-pub mod time;
-
-// Unstable exFAT preview, intentionally outside the sync/async stable surface.
-#[cfg(feature = "unstable-exfat")]
+#[cfg(any(feature = "sync", feature = "async"))]
+pub mod embedded;
+/// The exFAT driver, `ExFatFs`, its formatter and checker.
 pub mod exfat;
-
-// ---------------------------------------------------------------------------
-// Sync module
-// ---------------------------------------------------------------------------
 
 #[cfg(feature = "sync")]
 #[path = ""]
 pub mod sync {
-    //! Synchronous FAT filesystem API.
-    //!
-    //! All I/O operations use synchronous `Read`/`Write`/`Seek` traits.
+    //! The synchronous API.
 
-    pub use hadris_io::Result as IoResult;
-    pub use hadris_io::sync::{Parsable, Read, ReadExt, Seek, Writable, Write};
-    pub use hadris_io::{Error, ErrorKind, SeekFrom};
-
+    #[allow(unused_macros)]
     macro_rules! io_transform {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
     }
 
-    #[allow(unused_macros)]
-    macro_rules! sync_only {
-        ($($item:tt)*) => { $($item)* };
-    }
+    use hadris_fat_raw::io::sync as rawio;
+    #[cfg(feature = "alloc")]
+    use hadris_fs::sync as fsapi;
+    #[cfg(any(feature = "alloc", feature = "write"))]
+    use hadris_storage::sync as storage;
 
-    #[allow(unused_macros)]
-    macro_rules! async_only {
-        ($($item:tt)*) => {};
-    }
-
-    #[path = "."]
-    mod __inner {
-        #[cfg(feature = "cache")]
-        pub mod cache;
-        /// Directory traversal and directory-entry types.
-        pub mod dir;
-        /// FAT12, FAT16, and FAT32 allocation-table access.
-        pub mod fat_table;
-        #[cfg(feature = "write")]
-        pub mod format;
-        /// Mounted FAT filesystem handles and builders.
-        pub mod fs;
-        /// FAT-specific I/O positioning utilities.
-        pub mod io;
-        pub mod read;
-        #[cfg(feature = "tool")]
-        pub mod tool;
-        pub mod write;
-    }
-    pub use __inner::*;
-
+    #[cfg(any(feature = "alloc", feature = "write"))]
+    #[path = "block_io.rs"]
+    pub(crate) mod block_io;
+    #[cfg(feature = "alloc")]
+    #[path = "fatfs.rs"]
+    mod fatfs;
+    #[cfg(feature = "alloc")]
+    pub use fatfs::FatFs;
+    pub use rawio::check;
     #[cfg(feature = "write")]
-    pub use crate::time::FatDateTime;
-    pub use __inner::dir::{DirectoryEntry, FatDir, FileEntry};
-    pub use __inner::fat_table::{Fat, Fat12, Fat16, Fat32, FatType};
-    pub use __inner::fs::{FatVolume, FatVolumeBuilder};
-    pub use __inner::read::FatVolumeReadExt;
-    #[cfg(feature = "tool")]
-    pub use __inner::tool::analysis::FatAnalysisExt;
-    #[cfg(feature = "tool")]
-    pub use __inner::tool::verify::FatVerifyExt;
+    #[path = "mkfs.rs"]
+    pub(crate) mod mkfs;
     #[cfg(feature = "write")]
-    pub use __inner::write::FatVolumeWriteExt;
+    pub use mkfs::format;
+    #[cfg(all(feature = "alloc", feature = "write"))]
+    pub use mkfs::write;
 }
 
-// ---------------------------------------------------------------------------
-// Async module
-// ---------------------------------------------------------------------------
-
+/// The asynchronous API with `Send` futures, for generic code on
+/// multi-threaded executors.
+///
+/// Generated from the same source as `sync`, following `hadris_fs::r#async`.
+/// Its `FatFs` futures are `Send` when the device is.
 #[cfg(feature = "async")]
-#[path = ""]
-pub mod r#async {
-    //! Asynchronous FAT filesystem API.
-    //!
-    //! All I/O operations use async `Read`/`Write`/`Seek` traits.
+pub mod r#async;
 
-    pub use hadris_io::Result as IoResult;
-    pub use hadris_io::r#async::{Parsable, Read, ReadExt, Seek, Writable, Write};
-    pub use hadris_io::{Error, ErrorKind, SeekFrom};
+#[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
+use names::{permissions, read_only_bit};
 
-    macro_rules! io_transform {
-        ($($item:tt)*) => { $($item)* };
+/// Adds the run `(file offset, device offset, bytes)` to `out` from
+/// `*count` on when it holds bytes of the file from `from`, cut to the
+/// file's `len` and split where its bytes past `valid` read as zeros.
+/// Returns true when `out` was full before the run was added whole.
+#[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
+fn push_run(
+    out: &mut [hadris_fs::Extent],
+    count: &mut usize,
+    (file, disk, bytes): (u64, u64, u64),
+    from: u64,
+    len: u64,
+    valid: u64,
+) -> bool {
+    let end = file + bytes.min(len - file);
+    let split = valid.clamp(file, end);
+    for (start, stop, unwritten) in [(file, split, false), (split, end, true)] {
+        if stop <= start || stop <= from {
+            continue;
+        }
+        let Some(slot) = out.get_mut(*count) else {
+            return true;
+        };
+        let extent =
+            hadris_fs::Extent::new(disk + (start - file), stop - start).with_file_offset(start);
+        *slot = if unwritten {
+            extent.with_unwritten()
+        } else {
+            extent
+        };
+        *count += 1;
     }
-
-    #[allow(unused_macros)]
-    macro_rules! sync_only {
-        ($($item:tt)*) => {};
-    }
-
-    #[allow(unused_macros)]
-    macro_rules! async_only {
-        ($($item:tt)*) => { $($item)* };
-    }
-
-    #[path = "."]
-    mod __inner {
-        // Note: `cache` is intentionally absent here. The cache module uses
-        // synchronous I/O traits and is not yet async-aware; the `cache`
-        // feature is gated to `sync` in Cargo.toml, so this module never
-        // exposes cache APIs.
-        /// Directory traversal and directory-entry types.
-        pub mod dir;
-        /// FAT12, FAT16, and FAT32 allocation-table access.
-        pub mod fat_table;
-        #[cfg(feature = "write")]
-        pub mod format;
-        /// Mounted FAT filesystem handles and builders.
-        pub mod fs;
-        /// FAT-specific I/O positioning utilities.
-        pub mod io;
-        pub mod read;
-        // Note: `tool` is intentionally absent here. The analysis/verify
-        // utilities iterate directories synchronously and are not
-        // async-aware; the `tool` feature is gated to `sync` in Cargo.toml
-        // so this combination is unreachable.
-        pub mod write;
-    }
-    #[cfg(feature = "write")]
-    pub use crate::time::FatDateTime;
-    pub use __inner::dir::{DirectoryEntry, FatDir, FileEntry};
-    pub use __inner::fat_table::{Fat, Fat12, Fat16, Fat32, FatType};
-    pub use __inner::fs::{FatVolume, FatVolumeBuilder};
-    pub use __inner::read::FatVolumeReadExt;
-    #[cfg(feature = "write")]
-    pub use __inner::write::FatVolumeWriteExt;
-    pub use __inner::*;
+    false
 }
 
-// ---------------------------------------------------------------------------
-// Default re-exports for backwards compatibility (sync)
-// ---------------------------------------------------------------------------
-
-#[cfg(feature = "sync")]
-pub use sync::*;
-
-// Re-exports from shared types
-pub use error::{Error, Result};
-
-#[cfg(all(test, feature = "async", feature = "alloc", feature = "read"))]
-#[path = "../tests/async_roundtrip.rs"]
-mod async_roundtrip;
-#[cfg(all(test, feature = "cache", feature = "write", feature = "std"))]
-#[path = "../tests/cache_integration.rs"]
-mod cache_integration;
-#[cfg(all(test, feature = "sync", feature = "write"))]
-#[path = "../tests/comprehensive_fat.rs"]
-mod comprehensive_fat;
-#[cfg(all(test, feature = "unstable-exfat", feature = "write"))]
-#[path = "../tests/exfat_roundtrip.rs"]
-mod exfat_roundtrip;
-#[cfg(all(test, feature = "sync", feature = "write"))]
-#[path = "../tests/fat_roundtrip.rs"]
-mod fat_roundtrip;
-#[cfg(all(test, feature = "unstable-exfat"))]
-#[path = "../tests/integration_exfat.rs"]
-mod integration_exfat;
-#[cfg(all(test, feature = "sync", feature = "read"))]
-#[path = "../tests/poc_audit_fat.rs"]
-mod poc_audit_fat;
-#[cfg(all(test, feature = "tool"))]
-#[path = "../tests/poc_audit_fat_recursion.rs"]
-mod poc_audit_fat_recursion;
-#[cfg(all(test, feature = "sync", feature = "write"))]
-#[path = "../tests/poc_seek.rs"]
-mod poc_seek;
-#[cfg(all(test, feature = "unstable-exfat", feature = "write", feature = "std"))]
-#[path = "../tests/regression_audit_exfat.rs"]
-mod regression_audit_exfat;
-#[cfg(all(test, feature = "sync", feature = "write", feature = "std"))]
-#[path = "../tests/regression_audit_fat.rs"]
-mod regression_audit_fat;
-#[cfg(all(test, feature = "unstable-exfat"))]
-#[path = "../tests/test_exfat.rs"]
-mod test_exfat;
-#[cfg(all(test, feature = "sync", feature = "read"))]
-#[path = "../tests/test_read.rs"]
-mod test_read;
-#[cfg(all(test, feature = "sync", feature = "write"))]
-#[path = "../tests/test_write.rs"]
-mod test_write;
-#[cfg(all(test, feature = "sync", feature = "read"))]
-#[path = "../tests/v2_api.rs"]
-mod v2_api;
+pub use hadris_fat_raw::{Detail, FatKind, Geometry};
+#[cfg(feature = "write")]
+pub use options::FatOptions;
+pub use options::VolumeLabel;

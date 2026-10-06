@@ -96,6 +96,14 @@ impl NtfsTestImage {
         ok
     }
 
+    /// Run `setfattr` on a path inside the mounted image.
+    pub fn setfattr(path: &Path, name: &str, value: &str) -> bool {
+        run_quiet(
+            "setfattr",
+            &["-n", name, "-v", value, path.to_str().unwrap()],
+        )
+    }
+
     /// Mount the image with `ntfs-3g` (FUSE), run a closure with the mount
     /// path, then unmount.  Returns `None` when FUSE mounting is unavailable.
     pub fn with_mounted<F, R>(&self, f: F) -> Option<R>

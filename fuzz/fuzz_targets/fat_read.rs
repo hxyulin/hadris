@@ -1,135 +1,162 @@
 #![no_main]
-//! Fuzz the FAT reader: mount an arbitrary image, then walk every directory
-//! and read every file. Arbitrary bytes must never panic/abort/OOM.
+//! Fuzz the FAT reader: run `check` on an arbitrary image, mount it with
+//! `FatFs`, walk every directory and read every file. Arbitrary bytes must
+//! never panic, abort or OOM.
 //!
 //! Self-consistency oracles (failures are tagged `ORACLE:`): every file is
-//! read through two fresh readers and the bytes must match, and walked entries
-//! are re-resolved by name through `FatDir::find` (guarded against ambiguous
-//! duplicate names and lossy OEM short-name decoding on corrupt images).
+//! read twice and the bytes must match, and listed entries must re-resolve
+//! by name through `lookup` (guarded against lossy code-page decoding on
+//! corrupt images).
 
-use libfuzzer_sys::fuzz_target;
 use std::collections::HashSet;
-use std::io::Cursor;
 
-use hadris_fat::{FatVolume, FatVolumeReadExt, FileEntry};
+use hadris_fat::sync::{check, FatFs};
+use hadris_fs::sync::FileSystem;
+use hadris_fs::{DirCursor, FileType, MountOptions, NodeId};
+use hadris_storage::{BlockSize, MemDevice};
+use libfuzzer_sys::fuzz_target;
 
-/// `find` re-scans a directory from the start, so cap name re-resolution
+type Fs<'a> = FatFs<MemDevice<&'a [u8]>>;
+
+/// `lookup` re-scans a directory from the start, so cap name re-resolution
 /// lookups per directory to keep the walk from going quadratic under the
 /// flat work budget.
 const MAX_LOOKUPS_PER_DIR: usize = 32;
+const READ_CAP: usize = 4 * 1024 * 1024;
+const MAX_BITMAP: u64 = 1 << 20;
+/// Inputs are zero-extended to the size their boot sector declares, up to
+/// this, so short inputs still mount: `FatFs` refuses a volume larger than
+/// its device.
+const MAX_IMAGE: usize = 8 * 1024 * 1024;
 
-fn drive(data: &[u8]) {
-    let Ok(fs) = FatVolume::open(Cursor::new(data)) else {
-        return;
+/// The volume size the boot sector declares, in bytes.
+fn declared_len(data: &[u8]) -> usize {
+    let Some(bpb) = data.get(..36) else {
+        return 0;
     };
+    let sector = u16::from_le_bytes([bpb[11], bpb[12]]) as usize;
+    let total16 = u16::from_le_bytes([bpb[19], bpb[20]]) as usize;
+    let total32 = u32::from_le_bytes([bpb[32], bpb[33], bpb[34], bpb[35]]) as usize;
+    let total = if total16 != 0 { total16 } else { total32 };
+    sector.saturating_mul(total)
+}
 
-    // Chunked read with a byte cap: the entry's size is fuzz-controlled and a
-    // corrupt FAT can serve the same sectors over and over, so never buffer an
-    // unbounded `read_to_vec` (a single file could otherwise grow to GiBs).
-    let read_pass = |fe: &FileEntry| -> Option<Vec<u8>> {
-        let mut reader = fs.read_file(fe).ok()?;
-        let mut buf = [0u8; 64 * 1024];
-        let mut out = Vec::new();
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => {
-                    out.extend_from_slice(&buf[..n]);
-                    if out.len() >= 16 * 1024 * 1024 {
-                        break;
-                    }
+/// Reads a file in chunks with a byte cap: the size is fuzz-controlled and a
+/// corrupt FAT can serve the same clusters over and over. Returns the bytes
+/// and whether the read ended in an error.
+fn read_pass(fs: &mut Fs<'_>, node: NodeId) -> (Vec<u8>, bool) {
+    let mut buf = [0u8; 64 * 1024];
+    let mut out = Vec::new();
+    loop {
+        match fs.read(node, out.len() as u64, &mut buf) {
+            Ok(0) => return (out, false),
+            Err(_) => return (out, true),
+            Ok(n) => {
+                out.extend_from_slice(&buf[..n]);
+                if out.len() >= READ_CAP {
+                    return (out, false);
                 }
             }
         }
-        Some(out)
-    };
+    }
+}
 
-    // Depth-guarded worklist. The depth cap alone is NOT enough: a corrupt
-    // directory graph (entries pointing at sibling/ancestor clusters) has a
-    // path count that grows like branching^depth, so a naive walk fans out to
-    // billions of `open_entry`/`read_file` calls and hangs — a harness DoS, not
-    // a library bug (the library bounds single chains via ClusterLoop). A flat
-    // work budget bounds total entries processed on ANY input.
-    // ponytail: budget over visited-set — no per-format cluster accessor needed.
+fn drive(data: &[u8]) {
+    let mut image = data.to_vec();
+    let len = declared_len(data).min(MAX_IMAGE);
+    if image.len() < len {
+        image.resize(len, 0);
+    }
+    let dev = MemDevice::new(&image[..], BlockSize::new(512).unwrap());
+    let options = MountOptions::new().read_only();
+    let clusters = (image.len() / 512) as u64;
+    let mut scratch = vec![0u8; 1024 + clusters.div_ceil(8).clamp(512, MAX_BITMAP) as usize];
+    let mut findings = 0u64;
+    let report = check(
+        &mut MemDevice::new(&image[..], BlockSize::new(512).unwrap()),
+        &mut scratch,
+        |f| {
+            findings += 1;
+            let _ = f.to_string();
+        },
+    );
+    if let Ok(report) = report {
+        assert_eq!(
+            report.findings(),
+            findings,
+            "ORACLE: the report counts every finding"
+        );
+    }
+    let Ok(mut fs) = FatFs::mount(dev, options) else {
+        return;
+    };
+    let _ = fs.label(&mut [0u8; 64]);
+    let _ = fs.statfs();
+
+    // Depth-guarded worklist with a flat work budget: a corrupt directory
+    // graph (entries pointing at sibling or ancestor clusters) has a path
+    // count that grows like branching^depth, so bound the total entries
+    // processed on any input.
     let mut budget: u32 = 200_000;
-    let mut stack = vec![(fs.root_dir(), 0u32)];
-    while let Some((dir, depth)) = stack.pop() {
+    let mut stack = vec![(fs.root(), 0u32)];
+    'walk: while let Some((dir, depth)) = stack.pop() {
         if depth > 64 {
             continue;
         }
-        let mut saw_error = false;
         let mut lookups = 0usize;
         let mut seen_names: HashSet<String> = HashSet::new();
-        for item in dir.entries() {
+        let mut cursor = DirCursor::START;
+        loop {
             if budget == 0 {
-                return;
+                break 'walk;
             }
             budget -= 1;
-            let Ok(de) = item else {
-                saw_error = true;
+            let entry = match fs.readdir(dir, cursor) {
+                Ok(Some(entry)) => entry,
+                Ok(None) | Err(_) => break,
+            };
+            cursor = entry.next_cursor();
+            let node = entry.node();
+            let child_name = entry.name();
+            let Ok(text) = child_name.to_str().map(str::to_owned) else {
                 continue;
             };
-            let Some(fe) = de.as_entry() else { continue };
-            let name = fe.name();
-            if name == "." || name == ".." {
-                continue;
-            }
-            let is_new_name = seen_names.insert(name.clone().into_owned());
+            let is_new_name = seen_names.insert(text.to_lowercase());
 
-            // Name re-resolution oracle. Only sound when the entry's own
-            // display name round-trips through `find`'s matcher (lossy OEM
-            // decoding can break that for short names). A lookup can also fail
-            // on later corrupt entries while scanning for an exact long name.
-            if !saw_error && lookups < MAX_LOOKUPS_PER_DIR {
+            // Name re-resolution oracle. Only sound when the name
+            // round-trips through the code page.
+            if lookups < MAX_LOOKUPS_PER_DIR && !text.contains('\u{FFFD}') {
                 lookups += 1;
-                let self_findable = match fe.long_name() {
-                    Some(lfn) => lfn.eq_str(&name),
-                    None => fe.short_name().matches(&name),
+                let Ok(found) = fs.lookup(dir, child_name) else {
+                    panic!("ORACLE: lookup({text:?}) failed to re-resolve a listed entry");
                 };
-                if self_findable {
-                    match dir.find(&name) {
-                        Ok(Some(found)) => {
-                            if is_new_name && found.name() == name {
-                                assert_eq!(
-                                    found.is_directory(),
-                                    fe.is_directory(),
-                                    "ORACLE: find({name:?}) returned entry with different kind"
-                                );
-                                assert_eq!(
-                                    found.len(),
-                                    fe.len(),
-                                    "ORACLE: find({name:?}) returned entry with different size"
-                                );
-                            }
-                        }
-                        Ok(None) => {
-                            panic!("ORACLE: find({name:?}) failed to re-resolve walked entry")
-                        }
-                        Err(_) => saw_error = true,
-                    }
-                }
-            }
-
-            if fe.is_directory() {
-                if let Ok(child) = dir.open_entry(fe) {
-                    stack.push((child, depth + 1));
-                }
-            } else {
-                // Read-twice oracle: two fresh readers must yield identical bytes.
-                let first = read_pass(fe);
-                let second = read_pass(fe);
-                assert_eq!(
-                    first.is_some(),
-                    second.is_some(),
-                    "ORACLE: repeated reads of {name:?} disagree on success"
-                );
-                if let (Some(a), Some(b)) = (first, second) {
-                    assert_eq!(
-                        a, b,
-                        "ORACLE: repeated reads of {name:?} returned different bytes"
+                // A duplicate name, or a long name equal to an earlier short
+                // name, legitimately resolves to another entry.
+                if is_new_name && found == node {
+                    assert!(
+                        fs.stat(found).is_ok(),
+                        "ORACLE: lookup({text:?}) returned a node without metadata"
                     );
                 }
+                fs.forget(found, 1);
             }
+
+            if entry.file_type() == FileType::Dir {
+                stack.push((node, depth + 1));
+                continue;
+            }
+            let first = read_pass(&mut fs, node);
+            let second = read_pass(&mut fs, node);
+            assert_eq!(
+                first.1, second.1,
+                "ORACLE: repeated reads of {text:?} disagree on success"
+            );
+            assert!(
+                first.0 == second.0,
+                "ORACLE: repeated reads of {text:?} returned different bytes"
+            );
+            let _ = fs.extents(node, 0, &mut [hadris_fs::Extent::new(0, 0); 4]);
+            let _ = fs.records(node, &mut [hadris_fs::Extent::new(0, 0); 4]);
         }
     }
 }

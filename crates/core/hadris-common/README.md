@@ -4,35 +4,18 @@ Shared types and utilities used by Hadris filesystem crates.
 
 ## Overview
 
-This crate provides common functionality needed across the Hadris workspace,
-including endian-aware types, extents, and optional optical-media types. New
-fixed-capacity buffers and text use `hadris-fixed`, and virtual path code uses
-`hadris-path`. The temporary forwarding modules were removed at the RC4 API
-freeze.
+This is an internal support crate for the other Hadris crates and is not meant
+for direct use. Its API can change in any release; depend on `hadris` or a
+format crate instead.
 
-## Features
-
-- **Endian Types** - Little-endian and big-endian wrappers for integers
-- **Extents** - On-disk layout helpers used by ISO and related crates
-- **CRC / time / rand** - Available under the `std` feature
-- **Optical media** - Session and metadata helpers behind the `optical` feature
-- **No-std Compatible** - Works without the standard library
+It provides endian-aware integer types, which `hadris-fat` uses for its
+on-disk layouts. It needs neither `std` nor an allocator.
 
 ## Feature Flags
 
 | Feature | Description | Default |
 |---------|-------------|---------|
-| `std` | Standard library support for CRC, time, and random helpers; implies `alloc` | Yes |
-| `alloc` | Heap allocation without full std | via `std` |
-| `bytemuck` | Zero-copy serialization support | Yes |
-| `optical` | Optical media types (`SessionInfo`, metadata writers) | No |
-| `sync` | Synchronous I/O feature forwarded to `hadris-io` (for dependents) | No |
-| `async` | Asynchronous I/O feature forwarded to `hadris-io` | No |
-
-> `sync` / `async` enable the matching `hadris-io` features for crates that depend on `hadris-common`. This crate does **not** re-export `hadris-io` traits at the root.
-
-`std` and the I/O mode are independent. The default feature set enables
-`std` and `bytemuck`, but not `sync` or `async`.
+| `bytemuck` | `Pod` and `Zeroable` for the number and endian types; adds impls only | Yes |
 
 ## Usage
 
@@ -46,26 +29,11 @@ let value = U32::<LittleEndian>::new(0x12345678);
 assert_eq!(value.get(), 0x12345678);
 ```
 
-### Boot sector binary
-
-```rust
-assert_eq!(hadris_common::BOOT_SECTOR_BIN.len(), 512);
-assert_eq!(hadris_common::BOOT_SECTOR_BIN[510], 0x55);
-assert_eq!(hadris_common::BOOT_SECTOR_BIN[511], 0xAA);
-```
-
-### For No-std Environments
+### Without `bytemuck`
 
 ```toml
 [dependencies]
-hadris-common = { version = "2.5.0", default-features = false, features = ["alloc", "bytemuck"] }
-```
-
-### Minimal (No Heap)
-
-```toml
-[dependencies]
-hadris-common = { version = "2.5.0", default-features = false, features = ["bytemuck"] }
+hadris-common = { version = "3.0.0-rc.1", default-features = false }
 ```
 
 ## Documentation

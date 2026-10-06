@@ -1,7 +1,8 @@
 # Contributing to Hadris
 
 Thanks for contributing. This document covers the day-to-day workflow for
-library and CLI changes. Deeper architecture notes live in [CLAUDE.md](CLAUDE.md).
+library and CLI changes. The V3 API rules and layering are in
+[`docs/v3-api-design.md`](docs/v3-api-design.md).
 
 ## Prerequisites
 
@@ -25,30 +26,65 @@ cargo test --workspace --all-features --doc
 RUSTFLAGS="-D warnings" cargo check --workspace
 
 # No-std / feature tiers (examples)
-RUSTFLAGS="-D warnings" cargo check -p hadris-fat --no-default-features --features "read,sync"
-RUSTFLAGS="-D warnings" cargo check -p hadris-iso --no-default-features --features "read,sync"
+RUSTFLAGS="-D warnings" cargo check -p hadris-fat --no-default-features --features "sync,write"
+RUSTFLAGS="-D warnings" cargo check -p hadris-iso --no-default-features --features "sync"
 ```
 
-CI runs formatting, linting, documentation, and hosted tests with Rust
-**1.97.1**. Rust **1.88.0** remains the library MSRV and runs only compilation
-checks: the workspace with default and all features, plus every feature tier
-in [`scripts/ci-features.json`](scripts/ci-features.json). Each tier is checked
-separately to avoid feature unification hiding missing dependencies. Run the
-same tiers locally with:
+The full per-crate feature matrix used by the `check-features` job is in
+[`scripts/ci-features.json`](scripts/ci-features.json).
+
+The `cross` job builds the `no_std` tiers for `thumbv6m-none-eabi`,
+`thumbv7em-none-eabihf` and `riscv32imc-unknown-none-elf`; targets without
+compare-and-swap skip the `alloc` tiers:
+
+```bash
+rustup target add thumbv6m-none-eabi thumbv7em-none-eabihf riscv32imc-unknown-none-elf
+RUSTFLAGS="-D warnings" scripts/check-targets.sh
+```
+
+The `firmware-size` job builds `examples/firmware` for the same targets at
+opt-level `s` with fat LTO and reports flash, the driver state, the mount
+stack, the worst-case stack and the largest frame of each binary. It fails
+when the mount stack or the driver state reaches 2 KB (NF-STACK-01), a
+Hadris frame exceeds 1 KB (NF-STACK-02) or the FAT logger grows past its
+flash ceiling. It needs the pinned nightly for `-Z emit-stack-sizes` and
+`-Z print-type-sizes`:
+
+```bash
+rustup toolchain install nightly-2026-09-04 --component llvm-tools \
+  --target thumbv6m-none-eabi,thumbv7em-none-eabihf,riscv32imc-unknown-none-elf
+RUSTUP_TOOLCHAIN=nightly-2026-09-04 scripts/firmware-size.py --check
+```
+
+Hosted CI formatting, linting and tests use Rust **1.97.1**; Rust **1.88.0**
+remains the library MSRV. Feature tiers are checked independently from
+[`scripts/ci-features.json`](scripts/ci-features.json):
 
 ```bash
 RUSTUP_TOOLCHAIN=1.88.0 RUSTFLAGS="-D warnings" python3 scripts/check-features.py all
-# Or select core, block, optical, archive, or facades.
 ```
 
-The feature checks share five runners. Linux hosts the external-tool tests
-and conformance suite alongside the workspace tests; Windows and macOS run
-the portable workspace tests. Public API snapshots retain their pinned
-nightly, and Miri retains its targeted nightly checks. Superseded runs on
-the same branch are cancelled. The Rust 1.97 Clippy commands temporarily
-allow four style-only lints (`manual_is_multiple_of`, `collapsible_if`,
-`unnecessary_sort_by`, and `byte_char_slices`) to keep the CI migration
-separate from parser and I/O refactors; other warnings remain errors.
+### Performance measurements
+
+The FAT benchmark measures device calls and bytes as well as runtime for the
+hosted and embedded drivers. Run it with
+`cargo bench -p hadris-fat --bench performance`; see
+[`docs/performance.md`](docs/performance.md) for filtering, CSV baselines,
+measurement boundaries and embedded flash/stack measurements.
+
+The ISO benchmark runs with
+`cargo bench -p hadris-iso --bench performance --features cache`; the same
+performance guide documents its workloads, cache settings and measurement
+boundaries.
+
+The detached conformance harness also runs common V3 filesystem workloads with
+per-sample timing and I/O CSV output. Run
+`cargo bench --manifest-path tests/Cargo.toml --bench performance`; see
+[`tests/README.md`](tests/README.md#v3-performance-harness) for measurement
+boundaries and smoke-check settings. The `peers` benchmark compares host
+workflows against independent implementations;
+[`docs/peer-performance.md`](docs/peer-performance.md) documents the reference
+coverage and comparison boundaries.
 
 ### Conformance and interoperability suite
 
@@ -68,8 +104,10 @@ peers, and a Hadris-to-Hadris round trip is never evidence on its own.
 # Hosted suite. Missing command-line peer tools are skipped locally.
 cargo test --manifest-path tests/Cargo.toml
 
-# One format or topic
-cargo test --manifest-path tests/Cargo.toml fat::
+# One format or topic. Filters match substrings, so `fat::` also selects
+# `exfat::`; CI runs the two separately.
+cargo test --manifest-path tests/Cargo.toml fat:: -- --skip exfat::
+cargo test --manifest-path tests/Cargo.toml exfat::
 cargo test --manifest-path tests/Cargo.toml iso::boot::
 
 # Strict tool-backed suite through the repository flake
@@ -152,6 +190,25 @@ unmount them during cleanup. macOS AppleDouble `._*` files remain structurally
 validated but are excluded from the semantic tree comparison as platform
 metadata.
 
+#### exFAT conformance
+
+The exFAT slice reuses the FAT operation model and adapter trait with its own
+raw-image oracle, and runs the Hadris driver through the same generic
+`FileSystem` adapter. The hosted tests are under `exfat::spec::` and
+`exfat::limits::`. `exfat::native::` checks Hadris images with exfatprogs
+`fsck.exfat` (from the `PATH`, or the `hadris-exfatprogs` Docker image) and
+macOS `fsck_exfat`, and writes to volumes made by `mkfs.exfat` and
+`newfs_exfat`. The tests skip when no checker is available, unless
+`HADRIS_REQUIRE_EXTERNAL_TOOLS=1` is set.
+
+```bash
+cargo test --manifest-path tests/Cargo.toml exfat::
+
+# macOS kernel driver, on temporary image copies
+HADRIS_TESTS_NATIVE_MOUNT=1 cargo test --manifest-path tests/Cargo.toml \
+  exfat::native::native_mount_roundtrip -- --ignored --nocapture
+```
+
 #### ISO conformance
 
 The ISO suite uses a test-only raw-image oracle derived from the ECMA-119:1987
@@ -194,25 +251,58 @@ before returning. Summaries are written to `external-tools-accuracy.txt`,
 `macos-hdiutil-accuracy.txt`, or `native-<os>-accuracy.txt` under
 `tests/target/reports/iso/` even when a peer deviates from the specification.
 
-## Package versions
+## Package versions and releases
 
-Each package declares its own version in its `Cargo.toml`; the workspace does
-not impose a shared version. Update only the packages being released and keep
-their requirements in `[workspace.dependencies]` aligned.
+Each package declares its own version in its `Cargo.toml`, and
+`[workspace.dependencies]` holds the requirement every other crate uses.
+Every crate ships 3.0.0 together; after that each crate versions on its own
+(R12 in [`docs/v3-api-design.md`](docs/v3-api-design.md)). A crate bumps its
+major only for its own breaking changes, and the umbrella `hadris` bumps its
+major when a crate it re-exports does. `hadris-fat-raw` versions separately
+from 0.1.0. The examples are `publish = false`.
 
-When several unpublished versions depend on one another, publish in dependency
-order: `hadris-macros`/`hadris-io`/`hadris-path`; then
-`hadris-common`/`hadris-storage`/`hadris-part`; then format crates; then category
-facades and `hadris-cd`; then the `hadris` umbrella and CLI packages. Cargo
-validates dependent packages against crates.io, so each prerequisite version
-must be available before packaging the next layer.
+To release, bump the versions of the crates being released and of their
+requirements in `[workspace.dependencies]`, and add a dated
+`CHANGELOG.md` section for them, in a PR:
 
-The `Release` GitHub Actions workflow automates this ordering for coordinated
-workspace releases. Run it from `main` in `dry-run` mode first, then rerun it in
-`publish` mode. Publishing requires a `CARGO_REGISTRY_TOKEN` repository secret.
-The workflow derives the tag and GitHub release notes from the matching
-`CHANGELOG.md` section and can safely resume after a partially completed
-crates.io publication.
+- one crate: `## [hadris-fat 3.1.0] - 2026-10-01`, the default heading for
+  `<crate> <version>`;
+- a joint release: one section for all of them, such as
+  `## [3.0.0-rc.1] - 2026-10-01`, named with the workflow's `notes` input.
+
+After that PR merges, run the `Release` workflow (Actions, Run workflow) on
+`next`, or on `main` once 3.x lives there, first with `mode: dry-run` and
+then with `mode: publish`:
+
+- `crates`: `all`, or the crate names separated by spaces, such as
+  `hadris-fat hadris`. A crate's unreleased workspace dependencies must be in
+  the same run or already on crates.io.
+- `notes`: empty for per-crate sections, or the section title of a joint
+  release.
+
+`scripts/release-plan.py` checks the plan in both modes: the crates exist
+and are published, each version is a semantic version, the tag
+`<crate>-v<version>` does not name another commit, and the CHANGELOG
+section exists with a date. `dry-run` then runs fmt, check and tests, and
+packages and verifies every crate with `cargo +stable publish --dry-run`,
+which resolves unpublished workspace dependencies in the same run.
+`publish` also publishes with `cargo +stable publish`, in dependency order,
+skipping versions already on crates.io so a failed run can be rerun. It
+then creates and pushes the tags `<crate>-v<version>`, one GitHub release
+per tag (pre-releases for versions with a pre-release suffix; the umbrella
+`hadris` is marked latest), and rebuilds the documentation site, which
+versions itself from the `hadris-vX.Y.Z` tags. Never create release tags by
+hand. Publishing needs the `CARGO_REGISTRY_TOKEN` repository secret.
+
+Check a plan locally before opening the release PR:
+
+```bash
+scripts/release-plan.py --notes 3.0.0-rc.1 all
+scripts/release-plan.py hadris-fat hadris
+cargo +stable publish --dry-run -p hadris-fat -p hadris
+```
+
+The 2.x releases on `main` used one workspace version and `vX.Y.Z` tags.
 
 ## Pull requests
 
@@ -221,11 +311,33 @@ crates.io publication.
 3. Add a `[Unreleased]` note in [CHANGELOG.md](CHANGELOG.md) for user-visible work.
 4. Do not commit secrets or large binary fixtures unless they are intentional
    corpus seeds under `fuzz/corpus/`.
+5. PRs to `main` and `next` also run the V3 guardrails in
+   `.github/workflows/v3-guardrails.yml`, and a finding fails the PR:
+   `scripts/check-non-exhaustive.py`, `scripts/check-v3-api.py subset` and
+   `scripts/check-v3-api.py parity` (under the pinned nightly of the public
+   API job), and `scripts/check-semver.sh`, which needs
+   `cargo +stable install cargo-semver-checks`.
+6. `scripts/check-semver.sh` checks each library crate against its latest
+   3.x release tag (`<crate>-vX.Y.Z`), or against the target branch before
+   the crate's 3.0.0. While the version is unchanged, a PR must be a
+   compatible minor change, release candidates included. A deliberate break
+   bumps the crate's version in the same PR: the next release candidate
+   (`3.0.0-rc.2`) before 3.0.0, the next major after it.
 
 ## Safety and fuzzing
 
-- When touching `unsafe`, LFN/UTF-16, or disk-byte → `&str` paths, run the
-  targeted Miri jobs documented in [CLAUDE.md](CLAUDE.md).
+- When touching `unsafe`, LFN/UTF-16, or disk-byte to `&str` paths, add a
+  regression test and run the targeted Miri job from the `miri` job in
+  [`.github/workflows/rust.yml`](.github/workflows/rust.yml):
+
+  ```bash
+  cargo +nightly miri test -p hadris-common --lib
+  cargo +nightly miri test -p hadris-fat-raw --lib
+  cargo +nightly miri test -p hadris-iso --lib -- raw:: name:: rock_ridge::
+  cargo +nightly miri test -p hadris-part --lib
+  cargo +nightly miri test -p hadris-ntfs --lib
+  ```
+
 - Fuzz harnesses under [`fuzz/`](fuzz/) are **local tools** (not part of PR CI).
   Replay corpora with `cargo +nightly fuzz run <target> -- -runs=0` after
   parser fixes; prefer a normal unit/integration test for PR-gating regressions.
@@ -252,7 +364,8 @@ python3 scripts/check-compliance-catalog.py
 ## Docs
 
 ```bash
-cargo doc --workspace --no-deps --document-private-items
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
+cargo test --workspace --all-features --doc
 python3 scripts/check-docs.py
 
 # Task-oriented documentation site
@@ -270,7 +383,10 @@ overview, the website contains concepts and workflows, crate READMEs cover
 package selection and features, and rustdoc documents individual APIs. Prefer
 linking to compiled examples over duplicating snippets that can drift.
 
-Public APIs are snapshot-tested under their all-feature configurations. After
+Public APIs are snapshot-tested under their all-feature configurations.
+Preview crates are not snapshotted: `hadris-ntfs` is left out of the script's
+crate list, and the umbrella `hadris` snapshot is taken without its
+`unstable-ntfs` feature. After
 an intentional additive or breaking API change, review the diff and refresh the
 baseline with:
 
@@ -279,11 +395,11 @@ scripts/check-public-api.sh update
 ```
 
 The snapshot is a review aid, not a feature freeze. Backward-compatible APIs
-are welcome in the 2.x series when their documentation, feature-matrix tier,
+are welcome in a minor release when their documentation, feature-matrix tier,
 and tests land with them.
 
 Feature-gated items should use `#[cfg_attr(docsrs, doc(cfg(...)))]` where the
-crate already enables `docsrs` (see `hadris-part`, `hadris-fat`).
+crate already enables `docsrs` (see `hadris-part`, `hadris`).
 
 ## License
 

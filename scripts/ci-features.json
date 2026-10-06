@@ -1,91 +1,532 @@
 {
   "core": [
-    {"crate": "hadris-fixed", "tier": "no-std", "features": ""},
-    {"crate": "hadris-fixed", "tier": "alloc-bytemuck", "features": "alloc,bytemuck"},
-    {"crate": "hadris-path", "tier": "no-std", "features": ""},
-    {"crate": "hadris-path", "tier": "alloc", "features": "alloc"},
-    {"crate": "hadris-io", "tier": "no-std", "features": ""},
-    {"crate": "hadris-io", "tier": "std", "features": "std"},
-    {"crate": "hadris-io", "tier": "async", "features": "async,alloc"},
-    {"crate": "hadris-common", "tier": "no-std", "features": "sync,bytemuck,optical"},
-    {"crate": "hadris-common", "tier": "alloc", "features": "alloc,sync,bytemuck,optical"},
-    {"crate": "hadris-common", "tier": "std-without-sync", "features": "std,bytemuck,optical"},
-    {"crate": "hadris-common", "tier": "std", "features": "std,sync,bytemuck,optical"},
-    {"crate": "hadris-storage", "tier": "no-std-sync", "features": "sync"},
-    {"crate": "hadris-storage", "tier": "no-std-async", "features": "async"},
-    {"crate": "hadris-storage", "tier": "sync-and-async", "features": "alloc,sync,async"}
+    {
+      "crate": "hadris-fs",
+      "tier": "no-std",
+      "features": ""
+    },
+    {
+      "crate": "hadris-fs",
+      "tier": "alloc",
+      "features": "alloc"
+    },
+    {
+      "crate": "hadris-fs",
+      "tier": "std",
+      "features": "std"
+    },
+    {
+      "crate": "hadris-fs",
+      "tier": "no-std-sync",
+      "features": "sync"
+    },
+    {
+      "crate": "hadris-fs",
+      "tier": "std-sync-host-helpers",
+      "features": "std,sync"
+    },
+    {
+      "crate": "hadris-fs",
+      "tier": "no-std-async",
+      "features": "async"
+    },
+    {
+      "crate": "hadris-fs",
+      "tier": "all-modes",
+      "features": "alloc,sync,async"
+    },
+    {
+      "crate": "hadris-io",
+      "tier": "no-std",
+      "features": ""
+    },
+    {
+      "crate": "hadris-io",
+      "tier": "std",
+      "features": "std"
+    },
+    {
+      "crate": "hadris-io",
+      "tier": "async",
+      "features": "async,alloc"
+    },
+    {
+      "crate": "hadris-io",
+      "tier": "embedded-io",
+      "features": "sync,async,embedded-io"
+    },
+    {
+      "crate": "hadris-common",
+      "tier": "no-std",
+      "features": ""
+    },
+    {
+      "crate": "hadris-common",
+      "tier": "bytemuck",
+      "features": "bytemuck"
+    },
+    {
+      "crate": "hadris-storage",
+      "tier": "no-std-sync",
+      "features": "sync"
+    },
+    {
+      "crate": "hadris-storage",
+      "tier": "no-std-async",
+      "features": "async"
+    },
+    {
+      "crate": "hadris-storage",
+      "tier": "sync-and-async",
+      "features": "alloc,sync,async"
+    },
+    {
+      "crate": "hadris-storage",
+      "tier": "alloc-async",
+      "features": "alloc,async"
+    }
   ],
   "block": [
-    {"crate": "hadris-part", "tier": "no-std", "features": "sync,read"},
-    {"crate": "hadris-part", "tier": "alloc", "features": "alloc,sync,read,write"},
-    {"crate": "hadris-part", "tier": "std", "features": "std,sync,read,write"},
-    {"crate": "hadris-part", "tier": "async-read", "features": "async,read,alloc"},
-    {"crate": "hadris-part", "tier": "hosted-async-read-write", "features": "std,async,read,write,crc,rand"},
-    {"crate": "hadris-part", "tier": "sync-and-async-read-write", "features": "alloc,sync,async,read,write,crc"},
-    {"crate": "hadris-part", "tier": "all-capabilities", "features": "std,alloc,sync,async,read,write,crc,rand"},
-    {"crate": "hadris-part", "tier": "crc", "features": "sync,read,alloc,crc"},
-    {"crate": "hadris-fat", "tier": "no-std", "features": "sync,read,lfn,cache,tool,unstable-exfat"},
-    {"crate": "hadris-fat", "tier": "alloc", "features": "alloc,sync,read,lfn,cache,tool,unstable-exfat"},
-    {"crate": "hadris-fat", "tier": "std", "features": "std,sync,read,write,lfn,cache,tool,unstable-exfat"},
-    {"crate": "hadris-fat", "tier": "async-read", "features": "alloc,async,read,lfn"},
-    {"crate": "hadris-fat", "tier": "hosted-async-read-write", "features": "std,async,read,write,lfn"},
-    {"crate": "hadris-fat", "tier": "sync-and-async-read-write", "features": "alloc,sync,async,read,write,lfn,unstable-exfat"},
-    {"crate": "hadris-fat", "tier": "all-capabilities", "features": "std,alloc,sync,async,read,write,lfn,cache,tool,unstable-exfat,defmt,dirty-file-panic"},
-    {"crate": "hadris-apfs", "tier": "no-std", "features": "read"},
-    {"crate": "hadris-apfs", "tier": "alloc-sync", "features": "alloc,read,sync"},
-    {"crate": "hadris-apfs", "tier": "std", "features": "std,read,sync"},
-    {"crate": "hadris-apfs", "tier": "async-read", "features": "alloc,async,read"},
-    {"crate": "hadris-apfs", "tier": "all-capabilities", "features": "std,alloc,sync,async,read"}
+    {
+      "crate": "hadris-part",
+      "tier": "no-std-sync",
+      "features": "sync"
+    },
+    {
+      "crate": "hadris-part",
+      "tier": "no-std-async",
+      "features": "async"
+    },
+    {
+      "crate": "hadris-part",
+      "tier": "tables-only",
+      "features": "alloc"
+    },
+    {
+      "crate": "hadris-part",
+      "tier": "alloc-sync",
+      "features": "alloc,sync"
+    },
+    {
+      "crate": "hadris-part",
+      "tier": "alloc-async",
+      "features": "alloc,async"
+    },
+    {
+      "crate": "hadris-part",
+      "tier": "std",
+      "features": "std,sync"
+    },
+    {
+      "crate": "hadris-part",
+      "tier": "all-capabilities",
+      "features": "std,alloc,sync,async"
+    },
+    {
+      "crate": "hadris-fat-raw",
+      "tier": "no-std",
+      "features": ""
+    },
+    {
+      "crate": "hadris-fat-raw",
+      "tier": "defmt",
+      "features": "defmt"
+    },
+    {
+      "crate": "hadris-fat-raw",
+      "tier": "no-std-sync",
+      "features": "sync"
+    },
+    {
+      "crate": "hadris-fat-raw",
+      "tier": "no-std-async",
+      "features": "async"
+    },
+    {
+      "crate": "hadris-fat-raw",
+      "tier": "all-modes",
+      "features": "sync,async"
+    },
+    {
+      "crate": "hadris-fat",
+      "tier": "no-std",
+      "features": "sync"
+    },
+    {
+      "crate": "hadris-fat",
+      "tier": "no-std-async",
+      "features": "async"
+    },
+    {
+      "crate": "hadris-fat",
+      "tier": "no-alloc-sync-write",
+      "features": "sync,write"
+    },
+    {
+      "crate": "hadris-fat",
+      "tier": "no-alloc-async-write",
+      "features": "async,write"
+    },
+    {
+      "crate": "hadris-fat",
+      "tier": "alloc",
+      "features": "alloc,sync"
+    },
+    {
+      "crate": "hadris-fat",
+      "tier": "std",
+      "features": "std,sync,write"
+    },
+    {
+      "crate": "hadris-fat",
+      "tier": "hosted-async-write",
+      "features": "std,async,write"
+    },
+    {
+      "crate": "hadris-fat",
+      "tier": "sync-and-async-write",
+      "features": "alloc,sync,async,write"
+    },
+    {
+      "crate": "hadris-fat",
+      "tier": "hosted-tracing",
+      "features": "tracing,sync,async,write"
+    },
+    {
+      "crate": "hadris-fat",
+      "tier": "all-capabilities",
+      "features": "std,alloc,sync,async,write,defmt,tracing"
+    },
+    {
+      "crate": "hadris-ntfs",
+      "tier": "no-std-sync",
+      "features": "sync"
+    },
+    {
+      "crate": "hadris-ntfs",
+      "tier": "no-std-async",
+      "features": "async"
+    },
+    {
+      "crate": "hadris-ntfs",
+      "tier": "alloc-sync",
+      "features": "alloc,sync"
+    },
+    {
+      "crate": "hadris-ntfs",
+      "tier": "std",
+      "features": "std,sync"
+    },
+    {
+      "crate": "hadris-ntfs",
+      "tier": "hosted-async",
+      "features": "std,async"
+    },
+    {
+      "crate": "hadris-ntfs",
+      "tier": "all-capabilities",
+      "features": "std,alloc,sync,async"
+    },
+    {
+      "crate": "hadris-apfs",
+      "tier": "no-std",
+      "features": "read"
+    },
+    {
+      "crate": "hadris-apfs",
+      "tier": "no-std-sync",
+      "features": "read,sync"
+    },
+    {
+      "crate": "hadris-apfs",
+      "tier": "no-std-async",
+      "features": "read,async"
+    },
+    {
+      "crate": "hadris-apfs",
+      "tier": "alloc-sync",
+      "features": "alloc,read,sync"
+    },
+    {
+      "crate": "hadris-apfs",
+      "tier": "async-read",
+      "features": "alloc,read,async"
+    },
+    {
+      "crate": "hadris-apfs",
+      "tier": "all-capabilities",
+      "features": "std,alloc,sync,async,read,encryption"
+    },
+    {
+      "crate": "hadris-apfs",
+      "tier": "encrypted-no-std-sync",
+      "features": "encryption,sync"
+    },
+    {
+      "crate": "hadris-apfs",
+      "tier": "encrypted-no-std-async",
+      "features": "encryption,async"
+    },
+    {
+      "crate": "hadris-apfs",
+      "tier": "encryption-without-mode",
+      "features": "encryption"
+    },
+    {
+      "crate": "hadris-apfs",
+      "tier": "hosted-tracing",
+      "features": "tracing,sync,async,read,encryption"
+    },
+    {
+      "crate": "hadris-ntfs",
+      "tier": "hosted-tracing",
+      "features": "tracing,sync,async"
+    },
+    {
+      "crate": "hadris-part",
+      "tier": "hosted-tracing",
+      "features": "tracing,sync,async"
+    }
   ],
   "optical": [
-    {"crate": "hadris-iso", "tier": "no-std", "features": "sync,read,joliet"},
-    {"crate": "hadris-iso", "tier": "alloc", "features": "alloc,sync,read,joliet"},
-    {"crate": "hadris-iso", "tier": "std", "features": "std,sync,read,write,joliet"},
-    {"crate": "hadris-iso", "tier": "async-read", "features": "alloc,async,read,joliet"},
-    {"crate": "hadris-iso", "tier": "hosted-async-read", "features": "std,async,read,joliet"},
-    {"crate": "hadris-iso", "tier": "sync-and-async-read", "features": "alloc,sync,async,read,joliet"},
-    {"crate": "hadris-iso", "tier": "all-capabilities", "features": "std,alloc,sync,async,read,write,joliet,unstable-streaming"},
-    {"crate": "hadris-udf", "tier": "no-std", "features": "sync,read"},
-    {"crate": "hadris-udf", "tier": "alloc", "features": "alloc,sync,read"},
-    {"crate": "hadris-udf", "tier": "std", "features": "std,sync,read,write"},
-    {"crate": "hadris-udf", "tier": "async-read", "features": "alloc,async,read"},
-    {"crate": "hadris-udf", "tier": "sync-and-async-read", "features": "alloc,sync,async,read"},
-    {"crate": "hadris-udf", "tier": "all-capabilities", "features": "std,alloc,sync,async,read,write,unstable-streaming"}
+    {
+      "crate": "hadris-iso",
+      "tier": "no-std-sync",
+      "features": "sync"
+    },
+    {
+      "crate": "hadris-iso",
+      "tier": "no-std-async",
+      "features": "async"
+    },
+    {
+      "crate": "hadris-iso",
+      "tier": "alloc-sync",
+      "features": "alloc,sync"
+    },
+    {
+      "crate": "hadris-iso",
+      "tier": "alloc-async",
+      "features": "alloc,async"
+    },
+    {
+      "crate": "hadris-iso",
+      "tier": "std",
+      "features": "std,sync"
+    },
+    {
+      "crate": "hadris-iso",
+      "tier": "hosted-async",
+      "features": "std,async"
+    },
+    {
+      "crate": "hadris-iso",
+      "tier": "all-capabilities",
+      "features": "std,alloc,sync,async"
+    },
+    {
+      "crate": "hadris-udf",
+      "tier": "no-std-sync",
+      "features": "sync"
+    },
+    {
+      "crate": "hadris-udf",
+      "tier": "no-std-async",
+      "features": "async"
+    },
+    {
+      "crate": "hadris-udf",
+      "tier": "alloc-sync",
+      "features": "alloc,sync"
+    },
+    {
+      "crate": "hadris-udf",
+      "tier": "alloc-async",
+      "features": "alloc,async"
+    },
+    {
+      "crate": "hadris-udf",
+      "tier": "std",
+      "features": "std,sync"
+    },
+    {
+      "crate": "hadris-udf",
+      "tier": "hosted-async",
+      "features": "std,async"
+    },
+    {
+      "crate": "hadris-udf",
+      "tier": "all-capabilities",
+      "features": "std,alloc,sync,async"
+    },
+    {
+      "crate": "hadris-iso",
+      "tier": "hosted-tracing",
+      "features": "tracing,sync,async"
+    },
+    {
+      "crate": "hadris-iso",
+      "tier": "cached-sync",
+      "features": "cache,sync"
+    },
+    {
+      "crate": "hadris-iso",
+      "tier": "cached-async",
+      "features": "cache,async"
+    },
+    {
+      "crate": "hadris-udf",
+      "tier": "hosted-tracing",
+      "features": "tracing,sync,async"
+    }
   ],
   "archive": [
-    {"crate": "hadris-cpio", "tier": "no-std", "features": "sync,read"},
-    {"crate": "hadris-cpio", "tier": "alloc", "features": "alloc,sync,read,write"},
-    {"crate": "hadris-cpio", "tier": "std", "features": "std,sync,read,write"},
-    {"crate": "hadris-cpio", "tier": "async-read", "features": "alloc,async,read"},
-    {"crate": "hadris-cpio", "tier": "hosted-async-read-write", "features": "std,async,read,write"},
-    {"crate": "hadris-cpio", "tier": "sync-and-async-read-write", "features": "alloc,sync,async,read,write"},
-    {"crate": "hadris-cpio", "tier": "all-capabilities", "features": "std,alloc,sync,async,read,write"}
+    {
+      "crate": "hadris-cpio",
+      "tier": "no-std-sync-reader",
+      "features": "sync"
+    },
+    {
+      "crate": "hadris-cpio",
+      "tier": "no-std-async-reader",
+      "features": "async"
+    },
+    {
+      "crate": "hadris-cpio",
+      "tier": "alloc-sync",
+      "features": "alloc,sync"
+    },
+    {
+      "crate": "hadris-cpio",
+      "tier": "alloc-async",
+      "features": "alloc,async"
+    },
+    {
+      "crate": "hadris-cpio",
+      "tier": "std",
+      "features": "std,sync"
+    },
+    {
+      "crate": "hadris-cpio",
+      "tier": "hosted-async",
+      "features": "std,async"
+    },
+    {
+      "crate": "hadris-cpio",
+      "tier": "all-capabilities",
+      "features": "std,alloc,sync,async"
+    },
+    {
+      "crate": "hadris-cpio",
+      "tier": "hosted-tracing",
+      "features": "tracing,sync,async"
+    }
   ],
   "facades": [
-    {"crate": "hadris-cd", "tier": "no-api", "features": ""},
-    {"crate": "hadris-cd", "tier": "hosted-sync-writer", "features": "std,sync"},
-    {"crate": "hadris-block", "tier": "no-formats", "features": ""},
-    {"crate": "hadris-block", "tier": "no-std-async", "features": "alloc,async,read,detect,storage,fat,part"},
-    {"crate": "hadris-block", "tier": "all-capabilities", "features": "std,alloc,sync,async,read,write,detect,storage,fat,part"},
-    {"crate": "hadris-optical", "tier": "no-formats", "features": ""},
-    {"crate": "hadris-optical", "tier": "hosted-async-with-cd", "features": "std,async,read,open,cd"},
-    {"crate": "hadris-optical", "tier": "all-capabilities", "features": "std,alloc,sync,async,read,write,open,cd"},
-    {"crate": "hadris-archive", "tier": "no-formats", "features": ""},
-    {"crate": "hadris-archive", "tier": "async-read-write", "features": "alloc,async,read,write,cpio"},
-    {"crate": "hadris-archive", "tier": "all-capabilities", "features": "std,alloc,sync,async,read,write,cpio"},
-    {"crate": "hadris", "tier": "no-formats", "features": ""},
-    {"crate": "hadris", "tier": "leaf-fat", "features": "std,sync,read,write,fat"},
-    {"crate": "hadris", "tier": "leaf-storage", "features": "std,sync,storage"},
-    {"crate": "hadris", "tier": "leaf-path", "features": "alloc,path"},
-    {"crate": "hadris", "tier": "leaf-fixed", "features": "alloc,fixed"},
-    {"crate": "hadris", "tier": "leaf-part", "features": "std,sync,read,write,part"},
-    {"crate": "hadris", "tier": "leaf-iso", "features": "std,sync,read,write,iso"},
-    {"crate": "hadris", "tier": "leaf-udf", "features": "std,sync,read,write,udf"},
-    {"crate": "hadris", "tier": "leaf-cd", "features": "std,cd"},
-    {"crate": "hadris", "tier": "leaf-cpio", "features": "std,sync,read,write,cpio"},
-    {"crate": "hadris", "tier": "no-std-async-block", "features": "alloc,async,read,block"},
-    {"crate": "hadris", "tier": "hosted-async-optical", "features": "std,async,read,optical"},
-    {"crate": "hadris", "tier": "dual-mode-archive", "features": "alloc,sync,async,read,write,archive"},
-    {"crate": "hadris", "tier": "all-capabilities", "features": "std,alloc,sync,async,read,write,block,optical,archive"}
+    {
+      "crate": "hadris",
+      "tier": "no-formats",
+      "features": ""
+    },
+    {
+      "crate": "hadris",
+      "tier": "no-std-sync-core",
+      "features": "sync"
+    },
+    {
+      "crate": "hadris",
+      "tier": "leaf-fat",
+      "features": "std,sync,write,fat"
+    },
+    {
+      "crate": "hadris",
+      "tier": "leaf-part",
+      "features": "std,sync,part"
+    },
+    {
+      "crate": "hadris",
+      "tier": "leaf-ntfs",
+      "features": "sync,unstable-ntfs"
+    },
+    {
+      "crate": "hadris",
+      "tier": "leaf-iso",
+      "features": "std,sync,iso"
+    },
+    {
+      "crate": "hadris",
+      "tier": "leaf-udf",
+      "features": "std,sync,udf"
+    },
+    {
+      "crate": "hadris",
+      "tier": "leaf-cpio",
+      "features": "std,sync,cpio"
+    },
+    {
+      "crate": "hadris",
+      "tier": "hosted-async-optical",
+      "features": "std,async,iso,udf"
+    },
+    {
+      "crate": "hadris",
+      "tier": "no-std-detect",
+      "features": "sync,detect"
+    },
+    {
+      "crate": "hadris",
+      "tier": "no-std-async-open",
+      "features": "alloc,async,detect"
+    },
+    {
+      "crate": "hadris",
+      "tier": "dual-mode-archive",
+      "features": "alloc,sync,async,cpio"
+    },
+    {
+      "crate": "hadris",
+      "tier": "leaf-fat-tracing",
+      "features": "sync,async,write,fat,tracing"
+    },
+    {
+      "crate": "hadris",
+      "tier": "all-capabilities",
+      "features": "std,alloc,sync,async,write,detect,part,cpio,unstable-ntfs,tracing"
+    },
+    {
+      "crate": "hadris",
+      "tier": "apfs-native-no-std",
+      "features": "sync,unstable-apfs"
+    },
+    {
+      "crate": "hadris",
+      "tier": "apfs-selected-sync",
+      "features": "alloc,sync,detect,unstable-apfs"
+    },
+    {
+      "crate": "hadris",
+      "tier": "apfs-selected-async",
+      "features": "alloc,async,detect,unstable-apfs"
+    },
+    {
+      "crate": "hadris",
+      "tier": "apfs-selected-dual",
+      "features": "std,sync,async,detect,unstable-apfs"
+    },
+    {
+      "crate": "hadris",
+      "tier": "encrypted-apfs-sync",
+      "features": "sync,apfs-encryption"
+    },
+    {
+      "crate": "hadris",
+      "tier": "encrypted-apfs-async",
+      "features": "async,apfs-encryption"
+    },
+    {
+      "crate": "hadris",
+      "tier": "hosted-all-format-tracing",
+      "features": "tracing,sync,async,detect,part,unstable-ntfs,apfs-encryption"
+    }
   ]
 }

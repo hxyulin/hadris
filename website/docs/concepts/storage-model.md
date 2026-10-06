@@ -8,15 +8,15 @@ Hadris keeps storage access separate from format parsing. A typical operation
 passes through these layers:
 
 ```text
-file, memory, firmware protocol, or block device
-                         │
-                  hadris-io traits
-                         │
-          bounded device or partition view
-                         │
-             filesystem or archive parser
-                         │
-          directory entry and content reader
+file, memory, firmware protocol, or device driver
+                         |
+      hadris-io streams / hadris-storage block devices
+                         |
+      partition window (hadris-part, Partition)
+                         |
+       format driver (FatFs, IsoFs, UdfFs, ...)
+                         |
+      hadris-fs FileSystem trait, Volume, handles
 ```
 
 Each layer adds validation or interpretation without hiding the layer below it.
@@ -24,60 +24,78 @@ Applications can use only the pieces they need.
 
 ## Byte streams with `hadris-io`
 
-Format crates use Hadris `Read`, `Write`, and `Seek` abstractions instead of
-depending directly on `std::io`. The crate supplies sync and async traits and
-hosted adapters, while firmware and kernels can implement the same traits for
-their own device handles.
+`hadris-io` defines `Read`, `Write` and `Seek` in each mode
+(`hadris_io::sync::Read`, `hadris_io::r#async::Read`), each reporting the
+implementor's own error through `ErrorType`. It supplies explicit adapters:
+`StdIo` for `std::io` types, `ToStd` for the other direction, and
+`FromEmbedded` for `embedded-io` devices. Firmware and kernels implement the
+same traits for their own device handles.
 
-This is why the same parser code can run over a host file, a memory cursor, or
-a custom device without changing the filesystem API.
+The CPIO reader and writer work on these streams directly, so they run over
+pipes.
 
 ## Block geometry with `hadris-storage`
 
-`hadris-storage` adds checked logical-block addressing and block-device
-capability traits. It does not assume 512-byte sectors. Use it when an
-application naturally addresses storage by logical blocks rather than a raw
-byte cursor.
+Every filesystem driver reads a `hadris-storage` `BlockDevice`, which reads
+and writes whole logical blocks of an explicit size. It does not assume
+512-byte sectors. `host::FileDevice` is a host image file or disk device
+with 512-byte blocks, `Vec<u8>` is an in-memory image that grows when
+written past its end, `MemDevice` wraps fixed bytes in memory, `StreamDevice` turns any seekable stream
+into a device with the block size you give it, and `Cache` adds a write-back
+block cache. Every block operation returns `hadris_io::Error<E>` over the
+device's own error `E`: a device refuses writes with kind `ReadOnly`, and an
+adapter refuses a request past its end with kind `InvalidInput` and the
+block it concerns. A device that accepts writes says so through
+`writable()`, which defaults to false; a driver mounts a device that is not
+writable read-only.
 
-Seekable byte streams and block devices can be adapted at this boundary. The
-format crates continue to validate their own sector and filesystem geometry.
+The format crates validate their own sector and filesystem geometry on top of
+the device's block size.
 
 ## Partition boundaries
 
 Partition tables describe bounded regions of a larger disk. Before opening a
-filesystem inside a partition, create a checked view restricted to that
-partition. This prevents filesystem offsets from escaping into neighboring
+filesystem inside a partition, create a checked view (a `Partition` of a
+block device) restricted to that partition. This prevents filesystem offsets from escaping into neighboring
 partitions and keeps offsets relative to the filesystem start.
 
-`hadris-part` exposes the concrete MBR and GPT structures. `hadris-block` adds
-detection and convenient partition views when an application needs both the
-partition and filesystem layers.
+`hadris-part` reads, edits and writes MBR, GPT and hybrid tables on a block
+device, and its `open` turns a partition into such a slice. The umbrella's
+`detect` lists what a device or slice holds, and its `open` mounts the FAT,
+exFAT, ISO 9660 or UDF volume a slice holds, when an application needs both
+the partition and filesystem layers.
 
 ## Format handles
 
-Leaf crates such as `hadris-fat`, `hadris-iso`, and `hadris-udf` expose their
-complete format-specific handles. Category facades detect and open formats but
-return concrete handles rather than a lowest-common-denominator filesystem
-trait.
+Every driver (`FatFs`, `ExFatFs`, `IsoFs`, `UdfFs`, `NtfsFs`) implements
+the `hadris-fs` `FileSystem` trait directly, and keeps a native API for what
+the trait does not model, such as FAT attributes, Rock Ridge metadata and UDF
+descriptors. The umbrella's `open` returns an `AnyFs` enum, which
+implements the same trait over whichever driver it mounted and reaches that
+driver by `match`.
 
-That preserves format-specific features such as FAT attributes, Rock Ridge
-metadata, UDF descriptors, and partition GUIDs.
+## The trait and the volume
 
-## Entry and content lifetimes
+A driver takes `&mut self`, works on node ids and holds no lock. Two ways of
+using it can each do every job:
 
-Directory entries are metadata values. Content readers borrow the mounted
-filesystem or volume and track their own position through a file's extents or
-cluster chain. Keep the volume alive while reading content; clone owned entry
-metadata when it must outlive an iterator or intermediate lookup.
+| Use | Build it with | Paths and handles |
+|---|---|---|
+| The trait | `FatFs::mount(dev, MountOptions::new())?` | Node ids: `resolve`, `lookup`, `readdir`, `open`, `read`, `close`, `forget` |
+| The volume | `Volume::new(fs)` | Paths named after `std::fs`, any number of `File` and `ReadDir` handles, cloneable and usable from other threads or tasks |
+
+`lookup` and `resolve` pin a node and `forget` unpins it. Directory entries
+are plain values that own their names, and a handle reads its file by
+offset, so the driver keeps no cursor for it. Format-specific calls on a
+volume go through `vol.lock()`, which dereferences to the driver.
 
 ## Choosing the boundary
 
 | Starting point | Recommended layer |
 |---|---|
 | A known standalone FAT image | Open it directly with `hadris-fat` |
-| An unknown disk image | Detect it with `hadris-block` |
+| An unknown disk or optical image | Detect it with `hadris::sync::detect`, open it with `hadris::sync::open` |
 | A filesystem inside GPT or MBR | Create a partition view, then open the leaf filesystem |
-| An unknown optical image | Use `hadris-optical` with an open policy |
 | A custom firmware device | Implement or adapt `hadris-io` traits |
 | A logical-block-native device | Start with `hadris-storage` |
 

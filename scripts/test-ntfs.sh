@@ -10,7 +10,7 @@ docker build \
   "$repo_root/crates/block/hadris-ntfs"
 
 command=(
-  cargo test -p hadris-ntfs --features sync --lib integration_read:: --
+  cargo test -p hadris-ntfs --all-features --test read --
   --nocapture --test-threads=1
 )
 if (( $# > 0 )); then

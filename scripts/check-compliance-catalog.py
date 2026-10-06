@@ -192,7 +192,8 @@ def validate_requirement(
                 errors.append(path_error)
             elif resolved is not None and not resolved.is_file():
                 errors.append(f"{symbol_loc}: missing implementation file {symbol['path']!r}")
-            if not str(symbol["path"]).startswith(f"crates/{crate}/"):
+            # A format's catalog also covers its `-raw` crate.
+            if not str(symbol["path"]).startswith((f"crates/{crate}/", f"crates/{crate}-raw/")):
                 errors.append(f"{symbol_loc}: path is outside catalog crate {crate!r}")
 
     tests = requirement["tests"]

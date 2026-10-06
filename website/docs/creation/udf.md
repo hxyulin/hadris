@@ -4,125 +4,91 @@ title: Create UDF filesystems
 
 # Create UDF filesystems
 
-`hadris-udf` creates mastered, read-only Type-1 UDF images on a seekable target.
-The high-level tree API is appropriate for standalone images; `hadris-cd`
-should be used when authoring a shared ISO/UDF bridge image.
+`hadris-udf` writes mastered, read-only type 1 UDF volumes from a
+`hadris_fs::Tree`. `write_bridge` writes a shared ISO/UDF bridge image.
 
 ## Dependency
 
 ```toml
 [dependencies]
-hadris-udf = { version = "2.5.0", features = ["write", "sync"] }
+hadris-fs = { version = "3.0.0-rc.1", features = ["std", "sync"] }
+hadris-udf = "3.0.0-rc.1"
+hadris-storage = "3.0.0-rc.1"
 ```
 
-## Create a directory tree
+## Create a volume
 
-`SimpleDir` and `SimpleFile` own their payloads. Sort the tree when deterministic
-directory ordering matters.
-
-```rust
-use std::fs::OpenOptions;
-
-use hadris_udf::write::{SimpleDir, SimpleFile, UdfWriteOptions, UdfWriter};
+```rust,no_run
+use hadris_fs::{Content, Node, Tree};
+use hadris_udf::UdfOptions;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut root = SimpleDir::root();
-    root.add_file(SimpleFile::new(
-        "README.txt",
-        b"Hello from a UDF image\n".to_vec(),
-    ));
+    let mut tree = Tree::new();
+    tree.insert("README.txt", Node::file(Content::bytes("Hello from a UDF image\n")))?;
+    tree.insert("docs/guide.txt", Node::file(Content::bytes("UDF guide\n")))?;
 
-    let mut docs = SimpleDir::new("docs");
-    docs.add_file(SimpleFile::new("guide.txt", b"UDF guide\n".to_vec()));
-    root.add_dir(docs);
-    root.sort();
-
-    let target = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open("volume.udf")?;
-
-    let output = UdfWriter::create(target, &root, UdfWriteOptions::default())?;
-    println!("wrote {} sectors", output.sectors_written);
-    let _target = output.into_inner();
+    let target = hadris_storage::host::FileDevice::new(std::fs::File::create("volume.udf")?)?;
+    let report = hadris_udf::sync::write(target, &tree, &UdfOptions::default())?;
+    println!("wrote {} bytes", report.size());
     Ok(())
 }
 ```
 
-The output reports the number of 2048-byte sectors used and returns the target.
-Unlike FAT formatting, the standalone UDF writer lays out and grows an ordinary
-file as it writes, so it does not need to be pre-sized.
+A `FileDevice` over a host file grows as the writer writes it, and so does a
+`Vec<u8>`. For a fixed-size device such as a
+`MemDevice`, size it with `hadris_udf::plan(&tree, &options)` first, which
+does no I/O; `write` refuses a device that is too small before writing
+anything. `hadris_fs::host::read_tree` imports a host directory without
+reading the files until the image is written.
 
 ## Select a mastered revision
 
 ```rust
-use hadris_udf::UdfRevision;
-use hadris_udf::write::UdfWriteOptions;
+use hadris_udf::{UdfId, UdfOptions, UdfRevision};
 
-let options = UdfWriteOptions {
-    volume_id: "ARCHIVE_2026".into(),
-    revision: UdfRevision::V2_01,
-    ..UdfWriteOptions::default()
-};
+let options = UdfOptions::default()
+    .with_id(UdfId::Volume, "ARCHIVE_2026")
+    .with_revision(UdfRevision::V2_01);
 ```
 
-The revision describes a mastered/read-only Type-1 image. It does not enable
-packet writing, VAT, sparing, metadata partitions, or pseudo-overwrite. Choose
-the oldest revision that provides the compatibility your consumers need, and
-validate it with the tools used by those consumers.
+The revision describes a mastered, read-only image. It does not enable packet
+writing, VAT, sparing, metadata partitions or pseudo-overwrite. Choose the
+oldest revision that gives your consumers what they need, and validate with
+their tools.
 
-## Unicode names and limits
+## Names, metadata and limits
 
-Filenames are encoded with OSTA Compressed Unicode (CS0). Hadris selects 8-bit
-compression for names representable in one byte per character and 16-bit
-compression otherwise. A filename whose encoded FID identifier exceeds 255
-bytes is rejected rather than truncated.
-
-The high-level API currently owns every file payload in memory. Very large
-payloads and live streaming are outside this convenience surface.
-
-## Create an in-memory image
-
-Preallocate enough space when the target is a bounded cursor:
-
-```rust
-use std::io::Cursor;
-use hadris_udf::write::{SimpleDir, SimpleFile, UdfWriteOptions, UdfWriter};
-
-let mut root = SimpleDir::root();
-root.add_file(SimpleFile::new("hello.txt", b"hello\n".to_vec()));
-
-let mut storage = vec![0_u8; 8 * 1024 * 1024];
-let cursor = Cursor::new(storage.as_mut_slice());
-let output = UdfWriter::create(cursor, &root, UdfWriteOptions::default())?;
-assert!(output.sectors_written > 0);
-# Ok::<(), hadris_udf::Error>(())
-```
+Names are encoded as OSTA Compressed Unicode: 8-bit when every character is
+below U+0100, 16-bit otherwise. A name over 254 encoded bytes fails with
+`NameTooLong`. Symlinks and hard links are stored; device nodes, creation
+times and DOS attributes are left out and listed in `Report::warnings`. The
+options' time, `NoClock::TIME` (1980-01-01) by default, dates entries
+without times, so the same tree gives the same bytes; `with_time` sets
+another. The volume set identifier starts with a 16-digit serial derived
+from `with_seed`, or the time, and the tree's paths, sizes and times;
+`with_id(UdfId::VolumeSet, ..)` sets it outright.
 
 ## Author an ISO/UDF bridge
 
-Do not independently concatenate ISO and UDF images. A bridge must coordinate
-descriptor locations, directory ICBs, and payload extents. Use the bridge crate
-or CLI:
+Do not concatenate separate ISO and UDF images. A bridge coordinates
+descriptor locations, directory ICBs and payload extents.
+`hadris_udf::sync::write_bridge(dev, &tree, &iso_options, &udf_options)`
+writes one, and `hadris_udf::plan_bridge` plans it without I/O. Both
+namespaces point at the same file data. From the command line:
 
 ```bash
-hadris-cd create image-root bridge.iso
-hadris-cd verify bridge.iso
+hadris udf bridge image-root -o bridge.iso -J
+hadris udf compare bridge.iso
 ```
-
-The verifier compares both namespace trees and confirms that shared files are
-readable through ISO and UDF.
 
 ## Validate the result
 
 ```bash
 udfinfo volume.udf
 7z l volume.udf
-hadris-udf info volume.udf
+hadris udf check volume.udf
 ```
 
-For interoperability work, also create reference images with `mkudffs` and
-confirm that Hadris can read them. Validation should cover every UDF revision
-your application accepts.
+7-Zip does not open volumes that contain symlinks. For interoperability
+work, also create reference images with `mkudffs` and confirm that Hadris
+reads them.

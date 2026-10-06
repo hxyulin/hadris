@@ -8,6 +8,527 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- The semver CI check skips crates absent from its baseline, allowing the V3
+  promotion to compare existing crates against V2.
+
+- The APFS fixture generator keeps its public test password in the fixture
+  manifest without printing it to the console.
+
+- Default-feature workspace tests gate async-only cases correctly, with a CI
+  job covering the default build used by the release workflow.
+
+- FAT/exFAT extraction exposes optional storage buffering with
+  `--read-ahead-blocks`, defaulting to zero.
+
+- Storage supports optional, bounded adaptive read-ahead in all I/O modes.
+  Writes always go directly to the underlying device.
+
+- FAT peer profiling supports isolated extraction workers for process RSS,
+  with speed, image-read and disabled-cache overhead comparisons documented.
+
+- FAT profiling includes the public lazy-tree extraction workflow, nested and
+  long-name fixtures, and comparisons of independently configured caches.
+
+- `hadris fat extract` enables the sequential listing hint by default and accepts
+  independent cache bounds, `--no-directory-hint`, and `--no-cache`.
+
+- FAT drivers support an optional one-entry listing hint for sequential traversal,
+  selected with `CacheOptions::sequential()` or `with_directory_hint`. Other
+  cache bounds remain independently configurable; ordinary mounts stay uncached.
+
+- Hosted FAT first writes into newly allocated, exclusive device blocks avoid
+  reading old free-space data for small payloads; shared blocks retain their
+  existing bytes. Short-name insertion indexing falls back for the escaped
+  high-byte prefix `0x05`, preserving custom code-page alias collisions.
+
+- FAT bulk image writing avoids repeated directory scans for dense ASCII 8.3
+  names using a bounded insertion index. Directory-cached mounts use the same
+  optimization, with normal planning retained for complex names and layouts.
+
+- Hosted FAT entry insertion resumes from the directory position reached by its
+  planner, avoiding a second traversal of the directory chain.
+
+- FAT32 profiling accepts independent cache bounds and fixed sample counts,
+  with extraction timing, I/O scaling and sampled-stack results documented.
+
+- The peer performance runner supports sustained FAT32 profiling loops and
+  controlled cache probes, with setup and validation outside the profile window.
+
+- The performance harness optionally compares FAT workflows with a pinned,
+  officially patched ChaN FatFs C helper and records its sector-callback I/O.
+
+- The performance harness compares shared host workflows with rust-fatfs,
+  dosfstools/mtools, xorriso, mkisofs/genisoimage and bsdtar, including larger
+  directory fixtures, output image sizes and stream seek counts.
+
+- The detached test harness measures common V3 filesystem workloads across
+  FAT12/16/32, exFAT, ISO and UDF, reporting per-sample time and requested device I/O.
+
+- NTFS mounts reject declared volumes larger than the device and bound MFT
+  records and physical data runs to the declared volume, including on devices
+  with trailing data.
+
+- APFS object-map lookups preserve full object identifiers and deleted mappings;
+  volume enumeration resolves each live volume at the container checkpoint,
+  excluding historical and future versions.
+
+- UDF allocation walks resume in place, reducing temporary buffer movement
+  during directory traversal and file reads.
+
+- UDF documents and tests optional bounded caching through the shared storage
+  adapter; the reader benchmark measures cache capacity and underlying device I/O.
+
+- UDF directory reads reuse identifier bytes for CRC validation and name decoding,
+  avoiding duplicate name reads without enabling a cache or allocating memory.
+
+- UDF readers honor extended allocation information lengths, exclude allocation
+  padding from file data, validate recorded lengths, and reject transformed extents and ICBs.
+
+- UDF mounts preserve device failures when falling back to the reserve descriptor
+  sequence.
+
+- UDF symlink metadata propagates target read and decoding failures instead of
+  reporting encoded component lengths; directory listing retains damaged-entry
+  fallback for malformed targets while preserving device failures.
+
+- CPIO `odc` writers include payloads for every hard-link name and report each
+  stored extent, preventing empty-file extraction with GNU `cpio`.
+
+- CPIO writers combine name terminators and alignment padding into one write.
+
+- CPIO writers borrow memory-backed payloads directly and allocate reusable
+  scratch only for streamed content, bounded by its length and 64 KiB.
+
+- CPIO tree extraction tracks hard-link ownership using normalized path separators,
+  preserving archive-order replacements under equivalent path spellings.
+
+- Hosted exFAT appends reuse guarded chain positions when finding the tail,
+  avoiding repeated traversal of the full existing allocation.
+
+- Hosted exFAT contiguous reads size NoFatChain runs directly while checking
+  their final cluster against the allocation heap.
+
+- Embedded exFAT reads coalesce adjacent allocation clusters into device reads,
+  preserving initialized-data boundaries and guarded fragmented-chain traversal.
+
+- FAT adds opt-in bounded directory-prefix indexing through
+  `CacheOptions::with_directory_entries`, avoiding repeated parsing and traversal
+  during lookups while retaining short aliases and mutation recovery.
+
+- FAT12 batches packed allocation entries and same-block append tail updates,
+  preserving neighboring nibbles and split-entry recovery while reducing FAT
+  traffic. Multi-cluster requests preflight free space before modifying the FAT.
+
+- Interrupted FAT12 entries spanning device blocks are completed in the active
+  FAT before mirroring or reclaiming chains, preserving unrelated files and
+  exactly-once free-cluster accounting.
+
+- FAT indexed reads reuse a current-cluster hint immediately and precompute
+  checkpoint buckets to reduce forward-read cache bookkeeping.
+
+- FAT metadata caching reuses allocated block buffers after invalidation and
+  cache clearing, avoiding repeated allocation during metadata writes.
+
+- FAT node-driver multi-cluster growth batches tail linking with the final
+  FAT16/32 allocation group, using the new raw `allocate_run_after` primitive.
+  FAT12 keeps its packed-entry recovery path.
+
+- FAT adds configurable metadata-block caching, with payload reads bypassing
+  the cache and overlapping writes invalidating entries before I/O.
+
+- FAT adds opt-in bounded chain-position caching through `CacheOptions` and
+  `FatFs::with_cache`, reducing repeated traversal after backward seeks.
+
+- FAT node-driver lookup and creation scans prepare folded UTF-16 queries
+  once, preserving long names, short aliases, and runtime code-page behavior.
+
+- FAT node-driver single-cluster growth combines allocation and tail linking
+  when their FAT16/32 entries share a device block.
+
+- ISO writer planning reuses final directory identifiers for both path tables, halving repeated directory-record construction.
+
+- ISO reader caches can optionally build a bounded hard-link index on demand, preserving canonical IDs and falling back to scanning for uncached keys.
+
+- ISO adds an opt-in `cache` feature with bounded metadata-sector and parsed-record caches, configurable through `CacheOptions` and `IsoFs::with_cache`.
+
+- ISO directory listing reuses parsed file records and Rock Ridge metadata instead of rereading them for `stat`.
+
+- ISO lookup compares names before resolving canonical hard-link IDs, avoiding global link scans for nonmatching entries.
+
+### Added
+
+- Extend the FAT performance harness with nested EFI file loading, backward
+  and shuffled reads, unaligned buffers, fragmented chains, and long-name
+  directory lookup/listing workloads.
+
+- Extend opt-in hosted tracing to ISO, UDF, APFS, NTFS, CPIO and partition
+  operations, with umbrella forwarding, writer phase spans and credential-safe
+  APFS password mounts.
+
+- A dependency-free FAT performance harness covering hosted and embedded
+  FAT12/16/32 drivers, with device I/O counts, write amplification, repeatable
+  timing samples, CSV write-region attribution and host driver-state sizes.
+- **hadris-fat-raw:** Added `io::{sync, r#async, local}::allocate_after` with
+  caller-owned recovery state for single-cluster chain extension.
+- **hadris-fat-raw:** Added `Geometry::cluster_shift()` for the validated
+  cluster-size exponent, available without I/O mode features or an allocator.
+- **hadris-fat, hadris:** An opt-in `tracing` feature requiring `std`, with
+  function spans for FAT/exFAT operations and FAT allocation/write paths in
+  sync and async modes. Default and embedded no-allocator builds omit tracing.
+- Add opt-in software APFS encryption: bounded keybag and DER parsing,
+  PBKDF2-HMAC-SHA256 password derivation, AES key unwrap, and AES-XTS metadata
+  and file reads on single-key volumes. Add sync/async password mounts, explicit
+  crypto-user selection, volume-scoped native reads and CLI `--password-stdin`
+  with a preallocated, zeroizing buffer and a 4096-byte input limit.
+  Verify decrypted reads and extraction against Apple-generated images; hardware
+  encryption and per-file keys remain unsupported.
+- Add a macOS APFS encryption fixture harness with native password checks,
+  read-only remount hashes and plaintext-driver comparison, and document the
+  separate software-encryption and Asahi Secure Enclave paths.
+- Merge the V2 2.5.0 history into V3, including the experimental APFS reader
+  and inspection CLI adapted to V3 storage devices.
+- Complete the read-only APFS V3 driver: generic `Volume` access, inode-based
+  directory cursors, bounded random reads, sparse files, hard links, symlinks,
+  explicit multi-volume selection and backend-preserving errors in sync and
+  async modes. Add umbrella detection/mounting, native access through
+  `unstable-apfs`, unified
+  `hadris apfs` commands and checked inspection/extraction use cases.
+
+### Changed
+
+- Separate ISO directory encoding and image placement from tree preparation,
+  with explicit placement phases shared by image and session writes. Share
+  directory metadata construction, iterate relocated children without a temporary
+  list, name path-table locations and move boot catalog buffers into the plan.
+
+### Fixed
+
+- FAT embedded rename installs the successor directory end marker before
+  inserting the destination, keeping stale trailing records hidden even when
+  read-only lookups follow cancellation before recovery.
+
+- FAT node-driver rename recovery completes a published destination before
+  reclaiming the replaced target, or restores the original target when
+  publication was interrupted. Pending state survives cancelled recovery,
+  preserves pinned nodes and directory parents, and keeps stale entries after
+  the directory end marker hidden.
+
+- FAT embedded rename recovery completes a published move or rolls back an
+  incomplete destination while the driver remains alive. Recovery survives
+  repeated cancellation and write failures, preserves open files and directory
+  parents, and keeps stale entries after the directory end marker hidden.
+
+- Reject malformed ISO Rock Ridge metadata, unfinished SUSP continuation
+  chains, invalid continuation pointers and directory records crossing their
+  declared directory length. Read continuation areas spanning multiple blocks
+  completely instead of silently truncating them at 2048 bytes.
+
+- Reject mismatched multi-extent file identifiers in ISO raw record mapping,
+  using the same bounded continuation traversal as file reads and extent mapping.
+- Select the hosted CI toolchain explicitly so the repository MSRV toolchain
+  file does not override the newer Clippy configuration.
+
+### Changed
+
+- **hadris-fat-raw:** Byte-range reads, writes and zero-filling compute their
+  initial block address once and advance a block cursor between transfers.
+  Bulk data and zero writes share a transfer path, reducing measured FAT and
+  exFAT firmware size without additional buffer state or allocator requirements.
+  Arbitrary block sizes, device requests and interruption behavior are preserved.
+- **hadris-fat-raw:** FAT timestamp encoding clamps local timestamps before
+  calendar conversion and uses 32-bit arithmetic within the format's date
+  range, reducing measured embedded flash without additional state or
+  changes to timestamp precision, time-zone handling or device I/O.
+- **hadris-fat, hadris-fat-raw:** Embedded file addressing, cluster rounding,
+  directory indexing and FAT-copy selection use bounded shifts, masks and
+  toggles; allocation scans avoid modulo for wraparound. The cluster shift
+  is computed during boot parsing. Device I/O and recovery ordering are
+  preserved, with smaller measured firmware on all CI targets.
+- **hadris-fat:** Embedded FAT16/32 single-cluster file growth combines
+  allocation and the tail link when their entries share a device block in
+  every written FAT copy, reducing metadata reads and writes without extra
+  driver state. FAT12 and cross-block links retain the separate-write path.
+
+## [3.0.0-rc.1] - Unreleased
+
+The first release candidate of the 3.0 API. Every published crate moves to
+`3.0.0-rc.1` together; `hadris-fat-raw` is new and starts at 0.1.0. After
+3.0.0 each crate versions independently. This section describes 3.0 as a
+whole against 2.4. The
+[migration guide](docs/hadris-3.0.0-migration.md) maps every 2.4 crate, item
+and command to its 3.0 replacement, and
+[`docs/v3-api-design.md`](docs/v3-api-design.md) records the design.
+
+### Added
+
+- **hadris-fs:** New crate with the vocabulary every format shares
+  (`NodeId`, `Name`, `Metadata`, `DateTime`, `MountOptions`), one
+  `FileSystem` trait per mode, `Volume` with `File` and `ReadDir` handles,
+  `Walk`, the writer input `Tree`, `Node` and `Content`, `Report`,
+  `copy_tree`, `read_tree`, `Finding` and `CheckReport`, a `host` module
+  (`read_tree`, `write_tree`, `file`, `source_date_epoch`,
+  `local_utc_offset`, `mount_options`) and the `contract` driver test kit.
+  `Content::stored` rejects length or range overflow and unwritten extents.
+  The `FileSystem` contract separates preflight rejection from partial
+  effects after an I/O failure or cancellation; a failed write has no
+  reliable byte count and is not rolled back.
+- **hadris-fat-raw:** New crate, version 0.1.0. FAT12/16/32 and exFAT
+  on-disk layouts, codecs that do no I/O, device primitives and checkers
+  that need no allocator.
+- **hadris-cli:** New package that installs one `hadris` binary with `fat`,
+  `iso`, `udf`, `cpio` and `detect` commands.
+- **hadris:** `hadris::{sync, r#async}::{detect, open, AnyFs}`,
+  `ImageFormat` and `hadris::host::open`. `detect` recognizes FAT12/16/32,
+  exFAT, ISO 9660, UDF, ISO/UDF bridges, cpio, MBR, GPT and NTFS and
+  reports damage; `open` mounts the first filesystem it finds.
+- **hadris-fat:** The embedded API for firmware without an allocator:
+  `embedded::{sync, r#async}::Fat<'mount, D, FILES>` reads and writes
+  FAT12/16/32, and `exfat::embedded::{sync, r#async}::ExFat<'mount, D, FILES>`
+  reads exFAT, over 512-byte blocks in about 1 KiB of state. A mount borrows a
+  caller-owned `MountToken`, and file handles refuse a mount they did not come
+  from. Sizes per target are in the
+  [embedded guide](website/docs/guides/embedded.md).
+- **hadris-fat:** exFAT is stable as `ExFatFs`, with reads, writes,
+  `format` and `check`. `fat::{sync, r#async}::write` builds a FAT volume
+  from a `Tree`.
+- **hadris-fat, hadris-iso, hadris-udf:** Format extras on each driver:
+  `info()`, file extents, raw records and `read_raw`, El Torito boot
+  catalogs and `MountOptions::backup_boot`.
+- **hadris-iso:** Appended partitions (`Hybrid::with_appended`) so an EFI
+  system partition is stored once for El Torito and GPT, `IsoId` and
+  `IsoDate`, and ISO 9660 sessions over a mounted image. `Session::export`
+  streams an edited session to a separate output device in bounded memory.
+  `IsoOptions::with_min_image_blocks` pads an image to a minimum size, with
+  the backup GPT at its end.
+- **hadris-storage:** `Partition<D>`, a byte window of a device;
+  `host::FileDevice`, which reports the size of disk devices on macOS,
+  FreeBSD, Windows and Linux; `Vec<u8>` as a device; `max_block_count`.
+- **hadris-io:** `Error<E>` with `ErrorKind` (including `NotRecognized`),
+  a static message, `Location`, per-format detail codes and `errno()`.
+  Optional `embedded-io` and `embedded-io-async` bridges through
+  `FromEmbedded`.
+- **hadris-ntfs:** A read-only `NtfsFs` without an allocator, in both
+  modes. It stays a preview behind the umbrella's `unstable-ntfs`.
+- **Docs:** A versioned documentation site, the migration guide, guides
+  for detection, the embedded API and each format, and seven use-case
+  examples that build their own images, check every result and run in CI.
+
+### Changed
+
+- **All crates:** The format crates, `hadris-io`, `hadris-storage`,
+  `hadris-fs` and the umbrella have the `std`, `alloc`, `sync` and `async`
+  feature axes, with `std` and `sync` on by default. `hadris-fat-raw` has
+  only `sync`, `async` and `defmt`, all off by default;
+  `hadris-common` has only `bytemuck`, and `hadris-macros` has none.
+  Features only add items and never change behaviour. I/O items live in
+  the mode modules (`hadris_fat::sync::FatFs`) and are not re-exported at
+  crate roots.
+- **All crates:** One async mode, `r#async`, whose futures are `Send`
+  when the device is. The `async_send` modules are gone; non-`Send` async
+  uses the `local` device traits or the embedded API.
+- **All crates:** One error shape. Format crates return `Error<E>` with a
+  `Detail` read by `Detail::of`, mounts return `MountError`, which gives
+  the device back, and writers return `PathError` with the failing path.
+  Bytes that are not the format fail with `NotRecognized`.
+- **All filesystems:** Mount a `hadris-storage` `BlockDevice` with
+  `mount(dev, MountOptions)`, implement the one `FileSystem` trait, and
+  get paths and handles through `Volume`. `IsoImage` and `IsoView` merge
+  into `IsoFs`, `UdfVolume` becomes `UdfFs`, and FAT's `FatVolume`
+  becomes `FatFs`.
+- **All writers:** ISO 9660, UDF, the ISO/UDF bridge, cpio and FAT take a
+  `hadris_fs::Tree`. `plan` does no I/O and returns the `Report`; `write`
+  runs in each mode. Writers read no clock and no RNG: `with_time` and
+  `with_seed` set the inputs, serials and ids derive from them and the
+  tree, and the same input gives the same image.
+- **hadris-fat:** Short names use CP437 by default, FAT times are local
+  time with a UTC offset from `MountOptions`, and names compare by folding
+  UTF-16 units. `format` takes a `Geometry` with `FatOptions` or
+  `ExFatOptions`.
+- **hadris-iso:** The options follow one shape: `IsoId`, `Hybrid`,
+  `ElTorito` with `BootEntry` values, and `Relocation`.
+- **hadris-udf:** The ISO 9660 and UDF bridge writer moves here from
+  `hadris-cd` as `plan_bridge` and `write_bridge`.
+- **hadris-cpio:** `CpioReader` streams entries with configurable name storage,
+  `path`/`path_str`, absolute header/data offsets and `next_segment` for
+  concatenated archives; oversized names return `LimitExceeded`. `into_parts`
+  preserves the byte peeked at a segment boundary. CRC trailers are checked.
+  `Writer` appends entries
+  and returns its sink from `finish`; `Format` names Newc, Crc, Odc and
+  Binary. Odc is new.
+- **hadris-part:** Partition tables work on block devices, `open` returns
+  a `hadris_storage::Partition`, and GUIDs are passed in.
+- **hadris:** Re-exports `io`, `storage` and `fs` in every build and each
+  enabled format at a flat path (`hadris::fat`, `hadris::cpio`).
+- **hadris-common, hadris-macros:** Internal. `hadris-common` keeps only
+  the endian integers.
+- **CLI:** `hadris <format> <command>` replaces the per-format binaries.
+  `create` takes `-o` and refuses an existing output without `-f`, then
+  replaces it atomically; `extract` never replaces an existing file;
+  `verify` exits non-zero on findings; `hadris fat` handles exFAT; cpio
+  accepts `-` for standard input and output and `extract --path`.
+- **Release:** Releases are per crate, tagged `<crate>-v<version>`.
+
+### Removed
+
+- **Crates:** `hadris-block` and `hadris-optical` (use `hadris::detect`
+  and `hadris::open`), `hadris-cd` (use the bridge writer in
+  `hadris-udf`), `hadris-archive` (use `hadris-cpio`), `hadris-path`
+  (merged into `hadris-fs`), `hadris-fixed`, and the five CLI crates.
+- **Features:** `read` wherever it existed; `write` in `hadris-iso`,
+  `hadris-udf`, `hadris-cpio` and `hadris-part`; `lfn`, `cache`, `tool`,
+  `unstable-exfat` and `dirty-file-panic` in `hadris-fat`; `crc` and
+  `rand` in `hadris-part`; `joliet` in `hadris-iso`; `unstable-streaming`;
+  `sync`, `async`, `alloc`, `std` and `optical` in `hadris-common`; and
+  the umbrella's `block`, `optical`, `cd`, `archive`, `path`, `fixed` and
+  `storage`.
+- **hadris-io:** The V2 stream traits and `hadris_io::legacy`.
+- **hadris-storage:** `WriteError`, `StorageError`, `OutOfRange`,
+  `PartitionView`, and `BlockDevice` for `std::fs::File` (use
+  `host::FileDevice`).
+- **Format crates:** Their own error enums and `Report` types, and every
+  V2 reader and writer type; the migration guide lists each with its
+  replacement.
+
+### Fixed
+
+- **hadris-iso:** Joliet and enhanced volume descriptors pad their escape
+  sequence field with zeros (ECMA-119 8.5.6); `bsdtar` read images with
+  an enhanced tree as empty.
+- **hadris-iso:** Every directory record of a file over 4 GiB carries its
+  Rock Ridge entries, which `bsdtar` and xorriso need.
+- **hadris-iso:** Images end in 150 zero blocks counted in the volume
+  space size, as xorriso writes; `isoinfo` refused images under 48 blocks.
+- **hadris-iso:** Level 1 and 2 identifiers keep the `.` separator of names
+  without an extension (ECMA-119 7.5.1), map each character to one byte,
+  and keep the extension when a long name is cut. Joliet names replace
+  forbidden characters.
+- **hadris-iso:** Rock Ridge relocation writes placeholders libarchive
+  reads and reuses an existing root `rr_moved` directory. Hard link names
+  share one node id in the Rock Ridge view.
+- **hadris-iso:** A session that replaces a boot image updates the boot
+  catalog's load size and boot information table.
+- **hadris-iso:** Boot code over 446 bytes and invalid El Torito load
+  sizes fail instead of being cut or written.
+- **hadris-iso:** A directory holding a file with several extents is sized
+  for every extent record; records past the planned size were dropped.
+- **hadris-iso:** A session whose descriptor set grows over stored file
+  data moves those files instead of overwriting them.
+- **hadris-iso:** Opening a session on an image whose directories form a
+  cycle fails with `Corrupt` instead of looping forever.
+- **hadris-iso:** Rock Ridge continuation areas no longer cross a block
+  boundary, which Linux rejected.
+- **hadris-iso:** A Rock Ridge name longer than `DirEntry::MAX_NAME` lists
+  and looks up under its ISO 9660 identifier; it failed the listing, and
+  over 1024 bytes every lookup after it.
+- **hadris-iso:** `stat` reports a length of 0 for a directory, as
+  `Metadata::len` specifies.
+- **hadris-iso:** Deduplicated Joliet names stay within 64 characters.
+- **hadris-iso:** An El Torito entry with an empty boot image fails with
+  `InvalidInput` instead of writing a catalog entry at block 0.
+- **hadris-iso:** Rock Ridge names of some lengths no longer fail the write
+  with `Detail::DirectoryRecord`; inline system use left no room for the
+  record's padding byte.
+- **hadris-iso:** Listing a directory whose recorded size nears 4 GiB stops
+  at the end, or fails with `Corrupt`, instead of overflowing and scanning
+  again from the start.
+- **hadris-iso:** Opening a session reads each file's extent records once,
+  instead of a number of times quadratic in the extent count.
+- **hadris-udf:** The writer refuses UDF 2.50 and 2.60, which need a
+  metadata partition it does not write.
+- **hadris-udf:** The volume space size of a bridge image's ISO 9660 side
+  covers the whole image.
+- **hadris-fat:** Generated short names map non-ASCII characters through
+  the code page correctly, and short names that differ only in bytes above
+  `0x7F` stay distinct.
+- **hadris-fat:** A looping cluster chain fails with `Corrupt` instead of
+  listing entries forever.
+- **hadris-fat:** An interrupted exFAT grow whose entry set crosses a device
+  block recovers to the old size and chain; it kept the new size over
+  freed clusters.
+- **hadris-fat:** A `truncate` whose end-of-chain write fails is cut back
+  by the next write instead of leaving a chain longer than the file.
+- **hadris-fat:** After a device refuses a write, `sync` and `unmount` fail
+  with `ReadOnly` while sizes or interrupted work are left unwritten,
+  instead of reporting success.
+- **hadris-fat:** exFAT flushes the device after setting `VolumeDirty` and
+  before clearing it, so a clean flag never reaches the medium before the
+  writes it covers.
+- **hadris-fat:** The embedded FAT driver's `sync` and `unmount` also fail
+  with `ReadOnly` after a refused write while file sizes or interrupted
+  work are left unwritten.
+- **hadris-fat:** An exFAT directory grow whose size write fails is cut
+  back by recovery instead of leaving zeroed clusters past its end.
+- **hadris-fat:** An exFAT rename whose old entry set cannot be removed, or
+  that is dropped part way, leaves exactly one name for the node; two names
+  shared one chain, or neither kept it.
+- **hadris-fat:** Growing a contiguous exFAT file whose size runs past the
+  cluster heap fails with `Corrupt` before any FAT entry is written.
+- **hadris-fat:** exFAT `format` gives the volume the largest cluster count
+  that fits; some sizes, 4 MiB among them, got one cluster fewer.
+- **hadris-fat:** `set_label` and `create`, and embedded `open` with
+  `create`, no longer fail with `AlreadyExists` when a root file and the
+  volume label share a name.
+- **hadris-fs:** Copying or extracting a tree whose directory entries loop
+  fails with `Corrupt` instead of running forever.
+- **hadris-part:** GPT writes always fill in the header and partition
+  array CRCs; 2.4 left them zero unless the `crc` feature was on.
+- **hadris-macros:** `send_async!` passes malformed input through to rustc
+  instead of panicking.
+- **CLI:** A failed `create` no longer truncates an existing output, and
+  cpio and UDF extraction refuse paths that escape the output directory.
+- **hadris-fs:** A dropped async `File::close` future still closes the
+  file, and dropped async `Volume` path calls release the pins and opens
+  they held, so a cancelled call no longer leaves a file `Busy` or fills
+  the node table.
+- **hadris-storage:** `FileDevice` reports a write or flush the OS refuses
+  as read-only or not permitted as `ReadOnly`, keeping the OS error, so
+  FAT and exFAT switch to read-only. `hadris_io::Error::with_kind` sets the
+  kind of a device error.
+- **hadris-cpio:** `read_tree` accepts a hard link name listed twice, and
+  applies hard link groups in archive order, so a later entry replaces an
+  earlier hard link name as it does any other.
+- **hadris-cpio:** `read_tree` fails with `LimitExceeded` for entry data
+  that does not fit in memory, such as an `odc` file of 4 GiB or more on a
+  32-bit target, instead of reporting a truncated archive.
+- **hadris-udf:** Directory metadata reports length 0, as the `Metadata`
+  contract says, instead of the size of the identifier stream.
+- **hadris-udf:** Each descriptor tag's CRC covers the whole descriptor.
+  File entries with more than 42 allocation descriptors were not fully
+  covered, the terminating descriptor was not covered at all, and the
+  logical volume, unallocated space and integrity descriptors covered
+  bytes past their end. The reader still checks the length each tag
+  records, so older images read as before.
+- **hadris-udf:** Sequential reads of a directory or file resume their
+  walk of the allocation descriptors, so listing a directory whose
+  descriptors span continuation extents takes linear time instead of
+  rewalking them for every entry.
+- **hadris-udf:** A logical volume descriptor with a partition map table
+  length near `u32::MAX` fails with `Corrupt` on 32-bit targets instead of
+  panicking on overflow.
+- **hadris-udf:** A bridge image with a GPT hybrid keeps its backup GPT in
+  the last sectors of the image instead of before the UDF tail, and its
+  hybrid partitions cover the UDF structures.
+- **hadris-fs:** The default `FileSystem::sync` and `fsync` succeed instead
+  of failing with `ReadOnly`, so `sync` and `File::sync_all` work on every
+  read-only mount with nothing to write, as they already did on FAT and
+  exFAT; the trait docs state the rule.
+- **hadris-fs:** The default `FileSystem::resolve` and `read_tree` leave no
+  pin when their future is dropped, and a dropped read of `read_tree`
+  content closes the file on the next lock.
+- **hadris-fs:** The contract kit checks that directories report length 0,
+  that the root is its own parent, that symlinks refuse `open` with
+  `Symlink`, that `readlink` of anything else fails with `InvalidInput`,
+  that reads past the end return 0, that names holding NUL are refused,
+  that `sync` and `fsync` succeed on a read-only mount, and, in the async
+  mode, that a dropped `resolve` leaves no pin.
+- **hadris-ntfs:** A node id that names a damaged record fails with
+  `Corrupt` and the record's detail instead of `InvalidHandle`, and
+  `readdir` lists an entry whose record cannot be read with its type
+  instead of failing, so a listing moves past a torn record.
+- **hadris-iso:** The writer reports a `Renamed` warning for each Rock
+  Ridge name longer than 768 bytes, which readers list under its ISO 9660
+  identifier.
+
 ## [2.5.0] - 2026-10-03
 
 ### Added
@@ -810,8 +1331,7 @@ under Semantic Versioning.
 - **Build:** Disabled `thiserror` default features so the workspace builds as
   `no_std`. ([@aruiz](https://github.com/aruiz))
 
-[Unreleased]: https://github.com/hxyulin/hadris/compare/v2.5.0...HEAD
-[2.5.0]: https://github.com/hxyulin/hadris/compare/v2.4.0...v2.5.0
+[Unreleased]: https://github.com/hxyulin/hadris/compare/v2.4.0...HEAD
 [2.4.0]: https://github.com/hxyulin/hadris/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/hxyulin/hadris/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/hxyulin/hadris/compare/v2.1.0...v2.2.0

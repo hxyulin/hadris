@@ -11,7 +11,9 @@
 //! On mount/parse failure (or panic) print nothing and exit 0 — differential
 //! testing only compares images both sides can mount.
 
-use std::io::Cursor;
+use hadris_fs::sync::FileSystem;
+use hadris_fs::MountOptions;
+use hadris_io::Cursor;
 
 const DEPTH_CAP: u32 = 64;
 const ENTRY_BUDGET: u32 = 200_000;
@@ -30,242 +32,164 @@ fn file_line(size: u64, content: &[u8], path: &str) -> String {
     format!("file {} {:016x} {}", size, fnv1a64(content), path)
 }
 
-// Read up to CONTENT_CAP bytes via a sync reader's inherent `read`.
-macro_rules! read_head {
-    ($reader:expr) => {{
-        let mut buf = [0u8; CONTENT_CAP];
-        let mut filled = 0usize;
-        while filled < CONTENT_CAP {
-            match $reader.read(&mut buf[filled..]) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => filled += n,
+/// Lists any filesystem through the shared `FileSystem` node API, so this
+/// one walk serves every format below.
+fn dump<F: FileSystem>(fs: &mut F) -> Vec<String> {
+    use hadris_fs::{DirCursor, FileType, OpenMode};
+
+    let mut lines = Vec::new();
+    let mut budget = ENTRY_BUDGET;
+    let mut stack = vec![(fs.root(), String::from("/"), 0u32)];
+    while let Some((dir, path, depth)) = stack.pop() {
+        let mut cursor = DirCursor::START;
+        while depth <= DEPTH_CAP {
+            let Ok(Some(entry)) = fs.readdir(dir, cursor) else {
+                break;
+            };
+            cursor = entry.next_cursor();
+            if budget == 0 {
+                return lines;
             }
+            budget -= 1;
+            let Ok(text) = entry.name().to_str() else {
+                continue;
+            };
+            let child_path = format!("{path}{text}");
+            let Ok(child) = fs.lookup(dir, entry.name()) else {
+                continue;
+            };
+            match entry.file_type() {
+                FileType::Dir => {
+                    lines.push(format!("dir {child_path}"));
+                    stack.push((child, format!("{child_path}/"), depth + 1));
+                    continue;
+                }
+                FileType::File => {
+                    let size = entry.metadata().len();
+                    let mut buf = [0u8; CONTENT_CAP];
+                    let mut filled = 0usize;
+                    if fs.open(child, OpenMode::Read).is_ok() {
+                        while filled < CONTENT_CAP {
+                            match fs.read(child, filled as u64, &mut buf[filled..]) {
+                                Ok(0) | Err(_) => break,
+                                Ok(n) => filled += n,
+                            }
+                        }
+                        let _ = fs.close(child);
+                    }
+                    lines.push(file_line(size, &buf[..filled], &child_path));
+                }
+                _ => {}
+            }
+            fs.forget(child, 1);
         }
-        buf[..filled].to_vec()
-    }};
+        fs.forget(dir, 1);
+    }
+    lines
+}
+
+/// Lists a mounted filesystem with [`dump`].
+fn dump_driver<F: FileSystem>(mut fs: F) -> Vec<String> {
+    dump(&mut fs)
 }
 
 fn dump_fat(data: &[u8]) -> Vec<String> {
-    use hadris_fat::{FatVolume, FatVolumeReadExt};
+    use hadris_fat::sync::FatFs;
+    use hadris_fs::MountOptions;
+    use hadris_storage::{BlockSize, MemDevice};
 
-    let mut lines = Vec::new();
-    let Ok(fs) = FatVolume::open(Cursor::new(data)) else {
-        return lines;
-    };
-    let mut budget = ENTRY_BUDGET;
-    let mut stack = vec![(fs.root_dir(), String::from("/"), 0u32)];
-    while let Some((dir, path, depth)) = stack.pop() {
-        if depth > DEPTH_CAP {
-            continue;
-        }
-        for item in dir.entries() {
-            if budget == 0 {
-                return lines;
-            }
-            budget -= 1;
-            let Ok(de) = item else { continue };
-            let Some(fe) = de.as_entry() else { continue };
-            let name = fe.name();
-            if name == "." || name == ".." {
-                continue;
-            }
-            let child_path = format!("{path}{name}");
-            if fe.is_directory() {
-                lines.push(format!("dir {child_path}"));
-                if let Ok(child) = dir.open_entry(fe) {
-                    stack.push((child, format!("{child_path}/"), depth + 1));
-                }
-            } else {
-                let content = match fs.read_file(fe) {
-                    Ok(mut reader) => read_head!(reader),
-                    Err(_) => Vec::new(),
-                };
-                lines.push(file_line(fe.len(), &content, &child_path));
-            }
-        }
+    let dev = MemDevice::new(data, BlockSize::new(512).unwrap());
+    let options = MountOptions::new().read_only();
+    match FatFs::mount(dev, options) {
+        Ok(fs) => dump_driver(fs),
+        Err(_) => Vec::new(),
     }
-    lines
 }
 
 fn dump_exfat(data: &[u8]) -> Vec<String> {
-    use hadris_fat::exfat::{ExFatFileReader, ExFatVolume};
-    use hadris_fat::io::Read;
+    use hadris_fat::exfat::sync::ExFatFs;
+    use hadris_fs::MountOptions;
+    use hadris_storage::{BlockSize, MemDevice};
 
-    let mut lines = Vec::new();
-    let Ok(fs) = ExFatVolume::open(Cursor::new(data)) else {
-        return lines;
-    };
-    let mut budget = ENTRY_BUDGET;
-    let mut stack = vec![(fs.root_dir(), String::from("/"), 0u32)];
-    while let Some((dir, path, depth)) = stack.pop() {
-        if depth > DEPTH_CAP {
-            continue;
-        }
-        for item in dir.entries() {
-            if budget == 0 {
-                return lines;
-            }
-            budget -= 1;
-            let Ok(entry) = item else { continue };
-            let child_path = format!("{path}{}", entry.name);
-            if entry.is_directory() {
-                lines.push(format!("dir {child_path}"));
-                if let Ok(child) = dir.open_dir(&entry.name) {
-                    stack.push((child, format!("{child_path}/"), depth + 1));
-                }
-            } else {
-                let content = match ExFatFileReader::new(&fs, &entry) {
-                    Ok(mut reader) => read_head!(reader),
-                    Err(_) => Vec::new(),
-                };
-                lines.push(file_line(entry.size(), &content, &child_path));
-            }
-        }
+    let mut bytes = data.to_vec();
+    bytes.resize(bytes.len().next_multiple_of(512), 0);
+    let dev = MemDevice::new(bytes, BlockSize::new(512).unwrap());
+    let options = MountOptions::new().read_only();
+    match ExFatFs::mount(dev, options) {
+        Ok(fs) => dump_driver(fs),
+        Err(_) => Vec::new(),
     }
-    lines
 }
 
 fn dump_ntfs(data: &[u8]) -> Vec<String> {
-    use hadris_ntfs::sync::{NtfsFs, NtfsFsReadExt};
+    use hadris_ntfs::sync::NtfsFs;
+    use hadris_storage::{BlockSize, MemDevice};
 
-    let mut lines = Vec::new();
-    let Ok(fs) = NtfsFs::open(Cursor::new(data)) else {
-        return lines;
-    };
-    let mut budget = ENTRY_BUDGET;
-    let mut stack = vec![(fs.root_dir(), String::from("/"), 0u32)];
-    while let Some((dir, path, depth)) = stack.pop() {
-        if depth > DEPTH_CAP {
-            continue;
-        }
-        let Ok(entries) = dir.entries() else { continue };
-        for entry in entries {
-            if budget == 0 {
-                return lines;
-            }
-            budget -= 1;
-            let child_path = format!("{path}{}", entry.name());
-            if entry.is_directory() {
-                lines.push(format!("dir {child_path}"));
-                if let Ok(child) = dir.open_dir(entry.name()) {
-                    stack.push((child, format!("{child_path}/"), depth + 1));
-                }
-            } else {
-                let content = match fs.read_file(&entry) {
-                    Ok(mut reader) => read_head!(reader),
-                    Err(_) => Vec::new(),
-                };
-                lines.push(file_line(entry.size(), &content, &child_path));
-            }
-        }
+    let mut bytes = data.to_vec();
+    bytes.resize(bytes.len().next_multiple_of(512), 0);
+    match NtfsFs::mount(
+        MemDevice::new(bytes, BlockSize::new(512).unwrap()),
+        MountOptions::new(),
+    ) {
+        Ok(fs) => dump_driver(fs),
+        Err(_) => Vec::new(),
     }
-    lines
 }
 
 fn dump_iso(data: &[u8]) -> Vec<String> {
-    use hadris_iso::read::IsoImage;
+    use hadris_iso::sync::IsoFs;
+    use hadris_storage::{BlockSize, MemDevice};
 
-    let mut lines = Vec::new();
-    let Ok(image) = IsoImage::open(Cursor::new(data)) else {
-        return lines;
-    };
-    let mut budget = ENTRY_BUDGET;
-    let mut stack = vec![(image.root_dir().dir_ref(), String::from("/"), 0u32)];
-    while let Some((dref, path, depth)) = stack.pop() {
-        if depth > DEPTH_CAP {
-            continue;
-        }
-        let dir = image.open_dir(dref);
-        for item in dir.entries() {
-            if budget == 0 {
-                return lines;
-            }
-            budget -= 1;
-            let Ok(entry) = item else { continue };
-            if entry.is_special() {
-                continue;
-            }
-            let child_path = format!("{path}{}", entry.display_name());
-            if entry.is_directory() {
-                lines.push(format!("dir {child_path}"));
-                if let Ok(child) = entry.as_dir_ref(&image) {
-                    stack.push((child, format!("{child_path}/"), depth + 1));
-                }
-            } else {
-                let content = match image.read_file(&entry) {
-                    Ok(bytes) => bytes,
-                    Err(_) => Vec::new(),
-                };
-                let head = &content[..content.len().min(CONTENT_CAP)];
-                lines.push(file_line(entry.total_size(), head, &child_path));
-            }
-        }
+    let mut bytes = data.to_vec();
+    bytes.resize(bytes.len().next_multiple_of(512), 0);
+    let dev = MemDevice::new(bytes, BlockSize::new(512).unwrap());
+    match IsoFs::mount(dev, MountOptions::new()) {
+        Ok(view) => dump_driver(view),
+        Err(_) => Vec::new(),
     }
-    lines
 }
 
 fn dump_udf(data: &[u8]) -> Vec<String> {
-    use hadris_udf::UdfVolume;
+    use hadris_storage::{BlockSize, MemDevice};
+    use hadris_udf::sync::UdfFs;
 
-    let mut lines = Vec::new();
-    let Ok(fs) = UdfVolume::open(Cursor::new(data)) else {
-        return lines;
-    };
-    let Ok(root) = fs.root_dir() else {
-        return lines;
-    };
-    let mut budget = ENTRY_BUDGET;
-    let mut stack = vec![(root, String::from("/"), 0u32)];
-    while let Some((dir, path, depth)) = stack.pop() {
-        if depth > DEPTH_CAP {
-            continue;
-        }
-        for entry in dir.entries() {
-            if budget == 0 {
-                return lines;
-            }
-            budget -= 1;
-            if entry.is_parent() || entry.name().is_empty() {
-                continue;
-            }
-            let child_path = format!("{path}{}", entry.name());
-            if entry.is_dir() {
-                lines.push(format!("dir {child_path}"));
-                if let Ok(child) = fs.read_directory(&entry.icb) {
-                    stack.push((child, format!("{child_path}/"), depth + 1));
-                }
-            } else {
-                let content = match fs.read_file(entry) {
-                    Ok(bytes) => bytes,
-                    Err(_) => Vec::new(),
-                };
-                let head = &content[..content.len().min(CONTENT_CAP)];
-                lines.push(file_line(entry.size, head, &child_path));
-            }
-        }
+    let mut bytes = data.to_vec();
+    bytes.resize(bytes.len().next_multiple_of(512), 0);
+    match UdfFs::mount(
+        MemDevice::new(bytes, BlockSize::new(512).unwrap()),
+        MountOptions::new(),
+    ) {
+        Ok(fs) => dump_driver(fs),
+        Err(_) => Vec::new(),
     }
-    lines
 }
 
 fn dump_cpio(data: &[u8]) -> Vec<String> {
-    use hadris_cpio::mode::FileType;
-    use hadris_cpio::sync::CpioArchiveReader;
+    use hadris_cpio::sync::CpioReader;
+    use hadris_fs::FileType;
+    use hadris_io::sync::Read;
 
     let mut lines = Vec::new();
     let mut budget = ENTRY_BUDGET;
-    let mut reader = CpioArchiveReader::new(Cursor::new(data));
-    while let Ok(Some(entry)) = reader.next_entry_alloc() {
+    let mut reader = CpioReader::new(Cursor::new(data));
+    while let Ok(Some(mut entry)) = reader.next_entry() {
         if budget == 0 {
             break;
         }
         budget -= 1;
-        let name = String::from_utf8_lossy(entry.name()).into_owned();
-        let content = reader.read_entry_data_alloc(&entry).unwrap_or_default();
+        let name = String::from_utf8_lossy(entry.path()).into_owned();
         match entry.file_type() {
-            FileType::Directory => lines.push(format!("dir {name}")),
+            FileType::Dir => lines.push(format!("dir {name}")),
             _ => {
-                let head = &content[..content.len().min(CONTENT_CAP)];
-                lines.push(file_line(u64::from(entry.file_size()), head, &name));
+                let mut head = vec![0u8; CONTENT_CAP];
+                let mut filled = 0;
+                while filled < head.len() {
+                    match entry.read(&mut head[filled..]) {
+                        Ok(0) | Err(_) => break,
+                        Ok(read) => filled += read,
+                    }
+                }
+                lines.push(file_line(entry.len(), &head[..filled], &name));
             }
         }
     }
@@ -273,17 +197,19 @@ fn dump_cpio(data: &[u8]) -> Vec<String> {
 }
 
 fn dump_part(data: &[u8]) -> Vec<String> {
-    use hadris_part::{PartitionTable, PartitionTableReadExt};
+    use hadris_storage::{BlockSize, MemDevice};
 
     let mut lines = Vec::new();
-    let mut cursor = Cursor::new(data);
-    let Ok(table) = PartitionTable::read_from(&mut cursor, 512) else {
+    let mut dev = MemDevice::new(data, BlockSize::new(512).unwrap());
+    let Ok(disk) = hadris_part::sync::read(&mut dev) else {
         return lines;
     };
-    for partition in table.partitions() {
+    for partition in disk.partitions() {
         lines.push(format!(
             "{} {} {}",
-            partition.index, partition.start_lba, partition.size_sectors
+            partition.index(),
+            partition.start(),
+            partition.len()
         ));
     }
     lines

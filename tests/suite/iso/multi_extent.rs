@@ -1,10 +1,19 @@
 //! Multi-extent file conformance and reader coverage.
 
+use hadris_fs::MountOptions;
 use std::collections::BTreeMap;
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom, Write};
 
+use hadris_fs::sync::FileSystem;
+use hadris_fs::{Content, Node, Tree};
+use hadris_fs::{OpenMode, Resolve};
+use hadris_iso::{IsoLevel, IsoOptions, Namespace};
+use hadris_storage::{BlockIndex, BlockSize};
+use hadris_tests::harness::command::{require_or_skip, run_command};
 use hadris_tests::harness::tree::EntryData;
 use hadris_tests::iso::model::IsoState;
-use hadris_tests::iso::{SECTOR_SIZE, VOLUME_ID, hadris, spec};
+use hadris_tests::iso::{SECTOR_SIZE, VOLUME_ID, hadris, spec, xorriso};
 
 const FILE_SIZE: usize = 4 * SECTOR_SIZE;
 const MULTI_EXTENT: u8 = 0x80;
@@ -121,5 +130,147 @@ fn oracle_rejects_invalid_multi_extent_chains() {
             spec::snapshot(&fixture.bytes).is_err(),
             "oracle accepted {name}"
         );
+    }
+}
+
+const HEAD: &[u8] = b"head";
+
+/// A sparse host file of `len` zero bytes that starts with `head`.
+fn zeros(dir: &std::path::Path, len: u64) -> std::path::PathBuf {
+    let path = dir.join("big.bin");
+    let mut file = File::create(&path).unwrap();
+    file.write_all(HEAD).unwrap();
+    file.set_len(len).unwrap();
+    path
+}
+
+/// A host file that skips writing all-zero chunks, so a 4 GiB image stays
+/// sparse.
+struct SparseFile(File);
+
+static ZEROS: [u8; 64 * 1024] = [0; 64 * 1024];
+
+impl hadris_io::ErrorType for SparseFile {
+    type Error = std::io::Error;
+}
+
+impl hadris_storage::sync::BlockDevice for SparseFile {
+    fn block_size(&self) -> BlockSize {
+        BlockSize::new(2048).unwrap()
+    }
+
+    fn block_count(&self) -> u64 {
+        self.0.metadata().map_or(0, |meta| meta.len() / 2048)
+    }
+
+    fn max_block_count(&self) -> u64 {
+        u64::MAX / 2048
+    }
+
+    fn writable(&self) -> bool {
+        true
+    }
+
+    fn read_blocks(
+        &mut self,
+        first: BlockIndex,
+        buf: &mut [u8],
+    ) -> Result<(), hadris_io::Error<std::io::Error>> {
+        self.0
+            .seek(SeekFrom::Start(first.get() * 2048))
+            .and_then(|_| self.0.read_exact(buf))
+            .map_err(|err| hadris_io::Error::device(err, "read failed"))
+    }
+
+    fn write_blocks(
+        &mut self,
+        first: BlockIndex,
+        buf: &[u8],
+    ) -> Result<(), hadris_io::Error<std::io::Error>> {
+        let mut write = || -> std::io::Result<()> {
+            let mut offset = first.get() * 2048;
+            for chunk in buf.chunks(ZEROS.len()) {
+                if chunk != &ZEROS[..chunk.len()] {
+                    self.0.seek(SeekFrom::Start(offset))?;
+                    self.0.write_all(chunk)?;
+                }
+                offset += chunk.len() as u64;
+            }
+            if self.0.metadata()?.len() < offset {
+                self.0.set_len(offset)?;
+            }
+            Ok(())
+        };
+        write().map_err(|err| hadris_io::Error::device(err, "write failed"))
+    }
+}
+
+/// Rock Ridge describes every record of a file larger than 4 GiB, so
+/// libarchive and libisofs see its name and mode (integrate-1).
+#[test]
+fn rock_ridge_covers_every_extent_of_a_large_file() {
+    let len = (4u64 << 30) + 4096 + 7;
+    let temp = tempfile::tempdir().unwrap();
+    let source = zeros(temp.path(), len);
+    let mut tree = Tree::new();
+    tree.insert(
+        "big.bin",
+        Node::file(hadris_fs::host::file(&source).unwrap()),
+    )
+    .unwrap();
+    tree.insert("small.txt", Node::file(Content::bytes("small")))
+        .unwrap();
+    let options = IsoOptions::default()
+        .with_level(IsoLevel::L3)
+        .with_rock_ridge();
+    let path = temp.path().join("large.iso");
+    let file = File::options()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .unwrap();
+    let report = hadris_iso::sync::write(SparseFile(file), &tree, &options).unwrap();
+    let extents = report.extents("/big.bin").unwrap();
+    assert_eq!(extents.iter().map(|extent| extent.len()).sum::<u64>(), len);
+
+    let file = File::open(&path).unwrap();
+    let mut iso = SparseFile(file);
+    let mut view = hadris_iso::sync::IsoFs::mount_namespace(
+        &mut iso,
+        MountOptions::new(),
+        Namespace::RockRidge,
+    )
+    .unwrap();
+    let node = view.resolve(b"/big.bin", Resolve::Lexical).unwrap();
+    let meta = view.stat(node).unwrap();
+    assert_eq!(meta.len(), len);
+    assert_eq!(meta.permissions().bits(), 0o644);
+    let mut head = [0u8; 4];
+    view.open(node, OpenMode::Read).unwrap();
+    view.read(node, 0, &mut head).unwrap();
+    view.close(node).unwrap();
+    view.forget(node, 1);
+    assert_eq!(&head, HEAD);
+
+    if require_or_skip("bsdtar", "--version") {
+        let listing = run_command("bsdtar", vec!["-tvf".into(), path.clone().into()]).unwrap();
+        let listing = String::from_utf8_lossy(&listing.stdout).into_owned();
+        let line = listing
+            .lines()
+            .find(|line| line.ends_with("big.bin"))
+            .unwrap_or_else(|| panic!("bsdtar lists no big.bin:\n{listing}"));
+        assert!(line.starts_with("-rw-r--r--"), "{line}");
+        assert!(line.contains(&len.to_string()), "{line}");
+    }
+    if xorriso::require() {
+        let output = xorriso::inspect(&path, &["-lsl", "/"]);
+        let listing = String::from_utf8_lossy(&output.stdout).into_owned();
+        let line = listing
+            .lines()
+            .find(|line| line.ends_with("'big.bin'"))
+            .unwrap_or_else(|| panic!("xorriso lists no big.bin:\n{listing}"));
+        assert!(line.starts_with("-rw-r--r--"), "{line}");
+        assert!(line.contains(&len.to_string()), "{line}");
     }
 }

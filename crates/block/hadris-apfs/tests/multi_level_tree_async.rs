@@ -1,6 +1,10 @@
-#![cfg(all(feature = "async", feature = "alloc"))]
+#![cfg(all(feature = "read", feature = "async", feature = "alloc"))]
 
 mod common;
+#[path = "common/failing_device.rs"]
+mod failing_device;
+
+use failing_device::FailingDevice;
 
 use std::future::Future;
 use std::pin::pin;
@@ -10,7 +14,7 @@ use std::task::{Context, Poll, Wake, Waker};
 use common::*;
 use hadris_apfs::r#async::Container;
 use hadris_io::Cursor;
-use hadris_storage::r#async::SeekBlockDevice;
+use hadris_storage::r#async::StreamDevice;
 use hadris_storage::{BlockCount, BlockGeometry, BlockSize};
 
 struct ThreadWaker(std::thread::Thread);
@@ -37,9 +41,13 @@ fn check(image: &[u8]) {
     block_on(async {
         let geometry = BlockGeometry::new(
             BlockSize::new(BLOCK as u32).unwrap(),
-            BlockCount(IMAGE_BLOCKS as u64),
+            BlockCount::new(IMAGE_BLOCKS as u64),
         );
-        let device = SeekBlockDevice::new(Cursor::new(image), geometry);
+        let device = StreamDevice::with_block_count(
+            hadris_storage::ReadOnly::new(Cursor::new(image)),
+            geometry.logical_block_size(),
+            geometry.block_count().get(),
+        );
         let mut container = Container::open(device).await.unwrap();
         let superblock = container.superblock().clone();
         let volumes = container.volume_superblocks(&superblock).await.unwrap();
@@ -117,9 +125,13 @@ fn encrypted_tree_reports_unsupported() {
     block_on(async {
         let geometry = BlockGeometry::new(
             BlockSize::new(BLOCK as u32).unwrap(),
-            BlockCount(IMAGE_BLOCKS as u64),
+            BlockCount::new(IMAGE_BLOCKS as u64),
         );
-        let device = SeekBlockDevice::new(Cursor::new(&image), geometry);
+        let device = StreamDevice::with_block_count(
+            hadris_storage::ReadOnly::new(Cursor::new(&image)),
+            geometry.logical_block_size(),
+            geometry.block_count().get(),
+        );
         let mut container = Container::open(device).await.unwrap();
         let superblock = container.superblock().clone();
         let volumes = container.volume_superblocks(&superblock).await.unwrap();
@@ -127,10 +139,7 @@ fn encrypted_tree_reports_unsupported() {
             .root_directory_owned_entries(&volumes[0])
             .await
             .unwrap_err();
-        assert_eq!(
-            error,
-            hadris_apfs::ApfsError::InvalidValue("encrypted B-tree nodes are not supported")
-        );
+        assert_eq!(error.kind(), hadris_io::ErrorKind::Unsupported);
     });
 }
 
@@ -140,9 +149,13 @@ fn holes_read_as_zeros() {
     block_on(async {
         let geometry = BlockGeometry::new(
             BlockSize::new(BLOCK as u32).unwrap(),
-            BlockCount(IMAGE_BLOCKS as u64),
+            BlockCount::new(IMAGE_BLOCKS as u64),
         );
-        let device = SeekBlockDevice::new(Cursor::new(&image), geometry);
+        let device = StreamDevice::with_block_count(
+            hadris_storage::ReadOnly::new(Cursor::new(&image)),
+            geometry.logical_block_size(),
+            geometry.block_count().get(),
+        );
         let mut container = Container::open(device).await.unwrap();
         let expected = holey_contents(2);
         let mut buf = vec![0xff_u8; expected.len()];
@@ -160,9 +173,13 @@ fn a_child_named_twice_is_rejected() {
     block_on(async {
         let geometry = BlockGeometry::new(
             BlockSize::new(BLOCK as u32).unwrap(),
-            BlockCount(IMAGE_BLOCKS as u64),
+            BlockCount::new(IMAGE_BLOCKS as u64),
         );
-        let device = SeekBlockDevice::new(Cursor::new(&image), geometry);
+        let device = StreamDevice::with_block_count(
+            hadris_storage::ReadOnly::new(Cursor::new(&image)),
+            geometry.logical_block_size(),
+            geometry.block_count().get(),
+        );
         let mut container = Container::open(device).await.unwrap();
         let superblock = container.superblock().clone();
         let volumes = container.volume_superblocks(&superblock).await.unwrap();
@@ -170,8 +187,70 @@ fn a_child_named_twice_is_rejected() {
             container
                 .root_directory_owned_entries(&volumes[0])
                 .await
-                .unwrap_err(),
-            hadris_apfs::ApfsError::InvalidValue("B-tree node revisited")
+                .unwrap_err()
+                .kind(),
+            hadris_io::ErrorKind::Corrupt
+        );
+    });
+}
+
+#[test]
+fn storage_errors_keep_their_portable_kind() {
+    use hadris_io::ErrorKind;
+    use hadris_storage::MemDevice;
+
+    block_on(async {
+        let device = FailingDevice;
+        assert!(matches!(
+            Container::open(device).await,
+            Err(error) if error.kind() == ErrorKind::InvalidInput
+        ));
+
+        let image = build_image();
+        let device = MemDevice::new(&image[..], BlockSize::new(BLOCK as u32).unwrap());
+        let mut container = Container::open(device).await.unwrap();
+        assert!(matches!(
+            container
+                .read_apfs_block(IMAGE_BLOCKS as u64, &mut [0; BLOCK])
+                .await,
+            Err(error) if error.kind() == ErrorKind::Corrupt
+        ));
+
+        let device = MemDevice::new(&[0u8; 8192][..], BlockSize::new(8192).unwrap());
+        assert!(matches!(
+            Container::open(device).await,
+            Err(error) if error.kind() == ErrorKind::Unsupported
+        ));
+    });
+}
+
+#[test]
+fn encrypted_and_overflowing_extents_are_not_reported_as_sparse_success() {
+    block_on(async {
+        let image = build_image();
+        let device =
+            hadris_storage::MemDevice::new(&image[..], BlockSize::new(BLOCK as u32).unwrap());
+        let mut container = Container::open(device).await.unwrap();
+        let mut extent = holey_extents(0).remove(0);
+        extent.cryptography_id = 7;
+        let mut buf = [0xff; 8];
+        assert_eq!(
+            container
+                .read_extents_at(&[extent], 8, 0, &mut buf)
+                .await
+                .unwrap_err()
+                .kind(),
+            hadris_io::ErrorKind::Unsupported
+        );
+        extent.cryptography_id = 0;
+        extent.logical_address = u64::MAX - 2;
+        assert_eq!(
+            container
+                .read_extents_at(&[extent], 8, 0, &mut buf)
+                .await
+                .unwrap_err()
+                .kind(),
+            hadris_io::ErrorKind::Corrupt
         );
     });
 }
