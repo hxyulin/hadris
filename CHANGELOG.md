@@ -8,6 +8,17 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- Obsolete FUSE experiments and manual V2 test-image fixtures are removed;
+  fuzz seeds use current crate fixtures and support an isolated output path.
+
+- Repository hooks use native `prek.toml` with built-in file checks; `prek`
+  is available in the Nix development shell. Formatting and Clippy hooks also
+  check the detached conformance suite. `AGENTS.md` is the sole agent
+  instruction file.
+
+- API compatibility CI uses `cargo-semver-checks` without textual snapshot,
+  feature-subset or mode-parity diffs; feature builds and contract tests remain.
+
 - V3 development, documentation and releases now use `main`; the `v2` branch
   preserves the previous maintenance line. Unreleased documentation keeps its
   `/next/` URL.

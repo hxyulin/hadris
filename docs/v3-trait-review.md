@@ -17,7 +17,9 @@ tested them against four users:
 - A new prototype FUSE adapter, `experiments/fuse-prototype`, mounted for
   real and driven with shell tools.
 
-File and line references are to `next` at `af888a4`.
+File and line references are to `next` at `af888a4`. The obsolete prototype
+was removed after V3 promotion; its source remains in [that revision](https://github.com/hxyulin/hadris/tree/af888a4/experiments/fuse-prototype).
+The review below records the original experiment, not current build commands.
 
 ## 1. The FUSE prototype
 

@@ -23,6 +23,7 @@
             pkgs.libarchive
             pkgs.mtools
             pkgs.python3
+            pkgs.prek
             pkgs.qemu
             pkgs.xorriso
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [

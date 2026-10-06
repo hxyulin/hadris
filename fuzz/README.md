@@ -60,9 +60,10 @@ fuzz/scripts/gen-seeds.sh
 It builds real images with the tools available on an Ubuntu fuzz machine
 (`mkfs.vfat`, `mkntfs`, `cpio`), falls back to python3-crafted images
 (minimal FAT12 with root entries, MBR/GPT disks with valid CRCs, minimal
-ISO9660), and copies repo fixtures (`test-images/`, crate test fixtures) for
+ISO9660), and copies crate test fixtures for
 exFAT/ISO/UDF where no host tool exists. The script is idempotent: seeds use
-fixed names, and fuzzer-grown corpus entries are never touched.
+fixed names, and fuzzer-grown corpus entries are never touched. Set
+`HADRIS_FUZZ_CORPUS` to generate seeds in a separate directory.
 
 The `part_read` seeds (`corpus/part_read/part-*.img`: MBR, EBR chain, GPT
 with 512- and 4096-byte blocks, hybrid MBR, and GPTs with a damaged primary

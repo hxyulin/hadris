@@ -36,8 +36,8 @@ minor releases. APFS also has an experimental native API, exposed through
 CLI commands. Opt-in software APFS password unlocking is available through
 `hadris-apfs`'s `encryption` feature or `hadris`'s `apfs-encryption` feature;
 internal Apple-silicon FileVault requires separate hardware support.
-Every stable crate is covered by the public-API snapshots in
-[`api-snapshots/`](api-snapshots/).
+Public API compatibility is checked with `cargo semver-checks`; feature-tier
+builds, contract tests and the non-exhaustive lint cover separate API rules.
 
 Problems that are understood but not fixed yet are listed in
 [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md).
@@ -279,12 +279,13 @@ Fuzz harnesses under [`fuzz/`](fuzz/) are local developer tools and are **not** 
 
 ## Development
 
-Install [pre-commit](https://pre-commit.com/) hooks once per clone (runs `cargo fmt` / `cargo clippy` before commits):
+Install [prek](https://prek.j178.dev/) hooks once per clone. `prek.toml`
+installs commit and push checks for formatting, Clippy and file hygiene:
 
 ```bash
-# brew install pre-commit   # or: pipx install pre-commit
-pre-commit install
-pre-commit install --hook-type pre-push   # also run clippy on push
+nix develop
+prek install
+prek run --all-files
 ```
 
 ## License

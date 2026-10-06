@@ -1,0 +1,50 @@
+default_install_hook_types = ["pre-commit", "pre-push"]
+
+[[repos]]
+repo = "builtin"
+hooks = [
+  { id = "trailing-whitespace", exclude = "^fuzz/corpus/" },
+  { id = "end-of-file-fixer", exclude = "^fuzz/corpus/" },
+  { id = "check-yaml" },
+  { id = "check-merge-conflict" },
+  { id = "check-added-large-files", exclude = "^fuzz/corpus/" },
+  { id = "check-toml" },
+  { id = "check-json" },
+]
+
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "cargo-fmt"
+name = "cargo fmt"
+entry = "cargo fmt --all -- --check"
+language = "system"
+types = ["rust"]
+pass_filenames = false
+
+[[repos.hooks]]
+id = "cargo-clippy"
+name = "cargo clippy"
+entry = "cargo clippy --workspace -- -D warnings -A clippy::collapsible_if"
+language = "system"
+types = ["rust"]
+pass_filenames = false
+stages = ["pre-commit", "pre-push"]
+
+[[repos.hooks]]
+id = "cargo-fmt-conformance"
+name = "cargo fmt (conformance suite)"
+entry = "cargo fmt --manifest-path tests/Cargo.toml --all -- --check"
+language = "system"
+types = ["rust"]
+pass_filenames = false
+
+[[repos.hooks]]
+id = "cargo-clippy-conformance"
+name = "cargo clippy (conformance suite)"
+entry = "cargo clippy --manifest-path tests/Cargo.toml --all-targets -- -D warnings -A clippy::collapsible_if"
+language = "system"
+types = ["rust"]
+pass_filenames = false
+stages = ["pre-commit", "pre-push"]
