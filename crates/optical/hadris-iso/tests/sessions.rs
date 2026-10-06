@@ -311,6 +311,7 @@ fn appended_sessions_report_ignored_hybrid_options() {
     assert!(bytes[..512].iter().all(|&byte| byte == 0));
 }
 
+#[cfg(feature = "async")]
 #[test]
 fn async_sessions_match_sync_ones() {
     let tree = sample(false, true);
@@ -467,6 +468,7 @@ fn export_rejects_outside_source_before_writing() {
     assert_eq!(out.into_inner(), initial);
 }
 
+#[cfg(feature = "async")]
 #[test]
 fn async_export_matches_sync() {
     let opts = IsoOptions::new().with_rock_ridge();

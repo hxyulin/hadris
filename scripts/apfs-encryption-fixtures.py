@@ -238,7 +238,6 @@ def main():
         report["driver_baseline"] = check_driver(args.hadris.resolve(), directory, fixtures, args.encrypted_reads)
     (directory / "manifest.json").write_text(json.dumps(report, indent=2) + "\n")
     print(f"Verified plaintext and encrypted APFS fixtures: {directory}")
-    print("Public test password: " + PASSWORD.decode().strip())
 
 
 if __name__ == "__main__":

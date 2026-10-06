@@ -1,7 +1,8 @@
-# Migrating from Hadris 2.4 to 3.0
+# Migrating from Hadris 2.x to 3.0
 
-This guide is for code and scripts written against Hadris 2.4 (the V2 API on
-`main`) that move to Hadris 3.0 (the V3 API). It covers the library crates,
+This guide is for code and scripts written against Hadris 2.4 or 2.5 (the V2
+API) that move to Hadris 3.0 (the V3 API). The symbol tables describe the 2.4
+API; the final APFS section covers its addition in 2.5. It covers the library crates,
 their features, and the command-line tools.
 
 Hadris 3.0 is a new API, not an incremental release. Every filesystem reads a
@@ -120,16 +121,16 @@ Per crate:
 
 | Crate | V2 features | V3 features | Removed, and what to do |
 |---|---|---|---|
-| `hadris` | `std`, `alloc`, `sync`, `async`, `read`, `write`, `block`, `optical`, `archive`, `path`, `fixed`, `storage`, `fat`, `part`, `iso`, `udf`, `cd`, `cpio` (default `std`, `sync`, `read`, `write`, `fixed`, `path`, `iso`, `fat`, `cpio`) | `std`, `alloc`, `sync`, `async`, `write`, `fat`, `part`, `iso`, `udf`, `cpio`, `detect`, `unstable-ntfs` (default `std`, `sync`, `write`, `fat`, `iso`, `cpio`, `detect`) | `read`: drop it. `archive`: use `cpio`. `block`, `optical`: use `detect` (adds `fat`, `iso`, `udf`, `cpio`) and `part`. `cd`: use `udf`. `storage`: `hadris::storage` is always there. `path`, `fixed`: the crates are gone. `write` now only forwards FAT formatting. |
+| `hadris` | `std`, `alloc`, `sync`, `async`, `read`, `write`, `block`, `optical`, `archive`, `path`, `fixed`, `storage`, `fat`, `part`, `iso`, `udf`, `cd`, `cpio` (default `std`, `sync`, `read`, `write`, `fixed`, `path`, `iso`, `fat`, `cpio`) | `std`, `alloc`, `sync`, `async`, `write`, `fat`, `part`, `iso`, `udf`, `cpio`, `detect`, `unstable-ntfs`, `unstable-apfs`, `apfs-encryption`, `tracing` (default `std`, `sync`, `write`, `fat`, `iso`, `cpio`, `detect`) | `read`: drop it. `archive`: use `cpio`. `block`, `optical`: use `detect` (adds `fat`, `iso`, `udf`, `cpio`) and `part`. `cd`: use `udf`. `storage`: `hadris::storage` is always there. `path`, `fixed`: the crates are gone. `write` now only forwards FAT formatting. |
 | `hadris-io` | `std`, `alloc`, `sync`, `async` | `std`, `alloc`, `sync`, `async`, `embedded-io` | `embedded-io` is now optional and gates `FromEmbedded` and the `embedded-io` conversions. `async` also enables `local`. |
 | `hadris-storage` | `std`, `alloc`, `sync`, `async` | `std`, `alloc`, `sync`, `async` | None. `async` also enables `local`. |
 | `hadris-common` | `std`, `alloc`, `sync`, `async`, `bytemuck`, `optical` | `bytemuck` | The crate is internal; do not depend on it. |
 | `hadris-fs` | (new) | `std`, `alloc`, `sync`, `async`, `contract` (default `std`, `sync`) | `contract` adds the driver test kit `contract::check`. |
-| `hadris-fat` | `read`, `write`, `lfn`, `std`, `sync`, `async`, `alloc`, `cache`, `tool`, `unstable-exfat`, `defmt`, `dirty-file-panic` (default `read`, `write`, `lfn`, `std`, `sync`) | `std`, `sync`, `async`, `alloc`, `write`, `defmt` (default `std`, `sync`, `write`) | `read`, `lfn`: always on. `cache`: wrap the device in `hadris_storage::sync::Cache`. `tool`: use `check` (always compiled) and `FatFs::extents`. `unstable-exfat`: exFAT is in every build. `dirty-file-panic`: gone. `write` now adds only `format`; it no longer implies `alloc` or `read`. `FatFs`, `ExFatFs` and the tree writer `write` need `alloc`. `defmt` now derives only on `FatKind`. |
+| `hadris-fat` | `read`, `write`, `lfn`, `std`, `sync`, `async`, `alloc`, `cache`, `tool`, `unstable-exfat`, `defmt`, `dirty-file-panic` (default `read`, `write`, `lfn`, `std`, `sync`) | `std`, `sync`, `async`, `alloc`, `write`, `defmt` (default `std`, `sync`, `write`) | `read`, `lfn`: always on. `cache`: use `FatFs::with_cache(CacheOptions)` for bounded metadata/lookup caches, or wrap the device in `hadris_storage::sync::Cache` for write-back block caching. `tool`: use `check` (always compiled) and `FatFs::extents`. `unstable-exfat`: exFAT is in every build. `dirty-file-panic`: gone. `write` now adds only `format`; it no longer implies `alloc` or `read`. `FatFs`, `ExFatFs` and the tree writer `write` need `alloc`. `defmt` now derives only on `FatKind`. |
 | `hadris-fat-raw` | (new) | `sync`, `async`, `defmt` (no defaults) | `sync` and `async` add the device primitives in `io` and `exfat::io`. |
 | `hadris-part` | `std`, `sync`, `async`, `alloc`, `read`, `write`, `crc`, `rand` | `std`, `alloc`, `sync`, `async` | `read`, `write`: always on. `crc`: CRCs are always computed and checked. `rand`: pass GUIDs yourself or call `Guid::random()` (`std`). `Disk`, the tables and `DiskLayout` need `alloc`; `scan` and `open` do not. |
 | `hadris-ntfs` | `read`, `std`, `sync`, `async`, `alloc` | `std`, `alloc`, `sync`, `async` | `read`: reading needs no allocator now. |
-| `hadris-iso` | `read`, `alloc`, `std`, `sync`, `async`, `write`, `joliet`, `unstable-streaming` (default `std`, `write`, `sync`) | `std`, `alloc`, `sync`, `async` (default `std`, `sync`) | `read`: gone, reading needs no allocator. `write`, `joliet`: the writer, sessions and boot catalog reader need `alloc`. `unstable-streaming`: `hadris_fs::host::file` content is read while the image is written. |
+| `hadris-iso` | `read`, `alloc`, `std`, `sync`, `async`, `write`, `joliet`, `unstable-streaming` (default `std`, `write`, `sync`) | `std`, `alloc`, `sync`, `async`, `cache`, `tracing` (default `std`, `sync`) | `read`: gone, reading needs no allocator. `write`, `joliet`: the writer, sessions and boot catalog reader need `alloc`. `unstable-streaming`: `hadris_fs::host::file` content is read while the image is written. |
 | `hadris-udf` | `read`, `alloc`, `std`, `write`, `sync`, `async`, `unstable-streaming` | `std`, `alloc`, `sync`, `async` | `read`, `write`: the writer needs `alloc` and no longer needs `std`. `unstable-streaming`: as for ISO. |
 | `hadris-cpio` | `read`, `alloc`, `std`, `write`, `sync`, `async` | `std`, `alloc`, `sync`, `async` | `read`: the reader is always compiled and needs no allocator. `write`: the writer needs `alloc`. |
 | `hadris-block`, `hadris-optical`, `hadris-cd`, `hadris-archive` | various | crate removed | See [Crate map](#crate-map). |
@@ -323,6 +324,12 @@ Resolve::Follow)` gives POSIX path semantics; the default is lexical.
 
 `Walk::new(dir)` (`alloc`) or `Walk::with_stack(dir, &mut frames)` lists a
 tree depth first on the bare driver.
+
+In async mode, explicitly await `File::close()` and then `Volume::sync_all()`
+after writes. Dropping a handle cannot await: pending FAT/exFAT metadata may be
+published by the next volume call, and dropping the volume before syncing can
+lose the new size. Cancellation/error recovery is not an on-disk journal; see
+[known limitations](../KNOWN_ISSUES.md).
 
 ### Mounting
 
@@ -976,7 +983,7 @@ In every format, `list` is an alias of `ls` and `check` of `verify`.
 | every `create`, `udf bridge` | Existing output replaced silently (FAT refused it) | Refused unless `-f/--force`; a file is then replaced atomically once the image is complete, a device is written in place. A failed `create` leaves no partial output. |
 | `iso mkisofs` | same | `--force` (long form only) |
 | `fat create` | `-V/--volume-label` | `-V/--volume-name`; `--volume-label` still works as an alias. `--fat-type` gains `exfat`. Labels longer than 11 ASCII characters are refused. |
-| `fat extract` | `-o/--output` required | `-o/--output` defaults to `.` |
+| `fat extract` | `-o/--output` required | `-o/--output` defaults to `.`; optional cache bounds and `--read-ahead-blocks` are independent; `--no-cache` disables them |
 | `cpio extract` | `-o/--output` required | `-o/--output` defaults to `.`; new `-p/--path` |
 | `cpio create` | `--crc` | `--format newc\|crc\|odc` (default `newc`); `--crc` still works and wins over `--format`; new `-v/--verbose`; `-o -` writes to standard output |
 | `cpio ls`, `info`, `cat`, `extract` | archive path | `-` reads the archive from standard input |
@@ -1493,6 +1500,20 @@ Writing:
 13. Replace CLI invocations with `hadris <format> <command>` (see
     [Command-line tools](#command-line-tools)) and install
     `cargo install hadris-cli`.
+
+## Additions after the initial V3 migration
+
+The optional `tracing` feature enables hosted instrumentation and is off by
+default. FAT cache settings are explicit through `CacheOptions`; ordinary
+mounts stay uncached, while CLI extraction uses `CacheOptions::sequential()`.
+`hadris-storage::ReadAhead` offers an independent, bounded read-ahead budget in
+sync, Send async, and local async modes. CLI extraction accepts
+`--read-ahead-blocks` for FAT and exFAT; it defaults to zero.
+
+APFS password unlocking is opt-in with `hadris-apfs/encryption` or the umbrella's
+`apfs-encryption` feature. It covers qualified software-encrypted single-key
+volumes, not internal Apple-silicon hardware FileVault. See the
+[encryption scope](apfs-encryption.md).
 
 ## APFS added in V2 2.5
 

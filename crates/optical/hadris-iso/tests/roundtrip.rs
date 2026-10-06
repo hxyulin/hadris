@@ -7,7 +7,7 @@ use common::{image, pattern, sample};
 use hadris_fs::MountOptions;
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{Content, Field, Node, Tree, WarningKind};
-use hadris_fs::{DeviceNumber, ErrorKind, FileType, Permissions, Resolve};
+use hadris_fs::{DeviceNumber, ErrorKind, FileType, Permissions};
 use hadris_iso::sync::IsoFs;
 use hadris_iso::{
     AppendedPartition, BootEntry, BootInfo, ElTorito, Emulation, Hybrid, IsoDate, IsoId, IsoLevel,
@@ -353,8 +353,10 @@ fn boot_catalogs_read_back() {
     assert_eq!(u32::from_le_bytes(table[12..16].try_into().unwrap()), sum);
 }
 
+#[cfg(feature = "async")]
 #[test]
 fn async_modes_read_and_write_alike() {
+    use hadris_fs::Resolve;
     let tree = sample(true, true);
     let options = full();
     let sync_image = image(&tree, &options).into_inner();

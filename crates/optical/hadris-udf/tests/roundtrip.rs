@@ -3,11 +3,11 @@
 mod common;
 
 use common::Paths;
-use common::{SECTOR, image, open, pattern, sample, with_metadata};
+use common::{image, open, pattern, sample, with_metadata};
 use hadris_fs::MountOptions;
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{Content, Node, WarningKind};
-use hadris_fs::{DirCursor, ErrorKind, FileType, Permissions, Resolve};
+use hadris_fs::{DirCursor, ErrorKind, FileType, Permissions};
 use hadris_storage::{BlockSize, MemDevice};
 use hadris_udf::{UdfId, UdfOptions, UdfRevision};
 
@@ -225,9 +225,12 @@ fn small_device_blocks_and_growing_devices_work() {
     assert_eq!(udf.read_to_vec("/docs/sub/deep.txt").unwrap(), b"deep");
 }
 
+#[cfg(feature = "async")]
 #[test]
 fn async_modes_write_and_read_the_same_volume() {
+    use common::SECTOR;
     use hadris_fs::OpenMode;
+    use hadris_fs::Resolve;
     use hadris_fs::r#async::FileSystem as _;
 
     let tree = sample();

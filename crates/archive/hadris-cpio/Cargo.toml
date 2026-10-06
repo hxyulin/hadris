@@ -44,7 +44,7 @@ required-features = ["std", "sync"]
 
 [[test]]
 name = "async_writer"
-required-features = ["std", "sync"]
+required-features = ["std", "sync", "async"]
 
 [[bench]]
 name = "performance"

@@ -26,6 +26,7 @@ fn sync_raw_and_shared_tiers() {
     }
 }
 
+#[cfg(feature = "async")]
 #[test]
 fn async_modes() {
     let bytes = image(&sample(), &UdfOptions::default());

@@ -68,6 +68,7 @@ fn contract_holds_in_every_mode_and_tier() {
     let mut fs = open(allocation_image(1024, &[0x01], None));
     hadris_fs::sync::contract::check_read_only(&mut fs).unwrap();
 
+    #[cfg(feature = "async")]
     block_on(async {
         let mut fs =
             hadris_ntfs::r#async::NtfsFs::mount(device(image.clone()), MountOptions::new())
@@ -514,6 +515,7 @@ fn attribute_lists_join_extension_records() {
     let n = fs.read_stream_at(bin, "ALT", 0, &mut buf).unwrap();
     assert_eq!(&buf[..n], b"alternate");
     hadris_fs::sync::contract::check_read_only(&mut fs).unwrap();
+    #[cfg(feature = "async")]
     block_on(async {
         let mut fs = hadris_ntfs::r#async::NtfsFs::mount(device(image), MountOptions::new())
             .await
@@ -644,6 +646,7 @@ fn large_streams_read_across_runs() {
     assert_eq!(&buf[..], &expected[400..1100]);
 }
 
+#[cfg(feature = "async")]
 #[test]
 fn async_modes_walk_and_reject_corruption() {
     use hadris_fs::r#async::FileSystem as _;
@@ -664,6 +667,7 @@ fn async_modes_walk_and_reject_corruption() {
     });
 }
 
+#[cfg(feature = "async")]
 async fn read_async<F: hadris_fs::r#async::FileSystem>(fs: &mut F, path: &str) -> Vec<u8> {
     let node = fs
         .resolve(path.as_bytes(), hadris_fs::Resolve::Lexical)
@@ -683,6 +687,7 @@ async fn read_async<F: hadris_fs::r#async::FileSystem>(fs: &mut F, path: &str) -
     out
 }
 
+#[cfg(feature = "async")]
 fn block_on<F: core::future::Future>(future: F) -> F::Output {
     use core::task::{Context, Poll, Waker};
     let mut future = core::pin::pin!(future);
@@ -700,6 +705,7 @@ fn declared_volume_must_fit_the_device() {
         let mut image = base_image();
         image[40..48].copy_from_slice(&sectors.to_le_bytes());
         assert_eq!(Detail::of(&open_err(image.clone())), Some(Detail::Geometry));
+        #[cfg(feature = "async")]
         block_on(async {
             let err = hadris_ntfs::r#async::NtfsFs::mount(device(image), MountOptions::new())
                 .await
@@ -740,6 +746,7 @@ fn mapping_pairs_cannot_read_the_device_tail_outside_the_volume() {
             assert_eq!(result.unwrap_err().kind(), ErrorKind::Corrupt);
             assert_eq!(out, [0xCC; 16]);
         }
+        #[cfg(feature = "async")]
         block_on(async {
             use hadris_fs::r#async::FileSystem;
             let mut fs = hadris_ntfs::r#async::NtfsFs::mount(device(image), MountOptions::new())
@@ -770,6 +777,7 @@ fn initial_mft_record_must_fit_the_declared_volume() {
         Detail::of(&open_err(image.clone())),
         Some(Detail::OutsideVolume)
     );
+    #[cfg(feature = "async")]
     block_on(async {
         let err = hadris_ntfs::r#async::NtfsFs::mount(device(image), MountOptions::new())
             .await

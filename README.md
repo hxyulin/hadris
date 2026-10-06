@@ -16,11 +16,12 @@ those layers coherent without hiding format-specific capabilities.
 ## Stability and Versioning
 
 Hadris follows [Semantic Versioning](https://semver.org/). The 3.0 API
-described here is developed on the `next` branch, and `3.0.0-rc.1` is its
-first release candidate; its design and stability rules are in
+described here prepares the `3.0.0-rc.1` release candidate; its design and
+stability rules are in
 [`docs/v3-api-design.md`](docs/v3-api-design.md). `2.5.0` is the current
-stable release, and the 2.x series continues on `main`. To upgrade from 2.4,
-read the [migration guide](docs/hadris-3.0.0-migration.md).
+stable release of V2, whose source is retained at the
+[`v2.5.0` tag](https://github.com/hxyulin/hadris/tree/v2.5.0). To upgrade from
+2.4 or 2.5, read the [migration guide](docs/hadris-3.0.0-migration.md).
 Within a major series, breaking changes to the public API require a new major
 version; minor releases add backward-compatible functionality, and patch
 releases are limited to correctness fixes, interoperability qualification, and
