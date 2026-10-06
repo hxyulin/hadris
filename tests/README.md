@@ -136,6 +136,9 @@ runs skip a test if its tool is unavailable unless
 
 ## V3 performance harness
 
+The [harness and specification audit](../docs/harness-and-spec-audit.md) records
+directory scaling, cache budgets, isolated RSS and correctness follow-ups.
+
 ```bash
 cargo bench --manifest-path tests/Cargo.toml --bench performance
 HADRIS_TESTS_PERF_SAMPLES=1 cargo bench --manifest-path tests/Cargo.toml --bench performance

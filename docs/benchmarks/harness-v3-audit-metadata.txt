@@ -1,0 +1,340 @@
+Measured 2026-10-06; Apple M3 Pro; 18 GiB RAM; macOS 27.0.1 (26A434).
+
+[baseline-file]
+compiler: rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6;
+profile: release
+host: macos/aarch64
+revision: 73f5e6153c848eb0a512480e11c5427b88940dcc
+dirty:
+metadata blocks override: policy default
+backend: file
+cache: default
+files: 32
+samples: 5
+fixture: flat root, 128 KiB payload
+RSS: isolated process peak, includes mount, warm-up and verification; fixture creation excluded
+file backend: OS page cache uncontrolled; not physical cold-disk latency
+cache index: FAT directory entries and ISO records; different policies
+
+
+[baseline-memory]
+compiler: rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6;
+profile: release
+host: macos/aarch64
+revision: 73f5e6153c848eb0a512480e11c5427b88940dcc
+dirty:
+metadata blocks override: policy default
+backend: memory
+cache: default
+files: 32
+samples: 21
+fixture: flat root, 128 KiB payload
+RSS: isolated process peak, includes mount, warm-up and verification; fixture creation excluded
+file backend: OS page cache uncontrolled; not physical cold-disk latency
+cache index: FAT directory entries and ISO records; different policies
+
+
+[exfat-1000-file]
+compiler: rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6;
+profile: release
+host: macos/aarch64
+revision: 73f5e6153c848eb0a512480e11c5427b88940dcc
+dirty:
+metadata blocks override: policy default
+backend: file
+cache: default
+files: 1000
+samples: 5
+fixture: flat root, 128 KiB payload
+RSS: isolated process peak, includes mount, warm-up and verification; fixture creation excluded
+file backend: OS page cache uncontrolled; not physical cold-disk latency
+cache index: FAT directory entries and ISO records; different policies
+
+
+[exfat-1000-memory]
+compiler: rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6;
+profile: release
+host: macos/aarch64
+revision: 73f5e6153c848eb0a512480e11c5427b88940dcc
+dirty:
+metadata blocks override: policy default
+backend: memory
+cache: default
+files: 1000
+samples: 21
+fixture: flat root, 128 KiB payload
+RSS: isolated process peak, includes mount, warm-up and verification; fixture creation excluded
+file backend: OS page cache uncontrolled; not physical cold-disk latency
+cache index: FAT directory entries and ISO records; different policies
+
+
+[fat32-1000-file]
+compiler: rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6;
+profile: release
+host: macos/aarch64
+revision: 73f5e6153c848eb0a512480e11c5427b88940dcc
+dirty:
+metadata blocks override: policy default
+backend: file
+cache: default
+files: 1000
+samples: 5
+fixture: flat root, 128 KiB payload
+RSS: isolated process peak, includes mount, warm-up and verification; fixture creation excluded
+file backend: OS page cache uncontrolled; not physical cold-disk latency
+cache index: FAT directory entries and ISO records; different policies
+
+
+[fat32-1000-memory]
+compiler: rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6;
+profile: release
+host: macos/aarch64
+revision: 73f5e6153c848eb0a512480e11c5427b88940dcc
+dirty:
+metadata blocks override: policy default
+backend: memory
+cache: default
+files: 1000
+samples: 21
+fixture: flat root, 128 KiB payload
+RSS: isolated process peak, includes mount, warm-up and verification; fixture creation excluded
+file backend: OS page cache uncontrolled; not physical cold-disk latency
+cache index: FAT directory entries and ISO records; different policies
+
+
+[fat32-index-1000-file]
+compiler: rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6;
+profile: release
+host: macos/aarch64
+revision: 73f5e6153c848eb0a512480e11c5427b88940dcc
+dirty:
+metadata blocks override: policy default
+backend: file
+cache: index
+files: 1000
+samples: 5
+fixture: flat root, 128 KiB payload
+RSS: isolated process peak, includes mount, warm-up and verification; fixture creation excluded
+file backend: OS page cache uncontrolled; not physical cold-disk latency
+cache index: FAT directory entries and ISO records; different policies
+
+
+[fat32-index-1000-memory]
+compiler: rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6;
+profile: release
+host: macos/aarch64
+revision: 73f5e6153c848eb0a512480e11c5427b88940dcc
+dirty:
+metadata blocks override: policy default
+backend: memory
+cache: index
+files: 1000
+samples: 21
+fixture: flat root, 128 KiB payload
+RSS: isolated process peak, includes mount, warm-up and verification; fixture creation excluded
+file backend: OS page cache uncontrolled; not physical cold-disk latency
+cache index: FAT directory entries and ISO records; different policies
+
+
+[fat32-none-1000-file]
+compiler: rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6;
+profile: release
+host: macos/aarch64
+revision: 73f5e6153c848eb0a512480e11c5427b88940dcc
+dirty:
+metadata blocks override: policy default
+backend: file
+cache: none
+files: 1000
+samples: 5
+fixture: flat root, 128 KiB payload
+RSS: isolated process peak, includes mount, warm-up and verification; fixture creation excluded
+file backend: OS page cache uncontrolled; not physical cold-disk latency
+cache index: FAT directory entries and ISO records; different policies
+
+
+[fat32-none-1000-memory]
+compiler: rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6;
+profile: release
+host: macos/aarch64
+revision: 73f5e6153c848eb0a512480e11c5427b88940dcc
+dirty:
+metadata blocks override: policy default
+backend: memory
+cache: none
+files: 1000
+samples: 21
+fixture: flat root, 128 KiB payload
+RSS: isolated process peak, includes mount, warm-up and verification; fixture creation excluded
+file backend: OS page cache uncontrolled; not physical cold-disk latency
+cache index: FAT directory entries and ISO records; different policies
+
+
+[iso-1000-file]
+compiler: rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6;
+profile: release
+host: macos/aarch64
+revision: 73f5e6153c848eb0a512480e11c5427b88940dcc
+dirty:
+metadata blocks override: policy default
+backend: file
+cache: default
+files: 1000
+samples: 5
+fixture: flat root, 128 KiB payload
+RSS: isolated process peak, includes mount, warm-up and verification; fixture creation excluded
+file backend: OS page cache uncontrolled; not physical cold-disk latency
+cache index: FAT directory entries and ISO records; different policies
+
+
+[iso-1000-memory]
+compiler: rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6;
+profile: release
+host: macos/aarch64
+revision: 73f5e6153c848eb0a512480e11c5427b88940dcc
+dirty:
+metadata blocks override: policy default
+backend: memory
+cache: default
+files: 1000
+samples: 21
+fixture: flat root, 128 KiB payload
+RSS: isolated process peak, includes mount, warm-up and verification; fixture creation excluded
+file backend: OS page cache uncontrolled; not physical cold-disk latency
+cache index: FAT directory entries and ISO records; different policies
+
+
+[iso-default-blocks32-1000-file]
+compiler: rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6;
+profile: release
+host: macos/aarch64
+revision: 73f5e6153c848eb0a512480e11c5427b88940dcc
+dirty:
+metadata blocks override: 32
+backend: file
+cache: default
+files: 1000
+samples: 5
+fixture: flat root, 128 KiB payload
+RSS: isolated process peak, includes mount, warm-up and verification; fixture creation excluded
+file backend: OS page cache uncontrolled; not physical cold-disk latency
+cache index: FAT directory entries and ISO records; different policies
+
+
+[iso-default-blocks32-1000-memory]
+compiler: rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6;
+profile: release
+host: macos/aarch64
+revision: 73f5e6153c848eb0a512480e11c5427b88940dcc
+dirty:
+metadata blocks override: 32
+backend: memory
+cache: default
+files: 1000
+samples: 21
+fixture: flat root, 128 KiB payload
+RSS: isolated process peak, includes mount, warm-up and verification; fixture creation excluded
+file backend: OS page cache uncontrolled; not physical cold-disk latency
+cache index: FAT directory entries and ISO records; different policies
+
+
+[iso-index-1000-file]
+compiler: rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6;
+profile: release
+host: macos/aarch64
+revision: 73f5e6153c848eb0a512480e11c5427b88940dcc
+dirty:
+metadata blocks override: policy default
+backend: file
+cache: index
+files: 1000
+samples: 5
+fixture: flat root, 128 KiB payload
+RSS: isolated process peak, includes mount, warm-up and verification; fixture creation excluded
+file backend: OS page cache uncontrolled; not physical cold-disk latency
+cache index: FAT directory entries and ISO records; different policies
+
+
+[iso-index-1000-memory]
+compiler: rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6;
+profile: release
+host: macos/aarch64
+revision: 73f5e6153c848eb0a512480e11c5427b88940dcc
+dirty:
+metadata blocks override: policy default
+backend: memory
+cache: index
+files: 1000
+samples: 21
+fixture: flat root, 128 KiB payload
+RSS: isolated process peak, includes mount, warm-up and verification; fixture creation excluded
+file backend: OS page cache uncontrolled; not physical cold-disk latency
+cache index: FAT directory entries and ISO records; different policies
+
+
+[iso-index-blocks32-1000-file]
+compiler: rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6;
+profile: release
+host: macos/aarch64
+revision: 73f5e6153c848eb0a512480e11c5427b88940dcc
+dirty:
+metadata blocks override: 32
+backend: file
+cache: index
+files: 1000
+samples: 5
+fixture: flat root, 128 KiB payload
+RSS: isolated process peak, includes mount, warm-up and verification; fixture creation excluded
+file backend: OS page cache uncontrolled; not physical cold-disk latency
+cache index: FAT directory entries and ISO records; different policies
+
+
+[iso-index-blocks32-1000-memory]
+compiler: rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6;
+profile: release
+host: macos/aarch64
+revision: 73f5e6153c848eb0a512480e11c5427b88940dcc
+dirty:
+metadata blocks override: 32
+backend: memory
+cache: index
+files: 1000
+samples: 21
+fixture: flat root, 128 KiB payload
+RSS: isolated process peak, includes mount, warm-up and verification; fixture creation excluded
+file backend: OS page cache uncontrolled; not physical cold-disk latency
+cache index: FAT directory entries and ISO records; different policies
+
+
+[udf-1000-file]
+compiler: rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6;
+profile: release
+host: macos/aarch64
+revision: 73f5e6153c848eb0a512480e11c5427b88940dcc
+dirty:
+metadata blocks override: policy default
+backend: file
+cache: default
+files: 1000
+samples: 5
+fixture: flat root, 128 KiB payload
+RSS: isolated process peak, includes mount, warm-up and verification; fixture creation excluded
+file backend: OS page cache uncontrolled; not physical cold-disk latency
+cache index: FAT directory entries and ISO records; different policies
+
+
+[udf-1000-memory]
+compiler: rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6;
+profile: release
+host: macos/aarch64
+revision: 73f5e6153c848eb0a512480e11c5427b88940dcc
+dirty:
+metadata blocks override: policy default
+backend: memory
+cache: default
+files: 1000
+samples: 21
+fixture: flat root, 128 KiB payload
+RSS: isolated process peak, includes mount, warm-up and verification; fixture creation excluded
+file backend: OS page cache uncontrolled; not physical cold-disk latency
+cache index: FAT directory entries and ISO records; different policies
