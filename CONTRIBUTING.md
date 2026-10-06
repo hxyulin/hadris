@@ -7,11 +7,12 @@ library and CLI changes. The V3 API rules and layering are in
 ## Prerequisites
 
 - Rust **1.88+** (see `rust-toolchain.toml` and workspace `rust-version`)
-- Optional: [pre-commit](https://pre-commit.com/) for local fmt/clippy gates
+- Optional: [prek](https://prek.j178.dev/) for local format/lint gates
+  (also provided by `nix develop`)
 
 ```bash
-pre-commit install
-pre-commit install --hook-type pre-push
+prek install
+prek run --all-files
 ```
 
 ## Build and test

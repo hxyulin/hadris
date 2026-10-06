@@ -3,7 +3,7 @@
 # CI / infra
 /.github/ @hxyulin
 /fuzz/ @hxyulin
-/.pre-commit-config.yaml @hxyulin
+/prek.toml @hxyulin
 /rust-toolchain.toml @hxyulin
 
 # Shared foundation

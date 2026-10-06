@@ -279,12 +279,13 @@ Fuzz harnesses under [`fuzz/`](fuzz/) are local developer tools and are **not** 
 
 ## Development
 
-Install [pre-commit](https://pre-commit.com/) hooks once per clone (runs `cargo fmt` / `cargo clippy` before commits):
+Install [prek](https://prek.j178.dev/) hooks once per clone. `prek.toml`
+installs commit and push checks for formatting, Clippy and file hygiene:
 
 ```bash
-# brew install pre-commit   # or: pipx install pre-commit
-pre-commit install
-pre-commit install --hook-type pre-push   # also run clippy on push
+nix develop
+prek install
+prek run --all-files
 ```
 
 ## License
