@@ -51,6 +51,7 @@ crates=(
   hadris-apfs
   hadris-common
   hadris-cpio
+  hadris-cpio-raw
   hadris-fat
   hadris-fat-raw
   hadris-fs

@@ -50,7 +50,8 @@ hadris-iso-raw = { version = "0.1.0", path = "crates/optical/hadris-iso-raw", de
 hadris-iso = { version = "3.0.0-rc.2", path = "crates/optical/hadris-iso", default-features = false }
 hadris-udf-raw = { version = "0.1.0", path = "crates/optical/hadris-udf-raw", default-features = false }
 hadris-udf = { version = "3.0.0-rc.2", path = "crates/optical/hadris-udf", default-features = false }
-hadris-cpio = { version = "3.0.0-rc.1", path = "crates/archive/hadris-cpio", default-features = false }
+hadris-cpio-raw = { version = "0.1.0", path = "crates/archive/hadris-cpio-raw", default-features = false }
+hadris-cpio = { version = "3.0.0-rc.2", path = "crates/archive/hadris-cpio", default-features = false }
 hadris = { version = "3.0.0-rc.1", path = "crates/core/hadris", default-features = false }
 hadris-ntfs = { version = "3.0.0-rc.1", path = "crates/block/hadris-ntfs", default-features = false }
 hadris-apfs = { version = "3.0.0-rc.1", path = "crates/block/hadris-apfs", default-features = false }

@@ -439,14 +439,19 @@ dependencies = [
 
 [[package]]
 name = "hadris-cpio"
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 dependencies = [
+ "hadris-cpio-raw",
  "hadris-fs",
  "hadris-io",
  "hadris-macros",
  "tempfile",
  "tracing",
 ]
+
+[[package]]
+name = "hadris-cpio-raw"
+version = "0.1.0"
 
 [[package]]
 name = "hadris-example-apfs-inspect"

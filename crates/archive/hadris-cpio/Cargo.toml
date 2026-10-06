@@ -1,7 +1,7 @@
 [package]
 name = "hadris-cpio"
 autotests = false
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -28,6 +28,7 @@ async = ["hadris-io/async", "hadris-fs/async"]
 tracing = ["std", "dep:tracing"]
 
 [dependencies]
+hadris-cpio-raw = { workspace = true }
 tracing = { workspace = true, optional = true }
 hadris-io = { workspace = true, default-features = false }
 hadris-fs = { workspace = true, default-features = false }
@@ -54,3 +55,6 @@ required-features = ["std", "sync"]
 [[test]]
 name = "interop"
 required-features = ["std", "sync"]
+
+[[test]]
+name = "raw_compat"

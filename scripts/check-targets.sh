@@ -25,6 +25,7 @@ no_alloc=(
   "hadris-iso:sync,async"
   "hadris-udf-raw:"
   "hadris-udf:sync,async"
+  "hadris-cpio-raw:"
   "hadris-cpio:sync,async"
   "hadris-ntfs:sync,async"
   "hadris:sync,async,detect"

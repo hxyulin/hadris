@@ -392,6 +392,11 @@
   ],
   "archive": [
     {
+      "crate": "hadris-cpio-raw",
+      "tier": "no-std-codecs",
+      "features": ""
+    },
+    {
       "crate": "hadris-cpio",
       "tier": "no-std-sync-reader",
       "features": "sync"

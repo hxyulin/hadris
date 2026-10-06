@@ -111,7 +111,11 @@ mod error;
 mod header;
 mod options;
 
-pub mod raw;
+/// On-disk layouts and I/O-free codecs, shared with `hadris-cpio-raw`.
+pub mod raw {
+    #[doc(inline)]
+    pub use hadris_cpio_raw::raw::*;
+}
 
 #[cfg(feature = "sync")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sync")))]

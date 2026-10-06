@@ -23,8 +23,8 @@
       "summary": "A newc header contains a six-byte magic followed by thirteen eight-digit ASCII hexadecimal fields.",
       "direction": "both",
       "status": "verified",
-      "symbols": [{"path": "crates/archive/hadris-cpio/src/raw.rs", "name": "NewcHeader"}],
-      "tests": [{"path": "crates/archive/hadris-cpio/src/raw.rs", "name": "newc_fields_roundtrip", "kind": "unit"}, {"path": "crates/archive/hadris-cpio/tests/roundtrip.rs", "name": "malformed_headers_are_corrupt", "kind": "integration"}],
+      "symbols": [{"path": "crates/archive/hadris-cpio-raw/src/raw.rs", "name": "NewcHeader"}],
+      "tests": [{"path": "crates/archive/hadris-cpio-raw/src/raw.rs", "name": "newc_fields_roundtrip", "kind": "unit"}, {"path": "crates/archive/hadris-cpio/tests/roundtrip.rs", "name": "malformed_headers_are_corrupt", "kind": "integration"}],
       "gap": null
     },
     {
