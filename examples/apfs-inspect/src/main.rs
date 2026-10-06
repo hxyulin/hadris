@@ -1,3 +1,5 @@
+//! Inspect and extract a selected APFS volume from an image.
+
 use anyhow::{Result, ensure};
 use hadris_apfs::{VolumeSelector, sync::ApfsFs};
 use hadris_fs::sync::{FileSystem, Volume, read_tree};

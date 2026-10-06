@@ -945,11 +945,21 @@ async fn link_target<D: BlockDevice>(info: &Info, dev: &mut D, icb: &Icb, out: &
 /// partition is read as an entry, and a damaged entry fails with
 /// [`ErrorKind::Corrupt`]. Write methods fail with [`ErrorKind::ReadOnly`].
 ///
-/// ```rust,ignore
+/// ```rust,no_run
+/// # #[cfg(all(feature = "sync", feature = "std"))]
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use hadris_udf::sync::UdfFs;
+/// use hadris_fs::sync::FileSystem;
+/// use hadris_fs::{MountOptions, Resolve};
+/// # let dev = hadris_storage::MemDevice::new(vec![0; 1024 * 1024], hadris_storage::BlockSize::new(512).unwrap());
 /// let mut udf = UdfFs::mount(dev, MountOptions::new())?;
 /// let file = udf.resolve(b"/docs/readme.txt", Resolve::Lexical)?;
 /// let mut buf = [0u8; 64];
 /// let n = udf.read(file, 0, &mut buf)?;
+/// # Ok(())
+/// # }
+/// # #[cfg(not(all(feature = "sync", feature = "std")))]
+/// # fn main() {}
 /// ```
 #[derive(Debug)]
 pub struct UdfFs<D> {

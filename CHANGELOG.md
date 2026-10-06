@@ -8,6 +8,10 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- Compile-check V3 API examples, expand documentation link validation and
+  require runnable tests as specification-annotation evidence. Add conservative
+  CPIO/APFS annotations and refresh UDF tag-validation coverage.
+
 - UDF readers reuse a bounded, allocation-free directory-sector buffer to
   reduce repeated file-identifier reads without changing validation or file I/O.
 

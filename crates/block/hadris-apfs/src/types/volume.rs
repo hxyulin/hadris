@@ -15,6 +15,11 @@ pub const APFS_FS_ONEKEY: u64 = 0x8;
 pub const VOLUME_NAME_LENGTH: usize = 256;
 
 /// Parsed APFS volume superblock (`apfs_superblock_t`).
+///
+/// @hadris-spec Apple-APFS:apfs_superblock_t
+/// @hadris-compliance partial
+/// @hadris-note Parses the volume superblock fields needed by the read-only driver; snapshots, writable volume operations and hardware encryption are unsupported.
+/// @hadris-tests driver::generic_driver_contract_and_sealed_tree, driver::multi_volume_mount_requires_an_explicit_selection_and_returns_the_device
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct VolumeSuperblock {

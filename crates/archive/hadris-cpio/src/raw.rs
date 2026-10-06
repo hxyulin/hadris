@@ -79,6 +79,11 @@ pub struct NewcFields {
 }
 
 /// A `newc` header: magic and thirteen hexadecimal fields.
+///
+/// @hadris-spec LINUX-INITRAMFS:newc-header
+/// @hadris-compliance partial
+/// @hadris-note Parses and writes hexadecimal newc and crc header fields; archive-level padding, names and checksums are validated by the streaming reader.
+/// @hadris-tests roundtrip::malformed_headers_are_corrupt, roundtrip::crc_reader_rejects_corrupt_data
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NewcHeader(pub [u8; NEWC_HEADER_LEN]);
 
@@ -171,6 +176,11 @@ pub struct OdcFields {
 const ODC_WIDTHS: [usize; 10] = [6, 6, 6, 6, 6, 6, 6, 11, 6, 11];
 
 /// An `odc` header: magic and ten octal fields.
+///
+/// @hadris-spec GNU-CPIO:odc-header
+/// @hadris-compliance partial
+/// @hadris-note Parses and writes octal odc fields within their format limits; archive-level name and payload validation belongs to the streaming reader.
+/// @hadris-tests roundtrip::odc_and_binary_archives_read, roundtrip::every_format_reads_back
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct OdcHeader(pub [u8; ODC_HEADER_LEN]);
 
@@ -259,6 +269,11 @@ pub struct BinaryFields {
 }
 
 /// An old binary header. Hadris reads it and does not write it.
+///
+/// @hadris-spec GNU-CPIO:binary-header
+/// @hadris-compliance partial
+/// @hadris-note Reads old binary fields in both byte orders; binary writing is unsupported.
+/// @hadris-tests roundtrip::odc_and_binary_archives_read
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BinaryHeader(pub [u8; BINARY_HEADER_LEN]);
 

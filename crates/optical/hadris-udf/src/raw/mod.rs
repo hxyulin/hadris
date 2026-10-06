@@ -229,8 +229,8 @@ pub const fn crc16_update(crc: u16, data: &[u8]) -> u16 {
 ///
 /// @hadris-spec ECMA-167:3/7.2
 /// @hadris-compliance partial
-/// @hadris-note The checksum, CRC, identifier, version, reserved byte and location are checked for every volume, file set, file entry and allocation extent descriptor; identifier descriptors are not checked for their location.
-/// @hadris-tests raw::tests::tag_seal_and_parse_roundtrip, errors::malformed_volumes_are_refused
+/// @hadris-note The checksum, CRC, identifier, version, reserved byte and location are checked for volume, file set, file entry, allocation extent and file identifier descriptors; tag serial-number semantics are not validated.
+/// @hadris-tests raw::tests::tag_seal_and_parse_roundtrip, errors::malformed_volumes_are_refused, errors::malformed_identifier_fields_are_refused
 /// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, bytemuck::Pod, bytemuck::Zeroable)]

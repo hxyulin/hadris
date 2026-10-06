@@ -1,3 +1,5 @@
+//! Create a cpio archive from a host directory.
+
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;

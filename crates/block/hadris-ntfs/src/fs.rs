@@ -741,10 +741,21 @@ async fn mount<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>> {
 /// Names in the Win32 namespace compare case-insensitively through the
 /// volume's `$UpCase` table, names in the POSIX namespace exactly.
 ///
-/// ```rust,ignore
+/// ```rust,no_run
+/// # #[cfg(all(feature = "sync", feature = "std"))]
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use hadris_ntfs::sync::NtfsFs;
+/// use hadris_fs::sync::FileSystem;
+/// use hadris_fs::{MountOptions, Resolve};
+/// # let dev = hadris_storage::MemDevice::new(vec![0; 1024 * 1024], hadris_storage::BlockSize::new(512).unwrap());
 /// let mut ntfs = NtfsFs::mount(dev, MountOptions::new())?;
 /// let node = ntfs.resolve(b"/docs/readme.txt", Resolve::Lexical)?;
+/// let mut buf = [0; 64];
 /// let n = ntfs.read(node, 0, &mut buf)?;
+/// # Ok(())
+/// # }
+/// # #[cfg(not(all(feature = "sync", feature = "std")))]
+/// # fn main() {}
 /// ```
 #[derive(Debug)]
 pub struct NtfsFs<D> {

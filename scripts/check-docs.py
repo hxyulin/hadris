@@ -19,8 +19,10 @@ def documentation_files() -> list[Path]:
     files = [
         ROOT / "README.md",
         ROOT / "examples" / "README.md",
-        ROOT / "docs" / "hadris-3.0.0-migration.md",
+        ROOT / "CONTRIBUTING.md",
+        ROOT / "KNOWN_ISSUES.md",
     ]
+    files.extend((ROOT / "docs").glob("**/*.md"))
     files.extend((ROOT / "crates").glob("**/README.md"))
     files.extend((ROOT / "website" / "docs").glob("**/*.md"))
     return sorted(files)

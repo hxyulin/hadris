@@ -180,11 +180,21 @@ impl<D: BlockDevice> BlockDevice for Sectors<'_, D> {
 /// content goes after the old data. Use [`export`](Self::export) to stream
 /// the edited tree to a separate image instead.
 ///
-/// ```rust,ignore
-/// let mut session = Session::open(&mut dev)?;
+/// ```rust,no_run
+/// # #[cfg(all(feature = "sync", feature = "std"))]
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use hadris_iso::{SessionMode, sync::Session};
+/// use hadris_fs::{Content, Node};
+/// # let dev = hadris_storage::MemDevice::new(vec![0; 1024 * 1024], hadris_storage::BlockSize::new(2048).unwrap());
+/// let mut session = Session::open(dev)?;
 /// session.tree_mut().insert("new.txt", Node::file(Content::bytes("hi")))?;
 /// session.tree_mut().remove("old.txt")?;
-/// let report = session.write(&session.options(), SessionMode::Append)?;
+/// let options = session.options();
+/// let report = session.write(&options, SessionMode::Append)?;
+/// # Ok(())
+/// # }
+/// # #[cfg(not(all(feature = "sync", feature = "std")))]
+/// # fn main() {}
 /// ```
 #[derive(Debug)]
 pub struct Session<D> {
