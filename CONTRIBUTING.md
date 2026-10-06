@@ -7,6 +7,7 @@ library and CLI changes. The V3 API rules and layering are in
 ## Prerequisites
 
 - Rust **1.88+** (see `rust-toolchain.toml` and workspace `rust-version`)
+- Python **3.11+** for repository checks, provided by `nix develop`
 - Optional: [prek](https://prek.j178.dev/) for local format/lint gates
   (also provided by `nix develop`)
 
@@ -135,7 +136,7 @@ cargo test --manifest-path tests/Cargo.toml fat:: -- --skip exfat::
 cargo test --manifest-path tests/Cargo.toml exfat::
 cargo test --manifest-path tests/Cargo.toml iso::boot::
 
-# Strict tool-backed suite through the repository flake
+# Strict tool-backed suite through the repository flake (Linux)
 nix develop -c env HADRIS_REQUIRE_EXTERNAL_TOOLS=1 \
   cargo test --manifest-path tests/Cargo.toml
 

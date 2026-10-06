@@ -11,6 +11,10 @@ Each published package owns its version and may be released independently.
 - Obsolete FUSE experiments and manual V2 test-image fixtures are removed;
   fuzz seeds use current crate fixtures and support an isolated output path.
 
+- The Nix shell provides 7-Zip and, on Linux, exfatprogs, udftools and
+  ntfs-3g for external-format qualification. The README has a source-based
+  V3 quickstart and links to the detailed guides.
+
 - Repository hooks use native `prek.toml` with built-in file checks; `prek`
   is available in the Nix development shell. Formatting and Clippy hooks also
   check the detached conformance suite. `AGENTS.md` is the sole agent
