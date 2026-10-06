@@ -5,7 +5,7 @@ ISO 9660, UDF and cpio images, and ISO 9660 and UDF bridge images, with one
 binary.
 
 ```bash
-cargo install hadris-cli
+cargo install hadris-cli --version 3.0.0-rc.1 --locked
 ```
 
 Or build it from the workspace:
@@ -114,7 +114,7 @@ are replaced by these subcommands and no longer installed.
 - [Detect and open images](https://hxyulin.github.io/hadris/guides/detect-open-images)
 - [Read a FAT image](https://hxyulin.github.io/hadris/guides/read-fat-image)
 - [Create a UDF or bridge image](https://hxyulin.github.io/hadris/creation/udf)
-- [Library API](https://docs.rs/hadris)
+- [Library API](https://docs.rs/hadris/3.0.0-rc.1)
 
 ## License
 

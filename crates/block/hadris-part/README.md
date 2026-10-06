@@ -130,7 +130,7 @@ form with `FromStr`, or in `const` context with `Guid::parse_const`.
 
 - [Inspect a partition table](https://hxyulin.github.io/hadris/guides/read-partition-table)
 - [Open FAT inside a partition](https://hxyulin.github.io/hadris/guides/open-partitioned-fat)
-- [API reference](https://docs.rs/hadris-part)
+- [API reference](https://docs.rs/hadris-part/3.0.0-rc.1)
 
 ## License
 

@@ -10,8 +10,6 @@ filesystem handle, and call `sync` before the backing device is removed.
 ```toml
 [dependencies.hadris]
 version = "3.0.0-rc.1"
-git = "https://github.com/hxyulin/hadris"
-branch = "main"
 default-features = false
 features = ["std", "sync", "fat"]
 ```

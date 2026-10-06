@@ -145,7 +145,7 @@ APFS partition first, for example with `hadris-part`.
 
 ## Documentation
 
-- [Library API](https://docs.rs/hadris-apfs)
+- [Library API](https://docs.rs/hadris-apfs/3.0.0-rc.1)
 - [APFS inspection CLI](../../tools/hadris-apfs-cli/README.md)
 
 ## License

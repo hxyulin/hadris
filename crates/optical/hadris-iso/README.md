@@ -290,7 +290,7 @@ cargo run -p hadris-iso --example create_bootable_iso -- bootable.iso
 - [Read ISO images](https://hxyulin.github.io/hadris/guides/read-iso)
 - [Create ISO images](https://hxyulin.github.io/hadris/creation/iso)
 - [Validate generated images](https://hxyulin.github.io/hadris/guides/validate-images)
-- [API reference](https://docs.rs/hadris-iso)
+- [API reference](https://docs.rs/hadris-iso/3.0.0-rc.1)
 
 ## License
 

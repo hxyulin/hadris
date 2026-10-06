@@ -20,16 +20,13 @@ are optional. Turn off the umbrella defaults to select only the required formats
 ```toml
 [dependencies.hadris]
 version = "3.0.0-rc.1"
-git = "https://github.com/hxyulin/hadris"
-branch = "main"
 default-features = false
 features = ["std", "sync", "fat"]
 ```
 
-The release candidate is currently available from source, not crates.io. These
-recipes use the `3.0.0-rc.1` manifests on `main`; replace `branch` with a reviewed
-`rev` for reproducible builds. Once rc.1 is published, remove `git` and `branch`
-to use crates.io. A plain `version = "3"` does not select a prerelease.
+The release candidate is published on crates.io. These recipes select
+`3.0.0-rc.1` explicitly; a plain `version = "3"` does not select a prerelease.
+For development snapshots, use a Git dependency pinned to a reviewed `rev`.
 
 This is the host read path that replaces `FatVolume::open` and `root_dir`:
 
@@ -137,16 +134,16 @@ New crates:
 |---|---|
 | `hadris-fs` | Shared vocabulary (`NodeId`, `Name`, `Metadata`, `DateTime`, `MountOptions`), the `FileSystem` trait, `Volume` with `File` and `ReadDir`, `Walk`, `Tree`, `Node`, `Content`, `Report`, `copy_tree`, `read_tree`, `Finding`, `CheckReport`, the `host` module, and re-exports of the `hadris-io` error items. |
 | `hadris-fat-raw` | FAT12/16/32 and exFAT on-disk layouts, I/O-free codecs, device primitives (`io`, `exfat::io`) and the allocation-free checkers. Version 0.1.0. |
-| `hadris-cli` | The single `hadris` binary. Build rc.1 from source as shown in [Command-line tools](#command-line-tools). |
+| `hadris-cli` | The single `hadris` binary. Install rc.1 from crates.io as shown in [Command-line tools](#command-line-tools). |
 
 For applications that deliberately use individual format crates, the same API
 is available through separate dependencies:
 
 ```toml
 [dependencies]
-hadris-fat = { version = "3.0.0-rc.1", git = "https://github.com/hxyulin/hadris", branch = "main" }
-hadris-fs = { version = "3.0.0-rc.1", git = "https://github.com/hxyulin/hadris", branch = "main" }
-hadris-storage = { version = "3.0.0-rc.1", git = "https://github.com/hxyulin/hadris", branch = "main" }
+hadris-fat = { version = "3.0.0-rc.1" }
+hadris-fs = { version = "3.0.0-rc.1" }
+hadris-storage = { version = "3.0.0-rc.1" }
 ```
 
 The paths correspond directly: `hadris::fat` is `hadris_fat`, `hadris::fs` is
@@ -202,8 +199,6 @@ Allocation-free ISO reader, for a bootloader:
 ```toml
 [dependencies.hadris]
 version = "3.0.0-rc.1"
-git = "https://github.com/hxyulin/hadris"
-branch = "main"
 default-features = false
 features = ["sync", "iso"]
 ```
@@ -213,8 +208,6 @@ FAT or exFAT driver without `std`, with an allocator:
 ```toml
 [dependencies.hadris]
 version = "3.0.0-rc.1"
-git = "https://github.com/hxyulin/hadris"
-branch = "main"
 default-features = false
 features = ["alloc", "sync", "fat"]
 ```
@@ -224,8 +217,6 @@ Firmware without an allocator, using the embedded FAT/exFAT API:
 ```toml
 [dependencies.hadris]
 version = "3.0.0-rc.1"
-git = "https://github.com/hxyulin/hadris"
-branch = "main"
 default-features = false
 features = ["sync", "write", "fat"]
 ```
@@ -1053,7 +1044,7 @@ The five CLI packages are replaced by one binary, `hadris`, in the
 
 ```bash
 cargo uninstall hadris-fat-cli hadris-iso-cli hadris-udf-cli hadris-cpio-cli hadris-cd-cli
-cargo install --git https://github.com/hxyulin/hadris --branch main --version 3.0.0-rc.1 hadris-cli
+cargo install hadris-cli --version 3.0.0-rc.1 --locked
 ```
 
 The 2.x binaries (`hadris-fat`, `fatutil`, `hadris-iso`, `hadris-iso-cli`,
@@ -1600,7 +1591,7 @@ Writing:
     `close` not flushing the device.
 13. Replace CLI invocations with `hadris <format> <command>` (see
     [Command-line tools](#command-line-tools)) and install
-    `cargo install hadris-cli`.
+    `cargo install hadris-cli --version 3.0.0-rc.1 --locked`.
 
 ## Additions after the initial V3 migration
 

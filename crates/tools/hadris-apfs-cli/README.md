@@ -2,6 +2,12 @@
 
 Inspect APFS containers.
 
+Install the release-candidate CLI from crates.io:
+
+```bash
+cargo install hadris-apfs-cli --version 3.0.0-rc.1 --locked
+```
+
 ```bash
 hadris-apfs info /path/to/apfs-container-or-image
 ```
@@ -19,7 +25,7 @@ Use `hadris-apfs <command> --help` for command options. All commands support
 `--sector-size`, `--gpt` to select the first APFS GPT partition, and
 `--partition` to select a partition by index.
 
-- [Library API](https://docs.rs/hadris-apfs)
+- [Library API](https://docs.rs/hadris-apfs/3.0.0-rc.1)
 
 ## License
 

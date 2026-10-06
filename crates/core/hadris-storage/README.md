@@ -111,7 +111,7 @@ assert_eq!(geometry.byte_len(), Some(4 * 1024 * 1024));
 
 - [Storage and I/O model](https://hxyulin.github.io/hadris/concepts/storage-model)
 - [Adapt a custom device](https://hxyulin.github.io/hadris/guides/custom-io)
-- [API reference](https://docs.rs/hadris-storage)
+- [API reference](https://docs.rs/hadris-storage/3.0.0-rc.1)
 
 ## License
 

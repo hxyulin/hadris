@@ -22,8 +22,8 @@ supports hosted tools, bootloaders, kernels and embedded firmware, with `std`,
 Use one format crate, or the umbrella crate to detect and open multiple formats
 through a shared filesystem API.
 
-**Development:** `main` carries V3 (`3.0.0-rc.1`), which is not yet a published
-stable release. **Stable:** V2 [2.5.0](https://github.com/hxyulin/hadris/tree/v2.5.0),
+**Release candidate:** V3 [3.0.0-rc.1](https://crates.io/crates/hadris/3.0.0-rc.1)
+is published on crates.io, with development on `main`. **Stable:** V2 [2.5.0](https://github.com/hxyulin/hadris/tree/v2.5.0),
 with maintenance on [`v2`](https://github.com/hxyulin/hadris/tree/v2).
 The [migration guide](docs/hadris-3.0.0-migration.md) covers the API and CLI changes.
 
@@ -39,21 +39,20 @@ The [migration guide](docs/hadris-3.0.0-migration.md) covers the API and CLI cha
 
 ## Quickstart
 
-Build the current V3 CLI from this checkout using Rust 1.88 or newer:
+Install the V3 release-candidate CLI using Rust 1.88 or newer:
 
 ```sh
-git clone https://github.com/hxyulin/hadris.git
-cd hadris
-cargo run --locked -p hadris-cli -- --help
+cargo install hadris-cli --version 3.0.0-rc.1 --locked
+hadris --help
 ```
 
 Inspect an existing image, or create one from a directory:
 
 ```sh
-cargo run --locked -p hadris-cli -- detect disk.img
-cargo run --locked -p hadris-cli -- fat ls disk.img
-cargo run --locked -p hadris-cli -- iso create ./files -o image.iso --joliet --rock-ridge
-cargo run --locked -p hadris-cli -- iso extract image.iso -o extracted
+hadris detect disk.img
+hadris fat ls disk.img
+hadris iso create ./files -o image.iso --joliet --rock-ridge
+hadris iso extract image.iso -o extracted
 ```
 
 The `hadris` command has `fat`, `iso`, `udf`, `cpio`, `apfs` and `detect`
@@ -61,31 +60,31 @@ subcommands. `fat` handles FAT and exFAT; `udf bridge` authors hybrid optical
 images. Image creation refuses an existing output unless `--force` is supplied;
 extraction refuses to replace existing files.
 
-For a self-contained library example that creates, detects and extracts FAT,
+For a self-contained source example that creates, detects and extracts FAT,
 exFAT, ISO and UDF images in a temporary directory:
 
 ```sh
+git clone https://github.com/hxyulin/hadris.git
+cd hadris
 cargo run --locked -p hadris-example-extract
 ```
 
 <details>
 <summary><strong>Use the Rust libraries</strong></summary>
 
-V3 `3.0.0-rc.1` is available from Git while its first release is being prepared.
+V3 `3.0.0-rc.1` is available on crates.io.
 One dependency reaches the format drivers and the shared I/O, device and
 filesystem APIs. For a hosted FAT application:
 
 ```toml
 [dependencies.hadris]
 version = "3.0.0-rc.1"
-git = "https://github.com/hxyulin/hadris"
-branch = "main"
 default-features = false
 features = ["std", "sync", "fat"]
 ```
 
-Pin a reviewed `rev` instead of `branch` for reproducible Git dependencies.
-After the release candidate is published, remove `git` and `branch` for crates.io.
+Specify the prerelease version explicitly; `version = "3"` does not select RC1.
+For development snapshots, use a Git dependency pinned to a reviewed `rev`.
 Use `hadris::fat`, `hadris::fs`, `hadris::storage` and `hadris::io`; enabling
 only `fat` does not add other formats. Add `write` for FAT formatting, or
 `detect` and `part` for unknown/partitioned images. Individual crates remain

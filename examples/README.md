@@ -18,7 +18,7 @@ It needs no input and runs in CI. The
 The tool examples `fat-list`, `partition-list` and `cpio-create` also use one
 Hadris dependency with explicit formats. Workspace paths select this checkout;
 [the installation guide](../website/docs/getting-started.md) gives the
-`3.0.0-rc.1` Git recipe for an external application.
+`3.0.0-rc.1` crates.io recipe for an external application.
 
 ## Use cases
 

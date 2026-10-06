@@ -10,13 +10,12 @@ cover individual replacements, CLI flags and APFS additions in 2.5.
 
 ## Select one dependency
 
-Follow the [rc.1 source installation recipe](./getting-started.md#get-the-release-candidate).
+Follow the [rc.1 installation recipe](./getting-started.md#get-the-release-candidate).
 The umbrella reaches the same native APIs as individual format crates, including
 `hadris::fat`, `hadris::iso`, `hadris::fs`, `hadris::storage` and `hadris::io`.
 A known FAT image needs only `std`, `sync` and `fat`; add `write` for formatting.
 
-The candidate is not published on crates.io yet. Use the Git source in the
-recipes and an explicit `3.0.0-rc.1` requirement. Disable default features when
+Select `3.0.0-rc.1` explicitly in Cargo dependencies. Disable default features when
 selecting formats or targeting `no_std`; do so for every direct Hadris dependency
 if individual crates are used, because Cargo unifies their features.
 

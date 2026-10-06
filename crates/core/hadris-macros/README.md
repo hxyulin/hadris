@@ -5,7 +5,7 @@ Proc macros that power dual sync/async APIs across the Hadris workspace.
 Filesystem and partition crates write I/O code **once** with `async fn` / `.await`,
 then compile it once per mode:
 
-- under a `sync` module via [`strip_async!`](https://docs.rs/hadris-macros) (async keywords removed)
+- under a `sync` module via [`strip_async!`](https://docs.rs/hadris-macros/3.0.0-rc.1) (async keywords removed)
 - under an `r#async` module via `send_async!`, whose trait methods return
   `Send` futures
 - in `hadris-io` and `hadris-storage`, also under a `local` module
@@ -97,7 +97,7 @@ defines no traits can pass the items through unchanged there, as
 ## Documentation
 
 - [Feature and capability guide](https://hxyulin.github.io/hadris/concepts/features)
-- [API reference](https://docs.rs/hadris-macros)
+- [API reference](https://docs.rs/hadris-macros/3.0.0-rc.1)
 
 ## License
 

@@ -10,22 +10,25 @@ only the formats and I/O mode the application needs.
 
 ## Get the release candidate
 
-The repository prepares `3.0.0-rc.1`; it is not published on crates.io yet.
-This recipe selects the rc.1 manifests from `main`:
+`3.0.0-rc.1` is published on crates.io. Select the release candidate explicitly:
 
 ```toml
 [dependencies.hadris]
 version = "3.0.0-rc.1"
-git = "https://github.com/hxyulin/hadris"
-branch = "main"
 default-features = false
 features = ["std", "sync", "fat"]
 ```
 
-Use a reviewed `rev` instead of `branch` for a reproducible Git dependency.
-After rc.1 is published, remove `git` and `branch` to select it from crates.io.
 A plain `version = "3"` cannot select a prerelease. The recipes in these guides
-include the Git source so they work before publication.
+use the explicit RC1 version from crates.io. For development snapshots, use a
+Git dependency pinned to a reviewed `rev`.
+
+Install the command-line tool with:
+
+```sh
+cargo install hadris-cli --version 3.0.0-rc.1 --locked
+hadris --help
+```
 
 For source examples and the CLI:
 

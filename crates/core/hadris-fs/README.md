@@ -113,7 +113,7 @@ assert!(OpenOptions::new().write().create().append().validate().is_ok());
 ## Documentation
 
 - [Crate overview](https://hxyulin.github.io/hadris/crates)
-- [API reference](https://docs.rs/hadris-fs)
+- [API reference](https://docs.rs/hadris-fs/3.0.0-rc.1)
 
 ## License
 
