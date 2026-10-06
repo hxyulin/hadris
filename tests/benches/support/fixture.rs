@@ -3,6 +3,10 @@ use std::collections::BTreeMap;
 use hadris_fs::{Content, Node, Tree};
 use hadris_tests::harness::EntryData;
 
+pub fn payload() -> Vec<u8> {
+    (0..131072).map(|i| (i * 17 + i / 251) as u8).collect()
+}
+
 pub const PAYLOAD: &str = "PAYLOAD.BIN";
 
 pub struct Fixture {
@@ -15,7 +19,7 @@ pub struct Fixture {
 
 impl Fixture {
     pub fn new() -> Self {
-        let payload: Vec<u8> = (0..131072).map(|i| (i * 17 + i / 251) as u8).collect();
+        let payload = payload();
         let mut entries = BTreeMap::new();
         let files = std::env::var("HADRIS_TESTS_PERF_FILES")
             .map_or(32, |text| text.parse::<usize>().unwrap());

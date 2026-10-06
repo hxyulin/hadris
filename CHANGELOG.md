@@ -18,6 +18,11 @@ Each published package owns its version and may be released independently.
   FAT/exFAT tree writers preflight advertised content and directory capacity
   before formatting, rejecting known oversized trees without changing output.
 
+- The V3 harness measures isolated file-backed process RSS alongside timing
+  and backend I/O, with cold/warm and batch lookups, full reads, cache policies
+  and build provenance. Compliance evidence mappings track current symbols
+  and FAT32 backup-boot recovery.
+
 - The documentation site defaults to V3 `3.0.0-rc.1`, preserves released V2
   snapshots and redirects old `next/` guide links. Migration and task guides
   use working source dependency recipes, one-dependency umbrella imports and
