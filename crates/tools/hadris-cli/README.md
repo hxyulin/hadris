@@ -42,6 +42,10 @@ hadris cpio create ./rootfs -o - > initramfs.cpio
 hadris iso extract disc.iso -p /docs -o out
 ```
 
+UDF `create` and `bridge` accept writable revisions `1.02`, `1.50`, `2.00`
+and `2.01`. Revisions `2.50` and `2.60` require metadata partitions and are
+rejected during argument parsing until the writer supports them.
+
 FAT12/16/32 extraction uses a bounded one-entry listing hint by default. Tune
 `hadris fat extract` independently for the access pattern:
 

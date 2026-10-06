@@ -85,11 +85,6 @@ impl RockRidgeInfo {
         self.times[3]
     }
 
-    /// Whether the node has a `TF` entry with any of the four times.
-    pub(crate) fn has_times(&self) -> bool {
-        self.times.iter().any(Option::is_some)
-    }
-
     /// The device number from the `PN` entry.
     pub const fn device(&self) -> Option<DeviceNumber> {
         self.device
