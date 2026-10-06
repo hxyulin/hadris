@@ -1,0 +1,20 @@
+[package]
+name = "hadris-iso-raw"
+version = "0.1.0"
+description = "ISO on-disk layouts and I/O-free codecs"
+readme = "README.md"
+keywords = ["iso", "no-std", "parser"]
+categories = ["no-std", "parser-implementations"]
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+
+[dependencies]
+bitflags = { workspace = true }
+bytemuck = { workspace = true, features = ["derive", "min_const_generics"] }
+hadris-fs = { workspace = true }

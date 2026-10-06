@@ -621,17 +621,27 @@ dependencies = [
 
 [[package]]
 name = "hadris-iso"
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
  "hadris-fs",
  "hadris-io",
+ "hadris-iso-raw",
  "hadris-macros",
  "hadris-part",
  "hadris-storage",
  "tempfile",
  "tracing",
+]
+
+[[package]]
+name = "hadris-iso-raw"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.13.2",
+ "bytemuck",
+ "hadris-fs",
 ]
 
 [[package]]

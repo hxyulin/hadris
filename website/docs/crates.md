@@ -19,6 +19,7 @@ an explicit dependency on one layer is useful. The
 | FAT12/16/32 or exFAT filesystem access | [`hadris-fat`](https://github.com/hxyulin/hadris/tree/main/crates/block/hadris-fat) | `FatFs` and `ExFatFs`, including formatting, checking and mutation |
 | Read-only NTFS access (preview) | [`hadris-ntfs`](https://github.com/hxyulin/hadris/tree/main/crates/block/hadris-ntfs) | Allocation-free reader; its native API is a preview |
 | FAT or exFAT on-disk structures without a driver | [`hadris-fat-raw`](https://github.com/hxyulin/hadris/tree/main/crates/block/hadris-fat-raw) | Layouts and I/O-free codecs that `hadris-fat` is built on |
+| ISO on-disk structures without a driver | [`hadris-iso-raw`](https://github.com/hxyulin/hadris/tree/main/crates/optical/hadris-iso-raw) | Allocation-free layouts and I/O-free codecs; first publication pending |
 | MBR or GPT partition tables | [`hadris-part`](https://github.com/hxyulin/hadris/tree/main/crates/block/hadris-part) | Concrete partition parsing and writing |
 | ISO 9660 images | [`hadris-iso`](https://github.com/hxyulin/hadris/tree/main/crates/optical/hadris-iso) | ISO, Joliet, Rock Ridge, and El Torito APIs |
 | UDF images and hybrid ISO/UDF authoring | [`hadris-udf`](https://github.com/hxyulin/hadris/tree/main/crates/optical/hadris-udf) | UDF descriptors, reading, image creation, and bridge images sharing file data with ISO 9660 |

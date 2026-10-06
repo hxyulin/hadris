@@ -56,6 +56,7 @@ crates=(
   hadris-fs
   hadris-io
   hadris-iso
+  hadris-iso-raw
   hadris-macros
   hadris-ntfs
   hadris-part

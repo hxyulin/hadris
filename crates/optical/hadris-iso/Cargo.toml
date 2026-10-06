@@ -1,7 +1,7 @@
 [package]
 name = "hadris-iso"
 autotests = false
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -31,6 +31,7 @@ cache = ["alloc"]
 tracing = ["std", "dep:tracing", "hadris-part?/tracing"]
 
 [dependencies]
+hadris-iso-raw = { workspace = true }
 tracing = { workspace = true, optional = true }
 bitflags = { workspace = true }
 bytemuck = { workspace = true, features = ["derive", "min_const_generics"] }
@@ -81,3 +82,6 @@ required-features = ["std", "sync"]
 [[test]]
 name = "versions"
 required-features = ["std", "sync"]
+
+[[test]]
+name = "raw_compat"

@@ -21,6 +21,7 @@ no_alloc=(
   "hadris-fat:async"
   "hadris-fat:sync,async,write"
   "hadris-part:sync,async"
+  "hadris-iso-raw:"
   "hadris-iso:sync,async"
   "hadris-udf:sync,async"
   "hadris-cpio:sync,async"
