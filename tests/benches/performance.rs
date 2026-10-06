@@ -445,10 +445,14 @@ fn main() {
                         .env("HADRIS_TESTS_PERF_WORKLOAD", workload);
                     let (output, rss) = run_with_peak_rss(&mut command).unwrap();
                     let row = String::from_utf8(output.stdout).unwrap();
-                    let fields: Vec<_> = row.trim().split(',').collect();
-                    assert_eq!(fields.len(), 11, "invalid worker row");
-                    let mut fields: Vec<_> = fields.iter().map(|s| s.to_string()).collect();
-                    fields[2] = sample.to_string();
+                    let header: Vec<_> = Measurement::CSV_HEADER.split(',').collect();
+                    let mut fields: Vec<_> = row.trim().split(',').map(str::to_string).collect();
+                    assert_eq!(fields.len(), header.len(), "invalid worker row");
+                    let sample_index = header
+                        .iter()
+                        .position(|&field| field == "sample")
+                        .expect("measurement CSV header has no sample column");
+                    fields[sample_index] = sample.to_string();
                     rows.push(format!(
                         "{},file,{cache},{file_count},{blocks},{rss}",
                         fields.join(",")
@@ -468,15 +472,14 @@ fn main() {
         ("revision", vec!["rev-parse", "HEAD"]),
         ("dirty", vec!["status", "--porcelain"]),
     ] {
-        let output = std::process::Command::new("git")
+        let value = std::process::Command::new("git")
             .args(args)
             .output()
-            .unwrap();
-        assert!(output.status.success());
-        metadata.push(format!(
-            "{key}: {}",
-            String::from_utf8_lossy(&output.stdout).trim()
-        ));
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+            .unwrap_or_else(|| "unknown".into());
+        metadata.push(format!("{key}: {value}"));
     }
     metadata.push(format!(
         "metadata blocks override: {}",

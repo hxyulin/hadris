@@ -5,6 +5,12 @@ Apple M3 Pro with 18 GiB RAM, macOS 27.0.1. The worktree was clean during the
 measurement matrix. The harness changes start at `81c1dbab`; the baseline
 library implementation is main's `71fa18b2`.
 
+This is a historical baseline report. PR [#272](https://github.com/hxyulin/hadris/pull/272)
+subsequently fixed the UDF identifier, ISO namespace/relocation and FAT tree
+capacity findings. PR [#273](https://github.com/hxyulin/hadris/pull/273) added the
+UDF directory-sector buffer; its [measurements](udf-directory-window-performance.md)
+describe the current reader. The original samples below remain unchanged.
+
 The strongest measured opportunity is directory metadata traversal, especially
 UDF and exFAT repeated lookup. File payload reads are already batched. Before
 optimizing those paths, tighten UDF identifier validation and reconcile the

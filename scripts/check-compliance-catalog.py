@@ -195,7 +195,9 @@ def validate_requirement(
             elif resolved is not None:
                 text = resolved.read_text(encoding="utf-8")
                 names = str(symbol["name"]).split("::")
-                if any(not re.search(rf"\b{re.escape(name)}\b", text) for name in names):
+                if any(not name for name in names):
+                    errors.append(f"{symbol_loc}: symbol name contains an empty identifier")
+                elif any(not re.search(rf"\b{re.escape(name)}\b", text) for name in names):
                     errors.append(f"{symbol_loc}: symbol identifiers {symbol['name']!r} are absent from {symbol['path']!r}")
             # A format's catalog also covers its `-raw` crate.
             if not str(symbol["path"]).startswith((f"crates/{crate}/", f"crates/{crate}-raw/")):
@@ -303,7 +305,7 @@ def self_test() -> list[str]:
         (root / "spec" / "requirements").mkdir(parents=True)
         (root / "crates" / "demo").mkdir(parents=True)
         (root / "crates" / "demo" / "lib.rs").write_text(
-            "fn parse() {}\n#[test]\nfn rejects_zero() {}\n", encoding="utf-8"
+            "struct Type;\nfn parse() {}\n#[test]\nfn rejects_zero() {}\n", encoding="utf-8"
         )
         (root / "spec" / "sources.json").write_text(
             json.dumps(
@@ -368,6 +370,14 @@ def self_test() -> list[str]:
         catalog_path.write_text(json.dumps(document), encoding="utf-8")
         if not any("removed_parser" in error for error in run(root, check_cache=False)):
             return ["removed symbol was accepted as evidence"]
+        for malformed_name in ("", "Type::", "::parse", "Type::::parse"):
+            invalid = dict(valid)
+            invalid["symbols"] = [{"path": "crates/demo/lib.rs", "name": malformed_name}]
+            document = load_json(catalog_path)
+            document["requirements"] = [invalid]
+            catalog_path.write_text(json.dumps(document), encoding="utf-8")
+            if not any("empty identifier" in error for error in run(root, check_cache=False)):
+                return [f"empty symbol component was accepted for {malformed_name!r}"]
         invalid = dict(valid)
         invalid["tests"] = []
         invalid["gap"] = "not allowed for verified"
