@@ -59,3 +59,15 @@ fn partitions_of_local_devices() {
     let err = block_on(partition.write_blocks(BlockIndex::new(0), &buf)).unwrap_err();
     assert_eq!(err.kind(), hadris_io::ErrorKind::ReadOnly);
 }
+
+#[cfg(feature = "alloc")]
+#[test]
+fn read_ahead_accepts_non_send_devices() {
+    let blocks: Rc<[u8]> = (0..2048u32).map(|i| (i / 512) as u8).collect();
+    let mut dev = hadris_storage::local::ReadAhead::new(Flash { blocks }, 4);
+    let mut buf = [0; 512];
+    for block in 0..4 {
+        block_on(dev.read_blocks(BlockIndex::new(block), &mut buf)).unwrap();
+        assert_eq!(buf, [block as u8; 512]);
+    }
+}

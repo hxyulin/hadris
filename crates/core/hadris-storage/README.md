@@ -33,6 +33,7 @@ block 0 on the disk a device is a window of.
 | `host::FileDevice` | With `std` and `sync`, a host image file or disk device with 512-byte blocks. `open(path)` is read-only; `new(file)` takes a file the caller opened and is writable when the file is. An image file grows when written past its end |
 | `StreamDevice` | A block device over any `Read + Seek` stream, with any block size. Wrap read-only streams in `ReadOnly`; the sealed `StreamWrite` trait carries the choice |
 | `Cache` | Write-back LRU cache of whole blocks (`alloc`). Its first write goes straight through, so a read-only device says so at once. Requests of at least `capacity` blocks bypass it |
+| `ReadAhead` | Optional, write-through read buffering (`alloc`). Two windows share a configurable block budget; adjacent access enables larger reads, while scattered misses fetch only requested blocks |
 | `ByteView` | Byte-granular reads and writes over a device, also usable as a stream |
 | `BlockIndex`, `BlockCount`, `BlockSize` | Value types with private fields and `const fn` constructors and accessors |
 | `BlockGeometry`, `BlockRange` | Checked block geometry and ranges |
@@ -109,3 +110,29 @@ assert_eq!(geometry.byte_len(), Some(4 * 1024 * 1024));
 ## License
 
 Licensed under the [MIT license](../../../LICENSE-MIT).
+
+## Bounded read-ahead
+
+Wrap the device before mounting a filesystem to combine nearby small reads:
+
+```rust,no_run
+use hadris_storage::host::FileDevice;
+use hadris_storage::sync::ReadAhead;
+
+let device = ReadAhead::new(FileDevice::open("disk.img")?, 128);
+# Ok::<(), std::io::Error>(())
+```
+
+For 512-byte blocks, 128 blocks bound the two buffers together to 64 KiB.
+The buffers allocate lazily. Zero disables buffering, and direct devices remain
+unchanged. The budget is clamped to the initial device size and addressable
+allocation size. The adapter keeps two windows so metadata and data can alternate.
+A miss adjacent to a retained window reads ahead; other misses fetch exactly the
+requested blocks. Requests larger than the selected window bypass buffering.
+
+All writes go through immediately and invalidate both windows before starting.
+Reads never speculate outside the device or partition. If an expanded read
+fails, the adapter retries the original request. `get_mut()` and `clear()`
+invalidate retained data; callers must clear after changes through external
+handles. Like any read cache, it cannot detect external modifications itself.
+The same adapter is available in `sync`, `r#async`, and `local`.

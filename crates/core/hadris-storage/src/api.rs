@@ -438,6 +438,154 @@ fn block_too_large<E>() -> Error<E> {
     Error::new(ErrorKind::Unsupported, "block size exceeds the adapter buffer")
 }
 
+/// A bounded, write-through read-ahead adapter with two reusable windows.
+///
+/// Adjacent read misses fetch nearby blocks in one device call. Other misses
+/// fetch only the requested blocks. Two windows let metadata and data reads
+/// alternate without immediately evicting each other.
+/// Requests larger than a window bypass it. Speculative reads stop at the device
+/// boundary; if they fail, the original request is retried without read-ahead.
+/// Writes invalidate both windows before reaching the device, including failed
+/// or cancelled writes. This adapter never buffers writes.
+///
+/// Memory is allocated lazily, up to `capacity` blocks in total. Zero disables
+/// buffering. External changes to the device require [`clear`](Self::clear).
+#[cfg(feature = "alloc")]
+#[derive(Debug)]
+pub struct ReadAhead<D> {
+    inner: D,
+    capacity: usize,
+    block_size: usize,
+    windows: [ReadWindow; 2],
+    recent: usize,
+}
+
+#[cfg(feature = "alloc")]
+#[derive(Debug, Default)]
+struct ReadWindow {
+    first: u64,
+    count: usize,
+    data: alloc::vec::Vec<u8>,
+}
+
+#[cfg(feature = "alloc")]
+impl<D: BlockDevice> ReadAhead<D> {
+    /// Wraps `inner`, limiting the two windows together to `capacity` blocks.
+    ///
+    /// Capacity is clamped to the device size and addressable allocation size.
+    pub fn new(inner: D, capacity: usize) -> Self {
+        let limit = (isize::MAX as usize) / inner.block_size().get() as usize;
+        let blocks = usize::try_from(inner.block_count()).unwrap_or(usize::MAX);
+        Self {
+            block_size: inner.block_size().get() as usize,
+            inner,
+            capacity: capacity.min(limit).min(blocks),
+            windows: Default::default(),
+            recent: 1,
+        }
+    }
+
+    /// Maximum number of blocks held across both windows.
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    /// Discards cached contents, retaining allocated buffers for reuse.
+    pub fn clear(&mut self) {
+        for window in &mut self.windows {
+            window.count = 0;
+        }
+    }
+
+    /// Borrows the underlying device.
+    pub fn get_ref(&self) -> &D {
+        &self.inner
+    }
+
+    /// Discards cached contents before mutably borrowing the device.
+    pub fn get_mut(&mut self) -> &mut D {
+        self.clear();
+        &mut self.inner
+    }
+
+    /// Returns the underlying device. No flush is needed for this adapter.
+    pub fn into_inner(self) -> D {
+        self.inner
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<D: ErrorType> ErrorType for ReadAhead<D> {
+    type Error = D::Error;
+}
+
+#[cfg(feature = "alloc")]
+impl<D: BlockDevice> BlockDevice for ReadAhead<D> {
+    fn block_size(&self) -> BlockSize { self.inner.block_size() }
+    fn block_count(&self) -> u64 { self.inner.block_count() }
+    fn max_block_count(&self) -> u64 { self.inner.max_block_count() }
+    fn disk_offset(&self) -> u64 { self.inner.disk_offset() }
+    fn writable(&self) -> bool { self.inner.writable() }
+
+    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>> {
+        let size = self.block_size().get() as usize;
+        if size != self.block_size {
+            self.windows = Default::default();
+            self.block_size = size;
+            self.capacity = self.capacity.min(isize::MAX as usize / size);
+        }
+        if self.capacity == 0 || buf.is_empty() ||
+            check_blocks::<Infallible>(self.block_size(), self.block_count(), first, buf.len()).is_err() {
+            return self.inner.read_blocks(first, buf).await;
+        }
+        let count = buf.len() / size;
+        for (slot, window) in self.windows.iter().enumerate() {
+            if first.get() >= window.first {
+                let offset = first.get() - window.first;
+                if offset <= window.count as u64 && count as u64 <= window.count as u64 - offset {
+                    let start = offset as usize * size;
+                    buf.copy_from_slice(&window.data[start..start + buf.len()]);
+                    self.recent = slot;
+                    return Ok(());
+                }
+            }
+        }
+        let adjacent = self.windows.iter().position(|window| {
+            window.count != 0 && window.first + window.count as u64 == first.get()
+        });
+        let slot = adjacent.unwrap_or_else(|| if self.capacity == 1 { 0 } else { 1 - self.recent });
+        let capacity = if slot == 0 { self.capacity - self.capacity / 2 } else { self.capacity / 2 };
+        if count > capacity {
+            return self.inner.read_blocks(first, buf).await;
+        }
+        let available = usize::try_from(self.block_count() - first.get()).unwrap_or(usize::MAX);
+        let fetched = if adjacent.is_some() { capacity.min(available) } else { count };
+        let window = &mut self.windows[slot];
+        window.count = 0;
+        if window.data.is_empty() {
+            window.data = alloc::vec![0; capacity * size];
+        }
+        if let Err(error) = self.inner.read_blocks(first, &mut window.data[..fetched * size]).await {
+            if fetched == count { return Err(error); }
+            return self.inner.read_blocks(first, buf).await;
+        }
+        window.first = first.get();
+        window.count = fetched;
+        buf.copy_from_slice(&window.data[..buf.len()]);
+        self.recent = slot;
+        Ok(())
+    }
+
+    async fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<(), Error<Self::Error>> {
+        self.clear();
+        self.inner.write_blocks(first, buf).await
+    }
+
+    async fn flush(&mut self) -> Result<(), Error<Self::Error>> {
+        self.inner.flush().await
+    }
+}
+
 /// A write-back LRU cache of whole blocks.
 ///
 /// Writes stay in memory until [`flush`](BlockDevice::flush), eviction or

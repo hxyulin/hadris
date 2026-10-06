@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- Storage supports optional, bounded adaptive read-ahead in all I/O modes.
+  Writes always go directly to the underlying device.
+
 - FAT peer profiling supports isolated extraction workers for process RSS,
   with speed, image-read and disabled-cache overhead comparisons documented.
 
