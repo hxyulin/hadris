@@ -67,8 +67,11 @@ metadata="$(cargo metadata --no-deps --format-version 1)"
 
 # Prints the version in the manifest at `rev:path`, or nothing.
 manifest_version() {
-  git show "$1:$2" 2>/dev/null |
-    sed -n '/^\[package\]/,/^\[/{s/^version *= *"\([^"]*\)".*/\1/p;}' |
+  local manifest
+  if ! manifest="$(git show "$1:$2" 2>/dev/null)"; then
+    return 0
+  fi
+  sed -n '/^\[package\]/,/^\[/{s/^version *= *"\([^"]*\)".*/\1/p;}' <<<"$manifest" |
     head -n 1
 }
 

@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- The semver CI check skips crates absent from its baseline, allowing the V3
+  promotion to compare existing crates against V2.
+
 - The APFS fixture generator keeps its public test password in the fixture
   manifest without printing it to the console.
 
