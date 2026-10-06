@@ -31,7 +31,8 @@ desktop tools as well as `no_std` bootloaders, kernels and firmware.
 | `std` | Implies `alloc`; `std::io::Error` conversions and host files as tree content | Yes |
 | `alloc` | The writer, sessions, `BootCatalog` and the `Tree` input | via `std` |
 | `sync` | Blocking API in `hadris_iso::sync` | Yes |
-| `async` | Asynchronous API in `hadris_iso::r#async` | - |
+| `async` | Common and Send asynchronous API in `hadris_iso::async_`, also available in `r#async` | - |
+| `async-local` | The same `async_::IsoFs` reader for local devices | - |
 
 No feature changes what an item does. Joliet, Rock Ridge, El Torito and the
 enhanced tree are always available.
@@ -340,3 +341,18 @@ The on-disk layouts and I/O-free codecs live in
 [`hadris-iso-raw`](../hadris-iso-raw). Existing `hadris_iso::raw`
 paths remain available and refer to the same types. The raw crate needs
 neither an allocator nor a sync/async feature.
+
+## Unified asynchronous reader
+
+`async_::IsoFs` accepts the common `hadris_storage::async_::BlockDevice`
+contract directly, including Send devices and new local implementations.
+Existing local devices and adapter chains work through
+`hadris_storage::async_::Local::new(device)`. Its inherent operations
+have Send futures when used with a Send block-device implementation. It also
+implements the existing `hadris_fs::r#async::FileSystem` contract for those
+devices, and the `hadris_fs::local::FileSystem` contract for all accepted devices.
+
+`r#async::IsoFs` reexports the same type. Writers and sessions still require
+Send devices and are available through both async namespaces. The local-only
+feature exposes the reader without enabling those writers or sessions.
+See the [guide](../../../docs/unified-async-iso.md) for adapter chains and limits.

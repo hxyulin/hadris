@@ -84,6 +84,21 @@
       "crate": "hadris-storage",
       "tier": "alloc-async",
       "features": "alloc,async"
+    },
+    {
+      "crate": "hadris-fs",
+      "tier": "no-std-local",
+      "features": "async-local"
+    },
+    {
+      "crate": "hadris-fs",
+      "tier": "alloc-local",
+      "features": "alloc,async-local"
+    },
+    {
+      "crate": "hadris-fs",
+      "tier": "all-async-modes",
+      "features": "alloc,sync,async,async-local"
     }
   ],
   "block": [
@@ -388,6 +403,26 @@
       "crate": "hadris-udf",
       "tier": "hosted-tracing",
       "features": "tracing,sync,async"
+    },
+    {
+      "crate": "hadris-iso",
+      "tier": "no-std-local",
+      "features": "async-local"
+    },
+    {
+      "crate": "hadris-iso",
+      "tier": "alloc-local",
+      "features": "alloc,async-local"
+    },
+    {
+      "crate": "hadris-iso",
+      "tier": "cached-local",
+      "features": "cache,async-local"
+    },
+    {
+      "crate": "hadris-iso",
+      "tier": "all-async-modes",
+      "features": "std,sync,async,async-local,cache"
     }
   ],
   "archive": [

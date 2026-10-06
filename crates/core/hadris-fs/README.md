@@ -108,6 +108,7 @@ assert!(OpenOptions::new().write().create().append().validate().is_ok());
 | `std` | Yes | Implies `alloc`; adds `SystemClock`, the sync `Volume` with its `std::io` handles and `read_tree`, `host` with `sync`, and conversions to `std::io::Error` |
 | `sync` | Yes | The blocking API in `sync` |
 | `async` | No | The same API with `Send` futures in `r#async` |
+| `async-local` | No | The filesystem contract and handles with potentially non-Send futures in `local` |
 | `contract` | No | The driver contract kit: `contract::check` in each mode, for testing a format against the `FileSystem` contract |
 
 ## Documentation
@@ -118,3 +119,15 @@ assert!(OpenOptions::new().write().create().append().validate().is_ok());
 ## License
 
 Licensed under the [MIT license](../../../LICENSE-MIT).
+
+## Local asynchronous access
+
+Enable `async-local` for the `local` filesystem contract, whose futures need
+not implement `Send`. Enable `alloc` for `local::Volume` and its handles;
+these also require pointer-sized atomics. The existing `async` feature and
+`r#async` API retain their `Send` contract.
+
+ISO supports both contracts with one reader type. See the
+[unified ISO async guide](../../../docs/unified-async-iso.md) for device
+adaptation and generic Send callers. Local volumes do not expose lazy
+`read_tree` content, whose shared `Content` contract requires `Send + Sync`.

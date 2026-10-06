@@ -163,3 +163,20 @@ cargo run -p hadris-storage --no-default-features --features sync --example alig
 Raw NOR/NAND flash needs a layer providing block overwrite semantics, including
 erase handling and any required translation. It cannot be treated as an ordinary
 rewritable disk solely by implementing whole-block reads.
+
+## Unified asynchronous drivers
+
+The `async` feature enables both contracts in one canonical namespace:
+`async_::BlockDevice` allows non-Send futures, and `async_::SendBlockDevice`
+guarantees Send futures. Implement the common contract directly for local
+I/O, or the stronger contract for Send I/O. Send implementations automatically
+satisfy the common contract. ISO uses the same reader for either contract.
+
+Existing Send adapters are also available through `async_::{Cache, ReadAhead,
+StreamDevice, ByteView}`. These retain their Send requirements.
+Existing `r#async` and `local` adapter paths remain compatible. Build a legacy
+local adapter chain first, then wrap it in `async_::Local`; `into_inner` returns
+the original chain. A new local device implementing the common contract can
+mount ISO directly, without that wrapper.
+
+See the [ISO guide](../../../docs/unified-async-iso.md) for usage and limits.

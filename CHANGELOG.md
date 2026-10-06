@@ -8,6 +8,17 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **hadris-iso:** Use one `async_::IsoFs` reader for Send and local devices;
+  `r#async::IsoFs` remains the same type with its existing Send contract.
+  Add opt-in `async-local` reader support and explicit
+  `hadris-storage::async_::Local` device adaptation.
+- **hadris-storage:** Add the canonical `async_` namespace with common
+  `BlockDevice` and stronger `SendBlockDevice` contracts enabled together by
+  `async`. Preserve existing Send and local adapter paths.
+- **hadris-fs:** Add the opt-in `async-local` filesystem contract and handles
+  without requiring Send futures. Local volumes share the async lock and
+  require allocation and pointer-sized atomics.
+
 - **hadris-cpio-raw:** Extracted the existing on-disk layouts and I/O-free
   codecs into an independently versioned, allocation-free `no_std` crate.
   `hadris-cpio::raw` remains compatible and uses the same implementation.

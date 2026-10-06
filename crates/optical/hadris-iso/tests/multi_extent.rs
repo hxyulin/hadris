@@ -218,6 +218,7 @@ macro_rules! chain_use_cases {
         #[test]
         fn $name() {
             $run!(async {
+                #[allow(unused_imports)]
                 use hadris_fs::$mode::FileSystem;
                 use hadris_fs::{DirCursor, Extent};
                 use hadris_iso::Detail;

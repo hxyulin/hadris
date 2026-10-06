@@ -62,6 +62,7 @@ macro_rules! cases {
         #[test]
         fn $name() {
             $run!(async {
+                #[allow(unused_imports)]
                 use hadris_fs::$mode::FileSystem;
                 use hadris_fs::{ErrorKind, MountOptions, Name};
                 use hadris_iso::IsoOptions;
@@ -347,7 +348,6 @@ cases!(r#async, lookup_defers_link_identity_async, async_case);
 #[cfg(all(feature = "cache", feature = "async"))]
 #[test]
 fn cancelled_cache_miss_is_not_retained() {
-    use hadris_fs::r#async::FileSystem;
     use hadris_fs::{MountOptions, Name};
     use hadris_storage::r#async::BlockDevice;
     use std::sync::atomic::AtomicBool;
