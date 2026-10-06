@@ -219,3 +219,72 @@ fn hadris(format: &str) -> std::process::Command {
     command.arg(format);
     command
 }
+
+#[test]
+fn extract_cache_settings_are_configurable() {
+    let fx = Fixture::new();
+    let settings: &[&[&str]] = &[
+        &[],
+        &["--no-cache"],
+        &["--no-directory-hint"],
+        &[
+            "--cache-blocks",
+            "1",
+            "--cache-chain-positions",
+            "1",
+            "--cache-directory-entries",
+            "1",
+        ],
+        &[
+            "--cache-blocks",
+            "0",
+            "--cache-chain-positions",
+            "0",
+            "--cache-directory-entries",
+            "0",
+        ],
+    ];
+    for (i, flags) in settings.iter().enumerate() {
+        let out = fx.dir(&format!("cached-{i}"));
+        let mut args = vec!["extract", fx.image(), "-o", text(&out)];
+        args.extend_from_slice(flags);
+        stdout_of(&args);
+        assert_eq!(host_names(&out), ["Sub", "a", "b", "top.txt"]);
+        assert_eq!(
+            std::fs::read(out.join("Sub/deep/data.bin")).unwrap(),
+            vec![7u8; 10_000]
+        );
+        assert_eq!(std::fs::read(out.join("Sub/Inner.TXT")).unwrap(), b"inner");
+    }
+    let out = fx.dir("conflict");
+    let result = run(&[
+        "extract",
+        fx.image(),
+        "-o",
+        text(&out),
+        "--no-cache",
+        "--cache-blocks",
+        "0",
+    ]);
+    assert!(!result.status.success());
+    assert!(!out.exists());
+}
+
+#[test]
+fn extract_refuses_fat_cache_settings_on_exfat() {
+    let fx = Fixture::exfat();
+    let out = fx.dir("unsupported-cache");
+    let result = run(&[
+        "extract",
+        fx.image(),
+        "-o",
+        text(&out),
+        "--cache-directory-entries",
+        "1",
+    ]);
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("not exFAT"));
+    assert!(!out.exists());
+    stdout_of(&["extract", fx.image(), "-o", text(&out), "--no-cache"]);
+    assert_eq!(std::fs::read(out.join("top.txt")).unwrap(), b"top");
+}

@@ -70,7 +70,13 @@ fn run(dir: &Path) -> Result<()> {
         );
 
         let out = dir.join(format!("{name}.out"));
-        let vol = Volume::new(hadris::host::open(&image)?);
+        let fs = match hadris::host::open(&image)? {
+            hadris::sync::AnyFs::Fat(fs) => {
+                hadris::sync::AnyFs::Fat(fs.with_cache(hadris::fat::CacheOptions::sequential()))
+            }
+            fs => fs,
+        };
+        let vol = Volume::new(fs);
         let extracted = hadris::fs::sync::read_tree(&vol, "/")?;
         hadris::host::write_tree(&out, &extracted)?;
         compare(&source, &out).with_context(|| format!("{name} does not match the source"))?;

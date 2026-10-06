@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- `hadris fat extract` enables the sequential listing hint by default and accepts
+  independent cache bounds, `--no-directory-hint`, and `--no-cache`.
+
 - FAT drivers support an optional one-entry listing hint for sequential traversal,
   selected with `CacheOptions::sequential()` or `with_directory_hint`. Other
   cache bounds remain independently configurable; ordinary mounts stay uncached.
