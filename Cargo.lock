@@ -569,6 +569,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "hadris-example-unified-async"
+version = "0.0.0"
+
+[[package]]
 name = "hadris-example-vfs-driver"
 version = "0.0.0"
 dependencies = [

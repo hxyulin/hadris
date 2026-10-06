@@ -1,0 +1,9 @@
+[package]
+name = "hadris-example-unified-async"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]

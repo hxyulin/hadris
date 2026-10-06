@@ -86,3 +86,9 @@ documentation site under [`website/docs/guides`](../website/docs/guides).
 `cargo run -p hadris-example-local-async` exercises FAT, exFAT, ISO and UDF
 with an `Rc`-backed device whose I/O futures suspend. It needs no async runtime
 dependency. See [the local async guide](../docs/local-async.md).
+
+### Unified async API experiment
+
+`cargo run -p hadris-example-unified-async` explores one driver type for local
+and Send devices. Its tests include compile-fail witnesses for trait-bound and
+coherence limits. See [the experiment report](../docs/unified-async-experiment.md).
