@@ -145,7 +145,8 @@ HADRIS_TESTS_PERF_FILTER=udf cargo bench --manifest-path tests/Cargo.toml --benc
 The runner writes `performance/v3.csv` under `HADRIS_TESTS_REPORT_DIR` (default
 `tests/target/reports`). Each row records one sample's elapsed nanoseconds,
 requested read/write calls and bytes, flushes, I/O failures and stream seeks,
-backend, cache policy, directory size and optional process peak RSS in bytes. Keep the raw
+backend, cache policy, directory size, metadata-cache block capacity and optional
+process peak RSS in bytes. Keep the raw
 samples to compare medians and spread rather than relying on a single run.
 The default is 21 samples plus one discarded warm-up for each workload.
 The format filter is a substring; a filter matching nothing fails.
@@ -223,3 +224,9 @@ run in the parent or separate processes. See
 [`docs/peer-performance.md`](../docs/peer-performance.md#isolated-extraction-rss-and-peer-comparison)
 for worker/cache modes, measurement boundaries, external image-read counting
 and the per-process RSS/speed results.
+
+`HADRIS_TESTS_PERF_BLOCKS` overrides the FAT/ISO metadata-cache capacity for
+`default` or `index` policies. FAT blocks are device blocks (512 bytes in these
+fixtures); ISO blocks are logical sectors (2,048 bytes). It cannot be combined
+with `none` or applied to exFAT/UDF. The CSV records the resolved capacity; zero
+for exFAT/UDF means no optional metadata cache configured by this runner.

@@ -252,6 +252,24 @@ fn measure<D: BlockDevice, F: FileSystem>(
     }
 }
 
+fn metadata_blocks(format: Format, cache: &str) -> usize {
+    let configured = std::env::var("HADRIS_TESTS_PERF_BLOCKS")
+        .ok()
+        .map(|text| text.parse::<usize>().expect("metadata block capacity"));
+    if configured.is_some() {
+        assert!(matches!(format, Format::Fat(_) | Format::Iso));
+        assert!(
+            cache != "none",
+            "none cache policy cannot override block capacity"
+        );
+    }
+    configured.unwrap_or(match format {
+        Format::Fat(_) if cache != "none" => 8,
+        Format::Iso if cache == "index" => 8,
+        _ => 0,
+    })
+}
+
 fn run_format<D: BlockDevice>(
     format: Format,
     device: impl Fn() -> D,
@@ -280,7 +298,7 @@ fn run_format<D: BlockDevice>(
                     }
                     _ => panic!("unsupported FAT cache configuration"),
                 };
-                fs.with_cache(options)
+                fs.with_cache(options.with_blocks(metadata_blocks(format, &cache)))
             },
             rows,
         ),
@@ -302,10 +320,12 @@ fn run_format<D: BlockDevice>(
             |dev| {
                 let fs = IsoFs::mount(dev, MountOptions::new()).unwrap();
                 match cache.as_str() {
-                    "default" | "none" => fs,
-                    "index" => {
-                        fs.with_cache(hadris_iso::CacheOptions::new().with_records(file_count + 1))
-                    }
+                    "default" | "none" if metadata_blocks(format, &cache) == 0 => fs,
+                    "default" | "index" => fs.with_cache(
+                        hadris_iso::CacheOptions::new()
+                            .with_blocks(metadata_blocks(format, &cache))
+                            .with_records(if cache == "index" { file_count + 1 } else { 32 }),
+                    ),
                     _ => panic!("unsupported ISO cache configuration"),
                 }
             },
@@ -371,7 +391,7 @@ fn main() {
         entries,
     } = Fixture::new();
     let mut rows = vec![format!(
-        "{},backend,cache,file_count,peak_rss_bytes",
+        "{},backend,cache,file_count,metadata_blocks,peak_rss_bytes",
         Measurement::CSV_HEADER
     )];
     for format in formats() {
@@ -390,6 +410,7 @@ fn main() {
                 "cache comparison supports FAT/ISO only"
             );
         }
+        let blocks = metadata_blocks(format, &cache);
         let bytes = format.image(&tree);
         verify_oracle(format, &bytes, &entries);
         if backend == "memory" {
@@ -405,7 +426,7 @@ fn main() {
             rows.extend(
                 measured
                     .into_iter()
-                    .map(|row| format!("{row},memory,{cache},{file_count},")),
+                    .map(|row| format!("{row},memory,{cache},{file_count},{blocks},")),
             );
         } else {
             let workspace = Workspace::new("performance", "resources").unwrap();
@@ -429,7 +450,7 @@ fn main() {
                     let mut fields: Vec<_> = fields.iter().map(|s| s.to_string()).collect();
                     fields[2] = sample.to_string();
                     rows.push(format!(
-                        "{},file,{cache},{file_count},{rss}",
+                        "{},file,{cache},{file_count},{blocks},{rss}",
                         fields.join(",")
                     ));
                 }
@@ -457,6 +478,10 @@ fn main() {
             String::from_utf8_lossy(&output.stdout).trim()
         ));
     }
+    metadata.push(format!(
+        "metadata blocks override: {}",
+        std::env::var("HADRIS_TESTS_PERF_BLOCKS").unwrap_or_else(|_| "policy default".into())
+    ));
     metadata.push(format!("backend: {backend}\ncache: {cache}\nfiles: {file_count}\nsamples: {samples}\nfixture: flat root, 128 KiB payload\nRSS: isolated process peak, includes mount, warm-up and verification; fixture creation excluded\nfile backend: OS page cache uncontrolled; not physical cold-disk latency\ncache index: FAT directory entries and ISO records; different policies"));
     write_report("performance", "metadata.txt", &metadata.join("\n")).unwrap();
 }
