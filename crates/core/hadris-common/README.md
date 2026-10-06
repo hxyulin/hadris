@@ -39,7 +39,7 @@ hadris-common = { version = "3.0.0-rc.1", default-features = false }
 ## Documentation
 
 - [Feature and capability guide](https://hxyulin.github.io/hadris/concepts/features)
-- [API reference](https://docs.rs/hadris-common)
+- [API reference](https://docs.rs/hadris-common/3.0.0-rc.1)
 
 ## License
 

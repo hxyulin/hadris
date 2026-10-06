@@ -407,7 +407,7 @@ Implements the following specifications:
 - [Read a FAT image](https://hxyulin.github.io/hadris/guides/read-fat-image)
 - [Modify FAT safely](https://hxyulin.github.io/hadris/guides/modify-fat)
 - [Create FAT filesystems](https://hxyulin.github.io/hadris/creation/fat)
-- [API reference](https://docs.rs/hadris-fat)
+- [API reference](https://docs.rs/hadris-fat/3.0.0-rc.1)
 
 ## License
 

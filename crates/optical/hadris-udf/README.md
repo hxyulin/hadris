@@ -143,7 +143,7 @@ and 2.60, which require a metadata partition. Writing to a mounted volume
 
 - [Read and extract UDF](https://hxyulin.github.io/hadris/guides/read-udf)
 - [Create UDF filesystems](https://hxyulin.github.io/hadris/creation/udf)
-- [API reference](https://docs.rs/hadris-udf)
+- [API reference](https://docs.rs/hadris-udf/3.0.0-rc.1)
 
 ## Specifications
 

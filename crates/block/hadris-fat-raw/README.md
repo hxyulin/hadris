@@ -111,7 +111,7 @@ assert_eq!(entry.lfn_checksum(), lfn_checksum(b"README  TXT"));
 
 ## Documentation
 
-- [API reference](https://docs.rs/hadris-fat-raw)
+- [API reference](https://docs.rs/hadris-fat-raw/0.1.0)
 - [`hadris-fat`](../hadris-fat), the drivers built on this crate
 
 ## License

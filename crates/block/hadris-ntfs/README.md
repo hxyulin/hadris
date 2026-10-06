@@ -91,7 +91,7 @@ scripts/test-ntfs.sh cargo test -p hadris-ntfs --all-features
 ## Documentation
 
 - [Specification coverage](../../../docs/spec-coverage.md#hadris-ntfs)
-- [API reference](https://docs.rs/hadris-ntfs)
+- [API reference](https://docs.rs/hadris-ntfs/3.0.0-rc.1)
 
 ## License
 

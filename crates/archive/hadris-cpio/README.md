@@ -113,7 +113,7 @@ A bootloader that only reads uses
 
 - [Read and create CPIO archives](https://hxyulin.github.io/hadris/guides/cpio-archives)
 - [Build a CPIO initramfs](https://hxyulin.github.io/hadris/guides/build-initramfs)
-- [API reference](https://docs.rs/hadris-cpio)
+- [API reference](https://docs.rs/hadris-cpio/3.0.0-rc.1)
 
 ## License
 
