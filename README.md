@@ -1,293 +1,151 @@
-# Hadris
+<p align="center">
+  <img src="website/static/img/favicon.svg" alt="Hadris logo" width="88" height="88">
+</p>
+<h1 align="center">Hadris</h1>
+<p align="center">The Rust storage stack.</p>
+<p align="center">
+  <a href="rust-toolchain.toml"><img alt="Rust 1.88 or newer" src="https://img.shields.io/badge/Rust-1.88%2B-dea584?logo=rust"></a>
+  <a href="https://github.com/hxyulin/hadris/actions/workflows/rust.yml"><img alt="Rust CI" src="https://github.com/hxyulin/hadris/actions/workflows/rust.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/hxyulin/hadris/actions/workflows/docs.yml"><img alt="Documentation" src="https://github.com/hxyulin/hadris/actions/workflows/docs.yml/badge.svg?branch=main"></a>
+  <a href="LICENSE-MIT"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue"></a>
+</p>
+<p align="center">
+  <a href="https://hxyulin.github.io/hadris/next/">V3 documentation</a> ·
+  <a href="examples/README.md">Examples</a> ·
+  <a href="docs/hadris-3.0.0-migration.md">Migration guide</a> ·
+  <a href="CHANGELOG.md">Changelog</a>
+</p>
 
-**The Rust storage stack.**
+Read, inspect, edit and build filesystems and disk images in pure Rust. Hadris
+supports hosted tools, bootloaders, kernels and embedded firmware, with `std`,
+`alloc` and allocation-free configurations and synchronous or asynchronous I/O.
+Use one format crate, or the umbrella crate to detect and open multiple formats
+through a shared filesystem API.
 
-Hadris is a collection of pure Rust storage and filesystem libraries for block
-devices, GPT and MBR partition tables, FAT12/16/32, exFAT, ISO 9660, UDF,
-CPIO, and disk images, plus read-only NTFS and APFS readers in preview. It supports desktop
-applications as well as `no_std` bootloaders, operating-system kernels,
-firmware, and embedded devices.
+**Development:** `main` carries V3 (`3.0.0-rc.1`), which is not yet a published
+stable release. **Stable:** V2 [2.5.0](https://github.com/hxyulin/hadris/tree/v2.5.0),
+with maintenance on [`v2`](https://github.com/hxyulin/hadris/tree/v2).
+The [migration guide](docs/hadris-3.0.0-migration.md) covers the API and CLI changes.
 
-Use a focused format crate such as `hadris-fat` or `hadris-iso`, or the
-`hadris` umbrella crate, which also detects and opens any supported image, as
-an application grows. Shared I/O, storage, filesystem, feature, and API conventions keep
-those layers coherent without hiding format-specific capabilities.
+| Format | Read | Create or edit | Crate |
+|---|---|---|---|
+| FAT12, FAT16, FAT32 | Files, directories, VFAT long names | Edit, format, check | [hadris-fat](crates/block/hadris-fat) |
+| exFAT | Files and directories | Edit, format, check | [hadris-fat](crates/block/hadris-fat) |
+| ISO 9660 | Primary, Rock Ridge, Joliet and enhanced trees | Image authoring, sessions, El Torito and hybrid boot | [hadris-iso](crates/optical/hadris-iso) |
+| UDF | Mastered volumes | Image authoring and ISO/UDF bridges | [hadris-udf](crates/optical/hadris-udf) |
+| CPIO | newc, CRC, odc and old binary archives | Streaming newc, CRC and odc writers | [hadris-cpio](crates/archive/hadris-cpio) |
+| MBR and GPT | Partition tables and recovery copies | Partition tables and whole-disk layouts | [hadris-part](crates/block/hadris-part) |
+| NTFS and APFS | Preview readers | Read-only | [hadris-ntfs](crates/block/hadris-ntfs), [hadris-apfs](crates/block/hadris-apfs) |
 
-## Stability and Versioning
+## Quickstart
 
-Hadris follows [Semantic Versioning](https://semver.org/). The 3.0 API
-described here prepares the `3.0.0-rc.1` release candidate; its design and
-stability rules are in
-[`docs/v3-api-design.md`](docs/v3-api-design.md). `2.5.0` is the current
-stable release of V2, whose source is retained at the
-[`v2.5.0` tag](https://github.com/hxyulin/hadris/tree/v2.5.0). To upgrade from
-2.4 or 2.5, read the [migration guide](docs/hadris-3.0.0-migration.md).
-Within a major series, breaking changes to the public API require a new major
-version; minor releases add backward-compatible functionality, and patch
-releases are limited to correctness fixes, interoperability qualification, and
-documentation.
+Build the current V3 CLI from this checkout using Rust 1.88 or newer:
 
-In 3.0, exFAT is stable as `hadris_fat::exfat::sync::ExFatFs` and
-`hadris_fat::exfat::r#async::ExFatFs`, with no feature flag.
-The NTFS reader (`hadris-ntfs`, and the `unstable-ntfs` feature of
-`hadris`) is a preview whose native API may change in 3.x
-minor releases. APFS also has an experimental native API, exposed through
-`hadris-apfs`, `hadris::apfs` behind `unstable-apfs`, and the `hadris apfs`
-CLI commands. Opt-in software APFS password unlocking is available through
-`hadris-apfs`'s `encryption` feature or `hadris`'s `apfs-encryption` feature;
-internal Apple-silicon FileVault requires separate hardware support.
-Public API compatibility is checked with `cargo semver-checks`; feature-tier
-builds, contract tests and the non-exhaustive lint cover separate API rules.
+```sh
+git clone https://github.com/hxyulin/hadris.git
+cd hadris
+cargo run --locked -p hadris-cli -- --help
+```
 
-Problems that are understood but not fixed yet are listed in
-[`KNOWN_ISSUES.md`](KNOWN_ISSUES.md).
+Inspect an existing image, or create one from a directory:
+
+```sh
+cargo run --locked -p hadris-cli -- detect disk.img
+cargo run --locked -p hadris-cli -- fat ls disk.img
+cargo run --locked -p hadris-cli -- iso create ./files -o image.iso --joliet --rock-ridge
+cargo run --locked -p hadris-cli -- iso extract image.iso -o extracted
+```
+
+The `hadris` command has `fat`, `iso`, `udf`, `cpio`, `apfs` and `detect`
+subcommands. `fat` handles FAT and exFAT; `udf bridge` authors hybrid optical
+images. Image creation refuses an existing output unless `--force` is supplied;
+extraction refuses to replace existing files.
+
+For a self-contained library example that creates, detects and extracts FAT,
+exFAT, ISO and UDF images in a temporary directory:
+
+```sh
+cargo run --locked -p hadris-example-extract
+```
+
+<details>
+<summary><strong>Use the Rust libraries</strong></summary>
+
+V3 is available from Git while its first release is being prepared. Choose a
+format crate or the umbrella:
+
+```toml
+[dependencies]
+hadris-fat = { git = "https://github.com/hxyulin/hadris", branch = "main" }
+# Or enable additional formats through the umbrella:
+hadris = { git = "https://github.com/hxyulin/hadris", branch = "main", features = ["udf", "part"] }
+```
+
+Pin a `rev` for reproducible Git dependencies. Published V2 packages remain
+available on crates.io; their APIs differ from the examples on `main`.
+
+For allocation-free ISO reading or embedded FAT reading and writing:
+
+```toml
+[dependencies]
+hadris-iso = { git = "https://github.com/hxyulin/hadris", branch = "main", default-features = false, features = ["sync"] }
+hadris-fat = { git = "https://github.com/hxyulin/hadris", branch = "main", default-features = false, features = ["sync"] }
+```
+
+The [embedded guide](website/docs/guides/embedded.md) and
+[firmware examples](examples/firmware) cover the APIs without an allocator.
+For hosted use, [hadris-fs](crates/core/hadris-fs) provides `FileSystem`, `Volume`,
+file handles and tree operations. The
+[async guide](website/docs/guides/async-io.md) covers asynchronous use and explicit
+close/sync. Add `alloc` to the ISO crate for image writing and sessions.
+
+</details>
 
 ## Architecture
 
-![Hadris architecture: applications use the umbrella crate over block, optical, and archive formats backed by shared I/O, paths, and storage](website/static/img/architecture.svg)
+![Hadris architecture: applications use the umbrella over block, optical and archive formats backed by shared I/O, paths and storage](website/static/img/architecture.svg)
 
-The FAT, exFAT, ISO, UDF, NTFS and APFS filesystem drivers implement the
-`FileSystem` trait of `hadris-fs`,
-so `Volume`, its file handles and generic code work on any of them. Each
-format keeps a native API for what the trait does not model: formatting,
-checking, FAT attributes, ISO namespaces and boot catalogs, NTFS streams.
-Image writers share one input tree instead of a trait. The umbrella's
-`detect` and `open` find a format and mount it as an `AnyFs`, which
-implements the same driver trait.
+[hadris-io](crates/core/hadris-io) defines portable I/O;
+[hadris-storage](crates/core/hadris-storage) supplies block devices, slices,
+caching and read-ahead; [hadris-fs](crates/core/hadris-fs) supplies the shared
+filesystem and image-tree APIs. Format crates retain their native operations,
+and [hadris](crates/core/hadris) re-exports the stack with detection and opening.
 
-## Why Hadris?
+Sync, async and `Send` async APIs share implementations generated by
+[hadris-macros](crates/core/hadris-macros). The
+[crate guide](website/docs/crates.md) explains package selection and features;
+the [V3 design](docs/v3-api-design.md) records the API rules.
 
-- **Pure Rust** - Inspect, create, and modify storage formats without C library
-  bindings.
-- **`std`, `alloc`, and allocation-free configurations** - Select the platform
-  support and capabilities appropriate for the target.
-- **Bootloader and kernel friendly** - Read disk images and filesystems in
-  freestanding environments.
-- **Embedded ready** - Work with storage used by firmware, SD cards, and USB
-  drives through portable I/O abstractions.
-- **Desktop capable** - Build image parsers, filesystem tools, and optical-disc
-  image generators with synchronous or asynchronous APIs.
-- **One ecosystem** - Move from a leaf filesystem crate to the umbrella crate
-  while retaining the same underlying implementations.
+## Compatibility and qualification
 
-## Who is Hadris for?
+Public API compatibility uses `cargo-semver-checks`, supported by feature-tier
+builds, contract tests and the non-exhaustive lint. Format qualification uses
+independent raw-image oracles and external implementations, including mtools,
+dosfstools, xorriso, libarchive, udftools and native OS readers. See the
+[FAT](docs/compliance/hadris-fat.md), [ISO](docs/compliance/hadris-iso.md) and
+[UDF](docs/compliance/hadris-udf.md) profiles for results and coverage boundaries.
 
-- Bootloaders and UEFI or Open Firmware utilities reading FAT and ISO images
-- Operating-system kernels and experimental filesystems
-- Embedded firmware working with SD cards, USB storage, and raw block devices
-- Desktop disk-image, recovery, inspection, and authoring tools
-- Build systems producing initramfs, bootable ISO, UDF, or hybrid disc images
+NTFS and APFS native APIs remain previews. Optional APFS software unlocking
+uses the `encryption` feature; Apple-silicon hardware FileVault needs separate
+support. [Known issues](KNOWN_ISSUES.md) document remaining correctness and
+durability limits. [Performance measurements](docs/peer-performance.md) record
+workload, I/O and memory tradeoffs rather than a universal speed claim.
 
-## Workspace Crates
+## Contributing
 
-Crates are grouped by their storage access model. These directories are
-organizational only: published package names such as `hadris-fat` are unchanged.
+[CONTRIBUTING.md](CONTRIBUTING.md) covers the toolchain, tests, CI and PR workflow.
+Use the repository's Nix shell for external image tools and prek hooks:
 
-### Core Libraries
-
-- **[hadris-io](crates/core/hadris-io)** - No-std I/O abstraction layer (`Read`, `Write`, `Seek`)
-- **[hadris-fs](crates/core/hadris-fs)** - Shared filesystem vocabulary (names, times, metadata, error kinds), the `FileSystem` trait, `Volume` and its handles, `copy_tree`, and the input tree of the image writers
-- **[hadris-common](crates/core/hadris-common)** - Internal endian-aware integer types for on-disk layouts; not for direct use
-- **[hadris-storage](crates/core/hadris-storage)** - Format-neutral block devices, geometry, slices, a block cache, and seekable-stream adapters
-- **[hadris-macros](crates/core/hadris-macros)** - Proc macros for dual sync/async code generation
-
-### Block Storage
-
-- **[hadris-part](crates/block/hadris-part)** - Partition table support on block devices
-  - MBR with extended and logical partitions
-  - GPT with backup-copy recovery and UTF-16 names
-  - Hybrid MBR (Combined MBR+GPT for dual BIOS/UEFI boot)
-  - `DiskLayout` builder for whole-disk images
-- **[hadris-fat-raw](crates/block/hadris-fat-raw)** - FAT12/16/32 and exFAT on-disk layouts and I/O-free codecs, for tools and custom drivers
-- **[hadris-fat](crates/block/hadris-fat)** - FAT filesystem implementation
-  - FAT12, FAT16, FAT32 support
-  - `FatFs`, a node-based `hadris-fs` driver in sync, async and `Send` async modes
-  - Long filename support (VFAT/LFN)
-  - Formatting and a read-only checker, all without an allocator
-  - `ExFatFs`, an allocation-free exFAT driver with its own formatter and checker, in the same three modes
-- **[hadris-ntfs](crates/block/hadris-ntfs)** - Read-only NTFS reader
-  (preview) on block devices, allocation-free in sync, async and `Send`
-  async modes, with attribute lists, named streams and `$UpCase` case
-  folding; listed by `hadris::sync::detect`
-
-- **[hadris-apfs](crates/block/hadris-apfs)** - Experimental, read-only APFS
-  driver with `Volume` support in sync and async modes, explicit volume
-  selection, and native container inspection; umbrella detection and generic mounting support APFS, while `unstable-apfs`
-  exposes native selection and inspection
-
-### Optical Media
-
-- **[hadris-iso](crates/optical/hadris-iso)** - ISO 9660 filesystem implementation
-  - Allocation-free reader for the primary, Rock Ridge, Joliet and enhanced trees, in sync, async and `Send` async modes
-  - Writer and multi-session updates driven by the shared input tree
-  - ISO 9660 Level 1-3 and ISO 9660:1999 (long filenames)
-  - Joliet extension (UTF-16 Unicode filenames)
-  - Rock Ridge (RRIP) and SUSP (POSIX semantics, symlinks)
-  - El Torito bootable CD/DVD images and hybrid MBR/GPT boot
-- **[hadris-udf](crates/optical/hadris-udf)** - Universal Disk Format (UDF) for DVD/Blu-ray: an allocation-free reader, a writer, and the hybrid ISO 9660 and UDF bridge writer
-
-### Archives
-
-- **[hadris-cpio](crates/archive/hadris-cpio)** - CPIO archives (initramfs): streaming newc, CRC and odc reader and writer, old binary read
-
-### Command-line tool
-
-**[hadris-cli](crates/tools/hadris-cli)** installs one binary, `hadris`, with a
-subcommand per format: `hadris fat` (FAT12/16/32 and exFAT), `hadris iso`,
-`hadris udf` (with `bridge` and `compare` for ISO 9660 and UDF bridge images),
-`hadris cpio` and `hadris detect`. Every format shares the same flags, the
-same overwrite rule (`create` refuses an existing output without `--force`,
-and `extract` never replaces existing files) and the same in-image path syntax.
-The 2.x binaries (`hadris-fat`, `hadris-iso`, `hadris-udf`, `hadris-cpio`,
-`hadris-cd` and their aliases) are no longer installed.
-
-### Meta-crate
-
-- **[hadris](crates/core/hadris)** - Optional umbrella that re-exports `hadris-io`, `hadris-storage` and `hadris-fs`, and each format crate at a flat path (`hadris::fat`, `hadris::iso`, `hadris::cpio`, ...), and `hadris::{sync, r#async}::{detect, open, AnyFs}` with `hadris::host::open` for detecting and opening any supported image. One feature per format; the platform (`std`, `alloc`), mode (`sync`, `async`) and `write` features are forwarded to every enabled crate. The defaults are `std`, `sync`, `write`, `fat`, `iso`, `cpio` and `detect`.
-
-## Key Features
-
-The optional `tracing` feature enables `std` and forwards function
-instrumentation to enabled filesystem, archive and partition crates. It is disabled by default;
-see the [tracing guide](docs/tracing.md) for setup
-and the boundary between tracing and embedded measurements.
-
-- **No-std compatible** - Use in bootloaders, kernels, firmware, and embedded systems
-- **Allocation-free reading** - FAT, exFAT, ISO 9660, UDF, NTFS and CPIO read
-  without a heap allocator; FAT and exFAT also write, format and check
-- **One driver trait** - Path helpers, handles, `Volume` sharing and host
-  import and extraction work on every filesystem
-- **Additive features** - Platform, I/O mode and `write` features only add
-  items; no feature changes what an existing item does
-- **Sync, async and `Send` async** - One source per crate, generated for each
-  mode via `hadris-macros`
-- **Standards oriented** - ECMA-119, IEEE P1282 / Rock Ridge, El-Torito, Microsoft FAT, ECMA-167 / UDF, CPIO newc
-
-## FAT Interoperability
-
-Hadris-generated images are checked against an independent raw-image oracle
-and common FAT implementations. These results cover the same filesystem
-operations on every listed FAT variant. The oracle row counts the 18 peer
-scenarios and the three geometry-sized limit exercises, all of which pass in
-the 2.4.0 hosted suite.
-
-| Consumer | FAT12 | FAT16 | FAT32 |
-|----------|-------|-------|-------|
-| Hadris specification oracle | Pass (21/21) | Pass (21/21) | Pass (21/21) |
-| mtools 4.0.49 reader | Pass (14/16) | Pass (14/16) | Pass (14/16) |
-| dosfstools `fsck.fat` 4.2 | Pass (16/16) | Pass (16/16) | Pass (16/16) |
-| Rust `fatfs` master (`2aefc2a`) reader | Pass (16/16) | Pass (16/16) | Pass (16/16) |
-| macOS `fsck_msdos` | Pass (2/2) | Pass (2/2) | Pass (2/2) |
-
-"Pass" means that the consumer read the expected semantic tree or that the
-checker accepted the completed image; the two mtools read failures per width
-are names outside the Basic Multilingual Plane, which mtools transliterates.
-See the
-[FAT compliance profile](docs/compliance/hadris-fat.md#interoperability-results)
-for the test method, peer-writer conformance, and known tool defects.
-
-## ISO Interoperability
-
-Hadris-generated ISO images are checked against an independent ECMA-119
-raw-image oracle and common ISO readers.
-
-| Consumer | Result |
-|----------|--------|
-| Hadris specification oracle | Pass (2/2) |
-| xorriso/libisofs 1.5.8 | Pass (2/2) |
-| Linux kernel ISO driver | Pass (2/2) |
-| macOS 26.6.2 built-in ISO reader | Pass (2/2) |
-| Windows `Mount-DiskImage` | Available manual target; not yet measured |
-
-See the [ISO compliance profile](docs/compliance/hadris-iso.md#consumers-of-hadris-images)
-for the test method, peer-producer conformance, and known tool deviations.
-
-## Quick Start
-
-Choose the narrowest entry point that fits the application:
-
-```toml
-[dependencies]
-# One filesystem:
-hadris-fat = "3.0.0-rc.1"
-
-# Or the unified storage ecosystem:
-hadris = { version = "3.0.0-rc.1", features = ["udf", "part"] }
-```
-
-The umbrella crate re-exports `hadris::io`, `hadris::storage` and
-`hadris::fs`, each format crate at a flat path behind a feature of its name
-(`hadris::fat`, `hadris::iso`, `hadris::udf`, `hadris::cpio`,
-`hadris::part`), and with the default `detect` feature
-`hadris::sync::{detect, open, AnyFs}`, so applications can grow into partition detection or additional
-disk-image formats without replacing their filesystem implementation. The
-umbrella's crate documentation has a quick start, and the compiled programs
-in [`examples/`](examples/) show each crate in use.
-
-Every package ships 3.0.0 together, and each versions independently after
-that; `hadris-fat-raw` has its own version (0.1.0). The release candidate
-is **3.0.0-rc.1**:
-
-```toml
-[dependencies]
-hadris-iso = "3.0.0-rc.1"
-hadris-fat = "3.0.0-rc.1"
-hadris-part = "3.0.0-rc.1"
-hadris-fs = "3.0.0-rc.1"
-```
-
-For allocation-free `no_std` ISO reading and FAT reading and writing:
-
-```toml
-[dependencies]
-# No heap allocator: every ISO tree, Rock Ridge metadata and file reads, and
-# FAT reads and writes.
-hadris-iso = { version = "3.0.0-rc.1", default-features = false, features = ["sync"] }
-hadris-fat = { version = "3.0.0-rc.1", default-features = false, features = ["sync"] }
-```
-
-Add the `alloc` feature to `hadris-iso` for the writer, sessions and the boot
-catalog listing without full `std`.
-
-## Building
-
-```bash
-# Build entire workspace
-cargo build --workspace
-
-# Run tests
-cargo test --workspace
-
-# Build for no-std (example)
-cargo build -p hadris-fat --no-default-features --features "sync"
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the test, feature-tier and PR
-workflow, and [`docs/v3-api-design.md`](docs/v3-api-design.md) for the 3.0
-architecture. The [changelog](CHANGELOG.md) lists the unreleased 3.0 changes
-and the [`2.4.0` release](CHANGELOG.md#240---2026-09-08). The
-[migration guide](docs/hadris-3.0.0-migration.md) maps the 2.4 API to 3.0.
-The Docusaurus source for the task-oriented documentation site lives in
-[`website/`](website/); it includes getting-started, crate-selection, and
-FAT, partition, ISO, UDF, CPIO, async, and `no_std` use-case guides.
-Runnable application examples live in [`examples/`](examples/) and are compiled
-as part of the Cargo workspace.
-
-**MSRV:** Rust 1.88.0 (`rust-toolchain.toml` / workspace `rust-version`).
-
-Fuzz harnesses under [`fuzz/`](fuzz/) are local developer tools and are **not** part of PR CI.
-
-## Development
-
-Install [prek](https://prek.j178.dev/) hooks once per clone. `prek.toml`
-installs commit and push checks for formatting, Clippy and file hygiene:
-
-```bash
+```sh
 nix develop
 prek install
-prek run --all-files
+cargo test --workspace --locked
 ```
+
+Runnable [examples](examples/README.md), the [tooling index](scripts/README.md)
+and the [fuzz harness](fuzz/README.md) provide focused entry points.
+Repository conventions for coding assistants are in [AGENTS.md](AGENTS.md).
 
 ## License
 
-Licensed under the [MIT license](LICENSE-MIT).
+Hadris is available under the [MIT license](LICENSE-MIT).

@@ -26,8 +26,12 @@
             pkgs.prek
             pkgs.qemu
             pkgs.xorriso
+            pkgs._7zz
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             pkgs.util-linux
+            pkgs.exfatprogs
+            pkgs.udftools
+            pkgs.ntfs3g
           ];
           LC_ALL = "C.UTF-8";
         };
