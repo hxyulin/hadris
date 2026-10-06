@@ -51,7 +51,7 @@ pub fn build_time() -> Result<DateTime> {
     Ok(host::source_date_epoch()?.unwrap_or_else(|| SystemClock.now()))
 }
 
-/// A UDF revision given as `1.02`, `1.50`, `2.00`, `2.01`, `2.50` or `2.60`.
+/// A writable UDF revision: `1.02`, `1.50`, `2.00` or `2.01`.
 #[derive(Debug, Clone, Copy)]
 pub struct RevisionArg(pub UdfRevision);
 
@@ -64,9 +64,7 @@ impl FromStr for RevisionArg {
             "1.50" => UdfRevision::V1_50,
             "2.00" => UdfRevision::V2_00,
             "2.01" => UdfRevision::V2_01,
-            "2.50" => UdfRevision::V2_50,
-            "2.60" => UdfRevision::V2_60,
-            _ => return Err("expected 1.02, 1.50, 2.00, 2.01, 2.50 or 2.60"),
+            _ => return Err("expected a writable revision: 1.02, 1.50, 2.00 or 2.01"),
         };
         Ok(Self(revision))
     }
@@ -77,10 +75,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn revisions_parse_only_known_values() {
-        assert_eq!("1.02".parse::<RevisionArg>().unwrap().0, UdfRevision::V1_02);
-        assert_eq!("2.60".parse::<RevisionArg>().unwrap().0, UdfRevision::V2_60);
-        for input in ["9.99", "1.03", "2.5", "abc", ""] {
+    fn revisions_parse_only_writable_values() {
+        for (input, expected) in [
+            ("1.02", UdfRevision::V1_02),
+            ("1.50", UdfRevision::V1_50),
+            ("2.00", UdfRevision::V2_00),
+            ("2.01", UdfRevision::V2_01),
+        ] {
+            assert_eq!(input.parse::<RevisionArg>().unwrap().0, expected);
+        }
+        for input in ["2.50", "2.60", "9.99", "1.03", "2.5", "abc", ""] {
             assert!(input.parse::<RevisionArg>().is_err(), "{input:?}");
         }
     }

@@ -785,9 +785,7 @@ impl View {
         let mut nlink = 1;
         let mut device = None;
         if let Some(rr) = rr {
-            if rr.has_times() {
-                times = [rr.created(), rr.modified(), rr.accessed(), rr.changed()];
-            }
+            times = [rr.created(), rr.modified().or(times[1]), rr.accessed(), rr.changed()];
             if let Some(mode) = rr.mode() {
                 permissions = Permissions::new(mode);
             }

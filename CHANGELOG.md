@@ -8,6 +8,13 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- UDF create/bridge commands advertise only writable revisions through 2.01
+  and reject 2.50/2.60 during argument parsing, before accessing the source
+  or output.
+
+- ISO Rock Ridge metadata preserves the directory-record modification time
+  when a partial `TF` entry supplies only creation, access or change time.
+
 - Repository editor defaults include EditorConfig, VS Code workspace and
   conformance-suite integration, LF text attributes and focused search ignores.
   Local Nix state and nested Rust build output are ignored consistently.
