@@ -11,6 +11,9 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[package.metadata.docs.rs]
+features = ["std", "sync", "async", "encryption", "tracing"]
+
 [features]
 default = ["std", "read", "sync"]
 std = ["alloc", "hadris-io/std", "hadris-storage/std", "hadris-fs/std"]

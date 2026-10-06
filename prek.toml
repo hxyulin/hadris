@@ -20,7 +20,7 @@ id = "cargo-fmt"
 name = "cargo fmt"
 entry = "cargo fmt --all -- --check"
 language = "system"
-types = ["rust"]
+files = '\.rs$|(^|/)\.?rustfmt\.toml$'
 pass_filenames = false
 
 [[repos.hooks]]
@@ -37,7 +37,7 @@ id = "cargo-fmt-conformance"
 name = "cargo fmt (conformance suite)"
 entry = "cargo fmt --manifest-path tests/Cargo.toml --all -- --check"
 language = "system"
-types = ["rust"]
+files = '\.rs$|(^|/)\.?rustfmt\.toml$'
 pass_filenames = false
 
 [[repos.hooks]]

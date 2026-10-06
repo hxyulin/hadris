@@ -37,6 +37,7 @@ jobs:
       native: ${{ steps.scope.outputs.native }}
       spec: ${{ steps.scope.outputs.spec }}
       licenses: ${{ steps.scope.outputs.licenses }}
+      formatting: ${{ steps.scope.outputs.formatting }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -47,6 +48,8 @@ jobs:
           base: ${{ github.ref_name }}
           predicate-quantifier: some-with-excludes
           filters: |
+            formatting:
+              - '{rustfmt,.rustfmt}.toml'
             rust:
               - 'crates/**'
               - 'examples/**'
@@ -510,7 +513,7 @@ jobs:
 
   fmt:
     needs: changes
-    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.suite == 'true'
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.suite == 'true' || needs.changes.outputs.formatting == 'true'
     name: Format
     runs-on: ubuntu-latest
     steps:
