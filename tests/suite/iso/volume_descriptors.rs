@@ -3,14 +3,15 @@
 use std::fs;
 
 use hadris_fs::{Content, Node, Tree};
-use hadris_iso::IsoOptions;
 use hadris_iso::raw::VolumeDescriptor;
+use hadris_iso::{IsoOptions, Namespace};
 use hadris_tests::harness::command::{program_available, run_command};
+use hadris_tests::harness::files::read_path;
 use hadris_tests::iso::hadris::write_tree;
 use hadris_tests::iso::xorriso;
 use tempfile::TempDir;
 
-use super::{descriptors, open, open_file, volume_id, xorriso_sample_image};
+use super::{descriptors, open, open_file, open_file_ns, volume_id, xorriso_sample_image};
 
 /// Images end in 150 zero blocks inside the volume, as xorriso and
 /// `mkisofs -pad` write, so readers that read ahead (isoinfo) accept small
@@ -96,11 +97,17 @@ fn test_unicode_filenames_joliet() {
     fs::write(content_dir.join("한국어.txt"), "Korean filename\n").unwrap();
     xorriso::create_joliet(&content_dir, &iso_path).unwrap();
 
-    let mut image = open_file(&iso_path);
-    let has_joliet = descriptors(&mut image)
-        .iter()
-        .any(|vd| matches!(vd, VolumeDescriptor::Supplementary(_)));
-    assert!(has_joliet, "Should have Joliet supplementary volume");
+    let mut image = open_file_ns(&iso_path, Namespace::Joliet);
+    for (name, expected) in [
+        ("日本語.txt", "Japanese filename\n"),
+        ("中文.txt", "Chinese filename\n"),
+        ("한국어.txt", "Korean filename\n"),
+    ] {
+        assert_eq!(
+            read_path(&mut image, &format!("/{name}")).unwrap(),
+            expected.as_bytes()
+        );
+    }
 }
 
 #[test]
@@ -147,8 +154,5 @@ fn test_xorriso_report() {
         return;
     };
     let output = xorriso::inspect(&iso_path, &["-report_el_torito", "as_mkisofs"]);
-    assert!(
-        output.status.success() || output.status.code() == Some(1),
-        "xorriso report should not fail catastrophically"
-    );
+    assert!(output.status.success());
 }

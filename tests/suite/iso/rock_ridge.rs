@@ -1,6 +1,7 @@
 //! Rock Ridge (SUSP/RRIP) records written by Hadris, checked by Hadris and by
 //! xorriso when it is available.
 
+use std::collections::BTreeMap;
 use std::fs;
 
 use hadris_fs::Resolve;
@@ -9,6 +10,7 @@ use hadris_fs::{Content, Node, Tree};
 use hadris_iso::raw::{DirectoryRecord, SuspEntries};
 use hadris_iso::{IsoId, IsoOptions, Namespace};
 use hadris_tests::harness::files::read_path;
+use hadris_tests::harness::tree::{EntryData, snapshot_host};
 use hadris_tests::iso::hadris::write_tree;
 use hadris_tests::iso::xorriso;
 use tempfile::TempDir;
@@ -135,25 +137,24 @@ fn test_hadris_rockridge_roundtrip() {
         "File/directory entries should have NM entries"
     );
 
-    if xorriso::available() {
+    if xorriso::require() {
         let temp_dir = TempDir::new().unwrap();
         let iso_path = temp_dir.path().join("hadris_rrip.iso");
+        let extracted = temp_dir.path().join("extracted");
         fs::write(&iso_path, &iso_data).unwrap();
-        let output = xorriso::inspect(&iso_path, &["-report_system_area", "plain", "-pvd_info"]);
-        println!(
-            "xorriso stdout: {}",
-            String::from_utf8_lossy(&output.stdout)
-        );
-        println!(
-            "xorriso stderr: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert!(
-            output.status.success() || output.status.code() == Some(1),
-            "xorriso should be able to read hadris RRIP ISO"
-        );
-        let output = xorriso::inspect(&iso_path, &["-ls", "/"]);
-        println!("xorriso ls /: {}", String::from_utf8_lossy(&output.stdout));
+        xorriso::extract(&iso_path, &extracted).unwrap();
+        let expected = BTreeMap::from([
+            (
+                "/hello.txt".to_owned(),
+                EntryData::File(b"Hello, Rock Ridge!\n".to_vec()),
+            ),
+            ("/subdir".to_owned(), EntryData::Directory),
+            (
+                "/subdir/nested.txt".to_owned(),
+                EntryData::File(b"Nested content\n".to_vec()),
+            ),
+        ]);
+        assert_eq!(snapshot_host(&extracted).unwrap(), expected);
     }
 }
 
