@@ -12,6 +12,7 @@ fn split(path: &str) -> (&str, &str) {
     }
 }
 
+#[cfg(feature = "sync")]
 pub mod sync {
     use hadris_fs::sync::{FileSystem, Volume};
     use hadris_fs::{
@@ -174,6 +175,7 @@ pub mod sync {
     }
 }
 
+#[cfg(feature = "async")]
 pub mod r#async {
     use hadris_fs::r#async::{FileSystem, Volume};
     use hadris_fs::{

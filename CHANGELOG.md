@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- Default-feature workspace tests gate async-only cases correctly, with a CI
+  job covering the default build used by the release workflow.
+
 - FAT/exFAT extraction exposes optional storage buffering with
   `--read-ahead-blocks`, defaulting to zero.
 

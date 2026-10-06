@@ -41,7 +41,7 @@ hadris-storage = { workspace = true, features = ["std", "sync"] }
 
 [[test]]
 name = "modes"
-required-features = ["std", "sync"]
+required-features = ["std", "sync", "async"]
 
 [[test]]
 name = "roundtrip"

@@ -104,6 +104,20 @@ jobs:
       - name: Check workspace (default features)
         run: cargo check --workspace
 
+  default-tests:
+    name: Test default features
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: "-D warnings"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.97.1
+      - uses: Swatinem/rust-cache@v2
+      - name: Test workspace with default features
+        run: cargo test --workspace --locked
+
   check-features:
     name: "MSRV features (${{ matrix.group }})"
     runs-on: ubuntu-latest

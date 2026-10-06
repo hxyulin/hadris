@@ -34,6 +34,7 @@ fn sync_raw_and_shared_tiers() {
     hadris_fs::sync::contract::check_read_only(&mut *vol.lock()).unwrap();
 }
 
+#[cfg(feature = "async")]
 #[test]
 fn async_modes() {
     let tree = sample(true, true);
