@@ -1567,8 +1567,10 @@ Removed (S2). Detection and opening move into the umbrella crate (5.9):
 
 ## 6. Migration plan
 
-Each step is one PR against the long-lived `next` branch, so `main` keeps
-shipping 2.x fixes. Bugs found during the survey are fixed on 2.x first, on `fix/survey-bugs`:
+This section records the migration built on `next` while `main` shipped 2.x.
+V3 was promoted to `main` in #255 on 2026-10-06; new work targets `main`,
+and V2 maintenance uses `v2`. The steps below are historical.
+Bugs found during the survey were fixed on 2.x first, on `fix/survey-bugs`:
 path traversal in the cpio and UDF CLI extract commands, and GPT CRCs of 0
 without the `crc` feature. Locks held across `.await` cannot be fixed without
 the V3 changes in 4.2 and 4.4 (the device lives inside the mutex and every

@@ -82,7 +82,7 @@ tables and archives fail with `ErrorKind::NotRecognized` (the messages are
 known format. For a partitioned disk, select a partition with
 `hadris::part::sync::open` and open the `Partition` it returns.
 
-The [`volume-list` example](https://github.com/hxyulin/hadris/tree/next/examples/volume-list)
+The [`volume-list` example](https://github.com/hxyulin/hadris/tree/main/examples/volume-list)
 is a complete program: it detects the format, opens it, and prints the tree
 with one function generic over the `FileSystem` trait.
 

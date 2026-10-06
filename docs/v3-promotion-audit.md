@@ -4,14 +4,21 @@ Audit date: 2026-10-06. V2 baseline: `main` at `d94747a8` (2.5.0 source,
 including the release-workflow rustfmt fix after the `v2.5.0` tag). V3 baseline:
 `next` at `c49966e7`, with audit follow-ups on `audit/v3-promotion`.
 
-## Recommendation
+## Outcome
 
-Promote V3 to `main` as a **release-candidate development line**, after the audit
-preparation changes pass CI. Keep package versions at `3.0.0-rc.1`, with
+V3 was promoted to `main` in [#255](https://github.com/hxyulin/hadris/pull/255)
+on 2026-10-06 at `27afd408`, after all promotion checks passed. Preparation
+PRs #254 and #256 are merged. The `v2` maintenance branch preserves
+`d94747a8`; active V3 work targets `main`. The benchmark revisions below
+remain the original measured commits.
+
+## Release qualification
+
+V3 on `main` is a **release-candidate development line**.
+Package versions remain at `3.0.0-rc.1`, with
 `hadris-fat-raw` at `0.1.0`. Promotion does not publish crates, create release
 tags, or declare 3.0 stable. The current 2.5.0 release remains available and
-its source/history is preserved. If ongoing V2 maintenance is desired, branch
-from the existing V2 main tip before switching the main development line.
+its source/history is preserved on `v2` and in release tags.
 
 Do not describe V3 as an API-compatible replacement for V2, universally faster,
 or a fully crash-safe writable filesystem. The deliberate major-version API
@@ -28,7 +35,7 @@ new proof of every parser or every action-catalog requirement.
 | Release/default-feature tests fail to compile even though all-feature CI is green | `cargo +1.97.1 test --workspace --locked` fails first in CPIO `async_writer`; subsequent builds expose ISO, UDF, NTFS and partition async references without their crate's `async` feature. Standalone default FAT tests fail through an unconditional async path-helper module. The release workflow uses the default suite. | Gate async-only targets/cases/helpers and imports; preserve sync coverage in mixed files. Add a warnings-as-errors default-feature CI job. The corrected default workspace suite passes 1,022 tests/doctests with 11 ignored. |
 | Stability/migration guidance names 2.4 as the current stable version or assumes V2 must remain on `main` | Current GitHub release is 2.5.0; `website/docs/stability.md` still names 2.4. Migration introduction describes only 2.4, although an APFS 2.5 appendix exists. | Branch-neutral stability wording; link the V2 tag; describe the 2.4/2.5 migration and newer cache, tracing and encryption configuration. Explicit async close/sync guidance added. |
 | The known-issues list incorrectly claims FAT/exFAT chmod/chown are silent no-ops | Both hosted `setattr` implementations refuse owners and unsupported permission modes; regression tests cover mapping supported permissions to the read-only attribute. | Remove the stale issue. Root no-op attribute handling remains separately documented. Clarify that directory performance problems concern unsupported/bounded-cache fallback workloads, not every optimized path. |
-| Main-base CodeQL flags console logging of the public APFS fixture password | Draft promotion scan reports a high `py/clear-text-logging-sensitive-data` alert at the fixture generator's final print. The value is a hard-coded public test constant, not a user credential. | Remove the unnecessary password print; retain its documented fixture-manifest field. A mocked fixture-generation smoke check validates the manifest and confirms the password is absent from stdout. The draft promotion needs the preparation changes before this finding can clear. CodeQL also initially reports a missing Rust configuration while its Rust analysis is queued. |
+| Main-base CodeQL flags console logging of the public APFS fixture password | The initial promotion scan reported a high `py/clear-text-logging-sensitive-data` alert at the fixture generator's final print. The value is a hard-coded public test constant, not a user credential. | #254 removed the unnecessary print and retained its documented fixture-manifest field. A mocked fixture-generation smoke check validated the manifest and stdout. The alert cleared and all CodeQL analyses completed before #255 merged. |
 | Publication cannot be dispatched with the current notes | `scripts/release-plan.py --notes 3.0.0-rc.1 all` rejects the undated release-candidate section for every crate. | Intentional publication gate. Date and review the release notes when actually publishing; do not date them merely to merge branches. |
 | Promotion semver CI exits before comparing all V2 crates | The missing `hadris-fat-raw` baseline manifest causes `git show` to exit 128 under `pipefail`, before the intended skip. | Handle the absent manifest explicitly. Regression tests cover new crates, unreleased versions, released-candidate compatibility and failure propagation. The real `origin/main` comparison passes for all 12 existing library crates; FAT raw and FS are new and skipped. |
 | Rust CodeQL reports test constants and requested archive metadata as secrets | Promotion scan reports 16 public test keys/passwords, a DER integer's zero initializer and the numeric UID printed by `cpio list --long`. | Review and dismiss alerts [48–65](https://github.com/hxyulin/hadris/security/code-scanning?query=pr%3A255) individually with recorded reasons: 16 used in tests and two false positives. Keep the CodeQL queries and required security checks enabled. |
@@ -130,6 +137,9 @@ been implemented. Its individual unmet 3.0 requirements need a disposition
 before calling the release stable.
 
 ## Validation and promotion sequence
+
+The sequence below was completed through #254, #256 and #255. Stable release
+qualification and publication remain separate work.
 
 1. Merge the small audit-preparation PR into `next` after CI passes. It fixes test
    gating/CI and documentation, not on-disk algorithms or the public API.

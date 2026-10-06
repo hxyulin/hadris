@@ -2,8 +2,8 @@
 # Runs cargo-semver-checks for the published library crates (R11).
 #
 # usage: scripts/check-semver.sh [base-ref]
-#   base-ref          the branch a change lands on (default: origin/next,
-#                     then next); the fallback baseline is the merge-base of
+#   base-ref          the branch a change lands on (default: origin/main,
+#                     then main); the fallback baseline is the merge-base of
 #                     HEAD and this ref
 #   SEMVER_TOOLCHAIN  rustup toolchain to run under (default: stable; 1.88 is too old)
 #
@@ -27,7 +27,7 @@ cd "$(git rev-parse --show-toplevel)"
 toolchain="${SEMVER_TOOLCHAIN:-stable}"
 base_ref="${1:-}"
 if [[ -z "$base_ref" ]]; then
-  for candidate in origin/next next; do
+  for candidate in origin/main main; do
     if git rev-parse --verify --quiet "$candidate^{commit}" >/dev/null; then
       base_ref="$candidate"
       break

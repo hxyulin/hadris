@@ -23,7 +23,7 @@ directly to the [use-case guides](./guides/index.md).
 
 These pages describe the 3.0 API, whose first release candidate is
 `3.0.0-rc.1`; `2.4.0` is the current stable release. The
-[migration guide](https://github.com/hxyulin/hadris/blob/next/docs/hadris-3.0.0-migration.md)
+[migration guide](https://github.com/hxyulin/hadris/blob/main/docs/hadris-3.0.0-migration.md)
 covers the upgrade from 2.4. In 3.0, exFAT is stable in `hadris-fat`, and the
 `hadris-ntfs` reader stays a preview outside the stability promise. See
 [Stability and compatibility](./stability.md).

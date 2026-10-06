@@ -35,8 +35,8 @@ and feature set needed to complete it.
 
 Runnable application packages for FAT, partition, optical detection, and CPIO
 workflows live in the repository's
-[`examples/` directory](https://github.com/hxyulin/hadris/tree/next/examples).
+[`examples/` directory](https://github.com/hxyulin/hadris/tree/main/examples).
 Runnable ISO examples live in
-[`crates/optical/hadris-iso/examples`](https://github.com/hxyulin/hadris/tree/next/crates/optical/hadris-iso/examples),
+[`crates/optical/hadris-iso/examples`](https://github.com/hxyulin/hadris/tree/main/crates/optical/hadris-iso/examples),
 and a shared FAT volume example in
-[`crates/block/hadris-fat/examples`](https://github.com/hxyulin/hadris/tree/next/crates/block/hadris-fat/examples).
+[`crates/block/hadris-fat/examples`](https://github.com/hxyulin/hadris/tree/main/crates/block/hadris-fat/examples).
