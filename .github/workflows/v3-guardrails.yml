@@ -32,6 +32,8 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
+      - name: Test semver baseline selection
+        run: python3 scripts/test-check-semver.py
       - name: Install cargo-semver-checks
         run: cargo +stable install cargo-semver-checks --locked
       - name: Check semver against the latest release or the target branch

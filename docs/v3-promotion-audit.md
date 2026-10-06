@@ -30,6 +30,8 @@ new proof of every parser or every action-catalog requirement.
 | The known-issues list incorrectly claims FAT/exFAT chmod/chown are silent no-ops | Both hosted `setattr` implementations refuse owners and unsupported permission modes; regression tests cover mapping supported permissions to the read-only attribute. | Remove the stale issue. Root no-op attribute handling remains separately documented. Clarify that directory performance problems concern unsupported/bounded-cache fallback workloads, not every optimized path. |
 | Main-base CodeQL flags console logging of the public APFS fixture password | Draft promotion scan reports a high `py/clear-text-logging-sensitive-data` alert at the fixture generator's final print. The value is a hard-coded public test constant, not a user credential. | Remove the unnecessary password print; retain its documented fixture-manifest field. A mocked fixture-generation smoke check validates the manifest and confirms the password is absent from stdout. The draft promotion needs the preparation changes before this finding can clear. CodeQL also initially reports a missing Rust configuration while its Rust analysis is queued. |
 | Publication cannot be dispatched with the current notes | `scripts/release-plan.py --notes 3.0.0-rc.1 all` rejects the undated release-candidate section for every crate. | Intentional publication gate. Date and review the release notes when actually publishing; do not date them merely to merge branches. |
+| Promotion semver CI exits before comparing all V2 crates | The missing `hadris-fat-raw` baseline manifest causes `git show` to exit 128 under `pipefail`, before the intended skip. | Handle the absent manifest explicitly. Regression tests cover new crates, unreleased versions, released-candidate compatibility and failure propagation. The real `origin/main` comparison passes for all 12 existing library crates; FAT raw and FS are new and skipped. |
+| Rust CodeQL reports test constants and requested archive metadata as secrets | Promotion scan reports 16 public test keys/passwords, a DER integer's zero initializer and the numeric UID printed by `cpio list --long`. | Review and dismiss alerts [48–65](https://github.com/hxyulin/hadris/security/code-scanning?query=pr%3A255) individually with recorded reasons: 16 used in tests and two false positives. Keep the CodeQL queries and required security checks enabled. |
 
 ## V2 capability comparison
 
@@ -132,7 +134,8 @@ before calling the release stable.
 1. Merge the small audit-preparation PR into `next` after CI passes. It fixes test
    gating/CI and documentation, not on-disk algorithms or the public API.
 2. Review the `next` to `main` promotion as a major-version transition. Preserve
-   V2 tags/history; choose a maintenance branch if continued V2 fixes are planned.
+   V2 tags/history. The `v2` maintenance branch preserves the V2 `main` tip at
+   `d94747a8f859168c0bd7f0af42c0d6eefac9a71b`.
 3. Run promotion CI against the `main` base, including semver checks, full API
    snapshots, subset/parity, feature tiers, interoperability, embedded builds,
    Miri and platform tests. Existing #251/#252 CI provides baseline evidence,
