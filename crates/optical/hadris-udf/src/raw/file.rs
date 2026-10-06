@@ -284,8 +284,8 @@ bitflags::bitflags! {
 ///
 /// @hadris-spec ECMA-167:4/14.4
 /// @hadris-compliance partial
-/// @hadris-note Identifiers are read across block and extent boundaries; deleted and parent identifiers are skipped in listings, and the tag location is written as the block holding the first byte but not checked on read.
-/// @hadris-tests roundtrip::every_tree_reads_back, read::identifiers_cross_extent_boundaries
+/// @hadris-note Identifiers and padding are validated across block and extent boundaries, including tag location and reserved fields; deleted and parent identifiers are skipped in listings, and implementation-use payloads and stream-directory semantics are not interpreted.
+/// @hadris-tests roundtrip::every_tree_reads_back, read::identifiers_cross_extent_boundaries, errors::malformed_identifier_fields_are_refused
 /// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]

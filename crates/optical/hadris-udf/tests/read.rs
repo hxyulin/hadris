@@ -212,6 +212,29 @@ fn identifiers_cross_extent_boundaries() {
     let len = u32::from_le_bytes(fe[176..180].try_into().unwrap());
     let start = PARTITION + u64::from(u32::from_le_bytes(fe[180..184].try_into().unwrap()));
     assert!(len > 4096);
+    let mut identifiers =
+        bytes[start as usize * 2048..start as usize * 2048 + len as usize].to_vec();
+    let mut pos = 0;
+    while pos < identifiers.len() {
+        let fid: hadris_udf::raw::FileIdentifierDescriptor =
+            bytemuck::pod_read_unaligned(&identifiers[pos..pos + 38]);
+        let block = pos / 2048;
+        let location = if block == 0 {
+            start
+        } else {
+            free + block as u64 - 1
+        };
+        Tag::seal(
+            &mut identifiers[pos..pos + fid.total_len()],
+            tag::FILE_IDENTIFIER,
+            fid.tag.version.get(),
+            (location - PARTITION) as u32,
+            usize::from(fid.tag.crc_length.get()),
+        );
+        pos += fid.total_len();
+    }
+    bytes[start as usize * 2048..start as usize * 2048 + len as usize]
+        .copy_from_slice(&identifiers);
     for i in 1..3 {
         let moved = sector(&mut bytes, start + i).to_vec();
         sector(&mut bytes, free + i - 1).copy_from_slice(&moved);
@@ -939,4 +962,34 @@ impl hadris_storage::r#async::BlockDevice for PausingDevice {
         }
         hadris_storage::sync::BlockDevice::read_blocks(&mut self.inner, first, buf)
     }
+}
+
+#[test]
+fn embedded_directory_tags_use_the_icb_location() {
+    use hadris_fs::sync::FileSystem;
+    let mut tree = Tree::new();
+    tree.insert("child", Node::file(Content::bytes("contents")))
+        .unwrap();
+    let mut bytes = image(&tree, &UdfOptions::default());
+    let root = open(bytes.clone()).root();
+    let icb = PARTITION + root.get() - 1;
+    let fe = sector(&mut bytes, icb).to_vec();
+    let len = u32::from_le_bytes(fe[176..180].try_into().unwrap()) as usize;
+    let start = PARTITION + u64::from(u32::from_le_bytes(fe[180..184].try_into().unwrap()));
+    let mut identifiers = bytes[start as usize * 2048..start as usize * 2048 + len].to_vec();
+    let mut pos = 0;
+    while pos < identifiers.len() {
+        let fid: hadris_udf::raw::FileIdentifierDescriptor =
+            bytemuck::pod_read_unaligned(&identifiers[pos..pos + 38]);
+        Tag::seal(
+            &mut identifiers[pos..pos + fid.total_len()],
+            tag::FILE_IDENTIFIER,
+            fid.tag.version.get(),
+            (icb - PARTITION) as u32,
+            usize::from(fid.tag.crc_length.get()),
+        );
+        pos += fid.total_len();
+    }
+    set_ads(&mut bytes, icb, 3, len as u64, &identifiers);
+    assert_eq!(open(bytes).read_to_vec("/child").unwrap(), b"contents");
 }

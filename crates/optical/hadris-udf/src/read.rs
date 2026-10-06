@@ -37,6 +37,7 @@ const FID_BUFFER: usize = 512;
 enum Piece {
     Disk {
         offset: u64,
+        location: Location,
         len: u64,
     },
     /// Reads as zeros; `offset` is where an allocated but unrecorded
@@ -86,6 +87,7 @@ struct Resume {
     hops: u32,
     /// The byte of the data the next piece starts at.
     offset: u64,
+    location: Option<u32>,
 }
 
 /// A File Identifier Descriptor found in a directory.
@@ -545,6 +547,7 @@ impl Walk {
             steps: self.steps,
             hops: self.hops,
             offset,
+            location: None,
         }
     }
 
@@ -651,7 +654,7 @@ impl Walk {
                 extent::RECORDED => {
                     let offset = info.offset(at.partition, at.block, length)?;
                     if information != 0 {
-                        return Ok(Some(Piece::Disk { offset, len: u64::from(information) }));
+                        return Ok(Some(Piece::Disk { offset, location: at, len: u64::from(information) }));
                     }
                 }
                 extent::ALLOCATED => {
@@ -695,6 +698,11 @@ async fn read_stream<D: BlockDevice>(
         if at < pos + len {
             if done == 0 {
                 *resume = mark;
+                resume.location = match piece {
+                    Piece::Disk { location, .. } => location.block.checked_add(((at - pos) / u64::from(info.block_size)) as u32),
+                    Piece::Embedded { .. } => Some(icb.at.block),
+                    Piece::Zero { .. } => None,
+                };
             }
             let within = at - pos;
             let take = usize::try_from(len - within).unwrap_or(usize::MAX).min(want - done);
@@ -741,10 +749,19 @@ async fn fid_at<D: BlockDevice>(info: &Info, dev: &mut D, dir: &Icb, resume: &mu
     if !tag.is_checksum_valid()
         || tag.identifier.get() != tag::FILE_IDENTIFIER
         || !matches!(tag.version.get(), 2 | 3)
+        || tag.reserved != 0
+        || Some(tag.location.get()) != resume.location
+        || !(1..=32767).contains(&fid.version.get())
+        || fid.characteristics & 0xF0 != 0
+        || fid.implementation_use_length.get() % 4 != 0
+        || matches!(fid.implementation_use_length.get(), 1..=31)
+        || (fid.characteristics & FileCharacteristics::PARENT.bits() != 0
+            && (fid.identifier_length != 0 || fid.characteristics & FileCharacteristics::DIRECTORY.bits() == 0))
     {
         return Err(bad());
     }
     let total = fid.total_len() as u64;
+    let next = pos.checked_add(total).filter(|next| *next <= dir.size).ok_or_else(bad)?;
     let covered = u64::from(tag.crc_length.get());
     if covered + 16 > total {
         return Err(bad());
@@ -756,17 +773,18 @@ async fn fid_at<D: BlockDevice>(info: &Info, dev: &mut D, dir: &Icb, resume: &mu
     let name_end = name_at + name_len as u64;
     let characteristics = FileCharacteristics::from_bits_retain(fid.characteristics);
     let want_name = name_len > 0 && !characteristics.intersects(FileCharacteristics::DELETED | FileCharacteristics::PARENT);
-    let end = crc_end.max(if want_name { name_end } else { 38 });
+    let tail_at = if want_name { name_at } else { name_end };
+    let end = total;
     let mut name = [0u8; 255];
     let mut at = 38u64;
     while at < end {
-        if at >= crc_end && at < name_at {
-            at = name_at;
+        if at >= crc_end && at < tail_at {
+            at = tail_at;
         }
         if at >= end {
             break;
         }
-        let chunk_end = if at < crc_end && name_at > crc_end { crc_end } else { end };
+        let chunk_end = if at < crc_end && tail_at > crc_end { crc_end } else { end };
         let take = (chunk_end - at).min(FID_BUFFER as u64) as usize;
         read_exact(info, dev, dir, resume, pos + at, &mut buf[..take], Detail::FileIdentifier).await?;
         if at < crc_end {
@@ -774,9 +792,15 @@ async fn fid_at<D: BlockDevice>(info: &Info, dev: &mut D, dir: &Icb, resume: &mu
         }
         let start = at.max(name_at);
         let end = (at + take as u64).min(name_end);
-        if start < end {
+        if want_name && start < end {
             name[(start - name_at) as usize..(end - name_at) as usize]
                 .copy_from_slice(&buf[(start - at) as usize..(end - at) as usize]);
+        }
+        let padding_at = at.max(name_end);
+        if padding_at < at + take as u64
+            && buf[(padding_at - at) as usize..take].iter().any(|&byte| byte != 0)
+        {
+            return Err(bad());
         }
         at += take as u64;
     }
@@ -788,7 +812,7 @@ async fn fid_at<D: BlockDevice>(info: &Info, dev: &mut D, dir: &Icb, resume: &mu
         icb: Location::from_long(&fid.icb),
         name,
         name_len,
-        next: pos + total,
+        next,
     })
 }
 

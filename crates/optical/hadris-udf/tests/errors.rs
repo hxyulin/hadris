@@ -525,3 +525,90 @@ fn cached_symlink_reads_preserve_device_failures_and_retry() {
         assert_eq!(udf.readlink(node, &mut [0; 64]).await.unwrap(), b"target");
     });
 }
+
+#[test]
+fn malformed_identifier_fields_are_refused() {
+    let good = good();
+    let mut at = 292 * 2048;
+    loop {
+        let iu = usize::from(u16::from_le_bytes(
+            good[at + 36..at + 38].try_into().unwrap(),
+        ));
+        let n = usize::from(good[at + 19]);
+        if n > 0 && &good[at + 39 + iu..at + 38 + iu + n] == b"readme.txt" {
+            break;
+        }
+        at += (38 + iu + n + 3) & !3;
+    }
+    let tag = hadris_udf::raw::Tag::read(&good[at..]).unwrap();
+    let crc_length = usize::from(tag.crc_length.get());
+    let iu = usize::from(u16::from_le_bytes(
+        good[at + 36..at + 38].try_into().unwrap(),
+    ));
+    let n = usize::from(good[at + 19]);
+    let padding = 38 + iu + n;
+    assert!(padding % 4 != 0);
+    for field in [
+        "file-version",
+        "reserved-characteristics",
+        "padding",
+        "tag-location",
+        "tag-reserved-byte",
+        "implementation-use-alignment",
+        "parent-name",
+    ] {
+        let mut bad = good.clone();
+        match field {
+            "file-version" => bad[at + 16..at + 18].fill(0),
+            "reserved-characteristics" => bad[at + 18] |= 0x80,
+            "padding" => bad[at + padding] = 0xFF,
+            "implementation-use-alignment" => {
+                bad[at + 36..at + 38].copy_from_slice(&1u16.to_le_bytes())
+            }
+            "parent-name" => bad[at + 18] |= 8,
+            _ => (),
+        }
+        let location = tag.location.get() + u32::from(field == "tag-location");
+        hadris_udf::raw::Tag::seal(
+            &mut bad[at..],
+            tag.identifier.get(),
+            tag.version.get(),
+            location,
+            crc_length,
+        );
+        if field == "tag-reserved-byte" {
+            bad[at + 5] = 1;
+            bad[at + 4] = (0..16)
+                .filter(|i| *i != 4)
+                .fold(0u8, |sum, i| sum.wrapping_add(bad[at + i]));
+        }
+        let mut fs = open(bad.clone());
+        let root = fs.root();
+        let err = fs
+            .lookup(root, hadris_fs::Name::new("readme.txt"))
+            .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Corrupt, "{field}");
+        assert_eq!(
+            fs.names("/").unwrap_err().kind(),
+            ErrorKind::Corrupt,
+            "{field}"
+        );
+        #[cfg(feature = "async")]
+        common::block_on(async {
+            use hadris_fs::r#async::FileSystem;
+            let mut fs =
+                hadris_udf::r#async::UdfFs::mount(MemDevice::new(bad, SECTOR), MountOptions::new())
+                    .await
+                    .unwrap();
+            let root = fs.root();
+            assert_eq!(
+                fs.lookup(root, hadris_fs::Name::new("readme.txt"))
+                    .await
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::Corrupt,
+                "{field}"
+            );
+        });
+    }
+}
