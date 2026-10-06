@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- UDF readers reuse a bounded, allocation-free directory-sector buffer to
+  reduce repeated file-identifier reads without changing validation or file I/O.
+
 - UDF readers validate file-identifier versions, reserved fields, tag locations,
   implementation-use lengths and padding across extents. ISO readers resolve
   explicit file versions, list the highest version independently of record

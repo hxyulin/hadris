@@ -714,11 +714,11 @@ fn directory_identifiers_avoid_duplicate_name_reads() {
     let before = udf.device().reads;
     assert_eq!(udf.names("/").unwrap().len(), 1000);
     let listed = udf.device().reads - before;
-    assert!(listed < 4200, "{listed} reads for 1000 entries");
+    assert!(listed < 2100, "{listed} reads for 1000 entries");
     let before = udf.device().reads;
     assert!(udf.exists("/entry-0999").unwrap());
     let looked_up = udf.device().reads - before;
-    assert!(looked_up < 2200, "{looked_up} reads to find the last entry");
+    assert!(looked_up < 40, "{looked_up} reads to find the last entry");
 }
 
 #[test]
@@ -958,6 +958,7 @@ impl hadris_storage::r#async::BlockDevice for PausingDevice {
     ) -> Result<(), hadris_io::Error<Self::Error>> {
         let at = self.pending.load(std::sync::atomic::Ordering::Relaxed);
         if first.get() <= at && at - first.get() < (buf.len() / 2048) as u64 {
+            buf.fill(0xEE);
             core::future::pending::<()>().await;
         }
         hadris_storage::sync::BlockDevice::read_blocks(&mut self.inner, first, buf)
@@ -992,4 +993,113 @@ fn embedded_directory_tags_use_the_icb_location() {
     }
     set_ads(&mut bytes, icb, 3, len as u64, &identifiers);
     assert_eq!(open(bytes).read_to_vec("/child").unwrap(), b"contents");
+}
+
+#[test]
+fn directory_window_handles_device_sizes_and_directory_switches() {
+    use hadris_fs::sync::FileSystem;
+    let tree = common::sample();
+    let mut bytes = image(&tree, &UdfOptions::default());
+    bytes.resize(bytes.len().div_ceil(4096) * 4096, 0);
+    for size in [512, 1024, 2048, 4096] {
+        let mut udf = hadris_udf::sync::UdfFs::mount(
+            hadris_storage::MemDevice::new(
+                bytes.clone(),
+                hadris_storage::BlockSize::new(size).unwrap(),
+            ),
+            hadris_fs::MountOptions::new(),
+        )
+        .unwrap();
+        let root = udf.root();
+        for _ in 0..3 {
+            let many = udf.lookup(root, hadris_fs::Name::new("many")).unwrap();
+            let last = udf
+                .lookup(many, hadris_fs::Name::new("file-079.txt"))
+                .unwrap();
+            let mut out = [0; 7];
+            assert_eq!(udf.read(last, 0, &mut out).unwrap(), 7);
+            assert_eq!(&out, b"file 79");
+            udf.lookup(root, hadris_fs::Name::new("readme.txt"))
+                .unwrap();
+            udf.lookup(many, hadris_fs::Name::new("file-000.txt"))
+                .unwrap();
+            assert_eq!(
+                udf.lookup(many, hadris_fs::Name::new("missing"))
+                    .unwrap_err()
+                    .kind(),
+                hadris_fs::ErrorKind::NotFound
+            );
+        }
+        #[cfg(feature = "async")]
+        common::block_on(async {
+            use hadris_fs::r#async::FileSystem;
+            let mut udf = hadris_udf::r#async::UdfFs::mount(
+                hadris_storage::MemDevice::new(
+                    bytes.clone(),
+                    hadris_storage::BlockSize::new(size).unwrap(),
+                ),
+                hadris_fs::MountOptions::new(),
+            )
+            .await
+            .unwrap();
+            let root = udf.root();
+            let many = udf
+                .lookup(root, hadris_fs::Name::new("many"))
+                .await
+                .unwrap();
+            udf.lookup(many, hadris_fs::Name::new("file-079.txt"))
+                .await
+                .unwrap();
+            udf.lookup(root, hadris_fs::Name::new("readme.txt"))
+                .await
+                .unwrap();
+            udf.lookup(many, hadris_fs::Name::new("file-000.txt"))
+                .await
+                .unwrap();
+        });
+    }
+}
+
+#[cfg(feature = "async")]
+#[test]
+fn cancelled_directory_fill_invalidates_the_previous_sector() {
+    let bytes = image(&common::sample(), &UdfOptions::default());
+    let mut sync = open(bytes.clone());
+    let many = sync.resolve_path("/many").unwrap();
+    let icb = PARTITION + many.get() - 1;
+    let fe = &bytes[icb as usize * 2048..];
+    let data = PARTITION + u64::from(u32::from_le_bytes(fe[180..184].try_into().unwrap()));
+    common::block_on(async {
+        use core::future::Future;
+        use core::task::{Context, Poll, Waker};
+        use hadris_fs::r#async::FileSystem;
+        let pending = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(u64::MAX));
+        let mut udf = hadris_udf::r#async::UdfFs::mount(
+            PausingDevice {
+                inner: hadris_storage::MemDevice::new(bytes, common::SECTOR),
+                pending: pending.clone(),
+            },
+            hadris_fs::MountOptions::new(),
+        )
+        .await
+        .unwrap();
+        let root = udf.root();
+        udf.lookup(root, hadris_fs::Name::new("readme.txt"))
+            .await
+            .unwrap();
+        pending.store(data, std::sync::atomic::Ordering::Relaxed);
+        {
+            let mut lookup =
+                core::pin::pin!(udf.lookup(many, hadris_fs::Name::new("file-000.txt")));
+            let mut cx = Context::from_waker(Waker::noop());
+            assert!(matches!(lookup.as_mut().poll(&mut cx), Poll::Pending));
+        }
+        pending.store(u64::MAX, std::sync::atomic::Ordering::Relaxed);
+        udf.lookup(root, hadris_fs::Name::new("readme.txt"))
+            .await
+            .unwrap();
+        udf.lookup(many, hadris_fs::Name::new("file-000.txt"))
+            .await
+            .unwrap();
+    });
 }
