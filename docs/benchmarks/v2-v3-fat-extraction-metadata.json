@@ -1,0 +1,13 @@
+{
+  "compiler": "1.97.1",
+  "v2_commit": "d94747a8",
+  "v3_commit": "c49966e7",
+  "binary_sha256": {
+    "v2": "7a61cddf11e696dc679b64d9079e685864fe132862cdbae8f044d282bb4b558c",
+    "v3": "b8002902cbf3f872c8e990a6b97f4eff66ce61992310cd75cf4fd08dd1df7eec"
+  },
+  "image_sha256": "604e613c52f1a56d76a21ccb3ffe72970437a513141c65e9a6bac560000f1821",
+  "warm_cache": true,
+  "ns_includes_process_startup": true,
+  "metadata_equivalence_qualified": false
+}

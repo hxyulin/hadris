@@ -4,18 +4,19 @@ title: Stability and compatibility
 
 # Stability and compatibility
 
-Hadris 3.0 is developed on the `next` branch, and 3.0.0-rc.1 is its first
-release candidate. Hadris 2.4.0 is the current stable release of the V2 API,
-and the 2.x series continues on `main`. Both follow Semantic Versioning: within a major series,
+This source tree prepares Hadris 3.0.0-rc.1. Hadris 2.5.0 is the current
+stable release of V2, whose source is retained at the
+[`v2.5.0` tag](https://github.com/hxyulin/hadris/tree/v2.5.0).
+Both follow Semantic Versioning: within a major series,
 breaking changes require a new major version, minor releases add
 backward-compatible functionality, and patch releases carry correctness
 fixes, interoperability qualification, and documentation.
 
 Read the [unreleased changes](https://github.com/hxyulin/hadris/blob/next/CHANGELOG.md),
 the [3.0 API design](https://github.com/hxyulin/hadris/blob/next/docs/v3-api-design.md)
-or the [2.4.0 changelog](https://github.com/hxyulin/hadris/blob/main/CHANGELOG.md#240---2026-09-08).
+or the [2.5.0 changelog](https://github.com/hxyulin/hadris/blob/v2.5.0/CHANGELOG.md#250---2026-10-03).
 The [migration guide](https://github.com/hxyulin/hadris/blob/next/docs/hadris-3.0.0-migration.md)
-maps every 2.4 crate and item to its 3.0 replacement. Report real-world compatibility findings through
+maps the 2.4 API and the APFS additions in 2.5 to their 3.0 replacements. Report real-world compatibility findings through
 [GitHub Issues](https://github.com/hxyulin/hadris/issues).
 
 In 3.0, exFAT is stable as `hadris_fat::exfat::sync::ExFatFs` and
