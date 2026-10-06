@@ -8,6 +8,10 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- FAT drivers support an optional one-entry listing hint for sequential traversal,
+  selected with `CacheOptions::sequential()` or `with_directory_hint`. Other
+  cache bounds remain independently configurable; ordinary mounts stay uncached.
+
 - Hosted FAT first writes into newly allocated, exclusive device blocks avoid
   reading old free-space data for small payloads; shared blocks retain their
   existing bytes. Short-name insertion indexing falls back for the escaped

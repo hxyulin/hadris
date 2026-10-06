@@ -606,7 +606,12 @@ fn directory_prefix_keeps_chain_guard_when_missing_names_encounter_cycles() {
             MountOptions::new().read_only(),
         )
         .unwrap()
-        .with_cache(CacheOptions::new().with_directory_entries(capacity));
+        .with_cache(
+            CacheOptions::new()
+                .with_directory_entries(capacity)
+                .with_directory_hint(true),
+        );
+        fs.readdir(fs.root(), hadris_fs::DirCursor::START).unwrap();
         fs.lookup(fs.root(), Name::new(&names[0])).unwrap();
         for _ in 0..2 {
             assert_eq!(
@@ -646,9 +651,16 @@ fn directory_index_discards_names_before_cancelled_rename_writes() {
         )
         .unwrap()
         .unwrap()
-        .with_cache(CacheOptions::new().with_directory_entries(8));
+        .with_cache(
+            CacheOptions::new()
+                .with_directory_entries(8)
+                .with_directory_hint(true),
+        );
         let root = fs.root();
         cancel::run_for(fs.lookup(root, Name::new("OLD.TXT")), usize::MAX)
+            .unwrap()
+            .unwrap();
+        cancel::run_for(fs.readdir(root, hadris_fs::DirCursor::START), usize::MAX)
             .unwrap()
             .unwrap();
         let result = cancel::run_for(
@@ -956,8 +968,20 @@ fn append_planning_preserves_high_byte_aliases_that_decode_as_ascii() {
             MountOptions::new().with_code_page(&PAGE),
         )
         .unwrap()
-        .with_cache(CacheOptions::new().with_directory_entries(64));
+        .with_cache(
+            CacheOptions::new()
+                .with_directory_entries(64)
+                .with_directory_hint(true),
+        );
         let root = fs.root();
+        let entry = fs
+            .readdir(root, hadris_fs::DirCursor::START)
+            .unwrap()
+            .unwrap();
+        assert_eq!(entry.name().to_str().unwrap(), "ALPHA.TXT");
+        let alias = fs.lookup(root, Name::new("alpha.txt")).unwrap();
+        assert_eq!(alias, entry.node());
+        fs.forget(alias, 1);
         let file = fs
             .create(root, Name::new("SAFE.TXT"), &SetAttr::new())
             .unwrap();
@@ -969,4 +993,176 @@ fn append_planning_preserves_high_byte_aliases_that_decode_as_ascii() {
             ErrorKind::AlreadyExists
         );
     }
+}
+
+#[test]
+fn listing_hint_eliminates_repeated_directory_reads() {
+    for case in CASES {
+        let (image, _) = directory_fixture(case);
+        let run = |enabled| {
+            let counts = Cell::new(IoCounts::default());
+            let dev = Counted {
+                inner: common::device(case, image.clone()),
+                counts: &counts,
+                written_blocks: None,
+            };
+            let mut fs = FatFs::mount(dev, MountOptions::new().read_only())
+                .unwrap()
+                .with_cache(CacheOptions::sequential().with_directory_hint(enabled));
+            let root = fs.root();
+            let mut cursor = hadris_fs::DirCursor::START;
+            let mut reads = 0;
+            while let Some(entry) = fs.readdir(root, cursor).unwrap() {
+                cursor = entry.next_cursor();
+                counts.set(IoCounts::default());
+                let node = fs
+                    .lookup(
+                        root,
+                        Name::new(&entry.name().to_str().unwrap().to_lowercase()),
+                    )
+                    .unwrap();
+                assert_eq!(node, entry.node());
+                reads += counts.get().read_calls;
+                fs.forget(node, 1);
+            }
+            reads
+        };
+        assert!(run(false) > 0, "{}", case.name);
+        assert_eq!(run(true), 0, "{}", case.name);
+    }
+}
+
+#[test]
+fn listing_hint_matches_aliases_and_invalidates_mutations() {
+    let case = CASES[0];
+    let mut original = FatFs::mount(
+        common::device(case, common::blank(case)),
+        MountOptions::new(),
+    )
+    .unwrap();
+    let root = original.root();
+    let long = format!("{}é.txt", "x".repeat(250));
+    let a = original
+        .create(root, Name::new(&long), &SetAttr::new())
+        .unwrap();
+    original.write(a, 0, b"original").unwrap();
+    original.close(a).unwrap();
+    original.forget(a, 1);
+    let sub = original
+        .mkdir(root, Name::new("SUB"), &SetAttr::new())
+        .unwrap();
+    let b = original
+        .create(sub, Name::new(&long), &SetAttr::new())
+        .unwrap();
+    original.write(b, 0, b"nested").unwrap();
+    let image = original.unmount().unwrap().into_inner();
+    let mut fs = FatFs::mount(common::device(case, image.clone()), MountOptions::new())
+        .unwrap()
+        .with_cache(CacheOptions::sequential());
+    let root = fs.root();
+    let entry = fs
+        .readdir(root, hadris_fs::DirCursor::START)
+        .unwrap()
+        .unwrap();
+    assert_eq!(entry.name().to_str().unwrap(), long);
+    let at = entry.node().get() as usize * 32;
+    let hadris_fat_raw::Slot::Short(short) =
+        hadris_fat_raw::Slot::parse(image[at..at + 32].try_into().unwrap())
+    else {
+        panic!("missing short entry")
+    };
+    let mut buf = [0; hadris_fat_raw::short_name::DISPLAY_MAX];
+    let len = hadris_fat_raw::short_name::display(
+        &short.name(),
+        short.nt_case(),
+        |b| hadris_fs::CodePage::decode(&hadris_fs::Cp437, b),
+        &mut buf,
+    );
+    let alias = String::from_utf8(buf[..len].to_vec()).unwrap();
+    let a = fs.lookup(root, Name::new(&alias.to_lowercase())).unwrap();
+    assert_eq!(a, entry.node());
+    assert_eq!(fs.lookup(root, Name::new(&long.to_uppercase())).unwrap(), a);
+    let sub = fs.lookup(root, Name::new("SUB")).unwrap();
+    let b = fs.lookup(sub, Name::new(&long)).unwrap();
+    assert_ne!(a, b);
+    let mut data = [0; 8];
+    assert_eq!(fs.read(b, 0, &mut data).unwrap(), 6);
+    assert_eq!(&data[..6], b"nested");
+    fs.readdir(root, hadris_fs::DirCursor::START).unwrap();
+    fs.write(a, 0, b"changed!").unwrap();
+    fs.close(a).unwrap();
+    let updated = fs.lookup(root, Name::new(&long)).unwrap();
+    assert_eq!(fs.stat(updated).unwrap().len(), 8);
+    fs.readdir(root, hadris_fs::DirCursor::START).unwrap();
+    fs.rename(
+        root,
+        Name::new(&long),
+        root,
+        Name::new("NEW.TXT"),
+        RenameMode::NoReplace,
+    )
+    .unwrap();
+    assert_eq!(
+        fs.lookup(root, Name::new(&long)).unwrap_err().kind(),
+        ErrorKind::NotFound
+    );
+    let moved = fs.lookup(root, Name::new("NEW.TXT")).unwrap();
+    assert_eq!(moved, a);
+    let mut cursor = hadris_fs::DirCursor::START;
+    while let Some(entry) = fs.readdir(root, cursor).unwrap() {
+        cursor = entry.next_cursor();
+        if entry.name().to_str().unwrap() == "NEW.TXT" {
+            break;
+        }
+    }
+    fs.unlink(root, Name::new("NEW.TXT")).unwrap();
+    assert_eq!(
+        fs.lookup(root, Name::new("NEW.TXT")).unwrap_err().kind(),
+        ErrorKind::NotFound
+    );
+    let replacement = fs
+        .create(root, Name::new("NEW.TXT"), &SetAttr::new())
+        .unwrap();
+    assert_ne!(replacement, moved);
+    fs.clear_cache();
+    assert_eq!(fs.lookup(root, Name::new("NEW.TXT")).unwrap(), replacement);
+    let image = fs.unmount().unwrap().into_inner();
+    common::assert_checks_clean(case, &image, "listing hint mutation");
+}
+
+#[cfg(feature = "async")]
+#[test]
+fn listing_hint_survives_cancelled_readdir() {
+    use hadris_fat::r#async::FatFs;
+    use hadris_fs::r#async::FileSystem;
+    let case = CASES[0];
+    let (image, names) = directory_fixture(case);
+    for budget in 0..100 {
+        let mut fs = cancel::run_for(
+            FatFs::mount(
+                cancel::YieldDev(common::device(case, image.clone())),
+                MountOptions::new().read_only(),
+            ),
+            usize::MAX,
+        )
+        .unwrap()
+        .unwrap()
+        .with_cache(CacheOptions::sequential());
+        let root = fs.root();
+        let _entry = cancel::run_for(fs.readdir(root, hadris_fs::DirCursor::START), usize::MAX)
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let result = cancel::run_for(fs.readdir(root, hadris_fs::DirCursor::from_raw(16)), budget);
+        for name in &names {
+            let file = cancel::run_for(fs.lookup(root, Name::new(name)), usize::MAX)
+                .unwrap()
+                .unwrap();
+            fs.forget(file, 1);
+        }
+        if result.is_some() {
+            return;
+        }
+    }
+    panic!("listed entry never completed");
 }

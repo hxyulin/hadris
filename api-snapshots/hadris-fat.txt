@@ -425,9 +425,11 @@ pub fn hadris_fat::sync::write<D: hadris_storage::sync::api::BlockDevice>(D, &ha
 pub struct hadris_fat::CacheOptions
 impl hadris_fat::CacheOptions
 pub const fn hadris_fat::CacheOptions::new() -> Self
+pub const fn hadris_fat::CacheOptions::sequential() -> Self
 pub const fn hadris_fat::CacheOptions::with_blocks(self, usize) -> Self
 pub const fn hadris_fat::CacheOptions::with_chain_positions(self, usize) -> Self
 pub const fn hadris_fat::CacheOptions::with_directory_entries(self, usize) -> Self
+pub const fn hadris_fat::CacheOptions::with_directory_hint(self, bool) -> Self
 impl core::default::Default for hadris_fat::CacheOptions
 pub fn hadris_fat::CacheOptions::default() -> Self
 pub struct hadris_fat::FatOptions
