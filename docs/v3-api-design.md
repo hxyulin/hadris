@@ -355,7 +355,7 @@ pub enum ExactError<E> { UnexpectedEof, WriteZero, Io(E) }
 ```
 
 - The bound is the whole error contract. A kernel writes its own enum with `Display` and an empty `impl core::error::Error`. std devices use `std::io::Error`. embedded-io errors pass through unchanged. There is no Hadris error trait to implement. `ErrorType` is shared by every mode, so the `local` traits have the same bound.
-- `Send + Sync` lets code erase any device error into `PathError` or `std::io::Error` (4.6) with no extra where-clauses. It rules out errors that hold an `Rc` or a raw pointer; such a device wraps them, or uses the `local` traits.
+- `Send + Sync` lets code erase any device error into `PathError` or `std::io::Error` (4.6) with no extra where-clauses. It rules out errors that hold an `Rc` or a raw pointer; such a device maps them to an owned error type that meets these bounds. The `local` traits relax device and future bounds only, not error bounds.
 - `&mut T` implements each trait when `T` does, and so does `Box<T>` with `alloc`. `Cursor` reads a byte slice; `Read` for `&[u8]` and `Write` for `Vec<u8>` are additive later.
 - `FromEmbedded<T>` adapts an `embedded-io` or `embedded-io-async` stream. Its error is `T::Error`, unwrapped. It is the only item that names embedded-io, so the dependency sits behind an `embedded-io` feature.
 - With `std`, `into_std_error(e)` converts any device error to `std::io::Error`, returning an `io::Error` as itself. `ExactError<E>` converts with `?`.
@@ -448,7 +448,7 @@ Provided devices and adapters:
 | `impl BlockDevice for &mut D`, `Box<D>` | Borrow or box a device instead of moving it in. |
 | `Vec<u8>` | With `alloc`, an in-memory image with 512-byte blocks that grows when written past its end. Error `Infallible`. |
 | `Partition<D>` | A byte window of `D` (an MBR or GPT partition, or a hybrid ISO's partition). Offset and length are multiples of the device block size; mount checks them. Reports its start through `disk_offset`. Replaces `Slice` and V2's `PartitionView`. |
-| `host::FileDevice` | A host image file or block device (4.15). `open(path)` is read-only; `new(file)` takes a `File` opened by the caller, measures its size by seeking to the end, and can fail, since host block devices report a size of 0 in their metadata. It tracks whether the file was opened for writing. `std::fs::File` itself is not a device, because `block_count` cannot fail. |
+| `host::FileDevice` | A host image file or block device (4.15). Images default to 512-byte blocks; physical devices use the OS-reported logical block size. `open(path)` is read-only; `new(file)` takes a `File` opened by the caller and measures its size. `open_with_block_size(path, size)` and `with_block_size(file, size)` specify geometry explicitly. It tracks write access and refuses unknown device geometry. `std::fs::File` itself is not a device, because `block_count` cannot fail. |
 | `StreamDevice<T>` | Any `Read + Seek + Write` byte stream, with a block size the caller picks. `StreamDevice<ReadOnly<T>>` needs only `Read + Seek`. The migration path for every V2 user. |
 | `MemDevice<B>` | `&[u8]` (read-only), `&mut [u8]`, `[u8; N]`, and `Box<[u8]>` with `alloc`. For tests and fixed in-memory images. |
 | `Cache<D>` | Write-back LRU over whole blocks, `alloc` only. Explicit `flush`, or `finish` to flush and return the device. Capacity set at construction. Works in every mode. Kernels skip it. The first write goes straight to the device, so a read-only device refuses at once instead of at a later flush. Requests of at least `capacity` blocks bypass it (reads still see dirty cached blocks), and a flush writes each run of consecutive dirty blocks in one call. |
@@ -466,6 +466,14 @@ sectors on a 512-byte image) but not smaller unless the device is a
 `StreamDevice`, which accepts any block size. The shared tier accepts device
 blocks of 512 to 4096 bytes (ISO: 512 to 2048) and refuses others with
 `ErrorKind::Unsupported`; the embedded API takes 512-byte blocks only.
+
+The device contract accepts any buffer address and any whole-block length.
+Hardware adapters normalize alignment and DMA memory restrictions and split
+requests to fit transfer limits. Async adapters stop hardware access to borrowed
+buffers before returning or dropping their future. `flush` makes earlier writes
+durable; a failed write may have transferred some blocks and is not a transaction.
+The [aligned-device example](../crates/core/hadris-storage/examples/aligned_device.rs)
+shows a fixed-buffer adapter without an allocator.
 
 cpio stays on `Read` and `Write` streams, since it must work on pipes.
 
@@ -1029,7 +1037,7 @@ Each row is a deliberate trade, what it buys, and what a user does about it.
 
 | Cost | Why it stays | What users do |
 |---|---|---|
-| Device errors must be `core::error::Error + Send + Sync + 'static` in the shared tier | Makes every device error erasable into `PathError` and `io::Error` with no where-clauses | Wrap an error that holds an `Rc` or raw pointer, or use the embedded API with `local::BlockDevice` |
+| Device errors must be `core::error::Error + Send + Sync + 'static` in every mode | Makes every device error erasable into `PathError` and `io::Error` with no where-clauses | Map an error that holds an `Rc` or raw pointer to an owned error type meeting the bounds; `local::BlockDevice` keeps the same error contract |
 | A non-io device error becomes `io::ErrorKind::Other` in std | std has no kind for "your device's enum" | Downcast `io::Error::into_inner()` to get it back |
 | Generic code carries `F::DeviceError` | Keeps the device error without allocation | Use `FsResult<T, F::DeviceError>`, or return `PathError` |
 | `FatFs` and `ExFatFs` need `alloc` | An unbounded node table with no type parameter (4.5) | Firmware uses the embedded API |

@@ -8,7 +8,9 @@ use core::fmt;
 /// Any `core::error::Error` that is `Send + Sync` works: a kernel uses its own
 /// enum, std types use `std::io::Error`, and `embedded-io` errors pass through
 /// unchanged. `Send + Sync` lets callers erase any device error into
-/// `std::io::Error` or a boxed error without further bounds.
+/// `std::io::Error` or a boxed error without further bounds. These error
+/// bounds apply to every mode, including `local`; only devices and futures
+/// may be non-`Send` there.
 pub trait ErrorType {
     /// The error returned by every method.
     type Error: core::error::Error + Send + Sync + 'static;

@@ -257,7 +257,7 @@ implements the first three methods; the default `write_blocks` answers kind
 
 | Device | Use |
 |---|---|
-| `hadris_storage::host::FileDevice` (`std`, `sync`) | A host image file or disk device, 512-byte blocks. `FileDevice::open(path)` is read-only; `FileDevice::new(file)` takes a file you opened, writable if it was opened for writing. Also `hadris::host::FileDevice`. `std::fs::File` is no longer a device. |
+| `hadris_storage::host::FileDevice` (`std`, `sync`) | A host image file (512-byte blocks by default) or disk device (OS-reported logical blocks). `open(path)` is read-only; `new(file)` takes a file you opened, writable if it was opened for writing. `open_with_block_size(path, size)` and `with_block_size(file, size)` specify image geometry explicitly. Also `hadris::host::FileDevice`. `std::fs::File` is no longer a device. |
 | `Vec<u8>` (`alloc`) | In-memory image with 512-byte blocks that grows when written past its end. |
 | `hadris_storage::MemDevice<B>` | `&[u8]` (read-only), `&mut [u8]`, arrays, `Vec<u8>` or `Box<[u8]>` with an explicit `BlockSize`. |
 | `hadris_storage::{sync, r#async}::StreamDevice<T>` | Any `Read + Seek` (+ `Write`) stream as a device with the block size you pick. The migration path for V2 code that passed a stream. Replaces `SeekBlockDevice`. |
@@ -283,6 +283,20 @@ let fs = hadris_fat::sync::FatFs::mount(image, hadris_fs::MountOptions::new().re
 
 Bytes in memory: `MemDevice::new(bytes, BlockSize::new(512).unwrap())`. Any
 other stream: `StreamDevice::new(StdIo::new(stream), BlockSize::new(512).unwrap())?`.
+
+A GPT image copied from a 4Kn disk retains 4096-byte logical blocks. Open it
+with `FileDevice::open_with_block_size(path, BlockSize::new(4096).unwrap())`;
+its GPT LBAs cannot be interpreted using the default 512-byte image geometry.
+Physical devices are queried for logical block size on Linux, macOS, FreeBSD
+and Windows. If the query is unavailable, supply the known size explicitly;
+the default constructors refuse an unknown device geometry.
+
+Hardware adapters must accept caller buffers at any memory address and any
+whole-block length. Adapt alignment and DMA memory requirements using suitable
+buffers, and split transfers to fit the controller's limits. Async cancellation
+must stop hardware access to borrowed buffers before releasing them. See the
+[compiled aligned-device example](../crates/core/hadris-storage/examples/aligned_device.rs)
+and [device requirements](../website/docs/guides/custom-io.md#device-requirements).
 
 `BlockIndex` and `BlockCount` have private fields: build them with `new(n)`
 and read them with `get()`. `BlockRange` and `BlockGeometry` have accessors
@@ -921,11 +935,13 @@ primitives in `io` and `exfat::io`, and the checkers `io::sync::check` and
 
 ## Async
 
-- `r#async` futures are `Send` when the device is. A device whose error or
-  futures are not `Send` uses the `local` traits (`hadris_io::local`,
+- `r#async` requires `Send` devices and futures. Devices and futures that
+  are not `Send` use the `local` traits (`hadris_io::local`,
   `hadris_storage::local`) and the embedded API.
-- Device errors must be `core::error::Error + Send + Sync + 'static` in the
-  shared tier.
+- Device errors must be `core::error::Error + Send + Sync + 'static` in
+  every mode, including `local` and the embedded API. Map non-`Send`
+  errors to an owned error type that meets these bounds; selecting `local`
+  does not relax the error contract.
 - The async `ReadDir` has `next_entry().await` instead of `Iterator`.
 - The async `Volume` needs `alloc`; the sync one needs `std`.
 - The `hadris_fs::host` module is sync only. Lazy content is readable only in
