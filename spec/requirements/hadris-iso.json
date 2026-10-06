@@ -35,7 +35,7 @@
       "summary": "Interleaved file sections use the declared file-unit and interleave-gap layout.",
       "direction": "both",
       "status": "not_implemented",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/image.rs", "name": "View::read_at"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/image.rs", "name": "View::read"}],
       "tests": [],
       "gap": "Creation does not emit interleaving, and the reader refuses interleaved files with Unsupported instead of returning incorrect contiguous bytes."
     },
@@ -191,7 +191,7 @@
       "summary": "A directory record is contained within one logical sector and unused trailing bytes are zero.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/plan/mod.rs", "name": "emit_records"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/plan/directory.rs", "name": "emit_records"}],
       "tests": [{"path": "tests/suite/iso/spec.rs", "name": "hadris_iso_matches_ecma_119_oracle", "kind": "integration"}],
       "gap": null
     },

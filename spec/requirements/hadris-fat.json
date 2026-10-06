@@ -88,7 +88,7 @@
         },
         {
           "path": "crates/block/hadris-fat/src/fatfs.rs",
-          "name": "FatFs::open_with"
+          "name": "FatFs::mount"
         }
       ],
       "tests": [
@@ -115,7 +115,7 @@
         },
         {
           "path": "crates/block/hadris-fat/src/fatfs.rs",
-          "name": "FatFs::open_with"
+          "name": "FatFs::mount"
         }
       ],
       "tests": [
@@ -197,7 +197,7 @@
         },
         {
           "path": "crates/block/hadris-fat/src/fatfs.rs",
-          "name": "FatFs::open_with"
+          "name": "FatFs::mount"
         },
         {
           "path": "crates/block/hadris-fat/src/mkfs.rs",
@@ -230,11 +230,15 @@
       "normativity": "should",
       "summary": "A FAT32 formatter creates the backup boot and FSInfo copies and a reader can use the backup when the primary boot record is unusable.",
       "direction": "both",
-      "status": "partial",
+      "status": "verified",
       "symbols": [
         {
           "path": "crates/block/hadris-fat/src/mkfs.rs",
           "name": "format"
+        },
+        {
+          "path": "crates/block/hadris-fat/src/fatfs.rs",
+          "name": "FatFs::mount"
         }
       ],
       "tests": [
@@ -247,9 +251,14 @@
           "path": "tests/suite/fat/spec.rs",
           "name": "fat_spec_conformance",
           "kind": "integration"
+        },
+        {
+          "path": "crates/block/hadris-fat/tests/fatfs_format.rs",
+          "name": "backup_boot_mounts_fat32_from_sector_6",
+          "kind": "integration"
         }
       ],
-      "gap": "Formatting writes sectors 6 and 7, but mounting does not attempt recovery from the backup boot record."
+      "gap": null
     },
     {
       "id": "MICROSOFT-FAT-1.03:directory#free-entry-markers",
@@ -266,7 +275,7 @@
         },
         {
           "path": "crates/block/hadris-fat/src/fatfs.rs",
-          "name": "FatFs::read_dir_entry"
+          "name": "FatFs::next_visible"
         }
       ],
       "tests": [
@@ -339,8 +348,8 @@
       "status": "verified",
       "symbols": [
         {
-          "path": "crates/block/hadris-fat/src/exfat/fs.rs",
-          "name": "boot_region"
+          "path": "crates/block/hadris-fat-raw/src/exfat/io/volume.rs",
+          "name": "read_boot"
         },
         {
           "path": "crates/block/hadris-fat-raw/src/exfat/codec.rs",
@@ -348,7 +357,7 @@
         },
         {
           "path": "crates/block/hadris-fat/src/exfat/mkfs.rs",
-          "name": "write_volume"
+          "name": "format_volume"
         }
       ],
       "tests": [
@@ -440,12 +449,12 @@
       "status": "verified",
       "symbols": [
         {
-          "path": "crates/block/hadris-fat/src/exfat/fs.rs",
+          "path": "crates/block/hadris-fat-raw/src/exfat/io/volume.rs",
           "name": "index_upcase"
         },
         {
-          "path": "crates/block/hadris-fat/src/exfat/fs.rs",
-          "name": "is_valid"
+          "path": "crates/block/hadris-fat-raw/src/exfat/io/mod.rs",
+          "name": "Upcase::is_valid"
         }
       ],
       "tests": [
@@ -467,7 +476,7 @@
       "status": "verified",
       "symbols": [
         {
-          "path": "crates/block/hadris-fat/src/exfat/fs.rs",
+          "path": "crates/block/hadris-fat-raw/src/exfat/io/volume.rs",
           "name": "index_upcase"
         }
       ],
