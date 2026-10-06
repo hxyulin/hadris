@@ -10,9 +10,3 @@ Requirement IDs (`FILE-CLOSE-01`, `NF-CRASH-01`) refer to [`docs/v3/actions.md`]
 - **Async handles dropped without `close`.** In async mode `Drop` cannot await, so the size of a written file is published by the next call on the volume. If the driver is then dropped without `sync`, the size is lost. Always `close` files and `sync` the volume. (FILE-CLOSE-01)
 - **Directory operations can still become quadratic** when long names or directories exceeding the bounded insertion/prefix caches require repeated scans. Dense short-name creation and sequential extraction have optimized paths. (NF-PERF-01)
 - **`setattr` on the root refuses any change,** even one that keeps the value the root reports, such as chmod 0o755. Plan: accept values equal to what the root reports. (META-PERM-02)
-- **`fat::write` and `exfat::write` format before copying,** so a tree that does not fit fails with `NoSpace` after the device was formatted. Options are checked before `format` writes. Plan: a `plan` for FAT and exFAT in 3.x, used by `write` first. (BUILD-PLAN-01)
-
-## ISO 9660 and UDF
-
-- **ISO file versions.** `lookup` compares names with the version stripped, so an explicit `A.TXT;2` is never found, and `readdir` lists every version under the same name. The highest version wins only when the image stores versions in ECMA-119 order. (DIR-LOOKUP-03)
-- **The Rock Ridge relocation directory is listed.** `IsoFs` hides the relocated children but still lists `rr_moved` itself, so extraction through `read_tree` creates an empty `rr_moved/`. `Session` hides it. (BUILD-ISO-RR-02)
