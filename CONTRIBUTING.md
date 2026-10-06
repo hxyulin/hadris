@@ -15,6 +15,9 @@ prek install
 prek run --all-files
 ```
 
+Rust hooks check both the workspace and the detached conformance suite at
+`tests/Cargo.toml`, including all suite targets for Clippy.
+
 ## Build and test
 
 ```bash

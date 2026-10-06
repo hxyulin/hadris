@@ -31,3 +31,20 @@ language = "system"
 types = ["rust"]
 pass_filenames = false
 stages = ["pre-commit", "pre-push"]
+
+[[repos.hooks]]
+id = "cargo-fmt-conformance"
+name = "cargo fmt (conformance suite)"
+entry = "cargo fmt --manifest-path tests/Cargo.toml --all -- --check"
+language = "system"
+types = ["rust"]
+pass_filenames = false
+
+[[repos.hooks]]
+id = "cargo-clippy-conformance"
+name = "cargo clippy (conformance suite)"
+entry = "cargo clippy --manifest-path tests/Cargo.toml --all-targets -- -D warnings -A clippy::collapsible_if"
+language = "system"
+types = ["rust"]
+pass_filenames = false
+stages = ["pre-commit", "pre-push"]
