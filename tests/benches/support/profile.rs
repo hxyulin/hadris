@@ -137,23 +137,7 @@ pub(super) fn run() {
                 ..Outcome::default()
             }
         } else if workload == "extract-lazy-tree" {
-            let counts = std::sync::Arc::new(std::sync::Mutex::new(IoCounts::default()));
-            let dev = SendCounted {
-                inner: FileDevice::open(&common).unwrap(),
-                counts: counts.clone(),
-            };
-            let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
-            if cached {
-                fs = fs.with_cache(cache_options);
-            }
-            let vol = hadris_fs::sync::Volume::new(fs);
-            let tree = hadris_fs::sync::read_tree(&vol, "/").unwrap();
-            hadris_fs::host::write_tree(&destination, &tree).unwrap();
-            let io = *counts.lock().unwrap();
-            Outcome {
-                io: Some(io),
-                ..Outcome::default()
-            }
+            lazy_extract(&common, &destination, cached.then_some(cache_options))
         } else if workload == "lookup-all" || (workload == "extract-tree" && cached) {
             assert!(peer == Peer::Hadris);
             let (dev, counts) = Counted::new(FileDevice::open(&common).unwrap());
@@ -214,6 +198,30 @@ pub(super) fn run() {
         assert_eq!(actual, fixture.entries);
     }
     eprintln!("PROFILE_DONE iterations={iterations}");
+}
+
+pub(super) fn lazy_extract(
+    image: &Path,
+    destination: &Path,
+    cache: Option<hadris_fat::CacheOptions>,
+) -> Outcome {
+    let counts = std::sync::Arc::new(std::sync::Mutex::new(IoCounts::default()));
+    let dev = SendCounted {
+        inner: FileDevice::open(image).unwrap(),
+        counts: counts.clone(),
+    };
+    let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
+    if let Some(cache) = cache {
+        fs = fs.with_cache(cache);
+    }
+    let vol = hadris_fs::sync::Volume::new(fs);
+    let tree = hadris_fs::sync::read_tree(&vol, "/").unwrap();
+    hadris_fs::host::write_tree(destination, &tree).unwrap();
+    let io = *counts.lock().unwrap();
+    Outcome {
+        io: Some(io),
+        ..Outcome::default()
+    }
 }
 
 struct SendCounted {

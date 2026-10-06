@@ -2,6 +2,8 @@
 mod fixture;
 #[path = "support/profile.rs"]
 mod profile;
+#[path = "support/worker.rs"]
+mod worker;
 
 use std::cell::Cell;
 use std::fs::{self, File, OpenOptions};
@@ -523,6 +525,10 @@ fn record(
 }
 
 fn main() {
+    if std::env::var_os("HADRIS_TESTS_PEER_WORKER").is_some() {
+        worker::run();
+        return;
+    }
     if std::env::var_os("HADRIS_TESTS_PROFILE_WORKLOAD").is_some() {
         profile::run();
         return;

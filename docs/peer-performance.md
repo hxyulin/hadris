@@ -485,3 +485,151 @@ Unset `HADRIS_TESTS_PROFILE_CACHE` for the baseline. Set directories to zero and
 unset long names for the root fixture. Directory/long-name fixture controls are
 restricted to `extract-lazy-tree`. An unset directory-hint control disables
 that component even when the other caches are enabled.
+
+
+## Isolated extraction RSS and peer comparison
+
+The 2026-10-06 resource follow-up uses the same 64 MiB FAT32 root fixture:
+1,000 seven-byte ASCII 8.3 files and a 128 KiB patterned payload. The fixture
+is prepared and checked by the raw FAT oracle in a separate process. Every
+measured process opens that common read-only image and extracts once; parent
+validation compares every output name and byte afterward. Fixture construction,
+validation and destination cleanup do not enter the extraction process's RSS
+or timer. The image remains unchanged. mcopy requires its empty destination to
+exist, so that directory is prepared outside its timer; other implementations
+include creating it. Output files are closed without a durability barrier. No physical disk or
+OS-cache eviction is performed.
+
+The machine is the same Apple M3 Pro, macOS 27.0.1, Rust 1.88.0. Peers are
+GNU mtools 4.0.49 from Nix, rust-fatfs at the pinned commit
+`2aefc2a027ce94ed0671752814dac203f0450e11` with fscommon 0.1.1 for buffering,
+and the existing unmodified/patched ChaN R0.16 helper configuration above.
+Hadris production code is `6410c6ac`, with diagnostic worker changes only.
+The before-hint driver is `695a5d3f`, compiled with the same worker and release
+settings, adapting only unavailable cache configuration methods. Baseline and
+current executable hashes are distinct and recorded with the raw artifacts.
+
+Each case has two trials of 21 fresh processes plus one discarded warm-up;
+the second reverses configuration order. Time is parent `perf_counter_ns` around
+`/usr/bin/time -l` and the extraction child, including process startup and exit.
+Peak RSS is the child's macOS maximum resident set size in bytes, measured
+from process start to exit. It includes touched executable/runtime pages, node
+state, buffers and trees, and is not a measurement of cache allocation alone.
+These timings are separate from the in-process loops above.
+
+### Cost when optional caching is disabled
+
+With a `FileDevice`, `size_of::<FatFs<FileDevice>>()` increases from 4,600 to
+4,608 bytes: eight bytes of fixed state, with no optional cache allocation at
+mount or during uncached reads. Existing driver buffers and node allocations
+still exist. The independent compiler layout check with a memory device also
+reports an eight-byte increase. The bounded hint is never allocated unless
+explicitly enabled and an entry is listed.
+
+[Paired before/after measurements](benchmarks/fat-extraction-disabled-baseline.csv)
+use the correctly identified baseline/current executables:
+
+| Uncached workflow | Before median | After median | Peak RSS before / after | Image reads before / after |
+|---|---:|---:|---:|---:|
+| Public lazy-tree extraction | 124.70 ms | 123.87 ms | 3.000 / 3.016 MiB | 63,871 / 63,871 |
+| Streaming content extraction | 115.94 ms | 113.24 ms | 2.484 / 2.469 MiB | 64,840 / 64,840 |
+
+These runs do not show a slowdown with caching disabled. The small timing
+differences are not evidence that the hint improves disabled execution.
+RSS medians shift by one 16 KiB page in opposite directions between workflows,
+with overlapping sample ranges; do not interpret that as an eight-byte heap
+measurement. An initial mislabeled baseline copy was caught by executable hash
+verification, excluded, and replaced by these paired trials.
+
+### Peer extraction results
+
+[Per-process timing and RSS samples](benchmarks/fat-extraction-peer-resources.csv)
+produce the following combined medians over 42 measured processes per case:
+
+| Implementation / workflow | Time | Peak RSS | Image read calls | Requested image bytes |
+|---|---:|---:|---:|---:|
+| Hadris public lazy tree, disabled | 124.47 ms | 3.016 MiB | 63,871 | 32,832,000 |
+| Hadris public lazy tree, hint only | 73.37 ms | 3.016 MiB | 1,133 | 710,144 |
+| Hadris public lazy tree, full index only | 74.45 ms | 3.109 MiB | 1,257 | 773,632 |
+| Hadris streaming content, disabled | 111.00 ms | 2.469 MiB | 64,840 | 33,312,768 |
+| Hadris streaming content, hint only | 57.79 ms | 2.469 MiB | 2,102 | 1,190,912 |
+| Hadris streaming content, full index only | 58.55 ms | 2.578 MiB | 2,226 | 1,254,400 |
+| rust-fatfs, unbuffered | 63.55 ms | 2.375 MiB | 13,650 | 172,464 |
+| rust-fatfs + fscommon buffering | 63.78 ms | 2.375 MiB | 13,616 | 6,971,392 |
+| ChaN FatFs helper | 79.95 ms | 1.719 MiB | 64,126 | 32,832,512 |
+| mtools mcopy | 63.09 ms | 3.164 MiB | 13 | 741,376 |
+
+The public Hadris path constructs a lazy tree, retains file pins and restores
+host permissions and times. The streaming helper interleaves listing, lookup,
+whole-file reading and host writing, without tree construction or metadata
+restoration. It is a diagnostic content-only extraction path, not a new public
+API. Peer helpers likewise validate content; their metadata policies are not
+qualified here. Compare the public path's extra work explicitly when assessing
+its elapsed time or memory against peers. Rust peers share the benchmark
+executable with Hadris; mtools and ChaN run directly in their own processes.
+
+For public extraction the hint reduces reads by 98.2% and gives about a 1.70x
+elapsed improvement, with no observable peak RSS increase in this fixture.
+The full 1,001-entry index adds 96 KiB to public-path peak RSS; the streaming
+index's peak is 112 KiB higher. These differences include allocator, paging and
+code-path effects rather than directly measuring heap allocation. A single hint remains much
+smaller than either. Streaming hint extraction is competitive with the other
+content helpers here, while public extraction still spends extra time on its
+tree and metadata work. These figures do not establish a universal peer ranking.
+
+### Counting image reads in external processes
+
+Read counts and bytes are requested image I/O, not physical device reads. Hadris,
+rust-fatfs and ChaN counters are recorded in every timing run. mtools is measured
+in three separate instrumented extractions using
+`tests/peers/image-read-counter-macos.c`. The Darwin interposer counts `read`,
+`pread` and `readv` only when the descriptor's device/inode matches the input
+image, and records seeks, delivered bytes and failures. It is absent from all
+speed/RSS trials. The same instrumentation cross-checks every library/helper;
+all counters match their internal read counts and requested bytes. Every count
+is identical across three instrumented runs, and all extractions have zero I/O
+failures. See [the syscall samples](benchmarks/fat-extraction-image-io.csv).
+
+mcopy imports the instrumented read/seek functions and performs 13 large image
+reads, averaging about 55.7 KiB. Its much smaller call count despite comparable
+bytes suggests image read-ahead/batching as a further investigation. The buffered
+rust-fatfs variant requests about 40 times more bytes than the unbuffered variant
+without materially reducing calls or elapsed time in this workload.
+
+To reproduce one isolated Hadris extraction, first build the release runner
+and prepare an image outside the measured process:
+
+```sh
+cargo bench --manifest-path tests/Cargo.toml --bench peers --no-run
+HADRIS_TESTS_PEER_WORKER=prepare HADRIS_TESTS_PERF_FILES=1000 \
+HADRIS_TESTS_PEER_IMAGE="$PWD/common.img" "$PEERS_BIN"
+/usr/bin/time -l env HADRIS_TESTS_PEER_WORKER=hadris/lazy \
+HADRIS_TESTS_PEER_CACHE=hint HADRIS_TESTS_PEER_IMAGE="$PWD/common.img" \
+HADRIS_TESTS_PEER_DESTINATION="$PWD/out" "$PEERS_BIN"
+```
+
+`PEERS_BIN` is the executable path printed by the build. Select `hadris/stream`,
+`rust-fatfs/unbuffered` or `rust-fatfs/buffered` as the worker. Cache modes are
+`none`, `hint`, and `index`; index defaults to 1,001 entries and accepts
+`HADRIS_TESTS_PEER_DIRECTORY_ENTRIES`. Always validate outputs in the parent and
+use a fresh destination. The worker supports the qualified root-file fixture;
+streaming content and the current ChaN helper do not accept nested directories.
+
+On macOS, build and calibrate the image counter before instrumenting a peer:
+
+```sh
+cc -dynamiclib -O2 -Wall -Wextra -Werror \
+  tests/peers/image-read-counter-macos.c -o image-read-counter.dylib
+cc -O2 -Wall -Wextra -Werror \
+  tests/peers/image-read-counter-check.c -o image-read-counter-check
+DYLD_INSERT_LIBRARIES="$PWD/image-read-counter.dylib" \
+HADRIS_IO_IMAGE="$PWD/common.img" ./image-read-counter-check common.img
+```
+
+Calibration reads through three APIs, excludes a second descriptor and tests a
+failed image read while preserving `errno`; its expected report is
+`IMAGE_IO,4,160,96,1,1`. Apply the same environment directly to the peer binary
+for counting. Do not run the interposer through Apple's protected `time` binary,
+which can strip `DYLD_*` variables, or use instrumented elapsed/RSS numbers as
+performance measurements. The helper is diagnostic instrumentation, not part
+of the filesystem drivers.

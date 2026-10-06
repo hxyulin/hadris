@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- FAT peer profiling supports isolated extraction workers for process RSS,
+  with speed, image-read and disabled-cache overhead comparisons documented.
+
 - FAT profiling includes the public lazy-tree extraction workflow, nested and
   long-name fixtures, and comparisons of independently configured caches.
 
