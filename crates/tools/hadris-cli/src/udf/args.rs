@@ -109,7 +109,7 @@ pub struct CreateArgs {
     /// Volume name
     #[arg(short = 'V', long, default_value = "UDF_VOLUME")]
     pub volume_name: String,
-    /// UDF revision (1.02, 1.50, 2.00, 2.01, 2.50, or 2.60)
+    /// Writable UDF revision (1.02, 1.50, 2.00, or 2.01)
     #[arg(short, long, default_value = "1.02")]
     pub revision: RevisionArg,
     /// Verbose output
@@ -140,7 +140,7 @@ pub struct BridgeArgs {
     /// ISO 9660 options; the volume name names both volumes
     #[command(flatten)]
     pub iso: IsoFlags,
-    /// UDF revision (1.02, 1.50, 2.00, 2.01, 2.50, or 2.60)
+    /// Writable UDF revision (1.02, 1.50, 2.00, or 2.01)
     #[arg(short, long, default_value = "1.02")]
     pub revision: RevisionArg,
     /// Verbose output

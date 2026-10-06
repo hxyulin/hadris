@@ -282,3 +282,61 @@ macro_rules! async_case {
 regressions!(sync, malformed_records_sync, sync_case);
 #[cfg(feature = "async")]
 regressions!(r#async, malformed_records_async, async_case);
+
+macro_rules! timestamp_regressions {
+    ($mode:ident, $name:ident, $run:ident) => {
+        #[test]
+        fn $name() {
+            $run!(async {
+                use hadris_fs::$mode::FileSystem;
+                use hadris_fs::{DateTime, DirCursor, MountOptions};
+                use hadris_iso::raw::DirDateTime;
+                use hadris_iso::$mode::IsoFs;
+                use hadris_storage::MemDevice;
+
+                let recorded = DateTime::from_unix_seconds(1_600_000_000)
+                    .unwrap()
+                    .with_utc_offset_minutes(Some(0))
+                    .unwrap();
+                let extended = DateTime::from_unix_seconds(1_700_000_000)
+                    .unwrap()
+                    .with_utc_offset_minutes(Some(0))
+                    .unwrap();
+                for flag in [1u8, 2, 4, 8] {
+                    let mut area = b"TF\x0c\x01".to_vec();
+                    area.push(flag);
+                    area.extend_from_slice(bytemuck::bytes_of(&DirDateTime::from_datetime(
+                        extended,
+                    )));
+                    let (mut bytes, node) = image(&area, 2048);
+                    let at = node.get() as usize + 18;
+                    bytes[at..at + 7]
+                        .copy_from_slice(bytemuck::bytes_of(&DirDateTime::from_datetime(recorded)));
+                    let mut fs =
+                        IsoFs::mount(MemDevice::new(bytes, common::SECTOR), MountOptions::new())
+                            .await
+                            .unwrap();
+                    let meta = fs.stat(node).await.unwrap();
+                    assert_eq!(
+                        meta.modified(),
+                        Some(if flag == 2 { extended } else { recorded }),
+                        "TF flags {flag}"
+                    );
+                    assert_eq!(meta.created(), (flag == 1).then_some(extended));
+                    assert_eq!(meta.accessed(), (flag == 4).then_some(extended));
+                    assert_eq!(meta.changed(), (flag == 8).then_some(extended));
+                    let entry = fs
+                        .readdir(fs.root(), DirCursor::START)
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(entry.metadata(), &meta);
+                }
+            });
+        }
+    };
+}
+
+timestamp_regressions!(sync, partial_timestamps_sync, sync_case);
+#[cfg(feature = "async")]
+timestamp_regressions!(r#async, partial_timestamps_async, async_case);
