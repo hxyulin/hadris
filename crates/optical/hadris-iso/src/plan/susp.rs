@@ -78,6 +78,11 @@ impl SuBuilder {
         }
     }
 
+    pub(crate) fn logical_directory(&mut self) {
+        self.entries
+            .push(entry(b"HD", crate::rock_ridge::LOGICAL_DIRECTORY));
+    }
+
     pub(crate) fn nm_current(&mut self) {
         self.entries.push(entry(b"NM", &[0x02]));
     }

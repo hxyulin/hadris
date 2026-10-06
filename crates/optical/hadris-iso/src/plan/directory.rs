@@ -129,6 +129,13 @@ impl DirectoryBuilder<'_, '_> {
             let mut b = SuBuilder::default();
             self.directory_posix(&mut b, child);
             b.nm(c.name.as_bytes());
+            if Some(child) != p.rr_moved
+                && c.physical
+                    .iter()
+                    .any(|&dir| p.dirs[dir].moved_to == Some(child))
+            {
+                b.logical_directory();
+            }
             if placeholder {
                 b.cl(p.dir_ref(child, self.tree).0);
             } else if c.moved_to.is_some() {

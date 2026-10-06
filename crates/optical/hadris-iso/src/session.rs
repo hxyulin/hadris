@@ -801,9 +801,6 @@ async fn read_session<D: BlockDevice>(iso: &mut IsoFs<D>) -> Result<(Tree, IsoOp
             let attrs = set_attr(&meta, rock_ridge);
             let new = match meta.file_type() {
                 FileType::Dir => {
-                    if dir == root && view.is_relocation_dir(node).await? {
-                        continue;
-                    }
                     if !visited.insert(node) {
                         return Err(Detail::DirectoryRecord.corrupt());
                     }

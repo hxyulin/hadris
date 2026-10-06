@@ -1,5 +1,32 @@
 //! Names as the reader presents them.
 
+pub(crate) fn version(raw: &[u8], ucs2: bool) -> Option<u16> {
+    let width = if ucs2 { 2 } else { 1 };
+    if raw.len() % width != 0 {
+        return None;
+    }
+    let mut end = raw.len();
+    let mut value = 0u32;
+    let mut scale = 1u32;
+    while end >= width {
+        end -= width;
+        let unit = if ucs2 {
+            u16::from_be_bytes([raw[end], raw[end + 1]])
+        } else {
+            u16::from(raw[end])
+        };
+        if unit == u16::from(b';') {
+            return (scale > 1 && (1..=32767).contains(&value)).then_some(value as u16);
+        }
+        if !(u16::from(b'0')..=u16::from(b'9')).contains(&unit) {
+            return None;
+        }
+        value = value.checked_add(u32::from(unit - u16::from(b'0')).checked_mul(scale)?)?;
+        scale = scale.checked_mul(10)?;
+    }
+    None
+}
+
 /// The identifier without a `;N` version suffix, and without the `.` that
 /// ends a name with an empty extension once the version is gone.
 pub(crate) fn strip_version(raw: &[u8]) -> &[u8] {
@@ -98,6 +125,25 @@ pub(crate) fn label_latin1(bytes: &[u8], out: &mut [u8]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn version_numbers_are_bounded_in_both_encodings() {
+        for (name, expected) in [
+            ("A;1", Some(1)),
+            ("A;32767", Some(32767)),
+            ("A;2", Some(2)),
+            ("A;0", None),
+            ("A;32768", None),
+            ("A;999999999999", None),
+            ("A;", None),
+            ("A;B", None),
+        ] {
+            assert_eq!(version(name.as_bytes(), false), expected);
+            let wide: Vec<_> = name.encode_utf16().flat_map(u16::to_be_bytes).collect();
+            assert_eq!(version(&wide, true), expected);
+        }
+        assert_eq!(version(&[0, b'A', 0], true), None);
+    }
 
     #[test]
     fn versions_and_empty_extensions_are_stripped() {
