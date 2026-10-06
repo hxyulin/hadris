@@ -13,9 +13,12 @@ custom devices. `format` returns the new volume's `Geometry`, and
 ## Dependency
 
 ```toml
-[dependencies]
-hadris-fat = "3.0.0-rc.1"   # default features: std, sync, write
-hadris-fs = "3.0.0-rc.1"
+[dependencies.hadris]
+version = "3.0.0-rc.1"
+git = "https://github.com/hxyulin/hadris"
+branch = "main"
+default-features = false
+features = ["std", "sync", "write", "fat"]
 ```
 
 `format` is behind the `write` feature. Long file names are always supported.
@@ -31,11 +34,11 @@ use `with_kind` when the variant is part of an external contract.
 ```rust,no_run
 use std::fs::OpenOptions;
 
-use hadris_fat::sync::{FatFs, format};
-use hadris_fat::{FatKind, FatOptions, VolumeLabel};
-use hadris_fs::MountOptions;
-use hadris_fs::sync::FileSystem;
-use hadris_storage::host::FileDevice;
+use hadris::fat::sync::{FatFs, format};
+use hadris::fat::{FatKind, FatOptions, VolumeLabel};
+use hadris::fs::MountOptions;
+use hadris::fs::sync::FileSystem;
+use hadris::storage::host::FileDevice;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     const SIZE: u64 = 64 * 1024 * 1024;
@@ -81,10 +84,10 @@ device so file sizes and the FAT32 free count reach the disk.
 ```rust
 use std::io::Write;
 
-use hadris_fat::sync::FatFs;
-use hadris_fs::OpenOptions;
-use hadris_fs::sync::Volume;
-use hadris_storage::sync::BlockDevice;
+use hadris::fat::sync::FatFs;
+use hadris::fs::OpenOptions;
+use hadris::fs::sync::{FileSystem, Volume};
+use hadris::storage::sync::BlockDevice;
 
 fn populate<D: BlockDevice>(vol: &Volume<FatFs<D>>) -> Result<(), Box<dyn std::error::Error>> {
     vol.create_dir_all("/DOCS")?;
@@ -106,40 +109,40 @@ the standard lowercase case flags; other names get long-name entries.
 ## Build an image from a tree
 
 `write(dev, &tree, &options)` formats the device and copies a
-`hadris_fs::Tree` into it. `hadris_fs::host::read_tree` builds the tree
+`hadris::fs::Tree` into it. `hadris::fs::host::read_tree` builds the tree
 from a host directory. Nodes without times get the options' time, and the
 report lists what FAT cannot store, such as symlinks and permissions. A
 growable device such as `Vec<u8>` starts empty, so give it a size.
 
 ```rust
-use hadris_fat::FatOptions;
-use hadris_fat::sync::write;
-use hadris_fs::{Content, Node, Tree};
+use hadris::fat::FatOptions;
+use hadris::fat::sync::write;
+use hadris::fs::{Content, Node, Tree};
 
 let mut tree = Tree::new();
 tree.insert("DOCS/README.TXT", Node::file(Content::bytes("hello")))?;
 let mut image = Vec::new();
 let report = write(&mut image, &tree, &FatOptions::new().with_size(4 << 20))?;
 assert_eq!(image.len() as u64, report.size());
-# Ok::<(), hadris_fs::PathError>(())
+# Ok::<(), hadris::fs::PathError>(())
 ```
 
-The same `format` and `write` exist in `hadris_fat::r#async` when the crate
+The same `format` and `write` exist in `hadris::fat::r#async` when the crate
 is built with `async`. `format` needs no allocator. Enable exactly the I/O
 mode your application uses; `std` does not implicitly select `sync`.
 
 ## Format exFAT
 
 exFAT has its own driver, `ExFatFs`, with the same node API, and its own
-`ExFatOptions`, `VolumeLabel`, `format` and `write` in `hadris_fat::exfat`.
+`ExFatOptions`, `VolumeLabel`, `format` and `write` in `hadris::fat::exfat`.
 Labels keep their case and may use up to 11 UTF-16 code units.
 
 ```rust
-use hadris_fat::exfat::sync::{ExFatFs, check, format};
-use hadris_fat::exfat::{ExFatOptions, VolumeLabel};
-use hadris_fs::sync::Volume;
-use hadris_fs::{MountOptions, OpenOptions};
-use hadris_storage::{BlockSize, MemDevice};
+use hadris::fat::exfat::sync::{ExFatFs, check, format};
+use hadris::fat::exfat::{ExFatOptions, VolumeLabel};
+use hadris::fs::sync::{FileSystem, Volume};
+use hadris::fs::{MountOptions, OpenOptions};
+use hadris::storage::{BlockSize, MemDevice};
 
 let mut dev = MemDevice::new(vec![0u8; 16 << 20], BlockSize::new(512).unwrap());
 let label = VolumeLabel::new("Photos").unwrap();
@@ -159,8 +162,8 @@ same for a host directory.
 ## Format a partition rather than a whole disk
 
 Create or read the partition table with `hadris-part` (`DiskLayout` and
-`hadris_part::sync::create`, or `hadris_part::sync::read`), restrict the disk
-to the partition with `hadris_part::sync::open`, and pass that slice to
+`hadris::part::sync::create`, or `hadris::part::sync::read`), restrict the disk
+to the partition with `hadris::part::sync::open`, and pass that slice to
 `format`. The formatter sees block zero relative to the partition, cannot
 write outside it, and records the partition's start as the hidden sectors
 (the exFAT `PartitionOffset`) unless `with_partition_offset` overrides it.
@@ -168,9 +171,9 @@ write outside it, and records the partition's start as the hidden sectors
 ## Validate the result
 
 ```rust
-use hadris_fat::sync::check;
+use hadris::fat::sync::check;
 
-# fn validate<D: hadris_storage::sync::BlockDevice>(dev: &mut D) -> hadris_fs::FsResult<(), D::Error> {
+# fn validate<D: hadris::storage::sync::BlockDevice>(dev: &mut D) -> hadris::fs::FsResult<(), D::Error> {
 let mut scratch = [0u8; 4096];
 let report = check(dev, &mut scratch, |finding| eprintln!("{finding}"))?;
 assert!(report.is_clean());

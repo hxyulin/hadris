@@ -8,20 +8,22 @@ Open writable media with both read and write access, operate through the
 filesystem handle, and call `sync` before the backing device is removed.
 
 ```toml
-[dependencies]
-hadris-fat = "3.0.0-rc.1"
-hadris-fs = "3.0.0-rc.1"
-hadris-storage = "3.0.0-rc.1"
+[dependencies.hadris]
+version = "3.0.0-rc.1"
+git = "https://github.com/hxyulin/hadris"
+branch = "main"
+default-features = false
+features = ["std", "sync", "fat"]
 ```
 
 ```rust,no_run
 use std::io::Write;
 
-use hadris_fat::sync::FatFs;
-use hadris_fs::sync::{FileSystem, Volume};
-use hadris_fs::{MountOptions, OpenOptions, SystemClock};
-use hadris_storage::host::FileDevice;
-use hadris_storage::sync::Cache;
+use hadris::fat::sync::FatFs;
+use hadris::fs::sync::{FileSystem, Volume};
+use hadris::fs::{MountOptions, OpenOptions, SystemClock};
+use hadris::storage::host::FileDevice;
+use hadris::storage::sync::Cache;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let image = std::fs::OpenOptions::new()
@@ -48,7 +50,7 @@ cache: it caches any block device and costs nothing unless constructed.
 
 Writes are ordered so that an interrupted operation leaves a volume that
 `fsck` repairs: at worst lost clusters, a chain longer than its file, or a
-renamed node under both names. `hadris_fat::sync::check` reports exactly those
+renamed node under both names. `hadris::fat::sync::check` reports exactly those
 leftovers without changing the volume.
 
 ## Mutation checklist
@@ -61,11 +63,11 @@ leftovers without changing the volume.
   `ErrorKind::NotFound` afterwards until you `forget` it.
 - Call `sync` after writes and before ejecting or closing removable media.
 - Do not mutate an image concurrently through another handle. To share one
-  volume between threads, clone the `hadris_fs::sync::Volume`.
+  volume between threads, clone the `hadris::fs::sync::Volume`.
 - `FatFs::unmount` syncs and gives the device back.
 - Validate important generated images with `check` and an independent
   implementation.
 
 For deterministic images, keep the default `NoClock` (which stamps
-1980-01-01) or supply your own `hadris_fs::Clock` through
+1980-01-01) or supply your own `hadris::fs::Clock` through
 `MountOptions::with_clock` instead of relying on the host clock.

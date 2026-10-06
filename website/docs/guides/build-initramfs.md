@@ -5,24 +5,26 @@ title: Build a CPIO initramfs
 # Build a CPIO initramfs
 
 ```toml
-[dependencies]
-hadris-cpio = "3.0.0-rc.1"
-hadris-fs = "3.0.0-rc.1"
-hadris-io = "3.0.0-rc.1"
+[dependencies.hadris]
+version = "3.0.0-rc.1"
+git = "https://github.com/hxyulin/hadris"
+branch = "main"
+default-features = false
+features = ["std", "sync", "cpio"]
 ```
 
 ```rust,no_run
-use hadris_cpio::CpioOptions;
-use hadris_fs::Owner;
-use hadris_fs::host::{self, TreeOptions};
-use hadris_io::StdIo;
+use hadris::cpio::CpioOptions;
+use hadris::fs::Owner;
+use hadris::fs::host::{self, TreeOptions};
+use hadris::io::StdIo;
 use std::{fs::File, io::BufWriter};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = TreeOptions::new().with_owner(Owner::new(0, 0));
     let (tree, _) = host::read_tree("./initramfs-root", &options)?;
     let mut output = StdIo::new(BufWriter::new(File::create("initramfs.cpio")?));
-    hadris_cpio::sync::write(&mut output, &tree, &CpioOptions::default())?;
+    hadris::cpio::sync::write(&mut output, &tree, &CpioOptions::default())?;
     Ok(())
 }
 ```

@@ -11,7 +11,9 @@ Hadris separates three decisions that many crates combine:
 3. **Capability:** `write` (FAT formatting), and in the umbrella crate one
    feature per format
 
-Reading is always compiled; there is no `read` feature. Choose each dimension
+Stable format crates always compile reading; the APFS preview still has a
+`read` feature. These are the intended V3 API guarantees; rc.1 remains a
+release candidate. Choose each dimension
 explicitly when disabling default features. Enabling `std` provides heap
 allocation, but it does not implicitly select `sync` or `async`. A feature
 only adds items: none changes what an existing item does, and only
@@ -22,11 +24,11 @@ only adds items: none changes what an existing item does, and only
 | Configuration | Available facilities | Typical targets |
 |---|---|---|
 | No platform feature | Stack and caller-provided buffers only | Bootloaders, early kernels, small firmware |
-| `alloc` | `Vec`, `String`, owned paths and trees | Kernels and firmware with a global allocator |
+| `alloc` | `Vec`, `String`, owned names and trees | Kernels and firmware with a global allocator |
 | `std` | Hosted files, clocks, OS errors, and `alloc` | CLI tools, desktop applications, build systems |
 
 Not every operation can be allocation-free. The image writers (ISO 9660, UDF,
-the ISO/UDF bridge, CPIO, and FAT and exFAT `write`) take a `hadris_fs::Tree`
+the ISO/UDF bridge, CPIO, and FAT and exFAT `write`) take a `hadris::fs::Tree`
 and need `alloc`; `std` adds host files as tree content. The FAT and exFAT
 drivers, `FatFs` and `ExFatFs`, need `alloc` for their node table. `format`,
 which returns the new volume's geometry, and `check` run on an unmounted
@@ -38,24 +40,28 @@ The `sync` and `async` features select parallel API namespaces generated
 from one source. They may be enabled together.
 
 ```toml
-[dependencies]
-hadris-fat = {
-  version = "3.0.0-rc.1",
-  default-features = false,
-  features = ["alloc", "sync", "async", "write"]
-}
+[dependencies.hadris]
+version = "3.0.0-rc.1"
+git = "https://github.com/hxyulin/hadris"
+branch = "main"
+default-features = false
+features = ["alloc", "sync", "async", "write", "fat"]
 ```
 
-Name I/O types through their mode module, `hadris_fat::sync` or
-`hadris_fat::r#async`; no crate re-exports a mode at its root. Async
+Name I/O types through their mode module, `hadris::fat::sync` or
+`hadris::fat::r#async`; no crate re-exports a mode at its root. Async
 futures are `Send` when the device is, so generic code can spawn them on
 multi-threaded executors. `hadris-io` and `hadris-storage` also have a
 `local` namespace, whose futures need not be `Send`, for single-threaded
 executors.
 
-Every crate has the same public items in each mode. The exceptions are the
+Every crate has the same public items in each mode. The exceptions include the
 `hadris-fs` `host` module (`read_tree`, `write_tree`, `file`), which is
-sync-only because the host side is blocking `std::fs`.
+sync-only because the host side is blocking `std::fs`. A sync `Volume` needs
+`std`; an async `Volume` needs `alloc`. The shared async tier requires `Send`
+devices and futures. Local futures are supported by lower-layer adapters and
+the embedded FAT/exFAT tier, while all device errors retain `Send + Sync + 'static`
+bounds.
 
 ## Format capability matrix
 
@@ -68,7 +74,8 @@ sync-only because the host side is blocking `std::fs`.
 | `hadris-udf` | UDF 1.02 to 2.01, type 1 partitions; ISO 9660 and UDF bridge images | Yes | Yes | Yes | Yes | Allocation-free (writing needs `alloc`) | Stable |
 | `hadris-cpio` | CPIO newc, CRC and odc; old binary read | Yes | Yes | Yes | Yes | Allocation-free (writing needs `alloc`) | Stable |
 | `hadris-ntfs` | NTFS | Yes | No | Yes | Yes | Allocation-free | Preview |
-| `hadris` `detect` | Detection of every format above, opening FAT, exFAT, ISO 9660 and UDF as `AnyFs` | Yes | N/A | Yes | Yes | Allocation-free detection; `open` needs `alloc` | Stable |
+| `hadris-apfs` | APFS containers and volumes | Yes | No | Yes | Yes | `alloc` | Preview |
+| `hadris` `detect` | Detection of every format above, opening FAT, exFAT, ISO 9660, UDF and single-volume APFS as `AnyFs` | Yes | N/A | Yes | Yes | Allocation-free detection; `open` needs `alloc` | Stable |
 
 "Allocation-free" means the core parser can operate without a global
 allocator. Higher-level conveniences such as owned filenames, collected
@@ -79,11 +86,12 @@ directory trees, or image construction may still require `alloc`.
 ### Bootloader reading FAT
 
 ```toml
-hadris-fat = {
-  version = "3.0.0-rc.1",
-  default-features = false,
-  features = ["alloc", "sync"]
-}
+[dependencies.hadris]
+version = "3.0.0-rc.1"
+git = "https://github.com/hxyulin/hadris"
+branch = "main"
+default-features = false
+features = ["alloc", "sync", "fat"]
 ```
 
 `hadris-fat` has no `read` feature: with `alloc`, reading and writing are
@@ -92,32 +100,37 @@ always available, and `write` adds only the formatter.
 ### Kernel with an allocator and async I/O
 
 ```toml
-hadris-iso = {
-  version = "3.0.0-rc.1",
-  default-features = false,
-  features = ["alloc", "async"]
-}
+[dependencies.hadris]
+version = "3.0.0-rc.1"
+git = "https://github.com/hxyulin/hadris"
+branch = "main"
+default-features = false
+features = ["alloc", "async", "iso"]
 ```
 
 ### Hosted FAT editor
 
 ```toml
-hadris-fat = "3.0.0-rc.1"      # std, sync and write
-hadris-fs = "3.0.0-rc.1"       # Volume, MountOptions and host helpers
-hadris-storage = "3.0.0-rc.1"  # Cache<D> for block caching
+[dependencies.hadris]
+version = "3.0.0-rc.1"
+git = "https://github.com/hxyulin/hadris"
+branch = "main"
+default-features = false
+features = ["std", "sync", "write", "fat"]
 ```
 
 The checker (`check`) is always compiled; block caching comes
-from wrapping the device in `hadris_storage::sync::Cache`.
+from wrapping the device in `hadris::storage::sync::Cache`.
 
 ### Allocation-only CPIO writer
 
 ```toml
-hadris-cpio = {
-  version = "3.0.0-rc.1",
-  default-features = false,
-  features = ["alloc", "sync"]
-}
+[dependencies.hadris]
+version = "3.0.0-rc.1"
+git = "https://github.com/hxyulin/hadris"
+branch = "main"
+default-features = false
+features = ["alloc", "sync", "cpio"]
 ```
 
 `hadris-cpio` has no `read` or `write` feature: the reader is always
@@ -128,7 +141,7 @@ compiled, and `alloc` adds the writer.
 - Select exactly the formats and capabilities the application uses.
 - Select at least one I/O mode for APIs that access storage.
 - Add `alloc` only when the chosen API returns or stores owned data.
-- Prefer leaf crates when only one format is needed.
+- Use the umbrella with defaults disabled for one dependency and one format; use leaf crates for direct ownership of their versions.
 - Treat `hadris-ntfs` and `unstable-ntfs` as a preview whose native API may
   change in minor releases.
 

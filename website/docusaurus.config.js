@@ -13,18 +13,15 @@ const versionsFile = path.join(__dirname, "versions.json");
 const released = fs.existsSync(versionsFile)
   ? JSON.parse(fs.readFileSync(versionsFile, "utf8"))
   : [];
-const hasVersions = released.length > 0;
 
 function currentLabel() {
-  if (!hasVersions) return "Current";
   const manifest = fs.readFileSync(
     path.join(__dirname, "../crates/core/hadris/Cargo.toml"),
     "utf8",
   );
-  const match = /^version\s*=\s*"(\d+)\.(\d+)\.\d+[^"]*"/m.exec(manifest);
-  const series = match && `${match[1]}.${match[2]}`;
-  if (!series || released.includes(series)) return "Next (unreleased)";
-  return `${series} (unreleased)`;
+  const match = /^version\s*=\s*"([^"]+)"/m.exec(manifest);
+  if (!match) throw new Error("Cannot read the Hadris documentation version");
+  return match[1];
 }
 
 const staticDirectories = ["static"];
@@ -62,11 +59,13 @@ const config = {
             version === "current"
               ? `https://github.com/hxyulin/hadris/edit/${docsBranch}/website/docs/${docPath}`
               : undefined,
-          lastVersion: hasVersions ? released[0] : "current",
+          lastVersion: "current",
           versions: {
+            ...Object.fromEntries(released.map(version => [version, {path: version}])),
             current: {
               label: currentLabel(),
-              ...(hasVersions && {path: "next"}),
+              path: "",
+              banner: "none",
             },
           },
         },
@@ -76,6 +75,18 @@ const config = {
         },
       },
     ],
+  ],
+  plugins: [
+    ["@docusaurus/plugin-client-redirects", {
+      createRedirects(routePath) {
+        const relative = routePath.replace(/^\//, "");
+        if (relative === "404.html" || relative.startsWith("next/") ||
+            released.some(version => relative === version || relative.startsWith(`${version}/`))) {
+          return undefined;
+        }
+        return [`/next/${relative}`];
+      },
+    }],
   ],
   themeConfig: {
     prism: {
@@ -89,9 +100,10 @@ const config = {
         {type: "doc", docId: "getting-started", label: "Get started", position: "left"},
         {type: "doc", docId: "guides/index", label: "Use cases", position: "left"},
         {type: "doc", docId: "crates", label: "Crates", position: "left"},
+        {type: "doc", docId: "migration", label: "Migration", position: "left"},
         {type: "docsVersionDropdown", position: "right"},
         {
-          href: "https://docs.rs/hadris",
+          href: `${siteUrl}${baseUrl}next/api/hadris/index.html`,
           label: "API docs",
           position: "right",
         },
@@ -115,7 +127,7 @@ const config = {
         {
           title: "Project",
           items: [
-            {label: "API docs", href: "https://docs.rs/hadris"},
+            {label: "API docs", href: `${siteUrl}${baseUrl}next/api/hadris/index.html`},
             {label: "Crates.io", href: "https://crates.io/crates/hadris"},
             {label: "GitHub", href: "https://github.com/hxyulin/hadris"},
           ],

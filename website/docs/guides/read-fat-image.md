@@ -4,25 +4,28 @@ title: Read a FAT image
 
 # Read files from a FAT image
 
-Use `hadris-fat` directly when the image is known to contain a standalone FAT
-filesystem.
+Use the FAT driver through `hadris::fat` when the image is known to contain
+a standalone FAT filesystem. Only the FAT format is enabled in this recipe.
 
 ```toml
 [dependencies]
 anyhow = "1"
-hadris-fat = "3.0.0-rc.1"
-hadris-fs = "3.0.0-rc.1"
-hadris-storage = "3.0.0-rc.1"
+[dependencies.hadris]
+version = "3.0.0-rc.1"
+git = "https://github.com/hxyulin/hadris"
+branch = "main"
+default-features = false
+features = ["std", "sync", "fat"]
 ```
 
 ```rust,no_run
 use std::io::Read;
 
 use anyhow::{Context, Result};
-use hadris_fat::sync::FatFs;
-use hadris_fs::sync::Volume;
-use hadris_fs::{ErrorKind, MountOptions, OpenOptions};
-use hadris_storage::host::FileDevice;
+use hadris::fat::sync::FatFs;
+use hadris::fs::sync::Volume;
+use hadris::fs::{ErrorKind, MountOptions, OpenOptions};
+use hadris::storage::host::FileDevice;
 
 fn main() -> Result<()> {
     let image = FileDevice::open("disk.img").context("open disk.img")?;
@@ -57,8 +60,8 @@ logical block size of physical devices. Use `open_with_block_size` to specify
 an image's geometry. `FatFs` also opens any other `hadris-storage` device, such as a `MemDevice` over bytes already in
 memory. Lookups ignore case, and long names are always read. Files opened
 with `vol.open(path, OpenOptions::new().read())` implement `std::io::Read`
-and `Seek`, and `hadris_fs::sync::read_tree(&vol, "/")` followed by
-`hadris_fs::host::write_tree("out", &tree)` copies the whole tree to the host. Short names are read in CP437
+and `Seek`, and `hadris::fs::sync::read_tree(&vol, "/")` followed by
+`hadris::fs::host::write_tree("out", &tree)` copies the whole tree to the host. Short names are read in CP437
 unless `MountOptions::with_code_page` names another code page.
 
 Directory iteration surfaces malformed entries and I/O failures as errors; do

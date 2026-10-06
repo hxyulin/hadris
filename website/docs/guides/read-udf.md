@@ -5,10 +5,12 @@ title: Read and extract UDF
 # Read and extract files from UDF
 
 ```toml
-[dependencies]
-hadris-fs = { version = "3.0.0-rc.1", features = ["std", "sync"] }
-hadris-udf = "3.0.0-rc.1"
-hadris-storage = "3.0.0-rc.1"
+[dependencies.hadris]
+version = "3.0.0-rc.1"
+git = "https://github.com/hxyulin/hadris"
+branch = "main"
+default-features = false
+features = ["std", "sync", "udf"]
 ```
 
 `UdfFs` opens a volume on any `hadris_storage` block device, such as a host
@@ -18,13 +20,13 @@ handles and the host helpers work on it.
 ```rust,no_run
 use std::io::Read;
 
-use hadris_fs::{MountOptions, OpenOptions};
-use hadris_fs::sync::Volume;
-use hadris_udf::UdfId;
-use hadris_udf::sync::UdfFs;
+use hadris::fs::{MountOptions, OpenOptions};
+use hadris::fs::sync::Volume;
+use hadris::udf::UdfId;
+use hadris::udf::sync::UdfFs;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let udf = UdfFs::mount(hadris_storage::host::FileDevice::open("disc.udf")?, MountOptions::new())?;
+    let udf = UdfFs::mount(hadris::storage::host::FileDevice::open("disc.udf")?, MountOptions::new())?;
     println!("volume: {}", udf.info().id(UdfId::LogicalVolume));
     let vol = Volume::new(udf);
 
@@ -38,8 +40,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     vol.open("/README.TXT", OpenOptions::new().read())?
         .read_to_end(&mut readme)?;
     std::fs::write("README.TXT", readme)?;
-    let tree = hadris_fs::sync::read_tree(&vol, "/")?;
-    hadris_fs::host::write_tree("out", &tree)?;
+    let tree = hadris::fs::sync::read_tree(&vol, "/")?;
+    hadris::fs::host::write_tree("out", &tree)?;
     Ok(())
 }
 ```

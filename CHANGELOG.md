@@ -8,6 +8,13 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- The documentation site defaults to V3 `3.0.0-rc.1`, preserves released V2
+  snapshots and redirects old `next/` guide links. Migration and task guides
+  use working source dependency recipes, one-dependency umbrella imports and
+  explicit feature tiers. A self-contained migration example verifies shared
+  FAT/ISO operations and embedded FAT handles; the basic tool examples also
+  use the umbrella.
+
 - Host file devices query physical devices' logical block sizes on Linux,
   macOS, FreeBSD and Windows, and accept explicit image geometry through
   `open_with_block_size` and `with_block_size`, including 4Kn GPT images.

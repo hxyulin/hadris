@@ -1,5 +1,5 @@
 [package]
-name = "hadris-example-cpio-create"
+name = "hadris-example-migrate-v3"
 version = "0.0.0"
 publish = false
 edition.workspace = true
@@ -7,5 +7,4 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-anyhow.workspace = true
-hadris = { workspace = true, features = ["std", "sync", "cpio"] }
+hadris = { workspace = true, features = ["std", "sync", "write", "fat", "iso"] }
