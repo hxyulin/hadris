@@ -142,10 +142,15 @@ a pinned file, which stay in the node table so every handle sees one size
 until `close`, `fsync` or `sync` writes them; closing a `File` handle
 calls `close`, which does not flush the device, and `File::sync_all` calls
 `fsync`, which does. `sync` also writes the FAT32 FSInfo free count and
-flushes the device. `unlink` of an open file (an open `File`, or one
+flushes the device. Both hosted and embedded FAT16/32 drivers clear and
+flush the clean bit before changing the volume, then restore it after a
+successful `sync` or `unmount`. Volumes already dirty at mount, or whose
+interrupted operations encounter unrecoverable corruption, stay dirty.
+FAT12 has no clean bit. `unlink` of an open file (an open `File`, or one
 opened with `open`) fails with `ErrorKind::Busy`; a node that is only pinned is
 removed and its id answers `ErrorKind::NotFound` until its last `forget`. A
-device that refuses a write makes the volume read-only with nothing changed.
+device that refuses a write makes the volume read-only. A pending dirty-marker
+update prevents `sync` and `unmount` from succeeding on that volume.
 Writes are ordered so that an interrupted operation, or a dropped `async`
 future, leaves a volume that `fsck` repairs: at worst lost clusters, a
 chain longer than its file, or a renamed node under both names.

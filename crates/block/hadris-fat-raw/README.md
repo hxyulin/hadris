@@ -49,7 +49,12 @@ allocator:
   whole blocks directly, while partial blocks use the cache. Zero-filling
   batches as many whole blocks as the buffer holds.
 - `read_geometry` and `read_fat` read the boot and FSInfo sectors into a
-  `Fat`, which tracks the free count and allocation hint
+  `Fat`, which tracks the free count, allocation hint and original clean bit
+- `begin_write` clears and flushes the FAT16/32 clean bit before mutations;
+  FAT-entry and FSInfo writes call it automatically. Call it before using the
+  byte or directory write primitives. `clear_dirty` flushes data and restores
+  the clean bit after pending operations have been recovered, retaining dirty
+  state for volumes dirty at mount or marked with `Fat::preserve_dirty`
 - `get`, `set` and `mirror` read and write FAT entries on every copy, the
   active copy first, recording an entry until every copy has it
 - `next`, `walk` and `run` follow chains; `allocate`, `allocate_run` and

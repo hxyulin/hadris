@@ -145,3 +145,7 @@ required-features = ["std", "sync", "write"]
 name = "exfat_performance"
 harness = false
 required-features = ["std", "sync", "async", "write"]
+
+[[test]]
+name = "fat_dirty"
+required-features = ["std", "sync", "async", "write"]
