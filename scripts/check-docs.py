@@ -16,7 +16,11 @@ EXTERNAL = ("http://", "https://", "mailto:")
 
 
 def documentation_files() -> list[Path]:
-    files = [ROOT / "README.md"]
+    files = [
+        ROOT / "README.md",
+        ROOT / "examples" / "README.md",
+        ROOT / "docs" / "hadris-3.0.0-migration.md",
+    ]
     files.extend((ROOT / "crates").glob("**/README.md"))
     files.extend((ROOT / "website" / "docs").glob("**/*.md"))
     return sorted(files)
@@ -59,6 +63,19 @@ def check_links(files: list[Path], root: Path = ROOT) -> list[str]:
     return errors
 
 
+def check_toml(files: list[Path], root: Path = ROOT) -> list[str]:
+    errors = []
+    for source in files:
+        contents = source.read_text()
+        for match in re.finditer(r"```toml\n(.*?)```", contents, re.DOTALL):
+            line_number = contents.count("\n", 0, match.start()) + 1
+            try:
+                tomllib.loads(match.group(1))
+            except tomllib.TOMLDecodeError as error:
+                errors.append(f"{source.relative_to(root)}:{line_number}: invalid TOML: {error}")
+    return errors
+
+
 def self_test() -> int:
     with tempfile.TemporaryDirectory() as directory:
         temporary_root = Path(directory).resolve()
@@ -70,11 +87,13 @@ def self_test() -> int:
         source = docs / "source.md"
         source.write_text("[valid](target.md)\n[escape](../../outside.md)\n")
         errors = check_links([source], root)
+        source.write_text("```toml\n[dependencies]\nhadris = \"3\"\nhadris = \"2\"\n```\n")
+        toml_errors = check_toml([source], root)
     expected = [
         "docs/source.md:2: link target escapes repository ../../outside.md"
     ]
-    if errors != expected:
-        print(f"self-test failed: {errors!r}", file=sys.stderr)
+    if errors != expected or len(toml_errors) != 1:
+        print(f"self-test failed: links={errors!r}, TOML={toml_errors!r}", file=sys.stderr)
         return 1
     print("documentation checker self-test passed")
     return 0
@@ -125,6 +144,7 @@ def main() -> int:
     errors = check_links(files)
     errors.extend(check_package_readmes())
     errors.extend(check_active_names(files))
+    errors.extend(check_toml(files))
     if errors:
         print("documentation checks failed:", file=sys.stderr)
         for error in errors:

@@ -1,15 +1,76 @@
-# Migrating from Hadris 2.x to 3.0
+# Migrating from Hadris 2.x to 3.0.0-rc.1
 
 This guide is for code and scripts written against Hadris 2.4 or 2.5 (the V2
-API) that move to Hadris 3.0 (the V3 API). The symbol tables describe the 2.4
+API) that move to Hadris 3.0.0-rc.1 (the V3 API). The symbol tables describe the 2.4
 API; the final APFS section covers its addition in 2.5. It covers the library crates,
 their features, and the command-line tools.
 
 Hadris 3.0 is a new API, not an incremental release. Every filesystem reads a
 block device instead of a byte stream, every driver implements one shared
-`FileSystem` trait, every writer takes one shared input `Tree`, and every
-crate returns one error type. Most V2 type names are gone; the tables in
+`FileSystem` trait, image writers share one input `Tree`, and every crate
+returns one error type. CPIO also supports streaming writes. Most V2 type names are gone; the tables in
 [Symbol tables](#symbol-tables) map each of them to its replacement.
+
+## Start with one dependency
+
+The umbrella crate re-exports `io`, `storage`, `fs` and each enabled format.
+A FAT application can use `hadris` alone; separate filesystem and device crates
+are optional. Turn off the umbrella defaults to select only the required formats.
+
+```toml
+[dependencies.hadris]
+version = "3.0.0-rc.1"
+git = "https://github.com/hxyulin/hadris"
+branch = "main"
+default-features = false
+features = ["std", "sync", "fat"]
+```
+
+The release candidate is currently available from source, not crates.io. These
+recipes use the `3.0.0-rc.1` manifests on `main`; replace `branch` with a reviewed
+`rev` for reproducible builds. Once rc.1 is published, remove `git` and `branch`
+to use crates.io. A plain `version = "3"` does not select a prerelease.
+
+This is the host read path that replaces `FatVolume::open` and `root_dir`:
+
+```rust,no_run
+use hadris::fat::sync::FatFs;
+use hadris::fs::MountOptions;
+use hadris::fs::sync::Volume;
+use hadris::host::FileDevice;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let image = FileDevice::open("disk.img")?;
+    let fs = FatFs::mount(image, MountOptions::new().read_only())?;
+    let volume = Volume::new(fs);
+    for entry in volume.read_dir("/")? {
+        println!("{}", String::from_utf8_lossy(entry?.name().as_bytes()));
+    }
+    Ok(())
+}
+```
+
+For the complete create, edit, close, unmount and reopen sequence, run the
+[compiled migration example](../examples/migrate-v3):
+
+```sh
+cargo run --locked -p hadris-example-migrate-v3
+```
+
+It uses only `hadris`, builds its own images, reads FAT and ISO through the same
+`FileSystem` function, and reads the FAT image through the allocation-free
+embedded API. It needs no input files.
+
+Choose the next section according to the application:
+
+| Application | Start with | Next change |
+|---|---|---|
+| Host image reader or editor | `std`, `sync`, and the format feature | `FileDevice` → driver → `Volume`; close writes and unmount explicitly |
+| Kernel or bootloader with an allocator | `alloc`, `sync` or `async`, and the format feature | Implement `BlockDevice`; use the bare `FileSystem` driver |
+| Allocation-free ISO/UDF reader | `sync` or `async`, and `iso` or `udf` | Supply a device; resolve and read nodes directly |
+| Allocation-free FAT firmware | `sync` or `async`, and `fat` | Use `fat::embedded` with a 512-byte device and `MountToken` |
+| Image builder | `alloc`, a mode, and format features; `write` for FAT formatting | Build a `Tree`, then call the format's writer |
+| CPIO on a pipe | `sync` or `async`, and `cpio`; `alloc` for writing | Keep byte streams; use `CpioReader` or `Writer` |
 
 Versioning:
 
@@ -76,35 +137,33 @@ New crates:
 |---|---|
 | `hadris-fs` | Shared vocabulary (`NodeId`, `Name`, `Metadata`, `DateTime`, `MountOptions`), the `FileSystem` trait, `Volume` with `File` and `ReadDir`, `Walk`, `Tree`, `Node`, `Content`, `Report`, `copy_tree`, `read_tree`, `Finding`, `CheckReport`, the `host` module, and re-exports of the `hadris-io` error items. |
 | `hadris-fat-raw` | FAT12/16/32 and exFAT on-disk layouts, I/O-free codecs, device primitives (`io`, `exfat::io`) and the allocation-free checkers. Version 0.1.0. |
-| `hadris-cli` | The single `hadris` binary. Install with `cargo install hadris-cli`. |
+| `hadris-cli` | The single `hadris` binary. Build rc.1 from source as shown in [Command-line tools](#command-line-tools). |
 
-A typical dependency change:
+For applications that deliberately use individual format crates, the same API
+is available through separate dependencies:
 
 ```toml
-# 2.4
 [dependencies]
-hadris-fat = "2.4"
-
-# 3.0
-[dependencies]
-hadris-fat = "3"
-hadris-fs = "3"
-hadris-storage = "3"
+hadris-fat = { version = "3.0.0-rc.1", git = "https://github.com/hxyulin/hadris", branch = "main" }
+hadris-fs = { version = "3.0.0-rc.1", git = "https://github.com/hxyulin/hadris", branch = "main" }
+hadris-storage = { version = "3.0.0-rc.1", git = "https://github.com/hxyulin/hadris", branch = "main" }
 ```
 
-Until 3.0.0 is released, a requirement of `"3"` does not match the release
-candidates: depend on `"3.0.0-rc.1"` to try them.
+The paths correspond directly: `hadris::fat` is `hadris_fat`, `hadris::fs` is
+`hadris_fs`, and `hadris::storage` is `hadris_storage`. Examples below retain
+individual crate paths where they clarify a V2 symbol's replacement. Use the
+umbrella paths when following the one-dependency recipe.
 
-`hadris-fs` defaults to `std` and `sync`, like the other crates; turn
-them off with `default-features = false` for `no_std` or async-only builds.
-Code that only uses the umbrella can depend on `hadris` alone: it re-exports
-`hadris::io`, `hadris::storage` and `hadris::fs` in every build.
+`hadris-fs` defaults to `std` and `sync`, like the other crates. Disable defaults
+on **every** direct Hadris dependency for `no_std` or async-only builds; Cargo
+unifies features, so a second dependency enabling `std` or `sync` brings them
+back into the build.
 
 ## Features
 
 Rules that hold for every V3 crate:
 
-- Reading is always compiled. There is no `read` feature anywhere.
+- Reading is always compiled. Stable crates have no `read` feature; the APFS preview still has one.
 - `sync` and `async` select parallel namespaces (`sync`, `r#async`) and may be
   enabled together. `std` implies `alloc` but selects no I/O mode.
 - A feature only adds items. No feature changes what an existing item does;
@@ -135,17 +194,40 @@ Per crate:
 | `hadris-cpio` | `read`, `alloc`, `std`, `write`, `sync`, `async` | `std`, `alloc`, `sync`, `async` | `read`: the reader is always compiled and needs no allocator. `write`: the writer needs `alloc`. |
 | `hadris-block`, `hadris-optical`, `hadris-cd`, `hadris-archive` | various | crate removed | See [Crate map](#crate-map). |
 
-Common configurations, from [the features page](../website/docs/concepts/features.md):
+Common configurations, from [the features page](../website/docs/concepts/features.md).
+Choose one recipe for your application:
+
+Allocation-free ISO reader, for a bootloader:
 
 ```toml
-# Allocation-free reader, bootloader style
-hadris-iso = { version = "3", default-features = false, features = ["sync"] }
+[dependencies.hadris]
+version = "3.0.0-rc.1"
+git = "https://github.com/hxyulin/hadris"
+branch = "main"
+default-features = false
+features = ["sync", "iso"]
+```
 
-# FAT or exFAT driver without std
-hadris-fat = { version = "3", default-features = false, features = ["alloc", "sync"] }
+FAT or exFAT driver without `std`, with an allocator:
 
-# Firmware without an allocator: the embedded API
-hadris-fat = { version = "3", default-features = false, features = ["sync", "write"] }
+```toml
+[dependencies.hadris]
+version = "3.0.0-rc.1"
+git = "https://github.com/hxyulin/hadris"
+branch = "main"
+default-features = false
+features = ["alloc", "sync", "fat"]
+```
+
+Firmware without an allocator, using the embedded FAT/exFAT API:
+
+```toml
+[dependencies.hadris]
+version = "3.0.0-rc.1"
+git = "https://github.com/hxyulin/hadris"
+branch = "main"
+default-features = false
+features = ["sync", "write", "fat"]
 ```
 
 ## Errors
@@ -257,7 +339,7 @@ implements the first three methods; the default `write_blocks` answers kind
 
 | Device | Use |
 |---|---|
-| `hadris_storage::host::FileDevice` (`std`, `sync`) | A host image file or disk device, 512-byte blocks. `FileDevice::open(path)` is read-only; `FileDevice::new(file)` takes a file you opened, writable if it was opened for writing. Also `hadris::host::FileDevice`. `std::fs::File` is no longer a device. |
+| `hadris_storage::host::FileDevice` (`std`, `sync`) | A host image file (512-byte blocks by default) or disk device (OS-reported logical blocks). `open(path)` is read-only; `new(file)` takes a file you opened, writable if it was opened for writing. `open_with_block_size(path, size)` and `with_block_size(file, size)` specify image geometry explicitly. Also `hadris::host::FileDevice`. `std::fs::File` is no longer a device. |
 | `Vec<u8>` (`alloc`) | In-memory image with 512-byte blocks that grows when written past its end. |
 | `hadris_storage::MemDevice<B>` | `&[u8]` (read-only), `&mut [u8]`, arrays, `Vec<u8>` or `Box<[u8]>` with an explicit `BlockSize`. |
 | `hadris_storage::{sync, r#async}::StreamDevice<T>` | Any `Read + Seek` (+ `Write`) stream as a device with the block size you pick. The migration path for V2 code that passed a stream. Replaces `SeekBlockDevice`. |
@@ -283,6 +365,20 @@ let fs = hadris_fat::sync::FatFs::mount(image, hadris_fs::MountOptions::new().re
 
 Bytes in memory: `MemDevice::new(bytes, BlockSize::new(512).unwrap())`. Any
 other stream: `StreamDevice::new(StdIo::new(stream), BlockSize::new(512).unwrap())?`.
+
+A GPT image copied from a 4Kn disk retains 4096-byte logical blocks. Open it
+with `FileDevice::open_with_block_size(path, BlockSize::new(4096).unwrap())`;
+its GPT LBAs cannot be interpreted using the default 512-byte image geometry.
+Physical devices are queried for logical block size on Linux, macOS, FreeBSD
+and Windows. If the query is unavailable, supply the known size explicitly;
+the default constructors refuse an unknown device geometry.
+
+Hardware adapters must accept caller buffers at any memory address and any
+whole-block length. Adapt alignment and DMA memory requirements using suitable
+buffers, and split transfers to fit the controller's limits. Async cancellation
+must stop hardware access to borrowed buffers before releasing them. See the
+[compiled aligned-device example](../crates/core/hadris-storage/examples/aligned_device.rs)
+and [device requirements](../website/docs/guides/custom-io.md#device-requirements).
 
 `BlockIndex` and `BlockCount` have private fields: build them with `new(n)`
 and read them with `get()`. `BlockRange` and `BlockGeometry` have accessors
@@ -356,7 +452,7 @@ the local UTC offset.
 ### Before and after
 
 ```rust
-// 2.4 (website/docs/guides/read-fat-image.md on main)
+// 2.4 (website/docs/guides/read-fat-image.md at tag v2.4.0)
 let image = File::open("disk.img").context("open disk.img")?;
 let volume = FatVolume::open(image).context("open FAT filesystem")?;
 let root = volume.root_dir();
@@ -550,7 +646,7 @@ checked against `plan`'s size before anything is written.
 ### ISO 9660
 
 ```rust
-// 2.4 (website/docs/creation/iso.md on main)
+// 2.4 (website/docs/creation/iso.md at tag v2.4.0)
 let tree = InputTree::new(PathSeparator::ForwardSlash, vec![
     InputEntry::file("README.TXT", b"Hello from Hadris\n"),
 ]);
@@ -608,7 +704,7 @@ Bootable and hybrid images: [Create an ISO](../website/docs/creation/iso.md).
 ### UDF and the bridge
 
 ```rust
-// 2.4 (website/docs/creation/udf.md on main)
+// 2.4 (website/docs/creation/udf.md at tag v2.4.0)
 let mut root = SimpleDir::root();
 root.add_file(SimpleFile::new("README.txt", b"Hello from a UDF image\n".to_vec()));
 let output = UdfWriter::create(target, &root, UdfWriteOptions::default())?;
@@ -629,7 +725,7 @@ separately; an identifier too long for its field fails with
 The `hadris-cd` writer is replaced by the bridge writer in `hadris-udf`:
 
 ```rust
-// 2.4 (crates/optical/hadris-cd/README.md on main)
+// 2.4 (crates/optical/hadris-cd/README.md at tag v2.4.0)
 let options = OpticalImageOptions::default().volume_id("MY_DISC")
     .joliet(hadris_cd::JolietLevel::Level3);
 OpticalImageWriter::new(file, options).finish(tree)?;
@@ -665,7 +761,7 @@ name buffer and optional peeked byte, which must be replayed first.
 `into_inner()` returns only the stream and discards that byte.
 
 ```rust
-// 2.4 (website/docs/guides/cpio-archives.md on main)
+// 2.4 (website/docs/guides/cpio-archives.md at tag v2.4.0)
 let tree = FileTree::from_fs(Path::new("./root"))?;
 let output = BufWriter::new(File::create("archive.cpio")?);
 CpioArchiveWriter::new(output, CpioWriteOptions::default()).finish(&tree)?;
@@ -688,7 +784,7 @@ archive back into a `Tree`.
 ### FAT and exFAT
 
 ```rust
-// 2.4 (website/docs/creation/fat.md on main)
+// 2.4 (website/docs/creation/fat.md at tag v2.4.0)
 let options = FatFormatOptions::new(SIZE)
     .volume_label("HADRIS")
     .fat_type(FatTypeSelection::Fat16);
@@ -728,7 +824,7 @@ let mut fs = FatFs::mount(dev, MountOptions::new())?;
 feature (on by default).
 
 ```rust
-// 2.4 (website/docs/guides/detect-open-images.md on main)
+// 2.4 (website/docs/guides/detect-open-images.md at tag v2.4.0)
 let format = detect::sync::detect(&mut image, 512)?;
 match format {
     Some(detect::BlockFormat::Fat(_)) => {
@@ -789,7 +885,7 @@ taken from the device. `Disk` holds a `PartitionTable` (`Mbr`, `Gpt` or
 and `scan`.
 
 ```rust
-// 2.4 (website/docs/guides/read-partition-table.md on main)
+// 2.4 (website/docs/guides/read-partition-table.md at tag v2.4.0)
 let mut disk = File::open("disk.img")?;
 let table = PartitionTable::read_from(&mut disk, 512)?;
 for partition in table.partitions() {
@@ -810,7 +906,7 @@ for partition in table.partitions() {
 Opening a filesystem inside a partition:
 
 ```rust
-// 2.4 (website/docs/guides/open-partitioned-fat.md on main)
+// 2.4 (website/docs/guides/open-partitioned-fat.md at tag v2.4.0)
 let mut view = PartitionView::new(&mut disk, byte_offset, byte_len)?;
 let opened = OpenVolume::open(&mut view, BLOCK_SIZE)?;
 let fat = opened.as_fat().context("the selected partition is not FAT")?;
@@ -921,11 +1017,16 @@ primitives in `io` and `exfat::io`, and the checkers `io::sync::check` and
 
 ## Async
 
-- `r#async` futures are `Send` when the device is. A device whose error or
-  futures are not `Send` uses the `local` traits (`hadris_io::local`,
+- `r#async` requires `Send` devices and futures. Devices and futures that
+  are not `Send` use the `local` traits (`hadris_io::local`,
   `hadris_storage::local`) and the embedded API.
-- Device errors must be `core::error::Error + Send + Sync + 'static` in the
-  shared tier.
+- The shared async filesystem tier has no `local` driver namespace. The
+  embedded FAT/exFAT API is the current local option; the general gap is
+  tracked in [issue #267](https://github.com/hxyulin/hadris/issues/267).
+- Device errors must be `core::error::Error + Send + Sync + 'static` in
+  every mode, including `local` and the embedded API. Map non-`Send`
+  errors to an owned error type that meets these bounds; selecting `local`
+  does not relax the error contract.
 - The async `ReadDir` has `next_entry().await` instead of `Iterator`.
 - The async `Volume` needs `alloc`; the sync one needs `std`.
 - The `hadris_fs::host` module is sync only. Lazy content is readable only in
@@ -933,7 +1034,7 @@ primitives in `io` and `exfat::io`, and the checkers `io::sync::check` and
   `Unsupported` before writing.
 
 ```rust
-// 2.4 (website/docs/guides/async-io.md on main)
+// 2.4 (website/docs/guides/async-io.md at tag v2.4.0)
 let volume = FatVolume::open(Cursor::new(image)).await?;
 ```
 
@@ -952,7 +1053,7 @@ The five CLI packages are replaced by one binary, `hadris`, in the
 
 ```bash
 cargo uninstall hadris-fat-cli hadris-iso-cli hadris-udf-cli hadris-cpio-cli hadris-cd-cli
-cargo install hadris-cli
+cargo install --git https://github.com/hxyulin/hadris --branch main --version 3.0.0-rc.1 hadris-cli
 ```
 
 The 2.x binaries (`hadris-fat`, `fatutil`, `hadris-iso`, `hadris-iso-cli`,

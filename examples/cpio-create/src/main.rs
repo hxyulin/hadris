@@ -3,9 +3,9 @@ use std::io::BufWriter;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
-use hadris_cpio::CpioOptions;
-use hadris_fs::host::{self, TreeOptions};
-use hadris_io::StdIo;
+use hadris::cpio::CpioOptions;
+use hadris::fs::host::{self, TreeOptions};
+use hadris::io::StdIo;
 
 fn main() -> Result<()> {
     let (source_path, archive_path) = arguments()?;
@@ -15,7 +15,7 @@ fn main() -> Result<()> {
         .with_context(|| format!("failed to create {}", archive_path.display()))?;
     let mut output = StdIo::new(BufWriter::new(output));
 
-    hadris_cpio::sync::write(&mut output, &tree, &CpioOptions::default())
+    hadris::cpio::sync::write(&mut output, &tree, &CpioOptions::default())
         .with_context(|| format!("failed to write {}", archive_path.display()))?;
 
     println!("created {}", archive_path.display());

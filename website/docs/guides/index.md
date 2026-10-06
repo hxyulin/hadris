@@ -4,8 +4,9 @@ title: Use cases
 
 # Use cases
 
-These guides start with an application task and identify the narrowest crate
-and feature set needed to complete it.
+These guides use the one-dependency umbrella with explicit feature sets for
+3.0.0-rc.1. Start with [installation](../getting-started.md) or
+[the V2 migration](../migration.md), then choose an application task.
 
 ## Discover and open storage
 

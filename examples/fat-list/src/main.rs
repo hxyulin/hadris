@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
-use hadris_fat::sync::FatFs;
-use hadris_fs::MountOptions;
-use hadris_fs::sync::Volume;
-use hadris_storage::host::FileDevice;
+use hadris::fat::sync::FatFs;
+use hadris::fs::MountOptions;
+use hadris::fs::sync::Volume;
+use hadris::storage::host::FileDevice;
 
 fn main() -> Result<()> {
     let image_path = image_path()?;

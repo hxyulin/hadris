@@ -8,6 +8,29 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- The documentation site defaults to V3 `3.0.0-rc.1`, preserves released V2
+  snapshots and redirects old `next/` guide links. Migration and task guides
+  use working source dependency recipes, one-dependency umbrella imports and
+  explicit feature tiers. A self-contained migration example verifies shared
+  FAT/ISO operations and embedded FAT handles; the basic tool examples also
+  use the umbrella.
+
+- Host file devices query physical devices' logical block sizes on Linux,
+  macOS, FreeBSD and Windows, and accept explicit image geometry through
+  `open_with_block_size` and `with_block_size`, including 4Kn GPT images.
+  Unknown device geometry is refused instead of assuming 512-byte sectors.
+- The device contract documents arbitrary buffer addresses, transfer splitting,
+  durable flushes and async buffer lifetimes, with a compiled allocation-free
+  aligned-buffer example. Migration and design docs clarify that local devices
+  and futures may be non-`Send`, while error bounds apply in every mode.
+
+- UDF create/bridge commands advertise only writable revisions through 2.01
+  and reject 2.50/2.60 during argument parsing, before accessing the source
+  or output.
+
+- ISO Rock Ridge metadata preserves the directory-record modification time
+  when a partial `TF` entry supplies only creation, access or change time.
+
 - Repository editor defaults include EditorConfig, VS Code workspace and
   conformance-suite integration, LF text attributes and focused search ignores.
   Local Nix state and nested Rust build output are ignored consistently.
@@ -17,6 +40,10 @@ Each published package owns its version and may be released independently.
 
 - Obsolete FUSE experiments and manual V2 test-image fixtures are removed;
   fuzz seeds use current crate fixtures and support an isolated output path.
+
+- ISO interoperability checks assert Rock Ridge extraction, Unicode file
+  contents, boot catalog fields and inspection command success. A historical
+  test-migration audit records coverage and manual qualification boundaries.
 
 - The Nix shell provides 7-Zip and, on Linux, exfatprogs, udftools and
   ntfs-3g for external-format qualification. The README has a source-based

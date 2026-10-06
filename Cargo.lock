@@ -473,9 +473,7 @@ name = "hadris-example-cpio-create"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "hadris-cpio",
- "hadris-fs",
- "hadris-io",
+ "hadris",
 ]
 
 [[package]]
@@ -491,9 +489,7 @@ name = "hadris-example-fat-list"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "hadris-fat",
- "hadris-fs",
- "hadris-storage",
+ "hadris",
 ]
 
 [[package]]
@@ -532,13 +528,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "hadris-example-migrate-v3"
+version = "0.0.0"
+dependencies = [
+ "hadris",
+]
+
+[[package]]
 name = "hadris-example-partition-list"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "hadris-io",
- "hadris-part",
- "hadris-storage",
+ "hadris",
 ]
 
 [[package]]
@@ -672,6 +673,7 @@ version = "3.0.0-rc.1"
 dependencies = [
  "hadris-io",
  "hadris-macros",
+ "libc",
 ]
 
 [[package]]

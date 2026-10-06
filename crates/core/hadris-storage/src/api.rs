@@ -13,8 +13,9 @@ io_transform! {
 /// A device addressed in whole logical blocks.
 ///
 /// Buffers passed to [`read_blocks`](Self::read_blocks) and
-/// [`write_blocks`](Self::write_blocks) must be a whole number of blocks, and
-/// the request must lie within the device. Every method returns
+/// [`write_blocks`](Self::write_blocks) must be a whole number of blocks.
+/// Reads must lie within `block_count`, and writes within `max_block_count`.
+/// Every method returns
 /// [`Error<Self::Error>`](Error): a device failure is
 /// [`Error::device`], and a request the device refuses itself, such as one
 /// past its end, is an [`ErrorKind`] with a location. A read-only device
@@ -22,6 +23,14 @@ io_transform! {
 /// not [`writable`](Self::writable), and the default `write_blocks`
 /// answers [`ErrorKind::ReadOnly`]. A device that accepts writes overrides
 /// `writable`, `write_blocks` and, if it buffers, `flush`.
+///
+/// Callers may pass buffers at any memory address and any whole-block length.
+/// An implementation adapts hardware alignment, DMA-accessible memory and
+/// transfer-size limits with suitable buffers and request splitting. Block
+/// size describes logical addressing, not buffer-address alignment. A failed
+/// write may have transferred some blocks; errors do not promise rollback.
+/// Async implementations must finish or stop hardware access to borrowed
+/// buffers before returning or when their future is dropped.
 pub trait BlockDevice: ErrorType {
     /// Size of one block.
     fn block_size(&self) -> BlockSize;
@@ -72,7 +81,7 @@ pub trait BlockDevice: ErrorType {
         Err(Error::new(ErrorKind::ReadOnly, "device is read-only"))
     }
 
-    /// Flushes buffered writes to the underlying storage.
+    /// Makes earlier writes durable on the underlying storage.
     ///
     /// A write-back device writes here, so it can report
     /// [`ErrorKind::ReadOnly`] too.

@@ -10,7 +10,8 @@ block operation returns `hadris_io::Error<E>` over it: `Error::device` when
 the device failed, kind `ReadOnly` when it refuses a write, and a kind with
 the block it concerns when an adapter refuses a request itself, such as one
 past the end of a `Partition`. Adapters keep the error type of the device
-underneath.
+underneath. Errors must be `core::error::Error + Send + Sync + 'static` in
+every mode. `local` permits non-`Send` devices and futures, not non-`Send` errors.
 
 A read-only device implements `block_size`, `block_count` and
 `read_blocks`, and nothing else. A device that accepts writes also
@@ -30,7 +31,7 @@ block 0 on the disk a device is a window of.
 | `Vec<u8>` | With `alloc`, an in-memory image with 512-byte blocks that grows when written past its end. Device error `Infallible` |
 | `MemDevice` | A fixed-size block device over `&[u8]` (read-only), `&mut [u8]`, `[u8; N]`, `Vec<u8>` or `Box<[u8]>`, with any block size. Device error `Infallible`; requests past the end fail with kind `InvalidInput` |
 | `Partition` | A byte window of another device, such as an MBR or GPT partition. Its offset and length are multiples of the device block size. Requests past its end never reach the device, and `disk_offset` reports its start |
-| `host::FileDevice` | With `std` and `sync`, a host image file or disk device with 512-byte blocks. `open(path)` is read-only; `new(file)` takes a file the caller opened and is writable when the file is. An image file grows when written past its end |
+| `host::FileDevice` | With `std` and `sync`, an image file (512-byte blocks by default) or disk device (OS-reported logical blocks). `open(path)` is read-only; `new(file)` takes a file the caller opened and is writable when the file is. An image file grows when written past its end |
 | `StreamDevice` | A block device over any `Read + Seek` stream, with any block size. Wrap read-only streams in `ReadOnly`; the sealed `StreamWrite` trait carries the choice |
 | `Cache` | Write-back LRU cache of whole blocks (`alloc`). Its first write goes straight through, so a read-only device says so at once. Requests of at least `capacity` blocks bypass it |
 | `ReadAhead` | Optional, write-through read buffering (`alloc`). Two windows share a configurable block budget; adjacent access enables larger reads, while scattered misses fetch only requested blocks |
@@ -40,13 +41,18 @@ block 0 on the disk a device is a window of.
 
 ## Opening an image
 
-`host::FileDevice` opens a host image file with 512-byte blocks, and its
-errors are the `std::io::Error` itself. Disk devices such as `/dev/sdb`,
+`host::FileDevice` opens a host image file with 512-byte blocks by default,
+and its errors are the `std::io::Error` itself. Use
+`FileDevice::open_with_block_size(path, BlockSize::new(4096).unwrap())` for a
+GPT image copied from a 4Kn disk, or `FileDevice::with_block_size(file, size)`
+for a file you opened. Disk devices such as `/dev/sdb`,
 `/dev/disk4`, `/dev/md0` or `\\.\PhysicalDrive1` work too:
 `host::file_len` measures them with the platform's disk size request
 (seeking to the end on Linux), since their metadata reports 0, and
-`FileDevice` refuses a device it cannot measure rather than report 0
-bytes:
+physical devices use their OS-reported logical block size on Linux, macOS,
+FreeBSD and Windows. `FileDevice` refuses unknown capacity or logical block
+size; use an explicit block-size constructor when the size is known but the
+OS query is unavailable:
 
 ```rust,no_run
 use hadris_storage::{BlockIndex, Partition};
@@ -136,3 +142,24 @@ fails, the adapter retries the original request. `get_mut()` and `clear()`
 invalidate retained data; callers must clear after changes through external
 handles. Like any read cache, it cannot detect external modifications itself.
 The same adapter is available in `sync`, `r#async`, and `local`.
+
+## Hardware adapters
+
+`BlockDevice` accepts caller buffers at any memory address and any whole-block
+length. An adapter uses suitable bounce buffers for hardware alignment or DMA
+memory restrictions and splits requests to fit transfer limits. The logical
+block size does not specify buffer-address alignment. `flush` makes earlier
+writes durable. Async adapters must finish or stop hardware access to borrowed
+buffers before returning or when their future is dropped.
+
+The [aligned-device example](examples/aligned_device.rs) adapts unaligned,
+multi-block requests to a controller requiring 64-byte alignment and one block
+per transfer. Its adapter uses only `core` and a fixed 512-byte buffer:
+
+```sh
+cargo run -p hadris-storage --no-default-features --features sync --example aligned_device
+```
+
+Raw NOR/NAND flash needs a layer providing block overwrite semantics, including
+erase handling and any required translation. It cannot be treated as an ordinary
+rewritable disk solely by implementing whole-block reads.

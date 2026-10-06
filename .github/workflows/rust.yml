@@ -245,11 +245,12 @@ jobs:
         if: needs.changes.outputs.rust == 'true' && runner.os == 'Linux'
         run: |
           truncate -s 4M "$RUNNER_TEMP/disk.img"
-          dev=$(sudo losetup --find --show "$RUNNER_TEMP/disk.img")
+          dev=$(sudo losetup --find --show --sector-size 4096 "$RUNNER_TEMP/disk.img")
           sudo chmod a+r "$dev"
           {
             echo "HADRIS_TEST_DISK=$dev"
             echo "HADRIS_TEST_DISK_LEN=4194304"
+            echo "HADRIS_TEST_DISK_BLOCK_SIZE=4096"
             echo "HADRIS_REQUIRE_TEST_DISK=1"
           } >> "$GITHUB_ENV"
       - name: Run all-feature tests
@@ -281,7 +282,8 @@ jobs:
         if: needs.changes.outputs.rust == 'true'
         shell: bash
         run: |
-          for example in apfs-inspect boot-media extract image-edit initramfs inspect sd-logger vfs-driver; do
+          cargo run --quiet -p hadris-storage --no-default-features --features sync --example aligned_device
+          for example in apfs-inspect boot-media extract image-edit initramfs inspect migrate-v3 sd-logger vfs-driver; do
             cargo run --quiet -p "hadris-example-$example"
           done
           for bin in fat fat-log fat-unicode fat-async exfat; do
@@ -309,9 +311,9 @@ jobs:
             set -e
             . "$HOME/.cargo/env"
             truncate -s 4M /tmp/disk.img
-            dev=/dev/$(mdconfig -a -t vnode -f /tmp/disk.img)
+            dev=/dev/$(mdconfig -a -t vnode -S 4096 -f /tmp/disk.img)
             export RUSTUP_TOOLCHAIN=1.97.1 HADRIS_REQUIRE_TEST_DISK=1
-            export HADRIS_TEST_DISK="$dev" HADRIS_TEST_DISK_LEN=4194304
+            export HADRIS_TEST_DISK="$dev" HADRIS_TEST_DISK_LEN=4194304 HADRIS_TEST_DISK_BLOCK_SIZE=4096
             cargo test -p hadris-storage --lib device_tests
             cargo test -p hadris-fs --features std,sync --test tree content_path
 
@@ -339,6 +341,7 @@ jobs:
           $disk = Get-DiskImage -ImagePath $vhd | Get-Disk
           "HADRIS_TEST_DISK=\\.\PhysicalDrive$($disk.Number)" >> $env:GITHUB_ENV
           "HADRIS_TEST_DISK_LEN=$($disk.Size)" >> $env:GITHUB_ENV
+          "HADRIS_TEST_DISK_BLOCK_SIZE=$($disk.LogicalSectorSize)" >> $env:GITHUB_ENV
       - name: Measure the VHD as a block device
         run: cargo test -p hadris-storage --lib device_tests
       - name: Read the VHD as tree content
@@ -573,6 +576,10 @@ jobs:
         run: cargo +nightly miri test -p hadris-fat-raw --lib
       - name: Miri - hadris-iso (on-disk layouts, name and Rock Ridge decoding)
         run: "cargo +nightly miri test -p hadris-iso --lib -- raw:: name:: rock_ridge::"
+      - name: Miri file device geometry and aligned adapter
+        run: |
+          MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test -p hadris-storage --lib file_device_explicit_block_size
+          cargo +nightly miri test -p hadris-storage --no-default-features --features sync --example aligned_device
       - name: Miri - hadris-part (on-disk layouts, CRC, UTF-16 partition names)
         run: cargo +nightly miri test -p hadris-part --lib
       - name: Miri - hadris-apfs (layouts and record decoding)
