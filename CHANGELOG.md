@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- The APFS fixture generator keeps its public test password in the fixture
+  manifest without printing it to the console.
+
 - Default-feature workspace tests gate async-only cases correctly, with a CI
   job covering the default build used by the release workflow.
 
