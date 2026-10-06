@@ -217,15 +217,23 @@ def evidence_names(value: str) -> list[str]:
 
 
 def runnable_test_names(root: Path) -> set[str]:
-    pattern = re.compile(
-        r"#\[test\]\s*(?:(?:#\[[^\]]*\]|//[^\n]*)\s*)*"
+    declaration = re.compile(
         r"(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)\b"
     )
-    return {
-        match.group(1)
-        for path in iter_rust_files(root)
-        for match in pattern.finditer(path.read_text(encoding="utf-8"))
-    }
+    tests = set()
+    for path in iter_rust_files(root):
+        pending = False
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("#[test]"):
+                pending = True
+                line = line[len("#[test]"):].strip()
+            if not line or line.startswith(("#[", "//")):
+                continue
+            if pending and (match := declaration.match(line)):
+                tests.add(match.group(1))
+            pending = False
+    return tests
 
 
 def check_evidence(root: Path, blocks: list[Block]) -> list[str]:
@@ -349,8 +357,9 @@ def _self_test() -> None:
             "#[cfg(test)]\nfn helper() {}\n"
             "#[test]\n#[cfg(feature = \"sync\")]\nfn executable() {}\n"
             "#[test]\nfn first() {}\nfn second_helper() {}\n"
+            "#[test]" + "//" * 10000 + "\nfn after_long_comment() {}\n"
         )
-        assert runnable_test_names(root) == {"executable", "first"}
+        assert runnable_test_names(root) == {"executable", "first", "after_long_comment"}
         helper = parse_blocks(
             path,
             "/// @hadris-spec X\n/// @hadris-compliance full\n"

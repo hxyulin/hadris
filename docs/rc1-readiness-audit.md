@@ -13,9 +13,9 @@ filesystem conformance. APFS and NTFS native APIs remain previews.
 
 Before publishing:
 
-1. Rebase and merge PR #271. It repairs stale catalog mappings and strengthens
-   implementation-symbol checking, and currently conflicts with the correctness
-   changes. Preserve #272's UDF fixes when resolving the conflict.
+1. Catalog repairs are complete: PR #271 merged at `6fd5254e`, including
+   stronger implementation-symbol checking and review fixes. The correctness
+   changes from #272 and the UDF buffer from #273 are preserved.
 2. Merge this annotation/documentation audit cleanup and wait for its CI.
 3. Prepare dated RC1 release notes incorporating the current Unreleased changes.
    `scripts/release-plan.py --notes 3.0.0-rc.1 all` intentionally refuses the
@@ -48,7 +48,7 @@ instances with none ignored. Sync examples appear in both generated modes;
 this does not add new async usage examples.
 
 The documentation checker originally selected 44 files and omitted most of
-`docs/`. It now checks 81 files, including every current `docs/*.md` subtree,
+`docs/`. It now checks 82 files, including every current `docs/*.md` subtree,
 CONTRIBUTING and KNOWN_ISSUES. Link existence and TOML checks pass. External
 URLs, anchors, code samples in Markdown and archived website versions are not
 validated by that script. Four example binaries also gained crate descriptions.
@@ -70,8 +70,9 @@ validated, rather than claiming the entire tag contract is verified.
 
 The annotation checker originally accepted any `fn` with a matching leaf name,
 including helpers without `#[test]`. It now requires a test attribute attached
-to the function, with regression fixtures for helpers and intervening cfg
-attributes. This remains a text checker: it does not resolve complete Rust
+to the function, with regression fixtures for helpers, intervening cfg attributes and long
+comment lines. A line-oriented scan avoids backtracking over attribute/comment
+sequences. This remains a text checker: it does not resolve complete Rust
 module paths or prove that the cited test asserts every claimed rule.
 
 The five atomic catalogs contain 88 selected requirements:
