@@ -210,6 +210,40 @@ fn root_entries(layout: &Layout, options: &ExFatOptions) -> ([RawEntry; 4], usiz
     (entries, count)
 }
 
+struct Prepared {
+    layout: Layout,
+    boot: BootSector,
+    geometry: Geometry,
+}
+
+fn prepare<D: BlockDevice>(dev: &D, options: &ExFatOptions) -> Result<Prepared, ErrorKind> {
+    let block_size = dev.block_size().get() as usize;
+    if block_size > super::block_io::MAX_BLOCK_SIZE {
+        return Err(ErrorKind::Unsupported);
+    }
+    let device_bytes = volume_bytes(
+        options.size,
+        block_size as u64,
+        dev.block_count(),
+        dev.max_block_count(),
+    )?;
+    let layout = plan(device_bytes, block_size as u32, options)?;
+    let partition_offset = offset_sectors(
+        options.partition_offset.unwrap_or(dev.disk_offset()),
+        layout.sector(),
+    )?;
+    let serial = options
+        .serial
+        .unwrap_or_else(|| serial(options.time, options.seed));
+    let boot = boot_sector(&layout, partition_offset, serial);
+    let geometry = raw::parse_boot(&boot).map_err(|_| ErrorKind::InvalidInput)?;
+    Ok(Prepared {
+        layout,
+        boot,
+        geometry,
+    })
+}
+
 io_transform! {
 
 /// Formats `dev` as an exFAT volume and returns its geometry. Needs no
@@ -241,14 +275,12 @@ pub(crate) async fn format_volume<D: BlockDevice>(
     dev: &mut D,
     options: &ExFatOptions,
 ) -> FsResult<(Geometry, u64), D::Error> {
-    let block_size = dev.block_size().get() as usize;
-    let mut block = new_block(block_size)?;
-    let device_bytes = volume_bytes(options.size, block_size as u64, dev.block_count(), dev.max_block_count())?;
-    let layout = plan(device_bytes, block_size as u32, options)?;
-    let partition_offset = offset_sectors(options.partition_offset.unwrap_or(dev.disk_offset()), layout.sector())?;
-    let serial = options.serial.unwrap_or_else(|| serial(options.time, options.seed));
-    let boot = boot_sector(&layout, partition_offset, serial);
-    let geometry = raw::parse_boot(&boot).map_err(|_| ErrorKind::InvalidInput)?;
+    format_prepared(dev, options, prepare(dev, options)?).await
+}
+
+async fn format_prepared<D: BlockDevice>(dev: &mut D, options: &ExFatOptions, prepared: Prepared) -> FsResult<(Geometry, u64), D::Error> {
+    let Prepared { layout, boot, geometry } = prepared;
+    let mut block = new_block(dev.block_size().get() as usize)?;
     let block = &mut block;
     let sector = layout.sector();
     let region = raw::BOOT_REGION_SECTORS * sector;
@@ -344,10 +376,10 @@ mod tree {
     use hadris_fs::{MountOptions, PathError, Report, Tree};
 
     use super::super::ExFatFs;
-    use super::super::fatmkfs::{stamped, tree_seed};
+    use super::super::fatmkfs::{Capacity, check_capacity, stamped, tree_seed};
     use super::super::fsapi::{FileSystem, copy_tree};
     use super::super::storage::BlockDevice;
-    use super::format_volume;
+    use super::{format_prepared, prepare, root_entries};
     use crate::exfat::ExFatOptions;
 
     io_transform! {
@@ -366,11 +398,24 @@ mod tree {
     /// names are skipped, and fields exFAT does not store are dropped.
     /// Fails as `format` and `copy_tree` do, with the tree path of the node
     /// that failed.
+    ///
+    /// Advertised file lengths and directory storage are checked against the
+    /// prepared layout before formatting. A known oversized tree fails with
+    /// `NoSpace` without changing the destination. Content is not opened during
+    /// this check; changed sources or later I/O failures can still leave a
+    /// partially formatted or copied volume.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat", level = "trace", skip_all))]
     pub async fn write<D: BlockDevice>(mut out: D, tree: &Tree, options: &ExFatOptions) -> Result<Report, PathError> {
         let options = options.with_seed(tree_seed(options.time, options.seed, tree));
         let tree = stamped(tree, options.time)?;
-        let (_, volume) = format_volume(&mut out, &options).await?;
+        let prepared = prepare(&out, &options)?;
+        let layout = &prepared.layout;
+        check_capacity(&tree, Capacity {
+            cluster: layout.cluster(), clusters: u64::from(layout.cluster_count - (layout.used() - 1)),
+            root_slots: None, root_entries: root_entries(layout, &options).1 as u64, subdir_entries: 0,
+            max_dir_entries: hadris_fat_raw::exfat::MAX_DIRECTORY_SIZE / 32, max_file: u64::MAX,
+        }, |name| hadris_fat_raw::exfat::NameUnits::encode(name).map(|name| 2 + name.entries() as u32))?;
+        let (_, volume) = format_prepared(&mut out, &options, prepared).await?;
         let mut fs = ExFatFs::mount(out, MountOptions::new()).await?;
         let root = fs.root();
         let mut report = copy_tree(&tree, &mut fs, root).await?;
