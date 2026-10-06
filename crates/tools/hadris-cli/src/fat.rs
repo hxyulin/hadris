@@ -127,8 +127,11 @@ enum Commands {
 #[derive(clap::Args)]
 struct ExtractCache {
     /// Disable all optional FAT extraction caches
-    #[arg(long, conflicts_with_all = ["cache_blocks", "cache_chain_positions", "cache_directory_entries", "no_directory_hint"])]
+    #[arg(long, conflicts_with_all = ["cache_blocks", "cache_chain_positions", "cache_directory_entries", "no_directory_hint", "read_ahead_blocks"])]
     no_cache: bool,
+    /// Total storage read-ahead budget in logical blocks (default: 0)
+    #[arg(long)]
+    read_ahead_blocks: Option<usize>,
     /// FAT metadata-block cache capacity (default: 0)
     #[arg(long)]
     cache_blocks: Option<usize>,
@@ -193,17 +196,24 @@ pub fn run(cli: Args) -> Result<()> {
             output,
             path,
             cache,
-        } => match open(&image)? {
-            Volume::Fat(fs) => {
+        } => {
+            let exfat = is_exfat(&boot_sector(&image)?);
+            if exfat && cache.fat_only() {
+                bail!("FAT cache settings apply to FAT12/16/32 images, not exFAT");
+            }
+            let file = FileDevice::open(&image).context("Failed to open image file")?;
+            let dev =
+                hadris_storage::sync::ReadAhead::new(file, cache.read_ahead_blocks.unwrap_or(0));
+            let options = MountOptions::new().with_clock(&SystemClock).read_only();
+            if exfat {
+                let fs =
+                    ExFatFs::mount(dev, options).context("Failed to parse exFAT filesystem")?;
+                cmd_extract(fs, &output, path.as_deref())
+            } else {
+                let fs = FatFs::mount(dev, options).context("Failed to parse FAT filesystem")?;
                 cmd_extract(fs.with_cache(cache.options()), &output, path.as_deref())
             }
-            Volume::ExFat(fs) => {
-                if cache.fat_only() {
-                    bail!("FAT cache settings apply to FAT12/16/32 images, not exFAT");
-                }
-                cmd_extract(*fs, &output, path.as_deref())
-            }
-        },
+        }
         Commands::Create {
             source,
             target,

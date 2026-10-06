@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- FAT/exFAT extraction exposes optional storage buffering with
+  `--read-ahead-blocks`, defaulting to zero.
+
 - Storage supports optional, bounded adaptive read-ahead in all I/O modes.
   Writes always go directly to the underlying device.
 

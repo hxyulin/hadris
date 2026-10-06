@@ -227,6 +227,9 @@ fn extract_cache_settings_are_configurable() {
         &[],
         &["--no-cache"],
         &["--no-directory-hint"],
+        &["--read-ahead-blocks", "0"],
+        &["--read-ahead-blocks", "1"],
+        &["--read-ahead-blocks", "128"],
         &[
             "--cache-blocks",
             "1",
@@ -268,6 +271,17 @@ fn extract_cache_settings_are_configurable() {
     ]);
     assert!(!result.status.success());
     assert!(!out.exists());
+    let result = run(&[
+        "extract",
+        fx.image(),
+        "-o",
+        text(&out),
+        "--no-cache",
+        "--read-ahead-blocks",
+        "0",
+    ]);
+    assert!(!result.status.success());
+    assert!(!out.exists());
 }
 
 #[test]
@@ -287,4 +301,23 @@ fn extract_refuses_fat_cache_settings_on_exfat() {
     assert!(!out.exists());
     stdout_of(&["extract", fx.image(), "-o", text(&out), "--no-cache"]);
     assert_eq!(std::fs::read(out.join("top.txt")).unwrap(), b"top");
+}
+
+#[test]
+fn exfat_extraction_accepts_storage_read_ahead() {
+    let fx = Fixture::exfat();
+    let out = fx.dir("read-ahead");
+    stdout_of(&[
+        "extract",
+        fx.image(),
+        "-o",
+        text(&out),
+        "--read-ahead-blocks",
+        "128",
+    ]);
+    assert_eq!(std::fs::read(out.join("top.txt")).unwrap(), b"top");
+    assert_eq!(
+        std::fs::read(out.join("Sub/deep/data.bin")).unwrap(),
+        vec![7u8; 10_000]
+    );
 }
