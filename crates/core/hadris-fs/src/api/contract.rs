@@ -2,9 +2,13 @@
 //! the [`FileSystem`] contract against a writable filesystem, and
 //! [`check_read_only`] the rules that hold for a read-only one.
 //!
-//! ```rust,ignore
+//! ```rust,no_run
+//! # #[cfg(feature = "sync")]
+//! # fn example<F: hadris_fs::sync::FileSystem, G: hadris_fs::sync::FileSystem>(mut fat: F, mut iso: G) -> Result<(), hadris_fs::ContractViolation> {
 //! hadris_fs::sync::contract::check(&mut fat)?;
 //! hadris_fs::sync::contract::check_read_only(&mut iso)?;
+//! # Ok(())
+//! # }
 //! ```
 
 use super::*;

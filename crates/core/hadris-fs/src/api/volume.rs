@@ -92,11 +92,16 @@ io_transform! {
 /// [`Resolve`] policy given to [`with_resolve`](Self::with_resolve),
 /// [`Resolve::Lexical`] for [`new`](Self::new).
 ///
-/// ```rust,ignore
+/// ```rust,no_run
+/// use hadris_fs::sync::{FileSystem, Volume};
+/// use hadris_fs::{FsResult, OpenOptions};
+/// # fn example<F: FileSystem>(fs: F) -> FsResult<(), F::DeviceError> {
 /// let vol = Volume::new(fs);
 /// let mut log = vol.open("/log.txt", OpenOptions::new().write().create().append())?;
 /// log.write(b"hello\n")?;
 /// log.close()?;
+/// # Ok(())
+/// # }
 /// ```
 pub struct Volume<F> {
     shared: Arc<Shared<F>>,

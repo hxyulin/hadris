@@ -8,6 +8,22 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+## [3.0.0-rc.1] - 2026-10-06
+
+The first release candidate of the 3.0 API. Every published crate moves to
+`3.0.0-rc.1` together; `hadris-fat-raw` is new and starts at 0.1.0. After
+3.0.0 each crate versions independently. This section describes 3.0 as a
+whole against 2.4. The
+[migration guide](docs/hadris-3.0.0-migration.md) maps every 2.4 crate, item
+and command to its 3.0 replacement, and
+[`docs/v3-api-design.md`](docs/v3-api-design.md) records the design.
+
+### Candidate updates
+
+- Compile-check V3 API examples, expand documentation link validation and
+  require runnable tests as specification-annotation evidence. Add conservative
+  CPIO/APFS annotations and refresh UDF tag-validation coverage.
+
 - UDF readers reuse a bounded, allocation-free directory-sector buffer to
   reduce repeated file-identifier reads without changing validation or file I/O.
 
@@ -326,16 +342,6 @@ Each published package owns its version and may be released independently.
   allocation and the tail link when their entries share a device block in
   every written FAT copy, reducing metadata reads and writes without extra
   driver state. FAT12 and cross-block links retain the separate-write path.
-
-## [3.0.0-rc.1] - Unreleased
-
-The first release candidate of the 3.0 API. Every published crate moves to
-`3.0.0-rc.1` together; `hadris-fat-raw` is new and starts at 0.1.0. After
-3.0.0 each crate versions independently. This section describes 3.0 as a
-whole against 2.4. The
-[migration guide](docs/hadris-3.0.0-migration.md) maps every 2.4 crate, item
-and command to its 3.0 replacement, and
-[`docs/v3-api-design.md`](docs/v3-api-design.md) records the design.
 
 ### Added
 

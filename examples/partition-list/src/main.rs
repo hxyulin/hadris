@@ -1,3 +1,5 @@
+//! List partitions in a disk image.
+
 use std::fs::File;
 use std::path::PathBuf;
 

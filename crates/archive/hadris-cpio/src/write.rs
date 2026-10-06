@@ -20,10 +20,20 @@ const CHUNK: usize = 64 * 1024;
 /// the [`Report`]. Inodes are numbered from 1. After an error the archive
 /// is incomplete.
 ///
-/// ```rust,ignore
+/// ```rust,no_run
+/// # #[cfg(all(feature = "sync", feature = "std"))]
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use hadris_cpio::{CpioOptions, sync::Writer};
+/// use hadris_fs::{Content, Node, Permissions, SetAttr};
+/// # let out = hadris_io::StdIo::new(Vec::new());
+/// # let content = Content::bytes(b"init".to_vec());
 /// let mut writer = Writer::new(out, &CpioOptions::new());
 /// writer.append("init", &Node::file(content).with_attrs(SetAttr::new().with_permissions(Permissions::new(0o755))))?;
 /// let (out, report) = writer.finish()?;
+/// # Ok(())
+/// # }
+/// # #[cfg(not(all(feature = "sync", feature = "std")))]
+/// # fn main() {}
 /// ```
 pub struct Writer<W> {
     out: W,

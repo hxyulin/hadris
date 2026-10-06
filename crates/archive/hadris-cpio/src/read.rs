@@ -25,11 +25,19 @@ enum State {
 /// left unread is skipped by the next call. After an error it returns no
 /// more entries.
 ///
-/// ```rust,ignore
+/// ```rust,no_run
+/// # #[cfg(all(feature = "sync", feature = "std"))]
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use hadris_cpio::sync::CpioReader;
+/// # let input = hadris_io::Cursor::new(&b""[..]);
 /// let mut reader = CpioReader::new(input);
 /// while let Some(mut entry) = reader.next_entry()? {
 ///     println!("{}", entry.path_str().unwrap_or("?"));
 /// }
+/// # Ok(())
+/// # }
+/// # #[cfg(not(all(feature = "sync", feature = "std")))]
+/// # fn main() {}
 /// ```
 pub struct CpioReader<R, B = [u8; PATH_MAX]> {
     reader: R,

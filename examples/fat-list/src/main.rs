@@ -1,3 +1,5 @@
+//! List files in a FAT volume image.
+
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};

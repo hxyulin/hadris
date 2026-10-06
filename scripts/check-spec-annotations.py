@@ -216,11 +216,29 @@ def evidence_names(value: str) -> list[str]:
     return [part.strip().strip("`") for part in value.split(",") if part.strip()]
 
 
+def runnable_test_names(root: Path) -> set[str]:
+    declaration = re.compile(
+        r"(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)\b"
+    )
+    tests = set()
+    for path in iter_rust_files(root):
+        pending = False
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("#[test]"):
+                pending = True
+                line = line[len("#[test]"):].strip()
+            if not line or line.startswith(("#[", "//")):
+                continue
+            if pending and (match := declaration.match(line)):
+                tests.add(match.group(1))
+            pending = False
+    return tests
+
+
 def check_evidence(root: Path, blocks: list[Block]) -> list[str]:
     errors: list[str] = []
-    rust_text = "\n".join(
-        path.read_text(encoding="utf-8") for path in iter_rust_files(root)
-    )
+    tests = runnable_test_names(root)
     fuzz_targets = {
         path.stem for path in (root / "fuzz" / "fuzz_targets").glob("*.rs")
     }
@@ -228,7 +246,7 @@ def check_evidence(root: Path, blocks: list[Block]) -> list[str]:
     for block in blocks:
         for reference in evidence_names(block.tags.get("hadris-tests", "")):
             function = reference.rsplit("::", 1)[-1]
-            if not re.search(rf"\bfn\s+{re.escape(function)}\b", rust_text):
+            if function not in tests:
                 line = block.tag_lines.get("hadris-tests", block.start_line)
                 errors.append(
                     f"{block.path}:{line}: cited test {reference!r} does not name "
@@ -245,9 +263,7 @@ def check_evidence(root: Path, blocks: list[Block]) -> list[str]:
 
 
 def check_coverage_evidence(root: Path, coverage_path: Path) -> list[str]:
-    rust_text = "\n".join(
-        path.read_text(encoding="utf-8") for path in iter_rust_files(root)
-    )
+    tests = runnable_test_names(root)
     fuzz_targets = {
         path.stem for path in (root / "fuzz" / "fuzz_targets").glob("*.rs")
     }
@@ -255,7 +271,7 @@ def check_coverage_evidence(root: Path, coverage_path: Path) -> list[str]:
     for row in coverage_rows(coverage_path):
         for reference in evidence_names(row.tests):
             function = reference.rsplit("::", 1)[-1]
-            if not re.search(rf"\bfn\s+{re.escape(function)}\b", rust_text):
+            if function not in tests:
                 errors.append(
                     f"{coverage_path}: {row.spec} cites test {reference!r}, "
                     "which does not name a Rust test function"
@@ -331,6 +347,25 @@ def _self_test() -> None:
     assert any("fuzzing alone" in error for error in check_block(fuzz_only))
 
     assert evidence_names("foo::one, `bar::two`") == ["foo::one", "bar::two"]
+
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "crates").mkdir()
+        (root / "crates" / "fixture.rs").write_text(
+            "#[cfg(test)]\nfn helper() {}\n"
+            "#[test]\n#[cfg(feature = \"sync\")]\nfn executable() {}\n"
+            "#[test]\nfn first() {}\nfn second_helper() {}\n"
+            "#[test]" + "//" * 10000 + "\nfn after_long_comment() {}\n"
+        )
+        assert runnable_test_names(root) == {"executable", "first", "after_long_comment"}
+        helper = parse_blocks(
+            path,
+            "/// @hadris-spec X\n/// @hadris-compliance full\n"
+            "/// @hadris-tests fixture::helper\n",
+        )[0]
+        assert len(check_evidence(root, [helper])) == 1
 
     print("self-test: ok")
 

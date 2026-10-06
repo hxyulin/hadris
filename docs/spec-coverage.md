@@ -74,7 +74,7 @@ Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 | ECMA-167:4/14.5 | `AllocationExtentDescriptor` | partial | `read::allocation_descriptors_of_every_form_read_back` | `udf_read` | Followed from continuation extents of every allocation descriptor form, with a bound on the chain length; not written. |
 | ECMA-167:4/14.16.1 | `PathComponent` | partial | `name::tests::symlink_targets_round_trip` | `udf_read` | Root, parent, current and named components are read and written; component versions are ignored. |
 | ECMA-167:3/7.2.1 | `tag` | partial | `raw::tests::tag_seal_and_parse_roundtrip` | `udf_read` | Every identifier of ECMA-167 parts 3 and 4 is named; the reader checks the identifier each context requires. |
-| ECMA-167:3/7.2 | `Tag` | partial | `raw::tests::tag_seal_and_parse_roundtrip`, `errors::malformed_volumes_are_refused` | `udf_read` | The checksum, CRC, identifier, version, reserved byte and location are checked for every volume, file set, file entry and allocation extent descriptor; identifier descriptors are not checked for their location. |
+| ECMA-167:3/7.2 | `Tag` | partial | `raw::tests::tag_seal_and_parse_roundtrip`, `errors::malformed_volumes_are_refused`, `errors::malformed_identifier_fields_are_refused` | `udf_read` | The checksum, CRC, identifier, version, reserved byte and location are checked for volume, file set, file entry, allocation extent and file identifier descriptors; tag serial-number semantics are not validated. |
 | ECMA-167:3/7.1 | `ExtentAd` | partial |  | `udf_read` | Extents of the volume descriptor sequences and the integrity sequence are followed; their bounds are checked against the device. |
 | ECMA-167:4/14.14.1 | `ShortAd` | partial | `read::allocation_descriptors_of_every_form_read_back` | `udf_read` | The four extent types are read; allocated-not-recorded and unallocated extents read as zeros, and a continuation leads to an allocation extent descriptor. |
 | ECMA-167:4/14.14.2 | `LongAd` | partial | `read::allocation_descriptors_of_every_form_read_back` | `udf_read` | The partition reference is checked against the logical volume's partition maps; the implementation use bytes are written for UDF 2.00 and later and ignored on read. |
@@ -130,3 +130,12 @@ Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 |------|------|------------|-------|------|-------|
 | Apple-APFS:nx_superblock_t | `ContainerSuperblock` | partial | | | Parses checkpoint geometry and the software keylocker range; Fusion and other container extensions remain unsupported. |
 | Apple-APFS:Encryption | `Keybag` | partial | | | Validates software keybags and unwraps single-key password records; hardware and per-file keys are unsupported. |
+| Apple-APFS:apfs_superblock_t | `VolumeSuperblock` | partial | `driver::generic_driver_contract_and_sealed_tree`, `driver::multi_volume_mount_requires_an_explicit_selection_and_returns_the_device` | | Parses the volume superblock fields needed by the read-only driver; snapshots, writable volume operations and hardware encryption are unsupported. |
+
+## hadris-cpio
+
+| Spec | Item | Compliance | Tests | Fuzz | Notes |
+|------|------|------------|-------|------|-------|
+| LINUX-INITRAMFS:newc-header | `NewcHeader` | partial | `roundtrip::malformed_headers_are_corrupt`, `roundtrip::crc_reader_rejects_corrupt_data` | | Parses and writes hexadecimal newc and crc header fields; archive-level padding, names and checksums are validated by the streaming reader. |
+| GNU-CPIO:odc-header | `OdcHeader` | partial | `roundtrip::odc_and_binary_archives_read`, `roundtrip::every_format_reads_back` | | Parses and writes octal odc fields within their format limits; archive-level name and payload validation belongs to the streaming reader. |
+| GNU-CPIO:binary-header | `BinaryHeader` | partial | `roundtrip::odc_and_binary_archives_read` | | Reads old binary fields in both byte orders; binary writing is unsupported. |

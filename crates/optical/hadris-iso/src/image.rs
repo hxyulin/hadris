@@ -119,11 +119,22 @@ async fn read_info<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>>
 /// longer than [`DirEntry::MAX_NAME`] bytes lists and looks up under the
 /// record's ISO 9660 identifier instead.
 ///
-/// ```rust,ignore
+/// ```rust,no_run
+/// # #[cfg(all(feature = "sync", feature = "std"))]
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use hadris_iso::sync::IsoFs;
+/// use hadris_fs::sync::FileSystem;
+/// use hadris_fs::{MountOptions, OpenMode, Resolve};
+/// # let dev = hadris_storage::MemDevice::new(vec![0; 1024 * 1024], hadris_storage::BlockSize::new(512).unwrap());
 /// let mut iso = IsoFs::mount(dev, MountOptions::new())?;
 /// let node = iso.resolve(b"/boot/grub/grub.cfg", Resolve::Lexical)?;
 /// iso.open(node, OpenMode::Read)?;
+/// let mut buf = [0; 64];
 /// let n = iso.read(node, 0, &mut buf)?;
+/// # Ok(())
+/// # }
+/// # #[cfg(not(all(feature = "sync", feature = "std")))]
+/// # fn main() {}
 /// ```
 #[derive(Debug)]
 pub struct IsoFs<D> {
