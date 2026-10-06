@@ -184,6 +184,13 @@ Workloads are `create-image`, `extract-tree`, `lookup-all`, and `copy-tree`.
 are Hadris-only. Setting `HADRIS_TESTS_PROFILE_CACHE` enables 256 chain
 positions and enough directory-index entries for this fixture.
 `HADRIS_TESTS_PROFILE_BLOCKS` selects the metadata-block bound (default 16).
+`HADRIS_TESTS_PROFILE_POSITIONS` selects the chain-position bound (default 256),
+and `HADRIS_TESTS_PROFILE_DIRECTORY_ENTRIES` selects the directory-prefix bound
+(default: the fixture entry count). Each bound accepts zero to disable that
+component; `HADRIS_TESTS_PROFILE_CACHE` must still be set.
+`HADRIS_TESTS_PROFILE_SAMPLES=N` replaces the duration limit with one warm-up
+and exactly `N` measured operations. Discard the first `PROFILE_SAMPLE` when
+summarizing that mode; every operation, including warm-up, is logged.
 Caching is available for lookup, extraction and copy-tree. The copy-tree
 probe formats, mounts and copies a previously prepared host tree, allowing
 cache configuration before copying. It does not reproduce the public writer's
@@ -311,3 +318,90 @@ from the ASCII insertion index: it represents OEM byte `0xE5`, which a custom
 code page can decode to an ASCII character. Such directories now use regular
 planning, preserving case-insensitive duplicate rejection. The regression
 fails before the fix and passes with it, including a targeted Miri run.
+
+
+## FAT extraction profiling after the bulk-write fixes
+
+The [per-trial measurements](benchmarks/fat-extraction-profile.csv) from the
+2026-10-06 follow-up measured the merged `695a5d3f` drivers on the same
+Apple M3 Pro with Rust 1.88.0, optimized builds and debug symbols. Only the
+profiling runner changed: independent cache bounds and a fixed sample count.
+The FAT32 image contains 1,000 seven-byte ASCII 8.3 files and one 128 KiB
+payload. Every operation remounts the image and extracts to a fresh host
+directory. Timing includes mount, root listing, lookup/open/read/close/forget
+and host file creation/writes; destination cleanup and final validation are
+outside the timer. OS caches remain warm. The source image passes the raw FAT
+oracle, extracted paths and contents match the fixture, and all recorded
+operations reject I/O failures. This is the root-only peer extraction workflow,
+not the public lazy-tree extraction API or a nested-directory measurement.
+
+Two unprofiled trials used 21 measured operations plus one discarded warm-up
+per configuration; the second trial reversed configuration order:
+
+| Cache configuration | Trial 1 median | Trial 2 median | Image reads | Requested image bytes |
+|---|---:|---:|---:|---:|
+| Disabled | 112.30 ms | 112.64 ms | 63,916 | 32,839,680 |
+| Full directory index only, 1,001 entries | 59.82 ms | 60.51 ms | 2,226 | 1,254,400 |
+| Directory index plus 16 blocks and 256 chain positions | 59.55 ms | 59.57 ms | 1,181 | 719,360 |
+| Directory index only, bounded to 256 entries | 88.97 ms | 88.60 ms | 36,220 | 18,659,328 |
+
+The full directory index alone removes 96.5% of image reads and makes this
+workflow about 1.86 times faster. Adding the other caches roughly halves the
+remaining reads but changes elapsed time by less than 1 ms in these trials.
+A 256-entry prefix helps less once the directory exceeds its bound.
+
+Separate two-second diagnostic runs, repeated in reverse order, isolated all
+three cache components and varied the number of small files. Their image-read
+counts matched between trials:
+
+| Small files | Disabled | Directory index only, full | 16 blocks only | 256 chain positions only | All caches, full index |
+|---|---:|---:|---:|---:|---:|
+| 32 | 148 | 110 | 73 | 148 | 73 |
+| 256 | 4,488 | 600 | 845 | 4,488 | 331 |
+| 1,000 | 63,916 | 2,226 | 35,317 | 63,916 | 1,181 |
+| 4,000 | 1,005,540 | 8,790 | 572,396 | 1,005,540 | 4,607 |
+
+With 4,000 files, a 256-entry directory index still requests 881,844 reads.
+The diagnostic runs had variable sample counts, as few as one measured
+operation for the largest uncached configurations, and substantial timing
+variation. Use them as I/O scaling evidence; the fixed-count table above is
+the elapsed-time comparison. Caching chain positions alone does not reduce
+reads in this sequential fixture; that says nothing about random access or
+fragmented large files.
+
+Five-second macOS stack samples, collected separately from the timing trials,
+show name lookup at about 46% of uncached operation samples and host file
+creation/writing at about 51%. With the full directory index alone, lookup
+falls to about 2.5% and host creation/writing rises to about 95%. Directory
+cleanup appears in sampled stacks but is excluded from these operation shares
+and the timer. These are inclusive sampled-stack shares, not tracing spans or
+an exact CPU accounting. A separate indexed lookup-only sample over 4,001
+entries spends most samples in `lookup`; the index still searches its parsed
+entries linearly in memory. It does not dominate the cached extraction run.
+
+The extraction loop first lists entries and then calls `lookup` for each name.
+Without the optional index, `find_entry` starts a new directory scan on every
+lookup, explaining the approximately quadratic image-read growth. `readdir`
+already parsed the entry but currently does not feed that information into
+lookup. A focused next experiment should retain enough information from the
+most recent listing to accelerate an immediate lookup, preserving normal
+name/alias matching, fallback, mutation invalidation and corruption checks.
+This could benefit sequential traversal with a small fixed memory bound.
+Enabling a full-directory index internally remains an alternative, with
+memory proportional to the configured bound. Nested trees, long names,
+fragmentation and cache overflow need measurements before choosing a default
+or changing the driver. No production behavior changed in this profiling pass.
+
+To reproduce the directory-only fixed-count trial:
+
+```sh
+HADRIS_TESTS_PERF_FILES=1000 HADRIS_TESTS_PROFILE_WORKLOAD=extract-tree \
+HADRIS_TESTS_PROFILE_SAMPLES=21 HADRIS_TESTS_PROFILE_CACHE=1 \
+HADRIS_TESTS_PROFILE_BLOCKS=0 HADRIS_TESTS_PROFILE_POSITIONS=0 \
+HADRIS_TESTS_PROFILE_DIRECTORY_ENTRIES=1001 \
+  cargo bench --manifest-path tests/Cargo.toml --bench peers
+```
+
+Unset `HADRIS_TESTS_PROFILE_CACHE` for the uncached trial. For the combined
+trial set blocks to 16 and positions to 256; for the bounded-prefix trial
+set directory entries to 256 while leaving the other bounds at zero.

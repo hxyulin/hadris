@@ -17,12 +17,20 @@ pub(super) fn run() {
     let seconds = std::env::var("HADRIS_TESTS_PROFILE_SECONDS")
         .map_or(10, |text| text.parse::<u64>().unwrap());
     assert!(seconds > 0);
+    let samples = std::env::var("HADRIS_TESTS_PROFILE_SAMPLES")
+        .ok()
+        .map(|text| text.parse::<usize>().unwrap());
+    assert!(samples != Some(0));
     let cached = std::env::var_os("HADRIS_TESTS_PROFILE_CACHE").is_some();
     assert!(!cached || (peer == Peer::Hadris && workload != "create-image"));
     assert!(workload != "copy-tree" || peer == Peer::Hadris);
     let blocks = std::env::var("HADRIS_TESTS_PROFILE_BLOCKS")
         .map_or(16, |text| text.parse::<usize>().unwrap());
+    let positions = std::env::var("HADRIS_TESTS_PROFILE_POSITIONS")
+        .map_or(256, |text| text.parse::<usize>().unwrap());
     let fixture = Fixture::new();
+    let directory_entries = std::env::var("HADRIS_TESTS_PROFILE_DIRECTORY_ENTRIES")
+        .map_or(fixture.entries.len(), |text| text.parse::<usize>().unwrap());
     let workspace = Workspace::new("performance", "profile").unwrap();
     let source = workspace.path.join("source");
     write_host_tree(&source, &fixture.entries).unwrap();
@@ -49,12 +57,15 @@ pub(super) fn run() {
         assert_eq!(actual, fixture.entries);
     }
     eprintln!(
-        "PROFILE_READY pid={} peer={implementation} workload={workload} cached={cached}",
+        "PROFILE_READY pid={} peer={implementation} workload={workload} cached={cached} blocks={blocks} positions={positions} directory_entries={directory_entries}",
         std::process::id()
     );
     let start = Instant::now();
     let mut iterations = 0;
-    while start.elapsed().as_secs() < seconds {
+    while samples.map_or_else(
+        || start.elapsed().as_secs() < seconds,
+        |samples| iterations <= samples,
+    ) {
         if destination.exists() {
             fs::remove_dir_all(&destination).unwrap();
         }
@@ -68,8 +79,8 @@ pub(super) fn run() {
                 fs = fs.with_cache(
                     hadris_fat::CacheOptions::new()
                         .with_blocks(blocks)
-                        .with_chain_positions(256)
-                        .with_directory_entries(fixture.entries.len()),
+                        .with_chain_positions(positions)
+                        .with_directory_entries(directory_entries),
                 );
             }
             let root = fs.root();
@@ -88,8 +99,8 @@ pub(super) fn run() {
                 fs = fs.with_cache(
                     hadris_fat::CacheOptions::new()
                         .with_blocks(blocks)
-                        .with_chain_positions(256)
-                        .with_directory_entries(fixture.entries.len()),
+                        .with_chain_positions(positions)
+                        .with_directory_entries(directory_entries),
                 );
             }
             if workload == "lookup-all" {

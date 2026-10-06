@@ -20,6 +20,9 @@ Each published package owns its version and may be released independently.
 - Hosted FAT entry insertion resumes from the directory position reached by its
   planner, avoiding a second traversal of the directory chain.
 
+- FAT32 profiling accepts independent cache bounds and fixed sample counts,
+  with extraction timing, I/O scaling and sampled-stack results documented.
+
 - The peer performance runner supports sustained FAT32 profiling loops and
   controlled cache probes, with setup and validation outside the profile window.
 
