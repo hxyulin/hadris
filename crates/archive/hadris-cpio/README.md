@@ -128,3 +128,10 @@ I/O counts, workload boundaries and native `cpio` interoperability checks.
 
 Hard links share one payload in `newc` and checksum `newc`; `odc` stores a
 payload for every name, with each name reporting its own data offset.
+
+## Standalone codecs
+
+The on-disk layouts and I/O-free codecs live in
+[`hadris-cpio-raw`](../hadris-cpio-raw). Existing `hadris_cpio::raw`
+paths remain available and refer to the same types. The raw crate needs
+neither an allocator nor a sync/async feature.

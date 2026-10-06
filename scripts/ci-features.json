@@ -290,6 +290,16 @@
   ],
   "optical": [
     {
+      "crate": "hadris-udf-raw",
+      "tier": "no-std-codecs",
+      "features": ""
+    },
+    {
+      "crate": "hadris-iso-raw",
+      "tier": "no-std-codecs",
+      "features": ""
+    },
+    {
       "crate": "hadris-iso",
       "tier": "no-std-sync",
       "features": "sync"
@@ -381,6 +391,11 @@
     }
   ],
   "archive": [
+    {
+      "crate": "hadris-cpio-raw",
+      "tier": "no-std-codecs",
+      "features": ""
+    },
     {
       "crate": "hadris-cpio",
       "tier": "no-std-sync-reader",

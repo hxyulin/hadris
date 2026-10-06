@@ -1,0 +1,19 @@
+[package]
+name = "hadris-udf-raw"
+version = "0.1.0"
+description = "UDF on-disk layouts and I/O-free codecs"
+readme = "README.md"
+keywords = ["udf", "no-std", "parser"]
+categories = ["no-std", "parser-implementations"]
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+
+[dependencies]
+bitflags = { workspace = true }
+bytemuck = { workspace = true, features = ["derive", "min_const_generics"] }

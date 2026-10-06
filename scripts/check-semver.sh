@@ -51,16 +51,19 @@ crates=(
   hadris-apfs
   hadris-common
   hadris-cpio
+  hadris-cpio-raw
   hadris-fat
   hadris-fat-raw
   hadris-fs
   hadris-io
   hadris-iso
+  hadris-iso-raw
   hadris-macros
   hadris-ntfs
   hadris-part
   hadris-storage
   hadris-udf
+  hadris-udf-raw
 )
 
 metadata="$(cargo metadata --no-deps --format-version 1)"

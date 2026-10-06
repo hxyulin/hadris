@@ -382,7 +382,8 @@ Branch from `main` and target it for V3 changes. The `v2` branch preserves the
   ```bash
   cargo +nightly miri test -p hadris-common --lib
   cargo +nightly miri test -p hadris-fat-raw --lib
-  cargo +nightly miri test -p hadris-iso --lib -- raw:: name:: rock_ridge::
+  cargo +nightly miri test -p hadris-iso-raw --lib
+  cargo +nightly miri test -p hadris-iso --lib -- name:: rock_ridge::
   cargo +nightly miri test -p hadris-part --lib
   cargo +nightly miri test -p hadris-ntfs --lib
   ```

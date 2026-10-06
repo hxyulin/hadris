@@ -333,3 +333,10 @@ with bsdtar and xorriso confirms that these readers ignore the marker and contin
 using the standard Rock Ridge names and links.
 Older images that contain only relocated children have no reliable way to
 prove that the container was also an empty user directory.
+
+## Standalone codecs
+
+The on-disk layouts and I/O-free codecs live in
+[`hadris-iso-raw`](../hadris-iso-raw). Existing `hadris_iso::raw`
+paths remain available and refer to the same types. The raw crate needs
+neither an allocator nor a sync/async feature.
