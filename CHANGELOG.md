@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- Update current installation guides and the README to use the published
+  V3 RC1 packages and CLI from crates.io.
+
 ## [3.0.0-rc.1] - 2026-10-06
 
 The first release candidate of the 3.0 API. Every published crate moves to

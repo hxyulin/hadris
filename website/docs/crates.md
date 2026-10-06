@@ -8,7 +8,7 @@ Start with `hadris` for one dependency that exposes the native format APIs,
 block devices and shared filesystem types. Disable defaults and select only
 the needed formats. Choose individual crates when independent versioning or
 an explicit dependency on one layer is useful. The
-[getting-started recipe](./getting-started.md) uses the source-only rc.1 manifests.
+[getting-started recipe](./getting-started.md) selects the published rc.1 packages from crates.io.
 
 ![Hadris architecture: applications use the umbrella crate over block, optical, and archive formats backed by shared I/O, block devices, and filesystem APIs](/img/architecture-v3.svg)
 
@@ -38,7 +38,7 @@ Examples include `hadris-fat`, `hadris-part`, `hadris-iso`, `hadris-udf`, and
 
 ```toml
 [dependencies]
-hadris-fat = { version = "3.0.0-rc.1", git = "https://github.com/hxyulin/hadris", branch = "main" }
+hadris-fat = { version = "3.0.0-rc.1" }
 ```
 
 ## The umbrella crate
@@ -49,8 +49,6 @@ open unknown images, or benefits from a single dependency declaration.
 ```toml
 [dependencies.hadris]
 version = "3.0.0-rc.1"
-git = "https://github.com/hxyulin/hadris"
-branch = "main"
 default-features = false
 features = ["std", "sync", "detect", "part"]
 ```

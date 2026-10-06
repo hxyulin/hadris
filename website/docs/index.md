@@ -22,8 +22,8 @@ directly to the [use-case guides](./guides/index.md).
 :::note Stability
 
 These pages describe the 3.0 API, whose first release candidate is
-`3.0.0-rc.1`. The candidate is currently available from source; the
-[installation recipe](./getting-started.md) includes the Git dependency.
+`3.0.0-rc.1`, published on crates.io. The
+[installation recipe](./getting-started.md) selects that prerelease explicitly.
 V2 `2.5.0` is the published stable library version and remains in the version
 selector. The [migration guide](./migration.md) covers the upgrade from 2.4/2.5. In 3.0, exFAT is stable in `hadris-fat`, and the
 `hadris-ntfs` reader stays a preview outside the stability promise. See

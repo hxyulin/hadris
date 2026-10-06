@@ -20,8 +20,6 @@ for the additional dependency and feature recipe.
 ```toml
 [dependencies.hadris]
 version = "3.0.0-rc.1"
-git = "https://github.com/hxyulin/hadris"
-branch = "main"
 default-features = false
 features = ["alloc", "async", "fat"]
 ```
