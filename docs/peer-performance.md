@@ -178,7 +178,8 @@ failures. Extraction cleanup between operations appears in sampled stacks but
 is outside each `PROFILE_SAMPLE` timer. Do not treat sampled operation timings
 as an unprofiled performance baseline.
 
-Workloads are `create-image`, `extract-tree`, `lookup-all`, and `copy-tree`.
+Workloads are `create-image`, `extract-tree`, `extract-lazy-tree`, `lookup-all`,
+and `copy-tree`. The public lazy-tree extraction probe is documented below.
 `HADRIS_TESTS_PROFILE_PEER` selects `hadris` (default),
 `rust-fatfs/unbuffered` or `rust-fatfs/buffered`; lookup and copy-tree probes
 are Hadris-only. Setting `HADRIS_TESTS_PROFILE_CACHE` enables 256 chain
@@ -405,3 +406,82 @@ HADRIS_TESTS_PROFILE_DIRECTORY_ENTRIES=1001 \
 Unset `HADRIS_TESTS_PROFILE_CACHE` for the uncached trial. For the combined
 trial set blocks to 16 and positions to 256; for the bounded-prefix trial
 set directory entries to 256 while leaving the other bounds at zero.
+
+
+## Configurable listing hint for hosted FAT extraction
+
+The driver now offers `CacheOptions::sequential()`: one lazily allocated
+listed-entry hint, with the directory-prefix, block and chain caches disabled.
+`with_directory_hint(bool)` is independent of those bounds. Direct mounts
+remain uncached. FAT CLI extraction selects the sequential preset by default
+and exposes explicit bounds plus `--no-directory-hint` and `--no-cache`.
+The hint reuses the existing name/alias matcher, retains one parsed short entry
+and at most 255 UTF-16 units, and is cleared before mutations, during recovery,
+on explicit cache clearing, and when listing fails or ends. Nonmatching names
+and other directories retain regular lookup. It does not bypass directory
+walking or its cycle checks.
+
+On this 64-bit Mac, compiler layout output reports 88 bytes for the heap-allocated
+hint. A short name needs no additional name allocation; a maximum-length long
+name adds 510 bytes, for 598 bytes excluding allocator overhead. The allocation
+for the hint itself is reused between successful listings. Long names are copied
+into separate bounded allocations. No hint storage is allocated until listing
+an entry with the option enabled. This cost is independent of directory size.
+
+The [per-trial measurements](benchmarks/fat-extraction-cache.csv) below use the
+public lazy-tree workflow: `read_tree` on a mounted `Volume`, then host
+`write_tree`. This includes tree construction, metadata reads, lazy file reads,
+and host creation, permissions and timestamp restoration. It differs from the
+root-only peer extraction loop above, so compare configurations within this
+workflow rather than treating these timings as a regression against that loop.
+The counter uses an `Arc<Mutex<IoCounts>>` because lazy volume content requires
+a `Send` driver; its lock overhead is included consistently in every configuration.
+Fixture creation, destination cleanup and final validation remain outside the
+timer. Each input passes the independent raw FAT oracle; every output matches
+all paths and contents, and every recorded operation rejects I/O failures.
+
+On 2026-10-06, the same M3 Pro/Rust 1.88.0 configuration ran two trials per
+layout, with 21 measured operations after one discarded warm-up. Configuration
+order was reversed for the second trial. Every layout has 1,000 seven-byte files
+and a 128 KiB payload. Nested layouts distribute them across eight directories,
+each containing a `nested` child; the long-name layout uses Unicode long names.
+OS caches remain warm.
+
+| Layout | Configuration | Trial 1 median | Trial 2 median | Image reads |
+|---|---|---:|---:|---:|
+| Root, short names | Disabled | 130.52 ms | 129.66 ms | 63,871 |
+| Root, short names | Listing hint only | 77.66 ms | 77.21 ms | 1,133 |
+| Root, short names | Directory index only | 78.18 ms | 78.26 ms | 1,257 |
+| Root, short names | All caches and listing hint | 77.67 ms | 77.53 ms | 1,079 |
+| Nested, short names | Disabled | 86.65 ms | 86.14 ms | 9,113 |
+| Nested, short names | Listing hint only | 79.09 ms | 79.67 ms | 1,154 |
+| Nested, short names | Directory index only | 79.79 ms | 79.74 ms | 1,266 |
+| Nested, short names | All caches and listing hint | 79.87 ms | 79.81 ms | 1,090 |
+| Nested, long names | Disabled | 108.81 ms | 108.68 ms | 33,265 |
+| Nested, long names | Listing hint only | 81.07 ms | 81.65 ms | 1,537 |
+| Nested, long names | Directory index only | 81.94 ms | 82.51 ms | 2,281 |
+| Nested, long names | All caches and listing hint | 81.57 ms | 82.09 ms | 1,300 |
+
+Directory-only trials configure 1,001 entries; combined trials add 16 metadata
+blocks, 256 chain positions and the hint. The hint removes 98.2% of root image
+reads and makes root extraction about 1.68 times faster without allocating the
+roughly 94 KiB full index. Nested directories need fewer uncached rescans, so
+the elapsed gain is smaller. The full caches do not show a material additional
+time benefit for these sequential fixtures. They remain useful options for
+other patterns; fragmentation and random-lookup workloads need their own trials.
+
+To reproduce a fixed-count nested long-name hint trial:
+
+```sh
+HADRIS_TESTS_PERF_FILES=1000 HADRIS_TESTS_PROFILE_WORKLOAD=extract-lazy-tree \
+HADRIS_TESTS_PROFILE_SAMPLES=21 HADRIS_TESTS_PROFILE_DIRECTORIES=8 \
+HADRIS_TESTS_PROFILE_LONG_NAMES=1 HADRIS_TESTS_PROFILE_CACHE=1 \
+HADRIS_TESTS_PROFILE_DIRECTORY_HINT=1 HADRIS_TESTS_PROFILE_BLOCKS=0 \
+HADRIS_TESTS_PROFILE_POSITIONS=0 HADRIS_TESTS_PROFILE_DIRECTORY_ENTRIES=0 \
+  cargo bench --manifest-path tests/Cargo.toml --bench peers
+```
+
+Unset `HADRIS_TESTS_PROFILE_CACHE` for the baseline. Set directories to zero and
+unset long names for the root fixture. Directory/long-name fixture controls are
+restricted to `extract-lazy-tree`. An unset directory-hint control disables
+that component even when the other caches are enabled.

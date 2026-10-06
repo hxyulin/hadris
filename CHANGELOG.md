@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- FAT profiling includes the public lazy-tree extraction workflow, nested and
+  long-name fixtures, and comparisons of independently configured caches.
+
 - `hadris fat extract` enables the sequential listing hint by default and accepts
   independent cache bounds, `--no-directory-hint`, and `--no-cache`.
 

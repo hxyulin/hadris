@@ -3,7 +3,14 @@ use super::*;
 pub(super) fn run() {
     let workload = std::env::var("HADRIS_TESTS_PROFILE_WORKLOAD").unwrap();
     assert!(
-        ["create-image", "copy-tree", "extract-tree", "lookup-all"].contains(&workload.as_str())
+        [
+            "create-image",
+            "copy-tree",
+            "extract-tree",
+            "extract-lazy-tree",
+            "lookup-all"
+        ]
+        .contains(&workload.as_str())
     );
     let implementation =
         std::env::var("HADRIS_TESTS_PROFILE_PEER").unwrap_or_else(|_| "hadris".into());
@@ -13,7 +20,9 @@ pub(super) fn run() {
         "rust-fatfs/buffered" => Peer::RustFatfsBuffered,
         _ => panic!("unsupported profile peer"),
     };
-    assert!(workload != "lookup-all" || peer == Peer::Hadris);
+    assert!(
+        !["lookup-all", "extract-lazy-tree"].contains(&workload.as_str()) || peer == Peer::Hadris
+    );
     let seconds = std::env::var("HADRIS_TESTS_PROFILE_SECONDS")
         .map_or(10, |text| text.parse::<u64>().unwrap());
     assert!(seconds > 0);
@@ -28,9 +37,50 @@ pub(super) fn run() {
         .map_or(16, |text| text.parse::<usize>().unwrap());
     let positions = std::env::var("HADRIS_TESTS_PROFILE_POSITIONS")
         .map_or(256, |text| text.parse::<usize>().unwrap());
-    let fixture = Fixture::new();
+    let mut fixture = Fixture::new();
+    let directories = std::env::var("HADRIS_TESTS_PROFILE_DIRECTORIES")
+        .map_or(0, |text| text.parse::<usize>().unwrap());
+    assert!(directories <= 1000);
+    let long_names = std::env::var_os("HADRIS_TESTS_PROFILE_LONG_NAMES").is_some();
+    assert!((directories == 0 && !long_names) || workload == "extract-lazy-tree");
+    if directories != 0 || long_names {
+        fixture.entries = fixture
+            .entries
+            .into_iter()
+            .enumerate()
+            .map(|(i, (path, entry))| {
+                let name = if long_names && !path.ends_with(fixture::PAYLOAD) {
+                    format!("Résumé long filename {i:07}.txt")
+                } else {
+                    path.trim_start_matches('/').to_owned()
+                };
+                let path = if directories == 0 {
+                    format!("/{name}")
+                } else {
+                    format!("/D{:07}/nested/{name}", i % directories)
+                };
+                (path, entry)
+            })
+            .collect();
+        for i in 0..directories {
+            fixture.entries.insert(
+                format!("/D{i:07}"),
+                hadris_tests::harness::EntryData::Directory,
+            );
+            fixture.entries.insert(
+                format!("/D{i:07}/nested"),
+                hadris_tests::harness::EntryData::Directory,
+            );
+        }
+    }
+    let directory_hint = std::env::var_os("HADRIS_TESTS_PROFILE_DIRECTORY_HINT").is_some();
     let directory_entries = std::env::var("HADRIS_TESTS_PROFILE_DIRECTORY_ENTRIES")
         .map_or(fixture.entries.len(), |text| text.parse::<usize>().unwrap());
+    let cache_options = hadris_fat::CacheOptions::new()
+        .with_blocks(blocks)
+        .with_chain_positions(positions)
+        .with_directory_entries(directory_entries)
+        .with_directory_hint(directory_hint);
     let workspace = Workspace::new("performance", "profile").unwrap();
     let source = workspace.path.join("source");
     write_host_tree(&source, &fixture.entries).unwrap();
@@ -46,7 +96,7 @@ pub(super) fn run() {
     let (tree, skipped) =
         hadris_fs::host::read_tree(&source, &hadris_fs::host::TreeOptions::new()).unwrap();
     assert!(skipped.is_empty());
-    if workload == "extract-tree" || workload == "lookup-all" {
+    if ["extract-tree", "extract-lazy-tree", "lookup-all"].contains(&workload.as_str()) {
         fat_job(Peer::Hadris, "create-image", &common, work);
         let snapshot = hadris_tests::fat::spec::snapshot(&common, 32).unwrap();
         let actual: std::collections::BTreeMap<_, _> = snapshot
@@ -57,7 +107,7 @@ pub(super) fn run() {
         assert_eq!(actual, fixture.entries);
     }
     eprintln!(
-        "PROFILE_READY pid={} peer={implementation} workload={workload} cached={cached} blocks={blocks} positions={positions} directory_entries={directory_entries}",
+        "PROFILE_READY pid={} peer={implementation} workload={workload} cached={cached} blocks={blocks} positions={positions} directory_entries={directory_entries} directory_hint={directory_hint}",
         std::process::id()
     );
     let start = Instant::now();
@@ -76,12 +126,7 @@ pub(super) fn run() {
             hadris_fat::sync::format(&mut dev, &fat_options(work.case)).unwrap();
             let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
             if cached {
-                fs = fs.with_cache(
-                    hadris_fat::CacheOptions::new()
-                        .with_blocks(blocks)
-                        .with_chain_positions(positions)
-                        .with_directory_entries(directory_entries),
-                );
+                fs = fs.with_cache(cache_options);
             }
             let root = fs.root();
             hadris_fs::sync::copy_tree(&tree, &mut fs, root).unwrap();
@@ -91,17 +136,30 @@ pub(super) fn run() {
                 io: Some(counts.get()),
                 ..Outcome::default()
             }
+        } else if workload == "extract-lazy-tree" {
+            let counts = std::sync::Arc::new(std::sync::Mutex::new(IoCounts::default()));
+            let dev = SendCounted {
+                inner: FileDevice::open(&common).unwrap(),
+                counts: counts.clone(),
+            };
+            let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
+            if cached {
+                fs = fs.with_cache(cache_options);
+            }
+            let vol = hadris_fs::sync::Volume::new(fs);
+            let tree = hadris_fs::sync::read_tree(&vol, "/").unwrap();
+            hadris_fs::host::write_tree(&destination, &tree).unwrap();
+            let io = *counts.lock().unwrap();
+            Outcome {
+                io: Some(io),
+                ..Outcome::default()
+            }
         } else if workload == "lookup-all" || (workload == "extract-tree" && cached) {
             assert!(peer == Peer::Hadris);
             let (dev, counts) = Counted::new(FileDevice::open(&common).unwrap());
             let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
             if cached {
-                fs = fs.with_cache(
-                    hadris_fat::CacheOptions::new()
-                        .with_blocks(blocks)
-                        .with_chain_positions(positions)
-                        .with_directory_entries(directory_entries),
-                );
+                fs = fs.with_cache(cache_options);
             }
             if workload == "lookup-all" {
                 let root = fs.root();
@@ -142,7 +200,7 @@ pub(super) fn run() {
         );
         iterations += 1;
     }
-    if workload == "extract-tree" {
+    if workload == "extract-tree" || workload == "extract-lazy-tree" {
         assert_eq!(snapshot_host(&destination).unwrap(), fixture.entries);
     }
     if workload == "create-image" || workload == "copy-tree" {
@@ -156,4 +214,59 @@ pub(super) fn run() {
         assert_eq!(actual, fixture.entries);
     }
     eprintln!("PROFILE_DONE iterations={iterations}");
+}
+
+struct SendCounted {
+    inner: FileDevice,
+    counts: std::sync::Arc<std::sync::Mutex<IoCounts>>,
+}
+
+impl hadris_io::ErrorType for SendCounted {
+    type Error = std::io::Error;
+}
+
+impl hadris_storage::sync::BlockDevice for SendCounted {
+    fn block_size(&self) -> hadris_storage::BlockSize {
+        self.inner.block_size()
+    }
+    fn block_count(&self) -> u64 {
+        self.inner.block_count()
+    }
+    fn disk_offset(&self) -> u64 {
+        self.inner.disk_offset()
+    }
+    fn writable(&self) -> bool {
+        self.inner.writable()
+    }
+    fn read_blocks(
+        &mut self,
+        first: hadris_storage::BlockIndex,
+        buf: &mut [u8],
+    ) -> Result<(), hadris_io::Error<Self::Error>> {
+        let result = self.inner.read_blocks(first, buf);
+        let mut counts = self.counts.lock().unwrap();
+        counts.read_calls += 1;
+        counts.read_bytes += buf.len() as u64;
+        counts.failures += u64::from(result.is_err());
+        result
+    }
+    fn write_blocks(
+        &mut self,
+        first: hadris_storage::BlockIndex,
+        buf: &[u8],
+    ) -> Result<(), hadris_io::Error<Self::Error>> {
+        let result = self.inner.write_blocks(first, buf);
+        let mut counts = self.counts.lock().unwrap();
+        counts.write_calls += 1;
+        counts.write_bytes += buf.len() as u64;
+        counts.failures += u64::from(result.is_err());
+        result
+    }
+    fn flush(&mut self) -> Result<(), hadris_io::Error<Self::Error>> {
+        let result = self.inner.flush();
+        let mut counts = self.counts.lock().unwrap();
+        counts.flush_calls += 1;
+        counts.failures += u64::from(result.is_err());
+        result
+    }
 }
