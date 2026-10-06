@@ -1309,7 +1309,7 @@ mod interrupted {
                     for detail in findings(case, &image) {
                         assert!(
                             allowed.contains(&detail)
-                                || [K::FatCopiesDiffer, K::FreeCount].contains(&detail),
+                                || [K::FatCopiesDiffer, K::FreeCount, K::Dirty].contains(&detail),
                             "{context}: {detail:?}"
                         );
                     }

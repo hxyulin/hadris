@@ -174,16 +174,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
             Ok(fat) => fat,
             Err(error) => return Err(MountError::new(error, dev)),
         };
-        let kind = geo.kind();
-        let mut entry = [0u8; 4];
-        let at = geo.fat_copy(geo.active_fat()) + kind.entry_offset(1);
-        let was_dirty = match kind.clean_bit() {
-            0 => false,
-            clean => match rawio::read_bytes(&mut dev, &mut block, at, &mut entry[..kind.entry_len()]).await {
-                Ok(()) => kind.decode(1, &entry) & clean == 0,
-                Err(error) => return Err(MountError::new(error, dev)),
-            },
-        };
+        let was_dirty = fat.was_dirty();
         Ok(Self {
             owner,
             read_only: options.is_read_only() || !dev.writable(),
@@ -749,7 +740,11 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// open and dropped files and the FAT32 FSInfo free count, and flushes
     /// the device.
     ///
-    /// A read-only volume is not written: `sync` fails with
+    /// FAT16/32 is marked clean after these writes are flushed, unless it
+    /// was dirty at mount or recovery encountered unrecoverable corruption.
+    ///
+    /// A read-only volume is not written: a pending dirty-marker update
+    /// also prevents a successful sync or unmount. `sync` fails with
     /// [`ErrorKind::ReadOnly`] when a refused write left file sizes, or
     /// what an interrupted operation left, unwritten, and succeeds otherwise.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all))]
@@ -763,7 +758,8 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         }
         let written = rawio::write_fs_info(&mut self.dev, &mut self.block, &mut self.fat).await;
         self.note(written)?;
-        self.flush_device().await
+        let cleared = rawio::clear_dirty(&mut self.dev, &mut self.block, &mut self.fat).await;
+        self.note(cleared)
     }
 
     fn kind(&self) -> FatKind {
@@ -781,7 +777,8 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// Whether a file's size, or what an interrupted operation left, is not
     /// yet written.
     fn unwritten(&self) -> bool {
-        !self.pending.is_none()
+        self.fat.needs_sync()
+            || !self.pending.is_none()
             || self.run.is_some()
             || self.rename.is_some()
             || self.fat.unmirrored().is_some()
@@ -1114,6 +1111,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         if len == 0 {
             return Ok(hint);
         }
+        self.begin_write().await?;
         let cluster_size = self.fat.geometry().cluster_size();
         let shift = self.fat.geometry().cluster_shift();
         let mut hint = hint;
@@ -1347,6 +1345,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         let checksum = entry.lfn_checksum();
         let mut walk = DirWalk::new(dir);
         let mut written = 0;
+        self.begin_write().await?;
         let rename = &mut self.rename;
         let result = rawio::write_slots(
             &mut self.dev,
@@ -1396,6 +1395,9 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
 
     /// Marks slots `from..to` of `dir` deleted.
     async fn clear(&mut self, dir: DirStart, from: u32, to: u32) -> FsResult<(), D::Error> {
+        if from < to {
+            self.begin_write().await?;
+        }
         let result = rawio::clear_slots(&mut self.dev, &mut self.block, &self.fat, dir, from, to).await;
         self.note(result)
     }
@@ -1512,6 +1514,9 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     }
 
     async fn put(&mut self, offset: u64, data: &[u8]) -> FsResult<(), D::Error> {
+        if !data.is_empty() {
+            self.begin_write().await?;
+        }
         let result = rawio::write_bytes(&mut self.dev, &mut self.block, offset, data).await;
         self.note(result)
     }
@@ -1526,6 +1531,11 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
             return Ok(());
         }
         let result = self.dev.flush().await;
+        self.note(result)
+    }
+
+    async fn begin_write(&mut self) -> FsResult<(), D::Error> {
+        let result = rawio::begin_write(&mut self.dev, &mut self.block, &mut self.fat).await;
         self.note(result)
     }
 
@@ -1553,6 +1563,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     async fn recover(&mut self) -> FsResult<(), D::Error> {
         match self.finish_interrupted().await {
             Err(err) if err.kind() == ErrorKind::Corrupt => {
+                self.fat.preserve_dirty();
                 self.fat.forget_unmirrored();
                 self.run = None;
                 self.rename = None;

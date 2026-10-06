@@ -105,11 +105,24 @@ pub struct Fat {
     info_dirty: bool,
     unmirrored: Option<(u32, u32)>,
     split: Option<(u32, u32, bool)>,
+    dirty: Dirty,
+    was_dirty: bool,
+    keep_dirty: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Dirty {
+    Clean,
+    Marking,
+    Marked,
+    Clearing,
+    Preserve,
 }
 
 impl Fat {
     /// The state of a volume with geometry `geo`: free count unknown and
-    /// allocation starting at cluster 2.
+    /// allocation starting at cluster 2. Use `read_fat` when mounting to
+    /// retain the on-disk dirty state.
     pub const fn new(geo: Geometry) -> Self {
         Self {
             geo,
@@ -119,12 +132,30 @@ impl Fat {
             info_dirty: false,
             unmirrored: None,
             split: None,
+            dirty: Dirty::Clean,
+            was_dirty: false,
+            keep_dirty: false,
         }
     }
 
     /// The volume's geometry.
     pub const fn geometry(&self) -> &Geometry {
         &self.geo
+    }
+
+    /// Whether the FAT16/32 clean bit was clear when `read_fat` read it.
+    pub const fn was_dirty(&self) -> bool {
+        self.was_dirty
+    }
+
+    /// Whether a dirty marker this state manages still needs synchronization.
+    pub const fn needs_sync(&self) -> bool {
+        matches!(self.dirty, Dirty::Marking | Dirty::Marked | Dirty::Clearing)
+    }
+
+    /// Keeps the volume marked dirty after recovery encounters corruption.
+    pub fn preserve_dirty(&mut self) {
+        self.keep_dirty = true;
     }
 
     /// Records a serial written to the boot sector.
@@ -457,9 +488,10 @@ pub mod sync {
     pub use block::{load, read_bytes, store, write_bytes, write_zeros};
     pub use check::check;
     pub use fat::{
-        allocate, allocate_after, allocate_run, allocate_run_after, clear_slots, count_free,
-        free_chain, get, get_copy, mirror, mkfs, next, read_backup_geometry, read_fat,
-        read_geometry, read_slot, run, set, slot_offset, walk, write_fs_info, write_slots,
+        allocate, allocate_after, allocate_run, allocate_run_after, begin_write, clear_dirty,
+        clear_slots, count_free, free_chain, get, get_copy, mirror, mkfs, next,
+        read_backup_geometry, read_fat, read_geometry, read_slot, run, set, slot_offset, walk,
+        write_fs_info, write_slots,
     };
 }
 
@@ -486,9 +518,10 @@ pub mod r#async {
     pub use block::{load, read_bytes, store, write_bytes, write_zeros};
     pub use check::check;
     pub use fat::{
-        allocate, allocate_after, allocate_run, allocate_run_after, clear_slots, count_free,
-        free_chain, get, get_copy, mirror, mkfs, next, read_backup_geometry, read_fat,
-        read_geometry, read_slot, run, set, slot_offset, walk, write_fs_info, write_slots,
+        allocate, allocate_after, allocate_run, allocate_run_after, begin_write, clear_dirty,
+        clear_slots, count_free, free_chain, get, get_copy, mirror, mkfs, next,
+        read_backup_geometry, read_fat, read_geometry, read_slot, run, set, slot_offset, walk,
+        write_fs_info, write_slots,
     };
 }
 
@@ -514,9 +547,10 @@ pub mod local {
     pub use block::{load, read_bytes, store, write_bytes, write_zeros};
     pub use check::check;
     pub use fat::{
-        allocate, allocate_after, allocate_run, allocate_run_after, clear_slots, count_free,
-        free_chain, get, get_copy, mirror, mkfs, next, read_backup_geometry, read_fat,
-        read_geometry, read_slot, run, set, slot_offset, walk, write_fs_info, write_slots,
+        allocate, allocate_after, allocate_run, allocate_run_after, begin_write, clear_dirty,
+        clear_slots, count_free, free_chain, get, get_copy, mirror, mkfs, next,
+        read_backup_geometry, read_fat, read_geometry, read_slot, run, set, slot_offset, walk,
+        write_fs_info, write_slots,
     };
 }
 

@@ -595,17 +595,7 @@ impl<D: BlockDevice> FatFs<D> {
             Err(error) => return Err(MountError::new(error, dev.inner)),
         };
         let read_only = read_only || (backup && fat.geometry().kind() == FatKind::Fat32);
-        let geo = *fat.geometry();
-        let kind = geo.kind();
-        let mut entry = [0u8; 4];
-        let at = geo.fat_copy(geo.active_fat()) + kind.entry_offset(1);
-        let was_dirty = match kind.clean_bit() {
-            0 => false,
-            clean => match read_bytes(&mut dev, &mut block, at, &mut entry[..kind.entry_len()]).await {
-                Ok(()) => kind.decode(1, &entry) & clean == 0,
-                Err(error) => return Err(MountError::new(error, dev.inner)),
-            },
-        };
+        let was_dirty = fat.was_dirty();
         Ok(Self {
             dev,
             fat,
@@ -1101,7 +1091,8 @@ impl<D: BlockDevice> FatFs<D> {
     /// Whether a node's size, or what an interrupted operation left, is not
     /// yet written.
     fn unwritten(&self) -> bool {
-        self.pending.is_some()
+        self.fat.needs_sync()
+            || self.pending.is_some()
             || self.run.is_some()
             || self.rename.is_some()
             || self.fat.unmirrored().is_some()
@@ -1125,6 +1116,7 @@ impl<D: BlockDevice> FatFs<D> {
     async fn recover(&mut self) -> FsResult<(), D::Error> {
         match self.finish_interrupted().await {
             Err(err) if err.kind() == ErrorKind::Corrupt => {
+                self.fat.preserve_dirty();
                 self.fat.forget_unmirrored();
                 self.run = None;
                 self.rename = None;
@@ -1218,10 +1210,7 @@ impl<D: BlockDevice> FatFs<D> {
                 None => true,
             };
             if !short {
-                let cleared =
-                    rawio::clear_slots(&mut self.dev, &mut self.block, &self.fat, run.dir, run.first, run.short)
-                        .await;
-                self.note(cleared)?;
+                self.clear_slots(run.dir, run.first, run.short).await?;
             }
             self.run = None;
         }
@@ -1398,8 +1387,16 @@ impl<D: BlockDevice> FatFs<D> {
     }
 
     async fn put_data(&mut self, offset: u64, data: Option<&[u8]>, len: usize) -> FsResult<(), D::Error> {
+        if len > 0 {
+            self.begin_write().await?;
+        }
         self.invalidate_directory();
         let result = write_bytes(&mut self.dev, &mut self.block, offset, data, len).await;
+        self.note(result)
+    }
+
+    async fn begin_write(&mut self) -> FsResult<(), D::Error> {
+        let result = rawio::begin_write(&mut self.dev, &mut self.block, &mut self.fat).await;
         self.note(result)
     }
 
@@ -1864,6 +1861,7 @@ impl<D: BlockDevice> FatFs<D> {
                 {
                     pending.owner = Owner::Entry(offset);
                 }
+                self.begin_write().await?;
                 let rename = &mut self.rename;
                 let result = rawio::write_slots(
                     &mut self.dev,
@@ -1911,6 +1909,9 @@ impl<D: BlockDevice> FatFs<D> {
 
     /// Marks slots `from..to` of `dir` deleted.
     async fn clear_slots(&mut self, dir: DirStart, from: u32, to: u32) -> FsResult<(), D::Error> {
+        if from < to {
+            self.begin_write().await?;
+        }
         self.append_index = None;
         self.invalidate_directory();
         let result = rawio::clear_slots(&mut self.dev, &mut self.block, &self.fat, dir, from, to).await;
@@ -2293,6 +2294,7 @@ impl<D: BlockDevice> FatFs<D> {
         if len == 0 {
             return Ok(hint);
         }
+        self.begin_write().await?;
         let cluster_size = self.fat.geometry().cluster_size() as u64;
         let mut hint = hint;
         let mut done = 0;
@@ -3027,7 +3029,11 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
     /// others: its pending size is dropped, the rest is written, and `sync`
     /// then fails with [`ErrorKind::Corrupt`].
     ///
-    /// A read-only volume is not written: `sync` fails with
+    /// FAT16/32 is marked clean after these writes are flushed, unless it
+    /// was dirty at mount or recovery encountered unrecoverable corruption.
+    ///
+    /// A read-only volume is not written: a pending dirty-marker update
+    /// also prevents a successful sync or unmount. `sync` fails with
     /// [`ErrorKind::ReadOnly`] when a refused write left pending sizes, or
     /// what an interrupted operation left, unwritten, and succeeds otherwise.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all))]
@@ -3048,8 +3054,14 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
         }
         let written = rawio::write_fs_info(&mut self.dev, &mut self.block, &mut self.fat).await;
         self.note(written)?;
-        self.flush_device().await?;
-        corrupt.map_or(Ok(()), Err)
+        if let Some(err) = corrupt {
+            self.fat.preserve_dirty();
+            let flushed = rawio::clear_dirty(&mut self.dev, &mut self.block, &mut self.fat).await;
+            self.note(flushed)?;
+            return Err(err);
+        }
+        let cleared = rawio::clear_dirty(&mut self.dev, &mut self.block, &mut self.fat).await;
+        self.note(cleared)
     }
 }
 

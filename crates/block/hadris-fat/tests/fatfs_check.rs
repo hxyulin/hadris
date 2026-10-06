@@ -871,7 +871,7 @@ fn interrupted_operations_leave_only_repairable_leftovers() {
                 for finding in &found {
                     let k = finding.detail;
                     assert!(
-                        allowed.contains(&k) || common_leftovers.contains(&k),
+                        allowed.contains(&k) || common_leftovers.contains(&k) || k == K::Dirty,
                         "{context}: {finding:?}"
                     );
                 }

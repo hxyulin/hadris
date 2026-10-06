@@ -33,6 +33,11 @@ Each published package owns its version and may be released independently.
 - exFAT allocation skips clusters marked bad in the FAT even when their bitmap
   bit is clear, for both single-cluster and batched allocations.
 
+- Hosted and embedded FAT16/32 drivers flush the dirty marker before writes
+  and restore the clean bit after a successful sync or unmount. Interrupted
+  marker updates are retried; volumes dirty at mount or with unrecoverable
+  corruption stay dirty. Other reserved bits and inactive FATs are preserved.
+
 - V3 development, documentation and releases now use `main`; the `v2` branch
   preserves the previous maintenance line. Unreleased documentation keeps its
   `/next/` URL.

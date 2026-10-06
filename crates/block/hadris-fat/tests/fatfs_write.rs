@@ -1589,7 +1589,7 @@ fn close_writes_the_entry_without_a_flush() {
     fs.forget(node, 1);
     assert_eq!(fs.open_nodes(), 1, "a published node is clean");
     let dev = fs.into_inner();
-    assert_eq!(dev.flushes, 0);
+    assert_eq!(dev.flushes, 1, "only the first dirty marker is flushed");
     let image = dev.inner.into_inner();
     let mut fresh = open(case, image.clone());
     assert_eq!(fresh.read_to_vec("/log.txt").unwrap(), b"published");
@@ -1647,7 +1647,7 @@ fn refused_writes_make_the_volume_read_only() {
     assert_eq!(kinds, [ErrorKind::ReadOnly; 5]);
     assert_eq!(fs.statfs().unwrap(), stats);
     assert_eq!(read_all(&mut fs, file), b"hello fat");
-    fs.sync().unwrap();
+    assert_eq!(fs.sync().unwrap_err().kind(), ErrorKind::ReadOnly);
     fs.forget(file, 1);
     assert_eq!(fs.open_nodes(), 1);
     assert_eq!(fs.into_inner().inner.into_inner(), before);
@@ -2583,11 +2583,6 @@ fn unmount_after_a_refusal_fails_while_sizes_are_unwritten() {
         assert!(fs.is_read_only());
         fs.forget(lower, 1);
         fs.forget(grown, 1);
-        if !dirty {
-            assert_eq!(fs.sync().map_err(|err| err.kind()), Ok(()));
-            fs.unmount().unwrap();
-            continue;
-        }
         assert_eq!(fs.sync().unwrap_err().kind(), ErrorKind::ReadOnly);
         let err = fs.unmount().unwrap_err();
         assert_eq!(err.kind(), ErrorKind::ReadOnly);

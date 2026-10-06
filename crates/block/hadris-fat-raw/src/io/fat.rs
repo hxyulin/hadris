@@ -8,7 +8,7 @@ use crate::date;
 use crate::detail::Detail;
 use crate::dirent::{ATTR_VOLUME_ID, ENTRY_FREE, ENTRY_SIZE};
 use crate::entry::{ChainError, FIRST_DATA_CLUSTER, FatKind};
-use crate::io::{BlockBuf, ChainPos, ClusterGroup, DirStart, DirWalk, Fat, Held};
+use crate::io::{BlockBuf, ChainPos, ClusterGroup, DirStart, DirWalk, Dirty, Fat, Held};
 use crate::layout::{self, BACKUP_BOOT_SECTOR, BootFields, FS_INFO_SECTOR, Layout, ROOT_CLUSTER};
 use crate::slot::{MAX_DIR_ENTRIES, ShortEntry, Slot};
 
@@ -101,6 +101,17 @@ pub async fn read_backup_geometry<D: BlockDevice>(dev: &mut D, block: &mut Block
 /// and allocation hint of its FAT32 FSInfo sector when that is valid.
 pub async fn read_fat<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, geo: Geometry) -> FsResult<Fat, D::Error> {
     let mut fat = Fat::new(geo);
+    let kind = geo.kind();
+    if kind.clean_bit() != 0 {
+        let mut entry = [0u8; 4];
+        let at = geo.fat_copy(geo.active_fat()) + kind.entry_offset(1);
+        read_bytes(dev, block, at, &mut entry[..kind.entry_len()]).await?;
+        fat.was_dirty = kind.decode(1, &entry) & kind.clean_bit() == 0;
+        if fat.was_dirty {
+            fat.dirty = Dirty::Preserve;
+            fat.keep_dirty = true;
+        }
+    }
     if let Some(at) = geo.fs_info_sector() {
         let offset = at as u64 * geo.sector_size() as u64;
         let mut sector = [0u8; BOOT_SECTOR_LEN];
@@ -118,6 +129,59 @@ pub async fn read_fat<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, geo: Ge
         fat.fs_info = valid.then_some(offset);
     }
     Ok(fat)
+}
+
+/// Clears and flushes the FAT16/32 clean bit before the first write after
+/// mounting or `clear_dirty`. Retries interrupted marker writes and flushes.
+/// FAT12 and a volume already dirty at mount need no marker write.
+pub async fn begin_write<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &mut Fat) -> FsResult<(), D::Error> {
+    if fat.geo.kind().clean_bit() == 0 || matches!(fat.dirty, Dirty::Marked | Dirty::Preserve) {
+        return Ok(());
+    }
+    fat.dirty = Dirty::Marking;
+    write_clean_bit(dev, block, fat, false).await?;
+    dev.flush().await?;
+    fat.dirty = Dirty::Marked;
+    Ok(())
+}
+
+/// Flushes data, sets the clean bit this state cleared, and flushes it.
+/// Call after recovering pending allocations and FAT mirrors.
+/// Dirty-at-mount volumes and corruption retained with `preserve_dirty` are
+/// left dirty. Interrupted clearing is retried or re-marked by `begin_write`.
+pub async fn clear_dirty<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &mut Fat) -> FsResult<(), D::Error> {
+    dev.flush().await?;
+    if fat.keep_dirty {
+        if !matches!(fat.dirty, Dirty::Marked | Dirty::Preserve) {
+            begin_write(dev, block, fat).await?;
+        }
+        fat.dirty = Dirty::Preserve;
+        return Ok(());
+    }
+    if matches!(fat.dirty, Dirty::Marking | Dirty::Marked | Dirty::Clearing) {
+        fat.dirty = Dirty::Clearing;
+        write_clean_bit(dev, block, fat, true).await?;
+        dev.flush().await?;
+        fat.dirty = Dirty::Clean;
+    }
+    Ok(())
+}
+
+async fn write_clean_bit<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &Fat, clean: bool) -> FsResult<(), D::Error> {
+    let kind = fat.geo.kind();
+    let mask = kind.clean_bit();
+    for step in 0..fat.geo.copies() {
+        let at = fat.geo.fat_copy(fat.geo.active_fat() ^ step) + kind.entry_offset(1);
+        let mut entry = [0u8; 4];
+        read_bytes(dev, block, at, &mut entry[..kind.entry_len()]).await?;
+        let before = kind.decode(1, &entry);
+        let after = if clean { before | mask } else { before & !mask };
+        if before != after {
+            kind.encode(1, after, &mut entry);
+            write_bytes(dev, block, at, &entry[..kind.entry_len()]).await?;
+        }
+    }
+    Ok(())
 }
 
 /// The stored entry of data cluster `cluster` in the active FAT copy.
@@ -228,6 +292,7 @@ async fn put_entry<D: BlockDevice>(
     cluster: u32,
     value: u32,
 ) -> FsResult<(), D::Error> {
+    begin_write(dev, block, fat).await?;
     let kind = fat.geo.kind();
     let len = kind.entry_len();
     let copy = fat.geo.active_fat() ^ step;
@@ -630,6 +695,7 @@ async fn patch<D: BlockDevice>(
     chain: Option<u32>,
     tail: Option<u32>,
 ) -> FsResult<(), D::Error> {
+    begin_write(dev, block, fat).await?;
     let kind = fat.geo.kind();
     let len = kind.entry_len();
     let size = block.size as u64;
@@ -704,6 +770,7 @@ pub async fn write_fs_info<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fa
     if fat.info_dirty
         && let Some(at) = fat.fs_info
     {
+        begin_write(dev, block, fat).await?;
         let mut info = [0u8; 8];
         info[..4].copy_from_slice(&fat.free.unwrap_or(UNKNOWN_FREE).to_le_bytes());
         info[4..].copy_from_slice(&fat.next_free.to_le_bytes());
