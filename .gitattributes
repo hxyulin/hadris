@@ -1,0 +1,8 @@
+* text=auto eol=lf
+
+*.bin binary
+*.img binary
+*.iso binary
+*.png binary
+*.pdf binary
+fuzz/corpus/** binary

@@ -8,6 +8,13 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- Repository editor defaults include EditorConfig, VS Code workspace and
+  conformance-suite integration, LF text attributes and focused search ignores.
+  Local Nix state and nested Rust build output are ignored consistently.
+  Stable rustfmt configuration pins the 2024 style edition and LF output;
+  configuration changes trigger both formatting hooks and CI formatting.
+  APFS docs.rs metadata includes async and encryption APIs.
+
 - Obsolete FUSE experiments and manual V2 test-image fixtures are removed;
   fuzz seeds use current crate fixtures and support an isolated output path.
 

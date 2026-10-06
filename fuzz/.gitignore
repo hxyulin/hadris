@@ -4,9 +4,7 @@
 # not untrack them), but fuzzer-grown corpus files are NOT tracked — they are
 # large binary churn that lives on the fuzzing machine. Minimize periodically
 # with `cargo fuzz cmin <target>` and sync with rsync.
-/target
 /artifacts
 /coverage
 /corpus
 Cargo.lock
-__pycache__

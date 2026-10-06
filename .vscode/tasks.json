@@ -1,0 +1,35 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Check workspace",
+      "type": "process",
+      "command": "cargo",
+      "args": ["check", "--workspace"],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": { "RUSTFLAGS": "-D warnings" }
+      },
+      "problemMatcher": ["$rustc"],
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "Test workspace",
+      "type": "process",
+      "command": "cargo",
+      "args": ["test", "--workspace", "--tests"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$rustc"],
+      "group": "test"
+    },
+    {
+      "label": "Test conformance suite",
+      "type": "process",
+      "command": "cargo",
+      "args": ["test", "--manifest-path", "tests/Cargo.toml"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$rustc"],
+      "group": "test"
+    }
+  ]
+}

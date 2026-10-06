@@ -19,6 +19,27 @@ prek run --all-files
 Rust hooks check both the workspace and the detached conformance suite at
 `tests/Cargo.toml`, including all suite targets for Clippy.
 
+## Editor setup and search
+
+EditorConfig supplies indentation, UTF-8 and LF defaults. `rustfmt.toml` pins
+Rust's 2024 style edition and LF output using stable options supported by the
+MSRV; rustfmt owns Rust layout. Git attributes normalize text, including
+benchmark CSVs, to LF and treat disk fixtures and fuzz seeds as binary.
+
+VS Code recommends rust-analyzer and EditorConfig, formats Rust on save, and
+links both the main workspace and the detached `tests/Cargo.toml` suite. The
+Tasks menu offers workspace checks, workspace tests and conformance tests.
+Launch the editor from `nix develop` to inherit the native tools. The nightly
+`fuzz/Cargo.toml` project is opt-in: add it to `rust-analyzer.linkedProjects`
+when working on fuzz targets. Feature-tier checks remain explicit commands so
+the editor follows the default hosted configuration.
+
+Generated files are excluded through `.gitignore`; `.rgignore` additionally
+omits lockfiles from broad ripgrep searches. Search a lockfile by passing its
+path explicitly, for example `rg 'fatfs' tests/Cargo.lock`. Use `rg --hidden`
+to include dotfiles while respecting ignore rules. Personal VS Code files are
+ignored; shared settings, tasks and extension recommendations are tracked.
+
 ## Build and test
 
 ```bash
@@ -79,6 +100,7 @@ and `Clippy` contexts. Workflow path globs select expensive jobs:
 | Library/example sources, fixtures, manifests, toolchain or build-check tooling | Workspace tests, MSRV tiers, embedded builds, Miri, docs and interoperability |
 | Detached `tests/` suite | Suite formatting, Clippy and conformance/interoperability jobs |
 | Native-tool setup or peer helper scripts | Native and interoperability jobs |
+| Rustfmt configuration | Workspace and conformance-suite formatting |
 | Specification catalogs or checkers | Specification checks |
 | Manifests, lockfiles or license policy | Dependency licenses |
 | README, website or unrelated prose | Documentation workflow; Rust builds/tests are skipped |

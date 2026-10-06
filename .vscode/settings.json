@@ -1,0 +1,22 @@
+{
+  "rust-analyzer.linkedProjects": [
+    "Cargo.toml",
+    "tests/Cargo.toml"
+  ],
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer",
+    "editor.formatOnSave": true
+  },
+  "files.watcherExclude": {
+    "**/target/**": true,
+    "**/.direnv/**": true,
+    "**/.worktrees/**": true,
+    "**/fuzz/corpus/**": true,
+    "**/fuzz/artifacts/**": true,
+    "**/output/**": true,
+    "**/.spec-cache/**": true,
+    "**/website/node_modules/**": true,
+    "**/website/build/**": true,
+    "**/website/.docusaurus/**": true
+  }
+}
