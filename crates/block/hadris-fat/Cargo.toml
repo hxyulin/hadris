@@ -149,3 +149,7 @@ required-features = ["std", "sync", "async", "write"]
 [[test]]
 name = "fat_dirty"
 required-features = ["std", "sync", "async", "write"]
+
+[[test]]
+name = "tree_capacity"
+required-features = ["std", "sync", "write"]

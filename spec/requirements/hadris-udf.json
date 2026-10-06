@@ -96,8 +96,8 @@
       "direction": "read",
       "status": "partial",
       "symbols": [{"path": "crates/optical/hadris-udf/src/read.rs", "name": "fid_at"}, {"path": "crates/optical/hadris-udf/src/raw/file.rs", "name": "FileIdentifierDescriptor"}],
-      "tests": [{"path": "crates/optical/hadris-udf/tests/roundtrip.rs", "name": "every_tree_reads_back", "kind": "integration"}, {"path": "crates/optical/hadris-udf/tests/read.rs", "name": "identifiers_cross_extent_boundaries", "kind": "integration"}, {"path": "crates/optical/hadris-udf/tests/errors.rs", "name": "malformed_volumes_are_refused", "kind": "integration"}],
-      "gap": "The tag checksum, identifier, version and CRC are checked and identifiers are read across extents; the tag location, reserved characteristics and padding contents are not checked."
+      "tests": [{"path": "crates/optical/hadris-udf/tests/roundtrip.rs", "name": "every_tree_reads_back", "kind": "integration"}, {"path": "crates/optical/hadris-udf/tests/read.rs", "name": "identifiers_cross_extent_boundaries", "kind": "integration"}, {"path": "crates/optical/hadris-udf/tests/errors.rs", "name": "malformed_volumes_are_refused", "kind": "integration"}, {"path": "crates/optical/hadris-udf/tests/errors.rs", "name": "malformed_identifier_fields_are_refused", "kind": "integration"}],
+      "gap": "Fixed fields, bounds, tag location, reserved bits, implementation-use length and padding are checked across extents; implementation-use payloads and stream-directory semantics are not interpreted."
     },
     {
       "id": "ECMA-TR-112-7-2023:2#volume-recognition-sequence",

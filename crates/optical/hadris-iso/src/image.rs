@@ -111,7 +111,10 @@ async fn read_info<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>>
 /// read as a record, and a damaged one fails with [`ErrorKind::Corrupt`].
 /// Write methods fail with [`ErrorKind::ReadOnly`].
 ///
-/// Names drop the `;1` version. In the primary and enhanced trees a lookup
+/// Primary and Joliet names omit the `;N` version suffix. Unqualified
+/// lookup and listing select the highest version independently of record order;
+/// lookup with an explicit suffix selects that version. Rock Ridge alternate
+/// names keep literal semicolons. In the primary and enhanced trees a lookup
 /// that finds no exact name retries ignoring ASCII case. A Rock Ridge name
 /// longer than [`DirEntry::MAX_NAME`] bytes lists and looks up under the
 /// record's ISO 9660 identifier instead.
@@ -135,12 +138,13 @@ struct View {
     namespace: Namespace,
     root: Root,
     len: u64,
+    versions: Option<(Dir, bool)>,
     #[cfg(feature = "cache")]
     cache: Option<crate::cache::ReaderCache>,
 }
 
 /// A directory: where its records are.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Dir {
     start: u64,
     size: u32,
@@ -214,9 +218,11 @@ enum PathTableQuery {
 }
 
 /// A listed entry: its id and name length.
+#[derive(Clone, Copy)]
 struct Listed {
     len: usize,
     rr: Option<RockRidgeInfo>,
+    version: Option<u16>,
 }
 
 /// A node id no record can have (zero, odd, or past both the volume and
@@ -239,6 +245,7 @@ impl View {
             namespace,
             root,
             len,
+            versions: None,
             #[cfg(feature = "cache")]
             cache: None,
         }
@@ -598,19 +605,23 @@ impl View {
             if scan.info.is_relocated() {
                 return Ok(None);
             }
-            let len = match scan.name() {
-                Ok(Some(bytes)) => crate::name::sanitize(bytes, out),
-                _ => crate::name::sanitize(crate::name::strip_version(record.name()), out),
+            if header.is_directory() && !scan.info.is_logical_directory() && self.relocation_only(dev, record).await? {
+                return Ok(None);
             }
+            let (name, version) = match scan.name() {
+                Ok(Some(bytes)) => (bytes, None),
+                _ => (crate::name::strip_version(record.name()), crate::name::version(record.name(), false)),
+            };
+            let len = crate::name::sanitize(name, out)
             .ok_or(Error::from(ErrorKind::NameTooLong))?;
-            return Ok(Some(Listed { len, rr: Some(scan.info) }));
+            return Ok(Some(Listed { len, rr: Some(scan.info), version }));
         }
         let len = match self.namespace {
             Namespace::Joliet => crate::name::decode_ucs2(record.name(), out),
             _ => crate::name::sanitize(crate::name::strip_version(record.name()), out),
         }
         .ok_or(Error::from(ErrorKind::NameTooLong))?;
-        Ok(Some(Listed { len, rr: None }))
+        Ok(Some(Listed { len, rr: None, version: crate::name::version(record.name(), self.namespace == Namespace::Joliet) }))
     }
 
     async fn listed_id<D: BlockDevice>(
@@ -701,29 +712,76 @@ impl View {
         }
     }
 
-    async fn lookup<D: BlockDevice>(&mut self, dev: &mut D, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
-        name.check()?;
-        let dir = self.dir_of(dev, dir).await?;
+    async fn relocation_only<D: BlockDevice>(&mut self, dev: &mut D, record: &DirectoryRecord) -> Result<bool, Error<D::Error>> {
+        let Some(skip) = self.rock_ridge() else { return Ok(false); };
+        let dir = Dir {
+            start: self.extent_start(record).ok_or(Detail::DirectoryRecord.corrupt())?,
+            size: record.header().data_len.get(),
+        };
+        let mut pos = 0;
+        let mut block = Block::new();
+        let mut relocated = false;
+        while let Some(found) = self.next_record(dev, dir, &mut pos, &mut block).await? {
+            if found.record.is_dot() { continue; }
+            let mut scan = Scan::new();
+            self.scan(dev, &found.record, skip, &mut scan).await?;
+            if !scan.info.is_relocated() { return Ok(false); }
+            relocated = true;
+        }
+        Ok(relocated)
+    }
+
+    async fn has_versions<D: BlockDevice>(&mut self, dev: &mut D, dir: Dir) -> Result<bool, Error<D::Error>> {
+        if let Some((cached, found)) = self.versions {
+            if cached == dir { return Ok(found); }
+        }
+        let mut pos = 0;
+        let mut block = Block::new();
+        let mut multiple = false;
+        while let Some(found) = self.next_record(dev, dir, &mut pos, &mut block).await? {
+            if crate::name::version(found.record.name(), self.namespace == Namespace::Joliet).is_some_and(|version| version > 1) {
+                multiple = true;
+                break;
+            }
+        }
+        self.versions = Some((dir, multiple));
+        Ok(multiple)
+    }
+
+    async fn find_name<D: BlockDevice>(&mut self, dev: &mut D, dir: Dir, name: &Name, explicit: bool) -> FsResult<Option<(Found, Listed)>, D::Error> {
+        let requested = if explicit { crate::name::version(name.as_bytes(), false) } else { None };
+        let multiple = requested.is_none() && self.versions.filter(|(cached, _)| *cached == dir).is_none_or(|(_, found)| found);
+        let mut versions = false;
         let mut pos = 0;
         let mut block = Block::new();
         let mut buf = [0u8; 1024];
-        let mut folded = None;
+        let mut best: Option<(Found, Listed, bool)> = None;
         while let Some(found) = self.next_record(dev, dir, &mut pos, &mut block).await? {
+            versions |= crate::name::version(found.record.name(), self.namespace == Namespace::Joliet).is_some_and(|version| version > 1);
             let listed = self.list(dev, &found, &mut buf).await?;
             self.skip_continuations(dev, dir, &mut pos, &mut block, &found.record).await?;
-            let Some(listed) = listed else {
-                continue;
-            };
-            let listed_name = &buf[..listed.len];
-            if listed_name == name.as_bytes() {
-                return self.listed_id(dev, &found, listed.rr).await;
-            }
-            if folded.is_none() && self.case_insensitive() && listed_name.eq_ignore_ascii_case(name.as_bytes()) {
-                folded = Some((found, listed.rr));
+            let Some(listed) = listed else { continue; };
+            let query = if listed.version.is_some() {
+                if requested.is_some() && requested != listed.version { continue; }
+                if requested.is_some() { crate::name::strip_version(name.as_bytes()) } else { name.as_bytes() }
+            } else { name.as_bytes() };
+            let bytes = &buf[..listed.len];
+            let exact = bytes == query;
+            if !(exact || self.case_insensitive() && bytes.eq_ignore_ascii_case(query)) { continue; }
+            if exact && (!multiple || listed.version.is_none()) { return Ok(Some((found, listed))); }
+            if best.as_ref().is_none_or(|(_, prior, prior_exact)| (exact, listed.version.unwrap_or(0)) > (*prior_exact, prior.version.unwrap_or(0))) {
+                best = Some((found, listed, exact));
             }
         }
-        match folded {
-            Some((found, rr)) => self.listed_id(dev, &found, rr).await,
+        self.versions = Some((dir, versions));
+        Ok(best.map(|(found, listed, _)| (found, listed)))
+    }
+
+    async fn lookup<D: BlockDevice>(&mut self, dev: &mut D, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
+        name.check()?;
+        let dir = self.dir_of(dev, dir).await?;
+        match self.find_name(dev, dir, name, true).await? {
+            Some((found, listed)) => self.listed_id(dev, &found, listed.rr).await,
             None => Err(ErrorKind::NotFound.into()),
         }
     }
@@ -739,6 +797,10 @@ impl View {
             let listed = self.list(dev, &found, &mut out).await?;
             self.skip_continuations(dev, dir, &mut pos, &mut block, &found.record).await?;
             if let Some(listed) = listed {
+                if listed.version.is_some() && self.has_versions(dev, dir).await? {
+                    let latest = self.find_name(dev, dir, Name::new(&out[..listed.len]), false).await?;
+                    if latest.is_some_and(|(latest, _)| latest.offset != found.offset) { continue; }
+                }
                 let node = self.listed_id(dev, &found, listed.rr).await?;
                 let meta = if node.get() == found.offset {
                     self.record_metadata(dev, node, &found.record, listed.rr).await?
@@ -1010,6 +1072,7 @@ impl<D: BlockDevice> IsoFs<D> {
     #[cfg(feature = "cache")]
     #[cfg_attr(docsrs, doc(cfg(feature = "cache")))]
     pub fn clear_cache(&mut self) {
+        self.view.versions = None;
         if let Some(cache) = &mut self.view.cache { cache.clear(); }
     }
 
@@ -1145,31 +1208,6 @@ impl<D: BlockDevice> IsoFs<D> {
     /// the image has no Rock Ridge or the mount reads another tree.
     pub async fn rock_ridge(&mut self, node: NodeId) -> Result<Option<RockRidgeInfo>, Error<D::Error>> {
         self.view.rock_ridge_info(&mut self.dev, node).await
-    }
-
-    /// Whether `dir` holds records the Rock Ridge tree hides because an
-    /// `RE` entry marks them relocated, and nothing else.
-    #[cfg(feature = "alloc")]
-    pub(crate) async fn is_relocation_dir(&mut self, dir: NodeId) -> Result<bool, Error<D::Error>> {
-        let Some(skip) = self.view.rock_ridge() else {
-            return Ok(false);
-        };
-        let dir = self.view.dir_of(&mut self.dev, dir).await?;
-        let mut pos = 0;
-        let mut block = Block::new();
-        let mut relocated = false;
-        while let Some(found) = self.view.next_record(&mut self.dev, dir, &mut pos, &mut block).await? {
-            if found.record.is_dot() {
-                continue;
-            }
-            let mut scan = Scan::new();
-            self.view.scan(&mut self.dev, &found.record, skip, &mut scan).await?;
-            if !scan.info.is_relocated() {
-                return Ok(false);
-            }
-            relocated = true;
-        }
-        Ok(relocated)
     }
 
     /// Maps a file to the device: fills `out` with its extents that end

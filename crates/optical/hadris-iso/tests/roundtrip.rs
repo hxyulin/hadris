@@ -1003,3 +1003,114 @@ fn path_tables_use_final_directory_identifiers() {
         }
     }
 }
+
+fn tree_shape(tree: &Tree) -> std::collections::BTreeMap<Vec<u8>, (FileType, u64)> {
+    let mut shape = std::collections::BTreeMap::new();
+    let mut pending = vec![(tree.root(), Vec::new())];
+    while let Some((dir, prefix)) = pending.pop() {
+        for (name, entry) in dir.children() {
+            let mut path = prefix.clone();
+            path.push(b'/');
+            path.extend_from_slice(name.as_bytes());
+            let node = entry.node();
+            shape.insert(
+                path.clone(),
+                (node.file_type(), node.content().map_or(0, Content::len)),
+            );
+            if node.file_type() == FileType::Dir {
+                pending.push((entry, path));
+            }
+        }
+    }
+    shape
+}
+
+macro_rules! relocation_cases {
+    ($mode:ident, $test:ident, $run:ident) => {
+        #[test]
+        fn $test() {
+            $run!(async {
+                use hadris_fs::$mode::FileSystem;
+                use hadris_fs::{DirCursor, Name, OpenMode};
+                use hadris_iso::Relocation;
+                for (name, relocation) in [
+                    ("rr_moved", Relocation::RrMoved),
+                    (".rr_moved", Relocation::DotRrMoved),
+                ] {
+                    for user in 0..3 {
+                        let mut tree = Tree::new();
+                        tree.insert("a/b/c/d/e/f/g/h/i/leaf", Node::file(Content::bytes("deep")))
+                            .unwrap();
+                        if user > 0 {
+                            tree.insert(name, Node::dir()).unwrap();
+                        }
+                        if user > 1 {
+                            tree.insert(
+                                format!("{name}/RRD000001/own"),
+                                Node::file(Content::bytes("user")),
+                            )
+                            .unwrap();
+                        }
+                        let options = IsoOptions::new()
+                            .with_rock_ridge()
+                            .with_relocation(relocation);
+                        let image = common::image(&tree, &options);
+                        let mut fs = hadris_iso::$mode::IsoFs::mount(image, MountOptions::new())
+                            .await
+                            .unwrap();
+                        let root = fs.root();
+                        let mut names = Vec::new();
+                        let mut cursor = DirCursor::START;
+                        while let Some(entry) = fs.readdir(root, cursor).await.unwrap() {
+                            cursor = entry.next_cursor();
+                            names.push(entry.name().as_bytes().to_vec());
+                        }
+                        names.sort();
+                        let expected: Vec<_> = tree
+                            .root()
+                            .children()
+                            .map(|(name, _)| name.as_bytes().to_vec())
+                            .collect();
+                        assert_eq!(names, expected, "{name} user={user}");
+                        if user == 0 {
+                            assert_eq!(
+                                fs.lookup(root, Name::new(name)).await.unwrap_err().kind(),
+                                ErrorKind::NotFound
+                            );
+                        }
+                        let leaf = fs
+                            .resolve(b"/a/b/c/d/e/f/g/h/i/leaf", hadris_fs::Resolve::Lexical)
+                            .await
+                            .unwrap();
+                        fs.open(leaf, OpenMode::Read).await.unwrap();
+                        let mut data = [0; 4];
+                        assert_eq!(fs.read(leaf, 0, &mut data).await.unwrap(), 4);
+                        assert_eq!(&data, b"deep");
+                        fs.close(leaf).await.unwrap();
+                        let volume = hadris_fs::$mode::Volume::new(fs);
+                        let extracted = hadris_fs::$mode::read_tree(&volume, "/").await.unwrap();
+                        assert_eq!(tree_shape(&extracted), tree_shape(&tree));
+                    }
+                }
+            });
+        }
+    };
+}
+macro_rules! relocation_sync { ($($body:tt)*) => { common::block_on(hadris_macros::strip_async! { $($body)* }) }; }
+#[cfg(feature = "async")]
+macro_rules! relocation_async {
+    ($body:expr) => {
+        common::block_on($body)
+    };
+}
+relocation_cases!(
+    sync,
+    relocation_listing_preserves_only_the_logical_tree_sync,
+    relocation_sync
+);
+#[cfg(feature = "async")]
+relocation_cases!(
+    r#async,
+    relocation_listing_preserves_only_the_logical_tree_async,
+    relocation_async
+);

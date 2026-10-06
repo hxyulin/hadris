@@ -14,6 +14,8 @@ use crate::raw::{
     SlComponentFlags, TfFlags,
 };
 
+pub(crate) const LOGICAL_DIRECTORY: &[u8] = b"hadris.logical-directory";
+
 pub(crate) const S_IFMT: u32 = 0o170_000;
 pub(crate) const S_IFSOCK: u32 = 0o140_000;
 pub(crate) const S_IFLNK: u32 = 0o120_000;
@@ -42,9 +44,14 @@ pub struct RockRidgeInfo {
     child_link: Option<u32>,
     parent_link: Option<u32>,
     relocated: bool,
+    logical_directory: bool,
 }
 
 impl RockRidgeInfo {
+    pub(crate) const fn is_logical_directory(&self) -> bool {
+        self.logical_directory
+    }
+
     /// `st_mode` from the `PX` entry, with the file type bits.
     pub const fn mode(&self) -> Option<u32> {
         self.mode
@@ -313,6 +320,9 @@ impl<'a> Scan<'a> {
                     self.info.parent_link = Some(block.get());
                 }
                 b"RE" => self.info.relocated = true,
+                b"HD" if version == 1 && data == LOGICAL_DIRECTORY => {
+                    self.info.logical_directory = true
+                }
                 b"PX" | b"PN" | b"CL" | b"PL" | b"CE" | b"SP" | b"ER" | b"TF" | b"NM" | b"SL" => {
                     self.malformed = true
                 }
@@ -439,6 +449,22 @@ mod tests {
         }
         out[2] = out.len() as u8;
         out
+    }
+
+    #[test]
+    fn logical_directory_marker_requires_its_payload_and_version() {
+        for (version, payload, expected) in [
+            (1, LOGICAL_DIRECTORY, true),
+            (2, LOGICAL_DIRECTORY, false),
+            (1, b"other".as_slice(), false),
+        ] {
+            let mut bytes = vec![b'H', b'D', (4 + payload.len()) as u8, version];
+            bytes.extend_from_slice(payload);
+            let mut scan = Scan::new();
+            scan.feed(&bytes, 0);
+            assert!(!scan.malformed);
+            assert_eq!(scan.info.is_logical_directory(), expected);
+        }
     }
 
     #[test]

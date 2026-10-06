@@ -8,6 +8,16 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- UDF readers reuse a bounded, allocation-free directory-sector buffer to
+  reduce repeated file-identifier reads without changing validation or file I/O.
+
+- UDF readers validate file-identifier versions, reserved fields, tag locations,
+  implementation-use lengths and padding across extents. ISO readers resolve
+  explicit file versions, list the highest version independently of record
+  order, and hide generated relocation directories while preserving user ones.
+  FAT/exFAT tree writers preflight advertised content and directory capacity
+  before formatting, rejecting known oversized trees without changing output.
+
 - The documentation site defaults to V3 `3.0.0-rc.1`, preserves released V2
   snapshots and redirects old `next/` guide links. Migration and task guides
   use working source dependency recipes, one-dependency umbrella imports and

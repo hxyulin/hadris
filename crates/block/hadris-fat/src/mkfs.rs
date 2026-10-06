@@ -68,6 +68,65 @@ fn plan(request: Request, sector_size: u32, options: &FatOptions) -> Result<Layo
     Err(ErrorKind::LimitExceeded)
 }
 
+pub(crate) struct Prepared {
+    pub(crate) layout: Layout,
+    fields: BootFields,
+}
+
+pub(crate) fn prepare<D: BlockDevice>(
+    dev: &D,
+    options: &FatOptions,
+) -> Result<Prepared, ErrorKind> {
+    let block_size = dev.block_size().get() as usize;
+    if block_size > super::block_io::MAX_BLOCK_SIZE {
+        return Err(ErrorKind::Unsupported);
+    }
+    if !matches!(options.media, 0xF0 | 0xF8..=0xFF) {
+        return Err(ErrorKind::InvalidInput);
+    }
+    let sector_size = options.sector_size.unwrap_or(match block_size {
+        512 | 1024 | 2048 | 4096 => block_size as u32,
+        _ => 512,
+    });
+    let bytes = volume_bytes(
+        options.size,
+        block_size as u64,
+        dev.block_count(),
+        dev.max_block_count(),
+    )?;
+    let mut request = Request::new(sector_size, bytes / sector_size.max(1) as u64)
+        .with_fat_count(options.fat_count)
+        .with_root_entries(options.root_entries);
+    if let Some(kind) = options.kind {
+        request = request.with_kind(kind);
+    }
+    if let Some(bytes) = options.cluster_size {
+        request = request.with_cluster_size(bytes);
+    }
+    if let Some(sectors) = options.reserved_sectors {
+        request = request.with_reserved_sectors(sectors);
+    }
+    let layout = plan(request, sector_size, options)?;
+    let hidden = offset_sectors(
+        options.partition_offset.unwrap_or(dev.disk_offset()),
+        sector_size as u64,
+    )?;
+    let hidden = u32::try_from(hidden).map_err(|_| ErrorKind::LimitExceeded)?;
+    let mut fields = BootFields::new()
+        .with_oem_name(options.oem_name)
+        .with_media(options.media)
+        .with_hidden_sectors(hidden)
+        .with_volume_id(
+            options
+                .serial
+                .unwrap_or_else(|| serial(options.time, options.seed)),
+        );
+    if let Some(label) = options.label {
+        fields = fields.with_label(*label.as_bytes());
+    }
+    Ok(Prepared { layout, fields })
+}
+
 io_transform! {
 
 /// Formats `dev` as a FAT12, FAT16 or FAT32 volume and returns its
@@ -100,40 +159,13 @@ pub(crate) async fn format_volume<D: BlockDevice>(
     dev: &mut D,
     options: &FatOptions,
 ) -> FsResult<(Geometry, u64), D::Error> {
-    let block_size = dev.block_size().get() as usize;
-    let mut block = new_block(block_size)?;
-    if !matches!(options.media, 0xF0 | 0xF8..=0xFF) {
-        return Err(ErrorKind::InvalidInput.into());
-    }
-    let sector_size = options.sector_size.unwrap_or(match block_size {
-        512 | 1024 | 2048 | 4096 => block_size as u32,
-        _ => 512,
-    });
-    let bytes = volume_bytes(options.size, block_size as u64, dev.block_count(), dev.max_block_count())?;
-    let mut request = Request::new(sector_size, bytes / sector_size.max(1) as u64)
-        .with_fat_count(options.fat_count)
-        .with_root_entries(options.root_entries);
-    if let Some(kind) = options.kind {
-        request = request.with_kind(kind);
-    }
-    if let Some(bytes) = options.cluster_size {
-        request = request.with_cluster_size(bytes);
-    }
-    if let Some(sectors) = options.reserved_sectors {
-        request = request.with_reserved_sectors(sectors);
-    }
-    let layout = plan(request, sector_size, options)?;
-    let hidden = offset_sectors(options.partition_offset.unwrap_or(dev.disk_offset()), sector_size as u64)?;
-    let hidden = u32::try_from(hidden).map_err(|_| ErrorKind::LimitExceeded)?;
-    let mut fields = BootFields::new()
-        .with_oem_name(options.oem_name)
-        .with_media(options.media)
-        .with_hidden_sectors(hidden)
-        .with_volume_id(options.serial.unwrap_or_else(|| serial(options.time, options.seed)));
-    if let Some(label) = options.label {
-        fields = fields.with_label(*label.as_bytes());
-    }
-    let volume = layout.total_sectors() as u64 * sector_size as u64;
+    format_prepared(dev, options, prepare(dev, options)?).await
+}
+
+pub(crate) async fn format_prepared<D: BlockDevice>(dev: &mut D, options: &FatOptions, prepared: Prepared) -> FsResult<(Geometry, u64), D::Error> {
+    let Prepared { layout, fields } = prepared;
+    let mut block = new_block(dev.block_size().get() as usize)?;
+    let volume = layout.total_sectors() as u64 * u64::from(layout.sector_size());
     let geometry = rawio::mkfs(dev, &mut block, &layout, &fields, options.time).await?;
     grow(dev, &mut block, volume).await?;
     dev.flush().await?;
@@ -167,7 +199,7 @@ mod tree {
     use super::super::FatFs;
     use super::super::fsapi::{ContentReader, FileSystem, copy_tree};
     use super::super::storage::BlockDevice;
-    use super::format_volume;
+    use super::{format_prepared, prepare};
     use crate::FatOptions;
 
     /// The seed a volume written from `tree` derives its serial from: the
@@ -228,6 +260,104 @@ mod tree {
         Ok(out)
     }
 
+    pub(crate) struct Capacity {
+        pub(crate) cluster: u64,
+        pub(crate) clusters: u64,
+        pub(crate) root_slots: Option<u64>,
+        pub(crate) root_entries: u64,
+        pub(crate) subdir_entries: u64,
+        pub(crate) max_dir_entries: u64,
+        pub(crate) max_file: u64,
+    }
+
+    pub(crate) fn check_capacity(
+        tree: &Tree,
+        capacity: Capacity,
+        slots: impl Fn(&str) -> Result<u32, hadris_fs::ErrorKind>,
+    ) -> Result<(), PathError> {
+        use alloc::collections::BTreeSet;
+        use hadris_fs::{ErrorKind, Name, TreeEntry};
+        struct Frame<'a> {
+            children: Vec<(&'a Name, TreeEntry<'a>)>,
+            next: usize,
+            entries: u64,
+            path: Vec<u8>,
+        }
+        let no_space = || PathError::new(ErrorKind::NoSpace, "tree does not fit the volume");
+        let mut stack = vec![Frame {
+            children: tree.root().children().collect(),
+            next: 0,
+            entries: capacity.root_entries,
+            path: Vec::new(),
+        }];
+        let mut copied = BTreeSet::new();
+        let mut used = 0u64;
+        while let Some(frame) = stack.last_mut() {
+            let Some(&(name, entry)) = frame.children.get(frame.next) else {
+                let frame = stack.pop().unwrap();
+                if let Some(limit) = capacity.root_slots.filter(|_| stack.is_empty()) {
+                    if frame.entries > limit {
+                        return Err(no_space());
+                    }
+                } else {
+                    used = used
+                        .checked_add((frame.entries * 32).div_ceil(capacity.cluster).max(1))
+                        .ok_or_else(no_space)?;
+                }
+                if used > capacity.clusters {
+                    return Err(no_space().with_path(&frame.path));
+                }
+                continue;
+            };
+            frame.next += 1;
+            let kind = entry.node().file_type();
+            if !matches!(kind, FileType::Dir | FileType::File)
+                || (kind == FileType::File && entry.links() > 1 && !copied.insert(entry.id()))
+            {
+                continue;
+            }
+            let mut path = frame.path.clone();
+            path.push(b'/');
+            path.extend_from_slice(name.as_bytes());
+            let text = name.to_str().map_err(|_| {
+                PathError::new(ErrorKind::InvalidInput, "name is not UTF-8").with_path(&path)
+            })?;
+            frame.entries = frame
+                .entries
+                .checked_add(u64::from(slots(text).map_err(|kind| {
+                    PathError::new(kind, "invalid target name").with_path(&path)
+                })?))
+                .ok_or_else(no_space)?;
+            if frame.entries > capacity.max_dir_entries {
+                return Err(no_space().with_path(&path));
+            }
+            if kind == FileType::Dir {
+                stack.push(Frame {
+                    children: entry.children().collect(),
+                    next: 0,
+                    entries: capacity.subdir_entries,
+                    path,
+                });
+            } else {
+                let len = entry.node().content().map_or(0, |content| content.len());
+                if len > capacity.max_file {
+                    return Err(PathError::new(
+                        ErrorKind::FileTooLarge,
+                        "file exceeds target size limit",
+                    )
+                    .with_path(&path));
+                }
+                used = used
+                    .checked_add(len.div_ceil(capacity.cluster))
+                    .ok_or_else(no_space)?;
+                if used > capacity.clusters {
+                    return Err(no_space().with_path(&path));
+                }
+            }
+        }
+        Ok(())
+    }
+
     io_transform! {
 
     /// Formats `out` as [`format`](super::format) does and copies `tree`
@@ -246,11 +376,25 @@ mod tree {
     /// failed. Dense ASCII 8.3 directories use a bounded insertion set with
     /// at most 2048 short names (22 KiB of name storage); other layouts use
     /// normal directory planning.
+    ///
+    /// Advertised file lengths and directory storage are checked against the
+    /// prepared layout before formatting. A known oversized tree fails with
+    /// `NoSpace` without changing the destination. Content is not opened during
+    /// this check; changed sources or later I/O failures can still leave a
+    /// partially formatted or copied volume.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all))]
     pub async fn write<D: BlockDevice>(mut out: D, tree: &Tree, options: &FatOptions) -> Result<Report, PathError> {
         let options = options.with_seed(tree_seed(options.time, options.seed, tree));
         let tree = stamped(tree, options.time)?;
-        let (_, volume) = format_volume(&mut out, &options).await?;
+        let prepared = prepare(&out, &options)?;
+        let layout = &prepared.layout;
+        check_capacity(&tree, Capacity {
+            cluster: u64::from(layout.cluster_size()), clusters: u64::from(layout.clusters()),
+            root_slots: (layout.kind() != crate::FatKind::Fat32).then_some(u64::from(layout.root_entries())),
+            root_entries: u64::from(options.label.is_some()), subdir_entries: 2,
+            max_dir_entries: u64::from(hadris_fat_raw::MAX_DIR_ENTRIES), max_file: u64::from(u32::MAX),
+        }, |name| crate::names::NewName::new(name, MountOptions::new().code_page(), hadris_fat_raw::fold_unicode).map(|name| name.slots()))?;
+        let (_, volume) = format_prepared(&mut out, &options, prepared).await?;
         let mut fs = FatFs::mount(out, MountOptions::new()).await?.with_append_planning();
         let root = fs.root();
         let mut report = copy_tree(&tree, &mut fs, root).await?;
@@ -265,4 +409,4 @@ mod tree {
 #[cfg(feature = "alloc")]
 pub use tree::write;
 #[cfg(feature = "alloc")]
-pub(crate) use tree::{stamped, tree_seed};
+pub(crate) use tree::{Capacity, check_capacity, stamped, tree_seed};

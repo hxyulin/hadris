@@ -32,11 +32,18 @@ const MAX_INTEGRITY: u32 = 16;
 /// The buffer a directory identifier is read into when it fits.
 const FID_BUFFER: usize = 512;
 
+#[derive(Debug)]
+struct DirectoryWindow {
+    bytes: [u8; MAX_BLOCK],
+    offset: Option<u64>,
+}
+
 /// One stretch of a file's data.
 #[derive(Clone, Copy)]
 enum Piece {
     Disk {
         offset: u64,
+        location: Location,
         len: u64,
     },
     /// Reads as zeros; `offset` is where an allocated but unrecorded
@@ -86,6 +93,7 @@ struct Resume {
     hops: u32,
     /// The byte of the data the next piece starts at.
     offset: u64,
+    location: Option<u32>,
 }
 
 /// A File Identifier Descriptor found in a directory.
@@ -137,6 +145,42 @@ struct Sequence {
 }
 
 io_transform! {
+impl DirectoryWindow {
+    fn new() -> Self {
+        Self {
+            bytes: [0; MAX_BLOCK],
+            offset: None,
+        }
+    }
+
+    async fn read<D: BlockDevice>(
+        &mut self,
+        info: &Info,
+        dev: &mut D,
+        mut offset: u64,
+        mut out: &mut [u8],
+    ) -> Result<(), Error<D::Error>> {
+        let size = u64::from(info.block_size.max(dev.block_size().get()));
+        while !out.is_empty() {
+            let base = offset / size * size;
+            let len = usize::try_from(info.len.saturating_sub(base).min(size)).unwrap_or(0);
+            let within = (offset - base) as usize;
+            if within >= len {
+                return Err(Detail::FileIdentifier.corrupt());
+            }
+            if self.offset != Some(base) {
+                self.offset = None;
+                read_bytes(dev, info.len, base, &mut self.bytes[..len]).await?;
+                self.offset = Some(base);
+            }
+            let take = (len - within).min(out.len());
+            out[..take].copy_from_slice(&self.bytes[within..within + take]);
+            out = &mut out[take..];
+            offset += take as u64;
+        }
+        Ok(())
+    }
+}
 
 /// Reads `buf.len()` bytes from byte `offset` of `dev`, which holds `len`
 /// bytes.
@@ -545,6 +589,7 @@ impl Walk {
             steps: self.steps,
             hops: self.hops,
             offset,
+            location: None,
         }
     }
 
@@ -651,7 +696,7 @@ impl Walk {
                 extent::RECORDED => {
                     let offset = info.offset(at.partition, at.block, length)?;
                     if information != 0 {
-                        return Ok(Some(Piece::Disk { offset, len: u64::from(information) }));
+                        return Ok(Some(Piece::Disk { offset, location: at, len: u64::from(information) }));
                     }
                 }
                 extent::ALLOCATED => {
@@ -678,6 +723,18 @@ async fn read_stream<D: BlockDevice>(
     offset: u64,
     buf: &mut [u8],
 ) -> Result<usize, Error<D::Error>> {
+    read_stream_window(info, dev, icb, resume, offset, buf, None).await
+}
+
+async fn read_stream_window<D: BlockDevice>(
+    info: &Info,
+    dev: &mut D,
+    icb: &Icb,
+    resume: &mut Resume,
+    offset: u64,
+    buf: &mut [u8],
+    mut window: Option<&mut DirectoryWindow>,
+) -> Result<usize, Error<D::Error>> {
     if offset >= icb.size {
         return Ok(0);
     }
@@ -695,12 +752,23 @@ async fn read_stream<D: BlockDevice>(
         if at < pos + len {
             if done == 0 {
                 *resume = mark;
+                resume.location = match piece {
+                    Piece::Disk { location, .. } => location.block.checked_add(((at - pos) / u64::from(info.block_size)) as u32),
+                    Piece::Embedded { .. } => Some(icb.at.block),
+                    Piece::Zero { .. } => None,
+                };
             }
             let within = at - pos;
             let take = usize::try_from(len - within).unwrap_or(usize::MAX).min(want - done);
             let out = &mut buf[done..done + take];
             match piece {
-                Piece::Disk { offset, .. } => read_bytes(dev, info.len, offset + within, out).await?,
+                Piece::Disk { offset, .. } => {
+                    if let Some(window) = window.as_deref_mut() {
+                        window.read(info, dev, offset + within, out).await?;
+                    } else {
+                        read_bytes(dev, info.len, offset + within, out).await?;
+                    }
+                }
                 Piece::Zero { .. } => out.fill(0),
                 Piece::Embedded { start, .. } => {
                     let start = start + within as usize;
@@ -732,19 +800,30 @@ async fn read_exact<D: BlockDevice>(
 }
 
 /// The file identifier at `pos` in directory `dir`.
-async fn fid_at<D: BlockDevice>(info: &Info, dev: &mut D, dir: &Icb, resume: &mut Resume, pos: u64) -> Result<Fid, Error<D::Error>> {
+async fn fid_at<D: BlockDevice>(info: &Info, dev: &mut D, dir: &Icb, resume: &mut Resume, window: &mut DirectoryWindow, pos: u64) -> Result<Fid, Error<D::Error>> {
     let bad = || Detail::FileIdentifier.corrupt();
     let mut buf = [0u8; FID_BUFFER];
-    read_exact(info, dev, dir, resume, pos, &mut buf[..38], Detail::FileIdentifier).await?;
+    if read_stream_window(info, dev, dir, resume, pos, &mut buf[..38], Some(window)).await? != 38 {
+        return Err(bad());
+    }
     let fid: FileIdentifierDescriptor = bytemuck::pod_read_unaligned(&buf[..38]);
     let tag = fid.tag;
     if !tag.is_checksum_valid()
         || tag.identifier.get() != tag::FILE_IDENTIFIER
         || !matches!(tag.version.get(), 2 | 3)
+        || tag.reserved != 0
+        || Some(tag.location.get()) != resume.location
+        || !(1..=32767).contains(&fid.version.get())
+        || fid.characteristics & 0xF0 != 0
+        || fid.implementation_use_length.get() % 4 != 0
+        || matches!(fid.implementation_use_length.get(), 1..=31)
+        || (fid.characteristics & FileCharacteristics::PARENT.bits() != 0
+            && (fid.identifier_length != 0 || fid.characteristics & FileCharacteristics::DIRECTORY.bits() == 0))
     {
         return Err(bad());
     }
     let total = fid.total_len() as u64;
+    let next = pos.checked_add(total).filter(|next| *next <= dir.size).ok_or_else(bad)?;
     let covered = u64::from(tag.crc_length.get());
     if covered + 16 > total {
         return Err(bad());
@@ -756,27 +835,36 @@ async fn fid_at<D: BlockDevice>(info: &Info, dev: &mut D, dir: &Icb, resume: &mu
     let name_end = name_at + name_len as u64;
     let characteristics = FileCharacteristics::from_bits_retain(fid.characteristics);
     let want_name = name_len > 0 && !characteristics.intersects(FileCharacteristics::DELETED | FileCharacteristics::PARENT);
-    let end = crc_end.max(if want_name { name_end } else { 38 });
+    let tail_at = if want_name { name_at } else { name_end };
+    let end = total;
     let mut name = [0u8; 255];
     let mut at = 38u64;
     while at < end {
-        if at >= crc_end && at < name_at {
-            at = name_at;
+        if at >= crc_end && at < tail_at {
+            at = tail_at;
         }
         if at >= end {
             break;
         }
-        let chunk_end = if at < crc_end && name_at > crc_end { crc_end } else { end };
+        let chunk_end = if at < crc_end && tail_at > crc_end { crc_end } else { end };
         let take = (chunk_end - at).min(FID_BUFFER as u64) as usize;
-        read_exact(info, dev, dir, resume, pos + at, &mut buf[..take], Detail::FileIdentifier).await?;
+        if read_stream_window(info, dev, dir, resume, pos + at, &mut buf[..take], Some(window)).await? != take {
+            return Err(bad());
+        }
         if at < crc_end {
             crc = raw::crc16_update(crc, &buf[..(crc_end - at).min(take as u64) as usize]);
         }
         let start = at.max(name_at);
         let end = (at + take as u64).min(name_end);
-        if start < end {
+        if want_name && start < end {
             name[(start - name_at) as usize..(end - name_at) as usize]
                 .copy_from_slice(&buf[(start - at) as usize..(end - at) as usize]);
+        }
+        let padding_at = at.max(name_end);
+        if padding_at < at + take as u64
+            && buf[(padding_at - at) as usize..take].iter().any(|&byte| byte != 0)
+        {
+            return Err(bad());
         }
         at += take as u64;
     }
@@ -788,7 +876,7 @@ async fn fid_at<D: BlockDevice>(info: &Info, dev: &mut D, dir: &Icb, resume: &mu
         icb: Location::from_long(&fid.icb),
         name,
         name_len,
-        next: pos + total,
+        next,
     })
 }
 
@@ -848,7 +936,9 @@ async fn link_target<D: BlockDevice>(info: &Info, dev: &mut D, icb: &Icb, out: &
 /// An open UDF volume on a block device.
 ///
 /// It reads the volume structures once, when opened, and needs no
-/// allocator. It implements the `hadris_fs` `FileSystem` trait read-only:
+/// allocator. A fixed 4 KiB directory-sector buffer reuses identifier bytes;
+/// file data and file entries are read directly. It implements the
+/// `hadris_fs` `FileSystem` trait read-only:
 /// node ids are ICB locations, so they are stable and `forget` does nothing; a directory's id is the id its
 /// name in the parent lists, and hard links share one id. An id outside
 /// every partition fails with [`ErrorKind::InvalidHandle`]; one inside a
@@ -869,6 +959,7 @@ pub struct UdfFs<D> {
     dir_walk: Resume,
     /// The walk of the file read last.
     file_walk: Resume,
+    directory_window: DirectoryWindow,
 }
 
 impl<D: BlockDevice> UdfFs<D> {
@@ -888,7 +979,7 @@ impl<D: BlockDevice> UdfFs<D> {
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all))]
     pub async fn mount(mut dev: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
         match mount(&mut dev, options.is_backup_boot()).await {
-            Ok(info) => Ok(Self { dev, info, dir_walk: Resume::default(), file_walk: Resume::default() }),
+            Ok(info) => Ok(Self { dev, info, dir_walk: Resume::default(), file_walk: Resume::default(), directory_window: DirectoryWindow::new() }),
             Err(err) => Err(MountError::new(err, dev)),
         }
     }
@@ -1049,7 +1140,7 @@ impl<D: BlockDevice> FileSystem for UdfFs<D> {
         let mut pos = 0;
         let mut buf = [0u8; 1024];
         while pos < icb.size {
-            let fid = fid_at(&self.info, &mut self.dev, &icb, &mut self.dir_walk, pos).await?;
+            let fid = fid_at(&self.info, &mut self.dev, &icb, &mut self.dir_walk, &mut self.directory_window, pos).await?;
             pos = fid.next;
             if fid.characteristics.intersects(FileCharacteristics::DELETED | FileCharacteristics::PARENT) {
                 continue;
@@ -1074,7 +1165,7 @@ impl<D: BlockDevice> FileSystem for UdfFs<D> {
         let icb = self.dir(dir).await?;
         let mut pos = 0;
         while pos < icb.size {
-            let fid = fid_at(&self.info, &mut self.dev, &icb, &mut self.dir_walk, pos).await?;
+            let fid = fid_at(&self.info, &mut self.dev, &icb, &mut self.dir_walk, &mut self.directory_window, pos).await?;
             if fid.characteristics.contains(FileCharacteristics::PARENT) {
                 return fid_node(&self.info, &fid);
             }
@@ -1107,7 +1198,7 @@ impl<D: BlockDevice> FileSystem for UdfFs<D> {
         let mut pos = from.into_raw();
         let mut buf = [0u8; 1024];
         while pos < icb.size {
-            let fid = fid_at(&self.info, &mut self.dev, &icb, &mut self.dir_walk, pos).await?;
+            let fid = fid_at(&self.info, &mut self.dev, &icb, &mut self.dir_walk, &mut self.directory_window, pos).await?;
             pos = fid.next;
             if fid.characteristics.intersects(FileCharacteristics::DELETED | FileCharacteristics::PARENT) {
                 continue;

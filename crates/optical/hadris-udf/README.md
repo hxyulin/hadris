@@ -77,7 +77,11 @@ device, plus cache bookkeeping. Cache slots allocate as they are used.
 Large reads bypass the cache; small reads can cache file data as well as
 metadata. Too few slots can increase I/O through eviction, and LRU maintenance
 can cost CPU on memory devices. UDF performs no writes through the adapter.
-The default `UdfFs::mount(dev, ...)` remains allocation-free and uncached.
+The default `UdfFs::mount(dev, ...)` remains allocation-free. Each reader keeps
+a fixed 4 KiB buffer for one directory sector, reading the larger of a UDF
+logical block and a device block. It reuses file-identifier header, name and
+padding bytes across calls; file contents and file entries bypass this buffer.
+This does not build a name index, so lookup still scans directory records.
 See the [UDF benchmark](../../../docs/performance.md#udf-benchmark) for measured
 tradeoffs and commands.
 

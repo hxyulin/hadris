@@ -324,3 +324,12 @@ no partial index; subsequent lookups use the normal scan until `clear_cache`.
 calls, transferred bytes and min/median/max runtime for reader and writer
 workloads. See [the performance guide](../../../docs/performance.md) for cache
 settings, filtering, CSV baselines and measurement boundaries.
+
+Relocation-only Rock Ridge containers are hidden by the mounted reader. When
+writing into a user-created relocation container, Hadris emits a private SUSP
+`HD` entry (version 1, payload `hadris.logical-directory`) so the reader can
+preserve that directory even when its logical contents are empty. Qualification
+with bsdtar and xorriso confirms that these readers ignore the marker and continue
+using the standard Rock Ridge names and links.
+Older images that contain only relocated children have no reliable way to
+prove that the container was also an empty user directory.
