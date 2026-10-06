@@ -19,7 +19,7 @@ def main():
         def git(*args):
             return subprocess.check_output(["git", *args], cwd=root, text=True).strip()
 
-        git("init", "--quiet")
+        git("init", "--quiet", "--initial-branch=feature")
         git("config", "user.name", "Semver test")
         git("config", "user.email", "semver-test@example.invalid")
         git("config", "commit.gpgSign", "false")
@@ -66,7 +66,7 @@ else:
         def run(base, failure=0):
             (root / "invocation.json").unlink(missing_ok=True)
             result = subprocess.run(
-                [shutil.which("bash"), str(SCRIPT), base], cwd=root,
+                [shutil.which("bash"), str(SCRIPT)] + ([base] if base else []), cwd=root,
                 env=dict(env, SEMVER_TEST_EXIT=str(failure)), text=True, capture_output=True,
             )
             return result, root / "invocation.json"
@@ -75,6 +75,13 @@ else:
         assert result.returncode == 0, result.stderr
         assert "hadris-fat-raw 0.1.0: not in" in result.stdout, result.stdout
         assert json.loads(invocation.read_text()) == ["--baseline-rev", baseline, "-p", "hadris"]
+
+        for ref in ("refs/remotes/origin/main", "refs/heads/main"):
+            git("update-ref", ref, baseline)
+            result, invocation = run(None)
+            assert result.returncode == 0, result.stderr
+            assert json.loads(invocation.read_text()) == ["--baseline-rev", baseline, "-p", "hadris"]
+            git("update-ref", "-d", ref)
 
         result, _ = run(baseline, failure=1)
         assert result.returncode == 1, "A semver failure must fail the check"

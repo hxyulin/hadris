@@ -64,8 +64,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_REF" != "refs/heads/main" && "$GITHUB_REF" != "refs/heads/next" ]]; then
-            echo "Releases run from main or next, not $GITHUB_REF" >&2
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Releases run from main, not $GITHUB_REF" >&2
             exit 1
           fi
           read -ra crates <<< "$CRATES"
@@ -203,8 +203,4 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          branch=main
-          if git ls-remote --exit-code --heads origin next > /dev/null; then
-            branch=next
-          fi
-          gh workflow run docs.yml --ref "$branch"
+          gh workflow run docs.yml --ref main

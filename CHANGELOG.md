@@ -8,6 +8,10 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- V3 development, documentation and releases now use `main`; the `v2` branch
+  preserves the previous maintenance line. Unreleased documentation keeps its
+  `/next/` URL.
+
 - The semver CI check skips crates absent from its baseline, allowing the V3
   promotion to compare existing crates against V2.
 

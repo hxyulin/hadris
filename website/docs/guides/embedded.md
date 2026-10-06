@@ -86,7 +86,7 @@ reset.
 
 ## Budget
 
-The [`examples/firmware`](https://github.com/hxyulin/hadris/tree/next/examples/firmware)
+The [`examples/firmware`](https://github.com/hxyulin/hadris/tree/main/examples/firmware)
 package builds firmware-shaped sessions for three targets, and CI measures
 them with `scripts/firmware-size.py` at `opt-level = "s"` with fat LTO:
 

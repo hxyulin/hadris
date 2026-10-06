@@ -271,7 +271,7 @@ requirements in `[workspace.dependencies]`, and add a dated
   `## [3.0.0-rc.1] - 2026-10-01`, named with the workflow's `notes` input.
 
 After that PR merges, run the `Release` workflow (Actions, Run workflow) on
-`next`, or on `main` once 3.x lives there, first with `mode: dry-run` and
+`main`, first with `mode: dry-run` and
 then with `mode: publish`:
 
 - `crates`: `all`, or the crate names separated by spaces, such as
@@ -306,12 +306,15 @@ The 2.x releases on `main` used one workspace version and `vX.Y.Z` tags.
 
 ## Pull requests
 
+Branch from `main` and target it for V3 changes. The `v2` branch preserves the
+2.x maintenance line. `next` is retired from the development workflow.
+
 1. Keep changes focused; prefer small PRs over mixed refactors.
 2. Update crate READMEs / rustdoc when public APIs or CLI commands change.
 3. Add a `[Unreleased]` note in [CHANGELOG.md](CHANGELOG.md) for user-visible work.
 4. Do not commit secrets or large binary fixtures unless they are intentional
    corpus seeds under `fuzz/corpus/`.
-5. PRs to `main` and `next` also run the V3 guardrails in
+5. PRs to `main` also run the V3 guardrails in
    `.github/workflows/v3-guardrails.yml`, and a finding fails the PR:
    `scripts/check-non-exhaustive.py`, `scripts/check-v3-api.py subset` and
    `scripts/check-v3-api.py parity` (under the pinned nightly of the public

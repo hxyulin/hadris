@@ -2,7 +2,7 @@ name: Documentation
 
 on:
   push:
-    branches: [main, next]
+    branches: [main]
     paths:
       - "README.md"
       - "crates/**"
@@ -56,9 +56,7 @@ jobs:
 
   # One build serves every version: the newest released minor at the root,
   # older released minors under X.Y/ (generated from the release tags) and
-  # the docs of the site branch under next/. The site branch is `next` while
-  # it exists and `main` otherwise, so pushes to either branch and releases
-  # rebuild the same site. Set the repository variable DOCS_DOMAIN (for
+  # unreleased docs from main under next/. Set DOCS_DOMAIN (for
   # example docs.example.org) after configuring that custom domain for Pages.
   build:
     if: github.event_name != 'pull_request'
@@ -67,22 +65,7 @@ jobs:
       HADRIS_SITE_URL: ${{ vars.DOCS_DOMAIN && format('https://{0}', vars.DOCS_DOMAIN) || 'https://hxyulin.github.io' }}
       HADRIS_BASE_URL: ${{ vars.DOCS_DOMAIN && '/' || '/hadris/' }}
     steps:
-      - name: Select the site branch
-        id: branch
-        run: |
-          if git ls-remote --exit-code --heads "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" next > /dev/null; then
-            echo "name=next" >> "$GITHUB_OUTPUT"
-          else
-            echo "name=main" >> "$GITHUB_OUTPUT"
-          fi
       - uses: actions/checkout@v7
-        if: steps.branch.outputs.name == 'next'
-        with:
-          ref: next
-          fetch-depth: 0
-          fetch-tags: true
-      - uses: actions/checkout@v7
-        if: steps.branch.outputs.name == 'main'
         with:
           ref: main
           fetch-depth: 0
@@ -95,7 +78,7 @@ jobs:
       - name: Build the site
         working-directory: website
         env:
-          HADRIS_DOCS_BRANCH: ${{ steps.branch.outputs.name }}
+          HADRIS_DOCS_BRANCH: main
         run: |
           npm ci
           npm run versions

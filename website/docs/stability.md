@@ -12,10 +12,10 @@ breaking changes require a new major version, minor releases add
 backward-compatible functionality, and patch releases carry correctness
 fixes, interoperability qualification, and documentation.
 
-Read the [unreleased changes](https://github.com/hxyulin/hadris/blob/next/CHANGELOG.md),
-the [3.0 API design](https://github.com/hxyulin/hadris/blob/next/docs/v3-api-design.md)
+Read the [unreleased changes](https://github.com/hxyulin/hadris/blob/main/CHANGELOG.md),
+the [3.0 API design](https://github.com/hxyulin/hadris/blob/main/docs/v3-api-design.md)
 or the [2.5.0 changelog](https://github.com/hxyulin/hadris/blob/v2.5.0/CHANGELOG.md#250---2026-10-03).
-The [migration guide](https://github.com/hxyulin/hadris/blob/next/docs/hadris-3.0.0-migration.md)
+The [migration guide](https://github.com/hxyulin/hadris/blob/main/docs/hadris-3.0.0-migration.md)
 maps the 2.4 API and the APFS additions in 2.5 to their 3.0 replacements. Report real-world compatibility findings through
 [GitHub Issues](https://github.com/hxyulin/hadris/issues).
 
