@@ -6,6 +6,7 @@ pub mod mount;
 pub mod path;
 pub mod performance;
 pub mod qemu;
+pub mod resources;
 pub mod rng;
 pub mod scorecard;
 pub mod tree;

@@ -6,6 +6,7 @@ Keep before/after files together and retain their measurement boundaries.
 
 | Data | Report |
 |---|---|
+| `harness-v3-audit-*` | [V3 harness and specification audit](../harness-and-spec-audit.md) |
 | `v2-v3-*` | [V3 promotion audit](../v3-promotion-audit.md) |
 | `fat-extraction-*`, `fat-read-ahead-*`, `storage-read-ahead-*` | [Peer performance](../peer-performance.md) |
 | `fat-hosted-*` | [Hosted FAT audit](../fat-hosted-performance-audit.md) and [performance guide](../performance.md) |

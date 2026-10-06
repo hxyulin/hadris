@@ -1,0 +1,51 @@
+Diagnostic probe at revision 73f5e615. Temporarily append this function to
+crates/optical/hadris-udf/tests/errors.rs, run:
+
+cargo +1.97.1 test -p hadris-udf --test errors --features std,sync audit_fid_validation_probe -- --nocapture
+
+Then remove the diagnostic function. It asserts the observed acceptance to
+record the defect; it is not a regression test for the intended rejection.
+
+
+#[test]
+fn audit_fid_validation_probe() {
+    let good = good();
+    let mut at = 292 * 2048;
+    loop {
+        let iu = usize::from(u16::from_le_bytes(good[at + 36..at + 38].try_into().unwrap()));
+        let n = usize::from(good[at + 19]);
+        if n > 0 && &good[at + 39 + iu..at + 38 + iu + n] == b"readme.txt" { break; }
+        at += (38 + iu + n + 3) & !3;
+    }
+    let tag = hadris_udf::raw::Tag::read(&good[at..]).unwrap();
+    let crc_length = usize::from(tag.crc_length.get());
+    let iu = usize::from(u16::from_le_bytes(good[at + 36..at + 38].try_into().unwrap()));
+    let n = usize::from(good[at + 19]);
+    let padding = 38 + iu + n;
+    assert!(padding % 4 != 0);
+    for field in ["file-version", "reserved-characteristics", "padding", "tag-location", "tag-reserved-byte"] {
+        let mut bad = good.clone();
+        match field {
+            "file-version" => bad[at + 16..at + 18].fill(0),
+            "reserved-characteristics" => bad[at + 18] |= 0x80,
+            "padding" => bad[at + padding] = 0xFF,
+            _ => (),
+        }
+        let location = tag.location.get() + u32::from(field == "tag-location");
+        hadris_udf::raw::Tag::seal(&mut bad[at..], tag.identifier.get(), tag.version.get(), location, crc_length);
+        if field == "tag-reserved-byte" {
+            bad[at + 5] = 1;
+            bad[at + 4] = (0..16).filter(|i| *i != 4).fold(0u8, |sum,i| sum.wrapping_add(bad[at + i]));
+        }
+        let mut fs = open(bad);
+        assert_eq!(fs.read_to_vec("/readme.txt").unwrap(), b"hello");
+        println!("AUDIT: accepted malformed FID {field}");
+    }
+}
+
+Observed output:
+AUDIT: accepted malformed FID file-version
+AUDIT: accepted malformed FID reserved-characteristics
+AUDIT: accepted malformed FID padding
+AUDIT: accepted malformed FID tag-location
+AUDIT: accepted malformed FID tag-reserved-byte

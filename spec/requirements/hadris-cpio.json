@@ -11,9 +11,9 @@
       "summary": "An initramfs buffer may combine zero padding, uncompressed archives, and supported compressed archive members.",
       "direction": "both",
       "status": "partial",
-      "symbols": [{"path": "crates/archive/hadris-cpio/src/read.rs", "name": "CpioReader::continue_after_trailer"}],
+      "symbols": [{"path": "crates/archive/hadris-cpio/src/read.rs", "name": "CpioReader::next_segment"}],
       "tests": [{"path": "crates/archive/hadris-cpio/tests/roundtrip.rs", "name": "concatenated_archives_read_on_request", "kind": "integration"}],
-      "gap": "Concatenated uncompressed archives and the zero padding between them are read through continue_after_trailer; compressed members are not decompressed."
+      "gap": "Concatenated uncompressed archives and the zero padding between them are read through next_segment; compressed members are not decompressed."
     },
     {
       "id": "LINUX-INITRAMFS-NEWC:newc-header#ascii-hex-fields",
@@ -47,7 +47,7 @@
       "summary": "The stored name ends in one or more NUL bytes and its encoded size does not exceed PATH_MAX.",
       "direction": "both",
       "status": "verified",
-      "symbols": [{"path": "crates/archive/hadris-cpio/src/read.rs", "name": "CpioReader::advance"}, {"path": "crates/archive/hadris-cpio/src/write.rs", "name": "CpioWriter::check_name"}],
+      "symbols": [{"path": "crates/archive/hadris-cpio/src/read.rs", "name": "CpioReader::advance"}, {"path": "crates/archive/hadris-cpio/src/build.rs", "name": "namesize"}],
       "tests": [{"path": "crates/archive/hadris-cpio/tests/roundtrip.rs", "name": "reader_rejects_non_nul_filename_terminator", "kind": "integration"}],
       "gap": null
     },
@@ -83,7 +83,7 @@
       "summary": "Nondirectory hard-link members share their device and inode tuple and report the complete link count.",
       "direction": "both",
       "status": "verified",
-      "symbols": [{"path": "crates/archive/hadris-cpio/src/write.rs", "name": "CpioWriter::append_hard_links"}, {"path": "crates/archive/hadris-cpio/src/write.rs", "name": "CpioWriter::write_tree"}],
+      "symbols": [{"path": "crates/archive/hadris-cpio/src/write.rs", "name": "Writer::append_hard_links"}, {"path": "crates/archive/hadris-cpio/src/write.rs", "name": "write"}],
       "tests": [{"path": "crates/archive/hadris-cpio/tests/roundtrip.rs", "name": "hard_link_group_uses_total_link_count", "kind": "integration"}, {"path": "crates/archive/hadris-cpio/tests/roundtrip.rs", "name": "streaming_appends_every_kind", "kind": "integration"}],
       "gap": null
     },
@@ -95,7 +95,7 @@
       "summary": "A symbolic-link entry carries a nonempty target in its file-data field.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/archive/hadris-cpio/src/write.rs", "name": "CpioWriter::append"}],
+      "symbols": [{"path": "crates/archive/hadris-cpio/src/write.rs", "name": "Writer::append"}],
       "tests": [{"path": "crates/archive/hadris-cpio/tests/roundtrip.rs", "name": "writer_rejects_empty_symlink_target", "kind": "integration"}],
       "gap": null
     },

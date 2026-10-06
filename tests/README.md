@@ -136,6 +136,9 @@ runs skip a test if its tool is unavailable unless
 
 ## V3 performance harness
 
+The [harness and specification audit](../docs/harness-and-spec-audit.md) records
+directory scaling, cache budgets, isolated RSS and correctness follow-ups.
+
 ```bash
 cargo bench --manifest-path tests/Cargo.toml --bench performance
 HADRIS_TESTS_PERF_SAMPLES=1 cargo bench --manifest-path tests/Cargo.toml --bench performance
@@ -144,14 +147,17 @@ HADRIS_TESTS_PERF_FILTER=udf cargo bench --manifest-path tests/Cargo.toml --benc
 
 The runner writes `performance/v3.csv` under `HADRIS_TESTS_REPORT_DIR` (default
 `tests/target/reports`). Each row records one sample's elapsed nanoseconds,
-requested read/write calls and bytes, flushes, I/O failures and stream seeks. Keep the raw
+requested read/write calls and bytes, flushes, I/O failures and stream seeks,
+backend, cache policy, directory size, metadata-cache block capacity and optional
+process peak RSS in bytes. Keep the raw
 samples to compare medians and spread rather than relying on a single run.
 The default is 21 samples plus one discarded warm-up for each workload.
 The format filter is a substring; a filter matching nothing fails.
 
 FAT12/16/32, exFAT, ISO and UDF run the same V3 `FileSystem` operations:
-mount, root listing, last-file lookup, missing-file lookup, stat, 4 KiB and
-64 KiB reads, and five scattered 4 KiB reads. Each image has 32 small files
+mount, root listing, cold and warm last-file lookup, missing-file lookup,
+lookup of every small file, stat, 4 KiB and 64 KiB reads, five scattered
+4 KiB reads and full-payload reads. Each image has 32 small files
 and a 128 KiB patterned payload. FAT, exFAT and ISO fixtures pass the
 independent raw-image oracles before measurement. Every driver must return
 the expected names and payload bytes; UDF has no raw oracle in this package.
@@ -162,8 +168,36 @@ correctness verification, close, destruction and reporting. Listing includes
 collecting inline entries into a preallocated vector. Lookup includes forgetting
 the returned pin. Scattered reads use preallocated buffers. These measure CPU
 and requested I/O on memory, including the counter overhead; they do not measure
-physical disk latency, OS-cache behavior, peak memory, or async execution.
-Record the Rust version, machine and revision alongside saved comparisons.
+physical disk latency or async execution. `metadata.txt` records the compiler
+used to build the executable, build profile, runtime revision/dirty state,
+platform, configuration and measurement boundaries.
+
+Set `HADRIS_TESTS_PERF_BACKEND=file` for isolated file-backed workers, measured
+through macOS `/usr/bin/time -l` or Linux GNU time. Fixture creation and raw-oracle
+validation run in the parent, outside worker RSS. Each worker runs one discarded
+warm-up and one measured sample on fresh mounts. Peak RSS covers the whole
+worker, including runtime, mount, setup, verification and allocator retention;
+it is not incremental memory allocated by the timed operation. Timing excludes
+process startup and the time utility. The OS page cache is uncontrolled, so
+file-backed results do not claim cold-disk latency. Other platforms support the
+memory backend and reject requested RSS runs explicitly.
+
+`HADRIS_TESTS_PERF_WORKLOAD` selects one exact workload.
+`HADRIS_TESTS_PERF_CACHE=none|default|index` selects FAT policy; `index` sizes its
+directory-prefix bound to the fixture. ISO `default`/`none` use the uncached
+reader; `index` enables eight sectors and a fixture-sized parsed-record cache.
+These are format-specific policies, not equivalent cache budgets. exFAT/UDF
+currently support only the default policy. Counters sit below driver caches
+and record requested backend bytes, not physical disk reads.
+
+```bash
+HADRIS_TESTS_PERF_BACKEND=file HADRIS_TESTS_PERF_SAMPLES=7 \
+  cargo bench --manifest-path tests/Cargo.toml --bench performance
+HADRIS_TESTS_PERF_FILTER=fat32 HADRIS_TESTS_PERF_FILES=1000 \
+  HADRIS_TESTS_PERF_CACHE=index HADRIS_TESTS_PERF_WORKLOAD=lookup-batch \
+  cargo bench --manifest-path tests/Cargo.toml --bench performance
+```
+
 CI runs one sample as a correctness smoke check, with no timing threshold.
 
 `harness::performance::Counted` forwards V3 device geometry, capacity, disk
@@ -193,3 +227,9 @@ run in the parent or separate processes. See
 [`docs/peer-performance.md`](../docs/peer-performance.md#isolated-extraction-rss-and-peer-comparison)
 for worker/cache modes, measurement boundaries, external image-read counting
 and the per-process RSS/speed results.
+
+`HADRIS_TESTS_PERF_BLOCKS` overrides the FAT/ISO metadata-cache capacity for
+`default` or `index` policies. FAT blocks are device blocks (512 bytes in these
+fixtures); ISO blocks are logical sectors (2,048 bytes). It cannot be combined
+with `none` or applied to exFAT/UDF. The CSV records the resolved capacity; zero
+for exFAT/UDF means no optional metadata cache configured by this runner.

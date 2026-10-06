@@ -83,7 +83,7 @@
       "summary": "A receiving implementation reads files and recorded Part 4 descriptors from a conforming file set.",
       "direction": "read",
       "status": "partial",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/read.rs", "name": "UdfFs::read_at"}, {"path": "crates/optical/hadris-udf/src/read.rs", "name": "read_stream"}],
+      "symbols": [{"path": "crates/optical/hadris-udf/src/read.rs", "name": "UdfFs::read"}, {"path": "crates/optical/hadris-udf/src/read.rs", "name": "read_stream"}],
       "tests": [{"path": "crates/optical/hadris-udf/tests/roundtrip.rs", "name": "every_tree_reads_back", "kind": "integration"}, {"path": "crates/optical/hadris-udf/tests/read.rs", "name": "allocation_descriptors_of_every_form_read_back", "kind": "integration"}, {"path": "crates/optical/hadris-udf/tests/read.rs", "name": "extended_file_entries_read", "kind": "integration"}],
       "gap": "File entries and extended file entries with every allocation descriptor form, continuation extents and type 1 partitions are read; indirect entries, stream directories and virtual, sparable and metadata partitions are not."
     },
