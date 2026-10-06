@@ -3,7 +3,7 @@
 use std::ffi::OsString;
 use std::fs;
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Output;
 
 use super::adapter::{IsoConsumer, IsoProducer};
 use super::model::IsoState;
@@ -54,15 +54,11 @@ pub fn extract(image: &Path, destination: &Path) -> Result<(), String> {
     .map(|_| ())
 }
 
-/// Runs `xorriso -indev image <args>` and returns the raw output. xorriso
-/// exits with status 1 for warnings, so callers inspect the status themselves.
+/// Runs `xorriso -indev image <args>` and requires a successful exit status.
 pub fn inspect(image: &Path, args: &[&str]) -> Output {
-    Command::new(PROGRAM)
-        .arg("-indev")
-        .arg(image)
-        .args(args)
-        .output()
-        .expect("failed to run xorriso")
+    let mut command = vec!["-indev".into(), image.as_os_str().to_owned()];
+    command.extend(args.iter().map(OsString::from));
+    run_command(PROGRAM, command).expect("xorriso inspection must succeed")
 }
 
 /// A small mixed tree used by the interoperability read tests.

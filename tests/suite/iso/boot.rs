@@ -218,8 +218,6 @@ fn test_hadris_bootable_iso_creation() {
     );
 }
 
-/// Prints a field-by-field comparison of the xorriso and Hadris catalogs for
-/// the same boot image; both must carry a valid validation entry.
 #[test]
 fn test_compare_boot_catalogs() {
     if !xorriso::require() {
@@ -232,60 +230,29 @@ fn test_compare_boot_catalogs() {
     let boot_data = padded_boot_image(&[0xEB, 0xFE]);
     fs::write(content_dir.join("boot.bin"), &boot_data).unwrap();
     xorriso::create_bootable(&content_dir, &xorriso_iso_path, "boot.bin").unwrap();
-
-    let hadris_data = hadris_bootable_image(boot_data);
     let xorriso_data = fs::read(&xorriso_iso_path).unwrap();
-
-    let (x_br_sector, x_cat_lba) = find_boot_catalog(&xorriso_data).expect("xorriso boot catalog");
-    let (h_br_sector, h_cat_lba) = find_boot_catalog(&hadris_data).expect("hadris boot catalog");
-    println!("xorriso: Boot Record at sector {x_br_sector}, Catalog at LBA {x_cat_lba}");
-    println!("hadris:  Boot Record at sector {h_br_sector}, Catalog at LBA {h_cat_lba}");
-
-    let x_cat_offset = x_cat_lba * 2048;
-    let h_cat_offset = h_cat_lba * 2048;
-    let x_val = &xorriso_data[x_cat_offset..x_cat_offset + 32];
-    let h_val = &hadris_data[h_cat_offset..h_cat_offset + 32];
-    let x_def = &xorriso_data[x_cat_offset + 32..x_cat_offset + 64];
-    let h_def = &hadris_data[h_cat_offset + 32..h_cat_offset + 64];
-
-    println!("validation xorriso: {x_val:02x?}");
-    println!("validation hadris:  {h_val:02x?}");
-    println!("default xorriso: {x_def:02x?}");
-    println!("default hadris:  {h_def:02x?}");
-    for (label, x, h) in [
-        ("Header ID", x_val[0], h_val[0]),
-        ("Platform ID", x_val[1], h_val[1]),
-        ("Boot Indicator", x_def[0], h_def[0]),
-        ("Boot Media Type", x_def[1], h_def[1]),
-        ("System Type", x_def[4], h_def[4]),
-    ] {
-        if x != h {
-            println!("DIFF: {label} - xorriso={x:#04x}, hadris={h:#04x}");
-        }
-    }
-    let x_load_seg = u16::from_le_bytes([x_def[2], x_def[3]]);
-    let h_load_seg = u16::from_le_bytes([h_def[2], h_def[3]]);
-    if x_load_seg != h_load_seg {
-        println!("DIFF: Load Segment - xorriso={x_load_seg:#06x}, hadris={h_load_seg:#06x}");
-    }
-    let x_sector_count = u16::from_le_bytes([x_def[6], x_def[7]]);
-    let h_sector_count = u16::from_le_bytes([h_def[6], h_def[7]]);
-    if x_sector_count != h_sector_count {
-        println!("DIFF: Sector Count - xorriso={x_sector_count}, hadris={h_sector_count}");
-    }
-    let x_br_offset = x_br_sector * 2048;
-    let h_br_offset = h_br_sector * 2048;
-    println!(
-        "xorriso boot system identifier: {:?}",
-        String::from_utf8_lossy(&xorriso_data[x_br_offset + 7..x_br_offset + 39])
-    );
-    println!(
-        "hadris  boot system identifier: {:?}",
-        String::from_utf8_lossy(&hadris_data[h_br_offset + 7..h_br_offset + 39])
-    );
-
+    let hadris_data = hadris_bootable_image(boot_data.clone());
+    let (_, x_cat_lba) = find_boot_catalog(&xorriso_data).expect("xorriso boot catalog");
+    let (_, h_cat_lba) = find_boot_catalog(&hadris_data).expect("hadris boot catalog");
+    let x_val = &xorriso_data[x_cat_lba * 2048..x_cat_lba * 2048 + 32];
+    let h_val = &hadris_data[h_cat_lba * 2048..h_cat_lba * 2048 + 32];
+    let x_def = &xorriso_data[x_cat_lba * 2048 + 32..x_cat_lba * 2048 + 64];
+    let h_def = &hadris_data[h_cat_lba * 2048 + 32..h_cat_lba * 2048 + 64];
     assert_eq!(validation_checksum(x_val), 0, "xorriso validation entry");
     assert_eq!(validation_checksum(h_val), 0, "hadris validation entry");
+    assert_eq!(&x_val[..2], &h_val[..2], "header and platform");
+    assert_eq!(&x_def[..8], &h_def[..8], "boot mode and load parameters");
+    for (producer, bytes, entry) in [
+        ("xorriso", &xorriso_data, x_def),
+        ("hadris", &hadris_data, h_def),
+    ] {
+        let start = u32::from_le_bytes(entry[8..12].try_into().unwrap()) as usize * 2048;
+        assert_eq!(
+            bytes.get(start..start + boot_data.len()),
+            Some(boot_data.as_slice()),
+            "{producer} boot image"
+        );
+    }
 }
 
 #[test]

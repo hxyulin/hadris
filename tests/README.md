@@ -95,6 +95,10 @@ Reports are written to `tests/target/reports/<format>/`.
 
 ## Adding tests
 
+The [test migration audit](../docs/test-migration-audit.md) maps historical
+scenarios to current assertions and records intentional removals, Cargo
+discovery and CI/manual qualification boundaries.
+
 - Put a new check under `suite/<format>/<topic>.rs`, adding the module to
   `suite/<format>/mod.rs`. Start a new topic file rather than growing an
   unrelated one.
