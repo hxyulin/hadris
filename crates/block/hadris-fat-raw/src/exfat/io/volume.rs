@@ -55,7 +55,37 @@ fn blame<E>(err: Error<E>, detail: Detail) -> Error<E> {
     }
 }
 
+struct BitmapWindow {
+    start: u64,
+    len: usize,
+    bytes: [u8; 64],
+}
+
+impl BitmapWindow {
+    fn new() -> Self {
+        Self {
+            start: 0,
+            len: 0,
+            bytes: [0; 64],
+        }
+    }
+}
+
 io_transform! {
+
+impl BitmapWindow {
+    async fn used<D: BlockDevice>(&mut self, dev: &mut D, block: &mut BlockBuf, vol: &mut ExFat, cluster: u32) -> FsResult<bool, D::Error> {
+        let index = u64::from(cluster - raw::FIRST_CLUSTER);
+        let byte = index / 8;
+        if byte < self.start || byte - self.start >= self.len as u64 {
+            self.len = 0;
+            self.start = byte & !63;
+            self.len = bitmap_bytes(dev, block, vol, self.start, &mut self.bytes).await?;
+        }
+        let value = self.bytes.get((byte - self.start) as usize).filter(|_| byte - self.start < self.len as u64).ok_or(ErrorKind::Corrupt)?;
+        Ok(value & (1 << (index % 8)) != 0)
+    }
+}
 
 /// The geometry of the boot region at `base`, if its boot sector is valid
 /// and its checksum matches.
@@ -608,7 +638,8 @@ pub async fn count_free<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: 
     Ok(free)
 }
 
-/// Takes a free cluster from the allocation hint on: its FAT entry ends a
+/// Takes a bitmap-free cluster not marked bad in the FAT, from the allocation
+/// hint on: its FAT entry ends a
 /// chain and its bitmap bit is set. With `held`, the cluster is recorded
 /// there before anything is written: as the head when there is none, else
 /// as the extra cluster.
@@ -637,6 +668,9 @@ pub async fn allocate<D: BlockDevice>(
                     continue;
                 }
                 let cluster = candidate + raw::FIRST_CLUSTER;
+                if get(dev, block, &vol.geo, cluster).await? == raw::FAT_BAD {
+                    continue;
+                }
                 if let Some(held) = held {
                     if held.head() == 0 {
                         held.set_head(cluster);
@@ -661,7 +695,7 @@ pub async fn allocate<D: BlockDevice>(
 }
 
 /// Allocates a chain of `count` unzeroed clusters, the first `count` free
-/// ones from the allocation hint on, and returns its first cluster, 0 when
+/// ones not marked bad in the FAT, from the allocation hint on, and returns its first cluster, 0 when
 /// `count` is 0.
 ///
 /// The FAT entries are written a device block at a time from the chain's
@@ -687,8 +721,9 @@ pub async fn allocate_run<D: BlockDevice>(
     let at = |step: u32| raw::FIRST_CLUSTER + (from + step) % total;
     let mut found = 0;
     let mut last = None;
+    let mut bitmap = BitmapWindow::new();
     for step in 0..total {
-        if !bit(dev, block, vol, at(step)).await? {
+        if !bitmap.used(dev, block, vol, at(step)).await? && get(dev, block, &vol.geo, at(step)).await? != raw::FAT_BAD {
             found += 1;
             if found == count {
                 last = Some(step);
@@ -719,6 +754,7 @@ async fn link_free<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &mut 
     let at = |step: u32| raw::FIRST_CLUSTER + (from + step) % total;
     let mut head = raw::FAT_END;
     let mut top = last + 1;
+    let mut bitmap = BitmapWindow::new();
     while top > 0 {
         let high = at(top - 1);
         let mut group = ClusterGroup::new(high.saturating_sub(ClusterGroup::SPAN - 1));
@@ -727,7 +763,7 @@ async fn link_free<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &mut 
             if cluster > high || !same_fat_block(&vol.geo, size, cluster, high) {
                 break;
             }
-            if !bit(dev, block, vol, cluster).await? {
+            if !bitmap.used(dev, block, vol, cluster).await? && get(dev, block, &vol.geo, cluster).await? != raw::FAT_BAD {
                 group.add(cluster);
             }
             top -= 1;

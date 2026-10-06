@@ -30,6 +30,9 @@ Each published package owns its version and may be released independently.
 - API compatibility CI uses `cargo-semver-checks` without textual snapshot,
   feature-subset or mode-parity diffs; feature builds and contract tests remain.
 
+- exFAT allocation skips clusters marked bad in the FAT even when their bitmap
+  bit is clear, for both single-cluster and batched allocations.
+
 - V3 development, documentation and releases now use `main`; the `v2` branch
   preserves the previous maintenance line. Unreleased documentation keeps its
   `/next/` URL.

@@ -625,7 +625,7 @@ fn hosted_append_uses_a_guarded_tail_hint_without_rescanning() {
     fs.read(node, (1 << 20) - 1, &mut [0]).unwrap();
     counts.set(IoCounts::default());
     fs.write(node, 1 << 20, &[0x55; 512]).unwrap();
-    assert_eq!(counts.get().read_calls, 9, "{:?}", counts.get());
+    assert_eq!(counts.get().read_calls, 10, "{:?}", counts.get());
     assert_eq!(counts.get().write_calls, 5, "{:?}", counts.get());
     fs.truncate(node, 513).unwrap();
     fs.write(node, 513, &[0x66; 1024]).unwrap();

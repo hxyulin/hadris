@@ -108,3 +108,102 @@ fn hinted_append_recovers_when_dropped_at_every_await() {
         }
     }
 }
+
+fn bad_cluster_image() -> (Vec<u8>, Vec<u32>) {
+    let mut image = common::image(common::small(8 << 20, 512));
+    let geo = common::Geometry::of(&image);
+    let entry = geo.root_entries(&image, 0x81)[0];
+    let first = common::le32(&image, entry + 20);
+    let bitmap: Vec<u8> = geo
+        .chain(&image, first)
+        .into_iter()
+        .flat_map(|cluster| {
+            image[geo.at(cluster)..geo.at(cluster) + geo.cluster]
+                .iter()
+                .copied()
+        })
+        .collect();
+    let free: Vec<u32> = (2..geo.count + 2)
+        .filter(|&cluster| bitmap[(cluster as usize - 2) / 8] & (1 << ((cluster - 2) % 8)) == 0)
+        .collect();
+    let usable = vec![free[0], free[free.len() / 2], *free.last().unwrap()];
+    for cluster in free {
+        if !usable.contains(&cluster) {
+            geo.set_fat(&mut image, cluster, 0xffff_fff7);
+        }
+    }
+    (image, usable)
+}
+
+macro_rules! bad_cluster_allocations {
+    ($mode:ident, $name:ident, $run:ident) => {
+        #[test]
+        fn $name() {
+            $run!(async {
+                use hadris_fat_raw::exfat::io::{Upcase, $mode as rawio};
+                use hadris_fat_raw::io::{BlockBuf, Held};
+                for count in [1, 3, 4] {
+                    let (image, usable) = bad_cluster_image();
+                    let original = image.clone();
+                    let mut dev = common::device(image, 512);
+                    let mut block = BlockBuf::<[u8; 512]>::new(512).unwrap();
+                    let (geo, _) = rawio::read_boot(&mut dev, &mut block).await.unwrap();
+                    let mut vol = rawio::read_volume(&mut dev, &mut block, geo, &mut Upcase::new())
+                        .await
+                        .unwrap();
+                    let mut held = Held::NONE;
+                    let result = if count == 1 {
+                        rawio::allocate(&mut dev, &mut block, &mut vol, Some(&mut held)).await
+                    } else {
+                        rawio::allocate_run(&mut dev, &mut block, &mut vol, Some(&mut held), count)
+                            .await
+                    };
+                    if count == 4 {
+                        assert_eq!(result.unwrap_err().kind(), ErrorKind::NoSpace);
+                        assert_eq!(held, Held::NONE);
+                        assert_eq!(dev.into_inner(), original);
+                        continue;
+                    }
+                    let head = result.unwrap();
+                    assert_eq!(head, usable[0]);
+                    assert_eq!(held.head(), head);
+                    let mut actual = Vec::new();
+                    let mut next = Some(head);
+                    while let Some(cluster) = next {
+                        actual.push(cluster);
+                        next = rawio::next(&mut dev, &mut block, &geo, cluster)
+                            .await
+                            .unwrap();
+                    }
+                    assert_eq!(actual, usable[..count as usize]);
+                    let bytes = dev.into_inner();
+                    let raw = common::Geometry::of(&bytes);
+                    for cluster in 2..raw.count + 2 {
+                        if raw.fat(&original, cluster) == 0xffff_fff7 {
+                            assert_eq!(
+                                raw.fat(&bytes, cluster),
+                                0xffff_fff7,
+                                "bad cluster {cluster}"
+                            );
+                        }
+                    }
+                }
+            });
+        }
+    };
+}
+
+macro_rules! sync_allocation {
+    ($($body:tt)*) => { common::block_on(hadris_macros::strip_async! { $($body)* }) };
+}
+macro_rules! async_allocation {
+    ($body:expr) => {
+        common::block_on($body)
+    };
+}
+bad_cluster_allocations!(sync, bad_clusters_are_not_allocated_sync, sync_allocation);
+bad_cluster_allocations!(
+    r#async,
+    bad_clusters_are_not_allocated_async,
+    async_allocation
+);
