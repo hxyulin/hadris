@@ -210,6 +210,7 @@ pub(super) fn lazy_extract(
         inner: FileDevice::open(image).unwrap(),
         counts: counts.clone(),
     };
+    let dev = hadris_storage::sync::ReadAhead::new(dev, read_ahead_blocks());
     let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
     if let Some(cache) = cache {
         fs = fs.with_cache(cache);
@@ -277,4 +278,8 @@ impl hadris_storage::sync::BlockDevice for SendCounted {
         counts.failures += u64::from(result.is_err());
         result
     }
+}
+
+pub(super) fn read_ahead_blocks() -> usize {
+    std::env::var("HADRIS_TESTS_PEER_READ_AHEAD_BLOCKS").map_or(0, |text| text.parse().unwrap())
 }

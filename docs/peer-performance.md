@@ -633,3 +633,124 @@ for counting. Do not run the interposer through Apple's protected `time` binary,
 which can strip `DYLD_*` variables, or use instrumented elapsed/RSS numbers as
 performance measurements. The helper is diagnostic instrumentation, not part
 of the filesystem drivers.
+
+## Adaptive storage read-ahead
+
+An optional `hadris-storage::ReadAhead<D>` sits below the filesystem driver.
+Two windows share a configurable block budget. A small miss immediately after
+one retained window enables a larger read; a scattered miss requests only the
+needed blocks. Writes invalidate both windows before reaching the underlying
+device. Expanded reads stop at the device boundary and fall back to the original
+request if speculation fails. The adapter is available with `alloc` in all three
+I/O modes. Ordinary filesystem mounts remain unchanged.
+
+`hadris fat extract --read-ahead-blocks 128` enables a 64 KiB budget on a
+512-byte device; zero is the default. This flag also works for exFAT, although
+these performance measurements cover FAT32 only. The storage budget is separate
+from the FAT metadata, chain-position, directory-prefix and listing-hint settings.
+`--no-cache` conflicts with explicit read-ahead configuration.
+
+### Method
+
+Measured on the same M3 Pro/macOS 27.0.1 host with Rust 1.88 release builds and
+warm OS caches. The 64 MiB FAT32 fixture contains 1,000 seven-byte files and one
+128 KiB payload. A second fixture moves the payload into 256 clusters separated
+by 17-cluster strides, preserving names and bytes. An independent raw FAT oracle
+validates both fixtures before timing; every extraction is checked against the
+expected names and bytes after timing. The listing hint is enabled, with all
+other FAT caches disabled.
+
+Each extraction case has 42 fresh-process measurements: two trials of 21 rounds,
+with configuration order deterministically shuffled each round. One additional
+warmup round per trial is excluded. Timings include process startup and exit;
+fixture construction, validation and cleanup are excluded. RSS is macOS peak
+resident memory from `/usr/bin/time -l`. Output is closed without `fsync`.
+The pilot used grouped configurations and observed timing drift; the tables below
+use the final shuffled run, including the final device-geometry handling.
+
+### Extraction results
+
+| Layout | Workflow | Budget | Median ms | Peak RSS MiB | Image reads | Requested bytes |
+|---|---|---:|---:|---:|---:|---:|
+| contiguous | lazy | 0 KiB | 73.302 | 3.06250 | 1,133 | 710,144 |
+| contiguous | lazy | 8 KiB | 73.030 | 3.07812 | 228 | 709,120 |
+| contiguous | lazy | 64 KiB | 73.292 | 3.12500 | 89 | 788,480 |
+| contiguous | stream | 0 KiB | 57.558 | 2.53125 | 2,102 | 1,190,912 |
+| contiguous | stream | 8 KiB | 56.899 | 2.54688 | 297 | 750,592 |
+| contiguous | stream | 64 KiB | 56.606 | 2.59375 | 65 | 1,004,544 |
+| fragmented | lazy | 0 KiB | 73.929 | 3.06250 | 1,418 | 726,016 |
+| fragmented | lazy | 8 KiB | 73.294 | 3.07812 | 514 | 721,920 |
+| fragmented | lazy | 64 KiB | 72.937 | 3.12500 | 375 | 772,608 |
+| fragmented | stream | 0 KiB | 57.868 | 2.53125 | 2,357 | 1,206,784 |
+| fragmented | stream | 8 KiB | 56.929 | 2.54688 | 553 | 763,392 |
+| fragmented | stream | 64 KiB | 56.604 | 2.59375 | 348 | 984,576 |
+
+At 64 KiB, contiguous public lazy extraction uses 92.1% fewer image reads, but
+its median elapsed time is effectively unchanged. Streaming extraction uses
+96.9% fewer reads and is about 1.7% faster. Fragmented public extraction uses
+73.6% fewer reads and is about 1.3% faster. These are small elapsed-time changes
+on a warm local filesystem; the host output work remains dominant. The stronger
+result is the reduction in image calls, not a large end-to-end speedup.
+
+Both workflows add 64 KiB of median peak RSS with the 64 KiB setting. At 8 KiB,
+RSS increases by one 16 KiB macOS page. The wrapper itself adds 104 bytes on this
+64-bit build, excluding allocator metadata; buffers allocate lazily. A zero
+budget makes no buffer allocation or extra backend reads. Direct mounts without
+the wrapper incur no additional state. The wrapper does add cache bookkeeping
+and copies on buffered misses and hits.
+
+### Access-pattern results
+
+The synthetic fixture is a 16 MiB block-pattern image. Each operation performs
+81,920 verified 512-byte reads. Sequential and alternating-region patterns scan
+8,192 blocks ten times. The fragmented pattern jumps by 17 blocks, and random
+access uses a fixed xorshift sequence. Each case has 21 measured operations after
+one discarded warmup; timings exclude process startup. These operations isolate
+read transport and do not create host output files.
+
+| Pattern | Budget | Median ms | Backend reads | Requested bytes |
+|---|---:|---:|---:|---:|
+| sequential | 0 KiB | 50.017 | 81,920 | 41,943,040 |
+| sequential | 8 KiB | 9.613 | 10,241 | 41,911,296 |
+| sequential | 64 KiB | 4.006 | 1,281 | 41,653,248 |
+| alternating | 0 KiB | 49.479 | 81,920 | 41,943,040 |
+| alternating | 8 KiB | 9.143 | 10,260 | 41,953,280 |
+| alternating | 64 KiB | 3.877 | 1,300 | 41,953,280 |
+| fragmented | 0 KiB | 52.714 | 81,920 | 41,943,040 |
+| fragmented | 8 KiB | 53.420 | 81,920 | 41,943,040 |
+| fragmented | 64 KiB | 53.585 | 81,920 | 41,943,040 |
+| random | 0 KiB | 57.674 | 81,920 | 41,943,040 |
+| random | 8 KiB | 60.906 | 81,915 | 41,969,152 |
+| random | 64 KiB | 60.763 | 81,915 | 42,198,528 |
+
+At 64 KiB, sequential and alternating-region block reads are approximately 12.5
+and 12.8 times faster. Scattered reads retain nearly the same byte volume:
+random requests increase bytes by about 0.61%, with about 5.4% additional elapsed
+time from buffering/bookkeeping. Fragmented reads do not amplify bytes and are
+about 1.7% slower. This is why read-ahead remains explicit rather than enabled
+for every hosted workload.
+
+An unconditional pilot fetched 2,671,758,336 bytes for the same random sequence,
+versus 41,943,040 without read-ahead, and took more than twice as long. It was
+replaced by adjacent-access detection before the final measurements.
+
+The previous peer comparison still describes output/metadata differences between
+implementations. These new warm-cache results do not establish a broad advantage
+over those peers. Reduced calls should help a device with higher per-call latency,
+but that is an inference; remote-device and cold-disk measurements remain future work.
+
+Raw final samples: [extraction](benchmarks/fat-read-ahead-extraction.csv) and
+[access patterns](benchmarks/storage-read-ahead-patterns.csv).
+
+Reproduce with the `peers` bench executable emitted by Cargo:
+
+```sh
+CARGO_PROFILE_BENCH_DEBUG=2 cargo bench --manifest-path tests/Cargo.toml --bench peers --no-run --message-format=json
+python3 tests/peers/read-ahead.py --worker /path/to/peers-executable --image /path/to/prepared-1000-file-fat32.img --output /path/to/results
+```
+
+Create that input with the worker's `prepare` mode, `HADRIS_TESTS_PERF_FILES=1000`
+and `HADRIS_TESTS_PEER_IMAGE`. The runner records worker and fixture SHA-256 values.
+Internal read counters sit below the adapter; separate, untimed Darwin interposer
+runs agree with the actual image read calls and bytes for all 12 extraction cases.
+Instrumentation is absent from timing and RSS runs.
