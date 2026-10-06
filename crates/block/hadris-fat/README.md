@@ -407,3 +407,35 @@ Implements the following specifications:
 ## License
 
 This project is licensed under the [MIT license](../../../LICENSE-MIT).
+
+
+For sequential traversal, `CacheOptions::sequential()` retains only the most
+recently listed entry. A matching lookup reuses its parsed short entry and
+long name; other names or directories follow the normal lookup path. The hint
+is allocated lazily, has a fixed one-entry bound, and is discarded by writes,
+recovery and `clear_cache()`. It does not allocate a full directory-prefix index.
+
+Choose each cache independently for the access pattern:
+
+```rust
+use hadris_fat::CacheOptions;
+
+let extraction = CacheOptions::sequential();
+let repeated_lookups = CacheOptions::new()
+    .with_directory_entries(256)
+    .with_blocks(8)
+    .with_chain_positions(32);
+let fragmented_reads = CacheOptions::new()
+    .with_blocks(0)
+    .with_chain_positions(64);
+let disabled = CacheOptions::sequential().with_directory_hint(false);
+```
+
+Pass the selected options to `FatFs::with_cache` before wrapping the driver in
+`Volume`. `with_directory_hint` can be combined with any of the other bounds.
+Zero disables a bounded component. Bounds count entries, positions or device
+blocks, rather than bytes; directory-prefix storage is reserved when configured,
+while long-name contents are copied as entries are learned. On this 64-bit Mac,
+the listing hint uses 88 bytes of heap storage for a short name and up to 598
+bytes for a maximum-length long name, excluding allocator overhead. Its memory
+use does not grow with directory size. Layouts vary by target.

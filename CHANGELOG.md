@@ -8,6 +8,25 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- FAT/exFAT extraction exposes optional storage buffering with
+  `--read-ahead-blocks`, defaulting to zero.
+
+- Storage supports optional, bounded adaptive read-ahead in all I/O modes.
+  Writes always go directly to the underlying device.
+
+- FAT peer profiling supports isolated extraction workers for process RSS,
+  with speed, image-read and disabled-cache overhead comparisons documented.
+
+- FAT profiling includes the public lazy-tree extraction workflow, nested and
+  long-name fixtures, and comparisons of independently configured caches.
+
+- `hadris fat extract` enables the sequential listing hint by default and accepts
+  independent cache bounds, `--no-directory-hint`, and `--no-cache`.
+
+- FAT drivers support an optional one-entry listing hint for sequential traversal,
+  selected with `CacheOptions::sequential()` or `with_directory_hint`. Other
+  cache bounds remain independently configurable; ordinary mounts stay uncached.
+
 - Hosted FAT first writes into newly allocated, exclusive device blocks avoid
   reading old free-space data for small payloads; shared blocks retain their
   existing bytes. Short-name insertion indexing falls back for the escaped
@@ -19,6 +38,9 @@ Each published package owns its version and may be released independently.
 
 - Hosted FAT entry insertion resumes from the directory position reached by its
   planner, avoiding a second traversal of the directory chain.
+
+- FAT32 profiling accepts independent cache bounds and fixed sample counts,
+  with extraction timing, I/O scaling and sampled-stack results documented.
 
 - The peer performance runner supports sustained FAT32 profiling loops and
   controlled cache probes, with setup and validation outside the profile window.

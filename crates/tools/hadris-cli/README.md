@@ -42,6 +42,26 @@ hadris cpio create ./rootfs -o - > initramfs.cpio
 hadris iso extract disc.iso -p /docs -o out
 ```
 
+FAT12/16/32 extraction uses a bounded one-entry listing hint by default. Tune
+`hadris fat extract` independently for the access pattern:
+
+```bash
+hadris fat extract disk.img -o out --cache-directory-entries 256 --cache-blocks 8
+hadris fat extract disk.img -o out --cache-chain-positions 64
+hadris fat extract disk.img -o out --read-ahead-blocks 128
+hadris fat extract disk.img -o out --no-directory-hint
+hadris fat extract disk.img -o out --no-cache
+```
+
+Metadata blocks, chain positions and the directory-prefix index default to zero
+for extraction. Each bound accepts zero to disable that component. `--no-cache`
+disables every optional cache and cannot be combined with the other cache flags.
+The explicit FAT cache settings are refused on exFAT images; exFAT extraction
+continues to work with its existing defaults or `--no-cache`.
+`--read-ahead-blocks` applies to both FAT and exFAT. It defaults to zero; 128
+blocks allow up to 64 KiB of storage buffering for 512-byte sectors. Read-ahead
+expands adjacent reads and keeps scattered misses at the requested size.
+
 APFS opens a container's sole volume automatically. Multi-volume containers
 require one selector: `--volume` (the APFS `fs_index` displayed by `info`),
 `--volume-name`, `--volume-object-id`, or `--volume-uuid`. Ambiguous names are

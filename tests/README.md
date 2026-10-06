@@ -179,3 +179,13 @@ for timings, counter boundaries, larger fixtures and more complete references.
 Both runners accept `HADRIS_TESTS_PERF_FILES` (32 by default). For large
 directories, use a FAT32, exFAT, ISO or UDF filter with `performance`, and a
 FAT32 or ISO filter with `peers`.
+
+
+For isolated extraction RSS, the `peers` executable also supports a one-operation
+worker on a prebuilt FAT32 image. Set `HADRIS_TESTS_PEER_WORKER`,
+`HADRIS_TESTS_PEER_IMAGE`, and `HADRIS_TESTS_PEER_DESTINATION`, then measure the
+child with a platform resource tool. Fixture generation and validation must
+run in the parent or separate processes. See
+[`docs/peer-performance.md`](../docs/peer-performance.md#isolated-extraction-rss-and-peer-comparison)
+for worker/cache modes, measurement boundaries, external image-read counting
+and the per-process RSS/speed results.

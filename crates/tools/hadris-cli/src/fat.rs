@@ -9,7 +9,7 @@ use anyhow::{Context, Result, bail};
 use clap::{Subcommand, ValueEnum};
 use hadris_fat::exfat::sync::ExFatFs;
 use hadris_fat::sync::FatFs;
-use hadris_fat::{FatKind, exfat};
+use hadris_fat::{CacheOptions, FatKind, exfat};
 use hadris_fat_raw::{RawBpb, RawBpbExt16, RawBpbExt32};
 use hadris_storage::host::FileDevice;
 
@@ -103,6 +103,8 @@ enum Commands {
         /// Path within the filesystem (default: extract all)
         #[arg(short, long)]
         path: Option<String>,
+        #[command(flatten)]
+        cache: ExtractCache,
     },
     /// Create a FAT or exFAT image from a host directory
     Create {
@@ -120,6 +122,48 @@ enum Commands {
         #[arg(short = 'V', long, alias = "volume-label", default_value = "HADRIS")]
         volume_name: String,
     },
+}
+
+#[derive(clap::Args)]
+struct ExtractCache {
+    /// Disable all optional FAT extraction caches
+    #[arg(long, conflicts_with_all = ["cache_blocks", "cache_chain_positions", "cache_directory_entries", "no_directory_hint", "read_ahead_blocks"])]
+    no_cache: bool,
+    /// Total storage read-ahead budget in logical blocks (default: 0)
+    #[arg(long)]
+    read_ahead_blocks: Option<usize>,
+    /// FAT metadata-block cache capacity (default: 0)
+    #[arg(long)]
+    cache_blocks: Option<usize>,
+    /// FAT chain-position cache capacity (default: 0)
+    #[arg(long)]
+    cache_chain_positions: Option<usize>,
+    /// FAT directory-prefix cache capacity (default: 0)
+    #[arg(long)]
+    cache_directory_entries: Option<usize>,
+    /// Disable reuse of the most recently listed FAT entry
+    #[arg(long)]
+    no_directory_hint: bool,
+}
+
+impl ExtractCache {
+    fn options(&self) -> CacheOptions {
+        if self.no_cache {
+            return CacheOptions::sequential().with_directory_hint(false);
+        }
+        CacheOptions::sequential()
+            .with_blocks(self.cache_blocks.unwrap_or(0))
+            .with_chain_positions(self.cache_chain_positions.unwrap_or(0))
+            .with_directory_entries(self.cache_directory_entries.unwrap_or(0))
+            .with_directory_hint(!self.no_directory_hint)
+    }
+
+    fn fat_only(&self) -> bool {
+        self.cache_blocks.is_some()
+            || self.cache_chain_positions.is_some()
+            || self.cache_directory_entries.is_some()
+            || self.no_directory_hint
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
@@ -151,10 +195,25 @@ pub fn run(cli: Args) -> Result<()> {
             image,
             output,
             path,
-        } => match open(&image)? {
-            Volume::Fat(fs) => cmd_extract(*fs, &output, path.as_deref()),
-            Volume::ExFat(fs) => cmd_extract(*fs, &output, path.as_deref()),
-        },
+            cache,
+        } => {
+            let exfat = is_exfat(&boot_sector(&image)?);
+            if exfat && cache.fat_only() {
+                bail!("FAT cache settings apply to FAT12/16/32 images, not exFAT");
+            }
+            let file = FileDevice::open(&image).context("Failed to open image file")?;
+            let dev =
+                hadris_storage::sync::ReadAhead::new(file, cache.read_ahead_blocks.unwrap_or(0));
+            let options = MountOptions::new().with_clock(&SystemClock).read_only();
+            if exfat {
+                let fs =
+                    ExFatFs::mount(dev, options).context("Failed to parse exFAT filesystem")?;
+                cmd_extract(fs, &output, path.as_deref())
+            } else {
+                let fs = FatFs::mount(dev, options).context("Failed to parse FAT filesystem")?;
+                cmd_extract(fs.with_cache(cache.options()), &output, path.as_deref())
+            }
+        }
         Commands::Create {
             source,
             target,

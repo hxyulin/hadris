@@ -199,6 +199,12 @@ struct IndexedName {
     short_hash: u64,
 }
 
+struct ListedEntry {
+    start: DirStart,
+    located: Located,
+    long: Option<alloc::boxed::Box<[u16]>>,
+}
+
 struct DirectoryIndex {
     limit: usize,
     start: Option<DirStart>,
@@ -544,6 +550,8 @@ pub struct FatFs<D> {
     directory_index: Option<alloc::boxed::Box<DirectoryIndex>>,
     append_index: Option<AppendIndex>,
     append_limit: usize,
+    directory_hint: bool,
+    listed_entry: Option<alloc::boxed::Box<ListedEntry>>,
 }
 
 impl<D> fmt::Debug for FatFs<D> {
@@ -617,16 +625,21 @@ impl<D: BlockDevice> FatFs<D> {
             directory_index: None,
             append_index: None,
             append_limit: 0,
+            directory_hint: false,
+            listed_entry: None,
         })
     }
 
     /// Enables bounded metadata-block caching, lazy chain-position caching and
-    /// optional directory-prefix indexing. The chain-position bound is shared by
+    /// optional directory-prefix indexing or reuse of one listed entry.
+    /// The chain-position bound is shared by
     /// all files. Mutations and recovery discard the index; the backing device
     /// must not be changed externally while mounted. Directory indexing also
     /// enables a bounded short-name insertion set, retained across file data
     /// and metadata updates. Configuration reads no I/O.
     pub fn with_cache(mut self, options: CacheOptions) -> Self {
+        self.listed_entry = None;
+        self.directory_hint = options.directory_hint;
         self.append_index = None;
         self.append_limit = options.directory_entries.min(AppendIndex::LIMIT);
         self.chain_cache = ChainCache::new(options.positions);
@@ -642,7 +655,8 @@ impl<D: BlockDevice> FatFs<D> {
         self
     }
 
-    /// Discards cached directory names, chain positions, metadata blocks and the buffered block.
+    /// Discards cached directory names, the listed-entry hint, chain positions,
+    /// metadata blocks and the buffered block.
     /// Allocated metadata-block storage is retained for reuse.
     /// Pinned metadata is retained; external device changes require a remount.
     pub fn clear_cache(&mut self) {
@@ -656,6 +670,7 @@ impl<D: BlockDevice> FatFs<D> {
     }
 
     fn invalidate_directory(&mut self) {
+        self.listed_entry = None;
         if let Some(index) = &mut self.directory_index {
             index.clear();
         }
@@ -1522,6 +1537,14 @@ impl<D: BlockDevice> FatFs<D> {
     /// Finds the visible entry named `query`, by long or short name.
     async fn find_entry(&mut self, start: DirStart, query: &str) -> FsResult<Option<Located>, D::Error> {
         let prepared = Query::new(query, raw::fold_unicode);
+        if let Some(listed) = &self.listed_entry
+            && listed.start == start
+            && prepared.matches(listed.long.as_deref(), &listed.located.entry, self.code_page, raw::fold_unicode)
+        {
+            let mut located = listed.located;
+            located.exact = is_exact(query, listed.long.as_deref(), &located.entry, self.code_page);
+            return Ok(Some(located));
+        }
         let mut walk = DirWalk::new(start);
         let mut slot = 0;
         if let Some(index) = &mut self.directory_index {
@@ -2581,6 +2604,7 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
     /// fails with [`ErrorKind::Corrupt`] once the walk comes back around.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all, fields(dir = ?dir)))]
     async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
+        let mut listed = self.listed_entry.take();
         let start = self.dir_start(dir).await?;
         let Ok(mut slot) = u32::try_from(from.into_raw()) else {
             return Ok(None);
@@ -2606,6 +2630,25 @@ impl<D: BlockDevice> FileSystem for FatFs<D> {
         let next = DirCursor::from_raw(found.slot as u64 + 1);
         let entry = DirEntry::new(name, node, metadata(&state, &found.entry, self.zone), next)
             .map_err(|_| ErrorKind::Corrupt)?;
+        if self.directory_hint {
+            let hint = ListedEntry {
+                start,
+                located: Located {
+                    first: if units.is_some() { found.long_start } else { found.slot },
+                    slot: found.slot,
+                    offset: found.offset,
+                    entry: found.entry,
+                    exact: false,
+                },
+                long: units.filter(|units| !units.is_empty()).map(Into::into),
+            };
+            if let Some(listed) = &mut listed {
+                **listed = hint;
+            } else {
+                listed = Some(alloc::boxed::Box::new(hint));
+            }
+            self.listed_entry = listed;
+        }
         Ok(Some(entry))
     }
 

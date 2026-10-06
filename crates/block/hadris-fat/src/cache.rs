@@ -11,17 +11,37 @@ pub struct CacheOptions {
     pub(crate) positions: usize,
     pub(crate) blocks: usize,
     pub(crate) directory_entries: usize,
+    pub(crate) directory_hint: bool,
 }
 
 impl CacheOptions {
     /// Keeps up to 32 chain positions and eight metadata device blocks.
-    /// Directory indexing remains disabled until explicitly configured.
+    /// Directory-prefix indexing and the listing hint remain disabled.
     pub const fn new() -> Self {
         Self {
             positions: 32,
             blocks: 8,
             directory_entries: 0,
+            directory_hint: false,
         }
+    }
+
+    /// Retains one listed entry for sequential traversal, with other caches disabled.
+    /// Names are copied lazily, including at most 255 UTF-16 units for a long name.
+    pub const fn sequential() -> Self {
+        Self {
+            positions: 0,
+            blocks: 0,
+            directory_entries: 0,
+            directory_hint: true,
+        }
+    }
+
+    /// Reuses the most recently listed entry for matching lookups in that directory.
+    /// Disabled by `new`; independent of the directory-prefix capacity.
+    pub const fn with_directory_hint(mut self, enabled: bool) -> Self {
+        self.directory_hint = enabled;
+        self
     }
 
     /// Sets the total chain-position bound; zero disables indexing.
