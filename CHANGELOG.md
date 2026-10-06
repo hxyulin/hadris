@@ -8,6 +8,9 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- Obsolete FUSE experiments and manual V2 test-image fixtures are removed;
+  fuzz seeds use current crate fixtures and support an isolated output path.
+
 - Repository hooks use native `prek.toml` with built-in file checks; `prek`
   is available in the Nix development shell. `AGENTS.md` is the sole agent
   instruction file.

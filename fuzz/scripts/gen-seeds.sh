@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$REPO_ROOT"
 
-CORPUS="fuzz/corpus"
+CORPUS="${HADRIS_FUZZ_CORPUS:-fuzz/corpus}"
 TARGETS="fat_read exfat_read ntfs_read iso_read udf_read cpio_read part_read fat_ops exfat_ops"
 for t in $TARGETS; do
     mkdir -p "$CORPUS/$t"
@@ -98,7 +98,7 @@ while IFS= read -r -d '' img; do
     cp "$img" "$CORPUS/exfat_read/$(basename "$img")"
     note "exfat_read: copied $img"
     found_exfat=1
-done < <(find test-images crates -iname '*exfat*' \( -name '*.img' -o -name '*.bin' \) \
+done < <(find crates -iname '*exfat*' \( -name '*.img' -o -name '*.bin' \) \
     -type f -print0 2>/dev/null)
 if [ "$found_exfat" -eq 0 ]; then
     note "exfat_read: no exFAT images found in repo, skipping"
@@ -241,7 +241,7 @@ while IFS= read -r -d '' img; do
     cp "$img" "$CORPUS/iso_read/$(basename "$img")"
     note "iso_read: copied $img"
     found_iso=1
-done < <(find test-images crates/optical -name '*.iso' -type f -size -11M -print0 \
+done < <(find crates/optical -name '*.iso' -type f -size -11M -print0 \
     2>/dev/null)
 if [ "$found_iso" -eq 0 ] && have python3; then
     python3 - "$TMP" <<'PYEOF'
@@ -302,7 +302,7 @@ while IFS= read -r -d '' img; do
     cp "$img" "$CORPUS/udf_read/$(basename "$img")"
     note "udf_read: copied $img"
     found_udf=1
-done < <(find test-images crates/optical -name '*.udf' -type f -size -11M -print0 \
+done < <(find crates/optical -name '*.udf' -type f -size -11M -print0 \
     2>/dev/null)
 if [ "$found_udf" -eq 0 ]; then
     note "udf_read: no .udf images found in repo, skipping"

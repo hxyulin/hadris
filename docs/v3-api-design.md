@@ -1568,6 +1568,9 @@ Removed (S2). Detection and opening move into the umbrella crate (5.9):
 ## 6. Migration plan
 
 This section records the migration built on `next` while `main` shipped 2.x.
+Obsolete prototypes and textual API checks were removed after promotion;
+references to them below describe historical work. Prototype source is
+available in the revisions cited by the [trait review](v3-trait-review.md).
 V3 was promoted to `main` in #255 on 2026-10-06; new work targets `main`,
 and V2 maintenance uses `v2`. The steps below are historical.
 Bugs found during the survey were fixed on 2.x first, on `fix/survey-bugs`:
