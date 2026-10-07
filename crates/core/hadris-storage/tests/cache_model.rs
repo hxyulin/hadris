@@ -180,7 +180,7 @@ mod sync {
         cache
             .write_blocks(BlockIndex::new(0), &[5; 16 * BLOCK])
             .unwrap();
-        assert_eq!(cache.get_ref().writes - before, 1);
+        assert_eq!(cache.get_ref().writes - before, 2, "dirty block 3, then the bypass");
         assert!(!cache.is_dirty());
         cache
             .read_blocks(BlockIndex::new(3), &mut buf[..BLOCK])
@@ -251,7 +251,7 @@ mod r#async {
 
         let before = cache.get_ref().writes;
         block_on(cache.write_blocks(BlockIndex::new(0), &[5; 16 * BLOCK])).unwrap();
-        assert_eq!(cache.get_ref().writes - before, 1);
+        assert_eq!(cache.get_ref().writes - before, 2, "dirty block 3, then the bypass");
         assert!(!cache.is_dirty());
         block_on(cache.read_blocks(BlockIndex::new(3), &mut buf[..BLOCK])).unwrap();
         assert_eq!(&buf[..BLOCK], &[5; BLOCK]);

@@ -321,13 +321,15 @@ mod device_tests {
         let mut cache = Cache::new(Torn(MemDevice::new(counting(16), B4), true), 2);
         cache.write_blocks(BlockIndex::new(3), &[3; 4]).unwrap();
         cache.write_blocks(BlockIndex::new(0), &[1; 4]).unwrap();
+        cache.write_blocks(BlockIndex::new(1), &[2; 4]).unwrap();
         assert!(cache.is_dirty());
         assert!(cache.write_blocks(BlockIndex::new(0), &[9; 8]).is_err());
+        assert!(!cache.is_dirty());
         cache.flush().unwrap();
         let mut buf = [0_u8; 4];
         cache.read_blocks(BlockIndex::new(0), &mut buf).unwrap();
         assert_eq!(buf, [9; 4]);
-        assert_eq!(&cache.into_inner().0.get_ref()[..4], &[9; 4]);
+        assert_eq!(&cache.into_inner().0.get_ref()[..8], &[9, 9, 9, 9, 2, 2, 2, 2]);
     }
 
     #[test]

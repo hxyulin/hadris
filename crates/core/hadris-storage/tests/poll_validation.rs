@@ -159,3 +159,18 @@ fn cache_finish_returns_the_cache_when_its_flush_fails() {
     let device = ready(cache.finish()).unwrap();
     assert_eq!(&device.0.get_ref()[..8], &[1, 1, 1, 1, 2, 2, 2, 2]);
 }
+
+#[test]
+fn cache_writes_back_dirty_blocks_before_a_failed_pass_through_write() {
+    let mut cache = Cache::new(FailOnce(device(), true), 2);
+    for (index, fill) in [(3, 3), (0, 1), (1, 2)] {
+        ready(cache.write_blocks(BlockIndex::new(index), &[fill; 4])).unwrap();
+    }
+    assert!(cache.is_dirty());
+    let error = ready(cache.write_blocks(BlockIndex::new(0), &[9; 8])).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Io);
+    assert!(!cache.is_dirty());
+    ready(cache.flush()).unwrap();
+    let device = ready(cache.finish()).unwrap();
+    assert_eq!(&device.0.get_ref()[..8], &[1, 1, 1, 1, 2, 2, 2, 2]);
+}

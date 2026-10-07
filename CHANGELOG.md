@@ -21,10 +21,11 @@ Each published package owns its version and may be released independently.
   the device. Callers that used `?` map the error first, for example
   `.map_err(|(_, error)| error)?`.
 
-- **hadris-storage:** The synchronous and legacy async `Cache` drop cached
-  copies of the blocks a pass-through write covers before writing, as the
-  poll-based cache does. A failed write no longer leaves stale dirty blocks
-  that a later flush writes over the new data.
+- **hadris-storage:** Before a write goes straight to the device, every
+  `Cache` writes back the dirty blocks it covers and then drops all cached
+  copies of them. A failed write no longer leaves stale dirty blocks that a
+  later flush writes over the new data (synchronous and legacy async caches),
+  and no longer discards earlier buffered writes (poll-based cache).
 
 - **hadris-fat:** Shrinking a FAT file (`FatFs::truncate`, embedded
   `Fat::set_len`) reads the chain before writing the new size and records the

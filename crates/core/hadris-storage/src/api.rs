@@ -606,6 +606,9 @@ impl<D: BlockDevice> BlockDevice for ReadAhead<D> {
 /// the device bypass the cache and fail with the device's own error. Requests
 /// of at least `capacity` blocks also go straight to the device, since caching
 /// them would evict everything else; reads still see cached dirty blocks.
+/// Before a write goes straight to the device, the dirty blocks it covers are
+/// written back and every cached copy of them is dropped, so a failed write
+/// loses no earlier write and leaves no stale block for a later flush.
 #[cfg(feature = "alloc")]
 #[derive(Debug)]
 pub struct Cache<D> {
@@ -756,6 +759,10 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
         let size = self.inner.block_size().get() as usize;
         let count = buf.len() / size;
         if !self.written || !self.in_range(first, buf.len()) || count >= self.state.capacity() {
+            loop {
+                let Some(index) = self.state.dirty_in(first.get(), count).next() else { break };
+                self.write_back(index).await?;
+            }
             self.state.invalidate(first.get(), count);
             self.inner.write_blocks(first, buf).await?;
             self.written = true;
