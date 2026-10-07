@@ -85,7 +85,8 @@ size, where each file's data starts, and the metadata cpio cannot store
 trailer and returns the stream with the report. `CpioOptions::with_time`
 sets the modification time of entries that set none, such as
 `SOURCE_DATE_EPOCH`. `sync::read_tree` reads an archive back into a
-`Tree`. Values that do not fit a header field fail
+`Tree`, naming entries with `normalize_path`, which stream readers can use
+for the same paths. Values that do not fit a header field fail
 before the entry is written. `CpioOptions::with_format(Format::Odc)` writes
 `odc`, whose device numbers are stored as `major << 8 | minor`.
 
@@ -96,7 +97,7 @@ The header layouts are in `hadris_cpio::raw`.
 | Feature | Default | Description |
 |---|---|---|
 | `std` | yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
-| `alloc` | via `std` | The writer, `plan` and `read_tree` |
+| `alloc` | via `std` | The writer, `plan`, `read_tree` and `normalize_path` |
 | `sync` | yes | The blocking API in `sync` |
 | `async` | no | The asynchronous API with `Send` futures in `async_` |
 | `tracing` | no | Operation spans through the `tracing` crate; implies `std` |

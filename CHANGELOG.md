@@ -102,6 +102,10 @@ Each published package owns its version and may be released independently.
 - **NTFS:** Reading a file whose data a WOF (CompactOS) or Data Deduplication
   reparse point keeps elsewhere fails with `Unsupported`
   (`Detail::ReparseData`) instead of returning the sparse placeholder as zeros.
+- **hadris-cpio:** `normalize_path` names an entry as `read_tree` places it
+  (leading `/` and `./` removed, repeated and trailing `/` dropped, `None` for
+  the root), so stream readers can follow the same rule.
+
 - **hadris-fat:** `FatFs::mark_clean`, `ExFatFs::mark_clean` and the embedded
   `Fat::mark_clean` have the next sync mark a volume clean that was dirty at
   mount (or, on FAT, that recovery left dirty), for use after `check` found
