@@ -8,6 +8,11 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **ISO writer:** The ECMA-119 255-byte path limit counts the identifiers
+  recorded in the primary tree instead of the source names, so deep trees
+  with long names are no longer refused or needlessly relocated to
+  `rr_moved`.
+
 - **ISO reader:** A malformed Rock Ridge area on the root directory's `.`
   record is read as no Rock Ridge, so the image still mounts through its
   Joliet, enhanced or primary tree. Mounting `Namespace::RockRidge`

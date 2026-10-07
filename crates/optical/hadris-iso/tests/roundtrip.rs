@@ -1115,3 +1115,26 @@ relocation_cases!(
     relocation_listing_preserves_only_the_logical_tree_async,
     relocation_async
 );
+
+#[test]
+fn path_limits_count_recorded_identifiers_not_source_names() {
+    let long: Vec<String> = (0..6).map(|i| format!("{i}{}", "x".repeat(59))).collect();
+    let path = format!("{}/leaf.txt", long.join("/"));
+    let mut tree = Tree::new();
+    tree.insert(&path, Node::file(Content::bytes("leaf")))
+        .unwrap();
+    let plain = IsoOptions::default().with_level(IsoLevel::L1);
+    hadris_iso::plan(&tree, &plain).unwrap();
+    let rock_ridge = plain.clone().with_rock_ridge();
+    let report = hadris_iso::plan(&tree, &rock_ridge).unwrap();
+    assert!(
+        report
+            .warnings()
+            .iter()
+            .all(|warning| warning.kind() != WarningKind::Relocated)
+    );
+    let mut iso = image(&tree, &rock_ridge);
+    let mut view =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::RockRidge).unwrap();
+    assert_eq!(view.read_to_vec(&format!("/{path}")).unwrap(), b"leaf");
+}
