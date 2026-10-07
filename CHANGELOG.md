@@ -8,6 +8,12 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **hadris-storage (breaking):** `Cache::finish` returns
+  `Result<D, (Cache<D>, Error<D::Error>)>` in every mode. A failed flush hands
+  the cache back with its unwritten dirty blocks instead of dropping them with
+  the device. Callers that used `?` map the error first, for example
+  `.map_err(|(_, error)| error)?`.
+
 - **hadris-storage:** The synchronous and legacy async `Cache` drop cached
   copies of the blocks a pass-through write covers before writing, as the
   poll-based cache does. A failed write no longer leaves stale dirty blocks

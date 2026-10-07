@@ -627,10 +627,14 @@ impl<D: BlockDevice> Cache<D> {
         self.state.is_dirty()
     }
 
-    /// Flushes every dirty block and returns the underlying device.
-    pub async fn finish(mut self) -> Result<D, Error<D::Error>> {
-        self.flush().await?;
-        Ok(self.inner)
+    /// Flushes every dirty block and returns the underlying device. On
+    /// failure the cache comes back with the error, still holding the blocks
+    /// it could not write, so the caller can retry or recover them.
+    pub async fn finish(mut self) -> Result<D, (Self, Error<D::Error>)> {
+        match self.flush().await {
+            Ok(()) => Ok(self.inner),
+            Err(error) => Err((self, error)),
+        }
     }
 
     /// Returns the underlying device, discarding unflushed writes.

@@ -93,3 +93,69 @@ fn fixed_stream_poll_hooks_reject_invalid_ranges_without_touching_the_stream() {
     assert_eq!(cursor.position(), 0);
     assert_eq!(cursor.into_inner(), vec![7; 16]);
 }
+
+/// Fails the first multi-block write while its flag is set.
+#[derive(Debug)]
+struct FailOnce(MemDevice<Vec<u8>>, bool);
+
+impl hadris_io::ErrorType for FailOnce {
+    type Error = core::convert::Infallible;
+}
+
+impl BlockDevice for FailOnce {
+    type State = ();
+    fn block_size(&self) -> BlockSize {
+        BlockDevice::block_size(&self.0)
+    }
+    fn block_count(&self) -> u64 {
+        BlockDevice::block_count(&self.0)
+    }
+    fn writable(&self) -> bool {
+        true
+    }
+    fn poll_read_blocks(
+        &mut self,
+        state: &mut (),
+        cx: &mut Context<'_>,
+        first: BlockIndex,
+        buf: &mut [u8],
+    ) -> Poll<Result<(), Error<Self::Error>>> {
+        self.0.poll_read_blocks(state, cx, first, buf)
+    }
+    fn poll_write_blocks(
+        &mut self,
+        state: &mut (),
+        cx: &mut Context<'_>,
+        first: BlockIndex,
+        buf: &[u8],
+    ) -> Poll<Result<(), Error<Self::Error>>> {
+        if self.1 && buf.len() > 4 {
+            self.1 = false;
+            return Poll::Ready(Err(Error::new(ErrorKind::Io, "failed write")));
+        }
+        self.0.poll_write_blocks(state, cx, first, buf)
+    }
+    fn cancel(&mut self, _: &mut ()) {}
+}
+
+fn ready<F: core::future::Future>(future: F) -> F::Output {
+    let mut cx = Context::from_waker(Waker::noop());
+    let mut future = core::pin::pin!(future);
+    match future.as_mut().poll(&mut cx) {
+        Poll::Ready(out) => out,
+        Poll::Pending => panic!("memory device future was pending"),
+    }
+}
+
+#[test]
+fn cache_finish_returns_the_cache_when_its_flush_fails() {
+    let mut cache = Cache::new(FailOnce(device(), true), 4);
+    for (index, fill) in [(3, 3), (0, 1), (1, 2)] {
+        ready(cache.write_blocks(BlockIndex::new(index), &[fill; 4])).unwrap();
+    }
+    let (cache, error) = ready(cache.finish()).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Io);
+    assert!(cache.is_dirty());
+    let device = ready(cache.finish()).unwrap();
+    assert_eq!(&device.0.get_ref()[..8], &[1, 1, 1, 1, 2, 2, 2, 2]);
+}

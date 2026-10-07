@@ -45,10 +45,13 @@ impl<D: BlockDevice> Cache<D> {
     pub fn get_ref(&self) -> &D {
         &self.inner
     }
-    /// Flushes the cache and returns its device.
-    pub async fn finish(mut self) -> Result<D, Error<D::Error>> {
-        self.flush().await?;
-        Ok(self.inner)
+    /// Flushes the cache and returns its device. On failure the cache comes
+    /// back with the error, still holding the blocks it could not write.
+    pub async fn finish(mut self) -> Result<D, (Self, Error<D::Error>)> {
+        match self.flush().await {
+            Ok(()) => Ok(self.inner),
+            Err(error) => Err((self, error)),
+        }
     }
     fn slot(
         &mut self,

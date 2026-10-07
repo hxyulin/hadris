@@ -284,8 +284,10 @@ mod device_tests {
         assert_eq!(&device.get_ref()[..8], &[1, 1, 1, 1, 2, 2, 2, 2]);
     }
 
-    /// Writes the first block of a multi-block write, then fails.
-    struct Torn(MemDevice<std::vec::Vec<u8>>);
+    /// Writes the first block of the first multi-block write while its flag
+    /// is set, then fails.
+    #[derive(Debug)]
+    struct Torn(MemDevice<std::vec::Vec<u8>>, bool);
 
     impl ErrorType for Torn {
         type Error = core::convert::Infallible;
@@ -305,7 +307,8 @@ mod device_tests {
             self.0.read_blocks(first, buf)
         }
         fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<(), Error<Self::Error>> {
-            if buf.len() > 4 {
+            if self.1 && buf.len() > 4 {
+                self.1 = false;
                 self.0.write_blocks(first, &buf[..4])?;
                 return Err(Error::new(ErrorKind::Io, "torn write"));
             }
@@ -315,7 +318,7 @@ mod device_tests {
 
     #[test]
     fn cache_forgets_blocks_a_failed_pass_through_write_covers() {
-        let mut cache = Cache::new(Torn(MemDevice::new(counting(16), B4)), 2);
+        let mut cache = Cache::new(Torn(MemDevice::new(counting(16), B4), true), 2);
         cache.write_blocks(BlockIndex::new(3), &[3; 4]).unwrap();
         cache.write_blocks(BlockIndex::new(0), &[1; 4]).unwrap();
         assert!(cache.is_dirty());
@@ -325,6 +328,19 @@ mod device_tests {
         cache.read_blocks(BlockIndex::new(0), &mut buf).unwrap();
         assert_eq!(buf, [9; 4]);
         assert_eq!(&cache.into_inner().0.get_ref()[..4], &[9; 4]);
+    }
+
+    #[test]
+    fn cache_finish_returns_the_cache_when_its_flush_fails() {
+        let mut cache = Cache::new(Torn(MemDevice::new(counting(16), B4), true), 4);
+        cache.write_blocks(BlockIndex::new(3), &[3; 4]).unwrap();
+        cache.write_blocks(BlockIndex::new(0), &[1; 4]).unwrap();
+        cache.write_blocks(BlockIndex::new(1), &[2; 4]).unwrap();
+        let (mut cache, error) = cache.finish().unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Io);
+        assert!(cache.is_dirty());
+        let device = cache.finish().unwrap();
+        assert_eq!(&device.0.get_ref()[..8], &[1, 1, 1, 1, 2, 2, 2, 2]);
     }
 
     #[test]
