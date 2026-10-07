@@ -312,12 +312,14 @@ impl<T: ErrorType + MaybeSend> StreamWrite for ReadOnly<T> {
 ///
 /// Any block size works, so a FAT image with 512-byte sectors and an ISO with
 /// 2048-byte sectors can both open over the same file. Wrap the stream in
-/// [`ReadOnly`] when it does not implement [`Write`].
+/// [`ReadOnly`] when it does not implement [`Write`]. A device made with
+/// [`new_growable`](Self::new_growable) grows when written past its end.
 #[derive(Debug)]
 pub struct StreamDevice<T> {
     inner: T,
     block_size: BlockSize,
     block_count: u64,
+    grows: bool,
 }
 
 impl<T: Seek> StreamDevice<T> {
@@ -327,14 +329,24 @@ impl<T: Seek> StreamDevice<T> {
     pub async fn new(mut inner: T, block_size: BlockSize) -> Result<Self, T::Error> {
         let len = inner.seek(SeekFrom::End(0)).await?;
         let block_count = len / u64::from(block_size.get());
-        Ok(Self { inner, block_size, block_count })
+        Ok(Self { inner, block_size, block_count, grows: false })
+    }
+
+    /// Wraps a stream that can be extended past its end, measuring it as
+    /// [`new`](Self::new) does. When the stream accepts writes,
+    /// `max_block_count` is unbounded and a write past the end grows the
+    /// device.
+    pub async fn new_growable(inner: T, block_size: BlockSize) -> Result<Self, T::Error> {
+        let mut device = Self::new(inner, block_size).await?;
+        device.grows = true;
+        Ok(device)
     }
 }
 
 impl<T> StreamDevice<T> {
     /// Wraps `inner` with a known block count.
     pub fn with_block_count(inner: T, block_size: BlockSize, block_count: u64) -> Self {
-        Self { inner, block_size, block_count }
+        Self { inner, block_size, block_count, grows: false }
     }
 
     /// Recovers the stream.
@@ -366,6 +378,14 @@ impl<T: Read + Seek + StreamWrite> BlockDevice for StreamDevice<T> {
         self.block_count
     }
 
+    fn max_block_count(&self) -> u64 {
+        if self.grows && self.inner.stream_writable() {
+            u64::MAX / u64::from(self.block_size.get())
+        } else {
+            self.block_count
+        }
+    }
+
     fn writable(&self) -> bool {
         self.inner.stream_writable()
     }
@@ -388,13 +408,15 @@ impl<T: Read + Seek + StreamWrite> BlockDevice for StreamDevice<T> {
         first: BlockIndex,
         buf: &[u8],
     ) -> Result<(), Error<Self::Error>> {
-        check_blocks(self.block_size, self.block_count, first, buf.len())?;
+        let count = check_blocks(self.block_size, self.max_block_count(), first, buf.len())?;
         let offset = byte_offset(self.block_size, first)?;
         self.inner
             .seek(SeekFrom::Start(offset))
             .await
             .map_err(|err| Error::device(err, "seeking the stream failed"))?;
-        self.inner.stream_write_all(buf).await
+        self.inner.stream_write_all(buf).await?;
+        self.block_count = self.block_count.max(first.get() + count);
+        Ok(())
     }
 
     async fn flush(&mut self) -> Result<(), Error<Self::Error>> {

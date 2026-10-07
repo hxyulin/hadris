@@ -34,7 +34,7 @@ block 0 on the disk a device is a window of.
 | `MemDevice` | A fixed-size block device over `&[u8]` (read-only), `&mut [u8]`, `[u8; N]`, `Vec<u8>` or `Box<[u8]>`, with any block size. Device error `Infallible`; requests past the end fail with kind `InvalidInput` |
 | `Partition` | A byte window of another device, such as an MBR or GPT partition. Its offset and length are multiples of the device block size. Requests past its end never reach the device, and `disk_offset` reports its start |
 | `host::FileDevice` | With `std` and `sync`, an image file (512-byte blocks by default) or disk device (OS-reported logical blocks). `open(path)` is read-only; `new(file)` takes a file the caller opened and is writable when the file is. An image file grows when written past its end |
-| `StreamDevice` | A block device over a `Read + Seek` stream in sync mode, or poll-native `Stream` in async mode. `BlockingStream` explicitly adapts synchronous streams; growth requires its `new_growable` constructor |
+| `StreamDevice` | A block device over a `Read + Seek` stream in sync mode, or poll-native `Stream` in async mode. `BlockingStream` explicitly adapts synchronous streams. Growth requires `new_growable`: the sync `StreamDevice::new_growable`, or `BlockingStream::new_growable` in async mode |
 | `Cache` | Write-back LRU cache of whole blocks (`alloc`). Its first write goes straight through, so a read-only device says so at once. Requests of at least `capacity` blocks bypass it |
 | `ReadAhead` | Optional, write-through read buffering (`alloc`). Two windows share a configurable block budget; adjacent access enables larger reads, while scattered misses fetch only requested blocks |
 | `ByteView` | Byte-granular reads and writes over a device, also usable as a stream |

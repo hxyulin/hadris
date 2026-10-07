@@ -102,6 +102,11 @@ Each published package owns its version and may be released independently.
 - **NTFS:** Reading a file whose data a WOF (CompactOS) or Data Deduplication
   reparse point keeps elsewhere fails with `Unsupported`
   (`Detail::ReparseData`) instead of returning the sparse placeholder as zeros.
+- **hadris-storage:** The synchronous `StreamDevice::new_growable` wraps a
+  stream that can be extended past its end: when it accepts writes,
+  `max_block_count` is unbounded and writes past the end grow the device,
+  as `BlockingStream::new_growable` already allowed in async mode.
+
 - **hadris-storage:** `Cache::capacity` and `Cache::get_mut` in every mode,
   matching `ReadAhead`. `get_mut` drops clean cached blocks so later reads
   see changes made through it; dirty blocks stay. `CacheOperation` and

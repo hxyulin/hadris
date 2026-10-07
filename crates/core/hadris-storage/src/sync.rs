@@ -239,6 +239,24 @@ mod device_tests {
     }
 
     #[test]
+    fn growable_stream_device_grows_when_written_past_its_end() {
+        let stream = StdIo::new(std::io::Cursor::new(counting(10)));
+        let mut device = StreamDevice::new_growable(stream, B4).unwrap();
+        assert_eq!(device.block_count(), 2);
+        assert!(device.max_block_count() > u64::from(u32::MAX));
+        device.write_blocks(BlockIndex::new(3), &[7; 4]).unwrap();
+        assert_eq!(device.block_count(), 4);
+        let mut buf = [0_u8; 8];
+        device.read_blocks(BlockIndex::new(2), &mut buf).unwrap();
+        assert_eq!(buf, [8, 9, 0, 0, 7, 7, 7, 7]);
+
+        let bytes = counting(8);
+        let stream = ReadOnly::new(hadris_io::Cursor::new(&bytes));
+        let device = StreamDevice::new_growable(stream, B4).unwrap();
+        assert_eq!(device.max_block_count(), 2);
+    }
+
+    #[test]
     fn stream_device_reports_short_streams_at_their_block() {
         let stream = StdIo::new(std::io::Cursor::new(counting(8)));
         let mut device = StreamDevice::with_block_count(stream, B4, 4);
