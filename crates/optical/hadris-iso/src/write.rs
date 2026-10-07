@@ -209,15 +209,18 @@ async fn read_stored<D: BlockDevice>(dev: &mut D, content: &Content, mut offset:
 }
 
 /// The sum of the image's 32-bit words from byte 64, as a boot information
-/// table records it.
+/// table records it. A last partial word counts zero-padded, as mkisofs and
+/// xorriso count it.
 async fn checksum<D: BlockDevice, S: BlockDevice>(out: &mut D, reader: &mut SourceReader<'_, S>, len: u64, buf: &mut [u8]) -> Result<u32, PathError> {
-    let words_end = 64 + (len - 64) / 4 * 4;
     let mut sum = 0u32;
     let mut offset = 64;
-    while offset < words_end {
-        let take = (words_end - offset).min(buf.len() as u64) as usize;
+    let chunk = buf.len() / 4 * 4;
+    while offset < len {
+        let take = (len - offset).min(chunk as u64) as usize;
         reader.read_exact_at(out, offset, &mut buf[..take]).await?;
-        for word in buf[..take].chunks_exact(4) {
+        let padded = take.div_ceil(4) * 4;
+        buf[take..padded].fill(0);
+        for word in buf[..padded].chunks_exact(4) {
             sum = sum.wrapping_add(u32::from_le_bytes([word[0], word[1], word[2], word[3]]));
         }
         offset += take as u64;

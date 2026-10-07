@@ -275,11 +275,11 @@ fn replaced_boot_images_get_load_sizes_and_info_tables() {
             .read_raw(moved.offset(), &mut loaded)
             .unwrap();
         let word = |at: usize| u32::from_le_bytes(loaded[at..at + 4].try_into().unwrap());
-        let sum = bios[64..64 + (bios.len() - 64) / 4 * 4]
-            .chunks_exact(4)
-            .fold(0u32, |sum, w| {
-                sum.wrapping_add(u32::from_le_bytes(w.try_into().unwrap()))
-            });
+        let sum = bios[64..].chunks(4).fold(0u32, |sum, w| {
+            let mut word = [0u8; 4];
+            word[..w.len()].copy_from_slice(w);
+            sum.wrapping_add(u32::from_le_bytes(word))
+        });
         assert_eq!(
             [word(8), word(12), word(16), word(20)],
             [16, (moved.offset() / 2048) as u32, bios.len() as u32, sum],

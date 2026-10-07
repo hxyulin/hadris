@@ -8,6 +8,11 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **ISO writer:** The boot information table checksum counts a boot image's
+  last 1 to 3 bytes as a zero-padded word, matching xorriso 1.5.8 and
+  cdrtools mkisofs 3.02. Images whose length after byte 64 was not a
+  multiple of four previously recorded a different sum.
+
 - **CLI (`hadris fat`):** `chain` on the fixed FAT12/16 root directory
   reports that it has no cluster chain instead of underflowing, and `tree`,
   `stat` and `fragmentation` stop with an error at a directory loop in a

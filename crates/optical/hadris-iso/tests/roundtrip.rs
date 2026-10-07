@@ -270,6 +270,34 @@ fn lowercase_names_are_kept_on_request() {
 }
 
 #[test]
+fn boot_info_checksums_count_a_partial_last_word_zero_padded() {
+    let data: Vec<u8> = (0..4099u32)
+        .map(|i| match ((i * 7 + 1) % 256) as u8 {
+            0 => 1,
+            b => b,
+        })
+        .collect();
+    let mut tree = Tree::new();
+    tree.insert("boot.img", Node::file(Content::bytes(data)))
+        .unwrap();
+    let options = IsoOptions::default().with_el_torito(
+        ElTorito::new().with_entry(
+            BootEntry::bios("boot.img")
+                .with_load_size(4)
+                .with_boot_info(BootInfo::Table),
+        ),
+    );
+    let report = hadris_iso::plan(&tree, &options).unwrap();
+    let at = report.extents("boot.img").unwrap()[0].offset() as usize;
+    let bytes = image(&tree, &options).into_inner();
+    let sum = u32::from_le_bytes(bytes[at + 20..at + 24].try_into().unwrap());
+    assert_eq!(
+        sum, 0x7ef2_6cd1,
+        "the sum xorriso 1.5.8 and mkisofs 3.02 record"
+    );
+}
+
+#[test]
 fn boot_catalogs_read_back() {
     let tree = sample(false, false);
     let options = IsoOptions::default().with_el_torito(
