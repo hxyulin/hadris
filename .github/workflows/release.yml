@@ -228,6 +228,7 @@ jobs:
 
   cli-assets:
     name: Build and upload unified CLI binaries
+    cache-mode: none
     needs: [release, github-release]
     if: >-
       always() && !cancelled() &&
