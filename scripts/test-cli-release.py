@@ -152,6 +152,12 @@ class CliReleaseTests(unittest.TestCase):
             CLI.package(self.source, VERSION, target, self.output)
             self.assertEqual(archive.read_bytes(), original)
 
+    def test_source_snapshot_packages_without_git_metadata(self):
+        epoch = int(self.git("show", "-s", "--format=%ct", "HEAD"))
+        with patch.object(CLI, "run", side_effect=AssertionError("snapshot must not need Git")):
+            archive = CLI.package(self.source, VERSION, "aarch64-apple-darwin", self.output, epoch)
+        self.assertTrue(archive.is_file())
+
     def test_smoke_test_requires_every_apfs_subcommand(self):
         with patch.object(CLI, "run", return_value=f"hadris {VERSION}") as run:
             CLI.smoke_test(self.source, VERSION, "aarch64-apple-darwin")

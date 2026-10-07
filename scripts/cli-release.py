@@ -47,8 +47,9 @@ def release_plan(tag: str, workspace_tag: str = "") -> dict:
         workspace_commit = run("git", "rev-parse", "--verify", f"refs/tags/{workspace_tag}^{{commit}}")
         if workspace_commit != commit:
             raise ValueError("workspace and CLI tags must name the same commit")
+    epoch = int(run("git", "show", "-s", "--format=%ct", commit))
     return {"include": [
-        {"target": target, "runner": runner, "commit": commit, "version": version}
+        {"target": target, "runner": runner, "commit": commit, "version": version, "epoch": epoch}
         for target, runner in TARGETS.items()
     ]}
 
@@ -65,7 +66,7 @@ def checksum(archive: Path) -> str:
     return f"{digest}  {archive.name}\n"
 
 
-def package(source: Path, version: str, target: str, output: Path) -> Path:
+def package(source: Path, version: str, target: str, output: Path, epoch: int | None = None) -> Path:
     stem = archive_stem(version, target)
     manifest = tomllib.loads((source / MANIFEST).read_text())
     if manifest["package"]["version"] != version:
@@ -77,7 +78,8 @@ def package(source: Path, version: str, target: str, output: Path) -> Path:
         ("README.md", (source / MANIFEST.parent / "README.md").read_bytes(), 0o644),
         ("LICENSE-MIT", (source / "LICENSE-MIT").read_bytes(), 0o644),
     ]
-    epoch = int(run("git", "show", "-s", "--format=%ct", "HEAD", cwd=source))
+    if epoch is None:
+        epoch = int(run("git", "show", "-s", "--format=%ct", "HEAD", cwd=source))
     output.mkdir(parents=True, exist_ok=True)
     archive = output / f"{stem}.{'zip' if windows else 'tgz'}"
     if windows:
@@ -156,6 +158,7 @@ def main() -> None:
     pack.add_argument("--version", required=True)
     pack.add_argument("--target", choices=TARGETS, required=True)
     pack.add_argument("--output", type=Path, required=True)
+    pack.add_argument("--epoch", type=int)
     publish = commands.add_parser("upload")
     publish.add_argument("tag")
     publish.add_argument("--version", required=True)
@@ -165,7 +168,7 @@ def main() -> None:
         print(json.dumps(release_plan(args.tag, args.workspace_tag)))
     elif args.command == "package":
         smoke_test(args.source, args.version, args.target)
-        print(package(args.source, args.version, args.target, args.output))
+        print(package(args.source, args.version, args.target, args.output, args.epoch))
     else:
         upload(args.tag, args.version, args.directory)
 

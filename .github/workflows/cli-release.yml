@@ -49,6 +49,13 @@ jobs:
             gh release view "$WORKSPACE_TAG" > /dev/null
           fi
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          commit="$(python -c 'import json,sys; print(json.loads(sys.argv[1])["include"][0]["commit"])' "$matrix")"
+          git archive --format=tar --output=cli-source.tar "$commit"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cli-source
+          path: cli-source.tar
+          if-no-files-found: error
 
   build:
     name: ${{ matrix.target }}
@@ -66,11 +73,16 @@ jobs:
         with:
           path: tooling
           persist-credentials: false
-      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
-          ref: ${{ matrix.commit }}
-          path: source
-          persist-credentials: false
+          name: cli-source
+          path: release-source
+      - name: Extract the validated release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir source
+          tar -xf release-source/cli-source.tar -C source
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
@@ -93,13 +105,14 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
           VERSION: ${{ matrix.version }}
+          SOURCE_DATE_EPOCH: ${{ matrix.epoch }}
         shell: bash
         run: |
           set -euo pipefail
-          python tooling/scripts/cli-release.py package --source source --version "$VERSION" --target "$TARGET" --output dist
+          python tooling/scripts/cli-release.py package --source source --version "$VERSION" --target "$TARGET" --output dist --epoch "$SOURCE_DATE_EPOCH"
       - uses: actions/upload-artifact@v7
         with:
-          name: cli-${{ matrix.target }}
+          name: cli-binary-${{ matrix.target }}
           path: dist/*
           if-no-files-found: error
 
@@ -116,7 +129,7 @@ jobs:
           python-version: "3.11"
       - uses: actions/download-artifact@v8
         with:
-          pattern: cli-*
+          pattern: cli-binary-*
           path: dist
           merge-multiple: true
       - name: Upload missing assets without replacing existing binaries
