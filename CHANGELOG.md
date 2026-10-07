@@ -8,6 +8,10 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **NTFS:** Reading a file whose data a WOF (CompactOS) or Data Deduplication
+  reparse point keeps elsewhere fails with `Unsupported`
+  (`Detail::ReparseData`) instead of returning the sparse placeholder as zeros.
+
 ## [3.0.0-rc.2] - 2026-10-07
 
 - Align current crate READMEs, installation and migration recipes, and the

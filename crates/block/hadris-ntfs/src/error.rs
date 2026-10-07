@@ -49,6 +49,9 @@ pub enum Detail {
     AttributeList = 15,
     /// A structure lies outside the declared volume.
     OutsideVolume = 16,
+    /// The unnamed stream is a placeholder for data a reparse point keeps
+    /// elsewhere: Windows Overlay Filter (CompactOS) or Data Deduplication.
+    ReparseData = 17,
 }
 
 impl Detail {
@@ -70,14 +73,17 @@ impl Detail {
             Self::Encrypted => "encrypted stream",
             Self::AttributeList => "malformed or unsupported $ATTRIBUTE_LIST",
             Self::OutsideVolume => "a structure lies outside the declared volume",
+            Self::ReparseData => "data kept elsewhere by a WOF or deduplication reparse point",
         }
     }
 
     const fn kind(self) -> ErrorKind {
         match self {
-            Self::RecordSize | Self::BlockSize | Self::Compressed | Self::Encrypted => {
-                ErrorKind::Unsupported
-            }
+            Self::RecordSize
+            | Self::BlockSize
+            | Self::Compressed
+            | Self::Encrypted
+            | Self::ReparseData => ErrorKind::Unsupported,
             Self::BootSector => ErrorKind::NotRecognized,
             _ => ErrorKind::Corrupt,
         }
@@ -91,7 +97,7 @@ impl fmt::Display for Detail {
 }
 
 impl Detail {
-    const ALL: [Self; 16] = [
+    const ALL: [Self; 17] = [
         Self::BootSector,
         Self::Geometry,
         Self::RecordSize,
@@ -108,6 +114,7 @@ impl Detail {
         Self::Encrypted,
         Self::AttributeList,
         Self::OutsideVolume,
+        Self::ReparseData,
     ];
 
     /// The detail an NTFS operation recorded on `err`, if any.

@@ -1266,14 +1266,15 @@ impl<D: BlockDevice> NtfsFs<D> {
 
     /// Reads from the unnamed data stream of a file at `offset`. Bytes past
     /// the initialized size and sparse runs read as zeros. Directories fail
-    /// with [`ErrorKind::IsADirectory`], compressed and encrypted streams
-    /// with [`ErrorKind::Unsupported`].
+    /// with [`ErrorKind::IsADirectory`]; compressed and encrypted streams,
+    /// and files whose data a WOF (CompactOS) or deduplication reparse point
+    /// keeps elsewhere, with [`ErrorKind::Unsupported`].
     ///
     /// @hadris-spec NTFS:Data-Stream
     /// @hadris-compliance partial
     /// @hadris-tests read::files_read_back, crafted::streams_past_the_volume_fail, crafted::attribute_lists_join_extension_records
     /// @hadris-fuzz ntfs_read
-    /// @hadris-note Reads resident, non-resident, sparse and partly initialized streams, also across extension records; compressed and encrypted streams are unsupported.
+    /// @hadris-note Reads resident, non-resident, sparse and partly initialized streams, also across extension records; compressed and encrypted streams, and WOF and deduplication reparse points, are unsupported.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node, offset = offset, bytes = buf.len())))]
     /// Performs the [`FileSystem::read`] operation.
     pub async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
@@ -1286,6 +1287,14 @@ impl<D: BlockDevice> NtfsFs<D> {
         let head = stream_head(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &[])
             .await?
             .ok_or(Error::<D::Error>::from(Detail::Attribute))?;
+        if let Some(reparse) = stream_head(&mut self.dev, &self.info, rec, base, raw::ATTR_REPARSE_POINT, &[]).await? {
+            let mut tag = [0u8; 4];
+            let n = stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_REPARSE_POINT, &[], &reparse, 0, &mut tag).await?;
+            let tag = u32::from_le_bytes(tag);
+            if n == 4 && matches!(tag, raw::IO_REPARSE_TAG_WOF | raw::IO_REPARSE_TAG_DEDUP) {
+                return Err(Detail::ReparseData.into());
+            }
+        }
         stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &[], &head, offset, buf).await
     }
 

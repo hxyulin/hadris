@@ -127,6 +127,12 @@ pub const ATTR_INDEX_ALLOCATION: u32 = 0xA0;
 pub const ATTR_BITMAP: u32 = 0xB0;
 /// `$REPARSE_POINT` attribute type.
 pub const ATTR_REPARSE_POINT: u32 = 0xC0;
+/// Reparse tag of a file whose data Windows Overlay Filter keeps compressed
+/// in a named stream (CompactOS).
+pub const IO_REPARSE_TAG_WOF: u32 = 0x8000_0017;
+/// Reparse tag of a file whose data Data Deduplication keeps in its chunk
+/// store.
+pub const IO_REPARSE_TAG_DEDUP: u32 = 0x8000_0013;
 /// The type that ends the attributes of an MFT record.
 pub const ATTR_END: u32 = 0xFFFF_FFFF;
 
