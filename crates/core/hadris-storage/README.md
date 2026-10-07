@@ -128,7 +128,8 @@ allocation size. The adapter keeps two windows so metadata and data can alternat
 A miss adjacent to a retained window reads ahead; other misses fetch exactly the
 requested blocks. Requests larger than the selected window bypass buffering.
 
-All writes go through immediately and invalidate both windows before starting.
+All writes go through immediately and invalidate the windows they overlap
+before starting.
 Reads never speculate outside the device or partition. If an expanded read
 fails, the adapter retries the original request. `get_mut()` and `clear()`
 invalidate retained data; callers must clear after changes through external

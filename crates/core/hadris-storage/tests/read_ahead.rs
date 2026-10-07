@@ -157,6 +157,22 @@ mod sync {
     }
 
     #[test]
+    fn writes_invalidate_only_the_windows_they_overlap() {
+        let mut dev = ReadAhead::new(Probe::new(), 16);
+        let mut buf = [0; 16];
+        for block in [0, 1, 2] {
+            dev.read_blocks(BlockIndex::new(block), &mut buf).unwrap();
+        }
+        assert_eq!(dev.get_ref().reads, [(0, 1), (1, 8)]);
+        dev.write_blocks(BlockIndex::new(200), &[7; 16]).unwrap();
+        dev.read_blocks(BlockIndex::new(3), &mut buf).unwrap();
+        assert_eq!((buf, dev.get_ref().reads.len()), ([3; 16], 2));
+        dev.write_blocks(BlockIndex::new(4), &[7; 16]).unwrap();
+        dev.read_blocks(BlockIndex::new(4), &mut buf).unwrap();
+        assert_eq!((buf, dev.get_ref().reads.len()), ([7; 16], 3));
+    }
+
+    #[test]
     fn replacing_the_device_can_change_its_block_size() {
         let mut dev = ReadAhead::new(image(), 16);
         let mut buf = [0; 16];
@@ -233,6 +249,7 @@ mod cancellation {
     struct Yielding {
         inner: MemDevice<Vec<u8>>,
         suspend: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        reads: usize,
     }
     impl ErrorType for Yielding {
         type Error = core::convert::Infallible;
@@ -253,6 +270,7 @@ mod cancellation {
             first: BlockIndex,
             buf: &mut [u8],
         ) -> core::task::Poll<Result<(), Error<Self::Error>>> {
+            self.reads += 1;
             if let core::task::Poll::Ready(Err(e)) =
                 self.inner.poll_read_blocks(state, cx, first, buf)
             {
@@ -294,6 +312,7 @@ mod cancellation {
             Yielding {
                 inner: image(),
                 suspend: suspend.clone(),
+                reads: 0,
             },
             16,
         );
@@ -312,5 +331,28 @@ mod cancellation {
         suspend.store(false, std::sync::atomic::Ordering::Relaxed);
         block_on(dev.read_blocks(BlockIndex::new(32), &mut buf)).unwrap();
         assert_eq!(buf, [42; 16]);
+    }
+
+    #[test]
+    fn writes_invalidate_only_the_windows_they_overlap() {
+        let mut dev = ReadAhead::new(
+            Yielding {
+                inner: image(),
+                suspend: Default::default(),
+                reads: 0,
+            },
+            16,
+        );
+        let mut buf = [0; 16];
+        for block in [0, 1, 2] {
+            block_on(dev.read_blocks(BlockIndex::new(block), &mut buf)).unwrap();
+        }
+        assert_eq!(dev.get_ref().reads, 2);
+        block_on(dev.write_blocks(BlockIndex::new(200), &[7; 16])).unwrap();
+        block_on(dev.read_blocks(BlockIndex::new(3), &mut buf)).unwrap();
+        assert_eq!((buf, dev.get_ref().reads), ([3; 16], 2));
+        block_on(dev.write_blocks(BlockIndex::new(4), &[7; 16])).unwrap();
+        block_on(dev.read_blocks(BlockIndex::new(4), &mut buf)).unwrap();
+        assert_eq!((buf, dev.get_ref().reads), ([7; 16], 3));
     }
 }

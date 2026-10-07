@@ -639,8 +639,8 @@ of the filesystem drivers.
 An optional `hadris-storage::ReadAhead<D>` sits below the filesystem driver.
 Two windows share a configurable block budget. A small miss immediately after
 one retained window enables a larger read; a scattered miss requests only the
-needed blocks. Writes invalidate both windows before reaching the underlying
-device. Expanded reads stop at the device boundary and fall back to the original
+needed blocks. Writes invalidate the windows they overlap before reaching the
+underlying device. Expanded reads stop at the device boundary and fall back to the original
 request if speculation fails. The adapter is available with `alloc` in all three
 I/O modes. Ordinary filesystem mounts remain unchanged.
 

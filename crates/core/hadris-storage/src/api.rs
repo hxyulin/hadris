@@ -454,8 +454,9 @@ fn block_too_large<E>() -> Error<E> {
 /// alternate without immediately evicting each other.
 /// Requests larger than a window bypass it. Speculative reads stop at the device
 /// boundary; if they fail, the original request is retried without read-ahead.
-/// Writes invalidate both windows before reaching the device, including failed
-/// or cancelled writes. This adapter never buffers writes.
+/// Writes invalidate the windows they overlap before reaching the device,
+/// including failed or cancelled writes; a window elsewhere stays valid.
+/// This adapter never buffers writes.
 ///
 /// Memory is allocated lazily, up to `capacity` blocks in total. Zero disables
 /// buffering. External changes to the device require [`clear`](Self::clear).
@@ -586,7 +587,13 @@ impl<D: BlockDevice> BlockDevice for ReadAhead<D> {
     }
 
     async fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<(), Error<Self::Error>> {
-        self.clear();
+        let count = buf.len().div_ceil(self.block_size().get() as usize) as u64;
+        let end = first.get().saturating_add(count);
+        for window in &mut self.windows {
+            if window.first < end && first.get() < window.first + window.count as u64 {
+                window.count = 0;
+            }
+        }
         self.inner.write_blocks(first, buf).await
     }
 
