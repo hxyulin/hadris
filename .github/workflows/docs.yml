@@ -32,6 +32,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  release:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Rebuild documentation from main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run docs.yml --ref main
+
   check:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -63,7 +75,7 @@ jobs:
   # Set DOCS_DOMAIN (for
   # example docs.example.org) after configuring that custom domain for Pages.
   build:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.event_name != 'release'
     runs-on: ubuntu-latest
     env:
       HADRIS_SITE_URL: ${{ vars.DOCS_DOMAIN && format('https://{0}', vars.DOCS_DOMAIN) || 'https://hxyulin.github.io' }}
@@ -108,7 +120,7 @@ jobs:
           path: site
 
   deploy:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.event_name != 'release'
     needs: build
     runs-on: ubuntu-latest
     permissions:

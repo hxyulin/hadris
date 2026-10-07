@@ -39,6 +39,7 @@ jobs:
       licenses: ${{ steps.scope.outputs.licenses }}
       formatting: ${{ steps.scope.outputs.formatting }}
       async_contract: ${{ steps.scope.outputs.async_contract }}
+      release: ${{ steps.scope.outputs.release }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -49,6 +50,9 @@ jobs:
           base: ${{ github.ref_name }}
           predicate-quantifier: some-with-excludes
           filters: |
+            release:
+              - 'scripts/{release-plan.py,test-release-plan.py}'
+              - '.github/workflows/{release,rust}.yml'
             formatting:
               - '{rustfmt,.rustfmt}.toml'
             rust:
@@ -86,6 +90,16 @@ jobs:
               - 'deny.toml'
               - 'LICENSE*'
               - '.github/workflows/rust.yml'
+
+  release-plan:
+    needs: changes
+    if: needs.changes.outputs.release == 'true'
+    name: Release plan regressions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test crate and workspace release plans
+        run: python3 scripts/test-release-plan.py
 
   licenses:
     needs: changes

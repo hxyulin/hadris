@@ -8,6 +8,12 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- Joint releases that include the umbrella crate now create a workspace
+  `v<version>` tag and GitHub release alongside the per-crate releases, with
+  shared notes and pre-release status for release candidates.
+- Release events rebuild documentation from `main` so tagged releases respect
+  the GitHub Pages environment's branch deployment policy.
+
 - Correct remaining async migration documentation and firmware example imports;
   clarify local/Send tiers, operation-state bounds and poll-buffer safety. Add
   umbrella detection/opening regressions for local devices and non-Send state,

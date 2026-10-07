@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Plans a release of one or more published workspace crates.
 
-usage: scripts/release-plan.py [--notes SECTION] [--notes-dir DIR] CRATE... | all
+usage: scripts/release-plan.py [--notes SECTION] [--notes-dir DIR] [--github-plan] CRATE... | all
 
 Prints one line per crate in dependency order: name, version and tag
 (`<crate>-v<version>`). Fails when a crate is not published, a version is
@@ -12,6 +12,10 @@ Release notes come from the section `## [<crate> <version>] - YYYY-MM-DD`,
 or from `## [SECTION] - YYYY-MM-DD` for every crate with --notes SECTION
 (a joint release such as `--notes 3.0.0`). With --notes-dir, the notes of
 each crate are written to DIR/<crate>.md.
+
+Joint releases with --notes that include hadris also validate a workspace
+tag `v<umbrella-version>`. --github-plan appends that release as Hadris;
+the default output remains the crate publication plan.
 """
 
 import argparse
@@ -86,6 +90,7 @@ def main() -> int:
     parser.add_argument("crates", nargs="+")
     parser.add_argument("--notes", default="")
     parser.add_argument("--notes-dir", type=Path)
+    parser.add_argument("--github-plan", action="store_true")
     args = parser.parse_args()
 
     packages = published_packages()
@@ -116,6 +121,16 @@ def main() -> int:
             errors.append(f"{name}: {error}")
             notes = ""
         plan.append((name, version, tag, notes))
+
+    if args.notes and "hadris" in selected:
+        version = packages["hadris"]["version"]
+        tag = f"v{version}"
+        commit = tag_commit(tag)
+        if commit and commit != head:
+            errors.append(f"Hadris: tag {tag} already names {commit}")
+        if args.github_plan:
+            notes = next(notes for name, _, _, notes in plan if name == "hadris")
+            plan.append(("Hadris", version, tag, notes))
 
     if errors:
         print("\n".join(errors), file=sys.stderr)
