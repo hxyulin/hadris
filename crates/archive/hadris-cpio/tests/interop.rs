@@ -102,7 +102,13 @@ fn hadris_reads_native_cpio_archives() {
         b"data\nalias\nempty\n"
     };
     fs::write(names.path(), list).unwrap();
-    for format in ["newc", "crc", "odc"] {
+    let version = Command::new("cpio").arg("--version").output().unwrap();
+    let formats: &[&str] = if String::from_utf8_lossy(&version.stdout).contains("GNU cpio") {
+        &["newc", "crc", "odc"]
+    } else {
+        &["newc", "odc"]
+    };
+    for &format in formats {
         let output = Command::new("cpio")
             .args(["-o", "-H", format])
             .current_dir(source.path())
