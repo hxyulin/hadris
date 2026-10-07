@@ -1396,6 +1396,47 @@ fn growing_a_contiguous_file_past_the_heap_fails_before_any_fat_write() {
 }
 
 #[test]
+fn freeing_a_contiguous_file_past_the_heap_keeps_other_bitmap_bits() {
+    let mut fs = common::small(4 << 20, 4096);
+    let root = fs.root();
+    let node = common::write(&mut fs, root, "big", &[7u8; 8192]);
+    fs.close(node).unwrap();
+    let other = common::write(&mut fs, root, "other", &[9u8; 8192]);
+    fs.close(other).unwrap();
+    let image = common::image(fs);
+    let geo = Geometry::of(&image);
+    let set = geo.set(&image, geo.root, "big");
+    let bitmap = geo.root_entries(&image, 0x81)[0];
+    let bitmap = geo.at(le32(&image, bitmap + 20));
+    let bitmap = bitmap..bitmap + (geo.count as usize).div_ceil(8);
+    for clusters in [geo.count as u64 + 10, (1 << 32) + 3] {
+        let mut image = image.clone();
+        geo.unchain(&mut image, &set);
+        let len = clusters * geo.cluster as u64;
+        image[set[1] + 24..set[1] + 32].copy_from_slice(&len.to_le_bytes());
+        geo.reseal(&mut image, &set);
+        let before = image[bitmap.clone()].to_vec();
+
+        let mut fs = common::mount(&image);
+        let node = fs.lookup(fs.root(), name("big")).unwrap();
+        let err = fs.truncate(node, 4096).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Corrupt, "{clusters}");
+        assert_eq!(fs.stat(node).unwrap().len(), len, "{clusters}");
+        fs.forget(node, 1);
+        fs.sync().unwrap();
+        let after = common::image(fs);
+        assert_eq!(after[bitmap.clone()], before[..], "{clusters}: truncate");
+
+        let mut fs = common::mount(&image);
+        let err = fs.unlink(fs.root(), name("big")).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Corrupt, "{clusters}");
+        let _ = fs.sync();
+        let after = common::image(fs);
+        assert_eq!(after[bitmap.clone()], before[..], "{clusters}: unlink");
+    }
+}
+
+#[test]
 fn a_directory_grow_whose_size_write_fails_is_cut_back() {
     let image = common::image(common::small(4 << 20, 4096));
     let (dev, script) = Scripted::new(common::device(image, 512));

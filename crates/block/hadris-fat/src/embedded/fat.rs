@@ -325,7 +325,9 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
 
     /// Opens the file a listed [`Entry`] names, without a lookup. The
     /// position is valid until its directory changes; a position that no
-    /// longer holds a file fails with [`ErrorKind::NotFound`].
+    /// longer holds a file fails with [`ErrorKind::NotFound`], and one
+    /// outside the directories of this volume, or holding an entry no FAT
+    /// driver writes, with [`ErrorKind::InvalidHandle`].
     /// `create_new` fails with [`ErrorKind::AlreadyExists`].
     pub async fn open_node(&mut self, node: Node, options: OpenOptions) -> FsResult<File<'mount>, D::Error> {
         options.validate().map_err(ErrorKind::from)?;
@@ -337,14 +339,16 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         }
         let index = self.free_slot()?;
         let offset = node.offset();
-        let valid = offset % ENTRY_SIZE == 0 && offset >= self.fat.geometry().fat_start() && offset < self.fat.geometry().data_end();
-        if !valid {
-            return Err(ErrorKind::NotFound.into());
+        if !crate::names::in_directory_region(self.fat.geometry(), offset) {
+            return Err(ErrorKind::InvalidHandle.into());
         }
         let entry = match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
             Slot::Short(entry) if entry.is_visible() => entry,
             _ => return Err(ErrorKind::NotFound.into()),
         };
+        if !crate::names::plausible_entry(&entry, self.fat.geometry()) {
+            return Err(ErrorKind::InvalidHandle.into());
+        }
         self.open_entry(index, offset, &entry, options).await
     }
 
@@ -970,6 +974,16 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         if keep == 0 && state.first != 0 {
             self.pending = Pending::chain(state.first, Owner::Entry(state.entry));
         }
+        let mut cut = None;
+        if keep != 0 && state.first != 0 {
+            let reached = rawio::walk(&mut self.dev, &mut self.block, &self.fat, state.first, ChainPos::NONE, keep - 1).await?;
+            let last = reached.cluster();
+            if reached.index() == keep - 1
+                && let Some(next) = rawio::next(&mut self.dev, &mut self.block, &self.fat, last).await?
+            {
+                cut = Some((last, next));
+            }
+        }
         let mut entry = self.read_short(state.entry).await?;
         entry.set_size(len as u32);
         entry.set_first_cluster(self.kind(), first);
@@ -978,6 +992,9 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         entry.set_accessed_date(date);
         entry.set_attributes(entry.attributes() | raw::ATTR_ARCHIVE);
         self.put(state.entry, &entry.encode()).await?;
+        if let Some((last, next)) = cut {
+            self.pending = Pending::chain(next, Owner::Tail(last));
+        }
         self.record(index, first, len as u32, ChainPos::NONE);
         for slot in self.files.iter_mut() {
             if !slot.is_free() && slot.entry == state.entry {
@@ -989,18 +1006,13 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
             self.pending = Pending::NONE;
             return Ok(());
         }
-        if keep == 0 {
-            return self.free_chain(state.first).await;
-        }
-        let reached = rawio::walk(&mut self.dev, &mut self.block, &self.fat, state.first, ChainPos::NONE, keep - 1).await?;
-        let last = reached.cluster();
-        if reached.index() == keep - 1
-            && let Some(next) = rawio::next(&mut self.dev, &mut self.block, &self.fat, last).await?
-        {
-            self.pending = Pending::chain(next, Owner::Tail(last));
+        if let Some((last, next)) = cut {
             let end = self.kind().end_of_chain();
             self.set_fat(last, end).await?;
-            self.free_chain(next).await?;
+            return self.free_chain(next).await;
+        }
+        if keep == 0 {
+            return self.free_chain(state.first).await;
         }
         Ok(())
     }

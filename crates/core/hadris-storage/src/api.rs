@@ -606,6 +606,10 @@ impl<D: BlockDevice> BlockDevice for ReadAhead<D> {
 /// the device bypass the cache and fail with the device's own error. Requests
 /// of at least `capacity` blocks also go straight to the device, since caching
 /// them would evict everything else; reads still see cached dirty blocks.
+/// Before a write goes straight to the device, the dirty blocks it covers are
+/// written back and every cached copy of them is dropped, so a failed write
+/// leaves no stale block for a later flush. A failed write may already have
+/// replaced some of the blocks it covers; earlier writes to the others survive.
 #[cfg(feature = "alloc")]
 #[derive(Debug)]
 pub struct Cache<D> {
@@ -627,10 +631,15 @@ impl<D: BlockDevice> Cache<D> {
         self.state.is_dirty()
     }
 
-    /// Flushes every dirty block and returns the underlying device.
-    pub async fn finish(mut self) -> Result<D, Error<D::Error>> {
-        self.flush().await?;
-        Ok(self.inner)
+    /// Flushes every dirty block and returns the underlying device. On
+    /// failure the cache comes back with the error, still holding the blocks
+    /// it could not write, so the caller can retry or recover them.
+    #[allow(clippy::result_large_err)]
+    pub async fn finish(mut self) -> Result<D, (Self, Error<D::Error>)> {
+        match self.flush().await {
+            Ok(()) => Ok(self.inner),
+            Err(error) => Err((self, error)),
+        }
     }
 
     /// Returns the underlying device, discarding unflushed writes.
@@ -752,9 +761,13 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
         let size = self.inner.block_size().get() as usize;
         let count = buf.len() / size;
         if !self.written || !self.in_range(first, buf.len()) || count >= self.state.capacity() {
+            loop {
+                let Some(index) = self.state.dirty_in(first.get(), count).next() else { break };
+                self.write_back(index).await?;
+            }
+            self.state.invalidate(first.get(), count);
             self.inner.write_blocks(first, buf).await?;
             self.written = true;
-            self.state.invalidate(first.get(), count);
             return Ok(());
         }
         for (i, chunk) in buf.chunks_exact(size).enumerate() {

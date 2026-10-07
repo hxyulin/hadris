@@ -284,6 +284,78 @@ mod device_tests {
         assert_eq!(&device.get_ref()[..8], &[1, 1, 1, 1, 2, 2, 2, 2]);
     }
 
+    /// Writes the first block of the first multi-block write while its flag
+    /// is set, then fails.
+    #[derive(Debug)]
+    struct Torn(MemDevice<std::vec::Vec<u8>>, bool);
+
+    impl ErrorType for Torn {
+        type Error = core::convert::Infallible;
+    }
+
+    impl BlockDevice for Torn {
+        fn block_size(&self) -> BlockSize {
+            B4
+        }
+        fn block_count(&self) -> u64 {
+            self.0.block_count()
+        }
+        fn writable(&self) -> bool {
+            true
+        }
+        fn read_blocks(
+            &mut self,
+            first: BlockIndex,
+            buf: &mut [u8],
+        ) -> Result<(), Error<Self::Error>> {
+            self.0.read_blocks(first, buf)
+        }
+        fn write_blocks(
+            &mut self,
+            first: BlockIndex,
+            buf: &[u8],
+        ) -> Result<(), Error<Self::Error>> {
+            if self.1 && buf.len() > 4 {
+                self.1 = false;
+                self.0.write_blocks(first, &buf[..4])?;
+                return Err(Error::new(ErrorKind::Io, "torn write"));
+            }
+            self.0.write_blocks(first, buf)
+        }
+    }
+
+    #[test]
+    fn cache_forgets_blocks_a_failed_pass_through_write_covers() {
+        let mut cache = Cache::new(Torn(MemDevice::new(counting(16), B4), true), 2);
+        cache.write_blocks(BlockIndex::new(3), &[3; 4]).unwrap();
+        cache.write_blocks(BlockIndex::new(0), &[1; 4]).unwrap();
+        cache.write_blocks(BlockIndex::new(1), &[2; 4]).unwrap();
+        assert!(cache.is_dirty());
+        assert!(cache.write_blocks(BlockIndex::new(0), &[9; 8]).is_err());
+        assert!(!cache.is_dirty());
+        cache.flush().unwrap();
+        let mut buf = [0_u8; 4];
+        cache.read_blocks(BlockIndex::new(0), &mut buf).unwrap();
+        assert_eq!(buf, [9; 4]);
+        assert_eq!(
+            &cache.into_inner().0.get_ref()[..8],
+            &[9, 9, 9, 9, 2, 2, 2, 2]
+        );
+    }
+
+    #[test]
+    fn cache_finish_returns_the_cache_when_its_flush_fails() {
+        let mut cache = Cache::new(Torn(MemDevice::new(counting(16), B4), true), 4);
+        cache.write_blocks(BlockIndex::new(3), &[3; 4]).unwrap();
+        cache.write_blocks(BlockIndex::new(0), &[1; 4]).unwrap();
+        cache.write_blocks(BlockIndex::new(1), &[2; 4]).unwrap();
+        let (cache, error) = cache.finish().unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Io);
+        assert!(cache.is_dirty());
+        let device = cache.finish().unwrap();
+        assert_eq!(&device.0.get_ref()[..8], &[1, 1, 1, 1, 2, 2, 2, 2]);
+    }
+
     #[test]
     fn cache_reports_read_only_on_the_first_write() {
         let bytes = counting(8);

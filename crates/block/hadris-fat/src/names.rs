@@ -17,6 +17,34 @@ pub(crate) const ATTR_MAPPED: [(u8, Attributes); 4] = [
     (raw::ATTR_ARCHIVE, Attributes::ARCHIVE),
 ];
 
+/// Whether the slot at byte `offset` can hold a directory entry: it is
+/// aligned to an entry and lies in the fixed root directory or the cluster
+/// heap.
+pub(crate) fn in_directory_region(geo: &raw::Geometry, offset: u64) -> bool {
+    let in_root = matches!(
+        geo.root(),
+        raw::RootLocation::Fixed { start, size } if (start..start + size).contains(&offset)
+    );
+    offset % raw::ENTRY_SIZE as u64 == 0
+        && (in_root || (geo.data_start()..geo.data_end()).contains(&offset))
+}
+
+/// Whether a visible short entry decoded from a node locator is one a FAT
+/// driver could have written: its name has no control bytes and does not
+/// start with a space, the reserved attribute bits are clear, and its first
+/// cluster is 0 or a data cluster.
+pub(crate) fn plausible_entry(entry: &ShortEntry, geo: &raw::Geometry) -> bool {
+    let name = entry.name();
+    let name_ok = name[0] != b' '
+        && name
+            .iter()
+            .enumerate()
+            .all(|(i, &b)| b >= 0x20 || (i == 0 && b == 0x05));
+    let first = entry.first_cluster(geo.kind());
+    let first_ok = first == 0 || (first >= raw::FIRST_DATA_CLUSTER && first <= geo.max_cluster());
+    name_ok && entry.attributes() & 0xC0 == 0 && first_ok
+}
+
 /// `ch` folded by `fold` when it is in the Basic Multilingual Plane.
 pub(crate) fn fold_char(ch: char, fold: fn(u16) -> u16) -> char {
     match u16::try_from(ch as u32) {
