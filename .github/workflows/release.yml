@@ -2,7 +2,8 @@ name: Release
 
 # Releases one or more published crates at the versions in their manifests.
 # scripts/release-plan.py orders them, derives each tag (<crate>-v<version>)
-# and reads the release notes from CHANGELOG.md. See CONTRIBUTING.md.
+# and reads the release notes from CHANGELOG.md. Joint releases including
+# hadris also create a workspace release (v<version>). See CONTRIBUTING.md.
 
 on:
   workflow_dispatch:
@@ -43,6 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       plan: ${{ steps.plan.outputs.plan }}
+      github_plan: ${{ steps.plan.outputs.github_plan }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -70,10 +72,14 @@ jobs:
           fi
           read -ra crates <<< "$CRATES"
           plan="$(python3 scripts/release-plan.py --notes "$NOTES" "${crates[@]}")"
+          github_plan="$(python3 scripts/release-plan.py --github-plan --notes "$NOTES" "${crates[@]}")"
           echo "$plan"
           {
             echo "plan<<EOF"
             echo "$plan"
+            echo "EOF"
+            echo "github_plan<<EOF"
+            echo "$github_plan"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
@@ -153,12 +159,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CRATES: ${{ inputs.crates }}
           NOTES: ${{ inputs.notes }}
-          PLAN: ${{ needs.release.outputs.plan }}
+          PLAN: ${{ needs.release.outputs.github_plan }}
         shell: bash
         run: |
           set -euo pipefail
           read -ra crates <<< "$CRATES"
-          python3 scripts/release-plan.py --notes "$NOTES" --notes-dir release-notes "${crates[@]}" > /dev/null
+          python3 scripts/release-plan.py --github-plan --notes "$NOTES" --notes-dir release-notes "${crates[@]}" > /dev/null
 
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
@@ -178,6 +184,7 @@ jobs:
             git push origin "${new_tags[@]}"
           fi
 
+          latest_tag="$(awk '$1 == "hadris" || $1 == "Hadris" {tag=$3} END {print tag}' <<< "$PLAN")"
           while read -r name version tag; do
             if gh release view "$tag" > /dev/null 2>&1; then
               echo "GitHub release $tag already exists; skipping"
@@ -186,7 +193,7 @@ jobs:
             flags=(--latest=false)
             if [[ "$version" == *-* ]]; then
               flags=(--prerelease --latest=false)
-            elif [[ "$name" == hadris ]]; then
+            elif [[ "$tag" == "$latest_tag" ]]; then
               flags=(--latest)
             fi
             gh release create "$tag" \

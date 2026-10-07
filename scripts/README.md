@@ -29,6 +29,7 @@ and list indirect-call boundaries; they are not runtime stack measurements.
 | `check-spec-annotations.py` | Validate source annotations and generated coverage tables | `python3 scripts/check-spec-annotations.py` |
 | `check-compliance-catalog.py` | Validate requirement catalogs and evidence references | `python3 scripts/check-compliance-catalog.py` |
 | `release-plan.py` | Validate release versions/notes and order package publication | Used by [release.yml](../.github/workflows/release.yml) |
+| `test-release-plan.py` | Check independent/joint releases and conflicting existing tags | `python3 scripts/test-release-plan.py` |
 
 The specification checks cover source annotations and requirement catalogs
 respectively. Keep both when updating evidence. The checkers expose

@@ -338,14 +338,21 @@ which resolves unpublished workspace dependencies in the same run.
 skipping versions already on crates.io so a failed run can be rerun. It
 then creates and pushes the tags `<crate>-v<version>`, one GitHub release
 per tag (pre-releases for versions with a pre-release suffix; the umbrella
-`hadris` is marked latest), and rebuilds the documentation site, which
-versions itself from the `hadris-vX.Y.Z` tags. Never create release tags by
+`hadris` is marked latest for stable releases). A joint release with `notes`
+set that includes `hadris` also creates a workspace tag `v<version>` and a
+`Hadris <version>` GitHub release using the umbrella crate's version and the
+shared notes. The workspace release is marked latest only when stable;
+release candidates remain pre-releases. Both tag formats are checked before
+publication, and reruns skip releases that already exist. It then rebuilds
+the documentation site, which versions itself from the `hadris-vX.Y.Z`
+tags. Never create release tags by
 hand. Publishing needs the `CARGO_REGISTRY_TOKEN` repository secret.
 
 Check a plan locally before opening the release PR:
 
 ```bash
 scripts/release-plan.py --notes 3.0.0-rc.1 all
+scripts/release-plan.py --github-plan --notes 3.0.0-rc.1 all
 scripts/release-plan.py hadris-fat hadris
 cargo +stable publish --dry-run -p hadris-fat -p hadris
 ```
