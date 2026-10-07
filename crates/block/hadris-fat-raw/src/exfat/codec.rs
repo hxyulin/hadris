@@ -369,12 +369,13 @@ impl NameUnits {
     }
 }
 
-/// Encodes a time as `(Timestamp, 10msIncrement, UtcOffset)`. A zone-less
-/// time is stored with no valid offset; an offset that is not a whole
-/// number of quarter hours in range is stored as UTC.
+/// Encodes a time as `(Timestamp, 10msIncrement, UtcOffset)`. A
+/// [`DateTime`] is an instant, so the offset is always marked valid: a time
+/// with no recorded offset is stored as UTC, and so is one whose offset is
+/// not a whole number of quarter hours in range.
 pub fn encode_time(time: DateTime) -> (u32, u8, u8) {
     let (time, offset) = match time.utc_offset_minutes() {
-        None => (time, 0),
+        None => (time, UTC_OFFSET_VALID),
         Some(minutes) if minutes % 15 == 0 && (-64 * 15..=63 * 15).contains(&minutes) => {
             (time, UTC_OFFSET_VALID | ((minutes / 15) as i8 as u8 & 0x7F))
         }
@@ -631,8 +632,11 @@ mod tests {
         assert_eq!(back.unix_seconds(), odd.unix_seconds());
         let plain = DateTime::from_unix_seconds(1_000_000_000).unwrap();
         let (stamp, increment, offset) = encode_time(plain);
-        assert_eq!(offset, 0);
-        assert_eq!(decode_time(stamp, increment, offset, None), Some(plain));
+        assert_eq!(offset, UTC_OFFSET_VALID);
+        let back = decode_time(stamp, increment, offset, Some(60)).unwrap();
+        assert_eq!(back.unix_seconds(), plain.unix_seconds());
+        assert_eq!(back.utc_offset_minutes(), Some(0));
+        assert_eq!(decode_time(stamp, increment, 0, None), Some(plain));
         assert_eq!(decode_time(0, 0, 0, None), None);
         let zoned = decode_time(stamp, increment, 0, Some(60)).unwrap();
         assert_eq!(zoned.unix_seconds(), plain.unix_seconds() - 3600);

@@ -8,6 +8,12 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **exFAT:** Timestamps without a recorded offset, which include every time
+  stamped with the default `MountOptions` and `SystemClock`, are written as
+  UTC with `OffsetValid` set instead of with no valid offset. Windows, Linux
+  and macOS previously read them as local time. `hadris_fat_raw::exfat::encode_time`
+  changes accordingly; reading is unchanged.
+
 - **UDF writer:** Trees with names that are not UTF-8 are written: content is
   looked up by the original byte path instead of a lossy copy, so `write`
   no longer fails mid-image. Lossy names that collide with another name in
