@@ -8,6 +8,13 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **ISO hybrid boot:** With MBR boot code and a BIOS default El Torito
+  entry, bytes 432 to 439 of the MBR record the boot image's address in
+  512-byte sectors, as syslinux `isohdpfx.bin` expects and
+  `xorriso -isohybrid-mbr` writes; isohybrid images previously could not
+  find their boot image. Boot code with a plain GPT, which has nowhere to
+  hold it, now fails the plan with `HybridBoot` instead of being dropped.
+
 - **ISO writer:** The boot information table checksum counts a boot image's
   last 1 to 3 bytes as a zero-padded word, matching xorriso 1.5.8 and
   cdrtools mkisofs 3.02. Images whose length after byte 64 was not a

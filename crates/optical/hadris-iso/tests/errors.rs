@@ -151,7 +151,26 @@ fn boot_options_are_checked_against_the_images() {
         .unwrap()
         .read_raw(0, &mut mbr)
         .unwrap();
-    assert!(mbr[..446].iter().all(|&byte| byte == 0x90));
+    assert!(mbr[..432].iter().all(|&byte| byte == 0x90));
+    assert!(mbr[440..446].iter().all(|&byte| byte == 0x90));
+    let boot = hadris_iso::plan(&tree, &fits)
+        .unwrap()
+        .extents("boot/boot.img")
+        .unwrap()[0]
+        .offset()
+        / 512;
+    assert_eq!(
+        u64::from_le_bytes(mbr[432..440].try_into().unwrap()),
+        boot,
+        "isohybrid boot code finds the El Torito image here, as xorriso -isohybrid-mbr writes it"
+    );
+    let gpt = IsoOptions::default()
+        .with_el_torito(el_torito())
+        .with_hybrid(Hybrid::gpt().with_bootstrap(&[0x90u8; 432]));
+    assert_eq!(
+        refused(&tree, &gpt),
+        (ErrorKind::InvalidInput, Some(Detail::HybridBoot))
+    );
 
     let zero = IsoOptions::default().with_el_torito(
         ElTorito::new().with_entry(BootEntry::bios("boot/boot.img").with_load_size(0)),

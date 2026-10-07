@@ -353,7 +353,14 @@ impl Hybrid {
     /// Sets the boot code in the MBR, at most 446 bytes. Longer code fails
     /// the plan with [`ErrorKind::LimitExceeded`](hadris_fs::ErrorKind::LimitExceeded)
     /// and [`Detail::HybridBoot`](crate::Detail::HybridBoot). A plain GPT
-    /// has no boot code.
+    /// has no boot code: setting it there fails the plan with
+    /// [`ErrorKind::InvalidInput`](hadris_fs::ErrorKind::InvalidInput) and
+    /// [`Detail::HybridBoot`](crate::Detail::HybridBoot).
+    ///
+    /// When the default El Torito entry boots a BIOS image, bytes 432 to 439
+    /// of the MBR get that image's block address in 512-byte sectors, as
+    /// isohybrid boot code such as syslinux `isohdpfx.bin` reads it and as
+    /// `xorriso -isohybrid-mbr` writes it.
     pub fn with_bootstrap(self, code: &[u8]) -> Self {
         Self {
             bootstrap: Some(code.to_vec()),

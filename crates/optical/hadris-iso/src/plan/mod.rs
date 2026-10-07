@@ -551,6 +551,9 @@ impl Planner<'_> {
             if hybrid.bootstrap().is_some_and(|code| code.len() > 446) {
                 return Err(Detail::HybridBoot.error(ErrorKind::LimitExceeded));
             }
+            if hybrid.scheme() == PartitionScheme::Gpt && hybrid.bootstrap().is_some() {
+                return Err(invalid(Detail::HybridBoot));
+            }
             if (hybrid.scheme() == PartitionScheme::Mbr && !appended.is_empty())
                 || appended
                     .iter()
@@ -1421,6 +1424,16 @@ impl Planner<'_> {
             } else {
                 return Err(invalid(Detail::HybridBoot));
             }
+        }
+        if hybrid.bootstrap().is_some()
+            && let Some(entry) = self
+                .opts
+                .el_torito()
+                .and_then(|el_torito| el_torito.entries().first())
+                .filter(|entry| entry.platform() == Platform::X86)
+        {
+            let (block, _) = self.entry_image(entry)?;
+            system[432..440].copy_from_slice(&(u64::from(block) * 4).to_le_bytes());
         }
         let tail = (!tail.is_empty()).then_some((end, tail));
         Ok((system, tail))
