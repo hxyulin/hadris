@@ -118,6 +118,43 @@ fn a_dropped_close_still_closes_the_file() {
 }
 
 #[test]
+fn a_close_dropped_while_the_driver_closes_still_closes_the_file() {
+    block_on(async {
+        let vol = Volume::new(fixture());
+        let file = vol.open("/a.txt", OpenOptions::new().read()).await.unwrap();
+        vol.lock().await.stall_in(0);
+        cancel(file.close());
+        vol.remove_file("/a.txt").await.unwrap();
+        let fs = vol.into_inner().await.unwrap();
+        assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));
+    });
+}
+
+#[test]
+fn an_open_dropped_while_closing_after_a_failed_truncate_leaves_no_open() {
+    block_on(async {
+        let vol = Volume::new(fixture());
+        for calls in 0.. {
+            let mut fs = vol.lock().await;
+            fs.stall_in(calls);
+            fs.fail_truncate();
+            drop(fs);
+            let pending = poll_once(vol.open("/a.txt", OpenOptions::new().write().truncate()));
+            let mut fs = vol.lock().await;
+            assert_eq!(fs.open_files(), 0, "stalled at call {calls}");
+            fs.stall_in(u32::MAX);
+            drop(fs);
+            if !pending {
+                break;
+            }
+        }
+        vol.remove_file("/a.txt").await.unwrap();
+        let fs = vol.into_inner().await.unwrap();
+        assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));
+    });
+}
+
+#[test]
 fn dropped_path_calls_leave_no_pins() {
     block_on(async {
         let vol = Volume::new(fixture());

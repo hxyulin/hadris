@@ -8,6 +8,12 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **hadris-fs async API:** Dropping a `File::close` future while the driver
+  closes the file, or a `Volume::open` future while it closes a file whose
+  truncation failed, queues the close for the next call instead of leaking
+  the driver's open count, which made later removes and renames fail with
+  `Busy`.
+
 - **UDF reader:** Every logical volume integrity descriptor recorded in an
   integrity extent is read, up to a terminating descriptor or unrecorded
   block, and the last one decides `was_dirty` and the free space, as

@@ -95,9 +95,10 @@ impl<F: FileSystem> File<F> {
     /// device; call [`sync_all`](Self::sync_all) first for durability.
     pub async fn close(mut self) -> FsResult<(), F::DeviceError> {
         let mut fs = self.vol.lock().await;
+        let mut node = self.vol.hold_file(self.node);
         self.open = false;
-        let node = self.vol.hold(self.node);
         let closed = fs.close(self.node).await;
+        node.closed();
         node.forget(&mut *fs);
         closed
     }
