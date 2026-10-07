@@ -401,7 +401,123 @@ mod asynch {
         });
     }
 
-    /// The futures are `Send` with no bounds beyond the mode's own.
+    #[derive(Debug)]
+    struct PollDevice<B>(MemDevice<B>);
+
+    impl<B> hadris::io::ErrorType for PollDevice<B> {
+        type Error = core::convert::Infallible;
+    }
+
+    impl<B: hadris::storage::MemBuffer> hadris::storage::async_::BlockDevice for PollDevice<B> {
+        type State = Option<std::rc::Rc<()>>;
+
+        fn block_size(&self) -> BlockSize {
+            hadris::storage::sync::BlockDevice::block_size(&self.0)
+        }
+
+        fn block_count(&self) -> u64 {
+            hadris::storage::sync::BlockDevice::block_count(&self.0)
+        }
+
+        fn poll_read_blocks(
+            &mut self,
+            state: &mut Self::State,
+            cx: &mut core::task::Context<'_>,
+            first: hadris::storage::BlockIndex,
+            buf: &mut [u8],
+        ) -> core::task::Poll<Result<(), hadris::io::Error<Self::Error>>> {
+            if state.is_none() {
+                *state = Some(std::rc::Rc::new(()));
+                cx.waker().wake_by_ref();
+                return core::task::Poll::Pending;
+            }
+            core::task::Poll::Ready(hadris::storage::sync::BlockDevice::read_blocks(
+                &mut self.0,
+                first,
+                buf,
+            ))
+        }
+
+        fn cancel(&mut self, state: &mut Self::State) {
+            *state = None;
+        }
+    }
+
+    #[derive(Debug)]
+    struct LocalBytes(std::rc::Rc<Vec<u8>>);
+
+    impl hadris::storage::MemBuffer for LocalBytes {
+        fn bytes(&self) -> &[u8] {
+            &self.0
+        }
+
+        fn bytes_mut(&mut self) -> Option<&mut [u8]> {
+            None
+        }
+
+        fn writable(&self) -> bool {
+            false
+        }
+    }
+
+    async fn check_local<D: hadris::storage::async_::BlockDevice>(mut dev: D, format: ImageFormat) {
+        use hadris::fs::local::FileSystem as LocalFs;
+        let found = hadris::async_::detect(&mut dev).await.unwrap();
+        assert_eq!(found.first().unwrap().format(), format);
+        let mut fs = hadris::async_::open(dev, MountOptions::new())
+            .await
+            .unwrap();
+        let root = LocalFs::root(&fs);
+        LocalFs::stat(&mut fs, root).await.unwrap();
+        LocalFs::statfs(&mut fs).await.unwrap();
+        if matches!(format, ImageFormat::Iso | ImageFormat::Udf) {
+            let node = LocalFs::resolve(&mut fs, b"/DOCS/README.TXT", Resolve::Lexical)
+                .await
+                .unwrap();
+            LocalFs::open(&mut fs, node, OpenMode::Read).await.unwrap();
+            let mut buf = [0u8; 64];
+            let n = LocalFs::read(&mut fs, node, 0, &mut buf).await.unwrap();
+            assert_eq!(&buf[..n], PAYLOAD);
+            LocalFs::close(&mut fs, node).await.unwrap();
+            LocalFs::forget(&mut fs, node, 1);
+        }
+        fs.unmount().await.unwrap();
+    }
+
+    #[test]
+    fn detection_and_open_accept_local_devices_and_non_send_operation_state() {
+        for (bytes, block, format) in [
+            (
+                fat(FatKind::Fat12, 2 << 20),
+                512,
+                ImageFormat::Fat(FatKind::Fat12),
+            ),
+            (exfat(), 512, ImageFormat::ExFat),
+            (optical(true, false), 2048, ImageFormat::Iso),
+            (optical(false, true), 2048, ImageFormat::Udf),
+        ] {
+            let local = PollDevice(MemDevice::new(
+                LocalBytes(std::rc::Rc::new(bytes.clone())),
+                BlockSize::new(block).unwrap(),
+            ));
+            block_on(check_local(local, format));
+            let send = PollDevice(device(bytes, block));
+            fn assert_send<T: Send>(_: &T) {}
+            assert_send(&send);
+            block_on(check_local(send, format));
+        }
+    }
+
+    #[cfg(feature = "unstable-apfs")]
+    #[test]
+    fn apfs_open_accepts_non_send_operation_state() {
+        block_on(check_local(
+            PollDevice(device(apfs_fixture::build_image(), 512)),
+            ImageFormat::Apfs,
+        ));
+    }
+
+    /// Send devices and Send operation state produce Send futures.
     #[test]
     fn async_futures_are_send() {
         fn send<T: Send>(value: T) -> T {

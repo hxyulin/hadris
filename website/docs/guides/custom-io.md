@@ -254,15 +254,16 @@ cargo run -p hadris-storage --no-default-features --features sync --example alig
 
 Replace the example's `Controller` implementation with the hardware protocol.
 Each synchronous controller call must complete its transfer before returning.
-For async DMA, keep buffers valid throughout the transfer, and finish or stop
-hardware access before returning or when the future is dropped. If a cancellation
-path cannot stop the controller, use driver-owned storage that stays valid until
-the transfer completes; hardware must never keep accessing a released borrow.
+Async poll hooks must stop accessing caller buffers before returning, including
+Pending. DMA continuing between polls needs owned stable transfer buffers. State
+must not retain pointers into its own movable fields. Buffer safety must hold
+even if a future is forgotten and cancellation never runs; stopping hardware
+only when the future is dropped does not protect caller buffers between polls.
 Successful block operations transfer the whole requested buffer. A failed write
 may already have transferred earlier blocks and does not promise rollback.
 
-`local::BlockDevice` allows non-`Send` devices and futures for single-threaded
-executors. Its error still implements `core::error::Error + Send + Sync + 'static`,
+`async_::BlockDevice` (also available as `local::BlockDevice`) allows non-Send
+devices and futures for single-threaded executors. Its error still implements `core::error::Error + Send + Sync + 'static`,
 as it does in the other modes.
 
 Raw NOR/NAND flash needs erase handling and a layer that supplies block overwrite

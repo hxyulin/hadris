@@ -4,6 +4,10 @@ title: Use asynchronous I/O
 
 # Use asynchronous I/O
 
+The unified block-device contract below is the RC2 API on `main`. Until RC2 is
+published, use a workspace checkout for custom poll-based devices; the published
+RC1 packages use the earlier async device contract.
+
 Hadris async APIs are runtime-neutral. They depend on async I/O traits, not on
 Tokio, async-std, or an executor. The application supplies a compatible reader
 and drives the future with its chosen runtime.

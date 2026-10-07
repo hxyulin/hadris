@@ -2,7 +2,7 @@
 //!
 //! Provides `strip_async!`, which removes `async`/`.await` from token streams
 //! so the same source compiles as sync code, and `send_async!`, which makes
-//! the futures of async trait methods `Send` for the `r#async` mode.
+//! the futures of async trait methods `Send` for the `async_` mode.
 
 #![deny(missing_docs)]
 
@@ -23,7 +23,7 @@ mod send;
 /// their futures `Send`. Impls keep `async fn`, and everything outside trait
 /// declarations passes through unchanged.
 ///
-/// Used inside `r#async` modules via `io_transform!`, next to the `sync`
+/// Used inside `async_` modules via `io_transform!`, next to the `sync`
 /// modules (`strip_async!`).
 #[proc_macro]
 pub fn send_async(input: TokenStream) -> TokenStream {

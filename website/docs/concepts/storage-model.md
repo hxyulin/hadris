@@ -25,11 +25,13 @@ Applications can use only the pieces they need.
 ## Byte streams with `hadris-io`
 
 `hadris-io` defines `Read`, `Write` and `Seek` in each mode
-(`hadris_io::sync::Read`, `hadris_io::r#async::Read`), each reporting the
+(`hadris_io::sync::Read`, `hadris_io::async_::Read`), each reporting the
 implementor's own error through `ErrorType`. It supplies explicit adapters:
 `StdIo` for `std::io` types, `ToStd` for the other direction, and
 `FromEmbedded` for `embedded-io` devices. Firmware and kernels implement the
-same traits for their own device handles.
+same traits for their own device handles. `async_` guarantees Send futures;
+`local` provides separate stream traits without that bound. `r#async` aliases
+`async_`. These byte-stream contracts are distinct from the unified block API.
 
 The CPIO reader and writer work on these streams directly, so they run over
 pipes.
@@ -39,9 +41,12 @@ pipes.
 Every filesystem driver reads a `hadris-storage` `BlockDevice`, which reads
 and writes whole logical blocks of an explicit size. It does not assume
 512-byte sectors. `host::FileDevice` is a host image file or disk device
-with 512-byte blocks, `Vec<u8>` is an in-memory image that grows when
-written past its end, `MemDevice` wraps fixed bytes in memory, `StreamDevice` turns any seekable stream
-into a device with the block size you give it, and `Cache` adds a write-back
+with 512-byte blocks for image files and OS-reported logical blocks for disks.
+`Vec<u8>` is an in-memory image that grows when
+written past its end, and `MemDevice` wraps fixed bytes in memory. Sync
+`StreamDevice` accepts a seekable byte stream; async `StreamDevice` accepts the
+poll-native `async_::Stream`. `BlockingStream` explicitly adapts a synchronous
+stream and blocks its polling thread. `Cache` adds a write-back
 block cache. Every block operation returns `hadris_io::Error<E>` over the
 device's own error `E`: a device refuses writes with kind `ReadOnly`, and an
 adapter refuses a request past its end with kind `InvalidInput` and the
@@ -50,7 +55,9 @@ block it concerns. A device that accepts writes says so through
 writable read-only.
 
 The format crates validate their own sector and filesystem geometry on top of
-the device's block size.
+the device's block size. Async drivers accept the common
+`async_::BlockDevice` contract. Their operation futures are Send when both the
+device and its owned state are Send; `local` and `r#async` alias this storage API.
 
 ## Partition boundaries
 
@@ -62,8 +69,8 @@ partitions and keeps offsets relative to the filesystem start.
 `hadris-part` reads, edits and writes MBR, GPT and hybrid tables on a block
 device, and its `open` turns a partition into such a slice. The umbrella's
 `detect` lists what a device or slice holds, and its `open` mounts the FAT,
-exFAT, ISO 9660 or UDF volume a slice holds, when an application needs both
-the partition and filesystem layers.
+exFAT, ISO 9660, UDF or single-volume APFS volume a slice holds, when an
+application needs both the partition and filesystem layers.
 
 ## Format handles
 
@@ -82,7 +89,7 @@ using it can each do every job:
 | Use | Build it with | Paths and handles |
 |---|---|---|
 | The trait | `FatFs::mount(dev, MountOptions::new())?` | Node ids: `resolve`, `lookup`, `readdir`, `open`, `read`, `close`, `forget` |
-| The volume | `Volume::new(fs)` | Paths named after `std::fs`, any number of `File` and `ReadDir` handles, cloneable and usable from other threads or tasks |
+| The volume | `Volume::new(fs)` | Paths named after `std::fs`, any number of `File` and `ReadDir` handles; cloneable; local volumes stay on their executor, while Send volumes support other tasks and threads |
 
 `lookup` and `resolve` pin a node and `forget` unpins it. Directory entries
 are plain values that own their names, and a handle reads its file by

@@ -344,7 +344,7 @@ Each constraint gets its own conformance or CI check. Numbers come from the embe
 | NF-RAM-01 | Driver state size documented and bounded: FAT shared driver (4496 B with 4 slots, 7376 B with 64 today), exFAT 12584 B | 3.0 (document), 3.x (shrink) |
 | NF-BUF-01 | Embedded API works with 512-byte buffers; no fixed 4 KiB buffer when the device block is 512 bytes | 3.0 |
 | NF-MODE-01 | Sync and Send-async parity: every action above exists in both modes, except host helpers (sync only) and documented mode-specific locks; checked in CI. Lazy content is read in the mode that produced it: content made by a sync source is readable only by sync writers, and the other mode fails with Unsupported | 3.0 |
-| NF-MODE-02 | Async futures are `Send` whenever the device is `Send` | 3.0 |
+| NF-MODE-02 | Block-operation futures are `Send` when the device and operation state are `Send` | 3.0 |
 | NF-MODE-03 | The embedded API has sync and non-Send async variants | 3.0 |
 | NF-CANCEL-01 | Dropping any future at any await point leaves a FAT or exFAT volume that is consistent after the next sync: fsck.fat and fsck.exfat clean, no leaked clusters, FAT copies equal | 3.0 |
 | NF-CRASH-01 | Power loss after any device write leaves at worst lost clusters, never cross-links or corrupt entry sets; an interrupted operation is finished by the next write or sync | 3.0 |

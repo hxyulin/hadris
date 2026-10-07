@@ -6,19 +6,19 @@ macro_rules! io_transform {
 }
 
 #[cfg(feature = "alloc")]
-use hadris_apfs::r#async::ApfsFs;
-use hadris_apfs::r#async::Container as ApfsContainer;
+use hadris_apfs::async_::ApfsFs;
+use hadris_apfs::async_::Container as ApfsContainer;
 #[cfg(feature = "alloc")]
-use hadris_fat::r#async::FatFs;
+use hadris_fat::async_::FatFs;
 #[cfg(feature = "alloc")]
-use hadris_fat::exfat::r#async::ExFatFs;
-use hadris_fat_raw::exfat::io::r#async as exio;
-use hadris_fat_raw::io::r#async as rawio;
+use hadris_fat::exfat::async_::ExFatFs;
+use hadris_fat_raw::exfat::io::async_ as exio;
+use hadris_fat_raw::io::async_ as rawio;
 #[cfg(feature = "alloc")]
 use hadris_fs::local::FileSystem;
-use hadris_iso::r#async::IsoFs;
+use hadris_iso::async_::IsoFs;
 use hadris_storage::async_::BlockDevice;
-use hadris_udf::r#async::UdfFs;
+use hadris_udf::async_::UdfFs;
 
 #[path = "open.rs"]
 mod open;

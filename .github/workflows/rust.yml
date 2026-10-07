@@ -61,7 +61,7 @@ jobs:
               - '.github/workflows/rust.yml'
               - '!**/README.md'
             async_contract:
-              - 'crates/core/{hadris-io,hadris-storage,hadris-fs,hadris-macros}/**'
+              - 'crates/core/{hadris,hadris-io,hadris-storage,hadris-fs,hadris-macros}/**'
               - 'crates/optical/{hadris-iso,hadris-iso-raw,hadris-udf,hadris-udf-raw}/**'
               - 'crates/block/{hadris-part,hadris-fat,hadris-fat-raw,hadris-ntfs,hadris-apfs}/**'
               - 'crates/archive/hadris-cpio/**'
@@ -183,7 +183,7 @@ jobs:
         run: >-
           cargo test --locked --all-features
           -p hadris-storage -p hadris-fat -p hadris-part -p hadris-ntfs
-          -p hadris-apfs -p hadris-iso -p hadris-udf -p hadris-cpio
+          -p hadris-apfs -p hadris-iso -p hadris-udf -p hadris-cpio -p hadris
 
   check-features:
     needs: changes

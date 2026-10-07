@@ -89,8 +89,9 @@ its `read` feature internally.
 Use `Volume` for paths and handles, and the bare `FileSystem` trait for node
 operations and platform integrations. Close written files and explicitly
 unmount when errors from metadata publication or device flush must be reported.
-The shared async tier requires `Send` devices/futures. The embedded FAT/exFAT
-tier supports local futures; see [async support boundaries](./guides/async-io.md).
+The published RC1 shared async tier requires Send devices and futures. RC2
+on `main` uses one driver for local and Send devices; operation state must also
+be Send for Send futures. See [async support boundaries](./guides/async-io.md).
 
 ## Next steps
 
