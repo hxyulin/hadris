@@ -1,0 +1,147 @@
+name: CLI release assets
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Existing hadris-cli-v<version> release
+        required: true
+        type: string
+      workspace-tag:
+        description: Optional workspace release for legacy binstall discovery
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+cache-mode: none
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTUP_TOOLCHAIN: 1.97.1
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Validate release tags and plan native builds
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          WORKSPACE_TAG: ${{ inputs.workspace-tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          matrix="$(python scripts/cli-release.py plan "$TAG" --workspace-tag "$WORKSPACE_TAG")"
+          gh release view "$TAG" > /dev/null
+          if [[ -n "$WORKSPACE_TAG" ]]; then
+            gh release view "$WORKSPACE_TAG" > /dev/null
+          fi
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          commit="$(python -c 'import json,sys; print(json.loads(sys.argv[1])["include"][0]["commit"])' "$matrix")"
+          git archive --format=tar --output=cli-source.tar "$commit"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cli-source
+          path: cli-source.tar
+          if-no-files-found: error
+
+  build:
+    name: ${{ matrix.target }}
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: tooling
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: cli-source
+          path: release-source
+      - name: Extract the validated release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir source
+          tar -xf release-source/cli-source.tar -C source
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.97.1
+          targets: ${{ matrix.target }}
+      - name: Install static Linux linker
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build and test the tagged unified CLI
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --manifest-path source/Cargo.toml --locked --release --target "$TARGET" -p hadris-cli
+          cargo test --manifest-path source/Cargo.toml --locked --release --target "$TARGET" -p hadris-cli --test apfs_cli
+      - name: Smoke-test APFS commands and package binaries
+        env:
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ matrix.version }}
+          SOURCE_DATE_EPOCH: ${{ matrix.epoch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tooling/scripts/cli-release.py package --source source --version "$VERSION" --target "$TARGET" --output dist --epoch "$SOURCE_DATE_EPOCH"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cli-binary-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  upload:
+    name: Attach CLI archives and checksums
+    needs: [plan, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: cli-binary-*
+          path: dist
+          merge-multiple: true
+      - name: Upload missing assets without replacing existing binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          WORKSPACE_TAG: ${{ inputs.workspace-tag }}
+          VERSION: ${{ fromJSON(needs.plan.outputs.matrix).include[0].version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/cli-release.py upload "$TAG" --version "$VERSION" --directory dist
+          if [[ -n "$WORKSPACE_TAG" ]]; then
+            python scripts/cli-release.py upload "$WORKSPACE_TAG" --version "$VERSION" --directory dist
+          fi

@@ -1621,7 +1621,7 @@ APFS arrived after the V2 2.4 API mapped above. V3 now has a read-only
 | I/O returned as `ApfsError::Io(ErrorKind)` | `Error<D::Error>` preserving the backend payload; `Detail::of` identifies APFS failures |
 | Device consumed on a failed open | `Container::try_open` and driver mounts return `MountError` with the device |
 | `root_leaf_volume_object_map_values` | `volume_object_map_values`, traversing all object-map leaves |
-| Standalone APFS inspection tool | Unified `hadris apfs info`, `ls`, `stat`, `cat` and `extract`; the legacy standalone binary remains available |
+| Standalone APFS inspection tool | Unified `hadris apfs info`, `ls`, `stat`, `cat` and `extract`; `hadris-apfs-cli` is removed from the workspace in RC2 |
 
 The umbrella's `detect` feature includes APFS detection and single-volume
 mounting. `unstable-apfs` additionally exposes native APFS APIs and explicit

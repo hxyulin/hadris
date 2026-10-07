@@ -53,7 +53,7 @@ new proof of every parser or every action-catalog requirement.
 | Partitions | MBR/GPT, hybrid MBR, facades | Shared-device scanning/opening, EBRs, backup GPT recovery and disk-layout building retained. GUID generation and CRC behavior migrate to explicit APIs. |
 | NTFS | Experimental read-only native reader | Read-only shared driver, streams/attribute lists and geometry/run bounds. Still a preview; compressed/encrypted streams, recovery log replay and full reparse-point semantics remain unsupported. |
 | APFS | Experimental native container/volume reader added in 2.5 | Shared read-only driver, explicit volume selection, live object-map resolution and qualified software password unlocking. Still a preview; Apple-silicon hardware FileVault, compressed files and general repair/recovery are not qualified. |
-| Tools | Separate FAT/ISO/UDF/CPIO/CD binaries and aliases, plus APFS inspector | Unified `hadris` commands; old binaries/flags/defaults intentionally change. Legacy standalone APFS inspector remains. Safer extraction and atomic regular-file image replacement are useful semantic differences. |
+| Tools | Separate FAT/ISO/UDF/CPIO/CD binaries and aliases, plus APFS inspector | Unified `hadris` commands; old binaries/flags/defaults intentionally change. RC2 removes the standalone APFS inspector; use `hadris apfs`. Safer extraction and atomic regular-file image replacement are useful semantic differences. |
 
 No format present in the V2 workspace disappears in V3. That does not imply
 one-to-one API or command compatibility: six facade/utility libraries and five

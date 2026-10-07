@@ -348,6 +348,26 @@ the documentation site, which versions itself from the `hadris-vX.Y.Z`
 tags. Never create release tags by
 hand. Publishing needs the `CARGO_REGISTRY_TOKEN` repository secret.
 
+Releasing `hadris-cli` also builds the unified `hadris` binary from its tag for
+Linux x86-64/ARM64 (static musl), macOS Intel/Apple Silicon (macOS 11+) and
+Windows x86-64. Every native build runs the APFS CLI regressions and checks
+the version and APFS command help. Archives contain the binary, README and
+MIT license in `hadris-cli-<version>-<target>/`; Windows uses ZIP and other
+targets use TGZ. Each archive has a matching `.sha256` checksum. All target
+builds must succeed before assets are attached to the per-crate release.
+
+To backfill an existing CLI release, run `Release` with `mode: cli-assets`
+and `cli-tag: hadris-cli-v3.0.0-rc.1`. This mode only builds and uploads
+assets; it does not publish crates or create tags. Set
+`cli-workspace-tag: v3.0.0-rc.1` to mirror assets onto the workspace release
+for older crates published without binstall metadata. The tags must have the
+same version and point to the same commit. Uploads preserve existing binaries
+and can resume when an archive or its checksum is missing. Future published
+CLI manifests carry explicit binstall metadata for the per-crate release.
+
+RC2 removes the standalone `hadris-apfs-cli` workspace package. APFS commands
+ship in `hadris-cli`; use `hadris apfs`.
+
 Check a plan locally before opening the release PR:
 
 ```bash

@@ -30,6 +30,8 @@ and list indirect-call boundaries; they are not runtime stack measurements.
 | `check-compliance-catalog.py` | Validate requirement catalogs and evidence references | `python3 scripts/check-compliance-catalog.py` |
 | `release-plan.py` | Validate release versions/notes and order package publication | Used by [release.yml](../.github/workflows/release.yml) |
 | `test-release-plan.py` | Check independent/joint releases and conflicting existing tags | `python3 scripts/test-release-plan.py` |
+| `cli-release.py` | Validate CLI tags, package binaries and resume release-asset uploads | Used by [cli-release.yml](../.github/workflows/cli-release.yml) |
+| `test-cli-release.py` | Check CLI archive layout, metadata and upload retries | `python3 scripts/test-cli-release.py` |
 
 The specification checks cover source annotations and requirement catalogs
 respectively. Keep both when updating evidence. The checkers expose

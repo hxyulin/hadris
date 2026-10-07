@@ -8,6 +8,19 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+## [3.0.0-rc.2] - 2026-10-07
+
+The second release candidate of the 3.0 API. All 3.x packages, including
+`hadris-common`, `hadris-macros` and the unified CLI, now use `3.0.0-rc.2`.
+The raw-format crates retain independent versions: `hadris-fat-raw` is
+`0.2.0`, and the new ISO, UDF and CPIO raw crates start at `0.1.0`.
+
+- **CLI RC2:** Remove the standalone `hadris-apfs-cli` package; APFS commands
+  remain in `hadris-cli` as `hadris apfs info`, `ls`, `stat`, `cat` and `extract`.
+  Advance the unified CLI to `3.0.0-rc.2` and add cargo-binstall metadata,
+  prebuilt release archives, SHA-256 checksums and a release-assets backfill
+  mode for Linux x86-64/ARM64, macOS Intel/Apple Silicon and Windows x86-64.
+
 - Joint releases that include the umbrella crate now create a workspace
   `v<version>` tag and GitHub release alongside the per-crate releases, with
   shared notes and pre-release status for release candidates.
@@ -1465,7 +1478,9 @@ under Semantic Versioning.
 - **Build:** Disabled `thiserror` default features so the workspace builds as
   `no_std`. ([@aruiz](https://github.com/aruiz))
 
-[Unreleased]: https://github.com/hxyulin/hadris/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/hxyulin/hadris/compare/v3.0.0-rc.2...HEAD
+[3.0.0-rc.2]: https://github.com/hxyulin/hadris/compare/v3.0.0-rc.1...v3.0.0-rc.2
+[3.0.0-rc.1]: https://github.com/hxyulin/hadris/compare/v2.4.0...v3.0.0-rc.1
 [2.4.0]: https://github.com/hxyulin/hadris/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/hxyulin/hadris/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/hxyulin/hadris/compare/v2.1.0...v2.2.0
