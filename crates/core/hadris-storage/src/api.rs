@@ -460,6 +460,27 @@ impl<D: BlockDevice> BlockDevice for Partition<D> {
     }
 }
 
+/// A read-only view of a device: it is not writable, reads go to the device,
+/// and writes fail with [`ErrorKind::ReadOnly`] without reaching it. Flush
+/// writes nothing.
+impl<D: BlockDevice> BlockDevice for ReadOnly<D> {
+    fn block_size(&self) -> BlockSize {
+        self.0.block_size()
+    }
+
+    fn block_count(&self) -> u64 {
+        self.0.block_count()
+    }
+
+    fn disk_offset(&self) -> u64 {
+        self.0.disk_offset()
+    }
+
+    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>> {
+        self.0.read_blocks(first, buf).await
+    }
+}
+
 fn past_end<E>(offset: u64) -> Error<E> {
     Error::new(ErrorKind::InvalidInput, "byte range past the end of the device")
         .with_location(hadris_io::Location::Byte(offset))

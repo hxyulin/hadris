@@ -389,6 +389,33 @@ impl<D: BlockDevice> BlockDevice for Partition<D> {
         self.get_mut().cancel(state);
     }
 }
+/// A read-only view of a device: it is not writable, reads go to the device,
+/// and writes fail with [`ErrorKind::ReadOnly`] without reaching it. Flush
+/// writes nothing.
+impl<D: BlockDevice> BlockDevice for crate::ReadOnly<D> {
+    type State = D::State;
+    fn block_size(&self) -> BlockSize {
+        self.0.block_size()
+    }
+    fn block_count(&self) -> u64 {
+        self.0.block_count()
+    }
+    fn disk_offset(&self) -> u64 {
+        self.0.disk_offset()
+    }
+    fn poll_read_blocks(
+        &mut self,
+        state: &mut Self::State,
+        cx: &mut Context<'_>,
+        first: BlockIndex,
+        buf: &mut [u8],
+    ) -> Poll<Result<(), Error<Self::Error>>> {
+        self.0.poll_read_blocks(state, cx, first, buf)
+    }
+    fn cancel(&mut self, state: &mut Self::State) {
+        self.0.cancel(state);
+    }
+}
 fn partition_block<D: BlockDevice>(
     part: &Partition<D>,
     first: BlockIndex,

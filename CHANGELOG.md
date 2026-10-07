@@ -102,6 +102,10 @@ Each published package owns its version and may be released independently.
 - **NTFS:** Reading a file whose data a WOF (CompactOS) or Data Deduplication
   reparse point keeps elsewhere fails with `Unsupported`
   (`Detail::ReparseData`) instead of returning the sparse placeholder as zeros.
+- **hadris-storage:** `ReadOnly<D>` over a block device is a block device in
+  every mode: not writable, so drivers mount it read-only, with reads passed
+  through and writes refused with `ReadOnly` before they reach the device.
+
 - **hadris-storage:** The synchronous `StreamDevice::new_growable` wraps a
   stream that can be extended past its end: when it accepts writes,
   `max_block_count` is unbounded and writes past the end grow the device,

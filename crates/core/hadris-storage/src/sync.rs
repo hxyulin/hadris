@@ -120,6 +120,22 @@ mod device_tests {
     }
 
     #[test]
+    fn read_only_view_refuses_writes_without_reaching_the_device() {
+        let mut device = ReadOnly::new(MemDevice::new(counting(8), B4));
+        assert!(!device.writable());
+        assert_eq!((device.block_count(), device.max_block_count()), (2, 2));
+        assert_eq!(
+            kind(device.write_blocks(BlockIndex::new(0), &[9; 4])),
+            ErrorKind::ReadOnly
+        );
+        device.flush().unwrap();
+        let mut buf = [0_u8; 4];
+        device.read_blocks(BlockIndex::new(0), &mut buf).unwrap();
+        assert_eq!(buf, [0, 1, 2, 3]);
+        assert_eq!(device.into_inner().into_inner(), counting(8));
+    }
+
+    #[test]
     fn partition_offsets_and_bounds() {
         let mut device = MemDevice::new(counting(16), B4);
         let mut partition = Partition::new(&mut device, 4, 8);
