@@ -94,6 +94,11 @@ impl<D: BlockDevice> BlockDevice for ReadAhead<D> {
         first: BlockIndex,
         buf: &mut [u8],
     ) -> Poll<Result<(), Error<Self::Error>>> {
+        if let Err(error) =
+            crate::device::check_blocks(self.block_size(), self.block_count(), first, buf.len())
+        {
+            return Poll::Ready(Err(error));
+        }
         let size = self.block_size().get() as usize;
         let count = buf.len() / size;
         if size != self.block_size {
@@ -188,6 +193,11 @@ impl<D: BlockDevice> BlockDevice for ReadAhead<D> {
         first: BlockIndex,
         buf: &[u8],
     ) -> Poll<Result<(), Error<Self::Error>>> {
+        if let Err(error) =
+            crate::device::check_blocks(self.block_size(), self.max_block_count(), first, buf.len())
+        {
+            return Poll::Ready(Err(error));
+        }
         self.clear();
         state.pending = true;
         let result = self

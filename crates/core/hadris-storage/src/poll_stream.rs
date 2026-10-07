@@ -284,6 +284,11 @@ impl<T: Stream> BlockDevice for StreamDevice<T> {
         first: BlockIndex,
         buf: &mut [u8],
     ) -> Poll<Result<(), Error<T::Error>>> {
+        if let Err(error) =
+            crate::device::check_blocks(self.block_size(), self.block_count(), first, buf.len())
+        {
+            return Poll::Ready(Err(error));
+        }
         match self.position(state, cx, first) {
             Poll::Pending => return Poll::Pending,
             Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
@@ -317,6 +322,11 @@ impl<T: Stream> BlockDevice for StreamDevice<T> {
         first: BlockIndex,
         buf: &[u8],
     ) -> Poll<Result<(), Error<T::Error>>> {
+        if let Err(error) =
+            crate::device::check_blocks(self.block_size(), self.max_block_count(), first, buf.len())
+        {
+            return Poll::Ready(Err(error));
+        }
         match self.position(state, cx, first) {
             Poll::Pending => return Poll::Pending,
             Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),

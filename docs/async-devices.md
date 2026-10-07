@@ -54,6 +54,10 @@ stable buffers. Movable operation state must not retain pointers to its own
 fields. Buffer safety cannot depend on dropping the future: a caller may
 forget it or call the safe hooks directly.
 
+Read and write hooks reject buffers that are not whole blocks and ranges
+beyond the readable or maximum writable block count, including direct hook
+calls. Invalid requests must not reach the backend or change cached data.
+
 Pending hooks must arrange a wakeup when they can make progress. Hooks must
 release resources on terminal completion. Dropping an operation calls
 `cancel` when a hook is pending or unwinds. Cancellation may run before the
