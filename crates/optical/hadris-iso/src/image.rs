@@ -64,10 +64,16 @@ pub(crate) async fn read_bytes<D: BlockDevice>(
     Ok(())
 }
 
+/// Rock Ridge detection: the skip length, or the error of a malformed area.
+type Detected<E> = Result<Option<u8>, Error<E>>;
+
+/// The volume info and its Rock Ridge detection.
+type InfoRead<E> = (Info, Detected<E>);
+
 /// Reads the descriptor set and the root directory of the primary tree.
 /// A malformed Rock Ridge area on the root is read as no Rock Ridge, and
 /// its error is returned beside the info.
-async fn read_info<D: BlockDevice>(dev: &mut D) -> Result<(Info, Option<Error<D::Error>>), Error<D::Error>> {
+async fn read_info<D: BlockDevice>(dev: &mut D) -> Result<InfoRead<D::Error>, Error<D::Error>> {
     let block = dev.block_size().get() as usize;
     if block > MAX_DEVICE_BLOCK {
         return Err(Detail::BlockSize.error(ErrorKind::Unsupported));
@@ -90,13 +96,11 @@ async fn read_info<D: BlockDevice>(dev: &mut D) -> Result<(Info, Option<Error<D:
     }
     let mut info = scan.finish().map_err(Detail::corrupt)?;
     let mut probe = View::new(info, Namespace::Primary, info.primary, len);
-    match probe.detect_rock_ridge(dev).await? {
-        Ok(rock_ridge) => {
-            info.rock_ridge = rock_ridge;
-            Ok((info, None))
-        }
-        Err(err) => Ok((info, Some(err))),
+    let detected = probe.detect_rock_ridge(dev).await?;
+    if let Ok(rock_ridge) = detected {
+        info.rock_ridge = rock_ridge;
     }
+    Ok((info, detected))
 }
 
 /// A mounted ISO 9660 image, read through one of its directory trees.
@@ -483,7 +487,7 @@ impl View {
     async fn detect_rock_ridge<D: BlockDevice>(
         &mut self,
         dev: &mut D,
-    ) -> Result<Result<Option<u8>, Error<D::Error>>, Error<D::Error>> {
+    ) -> Result<Detected<D::Error>, Error<D::Error>> {
         let dot = self.record_at(dev, self.root_id().get()).await?;
         if !dot.system_use().starts_with(b"SP\x07\x01\xbe\xef") {
             return Ok(Ok(None));
@@ -1074,7 +1078,7 @@ impl<D: BlockDevice> IsoFs<D> {
     ) -> Result<Self, MountError<D, D::Error>> {
         let _ = options;
         let info = match read_info(&mut dev).await {
-            Ok((_, Some(err))) if namespace == Namespace::RockRidge => {
+            Ok((_, Err(err))) if namespace == Namespace::RockRidge => {
                 return Err(MountError::new(err, dev));
             }
             Ok((info, _)) => info,
