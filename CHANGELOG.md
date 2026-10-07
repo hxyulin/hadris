@@ -8,6 +8,11 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **hadris-storage:** The synchronous and legacy async `Cache` drop cached
+  copies of the blocks a pass-through write covers before writing, as the
+  poll-based cache does. A failed write no longer leaves stale dirty blocks
+  that a later flush writes over the new data.
+
 - **hadris-fat:** Shrinking a FAT file (`FatFs::truncate`, embedded
   `Fat::set_len`) reads the chain before writing the new size and records the
   clusters to free as soon as the size is written. An error or a dropped

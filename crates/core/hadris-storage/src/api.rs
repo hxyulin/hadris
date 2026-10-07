@@ -752,9 +752,9 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
         let size = self.inner.block_size().get() as usize;
         let count = buf.len() / size;
         if !self.written || !self.in_range(first, buf.len()) || count >= self.state.capacity() {
+            self.state.invalidate(first.get(), count);
             self.inner.write_blocks(first, buf).await?;
             self.written = true;
-            self.state.invalidate(first.get(), count);
             return Ok(());
         }
         for (i, chunk) in buf.chunks_exact(size).enumerate() {
