@@ -8,6 +8,13 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **Embedded FAT:** `rename` replaces an existing target as the hosted
+  `FatFs::rename` does (a file by a file, an empty directory by a
+  directory) instead of failing with `AlreadyExists`. Type mismatches,
+  non-empty directories and open targets fail with `IsADirectory`,
+  `NotADirectory`, `DirectoryNotEmpty` and `Busy`. The target is removed
+  before the move, so a move that fails afterwards leaves the target gone.
+
 - **ISO El Torito:** `BootInfo::Table` writes the 56-byte table with its 40
   reserved bytes cleared, as mkisofs and xorriso `-boot-info-table` do.
   `BootInfo::Grub2` now also patches byte 2548 of the image with the
