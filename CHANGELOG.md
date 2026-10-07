@@ -102,6 +102,11 @@ Each published package owns its version and may be released independently.
 - **NTFS:** Reading a file whose data a WOF (CompactOS) or Data Deduplication
   reparse point keeps elsewhere fails with `Unsupported`
   (`Detail::ReparseData`) instead of returning the sparse placeholder as zeros.
+- **hadris-storage:** `host::FileDevice` reads and writes with positional
+  I/O (`pread`/`pwrite` on Unix, `seek_read`/`seek_write` on Windows), one
+  system call per request instead of a seek and a transfer. Other platforms
+  keep seeking. The file's own position is no longer moved on Unix.
+
 - **hadris-storage:** `ByteView` keeps the last partial block it read or
   wrote, so consecutive small reads and writes within one block cost one
   device read instead of one per call, in every mode. `get_mut` forgets the

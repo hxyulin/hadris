@@ -127,6 +127,70 @@ impl FileDevice {
     }
 }
 
+/// Fills `buf` from byte `offset` of `file` with positional reads where the
+/// platform has them, so a read takes one system call.
+#[cfg(feature = "sync")]
+fn read_exact_at(file: &mut File, buf: &mut [u8], offset: u64) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::FileExt::read_exact_at(file, buf, offset)
+    }
+    #[cfg(windows)]
+    {
+        let mut done = 0;
+        while done < buf.len() {
+            match std::os::windows::fs::FileExt::seek_read(
+                file,
+                &mut buf[done..],
+                offset + done as u64,
+            ) {
+                Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
+                Ok(n) => done += n,
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
+                Err(err) => return Err(err),
+            }
+        }
+        Ok(())
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        file.seek(SeekFrom::Start(offset))?;
+        io::Read::read_exact(file, buf)
+    }
+}
+
+/// Writes all of `buf` at byte `offset` of `file`, as [`read_exact_at`]
+/// reads.
+#[cfg(feature = "sync")]
+fn write_all_at(file: &mut File, buf: &[u8], offset: u64) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::FileExt::write_all_at(file, buf, offset)
+    }
+    #[cfg(windows)]
+    {
+        let mut done = 0;
+        while done < buf.len() {
+            match std::os::windows::fs::FileExt::seek_write(
+                file,
+                &buf[done..],
+                offset + done as u64,
+            ) {
+                Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
+                Ok(n) => done += n,
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
+                Err(err) => return Err(err),
+            }
+        }
+        Ok(())
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        file.seek(SeekFrom::Start(offset))?;
+        io::Write::write_all(file, buf)
+    }
+}
+
 /// Whether `file` was opened for writing. A write of no bytes transfers
 /// nothing, and the OS refuses it on a handle without write access.
 #[cfg(feature = "sync")]
@@ -181,13 +245,10 @@ impl crate::sync::BlockDevice for FileDevice {
     fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<io::Error>> {
         check_blocks(self.block_size, self.block_count(), first, buf.len())?;
         let offset = byte_offset(self.block_size, first)?;
-        self.file
-            .seek(SeekFrom::Start(offset))
-            .and_then(|_| io::Read::read_exact(&mut self.file, buf))
-            .map_err(|err| {
-                Error::device(err, "reading the file failed")
-                    .with_location(Location::Block(first.get()))
-            })
+        read_exact_at(&mut self.file, buf, offset).map_err(|err| {
+            Error::device(err, "reading the file failed")
+                .with_location(Location::Block(first.get()))
+        })
     }
 
     fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<(), Error<io::Error>> {
@@ -199,13 +260,9 @@ impl crate::sync::BlockDevice for FileDevice {
         }
         check_blocks(self.block_size, self.max_block_count(), first, buf.len())?;
         let offset = byte_offset(self.block_size, first)?;
-        self.file
-            .seek(SeekFrom::Start(offset))
-            .and_then(|_| io::Write::write_all(&mut self.file, buf))
-            .map_err(|err| {
-                write_error(err, "writing the file failed")
-                    .with_location(Location::Block(first.get()))
-            })?;
+        write_all_at(&mut self.file, buf, offset).map_err(|err| {
+            write_error(err, "writing the file failed").with_location(Location::Block(first.get()))
+        })?;
         self.len = self.len.max(offset + buf.len() as u64);
         Ok(())
     }
