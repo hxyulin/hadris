@@ -8,6 +8,10 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **FAT32:** The FSInfo free cluster count is ignored on a volume that was
+  dirty at mount and is recounted from the FAT when first needed, so
+  `statfs` no longer reports a stale count after an unclean shutdown.
+
 - **FAT:** Volumes with 64 KiB clusters (for example `sectors_per_cluster`
   128 with 512-byte sectors), which Windows NT and Linux accept, now mount
   and are read and written. Formatting still keeps the specification's
