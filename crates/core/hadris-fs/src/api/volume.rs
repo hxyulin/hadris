@@ -80,7 +80,7 @@ impl Drop for Held<'_> {
 
 io_transform! {
 
-/// A filesystem shared between threads and tasks, with paths and handles
+/// A filesystem shared between handles and tasks, with paths and handles
 /// named after `std::fs`.
 ///
 /// Clones are cheap and share the volume. Each call locks the filesystem
@@ -245,10 +245,13 @@ impl<F: FileSystem> Volume<F> {
         Held::new(&self.shared.pending, node)
     }
 
+    send_only! {
     /// Guards an open of `node`, whose pin its caller keeps, while a call on
     /// this volume awaits.
     pub(super) fn hold_open(&self, node: NodeId) -> Held<'_> {
         Held { pending: &self.shared.pending, node: Some(node), open: true, pinned: false }
+    }
+
     }
 
     /// Opens the file at `path` with `options`.

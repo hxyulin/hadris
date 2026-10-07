@@ -12,10 +12,12 @@
 //! a [`Partition`], answers an [`ErrorKind`](hadris_io::ErrorKind) with the
 //! block it concerns. Adapters keep the error type of the device underneath.
 //!
-//! The device trait exists once per mode: `sync`, `r#async` (futures are
-//! `Send`) and `local` (futures need not be `Send`, for single-threaded
-//! executors). Mode-independent devices such as
-//! [`MemDevice`], [`Partition`] and `Vec<u8>` implement every mode's trait.
+//! The `async` feature enables the common [`async_::BlockDevice`] contract
+//! and the stronger [`async_::SendBlockDevice`] contract in one namespace.
+//! Send implementations satisfy the common contract automatically. The
+//! `r#async` and `local` namespaces retain their existing contracts and adapters.
+//! Mode-independent devices such as [`MemDevice`], [`Partition`] and `Vec<u8>`
+//! also support the synchronous contract.
 //! With `std` and `sync`, `host::FileDevice` is a host image file or disk
 //! device.
 
@@ -66,3 +68,7 @@ pub mod sync;
 
 pub use device::{MemBuffer, MemDevice, Partition, ReadOnly};
 pub use geometry::{BlockCount, BlockGeometry, BlockIndex, BlockRange, BlockSize};
+
+/// Common async device operations and explicit Send guarantees.
+#[cfg(feature = "async")]
+pub mod async_;

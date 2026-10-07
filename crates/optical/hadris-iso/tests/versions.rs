@@ -73,6 +73,7 @@ macro_rules! cases {
         #[test]
         fn $test() {
             $run!(async {
+                #[allow(unused_imports)]
                 use hadris_fs::$mode::FileSystem;
                 use hadris_fs::{DirCursor, ErrorKind, MountOptions, Name, OpenMode};
                 for namespace in [Namespace::Primary, Namespace::Joliet] {

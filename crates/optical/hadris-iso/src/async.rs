@@ -7,12 +7,13 @@ macro_rules! io_transform {
 use hadris_fs::r#async as fs;
 #[cfg(feature = "alloc")]
 use hadris_part::r#async as part;
+#[cfg(feature = "alloc")]
 use hadris_storage::r#async as storage;
 
+#[cfg(feature = "alloc")]
 use hadris_fs::r#async::FileSystem;
 
-#[path = "image.rs"]
-mod image;
+pub(crate) use crate::async_::image;
 pub use image::IsoFs;
 #[cfg(feature = "alloc")]
 #[path = "write.rs"]

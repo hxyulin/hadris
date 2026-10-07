@@ -16,6 +16,7 @@ no_alloc=(
   "hadris-io:sync,async,embedded-io"
   "hadris-storage:sync,async"
   "hadris-fs:sync,async"
+  "hadris-fs:async-local"
   "hadris-fat-raw:sync,async"
   "hadris-fat:sync"
   "hadris-fat:async"
@@ -23,6 +24,7 @@ no_alloc=(
   "hadris-part:sync,async"
   "hadris-iso-raw:"
   "hadris-iso:sync,async"
+  "hadris-iso:async-local"
   "hadris-udf-raw:"
   "hadris-udf:sync,async"
   "hadris-cpio-raw:"
@@ -32,9 +34,11 @@ no_alloc=(
 )
 with_alloc=(
   "hadris-fs:alloc,sync,async"
+  "hadris-fs:alloc,async-local"
   "hadris-fat:alloc,sync,async,write"
   "hadris-part:alloc,sync,async"
   "hadris-iso:alloc,sync,async"
+  "hadris-iso:alloc,async-local"
   "hadris-udf:alloc,sync,async"
   "hadris-cpio:alloc,sync,async"
   "hadris-ntfs:alloc,sync,async"

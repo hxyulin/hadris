@@ -182,3 +182,8 @@ pub use volume_info::{IsoDate, IsoId, VolumeInfo};
 
 #[cfg(test)]
 extern crate self as hadris_iso;
+
+/// One async ISO reader for Send devices and explicitly adapted local devices.
+#[cfg(any(feature = "async", feature = "async-local"))]
+#[path = "unified.rs"]
+pub mod async_;

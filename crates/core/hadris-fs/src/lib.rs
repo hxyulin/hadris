@@ -37,6 +37,7 @@
 //! | `std` | Yes | Implies `alloc`; adds [`SystemClock`], the sync `Volume` with its `std::io` handles and `read_tree`, [`host`] with `sync`, and conversions to `std::io::Error` |
 //! | `sync` | Yes | The blocking API in `sync` |
 //! | `async` | No | The same API with `Send` futures in `r#async` |
+//! | `async-local` | No | Local asynchronous API without `Send` device or future bounds |
 //! | `contract` | No | The driver contract kit, `contract::check` in each mode, and `ContractViolation` |
 //!
 //! No feature changes what an item does.
@@ -115,3 +116,11 @@ pub mod sync;
 /// `Volume` needs `alloc`.
 #[cfg(feature = "async")]
 pub mod r#async;
+
+/// Asynchronous filesystem APIs whose devices and futures need not be `Send`.
+///
+/// `Volume` and its handles require `alloc` and pointer-sized atomics.
+/// Lazy `read_tree` content is not included in this initial tier. Device errors
+/// retain the shared `Send + Sync + 'static` error contract.
+#[cfg(feature = "async-local")]
+pub mod local;

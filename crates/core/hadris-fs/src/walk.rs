@@ -21,7 +21,7 @@ pub struct WalkEntry {
 }
 
 impl WalkEntry {
-    #[cfg(any(feature = "sync", feature = "async"))]
+    #[cfg(any(feature = "sync", feature = "async", feature = "async-local"))]
     pub(crate) fn new(entry: DirEntry, depth: u32) -> Self {
         Self { entry, depth }
     }

@@ -76,6 +76,7 @@ macro_rules! regressions {
         #[test]
         fn $name() {
             $run!(async {
+                #[allow(unused_imports)]
                 use hadris_fs::$mode::FileSystem;
                 use hadris_fs::{DirCursor, ErrorKind, MountOptions};
                 use hadris_iso::Detail;
@@ -288,6 +289,7 @@ macro_rules! timestamp_regressions {
         #[test]
         fn $name() {
             $run!(async {
+                #[allow(unused_imports)]
                 use hadris_fs::$mode::FileSystem;
                 use hadris_fs::{DateTime, DirCursor, MountOptions};
                 use hadris_iso::raw::DirDateTime;

@@ -636,6 +636,7 @@ dependencies = [
  "hadris-macros",
  "hadris-part",
  "hadris-storage",
+ "static_assertions",
  "tempfile",
  "tracing",
 ]

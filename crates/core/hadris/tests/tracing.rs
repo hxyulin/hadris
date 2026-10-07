@@ -196,5 +196,5 @@ fn async_spans_leave_the_subscriber_between_polls_and_on_cancellation() {
         drop(future);
         assert_eq!(capture.entered.load(Ordering::Relaxed), 0);
     });
-    assert_span(&capture, "mount", "async::image", None);
+    assert_span(&capture, "mount", "async_::image", None);
 }

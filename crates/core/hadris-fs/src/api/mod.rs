@@ -23,19 +23,19 @@ pub use walk::Walk;
 #[cfg(feature = "std")]
 sync_only! {
     mod handle;
-    mod read_tree;
+    send_only! { mod read_tree; }
     mod volume;
     pub use handle::{File, ReadDir};
-    pub use read_tree::read_tree;
+    send_only! { pub use read_tree::read_tree; }
     pub use volume::{Volume, VolumeGuard};
 }
 
 #[cfg(all(feature = "alloc", target_has_atomic = "ptr"))]
 async_only! {
     mod handle;
-    mod read_tree;
+    send_only! { mod read_tree; }
     mod volume;
     pub use handle::{File, ReadDir};
-    pub use read_tree::read_tree;
+    send_only! { pub use read_tree::read_tree; }
     pub use volume::{Volume, VolumeGuard};
 }

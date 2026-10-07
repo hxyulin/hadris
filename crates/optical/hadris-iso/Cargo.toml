@@ -14,7 +14,7 @@ categories = ["filesystem", "embedded", "no-std"]
 exclude = ["/spec"]
 
 [package.metadata.docs.rs]
-features = ["std", "sync", "async", "tracing", "cache"]
+features = ["std", "sync", "async", "async-local", "tracing", "cache"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
@@ -24,7 +24,8 @@ alloc = ["hadris-io/alloc", "hadris-fs/alloc", "hadris-storage/alloc", "dep:hadr
 # Implies `alloc`; `std::io::Error` conversions and host files as tree content.
 std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std", "hadris-part/std"]
 sync = ["hadris-io/sync", "hadris-fs/sync", "hadris-storage/sync", "hadris-part?/sync"]
-async = ["hadris-io/async", "hadris-fs/async", "hadris-storage/async", "hadris-part?/async"]
+async-local = ["hadris-io/async", "hadris-storage/async", "hadris-fs/async-local"]
+async = ["hadris-fs/async-local", "hadris-io/async", "hadris-fs/async", "hadris-storage/async", "hadris-part?/async"]
 
 cache = ["alloc"]
 
@@ -42,6 +43,7 @@ hadris-macros = { workspace = true }
 hadris-part = { workspace = true, default-features = false, optional = true }
 
 [dev-dependencies]
+static_assertions = { workspace = true }
 hadris-fs = { workspace = true, features = ["contract"] }
 hadris-storage = { workspace = true, features = ["std", "sync"] }
 tempfile.workspace = true
@@ -85,3 +87,7 @@ required-features = ["std", "sync"]
 
 [[test]]
 name = "raw_compat"
+
+[[test]]
+name = "unified_async"
+required-features = ["std", "sync", "async", "async-local"]
