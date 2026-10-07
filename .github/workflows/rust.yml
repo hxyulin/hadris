@@ -38,6 +38,7 @@ jobs:
       spec: ${{ steps.scope.outputs.spec }}
       licenses: ${{ steps.scope.outputs.licenses }}
       formatting: ${{ steps.scope.outputs.formatting }}
+      async_contract: ${{ steps.scope.outputs.async_contract }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -57,6 +58,15 @@ jobs:
               - 'Cargo.{toml,lock}'
               - 'rust-toolchain.toml'
               - 'scripts/{ci-features.json,check-features.py,check-targets.sh,firmware-size.py}'
+              - '.github/workflows/rust.yml'
+              - '!**/README.md'
+            async_contract:
+              - 'examples/async-device-contract/**'
+              - 'crates/core/{hadris-io,hadris-storage,hadris-fs,hadris-macros}/**'
+              - 'crates/optical/{hadris-iso,hadris-iso-raw}/**'
+              - 'crates/block/hadris-part/**'
+              - 'Cargo.{toml,lock}'
+              - 'rust-toolchain.toml'
               - '.github/workflows/rust.yml'
               - '!**/README.md'
             suite:
@@ -149,6 +159,34 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Test workspace with default features
         run: cargo test --workspace --locked
+
+  async-contract:
+    needs: changes
+    if: needs.changes.outputs.async_contract == 'true'
+    name: "Async contract probes (${{ matrix.toolchain }})"
+    runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
+      RUSTFLAGS: "-D warnings"
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: ["1.88.0", "1.97.1"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Device contract and cache tests
+        run: cargo test -p hadris-experiment-async-device-contract --locked
+      - name: Compare named-GAT contracts
+        run: python3 examples/async-device-contract/probe_gat.py --toolchain ${{ matrix.toolchain }}
+      - name: Allocation-free ISO reader probe
+        run: python3 examples/async-device-contract/probe_iso.py --toolchain ${{ matrix.toolchain }}
+      - name: ISO writer and session round trips
+        run: python3 examples/async-device-contract/probe_iso.py --allocated --toolchain ${{ matrix.toolchain }}
 
   check-features:
     needs: changes

@@ -109,6 +109,11 @@
       "crate": "hadris-experiment-async-device-contract",
       "tier": "prototype-std",
       "features": "std"
+    },
+    {
+      "crate": "hadris-experiment-async-device-contract",
+      "tier": "prototype-alloc",
+      "features": "alloc"
     }
   ],
   "block": [

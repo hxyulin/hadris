@@ -9,7 +9,8 @@ Each published package owns its version and may be released independently.
 ## [Unreleased]
 
 - Add an unpublished async device contract experiment with borrowed-device,
-  cache, cancellation and real ISO reader probes. Production APIs are unchanged.
+  cache, cancellation and real ISO reader/writer/session probes. Production APIs
+  are unchanged.
 
 - **hadris-iso:** Use one `async_::IsoFs` reader for Send and local devices;
   `r#async::IsoFs` remains the same type with its existing Send contract.

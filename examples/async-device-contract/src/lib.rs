@@ -1,5 +1,8 @@
 #![no_std]
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
 mod cache;
 pub use cache::Cache;
 
@@ -236,6 +239,46 @@ impl<B: MemBuffer> BlockDevice for MemDevice<B> {
     }
     fn block_count(&self) -> u64 {
         hadris_storage::sync::BlockDevice::block_count(self)
+    }
+    fn writable(&self) -> bool {
+        hadris_storage::sync::BlockDevice::writable(self)
+    }
+    fn poll_read_blocks(
+        &mut self,
+        _: &mut (),
+        _: &mut Context<'_>,
+        first: BlockIndex,
+        buf: &mut [u8],
+    ) -> Poll<Result<(), Error<Self::Error>>> {
+        Poll::Ready(hadris_storage::sync::BlockDevice::read_blocks(
+            self, first, buf,
+        ))
+    }
+    fn poll_write_blocks(
+        &mut self,
+        _: &mut (),
+        _: &mut Context<'_>,
+        first: BlockIndex,
+        buf: &[u8],
+    ) -> Poll<Result<(), Error<Self::Error>>> {
+        Poll::Ready(hadris_storage::sync::BlockDevice::write_blocks(
+            self, first, buf,
+        ))
+    }
+    fn cancel(&mut self, _: &mut ()) {}
+}
+
+#[cfg(feature = "alloc")]
+impl BlockDevice for alloc::vec::Vec<u8> {
+    type State = ();
+    fn block_size(&self) -> BlockSize {
+        hadris_storage::sync::BlockDevice::block_size(self)
+    }
+    fn block_count(&self) -> u64 {
+        hadris_storage::sync::BlockDevice::block_count(self)
+    }
+    fn max_block_count(&self) -> u64 {
+        hadris_storage::sync::BlockDevice::max_block_count(self)
     }
     fn writable(&self) -> bool {
         hadris_storage::sync::BlockDevice::writable(self)

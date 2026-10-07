@@ -22,14 +22,28 @@ cargo test -p hadris-experiment-async-device-contract
 cargo check -p hadris-experiment-async-device-contract --no-default-features
 python3.11 examples/async-device-contract/probe_gat.py
 python3.11 examples/async-device-contract/probe_iso.py
+python3.11 examples/async-device-contract/probe_iso.py --allocated
 ```
 
 Both probe scripts default to the MSRV, Rust 1.88.0. Use `--toolchain 1.97.1`
-to check CI Rust. The ISO script makes a temporary copy of the current ISO
-sources and changes the reader's storage alias and stronger device bound. Its
-parser and read algorithms are unchanged. It tests the actual allocation-free
-reader against a borrowed partition/cache chain and a suspending Rc device.
-The existing Send filesystem contract remains usable with the Send chain.
+to check CI Rust. The reader-only ISO probe first checks its library without dev-dependency
+feature unification, then tests the actual allocation-free reader against a
+borrowed partition/cache chain and a suspending Rc device. Its parser and read
+algorithms are unchanged, and the existing Send filesystem contract remains
+usable with the Send chain.
+
+`--allocated` additionally compiles the actual writer, sessions and partition
+table code. It changes the device/content-reader contract bindings in temporary
+source copies and ports the session's 512-byte table-reading view to a poll
+adapter with owned scratch state. Serialization, session planning and update
+algorithms remain unchanged. Tests cover deterministic read-back, borrowed Send
+writer futures on a scoped thread, Rc devices/state, hybrid GPT and El Torito,
+append/rewrite/export, growable images, errors and cancellation. The exported
+2048-byte-block image is reopened and rewritten to exercise sector translation.
+
+The path-gated CI job runs both modes and the GAT probes on Rust 1.88.0 and
+1.97.1. Failures or cancellation may leave a partially written output: the
+contract stops pending I/O but does not provide transactional rollback.
 Use `--output-dir /tmp/hadris-iso-poll-probe` to inspect the generated crate.
 
 The alternative GAT probes explain why simply naming each borrowed future is
@@ -57,7 +71,9 @@ The prototype cache holds one fixed 512-byte block and bypasses other block
 sizes or multi-block reads. It demonstrates generic composition and
 invalidation; it is not the production cache or a performance comparison.
 
-This proves the core contract and ISO reader path. It does not yet implement
-all production adapters, arbitrary async-device compatibility, local writers,
-sessions, or the other filesystem drivers. Namespace migration remains paused
+This proves the core contract and the tested ISO reader/writer/session paths.
+It does not yet implement all production adapters, arbitrary async-device
+compatibility or the other filesystem drivers. Shared lazy Tree content still
+uses its existing Send + Sync source contract; non-Send lazy sources and pinned
+self-referential device support have not been established. Namespace migration remains paused
 until the contract direction is accepted. Issue #267 remains open.
