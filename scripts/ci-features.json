@@ -99,6 +99,21 @@
       "crate": "hadris-fs",
       "tier": "all-async-modes",
       "features": "alloc,sync,async,async-local"
+    },
+    {
+      "crate": "hadris-experiment-async-device-contract",
+      "tier": "prototype-no-std",
+      "features": ""
+    },
+    {
+      "crate": "hadris-experiment-async-device-contract",
+      "tier": "prototype-std",
+      "features": "std"
+    },
+    {
+      "crate": "hadris-experiment-async-device-contract",
+      "tier": "prototype-alloc",
+      "features": "alloc"
     }
   ],
   "block": [

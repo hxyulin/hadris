@@ -1,0 +1,19 @@
+[package]
+name = "hadris-experiment-async-device-contract"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+default = ["std"]
+alloc = ["hadris-io/alloc", "hadris-storage/alloc"]
+std = ["alloc", "hadris-io/std", "hadris-storage/std"]
+
+[dependencies]
+hadris-io = { workspace = true, features = ["sync"] }
+hadris-storage = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+static_assertions.workspace = true
