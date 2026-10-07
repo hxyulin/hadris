@@ -212,11 +212,11 @@ pub mod sync {
 }
 
 pub mod local {
-    //! The FAT session over a `hadris_storage::local::BlockDevice`.
+    //! The FAT session over a `hadris_storage::async_::BlockDevice`.
 
     use super::*;
-    use hadris_fat::embedded::r#async::Fat;
-    use hadris_storage::local::BlockDevice;
+    use hadris_fat::embedded::async_::Fat;
+    use hadris_storage::async_::BlockDevice;
 
     /// Mounts a FAT volume.
     #[inline(never)]

@@ -54,7 +54,7 @@ pub mod legacy_async;
 pub use async_ as r#async;
 #[cfg(feature = "async")]
 /// Asynchronous adapters whose futures need not be `Send`, generated from
-/// the same source as `r#async`, for single-threaded executors such as
+/// the same source as `legacy_async`, for single-threaded executors such as
 /// embassy.
 #[path = "local.rs"]
 pub mod legacy_local;

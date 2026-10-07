@@ -19,7 +19,7 @@
 //! - `fat`, `part`, `iso`, `udf`, `cpio`: one format crate each. The ISO
 //!   9660 and UDF bridge writer is `udf::plan_bridge` and
 //!   `udf::sync::write_bridge`.
-//! - `sync::detect` and `r#async::detect` (with `detect`): every format a
+//! - `sync::detect` and `async_::detect` (with `detect`): every format a
 //!   device holds, as `ImageFormat`s in a `Detection`, each with the
 //!   damage a mount would report. With `alloc`, `open` mounts the first
 //!   filesystem found as an `AnyFs`.
@@ -172,8 +172,8 @@ pub mod sync {
     pub use open::{AnyFs, open};
 }
 
-/// Detection and opening with `Send` futures, generated from the same
-/// source as `sync`.
+/// Detection and opening for local and Send devices, generated from the same
+/// source as `sync`. Futures are Send when the device and its state are Send.
 #[cfg(all(feature = "detect", feature = "async"))]
 #[cfg_attr(docsrs, doc(cfg(all(feature = "detect", feature = "async"))))]
 #[path = "async.rs"]

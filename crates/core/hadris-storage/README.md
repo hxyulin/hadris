@@ -16,7 +16,8 @@ every mode. `local` permits non-`Send` devices and futures, not non-`Send` error
 A synchronous read-only device implements `block_size`, `block_count` and
 `read_blocks`. Async devices implement `State`, `poll_read_blocks` and `cancel`
 in addition to geometry. A device that accepts writes also
-overrides `writable()`, which defaults to false, and `write_blocks`.
+overrides `writable()`, which defaults to false, and `write_blocks` (sync) or
+`poll_write_blocks` (async).
 `writable()` answers whether the device accepts writes at all; a driver
 mounts a device that says false read-only. A device that says true may
 still refuse a later write with `ReadOnly`, as an SD card does when its
@@ -103,7 +104,7 @@ assert_eq!(geometry.byte_len(), Some(4 * 1024 * 1024));
 | `std` | Yes | `host::FileDevice`, `host::file_len` and `alloc` |
 | `alloc` | Via `std` | `Cache`, the `Vec<u8>` device, `Box` impls, and block sizes above 4096 bytes in `ByteView` |
 | `sync` | Yes | Synchronous device traits and adapters |
-| `async` | No | Asynchronous device traits and adapters with `Send` futures in `r#async`, and without the `Send` bound in `local` |
+| `async` | No | Unified poll-based devices and adapters in `async_`; futures are Send when the device and its state are Send |
 
 `std` and the I/O mode are independent. Disable default features and select
 `sync`, `async`, or both explicitly for custom configurations.

@@ -17,10 +17,11 @@
 //! device failed. It lives here, in the lowest crate, so block devices can
 //! return it; `hadris-fs` and `hadris` re-export it.
 //!
-//! The traits live in one module per mode: [`sync`], `r#async` (futures
-//! that are `Send`) and `local` (futures that need not be `Send`). The crate
+//! The traits live in one module per mode: [`sync`], `async_` (futures
+//! that are `Send`) and `local` (futures that need not be `Send`). `r#async`
+//! aliases `async_`. The crate
 //! root holds only the mode-independent items, so
-//! `hadris_io::sync::Read` and `hadris_io::r#async::Read` are always named
+//! `hadris_io::sync::Read` and `hadris_io::async_::Read` are always named
 //! explicitly.
 //!
 //! ## Feature Flags
@@ -29,7 +30,7 @@
 //! |---------|---------|-------------|
 //! | `std`   | yes     | [`StdIo`], [`ToStd`] and conversions to `std::io::Error` (implies `alloc`) |
 //! | `sync`  | yes     | Synchronous traits in [`sync`] |
-//! | `async` | no      | Asynchronous traits with `Send` futures in `r#async`, and without the `Send` bound in `local` |
+//! | `async` | no      | Asynchronous traits with `Send` futures in `async_`, and without the `Send` bound in `local` |
 //! | `alloc` | via `std` | `Box<T>` and `Vec<u8>` implement the traits |
 //! | `embedded-io` | no | `FromEmbedded`, the `embedded-io` traits on [`StdIo`] and [`SeekFrom`] conversions |
 //!
@@ -343,7 +344,7 @@ pub use async_ as r#async;
 /// Asynchronous I/O traits whose futures need not be `Send`, for
 /// single-threaded executors such as embassy.
 ///
-/// Generated from the same source as `r#async`, with the same items plus
+/// Generated from the same source as `async_`, with the same items plus
 /// impls for types that are not `Send`.
 #[cfg(feature = "async")]
 pub mod local;

@@ -22,7 +22,7 @@ maps the 2.4 API and the APFS additions in 2.5 to their 3.0 replacements. Report
 [GitHub Issues](https://github.com/hxyulin/hadris/issues).
 
 In 3.0, exFAT is stable as `hadris_fat::exfat::sync::ExFatFs` and
-`hadris_fat::exfat::r#async::ExFatFs`, with no feature flag; in 2.x it was
+`hadris_fat::exfat::async_::ExFatFs`, with no feature flag; in 2.x it was
 the `unstable-exfat` preview. The `hadris-ntfs` reader, and the
 `unstable-ntfs` feature of `hadris` that exposes its native API, stay outside
 the stability promise: its `FileSystem` implementation follows the frozen

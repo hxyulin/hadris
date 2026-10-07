@@ -8,6 +8,11 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- Correct remaining async migration documentation and firmware example imports;
+  clarify local/Send tiers, operation-state bounds and poll-buffer safety. Add
+  umbrella detection/opening regressions for local devices and non-Send state,
+  and include the umbrella in the dual-toolchain async contract CI job.
+
 - **Async device API:** Promote the poll-based contract into `hadris-storage`.
   One `BlockDevice` implementation supports local operations and automatically
   supplies `SendBlockDevice` when the device and operation state are Send.

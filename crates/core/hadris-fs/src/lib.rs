@@ -8,9 +8,9 @@
 //! report ([`Finding`], [`Severity`], [`CheckReport`]). None of them does
 //! I/O.
 //!
-//! The mode modules (`sync`, `r#async`) hold what does: the `FileSystem`
+//! The mode modules (`sync`, `async_`, `local`) hold what does: the `FileSystem`
 //! trait every format implements, on node ids and `&mut self`; `Volume`,
-//! which shares a filesystem between threads and tasks with paths and
+//! which shares a filesystem between threads and tasks (or local tasks) with paths and
 //! `File` and `ReadDir` handles named after `std::fs`; `copy_tree`, which
 //! writes a [`Tree`] into any filesystem; and `read_tree`, which reads a
 //! mounted volume into one.
@@ -36,7 +36,7 @@
 //! | `alloc` | via `std` | [`OwnedName`], [`PathError`], [`Tree`], [`Report`], `copy_tree` and `ContentReader` in each mode, and the async `Volume` with its `read_tree` |
 //! | `std` | Yes | Implies `alloc`; adds [`SystemClock`], the sync `Volume` with its `std::io` handles and `read_tree`, [`host`] with `sync`, and conversions to `std::io::Error` |
 //! | `sync` | Yes | The blocking API in `sync` |
-//! | `async` | No | The same API with `Send` futures in `r#async` |
+//! | `async` | No | The Send API in `async_`, plus the local API in `local` |
 //! | `async-local` | No | Local asynchronous API without `Send` device or future bounds |
 //! | `contract` | No | The driver contract kit, `contract::check` in each mode, and `ContractViolation` |
 //!

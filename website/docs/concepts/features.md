@@ -12,8 +12,10 @@ Hadris separates three decisions that many crates combine:
    feature per format
 
 Stable format crates always compile reading; the APFS preview still has a
-`read` feature. These are the intended V3 API guarantees; rc.1 remains a
-release candidate. Choose each dimension
+`read` feature. The async contract described here is the RC2 development API
+on `main`; the Cargo examples below select the published RC1 release, whose
+custom async devices use the earlier contract. See the [async guide](../guides/async-io.md)
+when building against the RC2 workspace. Choose each dimension
 explicitly when disabling default features. Enabling `std` provides heap
 allocation, but it does not implicitly select `sync` or `async`. A feature
 only adds items: none changes what an existing item does, and only
@@ -47,19 +49,23 @@ features = ["alloc", "sync", "async", "write", "fat"]
 ```
 
 Name I/O types through their mode module, `hadris::fat::sync` or
-`hadris::fat::r#async`; no crate re-exports a mode at its root. Async
-futures are `Send` when the device is, so generic code can spawn them on
-multi-threaded executors. `hadris-io` and `hadris-storage` also have a
-`local` namespace, whose futures need not be `Send`, for single-threaded
-executors.
+`hadris::fat::async_`; `r#async` remains a compatibility alias. Block-format
+drivers use one async type for local and Send devices. Implement
+`hadris::storage::async_::BlockDevice` once; `SendBlockDevice` is derived when
+both the device and its operation state are Send. A Send device alone does not
+guarantee Send operation futures.
 
-Every crate has the same public items in each mode. The exceptions include the
-`hadris-fs` `host` module (`read_tree`, `write_tree`, `file`), which is
-sync-only because the host side is blocking `std::fs`. A sync `Volume` needs
-`std`; an async `Volume` needs `alloc`. The shared async tier requires `Send`
-devices and futures. Local futures are supported by lower-layer adapters and
-the embedded FAT/exFAT tier, while all device errors retain `Send + Sync + 'static`
-bounds.
+Use `hadris::fs::local::{FileSystem, Volume}` for local callers and
+`hadris::fs::async_::{FileSystem, Volume}` for generic callers requiring Send
+futures. The `async` feature enables both filesystem tiers. Storage's `local`
+namespace aliases `async_`; byte-stream traits in `hadris-io` still have
+separate local and Send contracts, and CPIO retains its Send stream API.
+Device errors remain `Send + Sync + 'static` in every mode.
+
+The sync and async APIs retain mode-specific differences: `hadris-fs::host`
+uses blocking `std::fs` and is sync-only. A sync `Volume` needs `std`; async
+volumes need `alloc` and pointer-sized atomics. Local volumes do not expose
+lazy `read_tree`, whose content sources still require Send and Sync.
 
 ## Format capability matrix
 

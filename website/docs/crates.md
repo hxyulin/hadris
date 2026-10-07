@@ -59,7 +59,7 @@ features = ["std", "sync", "detect", "part"]
 The umbrella always re-exports `hadris::io`, `hadris::storage` and
 `hadris::fs`, and each format at a flat path (`hadris::fat`, `hadris::iso`)
 behind a feature of the same name. The `detect` feature adds
-`hadris::{sync, r#async}::{detect, open, AnyFs}` and `hadris::host::open`
+`hadris::{sync, async_}::{detect, open, AnyFs}` and `hadris::host::open`
 with the FAT, ISO 9660, UDF, CPIO and APFS reader crates: `detect` lists every format a
 device holds, including partition tables, archives and NTFS, and `open`
 mounts the first filesystem as an `AnyFs`, which implements the `hadris-fs`

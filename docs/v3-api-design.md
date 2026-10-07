@@ -10,6 +10,10 @@ post-pass decisions A, B and C. Earlier rounds, the lock-placement prototype
 ([`v3-trait-review.md`](v3-trait-review.md)), are recorded in sections 6
 and 7.
 
+The RC2 async contract supersedes the earlier mode and device decisions in this
+record. For current implementation guidance, use [async-devices.md](async-devices.md).
+Sections 6 and 7 retain the prototype and RC1 history.
+
 V3 is the release where the public shapes stop moving. V2 kept breaking semver
 inside minor releases (#83, #93, #94) or hid new work behind `unstable-*` flags
 that change the shape of public types (#111, #115). V3 fixes the extension
@@ -274,9 +278,9 @@ Each release is tagged `<crate>-v<version>`, and the release workflow publishes 
 ## 3. Layers
 
 ```
-hadris-io          byte streams: Read and Write in sync, r#async (Send) and local
+hadris-io          byte streams: Read and Write in sync, async_ (Send) and local
                    (non-Send); StdIo with std; FromEmbedded with embedded-io
-hadris-storage     BlockDevice in sync, r#async and local; Partition, Vec<u8> and
+hadris-storage     BlockDevice in sync and unified async_; Partition, Vec<u8> and
                    the other devices and adapters
 hadris-fs          vocabulary, Error<E> and PathError, MountOptions, the FileSystem
                    trait, Volume<F> with File and ReadDir, Walk, Tree and Report,
@@ -420,9 +424,10 @@ pub trait BlockDevice: ErrorType {
 }
 ```
 
-`async fn` here means "written once, generated for every mode" (4.8). The
-`r#async` trait has a `Send` supertrait and `Send` futures; the `local` trait
-has neither and is what the embedded async API takes.
+This sketch records the RC1 contract. RC2 keeps the sync form but replaces the
+async device contract with operation-owned state and poll hooks.
+`async_::BlockDevice` has no Send bound; `SendBlockDevice` is derived when the
+device and its state are Send. `r#async` and `local` alias the common storage API.
 
 - One trait with defaulted writes, not separate read and write device traits. A read-only device must still mount (IO-RO-01), and in 3.x `UdfFs<D: BlockDevice>` gains writes with no new bound (NF-STABLE-02).
 - `read_blocks`, `write_blocks` and `flush` return the crate-wide `Error<E>` (4.6), not a separate `WriteError<E>` (post-pass decision B, S5; [Q11](#7-open-questions) for reads). A device that refuses a write returns kind `ReadOnly`; a device failure is `Error::device(e, message)`. `flush` returns `Error<E>` too, because a write-back device writes there.
@@ -714,7 +719,7 @@ impl<F: FileSystem> Volume<F> {
 - `Volume<F>` has no lock type parameter. The sync `Volume` uses the std mutex and needs `std`; the async one uses a portable async mutex and needs only `alloc`. Stored types never name a lock.
 - The lock is held for one call. A path resolves under one lock hold, so a path costs one lock, not one per component.
 - `vol.lock()` returns a guard to the driver for node calls and format-specific calls. Dropping a `File` or `ReadDir` of the volume while holding the guard queues its close and does not deadlock; with `alloc` the queue grows, so it has no fixed limit. Calling a path method on the same volume while holding the guard deadlocks, as with any mutex; `lock()` documents it.
-- Clones are cheap and share the volume, so a handle or a clone can move to another thread or task. In the async mode the futures of volume, handle and node calls are `Send` for any `Send` device, and a task that holds the guard across `.await` can be spawned.
+- Clones are cheap and share the volume, so a handle or a clone can move to another thread or task. The `async_::Volume` tier guarantees Send futures when the driver satisfies its Send filesystem trait; for block drivers both the device and its state must be Send. Local volumes remain on their executor.
 - Operations on one volume serialize, as they do in V2.
 
 A `no_std` sync user with `alloc` has the bare driver and no `Volume`. Such
@@ -917,11 +922,11 @@ Rejected:
 
 Keep the `strip_async!` code generation and use it everywhere:
 
-- `hadris-io` and `hadris-storage` move from hand-copied files to the same generator. Every async fix is written once.
+- `hadris-io` generates sync and local byte-stream traits from the Send source. RC2 storage uses concrete poll-operation futures; its earlier generated async contracts remain in `legacy_async` and `legacy_local`.
 - Mode-independent types (raw layouts, names, options, metadata, errors, trees, `NodeId`, `plan`) are defined once, outside the generated modules.
-- Only types that do I/O live in `sync` and `r#async`.
-- The async source is written as `fn f(..) -> impl Future<Output = T> + Send` with `Send` supertraits. The generator turns it into `fn f(..) -> T`, removes `async` and `.await`, and drops the `Send` supertraits and the `+ Send` on captured arguments.
-- The shared tier has two modes, `sync` and `r#async`, and async futures are `Send` whenever the device is. Non-`Send` async exists only in `hadris-io` and `hadris-storage` (the `local` modules) and in the embedded API, which takes `local::BlockDevice`. The `async_send` mode and the `async-send` feature are gone (4.17); [Q2](#7-open-questions) has the history.
+- Only types that do I/O live in `sync` and `async_`; `r#async` is a compatibility alias.
+- Send filesystem and byte-stream traits use `impl Future<Output = T> + Send`; the generator produces sync and local variants. Block-format algorithms use the common poll-device contract, with conditional forwarding to the stronger Send filesystem trait.
+- One async block-format driver supports local and Send devices. Its operation futures are Send when both the device and its state are Send. `hadris-fs::local` supplies local traits and handles; `hadris-fs::async_` supplies the stronger Send tier. The `async` feature enables both. CPIO still uses the Send byte-stream contract, and lazy tree content retains its Send requirements. [Q2](#7-open-questions) records the earlier mode decisions.
 - Every crate exposes the same public items in both modes. R11 requires review and tests for mode parity, with these intended differences: `Iterator` versus `next_entry`, the `std::io` impls, and the sync-only `host` module.
 - Sync stays generated rather than wrapping async code in `block_on`: that was measured at 40 to 49% more code and 70% more worst-case stack on thumbv7em (4.15).
 - `hadris-macros` gains span-preserving errors so contributors see the right line.
@@ -1143,9 +1148,10 @@ firmware uses the embedded API, and a `no_std` kernel holds the driver under
 its own lock. Drivers without allocation needs (ISO, UDF, NTFS readers) keep
 working without `alloc` at this tier.
 
-**Modes.** The shared tier ships `sync` and `async`, where `async` is today's
-`async_send` (futures are `Send` when the device is). Non-`Send` async
-remains in `hadris-io`, `hadris-storage` and the embedded API. Sync stays
+**Modes.** The shared tier ships `sync` and `async_`, with `r#async` as an
+alias. RC2 block drivers support local and Send devices through one type;
+Send futures require both the device and its state to be Send. Filesystem
+traits and volumes still distinguish the local and Send guarantees. Sync stays
 generated from the async source by macro: a measurement on 2026-09-24 of
 async code driven by `block_on` over an always-ready device, with fat LTO at
 opt-level `s` and `z`, found +40 to 49% code, +70% worst-case stack (26 KB to
@@ -1244,7 +1250,7 @@ updated to the API prototype (4.18):
 | S5 storage errors | `WriteError`, `StorageError` and `OutOfRange` become one storage error type, and that type is the crate-wide `Error<E>`. `BlockDevice::write_blocks` and `flush` return `Error<E>`: a device that refuses writes returns kind `ReadOnly`, any other failure `Error::device`. The `WriteError` in 4.2 is superseded. |
 | `impl_fs_driver!` | Dropped. `FileSystem`'s write methods default to `ReadOnly`, which removes the macro's job. The redesign brings it back only for duplication it can name. |
 | S6 path helpers | Path methods exist only on the shared `Volume`, as inherent methods named after `std::fs`; the bare-driver tier keeps node-level calls. `DriverExt` and `PathExt` are removed, with no extension trait in their place. |
-| Async naming | In the shared tier `r#async` means futures that are `Send` when the device is (the former `async_send`). The embedded API's `r#async` is non-`Send`. `hadris-io` and `hadris-storage` offer `sync`, `r#async` (`Send`) and `local` (non-`Send`) device traits. Features are `sync` and `async`; `async-send` is removed. |
+| Async naming | RC2 uses `async_`, with `r#async` as an alias. Block drivers support local devices and Send futures when the device and state are Send. Storage aliases `local` to the common API; `hadris-io` and `hadris-fs` retain distinct local and Send traits. Features are `sync` and `async`; `async-send` is removed. |
 | S4 `write` | Kept (2026-10-01): removing a feature after 3.0 is a break, and it only adds items. It stays on `hadris-fat` and the umbrella. |
 
 ### 4.18 Action catalog and API prototype

@@ -29,7 +29,7 @@ feature) passes an `embedded-io` error through unchanged.
 |---------|-------------|---------|
 | `std` | `StdIo`, `ToStd` and conversions to `std::io::Error`; implies `alloc` | Yes |
 | `sync` | Synchronous traits in `hadris_io::sync` | Yes |
-| `async` | Asynchronous traits with `Send` futures in `hadris_io::r#async`, and in `hadris_io::local` for executors whose futures are not `Send` | No |
+| `async` | Asynchronous traits with `Send` futures in `hadris_io::async_`, and in `hadris_io::local` for executors whose futures are not `Send` | No |
 | `alloc` | `Box<T>` and `Vec<u8>` implement the traits | via `std` |
 | `embedded-io` | `FromEmbedded`, the `embedded-io` traits on `StdIo`, and `SeekFrom` conversions | No |
 
@@ -109,7 +109,7 @@ to and from `std::io::SeekFrom` with `std` and `embedded_io::SeekFrom` with
 `embedded-io`, and an implementation of `Seek` resolves it with
 `SeekFrom::resolve(current, len)` rather than matching it.
 
-The async traits in `hadris_io::r#async` have the same shape with `async fn`.
+The async traits in `hadris_io::async_` have the same shape with `async fn`.
 
 `&mut T` implements each trait when `T` does, and with `alloc` so does
 `Box<T>`. Generic code holding `R: Read` can therefore pass `&mut R` to any API
