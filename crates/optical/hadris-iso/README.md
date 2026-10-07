@@ -356,3 +356,7 @@ devices, and the `hadris_fs::local::FileSystem` contract for all accepted device
 Send devices and are available through both async namespaces. The local-only
 feature exposes the reader without enabling those writers or sessions.
 See the [guide](../../../docs/unified-async-iso.md) for adapter chains and limits.
+
+The unified reader exposes all filesystem operations as inherent methods,
+including `resolve` and the read-only defaults. Applications can import both
+filesystem contracts without ambiguous method calls.

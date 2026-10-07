@@ -8,6 +8,10 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **hadris-iso:** Expose default filesystem operations as inherent async reader
+  methods, including path resolution, so importing both local and Send
+  filesystem traits does not make those calls ambiguous.
+
 - **hadris-iso:** Use one `async_::IsoFs` reader for Send and local devices;
   `r#async::IsoFs` remains the same type with its existing Send contract.
   Add opt-in `async-local` reader support and explicit

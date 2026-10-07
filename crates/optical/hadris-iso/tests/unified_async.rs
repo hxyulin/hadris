@@ -108,6 +108,30 @@ fn disk() -> (MemDevice<Vec<u8>>, u64) {
 
 fn require_send(_: impl Future + Send) {}
 
+fn require_send_defaults<D: hadris_storage::async_::SendBlockDevice>(fs: &mut IsoFs<D>) {
+    use hadris_fs::{RenameMode, Resolve, SetAttr};
+    let root = fs.root();
+    let name = Name::new("new.txt");
+    let attrs = SetAttr::new();
+    require_send(fs.resolve(b"/readme.txt", Resolve::Follow));
+    require_send(fs.setattr(root, &attrs));
+    require_send(fs.write(root, 0, b"new"));
+    require_send(fs.truncate(root, 0));
+    require_send(fs.create(root, name, &attrs));
+    require_send(fs.mkdir(root, name, &attrs));
+    require_send(fs.unlink(root, name));
+    require_send(fs.rmdir(root, name));
+    require_send(fs.rename(
+        root,
+        name,
+        root,
+        Name::new("renamed.txt"),
+        RenameMode::Replace,
+    ));
+    require_send(fs.fsync(root));
+    require_send(fs.sync());
+}
+
 async fn generic_send_read<F: hadris_fs::r#async::FileSystem<DeviceError = Infallible>>(
     fs: &mut F,
 ) -> Vec<u8> {
@@ -202,4 +226,77 @@ fn unified_reader_still_works_with_send_volume() {
         assert_eq!(&bytes, b"hello world\n");
         file.close().await.unwrap();
     });
+}
+
+#[test]
+fn both_filesystem_traits_allow_inherent_defaults_with_send_futures() {
+    use hadris_fs::{ErrorKind, Resolve};
+    #[allow(unused_imports)]
+    use hadris_fs::{r#async::FileSystem as _, local::FileSystem as _};
+    let image = common::image(
+        &common::sample(false, false),
+        &IsoOptions::new().with_joliet(),
+    );
+    let mut fs = common::block_on(IsoFs::mount(image, MountOptions::new())).unwrap();
+    require_send(fs.resolve(b"/readme.txt", Resolve::Follow));
+    let node = common::block_on(fs.resolve(b"/readme.txt", Resolve::Follow)).unwrap();
+    require_send_defaults(&mut fs);
+    assert_eq!(
+        common::block_on(fs.write(node, 0, b"new"))
+            .unwrap_err()
+            .kind(),
+        ErrorKind::ReadOnly
+    );
+    common::block_on(fs.fsync(node)).unwrap();
+    common::block_on(fs.sync()).unwrap();
+    fs.forget(node, 1);
+}
+
+#[test]
+fn local_reader_resolves_symlinks_and_exposes_read_only_defaults() {
+    use hadris_fs::{ErrorKind, FileType, Resolve, SetAttr};
+    #[allow(unused_imports)]
+    use hadris_fs::{r#async::FileSystem as _, local::FileSystem as _};
+    let polls = Rc::new(Cell::new(0));
+    let device = RcDevice {
+        inner: common::image(
+            &common::sample(false, true),
+            &IsoOptions::new().with_rock_ridge(),
+        ),
+        polls: Rc::clone(&polls),
+    };
+    common::block_on(async {
+        let mut fs = IsoFs::mount(device, MountOptions::new()).await.unwrap();
+        let node = fs.resolve(b"/docs/link", Resolve::Follow).await.unwrap();
+        let mut bytes = [0; 12];
+        assert_eq!(fs.read(node, 0, &mut bytes).await.unwrap(), 12);
+        assert_eq!(&bytes, b"hello world\n");
+        assert_eq!(
+            fs.setattr(node, &SetAttr::new()).await.unwrap_err().kind(),
+            ErrorKind::ReadOnly
+        );
+        assert_eq!(
+            fs.truncate(node, 0).await.unwrap_err().kind(),
+            ErrorKind::ReadOnly
+        );
+        fs.fsync(node).await.unwrap();
+        fs.forget(node, 1);
+        let link = fs.resolve(b"/docs/link", Resolve::NoFollow).await.unwrap();
+        assert_eq!(fs.stat(link).await.unwrap().file_type(), FileType::Symlink);
+        fs.forget(link, 1);
+        let node = fs
+            .resolve(b"/missing/../readme.txt", Resolve::Lexical)
+            .await
+            .unwrap();
+        fs.forget(node, 1);
+        assert_eq!(
+            fs.resolve(b"/readme.txt/", Resolve::Follow)
+                .await
+                .unwrap_err()
+                .kind(),
+            ErrorKind::NotADirectory
+        );
+        fs.sync().await.unwrap();
+    });
+    assert!(polls.get() > 0);
 }
