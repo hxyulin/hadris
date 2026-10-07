@@ -1,9 +1,11 @@
-# Migrating from Hadris 2.x to 3.0.0-rc.1
+# Migrating from Hadris 2.x to 3.0
 
 This guide is for code and scripts written against Hadris 2.4 or 2.5 (the V2
-API) that move to Hadris 3.0.0-rc.1 (the V3 API). The symbol tables describe the 2.4
+API) that move to Hadris 3.0 (the V3 API). The symbol tables describe the 2.4
 API; the final APFS section covers its addition in 2.5. It covers the library crates,
-their features, and the command-line tools.
+their features, and the command-line tools. The dependency recipes select the
+published RC1 packages; the [Async](#async) section describes the RC2 contract
+on `main`. Until RC2 is published, use a workspace checkout for that contract.
 
 Hadris 3.0 is a new API, not an incremental release. Every filesystem reads a
 block device instead of a byte stream, every driver implements one shared
@@ -310,6 +312,8 @@ device.
 
 ### Block devices: `hadris-storage`
 
+The synchronous contract is:
+
 ```rust
 pub trait BlockDevice: ErrorType {
     fn block_size(&self) -> BlockSize;
@@ -327,13 +331,16 @@ pub trait BlockDevice: ErrorType {
 One trait replaces `BlockDevice` plus `BlockDeviceMut`. A read-only device
 implements the first three methods; the default `write_blocks` answers kind
 `ReadOnly`, and a device whose `writable()` is false is mounted read-only.
+RC2 asynchronous devices instead implement operation-owned `State` and poll
+hooks; their provided read/write/flush methods remain awaitable. See the
+[async device migration guide](async-devices.md).
 
 | Device | Use |
 |---|---|
 | `hadris_storage::host::FileDevice` (`std`, `sync`) | A host image file (512-byte blocks by default) or disk device (OS-reported logical blocks). `open(path)` is read-only; `new(file)` takes a file you opened, writable if it was opened for writing. `open_with_block_size(path, size)` and `with_block_size(file, size)` specify image geometry explicitly. Also `hadris::host::FileDevice`. `std::fs::File` is no longer a device. |
 | `Vec<u8>` (`alloc`) | In-memory image with 512-byte blocks that grows when written past its end. |
 | `hadris_storage::MemDevice<B>` | `&[u8]` (read-only), `&mut [u8]`, arrays, `Vec<u8>` or `Box<[u8]>` with an explicit `BlockSize`. |
-| `hadris_storage::{sync, r#async}::StreamDevice<T>` | Any `Read + Seek` (+ `Write`) stream as a device with the block size you pick. The migration path for V2 code that passed a stream. Replaces `SeekBlockDevice`. |
+| `hadris_storage::{sync, async_}::StreamDevice<T>` | The sync adapter accepts `Read + Seek` streams with `StreamWrite`. The RC2 async adapter accepts the poll-native `async_::Stream` contract; use `BlockingStream` for an explicit sync bridge. Earlier async-trait adapters remain in `legacy_async` and `legacy_local`. Replaces `SeekBlockDevice`. |
 | `hadris_storage::Partition<D>` | A byte window of a device. Replaces `PartitionView`. `hadris_part::sync::open` returns one. |
 | `hadris_storage::{sync, r#async}::Cache<D>` (`alloc`) | Write-back LRU block cache for any device. Replaces the FAT sector cache. |
 | `hadris_storage::{sync, r#async}::ByteView<D>` | Byte-granular reads and writes over a device. |
@@ -1008,12 +1015,26 @@ primitives in `io` and `exfat::io`, and the checkers `io::sync::check` and
 
 ## Async
 
-- `r#async` requires `Send` devices and futures. Devices and futures that
-  are not `Send` use the `local` traits (`hadris_io::local`,
-  `hadris_storage::local`) and the embedded API.
-- The shared async filesystem tier has no `local` driver namespace. The
-  embedded FAT/exFAT API is the current local option; the general gap is
-  tracked in [issue #267](https://github.com/hxyulin/hadris/issues/267).
+RC2 addresses the allocated local-filesystem gap tracked in
+[issue #267](https://github.com/hxyulin/hadris/issues/267). Published RC1 used
+the earlier Send-only shared filesystem tier; the following contract requires
+RC2 or a workspace checkout of `main`.
+
+- `async_` is canonical; `r#async` remains an alias. One block-format driver
+  accepts both local and Send devices through
+  `hadris_storage::async_::BlockDevice`. Its poll hooks use an operation-owned
+  `State: Default + Unpin`.
+- `SendBlockDevice` is automatic when both the device and its operation state
+  are Send. Generic callers requiring Send futures must use that stronger
+  bound; a Send device with non-Send state remains a local device.
+- FAT/exFAT, ISO, UDF, NTFS and APFS implement
+  `hadris_fs::local::FileSystem` for local devices and
+  `hadris_fs::async_::FileSystem` for Send devices. The `async` feature enables
+  both contracts. Use `hadris_fs::local::Volume` for local paths and handles;
+  it needs allocation and pointer-sized atomics. Allocation-free drivers and
+  embedded FAT APIs remain available without those requirements.
+- CPIO byte streams and lazy tree-content sources retain their existing Send
+  requirements. The block-device migration does not relax those contracts.
 - Device errors must be `core::error::Error + Send + Sync + 'static` in
   every mode, including `local` and the embedded API. Map non-`Send`
   errors to an owned error type that meets these bounds; selecting `local`
@@ -1171,7 +1192,7 @@ follows. In V3, name I/O items through their mode module:
 |---|---|
 | `hadris_storage::BlockDevice`, `hadris_storage::sync::BlockDevice` | `hadris_storage::sync::BlockDevice`; `read_blocks` takes a `BlockIndex` and returns `hadris_io::Error<Self::Error>` |
 | `hadris_storage::BlockDeviceMut`, `hadris_storage::sync::BlockDeviceMut` | Merged into `BlockDevice`: implement `writable`, `write_blocks` and `flush` |
-| `hadris_storage::r#async::{BlockDevice, BlockDeviceMut}` | `hadris_storage::r#async::BlockDevice` (`Send`) or `hadris_storage::local::BlockDevice` |
+| `hadris_storage::r#async::{BlockDevice, BlockDeviceMut}` | RC2: `hadris_storage::async_::BlockDevice` with `State` and poll hooks; `SendBlockDevice` when device and state are Send. `r#async` and `local` alias this API. |
 | `hadris_storage::SeekBlockDevice` and mode twins | `hadris_storage::{sync, r#async}::StreamDevice<T>` |
 | `hadris_storage::PartitionView` | `hadris_storage::Partition<D>` over a block device |
 | `hadris_storage::Error` | `hadris_io::Error<D::Error>`; a refused write is kind `ReadOnly`, an out-of-range request `InvalidInput` |
@@ -1182,7 +1203,7 @@ follows. In V3, name I/O items through their mode module:
 | `hadris_storage::BlockGeometry` | `hadris_storage::BlockGeometry`, accessors instead of public fields |
 | `hadris_storage::BlockSize` | `hadris_storage::BlockSize` |
 | (`impl BlockDevice for std::fs::File`, V3 previews only) | `hadris_storage::host::FileDevice` |
-| (new) | `MemDevice`, `MemBuffer`, `ReadOnly`, `{sync, r#async, local}::{Cache, ByteView, StreamDevice, StreamWrite}`, `host::{FileDevice, file_len}`, `impl BlockDevice for Vec<u8>` |
+| (new) | `MemDevice`, `MemBuffer`, `ReadOnly`, `{sync, async_}::{Cache, ByteView, StreamDevice}`, `sync::StreamWrite`, `async_::{Stream, BlockingStream, SendBlockDevice}`, `legacy_async::StreamWrite`, `legacy_local::StreamWrite`, `host::{FileDevice, file_len}`, `impl BlockDevice for Vec<u8>` |
 
 ### hadris-common
 

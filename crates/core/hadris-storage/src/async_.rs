@@ -31,6 +31,7 @@ pub trait BlockDevice: ErrorType {
         false
     }
     /// Advances a read using the same arguments and state on every poll.
+    /// Rejects unaligned buffers and ranges beyond `block_count`.
     /// No access to `buf` may continue after this call returns.
     fn poll_read_blocks(
         &mut self,
@@ -40,6 +41,7 @@ pub trait BlockDevice: ErrorType {
         buf: &mut [u8],
     ) -> Poll<Result<(), Error<Self::Error>>>;
     /// Advances a write; no access to `buf` may continue after return.
+    /// Rejects unaligned buffers and ranges beyond `max_block_count`.
     fn poll_write_blocks(
         &mut self,
         _: &mut Self::State,

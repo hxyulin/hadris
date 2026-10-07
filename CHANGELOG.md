@@ -10,6 +10,14 @@ Each published package owns its version and may be released independently.
 
 ## [3.0.0-rc.2] - 2026-10-07
 
+- **Async storage:** Validate block alignment and bounds in direct cache,
+  read-ahead and stream poll hooks. Invalid requests return `InvalidInput`
+  before touching the backend or dirty cache data, preventing read-ahead
+  slice panics and partial-block stream writes.
+- Correct the V3 migration guide to describe RC2 local filesystem support,
+  conditional Send guarantees and explicit stream adapters, while identifying
+  the dependency recipes that still select published RC1 packages.
+
 The second release candidate of the 3.0 API. All 3.x packages, including
 `hadris-common`, `hadris-macros` and the unified CLI, now use `3.0.0-rc.2`.
 The raw-format crates retain independent versions: `hadris-fat-raw` is
