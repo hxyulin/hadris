@@ -321,3 +321,32 @@ fn exfat_extraction_accepts_storage_read_ahead() {
         vec![7u8; 10_000]
     );
 }
+
+#[test]
+fn fixed_root_chain_and_directory_loops_fail_cleanly() {
+    let fx = Fixture::new();
+    let output = run(&["chain", fx.image(), "/"]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("fixed FAT12/16 root directory"), "{stderr}");
+
+    let mut image = std::fs::read(fx.image()).unwrap();
+    let entry = |image: &[u8], name: &[u8; 11]| {
+        (0..image.len())
+            .step_by(32)
+            .find(|&at| &image[at..at + 11] == name && image[at + 11] & 0x10 != 0)
+            .unwrap()
+    };
+    let sub = entry(&image, b"SUB        ");
+    let deep = entry(&image, b"DEEP       ");
+    let cluster = [image[sub + 26], image[sub + 27]];
+    image[deep + 26..deep + 28].copy_from_slice(&cluster);
+    let looped = fx.dir("looped.img");
+    std::fs::write(&looped, image).unwrap();
+    for command in ["tree", "stat", "fragmentation"] {
+        let output = run(&[command, text(&looped)]);
+        assert!(!output.status.success(), "{command}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("Directory loop"), "{command}: {stderr}");
+    }
+}

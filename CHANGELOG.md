@@ -8,6 +8,11 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **CLI (`hadris fat`):** `chain` on the fixed FAT12/16 root directory
+  reports that it has no cluster chain instead of underflowing, and `tree`,
+  `stat` and `fragmentation` stop with an error at a directory loop in a
+  damaged image instead of recursing until the stack overflows.
+
 - **hadris-fs async API:** Dropping a `File::close` future while the driver
   closes the file, or a `Volume::open` future while it closes a file whose
   truncation failed, queues the close for the next call instead of leaking
