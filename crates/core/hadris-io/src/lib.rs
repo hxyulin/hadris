@@ -334,7 +334,11 @@ pub mod sync;
 /// here: `embedded-io-async` futures are not `Send`; it implements the
 /// [`local`] traits.
 #[cfg(feature = "async")]
-pub mod r#async;
+#[path = "async.rs"]
+pub mod async_;
+/// Compatibility alias for the asynchronous API.
+#[cfg(feature = "async")]
+pub use async_ as r#async;
 
 /// Asynchronous I/O traits whose futures need not be `Send`, for
 /// single-threaded executors such as embassy.

@@ -1,6 +1,6 @@
 [package]
 name = "hadris-fat-raw"
-version = "0.1.0"
+version = "0.2.0"
 description = "FAT12/16/32 and exFAT on-disk layouts and I/O-free codecs for Hadris and custom drivers"
 readme = "README.md"
 keywords = ["fat", "exfat", "filesystem", "no-std"]
@@ -15,8 +15,7 @@ repository.workspace = true
 default = []
 # The device primitives in `io::sync`.
 sync = ["dep:hadris-storage", "dep:hadris-macros", "hadris-storage/sync"]
-# The device primitives with `Send` futures in `io::r#async`, and without
-# the `Send` bound in `io::local`.
+# Unified asynchronous device primitives.
 async = ["dep:hadris-storage", "dep:hadris-macros", "hadris-storage/async"]
 # Derives `defmt::Format` on `FatKind`.
 defmt = ["dep:defmt"]

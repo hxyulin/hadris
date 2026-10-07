@@ -155,3 +155,6 @@ Repository conventions for coding assistants are in [AGENTS.md](AGENTS.md).
 ## License
 
 Hadris is available under the [MIT license](LICENSE-MIT).
+
+The RC2 [async device migration guide](docs/async-devices.md) describes the
+unified local/Send device contract and compatibility paths.

@@ -32,7 +32,7 @@ desktop tools as well as `no_std` bootloaders, kernels and firmware.
 | `alloc` | The writer, sessions, `BootCatalog` and the `Tree` input | via `std` |
 | `sync` | Blocking API in `hadris_iso::sync` | Yes |
 | `async` | Common and Send asynchronous API in `hadris_iso::async_`, also available in `r#async` | - |
-| `async-local` | The same `async_::IsoFs` reader for local devices | - |
+| `async-local` | The same `async_` API with the local filesystem feature tier | - |
 
 No feature changes what an item does. Joliet, Rock Ridge, El Torito and the
 enhanced tree are always available.
@@ -342,17 +342,17 @@ The on-disk layouts and I/O-free codecs live in
 paths remain available and refer to the same types. The raw crate needs
 neither an allocator nor a sync/async feature.
 
-## Unified asynchronous reader
+## Unified asynchronous API
 
-`async_::IsoFs` accepts the common `hadris_storage::async_::BlockDevice`
-contract directly, including Send devices and new local implementations.
-Existing local devices and adapter chains work through
-`hadris_storage::async_::Local::new(device)`. Its inherent operations
-have Send futures when used with a Send block-device implementation. It also
-implements the existing `hadris_fs::r#async::FileSystem` contract for those
-devices, and the `hadris_fs::local::FileSystem` contract for all accepted devices.
+`async_` is the canonical namespace; `r#async` is a compatibility alias for
+exactly the same items. Readers, writers and sessions accept
+`hadris_storage::async_::BlockDevice`, including local devices, borrowed devices,
+partitions, caches and read-ahead adapters without a mode wrapper.
 
-`r#async::IsoFs` reexports the same type. Writers and sessions still require
-Send devices and are available through both async namespaces. The local-only
-feature exposes the reader without enabling those writers or sessions.
-See the [guide](../../../docs/unified-async-iso.md) for adapter chains and limits.
+A device and its operation state that implement `Send` automatically satisfy
+`SendBlockDevice`. Reader operations, writers and sessions then produce Send
+futures. `IsoFs` implements `hadris_fs::local::FileSystem` for all common devices
+and the Send filesystem contract for `SendBlockDevice` devices.
+The `async` feature enables both capabilities. `async-local` remains available
+for the local filesystem feature tier; neither requires an allocator for reading.
+The `alloc` feature enables writers and sessions in either async feature tier.

@@ -1,6 +1,6 @@
 [package]
 name = "hadris-storage"
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -32,3 +32,6 @@ libc = { workspace = true, optional = true }
 [[example]]
 name = "aligned_device"
 required-features = ["sync"]
+
+[dev-dependencies]
+static_assertions.workspace = true

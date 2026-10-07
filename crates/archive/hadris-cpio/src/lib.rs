@@ -6,7 +6,7 @@
 //!
 //! ## Reading
 //!
-//! `CpioReader` (in each mode: `sync::CpioReader` and `r#async::CpioReader`)
+//! `CpioReader` (in each mode: `sync::CpioReader` and `async_::CpioReader`)
 //! reads `newc` (`070701`), `newc` with
 //! checksums (`070702`), `odc` (`070707`) and old binary archives from any
 //! `hadris_io` `Read` stream, such as a pipe. `next_entry` returns an
@@ -84,7 +84,7 @@
 //! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
 //! | `alloc` | via `std` | The writer, `plan` and `read_tree` |
 //! | `sync` | Yes | The blocking API in `sync` |
-//! | `async` | No | The asynchronous API with `Send` futures in `r#async` |
+//! | `async` | No | The asynchronous API with `Send` futures in `async_` |
 //!
 //! No feature changes what an item does.
 
@@ -151,7 +151,11 @@ pub mod sync {
 /// multi-threaded executors, generated from the same source as `sync`.
 #[cfg(feature = "async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
-pub mod r#async;
+#[path = "async.rs"]
+pub mod async_;
+/// Compatibility alias for the asynchronous API.
+#[cfg(feature = "async")]
+pub use async_ as r#async;
 
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]

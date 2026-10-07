@@ -1899,3 +1899,12 @@ user:
   lasting dependency, like the pinned nightly of the firmware-size checks.
   It is bumped deliberately, together with any budget the new compiler
   moves.
+
+## RC2 asynchronous device contract
+
+The [async device migration guide](async-devices.md) records the poll-based
+contract adopted after the V3 prototype. One device implementation supplies
+local operations and conditional Send futures through owned operation state.
+`async_` is canonical and `r#async` is its compatibility alias; the historical
+mode decisions above describe earlier development stages. CPIO byte-stream
+contracts and lazy content-source requirements remain separate.

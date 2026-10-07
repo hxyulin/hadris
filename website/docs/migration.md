@@ -86,3 +86,13 @@ the embedded FAT API, then reads an ISO with the same generic function.
 It builds its own inputs and verifies the contents. The
 [other runnable examples](https://github.com/hxyulin/hadris/blob/main/examples/README.md)
 cover partitioned boot media, extraction, streaming initramfs and VFS integration.
+
+## RC2 async devices
+
+Complete the RC1 migration above first, then apply the following guidance when
+upgrading to `3.0.0-rc.2`.
+
+The unified device contract uses operation-owned state and poll hooks. Format
+callers use `async_` as the canonical namespace; `r#async` remains an alias.
+See the [device migration guide](https://github.com/hxyulin/hadris/blob/main/docs/async-devices.md)
+for local and Send drivers, stream adapters, cancellation and custom devices.

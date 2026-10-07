@@ -61,10 +61,10 @@ jobs:
               - '.github/workflows/rust.yml'
               - '!**/README.md'
             async_contract:
-              - 'examples/async-device-contract/**'
               - 'crates/core/{hadris-io,hadris-storage,hadris-fs,hadris-macros}/**'
-              - 'crates/optical/{hadris-iso,hadris-iso-raw}/**'
-              - 'crates/block/hadris-part/**'
+              - 'crates/optical/{hadris-iso,hadris-iso-raw,hadris-udf,hadris-udf-raw}/**'
+              - 'crates/block/{hadris-part,hadris-fat,hadris-fat-raw,hadris-ntfs,hadris-apfs}/**'
+              - 'crates/archive/hadris-cpio/**'
               - 'Cargo.{toml,lock}'
               - 'rust-toolchain.toml'
               - '.github/workflows/rust.yml'
@@ -163,7 +163,7 @@ jobs:
   async-contract:
     needs: changes
     if: needs.changes.outputs.async_contract == 'true'
-    name: "Async contract probes (${{ matrix.toolchain }})"
+    name: "Unified async contracts (${{ matrix.toolchain }})"
     runs-on: ubuntu-latest
     env:
       RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
@@ -179,14 +179,11 @@ jobs:
         with:
           toolchain: ${{ matrix.toolchain }}
       - uses: Swatinem/rust-cache@v2
-      - name: Device contract and cache tests
-        run: cargo test -p hadris-experiment-async-device-contract --locked
-      - name: Compare named-GAT contracts
-        run: python3 examples/async-device-contract/probe_gat.py --toolchain ${{ matrix.toolchain }}
-      - name: Allocation-free ISO reader probe
-        run: python3 examples/async-device-contract/probe_iso.py --toolchain ${{ matrix.toolchain }}
-      - name: ISO writer and session round trips
-        run: python3 examples/async-device-contract/probe_iso.py --allocated --toolchain ${{ matrix.toolchain }}
+      - name: Test local and Send device contracts across formats
+        run: >-
+          cargo test --locked --all-features
+          -p hadris-storage -p hadris-fat -p hadris-part -p hadris-ntfs
+          -p hadris-apfs -p hadris-iso -p hadris-udf -p hadris-cpio
 
   check-features:
     needs: changes

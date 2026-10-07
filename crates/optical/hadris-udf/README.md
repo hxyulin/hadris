@@ -17,7 +17,7 @@ DVD-Video, Blu-ray and many large removable drives.
   with a report of where each file went
 - **Bridge** images that share their file data between ISO 9660 and UDF, as
   DVD-Video uses: `plan_bridge` and `write_bridge`
-- The same API in `sync`, `r#async`
+- The same API in `sync`, `async_`
 
 ## Reading
 
@@ -59,8 +59,8 @@ gives it paths, shared access and `File` handles.
 ### Optional block caching
 
 With `hadris-storage`'s `alloc` feature, wrap the device in its shared cache
-before mounting. The same pattern works with `r#async::Cache` and
-`r#async::UdfFs`, including `no_std` callers with an allocator.
+before mounting. The same pattern works with `async_::Cache` and
+`async_::UdfFs`, including `no_std` callers with an allocator.
 
 ```rust,no_run
 use hadris_fs::MountOptions;
@@ -125,7 +125,7 @@ volumes; `plan_bridge` returns its report.
 | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
 | `alloc` | via `std` | The writers, `plan` and `plan_bridge` |
 | `sync` | Yes | The blocking API in `sync` |
-| `async` | No | The asynchronous API with `Send` futures in `r#async` |
+| `async` | No | The common asynchronous API in `async_`; futures are Send for Send devices and operation state |
 
 No feature changes what an item does.
 
@@ -164,3 +164,16 @@ The on-disk layouts and I/O-free codecs live in
 [`hadris-udf-raw`](../hadris-udf-raw). Existing `hadris_udf::raw`
 paths remain available and refer to the same types. The raw crate needs
 neither an allocator nor a sync/async feature.
+
+## Unified asynchronous API
+
+`async_` is the canonical namespace; `r#async` reexports the same items.
+`UdfFs`, `write` and `write_bridge` accept the common
+`hadris_storage::async_::BlockDevice` contract. Local devices, borrowed devices,
+partitions, caches and read-ahead adapters compose directly.
+
+Reader operations and writers produce Send futures when the device implements
+`SendBlockDevice`, derived automatically from a Send device and Send operation
+state. The same `UdfFs` implements both the local filesystem contract and,
+for those devices, the Send filesystem contract. The `async` feature enables
+both capabilities; the reader still works without an allocator.

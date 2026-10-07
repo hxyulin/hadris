@@ -8,10 +8,10 @@ Hadris async APIs are runtime-neutral. They depend on async I/O traits, not on
 Tokio, async-std, or an executor. The application supplies a compatible reader
 and drives the future with its chosen runtime.
 
-Every filesystem driver reads a `hadris::storage::r#async::BlockDevice`:
+Every filesystem driver reads a `hadris::storage::async_::BlockDevice`:
 `MemDevice` implements it for bytes in memory, and a custom driver implements
 it for real hardware. The CPIO reader and writer take
-`hadris::io::r#async::{Read, Write}` streams instead; wrap an
+`hadris::io::async_::{Read, Write}` streams instead; wrap an
 `embedded-io-async` device in `hadris::io::FromEmbedded` (the `embedded-io`
 feature on a direct `hadris-io` dependency), or use `hadris::io::Cursor` for bytes in memory. `StdIo` covers only
 the sync traits. See [embedded I/O adapters](./custom-io.md#wrap-an-embedded-io-device)
@@ -19,14 +19,13 @@ for the additional dependency and feature recipe.
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 default-features = false
 features = ["alloc", "async", "fat"]
 ```
 
 ```rust
-use hadris::fat::r#async::FatFs;
-use hadris::fs::r#async::FileSystem;
+use hadris::fat::async_::FatFs;
 use hadris::fs::{DirCursor, FsResult, MountOptions};
 use hadris::storage::{BlockSize, MemDevice};
 
@@ -45,26 +44,35 @@ async fn list_root(image: &[u8]) -> FsResult<(), core::convert::Infallible> {
 }
 ```
 
-`hadris::fs::r#async::Volume` adds the path methods (`read_dir`, `metadata`,
+`hadris::fs::async_::Volume` adds the path methods (`read_dir`, `metadata`,
 `open`, `create_dir` and so on) as async methods, with `File` and `ReadDir`
-handles. The futures are `Send` when the device is, so Tokio and other
+handles. The stronger filesystem contract guarantees Send futures, so Tokio and other
 multi-threaded executors can spawn them from generic code.
 
 When several modes are enabled, use explicit namespaces:
 
 ```rust,ignore
 use hadris::fat::sync::FatFs as SyncFatFs;
-use hadris::fat::r#async::FatFs as AsyncFatFs;
+use hadris::fat::async_::FatFs as AsyncFatFs;
 ```
 
 ## Send and local executors
 
-The shared `hadris::fs::r#async` drivers require `Send` devices and futures.
-A single-threaded executor can still use them when its device meets that bound.
-Non-`Send` devices use `hadris::storage::local` and the embedded FAT/exFAT API.
-There is currently no general local filesystem tier for ISO/UDF or allocated
-FAT drivers; [issue #267](https://github.com/hxyulin/hadris/issues/267) tracks
-that gap. Every mode keeps `Send + Sync + 'static` device error bounds.
+One filesystem type accepts both local and Send block devices. Implement
+`hadris::storage::async_::BlockDevice` with operation-owned state and poll
+hooks. `SendBlockDevice` follows automatically when both the device and its
+state are Send. Generic code requiring Send operation futures uses that
+stronger bound; a Send device value alone is insufficient.
+
+Use `hadris::fs::local::FileSystem` and `local::Volume` for local devices, or
+`hadris::fs::async_::FileSystem` and `async_::Volume` for the stronger Send
+contract. The `async` feature enables both. Device errors remain
+`Send + Sync + 'static` in every mode. `r#async` aliases `async_`.
+
+CPIO still consumes the existing Send byte-stream contracts. Its local-stream
+migration is separate from the block-device change. See the
+[custom device guide](./custom-io.md) for poll-native stream adapters and
+explicit blocking compatibility.
 
 ## Limitations
 
