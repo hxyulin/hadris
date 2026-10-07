@@ -102,6 +102,11 @@ Each published package owns its version and may be released independently.
 - **NTFS:** Reading a file whose data a WOF (CompactOS) or Data Deduplication
   reparse point keeps elsewhere fails with `Unsupported`
   (`Detail::ReparseData`) instead of returning the sparse placeholder as zeros.
+- **hadris-fat:** `FatFs`, `ExFatFs` and the exFAT formatter write zeros for
+  gap fills and cleared regions up to 64 KiB per device call instead of one
+  4096-byte buffer per call. A 1 MiB gap on FAT32 with 512-byte sectors took
+  292 device writes and now takes 52. The embedded drivers are unchanged.
+
 - **hadris-fat (exFAT):** Freeing or shrinking a contiguous (`NoFatChain`)
   allocation clears its bitmap bits with one write per device block, and
   giving one a FAT chain writes its entries a device block at a time.

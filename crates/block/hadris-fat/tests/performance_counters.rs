@@ -424,3 +424,46 @@ fn allocation_fails_without_a_scan_once_no_cluster_is_free() {
         fs.unmount().unwrap();
     }
 }
+
+#[test]
+fn gap_fills_write_many_blocks_per_call() {
+    use hadris_fat::sync::{FatFs, format};
+    use hadris_fat::{FatKind, FatOptions};
+    use hadris_fs::{MountOptions, Name, SetAttr};
+
+    let mut inner = MemDevice::new(vec![0xa5; 64 << 20], BlockSize::new(512).unwrap());
+    format(
+        &mut inner,
+        &FatOptions::new()
+            .with_kind(FatKind::Fat32)
+            .with_cluster_size(512),
+    )
+    .unwrap();
+    let counts = Cell::new(IoCounts::default());
+    let dev = Counted {
+        inner,
+        counts: &counts,
+        written_blocks: None,
+    };
+    let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
+    let file = fs
+        .create(fs.root(), Name::new("SPARSE.BIN"), &SetAttr::new())
+        .unwrap();
+    counts.set(IoCounts::default());
+    fs.write(file, 1 << 20, b"end").unwrap();
+    assert!(counts.get().write_calls < 100, "{:?}", counts.get());
+    assert!(
+        counts.get().max_write_bytes >= 32 << 10,
+        "{:?}",
+        counts.get()
+    );
+    let mut data = vec![1; (1 << 20) + 3];
+    let mut done = 0;
+    while done < data.len() {
+        done += fs.read(file, done as u64, &mut data[done..]).unwrap();
+    }
+    assert!(data[..1 << 20].iter().all(|&b| b == 0));
+    assert_eq!(&data[1 << 20..], b"end");
+    fs.close(file).unwrap();
+    fs.unmount().unwrap();
+}
