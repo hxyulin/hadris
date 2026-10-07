@@ -2,7 +2,7 @@
 title: Getting started
 ---
 
-# Getting started with 3.0.0-rc.1
+# Getting started with 3.0.0-rc.2
 
 Use `hadris` for a single dependency that reaches the format drivers, shared
 filesystem API, block devices and stream adapters. Disable defaults to choose
@@ -10,23 +10,32 @@ only the formats and I/O mode the application needs.
 
 ## Get the release candidate
 
-`3.0.0-rc.1` is published on crates.io. Select the release candidate explicitly:
+These pages target `3.0.0-rc.2`. For registry installation after publication,
+select the release candidate explicitly. Before publication, or when testing
+development changes, use the source checkout below:
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 default-features = false
 features = ["std", "sync", "fat"]
 ```
 
 A plain `version = "3"` cannot select a prerelease. The recipes in these guides
-use the explicit RC1 version from crates.io. For development snapshots, use a
+use the explicit RC2 version. For development snapshots, use a
 Git dependency pinned to a reviewed `rev`.
 
-Install the command-line tool with:
+After publication, install the command-line tool with cargo-binstall:
 
 ```sh
-cargo install hadris-cli --version 3.0.0-rc.1 --locked
+cargo binstall hadris-cli --version 3.0.0-rc.2
+hadris --help
+```
+
+Or compile it with Rust 1.88 or newer:
+
+```sh
+cargo install hadris-cli --version 3.0.0-rc.2 --locked
 hadris --help
 ```
 
@@ -89,8 +98,7 @@ its `read` feature internally.
 Use `Volume` for paths and handles, and the bare `FileSystem` trait for node
 operations and platform integrations. Close written files and explicitly
 unmount when errors from metadata publication or device flush must be reported.
-The published RC1 shared async tier requires Send devices and futures. RC2
-on `main` uses one driver for local and Send devices; operation state must also
+RC2 uses one driver for local and Send devices; operation state must also
 be Send for Send futures. See [async support boundaries](./guides/async-io.md).
 
 ## Next steps

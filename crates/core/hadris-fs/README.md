@@ -5,7 +5,7 @@ Shared filesystem vocabulary and the filesystem trait for the Hadris crates.
 The vocabulary is mode-independent and performs no I/O:
 
 - `NodeId` and `FileType`
-- `Name`, `NameBuf` and `OwnedName`: byte names that need no allocator (`NameBuf` holds 1024 bytes by default), checked with `Name::check`
+- `Name` and `NameBuf`: byte names that need no allocator (`NameBuf` holds 1024 bytes by default), checked with `Name::check`; `OwnedName` needs `alloc`
 - `DateTime` and `Clock`, with civil-time conversions for on-disk encodings
 - `Metadata`, `Permissions`, `Owner`, `Attributes` and `SetAttr`, the changes `setattr`, `create` and `mkdir` apply
 - `Capabilities` (with `CaseRule`, `Charset`, `Field` and `Stored`) and `FsStats`
@@ -104,30 +104,30 @@ assert!(OpenOptions::new().write().create().append().validate().is_ok());
 
 | Feature | Default | Purpose |
 |---|---:|---|
-| `alloc` | via `std` | `OwnedName`, `PathError`, `Tree`, `Report`, `copy_tree` and `ContentReader` in each mode, the async `Volume` and its `read_tree`, and `Box` forwarding |
+| `alloc` | via `std` | `OwnedName`, `PathError`, `Tree`, `Report`, `copy_tree` and `ContentReader` in each mode, async volumes with pointer-sized atomics, lazy `read_tree` in the Send tier, and `Box` forwarding |
 | `std` | Yes | Implies `alloc`; adds `SystemClock`, the sync `Volume` with its `std::io` handles and `read_tree`, `host` with `sync`, and conversions to `std::io::Error` |
 | `sync` | Yes | The blocking API in `sync` |
-| `async` | No | The same API with `Send` futures in `r#async` |
+| `async` | No | Both the Send contract and handles in `async_` (`r#async` is an alias) and the local contract and handles in `local` |
 | `async-local` | No | The filesystem contract and handles with potentially non-Send futures in `local` |
 | `contract` | No | The driver contract kit: `contract::check` in each mode, for testing a format against the `FileSystem` contract |
-
-## Documentation
-
-- [Crate overview](https://hxyulin.github.io/hadris/crates)
-- [API reference](https://docs.rs/hadris-fs/3.0.0-rc.1)
-
-## License
-
-Licensed under the [MIT license](../../../LICENSE-MIT).
 
 ## Local asynchronous access
 
 Enable `async-local` for the `local` filesystem contract, whose futures need
 not implement `Send`. Enable `alloc` for `local::Volume` and its handles;
-these also require pointer-sized atomics. The existing `async` feature and
-`r#async` API retain their `Send` contract.
+these also require pointer-sized atomics. The `async` feature enables this
+local tier as well as the stronger Send contract in `async_` (`r#async` is an alias).
 
 ISO supports both contracts with one reader type. See the
 [unified ISO async guide](../../../docs/unified-async-iso.md) for device
 adaptation and generic Send callers. Local volumes do not expose lazy
 `read_tree` content, whose shared `Content` contract requires `Send + Sync`.
+
+## Documentation
+
+- [Crate overview](https://hxyulin.github.io/hadris/crates)
+- [API reference](https://docs.rs/hadris-fs/3.0.0-rc.2)
+
+## License
+
+Licensed under the [MIT license](../../../LICENSE-MIT).

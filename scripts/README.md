@@ -25,7 +25,7 @@ and list indirect-call boundaries; they are not runtime stack measurements.
 
 | Tool | Purpose | Entry point |
 |---|---|---|
-| `check-docs.py` | Validate public Markdown links and package README conventions | `python3 scripts/check-docs.py` |
+| `check-docs.py` | Validate Markdown links, README conventions and current dependency/API versions | `python3 scripts/check-docs.py` |
 | `check-spec-annotations.py` | Validate source annotations and generated coverage tables | `python3 scripts/check-spec-annotations.py` |
 | `check-compliance-catalog.py` | Validate requirement catalogs and evidence references | `python3 scripts/check-compliance-catalog.py` |
 | `release-plan.py` | Validate release versions/notes and order package publication | Used by [release.yml](../.github/workflows/release.yml) |

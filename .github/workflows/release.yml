@@ -14,7 +14,7 @@ on:
         default: all
         type: string
       notes:
-        description: CHANGELOG section for every crate (such as 3.0.0-rc.1); empty uses "<crate> <version>"
+        description: CHANGELOG section for every crate (such as 3.0.0-rc.2); empty uses "<crate> <version>"
         required: false
         default: ""
         type: string

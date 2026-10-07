@@ -2,7 +2,7 @@
 title: Migrate from 2.x
 ---
 
-# Migrate from 2.x to 3.0.0-rc.1
+# Migrate from 2.x to 3.0.0-rc.2
 
 This page gives the implementation order for a 2.4/2.5 application. The
 [full migration guide and symbol tables](https://github.com/hxyulin/hadris/blob/main/docs/hadris-3.0.0-migration.md)
@@ -10,12 +10,12 @@ cover individual replacements, CLI flags and APFS additions in 2.5.
 
 ## Select one dependency
 
-Follow the [rc.1 installation recipe](./getting-started.md#get-the-release-candidate).
+Follow the [RC2 installation recipe](./getting-started.md#get-the-release-candidate).
 The umbrella reaches the same native APIs as individual format crates, including
 `hadris::fat`, `hadris::iso`, `hadris::fs`, `hadris::storage` and `hadris::io`.
 A known FAT image needs only `std`, `sync` and `fat`; add `write` for formatting.
 
-Select `3.0.0-rc.1` explicitly in Cargo dependencies. Disable default features when
+Select `3.0.0-rc.2` explicitly in Cargo dependencies. Disable default features when
 selecting formats or targeting `no_std`; do so for every direct Hadris dependency
 if individual crates are used, because Cargo unifies their features.
 
@@ -62,12 +62,12 @@ Dropping a handle cannot report a flush or metadata error to the caller.
 | FAT without an allocator | `fat::embedded`, with `MountToken` and fixed file slots |
 | exFAT without an allocator | Read-only `fat::exfat::embedded` |
 | ISO/UDF without an allocator | Shared read-only drivers; image writers and convenience APIs may need `alloc` |
-| Non-`Send` asynchronous firmware | Local device traits and embedded FAT/exFAT |
+| Non-`Send` asynchronous firmware | The common `storage::async_::BlockDevice` and `fs::local::FileSystem`; `fs::local::Volume` with allocation and pointer-sized atomics |
 
 Device errors still require `core::error::Error + Send + Sync + 'static` in
 every mode. `local` relaxes device and future bounds, not error bounds. The
-missing general local async filesystem tier is tracked in
-[issue #267](https://github.com/hxyulin/hadris/issues/267).
+allocated local filesystem gap from RC1, tracked in
+[issue #267](https://github.com/hxyulin/hadris/issues/267), is resolved in RC2.
 
 Mutations are not transactions. A device error or cancelled future can leave
 partial changes. Confirm the [documented durability limits](https://github.com/hxyulin/hadris/blob/main/KNOWN_ISSUES.md)
@@ -89,8 +89,8 @@ cover partitioned boot media, extraction, streaming initramfs and VFS integratio
 
 ## RC2 async devices
 
-Complete the RC1 migration above first, then apply the following guidance when
-upgrading to `3.0.0-rc.2`.
+Apply the guidance above when migrating from V2. Applications already using
+RC1 must also migrate custom asynchronous devices to the RC2 poll contract.
 
 The unified device contract uses operation-owned state and poll hooks. Format
 callers use `async_` as the canonical namespace; `r#async` remains an alias.

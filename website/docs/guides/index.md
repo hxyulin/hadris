@@ -5,7 +5,7 @@ title: Use cases
 # Use cases
 
 These guides use the one-dependency umbrella with explicit feature sets for
-3.0.0-rc.1. Start with [installation](../getting-started.md) or
+3.0.0-rc.2. Start with [installation](../getting-started.md) or
 [the V2 migration](../migration.md), then choose an application task.
 
 ## Discover and open storage

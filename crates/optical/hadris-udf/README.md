@@ -23,8 +23,8 @@ DVD-Video, Blu-ray and many large removable drives.
 
 ```toml
 [dependencies]
-hadris-udf = "3.0.0-rc.1"
-hadris-fs = { version = "3.0.0-rc.1", features = ["std", "sync"] }
+hadris-udf = "3.0.0-rc.2"
+hadris-fs = { version = "3.0.0-rc.2", features = ["std", "sync"] }
 ```
 
 ```rust,no_run
@@ -126,6 +126,7 @@ volumes; `plan_bridge` returns its report.
 | `alloc` | via `std` | The writers, `plan` and `plan_bridge` |
 | `sync` | Yes | The blocking API in `sync` |
 | `async` | No | The common asynchronous API in `async_`; futures are Send for Send devices and operation state |
+| `tracing` | No | Operation spans through the `tracing` crate; implies `std` |
 
 No feature changes what an item does.
 
@@ -139,20 +140,12 @@ refuses such partitions as unsupported, and the writer refuses UDF 2.50
 and 2.60, which require a metadata partition. Writing to a mounted volume
 (`FileSystem` write methods) reports read-only for now.
 
-## Documentation
-
-- [Read and extract UDF](https://hxyulin.github.io/hadris/guides/read-udf)
-- [Create UDF filesystems](https://hxyulin.github.io/hadris/creation/udf)
-- [API reference](https://docs.rs/hadris-udf/3.0.0-rc.1)
-
 ## Specifications
 
 - ECMA-167: Volume and File Structure for Write-Once and Rewritable Media
 - OSTA UDF Specification (udf260.pdf)
 
-## License
-
-Licensed under the [MIT license](../../../LICENSE-MIT).
+## Tracing
 
 The opt-in `tracing` feature enables `std` and emits operation spans through the
 application’s subscriber. It is disabled by default. See the
@@ -177,3 +170,13 @@ Reader operations and writers produce Send futures when the device implements
 state. The same `UdfFs` implements both the local filesystem contract and,
 for those devices, the Send filesystem contract. The `async` feature enables
 both capabilities; the reader still works without an allocator.
+
+## Documentation
+
+- [Read and extract UDF](https://hxyulin.github.io/hadris/guides/read-udf)
+- [Create UDF filesystems](https://hxyulin.github.io/hadris/creation/udf)
+- [API reference](https://docs.rs/hadris-udf/3.0.0-rc.2)
+
+## License
+
+Licensed under the [MIT license](../../../LICENSE-MIT).

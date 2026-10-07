@@ -13,11 +13,12 @@ Types are available at the crate root. The driver preserves the same types
 under `hadris_cpio::raw` for existing users. Use `hadris-cpio` for
 streaming archive reading and writing.
 
-This package is not published yet; use a workspace path dependency until its
-first release.
+The first publication is part of the RC2 release. Until publication, use a
+workspace path dependency.
 
 ## Documentation
 
+- [API reference](https://docs.rs/hadris-cpio-raw/0.1.0)
 - [Hadris documentation](https://hxyulin.github.io/hadris/)
 - [`hadris-cpio`](../hadris-cpio), the driver using these codecs
 

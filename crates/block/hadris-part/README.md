@@ -114,7 +114,7 @@ allocator either. The on-disk layouts live in `hadris_part::raw`.
 
 ```toml
 [dependencies]
-hadris-part = { version = "3.0.0-rc.1", default-features = false, features = ["sync"] }
+hadris-part = { version = "3.0.0-rc.2", default-features = false, features = ["sync"] }
 ```
 
 ## Partition Types
@@ -126,22 +126,26 @@ GUIDs are constants in `hadris_part::gpt::types` (`EFI_SYSTEM`,
 `BASIC_DATA`, `LINUX_FILESYSTEM`, ...), and `Guid` parses the usual text
 form with `FromStr`, or in `const` context with `Guid::parse_const`.
 
-## Documentation
-
-- [Inspect a partition table](https://hxyulin.github.io/hadris/guides/read-partition-table)
-- [Open FAT inside a partition](https://hxyulin.github.io/hadris/guides/open-partitioned-fat)
-- [API reference](https://docs.rs/hadris-part/3.0.0-rc.1)
-
-## License
-
-Licensed under the [MIT license](../../../LICENSE-MIT).
+## Tracing
 
 The opt-in `tracing` feature enables `std` and emits operation spans through the
 application’s subscriber. It is disabled by default. See the
 [tracing guide](../../../docs/tracing.md) for targets, metadata and async behavior.
+
+## Asynchronous byte streams
 
 The canonical asynchronous namespace is `async_`; `r#async` remains a compatibility
 alias. The async functions accept the common
 `hadris_storage::async_::BlockDevice` contract, including borrowed and `Rc`
 devices. Futures are `Send` when the device, its operation state and any callback
 are `Send`. `open` preserves this capability in the returned partition device.
+
+## Documentation
+
+- [Inspect a partition table](https://hxyulin.github.io/hadris/guides/read-partition-table)
+- [Open FAT inside a partition](https://hxyulin.github.io/hadris/guides/open-partitioned-fat)
+- [API reference](https://docs.rs/hadris-part/3.0.0-rc.2)
+
+## License
+
+Licensed under the [MIT license](../../../LICENSE-MIT).

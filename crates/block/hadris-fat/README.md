@@ -294,7 +294,7 @@ exfatprogs, macOS `newfs_exfat`/`fsck_exfat` and the macOS kernel driver.
 
 ```toml
 [dependencies]
-hadris-fat = { version = "3.0.0-rc.1", default-features = false, features = ["sync"] }
+hadris-fat = { version = "3.0.0-rc.2", default-features = false, features = ["sync"] }
 ```
 
 Without `alloc` this gives the embedded API, `check` and the raw layer;
@@ -346,7 +346,7 @@ with `Unsupported`.
 
 ```toml
 [dependencies]
-hadris-fat = "3.0.0-rc.1"  # Uses default features
+hadris-fat = "3.0.0-rc.2"  # Uses default features
 ```
 
 ## FAT Variant Support
@@ -402,18 +402,6 @@ Implements the following specifications:
 - VFAT (Long Filename) extension
 - exFAT specification (TexFAT transactions not supported)
 
-## Documentation
-
-- [Read a FAT image](https://hxyulin.github.io/hadris/guides/read-fat-image)
-- [Modify FAT safely](https://hxyulin.github.io/hadris/guides/modify-fat)
-- [Create FAT filesystems](https://hxyulin.github.io/hadris/creation/fat)
-- [API reference](https://docs.rs/hadris-fat/3.0.0-rc.1)
-
-## License
-
-This project is licensed under the [MIT license](../../../LICENSE-MIT).
-
-
 For sequential traversal, `CacheOptions::sequential()` retains only the most
 recently listed entry. A matching lookup reuses its parsed short entry and
 long name; other names or directories follow the normal lookup path. The hint
@@ -445,9 +433,22 @@ the listing hint uses 88 bytes of heap storage for a short name and up to 598
 bytes for a maximum-length long name, excluding allocator overhead. Its memory
 use does not grow with directory size. Layouts vary by target.
 
+## Asynchronous byte streams
+
 The canonical asynchronous namespace is `async_`; `r#async` remains a compatibility
 alias in the FAT, exFAT and embedded APIs. All asynchronous drivers accept
 `hadris_storage::async_::BlockDevice`. Futures are `Send` when the device and its
 operation state are `Send`; `Rc` devices and states use the same driver types on
 local executors. Hosted drivers implement `hadris_fs::local::FileSystem`, and also
 `hadris_fs::async_::FileSystem` when the device satisfies `SendBlockDevice`.
+
+## Documentation
+
+- [Read a FAT image](https://hxyulin.github.io/hadris/guides/read-fat-image)
+- [Modify FAT safely](https://hxyulin.github.io/hadris/guides/modify-fat)
+- [Create FAT filesystems](https://hxyulin.github.io/hadris/creation/fat)
+- [API reference](https://docs.rs/hadris-fat/3.0.0-rc.2)
+
+## License
+
+This project is licensed under the [MIT license](../../../LICENSE-MIT).

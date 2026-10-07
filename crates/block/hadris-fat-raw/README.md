@@ -11,8 +11,8 @@ low-level API can change without a new major version of `hadris-fat`, and
 `hadris-fat` re-exports only the items its own API uses (`FatKind`,
 `Detail`, `exfat::Detail` and `check`).
 
-Everything works on bytes and plain values. Nothing does I/O, and nothing
-needs an allocator:
+The layouts and codecs work on bytes and plain values without I/O or an
+allocator. Optional device primitives are described below:
 
 - **Layouts** of the boot sector, BPB, FSInfo sector and directory entries,
   with their constants
@@ -106,12 +106,12 @@ assert_eq!(entry.lfn_checksum(), lfn_checksum(b"README  TXT"));
 | Feature | Description | Default |
 |---------|-------------|---------|
 | `sync` | The device primitives in `io::sync` | - |
-| `async` | The device primitives with `Send` futures in `io::r#async`, and without the `Send` bound in `io::local` | - |
+| `async` | Common poll-device primitives in `io::async_` and `exfat::io::async_`; `r#async` and `local` are aliases, and futures are Send when device and operation state are Send | - |
 | `defmt` | `defmt::Format` for `FatKind` | - |
 
 ## Documentation
 
-- [API reference](https://docs.rs/hadris-fat-raw/0.1.0)
+- [API reference](https://docs.rs/hadris-fat-raw/0.2.0)
 - [`hadris-fat`](../hadris-fat), the drivers built on this crate
 
 ## License

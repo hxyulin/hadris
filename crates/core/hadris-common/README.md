@@ -33,13 +33,13 @@ assert_eq!(value.get(), 0x12345678);
 
 ```toml
 [dependencies]
-hadris-common = { version = "3.0.0-rc.1", default-features = false }
+hadris-common = { version = "3.0.0-rc.2", default-features = false }
 ```
 
 ## Documentation
 
 - [Feature and capability guide](https://hxyulin.github.io/hadris/concepts/features)
-- [API reference](https://docs.rs/hadris-common/3.0.0-rc.1)
+- [API reference](https://docs.rs/hadris-common/3.0.0-rc.2)
 
 ## License
 

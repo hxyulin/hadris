@@ -3,9 +3,9 @@
 This guide is for code and scripts written against Hadris 2.4 or 2.5 (the V2
 API) that move to Hadris 3.0 (the V3 API). The symbol tables describe the 2.4
 API; the final APFS section covers its addition in 2.5. It covers the library crates,
-their features, and the command-line tools. The dependency recipes select the
-published RC1 packages; the [Async](#async) section describes the RC2 contract
-on `main`. Until RC2 is published, use a workspace checkout for that contract.
+their features, and the command-line tools. The dependency recipes and API
+descriptions target RC2. Until RC2 is published, use a workspace checkout
+of `main`; after publication, use the explicit release-candidate versions below.
 
 Hadris 3.0 is a new API, not an incremental release. Every filesystem reads a
 block device instead of a byte stream, every driver implements one shared
@@ -21,13 +21,13 @@ are optional. Turn off the umbrella defaults to select only the required formats
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 default-features = false
 features = ["std", "sync", "fat"]
 ```
 
-The release candidate is published on crates.io. These recipes select
-`3.0.0-rc.1` explicitly; a plain `version = "3"` does not select a prerelease.
+These recipes select `3.0.0-rc.2` explicitly after publication; a plain
+`version = "3"` does not select a prerelease.
 For development snapshots, use a Git dependency pinned to a reviewed `rev`.
 
 This is the host read path that replaces `FatVolume::open` and `root_dir`:
@@ -135,17 +135,17 @@ New crates:
 | Crate | Role |
 |---|---|
 | `hadris-fs` | Shared vocabulary (`NodeId`, `Name`, `Metadata`, `DateTime`, `MountOptions`), the `FileSystem` trait, `Volume` with `File` and `ReadDir`, `Walk`, `Tree`, `Node`, `Content`, `Report`, `copy_tree`, `read_tree`, `Finding`, `CheckReport`, the `host` module, and re-exports of the `hadris-io` error items. |
-| `hadris-fat-raw` | FAT12/16/32 and exFAT on-disk layouts, I/O-free codecs, device primitives (`io`, `exfat::io`) and the allocation-free checkers. Version 0.1.0. |
-| `hadris-cli` | The single `hadris` binary. Install rc.1 from crates.io as shown in [Command-line tools](#command-line-tools). |
+| `hadris-fat-raw` | FAT12/16/32 and exFAT on-disk layouts, I/O-free codecs, device primitives (`io`, `exfat::io`) and the allocation-free checkers. Version 0.2.0 in RC2. |
+| `hadris-cli` | The single `hadris` binary. Install RC2 from crates.io after publication as shown in [Command-line tools](#command-line-tools). |
 
 For applications that deliberately use individual format crates, the same API
 is available through separate dependencies:
 
 ```toml
 [dependencies]
-hadris-fat = { version = "3.0.0-rc.1" }
-hadris-fs = { version = "3.0.0-rc.1" }
-hadris-storage = { version = "3.0.0-rc.1" }
+hadris-fat = { version = "3.0.0-rc.2" }
+hadris-fs = { version = "3.0.0-rc.2" }
+hadris-storage = { version = "3.0.0-rc.2" }
 ```
 
 The paths correspond directly: `hadris::fat` is `hadris_fat`, `hadris::fs` is
@@ -200,7 +200,7 @@ Allocation-free ISO reader, for a bootloader:
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 default-features = false
 features = ["sync", "iso"]
 ```
@@ -209,7 +209,7 @@ FAT or exFAT driver without `std`, with an allocator:
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 default-features = false
 features = ["alloc", "sync", "fat"]
 ```
@@ -218,7 +218,7 @@ Firmware without an allocator, using the embedded FAT/exFAT API:
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 default-features = false
 features = ["sync", "write", "fat"]
 ```
@@ -1065,7 +1065,7 @@ The five CLI packages are replaced by one binary, `hadris`, in the
 
 ```bash
 cargo uninstall hadris-fat-cli hadris-iso-cli hadris-udf-cli hadris-cpio-cli hadris-cd-cli
-cargo install hadris-cli --version 3.0.0-rc.1 --locked
+cargo install hadris-cli --version 3.0.0-rc.2 --locked
 ```
 
 The 2.x binaries (`hadris-fat`, `fatutil`, `hadris-iso`, `hadris-iso-cli`,
@@ -1612,7 +1612,7 @@ Writing:
     `close` not flushing the device.
 13. Replace CLI invocations with `hadris <format> <command>` (see
     [Command-line tools](#command-line-tools)) and install
-    `cargo install hadris-cli --version 3.0.0-rc.1 --locked`.
+    `cargo install hadris-cli --version 3.0.0-rc.2 --locked`.
 
 ## Additions after the initial V3 migration
 

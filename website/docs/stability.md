@@ -4,17 +4,17 @@ title: Stability and compatibility
 
 # Stability and compatibility
 
-Hadris 3.0.0-rc.1 is published on crates.io. Hadris 2.5.0 is the current
-stable release of V2, whose source is retained at the
+Hadris 3.0.0-rc.2 is the current release candidate of the V3 API.
+Hadris 2.5.0 is the current stable release of V2, whose source is retained at the
 [`v2.5.0` tag](https://github.com/hxyulin/hadris/tree/v2.5.0).
 See [installation](./getting-started.md) for the release candidate.
-The default site documents rc.1, and archived V2 pages are available in the
+The default site documents RC2, and archived V2 pages are available in the
 version selector. Released stable APIs follow Semantic Versioning: within a major series,
 breaking changes require a new major version, minor releases add
 backward-compatible functionality, and patch releases carry correctness
 fixes, interoperability qualification, and documentation.
 
-Read the [unreleased changes](https://github.com/hxyulin/hadris/blob/main/CHANGELOG.md),
+Read the [RC2 release notes](https://github.com/hxyulin/hadris/blob/main/CHANGELOG.md),
 the [3.0 API design](https://github.com/hxyulin/hadris/blob/main/docs/v3-api-design.md)
 or the [2.5.0 changelog](https://github.com/hxyulin/hadris/blob/v2.5.0/CHANGELOG.md#250---2026-10-03).
 The [migration guide](https://github.com/hxyulin/hadris/blob/main/docs/hadris-3.0.0-migration.md)
@@ -40,7 +40,9 @@ trait, but its native methods may change in 3.x minor releases.
 - Every crate ships 3.0.0 together. After that each crate has its own
   version and release tag (`hadris-fat-v3.1.0`) and bumps its major only
   for its own breaking changes. The umbrella `hadris` bumps its major when a
-  crate it re-exports does. `hadris-fat-raw` versions separately from 0.1.0.
+  crate it re-exports does. `hadris-fat-raw` versions independently and is
+  0.2.0 in RC2. The ISO, UDF and CPIO raw crates start at 0.1.0 and also
+  version independently.
 
 `cargo semver-checks` checks compatibility against each crate's latest 3.x
 release, with feature builds, sync/async contract tests and the non-exhaustive

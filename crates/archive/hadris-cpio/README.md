@@ -99,6 +99,7 @@ The header layouts are in `hadris_cpio::raw`.
 | `alloc` | via `std` | The writer, `plan` and `read_tree` |
 | `sync` | yes | The blocking API in `sync` |
 | `async` | no | The asynchronous API with `Send` futures in `async_` |
+| `tracing` | no | Operation spans through the `tracing` crate; implies `std` |
 
 A bootloader that only reads uses
 `default-features = false, features = ["sync"]`.
@@ -109,15 +110,7 @@ A bootloader that only reads uses
 - Linux `Documentation/driver-api/early-userspace/buffer-format.rst`
 - GNU cpio manual
 
-## Documentation
-
-- [Read and create CPIO archives](https://hxyulin.github.io/hadris/guides/cpio-archives)
-- [Build a CPIO initramfs](https://hxyulin.github.io/hadris/guides/build-initramfs)
-- [API reference](https://docs.rs/hadris-cpio/3.0.0-rc.1)
-
-## License
-
-This project is licensed under the [MIT license](../../../LICENSE-MIT).
+## Tracing
 
 The opt-in `tracing` feature enables `std` and emits operation spans through the
 application’s subscriber. It is disabled by default. See the
@@ -136,8 +129,20 @@ The on-disk layouts and I/O-free codecs live in
 paths remain available and refer to the same types. The raw crate needs
 neither an allocator nor a sync/async feature.
 
+## Asynchronous byte streams
+
 The canonical asynchronous namespace is `async_`; `r#async` remains a compatibility
 alias. CPIO operates on byte streams through `hadris_io::async_::Read` and
 `Write`, rather than storage block devices. Its asynchronous streams and futures
 retain their `Send` contract. Local byte streams require a separate stream
 contract migration; enabling local block devices does not change this API.
+
+## Documentation
+
+- [Read and create CPIO archives](https://hxyulin.github.io/hadris/guides/cpio-archives)
+- [Build a CPIO initramfs](https://hxyulin.github.io/hadris/guides/build-initramfs)
+- [API reference](https://docs.rs/hadris-cpio/3.0.0-rc.2)
+
+## License
+
+This project is licensed under the [MIT license](../../../LICENSE-MIT).
