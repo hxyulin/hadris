@@ -207,6 +207,7 @@ pub struct ExFat {
     geo: Geometry,
     flags: u16,
     dirty: Dirty,
+    was_dirty: bool,
     bitmap: Extent,
     mirror: Option<Extent>,
     hint: ChainPos,
@@ -220,14 +221,16 @@ impl ExFat {
     /// Bitmap is `bitmap`, with `mirror` the bitmap of the other FAT of a
     /// TexFAT volume.
     pub const fn new(geo: Geometry, bitmap: Extent, mirror: Option<Extent>) -> Self {
+        let was_dirty = geo.flags() & crate::exfat::VOLUME_DIRTY != 0;
         Self {
             geo,
             flags: geo.flags(),
-            dirty: if geo.flags() & crate::exfat::VOLUME_DIRTY != 0 {
+            dirty: if was_dirty {
                 Dirty::Inherited
             } else {
                 Dirty::Clean
             },
+            was_dirty,
             bitmap,
             mirror,
             hint: ChainPos::NONE,
@@ -254,7 +257,16 @@ impl ExFat {
 
     /// Whether `VolumeDirty` was set at mount.
     pub const fn was_dirty(&self) -> bool {
-        matches!(self.dirty, Dirty::Inherited)
+        self.was_dirty
+    }
+
+    /// Takes over a `VolumeDirty` set at mount, so the next `clear_dirty`
+    /// clears it. Meant for after a check found the volume clean.
+    /// [`was_dirty`](Self::was_dirty) still says what mount saw.
+    pub fn mark_clean(&mut self) {
+        if self.dirty == Dirty::Inherited {
+            self.dirty = Dirty::Marked;
+        }
     }
 
     /// The Allocation Bitmap of the active FAT.

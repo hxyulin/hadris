@@ -1731,6 +1731,26 @@ fn was_dirty_reads_volume_dirty() {
 }
 
 #[test]
+fn mark_clean_clears_volume_dirty_at_the_next_sync() {
+    let mut image = common::image(common::small(4 << 20, 4096));
+    image[106] |= 0x02;
+    let mut fs = common::mount(&image);
+    fs.sync().unwrap();
+    assert_ne!(common::image(fs)[106] & 0x02, 0);
+    let mut fs = common::mount(&image);
+    fs.mark_clean().unwrap();
+    assert!(fs.was_dirty());
+    fs.sync().unwrap();
+    let cleaned = common::image(fs);
+    assert_eq!(cleaned[106] & 0x02, 0);
+    assert!(!common::mount(&cleaned).was_dirty());
+    fsck(&cleaned, "mark clean");
+    let mut fs =
+        ExFatFs::mount(common::device(image, 512), MountOptions::new().read_only()).unwrap();
+    assert_eq!(fs.mark_clean().unwrap_err().kind(), ErrorKind::ReadOnly);
+}
+
+#[test]
 fn overwrite_error_can_leave_partial_data() {
     let mut fs = common::small(4 << 20, 512);
     let node = fs.create(fs.root(), name("data"), &SetAttr::new()).unwrap();

@@ -485,3 +485,44 @@ fn fs_info_free_count_is_ignored_when_mounted_dirty() {
         assert_eq!(free, if dirty { u64::from(actual) } else { 7 });
     }
 }
+
+#[test]
+fn mark_clean_clears_a_volume_dirty_at_mount() {
+    use hadris_fat::sync::FatFs;
+    for case in [common::CASES[1], common::CASES[2]] {
+        let (dev, state) = Device::new(flag_image(case, true, false));
+        let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
+        assert!(fs.was_dirty());
+        fs.sync().unwrap();
+        state.lock().unwrap().assert_clean(false);
+        fs.mark_clean().unwrap();
+        fs.sync().unwrap();
+        state.lock().unwrap().assert_clean(true);
+        assert!(fs.was_dirty());
+        fs.unmount().unwrap();
+
+        let (dev, state) = Device::new(flag_image(case, true, false));
+        let mut fs = FatFs::mount(dev, MountOptions::new().read_only()).unwrap();
+        let err = fs.mark_clean().unwrap_err();
+        assert_eq!(err.kind(), hadris_fs::ErrorKind::ReadOnly);
+        fs.unmount().unwrap();
+        state.lock().unwrap().assert_clean(false);
+    }
+}
+
+#[test]
+fn embedded_mark_clean_clears_a_volume_dirty_at_mount() {
+    use hadris_fat::embedded::MountToken;
+    use hadris_fat::embedded::sync::Fat;
+    for case in [common::CASES[1], common::CASES[2]] {
+        let (dev, state) = Device::new(flag_image(case, true, false));
+        let mut token = MountToken::new();
+        let mut fat: Fat<Device> = Fat::mount(dev, &mut token).ok().unwrap();
+        assert!(fat.was_dirty());
+        fat.sync().unwrap();
+        state.lock().unwrap().assert_clean(false);
+        fat.mark_clean().unwrap();
+        fat.sync().unwrap();
+        state.lock().unwrap().assert_clean(true);
+    }
+}

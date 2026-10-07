@@ -727,6 +727,15 @@ impl<D: BlockDevice> ExFatFs<D> {
         self.vol.was_dirty()
     }
 
+    /// Has the next [`sync`](Self::sync) clear a `VolumeDirty` set at
+    /// mount, as `fsck.exfat` does. Call it after `check` found the volume
+    /// clean. Fails with [`ErrorKind::ReadOnly`] on a read-only mount.
+    pub fn mark_clean(&mut self) -> FsResult<(), D::Error> {
+        self.writable()?;
+        self.vol.mark_clean();
+        Ok(())
+    }
+
     /// Maps `node` to the device, FIEMAP style: fills `out` with the runs
     /// of consecutive clusters that hold its bytes from file offset `from`
     /// on, and returns how many it filled. A run ends with the file, and

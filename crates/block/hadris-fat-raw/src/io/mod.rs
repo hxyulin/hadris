@@ -160,6 +160,17 @@ impl Fat {
         self.keep_dirty = true;
     }
 
+    /// Drops the dirty state kept from mount or [`preserve_dirty`](Self::preserve_dirty),
+    /// so the next `clear_dirty` marks a FAT16/32 volume clean. Meant for
+    /// after a check found the volume clean. [`was_dirty`](Self::was_dirty)
+    /// still says what mount saw.
+    pub fn mark_clean(&mut self) {
+        self.keep_dirty = false;
+        if self.dirty == Dirty::Preserve {
+            self.dirty = Dirty::Marked;
+        }
+    }
+
     /// Records a serial written to the boot sector.
     pub fn set_volume_serial(&mut self, serial: u32) {
         self.geo.set_volume_serial(serial);

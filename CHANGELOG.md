@@ -102,6 +102,14 @@ Each published package owns its version and may be released independently.
 - **NTFS:** Reading a file whose data a WOF (CompactOS) or Data Deduplication
   reparse point keeps elsewhere fails with `Unsupported`
   (`Detail::ReparseData`) instead of returning the sparse placeholder as zeros.
+- **hadris-fat:** `FatFs::mark_clean`, `ExFatFs::mark_clean` and the embedded
+  `Fat::mark_clean` have the next sync mark a volume clean that was dirty at
+  mount (or, on FAT, that recovery left dirty), for use after `check` found
+  it clean, as `fsck.fat -a` and `fsck.exfat` do for the dirty flag. They fail
+  with `ReadOnly` on a read-only mount. `hadris-fat-raw` adds
+  `io::Fat::mark_clean` and `exfat::io::ExFat::mark_clean`; `was_dirty` still
+  reports what mount saw.
+
 - **hadris-fat:** `FatFs`, `ExFatFs` and the exFAT formatter write zeros for
   gap fills and cleared regions up to 64 KiB per device call instead of one
   4096-byte buffer per call. A 1 MiB gap on FAT32 with 512-byte sectors took
