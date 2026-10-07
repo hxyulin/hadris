@@ -8,6 +8,12 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **hadris-fat:** Shrinking a FAT file (`FatFs::truncate`, embedded
+  `Fat::set_len`) reads the chain before writing the new size and records the
+  clusters to free as soon as the size is written. An error or a dropped
+  future in between no longer leaves clusters past the new size that recovery
+  never frees.
+
 - **hadris-fat (exFAT):** Freeing or shrinking a contiguous (`NoFatChain`)
   allocation whose `DataLength` runs past the cluster heap fails with
   `Corrupt` before anything is written. It previously could free the bitmap

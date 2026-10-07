@@ -2949,21 +2949,24 @@ impl<D: BlockDevice> FatFs<D> {
         if keep == 0 && state.first != 0 {
             self.pending = Some(Pending::chain(state.first, Owner::Entry(state.entry)));
         }
+        let mut cut = None;
+        if keep != 0 && state.first != 0 {
+            let reached = rawio::walk(&mut self.dev, &mut self.block, &self.fat, state.first, ChainPos::NONE, keep - 1).await?;
+            let last = reached.cluster();
+            if reached.index() == keep - 1
+                && let Some(next) = rawio::next(&mut self.dev, &mut self.block, &self.fat, last).await?
+            {
+                cut = Some((last, next));
+            }
+        }
         self.store(id, &state, first, len as u32, ChainPos::NONE).await?;
-        if state.first == 0 {
-            return Ok(());
-        }
-        if keep == 0 {
-            return self.free_chain(state.first).await;
-        }
-        let reached = rawio::walk(&mut self.dev, &mut self.block, &self.fat, state.first, ChainPos::NONE, keep - 1).await?;
-        let last = reached.cluster();
-        if reached.index() == keep - 1
-            && let Some(next) = rawio::next(&mut self.dev, &mut self.block, &self.fat, last).await?
-        {
+        if let Some((last, next)) = cut {
             self.pending = Some(Pending::chain(next, Owner::Tail(last)));
             self.set_fat(last, self.fat.geometry().kind().end_of_chain()).await?;
-            self.free_chain(next).await?;
+            return self.free_chain(next).await;
+        }
+        if keep == 0 && state.first != 0 {
+            return self.free_chain(state.first).await;
         }
         Ok(())
     }

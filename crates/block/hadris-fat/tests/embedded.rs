@@ -1018,6 +1018,52 @@ mod cancel {
             }
         }
     }
+
+    #[test]
+    fn shrink_recovers_at_every_await() {
+        for case in CASES[..3].iter().copied() {
+            let blank = common::blank(case);
+            let cluster = hadris_fat_raw::parse_boot(blank[..512].try_into().unwrap())
+                .unwrap()
+                .cluster_size() as usize;
+            let old = common::payload(4 * cluster, 3);
+            let mut token = MountToken::new();
+            let mut fs = mount(&mut token, case, blank);
+            let root = fs.root();
+            write_file(&mut fs, root, "LOG.BIN", &old);
+            let before = fs.unmount().unwrap().into_inner();
+            for budget in 0..200 {
+                let mut token = MountToken::new();
+                let mut fs: Vol = block_on(AsyncFat::mount(
+                    Yielding(common::device(case, before.clone())),
+                    &mut token,
+                ))
+                .unwrap();
+                let file =
+                    block_on(fs.open(fs.root(), "LOG.BIN", OpenOptions::new().write())).unwrap();
+                let result = run_for(fs.set_len(&file, cluster as u64 + 1), budget);
+                block_on(fs.sync()).unwrap();
+                block_on(fs.close(file)).unwrap();
+                let image = block_on(fs.unmount()).unwrap().0.into_inner();
+                common::assert_checks_clean(
+                    case,
+                    &image,
+                    &format!("{} shrink budget {budget}", case.name),
+                );
+                let mut token = MountToken::new();
+                let mut fs = mount(&mut token, case, image);
+                let root = fs.root();
+                let data = read_file(&mut fs, root, "LOG.BIN");
+                assert_eq!(data[..], old[..data.len()]);
+                if let Some(result) = result {
+                    result.unwrap();
+                    assert_eq!(data.len(), cluster + 1);
+                    break;
+                }
+                assert!(budget < 199, "shrink never completed");
+            }
+        }
+    }
 }
 
 #[test]
