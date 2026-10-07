@@ -8,6 +8,13 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **APFS:** Container mount scans the whole checkpoint descriptor area and
+  takes the valid superblock with the highest transaction identifier whose
+  geometry and UUID match block zero, skipping blocks with bad checksums or
+  mismatched identity and falling back to block zero. A single damaged
+  checkpoint no longer fails the mount, and newer checkpoints outside the
+  range block zero names are no longer missed.
+
 - **NTFS:** Reading a file whose data a WOF (CompactOS) or Data Deduplication
   reparse point keeps elsewhere fails with `Unsupported`
   (`Detail::ReparseData`) instead of returning the sparse placeholder as zeros.

@@ -365,3 +365,63 @@ fn invalid_utf8_directory_names_are_corrupt_and_return_the_device() {
     assert_eq!(error.kind(), ErrorKind::Corrupt);
     assert_eq!(error.into_device().into_inner(), image);
 }
+
+fn checkpoint_image(copies: &[(usize, u64, Option<u8>, bool)]) -> Vec<u8> {
+    use hadris_apfs::types::checksum::fletcher64;
+    let mut image = build_image();
+    let mut zero = image[..BLOCK].to_vec();
+    zero[104..108].copy_from_slice(&3_u32.to_le_bytes());
+    zero[112..120].copy_from_slice(&21_u64.to_le_bytes());
+    zero[136..140].copy_from_slice(&2_u32.to_le_bytes());
+    zero[140..144].copy_from_slice(&1_u32.to_le_bytes());
+    let seal = |block: &mut Vec<u8>| {
+        let checksum = fletcher64(block).unwrap();
+        block[..8].copy_from_slice(&checksum.to_le_bytes());
+    };
+    seal(&mut zero);
+    image[..BLOCK].copy_from_slice(&zero);
+    for &(index, xid, uuid, valid) in copies {
+        let mut copy = zero.clone();
+        copy[16..24].copy_from_slice(&xid.to_le_bytes());
+        if let Some(byte) = uuid {
+            copy[72] = byte;
+        }
+        seal(&mut copy);
+        if !valid {
+            copy[0] ^= 1;
+        }
+        image[index * BLOCK..(index + 1) * BLOCK].copy_from_slice(&copy);
+    }
+    image
+}
+
+fn latest_xid(image: Vec<u8>) -> u64 {
+    let mut container = hadris_apfs::sync::Container::open(device(image)).unwrap();
+    container
+        .latest_superblock()
+        .unwrap()
+        .object
+        .transaction_identifier
+}
+
+#[test]
+fn mount_takes_the_newest_valid_checkpoint_in_the_whole_descriptor_area() {
+    let image = checkpoint_image(&[
+        (23, 2, None, true),
+        (21, 4, None, true),
+        (22, 6, None, false),
+    ]);
+    assert_eq!(latest_xid(image.clone()), 4);
+    let mut fs = mount(image);
+    hadris_fs::sync::contract::check_read_only(&mut fs).unwrap();
+
+    let image = checkpoint_image(&[
+        (23, 2, None, true),
+        (21, 4, None, true),
+        (22, 6, Some(0xAA), true),
+    ]);
+    assert_eq!(latest_xid(image), 4);
+
+    let image = checkpoint_image(&[(23, 2, None, false), (22, 6, Some(0xAA), true)]);
+    assert_eq!(latest_xid(image), 1);
+}

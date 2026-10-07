@@ -240,7 +240,9 @@ where
         Ok(buffer)
     }
 
-    /// Scans the checkpoint descriptor area for container superblocks, newest first.
+    /// Scans every block of the checkpoint descriptor area for valid
+    /// container superblocks, newest first. Blocks whose header, checksum or
+    /// fields do not parse are skipped, as the mount procedure requires.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub async fn superblocks_sorted(
         &mut self,
@@ -264,24 +266,18 @@ where
                 ).into())
             };
         }
-        let start = self.info.superblock.checkpoint_descriptor_area_start_index;
-        let length = self.info.superblock.checkpoint_descriptor_area_length;
-        if start >= count || length > count || base.checked_add(u64::from(count)).is_none_or(|end| end > self.info.superblock.block_count) {
+        if base.checked_add(u64::from(count)).is_none_or(|end| end > self.info.superblock.block_count) {
             return Err(crate::ApfsError::InvalidValue("checkpoint descriptor ring bounds").into());
         }
-        for i in 0..length {
-            let index = start
-                .checked_add(i)
-                .ok_or(crate::ApfsError::AddressOverflow)?
-                % count;
-            let block = base
-                .checked_add(u64::from(index))
-                .ok_or(crate::ApfsError::AddressOverflow)?;
-            let data = self.read_apfs_block_vec(block).await?;
-            let object = crate::types::ObjectHeader::parse(&data)?;
-            if object.kind() == crate::types::ObjectType::ContainerSuperblock as u16 {
-                verify_object(&data)?;
-                let checkpoint = ContainerSuperblock::parse(&data)?;
+        for index in 0..count {
+            let data = self.read_apfs_block_vec(base + u64::from(index)).await?;
+            let Ok(object) = crate::types::ObjectHeader::parse(&data) else {
+                continue;
+            };
+            if object.kind() != crate::types::ObjectType::ContainerSuperblock as u16 || verify_object(&data).is_err() {
+                continue;
+            }
+            if let Ok(checkpoint) = ContainerSuperblock::parse(&data) {
                 superblocks.push(checkpoint);
             }
         }
@@ -293,17 +289,23 @@ where
         Ok(superblocks)
     }
 
-    /// Returns the newest checkpoint superblock, falling back to block zero when no checkpoint is present.
+    /// Returns the valid checkpoint superblock with the highest transaction
+    /// identifier whose geometry and UUID match block zero, falling back to
+    /// block zero when the descriptor area holds none.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub async fn latest_superblock(&mut self) -> hadris_fs::FsResult<ContainerSuperblock, D::Error> {
-        let checkpoint = self.superblocks_sorted().await?.into_iter().next()
-            .unwrap_or_else(|| self.info.superblock.clone());
-        if checkpoint.block_size != self.info.superblock.block_size
-            || checkpoint.block_count != self.info.superblock.block_count
-            || checkpoint.uuid != self.info.superblock.uuid {
-            return Err(crate::ApfsError::InvalidValue("checkpoint container geometry or UUID differs").into());
-        }
-        Ok(checkpoint)
+        let zero = &self.info.superblock;
+        let (block_size, block_count, uuid) = (zero.block_size, zero.block_count, zero.uuid);
+        Ok(self
+            .superblocks_sorted()
+            .await?
+            .into_iter()
+            .find(|checkpoint| {
+                checkpoint.block_size == block_size
+                    && checkpoint.block_count == block_count
+                    && checkpoint.uuid == uuid
+            })
+            .unwrap_or_else(|| self.info.superblock.clone()))
     }
 
     /// Reads checkpoint map blocks referenced by a superblock.
