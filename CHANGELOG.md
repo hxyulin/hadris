@@ -102,6 +102,11 @@ Each published package owns its version and may be released independently.
 - **NTFS:** Reading a file whose data a WOF (CompactOS) or Data Deduplication
   reparse point keeps elsewhere fails with `Unsupported`
   (`Detail::ReparseData`) instead of returning the sparse placeholder as zeros.
+- **hadris-io:** `&[u8]` implements `Read`, reading from its front, and with
+  `alloc` `Vec<u8>` implements `Write`, appending, in every mode, as `std` and
+  `embedded-io` do. The crate docs claimed both traits for `Vec<u8>`; they now
+  say what is implemented.
+
 - **hadris-storage:** `ReadOnly<D>` over a block device is a block device in
   every mode: not writable, so drivers mount it read-only, with reads passed
   through and writes refused with `ReadOnly` before they reach the device.

@@ -30,7 +30,7 @@ feature) passes an `embedded-io` error through unchanged.
 | `std` | `StdIo`, `ToStd` and conversions to `std::io::Error`; implies `alloc` | Yes |
 | `sync` | Synchronous traits in `hadris_io::sync` | Yes |
 | `async` | Asynchronous traits with `Send` futures in `hadris_io::async_`, and in `hadris_io::local` for executors whose futures are not `Send` | No |
-| `alloc` | `Box<T>` and `Vec<u8>` implement the traits | via `std` |
+| `alloc` | `Box<T>` implements the traits and `Vec<u8>` implements `Write` | via `std` |
 | `embedded-io` | `FromEmbedded`, the `embedded-io` traits on `StdIo`, and `SeekFrom` conversions | No |
 
 Enabling a feature only adds items; no trait or type changes shape. The

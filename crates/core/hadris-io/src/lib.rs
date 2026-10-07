@@ -8,7 +8,7 @@
 //! be any `core::error::Error + Send + Sync`: a kernel uses its own enum,
 //! [`StdIo`] reports `std::io::Error`, and `FromEmbedded` (with the
 //! `embedded-io` feature) passes an `embedded-io` error through unchanged. `&mut T` implements each trait
-//! when `T` does. Enabling features only adds items; no trait or type changes
+//! when `T` does, and `&[u8]` implements `Read`. Enabling features only adds items; no trait or type changes
 //! shape.
 //!
 //! [`Error<E>`](Error) is the error of every block device and filesystem
@@ -31,7 +31,7 @@
 //! | `std`   | yes     | [`StdIo`], [`ToStd`] and conversions to `std::io::Error` (implies `alloc`) |
 //! | `sync`  | yes     | Synchronous traits in [`sync`] |
 //! | `async` | no      | Asynchronous traits with `Send` futures in `async_`, and without the `Send` bound in `local` |
-//! | `alloc` | via `std` | `Box<T>` and `Vec<u8>` implement the traits |
+//! | `alloc` | via `std` | `Box<T>` implements the traits and `Vec<u8>` implements `Write` |
 //! | `embedded-io` | no | `FromEmbedded`, the `embedded-io` traits on [`StdIo`] and [`SeekFrom`] conversions |
 //!
 //! ## Quick Start
@@ -356,6 +356,29 @@ mod tests {
     use super::*;
     use core::convert::Infallible;
     use std::format;
+
+    #[test]
+    fn byte_slices_read_from_their_front() {
+        let data = [1, 2, 3];
+        let mut src = &data[..];
+        let mut buf = [0u8; 2];
+        assert_eq!(src.read(&mut buf).unwrap(), 2);
+        assert_eq!((buf, src), ([1, 2], &[3][..]));
+        assert_eq!(
+            src.read_exact(&mut buf).unwrap_err(),
+            ExactError::UnexpectedEof
+        );
+        assert!(src.is_empty());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn vectors_append_written_bytes() {
+        let mut out = alloc::vec![9u8];
+        out.write_all(&[1, 2]).unwrap();
+        out.flush().unwrap();
+        assert_eq!(out, [9, 1, 2]);
+    }
 
     #[test]
     fn cursor_new_starts_at_zero() {

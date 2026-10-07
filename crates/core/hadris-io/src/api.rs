@@ -4,7 +4,8 @@ io_transform! {
 
 /// A byte source.
 ///
-/// Implemented for `&mut T` and, with `alloc`, `Box<T>`. Wrap an
+/// Implemented for `&mut T`, for `&[u8]`, which reads from its front as
+/// `std` and `embedded-io` do, and, with `alloc`, `Box<T>`. Wrap an
 /// `embedded-io` device in `FromEmbedded` (with the `embedded-io` feature)
 /// and a `std::io` type in `StdIo`.
 pub trait Read: ErrorType {
@@ -45,6 +46,16 @@ impl<T: Read + ?Sized> Read for alloc::boxed::Box<T> {
     }
 }
 
+impl Read for &[u8] {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        let n = buf.len().min(self.len());
+        let (head, tail) = self.split_at(n);
+        buf[..n].copy_from_slice(head);
+        *self = tail;
+        Ok(n)
+    }
+}
+
 local_only! {
 #[cfg(feature = "embedded-io")]
 impl<T: super::base::Read> Read for crate::FromEmbedded<T>
@@ -59,7 +70,8 @@ where
 
 /// A byte sink.
 ///
-/// Implemented for `&mut T` and, with `alloc`, `Box<T>`.
+/// Implemented for `&mut T` and, with `alloc`, `Box<T>` and `Vec<u8>`,
+/// which appends as `std` and `embedded-io` do.
 pub trait Write: ErrorType {
     /// Writes up to `buf.len()` bytes. Returns 0 only for an empty `buf`.
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error>;
@@ -105,6 +117,18 @@ impl<T: Write + ?Sized> Write for alloc::boxed::Box<T> {
 
     async fn write_all(&mut self, buf: &[u8]) -> Result<(), ExactError<Self::Error>> {
         T::write_all(self, buf).await
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl Write for alloc::vec::Vec<u8> {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
     }
 }
 
