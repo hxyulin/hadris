@@ -68,6 +68,13 @@ fn paths_and_handles() {
         vol.remove_dir("/var").unwrap_err().kind(),
         ErrorKind::DirectoryNotEmpty
     );
+    for dot in ["/var/log/.", "/var/log/deep/..", "/var/log/deep/./"] {
+        assert_eq!(
+            vol.remove_dir_all(dot).unwrap_err().kind(),
+            ErrorKind::InvalidInput
+        );
+    }
+    assert_eq!(read(&vol, "/var/log/deep/er/c").unwrap(), b"c");
     vol.remove_dir_all("/var").unwrap();
     assert!(names(&vol, "/").is_empty());
     assert_eq!(

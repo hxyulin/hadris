@@ -8,6 +8,10 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **hadris-fs:** `Volume::remove_dir_all` rejects a path ending in `.` or
+  `..` with `InvalidInput` before removing anything. It previously emptied the
+  directory and then failed.
+
 ## [3.0.0-rc.2] - 2026-10-07
 
 - Align current crate READMEs, installation and migration recipes, and the
