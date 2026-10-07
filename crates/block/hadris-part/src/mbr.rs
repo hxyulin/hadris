@@ -202,7 +202,9 @@ impl Mbr {
     ///
     /// An extended type ([`MbrType::is_extended`]) makes it the extended
     /// partition; a table has at most one. Fails with
-    /// [`ErrorKind::LimitExceeded`] when all four slots are used.
+    /// [`ErrorKind::LimitExceeded`] when all four slots are used. A primary
+    /// partition may start at block 0, as an isohybrid image's does; it then
+    /// covers the MBR.
     pub fn add(&mut self, entry: MbrEntry) -> Result<usize, TableError> {
         let slot = self
             .primary

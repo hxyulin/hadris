@@ -3,7 +3,13 @@ use crate::{BlockIndex, BlockSize};
 use core::task::{Context, Poll};
 use hadris_io::{Error, ErrorKind, ErrorType};
 
-/// A write-back LRU cache. Dropping it discards unflushed writes.
+/// The phase of a write that goes straight to the device once the dirty
+/// blocks it covers are written back.
+const PASS_THROUGH: u8 = 4;
+
+/// A write-back LRU cache. Dropping it discards unflushed writes. Before a
+/// write goes straight to the device, the dirty blocks it covers are written
+/// back and every cached copy of them is dropped.
 #[derive(Debug)]
 pub struct Cache<D> {
     inner: D,
@@ -45,10 +51,14 @@ impl<D: BlockDevice> Cache<D> {
     pub fn get_ref(&self) -> &D {
         &self.inner
     }
-    /// Flushes the cache and returns its device.
-    pub async fn finish(mut self) -> Result<D, Error<D::Error>> {
-        self.flush().await?;
-        Ok(self.inner)
+    /// Flushes the cache and returns its device. On failure the cache comes
+    /// back with the error, still holding the blocks it could not write.
+    #[allow(clippy::result_large_err)]
+    pub async fn finish(mut self) -> Result<D, (Self, Error<D::Error>)> {
+        match self.flush().await {
+            Ok(()) => Ok(self.inner),
+            Err(error) => Err((self, error)),
+        }
     }
     fn slot(
         &mut self,
@@ -217,7 +227,32 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
         )
         .is_ok();
         if !self.written || !in_range || count >= self.cache.capacity() {
-            self.cache.invalidate(first.get(), count);
+            if state.phase != PASS_THROUGH {
+                loop {
+                    let Some(index) = self.cache.dirty_in(first.get(), count).next() else {
+                        break;
+                    };
+                    let slot = self.cache.peek(index).unwrap_or_default();
+                    state.pending = true;
+                    let result = self.inner.poll_write_blocks(
+                        &mut state.child,
+                        cx,
+                        BlockIndex::new(index),
+                        self.cache.data(slot),
+                    );
+                    state.pending = result.is_pending();
+                    match result {
+                        Poll::Pending => return Poll::Pending,
+                        Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                        Poll::Ready(Ok(())) => {
+                            self.cache.clean_range(index, 1);
+                            state.child = Default::default();
+                        }
+                    }
+                }
+                self.cache.invalidate(first.get(), count);
+                state.phase = PASS_THROUGH;
+            }
             state.pending = true;
             let result = self
                 .inner

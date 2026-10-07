@@ -103,6 +103,40 @@ Each published package owns its version and may be released independently.
   reparse point keeps elsewhere fails with `Unsupported`
   (`Detail::ReparseData`) instead of returning the sparse placeholder as zeros.
 
+- **hadris-fat:** Node ids and embedded `Node` locators are checked harder
+  before use: the slot must lie in the fixed root or the cluster heap (the
+  embedded `open_node` accepted offsets in the FAT region), and the entry must
+  have no control bytes in its name, clear reserved attribute bits and a first
+  cluster of 0 or in range. Others fail with `InvalidHandle`. A stale id whose
+  slot now holds file data that looks like a valid entry is still accepted.
+
+- **hadris-storage (breaking):** `Cache::finish` returns
+  `Result<D, (Cache<D>, Error<D::Error>)>` in every mode. A failed flush hands
+  the cache back with its unwritten dirty blocks instead of dropping them with
+  the device. Callers that used `?` map the error first, for example
+  `.map_err(|(_, error)| error)?`.
+
+- **hadris-storage:** Before a write goes straight to the device, every
+  `Cache` writes back the dirty blocks it covers and then drops all cached
+  copies of them. A failed write no longer leaves stale dirty blocks that a
+  later flush writes over the new data (synchronous and legacy async caches),
+  and no longer discards earlier buffered writes (poll-based cache).
+
+- **hadris-fat:** Shrinking a FAT file (`FatFs::truncate`, embedded
+  `Fat::set_len`) reads the chain before writing the new size and records the
+  clusters to free as soon as the size is written. An error or a dropped
+  future in between no longer leaves clusters past the new size that recovery
+  never frees.
+
+- **hadris-fat (exFAT):** Freeing or shrinking a contiguous (`NoFatChain`)
+  allocation whose `DataLength` runs past the cluster heap fails with
+  `Corrupt` before anything is written. It previously could free the bitmap
+  bits of other files.
+
+- **hadris-fs:** `Volume::remove_dir_all` rejects a path ending in `.` or
+  `..` with `InvalidInput` before removing anything. It previously emptied the
+  directory and then failed.
+
 ## [3.0.0-rc.2] - 2026-10-07
 
 - Align current crate READMEs, installation and migration recipes, and the

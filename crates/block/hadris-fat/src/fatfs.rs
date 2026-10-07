@@ -231,6 +231,10 @@ impl Node {
     }
 }
 
+/// The extended boot signature of a boot sector whose serial is followed by
+/// a label and a filesystem type; `0x28` has only the serial.
+const EXT_BOOT_SIGNATURE_LABEL: u8 = 0x29;
+
 /// Byte offset of the serial in the boot sector; the label follows it.
 const fn bpb_serial_offset(kind: FatKind) -> u64 {
     match kind {
@@ -946,7 +950,7 @@ impl<D: BlockDevice> FatFs<D> {
     /// FAT32 root grows when it has none) or deleted, then the copy in the
     /// boot sector, and on FAT32 in the backup boot sector, is set, to
     /// `NO NAME` when removed. A boot sector without an extended boot
-    /// signature has no copy.
+    /// signature of `0x29` has no copy.
     pub async fn set_label(&mut self, label: Option<VolumeLabel>) -> FsResult<(), D::Error> {
         self.prepare().await?;
         let found = self.find_label().await?;
@@ -969,9 +973,12 @@ impl<D: BlockDevice> FatFs<D> {
             }
             (None, None) => {}
         }
-        if self.fat.geometry().volume_serial().is_some() {
+        let serial_at = bpb_serial_offset(self.fat.geometry().kind());
+        let mut signature = [0u8];
+        self.read_raw(serial_at - 1, &mut signature).await?;
+        if signature[0] == EXT_BOOT_SIGNATURE_LABEL {
             let bytes = label.map_or(*NO_NAME, |label| *label.as_bytes());
-            self.put_boot(bpb_serial_offset(self.fat.geometry().kind()) + 4, &bytes).await?;
+            self.put_boot(serial_at + 4, &bytes).await?;
         }
         Ok(())
     }
@@ -2448,21 +2455,19 @@ impl<D: BlockDevice> FatFs<D> {
 
 
     /// The entry of an id that is not pinned, decoded from its location.
+    /// The slot must lie in a directory region and hold a plausible visible
+    /// entry; anything else is [`ErrorKind::InvalidHandle`].
     async fn unpinned(&mut self, id: NodeId) -> FsResult<(u64, ShortEntry), D::Error> {
         let raw = id.get();
         if raw == ROOT.get() || raw >= RESERVED.get() {
             return Err(ErrorKind::InvalidHandle.into());
         }
         let offset = (raw & SLOT_MASK) * ENTRY_SIZE;
-        let in_root = matches!(
-            self.fat.geometry().root(),
-            RootLocation::Fixed { start, size } if (start..start + size).contains(&offset)
-        );
-        if !in_root && !(self.fat.geometry().data_start()..self.fat.geometry().data_end()).contains(&offset) {
+        if !crate::names::in_directory_region(self.fat.geometry(), offset) {
             return Err(ErrorKind::InvalidHandle.into());
         }
         match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
-            Slot::Short(entry) if entry.is_visible() => Ok((offset, entry)),
+            Slot::Short(entry) if entry.is_visible() && crate::names::plausible_entry(&entry, self.fat.geometry()) => Ok((offset, entry)),
             _ => Err(ErrorKind::InvalidHandle.into()),
         }
     }
@@ -2942,21 +2947,24 @@ impl<D: BlockDevice> FatFs<D> {
         if keep == 0 && state.first != 0 {
             self.pending = Some(Pending::chain(state.first, Owner::Entry(state.entry)));
         }
+        let mut cut = None;
+        if keep != 0 && state.first != 0 {
+            let reached = rawio::walk(&mut self.dev, &mut self.block, &self.fat, state.first, ChainPos::NONE, keep - 1).await?;
+            let last = reached.cluster();
+            if reached.index() == keep - 1
+                && let Some(next) = rawio::next(&mut self.dev, &mut self.block, &self.fat, last).await?
+            {
+                cut = Some((last, next));
+            }
+        }
         self.store(id, &state, first, len as u32, ChainPos::NONE).await?;
-        if state.first == 0 {
-            return Ok(());
-        }
-        if keep == 0 {
-            return self.free_chain(state.first).await;
-        }
-        let reached = rawio::walk(&mut self.dev, &mut self.block, &self.fat, state.first, ChainPos::NONE, keep - 1).await?;
-        let last = reached.cluster();
-        if reached.index() == keep - 1
-            && let Some(next) = rawio::next(&mut self.dev, &mut self.block, &self.fat, last).await?
-        {
+        if let Some((last, next)) = cut {
             self.pending = Some(Pending::chain(next, Owner::Tail(last)));
             self.set_fat(last, self.fat.geometry().kind().end_of_chain()).await?;
-            self.free_chain(next).await?;
+            return self.free_chain(next).await;
+        }
+        if keep == 0 && state.first != 0 {
+            return self.free_chain(state.first).await;
         }
         Ok(())
     }

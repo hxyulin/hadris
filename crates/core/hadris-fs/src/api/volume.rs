@@ -1,5 +1,5 @@
 use super::handle::{File, ReadDir};
-use super::paths::{cancelled, components, resolve_parent};
+use super::paths::{cancelled, components, resolve_parent, split_parent};
 use super::super::lock::{Guard, Lock};
 use super::*;
 use crate::OpenOptions;
@@ -408,10 +408,13 @@ impl<F: FileSystem> Volume<F> {
     }
 
     /// Removes the directory at `path` and everything in it. A symlink at
-    /// `path` fails with [`ErrorKind::NotADirectory`] and is not followed.
+    /// `path` fails with [`ErrorKind::NotADirectory`] and is not followed,
+    /// and a path ending in `.` or `..` fails with
+    /// [`ErrorKind::InvalidInput`] before anything is removed.
     pub async fn remove_dir_all(&self, path: impl AsRef<[u8]>) -> FsResult<(), F::DeviceError> {
         let path = path.as_ref();
         let how = self.shared.resolve;
+        split_parent(path)?;
         let mut fs = self.lock().await;
         let node = self.hold(fs.resolve(path, no_follow(how)).await?);
         let emptied = match fs.stat(node.node()).await {
