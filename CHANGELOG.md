@@ -8,6 +8,13 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **hadris-fat:** Node ids and embedded `Node` locators are checked harder
+  before use: the slot must lie in the fixed root or the cluster heap (the
+  embedded `open_node` accepted offsets in the FAT region), and the entry must
+  have no control bytes in its name, clear reserved attribute bits and a first
+  cluster of 0 or in range. Others fail with `InvalidHandle`. A stale id whose
+  slot now holds file data that looks like a valid entry is still accepted.
+
 - **hadris-storage (breaking):** `Cache::finish` returns
   `Result<D, (Cache<D>, Error<D::Error>)>` in every mode. A failed flush hands
   the cache back with its unwritten dirty blocks instead of dropping them with

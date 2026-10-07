@@ -325,7 +325,9 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
 
     /// Opens the file a listed [`Entry`] names, without a lookup. The
     /// position is valid until its directory changes; a position that no
-    /// longer holds a file fails with [`ErrorKind::NotFound`].
+    /// longer holds a file fails with [`ErrorKind::NotFound`], and one
+    /// outside the directories of this volume, or holding an entry no FAT
+    /// driver writes, with [`ErrorKind::InvalidHandle`].
     /// `create_new` fails with [`ErrorKind::AlreadyExists`].
     pub async fn open_node(&mut self, node: Node, options: OpenOptions) -> FsResult<File<'mount>, D::Error> {
         options.validate().map_err(ErrorKind::from)?;
@@ -337,14 +339,16 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         }
         let index = self.free_slot()?;
         let offset = node.offset();
-        let valid = offset % ENTRY_SIZE == 0 && offset >= self.fat.geometry().fat_start() && offset < self.fat.geometry().data_end();
-        if !valid {
-            return Err(ErrorKind::NotFound.into());
+        if !crate::names::in_directory_region(self.fat.geometry(), offset) {
+            return Err(ErrorKind::InvalidHandle.into());
         }
         let entry = match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
             Slot::Short(entry) if entry.is_visible() => entry,
             _ => return Err(ErrorKind::NotFound.into()),
         };
+        if !crate::names::plausible_entry(&entry, self.fat.geometry()) {
+            return Err(ErrorKind::InvalidHandle.into());
+        }
         self.open_entry(index, offset, &entry, options).await
     }
 

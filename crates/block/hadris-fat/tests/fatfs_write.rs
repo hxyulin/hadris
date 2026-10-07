@@ -2461,6 +2461,42 @@ fn extras_map_files_and_set_label_and_serial() {
 }
 
 #[test]
+fn forged_node_ids_are_invalid_handles() {
+    use hadris_fat::FatOptions;
+    for case in CASES {
+        let mut fs = common::formatted(case, FatOptions::new());
+        let root = fs.root();
+        let file = write(&mut fs, root, "a.txt", b"a");
+        fs.forget(file, 1);
+        let listed = fs.readdir(root, DirCursor::START).unwrap().unwrap().node();
+        assert!(fs.stat(listed).is_ok(), "{}", case.name);
+
+        let mut forged = [0u8; 32];
+        forged[..11].copy_from_slice(b"EVIL    BIN");
+        forged[11] = 0x20;
+        forged[20..22].copy_from_slice(&0x0FFFu16.to_le_bytes());
+        forged[26..28].copy_from_slice(&0xFFF0u16.to_le_bytes());
+        forged[28..32].copy_from_slice(&100u32.to_le_bytes());
+        let data = write(&mut fs, root, "data.bin", &forged);
+        let mut out = [hadris_fs::Extent::new(0, 0); 1];
+        assert_eq!(fs.extents(data, 0, &mut out).unwrap(), 1);
+        let id = NodeId::new(out[0].offset() / 32).unwrap();
+        assert_eq!(
+            fs.stat(id).unwrap_err().kind(),
+            ErrorKind::InvalidHandle,
+            "{}",
+            case.name
+        );
+        assert_eq!(
+            fs.write(id, 0, b"x").unwrap_err().kind(),
+            ErrorKind::InvalidHandle,
+            "{}",
+            case.name
+        );
+    }
+}
+
+#[test]
 fn set_label_keeps_boot_code_after_a_serial_only_signature() {
     use hadris_fat::{FatOptions, VolumeLabel};
     for case in CASES {

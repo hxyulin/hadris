@@ -154,6 +154,39 @@ fn lists_from_a_cursor_and_opens_listed_nodes() {
 }
 
 #[test]
+fn nodes_outside_the_directories_are_invalid_handles() {
+    let (fat16, fat32) = (CASES[1], CASES[2]);
+    let mut token_16 = MountToken::new();
+    let mut small = mount(&mut token_16, fat16, common::blank(fat16));
+    let root = small.root();
+    write_file(&mut small, root, "a", b"a");
+    let mut node = None;
+    small
+        .list(root, DirCursor::START, |entry| {
+            node = Some(entry.node());
+            ControlFlow::Break(())
+        })
+        .unwrap();
+    let node = node.unwrap();
+    let small_geo = *small.info();
+    let hadris_fat_raw::RootLocation::Fixed { start, .. } = small_geo.root() else {
+        panic!("FAT16 has a fixed root");
+    };
+    let image = common::blank(fat32);
+    let big_geo = hadris_fat_raw::parse_boot(image[..512].try_into().unwrap()).unwrap();
+    assert!((big_geo.fat_start()..big_geo.data_start()).contains(&start));
+
+    let mut token_32 = MountToken::new();
+    let mut big = mount(&mut token_32, fat32, image);
+    assert_eq!(
+        big.open_node(node, OpenOptions::new().read().write())
+            .unwrap_err()
+            .kind(),
+        ErrorKind::InvalidHandle
+    );
+}
+
+#[test]
 fn writes_what_fatfs_check_and_fsck_accept() {
     for case in cases() {
         let mut mount_token_0 = MountToken::new();

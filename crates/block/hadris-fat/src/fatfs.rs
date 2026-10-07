@@ -2455,21 +2455,19 @@ impl<D: BlockDevice> FatFs<D> {
 
 
     /// The entry of an id that is not pinned, decoded from its location.
+    /// The slot must lie in a directory region and hold a plausible visible
+    /// entry; anything else is [`ErrorKind::InvalidHandle`].
     async fn unpinned(&mut self, id: NodeId) -> FsResult<(u64, ShortEntry), D::Error> {
         let raw = id.get();
         if raw == ROOT.get() || raw >= RESERVED.get() {
             return Err(ErrorKind::InvalidHandle.into());
         }
         let offset = (raw & SLOT_MASK) * ENTRY_SIZE;
-        let in_root = matches!(
-            self.fat.geometry().root(),
-            RootLocation::Fixed { start, size } if (start..start + size).contains(&offset)
-        );
-        if !in_root && !(self.fat.geometry().data_start()..self.fat.geometry().data_end()).contains(&offset) {
+        if !crate::names::in_directory_region(self.fat.geometry(), offset) {
             return Err(ErrorKind::InvalidHandle.into());
         }
         match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
-            Slot::Short(entry) if entry.is_visible() => Ok((offset, entry)),
+            Slot::Short(entry) if entry.is_visible() && crate::names::plausible_entry(&entry, self.fat.geometry()) => Ok((offset, entry)),
             _ => Err(ErrorKind::InvalidHandle.into()),
         }
     }
