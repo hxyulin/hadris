@@ -8,6 +8,11 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **ISO 9660:1999 tree:** Identifiers keep the name as given, with only NUL
+  mapped to `_`, up to 207 bytes cut at a character boundary, for files and
+  directories alike. Every character outside `[A-Za-z0-9_]` previously
+  became `_` and directories were cut to 31 characters.
+
 - **ISO hybrid boot:** With MBR boot code and a BIOS default El Torito
   entry, bytes 432 to 439 of the MBR record the boot image's address in
   512-byte sectors, as syslinux `isohdpfx.bin` expects and

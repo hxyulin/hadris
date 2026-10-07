@@ -1166,3 +1166,17 @@ fn path_limits_count_recorded_identifiers_not_source_names() {
         IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::RockRidge).unwrap();
     assert_eq!(view.read_to_vec(&format!("/{path}")).unwrap(), b"leaf");
 }
+
+#[test]
+fn the_iso_1999_tree_keeps_names_up_to_207_bytes() {
+    let dir = format!("Long Directory-{}", "d".repeat(80));
+    let file = "caf\u{e9} notes+v1.2.tar.gz";
+    let mut tree = Tree::new();
+    tree.insert(format!("{dir}/{file}"), Node::file(Content::bytes("x")))
+        .unwrap();
+    let mut iso = image(&tree, &IsoOptions::default().with_iso1999());
+    let mut view =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Enhanced).unwrap();
+    assert_eq!(view.names(&format!("/{dir}")).unwrap(), [file]);
+    assert_eq!(view.read_to_vec(&format!("/{dir}/{file}")).unwrap(), b"x");
+}
