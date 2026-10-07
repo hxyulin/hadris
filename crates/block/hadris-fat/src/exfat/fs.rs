@@ -2009,8 +2009,14 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// The last cluster of a contiguous allocation, or
     /// [`ErrorKind::Corrupt`] when its size runs past the cluster heap.
     fn contiguous_tail(&self, node: &Node) -> Result<u32, ErrorKind> {
-        let clusters = u32::try_from(node.len.div_ceil(self.vol.geometry().cluster_size())).map_err(|_| ErrorKind::Corrupt)?;
-        let tail = self.check_cluster(node.first)?.checked_add(clusters.max(1) - 1).ok_or(ErrorKind::Corrupt)?;
+        self.run_tail(node.first, node.len)
+    }
+
+    /// The last cluster of the contiguous run of `len` bytes at `first`, or
+    /// [`ErrorKind::Corrupt`] when it runs past the cluster heap.
+    fn run_tail(&self, first: u32, len: u64) -> Result<u32, ErrorKind> {
+        let clusters = u32::try_from(len.div_ceil(self.vol.geometry().cluster_size())).map_err(|_| ErrorKind::Corrupt)?;
+        let tail = self.check_cluster(first)?.checked_add(clusters.max(1) - 1).ok_or(ErrorKind::Corrupt)?;
         self.check_cluster(tail)
     }
 
@@ -2382,9 +2388,12 @@ impl<D: BlockDevice> ExFatFs<D> {
         if !alloc.contiguous {
             return self.free_chain(alloc.first).await;
         }
-        let clusters = len.div_ceil(self.vol.geometry().cluster_size()) as u32;
-        for step in 0..clusters {
-            self.set_bit(alloc.first + step, ClusterState::Free).await?;
+        if len == 0 {
+            return Ok(());
+        }
+        let tail = self.run_tail(alloc.first, len)?;
+        for cluster in alloc.first..=tail {
+            self.set_bit(cluster, ClusterState::Free).await?;
         }
         Ok(())
     }
@@ -2831,7 +2840,9 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// Truncates or extends a file. Growth allocates clusters and raises
     /// `DataLength` only, so it reads as zeros without writing them.
     /// Shrinking writes the new sizes at once and frees the clusters past
-    /// them. A changed size sets the archive attribute.
+    /// them. A changed size sets the archive attribute. A contiguous
+    /// allocation that runs past the cluster heap fails with
+    /// [`ErrorKind::Corrupt`] before anything is written.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat", level = "trace", skip_all, fields(node = ?node, len = len)))]
     pub async fn truncate(&mut self, node: NodeId, len: u64) -> FsResult<(), D::Error> {
         self.prepare().await?;
@@ -2848,6 +2859,9 @@ impl<D: BlockDevice> ExFatFs<D> {
         }
         if len == state.len {
             return Ok(());
+        }
+        if state.first != 0 && state.contiguous {
+            self.contiguous_tail(&state)?;
         }
         let cluster_size = self.vol.geometry().cluster_size();
         let keep = len.div_ceil(cluster_size) as u32;

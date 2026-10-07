@@ -8,6 +8,11 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **hadris-fat (exFAT):** Freeing or shrinking a contiguous (`NoFatChain`)
+  allocation whose `DataLength` runs past the cluster heap fails with
+  `Corrupt` before anything is written. It previously could free the bitmap
+  bits of other files.
+
 - **hadris-fs:** `Volume::remove_dir_all` rejects a path ending in `.` or
   `..` with `InvalidInput` before removing anything. It previously emptied the
   directory and then failed.
