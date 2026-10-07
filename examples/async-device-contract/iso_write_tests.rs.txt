@@ -122,8 +122,9 @@ impl<S: WriteStateAccess, L> BlockDevice for WriteDevice<S, L> {
     }
     fn cancel(&mut self, _: &mut S) {
         let mut audit = self.audit.lock().unwrap();
-        assert!(audit.active.take().is_some());
-        audit.cancelled += 1;
+        if audit.active.take().is_some() {
+            audit.cancelled += 1;
+        }
     }
 }
 impl<S: WriteStateAccess, L> WriteDevice<S, L> {

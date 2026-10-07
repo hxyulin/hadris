@@ -65,7 +65,9 @@ Safe poll hooks stop accessing caller buffers before returning, including
 Pending. Hardware performing I/O between polls needs owned stable buffers.
 Drop calls cancellation for a pending operation, but buffer safety must also
 hold if a caller forgets the future or invokes poll hooks directly. Cancellation
-must not panic, and terminal completion must release operation resources.
+may also run when a poll hook panics before returning Pending or starting I/O.
+It must be a safe no-op when no operation started and must not panic. Terminal
+completion must release operation resources.
 
 The prototype cache holds one fixed 512-byte block and bypasses other block
 sizes or multi-block reads. It demonstrates generic composition and

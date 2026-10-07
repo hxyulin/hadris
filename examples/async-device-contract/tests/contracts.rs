@@ -50,6 +50,7 @@ struct PendingDevice<S, L = ()> {
     audit: Audit,
     active: bool,
     fail: bool,
+    panic_after_start: Option<bool>,
     _state: PhantomData<fn() -> S>,
     _local: L,
 }
@@ -60,6 +61,7 @@ impl<S, L: Default> PendingDevice<S, L> {
             audit,
             active: false,
             fail: false,
+            panic_after_start: None,
             _state: PhantomData,
             _local: L::default(),
         }
@@ -69,12 +71,18 @@ impl<S, L: Default> PendingDevice<S, L> {
         state: &mut State,
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), Error<Infallible>>> {
+        assert_ne!(self.panic_after_start, Some(false), "panic before I/O");
         if !state.started {
             assert!(!self.active);
             self.active = true;
             state.started = true;
             state.audit = Some(Arc::clone(&self.audit));
             self.audit.lock().unwrap().push("pending");
+            assert_ne!(
+                self.panic_after_start,
+                Some(true),
+                "panic after starting I/O"
+            );
             cx.waker().wake_by_ref();
             Poll::Pending
         } else {
@@ -143,10 +151,12 @@ impl<S: StateAccess, L: Default> BlockDevice for PendingDevice<S, L> {
         self.advance(state.inner(), cx)
     }
     fn cancel(&mut self, state: &mut S) {
-        assert!(self.active);
-        assert!(state.inner().started);
-        self.active = false;
-        self.audit.lock().unwrap().push("cancelled");
+        if state.inner().started {
+            self.active = false;
+            self.audit.lock().unwrap().push("cancelled");
+        } else {
+            self.audit.lock().unwrap().push("cancel idle");
+        }
     }
 }
 
@@ -382,4 +392,37 @@ fn partition_extent_past_backing_device_is_rejected_before_driver_hooks() {
     }
     drop(write);
     assert!(events.lock().unwrap().is_empty());
+}
+
+#[test]
+fn panicking_poll_hooks_cancel_safely_before_or_after_starting_io() {
+    for after_start in [false, true] {
+        for operation in 0..3 {
+            let events = audit();
+            let mut device = PendingDevice::<State>::new(Arc::clone(&events));
+            device.panic_after_start = Some(after_start);
+            let mut buf = [0xA5; 4];
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut future = match operation {
+                    0 => device.read_blocks(BlockIndex::new(0), &mut buf),
+                    1 => device.write_blocks(BlockIndex::new(0), &[0xBB; 4]),
+                    _ => device.flush(),
+                };
+                pending(&mut future);
+            }));
+            assert!(result.is_err());
+            assert!(!device.active);
+            assert_eq!(buf, [0xA5; 4]);
+            assert_eq!(device.bytes[0..4], [0, 1, 2, 3]);
+            let expected: &[&str] = if after_start {
+                &["pending", "cancelled", "state dropped"]
+            } else {
+                &["cancel idle"]
+            };
+            assert_eq!(*events.lock().unwrap(), expected);
+            device.panic_after_start = None;
+            block_on(device.read_blocks(BlockIndex::new(0), &mut buf)).unwrap();
+            assert_eq!(buf, [0, 1, 2, 3]);
+        }
+    }
 }

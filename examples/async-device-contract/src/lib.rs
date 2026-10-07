@@ -63,9 +63,11 @@ pub trait BlockDevice: ErrorType {
     ) -> Poll<Result<(), Error<Self::Error>>> {
         Poll::Ready(Ok(()))
     }
-    /// Stops a pending operation when its future is dropped.
-    /// This hook must not panic. Buffer safety must also hold when it is not
-    /// called, such as when an operation future is forgotten.
+    /// Stops an operation when its future is dropped, including when a poll
+    /// hook panics before returning Pending or starting I/O.
+    /// This hook must be a safe no-op when no operation started and must not
+    /// panic. Buffer safety must also hold when it is not called, such as when
+    /// an operation future is forgotten.
     fn cancel(&mut self, state: &mut Self::State);
     /// Reads whole blocks without boxing the future.
     fn read_blocks<'a>(&'a mut self, first: BlockIndex, buf: &'a mut [u8]) -> Operation<'a, Self> {

@@ -123,9 +123,10 @@ impl BlockDevice for RcDevice {
         }
     }
     fn cancel(&mut self, _: &mut bool) {
-        assert!(self.active);
-        self.active = false;
-        self.cancelled.set(self.cancelled.get() + 1);
+        if self.active {
+            self.active = false;
+            self.cancelled.set(self.cancelled.get() + 1);
+        }
     }
 }
 
