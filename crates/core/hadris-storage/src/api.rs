@@ -608,7 +608,8 @@ impl<D: BlockDevice> BlockDevice for ReadAhead<D> {
 /// them would evict everything else; reads still see cached dirty blocks.
 /// Before a write goes straight to the device, the dirty blocks it covers are
 /// written back and every cached copy of them is dropped, so a failed write
-/// loses no earlier write and leaves no stale block for a later flush.
+/// leaves no stale block for a later flush. A failed write may already have
+/// replaced some of the blocks it covers; earlier writes to the others survive.
 #[cfg(feature = "alloc")]
 #[derive(Debug)]
 pub struct Cache<D> {
@@ -633,6 +634,7 @@ impl<D: BlockDevice> Cache<D> {
     /// Flushes every dirty block and returns the underlying device. On
     /// failure the cache comes back with the error, still holding the blocks
     /// it could not write, so the caller can retry or recover them.
+    #[allow(clippy::result_large_err)]
     pub async fn finish(mut self) -> Result<D, (Self, Error<D::Error>)> {
         match self.flush().await {
             Ok(()) => Ok(self.inner),

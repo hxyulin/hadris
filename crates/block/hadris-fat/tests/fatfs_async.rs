@@ -622,6 +622,10 @@ fn shrink_recovers_at_every_await() {
                 .unwrap();
             let mut data = vec![0; old.len()];
             let n = hadris_fs::sync::FileSystem::read(&mut fresh, file, 0, &mut data).unwrap();
+            assert!(
+                n == old.len() || n == cluster + 1,
+                "length {n} after budget {budget}"
+            );
             assert_eq!(data[..n], old[..n]);
             if let Some(result) = result {
                 result.unwrap();

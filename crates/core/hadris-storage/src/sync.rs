@@ -303,10 +303,18 @@ mod device_tests {
         fn writable(&self) -> bool {
             true
         }
-        fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>> {
+        fn read_blocks(
+            &mut self,
+            first: BlockIndex,
+            buf: &mut [u8],
+        ) -> Result<(), Error<Self::Error>> {
             self.0.read_blocks(first, buf)
         }
-        fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<(), Error<Self::Error>> {
+        fn write_blocks(
+            &mut self,
+            first: BlockIndex,
+            buf: &[u8],
+        ) -> Result<(), Error<Self::Error>> {
             if self.1 && buf.len() > 4 {
                 self.1 = false;
                 self.0.write_blocks(first, &buf[..4])?;
@@ -329,7 +337,10 @@ mod device_tests {
         let mut buf = [0_u8; 4];
         cache.read_blocks(BlockIndex::new(0), &mut buf).unwrap();
         assert_eq!(buf, [9; 4]);
-        assert_eq!(&cache.into_inner().0.get_ref()[..8], &[9, 9, 9, 9, 2, 2, 2, 2]);
+        assert_eq!(
+            &cache.into_inner().0.get_ref()[..8],
+            &[9, 9, 9, 9, 2, 2, 2, 2]
+        );
     }
 
     #[test]
@@ -338,7 +349,7 @@ mod device_tests {
         cache.write_blocks(BlockIndex::new(3), &[3; 4]).unwrap();
         cache.write_blocks(BlockIndex::new(0), &[1; 4]).unwrap();
         cache.write_blocks(BlockIndex::new(1), &[2; 4]).unwrap();
-        let (mut cache, error) = cache.finish().unwrap_err();
+        let (cache, error) = cache.finish().unwrap_err();
         assert_eq!(error.kind(), ErrorKind::Io);
         assert!(cache.is_dirty());
         let device = cache.finish().unwrap();

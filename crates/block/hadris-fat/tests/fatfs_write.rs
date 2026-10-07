@@ -2504,7 +2504,11 @@ fn set_label_keeps_boot_code_after_a_serial_only_signature() {
             .unmount()
             .unwrap()
             .into_inner();
-        let serial_at = if case.kind == hadris_fat::FatKind::Fat32 { 0x43 } else { 0x27 };
+        let serial_at = if case.kind == hadris_fat::FatKind::Fat32 {
+            0x43
+        } else {
+            0x27
+        };
         let mut boots = vec![0];
         if case.kind == hadris_fat::FatKind::Fat32 {
             boots.push(6 * case.sector as usize);
@@ -2515,13 +2519,16 @@ fn set_label_keeps_boot_code_after_a_serial_only_signature() {
         }
         let mut fs = common::mount(case, &image);
         assert!(fs.info().volume_serial().is_some(), "{}", case.name);
-        fs.set_label(Some(VolumeLabel::new("new label").unwrap())).unwrap();
+        fs.set_label(Some(VolumeLabel::new("new label").unwrap()))
+            .unwrap();
         assert_eq!(fs.label_text().unwrap().as_deref(), Some("NEW LABEL"));
         fs.set_label(None).unwrap();
         let image = fs.unmount().unwrap().into_inner();
         for &boot in &boots {
             assert!(
-                image[boot + serial_at + 4..boot + serial_at + 23].iter().all(|&b| b == 0xC3),
+                image[boot + serial_at + 4..boot + serial_at + 23]
+                    .iter()
+                    .all(|&b| b == 0xC3),
                 "{}",
                 case.name
             );

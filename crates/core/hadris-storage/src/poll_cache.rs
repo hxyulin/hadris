@@ -53,6 +53,7 @@ impl<D: BlockDevice> Cache<D> {
     }
     /// Flushes the cache and returns its device. On failure the cache comes
     /// back with the error, still holding the blocks it could not write.
+    #[allow(clippy::result_large_err)]
     pub async fn finish(mut self) -> Result<D, (Self, Error<D::Error>)> {
         match self.flush().await {
             Ok(()) => Ok(self.inner),

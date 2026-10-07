@@ -25,7 +25,8 @@ pub(crate) fn in_directory_region(geo: &raw::Geometry, offset: u64) -> bool {
         geo.root(),
         raw::RootLocation::Fixed { start, size } if (start..start + size).contains(&offset)
     );
-    offset % raw::ENTRY_SIZE as u64 == 0 && (in_root || (geo.data_start()..geo.data_end()).contains(&offset))
+    offset % raw::ENTRY_SIZE as u64 == 0
+        && (in_root || (geo.data_start()..geo.data_end()).contains(&offset))
 }
 
 /// Whether a visible short entry decoded from a node locator is one a FAT
@@ -34,7 +35,11 @@ pub(crate) fn in_directory_region(geo: &raw::Geometry, offset: u64) -> bool {
 /// cluster is 0 or a data cluster.
 pub(crate) fn plausible_entry(entry: &ShortEntry, geo: &raw::Geometry) -> bool {
     let name = entry.name();
-    let name_ok = name[0] != b' ' && name.iter().enumerate().all(|(i, &b)| b >= 0x20 || (i == 0 && b == 0x05));
+    let name_ok = name[0] != b' '
+        && name
+            .iter()
+            .enumerate()
+            .all(|(i, &b)| b >= 0x20 || (i == 0 && b == 0x05));
     let first = entry.first_cluster(geo.kind());
     let first_ok = first == 0 || (first >= raw::FIRST_DATA_CLUSTER && first <= geo.max_cluster());
     name_ok && entry.attributes() & 0xC0 == 0 && first_ok
