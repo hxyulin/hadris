@@ -487,3 +487,31 @@ fn directories_report_length_zero() {
     assert_eq!(names(&mut udf, "/many").len(), 80);
     assert_eq!(udf.metadata("/readme.txt").unwrap().len(), 5);
 }
+
+#[test]
+fn non_utf8_names_are_written_and_kept_unique() {
+    let mut tree = hadris_fs::Tree::new();
+    tree.insert(&b"dir\xff/a\xfe"[..], Node::file(Content::bytes("one")))
+        .unwrap();
+    tree.insert(&b"dir\xff/a\xfd"[..], Node::file(Content::bytes("two")))
+        .unwrap();
+    tree.insert("dir\u{FFFD}/a\u{FFFD}", Node::file(Content::bytes("three")))
+        .unwrap();
+    let options = UdfOptions::default();
+    let report = hadris_udf::plan(&tree, &options).unwrap();
+    let renamed = report
+        .warnings()
+        .iter()
+        .filter(|w| matches!(w.kind(), WarningKind::Renamed | WarningKind::Deduplicated))
+        .count();
+    assert_eq!(renamed, 3);
+    let mut udf = open(image(&tree, &options));
+    let mut found = Vec::new();
+    for dir in ["/dir\u{FFFD}", "/dir\u{FFFD}~1"] {
+        for (name, _) in names(&mut udf, dir) {
+            found.push(udf.read_to_vec(&format!("{dir}/{name}")).unwrap());
+        }
+    }
+    found.sort();
+    assert_eq!(found, [&b"one"[..], b"three", b"two"]);
+}

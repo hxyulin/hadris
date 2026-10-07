@@ -153,7 +153,7 @@ async fn file<D: BlockDevice>(
     out: &mut D,
     tree: &Tree,
     block: u64,
-    path: &str,
+    path: &[u8],
     len: u64,
     buf: &mut [u8],
 ) -> Result<(), PathError> {

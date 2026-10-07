@@ -8,6 +8,11 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **UDF writer:** Trees with names that are not UTF-8 are written: content is
+  looked up by the original byte path instead of a lossy copy, so `write`
+  no longer fails mid-image. Lossy names that collide with another name in
+  the same directory get a `~N` suffix and a `Deduplicated` warning.
+
 - **APFS:** Container mount scans the whole checkpoint descriptor area and
   takes the valid superblock with the highest transaction identifier whose
   geometry and UUID match block zero, skipping blocks with bad checksums or

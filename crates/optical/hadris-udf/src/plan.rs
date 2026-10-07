@@ -1,8 +1,8 @@
 //! The layout of a volume, planned without I/O: every block the writer
 //! emits, in ascending order.
 
-use alloc::collections::BTreeMap;
-use alloc::string::{String, ToString};
+use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::convert::Infallible;
@@ -52,7 +52,7 @@ pub(crate) struct ContentInfo {
 #[derive(Debug)]
 pub(crate) enum Region {
     Bytes { block: u64, data: Vec<u8> },
-    File { block: u64, path: String, len: u64 },
+    File { block: u64, path: Vec<u8>, len: u64 },
 }
 
 impl Region {
@@ -91,7 +91,7 @@ enum Data {
 
 struct Node<'a> {
     node: TreeEntry<'a>,
-    path: String,
+    path: Vec<u8>,
     icb: u32,
     unique: u64,
     file_type: u8,
@@ -136,25 +136,48 @@ struct Planner<'a> {
     dropped: [u64; 2],
 }
 
-/// A tree name as text; names that are not UTF-8 get U+FFFD and a
-/// warning.
-fn text(name: &Name, path: &[u8], warnings: &mut Vec<Warning>) -> String {
-    match core::str::from_utf8(name.as_bytes()) {
-        Ok(text) => String::from(text),
-        Err(_) => {
-            let text = String::from_utf8_lossy(name.as_bytes()).into_owned();
-            warnings.push(
-                Warning::new(WarningKind::Renamed, "udf names are unicode")
-                    .with_path(path)
-                    .with_stored_as(&text),
-            );
-            text
-        }
+/// The CS0 encoding of a tree name. A name that is not UTF-8 gets U+FFFD
+/// for each invalid sequence, then a `~N` suffix while it collides with a
+/// name in `taken`, and a warning.
+fn encode_name(
+    name: &Name,
+    path: &[u8],
+    taken: &mut BTreeSet<Vec<u8>>,
+    warnings: &mut Vec<Warning>,
+) -> Vec<u8> {
+    if let Ok(text) = core::str::from_utf8(name.as_bytes()) {
+        return encode_cs0(text);
     }
+    let base = String::from_utf8_lossy(name.as_bytes()).into_owned();
+    let mut text = base.clone();
+    let mut suffix = 0u32;
+    let encoded = loop {
+        let encoded = encode_cs0(&text);
+        if taken.insert(encoded.clone()) {
+            break encoded;
+        }
+        suffix += 1;
+        text = alloc::format!("{base}~{suffix}");
+    };
+    let kind = if suffix == 0 {
+        WarningKind::Renamed
+    } else {
+        WarningKind::Deduplicated
+    };
+    warnings.push(
+        Warning::new(kind, "udf names are unicode")
+            .with_path(path)
+            .with_stored_as(&text),
+    );
+    encoded
 }
 
-fn join(parent: &str, name: &Name) -> String {
-    alloc::format!("{parent}/{}", String::from_utf8_lossy(name.as_bytes()))
+fn join(parent: &[u8], name: &Name) -> Vec<u8> {
+    let mut path = Vec::with_capacity(parent.len() + 1 + name.as_bytes().len());
+    path.extend_from_slice(parent);
+    path.push(b'/');
+    path.extend_from_slice(name.as_bytes());
+    path
 }
 
 impl<'a> Planner<'a> {
@@ -171,7 +194,7 @@ impl<'a> Planner<'a> {
         id
     }
 
-    fn warn(&mut self, path: &str, kind: WarningKind, message: &'static str) {
+    fn warn(&mut self, path: &[u8], kind: WarningKind, message: &'static str) {
         self.warnings
             .push(Warning::new(kind, message).with_path(path));
     }
@@ -184,7 +207,7 @@ impl<'a> Planner<'a> {
     fn add_dir(
         &mut self,
         node: TreeEntry<'a>,
-        path: &str,
+        path: &[u8],
         parent: Option<usize>,
     ) -> PlanResult<usize> {
         let icb = self.alloc(1)?;
@@ -193,6 +216,11 @@ impl<'a> Planner<'a> {
         self.check_metadata(node.node().attrs());
         let mut entries = Vec::new();
         let mut fid_bytes = 40usize;
+        let mut taken: BTreeSet<Vec<u8>> = node
+            .children()
+            .filter_map(|(name, _)| core::str::from_utf8(name.as_bytes()).ok())
+            .map(encode_cs0)
+            .collect();
         for (name, child) in node.children() {
             let child_path = join(path, name);
             let symlink = match child.node().file_type() {
@@ -217,7 +245,7 @@ impl<'a> Planner<'a> {
                     continue;
                 }
             };
-            let encoded = encode_cs0(&text(name, child_path.as_bytes(), &mut self.warnings));
+            let encoded = encode_name(name, &child_path, &mut taken, &mut self.warnings);
             fid_bytes = fid_bytes
                 .checked_add(fid_len(&encoded)?)
                 .ok_or_else(too_large)?;
@@ -249,7 +277,7 @@ impl<'a> Planner<'a> {
     fn add_node(
         &mut self,
         node: TreeEntry<'a>,
-        path: &str,
+        path: &[u8],
         symlink: Option<Vec<u8>>,
     ) -> PlanResult<usize> {
         if let Some(&index) = self.by_id.get(&node.id()) {
@@ -269,7 +297,7 @@ impl<'a> Planner<'a> {
         let index = self.nodes.len();
         self.nodes.push(Node {
             node,
-            path: path.to_string(),
+            path: path.to_vec(),
             icb,
             unique,
             file_type,
@@ -815,7 +843,7 @@ pub(crate) fn lay_out(
         dropped: [0; 2],
     };
 
-    let mut stack = vec![(tree.root(), String::new(), None::<(usize, usize)>)];
+    let mut stack = vec![(tree.root(), Vec::new(), None::<(usize, usize)>)];
     while let Some((node, path, parent)) = stack.pop() {
         let index = planner.add_dir(node, &path, parent.map(|(dir, _)| dir))?;
         if let Some((dir, slot)) = parent {
