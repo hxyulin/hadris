@@ -39,7 +39,15 @@ The [migration guide](docs/hadris-3.0.0-migration.md) covers the API and CLI cha
 
 ## Quickstart
 
-Install the V3 release-candidate CLI using Rust 1.88 or newer:
+Install the V3 release-candidate CLI with
+[cargo-binstall](https://github.com/cargo-bins/cargo-binstall):
+
+```sh
+cargo binstall hadris-cli --version 3.0.0-rc.1
+hadris --help
+```
+
+Or compile it using Rust 1.88 or newer:
 
 ```sh
 cargo install hadris-cli --version 3.0.0-rc.1 --locked

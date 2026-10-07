@@ -51,8 +51,9 @@ jobs:
           predicate-quantifier: some-with-excludes
           filters: |
             release:
-              - 'scripts/{release-plan.py,test-release-plan.py}'
-              - '.github/workflows/{release,rust}.yml'
+              - 'scripts/{release-plan.py,test-release-plan.py,cli-release.py,test-cli-release.py}'
+              - '.github/workflows/{release,cli-release,rust}.yml'
+              - 'crates/tools/hadris-cli/Cargo.toml'
             formatting:
               - '{rustfmt,.rustfmt}.toml'
             rust:
@@ -100,6 +101,8 @@ jobs:
       - uses: actions/checkout@v7
       - name: Test crate and workspace release plans
         run: python3 scripts/test-release-plan.py
+      - name: Test CLI archive layout and resumable asset uploads
+        run: python3 scripts/test-cli-release.py
 
   licenses:
     needs: changes

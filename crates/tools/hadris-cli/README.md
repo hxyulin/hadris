@@ -1,8 +1,22 @@
 # hadris-cli
 
 `hadris` creates, inspects, extracts and checks FAT12/16/32, exFAT,
-ISO 9660, UDF and cpio images, and ISO 9660 and UDF bridge images, with one
+ISO 9660, UDF, APFS and cpio images, and ISO 9660 and UDF bridge images, with one
 binary.
+
+With [cargo-binstall](https://github.com/cargo-bins/cargo-binstall) installed,
+download a prebuilt release-candidate binary:
+
+```bash
+cargo binstall hadris-cli --version 3.0.0-rc.1
+```
+
+Release assets cover Linux x86-64/ARM64 (static musl binaries), macOS Intel/
+Apple Silicon (macOS 11 or newer), and Windows x86-64. The `hadris` binary
+includes APFS inspection and extraction; RC2 replaces the standalone
+`hadris-apfs-cli` with `hadris apfs`.
+
+Or compile the published RC1 package with Rust 1.88 or newer:
 
 ```bash
 cargo install hadris-cli --version 3.0.0-rc.1 --locked

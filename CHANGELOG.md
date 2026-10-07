@@ -8,6 +8,12 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **CLI RC2:** Remove the standalone `hadris-apfs-cli` package; APFS commands
+  remain in `hadris-cli` as `hadris apfs info`, `ls`, `stat`, `cat` and `extract`.
+  Advance the unified CLI to `3.0.0-rc.2` and add cargo-binstall metadata,
+  prebuilt release archives, SHA-256 checksums and a release-assets backfill
+  mode for Linux x86-64/ARM64, macOS Intel/Apple Silicon and Windows x86-64.
+
 - Joint releases that include the umbrella crate now create a workspace
   `v<version>` tag and GitHub release alongside the per-crate releases, with
   shared notes and pre-release status for release candidates.

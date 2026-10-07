@@ -395,20 +395,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "hadris-apfs-cli"
-version = "3.0.0-rc.1"
-dependencies = [
- "anyhow",
- "clap",
- "hadris-apfs",
- "hadris-io",
- "hadris-part",
- "hadris-storage",
-]
-
-[[package]]
 name = "hadris-cli"
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 dependencies = [
  "anyhow",
  "bytemuck",

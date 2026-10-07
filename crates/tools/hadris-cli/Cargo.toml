@@ -1,6 +1,6 @@
 [package]
 name = "hadris-cli"
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 description = "The hadris command: create, inspect, extract and check FAT, exFAT, ISO 9660, UDF, APFS and cpio images"
 readme = "README.md"
 keywords = ["filesystem", "disk-image", "iso9660", "fat32", "cli"]
@@ -10,6 +10,14 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/{ name }-v{ version }/{ name }-{ version }-{ target }{ archive-suffix }"
+bin-dir = "{ name }-{ version }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
 
 [[bin]]
 name = "hadris"

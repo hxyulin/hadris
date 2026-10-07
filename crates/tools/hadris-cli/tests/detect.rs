@@ -13,7 +13,7 @@ fn version_and_help_cover_every_format() {
     assert!(String::from_utf8_lossy(&output.stdout).starts_with("hadris "));
     let output = hadris().arg("--help").output().unwrap();
     let help = String::from_utf8_lossy(&output.stdout);
-    for format in ["fat", "iso", "udf", "cpio", "detect"] {
+    for format in ["fat", "iso", "udf", "cpio", "apfs", "detect"] {
         assert!(help.contains(format), "{help}");
         assert!(
             hadris()

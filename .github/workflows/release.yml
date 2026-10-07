@@ -19,13 +19,24 @@ on:
         default: ""
         type: string
       mode:
-        description: Validate packages or publish the release
+        description: Validate packages, publish the release, or backfill CLI assets
         required: true
         default: dry-run
         type: choice
         options:
           - dry-run
           - publish
+          - cli-assets
+      cli-tag:
+        description: Existing hadris-cli-v<version> release to backfill (cli-assets mode)
+        required: false
+        default: ""
+        type: string
+      cli-workspace-tag:
+        description: Optional existing v<version> release to mirror backfilled CLI assets
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -40,11 +51,13 @@ env:
 
 jobs:
   release:
+    if: inputs.mode != 'cli-assets'
     name: ${{ inputs.mode }} ${{ inputs.crates }}
     runs-on: ubuntu-latest
     outputs:
       plan: ${{ steps.plan.outputs.plan }}
       github_plan: ${{ steps.plan.outputs.github_plan }}
+      cli_tag: ${{ steps.plan.outputs.cli_tag }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -81,6 +94,7 @@ jobs:
             echo "github_plan<<EOF"
             echo "$github_plan"
             echo "EOF"
+            echo "cli_tag=$(awk '$1 == "hadris-cli" {print $3}' <<< "$plan")"
           } >> "$GITHUB_OUTPUT"
 
       - name: Check workspace
@@ -211,3 +225,17 @@ jobs:
         run: |
           set -euo pipefail
           gh workflow run docs.yml --ref main
+
+  cli-assets:
+    name: Build and upload unified CLI binaries
+    needs: [release, github-release]
+    if: >-
+      always() && !cancelled() &&
+      (inputs.mode == 'cli-assets' ||
+      (inputs.mode == 'publish' && needs.github-release.result == 'success' && needs.release.outputs.cli_tag != ''))
+    permissions:
+      contents: write
+    uses: ./.github/workflows/cli-release.yml
+    with:
+      tag: ${{ inputs.mode == 'cli-assets' && inputs.cli-tag || needs.release.outputs.cli_tag }}
+      workspace-tag: ${{ inputs.mode == 'cli-assets' && inputs.cli-workspace-tag || '' }}
