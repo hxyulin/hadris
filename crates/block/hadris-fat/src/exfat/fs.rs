@@ -2028,10 +2028,10 @@ impl<D: BlockDevice> ExFatFs<D> {
         }
         let tail = if node.contiguous {
             let tail = self.contiguous_tail(node)?;
-            for cluster in node.first..tail {
-                self.set_fat(cluster, cluster + 1).await?;
-            }
-            self.set_fat(tail, raw::FAT_END).await?;
+            self.writable()?;
+            let linked = exio::link_run(&mut self.dev, &mut self.block, &mut self.vol, node.first, tail - node.first + 1).await;
+            self.note_refusal(&linked);
+            linked?;
             tail
         } else {
             let clusters = node.len.div_ceil(self.vol.geometry().cluster_size());
@@ -2305,6 +2305,14 @@ impl<D: BlockDevice> ExFatFs<D> {
         Ok(at)
     }
 
+    /// Clears the bitmap bits of the `count` clusters from `first`.
+    async fn free_run(&mut self, first: u32, count: u32) -> FsResult<(), D::Error> {
+        self.writable()?;
+        let result = exio::set_bits(&mut self.dev, &mut self.block, &mut self.vol, first, count, ClusterState::Free).await;
+        self.note_refusal(&result);
+        result
+    }
+
     /// Reads bitmap bytes from `pos`, at most to the end of a cluster.
     async fn set_bit(&mut self, cluster: u32, state: ClusterState) -> FsResult<(), D::Error> {
         self.writable()?;
@@ -2392,10 +2400,7 @@ impl<D: BlockDevice> ExFatFs<D> {
             return Ok(());
         }
         let tail = self.run_tail(alloc.first, len)?;
-        for cluster in alloc.first..=tail {
-            self.set_bit(cluster, ClusterState::Free).await?;
-        }
-        Ok(())
+        self.free_run(alloc.first, tail - alloc.first + 1).await
     }
 
     /// Frees the allocations of the benign secondary entries of `set`,
@@ -2878,10 +2883,7 @@ impl<D: BlockDevice> ExFatFs<D> {
             return self.free_alloc(state.alloc(), state.len).await;
         }
         if state.contiguous {
-            for cluster in state.first + keep..state.first + had {
-                self.set_bit(cluster, ClusterState::Free).await?;
-            }
-            return Ok(());
+            return self.free_run(state.first + keep, had - keep).await;
         }
         let last = self.locate_cluster(state.alloc(), ChainPos::NONE, keep - 1).await?.cluster();
         if let Some(next) = self.next_cluster(last).await? {

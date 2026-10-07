@@ -102,6 +102,13 @@ Each published package owns its version and may be released independently.
 - **NTFS:** Reading a file whose data a WOF (CompactOS) or Data Deduplication
   reparse point keeps elsewhere fails with `Unsupported`
   (`Detail::ReparseData`) instead of returning the sparse placeholder as zeros.
+- **hadris-fat (exFAT):** Freeing or shrinking a contiguous (`NoFatChain`)
+  allocation clears its bitmap bits with one write per device block, and
+  giving one a FAT chain writes its entries a device block at a time.
+  Removing a 64-cluster contiguous file took 66 device writes and now takes
+  at most 4. `hadris-fat-raw` exports the primitives as `exfat::io::set_bits`
+  and `exfat::io::link_run` in each mode.
+
 - **hadris-fat-raw:** FAT allocation fails with `NoSpace` without scanning the
   FAT once a scan found no cluster free and none was freed since (an FSInfo
   count of 0 is still only a hint), and exFAT allocation when the counted
