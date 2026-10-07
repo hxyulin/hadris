@@ -153,6 +153,10 @@ pub mod sync {
     use hadris_fat::sync::FatFs;
     use hadris_fat_raw::exfat::io::sync as exio;
     use hadris_fat_raw::io::sync as rawio;
+    #[allow(unused_macros)]
+    macro_rules! send_filesystem {
+        ($($item:tt)*) => {};
+    }
     #[cfg(feature = "alloc")]
     use hadris_fs::sync::FileSystem;
     use hadris_iso::sync::IsoFs;
@@ -172,7 +176,8 @@ pub mod sync {
 /// source as `sync`.
 #[cfg(all(feature = "detect", feature = "async"))]
 #[cfg_attr(docsrs, doc(cfg(all(feature = "detect", feature = "async"))))]
-pub mod r#async;
+#[path = "async.rs"]
+pub mod async_;
 
 /// FAT12, FAT16, FAT32 and exFAT.
 #[cfg(feature = "fat")]
@@ -208,3 +213,7 @@ pub use hadris_cpio as cpio;
 #[cfg(feature = "unstable-apfs")]
 #[cfg_attr(docsrs, doc(cfg(feature = "unstable-apfs")))]
 pub use hadris_apfs as apfs;
+
+/// Compatibility alias for the asynchronous API.
+#[cfg(all(feature = "detect", feature = "async"))]
+pub use async_ as r#async;

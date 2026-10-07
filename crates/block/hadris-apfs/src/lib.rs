@@ -35,7 +35,7 @@
 //! device in [`hadris_fs::MountError`].
 //!
 //! `std` implies `alloc`. `read` enables readers, `sync` enables blocking
-//! APIs, and `async` enables asynchronous APIs with `Send` futures. Without
+//! APIs, and `async` enables unified asynchronous APIs with local or Send devices. Without
 //! `alloc`, the native container header and block reader remains usable.
 //! `encryption` implies `read` and `alloc` and adds optional crypto dependencies.
 //!
@@ -76,7 +76,11 @@ pub mod error;
 pub mod types;
 
 #[cfg(all(feature = "read", feature = "async"))]
-pub mod r#async;
+#[path = "async/mod.rs"]
+pub mod async_;
+/// Compatibility alias for the unified asynchronous API.
+#[cfg(all(feature = "read", feature = "async"))]
+pub use async_ as r#async;
 #[cfg(feature = "read")]
 pub mod read;
 #[cfg(all(feature = "read", feature = "sync"))]

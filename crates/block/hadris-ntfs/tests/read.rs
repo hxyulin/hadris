@@ -3,7 +3,6 @@
 //! `scripts/test-ntfs.sh` runs them in a container that has them.
 
 use hadris_fs::MountOptions;
-use hadris_fs::sync::FileSystem;
 use hadris_fs::{ErrorKind, FileType, Name};
 use hadris_ntfs::sync::NtfsFs;
 use hadris_storage::host::FileDevice;

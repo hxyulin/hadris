@@ -11,7 +11,6 @@ use std::collections::BTreeSet;
 use common::{CASES, Case, Device, Fs, block_on, formatted, payload};
 use hadris_fat::FatOptions;
 use hadris_fat::sync::FatFs;
-use hadris_fs::r#async::FileSystem as _;
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{DirCursor, ErrorKind, FileType, Name, NodeId, RenameMode, SetAttr};
 

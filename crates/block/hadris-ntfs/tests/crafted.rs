@@ -3,7 +3,6 @@
 
 use hadris_fs::Error;
 use hadris_fs::MountOptions;
-use hadris_fs::sync::FileSystem;
 use hadris_fs::{DirCursor, ErrorKind, FileType, Name, NodeId};
 use hadris_ntfs::Detail;
 use hadris_ntfs::raw;
@@ -649,7 +648,6 @@ fn large_streams_read_across_runs() {
 #[cfg(feature = "async")]
 #[test]
 fn async_modes_walk_and_reject_corruption() {
-    use hadris_fs::r#async::FileSystem as _;
     block_on(async {
         let mut fs = hadris_ntfs::r#async::NtfsFs::mount(device(base_image()), MountOptions::new())
             .await
@@ -748,7 +746,6 @@ fn mapping_pairs_cannot_read_the_device_tail_outside_the_volume() {
         }
         #[cfg(feature = "async")]
         block_on(async {
-            use hadris_fs::r#async::FileSystem;
             let mut fs = hadris_ntfs::r#async::NtfsFs::mount(device(image), MountOptions::new())
                 .await
                 .unwrap();

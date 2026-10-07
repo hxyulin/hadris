@@ -679,34 +679,15 @@ fn check_rename_image(case: Case, image: &[u8], directory: bool, cross: bool, su
 
 mod cancel {
     use super::*;
-    use core::future::Future;
     use hadris_fat::embedded::r#async::Fat as AsyncFat;
     use hadris_io::{Error, ErrorType};
     use hadris_storage::BlockIndex;
-    use hadris_storage::local::BlockDevice;
+    use hadris_storage::async_::BlockDevice;
 
     use super::shared::{Rng, run_for};
 
     /// A memory device whose transfers each yield once.
     struct Yielding(Dev);
-
-    struct YieldOnce(bool);
-
-    impl Future for YieldOnce {
-        type Output = ();
-
-        fn poll(
-            mut self: core::pin::Pin<&mut Self>,
-            cx: &mut core::task::Context<'_>,
-        ) -> core::task::Poll<()> {
-            if self.0 {
-                return core::task::Poll::Ready(());
-            }
-            self.0 = true;
-            cx.waker().wake_by_ref();
-            core::task::Poll::Pending
-        }
-    }
 
     impl ErrorType for Yielding {
         type Error = core::convert::Infallible;
@@ -725,23 +706,51 @@ mod cancel {
             BlockDevice::writable(&self.0)
         }
 
-        async fn read_blocks(
+        type State = bool;
+        fn poll_read_blocks(
             &mut self,
+            state: &mut bool,
+            cx: &mut core::task::Context<'_>,
             first: BlockIndex,
             buf: &mut [u8],
-        ) -> Result<(), Error<Self::Error>> {
-            YieldOnce(false).await;
-            BlockDevice::read_blocks(&mut self.0, first, buf).await
+        ) -> core::task::Poll<Result<(), Error<Self::Error>>> {
+            if !*state {
+                *state = true;
+                cx.waker().wake_by_ref();
+                return core::task::Poll::Pending;
+            }
+            core::task::Poll::Ready(hadris_storage::sync::BlockDevice::read_blocks(
+                &mut self.0,
+                first,
+                buf,
+            ))
         }
-
-        async fn write_blocks(
+        fn poll_write_blocks(
             &mut self,
+            state: &mut bool,
+            cx: &mut core::task::Context<'_>,
             first: BlockIndex,
             buf: &[u8],
-        ) -> Result<(), Error<Self::Error>> {
-            YieldOnce(false).await;
-            BlockDevice::write_blocks(&mut self.0, first, buf).await
+        ) -> core::task::Poll<Result<(), Error<Self::Error>>> {
+            if !*state {
+                *state = true;
+                cx.waker().wake_by_ref();
+                return core::task::Poll::Pending;
+            }
+            core::task::Poll::Ready(hadris_storage::sync::BlockDevice::write_blocks(
+                &mut self.0,
+                first,
+                buf,
+            ))
         }
+        fn poll_flush(
+            &mut self,
+            _: &mut bool,
+            _: &mut core::task::Context<'_>,
+        ) -> core::task::Poll<Result<(), Error<Self::Error>>> {
+            core::task::Poll::Ready(Ok(()))
+        }
+        fn cancel(&mut self, _: &mut bool) {}
     }
 
     type Vol<'m> = AsyncFat<'m, Yielding, 16>;

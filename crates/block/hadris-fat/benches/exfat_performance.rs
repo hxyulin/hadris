@@ -6,7 +6,6 @@ mod support;
 use hadris_fat::embedded::MountToken;
 use hadris_fat::exfat::embedded::sync::ExFat;
 use hadris_fat::exfat::sync::ExFatFs;
-use hadris_fs::sync::FileSystem;
 use hadris_fs::{MountOptions, Name, OpenOptions, SetAttr};
 use std::cell::Cell;
 use std::hint::black_box;

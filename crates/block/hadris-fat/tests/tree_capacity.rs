@@ -58,6 +58,7 @@ impl hadris_storage::sync::BlockDevice for Counted {
 }
 #[cfg(feature = "async")]
 impl hadris_storage::r#async::BlockDevice for Counted {
+    type State = ();
     fn block_size(&self) -> BlockSize {
         hadris_storage::sync::BlockDevice::block_size(self)
     }
@@ -67,23 +68,36 @@ impl hadris_storage::r#async::BlockDevice for Counted {
     fn writable(&self) -> bool {
         true
     }
-    async fn read_blocks(
+    fn poll_read_blocks(
         &mut self,
+        _: &mut (),
+        _: &mut core::task::Context<'_>,
         first: BlockIndex,
         data: &mut [u8],
-    ) -> Result<(), hadris_io::Error<Self::Error>> {
-        hadris_storage::sync::BlockDevice::read_blocks(self, first, data)
+    ) -> core::task::Poll<Result<(), hadris_io::Error<Self::Error>>> {
+        core::task::Poll::Ready(hadris_storage::sync::BlockDevice::read_blocks(
+            self, first, data,
+        ))
     }
-    async fn write_blocks(
+    fn poll_write_blocks(
         &mut self,
+        _: &mut (),
+        _: &mut core::task::Context<'_>,
         first: BlockIndex,
         data: &[u8],
-    ) -> Result<(), hadris_io::Error<Self::Error>> {
-        hadris_storage::sync::BlockDevice::write_blocks(self, first, data)
+    ) -> core::task::Poll<Result<(), hadris_io::Error<Self::Error>>> {
+        core::task::Poll::Ready(hadris_storage::sync::BlockDevice::write_blocks(
+            self, first, data,
+        ))
     }
-    async fn flush(&mut self) -> Result<(), hadris_io::Error<Self::Error>> {
-        hadris_storage::sync::BlockDevice::flush(self)
+    fn poll_flush(
+        &mut self,
+        _: &mut (),
+        _: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Result<(), hadris_io::Error<Self::Error>>> {
+        core::task::Poll::Ready(hadris_storage::sync::BlockDevice::flush(self))
     }
+    fn cancel(&mut self, _: &mut ()) {}
 }
 
 macro_rules! cases {
@@ -92,7 +106,6 @@ macro_rules! cases {
         fn $name() {
             $run!(async {
                 use hadris_fat::{FatKind, FatOptions};
-                use hadris_fs::$mode::FileSystem;
                 use hadris_fs::{MountOptions, Name, OpenMode};
                 for (kind, size) in [
                     (FatKind::Fat12, 2 << 20),

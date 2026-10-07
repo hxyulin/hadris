@@ -13,8 +13,9 @@ past the end of a `Partition`. Adapters keep the error type of the device
 underneath. Errors must be `core::error::Error + Send + Sync + 'static` in
 every mode. `local` permits non-`Send` devices and futures, not non-`Send` errors.
 
-A read-only device implements `block_size`, `block_count` and
-`read_blocks`, and nothing else. A device that accepts writes also
+A synchronous read-only device implements `block_size`, `block_count` and
+`read_blocks`. Async devices implement `State`, `poll_read_blocks` and `cancel`
+in addition to geometry. A device that accepts writes also
 overrides `writable()`, which defaults to false, and `write_blocks`.
 `writable()` answers whether the device accepts writes at all; a driver
 mounts a device that says false read-only. A device that says true may
@@ -27,12 +28,12 @@ block 0 on the disk a device is a window of.
 
 | Type | Purpose |
 |---|---|
-| `BlockDevice` | Whole-block reads, optional writes and flush, in `sync`, `r#async` (`Send` futures) and `local` (futures need not be `Send`). `&mut D` and `Box<D>` implement it too |
+| `BlockDevice` | Whole-block reads, optional writes and flush, in `sync` and unified `async_` (`r#async` and `local` are aliases). `&mut D` and `Box<D>` implement it too |
 | `Vec<u8>` | With `alloc`, an in-memory image with 512-byte blocks that grows when written past its end. Device error `Infallible` |
 | `MemDevice` | A fixed-size block device over `&[u8]` (read-only), `&mut [u8]`, `[u8; N]`, `Vec<u8>` or `Box<[u8]>`, with any block size. Device error `Infallible`; requests past the end fail with kind `InvalidInput` |
 | `Partition` | A byte window of another device, such as an MBR or GPT partition. Its offset and length are multiples of the device block size. Requests past its end never reach the device, and `disk_offset` reports its start |
 | `host::FileDevice` | With `std` and `sync`, an image file (512-byte blocks by default) or disk device (OS-reported logical blocks). `open(path)` is read-only; `new(file)` takes a file the caller opened and is writable when the file is. An image file grows when written past its end |
-| `StreamDevice` | A block device over any `Read + Seek` stream, with any block size. Wrap read-only streams in `ReadOnly`; the sealed `StreamWrite` trait carries the choice |
+| `StreamDevice` | A block device over a `Read + Seek` stream in sync mode, or poll-native `Stream` in async mode. `BlockingStream` explicitly adapts synchronous streams; growth requires its `new_growable` constructor |
 | `Cache` | Write-back LRU cache of whole blocks (`alloc`). Its first write goes straight through, so a read-only device says so at once. Requests of at least `capacity` blocks bypass it |
 | `ReadAhead` | Optional, write-through read buffering (`alloc`). Two windows share a configurable block budget; adjacent access enables larger reads, while scattered misses fetch only requested blocks |
 | `ByteView` | Byte-granular reads and writes over a device, also usable as a stream |
@@ -180,3 +181,33 @@ the original chain. A new local device implementing the common contract can
 mount ISO directly, without that wrapper.
 
 See the [ISO guide](../../../docs/unified-async-iso.md) for usage and limits.
+
+## Unified asynchronous devices
+
+`async_::BlockDevice` accepts both local and Send devices. Each operation owns
+`State: Default + Unpin`; `read_blocks`, `write_blocks` and `flush` return concrete,
+unboxed futures. `SendBlockDevice` is implemented automatically when the device
+and its state are Send. Generic code requiring Send futures should use that
+marker, while filesystem algorithms can use the common device contract.
+
+Poll hooks receive the same request and state until completion. Before returning,
+including Pending, they must stop accessing borrowed request buffers. Backends
+performing I/O between polls need owned stable transfer buffers. State must not
+retain pointers into its own movable fields. On Pending, register the supplied
+waker for progress. `cancel` must tolerate cancellation before starting I/O and
+must never panic, including when a poll hook unwinds. Buffer safety cannot depend
+on cancellation running because futures can be forgotten.
+
+Borrowed devices, boxes, partitions, byte views, read-ahead and write-back caches
+use the same contract. Cancellation of a cache flush preserves dirty blocks for
+retry; completed partial writes are not rolled back. `host::FileDevice` implements
+the contract through synchronous OS I/O and therefore blocks the polling thread.
+
+The old RPITIT async stream adapters remain explicitly available through
+`legacy_async` and `legacy_local`; arbitrary borrowed async stream futures cannot
+be safely converted to resumable poll operations. New backends should implement
+the poll contract directly. The unified `StreamDevice` accepts the poll-native
+`Stream` trait, whose state and cancellation follow the device contract.
+`BlockingStream::new` keeps a fixed size; use `new_growable` only for a stream
+known to support extension. Reconstruct a `StreamDevice` after changing its
+length through `get_mut` so its readable block count stays accurate.

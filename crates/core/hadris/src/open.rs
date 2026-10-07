@@ -365,4 +365,92 @@ impl<D: BlockDevice> FileSystem for AnyFs<D> {
     }
 }
 
+send_filesystem! {
+#[cfg(feature = "alloc")]
+impl<D: hadris_storage::async_::SendBlockDevice> hadris_fs::async_::FileSystem for AnyFs<D> {
+    type DeviceError = D::Error;
+
+    fn capabilities(&self) -> Capabilities {
+        each!(self, fs => hadris_fs::async_::FileSystem::capabilities(fs))
+    }
+    fn root(&self) -> NodeId {
+        each!(self, fs => hadris_fs::async_::FileSystem::root(fs))
+    }
+    async fn statfs(&mut self) -> FsResult<FsStats, Self::DeviceError> {
+        each!(self, fs => hadris_fs::async_::FileSystem::statfs(fs).await)
+    }
+    async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, Self::DeviceError> {
+        each!(self, fs => hadris_fs::async_::FileSystem::label(fs, buf).await)
+    }
+    async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, Self::DeviceError> {
+        each!(self, fs => hadris_fs::async_::FileSystem::lookup(fs, dir, name).await)
+    }
+    fn forget(&mut self, node: NodeId, count: u64) {
+        each!(self, fs => hadris_fs::async_::FileSystem::forget(fs, node, count))
+    }
+    async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, Self::DeviceError> {
+        each!(self, fs => hadris_fs::async_::FileSystem::parent(fs, dir).await)
+    }
+    async fn resolve(&mut self, path: &[u8], how: Resolve) -> FsResult<NodeId, Self::DeviceError> {
+        each!(self, fs => hadris_fs::async_::FileSystem::resolve(fs, path, how).await)
+    }
+    async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, Self::DeviceError> {
+        each!(self, fs => hadris_fs::async_::FileSystem::stat(fs, node).await)
+    }
+    async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, Self::DeviceError> {
+        each!(self, fs => hadris_fs::async_::FileSystem::readdir(fs, dir, from).await)
+    }
+    async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], Self::DeviceError> {
+        each!(self, fs => hadris_fs::async_::FileSystem::readlink(fs, node, buf).await)
+    }
+    async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), Self::DeviceError> {
+        each!(self, fs => hadris_fs::async_::FileSystem::open(fs, node, mode).await)
+    }
+    async fn close(&mut self, node: NodeId) -> FsResult<(), Self::DeviceError> {
+        each!(self, fs => hadris_fs::async_::FileSystem::close(fs, node).await)
+    }
+    async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, Self::DeviceError> {
+        each!(self, fs => hadris_fs::async_::FileSystem::read(fs, node, offset, buf).await)
+    }
+    async fn setattr(&mut self, node: NodeId, changes: &SetAttr) -> FsResult<(), Self::DeviceError> {
+        each!(self, fs => hadris_fs::async_::FileSystem::setattr(fs, node, changes).await)
+    }
+    async fn write(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, Self::DeviceError> {
+        each!(self, fs => hadris_fs::async_::FileSystem::write(fs, node, offset, buf).await)
+    }
+    async fn truncate(&mut self, node: NodeId, len: u64) -> FsResult<(), Self::DeviceError> {
+        each!(self, fs => hadris_fs::async_::FileSystem::truncate(fs, node, len).await)
+    }
+    async fn fsync(&mut self, node: NodeId) -> FsResult<(), Self::DeviceError> {
+        each!(self, fs => hadris_fs::async_::FileSystem::fsync(fs, node).await)
+    }
+    async fn create(&mut self, dir: NodeId, name: &Name, attrs: &SetAttr) -> FsResult<NodeId, Self::DeviceError> {
+        each!(self, fs => hadris_fs::async_::FileSystem::create(fs, dir, name, attrs).await)
+    }
+    async fn mkdir(&mut self, dir: NodeId, name: &Name, attrs: &SetAttr) -> FsResult<NodeId, Self::DeviceError> {
+        each!(self, fs => hadris_fs::async_::FileSystem::mkdir(fs, dir, name, attrs).await)
+    }
+    async fn unlink(&mut self, dir: NodeId, name: &Name) -> FsResult<(), Self::DeviceError> {
+        each!(self, fs => hadris_fs::async_::FileSystem::unlink(fs, dir, name).await)
+    }
+    async fn rmdir(&mut self, dir: NodeId, name: &Name) -> FsResult<(), Self::DeviceError> {
+        each!(self, fs => hadris_fs::async_::FileSystem::rmdir(fs, dir, name).await)
+    }
+    async fn rename(
+        &mut self,
+        from_dir: NodeId,
+        from: &Name,
+        to_dir: NodeId,
+        to: &Name,
+        mode: RenameMode,
+    ) -> FsResult<(), Self::DeviceError> {
+        each!(self, fs => hadris_fs::async_::FileSystem::rename(fs, from_dir, from, to_dir, to, mode).await)
+    }
+    async fn sync(&mut self) -> FsResult<(), Self::DeviceError> {
+        each!(self, fs => hadris_fs::async_::FileSystem::sync(fs).await)
+    }
+}
+}
+
+
 }

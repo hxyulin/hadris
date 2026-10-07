@@ -3,7 +3,7 @@
 //! A read-only NTFS reader that needs no allocator.
 //!
 //! `NtfsFs` opens a volume on a `hadris_storage` block device, in each mode
-//! (`sync::NtfsFs`, `r#async::NtfsFs`). It implements the `hadris_fs`
+//! (`sync::NtfsFs`, `async_::NtfsFs`). It implements the `hadris_fs`
 //! `FileSystem` trait read-only, so `Volume` and its handles work on it.
 //! Node ids are file references and need no node table.
 //!
@@ -64,7 +64,7 @@
 //! | `std` | Yes | Implies `alloc`; forwards `std` to `hadris-fs` and `hadris-storage` |
 //! | `alloc` | via `std` | Forwards `alloc` to `hadris-fs` and `hadris-storage` |
 //! | `sync` | Yes | The blocking API in `sync` |
-//! | `async` | No | The asynchronous API with `Send` futures in `r#async` |
+//! | `async` | No | The unified asynchronous API in `async_` (`r#async` is an alias) |
 //!
 //! No feature changes what an item does.
 
@@ -98,6 +98,9 @@ pub mod sync {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
     }
 
+    macro_rules! send_filesystem {
+        ($($item:tt)*) => {};
+    }
     use hadris_fs::sync::FileSystem;
     use hadris_storage::sync as storage;
 
@@ -106,10 +109,14 @@ pub mod sync {
     pub use fs::NtfsFs;
 }
 
-/// The asynchronous API with `Send` futures, for generic code on
-/// multi-threaded executors, generated from the same source as `sync`.
+/// Unified asynchronous readers for local and multi-threaded executors.
+/// Send capability follows the device and its operation state.
 #[cfg(feature = "async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
-pub mod r#async;
+#[path = "async.rs"]
+pub mod async_;
+/// Compatibility alias for the asynchronous API.
+#[cfg(feature = "async")]
+pub use async_ as r#async;
 
 pub use error::Detail;

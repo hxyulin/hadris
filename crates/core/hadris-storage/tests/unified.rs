@@ -3,7 +3,7 @@
 use core::future::Future;
 use core::task::{Context, Poll, Waker};
 use hadris_io::ErrorKind;
-use hadris_storage::async_::{BlockDevice, Local};
+use hadris_storage::async_::BlockDevice;
 use hadris_storage::{BlockIndex, BlockSize, MemDevice, Partition};
 
 fn block_on<F: Future>(future: F) -> F::Output {
@@ -30,7 +30,7 @@ fn send_and_local_partition_writes_preserve_boundaries() {
         BlockDevice::flush(&mut send).await.unwrap();
     });
     block_on(async {
-        let mut local = Local::new(Partition::new(&mut disk, 512, 2 * 512));
+        let mut local = Partition::new(&mut disk, 512, 2 * 512);
         assert_eq!(local.block_count(), 2);
         assert_eq!(local.max_block_count(), 2);
         assert_eq!(local.disk_offset(), 512);
@@ -50,7 +50,7 @@ fn send_and_local_partition_writes_preserve_boundaries() {
             .await
             .unwrap_err();
         assert_eq!(error.kind(), ErrorKind::InvalidInput);
-        assert_eq!(local.into_inner().len(), 2 * 512);
+        assert_eq!(local.len(), 2 * 512);
     });
     assert_eq!(&disk.get_ref()[..512], &[0xA5; 512]);
     assert_eq!(&disk.get_ref()[512..1024], &[1; 512]);
@@ -61,16 +61,16 @@ fn send_and_local_partition_writes_preserve_boundaries() {
 #[test]
 fn local_adapter_preserves_growth_and_read_only_errors() {
     block_on(async {
-        let mut growable = Local::new(Vec::<u8>::new());
+        let mut growable = Vec::<u8>::new();
         assert!(growable.max_block_count() > growable.block_count());
         growable
             .write_blocks(BlockIndex::new(1), &[7; 512])
             .await
             .unwrap();
         assert_eq!(growable.block_count(), 2);
-        assert_eq!(&growable.into_inner()[..512], &[0; 512]);
+        assert_eq!(&growable[..512], &[0; 512]);
         let data = [0; 512];
-        let mut read_only = Local::new(MemDevice::new(&data[..], BlockSize::new(512).unwrap()));
+        let mut read_only = MemDevice::new(&data[..], BlockSize::new(512).unwrap());
         assert!(!read_only.writable());
         let error = read_only
             .write_blocks(BlockIndex::new(0), &data)

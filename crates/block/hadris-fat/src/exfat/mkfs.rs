@@ -377,7 +377,7 @@ mod tree {
 
     use super::super::ExFatFs;
     use super::super::fatmkfs::{Capacity, check_capacity, stamped, tree_seed};
-    use super::super::fsapi::{FileSystem, copy_tree};
+    use super::super::fsapi::copy_tree;
     use super::super::storage::BlockDevice;
     use super::{format_prepared, prepare, root_entries};
     use crate::exfat::ExFatOptions;

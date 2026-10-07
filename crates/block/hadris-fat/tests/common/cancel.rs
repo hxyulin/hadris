@@ -18,21 +18,6 @@ use hadris_storage::{BlockIndex, BlockSize, MemDevice};
 /// before they happen.
 pub struct YieldDev(pub MemDevice<Vec<u8>>);
 
-struct YieldOnce(bool);
-
-impl Future for YieldOnce {
-    type Output = ();
-
-    fn poll(mut self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
-        if self.0 {
-            return Poll::Ready(());
-        }
-        self.0 = true;
-        cx.waker().wake_by_ref();
-        Poll::Pending
-    }
-}
-
 impl ErrorType for YieldDev {
     type Error = core::convert::Infallible;
 }
@@ -50,23 +35,51 @@ impl BlockDevice for YieldDev {
         BlockDevice::writable(&self.0)
     }
 
-    async fn read_blocks(
+    type State = bool;
+    fn poll_read_blocks(
         &mut self,
+        state: &mut bool,
+        cx: &mut Context<'_>,
         first: BlockIndex,
         buf: &mut [u8],
-    ) -> Result<(), Error<Self::Error>> {
-        YieldOnce(false).await;
-        BlockDevice::read_blocks(&mut self.0, first, buf).await
+    ) -> Poll<Result<(), Error<Self::Error>>> {
+        if !*state {
+            *state = true;
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
+        }
+        Poll::Ready(hadris_storage::sync::BlockDevice::read_blocks(
+            &mut self.0,
+            first,
+            buf,
+        ))
     }
-
-    async fn write_blocks(
+    fn poll_write_blocks(
         &mut self,
+        state: &mut bool,
+        cx: &mut Context<'_>,
         first: BlockIndex,
         buf: &[u8],
-    ) -> Result<(), Error<Self::Error>> {
-        YieldOnce(false).await;
-        BlockDevice::write_blocks(&mut self.0, first, buf).await
+    ) -> Poll<Result<(), Error<Self::Error>>> {
+        if !*state {
+            *state = true;
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
+        }
+        Poll::Ready(hadris_storage::sync::BlockDevice::write_blocks(
+            &mut self.0,
+            first,
+            buf,
+        ))
     }
+    fn poll_flush(
+        &mut self,
+        _: &mut bool,
+        _: &mut Context<'_>,
+    ) -> Poll<Result<(), Error<Self::Error>>> {
+        Poll::Ready(Ok(()))
+    }
+    fn cancel(&mut self, _: &mut bool) {}
 }
 
 /// Polls `future` at most `polls` times. `None` when it was dropped

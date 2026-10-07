@@ -10,7 +10,6 @@ use hadris_fs::MountOptions;
 use common::{Geometry, Tool, clean, fsck, fsck_with, le32, put32};
 use hadris_fat::exfat::Detail;
 use hadris_fat::exfat::sync::ExFatFs;
-use hadris_fs::sync::FileSystem;
 use hadris_fs::{DirCursor, ErrorKind, FileType};
 
 type Patch = Box<dyn Fn(&mut Vec<u8>)>;

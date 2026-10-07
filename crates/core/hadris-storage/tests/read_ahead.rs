@@ -238,34 +238,48 @@ mod cancellation {
         type Error = core::convert::Infallible;
     }
     impl BlockDevice for Yielding {
+        type State = ();
+        fn cancel(&mut self, _: &mut ()) {}
         fn block_size(&self) -> BlockSize {
             self.inner.block_size()
         }
         fn block_count(&self) -> u64 {
             256
         }
-        async fn read_blocks(
+        fn poll_read_blocks(
             &mut self,
+            state: &mut (),
+            cx: &mut core::task::Context<'_>,
             first: BlockIndex,
             buf: &mut [u8],
-        ) -> Result<(), Error<Self::Error>> {
-            self.inner.read_blocks(first, buf).await?;
+        ) -> core::task::Poll<Result<(), Error<Self::Error>>> {
+            if let core::task::Poll::Ready(Err(e)) =
+                self.inner.poll_read_blocks(state, cx, first, buf)
+            {
+                return core::task::Poll::Ready(Err(e));
+            }
             if self.suspend.load(std::sync::atomic::Ordering::Relaxed) {
                 buf.fill(255);
-                core::future::pending::<()>().await;
+                return core::task::Poll::Pending;
             }
-            Ok(())
+            core::task::Poll::Ready(Ok(()))
         }
-        async fn write_blocks(
+        fn poll_write_blocks(
             &mut self,
+            state: &mut (),
+            cx: &mut core::task::Context<'_>,
             first: BlockIndex,
             buf: &[u8],
-        ) -> Result<(), Error<Self::Error>> {
-            self.inner.write_blocks(first, buf).await?;
-            if self.suspend.load(std::sync::atomic::Ordering::Relaxed) {
-                core::future::pending::<()>().await;
+        ) -> core::task::Poll<Result<(), Error<Self::Error>>> {
+            if let core::task::Poll::Ready(Err(e)) =
+                self.inner.poll_write_blocks(state, cx, first, buf)
+            {
+                return core::task::Poll::Ready(Err(e));
             }
-            Ok(())
+            if self.suspend.load(std::sync::atomic::Ordering::Relaxed) {
+                return core::task::Poll::Pending;
+            }
+            core::task::Poll::Ready(Ok(()))
         }
     }
     fn cancel<F: core::future::Future + Send>(future: F) {

@@ -1,7 +1,7 @@
 //! MBR, GPT and hybrid partition tables on `hadris-storage` block devices.
 //!
 //! [`Disk`] holds a partition table and the boot code of block 0. It does no
-//! I/O: the mode modules ([`sync`], `r#async`) read it from a
+//! I/O: the mode modules ([`sync`], [`async_`]) read it from a
 //! [`BlockDevice`](hadris_storage::sync::BlockDevice), write it back, and
 //! open a partition as a [`hadris_storage::Partition`] of the device. The block size is always the device's.
 //!
@@ -64,7 +64,7 @@
 //! | `std` | Yes | Implies `alloc`; `Guid::random` and `std::io::Error` conversions |
 //! | `alloc` | via `std` | `Disk`, the tables, `DiskLayout`, and `read`, `write` and `create` |
 //! | `sync` | Yes | The blocking API in `sync` |
-//! | `async` | No | The asynchronous API with `Send` futures in `r#async` |
+//! | `async` | No | The asynchronous API for local and `Send` devices in `async_` |
 //!
 //! No feature changes what an item does. CRCs are always computed and
 //! checked, and no GUID is ever made at random unless you call
@@ -131,16 +131,16 @@ pub mod sync {
 #[cfg(feature = "async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 #[path = ""]
-pub mod r#async {
-    //! The asynchronous API over the `Send` devices of
-    //! `hadris_storage::r#async`, whose futures are `Send` when the device
-    //! and callbacks are. Generated from the same source as `sync`.
+pub mod async_ {
+    //! The asynchronous API over `hadris_storage::async_::BlockDevice`.
+    //! Futures are `Send` when the device, its operation state and callbacks
+    //! are. Local devices and callbacks use the same functions.
 
     macro_rules! io_transform {
         ($($item:tt)*) => { $($item)* };
     }
 
-    use hadris_storage::r#async as storage;
+    use hadris_storage::async_ as storage;
 
     #[path = "io.rs"]
     mod io;
@@ -171,3 +171,7 @@ pub use mbr::{Mbr, MbrEntry};
 pub use mbr_type::MbrType;
 pub use name::PartitionName;
 pub use partition::{GptCopy, Partition, PartitionFlags, PartitionKind, TableKind};
+
+/// Compatibility alias for the unified asynchronous API.
+#[cfg(feature = "async")]
+pub use async_ as r#async;

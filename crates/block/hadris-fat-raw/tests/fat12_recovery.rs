@@ -173,21 +173,8 @@ mod asynchronous {
     use core::task::{Context, Poll, Waker};
     use hadris_fat_raw::io::r#async as aio;
 
-    async fn yield_once() {
-        let mut pending = true;
-        core::future::poll_fn(|cx| {
-            if pending {
-                pending = false;
-                cx.waker().wake_by_ref();
-                Poll::Pending
-            } else {
-                Poll::Ready(())
-            }
-        })
-        .await
-    }
-
-    impl hadris_storage::r#async::BlockDevice for Device {
+    impl hadris_storage::async_::BlockDevice for Device {
+        type State = bool;
         fn block_size(&self) -> BlockSize {
             hadris_storage::sync::BlockDevice::block_size(self)
         }
@@ -197,22 +184,46 @@ mod asynchronous {
         fn writable(&self) -> bool {
             true
         }
-        async fn read_blocks(
+        fn poll_read_blocks(
             &mut self,
+            state: &mut bool,
+            cx: &mut Context<'_>,
             first: BlockIndex,
             out: &mut [u8],
-        ) -> Result<(), Error<Self::Error>> {
-            yield_once().await;
-            hadris_storage::sync::BlockDevice::read_blocks(self, first, out)
+        ) -> Poll<Result<(), Error<Self::Error>>> {
+            if !*state {
+                *state = true;
+                cx.waker().wake_by_ref();
+                return Poll::Pending;
+            }
+            Poll::Ready(hadris_storage::sync::BlockDevice::read_blocks(
+                self, first, out,
+            ))
         }
-        async fn write_blocks(
+        fn poll_write_blocks(
             &mut self,
+            state: &mut bool,
+            cx: &mut Context<'_>,
             first: BlockIndex,
             data: &[u8],
-        ) -> Result<(), Error<Self::Error>> {
-            yield_once().await;
-            hadris_storage::sync::BlockDevice::write_blocks(self, first, data)
+        ) -> Poll<Result<(), Error<Self::Error>>> {
+            if !*state {
+                *state = true;
+                cx.waker().wake_by_ref();
+                return Poll::Pending;
+            }
+            Poll::Ready(hadris_storage::sync::BlockDevice::write_blocks(
+                self, first, data,
+            ))
         }
+        fn poll_flush(
+            &mut self,
+            _: &mut bool,
+            _: &mut Context<'_>,
+        ) -> Poll<Result<(), Error<Self::Error>>> {
+            Poll::Ready(Ok(()))
+        }
+        fn cancel(&mut self, _: &mut bool) {}
     }
 
     fn run<F: Future>(future: F, budget: usize) -> Option<F::Output> {

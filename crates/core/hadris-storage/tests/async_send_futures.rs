@@ -1,7 +1,7 @@
 #![cfg(all(feature = "async", feature = "alloc"))]
 
 use hadris_io::Error;
-use hadris_storage::r#async::{BlockDevice, ByteView, Cache};
+use hadris_storage::r#async::{ByteView, Cache, SendBlockDevice};
 use hadris_storage::{BlockIndex, BlockSize, MemDevice, Partition};
 
 fn assert_send<T: Send>(value: T) -> T {
@@ -18,7 +18,7 @@ fn block_on<F: core::future::Future>(future: F) -> F::Output {
     }
 }
 
-async fn copy_block<S: BlockDevice, T: BlockDevice>(
+async fn copy_block<S: SendBlockDevice, T: SendBlockDevice>(
     src: &mut S,
     dst: &mut T,
 ) -> Result<(), Error<T::Error>> {

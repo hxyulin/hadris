@@ -9,7 +9,6 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use common::{Device, Fs, block_on, clean, payload, small};
 use hadris_fat::exfat::sync::ExFatFs;
-use hadris_fs::r#async::FileSystem as _;
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{DirCursor, ErrorKind, FileType, MountOptions, Name, NodeId, RenameMode, SetAttr};
 

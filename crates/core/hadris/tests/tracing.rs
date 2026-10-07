@@ -162,19 +162,23 @@ impl hadris::io::ErrorType for PendingDevice {
     type Error = core::convert::Infallible;
 }
 
-impl hadris::storage::r#async::BlockDevice for PendingDevice {
+impl hadris::storage::async_::BlockDevice for PendingDevice {
+    type State = ();
+    fn cancel(&mut self, _: &mut ()) {}
     fn block_size(&self) -> BlockSize {
         BlockSize::new(2048).unwrap()
     }
     fn block_count(&self) -> u64 {
         1024
     }
-    async fn read_blocks(
+    fn poll_read_blocks(
         &mut self,
+        _: &mut (),
+        _: &mut core::task::Context<'_>,
         _: BlockIndex,
         _: &mut [u8],
-    ) -> Result<(), hadris::Error<Self::Error>> {
-        core::future::pending().await
+    ) -> core::task::Poll<Result<(), hadris::Error<Self::Error>>> {
+        core::task::Poll::Pending
     }
 }
 

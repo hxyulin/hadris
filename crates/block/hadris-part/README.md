@@ -15,7 +15,7 @@ as block devices for a filesystem driver. It works on any
 - **Hybrid MBR** that mirrors up to three GPT partitions for BIOS boot
 - **UTF-16 partition names**, edits with bounds and overlap checks, and a
   `DiskLayout` builder for whole-disk images
-- **`no_std`**, with `alloc` optional, and sync, async and `Send` async APIs
+- **`no_std`**, with `alloc` optional, and sync and unified local/`Send` async APIs
   from one source
 
 ## Feature Flags
@@ -25,7 +25,7 @@ as block devices for a filesystem driver. It works on any
 | `std` | Implies `alloc`; `Guid::random` and `std::io::Error` conversions | Yes |
 | `alloc` | `Disk`, `Mbr`, `Gpt`, `Hybrid`, `DiskLayout`, and `read`, `write` and `create` | via `std` |
 | `sync` | Blocking API in `hadris_part::sync` | Yes |
-| `async` | Asynchronous API in `hadris_part::r#async` | - |
+| `async` | Asynchronous API in `hadris_part::async_` | - |
 
 No feature changes what an item does. CRCs are always computed and checked,
 and GUIDs are never generated behind your back: constructors take them, and
@@ -139,3 +139,9 @@ Licensed under the [MIT license](../../../LICENSE-MIT).
 The opt-in `tracing` feature enables `std` and emits operation spans through the
 application’s subscriber. It is disabled by default. See the
 [tracing guide](../../../docs/tracing.md) for targets, metadata and async behavior.
+
+The canonical asynchronous namespace is `async_`; `r#async` remains a compatibility
+alias. The async functions accept the common
+`hadris_storage::async_::BlockDevice` contract, including borrowed and `Rc`
+devices. Futures are `Send` when the device, its operation state and any callback
+are `Send`. `open` preserves this capability in the returned partition device.

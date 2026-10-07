@@ -87,7 +87,6 @@ fn assert_span(capture: &Capture, name: &str, module: &str, field: Option<(&str,
 
 #[test]
 fn sync_spans_include_function_metadata_and_sizes_without_buffer_contents() {
-    use hadris_fs::sync::FileSystem;
     let case = common::CASES[0];
     let image = common::blank(case);
     let capture = Arc::new(Capture::default());
@@ -132,7 +131,6 @@ fn sync_spans_include_function_metadata_and_sizes_without_buffer_contents() {
 
 #[test]
 fn async_spans_exit_between_polls_and_when_a_pending_future_is_dropped() {
-    use hadris_fs::r#async::FileSystem;
     let case = common::CASES[0];
     let dev = cancel::YieldDev(common::device(case, common::blank(case)));
     let capture = Arc::new(Capture::default());
@@ -163,6 +161,6 @@ fn async_spans_exit_between_polls_and_when_a_pending_future_is_dropped() {
             assert!(report.is_clean());
         });
     });
-    assert_span(&capture, "write", "async::fatfs", Some(("bytes", "1024")));
+    assert_span(&capture, "write", "async_::fatfs", Some(("bytes", "1024")));
     assert_eq!(capture.entered.load(Ordering::Relaxed), 0);
 }

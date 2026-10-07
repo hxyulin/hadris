@@ -8,7 +8,7 @@ use hadris_fs::MountOptions;
 use common::{CASES, fsck};
 use hadris_fat::sync::{FatFs, format, write};
 use hadris_fat::{FatKind, FatOptions, VolumeLabel};
-use hadris_fs::sync::{FileSystem, Volume};
+use hadris_fs::sync::Volume;
 use hadris_fs::{Clock, Content, DateTime, ErrorKind, NoClock, Node, Tree};
 use hadris_storage::{BlockSize, MemDevice};
 

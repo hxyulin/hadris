@@ -27,6 +27,8 @@ impl ErrorType for Flash {
 }
 
 impl BlockDevice for Flash {
+    type State = ();
+    fn cancel(&mut self, _: &mut ()) {}
     fn block_size(&self) -> BlockSize {
         BlockSize::new(512).unwrap()
     }
@@ -35,14 +37,16 @@ impl BlockDevice for Flash {
         self.blocks.len() as u64 / 512
     }
 
-    async fn read_blocks(
+    fn poll_read_blocks(
         &mut self,
+        _: &mut (),
+        _: &mut core::task::Context<'_>,
         first: BlockIndex,
         buf: &mut [u8],
-    ) -> Result<(), Error<Self::Error>> {
+    ) -> core::task::Poll<Result<(), Error<Self::Error>>> {
         let at = first.get() as usize * 512;
         buf.copy_from_slice(&self.blocks[at..at + buf.len()]);
-        Ok(())
+        core::task::Poll::Ready(Ok(()))
     }
 }
 

@@ -6,7 +6,6 @@ use std::process::Command;
 
 use hadris_fat::exfat::sync::{ExFatFs, format};
 use hadris_fat::exfat::{Detail, ExFatOptions, VolumeLabel};
-use hadris_fs::sync::FileSystem;
 use hadris_fs::{CheckReport, DirCursor, Finding, Location, Name, NodeId, SetAttr, Severity};
 
 #[path = "paths.rs"]

@@ -450,10 +450,10 @@ impl<D: BlockDevice> ApfsFs<D> {
     }
 }
 
-impl<D: BlockDevice> FileSystem for ApfsFs<D> {
-    type DeviceError = D::Error;
+impl<D: BlockDevice> ApfsFs<D> {
 
-    fn capabilities(&self) -> Capabilities {
+    /// Performs the [`FileSystem::capabilities`] operation.
+    pub fn capabilities(&self) -> Capabilities {
         let case = if self.volume.is_case_insensitive() { CaseRule::InsensitivePreserving } else { CaseRule::Sensitive };
         let mut capabilities = Capabilities::new(case, Charset::Unicode, 255)
             .with_symlinks().with_hard_links().with_timestamp_resolution_ns(1);
@@ -463,12 +463,14 @@ impl<D: BlockDevice> FileSystem for ApfsFs<D> {
         capabilities
     }
 
-    fn root(&self) -> NodeId {
+    /// Performs the [`FileSystem::root`] operation.
+    pub fn root(&self) -> NodeId {
         NodeId::new(crate::types::filesystem::INODE_ROOT_DIRECTORY).unwrap()
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
-    async fn statfs(&mut self) -> FsResult<FsStats, D::Error> {
+    /// Performs the [`FileSystem::statfs`] operation.
+    pub async fn statfs(&mut self) -> FsResult<FsStats, D::Error> {
         let summary = self.container.space_manager_summary(&self.checkpoint).await?;
         if summary.main_device.free_count > summary.main_device.block_count {
             return Err(Error::new(ErrorKind::Corrupt, "APFS free count exceeds container"));
@@ -482,7 +484,8 @@ impl<D: BlockDevice> FileSystem for ApfsFs<D> {
             .with_file_count(files))
     }
 
-    async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
+    /// Performs the [`FileSystem::label`] operation.
+    pub async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
         let name = self.volume.name()?;
         if name.is_empty() { return Ok(None); }
         let target = buf.get_mut(..name.len()).ok_or(ErrorKind::LimitExceeded)?;
@@ -491,7 +494,8 @@ impl<D: BlockDevice> FileSystem for ApfsFs<D> {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(dir = ?dir)))]
-    async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
+    /// Performs the [`FileSystem::lookup`] operation.
+    pub async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
         name.check()?;
         self.directory(dir).await?;
         let query = name.to_str().map_err(|_| ErrorKind::NotFound)?;
@@ -504,12 +508,14 @@ impl<D: BlockDevice> FileSystem for ApfsFs<D> {
         Ok(node)
     }
 
-    fn forget(&mut self, node: NodeId, count: u64) {
+    /// Performs the [`FileSystem::forget`] operation.
+    pub fn forget(&mut self, node: NodeId, count: u64) {
         let _ = (node, count);
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(dir = ?dir)))]
-    async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
+    /// Performs the [`FileSystem::parent`] operation.
+    pub async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
         let inode = self.directory(dir).await?;
         if dir == self.root() { return Ok(dir); }
         let parent = NodeId::new(inode.parent_id).ok_or(ErrorKind::Corrupt)?;
@@ -518,13 +524,15 @@ impl<D: BlockDevice> FileSystem for ApfsFs<D> {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(node = ?node)))]
-    async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
+    /// Performs the [`FileSystem::stat`] operation.
+    pub async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
         let inode = self.inode(node).await?;
         self.metadata(&inode).await
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(dir = ?dir)))]
-    async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
+    /// Performs the [`FileSystem::readdir`] operation.
+    pub async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
         self.directory(dir).await?;
         if from.into_raw() > DirCursor::MAX_RAW { return Err(ErrorKind::InvalidInput.into()); }
         let Some(entries) = self.index.directories.get(&dir.get()) else { return Ok(None); };
@@ -542,7 +550,8 @@ impl<D: BlockDevice> FileSystem for ApfsFs<D> {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(node = ?node, bytes = buf.len())))]
-    async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
+    /// Performs the [`FileSystem::readlink`] operation.
+    pub async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
         let inode = self.inode(node).await?;
         if !file_type::<D::Error>(&inode)?.is_symlink() { return Err(ErrorKind::InvalidInput.into()); }
         let target = self.index.target::<D::Error>(node.get())?;
@@ -552,7 +561,8 @@ impl<D: BlockDevice> FileSystem for ApfsFs<D> {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(node = ?node)))]
-    async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
+    /// Performs the [`FileSystem::open`] operation.
+    pub async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
         let inode = self.inode(node).await?;
         match file_type::<D::Error>(&inode)? {
             FileType::Dir => return Err(ErrorKind::IsADirectory.into()),
@@ -566,13 +576,15 @@ impl<D: BlockDevice> FileSystem for ApfsFs<D> {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(node = ?node)))]
-    async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+    /// Performs the [`FileSystem::close`] operation.
+    pub async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         let _ = node;
         Ok(())
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(node = ?node, offset = offset, bytes = buf.len())))]
-    async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
+    /// Performs the [`FileSystem::read`] operation.
+    pub async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         #[cfg(feature = "encryption")]
         self.container.check_unlocked_volume(&self.volume)?;
         let inode = self.inode(node).await?;
@@ -587,4 +599,40 @@ impl<D: BlockDevice> FileSystem for ApfsFs<D> {
         self.container.read_volume_extents_at(&self.volume, extents, stream_size(&inode, extents), offset, buf).await
     }
 }
+impl<D: BlockDevice> FileSystem for ApfsFs<D> {
+    type DeviceError = D::Error;
+    fn capabilities(&self) -> Capabilities { ApfsFs::capabilities(self) }
+    fn root(&self) -> NodeId { ApfsFs::root(self) }
+    async fn statfs(&mut self) -> FsResult<FsStats, D::Error> { ApfsFs::statfs(self).await }
+    async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> { ApfsFs::label(self ,buf).await }
+    async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> { ApfsFs::lookup(self ,dir, name).await }
+    fn forget(&mut self, node: NodeId, count: u64) { ApfsFs::forget(self ,node, count) }
+    async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> { ApfsFs::parent(self ,dir).await }
+    async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> { ApfsFs::stat(self ,node).await }
+    async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> { ApfsFs::readdir(self ,dir, from).await }
+    async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> { ApfsFs::readlink(self ,node, buf).await }
+    async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> { ApfsFs::open(self ,node, mode).await }
+    async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> { ApfsFs::close(self ,node).await }
+    async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> { ApfsFs::read(self ,node, offset, buf).await }
+}
+
+send_filesystem! {
+impl<D: hadris_storage::async_::SendBlockDevice> hadris_fs::async_::FileSystem for ApfsFs<D> {
+    type DeviceError = D::Error;
+    fn capabilities(&self) -> Capabilities { ApfsFs::capabilities(self) }
+    fn root(&self) -> NodeId { ApfsFs::root(self) }
+    async fn statfs(&mut self) -> FsResult<FsStats, D::Error> { ApfsFs::statfs(self).await }
+    async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> { ApfsFs::label(self ,buf).await }
+    async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> { ApfsFs::lookup(self ,dir, name).await }
+    fn forget(&mut self, node: NodeId, count: u64) { ApfsFs::forget(self ,node, count) }
+    async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> { ApfsFs::parent(self ,dir).await }
+    async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> { ApfsFs::stat(self ,node).await }
+    async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> { ApfsFs::readdir(self ,dir, from).await }
+    async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> { ApfsFs::readlink(self ,node, buf).await }
+    async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> { ApfsFs::open(self ,node, mode).await }
+    async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> { ApfsFs::close(self ,node).await }
+    async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> { ApfsFs::read(self ,node, offset, buf).await }
+}
+}
+
 }

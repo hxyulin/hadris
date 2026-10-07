@@ -1,7 +1,7 @@
 //! The exFAT driver, `ExFatFs`, its formatter and checker.
 //!
 //! It follows the same shape as `FatFs`. `ExFatFs` is generated for each mode
-//! (`exfat::sync`, `exfat::r#async`) with `check`
+//! (`exfat::sync`, `exfat::async_`) with `check`
 //! and, with `write`, `format` and the tree writer `write`; the
 //! mode-independent types are here. It
 //! needs `alloc` and implements the `hadris_fs` `FileSystem` trait, so
@@ -86,6 +86,13 @@ pub mod sync {
     //! The synchronous exFAT API.
 
     #[allow(unused_macros)]
+    macro_rules! sync_only { ($($item:tt)*) => { $($item)* }; }
+    #[allow(unused_macros)]
+    macro_rules! async_only {
+        ($($item:tt)*) => {};
+    }
+
+    #[allow(unused_macros)]
     macro_rules! io_transform {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
     }
@@ -118,25 +125,32 @@ pub mod sync {
 
 #[cfg(feature = "async")]
 #[path = ""]
-pub mod r#async {
-    //! The asynchronous exFAT API with `Send` futures. Its futures are
-    //! `Send` when the device is.
+pub mod async_ {
+    //! The asynchronous exFAT API for local and `Send` devices. Its futures are
+    //! `Send` when the device and its operation state are.
+
+    #[allow(unused_macros)]
+    macro_rules! sync_only {
+        ($($item:tt)*) => {};
+    }
+    #[allow(unused_macros)]
+    macro_rules! async_only { ($($item:tt)*) => { $($item)* }; }
 
     #[allow(unused_macros)]
     macro_rules! io_transform {
-        ($($item:tt)*) => { hadris_macros::send_async! { $($item)* } };
+        ($($item:tt)*) => { $($item)* };
     }
 
     #[cfg(any(feature = "alloc", feature = "write"))]
-    use crate::r#async::block_io;
+    use crate::async_::block_io;
     #[cfg(feature = "write")]
-    use crate::r#async::mkfs as fatmkfs;
-    use hadris_fat_raw::exfat::io::r#async as exio;
+    use crate::async_::mkfs as fatmkfs;
+    use hadris_fat_raw::exfat::io::async_ as exio;
     #[cfg(any(feature = "alloc", feature = "write"))]
-    use hadris_storage::r#async as storage;
+    use hadris_storage::async_ as storage;
 
     #[cfg(feature = "alloc")]
-    use hadris_fs::r#async as fsapi;
+    use hadris_fs::local as fsapi;
 
     #[cfg(feature = "alloc")]
     #[path = "fs.rs"]
@@ -152,3 +166,7 @@ pub mod r#async {
     #[cfg(all(feature = "alloc", feature = "write"))]
     pub use mkfs::write;
 }
+
+/// Compatibility alias for the asynchronous API.
+#[cfg(feature = "async")]
+pub use async_ as r#async;

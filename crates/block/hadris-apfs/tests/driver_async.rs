@@ -4,7 +4,6 @@ mod common;
 
 use common::*;
 use hadris_apfs::{VolumeSelector, r#async::ApfsFs};
-use hadris_fs::r#async::FileSystem;
 use hadris_fs::{DirCursor, ErrorKind, FileType, MountOptions, Name, OpenMode};
 use hadris_storage::{BlockSize, MemDevice};
 use std::future::Future;

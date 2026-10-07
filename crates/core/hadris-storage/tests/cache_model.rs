@@ -208,4 +208,99 @@ mod r#async {
     fn cache_matches_a_plain_device() {
         model_test!(block_on);
     }
+    #[test]
+    fn flush_writes_each_dirty_run_once() {
+        let counting = Counting {
+            inner: device(),
+            reads: 0,
+            writes: 0,
+        };
+        let mut cache = Cache::new(counting, 32);
+        block_on(cache.write_blocks(BlockIndex::new(0), &[1; BLOCK])).unwrap();
+        for index in (4..12).chain(20..23) {
+            block_on(cache.write_blocks(BlockIndex::new(index), &[2; BLOCK])).unwrap();
+        }
+        let before = cache.get_ref().writes;
+        block_on(cache.flush()).unwrap();
+        assert_eq!(cache.get_ref().writes - before, 2);
+        assert!(!cache.is_dirty());
+    }
+
+    #[test]
+    fn misses_are_read_in_runs_and_large_requests_bypass() {
+        let counting = Counting {
+            inner: device(),
+            reads: 0,
+            writes: 0,
+        };
+        let mut cache = Cache::new(counting, 16);
+        let mut buf = [0; 8 * BLOCK];
+        block_on(cache.read_blocks(BlockIndex::new(0), &mut buf[..BLOCK])).unwrap();
+        block_on(cache.read_blocks(BlockIndex::new(4), &mut buf[..BLOCK])).unwrap();
+        let before = cache.get_ref().reads;
+        block_on(cache.read_blocks(BlockIndex::new(0), &mut buf)).unwrap();
+        assert_eq!(cache.get_ref().reads - before, 2);
+
+        block_on(cache.write_blocks(BlockIndex::new(0), &[9; BLOCK])).unwrap();
+        block_on(cache.write_blocks(BlockIndex::new(3), &[7; BLOCK])).unwrap();
+        let mut big = [0; 16 * BLOCK];
+        let before = cache.get_ref().reads;
+        block_on(cache.read_blocks(BlockIndex::new(0), &mut big)).unwrap();
+        assert_eq!(cache.get_ref().reads - before, 1);
+        assert_eq!(&big[3 * BLOCK..4 * BLOCK], &[7; BLOCK]);
+
+        let before = cache.get_ref().writes;
+        block_on(cache.write_blocks(BlockIndex::new(0), &[5; 16 * BLOCK])).unwrap();
+        assert_eq!(cache.get_ref().writes - before, 1);
+        assert!(!cache.is_dirty());
+        block_on(cache.read_blocks(BlockIndex::new(3), &mut buf[..BLOCK])).unwrap();
+        assert_eq!(&buf[..BLOCK], &[5; BLOCK]);
+    }
+}
+
+#[cfg(feature = "async")]
+impl hadris_storage::async_::BlockDevice for Counting {
+    type State = ();
+    fn block_size(&self) -> BlockSize {
+        hadris_storage::async_::BlockDevice::block_size(&self.inner)
+    }
+    fn block_count(&self) -> u64 {
+        hadris_storage::async_::BlockDevice::block_count(&self.inner)
+    }
+    fn writable(&self) -> bool {
+        true
+    }
+    fn poll_read_blocks(
+        &mut self,
+        state: &mut (),
+        cx: &mut core::task::Context<'_>,
+        first: BlockIndex,
+        buf: &mut [u8],
+    ) -> core::task::Poll<Result<(), hadris_io::Error<Self::Error>>> {
+        self.reads += 1;
+        hadris_storage::async_::BlockDevice::poll_read_blocks(
+            &mut self.inner,
+            state,
+            cx,
+            first,
+            buf,
+        )
+    }
+    fn poll_write_blocks(
+        &mut self,
+        state: &mut (),
+        cx: &mut core::task::Context<'_>,
+        first: BlockIndex,
+        buf: &[u8],
+    ) -> core::task::Poll<Result<(), hadris_io::Error<Self::Error>>> {
+        self.writes += 1;
+        hadris_storage::async_::BlockDevice::poll_write_blocks(
+            &mut self.inner,
+            state,
+            cx,
+            first,
+            buf,
+        )
+    }
+    fn cancel(&mut self, _: &mut ()) {}
 }

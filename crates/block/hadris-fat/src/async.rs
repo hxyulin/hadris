@@ -1,13 +1,20 @@
 #[allow(unused_macros)]
+macro_rules! sync_only {
+    ($($item:tt)*) => {};
+}
+#[allow(unused_macros)]
+macro_rules! async_only { ($($item:tt)*) => { $($item)* }; }
+
+#[allow(unused_macros)]
 macro_rules! io_transform {
-    ($($item:tt)*) => { hadris_macros::send_async! { $($item)* } };
+    ($($item:tt)*) => { $($item)* };
 }
 
-use hadris_fat_raw::io::r#async as rawio;
+use hadris_fat_raw::io::async_ as rawio;
 #[cfg(feature = "alloc")]
-use hadris_fs::r#async as fsapi;
+use hadris_fs::local as fsapi;
 #[cfg(any(feature = "alloc", feature = "write"))]
-use hadris_storage::r#async as storage;
+use hadris_storage::async_ as storage;
 
 #[cfg(any(feature = "alloc", feature = "write"))]
 #[path = "block_io.rs"]

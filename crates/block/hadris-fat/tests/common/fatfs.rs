@@ -6,7 +6,6 @@ use std::process::Command;
 
 use hadris_fat::sync::{FatFs, format};
 use hadris_fat::{Detail, FatKind, FatOptions, VolumeLabel};
-use hadris_fs::sync::FileSystem;
 use hadris_fs::{
     Attributes, CheckReport, DirCursor, Finding, Location, Name, NodeId, SetAttr, Severity,
 };

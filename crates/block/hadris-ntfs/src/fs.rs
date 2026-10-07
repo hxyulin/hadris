@@ -1027,17 +1027,18 @@ impl<D: BlockDevice> NtfsFs<D> {
 }
 
 
-impl<D: BlockDevice> FileSystem for NtfsFs<D> {
-    type DeviceError = D::Error;
+impl<D: BlockDevice> NtfsFs<D> {
 
     /// Read-only, with hard links; names are UTF-16 and compared as Win32
     /// does.
-    fn capabilities(&self) -> Capabilities {
+    /// Performs the [`FileSystem::capabilities`] operation.
+    pub fn capabilities(&self) -> Capabilities {
         self.info.capabilities()
     }
 
     /// The root directory, MFT record 5.
-    fn root(&self) -> NodeId {
+    /// Performs the [`FileSystem::root`] operation.
+    pub fn root(&self) -> NodeId {
         self.info.root()
     }
 
@@ -1056,7 +1057,8 @@ impl<D: BlockDevice> FileSystem for NtfsFs<D> {
     /// @hadris-fuzz ntfs_read
     /// @hadris-note Walks every index node instead of descending the B-tree by key.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(dir = ?dir)))]
-    async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
+    /// Performs the [`FileSystem::lookup`] operation.
+    pub async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
         name.check()?;
         let Ok(query) = name.to_str() else {
             return Err(ErrorKind::NotFound.into());
@@ -1136,7 +1138,8 @@ impl<D: BlockDevice> FileSystem for NtfsFs<D> {
     /// its index entry records, and `stat` of it fails with the record's
     /// error.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(dir = ?dir)))]
-    async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
+    /// Performs the [`FileSystem::readdir`] operation.
+    pub async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         self.dir_record(dir, &mut rec).await?;
         let rec = &rec[..self.info.geo.mft_record_size];
@@ -1203,7 +1206,8 @@ impl<D: BlockDevice> FileSystem for NtfsFs<D> {
     /// attributes of `$STANDARD_INFORMATION`, and the number of names that
     /// are not DOS aliases. A directory's size is 0.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node)))]
-    async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
+    /// Performs the [`FileSystem::stat`] operation.
+    pub async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         let header = self.node_record(node, &mut rec).await?;
         let rec = &rec[..self.info.geo.mft_record_size];
@@ -1271,7 +1275,8 @@ impl<D: BlockDevice> FileSystem for NtfsFs<D> {
     /// @hadris-fuzz ntfs_read
     /// @hadris-note Reads resident, non-resident, sparse and partly initialized streams, also across extension records; compressed and encrypted streams are unsupported.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node, offset = offset, bytes = buf.len())))]
-    async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
+    /// Performs the [`FileSystem::read`] operation.
+    pub async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         if self.node_record(node, &mut rec).await?.is_dir() {
             return Err(ErrorKind::IsADirectory.into());
@@ -1287,7 +1292,8 @@ impl<D: BlockDevice> FileSystem for NtfsFs<D> {
     /// The volume's clusters and the free ones, counted from `$Bitmap`
     /// once and then kept.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all))]
-    async fn statfs(&mut self) -> FsResult<FsStats, D::Error> {
+    /// Performs the [`FileSystem::statfs`] operation.
+    pub async fn statfs(&mut self) -> FsResult<FsStats, D::Error> {
         let total = self.info.geo.total_clusters;
         let free = match self.info.free_clusters {
             Some(free) => free,
@@ -1302,14 +1308,16 @@ impl<D: BlockDevice> FileSystem for NtfsFs<D> {
     }
 
     /// Does nothing: NTFS node ids are stable.
-    fn forget(&mut self, node: NodeId, count: u64) {
+    /// Performs the [`FileSystem::forget`] operation.
+    pub fn forget(&mut self, node: NodeId, count: u64) {
         let _ = (node, count);
     }
 
     /// The directory containing `dir`, from its `$FILE_NAME`. The root is
     /// its own parent.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(dir = ?dir)))]
-    async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
+    /// Performs the [`FileSystem::parent`] operation.
+    pub async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         self.dir_record(dir, &mut rec).await?;
         let base = reference_record(dir.get());
@@ -1336,7 +1344,8 @@ impl<D: BlockDevice> FileSystem for NtfsFs<D> {
 
     /// The `$VOLUME_NAME` of `$Volume`, or `None` when it is missing or
     /// empty.
-    async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
+    /// Performs the [`FileSystem::label`] operation.
+    pub async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         read_record(&mut self.dev, &self.info, raw::RECORD_VOLUME, &mut rec).await?;
         let rec = &rec[..self.info.geo.mft_record_size];
@@ -1356,7 +1365,8 @@ impl<D: BlockDevice> FileSystem for NtfsFs<D> {
     /// Opens a file for reading. Directories fail with
     /// [`ErrorKind::IsADirectory`], writing with [`ErrorKind::ReadOnly`].
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node)))]
-    async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
+    /// Performs the [`FileSystem::open`] operation.
+    pub async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         if self.node_record(node, &mut rec).await?.is_dir() {
             return Err(ErrorKind::IsADirectory.into());
@@ -1368,7 +1378,8 @@ impl<D: BlockDevice> FileSystem for NtfsFs<D> {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node)))]
-    async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+    /// Performs the [`FileSystem::close`] operation.
+    pub async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         let _ = node;
         Ok(())
     }
@@ -1376,11 +1387,48 @@ impl<D: BlockDevice> FileSystem for NtfsFs<D> {
     /// NTFS here has no symlinks: every node fails with
     /// [`ErrorKind::InvalidInput`].
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node, bytes = buf.len())))]
-    async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
+    /// Performs the [`FileSystem::readlink`] operation.
+    pub async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         self.node_record(node, &mut rec).await?;
         let _ = buf;
         Err(ErrorKind::InvalidInput.into())
     }
 }
+impl<D: BlockDevice> FileSystem for NtfsFs<D> {
+    type DeviceError = D::Error;
+    fn capabilities(&self) -> Capabilities { NtfsFs::capabilities(self) }
+    fn root(&self) -> NodeId { NtfsFs::root(self) }
+    async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> { NtfsFs::lookup(self ,dir, name).await }
+    async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> { NtfsFs::readdir(self ,dir, from).await }
+    async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> { NtfsFs::stat(self ,node).await }
+    async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> { NtfsFs::read(self ,node, offset, buf).await }
+    async fn statfs(&mut self) -> FsResult<FsStats, D::Error> { NtfsFs::statfs(self).await }
+    fn forget(&mut self, node: NodeId, count: u64) { NtfsFs::forget(self ,node, count) }
+    async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> { NtfsFs::parent(self ,dir).await }
+    async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> { NtfsFs::label(self ,buf).await }
+    async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> { NtfsFs::open(self ,node, mode).await }
+    async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> { NtfsFs::close(self ,node).await }
+    async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> { NtfsFs::readlink(self ,node, buf).await }
+}
+
+send_filesystem! {
+impl<D: hadris_storage::async_::SendBlockDevice> hadris_fs::async_::FileSystem for NtfsFs<D> {
+    type DeviceError = D::Error;
+    fn capabilities(&self) -> Capabilities { NtfsFs::capabilities(self) }
+    fn root(&self) -> NodeId { NtfsFs::root(self) }
+    async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> { NtfsFs::lookup(self ,dir, name).await }
+    async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> { NtfsFs::readdir(self ,dir, from).await }
+    async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> { NtfsFs::stat(self ,node).await }
+    async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> { NtfsFs::read(self ,node, offset, buf).await }
+    async fn statfs(&mut self) -> FsResult<FsStats, D::Error> { NtfsFs::statfs(self).await }
+    fn forget(&mut self, node: NodeId, count: u64) { NtfsFs::forget(self ,node, count) }
+    async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> { NtfsFs::parent(self ,dir).await }
+    async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> { NtfsFs::label(self ,buf).await }
+    async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> { NtfsFs::open(self ,node, mode).await }
+    async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> { NtfsFs::close(self ,node).await }
+    async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> { NtfsFs::readlink(self ,node, buf).await }
+}
+}
+
 }

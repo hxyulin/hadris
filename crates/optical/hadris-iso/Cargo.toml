@@ -91,3 +91,7 @@ name = "raw_compat"
 [[test]]
 name = "unified_async"
 required-features = ["std", "sync", "async", "async-local"]
+
+[[test]]
+name = "unified_write"
+required-features = ["std", "sync", "async"]

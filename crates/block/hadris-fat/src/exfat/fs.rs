@@ -2497,15 +2497,14 @@ impl<D: BlockDevice> ExFatFs<D> {
     }
 }
 
-impl<D: BlockDevice> FileSystem for ExFatFs<D> {
-    type DeviceError = D::Error;
+impl<D: BlockDevice> ExFatFs<D> {
 
     /// What this volume supports: case-insensitive, case-preserving UTF-16
     /// names of up to 255 code units (765 bytes of UTF-8), creation,
     /// modification and access times in 10 ms steps, the DOS attributes
     /// and, through the read-only attribute, part of the permissions.
     /// Writable unless [`is_read_only`](ExFatFs::is_read_only).
-    fn capabilities(&self) -> Capabilities {
+    pub fn capabilities(&self) -> Capabilities {
         let caps = Capabilities::new(CaseRule::InsensitivePreserving, Charset::Unicode, raw::MAX_NAME_UNITS * 3)
             .with_stored(Field::Created, Stored::Yes)
             .with_stored(Field::Modified, Stored::Yes)
@@ -2517,13 +2516,13 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
     }
 
     /// The root directory. Always pinned.
-    fn root(&self) -> NodeId {
+    pub fn root(&self) -> NodeId {
         ROOT
     }
 
     /// Space usage in clusters. Free space comes from one scan of the
     /// allocation bitmap, which is then kept up to date.
-    async fn statfs(&mut self) -> FsResult<FsStats, D::Error> {
+    pub async fn statfs(&mut self) -> FsResult<FsStats, D::Error> {
         let free = exio::count_free(&mut self.dev, &mut self.block, &mut self.vol).await?;
         Ok(FsStats::new(self.vol.geometry().cluster_count() as u64, free as u64, self.vol.geometry().cluster_size() as u32))
     }
@@ -2532,7 +2531,7 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
     /// or `None` when there is none or it is empty. Unpaired surrogates
     /// read as U+FFFD. Fails with [`ErrorKind::LimitExceeded`] when `buf` is
     /// too small; 33 bytes hold any label.
-    async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
+    pub async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
         let Some(label) = self.volume_label().await? else {
             return Ok(None);
         };
@@ -2543,7 +2542,7 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
     /// Finds `name` in `dir` and pins the result. Names compare through
     /// the up-case table.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat", level = "trace", skip_all, fields(dir = ?dir)))]
-    async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
+    pub async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
         name.check()?;
         let (start, dir_entry) = self.dir_info(dir).await?;
         let Some(query) = name.to_str().ok().and_then(NameUnits::query) else {
@@ -2560,7 +2559,7 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
     /// A node whose sizes are not yet written stays in the table until
     /// `close`, `fsync` or `sync`; a removed node leaves the table with its
     /// last pin.
-    fn forget(&mut self, node: NodeId, count: u64) {
+    pub fn forget(&mut self, node: NodeId, count: u64) {
         if node == ROOT {
             return;
         }
@@ -2579,7 +2578,7 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
     ///
     /// The node table remembers the directory a node was found in; when it
     /// does not, the tree is searched from the root, to a depth of 64.
-    async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
+    pub async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
         if dir == ROOT {
             return Ok(ROOT);
         }
@@ -2608,7 +2607,7 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
 
     /// Metadata of a pinned node or of an id just returned by `readdir`.
     /// Directories have length 0.
-    async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
+    pub async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
         if node == ROOT {
             return Ok(Metadata::new(FileType::Dir, permissions(true, false)));
         }
@@ -2623,7 +2622,7 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
     /// loops fails with [`ErrorKind::Corrupt`] once the walk comes back
     /// around.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat", level = "trace", skip_all, fields(dir = ?dir)))]
-    async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
+    pub async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
         let (start, dir_entry) = self.dir_info(dir).await?;
         let Ok(mut slot) = u32::try_from(from.into_raw()) else {
             return Ok(None);
@@ -2656,7 +2655,7 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
 
     /// exFAT has no symlinks: fails with [`ErrorKind::InvalidInput`] for
     /// any node that exists.
-    async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
+    pub async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
         let _ = buf;
         if node != ROOT {
             self.any_node(node).await?;
@@ -2670,7 +2669,7 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
     /// for [`OpenMode::Write`] on a read-only volume,
     /// [`ErrorKind::InvalidHandle`] for an id that is not pinned, and
     /// [`ErrorKind::NotFound`] for a removed node.
-    async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
+    pub async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
         if node == ROOT {
             return Err(ErrorKind::IsADirectory.into());
         }
@@ -2689,7 +2688,7 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
 
     /// Ends one `open` and writes the node's pending sizes and modification
     /// time to its entry set, without flushing the device.
-    async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+    pub async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         if let Some(state) = self.nodes.get_mut(node) {
             state.opens = state.opens.saturating_sub(1);
         }
@@ -2700,7 +2699,7 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
     /// past `ValidDataLength` read as zeros. A chain that ends before the
     /// file's size or loops fails with [`ErrorKind::Corrupt`].
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat", level = "trace", skip_all, fields(node = ?node, offset = offset, bytes = buf.len())))]
-    async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
+    pub async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         let (_, state) = self.file_node(node).await?;
         if offset >= state.len || buf.is_empty() {
             return Ok(0);
@@ -2741,7 +2740,7 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
     /// (see `stat`) are accepted; others and an owner fail with
     /// [`ErrorKind::Unsupported`], as does any change to the root, which has
     /// no entry set. A pending size is written too.
-    async fn setattr(&mut self, node: NodeId, changes: &SetAttr) -> FsResult<(), D::Error> {
+    pub async fn setattr(&mut self, node: NodeId, changes: &SetAttr) -> FsResult<(), D::Error> {
         self.prepare().await?;
         if changes.owner().is_some() {
             return Err(ErrorKind::Unsupported.into());
@@ -2794,7 +2793,7 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
     /// or `sync`, with the modification time and the archive
     /// attribute.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat", level = "trace", skip_all, fields(node = ?node, offset = offset, bytes = buf.len())))]
-    async fn write(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, D::Error> {
+    pub async fn write(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, D::Error> {
         self.prepare().await?;
         let (id, state) = self.file_node(node).await?;
         if buf.is_empty() {
@@ -2834,7 +2833,7 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
     /// Shrinking writes the new sizes at once and frees the clusters past
     /// them. A changed size sets the archive attribute.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat", level = "trace", skip_all, fields(node = ?node, len = len)))]
-    async fn truncate(&mut self, node: NodeId, len: u64) -> FsResult<(), D::Error> {
+    pub async fn truncate(&mut self, node: NodeId, len: u64) -> FsResult<(), D::Error> {
         self.prepare().await?;
         let (id, state) = self.file_node(node).await?;
         if len > state.len {
@@ -2882,7 +2881,7 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
     /// Writes the node's pending sizes and modification time, then flushes
     /// the device.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat", level = "trace", skip_all, fields(node = ?node)))]
-    async fn fsync(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+    pub async fn fsync(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         self.publish_node(node).await?;
         self.flush_device().await
     }
@@ -2898,13 +2897,13 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
     /// exFAT cannot hold, and [`ErrorKind::NoSpace`] when the volume or a
     /// 256 MiB directory is full.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat", level = "trace", skip_all, fields(dir = ?dir)))]
-    async fn create(&mut self, dir: NodeId, name: &Name, attrs: &SetAttr) -> FsResult<NodeId, D::Error> {
+    pub async fn create(&mut self, dir: NodeId, name: &Name, attrs: &SetAttr) -> FsResult<NodeId, D::Error> {
         self.create_node(dir, name, false, attrs).await
     }
 
     /// Creates the empty directory `name` in `dir` with one zeroed cluster
     /// and pins it, as `create` does for a file.
-    async fn mkdir(&mut self, dir: NodeId, name: &Name, attrs: &SetAttr) -> FsResult<NodeId, D::Error> {
+    pub async fn mkdir(&mut self, dir: NodeId, name: &Name, attrs: &SetAttr) -> FsResult<NodeId, D::Error> {
         self.create_node(dir, name, true, attrs).await
     }
 
@@ -2915,14 +2914,14 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
     /// not open is removed; its id then answers [`ErrorKind::NotFound`]
     /// until its last `forget`.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat", level = "trace", skip_all, fields(dir = ?dir)))]
-    async fn unlink(&mut self, dir: NodeId, name: &Name) -> FsResult<(), D::Error> {
+    pub async fn unlink(&mut self, dir: NodeId, name: &Name) -> FsResult<(), D::Error> {
         self.remove_entry(dir, name, false).await
     }
 
     /// Removes the empty directory `name` from `dir`, as `unlink` does a
     /// file. Fails with [`ErrorKind::NotADirectory`] for anything else and
     /// [`ErrorKind::DirectoryNotEmpty`] for a directory with entries.
-    async fn rmdir(&mut self, dir: NodeId, name: &Name) -> FsResult<(), D::Error> {
+    pub async fn rmdir(&mut self, dir: NodeId, name: &Name) -> FsResult<(), D::Error> {
         self.remove_entry(dir, name, true).await
     }
 
@@ -2939,7 +2938,7 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
     /// the case rewrites the entry set in place. Moving a directory into
     /// itself or below, or a `to` that `create` would refuse, fails with
     /// [`ErrorKind::InvalidInput`].
-    async fn rename(
+    pub async fn rename(
         &mut self,
         from_dir: NodeId,
         from: &Name,
@@ -3005,7 +3004,7 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
     /// [`ErrorKind::ReadOnly`] when a refused write left pending sizes, or
     /// what an interrupted operation left, unwritten, and succeeds otherwise.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat", level = "trace", skip_all))]
-    async fn sync(&mut self) -> FsResult<(), D::Error> {
+    pub async fn sync(&mut self) -> FsResult<(), D::Error> {
         if self.read_only {
             return if self.unwritten() { Err(ErrorKind::ReadOnly.into()) } else { Ok(()) };
         }
@@ -3036,7 +3035,16 @@ impl<D: BlockDevice> FileSystem for ExFatFs<D> {
         cleared?;
         self.flush_device().await
     }
+
+
+    /// Resolves a path relative to the filesystem root.
+    pub async fn resolve(&mut self, path: &[u8], how: hadris_fs::Resolve) -> FsResult<NodeId, D::Error> {
+        FileSystem::resolve(self, path, how).await
+    }
 }
+
+filesystem_impl!(ExFatFs);
+
 
 }
 

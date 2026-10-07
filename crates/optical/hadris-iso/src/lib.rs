@@ -6,7 +6,7 @@
 //! ## Reading
 //!
 //! `IsoFs` mounts an image on a `hadris_storage` block device, in each
-//! mode (`sync::IsoFs`, `r#async::IsoFs`). An image has up to four trees:
+//! mode (`sync::IsoFs`, `async_::IsoFs`). An image has up to four trees:
 //! the primary tree, Rock Ridge names and metadata over it, a Joliet tree
 //! and an ISO 9660:1999 enhanced tree. `IsoFs::mount` reads the most
 //! capable one and `IsoFs::mount_namespace` picks one. `IsoFs` implements
@@ -81,7 +81,7 @@
 //! | `alloc` | via `std` | The writer, sessions and the `Tree` input |
 //! | `sync` | Yes | The blocking API in `sync` |
 //! | `cache` | No | Opt-in bounded reader metadata caches; implies `alloc` |
-//! | `async` | No | The asynchronous API with `Send` futures in `r#async` |
+//! | `async` | No | The common asynchronous API in `async_`; futures are Send for Send devices and operation state |
 //!
 //! No feature changes what an item does.
 
@@ -142,6 +142,13 @@ pub mod sync {
     use hadris_part::sync as part;
     use hadris_storage::sync as storage;
 
+    #[allow(unused_macros)]
+    macro_rules! sync_only { ($($item:tt)*) => { $($item)* }; }
+    #[allow(unused_macros)]
+    macro_rules! async_only {
+        ($($item:tt)*) => {};
+    }
+
     use hadris_fs::sync::FileSystem;
 
     #[path = "image.rs"]
@@ -159,11 +166,10 @@ pub mod sync {
     pub use session::Session;
 }
 
-/// The asynchronous API with `Send` futures, for generic code on
-/// multi-threaded executors, generated from the same source as `sync`.
-#[cfg(feature = "async")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
-pub mod r#async;
+/// Compatibility alias for [`async_`].
+#[cfg(any(feature = "async", feature = "async-local"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "async", feature = "async-local"))))]
+pub use async_ as r#async;
 
 pub use boot::{BootCatalog, CatalogEntries, CatalogEntry, Emulation, Platform};
 pub use error::Detail;
@@ -183,7 +189,7 @@ pub use volume_info::{IsoDate, IsoId, VolumeInfo};
 #[cfg(test)]
 extern crate self as hadris_iso;
 
-/// One async ISO reader for Send devices and explicitly adapted local devices.
+/// The common async API, with Send guarantees derived from the device and operation state.
 #[cfg(any(feature = "async", feature = "async-local"))]
 #[path = "unified.rs"]
 pub mod async_;

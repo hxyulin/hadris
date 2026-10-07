@@ -352,18 +352,22 @@ impl hadris_storage::sync::BlockDevice for FailingDevice {
 
 #[cfg(feature = "async")]
 impl hadris_storage::r#async::BlockDevice for FailingDevice {
+    type State = ();
+    fn cancel(&mut self, _: &mut ()) {}
     fn block_size(&self) -> BlockSize {
         SECTOR
     }
     fn block_count(&self) -> u64 {
         hadris_storage::sync::BlockDevice::block_count(&self.inner)
     }
-    async fn read_blocks(
+    fn poll_read_blocks(
         &mut self,
+        _: &mut (),
+        _: &mut core::task::Context<'_>,
         first: hadris_storage::BlockIndex,
         buf: &mut [u8],
-    ) -> Result<(), hadris_io::Error<Self::Error>> {
-        self.read(first, buf)
+    ) -> core::task::Poll<Result<(), hadris_io::Error<Self::Error>>> {
+        core::task::Poll::Ready(self.read(first, buf))
     }
 }
 
@@ -427,7 +431,6 @@ fn symlink_metadata_preserves_device_failures() {
     );
     #[cfg(feature = "async")]
     common::block_on(async {
-        use hadris_fs::r#async::FileSystem;
         let dev = FailingDevice::new(bytes, u64::MAX);
         let fail = dev.fail.clone();
         let mut udf = hadris_udf::r#async::UdfFs::mount(dev, MountOptions::new())
@@ -467,7 +470,6 @@ fn malformed_symlinks_fail_stat_and_list_with_damaged_metadata() {
     );
     #[cfg(feature = "async")]
     common::block_on(async {
-        use hadris_fs::r#async::FileSystem;
         let mut udf =
             hadris_udf::r#async::UdfFs::mount(MemDevice::new(bytes, SECTOR), MountOptions::new())
                 .await
@@ -504,7 +506,6 @@ fn cached_symlink_reads_preserve_device_failures_and_retry() {
     assert_eq!(udf.readlink(node, &mut [0; 64]).unwrap(), b"target");
     #[cfg(feature = "async")]
     common::block_on(async {
-        use hadris_fs::r#async::FileSystem;
         let dev = FailingDevice::new(bytes, payload);
         let fail = dev.fail.clone();
         let mut udf = hadris_udf::r#async::UdfFs::mount(
@@ -595,7 +596,6 @@ fn malformed_identifier_fields_are_refused() {
         );
         #[cfg(feature = "async")]
         common::block_on(async {
-            use hadris_fs::r#async::FileSystem;
             let mut fs =
                 hadris_udf::r#async::UdfFs::mount(MemDevice::new(bad, SECTOR), MountOptions::new())
                     .await

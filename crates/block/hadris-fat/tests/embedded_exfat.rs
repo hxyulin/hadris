@@ -11,7 +11,6 @@ use common::{FsPaths, Geometry, block_on};
 use hadris_fat::exfat::embedded::sync::ExFat;
 use hadris_fat::exfat::embedded::{Dir, MountToken, Options};
 use hadris_fat_raw::fold_unicode;
-use hadris_fs::sync::FileSystem;
 use hadris_fs::{DirCursor, ErrorKind, FileType, Metadata, OpenOptions, SeekFrom};
 use hadris_storage::{BlockSize, MemDevice};
 
@@ -582,22 +581,6 @@ fn cancelling_coalesced_reads_preserves_the_file_position() {
             assert_eq!(out, data);
         }
         assert!(completed);
-    }
-}
-
-impl hadris_storage::local::BlockDevice for cancellation::YieldDev {
-    fn block_size(&self) -> BlockSize {
-        hadris_storage::r#async::BlockDevice::block_size(self)
-    }
-    fn block_count(&self) -> u64 {
-        hadris_storage::r#async::BlockDevice::block_count(self)
-    }
-    async fn read_blocks(
-        &mut self,
-        at: hadris_storage::BlockIndex,
-        buf: &mut [u8],
-    ) -> Result<(), hadris_io::Error<Self::Error>> {
-        hadris_storage::r#async::BlockDevice::read_blocks(self, at, buf).await
     }
 }
 
