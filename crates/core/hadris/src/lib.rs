@@ -22,7 +22,8 @@
 //! - `sync::detect` and `async_::detect` (with `detect`): every format a
 //!   device holds, as `ImageFormat`s in a `Detection`, each with the
 //!   damage a mount would report. With `alloc`, `open` mounts the first
-//!   filesystem found as an `AnyFs`.
+//!   filesystem found as an `AnyFs`, and with `write`, `format` writes an
+//!   empty FAT, exFAT or UDF volume from a `FormatOptions`.
 //! - `apfs`: the read-only APFS preview, behind `unstable-apfs`.
 //! - `ntfs`: the NTFS preview, behind `unstable-ntfs`.
 //! - `host` (with `std` and `sync`): host files, directories and image
@@ -162,7 +163,25 @@ mod detect;
 #[cfg_attr(docsrs, doc(cfg(feature = "detect")))]
 pub use detect::{Candidate, Detection, ImageFormat};
 
-/// Detection and opening with blocking I/O.
+/// The filesystem `sync::format` and `async_::format` write, with its
+/// options.
+#[cfg(all(feature = "detect", feature = "alloc", feature = "write"))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(all(feature = "detect", feature = "alloc", feature = "write")))
+)]
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum FormatOptions {
+    /// A FAT12, FAT16 or FAT32 volume.
+    Fat(hadris_fat::FatOptions),
+    /// An exFAT volume.
+    ExFat(hadris_fat::exfat::ExFatOptions),
+    /// A UDF volume.
+    Udf(hadris_udf::UdfOptions),
+}
+
+/// Detection, opening and formatting with blocking I/O.
 #[cfg(all(feature = "detect", feature = "sync"))]
 #[cfg_attr(docsrs, doc(cfg(all(feature = "detect", feature = "sync"))))]
 #[path = ""]
@@ -191,16 +210,23 @@ pub mod sync {
     use hadris_storage::sync::BlockDevice;
     use hadris_udf::sync::UdfFs;
 
+    #[cfg(all(feature = "alloc", feature = "write"))]
+    use hadris_fat::{exfat::sync::format as exfat_format, sync::format as fat_format};
+    #[cfg(all(feature = "alloc", feature = "write"))]
+    use hadris_udf::sync::write as udf_write;
+
     #[path = "open.rs"]
     mod open;
     pub use open::detect;
+    #[cfg(all(feature = "alloc", feature = "write"))]
+    pub use open::format;
     #[cfg(all(feature = "alloc", feature = "unstable-apfs"))]
     pub use open::open_apfs;
     #[cfg(feature = "alloc")]
     pub use open::{AnyFs, open};
 }
 
-/// Detection and opening for local and Send devices, generated from the same
+/// Detection, opening and formatting for local and Send devices, generated
 /// source as `sync`. Futures are Send when the device and its state are Send.
 #[cfg(all(feature = "detect", feature = "async"))]
 #[cfg_attr(docsrs, doc(cfg(all(feature = "detect", feature = "async"))))]

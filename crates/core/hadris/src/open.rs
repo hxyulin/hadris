@@ -280,6 +280,22 @@ pub async fn open_apfs<D: BlockDevice>(
     ApfsFs::mount_volume(dev, options, volume).await.map(AnyFs::Apfs)
 }
 
+/// Writes an empty filesystem of the format `options` names to `dev`, so
+/// that [`open`] mounts it: FAT and exFAT with `hadris_fat`'s `format`, and
+/// UDF with its tree writer and an empty tree. Call the format's own
+/// function for its result, such as the FAT geometry.
+#[cfg(all(feature = "alloc", feature = "write"))]
+pub async fn format<D: BlockDevice>(dev: &mut D, options: &crate::FormatOptions) -> Result<(), crate::PathError> {
+    match options {
+        crate::FormatOptions::Fat(options) => super::fat_format(dev, options).await.map(drop)?,
+        crate::FormatOptions::ExFat(options) => super::exfat_format(dev, options).await.map(drop)?,
+        crate::FormatOptions::Udf(options) => {
+            super::udf_write(&mut *dev, &hadris_fs::Tree::new(), options).await.map(drop)?
+        }
+    }
+    Ok(())
+}
+
 #[cfg(feature = "alloc")]
 impl<D: BlockDevice> FileSystem for AnyFs<D> {
     type DeviceError = D::Error;

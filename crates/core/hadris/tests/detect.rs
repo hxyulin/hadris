@@ -314,6 +314,46 @@ fn blank_small_and_huge_block_devices_hold_nothing() {
 }
 
 #[test]
+fn format_writes_what_open_mounts() {
+    use hadris::FormatOptions;
+    for (options, block, format) in [
+        (
+            FormatOptions::Fat(hadris::fat::FatOptions::new().with_kind(FatKind::Fat16)),
+            512,
+            ImageFormat::Fat(FatKind::Fat16),
+        ),
+        (
+            FormatOptions::ExFat(hadris::fat::exfat::ExFatOptions::new()),
+            512,
+            ImageFormat::ExFat,
+        ),
+        (
+            FormatOptions::Udf(hadris::udf::UdfOptions::new()),
+            2048,
+            ImageFormat::Udf,
+        ),
+    ] {
+        let mut dev = device(vec![0u8; 8 << 20], block);
+        hadris::sync::format(&mut dev, &options).unwrap();
+        let found: Vec<_> = detect(&mut dev)
+            .unwrap()
+            .iter()
+            .map(|c| c.format())
+            .collect();
+        assert_eq!(found, [format]);
+        let mut fs = open(dev, MountOptions::new()).unwrap();
+        let root = fs.root();
+        fs.stat(root).unwrap();
+    }
+    let err = hadris::sync::format(
+        &mut device(vec![0u8; 64 * 512], 512),
+        &FormatOptions::ExFat(hadris::fat::exfat::ExFatOptions::new()),
+    )
+    .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::NoSpace);
+}
+
+#[test]
 fn a_failed_open_gives_the_device_back() {
     let image = table(&[0x83], false);
     let Err(err) = open(device(image.clone(), 512), MountOptions::new()) else {
@@ -417,6 +457,14 @@ mod asynch {
             let root = fs.root();
             fs.stat(root).await.unwrap();
             fs.unmount().await.unwrap();
+
+            let mut dev = device(vec![0u8; 8 << 20], 512);
+            let options = hadris::FormatOptions::ExFat(hadris::fat::exfat::ExFatOptions::new());
+            hadris::r#async::format(&mut dev, &options).await.unwrap();
+            let fs = hadris::r#async::open(dev, MountOptions::new())
+                .await
+                .unwrap();
+            assert!(matches!(fs, hadris::r#async::AnyFs::ExFat(_)));
         });
     }
 

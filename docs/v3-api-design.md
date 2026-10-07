@@ -1573,8 +1573,8 @@ Removed (S2). Detection and opening move into the umbrella crate (5.9):
 ### 5.9 `hadris` (umbrella)
 
 - Re-exports `hadris-io`, `hadris-storage` and `hadris-fs`, and each format crate at a flat path behind a feature of its name (`hadris::fat`, `hadris::iso`, `hadris::udf`, `hadris::cpio`, `hadris::part`; `hadris::ntfs` behind `unstable-ntfs`).
-- `hadris::{sync, r#async}::{detect, open, AnyFs}` (5.8).
-- `hadris::host` (`std`, sync only, 4.15): `open(path)` detects and mounts read-only as `AnyFs<FileDevice>` with `host::mount_options()`; `FileDevice` (`open`, `new`, `into_inner`); `read_tree`, `write_tree`, `TreeOptions`, `Symlinks`, `OnError`; `file` and `source_date_epoch` for builders; `mount_options()` and `local_utc_offset()`, the host defaults of post-pass decision C; and `StdIo`. Its errors are `PathError` with the host path set.
+- `hadris::{sync, r#async}::{detect, open, AnyFs}` (5.8), and with `write`, `format(dev, &FormatOptions)` for an empty FAT, exFAT or UDF volume.
+- `hadris::host` (`std`, sync only, 4.15): `open(path)` detects and mounts read-only as `AnyFs<FileDevice>` with `host::mount_options()`; `open_with(path, options)` mounts with the caller's options, writable unless they are read-only; `FileDevice` (`open`, `new`, `get_ref`, `get_mut`, `into_inner`); `read_tree`, `write_tree`, `TreeOptions`, `Symlinks`, `OnError`; `file` and `source_date_epoch` for builders; `mount_options()` and `local_utc_offset()`, the host defaults of post-pass decision C; and `StdIo`. Its errors are `PathError` with the host path set.
 - The umbrella has no binary. The `hadris` binary is its own package, `hadris-cli` (`cargo install hadris-cli`, Q15), so library users never compile clap and CLI changes do not move the umbrella's version. It replaces the five CLI crates, with subcommands `fat`, `iso`, `udf`, `cpio` and `detect` and one set of flags, overwrite rules and output handling (S1); `extract` takes `-p/--path` in every format. The 2.x binary names are not installed.
 
 ---
