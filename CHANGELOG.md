@@ -102,6 +102,11 @@ Each published package owns its version and may be released independently.
 - **NTFS:** Reading a file whose data a WOF (CompactOS) or Data Deduplication
   reparse point keeps elsewhere fails with `Unsupported`
   (`Detail::ReparseData`) instead of returning the sparse placeholder as zeros.
+- **hadris-fs:** `Volume::remove_dir_all` continues each directory's listing
+  from the cursor after the entry it removed instead of listing from the
+  start after every removal, so emptying a directory of n entries reads it
+  O(n) times fewer. The listing is read once more from the start when it ends.
+
 - **hadris-io:** `&[u8]` implements `Read`, reading from its front, and with
   `alloc` `Vec<u8>` implements `Write`, appending, in every mode, as `std` and
   `embedded-io` do. The crate docs claimed both traits for `Vec<u8>`; they now
