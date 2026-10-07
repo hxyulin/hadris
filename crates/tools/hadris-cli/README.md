@@ -5,10 +5,10 @@ ISO 9660, UDF, APFS and cpio images, and ISO 9660 and UDF bridge images, with on
 binary.
 
 With [cargo-binstall](https://github.com/cargo-bins/cargo-binstall) installed,
-download a prebuilt release-candidate binary:
+download a prebuilt RC2 binary once the release is published:
 
 ```bash
-cargo binstall hadris-cli --version 3.0.0-rc.1
+cargo binstall hadris-cli --version 3.0.0-rc.2
 ```
 
 Release assets cover Linux x86-64/ARM64 (static musl binaries), macOS Intel/
@@ -16,16 +16,16 @@ Apple Silicon (macOS 11 or newer), and Windows x86-64. The `hadris` binary
 includes APFS inspection and extraction; RC2 replaces the standalone
 `hadris-apfs-cli` with `hadris apfs`.
 
-Or compile the published RC1 package with Rust 1.88 or newer:
+Or compile RC2 from crates.io after publication with Rust 1.88 or newer:
 
 ```bash
-cargo install hadris-cli --version 3.0.0-rc.1 --locked
+cargo install hadris-cli --version 3.0.0-rc.2 --locked
 ```
 
-Or build it from the workspace:
+Before publication, or for development, build it from a workspace checkout:
 
 ```bash
-cargo build --release -p hadris-cli
+cargo build --locked --release -p hadris-cli
 ```
 
 ## Commands
@@ -128,7 +128,7 @@ are replaced by these subcommands and no longer installed.
 - [Detect and open images](https://hxyulin.github.io/hadris/guides/detect-open-images)
 - [Read a FAT image](https://hxyulin.github.io/hadris/guides/read-fat-image)
 - [Create a UDF or bridge image](https://hxyulin.github.io/hadris/creation/udf)
-- [Library API](https://docs.rs/hadris/3.0.0-rc.1)
+- [Library API](https://docs.rs/hadris/3.0.0-rc.2)
 
 ## License
 

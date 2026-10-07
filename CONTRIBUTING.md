@@ -316,7 +316,7 @@ requirements in `[workspace.dependencies]`, and add a dated
 - one crate: `## [hadris-fat 3.1.0] - 2026-10-01`, the default heading for
   `<crate> <version>`;
 - a joint release: one section for all of them, such as
-  `## [3.0.0-rc.1] - 2026-10-01`, named with the workflow's `notes` input.
+  `## [3.0.0-rc.2] - 2026-10-07`, named with the workflow's `notes` input.
 
 After that PR merges, run the `Release` workflow (Actions, Run workflow) on
 `main`, first with `mode: dry-run` and
@@ -371,8 +371,8 @@ ship in `hadris-cli`; use `hadris apfs`.
 Check a plan locally before opening the release PR:
 
 ```bash
-scripts/release-plan.py --notes 3.0.0-rc.1 all
-scripts/release-plan.py --github-plan --notes 3.0.0-rc.1 all
+scripts/release-plan.py --notes 3.0.0-rc.2 all
+scripts/release-plan.py --github-plan --notes 3.0.0-rc.2 all
 scripts/release-plan.py hadris-fat hadris
 cargo +stable publish --dry-run -p hadris-fat -p hadris
 ```

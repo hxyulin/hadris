@@ -109,16 +109,6 @@ assert_eq!(geometry.byte_len(), Some(4 * 1024 * 1024));
 `std` and the I/O mode are independent. Disable default features and select
 `sync`, `async`, or both explicitly for custom configurations.
 
-## Documentation
-
-- [Storage and I/O model](https://hxyulin.github.io/hadris/concepts/storage-model)
-- [Adapt a custom device](https://hxyulin.github.io/hadris/guides/custom-io)
-- [API reference](https://docs.rs/hadris-storage/3.0.0-rc.1)
-
-## License
-
-Licensed under the [MIT license](../../../LICENSE-MIT).
-
 ## Bounded read-ahead
 
 Wrap the device before mounting a filesystem to combine nearby small reads:
@@ -199,3 +189,13 @@ the poll contract directly. The unified `StreamDevice` accepts the poll-native
 `BlockingStream::new` keeps a fixed size; use `new_growable` only for a stream
 known to support extension. Reconstruct a `StreamDevice` after changing its
 length through `get_mut` so its readable block count stays accurate.
+
+## Documentation
+
+- [Storage and I/O model](https://hxyulin.github.io/hadris/concepts/storage-model)
+- [Adapt a custom device](https://hxyulin.github.io/hadris/guides/custom-io)
+- [API reference](https://docs.rs/hadris-storage/3.0.0-rc.2)
+
+## License
+
+Licensed under the [MIT license](../../../LICENSE-MIT).

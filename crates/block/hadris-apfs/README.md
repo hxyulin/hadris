@@ -142,20 +142,16 @@ APFS partition first, for example with `hadris-part`.
 | `read`  | Yes     | The container readers |
 | `sync`  | Yes     | Synchronous readers in `hadris_apfs::sync` |
 | `async` | No      | Unified asynchronous readers in `hadris_apfs::async_` |
+| `encryption` | No | Password-based software FileVault unlocking; implies `alloc` and `read` |
+| `tracing` | No | Operation spans through the `tracing` crate; implies `std` |
 
-## Documentation
-
-- [Library API](https://docs.rs/hadris-apfs/3.0.0-rc.1)
-- [Unified CLI (`hadris apfs`)](../../tools/hadris-cli/README.md)
-
-## License
-
-Licensed under the [MIT license](../../../LICENSE-MIT).
+## Tracing
 
 The opt-in `tracing` feature enables `std` and emits operation spans through the
 application’s subscriber. It is disabled by default. See the
 [tracing guide](../../../docs/tracing.md) for targets, metadata and async behavior.
 
+## Object mappings
 
 Object-map lookups match full object identifiers and select the newest mapping
 at or before the requested transaction. A deleted mapping returns no object
@@ -163,8 +159,19 @@ without resurrecting an older version. Volume enumeration uses the container
 checkpoint transaction to resolve each live volume once; historical and future
 mappings remain available through the raw mapping inspection APIs.
 
+## Unified asynchronous API
+
 The `async_` namespace is canonical; `r#async` remains an alias. One filesystem
 type accepts both Send and local devices through `hadris_storage::async_::BlockDevice`.
 It implements `hadris_fs::local::FileSystem` for all compatible devices and the
 Send filesystem contract when its device and operation state are Send. The
 `async` feature enables both capabilities; no separate local feature is needed.
+
+## Documentation
+
+- [Library API](https://docs.rs/hadris-apfs/3.0.0-rc.2)
+- [Unified CLI (`hadris apfs`)](../../tools/hadris-cli/README.md)
+
+## License
+
+Licensed under the [MIT license](../../../LICENSE-MIT).

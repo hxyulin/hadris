@@ -33,6 +33,8 @@ desktop tools as well as `no_std` bootloaders, kernels and firmware.
 | `sync` | Blocking API in `hadris_iso::sync` | Yes |
 | `async` | Common and Send asynchronous API in `hadris_iso::async_`, also available in `r#async` | - |
 | `async-local` | The same `async_` API with the local filesystem feature tier | - |
+| `cache` | Bounded metadata caches configured through `CacheOptions`; implies `alloc` | - |
+| `tracing` | Operation spans through the `tracing` crate; implies `std` | - |
 
 No feature changes what an item does. Joliet, Rock Ridge, El Torito and the
 enhanced tree are always available.
@@ -103,7 +105,7 @@ locating each entry's image. The on-disk layouts are in `hadris_iso::raw`.
 
 ```toml
 [dependencies]
-hadris-iso = { version = "3.0.0-rc.1", default-features = false, features = ["sync"] }
+hadris-iso = { version = "3.0.0-rc.2", default-features = false, features = ["sync"] }
 ```
 
 `IsoFs::mount` takes any `BlockDevice` whose blocks are at most 4096
@@ -286,22 +288,13 @@ cargo run -p hadris-iso --example create_bootable_iso -- bootable.iso
 - Joliet Specification (Microsoft)
 - El Torito Bootable CD-ROM Format Specification
 
-## Documentation
-
-- [Read ISO images](https://hxyulin.github.io/hadris/guides/read-iso)
-- [Create ISO images](https://hxyulin.github.io/hadris/creation/iso)
-- [Validate generated images](https://hxyulin.github.io/hadris/guides/validate-images)
-- [API reference](https://docs.rs/hadris-iso/3.0.0-rc.1)
-
-## License
-
-This project is licensed under the [MIT license](../../../LICENSE-MIT).
+## Tracing
 
 The opt-in `tracing` feature enables `std` and emits operation spans through the
 application’s subscriber. It is disabled by default. See the
 [tracing guide](../../../docs/tracing.md) for targets, metadata and async behavior.
 
-### Optional reader cache
+## Optional reader cache
 
 Enable `cache` and call `IsoFs::with_cache(CacheOptions::new())` after mounting
 to cache up to eight logical metadata sectors and 32 parsed directory records.
@@ -356,3 +349,14 @@ and the Send filesystem contract for `SendBlockDevice` devices.
 The `async` feature enables both capabilities. `async-local` remains available
 for the local filesystem feature tier; neither requires an allocator for reading.
 The `alloc` feature enables writers and sessions in either async feature tier.
+
+## Documentation
+
+- [Read ISO images](https://hxyulin.github.io/hadris/guides/read-iso)
+- [Create ISO images](https://hxyulin.github.io/hadris/creation/iso)
+- [Validate generated images](https://hxyulin.github.io/hadris/guides/validate-images)
+- [API reference](https://docs.rs/hadris-iso/3.0.0-rc.2)
+
+## License
+
+This project is licensed under the [MIT license](../../../LICENSE-MIT).

@@ -10,6 +10,10 @@ Each published package owns its version and may be released independently.
 
 ## [3.0.0-rc.2] - 2026-10-07
 
+- Align current crate READMEs, installation and migration recipes, and the
+  documentation site with RC2. Correct feature and local/Send support summaries
+  and document source-checkout use before publication.
+
 - **Async storage:** Validate block alignment and bounds in direct cache,
   read-ahead and stream poll hooks. Invalid requests return `InvalidInput`
   before touching the backend or dirty cache data, preventing read-ahead

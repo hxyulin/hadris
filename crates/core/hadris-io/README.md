@@ -43,14 +43,14 @@ the crate root holds only mode-independent items.
 
 ```toml
 [dependencies]
-hadris-io = "3.0.0-rc.1"
+hadris-io = "3.0.0-rc.2"
 ```
 
 ### No-std
 
 ```toml
 [dependencies]
-hadris-io = { version = "3.0.0-rc.1", default-features = false, features = ["sync"] }
+hadris-io = { version = "3.0.0-rc.2", default-features = false, features = ["sync"] }
 ```
 
 ## Quick Start
@@ -245,7 +245,7 @@ assert_eq!(io.raw_os_error(), Some(5));
 - [Storage and I/O model](https://hxyulin.github.io/hadris/concepts/storage-model)
 - [Adapt a custom device](https://hxyulin.github.io/hadris/guides/custom-io)
 - [Use asynchronous I/O](https://hxyulin.github.io/hadris/guides/async-io)
-- [API reference](https://docs.rs/hadris-io/3.0.0-rc.1)
+- [API reference](https://docs.rs/hadris-io/3.0.0-rc.2)
 
 ## License
 

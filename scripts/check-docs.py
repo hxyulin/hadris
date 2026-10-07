@@ -78,6 +78,47 @@ def check_toml(files: list[Path], root: Path = ROOT) -> list[str]:
     return errors
 
 
+def check_current_versions(files: list[Path], root: Path = ROOT) -> list[str]:
+    versions = {}
+    for manifest in (root / "crates").glob("**/Cargo.toml"):
+        package = tomllib.loads(manifest.read_text())["package"]
+        versions[package["name"]] = package["version"]
+    errors = []
+    for source in files:
+        if not (
+            source == root / "README.md"
+            or source == root / "docs/hadris-3.0.0-migration.md"
+            or source.is_relative_to(root / "website/docs")
+            or (source.is_relative_to(root / "crates") and source.name == "README.md")
+        ):
+            continue
+        contents = source.read_text()
+        references = re.findall(r"https://docs\.rs/(hadris(?:-[a-z0-9]+)*)/([^/#)\s]+)", contents)
+        references.extend(re.findall(
+            r"cargo (?:install|binstall) (hadris(?:-[a-z0-9]+)*) --version ([^\s`]+)", contents,
+        ))
+        for match in re.finditer(r"```toml\n(.*?)```", contents, re.DOTALL):
+            try:
+                recipe = tomllib.loads(match.group(1))
+            except tomllib.TOMLDecodeError:
+                continue
+            tables = [recipe, *recipe.get("target", {}).values(), recipe.get("workspace", {})]
+            for table in tables:
+                for kind in ("dependencies", "dev-dependencies", "build-dependencies"):
+                    for name, dependency in table.get(kind, {}).items():
+                        if isinstance(dependency, dict):
+                            name = dependency.get("package", name)
+                            dependency = dependency.get("version")
+                        if isinstance(dependency, str):
+                            references.append((name, dependency.lstrip("=^")))
+        for name, version in references:
+            if name in versions and version not in (versions[name], "latest"):
+                errors.append(
+                    f"{source.relative_to(root)}: {name} references {version}, expected {versions[name]}"
+                )
+    return errors
+
+
 def self_test() -> int:
     with tempfile.TemporaryDirectory() as directory:
         temporary_root = Path(directory).resolve()
@@ -91,11 +132,30 @@ def self_test() -> int:
         errors = check_links([source], root)
         source.write_text("```toml\n[dependencies]\nhadris = \"3\"\nhadris = \"2\"\n```\n")
         toml_errors = check_toml([source], root)
+        source.write_text('```toml\n[dependencies]\nhadris = "3.0.0-rc.1"\n```\n')
+        manifest = root / "crates/core/hadris/Cargo.toml"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text('[package]\nname = "hadris"\nversion = "3.0.0-rc.2"\n')
+        cli_manifest = root / "crates/tools/hadris-cli/Cargo.toml"
+        cli_manifest.parent.mkdir(parents=True)
+        cli_manifest.write_text('[package]\nname = "hadris-cli"\nversion = "3.0.0-rc.2"\n')
+        readme = root / "README.md"
+        readme.write_text(
+            '```toml\n[dependencies.alias]\npackage = "hadris"\nversion = "3.0.0-rc.1"\n```\n'
+            '[API](https://docs.rs/hadris/3.0.0-rc.1/hadris/)\n'
+            '```sh\ncargo binstall hadris-cli --version 3.0.0-rc.1\n```\n'
+        )
+        version_errors = check_current_versions([readme, source], root)
+        readme.write_text(readme.read_text().replace("3.0.0-rc.1", "3.0.0-rc.2"))
+        current_errors = check_current_versions([readme], root)
     expected = [
         "docs/source.md:2: link target escapes repository ../../outside.md"
     ]
-    if errors != expected or len(toml_errors) != 1:
-        print(f"self-test failed: links={errors!r}, TOML={toml_errors!r}", file=sys.stderr)
+    if errors != expected or len(toml_errors) != 1 or len(version_errors) != 3 or current_errors:
+        print(
+            f"self-test failed: links={errors!r}, TOML={toml_errors!r}, "
+            f"versions={version_errors!r}, current={current_errors!r}", file=sys.stderr,
+        )
         return 1
     print("documentation checker self-test passed")
     return 0
@@ -147,6 +207,7 @@ def main() -> int:
     errors.extend(check_package_readmes())
     errors.extend(check_active_names(files))
     errors.extend(check_toml(files))
+    errors.extend(check_current_versions(files))
     if errors:
         print("documentation checks failed:", file=sys.stderr)
         for error in errors:

@@ -12,10 +12,10 @@ Hadris separates three decisions that many crates combine:
    feature per format
 
 Stable format crates always compile reading; the APFS preview still has a
-`read` feature. The async contract described here is the RC2 development API
-on `main`; the Cargo examples below select the published RC1 release, whose
-custom async devices use the earlier contract. See the [async guide](../guides/async-io.md)
-when building against the RC2 workspace. Choose each dimension
+`read` feature. The APIs and Cargo examples below target RC2. Until RC2 is
+published, use a workspace checkout as described in
+[getting started](../getting-started.md). See the [async guide](../guides/async-io.md)
+for custom device migration. Choose each dimension
 explicitly when disabling default features. Enabling `std` provides heap
 allocation, but it does not implicitly select `sync` or `async`. A feature
 only adds items: none changes what an existing item does, and only
@@ -43,7 +43,7 @@ from one source. They may be enabled together.
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 default-features = false
 features = ["alloc", "sync", "async", "write", "fat"]
 ```
@@ -91,7 +91,7 @@ directory trees, or image construction may still require `alloc`.
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 default-features = false
 features = ["alloc", "sync", "fat"]
 ```
@@ -103,7 +103,7 @@ always available, and `write` adds only the formatter.
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 default-features = false
 features = ["alloc", "async", "iso"]
 ```
@@ -112,7 +112,7 @@ features = ["alloc", "async", "iso"]
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 default-features = false
 features = ["std", "sync", "write", "fat"]
 ```
@@ -124,7 +124,7 @@ from wrapping the device in `hadris::storage::sync::Cache`.
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 default-features = false
 features = ["alloc", "sync", "cpio"]
 ```
