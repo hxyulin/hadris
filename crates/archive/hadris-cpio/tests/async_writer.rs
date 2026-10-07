@@ -37,7 +37,7 @@ impl hadris_io::ErrorType for Sink {
     type Error = Infallible;
 }
 
-impl hadris_io::r#async::Write for Sink {
+impl hadris_io::async_::Write for Sink {
     fn write(&mut self, bytes: &[u8]) -> impl Future<Output = Result<usize, Infallible>> + Send {
         let n = bytes.len().min(7);
         self.0.extend_from_slice(&bytes[..n]);
@@ -67,15 +67,15 @@ fn every_mode_writes_the_same_bytes() {
 
     let mut send = Sink::default();
     let tree = tree();
-    let future = hadris_cpio::r#async::write(&mut send, &tree, &options);
+    let future = hadris_cpio::async_::write(&mut send, &tree, &options);
     fn assert_send<T: Send>(value: T) -> T {
         value
     }
     block_on(assert_send(future)).unwrap();
     assert_eq!(send.0, sync);
 
-    let back = block_on(assert_send(hadris_cpio::r#async::read_tree(
-        &mut hadris_cpio::r#async::CpioReader::new(Cursor::new(&sync)),
+    let back = block_on(assert_send(hadris_cpio::async_::read_tree(
+        &mut hadris_cpio::async_::CpioReader::new(Cursor::new(&sync)),
     )))
     .unwrap();
     assert_eq!(back.entry("linuxrc").unwrap().links(), 2);
@@ -87,8 +87,8 @@ fn the_async_reader_reads_what_was_written() {
     hadris_cpio::sync::write(&mut sync, &tree(), &CpioOptions::default()).unwrap();
     let bytes = sync.into_inner();
     block_on(async {
-        use hadris_io::r#async::Read;
-        let mut reader = hadris_cpio::r#async::CpioReader::new(Cursor::new(&bytes));
+        use hadris_io::async_::Read;
+        let mut reader = hadris_cpio::async_::CpioReader::new(Cursor::new(&bytes));
         let mut names = Vec::new();
         while let Some(mut entry) = reader.next_entry().await.unwrap() {
             let mut data = vec![0u8; entry.len() as usize];
@@ -123,7 +123,7 @@ fn custom_buffer_segments_and_offsets_are_send() {
     }
     block_on(assert_send(async {
         let mut buffer = [0; 32];
-        let mut reader = hadris_cpio::r#async::CpioReader::with_buffer(
+        let mut reader = hadris_cpio::async_::CpioReader::with_buffer(
             Cursor::new(&bytes),
             &mut buffer[..],
             hadris_cpio::ReaderOptions::new(),
@@ -152,8 +152,8 @@ fn async_hard_link_owners_follow_equivalent_tree_paths() {
         common::trailer(),
     ]
     .concat();
-    let tree = block_on(hadris_cpio::r#async::read_tree(
-        &mut hadris_cpio::r#async::CpioReader::new(Cursor::new(&bytes)),
+    let tree = block_on(hadris_cpio::async_::read_tree(
+        &mut hadris_cpio::async_::CpioReader::new(Cursor::new(&bytes)),
     ))
     .unwrap();
     assert_eq!(
@@ -175,7 +175,7 @@ fn async_borrowed_payloads_handle_short_writes() {
     for format in [Format::Newc, Format::Crc, Format::Odc] {
         let expected = common::archive(&tree, format);
         let mut out = Sink::default();
-        block_on(hadris_cpio::r#async::write(
+        block_on(hadris_cpio::async_::write(
             &mut out,
             &tree,
             &CpioOptions::new().with_format(format),
@@ -190,7 +190,7 @@ fn async_odc_hard_links_store_each_payload() {
     let options = CpioOptions::new().with_format(Format::Odc);
     let node = Node::file(Content::bytes(vec![37; 70_001]));
     let mut out = Sink::default();
-    let mut writer = hadris_cpio::r#async::Writer::new(&mut out, &options);
+    let mut writer = hadris_cpio::async_::Writer::new(&mut out, &options);
     block_on(writer.append_hard_links(&["a", "b", "c"], &node)).unwrap();
     let (_, report) = block_on(writer.finish()).unwrap();
     for entry in common::read_all(&out.0).unwrap() {
@@ -198,4 +198,11 @@ fn async_odc_hard_links_store_each_payload() {
         assert_eq!(report.extents(entry.name).unwrap()[0].len(), 70_001);
     }
     assert_ne!(report.extents("a"), report.extents("b"));
+}
+
+#[test]
+fn legacy_async_alias_names_the_same_reader() {
+    let reader: hadris_cpio::r#async::CpioReader<Cursor<'_>> =
+        hadris_cpio::async_::CpioReader::new(Cursor::new(&[][..]));
+    let _ = reader;
 }

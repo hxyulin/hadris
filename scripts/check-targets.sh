@@ -15,7 +15,6 @@ no_alloc=(
   "hadris-common:"
   "hadris-io:sync,async,embedded-io"
   "hadris-storage:sync,async"
-  "hadris-experiment-async-device-contract:"
   "hadris-fs:sync,async"
   "hadris-fs:async-local"
   "hadris-fat-raw:sync,async"
@@ -34,7 +33,6 @@ no_alloc=(
   "hadris:sync,async,detect"
 )
 with_alloc=(
-  "hadris-experiment-async-device-contract:alloc"
   "hadris-fs:alloc,sync,async"
   "hadris-fs:alloc,async-local"
   "hadris-fat:alloc,sync,async,write"

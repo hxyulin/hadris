@@ -359,7 +359,7 @@ dependencies = [
 
 [[package]]
 name = "hadris"
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 dependencies = [
  "hadris-apfs",
  "hadris-cpio",
@@ -378,7 +378,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-apfs"
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 dependencies = [
  "aes",
  "aes-kw",
@@ -572,17 +572,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "hadris-experiment-async-device-contract"
-version = "0.0.0"
-dependencies = [
- "hadris-io",
- "hadris-storage",
- "static_assertions",
-]
-
-[[package]]
 name = "hadris-fat"
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 dependencies = [
  "bytemuck",
  "hadris-common",
@@ -599,7 +590,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-fat-raw"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bytemuck",
  "defmt",
@@ -612,7 +603,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-fs"
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 dependencies = [
  "async-lock",
  "bitflags 2.13.2",
@@ -625,7 +616,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-io"
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 dependencies = [
  "bytemuck",
  "embedded-io",
@@ -668,7 +659,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-ntfs"
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 dependencies = [
  "bytemuck",
  "hadris-fs",
@@ -681,7 +672,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-part"
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
@@ -694,11 +685,12 @@ dependencies = [
 
 [[package]]
 name = "hadris-storage"
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 dependencies = [
  "hadris-io",
  "hadris-macros",
  "libc",
+ "static_assertions",
 ]
 
 [[package]]

@@ -8,9 +8,12 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
-- Add an unpublished async device contract experiment with borrowed-device,
-  cache, cancellation and real ISO reader/writer/session probes. Production APIs
-  are unchanged.
+- **RC2 preparation:** Add canonical `async_` aliases for I/O, filesystem and
+  CPIO APIs, keeping `r#async` compatibility. Enable local filesystem APIs
+  alongside `async`, stage package versions and document the coordinated
+  device migration. Retire the temporary source-copy experiment and run the
+  production format suites on both supported CI toolchains. The poll-device
+  cutover follows in the stacked migration change.
 
 - **hadris-iso:** Use one `async_::IsoFs` reader for Send and local devices;
   `r#async::IsoFs` remains the same type with its existing Send contract.

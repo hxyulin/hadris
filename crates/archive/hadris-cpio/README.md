@@ -13,7 +13,7 @@ the shared `hadris_fs::Tree` input of the other Hadris writers.
   nodes, FIFOs and sockets.
 - Works on pipes: the reader and writer need only `Read` and `Write`.
 - The same API blocking (`sync`) and asynchronous with `Send` futures
-  (`r#async`).
+  (`async_`).
 - `no_std`; the reader needs no allocator.
 
 ## Reading an archive
@@ -98,7 +98,7 @@ The header layouts are in `hadris_cpio::raw`.
 | `std` | yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
 | `alloc` | via `std` | The writer, `plan` and `read_tree` |
 | `sync` | yes | The blocking API in `sync` |
-| `async` | no | The asynchronous API with `Send` futures in `r#async` |
+| `async` | no | The asynchronous API with `Send` futures in `async_` |
 
 A bootloader that only reads uses
 `default-features = false, features = ["sync"]`.
@@ -135,3 +135,9 @@ The on-disk layouts and I/O-free codecs live in
 [`hadris-cpio-raw`](../hadris-cpio-raw). Existing `hadris_cpio::raw`
 paths remain available and refer to the same types. The raw crate needs
 neither an allocator nor a sync/async feature.
+
+The canonical asynchronous namespace is `async_`; `r#async` remains a compatibility
+alias. CPIO operates on byte streams through `hadris_io::async_::Read` and
+`Write`, rather than storage block devices. Its asynchronous streams and futures
+retain their `Send` contract. Local byte streams require a separate stream
+contract migration; enabling local block devices does not change this API.

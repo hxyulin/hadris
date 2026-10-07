@@ -6,10 +6,13 @@ title: Adapt a custom device
 
 Every Hadris filesystem driver reads a `hadris-storage` block device, and the
 CPIO reader and writer read `hadris-io` streams. Neither needs `std::io`.
-There are three ways to connect a device: implement `BlockDevice` for it,
-implement the `hadris-io` stream traits and wrap the stream in a
-`StreamDevice`, or wrap a device that already implements `embedded-io` in
-`FromEmbedded`. Hosted `std::io` types are wrapped in `StdIo` instead.
+Synchronous streams can implement the `hadris-io` traits and use
+`sync::StreamDevice`. Asynchronous block devices implement the common poll
+contract directly, or use `async_::StreamDevice` with a poll-native
+`async_::Stream`. `BlockingStream` explicitly bridges synchronous streams and
+blocks during each poll. Older async-trait stream adapters remain under
+`legacy_async` and `legacy_local`; embedded-io async streams continue to work
+with CPIO's existing stream contract.
 
 For a filesystem, [implement a block device](#implement-a-block-device-for-fat)
 directly when the hardware addresses whole blocks.
@@ -266,3 +269,19 @@ Raw NOR/NAND flash needs erase handling and a layer that supplies block overwrit
 semantics; the [`embedded-storage` NOR contract](https://docs.rs/embedded-storage/latest/embedded_storage/nor_flash/trait.NorFlash.html)
 exposes separate erase and write granularities. Use a flash adapter or translation layer before presenting it as a
 rewritable `BlockDevice`.
+
+## RC2 asynchronous block devices
+
+Use `hadris_storage::async_::BlockDevice` and supply `State`,
+`poll_read_blocks`, optional `poll_write_blocks`/`poll_flush`, and `cancel`.
+Callers await the provided read/write/flush methods. `SendBlockDevice` is
+automatic when the device and state are Send; the same filesystem type works
+with local devices too. `r#async` remains a compatibility alias.
+
+Hooks must release access to caller buffers before returning Pending and
+arrange wakeups when progress becomes possible. `cancel` must be safe when
+idle and must not panic, including during unwinding before I/O starts. State
+must not retain pointers to its own movable fields. Continuing hardware I/O
+needs owned stable buffers. The
+[full migration guide](https://github.com/hxyulin/hadris/blob/main/docs/async-devices.md)
+explains backend state, stream adapters and partial-write semantics.

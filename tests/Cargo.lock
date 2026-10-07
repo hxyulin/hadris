@@ -135,7 +135,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-fat"
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 dependencies = [
  "bytemuck",
  "hadris-common",
@@ -148,7 +148,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-fat-raw"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bytemuck",
  "hadris-common",
@@ -159,7 +159,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-fs"
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 dependencies = [
  "async-lock",
  "bitflags",
@@ -172,7 +172,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-io"
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 dependencies = [
  "bytemuck",
  "embedded-io",
@@ -212,7 +212,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-part"
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 dependencies = [
  "bitflags",
  "bytemuck",
@@ -224,7 +224,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-storage"
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 dependencies = [
  "hadris-io",
  "hadris-macros",

@@ -1,6 +1,6 @@
 [package]
 name = "hadris-apfs"
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 description = "An experimental, read-only APFS container and filesystem reader"
 readme = "README.md"
 keywords = ["apfs", "filesystem", "apple", "disk"]

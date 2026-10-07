@@ -67,7 +67,7 @@ references, so they are stable and hard links share one.
 | `std` | Yes | Implies `alloc`; forwards `std` to `hadris-fs` and `hadris-storage` |
 | `alloc` | via `std` | Forwards `alloc` to `hadris-fs` and `hadris-storage` |
 | `sync` | Yes | The blocking API in `sync` |
-| `async` | No | The asynchronous API with `Send` futures in `r#async` |
+| `async` | No | The unified asynchronous API in `async_` (`r#async` is an alias) |
 
 Reading needs no allocator in any mode. No feature changes what an item
 does.
@@ -106,3 +106,9 @@ The reader validates the boot sector's declared volume size against the device.
 MFT records and physical mapping pairs must fit inside that volume; bytes in a
 larger device's trailing region are not exposed as file contents. Sparse runs
 and uninitialized file tails retain their zero-fill behavior.
+
+The `async_` namespace is canonical; `r#async` remains an alias. One filesystem
+type accepts both Send and local devices through `hadris_storage::async_::BlockDevice`.
+It implements `hadris_fs::local::FileSystem` for all compatible devices and the
+Send filesystem contract when its device and operation state are Send. The
+`async` feature enables both capabilities; no separate local feature is needed.

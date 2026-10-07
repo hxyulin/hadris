@@ -12,7 +12,7 @@ systems, SD cards, and USB drives.
 - **Long Filenames (VFAT/LFN)** - Always read and written
 - **No-std Compatible** - Use in bootloaders and custom kernels
 - **No allocator needed** - The embedded API reads and writes, and `format` and `check` run, without `alloc`
-- **Sync and async** - One driver generated for each mode; async futures are `Send`
+- **Sync and async** - One driver generated for each mode; async futures support both local and `Send` devices
 - **Checker** - A read-only `fsck` that reports each problem it finds
 - **exFAT** - `ExFatFs` reads, writes, formats and checks exFAT, including TexFAT volumes with two FATs
 
@@ -29,7 +29,7 @@ the workloads, CSV baselines, measurement limits and firmware-size checks.
 ### The `FatFs` Driver
 
 `FatFs` is the node-based driver, available as
-`sync::FatFs` and `r#async::FatFs`. It mounts any
+`sync::FatFs` and `async_::FatFs`. It mounts any
 `hadris-storage` block device, needs `alloc` for its node table (its only
 I/O buffer with caching disabled is one device block of at most 4096 bytes), and implements the `hadris-fs`
 `FileSystem` trait, so `Volume` and its `File` and `ReadDir` handles work
@@ -264,7 +264,7 @@ cargo run -p hadris-fat --example shared_volume -- disk.img
 | `write` | `format` in each mode; `FatFs` and `ExFatFs` write without it | None |
 | `alloc` | `FatFs`, `ExFatFs` and the tree writers; without it the embedded API, `format`, `check` and the raw layer | `alloc` crate |
 | `sync` | Synchronous API in `sync` | `hadris-io/sync` |
-| `async` | Asynchronous API with `Send` futures in `r#async` | `hadris-io/async` |
+| `async` | Asynchronous API for local and `Send` devices in `async_` | `hadris-io/async` |
 | `std` | `hadris_storage::host::FileDevice` for image files and `SystemClock` | `std`, `alloc` |
 | `defmt` | `defmt::Format` for `FatKind` | `defmt` |
 | `tracing` | [Function spans](../../../docs/tracing.md) for FAT/exFAT operations and FAT allocation/write paths; disabled by default | `std`, `alloc`, `tracing` |
@@ -277,7 +277,7 @@ changes what an item does.
 
 ### exFAT
 
-`hadris_fat::exfat::sync::ExFatFs` and its `r#async` twin
+`hadris_fat::exfat::sync::ExFatFs` and its `async_` twin
 are a sibling of `FatFs` that needs `alloc` and implements `FileSystem`,
 with `format` (the `write` feature) and `check` in each mode.
 exFAT is stable and needs no feature flag. It mounts with the same `hadris_fs::MountOptions`. Its format options, label
@@ -301,7 +301,7 @@ Without `alloc` this gives the embedded API, `check` and the raw layer;
 add `write` for `format`, and `alloc` for `FatFs` and `ExFatFs`.
 
 `hadris_fat::embedded::sync::Fat<'mount, D, const FILES: usize = 4>` and its
-`embedded::r#async` twin are a handle-based driver for firmware. They are
+`embedded::async_` twin are a handle-based driver for firmware. They are
 built on the raw layer and need no allocator: one 512-byte block buffer,
 the geometry, the options and `FILES` file slots, under 1 KiB with four
 slots. Directories are `Copy` handles, names are passed one component per
@@ -309,7 +309,7 @@ call, a `File` is a slot consumed by `close`, and `list` lends each entry
 to a callback. Names fold ASCII case unless
 `Options::new().with_fold(hadris_fat_raw::fold_unicode)` asks for
 Unicode, so the Unicode case tables stay out of flash. The async variant
-takes a `hadris_storage::local::BlockDevice`, whose futures need not be
+takes a `hadris_storage::async_::BlockDevice`, whose futures need not be
 `Send`. The device's blocks must be 512 bytes.
 
 ```rust,ignore
@@ -333,7 +333,7 @@ The guide [Use FAT and exFAT on a microcontroller](https://hxyulin.github.io/had
 has the measured flash and stack on `thumbv6m`, `thumbv7em` and `riscv32imc`.
 
 `hadris_fat::exfat::embedded::sync::ExFat<'mount, D, const FILES: usize = 4>` and
-its `r#async` twin read exFAT volumes, such as SDXC cards, the same way:
+its `async_` twin read exFAT volumes, such as SDXC cards, the same way:
 one 512-byte block buffer and `FILES` file slots, with `open_dir`, `list`,
 `open`, `open_node`, `read`, `seek`, `close`, `metadata`, `label` and
 `stats`. They never write, share `File` and `Options` with `Fat`, and are a
@@ -444,3 +444,10 @@ while long-name contents are copied as entries are learned. On this 64-bit Mac,
 the listing hint uses 88 bytes of heap storage for a short name and up to 598
 bytes for a maximum-length long name, excluding allocator overhead. Its memory
 use does not grow with directory size. Layouts vary by target.
+
+The canonical asynchronous namespace is `async_`; `r#async` remains a compatibility
+alias in the FAT, exFAT and embedded APIs. All asynchronous drivers accept
+`hadris_storage::async_::BlockDevice`. Futures are `Send` when the device and its
+operation state are `Send`; `Rc` devices and states use the same driver types on
+local executors. Hosted drivers implement `hadris_fs::local::FileSystem`, and also
+`hadris_fs::async_::FileSystem` when the device satisfies `SendBlockDevice`.
