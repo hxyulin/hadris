@@ -102,6 +102,10 @@ Each published package owns its version and may be released independently.
 - **NTFS:** Reading a file whose data a WOF (CompactOS) or Data Deduplication
   reparse point keeps elsewhere fails with `Unsupported`
   (`Detail::ReparseData`) instead of returning the sparse placeholder as zeros.
+- **hadris:** `AnyFs::image_format` reports the format of the mounted
+  filesystem, so callers can dispatch to a format's own API without matching
+  every variant.
+
 - **hadris:** `sync::format` and `async_::format` (with `detect`, `alloc` and
   `write`) write an empty FAT, exFAT or UDF volume to a device from a
   `FormatOptions`, the counterpart of `open`. They return `PathError`; call

@@ -109,6 +109,7 @@ fn fat_volumes_are_detected_and_opened() {
         );
         let mut fs = open(device(image, 512), MountOptions::new()).unwrap();
         assert!(matches!(&fs, AnyFs::Fat(fat) if fat.info().kind() == kind));
+        assert_eq!(fs.image_format(), ImageFormat::Fat(kind));
         let root = fs.root();
         fs.stat(root).unwrap();
         fs.unmount().unwrap();
@@ -136,6 +137,7 @@ fn exfat_is_detected_opened_and_reported_damaged() {
     assert_eq!(formats(image.clone(), 512), [(ImageFormat::ExFat, None)]);
     let fs = open(device(image.clone(), 512), MountOptions::new()).unwrap();
     assert!(matches!(fs, AnyFs::ExFat(_)));
+    assert_eq!(fs.image_format(), ImageFormat::ExFat);
 
     let mut image = image;
     image[100] ^= 0xFF;
@@ -172,6 +174,7 @@ fn optical_images_list_the_bridge_first() {
     assert_eq!(get(&mut fs, "/DOCS/README.TXT"), PAYLOAD);
     let mut fs = open(device(optical(true, true), 2048), MountOptions::new()).unwrap();
     assert!(matches!(fs, AnyFs::Udf(_)));
+    assert_eq!(fs.image_format(), ImageFormat::Udf);
     assert_eq!(get(&mut fs, "/DOCS/README.TXT"), PAYLOAD);
 }
 
@@ -189,6 +192,7 @@ fn a_bridge_with_a_damaged_udf_side_opens_as_iso() {
     assert_eq!(found[1], (ImageFormat::Iso, None));
     let mut fs = open(device(image, 2048), MountOptions::new()).unwrap();
     assert!(matches!(fs, AnyFs::Iso(_)));
+    assert_eq!(fs.image_format(), ImageFormat::Iso);
     assert_eq!(get(&mut fs, "/DOCS/README.TXT"), PAYLOAD);
 }
 

@@ -208,6 +208,18 @@ impl<D: BlockDevice> AnyFs<D> {
     pub fn into_inner(self) -> D {
         each!(self, fs => fs.into_inner())
     }
+
+    /// The format of the mounted filesystem. A bridge image mounted as UDF
+    /// reports [`ImageFormat::Udf`].
+    pub fn image_format(&self) -> ImageFormat {
+        match self {
+            Self::Fat(fs) => ImageFormat::Fat(fs.info().kind()),
+            Self::ExFat(_) => ImageFormat::ExFat,
+            Self::Iso(_) => ImageFormat::Iso,
+            Self::Udf(_) => ImageFormat::Udf,
+            Self::Apfs(_) => ImageFormat::Apfs,
+        }
+    }
 }
 
 /// Detects what `dev` holds and mounts the first filesystem found with
