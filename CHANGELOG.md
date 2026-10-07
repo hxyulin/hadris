@@ -8,6 +8,11 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **ISO reader:** A malformed Rock Ridge area on the root directory's `.`
+  record is read as no Rock Ridge, so the image still mounts through its
+  Joliet, enhanced or primary tree. Mounting `Namespace::RockRidge`
+  explicitly still fails with the area's error.
+
 - **exFAT:** Timestamps without a recorded offset, which include every time
   stamped with the default `MountOptions` and `SystemClock`, are written as
   UTC with `OffsetValid` set instead of with no valid offset. Windows, Linux

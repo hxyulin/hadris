@@ -65,7 +65,9 @@ pub(crate) async fn read_bytes<D: BlockDevice>(
 }
 
 /// Reads the descriptor set and the root directory of the primary tree.
-async fn read_info<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>> {
+/// A malformed Rock Ridge area on the root is read as no Rock Ridge, and
+/// its error is returned beside the info.
+async fn read_info<D: BlockDevice>(dev: &mut D) -> Result<(Info, Option<Error<D::Error>>), Error<D::Error>> {
     let block = dev.block_size().get() as usize;
     if block > MAX_DEVICE_BLOCK {
         return Err(Detail::BlockSize.error(ErrorKind::Unsupported));
@@ -88,8 +90,13 @@ async fn read_info<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>>
     }
     let mut info = scan.finish().map_err(Detail::corrupt)?;
     let mut probe = View::new(info, Namespace::Primary, info.primary, len);
-    info.rock_ridge = probe.detect_rock_ridge(dev).await?;
-    Ok(info)
+    match probe.detect_rock_ridge(dev).await? {
+        Ok(rock_ridge) => {
+            info.rock_ridge = rock_ridge;
+            Ok((info, None))
+        }
+        Err(err) => Ok((info, Some(err))),
+    }
 }
 
 /// A mounted ISO 9660 image, read through one of its directory trees.
@@ -470,18 +477,27 @@ impl View {
         Err(Detail::SystemUse.corrupt())
     }
 
-    /// Whether the root's `.` record starts a Rock Ridge area.
-    async fn detect_rock_ridge<D: BlockDevice>(&mut self, dev: &mut D) -> Result<Option<u8>, Error<D::Error>> {
+    /// Whether the root's `.` record starts a Rock Ridge area. The inner
+    /// error is a malformed area; device errors and an unreadable root
+    /// record are the outer one.
+    async fn detect_rock_ridge<D: BlockDevice>(
+        &mut self,
+        dev: &mut D,
+    ) -> Result<Result<Option<u8>, Error<D::Error>>, Error<D::Error>> {
         let dot = self.record_at(dev, self.root_id().get()).await?;
         if !dot.system_use().starts_with(b"SP\x07\x01\xbe\xef") {
-            return Ok(None);
+            return Ok(Ok(None));
         }
         let mut scan = Scan::new();
-        self.scan(dev, &dot, 0, &mut scan).await?;
-        Ok(match scan.sp {
+        match self.scan(dev, &dot, 0, &mut scan).await {
+            Err(err) if err.kind() == ErrorKind::Io => return Err(err),
+            Err(err) => return Ok(Err(err)),
+            Ok(_) => {}
+        }
+        Ok(Ok(match scan.sp {
             Some(skip) if scan.rrip || scan.info.mode().is_some() => Some(skip),
             _ => None,
-        })
+        }))
     }
 
     /// The id of the non-directory record at `offset`. A Rock Ridge file
@@ -1037,7 +1053,9 @@ impl<D: BlockDevice> IsoFs<D> {
     /// Fails with [`ErrorKind::NotRecognized`] when the first volume
     /// descriptor is not ISO 9660, with [`ErrorKind::Corrupt`] when the
     /// descriptor set is invalid, and with [`ErrorKind::Unsupported`] for
-    /// device blocks above 4096 bytes. The [`MountError`] gives `dev` back.
+    /// device blocks above 4096 bytes. A malformed Rock Ridge area on the
+    /// root directory is read as no Rock Ridge, so the next tree mounts.
+    /// The [`MountError`] gives `dev` back.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
     pub async fn mount(dev: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
         Self::mount_namespace(dev, options, Namespace::Preferred).await
@@ -1045,7 +1063,9 @@ impl<D: BlockDevice> IsoFs<D> {
 
     /// Mounts the image on `dev` as [`mount`](Self::mount) does, reading
     /// the tree `namespace` names. Fails with [`ErrorKind::NotFound`] and
-    /// [`Detail::NoNamespace`] when the image has no such tree.
+    /// [`Detail::NoNamespace`] when the image has no such tree, and for
+    /// [`Namespace::RockRidge`] with the error of a malformed Rock Ridge
+    /// area on the root directory.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
     pub async fn mount_namespace(
         mut dev: D,
@@ -1054,7 +1074,10 @@ impl<D: BlockDevice> IsoFs<D> {
     ) -> Result<Self, MountError<D, D::Error>> {
         let _ = options;
         let info = match read_info(&mut dev).await {
-            Ok(info) => info,
+            Ok((_, Some(err))) if namespace == Namespace::RockRidge => {
+                return Err(MountError::new(err, dev));
+            }
+            Ok((info, _)) => info,
             Err(err) => return Err(MountError::new(err, dev)),
         };
         let len = dev.block_count().saturating_mul(u64::from(dev.block_size().get()));

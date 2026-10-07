@@ -526,3 +526,30 @@ fn a_device_too_small_for_the_image_is_refused_before_writing() {
     assert_eq!(err.kind(), ErrorKind::NoSpace);
     assert!(dev.get_ref().iter().all(|&b| b == 0));
 }
+
+#[test]
+fn a_malformed_root_rock_ridge_area_leaves_the_other_trees_mountable() {
+    let tree = sample(false, false);
+    let options = IsoOptions::default().with_rock_ridge().with_joliet();
+    let mut bytes = image(&tree, &options).into_inner();
+    let pvd = 16 * 2048;
+    let root = u32::from_le_bytes(bytes[pvd + 158..pvd + 162].try_into().unwrap()) as usize;
+    let dot = root * 2048;
+    assert_eq!(&bytes[dot + 34..dot + 40], b"SP\x07\x01\xbe\xef");
+    bytes[dot + 41 + 2] = 0xFF;
+    let dev = || MemDevice::new(bytes.clone(), common::SECTOR);
+
+    let mut iso = IsoFs::mount(dev(), MountOptions::new()).unwrap();
+    assert_eq!(iso.namespace(), Namespace::Joliet);
+    assert_eq!(iso.read_to_vec("/readme.txt").unwrap(), b"hello world\n");
+    let mut primary =
+        IsoFs::mount_namespace(dev(), MountOptions::new(), Namespace::Primary).unwrap();
+    assert_eq!(
+        primary.read_to_vec("/README.TXT").unwrap(),
+        b"hello world\n"
+    );
+    let Err(err) = IsoFs::mount_namespace(dev(), MountOptions::new(), Namespace::RockRidge) else {
+        panic!("a malformed Rock Ridge tree mounted");
+    };
+    assert_eq!(err.kind(), ErrorKind::Corrupt);
+}
