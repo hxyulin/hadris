@@ -231,6 +231,10 @@ impl Node {
     }
 }
 
+/// The extended boot signature of a boot sector whose serial is followed by
+/// a label and a filesystem type; `0x28` has only the serial.
+const EXT_BOOT_SIGNATURE_LABEL: u8 = 0x29;
+
 /// Byte offset of the serial in the boot sector; the label follows it.
 const fn bpb_serial_offset(kind: FatKind) -> u64 {
     match kind {
@@ -946,7 +950,7 @@ impl<D: BlockDevice> FatFs<D> {
     /// FAT32 root grows when it has none) or deleted, then the copy in the
     /// boot sector, and on FAT32 in the backup boot sector, is set, to
     /// `NO NAME` when removed. A boot sector without an extended boot
-    /// signature has no copy.
+    /// signature of `0x29` has no copy.
     pub async fn set_label(&mut self, label: Option<VolumeLabel>) -> FsResult<(), D::Error> {
         self.prepare().await?;
         let found = self.find_label().await?;
@@ -969,9 +973,12 @@ impl<D: BlockDevice> FatFs<D> {
             }
             (None, None) => {}
         }
-        if self.fat.geometry().volume_serial().is_some() {
+        let serial_at = bpb_serial_offset(self.fat.geometry().kind());
+        let mut signature = [0u8];
+        self.read_raw(serial_at - 1, &mut signature).await?;
+        if signature[0] == EXT_BOOT_SIGNATURE_LABEL {
             let bytes = label.map_or(*NO_NAME, |label| *label.as_bytes());
-            self.put_boot(bpb_serial_offset(self.fat.geometry().kind()) + 4, &bytes).await?;
+            self.put_boot(serial_at + 4, &bytes).await?;
         }
         Ok(())
     }

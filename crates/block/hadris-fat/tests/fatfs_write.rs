@@ -2461,6 +2461,39 @@ fn extras_map_files_and_set_label_and_serial() {
 }
 
 #[test]
+fn set_label_keeps_boot_code_after_a_serial_only_signature() {
+    use hadris_fat::{FatOptions, VolumeLabel};
+    for case in CASES {
+        let mut image = common::formatted(case, FatOptions::new())
+            .unmount()
+            .unwrap()
+            .into_inner();
+        let serial_at = if case.kind == hadris_fat::FatKind::Fat32 { 0x43 } else { 0x27 };
+        let mut boots = vec![0];
+        if case.kind == hadris_fat::FatKind::Fat32 {
+            boots.push(6 * case.sector as usize);
+        }
+        for &boot in &boots {
+            image[boot + serial_at - 1] = 0x28;
+            image[boot + serial_at + 4..boot + serial_at + 23].fill(0xC3);
+        }
+        let mut fs = common::mount(case, &image);
+        assert!(fs.info().volume_serial().is_some(), "{}", case.name);
+        fs.set_label(Some(VolumeLabel::new("new label").unwrap())).unwrap();
+        assert_eq!(fs.label_text().unwrap().as_deref(), Some("NEW LABEL"));
+        fs.set_label(None).unwrap();
+        let image = fs.unmount().unwrap().into_inner();
+        for &boot in &boots {
+            assert!(
+                image[boot + serial_at + 4..boot + serial_at + 23].iter().all(|&b| b == 0xC3),
+                "{}",
+                case.name
+            );
+        }
+    }
+}
+
+#[test]
 fn the_label_and_a_file_of_the_same_name_do_not_collide() {
     use hadris_fat::{FatOptions, VolumeLabel};
     for case in CASES {
