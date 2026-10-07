@@ -175,6 +175,18 @@ impl CacheState {
             .map(|(&index, &slot)| (index, slot))
     }
 
+    /// Drops every cached block that has no unflushed write.
+    pub(crate) fn drop_clean(&mut self) {
+        for slot in 0..self.entries.len() {
+            if self.entries[slot]
+                .index
+                .is_some_and(|index| !self.dirty.contains(&index))
+            {
+                self.forget(slot);
+            }
+        }
+    }
+
     pub(crate) fn invalidate(&mut self, first: u64, count: usize) {
         loop {
             let Some((_, slot)) = self.cached_in(first, count).next() else {

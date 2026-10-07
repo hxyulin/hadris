@@ -193,6 +193,23 @@ mod sync {
     }
 
     #[test]
+    fn get_mut_rereads_clean_blocks_and_keeps_dirty_ones() {
+        let mut cache = Cache::new(device(), 8);
+        assert_eq!(cache.capacity(), 8);
+        let mut buf = [0; BLOCK];
+        cache.read_blocks(BlockIndex::new(1), &mut buf).unwrap();
+        cache.write_blocks(BlockIndex::new(2), &[5; BLOCK]).unwrap();
+        cache.write_blocks(BlockIndex::new(3), &[6; BLOCK]).unwrap();
+        cache.get_mut().get_mut()[BLOCK..4 * BLOCK].fill(9);
+        cache.read_blocks(BlockIndex::new(1), &mut buf).unwrap();
+        assert_eq!(buf, [9; BLOCK]);
+        cache.read_blocks(BlockIndex::new(3), &mut buf).unwrap();
+        assert_eq!(buf, [6; BLOCK]);
+        let device = cache.finish().unwrap();
+        assert_eq!(&device.get_ref()[3 * BLOCK..4 * BLOCK], &[6; BLOCK]);
+    }
+
+    #[test]
     fn byte_view_reads_a_partial_block_once() {
         let mut view = ByteView::new(Counting {
             inner: device(),
@@ -289,6 +306,27 @@ mod r#async {
         assert!(!cache.is_dirty());
         block_on(cache.read_blocks(BlockIndex::new(3), &mut buf[..BLOCK])).unwrap();
         assert_eq!(&buf[..BLOCK], &[5; BLOCK]);
+    }
+
+    #[test]
+    fn get_mut_rereads_clean_blocks_and_keeps_dirty_ones() {
+        let mut cache = Cache::new(device(), 8);
+        assert_eq!(cache.capacity(), 8);
+        let mut buf = [0; BLOCK];
+        block_on(cache.read_blocks(BlockIndex::new(1), &mut buf)).unwrap();
+        block_on(cache.write_blocks(BlockIndex::new(2), &[5; BLOCK])).unwrap();
+        block_on(cache.write_blocks(BlockIndex::new(3), &[6; BLOCK])).unwrap();
+        cache.get_mut().get_mut()[BLOCK..4 * BLOCK].fill(9);
+        block_on(cache.read_blocks(BlockIndex::new(1), &mut buf)).unwrap();
+        assert_eq!(buf, [9; BLOCK]);
+        block_on(cache.read_blocks(BlockIndex::new(3), &mut buf)).unwrap();
+        assert_eq!(buf, [6; BLOCK]);
+        let device = block_on(cache.finish()).unwrap();
+        assert_eq!(&device.get_ref()[3 * BLOCK..4 * BLOCK], &[6; BLOCK]);
+        let operation = hadris_storage::r#async::CacheOperation::<()>::default();
+        assert!(format!("{operation:?}").starts_with("CacheOperation"));
+        let operation = hadris_storage::r#async::ReadAheadOperation::<()>::default();
+        assert!(format!("{operation:?}").starts_with("ReadAheadOperation"));
     }
 
     #[test]

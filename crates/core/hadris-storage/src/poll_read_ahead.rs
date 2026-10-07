@@ -22,7 +22,7 @@ struct Window {
     data: alloc::vec::Vec<u8>,
 }
 /// Progress of a read-ahead request.
-#[derive(Default)]
+#[derive(Debug, Default)]
 #[non_exhaustive]
 pub struct ReadAheadOperation<S> {
     child: S,

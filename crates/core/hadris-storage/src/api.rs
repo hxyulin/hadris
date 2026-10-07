@@ -659,6 +659,20 @@ impl<D: BlockDevice> Cache<D> {
         &self.inner
     }
 
+    /// Drops the cached blocks that have no unflushed writes before mutably
+    /// borrowing the device, so later reads see changes made through it.
+    /// Dirty blocks stay and overwrite the device at the next flush. The
+    /// device must keep its block size.
+    pub fn get_mut(&mut self) -> &mut D {
+        self.state.drop_clean();
+        &mut self.inner
+    }
+
+    /// Most blocks the cache holds.
+    pub fn capacity(&self) -> usize {
+        self.state.capacity()
+    }
+
     async fn slot_for(&mut self, index: u64, load: bool) -> Result<usize, Error<D::Error>> {
         if let Some(slot) = self.state.lookup(index) {
             return Ok(slot);

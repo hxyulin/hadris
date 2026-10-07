@@ -17,7 +17,7 @@ pub struct Cache<D> {
     written: bool,
 }
 /// Independent progress for a cached operation.
-#[derive(Default)]
+#[derive(Debug, Default)]
 #[non_exhaustive]
 pub struct CacheOperation<S> {
     child: S,
@@ -50,6 +50,18 @@ impl<D: BlockDevice> Cache<D> {
     /// Borrows the underlying device.
     pub fn get_ref(&self) -> &D {
         &self.inner
+    }
+    /// Drops the cached blocks that have no unflushed writes before mutably
+    /// borrowing the device, so later reads see changes made through it.
+    /// Dirty blocks stay and overwrite the device at the next flush. The
+    /// device must keep its block size.
+    pub fn get_mut(&mut self) -> &mut D {
+        self.cache.drop_clean();
+        &mut self.inner
+    }
+    /// Most blocks the cache holds.
+    pub fn capacity(&self) -> usize {
+        self.cache.capacity()
     }
     /// Flushes the cache and returns its device. On failure the cache comes
     /// back with the error, still holding the blocks it could not write.

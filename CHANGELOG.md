@@ -102,6 +102,11 @@ Each published package owns its version and may be released independently.
 - **NTFS:** Reading a file whose data a WOF (CompactOS) or Data Deduplication
   reparse point keeps elsewhere fails with `Unsupported`
   (`Detail::ReparseData`) instead of returning the sparse placeholder as zeros.
+- **hadris-storage:** `Cache::capacity` and `Cache::get_mut` in every mode,
+  matching `ReadAhead`. `get_mut` drops clean cached blocks so later reads
+  see changes made through it; dirty blocks stay. `CacheOperation` and
+  `ReadAheadOperation` implement `Debug`.
+
 - **hadris-storage:** The poll-based `Cache` copies each dirty run once per
   flush write instead of on every poll, and dropping cached blocks before a
   pass-through write no longer allocates, in every mode.
