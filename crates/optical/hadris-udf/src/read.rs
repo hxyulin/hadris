@@ -27,8 +27,8 @@ const MAX_CONTINUATIONS: u32 = 1 << 12;
 const MAX_SEQUENCE: u32 = 512;
 /// Volume structure descriptors read from the recognition sequence.
 const MAX_RECOGNITION: u64 = 64;
-/// Integrity descriptors followed.
-const MAX_INTEGRITY: u32 = 16;
+/// Blocks read from the integrity sequence.
+const MAX_INTEGRITY: u32 = 1024;
 /// The buffer a directory identifier is read into when it fits.
 const FID_BUFFER: usize = 512;
 
@@ -375,8 +375,10 @@ struct Integrity {
     recorded: Option<hadris_fs::DateTime>,
 }
 
-/// Follows the integrity sequence to its last descriptor. A damaged
-/// sequence records nothing.
+/// Follows the integrity sequence to its last descriptor: each extent's
+/// descriptors are recorded one per block until a terminating descriptor,
+/// an unrecorded block or the extent's end, and the last one names the next
+/// extent (ECMA-167 3/10.10). A damaged sequence records nothing.
 async fn integrity<D: BlockDevice>(
     dev: &mut D,
     len: u64,
@@ -386,33 +388,50 @@ async fn integrity<D: BlockDevice>(
 ) -> Integrity {
     let mut found = Integrity::default();
     let mut buf = [0u8; MAX_BLOCK];
-    for _ in 0..MAX_INTEGRITY {
-        if next.length.get() == 0 {
-            break;
+    let mut budget = MAX_INTEGRITY;
+    while next.length.get() != 0 {
+        let extent = next;
+        next = raw::ExtentAd::default();
+        let blocks = extent.length.get().div_ceil(block_size).max(1);
+        for index in 0..blocks {
+            let Some(left) = budget.checked_sub(1) else {
+                return Integrity::default();
+            };
+            budget = left;
+            let Some(block) = extent.location.get().checked_add(index) else {
+                return Integrity::default();
+            };
+            let data = &mut buf[..block_size as usize];
+            if read_bytes(dev, len, u64::from(block) * u64::from(block_size), data).await.is_err() {
+                return Integrity::default();
+            }
+            let tag = match check_tag(data, None, block) {
+                Ok(tag) => tag.identifier.get(),
+                Err(()) if index == 0 => return Integrity::default(),
+                Err(()) => break,
+            };
+            match tag {
+                tag::INTEGRITY => {}
+                tag::TERMINATING => break,
+                _ => return Integrity::default(),
+            }
+            let lvid: LogicalVolumeIntegrityDescriptor = bytemuck::pod_read_unaligned(&data[..80]);
+            let count = (lvid.partition_count.get() as usize).min(partitions);
+            let Some(table) = data.get(80..80 + 4 * count) else {
+                return Integrity::default();
+            };
+            found.free = (lvid.integrity_type.get() == 1)
+                .then(|| {
+                    table
+                        .chunks_exact(4)
+                        .map(|v| u32::from_le_bytes([v[0], v[1], v[2], v[3]]))
+                        .try_fold(0u64, |sum, v| (v != u32::MAX).then_some(sum + u64::from(v)))
+                })
+                .flatten();
+            found.open = lvid.integrity_type.get() == 0;
+            found.recorded = crate::time::to_datetime(&lvid.recorded);
+            next = lvid.next;
         }
-        let block = next.location.get();
-        let data = &mut buf[..block_size as usize];
-        if read_bytes(dev, len, u64::from(block) * u64::from(block_size), data).await.is_err()
-            || check_tag(data, Some(tag::INTEGRITY), block).is_err()
-        {
-            return Integrity::default();
-        }
-        let lvid: LogicalVolumeIntegrityDescriptor = bytemuck::pod_read_unaligned(&data[..80]);
-        let count = (lvid.partition_count.get() as usize).min(partitions);
-        let Some(table) = data.get(80..80 + 4 * count) else {
-            return Integrity::default();
-        };
-        found.free = (lvid.integrity_type.get() == 1)
-            .then(|| {
-                table
-                    .chunks_exact(4)
-                    .map(|v| u32::from_le_bytes([v[0], v[1], v[2], v[3]]))
-                    .try_fold(0u64, |sum, v| (v != u32::MAX).then_some(sum + u64::from(v)))
-            })
-            .flatten();
-        found.open = lvid.integrity_type.get() == 0;
-        found.recorded = crate::time::to_datetime(&lvid.recorded);
-        next = lvid.next;
     }
     found
 }

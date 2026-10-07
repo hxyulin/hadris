@@ -8,6 +8,12 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **UDF reader:** Every logical volume integrity descriptor recorded in an
+  integrity extent is read, up to a terminating descriptor or unrecorded
+  block, and the last one decides `was_dirty` and the free space, as
+  ECMA-167 requires. Previously only the first descriptor of each extent
+  was read.
+
 - **FAT32:** The FSInfo free cluster count is ignored on a volume that was
   dirty at mount and is recounted from the FAT when first needed, so
   `statfs` no longer reports a stale count after an unclean shutdown.
