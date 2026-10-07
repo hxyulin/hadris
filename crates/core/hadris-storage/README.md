@@ -150,8 +150,9 @@ The same adapter is available in `sync`, `r#async`, and `local`.
 length. An adapter uses suitable bounce buffers for hardware alignment or DMA
 memory restrictions and splits requests to fit transfer limits. The logical
 block size does not specify buffer-address alignment. `flush` makes earlier
-writes durable. Async adapters must finish or stop hardware access to borrowed
-buffers before returning or when their future is dropped.
+writes durable. Async poll hooks must stop accessing borrowed caller buffers
+before returning, including Pending. Hardware I/O that continues between polls
+needs owned stable transfer buffers; cancellation must also be safe when idle.
 
 The [aligned-device example](examples/aligned_device.rs) adapts unaligned,
 multi-block requests to a controller requiring 64-byte alignment and one block
@@ -165,23 +166,6 @@ Raw NOR/NAND flash needs a layer providing block overwrite semantics, including
 erase handling and any required translation. It cannot be treated as an ordinary
 rewritable disk solely by implementing whole-block reads.
 
-## Unified asynchronous drivers
-
-The `async` feature enables both contracts in one canonical namespace:
-`async_::BlockDevice` allows non-Send futures, and `async_::SendBlockDevice`
-guarantees Send futures. Implement the common contract directly for local
-I/O, or the stronger contract for Send I/O. Send implementations automatically
-satisfy the common contract. ISO uses the same reader for either contract.
-
-Existing Send adapters are also available through `async_::{Cache, ReadAhead,
-StreamDevice, ByteView}`. These retain their Send requirements.
-Existing `r#async` and `local` adapter paths remain compatible. Build a legacy
-local adapter chain first, then wrap it in `async_::Local`; `into_inner` returns
-the original chain. A new local device implementing the common contract can
-mount ISO directly, without that wrapper.
-
-See the [ISO guide](../../../docs/unified-async-iso.md) for usage and limits.
-
 ## Unified asynchronous devices
 
 `async_::BlockDevice` accepts both local and Send devices. Each operation owns
@@ -189,6 +173,9 @@ See the [ISO guide](../../../docs/unified-async-iso.md) for usage and limits.
 unboxed futures. `SendBlockDevice` is implemented automatically when the device
 and its state are Send. Generic code requiring Send futures should use that
 marker, while filesystem algorithms can use the common device contract.
+`r#async` and `local` are aliases of `async_`; adapters accept local devices
+without a wrapper. See the [ISO guide](../../../docs/unified-async-iso.md) for
+reader, writer and session usage.
 
 Poll hooks receive the same request and state until completion. Before returning,
 including Pending, they must stop accessing borrowed request buffers. Backends
