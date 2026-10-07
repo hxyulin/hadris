@@ -86,8 +86,9 @@ trailer and returns the stream with the report. `CpioOptions::with_time`
 sets the modification time of entries that set none, such as
 `SOURCE_DATE_EPOCH`. `sync::read_tree` reads an archive back into a
 `Tree`, naming entries with `normalize_path`, which stream readers can use
-for the same paths. Values that do not fit a header field fail
-before the entry is written. `CpioOptions::with_format(Format::Odc)` writes
+for the same paths. A modification time before 1970 or past the header
+field is clamped and reported; other values that do not fit a header field
+fail before the entry is written. `CpioOptions::with_format(Format::Odc)` writes
 `odc`, whose device numbers are stored as `major << 8 | minor`.
 
 The header layouts are in `hadris_cpio::raw`.

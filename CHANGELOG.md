@@ -102,6 +102,11 @@ Each published package owns its version and may be released independently.
 - **NTFS:** Reading a file whose data a WOF (CompactOS) or Data Deduplication
   reparse point keeps elsewhere fails with `Unsupported`
   (`Detail::ReparseData`) instead of returning the sparse placeholder as zeros.
+- **hadris-cpio:** A modification time before 1970, or past what the format
+  stores (2^32 - 1 seconds for newc and crc, 2^33 - 1 for odc), is clamped
+  to the nearest stored time and reported as a dropped `Modified` field
+  instead of failing the entry with `LimitExceeded` (META-TIME-02).
+
 - **hadris-cpio:** `normalize_path` names an entry as `read_tree` places it
   (leading `/` and `./` removed, repeated and trailing `/` dropped, `None` for
   the root), so stream readers can follow the same rule.

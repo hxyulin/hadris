@@ -233,14 +233,6 @@ fn writer_rejects_bad_names_and_fields_before_writing() {
         let err = writer.append(name, &Node::dir()).unwrap_err();
         assert_eq!((err.kind(), err.path()), (kind, Some(name.as_bytes())));
     }
-    let old = SetAttr::new().with_modified(DateTime::from_unix_seconds(-1).unwrap());
-    assert_eq!(
-        writer
-            .append("old", &Node::dir().with_attrs(old))
-            .unwrap_err()
-            .kind(),
-        ErrorKind::LimitExceeded
-    );
     assert_eq!(writer.bytes_written(), 0);
 
     let mut odc = Writer::new(
@@ -333,6 +325,33 @@ fn dropped_metadata_is_reported() {
             (WarningKind::Dropped(Field::Modified), 2, None)
         ]
     );
+}
+
+#[test]
+fn out_of_range_modification_times_are_clamped() {
+    for (format, seconds, stored) in [
+        (Format::Newc, -1, 0),
+        (Format::Newc, 1 << 39, u64::from(u32::MAX)),
+        (Format::Odc, -86_400, 0),
+        (Format::Odc, 1 << 39, (1 << 33) - 1),
+    ] {
+        let mut writer = Writer::new(
+            StdIo::new(Vec::new()),
+            &CpioOptions::default().with_format(format),
+        );
+        let attrs = SetAttr::new().with_modified(DateTime::from_unix_seconds(seconds).unwrap());
+        writer.append("t", &Node::dir().with_attrs(attrs)).unwrap();
+        writer.append("u", &Node::dir()).unwrap();
+        let (out, report) = writer.finish().unwrap();
+        let warnings: Vec<_> = report
+            .warnings()
+            .iter()
+            .map(|warning| (warning.kind(), warning.count()))
+            .collect();
+        assert_eq!(warnings, [(WarningKind::Dropped(Field::Modified), 1)]);
+        let entries = read_all(&out.into_inner()).unwrap();
+        assert_eq!(entries[0].mtime, stored, "{format:?} {seconds}");
+    }
 }
 
 #[test]

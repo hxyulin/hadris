@@ -230,8 +230,9 @@ impl<W: Write> Writer<W> {
     ///
     /// Unset fields take 0o644 permissions (0o755 for directories and
     /// sockets, 0o777 for symlinks), owner 0 and the options' time, or 0.
-    /// Other times, sub-second parts and attributes are dropped and
-    /// reported.
+    /// A modification time before 1970 or past what the format stores is
+    /// clamped to the nearest one it does. Other times, sub-second parts and
+    /// attributes are dropped. Both are reported.
     ///
     /// Fails before writing anything of the entry, as [`plan`](crate::plan)
     /// does, and with [`ErrorKind::InvalidInput`] for an empty symlink
@@ -312,7 +313,7 @@ impl<W: Write> Writer<W> {
         if self.planner.format == Format::Crc {
             return Err(error(Detail::Entry, ErrorKind::Unsupported, path));
         }
-        let mut fields = self.planner.fields(attrs, raw::S_IFREG, 0o644, path)?;
+        let mut fields = self.planner.fields(attrs, raw::S_IFREG, 0o644);
         fields.len = len;
         fields.ino = self.planner.ino();
         let start = self.planner.entry(path, &fields, attrs)?;
