@@ -93,9 +93,16 @@ fn hadris_reads_native_cpio_archives() {
     fs::write(source.path().join("data"), &data).unwrap();
     fs::hard_link(source.path().join("data"), source.path().join("alias")).unwrap();
     fs::write(source.path().join("empty"), []).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("data", source.path().join("link")).unwrap();
     let names = tempfile::NamedTempFile::new().unwrap();
-    fs::write(names.path(), b"data\nalias\nempty\n").unwrap();
-    for format in ["newc", "odc"] {
+    let list: &[u8] = if cfg!(unix) {
+        b"data\nalias\nempty\nlink\n"
+    } else {
+        b"data\nalias\nempty\n"
+    };
+    fs::write(names.path(), list).unwrap();
+    for format in ["newc", "crc", "odc"] {
         let output = Command::new("cpio")
             .args(["-o", "-H", format])
             .current_dir(source.path())
@@ -120,5 +127,11 @@ fn hadris_reads_native_cpio_archives() {
             tree.entry("alias").unwrap().id()
         );
         assert!(tree.get("empty").unwrap().content().unwrap().is_empty());
+        #[cfg(unix)]
+        assert_eq!(
+            tree.get("link").unwrap().target(),
+            Some(&b"data"[..]),
+            "{format}"
+        );
     }
 }

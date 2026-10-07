@@ -8,6 +8,11 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **CPIO:** In `crc` (`070702`) archives only regular files carry and are
+  checked against a data sum, as GNU cpio 2.15 writes and reads them.
+  Archives GNU cpio made with symlinks (`find . | cpio -o -H crc`) now read;
+  the writer stores a zero sum for symlinks.
+
 - **ISO writer:** The ECMA-119 255-byte path limit counts the identifiers
   recorded in the primary tree instead of the source names, so deep trees
   with long names are no longer refused or needlessly relocated to

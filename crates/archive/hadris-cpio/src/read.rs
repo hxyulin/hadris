@@ -4,7 +4,7 @@ use super::io::Read;
 use crate::error::{Detail, Error, read_failed};
 use crate::header::{self, Header};
 use crate::options::{Format, ReaderOptions};
-use crate::raw::{PATH_MAX, TRAILER_NAME};
+use crate::raw::{self, PATH_MAX, TRAILER_NAME};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum State {
@@ -237,8 +237,9 @@ impl<R, B: AsRef<[u8]>> Entry<'_, R, B> {
         self.header().rdev
     }
 
-    /// The checksum field: the byte sum of the data for [`Format::Crc`],
-    /// zero otherwise.
+    /// The checksum field: the byte sum of the data of a regular file in
+    /// [`Format::Crc`], zero otherwise. As in GNU cpio, only regular files'
+    /// sums are verified.
     pub fn check(&self) -> u32 {
         self.header().check
     }
@@ -449,7 +450,7 @@ impl<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeSend> CpioReader<R,
         self.header = header;
         self.remaining = header.len;
         self.padding = header::data_padding(format, header.len);
-        self.sum = (format == Format::Crc).then_some(0);
+        self.sum = (format == Format::Crc && header.mode & raw::S_IFMT == raw::S_IFREG).then_some(0);
         if header.len == 0 {
             self.verify()?;
         }
