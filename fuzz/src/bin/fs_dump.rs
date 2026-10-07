@@ -207,7 +207,7 @@ fn dump_part(data: &[u8]) -> Vec<String> {
     for partition in disk.partitions() {
         lines.push(format!(
             "{} {} {}",
-            partition.index(),
+            partition.slot(),
             partition.start(),
             partition.len()
         ));

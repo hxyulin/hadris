@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let name = partition.name().map(|n| n.to_string()).unwrap_or_default();
         println!(
             "#{}: block {} ({} blocks, {} bytes) {kind} {name}",
-            partition.index(),
+            partition.slot(),
             partition.start(),
             partition.len(),
             partition.size_bytes(),
@@ -52,7 +52,8 @@ copied from a 4Kn disk, use
 A `hadris::storage::sync::StreamDevice` also takes an explicit block size. GPT CRCs are always
 checked; when the primary copy is damaged the table is read from the backup,
 and `damaged_copy` says so. MBR logical partitions in an extended partition
-are listed from index 4, as Linux numbers them.
+are listed from slot 4, as Linux numbers them. `Disk::partition(slot)` takes the
+same slot that `Partition::slot` reports.
 
 Without an allocator, `hadris::part::sync::scan` lists the same partitions
 through a callback. To open a filesystem inside one of them, see

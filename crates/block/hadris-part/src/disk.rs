@@ -153,9 +153,11 @@ impl Disk {
         self.table.partitions()
     }
 
-    /// The `n`-th partition that [`partitions`](Self::partitions) lists.
-    pub fn partition(&self, n: usize) -> Option<Partition> {
-        self.partitions().nth(n)
+    /// The partition in `slot`, as [`Partition::slot`] numbers it, if
+    /// [`partitions`](Self::partitions) lists one there. An MBR extended
+    /// partition is not listed.
+    pub fn partition(&self, slot: usize) -> Option<Partition> {
+        self.partitions().find(|partition| partition.slot() == slot)
     }
 
     /// The first 446 bytes of block 0: boot code, and on MBR disks the disk

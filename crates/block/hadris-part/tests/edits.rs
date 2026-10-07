@@ -239,7 +239,7 @@ fn edits_survive_a_write_and_read() {
         panic!("expected an MBR");
     };
     let ext = mbr.extended().unwrap();
-    mbr.resize(ext.index(), ext.len() + 5000).unwrap();
+    mbr.resize(ext.slot(), ext.len() + 5000).unwrap();
     mbr.add_logical(MbrEntry::new(MbrType::LINUX_SWAP, ext.end() + 100, 4000))
         .unwrap();
     mbr.remove(4).unwrap();
@@ -250,7 +250,7 @@ fn edits_survive_a_write_and_read() {
         disk.partitions().collect::<Vec<_>>()
     );
     assert_eq!(back.partitions().count(), 5);
-    assert_eq!(back.partition(4).unwrap().len(), 4000);
+    assert_eq!(back.partition(5).unwrap().len(), 4000);
 }
 
 #[test]
@@ -264,7 +264,7 @@ fn hybrid_mirrors_are_checked() {
         .add_mirrored(0, MbrType::EFI_SYSTEM, PartitionFlags::BOOTABLE)
         .unwrap();
     let hybrid = Hybrid::new(table.clone(), &config).unwrap();
-    let slots: Vec<_> = hybrid.mbr_partitions().map(|p| p.index()).collect();
+    let slots: Vec<_> = hybrid.mbr_partitions().map(|p| p.slot()).collect();
     assert_eq!(slots, [0]);
     assert_eq!(hybrid.raw_entry(3).unwrap().kind, 0xEE);
     assert_eq!(hybrid.raw_entry(3).unwrap().sector_count(), 99);
@@ -492,7 +492,7 @@ fn remaining_logicals_fit_the_extended_partition_past_two_tebibytes() {
     };
     let extended = mbr.extended().unwrap();
     assert_eq!(extended.len(), u64::from(u32::MAX));
-    assert_eq!(disk.partition(4).unwrap().end(), extended.end());
+    assert_eq!(disk.partition(5).unwrap().end(), extended.end());
 }
 
 #[test]

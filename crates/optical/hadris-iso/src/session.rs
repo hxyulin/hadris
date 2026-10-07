@@ -841,7 +841,7 @@ impl<D: BlockDevice> Session<D> {
                 let resize: Vec<(usize, u64)> = mbr
                     .partitions()
                     .filter(|p| extends(p.start(), p.len()))
-                    .map(|p| (p.index(), new_iso_end - p.start()))
+                    .map(|p| (p.slot(), new_iso_end - p.start()))
                     .collect();
                 for (index, len) in resize {
                     mbr.resize(index, len).map_err(bad)?;

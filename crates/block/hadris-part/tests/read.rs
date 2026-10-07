@@ -192,7 +192,7 @@ fn ebr_chain_is_followed() {
     let disk = read(&mut dev).unwrap();
     let parts: Vec<_> = disk
         .partitions()
-        .map(|p| (p.index(), p.start(), p.len(), p.kind()))
+        .map(|p| (p.slot(), p.start(), p.len(), p.kind()))
         .collect();
     assert_eq!(
         parts,
@@ -205,7 +205,7 @@ fn ebr_chain_is_followed() {
 
     let mut scanned = Vec::new();
     let kind = scan(&mut dev, |p| {
-        scanned.push((p.index(), p.start(), p.len(), p.kind()));
+        scanned.push((p.slot(), p.start(), p.len(), p.kind()));
         ControlFlow::Continue(())
     })
     .unwrap();
@@ -304,9 +304,10 @@ fn crafted_gpt_parses_and_large_entries_are_supported() {
     let image = crafted_gpt(100, 4, 128, &[(1, entry(0xAF, 34, 66))]);
     let mut dev = device(image);
     let disk = read(&mut dev).unwrap();
-    let p = disk.partition(0).unwrap();
+    assert_eq!(disk.partition(0), None);
+    let p = disk.partition(1).unwrap();
     assert_eq!(
-        (p.index(), p.start(), p.len(), p.size_bytes()),
+        (p.slot(), p.start(), p.len(), p.size_bytes()),
         (1, 34, 33, 33 * 512)
     );
 
@@ -318,7 +319,7 @@ fn crafted_gpt_parses_and_large_entries_are_supported() {
     );
     let mut dev = device(image);
     let disk = read(&mut dev).unwrap();
-    let starts: Vec<_> = disk.partitions().map(|p| (p.index(), p.start())).collect();
+    let starts: Vec<_> = disk.partitions().map(|p| (p.slot(), p.start())).collect();
     assert_eq!(starts, [(0, 40), (5, 50)]);
     write(&mut dev, &disk).unwrap();
     assert_eq!(read(&mut dev).unwrap(), disk);

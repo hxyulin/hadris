@@ -102,6 +102,12 @@ Each published package owns its version and may be released independently.
 - **NTFS:** Reading a file whose data a WOF (CompactOS) or Data Deduplication
   reparse point keeps elsewhere fails with `Unsupported`
   (`Detail::ReparseData`) instead of returning the sparse placeholder as zeros.
+- **hadris-part (breaking):** `Disk::partition` takes the slot the `Gpt` and
+  `Mbr` edit methods and `Gpt::add` use, instead of counting the listed
+  partitions; an empty slot or the MBR extended partition gives `None`.
+  `Partition::index` is renamed to `Partition::slot`. Callers that indexed
+  past an empty GPT slot or an MBR extended partition must pass the slot.
+
 - **hadris-cpio:** A modification time before 1970, or past what the format
   stores (2^32 - 1 seconds for newc and crc, 2^33 - 1 for odc), is clamped
   to the nearest stored time and reported as a dropped `Modified` field

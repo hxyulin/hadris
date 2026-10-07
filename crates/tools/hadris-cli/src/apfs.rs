@@ -94,7 +94,7 @@ fn open_device(args: &ImageArgs) -> Result<Device> {
     if args.gpt || args.partition.is_some() {
         let disk = hadris::part::sync::read(&mut device).context("cannot read partition table")?;
         let mut matches = disk.partitions().filter(|part| match args.partition {
-            Some(index) => part.index() == index,
+            Some(index) => part.slot() == index,
             None => {
                 part.kind()
                     == hadris::part::PartitionKind::Gpt(hadris::part::gpt::types::APPLE_APFS)
