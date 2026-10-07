@@ -642,13 +642,17 @@ pub async fn count_free<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: 
 /// hint on: its FAT entry ends a
 /// chain and its bitmap bit is set. With `held`, the cluster is recorded
 /// there before anything is written: as the head when there is none, else
-/// as the extra cluster.
+/// as the extra cluster. A known free count of 0 fails with
+/// [`ErrorKind::NoSpace`] without scanning the bitmap.
 pub async fn allocate<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
     vol: &mut ExFat,
     held: Option<&mut Held>,
 ) -> FsResult<u32, D::Error> {
+    if vol.free == Some(0) {
+        return Err(ErrorKind::NoSpace.into());
+    }
     let count = vol.geo.cluster_count();
     let from = vol.next_free.clamp(raw::FIRST_CLUSTER, vol.geo.max_cluster()) - raw::FIRST_CLUSTER;
     let mut scanned = 0u32;
@@ -715,6 +719,9 @@ pub async fn allocate_run<D: BlockDevice>(
     }
     if count == 1 {
         return allocate(dev, block, vol, held).await;
+    }
+    if vol.free == Some(0) {
+        return Err(ErrorKind::NoSpace.into());
     }
     let total = vol.geo.cluster_count();
     let from = vol.next_free.clamp(raw::FIRST_CLUSTER, vol.geo.max_cluster()) - raw::FIRST_CLUSTER;

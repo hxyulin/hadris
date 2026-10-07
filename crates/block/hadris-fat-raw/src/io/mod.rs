@@ -100,6 +100,7 @@ impl BlockBuf {
 pub struct Fat {
     geo: Geometry,
     free: Option<u32>,
+    counted: bool,
     next_free: u32,
     fs_info: Option<u64>,
     info_dirty: bool,
@@ -127,6 +128,7 @@ impl Fat {
         Self {
             geo,
             free: None,
+            counted: false,
             next_free: FIRST_DATA_CLUSTER,
             fs_info: None,
             info_dirty: false,
@@ -223,6 +225,11 @@ impl Fat {
     /// Where the root directory's slots are.
     pub const fn root(&self) -> DirStart {
         DirStart::root(&self.geo)
+    }
+
+    /// Whether a scan of the FAT, and not FSInfo, says no cluster is free.
+    fn full(&self) -> bool {
+        self.free == Some(0) && self.counted
     }
 
     fn adjust_free(&mut self, freed: u32, taken: u32) {

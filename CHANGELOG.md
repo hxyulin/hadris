@@ -102,6 +102,12 @@ Each published package owns its version and may be released independently.
 - **NTFS:** Reading a file whose data a WOF (CompactOS) or Data Deduplication
   reparse point keeps elsewhere fails with `Unsupported`
   (`Detail::ReparseData`) instead of returning the sparse placeholder as zeros.
+- **hadris-fat-raw:** FAT allocation fails with `NoSpace` without scanning the
+  FAT once a scan found no cluster free and none was freed since (an FSInfo
+  count of 0 is still only a hint), and exFAT allocation when the counted
+  free clusters are 0. A full FAT16 volume with 512-byte clusters took 127
+  device reads per failed allocation before.
+
 - **hadris-fs:** `Volume::remove_dir_all` continues each directory's listing
   from the cursor after the entry it removed instead of listing from the
   start after every removal, so emptying a directory of n entries reads it
