@@ -8,6 +8,11 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **FAT:** Volumes with 64 KiB clusters (for example `sectors_per_cluster`
+  128 with 512-byte sectors), which Windows NT and Linux accept, now mount
+  and are read and written. Formatting still keeps the specification's
+  32 KiB limit.
+
 - **CPIO:** In `crc` (`070702`) archives only regular files carry and are
   checked against a data sum, as GNU cpio 2.15 writes and reads them.
   Archives GNU cpio made with symlinks (`find . | cpio -o -H crc`) now read;

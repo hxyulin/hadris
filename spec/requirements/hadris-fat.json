@@ -8,7 +8,7 @@
       "source": "MICROSOFT-FAT-1.03",
       "clause": "Boot Sector and BPB, BPB_BytsPerSec and BPB_SecPerClus",
       "normativity": "shall",
-      "summary": "Sector size is one of 512, 1024, 2048, or 4096 bytes; sectors per cluster is a nonzero power of two and the resulting cluster is no larger than 32 KiB.",
+      "summary": "Sector size is one of 512, 1024, 2048, or 4096 bytes; sectors per cluster is a nonzero power of two and the resulting cluster is no larger than 64 KiB, as Windows NT and Linux accept; formatting keeps the specification's 32 KiB.",
       "direction": "both",
       "status": "verified",
       "symbols": [

@@ -6,7 +6,7 @@ and executable evidence are recorded in
 [`spec/requirements/hadris-fat.json`](../../spec/requirements/hadris-fat.json).
 
 This pass fixed FAT32 writes that discarded the reserved high nibble, rejected
-clusters larger than 32 KiB and unknown FAT32 filesystem versions, and made
+clusters larger than 64 KiB and unknown FAT32 filesystem versions, and made
 normal exFAT mounting enforce boot-region, up-case-table, and file entry-set
 checksums.
 
