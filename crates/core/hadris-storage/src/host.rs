@@ -103,6 +103,18 @@ impl FileDevice {
         self.file
     }
 
+    /// Borrows the file.
+    pub fn get_ref(&self) -> &File {
+        &self.file
+    }
+
+    /// Mutably borrows the file. The device keeps the length and block size
+    /// it measured: a length changed through the file is not seen until the
+    /// file is wrapped again.
+    pub fn get_mut(&mut self) -> &mut File {
+        &mut self.file
+    }
+
     fn measure(file: File, writable: bool, explicit: Option<BlockSize>) -> io::Result<Self> {
         let len = file_len(&file)?;
         let meta = file.metadata().ok();

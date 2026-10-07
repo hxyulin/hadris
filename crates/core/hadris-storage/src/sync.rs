@@ -446,6 +446,8 @@ mod device_tests {
         assert_eq!(&block[..76], &[5; 76]);
         assert_eq!(&block[76..], &[0; 436]);
         dev.flush().unwrap();
+        assert_eq!(dev.get_ref().metadata().unwrap().len(), 2048);
+        dev.get_mut().sync_all().unwrap();
         drop(dev);
         assert_eq!(std::fs::metadata(&path).unwrap().len(), 2048);
 
