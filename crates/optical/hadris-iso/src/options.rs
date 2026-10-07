@@ -93,11 +93,26 @@ pub enum BootInfo {
     /// Leave the image as it is.
     #[default]
     None,
-    /// The 16-byte table at byte 8, as `mkisofs -boot-info-table` writes.
+    /// The 16-byte table at byte 8 and 40 zero bytes after it, as
+    /// `mkisofs -boot-info-table` and `xorriso -boot-info-table` write it
+    /// and ISOLINUX expects it.
     Table,
-    /// The same table followed by 40 zero bytes, as GRUB 2 and ISOLINUX
-    /// expect.
+    /// The [`Table`](Self::Table), and at byte 2548 the 64-bit address of
+    /// the image's second 512-byte sector, as `xorriso --grub2-boot-info`
+    /// writes it for GRUB 2's `eltorito.img`. The image must be at least
+    /// 2556 bytes long.
     Grub2,
+}
+
+impl BootInfo {
+    /// The shortest boot image this table fits in.
+    pub(crate) const fn min_len(self) -> u64 {
+        match self {
+            Self::None => 0,
+            Self::Table => 64,
+            Self::Grub2 => 2556,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

@@ -208,16 +208,33 @@ async fn read_stored<D: BlockDevice>(dev: &mut D, content: &Content, mut offset:
     }
 }
 
+/// Where `xorriso --grub2-boot-info` patches a GRUB 2 boot image.
+pub(crate) const GRUB2_BOOT_INFO: u64 = 2548;
+
+/// Copies the part of `bytes`, which belong at byte `at` of a file, that
+/// falls into `chunk`, the file's bytes from `offset`.
+fn patch(chunk: &mut [u8], offset: u64, at: u64, bytes: &[u8]) {
+    let end = offset + chunk.len() as u64;
+    let (start, stop) = (at.max(offset), (at + bytes.len() as u64).min(end));
+    if start < stop {
+        chunk[(start - offset) as usize..(stop - offset) as usize]
+            .copy_from_slice(&bytes[(start - at) as usize..(stop - at) as usize]);
+    }
+}
+
 /// The sum of the image's 32-bit words from byte 64, as a boot information
-/// table records it. A last partial word counts zero-padded, as mkisofs and
-/// xorriso count it.
-async fn checksum<D: BlockDevice, S: BlockDevice>(out: &mut D, reader: &mut SourceReader<'_, S>, len: u64, buf: &mut [u8]) -> Result<u32, PathError> {
+/// table records it, counting the `grub2` patch. A last partial word counts
+/// zero-padded, as mkisofs and xorriso count it.
+async fn checksum<D: BlockDevice, S: BlockDevice>(out: &mut D, reader: &mut SourceReader<'_, S>, len: u64, grub2: Option<&[u8; 8]>, buf: &mut [u8]) -> Result<u32, PathError> {
     let mut sum = 0u32;
     let mut offset = 64;
     let chunk = buf.len() / 4 * 4;
     while offset < len {
         let take = (len - offset).min(chunk as u64) as usize;
         reader.read_exact_at(out, offset, &mut buf[..take]).await?;
+        if let Some(grub2) = grub2 {
+            patch(&mut buf[..take], offset, GRUB2_BOOT_INFO, grub2);
+        }
         let padded = take.div_ceil(4) * 4;
         buf[take..padded].fill(0);
         for word in buf[..padded].chunks_exact(4) {
@@ -244,7 +261,8 @@ async fn file<D: BlockDevice, S: BlockDevice>(
     }
     let table = match info {
         Some(info) => {
-            let sum = checksum(out, &mut reader, len, buf).await?;
+            let grub2 = (info.kind == BootInfo::Grub2).then(|| (u64::from(info.block) * 4 + 5).to_le_bytes());
+            let sum = checksum(out, &mut reader, len, grub2.as_ref(), buf).await?;
             let table = raw::Grub2BootInfoTable {
                 pvd_lba: raw::U32Le::new(raw::DESCRIPTOR_START),
                 file_lba: raw::U32Le::new(info.block),
@@ -252,13 +270,9 @@ async fn file<D: BlockDevice, S: BlockDevice>(
                 checksum: raw::U32Le::new(sum),
                 reserved: [0; 40],
             };
-            let size = match info.kind {
-                BootInfo::Grub2 => 56,
-                _ => 16,
-            };
             let mut bytes = [0u8; 56];
             bytes.copy_from_slice(bytemuck::bytes_of(&table));
-            Some((bytes, size))
+            Some((bytes, grub2))
         }
         None => None,
     };
@@ -267,11 +281,11 @@ async fn file<D: BlockDevice, S: BlockDevice>(
     while offset < len {
         let take = (len - offset).min(buf.len() as u64) as usize;
         reader.read_exact_at(out, offset, &mut buf[..take]).await?;
-        if let Some((bytes, size)) = &table
-            && offset == 0
-        {
-            let end = (8 + size).min(take);
-            buf[8..end].copy_from_slice(&bytes[..end - 8]);
+        if let Some((bytes, grub2)) = &table {
+            patch(&mut buf[..take], offset, 8, bytes);
+            if let Some(grub2) = grub2 {
+                patch(&mut buf[..take], offset, GRUB2_BOOT_INFO, grub2);
+            }
         }
         let padded = take.div_ceil(SECTOR_SIZE) * SECTOR_SIZE;
         buf[take..padded].fill(0);

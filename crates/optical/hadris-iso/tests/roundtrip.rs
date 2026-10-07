@@ -295,6 +295,10 @@ fn boot_info_checksums_count_a_partial_last_word_zero_padded() {
         sum, 0x7ef2_6cd1,
         "the sum xorriso 1.5.8 and mkisofs 3.02 record"
     );
+    assert!(
+        bytes[at + 24..at + 64].iter().all(|&b| b == 0),
+        "both tools clear the 40 reserved bytes after the table"
+    );
 }
 
 #[test]

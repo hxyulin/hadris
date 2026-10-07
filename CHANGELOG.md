@@ -8,6 +8,14 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **ISO El Torito:** `BootInfo::Table` writes the 56-byte table with its 40
+  reserved bytes cleared, as mkisofs and xorriso `-boot-info-table` do.
+  `BootInfo::Grub2` now also patches byte 2548 of the image with the
+  address of its second 512-byte sector, as `xorriso --grub2-boot-info`
+  does for GRUB 2's `eltorito.img`, and the checksum covers that patch;
+  it previously wrote only the table. `Grub2` needs a boot image of at
+  least 2556 bytes. Sessions recognise both forms.
+
 - **ISO 9660:1999 tree:** Identifiers keep the name as given, with only NUL
   mapped to `_`, up to 207 bytes cut at a character boundary, for files and
   directories alike. Every character outside `[A-Za-z0-9_]` previously

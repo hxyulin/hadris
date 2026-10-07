@@ -1077,7 +1077,7 @@ impl Planner<'_> {
                 continue;
             }
             let (block, len) = self.entry_image(entry)?;
-            if len < 64 {
+            if len < entry.boot_info().min_len() {
                 return Err(invalid(Detail::BootInfoTable));
             }
             let table = InfoTable {
