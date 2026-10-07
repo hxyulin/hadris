@@ -80,3 +80,10 @@ Crate examples cover single-crate tasks:
 These programs favor readable error messages and conventional host filesystem
 I/O. For `no_std`, async, and format-authoring variants, see the task-oriented
 documentation site under [`website/docs/guides`](../website/docs/guides).
+
+## Async contract prototype
+
+[`async-device-contract`](async-device-contract) is an unpublished experiment
+for common device borrowing, adapters and derived Send guarantees. Its probe
+scripts compare GAT designs and compile the real ISO reader against the
+experimental contract; production APIs remain unchanged.

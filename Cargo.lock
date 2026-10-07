@@ -572,6 +572,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hadris-experiment-async-device-contract"
+version = "0.0.0"
+dependencies = [
+ "hadris-io",
+ "hadris-storage",
+ "static_assertions",
+]
+
+[[package]]
 name = "hadris-fat"
 version = "3.0.0-rc.1"
 dependencies = [
