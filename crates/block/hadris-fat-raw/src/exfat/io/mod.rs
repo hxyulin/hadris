@@ -1,7 +1,7 @@
 //! exFAT device primitives, generated for each mode from one source.
 //!
-//! The functions in `sync`, `r#async` (`Send` futures) and `local`
-//! (futures need not be `Send`) borrow the caller's [`BlockBuf`](crate::io::BlockBuf)
+//! The functions in `sync` and unified `async_` (`r#async` and `local`
+//! are compatibility aliases) borrow the caller's [`BlockBuf`](crate::io::BlockBuf)
 //! and an [`ExFat`], which holds what a driver tracks about the volume
 //! between calls: its flags, its Allocation Bitmaps and the free count. The
 //! up-case table is an [`Upcase`] index the caller owns.
@@ -315,43 +315,15 @@ pub mod sync {
 
 #[cfg(feature = "async")]
 #[path = ""]
-pub mod r#async {
-    //! The asynchronous exFAT primitives with `Send` futures, for devices
-    //! whose futures are `Send`.
-
-    #[allow(unused_macros)]
-    macro_rules! io_transform {
-        ($($item:tt)*) => { hadris_macros::send_async! { $($item)* } };
-    }
-
-    use crate::io::r#async as block;
-    use hadris_storage::r#async as storage;
-
-    #[path = "check.rs"]
-    mod check;
-    #[path = "volume.rs"]
-    mod volume;
-
-    pub use check::check;
-
-    pub use volume::{
-        allocate, allocate_run, begin_write, bit, bitmap_bytes, clear_dirty, clear_set, count_free,
-        free_chain, get, next, read_backup_boot, read_boot, read_volume, set, set_bit, slot_offset,
-        upcase, write_percent_in_use, write_set,
-    };
-}
-
-#[cfg(feature = "async")]
-#[path = ""]
-pub mod local {
+pub mod async_ {
     //! The asynchronous exFAT primitives.
 
     macro_rules! io_transform {
         ($($item:tt)*) => { $($item)* };
     }
 
-    use crate::io::local as block;
-    use hadris_storage::local as storage;
+    use crate::io::async_ as block;
+    use hadris_storage::async_ as storage;
 
     #[path = "check.rs"]
     mod check;
@@ -366,3 +338,10 @@ pub mod local {
         upcase, write_percent_in_use, write_set,
     };
 }
+
+/// Compatibility alias for the unified asynchronous primitives.
+#[cfg(feature = "async")]
+pub use async_ as r#async;
+/// Compatibility alias for the unified asynchronous primitives.
+#[cfg(feature = "async")]
+pub use async_ as local;

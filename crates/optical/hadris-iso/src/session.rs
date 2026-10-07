@@ -147,6 +147,8 @@ impl<D: BlockDevice> ErrorType for Sectors<'_, D> {
 
 io_transform! {
 
+
+sync_only! {
 impl<D: BlockDevice> BlockDevice for Sectors<'_, D> {
     fn block_size(&self) -> BlockSize {
         const { BlockSize::new(512).unwrap() }
@@ -168,6 +170,124 @@ impl<D: BlockDevice> BlockDevice for Sectors<'_, D> {
         let len = self.len;
         super::image::read_bytes(self.dev, len, offset, buf).await
     }
+}
+
+}
+
+async_only! {
+struct SectorsState<S> {
+    inner: S,
+    scratch: [u8; 4096],
+    done: usize,
+    pending: bool,
+}
+
+impl<S: Default> Default for SectorsState<S> {
+    fn default() -> Self {
+        Self {
+            inner: S::default(),
+            scratch: [0; 4096],
+            done: 0,
+            pending: false,
+        }
+    }
+}
+
+impl<D: BlockDevice> BlockDevice for Sectors<'_, D> {
+    type State = SectorsState<D::State>;
+
+    fn block_size(&self) -> BlockSize {
+        const { BlockSize::new(512).unwrap() }
+    }
+
+    fn block_count(&self) -> u64 {
+        self.len / 512
+    }
+
+    fn poll_read_blocks(
+        &mut self,
+        state: &mut Self::State,
+        cx: &mut core::task::Context<'_>,
+        first: BlockIndex,
+        buf: &mut [u8],
+    ) -> core::task::Poll<Result<(), hadris_fs::Error<Self::Error>>> {
+        use core::task::Poll;
+        let past_end = || {
+            hadris_fs::Error::new(
+                ErrorKind::InvalidInput,
+                "block request past the end of the device",
+            )
+            .with_location(hadris_fs::Location::Block(first.get()))
+        };
+        let Some(offset) = first.get().checked_mul(512) else {
+            return Poll::Ready(Err(past_end()));
+        };
+        if offset
+            .checked_add(buf.len() as u64)
+            .is_none_or(|end| end > self.len)
+        {
+            return Poll::Ready(Err(past_end()));
+        }
+        let bs = self.dev.block_size().get() as usize;
+        if bs > 4096 {
+            return Poll::Ready(Err(ErrorKind::Unsupported.into()));
+        }
+        while state.done < buf.len() {
+            let pos = offset + state.done as u64;
+            let within = (pos % bs as u64) as usize;
+            let left = buf.len() - state.done;
+            let block = BlockIndex::new(pos / bs as u64);
+            let aligned = within == 0 && left >= bs;
+            let whole = if aligned { left - left % bs } else { bs };
+            if block
+                .get()
+                .checked_add((whole / bs) as u64)
+                .is_none_or(|end| end > self.dev.block_count())
+            {
+                return Poll::Ready(Err(past_end()));
+            }
+            state.pending = true;
+            let result = if aligned {
+                self.dev.poll_read_blocks(
+                    &mut state.inner,
+                    cx,
+                    block,
+                    &mut buf[state.done..state.done + whole],
+                )
+            } else {
+                self.dev
+                    .poll_read_blocks(&mut state.inner, cx, block, &mut state.scratch[..bs])
+            };
+            match result {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Err(error)) => {
+                    state.pending = false;
+                    return Poll::Ready(Err(error));
+                }
+                Poll::Ready(Ok(())) => {
+                    state.pending = false;
+                    state.inner = D::State::default();
+                    if aligned {
+                        state.done += whole;
+                    } else {
+                        let take = (bs - within).min(left);
+                        buf[state.done..state.done + take]
+                            .copy_from_slice(&state.scratch[within..within + take]);
+                        state.done += take;
+                    }
+                }
+            }
+        }
+        Poll::Ready(Ok(()))
+    }
+
+    fn cancel(&mut self, state: &mut Self::State) {
+        if state.pending {
+            self.dev.cancel(&mut state.inner);
+            state.pending = false;
+        }
+    }
+}
 }
 
 /// An existing image read into a [`Tree`] to be written back.

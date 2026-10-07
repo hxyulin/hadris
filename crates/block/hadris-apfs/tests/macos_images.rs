@@ -252,7 +252,6 @@ fn reads_a_case_insensitive_volume_written_by_macos() {
         hadris_io::ErrorKind::Unsupported
     );
 
-    use hadris_fs::sync::FileSystem;
     use hadris_fs::{MountOptions, Name, Resolve};
     let mut driver =
         hadris_apfs::sync::ApfsFs::mount(container.into_inner(), MountOptions::new()).unwrap();

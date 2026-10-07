@@ -3,7 +3,6 @@
 
 #[path = "common/exfat.rs"]
 mod common;
-use hadris_fs::sync::FileSystem;
 
 use common::{Found, Geometry, le32, put32};
 use hadris_fat::exfat::Detail;

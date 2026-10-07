@@ -197,7 +197,7 @@ mod tree {
     use hadris_fs::{DateTime, FileType, MountOptions, Node, PathError, Report, SetAttr, Tree};
 
     use super::super::FatFs;
-    use super::super::fsapi::{ContentReader, FileSystem, copy_tree};
+    use super::super::fsapi::{ContentReader, copy_tree};
     use super::super::storage::BlockDevice;
     use super::{format_prepared, prepare};
     use crate::FatOptions;

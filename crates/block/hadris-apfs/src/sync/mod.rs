@@ -1,4 +1,8 @@
 //! Blocking APFS readers and filesystem driver.
+#[cfg(feature = "alloc")]
+macro_rules! send_filesystem {
+    ($($item:tt)*) => {};
+}
 
 macro_rules! io_transform {
     ($($item:tt)*) => { hadris_macros::strip_async! { $($item)* } };

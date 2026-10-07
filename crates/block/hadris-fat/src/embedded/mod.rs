@@ -1,4 +1,4 @@
-//! The embedded API: [`sync::Fat`] and `r#async::Fat`, a handle-based
+//! The embedded API: [`sync::Fat`] and `async_::Fat`, a handle-based
 //! FAT12, FAT16 and FAT32 driver for firmware without an allocator.
 //!
 //! `Fat<'mount, D, const FILES: usize = 4>` is built on the `hadris-fat-raw`
@@ -23,10 +23,10 @@
 //!   file without a second lookup.
 //!
 //! Formatting and checking are the shared, allocation-free
-//! `hadris_fat::sync::{format, check}` and their `r#async` twins.
+//! `hadris_fat::sync::{format, check}` and their `async_` twins.
 //!
-//! `sync` takes a `hadris_storage::sync::BlockDevice`; `r#async` takes a
-//! `hadris_storage::local::BlockDevice`, whose futures need not be `Send`,
+//! `sync` takes a `hadris_storage::sync::BlockDevice`; `async_` takes a
+//! `hadris_storage::async_::BlockDevice`, whose futures need not be `Send`,
 //! for single-threaded executors such as Embassy.
 //!
 //! # Crash and cancellation safety
@@ -526,9 +526,9 @@ pub mod sync {
 
 #[cfg(feature = "async")]
 #[path = ""]
-pub mod r#async {
+pub mod async_ {
     //! The asynchronous embedded API, over a
-    //! `hadris_storage::local::BlockDevice`, whose futures need not be
+    //! `hadris_storage::async_::BlockDevice`, whose futures need not be
     //! `Send`.
 
     macro_rules! io_transform {
@@ -541,8 +541,8 @@ pub mod r#async {
         ($($item:tt)*) => { $($item)* };
     }
 
-    use hadris_fat_raw::io::local as rawio;
-    use hadris_storage::local as storage;
+    use hadris_fat_raw::io::async_ as rawio;
+    use hadris_storage::async_ as storage;
 
     #[path = "fat.rs"]
     mod fat;
@@ -550,3 +550,7 @@ pub mod r#async {
 
     const _: () = assert!(core::mem::size_of::<Fat<(), 4>>() < 2048);
 }
+
+/// Compatibility alias for the asynchronous API.
+#[cfg(feature = "async")]
+pub use async_ as r#async;

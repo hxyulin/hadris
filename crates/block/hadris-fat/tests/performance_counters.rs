@@ -188,7 +188,6 @@ fn embedded_single_cluster_append_combines_fat_updates() {
 fn hosted_single_cluster_append_combines_fat_updates() {
     use hadris_fat::sync::{FatFs, format};
     use hadris_fat::{FatKind, FatOptions};
-    use hadris_fs::sync::FileSystem;
     use hadris_fs::{MountOptions, Name, SetAttr};
 
     for (kind, size, expected) in [
@@ -224,7 +223,6 @@ fn hosted_single_cluster_append_combines_fat_updates() {
 fn hosted_multi_cluster_append_combines_tail_and_allocation_group() {
     use hadris_fat::sync::{FatFs, format};
     use hadris_fat::{FatKind, FatOptions};
-    use hadris_fs::sync::FileSystem;
     use hadris_fs::{MountOptions, Name, SetAttr};
     for (kind, size) in [
         (FatKind::Fat12, 2 << 20),
@@ -263,7 +261,6 @@ fn hosted_multi_cluster_append_combines_tail_and_allocation_group() {
 fn hosted_insertion_reuses_the_planners_directory_position() {
     use hadris_fat::sync::{FatFs, format};
     use hadris_fat::{FatKind, FatOptions};
-    use hadris_fs::sync::FileSystem;
     use hadris_fs::{MountOptions, Name, SetAttr};
 
     let mut inner = MemDevice::new(vec![0; 64 << 20], BlockSize::new(512).unwrap());
@@ -332,7 +329,6 @@ fn bulk_short_name_creation_avoids_quadratic_directory_reads() {
 fn first_small_writes_skip_reads_only_for_exclusive_device_blocks() {
     use hadris_fat::sync::{FatFs, format};
     use hadris_fat::{FatKind, FatOptions};
-    use hadris_fs::sync::FileSystem;
     use hadris_fs::{MountOptions, Name, SetAttr};
 
     for (block, cluster, max_reads) in [(512, 512, 3), (4096, 512, 4), (4096, 4096, 2)] {

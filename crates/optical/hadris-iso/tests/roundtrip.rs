@@ -376,7 +376,7 @@ fn async_modes_read_and_write_alike() {
         let mut view = hadris_iso::r#async::IsoFs::mount(dev, MountOptions::new())
             .await
             .unwrap();
-        use hadris_fs::r#async::FileSystem as _;
+
         let big = view
             .resolve(b"/docs/big.bin", Resolve::Lexical)
             .await
@@ -1030,6 +1030,7 @@ macro_rules! relocation_cases {
         #[test]
         fn $test() {
             $run!(async {
+                #[allow(unused_imports)]
                 use hadris_fs::$mode::FileSystem;
                 use hadris_fs::{DirCursor, Name, OpenMode};
                 use hadris_iso::Relocation;

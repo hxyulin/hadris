@@ -255,7 +255,6 @@ mod sync_cases {
 mod async_cases {
     use super::{PASSWORD, device};
     use hadris_apfs::{VolumeSelector, r#async::ApfsFs};
-    use hadris_fs::r#async::FileSystem;
     use hadris_fs::{MountOptions, Name, Resolve};
 
     async fn native_encrypted_volume_use_cases() {
@@ -513,24 +512,34 @@ mod async_cases {
     impl hadris_io::ErrorType for GatedDevice {
         type Error = core::convert::Infallible;
     }
-    impl hadris_storage::r#async::BlockDevice for GatedDevice {
+    impl hadris_storage::async_::BlockDevice for GatedDevice {
+        type State = ();
+        fn cancel(&mut self, _: &mut ()) {}
         fn block_size(&self) -> hadris_storage::BlockSize {
             hadris_storage::r#async::BlockDevice::block_size(&self.inner)
         }
         fn block_count(&self) -> u64 {
             hadris_storage::r#async::BlockDevice::block_count(&self.inner)
         }
-        async fn read_blocks(
+        fn poll_read_blocks(
             &mut self,
+            state: &mut (),
+            cx: &mut core::task::Context<'_>,
             start: hadris_storage::BlockIndex,
             bytes: &mut [u8],
-        ) -> Result<(), hadris_io::Error<Self::Error>> {
+        ) -> core::task::Poll<Result<(), hadris_io::Error<Self::Error>>> {
             use std::sync::atomic::Ordering;
             if start.get() == self.stop_at.load(Ordering::SeqCst) {
                 self.reached.store(true, Ordering::SeqCst);
-                std::future::pending::<()>().await;
+                return core::task::Poll::Pending;
             }
-            hadris_storage::r#async::BlockDevice::read_blocks(&mut self.inner, start, bytes).await
+            hadris_storage::async_::BlockDevice::poll_read_blocks(
+                &mut self.inner,
+                state,
+                cx,
+                start,
+                bytes,
+            )
         }
     }
 

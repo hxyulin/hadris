@@ -2,7 +2,7 @@
 
 use anyhow::{Result, ensure};
 use hadris_apfs::{VolumeSelector, sync::ApfsFs};
-use hadris_fs::sync::{FileSystem, Volume, read_tree};
+use hadris_fs::sync::{Volume, read_tree};
 use hadris_fs::{ErrorKind, MountOptions, OpenOptions, Resolve};
 use hadris_io::SeekFrom;
 use hadris_storage::{BlockSize, MemDevice};

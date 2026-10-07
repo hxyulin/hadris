@@ -17,7 +17,7 @@ fn formatted(mut dev: MemDevice<Vec<u8>>, options: FatOptions) -> FatFs<MemDevic
     FatFs::mount(dev, MountOptions::new()).unwrap()
 }
 use hadris_fat::{Detail, FatKind, FatOptions, VolumeLabel};
-use hadris_fs::sync::{FileSystem, Volume};
+use hadris_fs::sync::Volume;
 use hadris_fs::{CheckReport, ErrorKind, Location, Name, RenameMode, SetAttr, Severity};
 use hadris_io::Error;
 use hadris_storage::sync::BlockDevice;

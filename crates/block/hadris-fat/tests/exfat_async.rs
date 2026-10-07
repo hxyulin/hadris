@@ -2,7 +2,6 @@
 
 #[path = "common/exfat.rs"]
 mod common;
-use hadris_fs::r#async::FileSystem;
 
 #[path = "common/cancel.rs"]
 mod cancel;
@@ -53,7 +52,6 @@ fn dropped_operations_leave_whole_entry_sets_and_no_lost_clusters() {
 #[test]
 fn hinted_append_recovers_when_dropped_at_every_await() {
     use hadris_fs::Name;
-    use hadris_fs::sync::FileSystem as _;
     for cluster in [512, 4096] {
         let original = common::payload(131_072, 9);
         let mut fs = common::small(4 << 20, cluster);

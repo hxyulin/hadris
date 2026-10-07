@@ -9,7 +9,6 @@ mod common;
 use common::FsPaths;
 
 use common::{clean, fsck};
-use hadris_fs::sync::FileSystem;
 use hadris_fs::{Name, RenameMode};
 
 fn exercise(image: &[u8], label: &str, what: &str) -> Vec<u8> {

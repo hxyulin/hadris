@@ -50,7 +50,7 @@
 //! | Feature | Default | Description |
 //! |---------|---------|-------------|
 //! | `sync` | No | The device primitives in `io::sync` |
-//! | `async` | No | The device primitives with `Send` futures in `io::r#async`, and without the `Send` bound in `io::local` |
+//! | `async` | No | The unified device primitives in `io::async_`, with Send futures when the device and its state are Send |
 //! | `defmt` | No | `defmt::Format` for [`FatKind`] |
 
 #![cfg_attr(not(test), no_std)]

@@ -7,7 +7,7 @@
 //! ## Reading
 //!
 //! `UdfFs` opens a volume on a `hadris_storage` block device, in each mode
-//! (`sync::UdfFs`, `r#async::UdfFs`). It implements
+//! (`sync::UdfFs`, `async_::UdfFs`). It implements
 //! the `hadris_fs` `FileSystem` trait read-only, so `Volume` and its
 //! handles work on it. Node ids are ICB
 //! locations and need no node table. Reading needs no allocator.
@@ -80,7 +80,7 @@
 //! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
 //! | `alloc` | via `std` | The writers, `plan` and `plan_bridge` |
 //! | `sync` | Yes | The blocking API in `sync` |
-//! | `async` | No | The asynchronous API with `Send` futures in `r#async` |
+//! | `async` | No | The common asynchronous API in `async_`; futures are Send for Send devices and operation state |
 //!
 //! No feature changes what an item does.
 
@@ -147,11 +147,15 @@ pub mod sync {
     pub use write::{write, write_bridge};
 }
 
-/// The asynchronous API with `Send` futures, for generic code on
-/// multi-threaded executors, generated from the same source as `sync`.
+/// The common asynchronous API with Send guarantees derived from the device and operation state.
 #[cfg(feature = "async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
-pub mod r#async;
+#[path = "async.rs"]
+pub mod async_;
+
+/// Compatibility alias for [`async_`].
+#[cfg(feature = "async")]
+pub use async_ as r#async;
 
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]

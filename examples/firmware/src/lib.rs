@@ -47,7 +47,9 @@ impl hadris_storage::sync::BlockDevice for Card {
     }
 }
 
-impl hadris_storage::local::BlockDevice for Card {
+impl hadris_storage::async_::BlockDevice for Card {
+    type State = ();
+    fn cancel(&mut self, _: &mut ()) {}
     fn block_size(&self) -> BlockSize {
         BlockSize::new(512).unwrap()
     }
@@ -60,22 +62,26 @@ impl hadris_storage::local::BlockDevice for Card {
         true
     }
 
-    async fn read_blocks(
+    fn poll_read_blocks(
         &mut self,
+        _: &mut (),
+        _: &mut core::task::Context<'_>,
         first: BlockIndex,
         buf: &mut [u8],
-    ) -> Result<(), Error<Self::Error>> {
+    ) -> core::task::Poll<Result<(), Error<Self::Error>>> {
         black_box((first, buf));
-        Ok(())
+        core::task::Poll::Ready(Ok(()))
     }
 
-    async fn write_blocks(
+    fn poll_write_blocks(
         &mut self,
+        _: &mut (),
+        _: &mut core::task::Context<'_>,
         first: BlockIndex,
         buf: &[u8],
-    ) -> Result<(), Error<Self::Error>> {
+    ) -> core::task::Poll<Result<(), Error<Self::Error>>> {
         black_box((first, buf));
-        Ok(())
+        core::task::Poll::Ready(Ok(()))
     }
 }
 

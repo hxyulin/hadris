@@ -4,8 +4,8 @@ macro_rules! io_transform {
 }
 
 #[cfg(feature = "alloc")]
-use hadris_fs::r#async as fs;
-use hadris_io::r#async as io;
+use hadris_fs::async_ as fs;
+use hadris_io::async_ as io;
 
 #[path = "read.rs"]
 mod read;

@@ -33,18 +33,24 @@ impl hadris_storage::sync::BlockDevice for Counted {
 }
 #[cfg(feature = "async")]
 impl hadris_storage::r#async::BlockDevice for Counted {
+    type State = ();
+    fn cancel(&mut self, _: &mut ()) {}
     fn block_size(&self) -> BlockSize {
         common::SECTOR
     }
     fn block_count(&self) -> u64 {
         self.inner.get_ref().len() as u64 / 2048
     }
-    async fn read_blocks(
+    fn poll_read_blocks(
         &mut self,
+        _: &mut (),
+        _: &mut core::task::Context<'_>,
         first: BlockIndex,
         buf: &mut [u8],
-    ) -> Result<(), hadris_io::Error<Self::Error>> {
-        hadris_storage::sync::BlockDevice::read_blocks(self, first, buf)
+    ) -> core::task::Poll<Result<(), hadris_io::Error<Self::Error>>> {
+        core::task::Poll::Ready(hadris_storage::sync::BlockDevice::read_blocks(
+            self, first, buf,
+        ))
     }
 }
 fn linked() -> Tree {
@@ -360,34 +366,35 @@ fn cancelled_cache_miss_is_not_retained() {
         type Error = core::convert::Infallible;
     }
     impl BlockDevice for Paused {
+        type State = ();
+        fn cancel(&mut self, _: &mut ()) {}
         fn block_size(&self) -> BlockSize {
             common::SECTOR
         }
         fn block_count(&self) -> u64 {
             hadris_storage::sync::BlockDevice::block_count(&self.inner)
         }
-        async fn read_blocks(
+        fn poll_read_blocks(
             &mut self,
+            _: &mut (),
+            _: &mut core::task::Context<'_>,
             first: BlockIndex,
             buf: &mut [u8],
-        ) -> Result<(), hadris_io::Error<Self::Error>> {
-            core::future::poll_fn(|_| {
-                if self.paused.load(Ordering::Relaxed) {
-                    core::task::Poll::Pending
-                } else {
-                    core::task::Poll::Ready(())
-                }
-            })
-            .await;
-            if self.failed.load(Ordering::Relaxed) {
-                return Err(hadris_io::Error::new(
+        ) -> core::task::Poll<Result<(), hadris_io::Error<Self::Error>>> {
+            if self.paused.load(Ordering::Relaxed) {
+                return core::task::Poll::Pending;
+            }
+            core::task::Poll::Ready(if self.failed.load(Ordering::Relaxed) {
+                Err(hadris_io::Error::new(
                     hadris_io::ErrorKind::Io,
                     "injected failure",
-                ));
-            }
-            hadris_storage::sync::BlockDevice::read_blocks(&mut self.inner, first, buf)
+                ))
+            } else {
+                hadris_storage::sync::BlockDevice::read_blocks(&mut self.inner, first, buf)
+            })
         }
     }
+
     let mut tree = Tree::new();
     tree.insert("file", Node::file(Content::bytes("data")))
         .unwrap();

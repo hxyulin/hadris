@@ -8,23 +8,26 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
-- **RC2 preparation:** Add canonical `async_` aliases for I/O, filesystem and
-  CPIO APIs, keeping `r#async` compatibility. Enable local filesystem APIs
-  alongside `async`, stage package versions and document the coordinated
-  device migration. Retire the temporary source-copy experiment and run the
-  production format suites on both supported CI toolchains. The poll-device
-  cutover follows in the stacked migration change.
-
-- **hadris-iso:** Use one `async_::IsoFs` reader for Send and local devices;
-  `r#async::IsoFs` remains the same type with its existing Send contract.
-  Add opt-in `async-local` reader support and explicit
-  `hadris-storage::async_::Local` device adaptation.
-- **hadris-storage:** Add the canonical `async_` namespace with common
-  `BlockDevice` and stronger `SendBlockDevice` contracts enabled together by
-  `async`. Preserve existing Send and local adapter paths.
-- **hadris-fs:** Add the opt-in `async-local` filesystem contract and handles
-  without requiring Send futures. Local volumes share the async lock and
-  require allocation and pointer-sized atomics.
+- **Async device API:** Promote the poll-based contract into `hadris-storage`.
+  One `BlockDevice` implementation supports local operations and automatically
+  supplies `SendBlockDevice` when the device and operation state are Send.
+  References, partitions, memory devices, caches, read-ahead and byte views use
+  the common contract. Poll-native streams have `StreamDevice`; synchronous
+  streams use explicit `BlockingStream`, and older async-stream adapters remain
+  in `legacy_async`/`legacy_local`. Custom async devices must migrate to poll
+  hooks. Cancellation must be safe before I/O starts and must not panic.
+- **Format APIs:** FAT/exFAT (hosted and embedded), ISO, UDF, NTFS, APFS,
+  partition tables and umbrella detection/opening use the common device
+  contract. Each driver supports local devices and conditional Send futures
+  through one filesystem type. `async_` is canonical; `r#async` remains an alias.
+  CPIO adopts the naming convention while retaining its existing byte-stream
+  contract. Lazy tree-content sources retain their Send requirements.
+- **hadris-fs:** `async` enables both the local filesystem contract/handles and
+  the stronger Send contract. Explicit `async-local` remains available.
+- **Release candidates:** Advance the affected 3.x core/block packages to
+  `3.0.0-rc.2` and `hadris-fat-raw` to `0.2.0` for the device-contract break.
+  Replace the temporary async device experiment with production regression
+  tests and CI coverage on Rust 1.88 and 1.97.1.
 
 - **hadris-cpio-raw:** Extracted the existing on-disk layouts and I/O-free
   codecs into an independently versioned, allocation-free `no_std` crate.

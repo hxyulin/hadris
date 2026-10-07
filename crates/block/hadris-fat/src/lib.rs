@@ -8,7 +8,7 @@
 //! ## The driver: `FatFs`
 //!
 //! `FatFs` is the node-based driver, generated for each mode
-//! (`sync::FatFs`, `r#async::FatFs`). It mounts any
+//! (`sync::FatFs`, `async_::FatFs`). It mounts any
 //! `hadris_storage` block device, needs `alloc` for its node table, and implements the
 //! `hadris_fs` `FileSystem` trait, so `Volume`, its handles and the
 //! `hadris-fs` tree helpers work on it. It reads and writes files and
@@ -60,7 +60,7 @@
 //! ## exFAT: `ExFatFs`
 //!
 //! [`exfat`] holds `ExFatFs`, a sibling of `FatFs` with the same shape:
-//! `exfat::sync::ExFatFs` and its `r#async` twin, each
+//! `exfat::sync::ExFatFs` and its `async_` twin, each
 //! with `check` and, with `write`, `format` and `write`. It needs `alloc`
 //! and implements `FileSystem`.
 //!
@@ -68,7 +68,7 @@
 //!
 //! [`embedded`] holds `Fat<'mount, D, const FILES: usize = 4>`, a handle-based
 //! FAT12/16/32 driver for firmware without an allocator, in
-//! `embedded::sync` and `embedded::r#async` (over a `local::BlockDevice`,
+//! `embedded::sync` and `embedded::async_` (over an `async_::BlockDevice`,
 //! whose futures need not be `Send`). It is built on the raw layer, not on
 //! `FatFs`: one 512-byte block buffer, no node table, ASCII name folding
 //! unless asked for Unicode, and under 1 KiB of state with four file
@@ -178,7 +178,7 @@
 //! | `std`    | Yes     | Standard library support (enables `alloc`); `hadris_storage::host::FileDevice` and `SystemClock` from the storage and fs crates |
 //! | `alloc`  | No      | `FatFs`, `ExFatFs` and the tree writers `write`; without it the embedded API, `check`, `format` and the raw layer |
 //! | `sync`   | Yes     | Synchronous API in `sync` |
-//! | `async`  | No      | Asynchronous API with `Send` futures in `r#async` |
+//! | `async`  | No      | Asynchronous API for local and `Send` devices in `async_` |
 //! | `write`  | Yes     | `format`, and with `alloc` `write`, in each mode; `FatFs` and `ExFatFs` write without it |
 //! | `defmt`  | No      | `defmt::Format` for `FatKind` |
 //! | `tracing` | No | Function spans for FAT/exFAT operations and FAT allocation/write paths; enables `std` |
@@ -188,18 +188,18 @@
 //!
 //! ## Sync and async
 //!
-//! The same source is compiled once per enabled mode: `sync` and `r#async`,
-//! whose futures are `Send` when the device is. Each holds `FatFs`, `check` and, with `write`, `format` and `write`. The crate root holds only the mode-independent types.
+//! The same source is compiled once per enabled mode: `sync` and `async_`,
+//! whose futures are `Send` when the device and its operation state are. Each holds `FatFs`, `check` and, with `write`, `format` and `write`. The crate root holds only the mode-independent types.
 //!
 //! ## Modules
 //!
-//! - `sync::FatFs`, `r#async::FatFs`: the driver
+//! - `sync::FatFs`, `async_::FatFs`: the driver
 //! - `sync::format`, `sync::write` and their `async` versions: the
 //!   formatter and the tree writer (require `write`)
 //! - `sync::check` and its `async` versions: the checker, from
 //!   `hadris-fat-raw`
 //! - `exfat`: the exFAT driver, `ExFatFs`, with its own `sync` and
-//!   `r#async` modes, formatter and checker
+//!   `async_` modes, formatter and checker
 //! - `Detail` and `exfat::Detail`: what exactly is wrong with a volume, read
 //!   from mount and read errors with `Detail::of`
 //!
@@ -237,6 +237,125 @@ mod table;
 #[cfg(feature = "alloc")]
 pub use cache::CacheOptions;
 
+#[cfg(feature = "alloc")]
+macro_rules! filesystem_impl_for {
+    ($driver:ident, $device:path, $trait:path) => {
+        io_transform! {
+            impl<D: $device> $trait for $driver<D> {
+                type DeviceError = D::Error;
+                fn capabilities(&self) -> Capabilities {
+                    self.capabilities()
+                }
+                fn root(&self) -> NodeId {
+                    self.root()
+                }
+                async fn statfs(&mut self) -> FsResult<FsStats, D::Error> {
+                    self.statfs().await
+                }
+                async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
+                    self.label(buf).await
+                }
+                async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
+                    self.lookup(dir, name).await
+                }
+                fn forget(&mut self, node: NodeId, count: u64) {
+                    self.forget(node, count)
+                }
+                async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
+                    self.parent(dir).await
+                }
+                async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
+                    self.stat(node).await
+                }
+                async fn readdir(
+                    &mut self,
+                    dir: NodeId,
+                    from: DirCursor,
+                ) -> FsResult<Option<DirEntry>, D::Error> {
+                    self.readdir(dir, from).await
+                }
+                async fn readlink<'b>(
+                    &mut self,
+                    node: NodeId,
+                    buf: &'b mut [u8],
+                ) -> FsResult<&'b [u8], D::Error> {
+                    self.readlink(node, buf).await
+                }
+                async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
+                    self.open(node, mode).await
+                }
+                async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+                    self.close(node).await
+                }
+                async fn read(
+                    &mut self,
+                    node: NodeId,
+                    offset: u64,
+                    buf: &mut [u8],
+                ) -> FsResult<usize, D::Error> {
+                    self.read(node, offset, buf).await
+                }
+                async fn setattr(&mut self, node: NodeId, changes: &SetAttr) -> FsResult<(), D::Error> {
+                    self.setattr(node, changes).await
+                }
+                async fn write(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, D::Error> {
+                    self.write(node, offset, buf).await
+                }
+                async fn truncate(&mut self, node: NodeId, len: u64) -> FsResult<(), D::Error> {
+                    self.truncate(node, len).await
+                }
+                async fn fsync(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+                    self.fsync(node).await
+                }
+                async fn create(
+                    &mut self,
+                    dir: NodeId,
+                    name: &Name,
+                    attrs: &SetAttr,
+                ) -> FsResult<NodeId, D::Error> {
+                    self.create(dir, name, attrs).await
+                }
+                async fn mkdir(
+                    &mut self,
+                    dir: NodeId,
+                    name: &Name,
+                    attrs: &SetAttr,
+                ) -> FsResult<NodeId, D::Error> {
+                    self.mkdir(dir, name, attrs).await
+                }
+                async fn unlink(&mut self, dir: NodeId, name: &Name) -> FsResult<(), D::Error> {
+                    self.unlink(dir, name).await
+                }
+                async fn rmdir(&mut self, dir: NodeId, name: &Name) -> FsResult<(), D::Error> {
+                    self.rmdir(dir, name).await
+                }
+                async fn rename(
+                    &mut self,
+                    from_dir: NodeId,
+                    from: &Name,
+                    to_dir: NodeId,
+                    to: &Name,
+                    mode: RenameMode,
+                ) -> FsResult<(), D::Error> {
+                    self.rename(from_dir, from, to_dir, to, mode).await
+                }
+                async fn sync(&mut self) -> FsResult<(), D::Error> {
+                    self.sync().await
+                }
+            }
+        }
+    };
+}
+#[cfg(feature = "alloc")]
+macro_rules! filesystem_impl {
+    ($driver:ident) => {
+        filesystem_impl_for!($driver, BlockDevice, FileSystem);
+        async_only! {
+            filesystem_impl_for!($driver, hadris_storage::async_::SendBlockDevice, hadris_fs::async_::FileSystem);
+        }
+    };
+}
+
 #[cfg(any(feature = "sync", feature = "async"))]
 pub mod embedded;
 /// The exFAT driver, `ExFatFs`, its formatter and checker.
@@ -246,6 +365,13 @@ pub mod exfat;
 #[path = ""]
 pub mod sync {
     //! The synchronous API.
+
+    #[allow(unused_macros)]
+    macro_rules! sync_only { ($($item:tt)*) => { $($item)* }; }
+    #[allow(unused_macros)]
+    macro_rules! async_only {
+        ($($item:tt)*) => {};
+    }
 
     #[allow(unused_macros)]
     macro_rules! io_transform {
@@ -276,13 +402,13 @@ pub mod sync {
     pub use mkfs::write;
 }
 
-/// The asynchronous API with `Send` futures, for generic code on
-/// multi-threaded executors.
+/// The asynchronous API for local and multi-threaded executors.
 ///
-/// Generated from the same source as `sync`, following `hadris_fs::r#async`.
-/// Its `FatFs` futures are `Send` when the device is.
+/// Generated from the same source as `sync`, following `hadris_fs::async_`.
+/// Its `FatFs` futures are `Send` when the device and its operation state are.
 #[cfg(feature = "async")]
-pub mod r#async;
+#[path = "async.rs"]
+pub mod async_;
 
 #[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
 use names::{permissions, read_only_bit};
@@ -325,3 +451,7 @@ pub use hadris_fat_raw::{Detail, FatKind, Geometry};
 #[cfg(feature = "write")]
 pub use options::FatOptions;
 pub use options::VolumeLabel;
+
+/// Compatibility alias for the asynchronous API.
+#[cfg(feature = "async")]
+pub use async_ as r#async;

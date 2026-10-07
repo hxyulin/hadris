@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use hadris_fat::sync::FatFs;
 use hadris_fs::MountOptions;
-use hadris_fs::sync::{FileSystem, Volume};
+use hadris_fs::sync::Volume;
 use hadris_fs::{OpenOptions, SystemClock};
 use hadris_storage::host::FileDevice;
 

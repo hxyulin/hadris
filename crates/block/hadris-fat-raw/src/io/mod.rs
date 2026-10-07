@@ -1,8 +1,8 @@
 //! Device primitives: the reads and writes a FAT driver is made of,
 //! generated for each mode from one source.
 //!
-//! The functions in `sync`, `r#async` (`Send` futures) and `local`
-//! (futures need not be `Send`) are generic over the device only. They borrow the
+//! The functions in `sync` and unified `async_` (`r#async` and `local`
+//! are compatibility aliases) are generic over the device only. They borrow the
 //! caller's [`BlockBuf`], which caches one device block, and a [`Fat`],
 //! which holds what the driver tracks about the allocation tables between
 //! calls. Sequences whose order matters when they are interrupted live
@@ -497,37 +497,7 @@ pub mod sync {
 
 #[cfg(feature = "async")]
 #[path = ""]
-pub mod r#async {
-    //! The asynchronous primitives with `Send` futures, for devices whose
-    //! futures are `Send`.
-
-    #[allow(unused_macros)]
-    macro_rules! io_transform {
-        ($($item:tt)*) => { hadris_macros::send_async! { $($item)* } };
-    }
-
-    use hadris_storage::r#async as storage;
-
-    #[path = "block.rs"]
-    mod block;
-    #[path = "check.rs"]
-    mod check;
-    #[path = "fat.rs"]
-    mod fat;
-
-    pub use block::{load, read_bytes, store, write_bytes, write_zeros};
-    pub use check::check;
-    pub use fat::{
-        allocate, allocate_after, allocate_run, allocate_run_after, begin_write, clear_dirty,
-        clear_slots, count_free, free_chain, get, get_copy, mirror, mkfs, next,
-        read_backup_geometry, read_fat, read_geometry, read_slot, run, set, slot_offset, walk,
-        write_fs_info, write_slots,
-    };
-}
-
-#[cfg(feature = "async")]
-#[path = ""]
-pub mod local {
+pub mod async_ {
     //! The asynchronous primitives whose futures need not be `Send`, for
     //! single-threaded executors.
 
@@ -535,7 +505,7 @@ pub mod local {
         ($($item:tt)*) => { $($item)* };
     }
 
-    use hadris_storage::local as storage;
+    use hadris_storage::async_ as storage;
 
     #[path = "block.rs"]
     mod block;
@@ -553,6 +523,13 @@ pub mod local {
         write_fs_info, write_slots,
     };
 }
+
+/// Compatibility alias for the unified asynchronous primitives.
+#[cfg(feature = "async")]
+pub use async_ as r#async;
+/// Compatibility alias for the unified asynchronous primitives.
+#[cfg(feature = "async")]
+pub use async_ as local;
 
 #[cfg(test)]
 mod group_tests {

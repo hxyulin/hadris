@@ -2,7 +2,7 @@ mod common;
 
 use std::cell::Cell;
 use std::convert::Infallible;
-use std::future::{Future, poll_fn};
+use std::future::Future;
 use std::rc::Rc;
 use std::task::Poll;
 
@@ -10,7 +10,6 @@ use hadris_fs::{MountOptions, Name, OpenOptions};
 use hadris_io::{Error, ErrorType};
 use hadris_iso::IsoOptions;
 use hadris_iso::async_::IsoFs;
-use hadris_storage::async_::Local;
 use hadris_storage::{BlockIndex, BlockSize, MemDevice, Partition};
 
 struct RcDevice {
@@ -19,53 +18,39 @@ struct RcDevice {
 }
 
 static_assertions::assert_not_impl_any!(RcDevice: Send, Sync);
-static_assertions::assert_not_impl_any!(IsoFs<Local<RcDevice>>: Send, Sync);
+static_assertions::assert_not_impl_any!(IsoFs<RcDevice>: Send, Sync);
 
 impl ErrorType for RcDevice {
     type Error = Infallible;
 }
 impl hadris_storage::async_::BlockDevice for RcDevice {
+    type State = bool;
     fn block_size(&self) -> BlockSize {
         common::SECTOR
     }
     fn block_count(&self) -> u64 {
         self.inner.get_ref().len() as u64 / 2048
     }
-    async fn read_blocks(
+    fn cancel(&mut self, _: &mut bool) {}
+    fn poll_read_blocks(
         &mut self,
+        pending: &mut bool,
+        cx: &mut core::task::Context<'_>,
         first: BlockIndex,
         buf: &mut [u8],
-    ) -> Result<(), Error<Infallible>> {
-        let polls = Rc::clone(&self.polls);
-        let mut pending = true;
-        poll_fn(move |cx| {
-            polls.set(polls.get() + 1);
-            if pending {
-                pending = false;
-                cx.waker().wake_by_ref();
-                Poll::Pending
-            } else {
-                Poll::Ready(())
-            }
-        })
-        .await;
-        hadris_storage::sync::BlockDevice::read_blocks(&mut self.inner, first, buf)
-    }
-}
-
-impl hadris_storage::local::BlockDevice for RcDevice {
-    fn block_size(&self) -> BlockSize {
-        common::SECTOR
-    }
-    fn block_count(&self) -> u64 {
-        self.inner.get_ref().len() as u64 / 2048
-    }
-    async fn read_blocks(
-        &mut self,
-        first: BlockIndex,
-        buf: &mut [u8],
-    ) -> Result<(), Error<Infallible>> {
-        hadris_storage::async_::BlockDevice::read_blocks(self, first, buf).await
+    ) -> Poll<Result<(), Error<Infallible>>> {
+        self.polls.set(self.polls.get() + 1);
+        if !*pending {
+            *pending = true;
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        } else {
+            Poll::Ready(hadris_storage::sync::BlockDevice::read_blocks(
+                &mut self.inner,
+                first,
+                buf,
+            ))
+        }
     }
 }
 
@@ -160,12 +145,10 @@ fn borrowed_local_partition_cache_and_volume_use_the_same_reader() {
         polls: Rc::clone(&polls),
     };
     let part = Partition::new(&mut disk, 4 * 2048, blocks * 2048);
-    let cache = hadris_storage::local::Cache::new(part, 4);
-    let ahead = hadris_storage::local::ReadAhead::new(cache, 8);
+    let cache = hadris_storage::async_::Cache::new(part, 4);
+    let ahead = hadris_storage::async_::ReadAhead::new(cache, 8);
     common::block_on(async {
-        let mut fs = IsoFs::mount(Local::new(ahead), MountOptions::new())
-            .await
-            .unwrap();
+        let mut fs = IsoFs::mount(ahead, MountOptions::new()).await.unwrap();
         hadris_fs::local::contract::check_read_only(&mut fs)
             .await
             .unwrap();
@@ -202,4 +185,51 @@ fn unified_reader_still_works_with_send_volume() {
         assert_eq!(&bytes, b"hello world\n");
         file.close().await.unwrap();
     });
+}
+
+fn send_defaults<D: hadris_storage::async_::SendBlockDevice>(fs: &mut IsoFs<D>) {
+    use hadris_fs::{RenameMode, Resolve, SetAttr};
+    let root = fs.root();
+    let name = Name::new("new.txt");
+    let attrs = SetAttr::new();
+    require_send(fs.resolve(b"/readme.txt", Resolve::Follow));
+    require_send(fs.setattr(root, &attrs));
+    require_send(fs.write(root, 0, b"new"));
+    require_send(fs.truncate(root, 0));
+    require_send(fs.create(root, name, &attrs));
+    require_send(fs.mkdir(root, name, &attrs));
+    require_send(fs.unlink(root, name));
+    require_send(fs.rmdir(root, name));
+    require_send(fs.rename(
+        root,
+        name,
+        root,
+        Name::new("renamed.txt"),
+        RenameMode::Replace,
+    ));
+    require_send(fs.fsync(root));
+    require_send(fs.sync());
+}
+
+#[test]
+fn defaults_remain_send_and_unambiguous_with_both_filesystem_contracts_imported() {
+    use hadris_fs::{ErrorKind, Resolve};
+    #[allow(unused_imports)]
+    use hadris_fs::{r#async::FileSystem as _, local::FileSystem as _};
+    let image = common::image(
+        &common::sample(false, false),
+        &IsoOptions::new().with_joliet(),
+    );
+    let mut fs = common::block_on(IsoFs::mount(image, MountOptions::new())).unwrap();
+    send_defaults(&mut fs);
+    let node = common::block_on(fs.resolve(b"/readme.txt", Resolve::Follow)).unwrap();
+    assert_eq!(
+        common::block_on(fs.write(node, 0, b"new"))
+            .unwrap_err()
+            .kind(),
+        ErrorKind::ReadOnly
+    );
+    common::block_on(fs.fsync(node)).unwrap();
+    common::block_on(fs.sync()).unwrap();
+    fs.forget(node, 1);
 }

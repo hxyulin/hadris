@@ -231,7 +231,6 @@ fn async_modes_write_and_read_the_same_volume() {
     use common::SECTOR;
     use hadris_fs::OpenMode;
     use hadris_fs::Resolve;
-    use hadris_fs::r#async::FileSystem as _;
 
     let tree = sample();
     let options = UdfOptions::default().with_revision(UdfRevision::V2_01);

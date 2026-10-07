@@ -9,7 +9,7 @@ The crate is suitable for inspecting unencrypted APFS images and, with the
 `encryption` feature, password-encrypted single-key APFS volumes made by macOS. It
 is not a recovery, repair or forensic implementation.
 
-`sync::ApfsFs` and `r#async::ApfsFs` implement the V3 `FileSystem` trait,
+`sync::ApfsFs` and `async_::ApfsFs` implement the V3 `FileSystem` trait,
 so generic `Volume` paths, file handles, walks and extraction work on APFS.
 Mounting needs an allocator, but not `std`. `Container` retains native container,
 checkpoint, object-map and space-manager inspection. I/O errors retain the
@@ -141,7 +141,7 @@ APFS partition first, for example with `hadris-part`.
 | `alloc` | Yes     | Heap allocation; required by the B-tree and file readers |
 | `read`  | Yes     | The container readers |
 | `sync`  | Yes     | Synchronous readers in `hadris_apfs::sync` |
-| `async` | No      | Asynchronous readers in `hadris_apfs::r#async` |
+| `async` | No      | Unified asynchronous readers in `hadris_apfs::async_` |
 
 ## Documentation
 
@@ -162,3 +162,9 @@ at or before the requested transaction. A deleted mapping returns no object
 without resurrecting an older version. Volume enumeration uses the container
 checkpoint transaction to resolve each live volume once; historical and future
 mappings remain available through the raw mapping inspection APIs.
+
+The `async_` namespace is canonical; `r#async` remains an alias. One filesystem
+type accepts both Send and local devices through `hadris_storage::async_::BlockDevice`.
+It implements `hadris_fs::local::FileSystem` for all compatible devices and the
+Send filesystem contract when its device and operation state are Send. The
+`async` feature enables both capabilities; no separate local feature is needed.

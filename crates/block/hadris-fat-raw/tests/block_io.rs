@@ -332,59 +332,77 @@ fn failed_transfers_never_leave_a_stale_cached_block() {
 mod asynchronous {
     use super::*;
     use core::future::Future;
-    use core::pin::{Pin, pin};
+    use core::pin::pin;
     use core::task::{Context, Poll, Waker};
 
-    struct YieldOnce(bool);
+    #[derive(Default)]
+    pub(crate) struct Transfer {
+        phase: u8,
+        result: Option<Result<()>>,
+    }
 
-    impl Future for YieldOnce {
-        type Output = ();
-
-        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
-            if self.0 {
-                Poll::Ready(())
-            } else {
-                self.0 = true;
-                cx.waker().wake_by_ref();
-                Poll::Pending
+    impl hadris_storage::async_::BlockDevice for Device {
+        type State = Transfer;
+        fn block_size(&self) -> BlockSize {
+            BlockSize::new(self.size as u32).unwrap()
+        }
+        fn block_count(&self) -> u64 {
+            self.base + (self.bytes.len() / self.size) as u64
+        }
+        fn writable(&self) -> bool {
+            true
+        }
+        fn poll_read_blocks(
+            &mut self,
+            state: &mut Transfer,
+            cx: &mut Context<'_>,
+            first: BlockIndex,
+            out: &mut [u8],
+        ) -> Poll<Result<()>> {
+            match state.phase {
+                0 => {
+                    state.phase = 1;
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+                1 => {
+                    state.result = Some(self.read(first, out));
+                    state.phase = 2;
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+                _ => Poll::Ready(state.result.take().unwrap()),
             }
         }
-    }
-
-    macro_rules! device {
-        ($mode:ident) => {
-            impl hadris_storage::$mode::BlockDevice for Device {
-                fn block_size(&self) -> BlockSize {
-                    BlockSize::new(self.size as u32).unwrap()
+        fn poll_write_blocks(
+            &mut self,
+            state: &mut Transfer,
+            cx: &mut Context<'_>,
+            first: BlockIndex,
+            data: &[u8],
+        ) -> Poll<Result<()>> {
+            match state.phase {
+                0 => {
+                    state.phase = 1;
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
                 }
-
-                fn block_count(&self) -> u64 {
-                    self.base + (self.bytes.len() / self.size) as u64
+                1 => {
+                    state.result = Some(self.write(first, data));
+                    state.phase = 2;
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
                 }
-
-                fn writable(&self) -> bool {
-                    true
-                }
-
-                async fn read_blocks(&mut self, first: BlockIndex, out: &mut [u8]) -> Result<()> {
-                    YieldOnce(false).await;
-                    let result = self.read(first, out);
-                    YieldOnce(false).await;
-                    result
-                }
-
-                async fn write_blocks(&mut self, first: BlockIndex, data: &[u8]) -> Result<()> {
-                    YieldOnce(false).await;
-                    let result = self.write(first, data);
-                    YieldOnce(false).await;
-                    result
-                }
+                _ => Poll::Ready(state.result.take().unwrap()),
             }
-        };
+        }
+        fn poll_flush(&mut self, _: &mut Transfer, _: &mut Context<'_>) -> Poll<Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+        fn cancel(&mut self, state: &mut Transfer) {
+            *state = Transfer::default();
+        }
     }
-
-    device!(r#async);
-    device!(local);
 
     fn run_for<F: Future>(future: F, polls: usize) -> Option<F::Output> {
         let mut cx = Context::from_waker(Waker::noop());

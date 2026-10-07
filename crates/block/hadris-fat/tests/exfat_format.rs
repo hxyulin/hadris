@@ -5,7 +5,6 @@
 mod common;
 use common::FsPaths;
 use hadris_fs::MountOptions;
-use hadris_fs::sync::FileSystem;
 
 use common::{Geometry, clean, fsck};
 use hadris_fat::exfat::sync::{ExFatFs, format, write};

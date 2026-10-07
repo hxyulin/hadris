@@ -1,4 +1,4 @@
-//! The embedded exFAT reader: [`sync::ExFat`] and `r#async::ExFat`, a
+//! The embedded exFAT reader: [`sync::ExFat`] and `async_::ExFat`, a
 //! handle-based, read-only exFAT driver for firmware without an allocator,
 //! such as SDXC card readers.
 //!
@@ -298,18 +298,18 @@ pub mod sync {
 
 #[cfg(feature = "async")]
 #[path = ""]
-pub mod r#async {
+pub mod async_ {
     //! The asynchronous embedded exFAT reader, over a
-    //! `hadris_storage::local::BlockDevice`, whose futures need not be
+    //! `hadris_storage::async_::BlockDevice`, whose futures need not be
     //! `Send`.
 
     macro_rules! io_transform {
         ($($item:tt)*) => { $($item)* };
     }
 
-    use hadris_fat_raw::exfat::io::local as exio;
-    use hadris_fat_raw::io::local as rawio;
-    use hadris_storage::local as storage;
+    use hadris_fat_raw::exfat::io::async_ as exio;
+    use hadris_fat_raw::io::async_ as rawio;
+    use hadris_storage::async_ as storage;
 
     #[path = "exfat.rs"]
     mod exfat;
@@ -317,3 +317,7 @@ pub mod r#async {
 
     const _: () = assert!(core::mem::size_of::<ExFat<(), 4>>() < 2048);
 }
+
+/// Compatibility alias for the asynchronous API.
+#[cfg(feature = "async")]
+pub use async_ as r#async;

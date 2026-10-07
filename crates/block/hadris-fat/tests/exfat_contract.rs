@@ -4,8 +4,6 @@
 #[path = "common/exfat.rs"]
 mod common;
 use hadris_fs::MountOptions;
-use hadris_fs::r#async::FileSystem as _;
-use hadris_fs::sync::FileSystem;
 
 use common::{block_on, clean, fsck};
 use hadris_fat::exfat::ExFatOptions;

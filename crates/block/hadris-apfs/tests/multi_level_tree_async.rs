@@ -13,8 +13,6 @@ use std::task::{Context, Poll, Wake, Waker};
 
 use common::*;
 use hadris_apfs::r#async::Container;
-use hadris_io::Cursor;
-use hadris_storage::r#async::StreamDevice;
 use hadris_storage::{BlockCount, BlockGeometry, BlockSize};
 
 struct ThreadWaker(std::thread::Thread);
@@ -43,11 +41,7 @@ fn check(image: &[u8]) {
             BlockSize::new(BLOCK as u32).unwrap(),
             BlockCount::new(IMAGE_BLOCKS as u64),
         );
-        let device = StreamDevice::with_block_count(
-            hadris_storage::ReadOnly::new(Cursor::new(image)),
-            geometry.logical_block_size(),
-            geometry.block_count().get(),
-        );
+        let device = hadris_storage::MemDevice::new(image, geometry.logical_block_size());
         let mut container = Container::open(device).await.unwrap();
         let superblock = container.superblock().clone();
         let volumes = container.volume_superblocks(&superblock).await.unwrap();
@@ -127,11 +121,8 @@ fn encrypted_tree_reports_unsupported() {
             BlockSize::new(BLOCK as u32).unwrap(),
             BlockCount::new(IMAGE_BLOCKS as u64),
         );
-        let device = StreamDevice::with_block_count(
-            hadris_storage::ReadOnly::new(Cursor::new(&image)),
-            geometry.logical_block_size(),
-            geometry.block_count().get(),
-        );
+        let device =
+            hadris_storage::MemDevice::new(image.as_slice(), geometry.logical_block_size());
         let mut container = Container::open(device).await.unwrap();
         let superblock = container.superblock().clone();
         let volumes = container.volume_superblocks(&superblock).await.unwrap();
@@ -151,11 +142,8 @@ fn holes_read_as_zeros() {
             BlockSize::new(BLOCK as u32).unwrap(),
             BlockCount::new(IMAGE_BLOCKS as u64),
         );
-        let device = StreamDevice::with_block_count(
-            hadris_storage::ReadOnly::new(Cursor::new(&image)),
-            geometry.logical_block_size(),
-            geometry.block_count().get(),
-        );
+        let device =
+            hadris_storage::MemDevice::new(image.as_slice(), geometry.logical_block_size());
         let mut container = Container::open(device).await.unwrap();
         let expected = holey_contents(2);
         let mut buf = vec![0xff_u8; expected.len()];
@@ -175,11 +163,8 @@ fn a_child_named_twice_is_rejected() {
             BlockSize::new(BLOCK as u32).unwrap(),
             BlockCount::new(IMAGE_BLOCKS as u64),
         );
-        let device = StreamDevice::with_block_count(
-            hadris_storage::ReadOnly::new(Cursor::new(&image)),
-            geometry.logical_block_size(),
-            geometry.block_count().get(),
-        );
+        let device =
+            hadris_storage::MemDevice::new(image.as_slice(), geometry.logical_block_size());
         let mut container = Container::open(device).await.unwrap();
         let superblock = container.superblock().clone();
         let volumes = container.volume_superblocks(&superblock).await.unwrap();

@@ -47,3 +47,7 @@ required-features = ["std", "sync"]
 [[test]]
 name = "crafted"
 required-features = ["std", "sync"]
+
+[[test]]
+name = "unified_async"
+required-features = ["async"]

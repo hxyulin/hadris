@@ -130,56 +130,63 @@ impl hadris_storage::sync::BlockDevice for Device {
         Ok(())
     }
 }
-async fn pause() {
-    let mut yielded = false;
-    core::future::poll_fn(move |cx| {
-        if yielded {
-            core::task::Poll::Ready(())
-        } else {
-            yielded = true;
+impl hadris_storage::async_::BlockDevice for Device {
+    type State = bool;
+    fn block_size(&self) -> BlockSize {
+        hadris_storage::sync::BlockDevice::block_size(self)
+    }
+    fn block_count(&self) -> u64 {
+        hadris_storage::sync::BlockDevice::block_count(self)
+    }
+    fn writable(&self) -> bool {
+        true
+    }
+    fn poll_read_blocks(
+        &mut self,
+        state: &mut bool,
+        cx: &mut core::task::Context<'_>,
+        first: BlockIndex,
+        buf: &mut [u8],
+    ) -> core::task::Poll<Result<(), Error<Self::Error>>> {
+        if !*state {
+            *state = true;
             cx.waker().wake_by_ref();
-            core::task::Poll::Pending
+            return core::task::Poll::Pending;
         }
-    })
-    .await
-}
-macro_rules! async_device {
-    ($mode:ident) => {
-        impl hadris_storage::$mode::BlockDevice for Device {
-            fn block_size(&self) -> BlockSize {
-                hadris_storage::sync::BlockDevice::block_size(self)
-            }
-            fn block_count(&self) -> u64 {
-                hadris_storage::sync::BlockDevice::block_count(self)
-            }
-            fn writable(&self) -> bool {
-                true
-            }
-            async fn read_blocks(
-                &mut self,
-                first: BlockIndex,
-                buf: &mut [u8],
-            ) -> Result<(), Error<Self::Error>> {
-                pause().await;
-                hadris_storage::sync::BlockDevice::read_blocks(self, first, buf)
-            }
-            async fn write_blocks(
-                &mut self,
-                first: BlockIndex,
-                buf: &[u8],
-            ) -> Result<(), Error<Self::Error>> {
-                pause().await;
-                hadris_storage::sync::BlockDevice::write_blocks(self, first, buf)
-            }
-            async fn flush(&mut self) -> Result<(), Error<Self::Error>> {
-                pause().await;
-                hadris_storage::sync::BlockDevice::flush(self)
-            }
+        core::task::Poll::Ready(hadris_storage::sync::BlockDevice::read_blocks(
+            self, first, buf,
+        ))
+    }
+    fn poll_write_blocks(
+        &mut self,
+        state: &mut bool,
+        cx: &mut core::task::Context<'_>,
+        first: BlockIndex,
+        buf: &[u8],
+    ) -> core::task::Poll<Result<(), Error<Self::Error>>> {
+        if !*state {
+            *state = true;
+            cx.waker().wake_by_ref();
+            return core::task::Poll::Pending;
         }
-    };
+        core::task::Poll::Ready(hadris_storage::sync::BlockDevice::write_blocks(
+            self, first, buf,
+        ))
+    }
+    fn poll_flush(
+        &mut self,
+        state: &mut bool,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Result<(), Error<Self::Error>>> {
+        if !*state {
+            *state = true;
+            cx.waker().wake_by_ref();
+            return core::task::Poll::Pending;
+        }
+        core::task::Poll::Ready(hadris_storage::sync::BlockDevice::flush(self))
+    }
+    fn cancel(&mut self, _: &mut bool) {}
 }
-async_device!(r#async);
-async_device!(local);
 
 macro_rules! run_sync { ($($body:tt)*) => { common::block_on(hadris_macros::strip_async! { $($body)* }) }; }
 macro_rules! run_async {
@@ -193,7 +200,6 @@ macro_rules! driver_test {
         #[test]
         fn $name() {
             $run!(async {
-                use hadris_fs::$mode::FileSystem;
                 for case in [common::CASES[1], common::CASES[2]] {
                     for dirty_at_mount in [false, true] {
                         let original = flag_image(case, dirty_at_mount, false);
