@@ -336,6 +336,25 @@ fn host_open_mounts_an_image_file_read_only() {
     assert_eq!(err.host_path(), Some(path.as_path()));
 }
 
+#[test]
+fn host_open_with_mounts_an_image_file_writable() {
+    let path = std::env::temp_dir().join(format!("hadris-detect-{}.img", std::process::id()));
+    std::fs::write(&path, fat(FatKind::Fat16, 8 << 20)).unwrap();
+    let mut fs = hadris::host::open_with(&path, hadris::host::mount_options()).unwrap();
+    assert!(fs.capabilities().writable());
+    let root = fs.root();
+    let name = hadris::fs::Name::new("MADE");
+    let dir = fs.mkdir(root, name, &hadris::fs::SetAttr::new()).unwrap();
+    fs.forget(dir, 1);
+    fs.unmount().ok().unwrap();
+
+    let mut fs = hadris::host::open(&path).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    assert!(!fs.capabilities().writable());
+    let found = fs.lookup(fs.root(), name).unwrap();
+    fs.forget(found, 1);
+}
+
 /// Read from the trait definition, so a method added to `FileSystem`
 /// fails here until `AnyFs` forwards it.
 #[test]

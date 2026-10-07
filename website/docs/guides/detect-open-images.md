@@ -69,7 +69,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 `hadris::host::open(path)` detects the image and mounts it read-only with
-the host's clock and time zone. On any other device, `hadris::sync::open(dev,
+the host's clock and time zone; `hadris::host::open_with(path, options)` takes
+the `MountOptions` and opens the file for writing unless they are read-only. On any other device, `hadris::sync::open(dev,
 options)` (or `hadris::r#async::open`) mounts the first filesystem `detect`
 finds with the caller's `MountOptions`, and returns an `AnyFs`: `Fat`,
 `ExFat`, `Iso` or `Udf`. `AnyFs` implements the `FileSystem` trait, so

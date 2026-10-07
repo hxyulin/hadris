@@ -635,7 +635,7 @@ wraps, not in what they can reach.
 |---|---|---|---|
 | Bare | `FatFs::mount(dev, options)?` | `alloc` for `FatFs` and `ExFatFs`; nothing for `IsoFs`, `UdfFs`, `NtfsFs` | The node API, format extras, `Walk`, `copy_tree` |
 | Shared | `Volume::new(fs)` | sync: `std`; async: `alloc` | Path methods named after `std::fs`, any number of `File` and `ReadDir` handles, cheap clones that move between threads and tasks |
-| Host | `host::open(path)`, `host::mount_options()` | `std`, sync | Host files as devices, host trees, the host clock and time zone (4.15) |
+| Host | `host::open(path)`, `host::open_with(path, options)`, `host::mount_options()` | `std`, sync | Host files as devices, host trees, the host clock and time zone (4.15) |
 | Embedded | `Fat::mount_with(dev, &mut token, options)` | nothing | The handle-based firmware API (4.15) |
 
 **One canonical pattern per tier.** Each tier's module docs open with one

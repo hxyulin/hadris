@@ -102,6 +102,11 @@ Each published package owns its version and may be released independently.
 - **NTFS:** Reading a file whose data a WOF (CompactOS) or Data Deduplication
   reparse point keeps elsewhere fails with `Unsupported`
   (`Detail::ReparseData`) instead of returning the sparse placeholder as zeros.
+- **hadris:** `host::open_with(path, options)` detects and mounts an image
+  file with the caller's `MountOptions`, opening the file for writing unless
+  the options are read-only. `host::open` is `open_with` with
+  `mount_options().read_only()`.
+
 - **hadris-part (breaking):** `Disk::partition` takes the slot the `Gpt` and
   `Mbr` edit methods and `Gpt::add` use, instead of counting the listed
   partitions; an empty slot or the MBR extended partition gives `None`.

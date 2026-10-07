@@ -26,7 +26,8 @@
 //! - `apfs`: the read-only APFS preview, behind `unstable-apfs`.
 //! - `ntfs`: the NTFS preview, behind `unstable-ntfs`.
 //! - `host` (with `std` and `sync`): host files, directories and image
-//!   files for builders and tools, and `host::open` (with `detect`).
+//!   files for builders and tools, and `host::open` and `host::open_with`
+//!   (with `detect`).
 //!
 //! # Feature flags
 //!
@@ -109,9 +110,37 @@ pub mod host {
     pub fn open(
         path: impl AsRef<std::path::Path>,
     ) -> Result<crate::sync::AnyFs<FileDevice>, crate::PathError> {
+        open_with(path, mount_options().read_only())
+    }
+
+    /// Detects the format of the image or device at `path` and mounts it
+    /// with `options`, as [`sync::open`](crate::sync::open) does. The file
+    /// is opened for reading and writing unless `options` is read-only.
+    /// Start from [`mount_options`] for the host clock and time zone.
+    ///
+    /// ```no_run
+    /// let fs = hadris::host::open_with("disk.img", hadris::host::mount_options())?;
+    /// # let _ = fs;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[cfg(feature = "detect")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "detect")))]
+    pub fn open_with(
+        path: impl AsRef<std::path::Path>,
+        options: crate::fs::MountOptions,
+    ) -> Result<crate::sync::AnyFs<FileDevice>, crate::PathError> {
         use crate::{Error, ErrorKind, PathError};
         let path = path.as_ref();
-        let dev = match FileDevice::open(path) {
+        let opened = if options.is_read_only() {
+            FileDevice::open(path)
+        } else {
+            std::fs::File::options()
+                .read(true)
+                .write(true)
+                .open(path)
+                .and_then(FileDevice::new)
+        };
+        let dev = match opened {
             Ok(dev) => dev,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                 return Err(
@@ -123,8 +152,7 @@ pub mod host {
                     .with_host_path(path));
             }
         };
-        crate::sync::open(dev, mount_options().read_only())
-            .map_err(|err| PathError::from(err).with_host_path(path))
+        crate::sync::open(dev, options).map_err(|err| PathError::from(err).with_host_path(path))
     }
 }
 
