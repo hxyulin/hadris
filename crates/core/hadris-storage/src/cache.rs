@@ -145,6 +145,12 @@ impl CacheState {
         &self.run
     }
 
+    /// The blocks the last [`gather`](Self::gather) copied.
+    #[cfg(feature = "async")]
+    pub(crate) fn run(&self) -> &[u8] {
+        &self.run
+    }
+
     pub(crate) fn clean_range(&mut self, start: u64, len: usize) {
         for index in start..start + len as u64 {
             self.dirty.remove(&index);
@@ -170,8 +176,10 @@ impl CacheState {
     }
 
     pub(crate) fn invalidate(&mut self, first: u64, count: usize) {
-        let slots: Vec<usize> = self.cached_in(first, count).map(|(_, slot)| slot).collect();
-        for slot in slots {
+        loop {
+            let Some((_, slot)) = self.cached_in(first, count).next() else {
+                break;
+            };
             self.forget(slot);
         }
     }

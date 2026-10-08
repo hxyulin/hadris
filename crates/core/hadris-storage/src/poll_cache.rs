@@ -300,7 +300,7 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
                     &mut state.child,
                     cx,
                     BlockIndex::new(state.start),
-                    self.cache.gather(state.start, state.len),
+                    self.cache.run(),
                 )
             } else {
                 self.inner.poll_flush(&mut state.child, cx)

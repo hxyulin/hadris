@@ -102,6 +102,10 @@ Each published package owns its version and may be released independently.
 - **NTFS:** Reading a file whose data a WOF (CompactOS) or Data Deduplication
   reparse point keeps elsewhere fails with `Unsupported`
   (`Detail::ReparseData`) instead of returning the sparse placeholder as zeros.
+- **hadris-storage:** The poll-based `Cache` copies each dirty run once per
+  flush write instead of on every poll, and dropping cached blocks before a
+  pass-through write no longer allocates, in every mode.
+
 - **hadris-storage:** `ReadAhead` writes invalidate only the windows they
   overlap, in every mode, so interleaved metadata writes no longer discard a
   data window elsewhere on the device.
