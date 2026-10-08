@@ -312,12 +312,14 @@ impl<T: ErrorType + MaybeSend> StreamWrite for ReadOnly<T> {
 ///
 /// Any block size works, so a FAT image with 512-byte sectors and an ISO with
 /// 2048-byte sectors can both open over the same file. Wrap the stream in
-/// [`ReadOnly`] when it does not implement [`Write`].
+/// [`ReadOnly`] when it does not implement [`Write`]. A device made with
+/// [`new_growable`](Self::new_growable) grows when written past its end.
 #[derive(Debug)]
 pub struct StreamDevice<T> {
     inner: T,
     block_size: BlockSize,
     block_count: u64,
+    grows: bool,
 }
 
 impl<T: Seek> StreamDevice<T> {
@@ -327,14 +329,24 @@ impl<T: Seek> StreamDevice<T> {
     pub async fn new(mut inner: T, block_size: BlockSize) -> Result<Self, T::Error> {
         let len = inner.seek(SeekFrom::End(0)).await?;
         let block_count = len / u64::from(block_size.get());
-        Ok(Self { inner, block_size, block_count })
+        Ok(Self { inner, block_size, block_count, grows: false })
+    }
+
+    /// Wraps a stream that can be extended past its end, measuring it as
+    /// [`new`](Self::new) does. When the stream accepts writes,
+    /// `max_block_count` is unbounded and a write past the end grows the
+    /// device.
+    pub async fn new_growable(inner: T, block_size: BlockSize) -> Result<Self, T::Error> {
+        let mut device = Self::new(inner, block_size).await?;
+        device.grows = true;
+        Ok(device)
     }
 }
 
 impl<T> StreamDevice<T> {
     /// Wraps `inner` with a known block count.
     pub fn with_block_count(inner: T, block_size: BlockSize, block_count: u64) -> Self {
-        Self { inner, block_size, block_count }
+        Self { inner, block_size, block_count, grows: false }
     }
 
     /// Recovers the stream.
@@ -366,6 +378,14 @@ impl<T: Read + Seek + StreamWrite> BlockDevice for StreamDevice<T> {
         self.block_count
     }
 
+    fn max_block_count(&self) -> u64 {
+        if self.grows && self.inner.stream_writable() {
+            u64::MAX / u64::from(self.block_size.get())
+        } else {
+            self.block_count
+        }
+    }
+
     fn writable(&self) -> bool {
         self.inner.stream_writable()
     }
@@ -388,13 +408,15 @@ impl<T: Read + Seek + StreamWrite> BlockDevice for StreamDevice<T> {
         first: BlockIndex,
         buf: &[u8],
     ) -> Result<(), Error<Self::Error>> {
-        check_blocks(self.block_size, self.block_count, first, buf.len())?;
+        let count = check_blocks(self.block_size, self.max_block_count(), first, buf.len())?;
         let offset = byte_offset(self.block_size, first)?;
         self.inner
             .seek(SeekFrom::Start(offset))
             .await
             .map_err(|err| Error::device(err, "seeking the stream failed"))?;
-        self.inner.stream_write_all(buf).await
+        self.inner.stream_write_all(buf).await?;
+        self.block_count = self.block_count.max(first.get() + count);
+        Ok(())
     }
 
     async fn flush(&mut self) -> Result<(), Error<Self::Error>> {
@@ -438,6 +460,27 @@ impl<D: BlockDevice> BlockDevice for Partition<D> {
     }
 }
 
+/// A read-only view of a device: it is not writable, reads go to the device,
+/// and writes fail with [`ErrorKind::ReadOnly`] without reaching it. Flush
+/// writes nothing.
+impl<D: BlockDevice> BlockDevice for ReadOnly<D> {
+    fn block_size(&self) -> BlockSize {
+        self.0.block_size()
+    }
+
+    fn block_count(&self) -> u64 {
+        self.0.block_count()
+    }
+
+    fn disk_offset(&self) -> u64 {
+        self.0.disk_offset()
+    }
+
+    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>> {
+        self.0.read_blocks(first, buf).await
+    }
+}
+
 fn past_end<E>(offset: u64) -> Error<E> {
     Error::new(ErrorKind::InvalidInput, "byte range past the end of the device")
         .with_location(hadris_io::Location::Byte(offset))
@@ -454,8 +497,9 @@ fn block_too_large<E>() -> Error<E> {
 /// alternate without immediately evicting each other.
 /// Requests larger than a window bypass it. Speculative reads stop at the device
 /// boundary; if they fail, the original request is retried without read-ahead.
-/// Writes invalidate both windows before reaching the device, including failed
-/// or cancelled writes. This adapter never buffers writes.
+/// Writes invalidate the windows they overlap before reaching the device,
+/// including failed or cancelled writes; a window elsewhere stays valid.
+/// This adapter never buffers writes.
 ///
 /// Memory is allocated lazily, up to `capacity` blocks in total. Zero disables
 /// buffering. External changes to the device require [`clear`](Self::clear).
@@ -586,7 +630,13 @@ impl<D: BlockDevice> BlockDevice for ReadAhead<D> {
     }
 
     async fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<(), Error<Self::Error>> {
-        self.clear();
+        let count = buf.len().div_ceil(self.block_size().get() as usize) as u64;
+        let end = first.get().saturating_add(count);
+        for window in &mut self.windows {
+            if window.first < end && first.get() < window.first + window.count as u64 {
+                window.count = 0;
+            }
+        }
         self.inner.write_blocks(first, buf).await
     }
 
@@ -650,6 +700,20 @@ impl<D: BlockDevice> Cache<D> {
     /// Borrows the underlying device.
     pub fn get_ref(&self) -> &D {
         &self.inner
+    }
+
+    /// Drops the cached blocks that have no unflushed writes before mutably
+    /// borrowing the device, so later reads see changes made through it.
+    /// Dirty blocks stay and overwrite the device at the next flush. The
+    /// device must keep its block size.
+    pub fn get_mut(&mut self) -> &mut D {
+        self.state.drop_clean();
+        &mut self.inner
+    }
+
+    /// Most blocks the cache holds.
+    pub fn capacity(&self) -> usize {
+        self.state.capacity()
     }
 
     async fn slot_for(&mut self, index: u64, load: bool) -> Result<usize, Error<D::Error>> {
@@ -792,13 +856,18 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
 /// Byte-granular access to a block device.
 ///
 /// Reads and writes may start and end anywhere. Partial blocks are handled by
-/// read-modify-write through a one-block scratch buffer. Also usable as a
-/// [`Read`] + [`Write`] + [`Seek`] stream.
+/// read-modify-write through a one-block scratch buffer, which keeps the last
+/// partial block it read or wrote, so small accesses within one block cost
+/// one device read. A write that covers that block replaces it, and a failed
+/// or cancelled access forgets it. Changes made to the device other than
+/// through the view need [`get_mut`](Self::get_mut), which forgets it too.
+/// Also usable as a [`Read`] + [`Write`] + [`Seek`] stream.
 #[derive(Debug)]
 pub struct ByteView<D> {
     inner: D,
     position: u64,
     scratch: crate::scratch::Scratch,
+    cached: Option<u64>,
 }
 
 impl<D: BlockDevice> ByteView<D> {
@@ -807,7 +876,7 @@ impl<D: BlockDevice> ByteView<D> {
     /// Without `alloc`, block sizes above 4096 bytes fail with
     /// [`ErrorKind::Unsupported`] on the first partial-block access.
     pub fn new(inner: D) -> Self {
-        Self { inner, position: 0, scratch: crate::scratch::Scratch::new() }
+        Self { inner, position: 0, scratch: crate::scratch::Scratch::new(), cached: None }
     }
 
     /// Device length in bytes.
@@ -830,8 +899,9 @@ impl<D: BlockDevice> ByteView<D> {
         &self.inner
     }
 
-    /// Mutably borrows the device.
+    /// Mutably borrows the device, forgetting the block the view keeps.
     pub fn get_mut(&mut self) -> &mut D {
+        self.cached = None;
         &mut self.inner
     }
 
@@ -856,8 +926,8 @@ impl<D: BlockDevice> ByteView<D> {
                 done += whole;
             } else {
                 let n = (size - within).min(left);
+                self.load(block, size).await?;
                 let scratch = self.scratch.get(size).ok_or_else(block_too_large)?;
-                self.inner.read_blocks(BlockIndex::new(block), scratch).await?;
                 buf[done..done + n].copy_from_slice(&scratch[within..within + n]);
                 done += n;
             }
@@ -879,17 +949,33 @@ impl<D: BlockDevice> ByteView<D> {
             let left = buf.len() - done;
             if within == 0 && left >= size {
                 let whole = left / size * size;
+                if self.cached.is_some_and(|cached| cached.wrapping_sub(block) < (whole / size) as u64) {
+                    self.cached = None;
+                }
                 self.inner.write_blocks(BlockIndex::new(block), &buf[done..done + whole]).await?;
                 done += whole;
             } else {
                 let n = (size - within).min(left);
+                self.load(block, size).await?;
+                self.cached = None;
                 let scratch = self.scratch.get(size).ok_or_else(block_too_large)?;
-                self.inner.read_blocks(BlockIndex::new(block), scratch).await?;
                 scratch[within..within + n].copy_from_slice(&buf[done..done + n]);
                 self.inner.write_blocks(BlockIndex::new(block), scratch).await?;
+                self.cached = Some(block);
                 done += n;
             }
         }
+        Ok(())
+    }
+
+    async fn load(&mut self, block: u64, size: usize) -> Result<(), Error<D::Error>> {
+        if self.cached == Some(block) {
+            return Ok(());
+        }
+        self.cached = None;
+        let scratch = self.scratch.get(size).ok_or_else(block_too_large)?;
+        self.inner.read_blocks(BlockIndex::new(block), scratch).await?;
+        self.cached = Some(block);
         Ok(())
     }
 

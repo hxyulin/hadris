@@ -185,7 +185,7 @@ fn hybrid_layout_roundtrip() {
     };
     let mirrors: Vec<_> = hybrid.mbr_partitions().collect();
     assert_eq!(mirrors.len(), 1);
-    assert_eq!(mirrors[0].index(), 1);
+    assert_eq!(mirrors[0].slot(), 1);
     assert_eq!(mirrors[0].start(), 2048);
     assert_eq!(back.partitions().count(), 2);
 }
@@ -218,13 +218,16 @@ fn ebr_chain_roundtrip() {
         panic!("expected an MBR");
     };
     let extended = mbr.extended().unwrap();
-    assert_eq!(extended.index(), 3);
+    assert_eq!(extended.slot(), 3);
     assert_eq!(extended.kind(), PartitionKind::Mbr(MbrType::EXTENDED_LBA));
     let parts: Vec<_> = disk.partitions().collect();
     assert_eq!(
-        parts.iter().map(|p| p.index()).collect::<Vec<_>>(),
+        parts.iter().map(|p| p.slot()).collect::<Vec<_>>(),
         [0, 1, 2, 4, 5, 6]
     );
+    assert_eq!(disk.partition(3), None);
+    assert_eq!(disk.partition(4), Some(parts[3]));
+    assert_eq!(disk.partition(7), None);
 
     let ext_start = extended.start() as usize;
     let mut ebr = ext_start;

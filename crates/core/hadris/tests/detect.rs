@@ -109,6 +109,7 @@ fn fat_volumes_are_detected_and_opened() {
         );
         let mut fs = open(device(image, 512), MountOptions::new()).unwrap();
         assert!(matches!(&fs, AnyFs::Fat(fat) if fat.info().kind() == kind));
+        assert_eq!(fs.image_format(), ImageFormat::Fat(kind));
         let root = fs.root();
         fs.stat(root).unwrap();
         fs.unmount().unwrap();
@@ -136,6 +137,7 @@ fn exfat_is_detected_opened_and_reported_damaged() {
     assert_eq!(formats(image.clone(), 512), [(ImageFormat::ExFat, None)]);
     let fs = open(device(image.clone(), 512), MountOptions::new()).unwrap();
     assert!(matches!(fs, AnyFs::ExFat(_)));
+    assert_eq!(fs.image_format(), ImageFormat::ExFat);
 
     let mut image = image;
     image[100] ^= 0xFF;
@@ -172,6 +174,7 @@ fn optical_images_list_the_bridge_first() {
     assert_eq!(get(&mut fs, "/DOCS/README.TXT"), PAYLOAD);
     let mut fs = open(device(optical(true, true), 2048), MountOptions::new()).unwrap();
     assert!(matches!(fs, AnyFs::Udf(_)));
+    assert_eq!(fs.image_format(), ImageFormat::Udf);
     assert_eq!(get(&mut fs, "/DOCS/README.TXT"), PAYLOAD);
 }
 
@@ -189,6 +192,7 @@ fn a_bridge_with_a_damaged_udf_side_opens_as_iso() {
     assert_eq!(found[1], (ImageFormat::Iso, None));
     let mut fs = open(device(image, 2048), MountOptions::new()).unwrap();
     assert!(matches!(fs, AnyFs::Iso(_)));
+    assert_eq!(fs.image_format(), ImageFormat::Iso);
     assert_eq!(get(&mut fs, "/DOCS/README.TXT"), PAYLOAD);
 }
 
@@ -314,6 +318,46 @@ fn blank_small_and_huge_block_devices_hold_nothing() {
 }
 
 #[test]
+fn format_writes_what_open_mounts() {
+    use hadris::FormatOptions;
+    for (options, block, format) in [
+        (
+            FormatOptions::Fat(hadris::fat::FatOptions::new().with_kind(FatKind::Fat16)),
+            512,
+            ImageFormat::Fat(FatKind::Fat16),
+        ),
+        (
+            FormatOptions::ExFat(hadris::fat::exfat::ExFatOptions::new()),
+            512,
+            ImageFormat::ExFat,
+        ),
+        (
+            FormatOptions::Udf(hadris::udf::UdfOptions::new()),
+            2048,
+            ImageFormat::Udf,
+        ),
+    ] {
+        let mut dev = device(vec![0u8; 8 << 20], block);
+        hadris::sync::format(&mut dev, &options).unwrap();
+        let found: Vec<_> = detect(&mut dev)
+            .unwrap()
+            .iter()
+            .map(|c| c.format())
+            .collect();
+        assert_eq!(found, [format]);
+        let mut fs = open(dev, MountOptions::new()).unwrap();
+        let root = fs.root();
+        fs.stat(root).unwrap();
+    }
+    let err = hadris::sync::format(
+        &mut device(vec![0u8; 64 * 512], 512),
+        &FormatOptions::ExFat(hadris::fat::exfat::ExFatOptions::new()),
+    )
+    .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::NoSpace);
+}
+
+#[test]
 fn a_failed_open_gives_the_device_back() {
     let image = table(&[0x83], false);
     let Err(err) = open(device(image.clone(), 512), MountOptions::new()) else {
@@ -334,6 +378,25 @@ fn host_open_mounts_an_image_file_read_only() {
     let err = hadris::host::open(&path).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::NotFound);
     assert_eq!(err.host_path(), Some(path.as_path()));
+}
+
+#[test]
+fn host_open_with_mounts_an_image_file_writable() {
+    let path = std::env::temp_dir().join(format!("hadris-detect-{}.img", std::process::id()));
+    std::fs::write(&path, fat(FatKind::Fat16, 8 << 20)).unwrap();
+    let mut fs = hadris::host::open_with(&path, hadris::host::mount_options()).unwrap();
+    assert!(fs.capabilities().writable());
+    let root = fs.root();
+    let name = hadris::fs::Name::new("MADE");
+    let dir = fs.mkdir(root, name, &hadris::fs::SetAttr::new()).unwrap();
+    fs.forget(dir, 1);
+    fs.unmount().ok().unwrap();
+
+    let mut fs = hadris::host::open(&path).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    assert!(!fs.capabilities().writable());
+    let found = fs.lookup(fs.root(), name).unwrap();
+    fs.forget(found, 1);
 }
 
 /// Read from the trait definition, so a method added to `FileSystem`
@@ -398,6 +461,14 @@ mod asynch {
             let root = fs.root();
             fs.stat(root).await.unwrap();
             fs.unmount().await.unwrap();
+
+            let mut dev = device(vec![0u8; 8 << 20], 512);
+            let options = hadris::FormatOptions::ExFat(hadris::fat::exfat::ExFatOptions::new());
+            hadris::r#async::format(&mut dev, &options).await.unwrap();
+            let fs = hadris::r#async::open(dev, MountOptions::new())
+                .await
+                .unwrap();
+            assert!(matches!(fs, hadris::r#async::AnyFs::ExFat(_)));
         });
     }
 

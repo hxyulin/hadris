@@ -897,7 +897,7 @@ let mut disk = FileDevice::open("disk.img")?;
 let table = hadris_part::sync::read(&mut disk)?;
 for partition in table.partitions() {
     println!("#{}: block {} ({} blocks, {} bytes)",
-        partition.index(), partition.start(), partition.len(), partition.size_bytes());
+        partition.slot(), partition.start(), partition.len(), partition.size_bytes());
 }
 ```
 
@@ -1350,7 +1350,7 @@ resolution is a value, `hadris_fs::Resolve::{Lexical, Follow, NoFollow}`.
 | `hadris_part::{GptHeaderReadExt, GptHeaderWriteExt, GptDiskReadExt, GptDiskWriteExt}`, `gpt_io::*` | `hadris_part::sync::{read, write}` |
 | `hadris_part::PartitionTableRead` | Removed |
 | `hadris_part::partition_table::{detect, open}`, `sync::partition_table::*` | `hadris_part::sync::read`, `hadris_part::sync::open(dev, &partition)` returning `hadris_storage::Partition` |
-| `hadris_part::{PartitionInfo, PartitionInfoTrait}`, `scheme::PartitionInfo` | `hadris_part::Partition` (`index`, `start`, `len`, `end`, `size_bytes`, `kind`, `flags`, `attributes`, `unique_guid`, `name`) |
+| `hadris_part::{PartitionInfo, PartitionInfoTrait}`, `scheme::PartitionInfo` | `hadris_part::Partition` (`slot`, `start`, `len`, `end`, `size_bytes`, `kind`, `flags`, `attributes`, `unique_guid`, `name`) |
 | `hadris_part::PartitionType` | `hadris_part::PartitionKind::{Mbr(MbrType), Gpt(Guid)}` |
 | `hadris_part::PartitionSchemeType` | `hadris_part::TableKind` |
 | `hadris_part::scheme::detect_scheme_from_mbr`, `hybrid::is_hybrid_mbr` | Match on `hadris_part::sync::read(&mut dev)?.table()` |

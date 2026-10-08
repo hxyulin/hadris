@@ -80,7 +80,7 @@ fn drive(data: &[u8]) {
 
         for partition in &listed {
             let _ = (
-                partition.index(),
+                partition.slot(),
                 partition.end(),
                 partition.size_bytes(),
                 partition.kind(),

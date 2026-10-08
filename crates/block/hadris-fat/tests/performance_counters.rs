@@ -378,3 +378,92 @@ fn first_small_writes_skip_reads_only_for_exclusive_device_blocks() {
         fs.unmount().unwrap();
     }
 }
+
+#[test]
+fn allocation_fails_without_a_scan_once_no_cluster_is_free() {
+    use hadris_fat::sync::{FatFs, format};
+    use hadris_fat::{FatKind, FatOptions};
+    use hadris_fs::{MountOptions, Name, SetAttr};
+
+    for (kind, size) in [(FatKind::Fat16, 16 << 20), (FatKind::Fat32, 64 << 20)] {
+        let mut inner = MemDevice::new(vec![0; size], BlockSize::new(512).unwrap());
+        format(
+            &mut inner,
+            &FatOptions::new().with_kind(kind).with_cluster_size(512),
+        )
+        .unwrap();
+        let counts = Cell::new(IoCounts::default());
+        let dev = Counted {
+            inner,
+            counts: &counts,
+            written_blocks: None,
+        };
+        let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
+        let file = fs
+            .create(fs.root(), Name::new("FILL.BIN"), &SetAttr::new())
+            .unwrap();
+        let mut end = 0u64;
+        for chunk in [1 << 20, 512] {
+            let data = vec![1u8; chunk];
+            loop {
+                match fs.write(file, end, &data) {
+                    Ok(n) if n > 0 => end += n as u64,
+                    Ok(_) => break,
+                    Err(err) => {
+                        assert_eq!(err.kind(), ErrorKind::NoSpace, "{kind:?}");
+                        break;
+                    }
+                }
+            }
+        }
+        counts.set(IoCounts::default());
+        let err = fs.write(file, end + 512, &[1]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::NoSpace, "{kind:?}");
+        assert!(counts.get().read_calls < 16, "{kind:?} {:?}", counts.get());
+        fs.close(file).unwrap();
+        fs.unmount().unwrap();
+    }
+}
+
+#[test]
+fn gap_fills_write_many_blocks_per_call() {
+    use hadris_fat::sync::{FatFs, format};
+    use hadris_fat::{FatKind, FatOptions};
+    use hadris_fs::{MountOptions, Name, SetAttr};
+
+    let mut inner = MemDevice::new(vec![0xa5; 64 << 20], BlockSize::new(512).unwrap());
+    format(
+        &mut inner,
+        &FatOptions::new()
+            .with_kind(FatKind::Fat32)
+            .with_cluster_size(512),
+    )
+    .unwrap();
+    let counts = Cell::new(IoCounts::default());
+    let dev = Counted {
+        inner,
+        counts: &counts,
+        written_blocks: None,
+    };
+    let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
+    let file = fs
+        .create(fs.root(), Name::new("SPARSE.BIN"), &SetAttr::new())
+        .unwrap();
+    counts.set(IoCounts::default());
+    fs.write(file, 1 << 20, b"end").unwrap();
+    assert!(counts.get().write_calls < 100, "{:?}", counts.get());
+    assert!(
+        counts.get().max_write_bytes >= 32 << 10,
+        "{:?}",
+        counts.get()
+    );
+    let mut data = vec![1; (1 << 20) + 3];
+    let mut done = 0;
+    while done < data.len() {
+        done += fs.read(file, done as u64, &mut data[done..]).unwrap();
+    }
+    assert!(data[..1 << 20].iter().all(|&b| b == 0));
+    assert_eq!(&data[1 << 20..], b"end");
+    fs.close(file).unwrap();
+    fs.unmount().unwrap();
+}

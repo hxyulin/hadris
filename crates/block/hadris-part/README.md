@@ -44,7 +44,7 @@ let mut disk = hadris_storage::host::FileDevice::open("disk.img")?;
 let table = read(&mut disk)?;
 for p in table.partitions() {
     let name = p.name().map(|n| n.to_string()).unwrap_or_default();
-    println!("#{} {} blocks at {} {:?} {name}", p.index(), p.len(), p.start(), p.kind());
+    println!("#{} {} blocks at {} {:?} {name}", p.slot(), p.len(), p.start(), p.kind());
 }
 let esp = table
     .partitions()
@@ -55,6 +55,10 @@ let esp_device = open(&mut disk, &esp)?; // a hadris_storage Partition
 # Ok(())
 # }
 ```
+
+`Partition::slot` is the entry's slot in its table: the GPT entry index, or the
+MBR slot (0 to 3, logicals from 4). `Disk::partition(slot)` and the `Gpt` and
+`Mbr` edit methods take that slot.
 
 ### Creating a disk image
 

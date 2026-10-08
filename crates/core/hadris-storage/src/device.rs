@@ -204,30 +204,33 @@ impl<D: hadris_io::ErrorType> hadris_io::ErrorType for Partition<D> {
     type Error = D::Error;
 }
 
-/// Marks a stream as read-only for `StreamDevice`.
+/// A read-only view of a stream or block device.
 ///
 /// A `StreamDevice` over `ReadOnly<T>` needs only `T: Read + Seek` and answers
-/// writes with [`ErrorKind::ReadOnly`].
+/// writes with [`ErrorKind::ReadOnly`]. Over a block device, in every mode,
+/// `ReadOnly<D>` is a block device that is not writable: reads go to `D`, and
+/// writes fail with [`ErrorKind::ReadOnly`] without reaching it, so a driver
+/// mounts it read-only.
 #[derive(Debug, Clone, Default)]
 pub struct ReadOnly<T>(pub(crate) T);
 
 impl<T> ReadOnly<T> {
-    /// Wrap a stream.
+    /// Wrap a stream or device.
     pub const fn new(inner: T) -> Self {
         Self(inner)
     }
 
-    /// Recover the stream.
+    /// Recover the stream or device.
     pub fn into_inner(self) -> T {
         self.0
     }
 
-    /// Borrow the stream.
+    /// Borrow the stream or device.
     pub const fn get_ref(&self) -> &T {
         &self.0
     }
 
-    /// Mutably borrow the stream.
+    /// Mutably borrow the stream or device.
     pub fn get_mut(&mut self) -> &mut T {
         &mut self.0
     }

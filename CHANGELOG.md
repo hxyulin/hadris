@@ -102,6 +102,105 @@ Each published package owns its version and may be released independently.
 - **NTFS:** Reading a file whose data a WOF (CompactOS) or Data Deduplication
   reparse point keeps elsewhere fails with `Unsupported`
   (`Detail::ReparseData`) instead of returning the sparse placeholder as zeros.
+- **hadris:** `AnyFs::image_format` reports the format of the mounted
+  filesystem, so callers can dispatch to a format's own API without matching
+  every variant.
+
+- **hadris:** `sync::format` and `async_::format` (with `detect`, `alloc` and
+  `write`) write an empty FAT, exFAT or UDF volume to a device from a
+  `FormatOptions`, the counterpart of `open`. They return `PathError`; call
+  the format's own function for its result, such as the FAT geometry.
+
+- **hadris:** `host::open_with(path, options)` detects and mounts an image
+  file with the caller's `MountOptions`, opening the file for writing unless
+  the options are read-only. `host::open` is `open_with` with
+  `mount_options().read_only()`.
+
+- **hadris-part (breaking):** `Disk::partition` takes the slot the `Gpt` and
+  `Mbr` edit methods and `Gpt::add` use, instead of counting the listed
+  partitions; an empty slot or the MBR extended partition gives `None`.
+  `Partition::index` is renamed to `Partition::slot`. Callers that indexed
+  past an empty GPT slot or an MBR extended partition must pass the slot.
+
+- **hadris-cpio:** A modification time before 1970, or past what the format
+  stores (2^32 - 1 seconds for newc and crc, 2^33 - 1 for odc), is clamped
+  to the nearest stored time and reported as a dropped `Modified` field
+  instead of failing the entry with `LimitExceeded` (META-TIME-02).
+
+- **hadris-cpio:** `normalize_path` names an entry as `read_tree` places it
+  (leading `/` and `./` removed, repeated and trailing `/` dropped, `None` for
+  the root), so stream readers can follow the same rule.
+
+- **hadris-fat:** `FatFs::mark_clean`, `ExFatFs::mark_clean` and the embedded
+  `Fat::mark_clean` have the next sync mark a volume clean that was dirty at
+  mount (or, on FAT, that recovery left dirty), for use after `check` found
+  it clean, as `fsck.fat -a` and `fsck.exfat` do for the dirty flag. They fail
+  with `ReadOnly` on a read-only mount. `hadris-fat-raw` adds
+  `io::Fat::mark_clean` and `exfat::io::ExFat::mark_clean`; `was_dirty` still
+  reports what mount saw.
+
+- **hadris-fat:** `FatFs`, `ExFatFs` and the exFAT formatter write zeros for
+  gap fills and cleared regions up to 64 KiB per device call instead of one
+  4096-byte buffer per call. A 1 MiB gap on FAT32 with 512-byte sectors took
+  292 device writes and now takes 52. The embedded drivers are unchanged.
+
+- **hadris-fat (exFAT):** Freeing or shrinking a contiguous (`NoFatChain`)
+  allocation clears its bitmap bits with one write per device block, and
+  giving one a FAT chain writes its entries a device block at a time.
+  Removing a 64-cluster contiguous file took 66 device writes and now takes
+  at most 4. `hadris-fat-raw` exports the primitives as `exfat::io::set_bits`
+  and `exfat::io::link_run` in each mode.
+
+- **hadris-fat-raw:** FAT allocation fails with `NoSpace` without scanning the
+  FAT once a scan found no cluster free and none was freed since (an FSInfo
+  count of 0 is still only a hint), and exFAT allocation when the counted
+  free clusters are 0. A full FAT16 volume with 512-byte clusters took 127
+  device reads per failed allocation before.
+
+- **hadris-fs:** `Volume::remove_dir_all` continues each directory's listing
+  from the cursor after the entry it removed instead of listing from the
+  start after every removal, so emptying a directory of n entries reads it
+  O(n) times fewer. The listing is read once more from the start when it ends.
+
+- **hadris-io:** `&[u8]` implements `Read`, reading from its front, and with
+  `alloc` `Vec<u8>` implements `Write`, appending, in every mode, as `std` and
+  `embedded-io` do. The crate docs claimed both traits for `Vec<u8>`; they now
+  say what is implemented.
+
+- **hadris-storage:** `ReadOnly<D>` over a block device is a block device in
+  every mode: not writable, so drivers mount it read-only, with reads passed
+  through and writes refused with `ReadOnly` before they reach the device.
+
+- **hadris-storage:** The synchronous `StreamDevice::new_growable` wraps a
+  stream that can be extended past its end: when it accepts writes,
+  `max_block_count` is unbounded and writes past the end grow the device,
+  as `BlockingStream::new_growable` already allowed in async mode.
+
+- **hadris-storage:** `Cache::capacity` and `Cache::get_mut` in every mode,
+  matching `ReadAhead`. `get_mut` drops clean cached blocks so later reads
+  see changes made through it; dirty blocks stay. `CacheOperation` and
+  `ReadAheadOperation` implement `Debug`.
+
+- **hadris-storage:** The poll-based `Cache` copies each dirty run once per
+  flush write instead of on every poll, and dropping cached blocks before a
+  pass-through write no longer allocates, in every mode.
+
+- **hadris-storage:** `ReadAhead` writes invalidate only the windows they
+  overlap, in every mode, so interleaved metadata writes no longer discard a
+  data window elsewhere on the device.
+
+- **hadris-storage:** `host::FileDevice::get_ref` and `get_mut` borrow the
+  file.
+
+- **hadris-storage:** `host::FileDevice` reads and writes with positional
+  I/O (`pread`/`pwrite` on Unix, `seek_read`/`seek_write` on Windows), one
+  system call per request instead of a seek and a transfer. Other platforms
+  keep seeking. The file's own position is no longer moved on Unix.
+
+- **hadris-storage:** `ByteView` keeps the last partial block it read or
+  wrote, so consecutive small reads and writes within one block cost one
+  device read instead of one per call, in every mode. `get_mut` forgets the
+  kept block.
 
 - **hadris-fat:** Node ids and embedded `Node` locators are checked harder
   before use: the slot must lie in the fixed root or the cluster heap (the

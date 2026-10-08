@@ -864,6 +864,17 @@ impl<D: BlockDevice> FatFs<D> {
         self.was_dirty
     }
 
+    /// Has the next [`sync`](Self::sync) mark a FAT16/32 volume clean even
+    /// though it was dirty at mount or recovery found corruption, as
+    /// `fsck.fat -a` clears the dirty bit. Call it after `check` found the
+    /// volume clean; corruption found later keeps the volume dirty again.
+    /// Fails with [`ErrorKind::ReadOnly`] on a read-only mount.
+    pub fn mark_clean(&mut self) -> FsResult<(), D::Error> {
+        self.writable()?;
+        self.fat.mark_clean();
+        Ok(())
+    }
+
     /// Maps `node` to the device, FIEMAP style: fills `out` with the runs
     /// of consecutive clusters that hold its bytes from file offset `from`
     /// on, and returns how many it filled. A run is whole clusters, except
@@ -3107,7 +3118,8 @@ impl<D: BlockDevice> FatFs<D> {
     /// then fails with [`ErrorKind::Corrupt`].
     ///
     /// FAT16/32 is marked clean after these writes are flushed, unless it
-    /// was dirty at mount or recovery encountered unrecoverable corruption.
+    /// was dirty at mount or recovery encountered unrecoverable corruption
+    /// and [`mark_clean`](Self::mark_clean) was not called since.
     ///
     /// A read-only volume is not written: a pending dirty-marker update
     /// also prevents a successful sync or unmount. `sync` fails with

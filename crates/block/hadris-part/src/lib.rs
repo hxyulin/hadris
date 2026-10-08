@@ -23,7 +23,7 @@
 //! assert!(matches!(disk.table(), PartitionTable::Gpt(_)));
 //! for p in disk.partitions() {
 //!     let name = p.name().map(|n| n.to_string()).unwrap_or_default();
-//!     println!("{} {} {} {:?} {name}", p.index(), p.start(), p.size_bytes(), p.kind());
+//!     println!("{} {} {} {:?} {name}", p.slot(), p.start(), p.size_bytes(), p.kind());
 //! }
 //! let esp = disk.partition(0).unwrap();
 //! assert_eq!(esp.kind(), PartitionKind::Gpt(types::EFI_SYSTEM));

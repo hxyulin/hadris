@@ -1,4 +1,3 @@
-use alloc::borrow::Cow;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
@@ -12,38 +11,6 @@ use crate::error::Error;
 
 /// Bytes read per request while loading an entry's data.
 const CHUNK: usize = 64 * 1024;
-
-/// The path of an entry relative to the archive root: leading `/` and
-/// `./` removed. `None` for the root itself.
-fn relative_path(name: &[u8]) -> Option<Cow<'_, [u8]>> {
-    let mut path = name;
-    loop {
-        if let Some(rest) = path.strip_prefix(b"/") {
-            path = rest;
-        } else if let Some(rest) = path.strip_prefix(b"./") {
-            path = rest;
-        } else {
-            break;
-        }
-    }
-    if matches!(path, b"" | b".") {
-        return None;
-    }
-    if !path.ends_with(b"/") && !path.windows(2).any(|pair| pair == b"//") {
-        return Some(Cow::Borrowed(path));
-    }
-    let mut normalized = Vec::with_capacity(path.len());
-    for part in path
-        .split(|&byte| byte == b'/')
-        .filter(|part| !part.is_empty())
-    {
-        if !normalized.is_empty() {
-            normalized.push(b'/');
-        }
-        normalized.extend_from_slice(part);
-    }
-    Some(Cow::Owned(normalized))
-}
 
 /// Adds `node` at `path`, replacing what an earlier entry put there, as
 /// extraction does.
@@ -198,7 +165,7 @@ pub async fn read_tree<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeS
             _ => return Err(with_path(PathError::new(ErrorKind::Unsupported, "unknown cpio file type"))),
         }
         .with_attrs(attrs);
-        let Some(path) = relative_path(&name) else {
+        let Some(path) = crate::normalize_path(&name) else {
             if file_type != FileType::Dir {
                 return Err(with_path(PathError::new(ErrorKind::InvalidInput, "the archive root is not a directory")));
             }

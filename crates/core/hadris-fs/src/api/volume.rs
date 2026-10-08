@@ -482,26 +482,40 @@ async fn read_link_of<F: FileSystem + ?Sized>(fs: &mut F, node: NodeId) -> FsRes
     Ok(buf)
 }
 
-/// Empties the directory `top`, depth first.
+/// Empties the directory `top`, depth first. Each directory's listing
+/// continues from the cursor after the entry last removed, which stays
+/// valid across removes, and is read once more from the start when it ends
+/// in case the driver moved an entry before the cursor.
 async fn empty_dir<F: FileSystem + ?Sized>(
     fs: &mut F,
     pending: &spin::Mutex<VecDeque<Pending>>,
     top: NodeId,
 ) -> FsResult<(), F::DeviceError> {
     let mut stack: Vec<(Held<'_>, Vec<u8>)> = Vec::new();
+    let mut cursors = alloc::vec![DirCursor::START];
     let result = loop {
         let dir = stack.last().map_or(top, |(node, _)| node.node());
-        let entry = match fs.readdir(dir, DirCursor::START).await {
+        let at = cursors.last_mut().expect("one cursor per listed directory");
+        let entry = match fs.readdir(dir, *at).await {
             Ok(entry) => entry,
             Err(err) => break Err(err),
         };
+        if let Some(entry) = &entry {
+            *at = entry.next_cursor();
+        } else if !at.is_start() {
+            *at = DirCursor::START;
+            continue;
+        }
         match entry {
             Some(entry) if entry.file_type().is_dir() => match fs.lookup(dir, entry.name()).await {
                 Ok(child) if child == top || stack.iter().any(|(node, _)| node.node() == child) => {
                     fs.forget(child, 1);
                     break Err(ErrorKind::Corrupt.into());
                 }
-                Ok(child) => stack.push((Held::new(pending, child), entry.name().as_bytes().to_vec())),
+                Ok(child) => {
+                    stack.push((Held::new(pending, child), entry.name().as_bytes().to_vec()));
+                    cursors.push(DirCursor::START);
+                }
                 Err(err) => break Err(err),
             },
             Some(entry) => {
@@ -513,6 +527,7 @@ async fn empty_dir<F: FileSystem + ?Sized>(
                 let Some((node, name)) = stack.pop() else {
                     break Ok(());
                 };
+                cursors.pop();
                 let parent = stack.last().map_or(top, |(node, _)| node.node());
                 let removed = fs.rmdir(parent, Name::new(&name)).await;
                 node.forget(fs);

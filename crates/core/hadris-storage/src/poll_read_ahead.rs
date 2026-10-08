@@ -4,6 +4,9 @@ use core::task::{Context, Poll};
 use hadris_io::{Error, ErrorType};
 
 /// Two-window bounded read-ahead for sequential access.
+///
+/// Writes invalidate the windows they overlap before reaching the device,
+/// including failed or cancelled writes; a window elsewhere stays valid.
 #[derive(Debug)]
 pub struct ReadAhead<D> {
     inner: D,
@@ -19,7 +22,7 @@ struct Window {
     data: alloc::vec::Vec<u8>,
 }
 /// Progress of a read-ahead request.
-#[derive(Default)]
+#[derive(Debug, Default)]
 #[non_exhaustive]
 pub struct ReadAheadOperation<S> {
     child: S,
@@ -198,7 +201,14 @@ impl<D: BlockDevice> BlockDevice for ReadAhead<D> {
         {
             return Poll::Ready(Err(error));
         }
-        self.clear();
+        let end = first
+            .get()
+            .saturating_add((buf.len() / self.block_size().get() as usize) as u64);
+        for window in &mut self.windows {
+            if window.first < end && first.get() < window.first + window.count as u64 {
+                window.count = 0;
+            }
+        }
         state.pending = true;
         let result = self
             .inner
@@ -221,6 +231,5 @@ impl<D: BlockDevice> BlockDevice for ReadAhead<D> {
             self.inner.cancel(&mut state.child);
             state.pending = false;
         }
-        self.clear();
     }
 }

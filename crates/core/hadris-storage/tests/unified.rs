@@ -79,3 +79,17 @@ fn local_adapter_preserves_growth_and_read_only_errors() {
         assert_eq!(error.kind(), ErrorKind::ReadOnly);
     });
 }
+
+#[test]
+fn read_only_view_refuses_writes_without_reaching_the_device() {
+    use hadris_storage::ReadOnly;
+    let mut device = ReadOnly::new(MemDevice::new(vec![7; 1024], BlockSize::new(512).unwrap()));
+    assert!(!device.writable());
+    let err = block_on(device.write_blocks(BlockIndex::new(0), &[1; 512])).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::ReadOnly);
+    block_on(device.flush()).unwrap();
+    let mut data = [0; 512];
+    block_on(device.read_blocks(BlockIndex::new(1), &mut data)).unwrap();
+    assert_eq!(data, [7; 512]);
+    assert_eq!(device.into_inner().into_inner(), vec![7; 1024]);
+}

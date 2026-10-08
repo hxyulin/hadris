@@ -612,6 +612,72 @@ pub async fn set_bit<D: BlockDevice>(
     Ok(())
 }
 
+/// Sets the bitmap bits of the `count` clusters from `first` to `state`, as
+/// [`set_bit`] does for one, with one write per device block of each bitmap
+/// for the bits that share it. A range outside the cluster heap fails with
+/// [`ErrorKind::Corrupt`] before anything is written.
+pub async fn set_bits<D: BlockDevice>(
+    dev: &mut D,
+    block: &mut BlockBuf,
+    vol: &mut ExFat,
+    first: u32,
+    count: u32,
+    state: ClusterState,
+) -> FsResult<(), D::Error> {
+    if count == 0 {
+        return Ok(());
+    }
+    let end = check_cluster(&vol.geo, first)?.checked_add(count).ok_or(ErrorKind::Corrupt)?;
+    check_cluster(&vol.geo, end - 1)?;
+    let mut cluster = first;
+    while cluster < end {
+        let place = bit_place(dev, block, vol, cluster).await?;
+        let mut group = ClusterGroup::new(cluster);
+        group.add(cluster);
+        cluster += 1;
+        while cluster < end && group.spans(cluster) && bit_place(dev, block, vol, cluster).await? == place {
+            group.add(cluster);
+            cluster += 1;
+        }
+        patch_bits(dev, block, vol, &group, place, state).await?;
+    }
+    Ok(())
+}
+
+/// Links the `count` clusters from `first` into one chain in the FAT, the
+/// last ending it, as a contiguous (`NoFatChain`) allocation becomes a
+/// chained one. Entries that share a device block of every FAT take one
+/// write, from the chain's end back to its start, the mirror FAT first as
+/// [`set`] does. A range outside the cluster heap fails with
+/// [`ErrorKind::Corrupt`] before anything is written.
+pub async fn link_run<D: BlockDevice>(
+    dev: &mut D,
+    block: &mut BlockBuf,
+    vol: &mut ExFat,
+    first: u32,
+    count: u32,
+) -> FsResult<(), D::Error> {
+    if count == 0 {
+        return Ok(());
+    }
+    let end = check_cluster(&vol.geo, first)?.checked_add(count).ok_or(ErrorKind::Corrupt)?;
+    check_cluster(&vol.geo, end - 1)?;
+    let size = block.block_size() as u64;
+    let mut head = raw::FAT_END;
+    let mut top = end;
+    while top > first {
+        let high = top - 1;
+        let mut group = ClusterGroup::new(high.saturating_sub(ClusterGroup::SPAN - 1));
+        while top > first && same_fat_block(&vol.geo, size, top - 1, high) && group.spans(top - 1) {
+            group.add(top - 1);
+            top -= 1;
+        }
+        patch_fat(dev, block, vol, &group, head).await?;
+        head = group.lowest();
+    }
+    Ok(())
+}
+
 /// The number of free clusters, counted from the active bitmap when it is
 /// not known, and kept in `vol`.
 pub async fn count_free<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &mut ExFat) -> FsResult<u32, D::Error> {
@@ -642,13 +708,17 @@ pub async fn count_free<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: 
 /// hint on: its FAT entry ends a
 /// chain and its bitmap bit is set. With `held`, the cluster is recorded
 /// there before anything is written: as the head when there is none, else
-/// as the extra cluster.
+/// as the extra cluster. A known free count of 0 fails with
+/// [`ErrorKind::NoSpace`] without scanning the bitmap.
 pub async fn allocate<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
     vol: &mut ExFat,
     held: Option<&mut Held>,
 ) -> FsResult<u32, D::Error> {
+    if vol.free == Some(0) {
+        return Err(ErrorKind::NoSpace.into());
+    }
     let count = vol.geo.cluster_count();
     let from = vol.next_free.clamp(raw::FIRST_CLUSTER, vol.geo.max_cluster()) - raw::FIRST_CLUSTER;
     let mut scanned = 0u32;
@@ -715,6 +785,9 @@ pub async fn allocate_run<D: BlockDevice>(
     }
     if count == 1 {
         return allocate(dev, block, vol, held).await;
+    }
+    if vol.free == Some(0) {
+        return Err(ErrorKind::NoSpace.into());
     }
     let total = vol.geo.cluster_count();
     let from = vol.next_free.clamp(raw::FIRST_CLUSTER, vol.geo.max_cluster()) - raw::FIRST_CLUSTER;

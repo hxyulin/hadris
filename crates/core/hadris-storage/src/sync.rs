@@ -120,6 +120,22 @@ mod device_tests {
     }
 
     #[test]
+    fn read_only_view_refuses_writes_without_reaching_the_device() {
+        let mut device = ReadOnly::new(MemDevice::new(counting(8), B4));
+        assert!(!device.writable());
+        assert_eq!((device.block_count(), device.max_block_count()), (2, 2));
+        assert_eq!(
+            kind(device.write_blocks(BlockIndex::new(0), &[9; 4])),
+            ErrorKind::ReadOnly
+        );
+        device.flush().unwrap();
+        let mut buf = [0_u8; 4];
+        device.read_blocks(BlockIndex::new(0), &mut buf).unwrap();
+        assert_eq!(buf, [0, 1, 2, 3]);
+        assert_eq!(device.into_inner().into_inner(), counting(8));
+    }
+
+    #[test]
     fn partition_offsets_and_bounds() {
         let mut device = MemDevice::new(counting(16), B4);
         let mut partition = Partition::new(&mut device, 4, 8);
@@ -236,6 +252,24 @@ mod device_tests {
             kind(device.write_blocks(BlockIndex::new(0), &[0; 4])),
             ErrorKind::ReadOnly
         );
+    }
+
+    #[test]
+    fn growable_stream_device_grows_when_written_past_its_end() {
+        let stream = StdIo::new(std::io::Cursor::new(counting(10)));
+        let mut device = StreamDevice::new_growable(stream, B4).unwrap();
+        assert_eq!(device.block_count(), 2);
+        assert!(device.max_block_count() > u64::from(u32::MAX));
+        device.write_blocks(BlockIndex::new(3), &[7; 4]).unwrap();
+        assert_eq!(device.block_count(), 4);
+        let mut buf = [0_u8; 8];
+        device.read_blocks(BlockIndex::new(2), &mut buf).unwrap();
+        assert_eq!(buf, [8, 9, 0, 0, 7, 7, 7, 7]);
+
+        let bytes = counting(8);
+        let stream = ReadOnly::new(hadris_io::Cursor::new(&bytes));
+        let device = StreamDevice::new_growable(stream, B4).unwrap();
+        assert_eq!(device.max_block_count(), 2);
     }
 
     #[test]
@@ -446,6 +480,8 @@ mod device_tests {
         assert_eq!(&block[..76], &[5; 76]);
         assert_eq!(&block[76..], &[0; 436]);
         dev.flush().unwrap();
+        assert_eq!(dev.get_ref().metadata().unwrap().len(), 2048);
+        dev.get_mut().sync_all().unwrap();
         drop(dev);
         assert_eq!(std::fs::metadata(&path).unwrap().len(), 2048);
 

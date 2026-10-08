@@ -10,7 +10,7 @@ use std::io::{Read as _, Write as _};
 use common::files::{exists, names, read, write};
 use common::sync::{MemFs, fixture};
 use hadris_fs::sync::{FileSystem, Volume};
-use hadris_fs::{ErrorKind, OpenOptions, Resolve, SeekFrom, SetAttr};
+use hadris_fs::{ErrorKind, FileType, OpenOptions, Resolve, SeekFrom, SetAttr};
 
 fn open_nodes(vol: Volume<MemFs>) -> usize {
     vol.into_inner().unwrap().open_nodes()
@@ -82,6 +82,22 @@ fn paths_and_handles() {
         ErrorKind::InvalidInput
     );
     assert_eq!(open_nodes(vol), 1);
+}
+
+#[test]
+fn remove_dir_all_lists_each_directory_once() {
+    let mut fs = MemFs::new();
+    fs.add("/", "many", FileType::Dir, b"");
+    fs.add("/many", "sub", FileType::Dir, b"");
+    for i in 0..200 {
+        fs.add("/many", &format!("f{i}"), FileType::File, b"");
+        fs.add("/many/sub", &format!("g{i}"), FileType::File, b"");
+    }
+    let vol = Volume::new(fs);
+    vol.remove_dir_all("/many").unwrap();
+    assert!(names(&vol, "/").is_empty());
+    let fs = vol.into_inner().unwrap();
+    assert!(fs.scanned() < 3000, "{}", fs.scanned());
 }
 
 #[test]

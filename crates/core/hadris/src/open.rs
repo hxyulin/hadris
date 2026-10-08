@@ -208,6 +208,18 @@ impl<D: BlockDevice> AnyFs<D> {
     pub fn into_inner(self) -> D {
         each!(self, fs => fs.into_inner())
     }
+
+    /// The format of the mounted filesystem. A bridge image mounted as UDF
+    /// reports [`ImageFormat::Udf`].
+    pub fn image_format(&self) -> ImageFormat {
+        match self {
+            Self::Fat(fs) => ImageFormat::Fat(fs.info().kind()),
+            Self::ExFat(_) => ImageFormat::ExFat,
+            Self::Iso(_) => ImageFormat::Iso,
+            Self::Udf(_) => ImageFormat::Udf,
+            Self::Apfs(_) => ImageFormat::Apfs,
+        }
+    }
 }
 
 /// Detects what `dev` holds and mounts the first filesystem found with
@@ -278,6 +290,22 @@ pub async fn open_apfs<D: BlockDevice>(
     volume: crate::apfs::VolumeSelector<'_>,
 ) -> Result<AnyFs<D>, MountError<D, D::Error>> {
     ApfsFs::mount_volume(dev, options, volume).await.map(AnyFs::Apfs)
+}
+
+/// Writes an empty filesystem of the format `options` names to `dev`, so
+/// that [`open`] mounts it: FAT and exFAT with `hadris_fat`'s `format`, and
+/// UDF with its tree writer and an empty tree. Call the format's own
+/// function for its result, such as the FAT geometry.
+#[cfg(all(feature = "alloc", feature = "write"))]
+pub async fn format<D: BlockDevice>(dev: &mut D, options: &crate::FormatOptions) -> Result<(), crate::PathError> {
+    match options {
+        crate::FormatOptions::Fat(options) => super::fat_format(dev, options).await.map(drop)?,
+        crate::FormatOptions::ExFat(options) => super::exfat_format(dev, options).await.map(drop)?,
+        crate::FormatOptions::Udf(options) => {
+            super::udf_write(&mut *dev, &hadris_fs::Tree::new(), options).await.map(drop)?
+        }
+    }
+    Ok(())
 }
 
 #[cfg(feature = "alloc")]

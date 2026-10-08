@@ -86,7 +86,7 @@ impl hadris_io::ErrorType for Counting {
 mod sync {
     use super::*;
     use hadris_io::Error;
-    use hadris_storage::sync::{BlockDevice, Cache};
+    use hadris_storage::sync::{BlockDevice, ByteView, Cache};
 
     impl BlockDevice for Counting {
         fn block_size(&self) -> BlockSize {
@@ -191,12 +191,55 @@ mod sync {
             .unwrap();
         assert_eq!(&buf[..BLOCK], &[5; BLOCK]);
     }
+
+    #[test]
+    fn get_mut_rereads_clean_blocks_and_keeps_dirty_ones() {
+        let mut cache = Cache::new(device(), 8);
+        assert_eq!(cache.capacity(), 8);
+        let mut buf = [0; BLOCK];
+        cache.read_blocks(BlockIndex::new(1), &mut buf).unwrap();
+        cache.write_blocks(BlockIndex::new(2), &[5; BLOCK]).unwrap();
+        cache.write_blocks(BlockIndex::new(3), &[6; BLOCK]).unwrap();
+        cache.get_mut().get_mut()[BLOCK..4 * BLOCK].fill(9);
+        cache.read_blocks(BlockIndex::new(1), &mut buf).unwrap();
+        assert_eq!(buf, [9; BLOCK]);
+        cache.read_blocks(BlockIndex::new(3), &mut buf).unwrap();
+        assert_eq!(buf, [6; BLOCK]);
+        let device = cache.finish().unwrap();
+        assert_eq!(&device.get_ref()[3 * BLOCK..4 * BLOCK], &[6; BLOCK]);
+    }
+
+    #[test]
+    fn byte_view_reads_a_partial_block_once() {
+        let mut view = ByteView::new(Counting {
+            inner: device(),
+            reads: 0,
+            writes: 0,
+        });
+        let mut byte = [0; 1];
+        for offset in 0..BLOCK as u64 {
+            view.read_at(offset, &mut byte).unwrap();
+            assert_eq!(byte[0], offset as u8);
+        }
+        assert_eq!(view.get_ref().reads, 1);
+        for offset in 0..BLOCK as u64 {
+            view.write_at(offset, &[0xAA]).unwrap();
+        }
+        assert_eq!((view.get_ref().reads, view.get_ref().writes), (1, BLOCK));
+        view.write_at(0, &[7; 2 * BLOCK]).unwrap();
+        view.read_at(1, &mut byte).unwrap();
+        assert_eq!(byte[0], 7);
+        assert_eq!(view.get_ref().reads, 2);
+        view.get_mut().inner.get_mut()[1] = 9;
+        view.read_at(1, &mut byte).unwrap();
+        assert_eq!((byte[0], view.get_ref().reads), (9, 3));
+    }
 }
 
 #[cfg(feature = "async")]
 mod r#async {
     use super::*;
-    use hadris_storage::r#async::{BlockDevice, Cache};
+    use hadris_storage::r#async::{BlockDevice, ByteView, Cache};
 
     fn block_on<F: core::future::Future>(future: F) -> F::Output {
         let mut context = core::task::Context::from_waker(core::task::Waker::noop());
@@ -263,6 +306,53 @@ mod r#async {
         assert!(!cache.is_dirty());
         block_on(cache.read_blocks(BlockIndex::new(3), &mut buf[..BLOCK])).unwrap();
         assert_eq!(&buf[..BLOCK], &[5; BLOCK]);
+    }
+
+    #[test]
+    fn get_mut_rereads_clean_blocks_and_keeps_dirty_ones() {
+        let mut cache = Cache::new(device(), 8);
+        assert_eq!(cache.capacity(), 8);
+        let mut buf = [0; BLOCK];
+        block_on(cache.read_blocks(BlockIndex::new(1), &mut buf)).unwrap();
+        block_on(cache.write_blocks(BlockIndex::new(2), &[5; BLOCK])).unwrap();
+        block_on(cache.write_blocks(BlockIndex::new(3), &[6; BLOCK])).unwrap();
+        cache.get_mut().get_mut()[BLOCK..4 * BLOCK].fill(9);
+        block_on(cache.read_blocks(BlockIndex::new(1), &mut buf)).unwrap();
+        assert_eq!(buf, [9; BLOCK]);
+        block_on(cache.read_blocks(BlockIndex::new(3), &mut buf)).unwrap();
+        assert_eq!(buf, [6; BLOCK]);
+        let device = block_on(cache.finish()).unwrap();
+        assert_eq!(&device.get_ref()[3 * BLOCK..4 * BLOCK], &[6; BLOCK]);
+        let operation = hadris_storage::r#async::CacheOperation::<()>::default();
+        assert!(format!("{operation:?}").starts_with("CacheOperation"));
+        let operation = hadris_storage::r#async::ReadAheadOperation::<()>::default();
+        assert!(format!("{operation:?}").starts_with("ReadAheadOperation"));
+    }
+
+    #[test]
+    fn byte_view_reads_a_partial_block_once() {
+        let mut view = ByteView::new(Counting {
+            inner: device(),
+            reads: 0,
+            writes: 0,
+        });
+        let mut byte = [0; 1];
+        for offset in 0..BLOCK as u64 {
+            block_on(view.read_at(offset, &mut byte)).unwrap();
+            assert_eq!(byte[0], offset as u8);
+        }
+        assert_eq!(view.get_ref().reads, 1);
+        for offset in 0..BLOCK as u64 {
+            block_on(view.write_at(offset, &[0xAA])).unwrap();
+        }
+        assert_eq!((view.get_ref().reads, view.get_ref().writes), (1, BLOCK));
+        block_on(view.write_at(0, &[7; 2 * BLOCK])).unwrap();
+        block_on(view.read_at(1, &mut byte)).unwrap();
+        assert_eq!(byte[0], 7);
+        assert_eq!(view.get_ref().reads, 2);
+        view.get_mut().inner.get_mut()[1] = 9;
+        block_on(view.read_at(1, &mut byte)).unwrap();
+        assert_eq!((byte[0], view.get_ref().reads), (9, 3));
     }
 }
 

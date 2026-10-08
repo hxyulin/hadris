@@ -147,6 +147,7 @@ pub(crate) struct Planner {
     offset: u64,
     entries: u64,
     lost: [u64; LOSSES.len()],
+    clamped: u64,
     report: Report,
 }
 
@@ -159,6 +160,7 @@ impl Planner {
             offset: 0,
             entries: 0,
             lost: [0; LOSSES.len()],
+            clamped: 0,
             report: Report::new(),
         }
     }
@@ -177,22 +179,34 @@ impl Planner {
         ino
     }
 
+    /// The latest modification time the format stores, in seconds.
+    fn max_time(&self) -> u64 {
+        match self.format {
+            Format::Odc => raw::OdcHeader::max(11),
+            _ => u64::from(u32::MAX),
+        }
+    }
+
+    /// The modification time an entry with `attrs` asks for, if it is
+    /// outside what the format stores.
+    fn out_of_range(&self, attrs: &SetAttr) -> bool {
+        attrs.modified().or(self.time).is_some_and(|time| {
+            u64::try_from(time.unix_seconds()).map_or(true, |secs| secs > self.max_time())
+        })
+    }
+
     /// Mode bits, owner and modification time of `attrs`, with the
-    /// defaults for `kind` where it sets none.
-    pub fn fields(
-        &self,
-        attrs: &SetAttr,
-        kind: u32,
-        default_mode: u32,
-        path: &[u8],
-    ) -> Result<Fields, PathError> {
+    /// defaults for `kind` where it sets none. A time outside what the
+    /// format stores is clamped to the nearest one it does.
+    pub fn fields(&self, attrs: &SetAttr, kind: u32, default_mode: u32) -> Fields {
         let mtime = match attrs.modified().or(self.time) {
-            Some(time) => u64::try_from(time.unix_seconds())
-                .map_err(|_| error(Detail::Field, ErrorKind::LimitExceeded, path))?,
+            Some(time) => {
+                u64::try_from(time.unix_seconds()).map_or(0, |secs| secs.min(self.max_time()))
+            }
             None => 0,
         };
         let owner = attrs.owner();
-        Ok(Fields {
+        Fields {
             ino: 0,
             mode: kind | attrs.permissions().map_or(default_mode, |mode| mode.bits()),
             uid: owner.map_or(0, |owner| owner.uid()),
@@ -202,7 +216,7 @@ impl Planner {
             len: 0,
             rdev: DeviceNumber::new(0, 0),
             check: 0,
-        })
+        }
     }
 
     /// The length of the header and padded name of an entry, failing as
@@ -226,6 +240,7 @@ impl Planner {
         let data = self.offset + self.check(path, fields)? as u64;
         self.offset = data + fields.len + header::data_padding(self.format, fields.len) as u64;
         self.entries += 1;
+        self.clamped += u64::from(self.out_of_range(attrs));
         for (index, (field, _)) in LOSSES.iter().enumerate() {
             let lost = match field {
                 Field::Created => attrs.created().is_some(),
@@ -258,6 +273,15 @@ impl Planner {
                 );
             }
         }
+        if self.clamped > 0 {
+            self.report.push_warning(
+                Warning::new(
+                    WarningKind::Dropped(Field::Modified),
+                    "cpio stores no time before 1970 or past its field",
+                )
+                .with_count(self.clamped),
+            );
+        }
         self.report.set_size(self.offset);
         self.report
     }
@@ -275,7 +299,7 @@ impl Planner {
             FileType::Socket => (raw::S_IFSOCK, 0o755),
             _ => return Err(error(Detail::Entry, ErrorKind::Unsupported, path)),
         };
-        let mut fields = self.fields(attrs, bits, default_mode, path)?;
+        let mut fields = self.fields(attrs, bits, default_mode);
         let mut data = Data::None;
         if let Some(content) = node.content() {
             fields.len = content.len();
@@ -386,7 +410,8 @@ pub(crate) fn plan_tree<'t>(
 /// [`ErrorKind::InvalidInput`], a name over 4095 bytes with
 /// [`ErrorKind::NameTooLong`], data the format cannot size with
 /// [`ErrorKind::FileTooLarge`], another value that does not fit its field
-/// with [`ErrorKind::LimitExceeded`], and [`Format::Binary`] with
+/// with [`ErrorKind::LimitExceeded`] (a modification time out of range is
+/// clamped and reported instead), and [`Format::Binary`] with
 /// [`ErrorKind::Unsupported`]. Errors carry the tree path.
 #[cfg_attr(
     feature = "tracing",

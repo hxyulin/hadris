@@ -123,7 +123,7 @@ impl PartitionFlags {
 /// of the partition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Partition {
-    index: usize,
+    slot: usize,
     start: u64,
     len: u64,
     block_size: BlockSize,
@@ -142,7 +142,7 @@ impl Partition {
         block_size: BlockSize,
     ) -> Self {
         Self {
-            index,
+            slot: index,
             start,
             len: u64::from(entry.sector_count()),
             block_size,
@@ -156,7 +156,7 @@ impl Partition {
 
     pub(crate) fn from_gpt(index: usize, entry: &RawGptEntry, block_size: BlockSize) -> Self {
         Self {
-            index,
+            slot: index,
             start: entry.first_lba(),
             len: entry.block_len(),
             block_size,
@@ -168,10 +168,12 @@ impl Partition {
         }
     }
 
-    /// The index of the entry in its table: the GPT slot, the MBR slot (0
-    /// to 3), or 4 and up for MBR logical partitions in chain order.
-    pub const fn index(&self) -> usize {
-        self.index
+    /// The zero-based slot of the entry in its table: the GPT entry index, the
+    /// MBR slot (0 to 3), or 4 and up for MBR logical partitions in chain
+    /// order. Linux partition numbers are one higher. The `Gpt` and `Mbr` edit
+    /// methods and [`Disk::partition`](crate::Disk::partition) take this slot.
+    pub const fn slot(&self) -> usize {
+        self.slot
     }
 
     /// The first block, counted from the start of the disk.

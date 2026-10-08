@@ -33,8 +33,9 @@ block 0 on the disk a device is a window of.
 | `Vec<u8>` | With `alloc`, an in-memory image with 512-byte blocks that grows when written past its end. Device error `Infallible` |
 | `MemDevice` | A fixed-size block device over `&[u8]` (read-only), `&mut [u8]`, `[u8; N]`, `Vec<u8>` or `Box<[u8]>`, with any block size. Device error `Infallible`; requests past the end fail with kind `InvalidInput` |
 | `Partition` | A byte window of another device, such as an MBR or GPT partition. Its offset and length are multiples of the device block size. Requests past its end never reach the device, and `disk_offset` reports its start |
+| `ReadOnly` | A read-only view. Over a block device it is a device that is not writable, so drivers mount it read-only, and writes fail with kind `ReadOnly` without reaching the device. Over a `Read + Seek` stream it lets `StreamDevice` work without `Write` |
 | `host::FileDevice` | With `std` and `sync`, an image file (512-byte blocks by default) or disk device (OS-reported logical blocks). `open(path)` is read-only; `new(file)` takes a file the caller opened and is writable when the file is. An image file grows when written past its end |
-| `StreamDevice` | A block device over a `Read + Seek` stream in sync mode, or poll-native `Stream` in async mode. `BlockingStream` explicitly adapts synchronous streams; growth requires its `new_growable` constructor |
+| `StreamDevice` | A block device over a `Read + Seek` stream in sync mode, or poll-native `Stream` in async mode. `BlockingStream` explicitly adapts synchronous streams. Growth requires `new_growable`: the sync `StreamDevice::new_growable`, or `BlockingStream::new_growable` in async mode |
 | `Cache` | Write-back LRU cache of whole blocks (`alloc`). Its first write goes straight through, so a read-only device says so at once. Requests of at least `capacity` blocks bypass it |
 | `ReadAhead` | Optional, write-through read buffering (`alloc`). Two windows share a configurable block budget; adjacent access enables larger reads, while scattered misses fetch only requested blocks |
 | `ByteView` | Byte-granular reads and writes over a device, also usable as a stream |
@@ -128,7 +129,8 @@ allocation size. The adapter keeps two windows so metadata and data can alternat
 A miss adjacent to a retained window reads ahead; other misses fetch exactly the
 requested blocks. Requests larger than the selected window bypass buffering.
 
-All writes go through immediately and invalidate both windows before starting.
+All writes go through immediately and invalidate the windows they overlap
+before starting.
 Reads never speculate outside the device or partition. If an expanded read
 fails, the adapter retries the original request. `get_mut()` and `clear()`
 invalidate retained data; callers must clear after changes through external

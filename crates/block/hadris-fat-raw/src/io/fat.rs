@@ -381,8 +381,10 @@ pub async fn run<D: BlockDevice>(
 }
 
 /// Takes a free cluster, from [`next_free`](Fat::next_free) on, and marks
-/// it as the end of a chain. The FAT is scanned whatever the free count
-/// says, since FSInfo is only a hint.
+/// it as the end of a chain. Fails with [`ErrorKind::NoSpace`] without
+/// scanning once a scan found no cluster free and none was freed since;
+/// otherwise the FAT is scanned whatever the free count says, since FSInfo
+/// is only a hint.
 ///
 /// With `held`, the cluster is recorded there before it is marked: as the
 /// head when there is none, else as the extra cluster.
@@ -444,6 +446,9 @@ pub async fn allocate_after<D: BlockDevice>(
 }
 
 async fn find_free<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &mut Fat) -> FsResult<u32, D::Error> {
+    if fat.full() {
+        return Err(ErrorKind::NoSpace.into());
+    }
     let max = fat.geo.max_cluster();
     let kind = fat.geo.kind();
     let count = max - FIRST_DATA_CLUSTER + 1;
@@ -458,12 +463,14 @@ async fn find_free<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &mut 
         fat.free = Some(0);
         fat.info_dirty = true;
     }
+    fat.counted = true;
     Err(ErrorKind::NoSpace.into())
 }
 
 /// Allocates a chain of `count` clusters, the first `count` free ones from
 /// [`next_free`](Fat::next_free) on, and returns its first cluster, 0 when
-/// `count` is 0. The clusters are not zeroed.
+/// `count` is 0. The clusters are not zeroed. Fails at once when a scan
+/// found no cluster free, as [`allocate`] does.
 ///
 /// Every written entry points to an allocated cluster or ends the chain.
 /// Entries are written a device block at a time from the chain's end back
@@ -537,6 +544,9 @@ async fn allocate_run_inner<D: BlockDevice>(
         }
         return Ok(first);
     }
+    if fat.full() {
+        return Err(ErrorKind::NoSpace.into());
+    }
     let size = block.size as u64;
     let max = fat.geo.max_cluster();
     let total = max - FIRST_DATA_CLUSTER + 1;
@@ -561,6 +571,7 @@ async fn allocate_run_inner<D: BlockDevice>(
             fat.free = Some(found);
             fat.info_dirty = true;
         }
+        fat.counted = true;
         return Err(ErrorKind::NoSpace.into());
     };
     let end = kind.end_of_chain();
@@ -765,6 +776,7 @@ pub async fn count_free<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: 
         }
     }
     fat.free = Some(free);
+    fat.counted = true;
     Ok(free)
 }
 

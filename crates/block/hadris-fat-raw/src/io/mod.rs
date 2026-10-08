@@ -100,6 +100,7 @@ impl BlockBuf {
 pub struct Fat {
     geo: Geometry,
     free: Option<u32>,
+    counted: bool,
     next_free: u32,
     fs_info: Option<u64>,
     info_dirty: bool,
@@ -127,6 +128,7 @@ impl Fat {
         Self {
             geo,
             free: None,
+            counted: false,
             next_free: FIRST_DATA_CLUSTER,
             fs_info: None,
             info_dirty: false,
@@ -156,6 +158,17 @@ impl Fat {
     /// Keeps the volume marked dirty after recovery encounters corruption.
     pub fn preserve_dirty(&mut self) {
         self.keep_dirty = true;
+    }
+
+    /// Drops the dirty state kept from mount or [`preserve_dirty`](Self::preserve_dirty),
+    /// so the next `clear_dirty` marks a FAT16/32 volume clean. Meant for
+    /// after a check found the volume clean. [`was_dirty`](Self::was_dirty)
+    /// still says what mount saw.
+    pub fn mark_clean(&mut self) {
+        self.keep_dirty = false;
+        if self.dirty == Dirty::Preserve {
+            self.dirty = Dirty::Marked;
+        }
     }
 
     /// Records a serial written to the boot sector.
@@ -223,6 +236,11 @@ impl Fat {
     /// Where the root directory's slots are.
     pub const fn root(&self) -> DirStart {
         DirStart::root(&self.geo)
+    }
+
+    /// Whether a scan of the FAT, and not FSInfo, says no cluster is free.
+    fn full(&self) -> bool {
+        self.free == Some(0) && self.counted
     }
 
     fn adjust_free(&mut self, freed: u32, taken: u32) {

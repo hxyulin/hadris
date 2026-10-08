@@ -389,6 +389,33 @@ impl<D: BlockDevice> BlockDevice for Partition<D> {
         self.get_mut().cancel(state);
     }
 }
+/// A read-only view of a device: it is not writable, reads go to the device,
+/// and writes fail with [`ErrorKind::ReadOnly`] without reaching it. Flush
+/// writes nothing.
+impl<D: BlockDevice> BlockDevice for crate::ReadOnly<D> {
+    type State = D::State;
+    fn block_size(&self) -> BlockSize {
+        self.0.block_size()
+    }
+    fn block_count(&self) -> u64 {
+        self.0.block_count()
+    }
+    fn disk_offset(&self) -> u64 {
+        self.0.disk_offset()
+    }
+    fn poll_read_blocks(
+        &mut self,
+        state: &mut Self::State,
+        cx: &mut Context<'_>,
+        first: BlockIndex,
+        buf: &mut [u8],
+    ) -> Poll<Result<(), Error<Self::Error>>> {
+        self.0.poll_read_blocks(state, cx, first, buf)
+    }
+    fn cancel(&mut self, state: &mut Self::State) {
+        self.0.cancel(state);
+    }
+}
 fn partition_block<D: BlockDevice>(
     part: &Partition<D>,
     first: BlockIndex,
@@ -430,11 +457,18 @@ fn block_too_large<E>() -> Error<E> {
     )
 }
 /// Byte-granular read-modify-write access to a block device.
+///
+/// The one-block scratch buffer keeps the last partial block the view read
+/// or wrote, so small accesses within one block cost one device read. A
+/// write that covers that block replaces it, and a failed or cancelled
+/// access forgets it. Changes made to the device other than through the
+/// view need [`get_mut`](Self::get_mut), which forgets it too.
 #[derive(Debug)]
 pub struct ByteView<D> {
     inner: D,
     position: u64,
     scratch: crate::scratch::Scratch,
+    cached: Option<u64>,
 }
 
 impl<D: BlockDevice> ByteView<D> {
@@ -447,6 +481,7 @@ impl<D: BlockDevice> ByteView<D> {
             inner,
             position: 0,
             scratch: crate::scratch::Scratch::new(),
+            cached: None,
         }
     }
 
@@ -472,8 +507,9 @@ impl<D: BlockDevice> ByteView<D> {
         &self.inner
     }
 
-    /// Mutably borrows the device.
+    /// Mutably borrows the device, forgetting the block the view keeps.
     pub fn get_mut(&mut self) -> &mut D {
+        self.cached = None;
         &mut self.inner
     }
 
@@ -500,10 +536,8 @@ impl<D: BlockDevice> ByteView<D> {
                 done += whole;
             } else {
                 let n = (size - within).min(left);
+                self.load(block, size).await?;
                 let scratch = self.scratch.get(size).ok_or_else(block_too_large)?;
-                self.inner
-                    .read_blocks(BlockIndex::new(block), scratch)
-                    .await?;
                 buf[done..done + n].copy_from_slice(&scratch[within..within + n]);
                 done += n;
             }
@@ -525,23 +559,42 @@ impl<D: BlockDevice> ByteView<D> {
             let left = buf.len() - done;
             if within == 0 && left >= size {
                 let whole = left / size * size;
+                if self
+                    .cached
+                    .is_some_and(|cached| cached.wrapping_sub(block) < (whole / size) as u64)
+                {
+                    self.cached = None;
+                }
                 self.inner
                     .write_blocks(BlockIndex::new(block), &buf[done..done + whole])
                     .await?;
                 done += whole;
             } else {
                 let n = (size - within).min(left);
+                self.load(block, size).await?;
+                self.cached = None;
                 let scratch = self.scratch.get(size).ok_or_else(block_too_large)?;
-                self.inner
-                    .read_blocks(BlockIndex::new(block), scratch)
-                    .await?;
                 scratch[within..within + n].copy_from_slice(&buf[done..done + n]);
                 self.inner
                     .write_blocks(BlockIndex::new(block), scratch)
                     .await?;
+                self.cached = Some(block);
                 done += n;
             }
         }
+        Ok(())
+    }
+
+    async fn load(&mut self, block: u64, size: usize) -> Result<(), Error<D::Error>> {
+        if self.cached == Some(block) {
+            return Ok(());
+        }
+        self.cached = None;
+        let scratch = self.scratch.get(size).ok_or_else(block_too_large)?;
+        self.inner
+            .read_blocks(BlockIndex::new(block), scratch)
+            .await?;
+        self.cached = Some(block);
         Ok(())
     }
 

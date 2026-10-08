@@ -82,7 +82,7 @@
 //! | Feature | Default | Description |
 //! |---|---|---|
 //! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
-//! | `alloc` | via `std` | The writer, `plan` and `read_tree` |
+//! | `alloc` | via `std` | The writer, `plan`, `read_tree` and `normalize_path` |
 //! | `sync` | Yes | The blocking API in `sync` |
 //! | `async` | No | The asynchronous API with `Send` futures in `async_` |
 //!
@@ -156,6 +156,52 @@ pub mod async_;
 /// Compatibility alias for the asynchronous API.
 #[cfg(feature = "async")]
 pub use async_ as r#async;
+
+/// The path of an archive entry relative to the archive root, as
+/// `read_tree` places it: leading `/` and `./` removed, repeated `/`
+/// collapsed and a trailing `/` dropped. `None` for the root itself, such
+/// as `.` or `./`. Other components, `.` and `..` included, are kept, so a
+/// stream reader names entries as `read_tree` does (DIR-LOOKUP-05).
+///
+/// ```rust
+/// use hadris_cpio::normalize_path;
+///
+/// assert_eq!(normalize_path(b"./etc//hostname").as_deref(), Some(&b"etc/hostname"[..]));
+/// assert_eq!(normalize_path(b"/usr/").as_deref(), Some(&b"usr"[..]));
+/// assert_eq!(normalize_path(b"."), None);
+/// ```
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+pub fn normalize_path(name: &[u8]) -> Option<alloc::borrow::Cow<'_, [u8]>> {
+    use alloc::borrow::Cow;
+    let mut path = name;
+    loop {
+        if let Some(rest) = path.strip_prefix(b"/") {
+            path = rest;
+        } else if let Some(rest) = path.strip_prefix(b"./") {
+            path = rest;
+        } else {
+            break;
+        }
+    }
+    if matches!(path, b"" | b".") {
+        return None;
+    }
+    if !path.ends_with(b"/") && !path.windows(2).any(|pair| pair == b"//") {
+        return Some(Cow::Borrowed(path));
+    }
+    let mut normalized = alloc::vec::Vec::with_capacity(path.len());
+    for part in path
+        .split(|&byte| byte == b'/')
+        .filter(|part| !part.is_empty())
+    {
+        if !normalized.is_empty() {
+            normalized.push(b'/');
+        }
+        normalized.extend_from_slice(part);
+    }
+    Some(Cow::Owned(normalized))
+}
 
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]

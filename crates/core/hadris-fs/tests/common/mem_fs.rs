@@ -35,6 +35,7 @@ pub struct MemFs {
     stall_next: bool,
     stall_in: Option<u32>,
     fail_truncate: bool,
+    scanned: u64,
 }
 
 fn id(index: usize) -> NodeId {
@@ -64,6 +65,7 @@ impl MemFs {
             stall_next: false,
             stall_in: None,
             fail_truncate: false,
+            scanned: 0,
         }
     }
 
@@ -131,6 +133,11 @@ impl MemFs {
     /// Nodes open for reading or writing.
     pub fn open_files(&self) -> usize {
         self.opens.values().filter(|&&n| n > 0).count()
+    }
+
+    /// Node slots `readdir` has looked at, as a directory scan would.
+    pub fn scanned(&self) -> u64 {
+        self.scanned
     }
 
     /// `close` calls that succeeded.
@@ -360,18 +367,24 @@ impl FileSystem for MemFs {
         self.tick().await;
         self.device()?;
         let dir = self.dir(dir)?;
-        let start = (from.into_raw() as usize).max(1);
-        for (i, node) in self.nodes.iter().enumerate().skip(start) {
-            let Some(node) = node.as_ref().filter(|n| n.parent == dir) else { continue };
-            let index = match node.kind {
-                Kind::Alias(target) => target,
-                _ => i,
-            };
-            let next = DirCursor::from_raw(i as u64 + 1);
-            let entry = DirEntry::new(Name::new(&node.name), id(index), self.metadata(index), next)?;
-            return Ok(Some(entry));
-        }
-        Ok(None)
+        let start = (from.into_raw() as usize).max(1).min(self.nodes.len());
+        let found = self
+            .nodes
+            .iter()
+            .enumerate()
+            .skip(start)
+            .find(|(_, n)| n.as_ref().is_some_and(|n| n.parent == dir))
+            .map(|(i, _)| i);
+        self.scanned += (found.map_or(self.nodes.len(), |i| i + 1) - start) as u64;
+        let Some(i) = found else { return Ok(None) };
+        let node = self.nodes[i].as_ref().expect("found a node");
+        let index = match node.kind {
+            Kind::Alias(target) => target,
+            _ => i,
+        };
+        let next = DirCursor::from_raw(i as u64 + 1);
+        let entry = DirEntry::new(Name::new(&node.name), id(index), self.metadata(index), next)?;
+        Ok(Some(entry))
     }
 
     async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], MemError> {

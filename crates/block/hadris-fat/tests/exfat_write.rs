@@ -1731,6 +1731,26 @@ fn was_dirty_reads_volume_dirty() {
 }
 
 #[test]
+fn mark_clean_clears_volume_dirty_at_the_next_sync() {
+    let mut image = common::image(common::small(4 << 20, 4096));
+    image[106] |= 0x02;
+    let mut fs = common::mount(&image);
+    fs.sync().unwrap();
+    assert_ne!(common::image(fs)[106] & 0x02, 0);
+    let mut fs = common::mount(&image);
+    fs.mark_clean().unwrap();
+    assert!(fs.was_dirty());
+    fs.sync().unwrap();
+    let cleaned = common::image(fs);
+    assert_eq!(cleaned[106] & 0x02, 0);
+    assert!(!common::mount(&cleaned).was_dirty());
+    fsck(&cleaned, "mark clean");
+    let mut fs =
+        ExFatFs::mount(common::device(image, 512), MountOptions::new().read_only()).unwrap();
+    assert_eq!(fs.mark_clean().unwrap_err().kind(), ErrorKind::ReadOnly);
+}
+
+#[test]
 fn overwrite_error_can_leave_partial_data() {
     let mut fs = common::small(4 << 20, 512);
     let node = fs.create(fs.root(), name("data"), &SetAttr::new()).unwrap();
@@ -1869,4 +1889,47 @@ fn hinted_append_recovers_at_every_failed_write() {
             assert!(completed);
         }
     }
+}
+
+#[test]
+fn contiguous_runs_are_freed_and_linked_a_device_block_at_a_time() {
+    let mut fs = common::small(8 << 20, 512);
+    let root = fs.root();
+    for text in ["free.bin", "shrink.bin", "link.bin"] {
+        let node = common::write(&mut fs, root, text, &common::payload(64 * 512, 3));
+        fs.forget(node, 1);
+    }
+    fs.sync().unwrap();
+    let mut image = common::image(fs);
+    let geo = Geometry::of(&image);
+    for text in ["free.bin", "shrink.bin", "link.bin"] {
+        let set = geo.set(&image, geo.root, text);
+        geo.unchain(&mut image, &set);
+    }
+    let writes = |image: &[u8], op: &dyn Fn(&mut ExFatFs<Faulty>)| {
+        let dev = Faulty {
+            inner: common::device(image.to_vec(), 512),
+            budget: Some(1000),
+            refuse: false,
+        };
+        let mut fs = ExFatFs::mount(dev, MountOptions::new()).unwrap();
+        op(&mut fs);
+        1000 - fs.into_inner().budget.unwrap()
+    };
+    let unlinked = writes(&image, &|fs| {
+        fs.unlink(fs.root(), name("free.bin")).unwrap()
+    });
+    assert!(unlinked <= 4, "unlink wrote {unlinked} times");
+    let shrunk = writes(&image, &|fs| {
+        let node = fs.lookup(fs.root(), name("shrink.bin")).unwrap();
+        fs.truncate(node, 512).unwrap();
+        fs.forget(node, 1);
+    });
+    assert!(shrunk <= 4, "truncate wrote {shrunk} times");
+    let linked = writes(&image, &|fs| {
+        let node = fs.lookup(fs.root(), name("link.bin")).unwrap();
+        fs.write(node, 64 * 512, b"x").unwrap();
+        fs.forget(node, 1);
+    });
+    assert!(linked <= 8, "append wrote {linked} times");
 }

@@ -36,7 +36,7 @@ fn main() -> Result<()> {
             .unwrap_or_default();
         println!(
             "#{:<3} start {:>12}  blocks {:>12}  {kind:<36}  {name}",
-            partition.index(),
+            partition.slot(),
             partition.start(),
             partition.len(),
         );
