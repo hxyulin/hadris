@@ -275,19 +275,22 @@ fn replaced_boot_images_get_load_sizes_and_info_tables() {
             .read_raw(moved.offset(), &mut loaded)
             .unwrap();
         let word = |at: usize| u32::from_le_bytes(loaded[at..at + 4].try_into().unwrap());
-        let sum = bios[64..64 + (bios.len() - 64) / 4 * 4]
-            .chunks_exact(4)
-            .fold(0u32, |sum, w| {
-                sum.wrapping_add(u32::from_le_bytes(w.try_into().unwrap()))
-            });
         assert_eq!(
             [word(8), word(12), word(16), word(20)],
-            [16, (moved.offset() / 2048) as u32, bios.len() as u32, sum],
+            [
+                16,
+                (moved.offset() / 2048) as u32,
+                bios.len() as u32,
+                words_from_64(&loaded)
+            ],
             "{mode:?}"
         );
         assert!(loaded[24..64].iter().all(|&b| b == 0), "{mode:?}");
         assert_eq!(loaded[..8], bios[..8]);
-        assert_eq!(loaded[64..], bios[64..]);
+        let grub2 = u64::from_le_bytes(loaded[2548..2556].try_into().unwrap());
+        assert_eq!(grub2, moved.offset() / 512 + 5, "{mode:?}");
+        assert_eq!(loaded[64..2548], bios[64..2548]);
+        assert_eq!(loaded[2556..], bios[2556..]);
     }
 }
 
@@ -514,11 +517,20 @@ fn export_rebuilds_explicit_boot_info_from_stored_content() {
     let word = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
     assert_eq!(word(12), (offset / 2048) as u32);
     assert_eq!(word(16), 4096);
-    assert_eq!(
-        word(20),
-        (0..(4096 - 64) / 4).fold(0u32, |sum, _| sum.wrapping_add(0x9090_9090))
-    );
-    assert_eq!(&bytes[64..], &[0x90; 4096 - 64]);
+    let grub2 = u64::from_le_bytes(bytes[2548..2556].try_into().unwrap());
+    assert_eq!(grub2, offset / 512 + 5, "xorriso --grub2-boot-info");
+    assert_eq!(word(20), words_from_64(&bytes));
+    assert_eq!(&bytes[64..2548], &[0x90; 2548 - 64]);
+    assert_eq!(&bytes[2556..], &[0x90; 4096 - 2556]);
+}
+
+/// The boot information checksum of the image `bytes` as written.
+fn words_from_64(bytes: &[u8]) -> u32 {
+    bytes[64..].chunks(4).fold(0u32, |sum, w| {
+        let mut word = [0u8; 4];
+        word[..w.len()].copy_from_slice(w);
+        sum.wrapping_add(u32::from_le_bytes(word))
+    })
 }
 
 #[test]

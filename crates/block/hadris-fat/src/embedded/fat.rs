@@ -628,9 +628,16 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     }
 
     /// Moves `from` in `from_dir` to `to` in `to_dir`. Open files follow
-    /// the move. Fails with [`ErrorKind::AlreadyExists`] when `to` names
-    /// another entry, and with [`ErrorKind::InvalidInput`] when a directory
-    /// would move into itself. A change of case only is allowed.
+    /// the move. An existing `to` is replaced, as the hosted driver does: a
+    /// file by a file, an empty directory by a directory. Replacing a
+    /// directory by a file fails with [`ErrorKind::IsADirectory`], a file by
+    /// a directory with [`ErrorKind::NotADirectory`], a directory with
+    /// entries with [`ErrorKind::DirectoryNotEmpty`] and an open file with
+    /// [`ErrorKind::Busy`]. Fails with [`ErrorKind::InvalidInput`] when a
+    /// directory would move into itself. A change of case only is allowed.
+    ///
+    /// The target is removed before the move starts, so a move that then
+    /// fails leaves the source in place and the target gone.
     ///
     /// While this driver remains alive, the next mutation or `sync` completes
     /// a published move or rolls back an incomplete destination after interruption.
@@ -654,7 +661,20 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         }
         match self.find(to_start, Query::Name(to)).await? {
             Some(target) if target.offset == src.offset && target.exact => return Ok(()),
-            Some(target) if target.offset != src.offset => return Err(ErrorKind::AlreadyExists.into()),
+            Some(target) if target.offset != src.offset => {
+                match (is_dir, target.entry.is_dir()) {
+                    (true, false) => return Err(ErrorKind::NotADirectory.into()),
+                    (false, true) => return Err(ErrorKind::IsADirectory.into()),
+                    (true, true) => {
+                        let first = self.fat.check_cluster(target.entry.first_cluster(kind))?;
+                        if self.find(DirStart::Chain(first), Query::Any).await?.is_some() {
+                            return Err(ErrorKind::DirectoryNotEmpty.into());
+                        }
+                    }
+                    (false, false) => {}
+                }
+                self.remove_located(to_start, &target).await?;
+            }
             _ => {}
         }
         let skip = (from_start == to_start).then_some(src.offset);

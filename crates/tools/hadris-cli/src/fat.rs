@@ -390,16 +390,39 @@ fn percent(part: u64, total: u64) -> f64 {
 fn count_tree<D: FileSystem>(
     fs: &mut D,
     path: &str,
+    ancestors: &mut Vec<NodeId>,
     files: &mut u64,
     dirs: &mut u64,
 ) -> Result<()> {
     *dirs += 1;
-    for (name, meta) in list_dir(fs, path)? {
+    for (name, meta, node) in list_dir(fs, path)? {
         match meta.file_type() {
-            FileType::Dir => count_tree(fs, &join(path, &name), files, dirs)?,
+            FileType::Dir => {
+                let child = join(path, &name);
+                enter(ancestors, node, &child)?;
+                count_tree(fs, &child, ancestors, files, dirs)?;
+                ancestors.pop();
+            }
             _ => *files += 1,
         }
     }
+    Ok(())
+}
+
+/// The directories a recursive walk starts from: the node at `path`.
+fn walk_root<D: FileSystem>(fs: &mut D, path: &str) -> Result<Vec<NodeId>> {
+    let node = resolve(fs, path)?;
+    fs.forget(node, 1);
+    Ok(vec![node])
+}
+
+/// Adds the directory `node` at `path` to the walk's `ancestors`, failing
+/// when it is already one of them: a directory loop in a damaged image.
+fn enter(ancestors: &mut Vec<NodeId>, node: NodeId, path: &str) -> Result<()> {
+    if ancestors.contains(&node) {
+        bail!("Directory loop at {path}: the image is damaged");
+    }
+    ancestors.push(node);
     Ok(())
 }
 
@@ -426,7 +449,7 @@ fn cmd_stat(image: &Path) -> Result<()> {
     let label = volume_label(&mut volume, &sector)?;
     let stats = with_fs!(&mut volume, fs => fs.statfs()).context("Failed to gather statistics")?;
     let (mut files, mut directories) = (0, 0);
-    with_fs!(&mut volume, fs => count_tree(fs, "/", &mut files, &mut directories))
+    with_fs!(&mut volume, fs => walk_root(fs, "/").and_then(|mut ancestors| count_tree(fs, "/", &mut ancestors, &mut files, &mut directories)))
         .context("Failed to scan the filesystem")?;
     let cluster_size = u64::from(stats.block_size());
     let total = stats.total_bytes();
@@ -484,7 +507,7 @@ fn resolve<D: FileSystem>(fs: &mut D, path: &str) -> Result<NodeId> {
 
 /// The entries of the directory at `path` with their metadata, in directory
 /// order.
-fn list_dir<D: FileSystem>(fs: &mut D, path: &str) -> Result<Vec<(String, Metadata)>> {
+fn list_dir<D: FileSystem>(fs: &mut D, path: &str) -> Result<Vec<(String, Metadata, NodeId)>> {
     let dir = resolve(fs, path)?;
     let mut entries = Vec::new();
     let mut cursor = DirCursor::START;
@@ -493,7 +516,7 @@ fn list_dir<D: FileSystem>(fs: &mut D, path: &str) -> Result<Vec<(String, Metada
             Ok(Some(entry)) => {
                 cursor = entry.next_cursor();
                 match std::str::from_utf8(entry.name().as_bytes()) {
-                    Ok(name) => entries.push((name.to_string(), *entry.metadata())),
+                    Ok(name) => entries.push((name.to_string(), *entry.metadata(), entry.node())),
                     Err(_) => {
                         break Err(anyhow::anyhow!("Directory entry name is not valid UTF-8"));
                     }
@@ -520,7 +543,7 @@ fn attribute_flags(attrs: Attributes) -> String {
 }
 
 fn cmd_ls<D: FileSystem>(fs: &mut D, path: &str, long: bool) -> Result<()> {
-    for (name, meta) in list_dir(fs, path)? {
+    for (name, meta, _) in list_dir(fs, path)? {
         let is_dir = meta.file_type().is_dir();
         if long {
             println!(
@@ -545,12 +568,14 @@ fn cmd_ls<D: FileSystem>(fs: &mut D, path: &str, long: bool) -> Result<()> {
 
 fn cmd_tree<D: FileSystem>(fs: &mut D, path: &str, max_depth: Option<usize>) -> Result<()> {
     println!("{path}");
-    print_tree(fs, path, "", max_depth, 0)
+    let mut ancestors = walk_root(fs, path)?;
+    print_tree(fs, path, &mut ancestors, "", max_depth, 0)
 }
 
 fn print_tree<D: FileSystem>(
     fs: &mut D,
     path: &str,
+    ancestors: &mut Vec<NodeId>,
     prefix: &str,
     max_depth: Option<usize>,
     current_depth: usize,
@@ -561,7 +586,7 @@ fn print_tree<D: FileSystem>(
 
     let entries = list_dir(fs, path)?;
     let count = entries.len();
-    for (i, (name, meta)) in entries.into_iter().enumerate() {
+    for (i, (name, meta, node)) in entries.into_iter().enumerate() {
         let is_last = i == count - 1;
         let connector = if is_last { "└── " } else { "├── " };
 
@@ -572,13 +597,17 @@ fn print_tree<D: FileSystem>(
             } else {
                 format!("{prefix}│   ")
             };
+            let child = join(path, &name);
+            enter(ancestors, node, &child)?;
             print_tree(
                 fs,
-                &join(path, &name),
+                &child,
+                ancestors,
                 &new_prefix,
                 max_depth,
                 current_depth + 1,
             )?;
+            ancestors.pop();
         } else {
             println!("{prefix}{connector}{name}");
         }
@@ -587,11 +616,20 @@ fn print_tree<D: FileSystem>(
 }
 
 /// Every file below `path`, with its path and size.
-fn walk_files<D: FileSystem>(fs: &mut D, path: &str, out: &mut Vec<(String, u64)>) -> Result<()> {
-    for (name, meta) in list_dir(fs, path)? {
+fn walk_files<D: FileSystem>(
+    fs: &mut D,
+    path: &str,
+    ancestors: &mut Vec<NodeId>,
+    out: &mut Vec<(String, u64)>,
+) -> Result<()> {
+    for (name, meta, node) in list_dir(fs, path)? {
         let child = join(path, &name);
         match meta.file_type() {
-            FileType::Dir => walk_files(fs, &child, out)?,
+            FileType::Dir => {
+                enter(ancestors, node, &child)?;
+                walk_files(fs, &child, ancestors, out)?;
+                ancestors.pop();
+            }
             _ => out.push((child, meta.len())),
         }
     }
@@ -608,13 +646,18 @@ fn cluster_chain(volume: &mut Volume, path: &str) -> Result<Vec<u32>> {
     let mut chain: Vec<u32> = Vec::new();
     let mut out = [hadris_fs::Extent::new(0, 0); 16];
     let mut from = 0;
-    let result = loop {
+    let mut outside = false;
+    let result = 'extents: loop {
         let n = match with_fs!(&mut *volume, fs => fs.extents(node, from, &mut out)) {
             Ok(0) => break Ok(()),
             Ok(n) => n,
             Err(err) => break Err(err),
         };
         for extent in &out[..n] {
+            if extent.offset() < heap {
+                outside = true;
+                break 'extents Ok(());
+            }
             let first = (extent.offset() - heap) / size + 2;
             let last = (extent.end() - 1 - heap) / size + 2;
             for cluster in first..=last {
@@ -627,6 +670,9 @@ fn cluster_chain(volume: &mut Volume, path: &str) -> Result<Vec<u32>> {
     };
     with_fs!(&mut *volume, fs => fs.forget(node, 1));
     result.with_context(|| format!("Failed to read cluster chain of {path}"))?;
+    if outside {
+        bail!("{path} is the fixed FAT12/16 root directory, which has no cluster chain");
+    }
     Ok(chain)
 }
 
@@ -644,7 +690,7 @@ fn count_fragments(chain: &[u32]) -> u32 {
 fn cmd_fragmentation(image: &Path, top: usize) -> Result<()> {
     let mut volume = open(image)?;
     let mut files = Vec::new();
-    with_fs!(&mut volume, fs => walk_files(fs, "/", &mut files))
+    with_fs!(&mut volume, fs => walk_root(fs, "/").and_then(|mut ancestors| walk_files(fs, "/", &mut ancestors, &mut files)))
         .context("Failed to analyze fragmentation")?;
 
     let mut report = Vec::with_capacity(files.len());

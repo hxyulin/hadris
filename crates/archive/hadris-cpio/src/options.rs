@@ -8,7 +8,8 @@ pub enum Format {
     /// alignment, 32-bit sizes. What Linux initramfs uses.
     #[default]
     Newc,
-    /// `newc` with the byte sum of each file's data, magic `070702`.
+    /// `newc` with the byte sum of each regular file's data, magic
+    /// `070702`. Other entries have a zero sum, as GNU cpio writes them.
     Crc,
     /// The old portable ASCII format, magic `070707`: octal fields, no
     /// alignment, files below 8 GiB, 18-bit inode, owner and device numbers.

@@ -34,6 +34,7 @@ pub struct MemFs {
     fail_next: Option<MemError>,
     stall_next: bool,
     stall_in: Option<u32>,
+    fail_truncate: bool,
 }
 
 fn id(index: usize) -> NodeId {
@@ -62,6 +63,7 @@ impl MemFs {
             fail_next: None,
             stall_next: false,
             stall_in: None,
+            fail_truncate: false,
         }
     }
 
@@ -145,6 +147,11 @@ impl MemFs {
     /// yield once before it runs, counting from 0.
     pub fn stall_in(&mut self, calls: u32) {
         self.stall_in = Some(calls);
+    }
+
+    /// Makes the next truncate fail.
+    pub fn fail_truncate(&mut self) {
+        self.fail_truncate = true;
     }
 
     /// Makes the next device access fail with `err`.
@@ -434,6 +441,9 @@ impl FileSystem for MemFs {
 
     async fn truncate(&mut self, node: NodeId, len: u64) -> FsResult<(), MemError> {
         self.writable()?;
+        if core::mem::take(&mut self.fail_truncate) {
+            return Err(ErrorKind::NoSpace.into());
+        }
         self.file_mut(node)?.resize(len as usize, 0);
         Ok(())
     }

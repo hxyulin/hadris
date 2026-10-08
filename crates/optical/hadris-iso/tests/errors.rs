@@ -151,7 +151,26 @@ fn boot_options_are_checked_against_the_images() {
         .unwrap()
         .read_raw(0, &mut mbr)
         .unwrap();
-    assert!(mbr[..446].iter().all(|&byte| byte == 0x90));
+    assert!(mbr[..432].iter().all(|&byte| byte == 0x90));
+    assert!(mbr[440..446].iter().all(|&byte| byte == 0x90));
+    let boot = hadris_iso::plan(&tree, &fits)
+        .unwrap()
+        .extents("boot/boot.img")
+        .unwrap()[0]
+        .offset()
+        / 512;
+    assert_eq!(
+        u64::from_le_bytes(mbr[432..440].try_into().unwrap()),
+        boot,
+        "isohybrid boot code finds the El Torito image here, as xorriso -isohybrid-mbr writes it"
+    );
+    let gpt = IsoOptions::default()
+        .with_el_torito(el_torito())
+        .with_hybrid(Hybrid::gpt().with_bootstrap(&[0x90u8; 432]));
+    assert_eq!(
+        refused(&tree, &gpt),
+        (ErrorKind::InvalidInput, Some(Detail::HybridBoot))
+    );
 
     let zero = IsoOptions::default().with_el_torito(
         ElTorito::new().with_entry(BootEntry::bios("boot/boot.img").with_load_size(0)),
@@ -525,4 +544,31 @@ fn a_device_too_small_for_the_image_is_refused_before_writing() {
     let err = hadris_iso::sync::write(&mut dev, &tree, &IsoOptions::default()).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::NoSpace);
     assert!(dev.get_ref().iter().all(|&b| b == 0));
+}
+
+#[test]
+fn a_malformed_root_rock_ridge_area_leaves_the_other_trees_mountable() {
+    let tree = sample(false, false);
+    let options = IsoOptions::default().with_rock_ridge().with_joliet();
+    let mut bytes = image(&tree, &options).into_inner();
+    let pvd = 16 * 2048;
+    let root = u32::from_le_bytes(bytes[pvd + 158..pvd + 162].try_into().unwrap()) as usize;
+    let dot = root * 2048;
+    assert_eq!(&bytes[dot + 34..dot + 40], b"SP\x07\x01\xbe\xef");
+    bytes[dot + 41 + 2] = 0xFF;
+    let dev = || MemDevice::new(bytes.clone(), common::SECTOR);
+
+    let mut iso = IsoFs::mount(dev(), MountOptions::new()).unwrap();
+    assert_eq!(iso.namespace(), Namespace::Joliet);
+    assert_eq!(iso.read_to_vec("/readme.txt").unwrap(), b"hello world\n");
+    let mut primary =
+        IsoFs::mount_namespace(dev(), MountOptions::new(), Namespace::Primary).unwrap();
+    assert_eq!(
+        primary.read_to_vec("/README.TXT").unwrap(),
+        b"hello world\n"
+    );
+    let Err(err) = IsoFs::mount_namespace(dev(), MountOptions::new(), Namespace::RockRidge) else {
+        panic!("a malformed Rock Ridge tree mounted");
+    };
+    assert_eq!(err.kind(), ErrorKind::Corrupt);
 }

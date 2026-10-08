@@ -85,9 +85,36 @@ pub(crate) fn convert_l2(name: &str, case: NameCase) -> Vec<u8> {
     out
 }
 
-/// An enhanced tree file identifier: 207 bytes, no version.
+/// The longest enhanced tree identifier, in bytes.
+const ENHANCED_MAX: usize = 207;
+
+/// `text` cut to at most `max` bytes at a character boundary.
+fn cut(text: &str, max: usize) -> &str {
+    let mut end = max.min(text.len());
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
+/// An enhanced tree identifier (ISO 9660:1999 7.5 and 7.6): the name as it
+/// is, NUL mapped to `_`, cut to 207 bytes at a character boundary with
+/// the base cut first so the extension stays. No version.
 pub(crate) fn convert_l3(name: &str) -> Vec<u8> {
-    convert_long(name, NameCase::Preserve, 207, false)
+    let name = name.replace('\0', "_");
+    if name.len() <= ENHANCED_MAX {
+        return name.into_bytes();
+    }
+    let mut out = Vec::with_capacity(ENHANCED_MAX);
+    match name.rsplit_once('.') {
+        Some((base, ext)) if ext.len() + 1 < ENHANCED_MAX => {
+            out.extend_from_slice(cut(base, ENHANCED_MAX - 1 - ext.len()).as_bytes());
+            out.push(b'.');
+            out.extend_from_slice(ext.as_bytes());
+        }
+        _ => out.extend_from_slice(cut(&name, ENHANCED_MAX).as_bytes()),
+    }
+    out
 }
 
 /// Whether Joliet forbids `c` in an identifier.
@@ -153,7 +180,7 @@ impl Rules {
                 case,
             } => primary_directory(name, 8, case),
             Self::Primary { case, .. } => primary_directory(name, 31, case),
-            Self::Enhanced => primary_directory(name, 31, NameCase::Preserve),
+            Self::Enhanced => convert_l3(name),
             Self::Joliet => convert_joliet(name),
         }
     }
@@ -208,7 +235,11 @@ fn iso_dedup(name: &[u8], suffix: &str, rules: Rules) -> Vec<u8> {
         _ => 207usize.saturating_sub(ext.len() + version.len()),
     };
     let max_base = max_total.saturating_sub(suffix.len());
-    let base = &base[..base.len().min(max_base)];
+    let mut end = base.len().min(max_base);
+    while end > 0 && end < base.len() && base[end] & 0xC0 == 0x80 {
+        end -= 1;
+    }
+    let base = &base[..end];
     let mut out = Vec::with_capacity(base.len() + suffix.len() + ext.len() + version.len());
     out.extend_from_slice(base);
     out.extend_from_slice(suffix.as_bytes());
@@ -280,7 +311,7 @@ mod tests {
         );
         assert_eq!(convert_l2("README", NameCase::Upper), b"README.;1");
         assert_eq!(convert_l2("x.tar.gz", NameCase::Upper), b"X_TAR.GZ;1");
-        assert_eq!(convert_l3("x.tar.gz"), b"x_tar.gz");
+        assert_eq!(convert_l3("x.tar.gz"), b"x.tar.gz");
         assert_eq!(convert_l3("readme.txt"), b"readme.txt");
         assert_eq!(convert_l3(&"a".repeat(250)).len(), 207);
     }
@@ -296,7 +327,13 @@ mod tests {
             convert_l2("r\u{e9}sum\u{e9}.pdf", NameCase::Upper),
             b"R_SUM_.PDF;1"
         );
-        assert_eq!(convert_l3("\u{1F600}.txt"), b"_.txt");
+        assert_eq!(convert_l3("\u{1F600}.txt"), "\u{1F600}.txt".as_bytes());
+        assert_eq!(convert_l3("a b-c+d\0"), b"a b-c+d_");
+        let wide = "\u{e9}".repeat(150);
+        assert_eq!(convert_l3(&wide).len(), 206);
+        assert_eq!(Rules::Enhanced.directory(&"d".repeat(100)).len(), 100);
+        let deduped = Rules::Enhanced.dedup(&convert_l3(&wide), 1);
+        assert!(core::str::from_utf8(&deduped).is_ok() && deduped.len() <= 207);
         assert_eq!(L2.directory("\u{f1}and\u{fa}"), b"_AND_");
         assert_eq!(L1.directory(&"\u{e9}".repeat(9)), b"________");
     }

@@ -612,3 +612,38 @@ fn malformed_identifier_fields_are_refused() {
         });
     }
 }
+
+/// Points both logical volume descriptors at an integrity extent of
+/// `blocks` from `start`, and copies the closed integrity descriptor at
+/// block 289 to each of `copies`, open or closed.
+fn integrity_extent(start: u32, blocks: u32, copies: &[(u32, bool)]) -> Vec<u8> {
+    let mut bytes = good();
+    for lvd in [260usize, 276] {
+        let at = lvd * 2048;
+        bytes[at + 432..at + 436].copy_from_slice(&(blocks * 2048).to_le_bytes());
+        bytes[at + 436..at + 440].copy_from_slice(&start.to_le_bytes());
+        reseal(&mut bytes, lvd as u64, 430);
+    }
+    let lvid = bytes[289 * 2048..290 * 2048].to_vec();
+    for &(block, closed) in copies {
+        let at = block as usize * 2048;
+        bytes[at..at + 2048].copy_from_slice(&lvid);
+        bytes[at + 12..at + 16].copy_from_slice(&block.to_le_bytes());
+        bytes[at + 28..at + 32].copy_from_slice(&u32::from(closed).to_le_bytes());
+        reseal(&mut bytes, u64::from(block), 118);
+    }
+    bytes
+}
+
+#[test]
+fn the_last_integrity_descriptor_of_an_extent_prevails() {
+    let udf = open(integrity_extent(288, 2, &[(288, false)]));
+    assert!(
+        !udf.was_dirty(),
+        "the closed descriptor after the open one wins"
+    );
+    let udf = open(integrity_extent(288, 2, &[(288, true), (289, false)]));
+    assert!(udf.was_dirty());
+    let udf = open(integrity_extent(287, 3, &[(287, false)]));
+    assert!(udf.was_dirty(), "an unrecorded block ends the extent");
+}

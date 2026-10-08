@@ -98,7 +98,9 @@ pub async fn read_backup_geometry<D: BlockDevice>(dev: &mut D, block: &mut Block
 }
 
 /// The [`Fat`] state of a volume with geometry `geo`, with the free count
-/// and allocation hint of its FAT32 FSInfo sector when that is valid.
+/// and allocation hint of its FAT32 FSInfo sector when that is valid. The
+/// free count of a volume left dirty is not trusted and is recounted when
+/// needed.
 pub async fn read_fat<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, geo: Geometry) -> FsResult<Fat, D::Error> {
     let mut fat = Fat::new(geo);
     let kind = geo.kind();
@@ -120,7 +122,7 @@ pub async fn read_fat<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, geo: Ge
         let valid = check_fs_info(&info).is_ok();
         let free = info.free_count.get();
         let hint = info.next_free.get();
-        if valid && free < geo.max_cluster() {
+        if valid && !fat.was_dirty && free < geo.max_cluster() {
             fat.free = Some(free);
         }
         if valid && (FIRST_DATA_CLUSTER..=geo.max_cluster()).contains(&hint) {

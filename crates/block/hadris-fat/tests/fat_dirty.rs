@@ -469,3 +469,19 @@ fn cancelled_marker_transitions_are_retried() {
         assert!(completed);
     }
 }
+
+#[test]
+fn fs_info_free_count_is_ignored_when_mounted_dirty() {
+    let case = common::CASES[2];
+    assert_eq!(case.kind, FatKind::Fat32);
+    for dirty in [false, true] {
+        let mut image = flag_image(case, dirty, false);
+        let geo = hadris_fat_raw::parse_boot(image[..512].try_into().unwrap()).unwrap();
+        let at = geo.fs_info_sector().unwrap() as usize * 512 + 488;
+        image[at..at + 4].copy_from_slice(&7u32.to_le_bytes());
+        let actual = common::scan_free(&mut common::device(case, image.clone()));
+        let mut fs = common::mount(case, &image);
+        let free = fs.statfs().unwrap().free_blocks();
+        assert_eq!(free, if dirty { u64::from(actual) } else { 7 });
+    }
+}

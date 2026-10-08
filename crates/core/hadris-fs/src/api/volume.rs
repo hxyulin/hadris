@@ -55,6 +55,11 @@ impl<'a> Held<'a> {
         self.node.take().expect("released pin")
     }
 
+    /// Records that the guarded open was closed, so a drop queues no close.
+    pub(super) fn closed(&mut self) {
+        self.open = false;
+    }
+
     pub(super) fn forget<F: FileSystem + ?Sized>(mut self, fs: &mut F) {
         if let Some(node) = self.node.take()
             && self.pinned
@@ -254,6 +259,12 @@ impl<F: FileSystem> Volume<F> {
 
     }
 
+    /// Guards both the open and the pin of `node` while a call on this
+    /// volume awaits.
+    pub(super) fn hold_file(&self, node: NodeId) -> Held<'_> {
+        Held { pending: &self.shared.pending, node: Some(node), open: true, pinned: true }
+    }
+
     /// Opens the file at `path` with `options`.
     ///
     /// A write open fails with [`ErrorKind::ReadOnly`] before anything is
@@ -303,8 +314,8 @@ impl<F: FileSystem> Volume<F> {
                 Err(err) => Err(err),
             };
             if let Err(err) = emptied {
-                node.open = false;
                 let _ = fs.close(node.node()).await;
+                node.closed();
                 node.forget(&mut *fs);
                 return Err(err);
             }

@@ -406,13 +406,56 @@ fn directory_rules() {
     write_file(&mut fat, root, "other", b"y");
     assert_eq!(
         kind(fat.rename(root, "other", root, "DIR")),
-        ErrorKind::AlreadyExists
+        ErrorKind::IsADirectory
     );
     let open = fat.open(dir, "inside", OpenOptions::new().read()).unwrap();
     assert_eq!(kind(fat.remove_file(dir, "inside")), ErrorKind::Busy);
     fat.close(open).unwrap();
     fat.remove_file(dir, "inside").unwrap();
     fat.remove_dir(root, "dir").unwrap();
+}
+
+#[test]
+fn rename_replaces_an_existing_target() {
+    let case = CASES[1];
+    let mut token = MountToken::new();
+    let mut fat = mount(&mut token, case, common::blank(case));
+    let root = fat.root();
+    write_file(&mut fat, root, "a long source name.txt", b"new");
+    write_file(&mut fat, root, "target.txt", &[7; 5000]);
+    fat.rename(root, "a long source name.txt", root, "TARGET.TXT")
+        .unwrap();
+    assert_eq!(read_file(&mut fat, root, "TARGET.TXT"), b"new");
+    assert_eq!(names(&mut fat, root), ["TARGET.TXT"]);
+
+    let full = fat.create_dir(root, "full").unwrap();
+    write_file(&mut fat, full, "inside", b"x");
+    let src = fat.create_dir(root, "src").unwrap();
+    write_file(&mut fat, src, "kept", b"k");
+    fat.create_dir(root, "empty").unwrap();
+    let kind = |result: Result<(), hadris_fs::Error<_>>| result.unwrap_err().kind();
+    assert_eq!(
+        kind(fat.rename(root, "src", root, "full")),
+        ErrorKind::DirectoryNotEmpty
+    );
+    assert_eq!(
+        kind(fat.rename(root, "src", root, "TARGET.TXT")),
+        ErrorKind::NotADirectory
+    );
+    fat.rename(root, "src", root, "empty").unwrap();
+    let moved = fat.open_dir(root, "empty").unwrap();
+    assert_eq!(read_file(&mut fat, moved, "kept"), b"k");
+
+    write_file(&mut fat, full, "other", b"o");
+    let open = fat.open(full, "inside", OpenOptions::new().read()).unwrap();
+    assert_eq!(
+        kind(fat.rename(full, "other", full, "inside")),
+        ErrorKind::Busy
+    );
+    fat.close(open).unwrap();
+    let bytes = image(fat);
+    common::assert_checks_clean(case, &bytes, "embedded rename replace");
+    common::fsck(&bytes, "embedded rename replace");
 }
 
 #[test]

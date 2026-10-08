@@ -8,6 +8,101 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **Embedded FAT:** `rename` replaces an existing target as the hosted
+  `FatFs::rename` does (a file by a file, an empty directory by a
+  directory) instead of failing with `AlreadyExists`. Type mismatches,
+  non-empty directories and open targets fail with `IsADirectory`,
+  `NotADirectory`, `DirectoryNotEmpty` and `Busy`. The target is removed
+  before the move, so a move that fails afterwards leaves the target gone.
+
+- **ISO El Torito:** `BootInfo::Table` writes the 56-byte table with its 40
+  reserved bytes cleared, as mkisofs and xorriso `-boot-info-table` do.
+  `BootInfo::Grub2` now also patches byte 2548 of the image with the
+  address of its second 512-byte sector, as `xorriso --grub2-boot-info`
+  does for GRUB 2's `eltorito.img`, and the checksum covers that patch;
+  it previously wrote only the table. `Grub2` needs a boot image of at
+  least 2556 bytes. Sessions recognise both forms.
+
+- **ISO 9660:1999 tree:** Identifiers keep the name as given, with only NUL
+  mapped to `_`, up to 207 bytes cut at a character boundary, for files and
+  directories alike. Every character outside `[A-Za-z0-9_]` previously
+  became `_` and directories were cut to 31 characters.
+
+- **ISO hybrid boot:** With MBR boot code and a BIOS default El Torito
+  entry, bytes 432 to 439 of the MBR record the boot image's address in
+  512-byte sectors, as syslinux `isohdpfx.bin` expects and
+  `xorriso -isohybrid-mbr` writes; isohybrid images previously could not
+  find their boot image. Boot code with a plain GPT, which has nowhere to
+  hold it, now fails the plan with `HybridBoot` instead of being dropped.
+
+- **ISO writer:** The boot information table checksum counts a boot image's
+  last 1 to 3 bytes as a zero-padded word, matching xorriso 1.5.8 and
+  cdrtools mkisofs 3.02. Images whose length after byte 64 was not a
+  multiple of four previously recorded a different sum.
+
+- **CLI (`hadris fat`):** `chain` on the fixed FAT12/16 root directory
+  reports that it has no cluster chain instead of underflowing, and `tree`,
+  `stat` and `fragmentation` stop with an error at a directory loop in a
+  damaged image instead of recursing until the stack overflows.
+
+- **hadris-fs async API:** Dropping a `File::close` future while the driver
+  closes the file, or a `Volume::open` future while it closes a file whose
+  truncation failed, queues the close for the next call instead of leaking
+  the driver's open count, which made later removes and renames fail with
+  `Busy`.
+
+- **UDF reader:** Every logical volume integrity descriptor recorded in an
+  integrity extent is read, up to a terminating descriptor or unrecorded
+  block, and the last one decides `was_dirty` and the free space, as
+  ECMA-167 requires. Previously only the first descriptor of each extent
+  was read.
+
+- **FAT32:** The FSInfo free cluster count is ignored on a volume that was
+  dirty at mount and is recounted from the FAT when first needed, so
+  `statfs` no longer reports a stale count after an unclean shutdown.
+
+- **FAT:** Volumes with 64 KiB clusters (for example `sectors_per_cluster`
+  128 with 512-byte sectors), which Windows NT and Linux accept, now mount
+  and are read and written. Formatting still keeps the specification's
+  32 KiB limit.
+
+- **CPIO:** In `crc` (`070702`) archives only regular files carry and are
+  checked against a data sum, as GNU cpio 2.15 writes and reads them.
+  Archives GNU cpio made with symlinks (`find . | cpio -o -H crc`) now read;
+  the writer stores a zero sum for symlinks.
+
+- **ISO writer:** The ECMA-119 255-byte path limit counts the identifiers
+  recorded in the primary tree instead of the source names, so deep trees
+  with long names are no longer refused or needlessly relocated to
+  `rr_moved`.
+
+- **ISO reader:** A malformed Rock Ridge area on the root directory's `.`
+  record is read as no Rock Ridge, so the image still mounts through its
+  Joliet, enhanced or primary tree. Mounting `Namespace::RockRidge`
+  explicitly still fails with the area's error.
+
+- **exFAT:** Timestamps without a recorded offset, which include every time
+  stamped with the default `MountOptions` and `SystemClock`, are written as
+  UTC with `OffsetValid` set instead of with no valid offset. Windows, Linux
+  and macOS previously read them as local time. `hadris_fat_raw::exfat::encode_time`
+  changes accordingly; reading is unchanged.
+
+- **UDF writer:** Trees with names that are not UTF-8 are written: content is
+  looked up by the original byte path instead of a lossy copy, so `write`
+  no longer fails mid-image. Lossy names that collide with another name in
+  the same directory get a `~N` suffix and a `Deduplicated` warning.
+
+- **APFS:** Container mount scans the whole checkpoint descriptor area and
+  takes the valid superblock with the highest transaction identifier whose
+  geometry and UUID match block zero, skipping blocks with bad checksums or
+  mismatched identity and falling back to block zero. A single damaged
+  checkpoint no longer fails the mount, and newer checkpoints outside the
+  range block zero names are no longer missed.
+
+- **NTFS:** Reading a file whose data a WOF (CompactOS) or Data Deduplication
+  reparse point keeps elsewhere fails with `Unsupported`
+  (`Detail::ReparseData`) instead of returning the sparse placeholder as zeros.
+
 - **hadris-fat:** Node ids and embedded `Node` locators are checked harder
   before use: the slot must lie in the fixed root or the cluster heap (the
   embedded `open_node` accepted offsets in the FAT region), and the entry must

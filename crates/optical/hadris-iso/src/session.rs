@@ -666,11 +666,19 @@ impl<D: BlockDevice> Session<D> {
                 continue;
             };
             let mut head = [0u8; 64];
-            let table = if *image_len >= 64 && super::image::read_bytes(&mut self.dev, len, offset, &mut head).await.is_ok() {
+            let mut table = if *image_len >= 64 && super::image::read_bytes(&mut self.dev, len, offset, &mut head).await.is_ok() {
                 info_table_of(&head, rba, *image_len)
             } else {
                 BootInfo::None
             };
+            let mut grub2 = [0u8; 8];
+            if table == BootInfo::Table
+                && *image_len >= BootInfo::Grub2.min_len()
+                && super::image::read_bytes(&mut self.dev, len, offset + super::write::GRUB2_BOOT_INFO, &mut grub2).await.is_ok()
+                && u64::from_le_bytes(grub2) == u64::from(rba) * 4 + 5
+            {
+                table = BootInfo::Grub2;
+            }
             self.boot.push(BootImage {
                 at,
                 path: path.clone(),
@@ -697,7 +705,7 @@ impl<D: BlockDevice> Session<D> {
                     continue;
                 }
                 let fail = |detail: Detail| PathError::from(detail.invalid::<Infallible>()).with_path(boot.path.as_str());
-                if *len < 64 {
+                if *len < boot.table.min_len() {
                     return Err(fail(Detail::BootInfoTable));
                 }
                 let block = u32::try_from(*block).map_err(|_| fail(Detail::ImageTooLarge))?;
@@ -998,15 +1006,12 @@ struct Tables {
     backup_end: u64,
 }
 
-/// The boot information table that the first 64 bytes `head` of the boot
-/// image at `rba`, `len` bytes long, hold: the Grub 2 form when its
-/// reserved bytes are zero.
+/// Whether the first 64 bytes `head` of the boot image at `rba`, `len`
+/// bytes long, hold a boot information table.
 fn info_table_of(head: &[u8; 64], rba: u32, len: u64) -> BootInfo {
     let word = |at: usize| u32::from_le_bytes([head[at], head[at + 1], head[at + 2], head[at + 3]]);
     if word(12) != rba || u64::from(word(16)) != len {
         BootInfo::None
-    } else if head[24..].iter().all(|&byte| byte == 0) {
-        BootInfo::Grub2
     } else {
         BootInfo::Table
     }

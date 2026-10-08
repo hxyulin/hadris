@@ -108,12 +108,12 @@ impl Geometry {
         self.sector_size
     }
 
-    /// Bytes per cluster, a power of two from 512 bytes through 32 KiB.
+    /// Bytes per cluster, a power of two from 512 bytes through 64 KiB.
     pub const fn cluster_size(&self) -> u32 {
         self.cluster_size
     }
 
-    /// The base-2 exponent of [`cluster_size`](Self::cluster_size), from 9 through 15.
+    /// The base-2 exponent of [`cluster_size`](Self::cluster_size), from 9 through 16.
     pub const fn cluster_shift(&self) -> u32 {
         self.cluster_shift as u32
     }
@@ -278,9 +278,9 @@ fn check_bpb(bpb: &RawBpb) -> Result<(), BootError> {
             "BPB sectors_per_cluster must be a power of two from 1 through 128",
         ));
     }
-    if bpb.sectors_per_cluster as u32 * sector_size > 32 * 1024 {
+    if bpb.sectors_per_cluster as u32 * sector_size > 64 * 1024 {
         return Err(BootError::Corrupt(
-            "BPB cluster size must not exceed 32 KiB",
+            "BPB cluster size must not exceed 64 KiB",
         ));
     }
     Ok(())
@@ -502,8 +502,10 @@ mod tests {
             check_bpb(&bpb(512, 0, 1, 2, 224, 9, 2880)),
             Err(BootError::Corrupt(_))
         ));
+        assert_eq!(check_bpb(&bpb(512, 128, 1, 2, 224, 9, 2880)), Ok(()));
+        assert_eq!(check_bpb(&bpb(4096, 16, 1, 2, 224, 9, 2880)), Ok(()));
         assert!(matches!(
-            check_bpb(&bpb(4096, 16, 1, 2, 224, 9, 2880)),
+            check_bpb(&bpb(4096, 32, 1, 2, 224, 9, 2880)),
             Err(BootError::Corrupt(_))
         ));
     }
@@ -511,7 +513,7 @@ mod tests {
     #[test]
     fn cluster_shift_matches_every_valid_sector_and_cluster_size() {
         for sector_size in [512, 1024, 2048, 4096] {
-            for shift in 9..=15 {
+            for shift in 9..=16 {
                 let cluster_size = 1 << shift;
                 if cluster_size < sector_size as u32 {
                     continue;

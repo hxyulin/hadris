@@ -551,6 +551,9 @@ impl Planner<'_> {
             if hybrid.bootstrap().is_some_and(|code| code.len() > 446) {
                 return Err(Detail::HybridBoot.error(ErrorKind::LimitExceeded));
             }
+            if hybrid.scheme() == PartitionScheme::Gpt && hybrid.bootstrap().is_some() {
+                return Err(invalid(Detail::HybridBoot));
+            }
             if (hybrid.scheme() == PartitionScheme::Mbr && !appended.is_empty())
                 || appended
                     .iter()
@@ -690,10 +693,11 @@ impl Planner<'_> {
         if self.rock_ridge && self.relocation().and_then(Relocation::directory).is_some() {
             return Ok(());
         }
+        let lengths = self.primary_lengths();
         let mut pending = vec![(0usize, 1usize, 0usize)];
         while let Some((dir, depth, path_len)) = pending.pop() {
             for &child in &self.dirs[dir].dirs {
-                let name_len = self.dirs[child].name.len();
+                let name_len = lengths[child];
                 let child_len = if path_len == 0 {
                     name_len
                 } else {
@@ -708,6 +712,32 @@ impl Planner<'_> {
         Ok(())
     }
 
+    /// The length of each directory's identifier in the primary tree, which
+    /// ECMA-119 path lengths count. A name that maps to the same identifier
+    /// as a sibling's counts with the longest suffix its directory can need.
+    fn primary_lengths(&self) -> Vec<usize> {
+        let rules = self.trees[0].1;
+        let mut lengths = vec![0; self.dirs.len()];
+        for dir in &self.dirs {
+            let names: Vec<Vec<u8>> = dir
+                .dirs
+                .iter()
+                .map(|&child| rules.directory(&self.dirs[child].iso_name))
+                .collect();
+            let mut seen: BTreeMap<&[u8], usize> = BTreeMap::new();
+            for name in &names {
+                *seen.entry(name).or_default() += 1;
+            }
+            for (name, &child) in names.iter().zip(&dir.dirs) {
+                lengths[child] = match seen[name.as_slice()] {
+                    1 => name.len(),
+                    _ => rules.dedup(name, dir.dirs.len()).len(),
+                };
+            }
+        }
+        lengths
+    }
+
     fn relocation(&self) -> Option<Relocation> {
         self.opts.rock_ridge().then(|| self.opts.relocation())
     }
@@ -718,6 +748,9 @@ impl Planner<'_> {
         let Some(rr_name) = self.relocation().and_then(Relocation::directory) else {
             return Ok(());
         };
+        let rules = self.trees[0].1;
+        let lengths = self.primary_lengths();
+        let rr_len = rules.directory(rr_name).len();
         let mut moved = Vec::new();
         let mut pending = vec![(0usize, 1usize, 0usize)];
         let mut counter = 1usize;
@@ -725,7 +758,7 @@ impl Planner<'_> {
             let mut retained = Vec::new();
             let mut next = Vec::new();
             for &child in &self.dirs[dir].dirs.clone() {
-                let name_len = self.dirs[child].name.len();
+                let name_len = lengths[child];
                 let child_len = if path_len == 0 {
                     name_len
                 } else {
@@ -734,7 +767,7 @@ impl Planner<'_> {
                 if depth + 1 > MAX_DEPTH || child_len > MAX_PATH {
                     let iso_name = alloc::format!("RRD{counter:06}");
                     counter += 1;
-                    let relocated_len = rr_name.len() + 1 + iso_name.len();
+                    let relocated_len = rr_len + 1 + rules.directory(&iso_name).len();
                     self.dirs[child].iso_name = iso_name;
                     self.dirs[dir].placeholders.push(child);
                     moved.push(child);
@@ -752,7 +785,6 @@ impl Planner<'_> {
         if moved.is_empty() {
             return Ok(());
         }
-        let rules = self.trees[0].1;
         let other = if rr_name == "rr_moved" {
             ".rr_moved"
         } else {
@@ -1045,7 +1077,7 @@ impl Planner<'_> {
                 continue;
             }
             let (block, len) = self.entry_image(entry)?;
-            if len < 64 {
+            if len < entry.boot_info().min_len() {
                 return Err(invalid(Detail::BootInfoTable));
             }
             let table = InfoTable {
@@ -1392,6 +1424,16 @@ impl Planner<'_> {
             } else {
                 return Err(invalid(Detail::HybridBoot));
             }
+        }
+        if hybrid.bootstrap().is_some()
+            && let Some(entry) = self
+                .opts
+                .el_torito()
+                .and_then(|el_torito| el_torito.entries().first())
+                .filter(|entry| entry.platform() == Platform::X86)
+        {
+            let (block, _) = self.entry_image(entry)?;
+            system[432..440].copy_from_slice(&(u64::from(block) * 4).to_le_bytes());
         }
         let tail = (!tail.is_empty()).then_some((end, tail));
         Ok((system, tail))

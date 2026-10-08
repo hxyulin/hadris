@@ -189,7 +189,8 @@ fn writes_a_tree_to_a_growable_device() {
     assert_eq!(fs.read_to_vec("/photos/ÉTÉ.TXT").unwrap(), b"summer");
     assert_eq!(
         fs.metadata("/empty.bin").unwrap().modified(),
-        Some(NoClock::TIME)
+        Some(NoClock::TIME.with_utc_offset_minutes(Some(0)).unwrap()),
+        "times without a zone are stored as UTC with a valid offset"
     );
     clean(&mut fs, "write");
     fsck(&image, "write");

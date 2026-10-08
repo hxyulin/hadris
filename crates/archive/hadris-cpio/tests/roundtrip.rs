@@ -489,10 +489,28 @@ fn hard_link_owners_follow_equivalent_tree_paths() {
 
 #[test]
 fn crc_reader_rejects_corrupt_data() {
-    let mut bytes = archive(&sample_tree(), Format::Crc);
-    let at = bytes
+    let clean = archive(&sample_tree(), Format::Crc);
+    let target = clean
         .windows(7)
         .position(|window| window == b"busybox")
+        .unwrap();
+    let header = clean[..target]
+        .windows(6)
+        .rposition(|window| window == b"070702")
+        .unwrap();
+    assert_eq!(
+        &clean[header + 102..header + 110],
+        b"00000000",
+        "symlinks carry no sum, as GNU cpio writes them"
+    );
+    let mut symlink = clean.clone();
+    symlink[target] ^= 1;
+    read_all(&symlink).expect("only regular files are checksummed");
+
+    let mut bytes = clean;
+    let at = bytes
+        .windows(9)
+        .position(|window| window == b"#!/bin/sh")
         .unwrap();
     bytes[at] ^= 1;
     let err = read_all(&bytes).unwrap_err();

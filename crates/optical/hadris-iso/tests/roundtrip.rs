@@ -270,6 +270,38 @@ fn lowercase_names_are_kept_on_request() {
 }
 
 #[test]
+fn boot_info_checksums_count_a_partial_last_word_zero_padded() {
+    let data: Vec<u8> = (0..4099u32)
+        .map(|i| match ((i * 7 + 1) % 256) as u8 {
+            0 => 1,
+            b => b,
+        })
+        .collect();
+    let mut tree = Tree::new();
+    tree.insert("boot.img", Node::file(Content::bytes(data)))
+        .unwrap();
+    let options = IsoOptions::default().with_el_torito(
+        ElTorito::new().with_entry(
+            BootEntry::bios("boot.img")
+                .with_load_size(4)
+                .with_boot_info(BootInfo::Table),
+        ),
+    );
+    let report = hadris_iso::plan(&tree, &options).unwrap();
+    let at = report.extents("boot.img").unwrap()[0].offset() as usize;
+    let bytes = image(&tree, &options).into_inner();
+    let sum = u32::from_le_bytes(bytes[at + 20..at + 24].try_into().unwrap());
+    assert_eq!(
+        sum, 0x7ef2_6cd1,
+        "the sum xorriso 1.5.8 and mkisofs 3.02 record"
+    );
+    assert!(
+        bytes[at + 24..at + 64].iter().all(|&b| b == 0),
+        "both tools clear the 40 reserved bytes after the table"
+    );
+}
+
+#[test]
 fn boot_catalogs_read_back() {
     let tree = sample(false, false);
     let options = IsoOptions::default().with_el_torito(
@@ -1115,3 +1147,40 @@ relocation_cases!(
     relocation_listing_preserves_only_the_logical_tree_async,
     relocation_async
 );
+
+#[test]
+fn path_limits_count_recorded_identifiers_not_source_names() {
+    let long: Vec<String> = (0..6).map(|i| format!("{i}{}", "x".repeat(59))).collect();
+    let path = format!("{}/leaf.txt", long.join("/"));
+    let mut tree = Tree::new();
+    tree.insert(&path, Node::file(Content::bytes("leaf")))
+        .unwrap();
+    let plain = IsoOptions::default().with_level(IsoLevel::L1);
+    hadris_iso::plan(&tree, &plain).unwrap();
+    let rock_ridge = plain.clone().with_rock_ridge();
+    let report = hadris_iso::plan(&tree, &rock_ridge).unwrap();
+    assert!(
+        report
+            .warnings()
+            .iter()
+            .all(|warning| warning.kind() != WarningKind::Relocated)
+    );
+    let mut iso = image(&tree, &rock_ridge);
+    let mut view =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::RockRidge).unwrap();
+    assert_eq!(view.read_to_vec(&format!("/{path}")).unwrap(), b"leaf");
+}
+
+#[test]
+fn the_iso_1999_tree_keeps_names_up_to_207_bytes() {
+    let dir = format!("Long Directory-{}", "d".repeat(80));
+    let file = "caf\u{e9} notes+v1.2.tar.gz";
+    let mut tree = Tree::new();
+    tree.insert(format!("{dir}/{file}"), Node::file(Content::bytes("x")))
+        .unwrap();
+    let mut iso = image(&tree, &IsoOptions::default().with_iso1999());
+    let mut view =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Enhanced).unwrap();
+    assert_eq!(view.names(&format!("/{dir}")).unwrap(), [file]);
+    assert_eq!(view.read_to_vec(&format!("/{dir}/{file}")).unwrap(), b"x");
+}

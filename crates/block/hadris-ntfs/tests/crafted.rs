@@ -609,6 +609,42 @@ fn compressed_and_encrypted_streams_are_unsupported() {
 }
 
 #[test]
+fn wof_and_dedup_reparse_points_are_unsupported() {
+    for (tag, unsupported) in [
+        (raw::IO_REPARSE_TAG_WOF, true),
+        (raw::IO_REPARSE_TAG_DEDUP, true),
+        (0xA000_000C, false),
+    ] {
+        let mut image = base_image();
+        let bin = non_resident(
+            raw::ATTR_DATA,
+            &[],
+            0,
+            3,
+            3,
+            &[0x11, 0x01, BIN_LCN as u8, 0],
+        );
+        let mut value = tag.to_le_bytes().to_vec();
+        value.extend_from_slice(&[0; 4]);
+        let reparse = resident(raw::ATTR_REPARSE_POINT, &[], &value);
+        put(
+            &mut image,
+            18,
+            &file_record(FILE, &[named(5, "BIN.DAT", false), bin, reparse]),
+        );
+        let mut fs = open(image);
+        let result = fs.read_to_vec("/BIN.DAT");
+        if unsupported {
+            let err = result.unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::Unsupported);
+            assert_eq!(Detail::of(&err), Some(Detail::ReparseData));
+        } else {
+            assert_eq!(result.unwrap(), b"bin");
+        }
+    }
+}
+
+#[test]
 fn large_streams_read_across_runs() {
     let mut image = base_image();
     let len = 3 * SECTOR + 100;

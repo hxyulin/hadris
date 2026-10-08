@@ -96,6 +96,7 @@ fn allocate_and_free_keep_every_copy_equal() {
 
         assert!(fat.fs_info_dirty() || kind != FatKind::Fat32);
         io::write_fs_info(&mut dev, &mut block, &mut fat).unwrap();
+        io::clear_dirty(&mut dev, &mut block, &mut fat).unwrap();
         let again = io::read_fat(&mut dev, &mut block, geo).unwrap();
         if kind == FatKind::Fat32 {
             assert_eq!(again.free_clusters(), Some(total));
@@ -278,6 +279,7 @@ fn allocation_wraps_past_occupied_clusters_and_stops_on_full_volumes() {
         )
         .unwrap();
         io::write_fs_info(&mut dev, &mut block, &mut fat).unwrap();
+        io::clear_dirty(&mut dev, &mut block, &mut fat).unwrap();
         let info = fat.fs_info().unwrap();
         io::write_bytes(&mut dev, &mut block, info + 492, &(max - 2).to_le_bytes()).unwrap();
         let before = dev.into_inner().to_vec();

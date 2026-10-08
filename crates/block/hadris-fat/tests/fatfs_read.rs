@@ -806,3 +806,49 @@ fn fat16_layouts_are_limited_to_what_fat16_addresses() {
         );
     }
 }
+
+/// A FAT12 volume of sixteen 64 KiB clusters, as `mkfs.fat -s 128` makes.
+fn sixty_four_k_clusters() -> Vec<u8> {
+    let (reserved, fat_sectors, root_sectors, clusters) = (1usize, 1usize, 32usize, 16usize);
+    let total = reserved + 2 * fat_sectors + root_sectors + clusters * 128;
+    let mut image = vec![0u8; total * 512];
+    image[0..3].copy_from_slice(&[0xEB, 0x3C, 0x90]);
+    image[3..11].copy_from_slice(b"MSWIN4.1");
+    image[11..13].copy_from_slice(&512u16.to_le_bytes());
+    image[13] = 128;
+    image[14..16].copy_from_slice(&(reserved as u16).to_le_bytes());
+    image[16] = 2;
+    image[17..19].copy_from_slice(&512u16.to_le_bytes());
+    image[19..21].copy_from_slice(&(total as u16).to_le_bytes());
+    image[21] = 0xF8;
+    image[22..24].copy_from_slice(&(fat_sectors as u16).to_le_bytes());
+    image[36] = 0x80;
+    image[38] = 0x29;
+    image[43..54].copy_from_slice(b"NO NAME    ");
+    image[54..62].copy_from_slice(b"FAT12   ");
+    image[510..512].copy_from_slice(&[0x55, 0xAA]);
+    for copy in 0..2 {
+        let at = (reserved + copy * fat_sectors) * 512;
+        image[at..at + 3].copy_from_slice(&[0xF8, 0xFF, 0xFF]);
+    }
+    image
+}
+
+#[test]
+fn sixty_four_k_clusters_mount_read_and_write() {
+    let data: Vec<u8> = (0..200_000u32).map(|i| (i % 251) as u8).collect();
+    let mut fs = FatFs::mount(
+        MemDevice::new(sixty_four_k_clusters(), BlockSize::new(512).unwrap()),
+        MountOptions::new(),
+    )
+    .unwrap();
+    assert_eq!(fs.info().cluster_size(), 64 * 1024);
+    fs.write_file("/big.bin", &data).unwrap();
+    let image = fs.unmount().unwrap().into_inner();
+    let mut fs = FatFs::mount(
+        MemDevice::new(image, BlockSize::new(512).unwrap()),
+        MountOptions::new(),
+    )
+    .unwrap();
+    assert_eq!(fs.read_to_vec("/big.bin").unwrap(), data);
+}

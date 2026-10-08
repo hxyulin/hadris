@@ -186,7 +186,7 @@ impl<W: Write> Writer<W> {
             self.buf.reserve_exact(buffer_len - self.buf.len());
             self.buf.resize(buffer_len, 0);
         }
-        if self.planner.format == Format::Crc {
+        if self.planner.format == Format::Crc && fields.mode & raw::S_IFMT == raw::S_IFREG {
             fields.check = match (&data, &mut reader) {
                 (Data::Bytes(bytes), _) => header::checksum(0, bytes),
                 (_, Some(reader)) => {
