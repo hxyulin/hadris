@@ -168,10 +168,10 @@ impl Partition {
         }
     }
 
-    /// The slot of the entry in its table: the GPT entry index, the MBR
-    /// slot (0 to 3), or 4 and up for MBR logical partitions in chain order.
-    /// The `Gpt` and `Mbr` edit methods and [`Disk::partition`](crate::Disk::partition)
-    /// take this index.
+    /// The zero-based slot of the entry in its table: the GPT entry index, the
+    /// MBR slot (0 to 3), or 4 and up for MBR logical partitions in chain
+    /// order. Linux partition numbers are one higher. The `Gpt` and `Mbr` edit
+    /// methods and [`Disk::partition`](crate::Disk::partition) take this slot.
     pub const fn slot(&self) -> usize {
         self.slot
     }
