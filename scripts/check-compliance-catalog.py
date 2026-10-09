@@ -52,7 +52,7 @@ STATUSES = {
     "not_applicable",
     "unknown",
 }
-TEST_KINDS = {"unit", "integration", "interop", "property", "fuzz"}
+TEST_KINDS = {"unit", "integration", "interop", "property", "fuzz", "proof"}
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 ID_RE = re.compile(r"^[A-Z0-9][A-Z0-9._-]*:[^#\s]+#[a-z0-9][a-z0-9._-]*$")
 
@@ -118,7 +118,13 @@ def validate_sources(root: Path) -> tuple[dict[str, dict[str, Any]], list[str]]:
     return sources, errors
 
 
-def has_test_attribute(text: str, name: str) -> bool:
+def has_evidence_attribute(text: str, name: str, kind: str) -> bool:
+    if kind == "proof":
+        return re.search(
+            rf"#\[\s*kani::proof\s*\]\s*(?:#\[[^\]]*\]\s*)*"
+            rf"(?:pub(?:\([^)]*\))?\s+)?fn\s+{re.escape(name)}\b",
+            text,
+        ) is not None
     lines = text.splitlines()
     function = re.compile(rf"\bfn\s+{re.escape(name)}\b")
     attribute = re.compile(r"#\[[^\]]*test[^\]]*\]")
@@ -224,9 +230,11 @@ def validate_requirement(
             errors.append(f"{test_loc}: missing test file {test['path']!r}")
         else:
             text = resolved.read_text(encoding="utf-8")
-            if test["kind"] != "fuzz" and not has_test_attribute(text, str(test["name"])):
+            if test["kind"] != "fuzz" and not has_evidence_attribute(
+                text, str(test["name"]), str(test["kind"])
+            ):
                 errors.append(
-                    f"{test_loc}: {test['name']!r} is not a test function in {test['path']!r}"
+                    f"{test_loc}: {test['name']!r} is not a {test['kind']} evidence function in {test['path']!r}"
                 )
         if test["kind"] != "fuzz":
             direct_evidence = True
@@ -300,6 +308,15 @@ def run(root: Path, *, check_cache: bool) -> list[str]:
 
 
 def self_test() -> list[str]:
+    proof_fixture = "#[kani::proof]\n#[kani::unwind(33)]\nfn proves_zero() {}\n"
+    if not has_evidence_attribute(proof_fixture, "proves_zero", "proof"):
+        return ["Kani proof harness was not recognized"]
+    if has_evidence_attribute("#[test]\nfn proves_zero() {}\n", "proves_zero", "proof"):
+        return ["ordinary test was accepted as a Kani proof"]
+    if has_evidence_attribute(proof_fixture, "proves_zero", "unit"):
+        return ["Kani proof was accepted as an ordinary test"]
+    if has_evidence_attribute(proof_fixture + "fn helper() {}\n", "helper", "proof"):
+        return ["helper after a Kani proof was accepted as a harness"]
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         (root / "spec" / "requirements").mkdir(parents=True)

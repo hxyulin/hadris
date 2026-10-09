@@ -85,7 +85,7 @@ jobs:
               - 'spec/**'
               - 'docs/compliance/**'
               - 'docs/spec-coverage.md'
-              - 'scripts/{check-spec-annotations.py,check-compliance-catalog.py}'
+              - 'scripts/{check-spec-annotations.py,check-compliance-catalog.py,verify-fat.py,test-verify-fat.py}'
             licenses:
               - '**/Cargo.{toml,lock}'
               - 'deny.toml'
@@ -134,6 +134,10 @@ jobs:
         run: python3 scripts/check-compliance-catalog.py --self-test
       - name: Check compliance catalogs
         run: python3 scripts/check-compliance-catalog.py
+      - name: Check FAT proof inventory
+        run: python3 scripts/verify-fat.py --check
+      - name: Test proof runner
+        run: python3 scripts/test-verify-fat.py
 
   check:
     needs: changes
