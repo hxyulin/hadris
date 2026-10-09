@@ -180,6 +180,11 @@ impl Disk {
 
     /// The bytes the table occupies on disk, as runs of whole blocks.
     ///
+    /// A corrupt image can read as an MBR whose logical partition no
+    /// extended boot record can express; the record fields are then
+    /// truncated here. Prefer `write`, which rejects such a table, over
+    /// writing the runs by hand.
+    ///
     /// For a GPT: the backup entry array and header, the primary entry
     /// array and header, then block 0. For an MBR: each extended boot record,
     /// then block 0. Headers and records are padded with zeros to a whole

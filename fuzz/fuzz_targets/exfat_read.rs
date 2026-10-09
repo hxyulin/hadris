@@ -6,14 +6,17 @@
 //!
 //! Self-consistency oracles (failures are tagged `ORACLE:`): every file is
 //! read twice and the bytes must match, and listed entries must re-resolve
-//! by name through `lookup` (guarded against names that the fuzz-controlled
-//! up-case table aliases).
+//! by name through `lookup`. A lookup passes over an entry set whose stored
+//! `NameHash` is wrong, and a volume whose up-case table is invalid compares
+//! names through a fallback, so the re-resolution oracle excuses a `NotFound`
+//! exactly where `check` reports those findings (a corrupt image can make a
+//! listed name legitimately unresolvable; a clean one may not).
 
 use std::collections::HashSet;
 
-use hadris_fat::exfat::sync::{check, ExFatFs};
-use hadris_fs::sync::FileSystem;
-use hadris_fs::{DirCursor, FileType, MountOptions, NodeId};
+use hadris_fat::exfat::Detail;
+use hadris_fat::exfat::sync::{ExFatFs, check};
+use hadris_fs::{DirCursor, ErrorKind, Extent, FileType, Location, MountOptions, NodeId};
 use hadris_storage::{BlockSize, MemDevice};
 use libfuzzer_sys::fuzz_target;
 
@@ -92,12 +95,24 @@ fn drive(data: &[u8]) {
     let clusters = (image.len() / 512) as u64;
     let mut scratch = vec![0u8; 1024 + clusters.div_ceil(8).clamp(512, MAX_BITMAP) as usize];
     let mut findings = 0u64;
+    // Where a corrupt image may legitimately defeat `lookup`: an invalid
+    // up-case table anywhere, or a wrong `NameHash` at these byte offsets.
+    let mut upcase_suspect = false;
+    let mut bad_hash: HashSet<u64> = HashSet::new();
     let report = check(
         &mut MemDevice::new(&image[..], BlockSize::new(512).unwrap()),
         &mut scratch,
         |f| {
             findings += 1;
-            let _ = f.to_string();
+            match Detail::from_code(f.detail()) {
+                Some(Detail::UpcaseTable) => upcase_suspect = true,
+                Some(Detail::NameHash) => {
+                    if let Some(Location::Byte(at)) = f.location() {
+                        bad_hash.insert(at);
+                    }
+                }
+                _ => {}
+            }
         },
     );
     if let Ok(report) = report {
@@ -145,19 +160,36 @@ fn drive(data: &[u8]) {
             let is_new_name = seen_names.insert(text.clone());
 
             // Name re-resolution oracle. Only sound when the name
-            // round-trips through UTF-8.
+            // round-trips through UTF-8, and excused where `check` found a
+            // corrupt up-case table or this entry's `NameHash` is wrong.
             if lookups < MAX_LOOKUPS_PER_DIR && !text.contains('\u{FFFD}') {
                 lookups += 1;
-                let Ok(found) = fs.lookup(dir, child_name) else {
-                    panic!("ORACLE: lookup({text:?}) failed to re-resolve a listed entry");
+                let found = match fs.lookup(dir, child_name) {
+                    Ok(found) => Some(found),
+                    Err(err) if err.kind() == ErrorKind::NotFound => {
+                        let mut records = [Extent::new(0, 0); 19];
+                        let hash_suspect = fs
+                            .records(node, &mut records)
+                            .is_ok_and(|n| n > 0 && bad_hash.contains(&records[0].offset()));
+                        assert!(
+                            upcase_suspect || hash_suspect,
+                            "ORACLE: lookup({text:?}) failed to re-resolve a listed entry"
+                        );
+                        None
+                    }
+                    Err(_) => {
+                        panic!("ORACLE: lookup({text:?}) failed to re-resolve a listed entry");
+                    }
                 };
-                if is_new_name && found == node {
-                    assert!(
-                        fs.stat(found).is_ok(),
-                        "ORACLE: lookup({text:?}) returned a node without metadata"
-                    );
+                if let Some(found) = found {
+                    if is_new_name && found == node {
+                        assert!(
+                            fs.stat(found).is_ok(),
+                            "ORACLE: lookup({text:?}) returned a node without metadata"
+                        );
+                    }
+                    fs.forget(found, 1);
                 }
-                fs.forget(found, 1);
             }
 
             if entry.file_type() == FileType::Dir {
