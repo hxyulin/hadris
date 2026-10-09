@@ -65,6 +65,9 @@ mod dirent;
 mod entry;
 mod slot;
 
+#[cfg(kani)]
+mod verification;
+
 pub mod date;
 pub mod exfat;
 #[cfg(any(feature = "sync", feature = "async"))]

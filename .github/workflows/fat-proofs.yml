@@ -1,0 +1,48 @@
+name: FAT and exFAT proofs
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fat-proofs-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: never
+  RUSTUP_TOOLCHAIN: stable
+
+jobs:
+  verify:
+    name: Prove ${{ matrix.group }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [entries, geometry, allocation, names, checksums]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install pinned Kani verifier
+        run: |
+          rustup toolchain install stable --profile minimal
+          cargo install --locked kani-verifier --version 0.68.0
+          cargo kani setup
+      - name: Test proof runner
+        run: python3 scripts/test-verify-fat.py
+      - name: Verify properties
+        env:
+          PROOF_GROUP: ${{ matrix.group }}
+        run: python3 scripts/verify-fat.py --group "$PROOF_GROUP" --report-dir "output/fat-proofs/$PROOF_GROUP"
+      - name: Retain proof results and logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fat-proofs-${{ matrix.group }}-${{ github.run_id }}
+          path: output/fat-proofs/${{ matrix.group }}/
+          if-no-files-found: warn
+          retention-days: 30

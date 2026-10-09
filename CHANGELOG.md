@@ -8,6 +8,11 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **FAT/exFAT verification:** Add 25 Kani proofs for entry codecs, boot geometry,
+  formatter bounds, allocation, names, timestamps and checksums. A daily
+  scheduled workflow runs the pinned verifier and retains per-proof reports;
+  PR checks validate the proof inventory and runner without executing proofs.
+
 - **Embedded FAT:** `rename` replaces an existing target as the hosted
   `FatFs::rename` does (a file by a file, an empty directory by a
   directory) instead of failing with `AlreadyExists`. Type mismatches,

@@ -28,6 +28,8 @@ and list indirect-call boundaries; they are not runtime stack measurements.
 | `check-docs.py` | Validate Markdown links, README conventions and current dependency/API versions | `python3 scripts/check-docs.py` |
 | `check-spec-annotations.py` | Validate source annotations and generated coverage tables | `python3 scripts/check-spec-annotations.py` |
 | `check-compliance-catalog.py` | Validate requirement catalogs and evidence references | `python3 scripts/check-compliance-catalog.py` |
+| `verify-fat.py` | Check the FAT/exFAT proof inventory or execute pinned Kani with reports | `python3 scripts/verify-fat.py --check` or `python3 scripts/verify-fat.py` |
+| `test-verify-fat.py` | Check inventory completeness, proof failure/timeout propagation and acceptance covers | `python3 scripts/test-verify-fat.py` |
 | `release-plan.py` | Validate release versions/notes and order package publication | Used by [release.yml](../.github/workflows/release.yml) |
 | `test-release-plan.py` | Check independent/joint releases and conflicting existing tags | `python3 scripts/test-release-plan.py` |
 | `cli-release.py` | Validate CLI tags, package binaries and resume release-asset uploads | Used by [cli-release.yml](../.github/workflows/cli-release.yml) |
