@@ -43,7 +43,7 @@ cargo +nightly fuzz run cpio_read -- -runs=0           # replay corpus only, the
 Replay every corpus after pulling or before a release:
 
 ```bash
-for t in cpio_read fat_read exfat_read ntfs_read part_read iso_read udf_read fat_ops exfat_ops; do
+for t in cpio_read fat_read exfat_read ntfs_read part_read iso_read udf_read apfs_read fat_ops exfat_ops; do
   cargo +nightly fuzz run "$t" -- -runs=0
 done
 ```

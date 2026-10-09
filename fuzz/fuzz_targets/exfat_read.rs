@@ -6,14 +6,17 @@
 //!
 //! Self-consistency oracles (failures are tagged `ORACLE:`): every file is
 //! read twice and the bytes must match, and listed entries must re-resolve
-//! by name through `lookup` (guarded against names that the fuzz-controlled
-//! up-case table aliases).
+//! by name through `lookup`. A lookup passes over an entry set whose stored
+//! `NameHash` is wrong, and a volume whose up-case table is invalid compares
+//! names through a fallback, so the re-resolution oracle excuses a `NotFound`
+//! exactly where `check` reports those findings (a corrupt image can make a
+//! listed name legitimately unresolvable; a clean one may not).
 
 use std::collections::HashSet;
 
-use hadris_fat::exfat::sync::{check, ExFatFs};
-use hadris_fs::sync::FileSystem;
-use hadris_fs::{DirCursor, FileType, MountOptions, NodeId};
+use hadris_fat::exfat::Detail;
+use hadris_fat::exfat::sync::{ExFatFs, check};
+use hadris_fs::{DirCursor, ErrorKind, FileType, MountOptions, NodeId};
 use hadris_storage::{BlockSize, MemDevice};
 use libfuzzer_sys::fuzz_target;
 
@@ -92,12 +95,24 @@ fn drive(data: &[u8]) {
     let clusters = (image.len() / 512) as u64;
     let mut scratch = vec![0u8; 1024 + clusters.div_ceil(8).clamp(512, MAX_BITMAP) as usize];
     let mut findings = 0u64;
+    // Where a corrupt image may legitimately defeat `lookup`: an invalid
+    // up-case table anywhere, or a wrong `NameHash` at these paths.
+    let mut upcase_suspect = false;
+    let mut bad_hash: HashSet<Vec<u8>> = HashSet::new();
     let report = check(
         &mut MemDevice::new(&image[..], BlockSize::new(512).unwrap()),
         &mut scratch,
         |f| {
             findings += 1;
-            let _ = f.to_string();
+            match Detail::from_code(f.detail()) {
+                Some(Detail::UpcaseTable) => upcase_suspect = true,
+                Some(Detail::NameHash) => {
+                    if let Some(path) = f.path() {
+                        bad_hash.insert(path.to_vec());
+                    }
+                }
+                _ => {}
+            }
         },
     );
     if let Ok(report) = report {
@@ -119,8 +134,8 @@ fn drive(data: &[u8]) {
     // graph has a path count that grows like branching^depth, so bound the
     // total entries processed on any input.
     let mut budget: u32 = 200_000;
-    let mut stack = vec![(fs.root(), 0u32)];
-    'walk: while let Some((dir, depth)) = stack.pop() {
+    let mut stack = vec![(fs.root(), String::new(), 0u32)];
+    'walk: while let Some((dir, prefix, depth)) = stack.pop() {
         if depth > 64 {
             continue;
         }
@@ -145,11 +160,22 @@ fn drive(data: &[u8]) {
             let is_new_name = seen_names.insert(text.clone());
 
             // Name re-resolution oracle. Only sound when the name
-            // round-trips through UTF-8.
+            // round-trips through UTF-8, and excused where `check` found a
+            // corrupt up-case table or this entry's `NameHash` is wrong.
             if lookups < MAX_LOOKUPS_PER_DIR && !text.contains('\u{FFFD}') {
                 lookups += 1;
-                let Ok(found) = fs.lookup(dir, child_name) else {
-                    panic!("ORACLE: lookup({text:?}) failed to re-resolve a listed entry");
+                let path = format!("{prefix}/{text}");
+                let found = match fs.lookup(dir, child_name) {
+                    Ok(found) => found,
+                    Err(err)
+                        if err.kind() == ErrorKind::NotFound
+                            && (upcase_suspect || bad_hash.contains(path.as_bytes())) =>
+                    {
+                        continue;
+                    }
+                    Err(_) => {
+                        panic!("ORACLE: lookup({text:?}) failed to re-resolve a listed entry");
+                    }
                 };
                 if is_new_name && found == node {
                     assert!(
@@ -162,7 +188,7 @@ fn drive(data: &[u8]) {
 
             if entry.file_type() == FileType::Dir {
                 let _ = fs.parent(node).map(|parent| fs.forget(parent, 1));
-                stack.push((node, depth + 1));
+                stack.push((node, format!("{prefix}/{text}"), depth + 1));
                 continue;
             }
             let first = read_pass(&mut fs, node);

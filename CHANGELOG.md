@@ -244,6 +244,11 @@ Each published package owns its version and may be released independently.
   or `DiskLayout` were and are always writable. Found by the `part_read`
   fuzz target.
 
+- **Fuzzing:** The `exfat_read` harness excuses a `NotFound` from `lookup`
+  exactly where `check` reports an invalid up-case table or a wrong
+  `NameHash` — documented behavior the re-resolution oracle tripped on —
+  and `apfs_read` joins the fleet script and the replay list.
+
 ## [3.0.0-rc.2] - 2026-10-07
 
 - Align current crate READMEs, installation and migration recipes, and the
