@@ -236,6 +236,14 @@ Each published package owns its version and may be released independently.
   `..` with `InvalidInput` before removing anything. It previously emptied the
   directory and then failed.
 
+- **hadris-part:** `write` fails with `LimitExceeded` (`Detail::FieldOverflow`)
+  when an MBR holds a logical partition whose position no extended boot
+  record can express, instead of truncating the 32-bit fields and writing a
+  table that reads back different partitions. Only a table read from a
+  corrupt image can hold such a partition; tables built through `Mbr` edits
+  or `DiskLayout` were and are always writable. Found by the `part_read`
+  fuzz target.
+
 ## [3.0.0-rc.2] - 2026-10-07
 
 - Align current crate READMEs, installation and migration recipes, and the
