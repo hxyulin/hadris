@@ -16,7 +16,7 @@ use std::collections::HashSet;
 
 use hadris_fat::exfat::Detail;
 use hadris_fat::exfat::sync::{ExFatFs, check};
-use hadris_fs::{DirCursor, ErrorKind, FileType, MountOptions, NodeId};
+use hadris_fs::{DirCursor, ErrorKind, Extent, FileType, Location, MountOptions, NodeId};
 use hadris_storage::{BlockSize, MemDevice};
 use libfuzzer_sys::fuzz_target;
 
@@ -96,9 +96,9 @@ fn drive(data: &[u8]) {
     let mut scratch = vec![0u8; 1024 + clusters.div_ceil(8).clamp(512, MAX_BITMAP) as usize];
     let mut findings = 0u64;
     // Where a corrupt image may legitimately defeat `lookup`: an invalid
-    // up-case table anywhere, or a wrong `NameHash` at these paths.
+    // up-case table anywhere, or a wrong `NameHash` at these byte offsets.
     let mut upcase_suspect = false;
-    let mut bad_hash: HashSet<Vec<u8>> = HashSet::new();
+    let mut bad_hash: HashSet<u64> = HashSet::new();
     let report = check(
         &mut MemDevice::new(&image[..], BlockSize::new(512).unwrap()),
         &mut scratch,
@@ -107,8 +107,8 @@ fn drive(data: &[u8]) {
             match Detail::from_code(f.detail()) {
                 Some(Detail::UpcaseTable) => upcase_suspect = true,
                 Some(Detail::NameHash) => {
-                    if let Some(path) = f.path() {
-                        bad_hash.insert(path.to_vec());
+                    if let Some(Location::Byte(at)) = f.location() {
+                        bad_hash.insert(at);
                     }
                 }
                 _ => {}
@@ -134,8 +134,8 @@ fn drive(data: &[u8]) {
     // graph has a path count that grows like branching^depth, so bound the
     // total entries processed on any input.
     let mut budget: u32 = 200_000;
-    let mut stack = vec![(fs.root(), String::new(), 0u32)];
-    'walk: while let Some((dir, prefix, depth)) = stack.pop() {
+    let mut stack = vec![(fs.root(), 0u32)];
+    'walk: while let Some((dir, depth)) = stack.pop() {
         if depth > 64 {
             continue;
         }
@@ -164,31 +164,37 @@ fn drive(data: &[u8]) {
             // corrupt up-case table or this entry's `NameHash` is wrong.
             if lookups < MAX_LOOKUPS_PER_DIR && !text.contains('\u{FFFD}') {
                 lookups += 1;
-                let path = format!("{prefix}/{text}");
                 let found = match fs.lookup(dir, child_name) {
-                    Ok(found) => found,
-                    Err(err)
-                        if err.kind() == ErrorKind::NotFound
-                            && (upcase_suspect || bad_hash.contains(path.as_bytes())) =>
-                    {
-                        continue;
+                    Ok(found) => Some(found),
+                    Err(err) if err.kind() == ErrorKind::NotFound => {
+                        let mut records = [Extent::new(0, 0); 19];
+                        let hash_suspect = fs
+                            .records(node, &mut records)
+                            .is_ok_and(|n| n > 0 && bad_hash.contains(&records[0].offset()));
+                        assert!(
+                            upcase_suspect || hash_suspect,
+                            "ORACLE: lookup({text:?}) failed to re-resolve a listed entry"
+                        );
+                        None
                     }
                     Err(_) => {
                         panic!("ORACLE: lookup({text:?}) failed to re-resolve a listed entry");
                     }
                 };
-                if is_new_name && found == node {
-                    assert!(
-                        fs.stat(found).is_ok(),
-                        "ORACLE: lookup({text:?}) returned a node without metadata"
-                    );
+                if let Some(found) = found {
+                    if is_new_name && found == node {
+                        assert!(
+                            fs.stat(found).is_ok(),
+                            "ORACLE: lookup({text:?}) returned a node without metadata"
+                        );
+                    }
+                    fs.forget(found, 1);
                 }
-                fs.forget(found, 1);
             }
 
             if entry.file_type() == FileType::Dir {
                 let _ = fs.parent(node).map(|parent| fs.forget(parent, 1));
-                stack.push((node, format!("{prefix}/{text}"), depth + 1));
+                stack.push((node, depth + 1));
                 continue;
             }
             let first = read_pass(&mut fs, node);

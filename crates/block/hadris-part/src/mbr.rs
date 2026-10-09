@@ -6,7 +6,7 @@ use hadris_fs::ErrorKind;
 use hadris_storage::BlockSize;
 
 use crate::codec::check_block_size;
-use crate::codec::{FIRST_LOGICAL, Logical};
+use crate::codec::{FIRST_LOGICAL, Logical, MAX_LOGICAL};
 use crate::disk::Partitions;
 use crate::error::{Detail, TableError};
 use crate::raw::{Chs, RawMbr, RawMbrEntry};
@@ -222,7 +222,8 @@ impl Mbr {
     /// Its extended boot record goes in the block before it, or in the first
     /// block of the extended partition when it becomes the first logical
     /// partition, so that block must be free. Indices of logical partitions
-    /// after it move up by one.
+    /// after it move up by one. Fails with [`ErrorKind::LimitExceeded`]
+    /// when the table already holds 256 logical partitions.
     pub fn add_logical(&mut self, entry: MbrEntry) -> Result<usize, TableError> {
         let kind = entry.kind;
         if kind.is_empty() || kind.is_extended() || kind.is_protective() {
@@ -483,6 +484,9 @@ pub(crate) fn place_logicals(
     ext_end: u64,
     logical: &mut [Logical],
 ) -> Result<(), TableError> {
+    if logical.len() > MAX_LOGICAL {
+        return Err(TableError::new(ErrorKind::LimitExceeded, Detail::TableFull));
+    }
     logical.sort_by_key(|l| l.start);
     let mut prev_end = ext_start;
     for (k, l) in logical.iter_mut().enumerate() {

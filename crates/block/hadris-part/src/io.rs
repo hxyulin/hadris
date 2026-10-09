@@ -161,7 +161,7 @@ async fn walk_ebr<D: BlockDevice>(
 ) -> Result<(), Error<D::Error>> {
     let chain = || Detail::corrupt(Detail::EbrChain);
     let mut ebr = ext_start;
-    for step in 0..=MAX_LOGICAL {
+    for step in 0..MAX_LOGICAL {
         if ebr >= ext_end || ebr >= dev.block_count() {
             return Err(chain());
         }

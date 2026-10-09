@@ -244,10 +244,17 @@ Each published package owns its version and may be released independently.
   or `DiskLayout` were and are always writable. Found by the `part_read`
   fuzz target.
 
+- **hadris-part:** MBR edits reject more than 256 logical partitions with
+  `LimitExceeded` (`Detail::TableFull`), matching the reader's EBR chain
+  limit, so a successfully built table cannot exceed what the reader accepts.
+  The reader now enforces the intended 256-record limit rather than 257.
+
 - **Fuzzing:** The `exfat_read` harness excuses a `NotFound` from `lookup`
   exactly where `check` reports an invalid up-case table or a wrong
   `NameHash` — documented behavior the re-resolution oracle tripped on —
-  and `apfs_read` joins the fleet script and the replay list.
+  while still reading files and walking directories. Hash findings are
+  matched by disk location so truncated diagnostic paths cannot defeat the
+  oracle. `apfs_read` joins the fleet script and the replay list.
 
 ## [3.0.0-rc.2] - 2026-10-07
 
