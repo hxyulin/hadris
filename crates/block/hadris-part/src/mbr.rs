@@ -6,7 +6,7 @@ use hadris_fs::ErrorKind;
 use hadris_storage::BlockSize;
 
 use crate::codec::check_block_size;
-use crate::codec::{FIRST_LOGICAL, Logical};
+use crate::codec::{FIRST_LOGICAL, Logical, MAX_LOGICAL};
 use crate::disk::Partitions;
 use crate::error::{Detail, TableError};
 use crate::raw::{Chs, RawMbr, RawMbrEntry};
@@ -222,7 +222,8 @@ impl Mbr {
     /// Its extended boot record goes in the block before it, or in the first
     /// block of the extended partition when it becomes the first logical
     /// partition, so that block must be free. Indices of logical partitions
-    /// after it move up by one.
+    /// after it move up by one. Fails with [`ErrorKind::LimitExceeded`]
+    /// when the table already holds 256 logical partitions.
     pub fn add_logical(&mut self, entry: MbrEntry) -> Result<usize, TableError> {
         let kind = entry.kind;
         if kind.is_empty() || kind.is_extended() || kind.is_protective() {
@@ -379,6 +380,36 @@ impl Mbr {
         Ok(())
     }
 
+    /// Checks that every 32-bit field of the extended boot records fits its
+    /// value. Tables built through the checked edits always pass; one read
+    /// from a corrupt image can hold a logical partition no record can
+    /// express, and `write` fails with [`ErrorKind::LimitExceeded`] instead
+    /// of writing a different table than it read.
+    pub(crate) fn validate(&self) -> Result<(), TableError> {
+        fn fits(value: Option<u64>) -> bool {
+            value.is_some_and(|v| u32::try_from(v).is_ok())
+        }
+        let Some((ext_start, _)) = self.extended_range() else {
+            return Ok(());
+        };
+        for (k, logical) in self.logical.iter().enumerate() {
+            let overflow = || {
+                TableError::new(ErrorKind::LimitExceeded, Detail::FieldOverflow)
+                    .at(FIRST_LOGICAL + k)
+            };
+            let ebr = if k == 0 { ext_start } else { logical.ebr };
+            if !fits(logical.start.checked_sub(ebr)) || u32::try_from(logical.len).is_err() {
+                return Err(overflow());
+            }
+            if let Some(next) = self.logical.get(k + 1)
+                && (!fits(next.ebr.checked_sub(ext_start)) || !fits(Some(next.end() - next.ebr)))
+            {
+                return Err(overflow());
+            }
+        }
+        Ok(())
+    }
+
     /// The extended boot records to write: each block and its record.
     pub(crate) fn ebr_records(&self) -> Vec<(u64, RawMbr)> {
         let mut records = Vec::new();
@@ -453,6 +484,9 @@ pub(crate) fn place_logicals(
     ext_end: u64,
     logical: &mut [Logical],
 ) -> Result<(), TableError> {
+    if logical.len() > MAX_LOGICAL {
+        return Err(TableError::new(ErrorKind::LimitExceeded, Detail::TableFull));
+    }
     logical.sort_by_key(|l| l.start);
     let mut prev_end = ext_start;
     for (k, l) in logical.iter_mut().enumerate() {

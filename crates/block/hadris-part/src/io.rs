@@ -161,7 +161,7 @@ async fn walk_ebr<D: BlockDevice>(
 ) -> Result<(), Error<D::Error>> {
     let chain = || Detail::corrupt(Detail::EbrChain);
     let mut ebr = ext_start;
-    for step in 0..=MAX_LOGICAL {
+    for step in 0..MAX_LOGICAL {
         if ebr >= ext_end || ebr >= dev.block_count() {
             return Err(chain());
         }
@@ -325,8 +325,10 @@ pub async fn scan<D: BlockDevice>(
 /// Fails with [`ErrorKind::InvalidInput`] when the block sizes differ,
 /// [`ErrorKind::NoSpace`] when the disk has more blocks than the device or
 /// a GPT copy would not fit beside the usable area (as on a truncated
-/// image),
-/// and [`ErrorKind::ReadOnly`] when the device refuses writes.
+/// image), [`ErrorKind::LimitExceeded`] when an MBR holds a logical
+/// partition no extended boot record can express (only a table read from a
+/// corrupt image can), and [`ErrorKind::ReadOnly`] when the device refuses
+/// writes.
 #[cfg(feature = "alloc")]
 #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::part", level = "trace", skip_all))]
 pub async fn write<D: BlockDevice>(dev: &mut D, disk: &Disk) -> Result<(), Error<D::Error>> {
@@ -338,6 +340,9 @@ pub async fn write<D: BlockDevice>(dev: &mut D, disk: &Disk) -> Result<(), Error
         PartitionTable::Hybrid(hybrid) => Some(hybrid.gpt()),
         _ => None,
     };
+    if let PartitionTable::Mbr(mbr) = disk.table() {
+        mbr.validate()?;
+    }
     let fits = gpt.is_none_or(|gpt| gpt.fits(dev.block_count()));
     if disk.block_count() > dev.block_count() || !fits {
         return Err(Detail::DiskTooSmall.error(ErrorKind::NoSpace));

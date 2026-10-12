@@ -10,8 +10,7 @@
 
 use std::collections::HashSet;
 
-use hadris_fat::sync::{check, FatFs};
-use hadris_fs::sync::FileSystem;
+use hadris_fat::sync::{FatFs, check};
 use hadris_fs::{DirCursor, FileType, MountOptions, NodeId};
 use hadris_storage::{BlockSize, MemDevice};
 use libfuzzer_sys::fuzz_target;

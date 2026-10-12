@@ -226,6 +226,80 @@ fn ebr_chain_is_followed() {
 }
 
 #[test]
+fn an_unwritable_logical_partition_fails_write_instead_of_changing() {
+    // Found by the part_read fuzz target: the first EBR holds only a link,
+    // so the first logical's record sits deeper in the chain, and relative
+    // to the block the write side would place it at its start does not fit
+    // the 32-bit field. Write must refuse, not write a different table.
+    let mut image = vec![0u8; 512 * 400];
+    mbr_entry(&mut image, 446, 0x83, 2, 10);
+    mbr_entry(&mut image, 462, 0x0F, 100, 200);
+    image[510..512].copy_from_slice(&[0x55, 0xAA]);
+    let first = 100 * 512;
+    mbr_entry(&mut image, first + 462, 0x05, 1, 1);
+    image[first + 510..first + 512].copy_from_slice(&[0x55, 0xAA]);
+    let second = 101 * 512;
+    mbr_entry(&mut image, second + 446, 0x83, u32::MAX, 10);
+    image[second + 510..second + 512].copy_from_slice(&[0x55, 0xAA]);
+
+    let before = image.clone();
+    let mut dev = device(image);
+    let disk = read(&mut dev).unwrap();
+    assert_eq!(
+        disk.partition(4).unwrap().start(),
+        101 + u64::from(u32::MAX)
+    );
+    let err = write(&mut dev, &disk).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::LimitExceeded);
+    assert_eq!(Detail::of(&err), Some(Detail::FieldOverflow));
+    assert_eq!(dev.into_inner(), before);
+}
+
+#[test]
+fn an_overflowing_ebr_link_length_is_rejected_before_writing() {
+    let mut image = vec![0u8; 512 * 400];
+    mbr_entry(&mut image, 446, 0x0F, 100, 200);
+    image[510..512].copy_from_slice(&[0x55, 0xAA]);
+    let first = 100 * 512;
+    mbr_entry(&mut image, first + 446, 0x83, 1, 1);
+    mbr_entry(&mut image, first + 462, 0x05, 2, 1);
+    image[first + 510..first + 512].copy_from_slice(&[0x55, 0xAA]);
+    let second = 102 * 512;
+    mbr_entry(&mut image, second + 446, 0x83, u32::MAX, 1);
+    image[second + 510..second + 512].copy_from_slice(&[0x55, 0xAA]);
+
+    let before = image.clone();
+    let mut dev = device(image);
+    let disk = read(&mut dev).unwrap();
+    let err = write(&mut dev, &disk).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::LimitExceeded);
+    assert_eq!(Detail::of(&err), Some(Detail::FieldOverflow));
+    assert_eq!(dev.into_inner(), before);
+}
+
+#[test]
+fn the_largest_relocated_ebr_offset_roundtrips() {
+    let mut image = vec![0u8; 512 * 400];
+    mbr_entry(&mut image, 446, 0x0F, 100, 200);
+    image[510..512].copy_from_slice(&[0x55, 0xAA]);
+    let first = 100 * 512;
+    mbr_entry(&mut image, first + 462, 0x05, 1, 1);
+    image[first + 510..first + 512].copy_from_slice(&[0x55, 0xAA]);
+    let second = 101 * 512;
+    mbr_entry(&mut image, second + 446, 0x83, u32::MAX - 1, 10);
+    image[second + 510..second + 512].copy_from_slice(&[0x55, 0xAA]);
+
+    let mut dev = device(image);
+    let disk = read(&mut dev).unwrap();
+    let listed = disk.partitions().collect::<Vec<_>>();
+    write(&mut dev, &disk).unwrap();
+    assert_eq!(
+        read(&mut dev).unwrap().partitions().collect::<Vec<_>>(),
+        listed
+    );
+}
+
+#[test]
 fn broken_ebr_chains_are_corrupt() {
     let cases: [(usize, u32); 4] = [
         (100 * 512 + 462 + 8, 0),
@@ -249,6 +323,28 @@ fn broken_ebr_chains_are_corrupt() {
     unsigned[100 * 512 + 510] = 0;
     let disk = read(&mut device(unsigned)).unwrap();
     assert_eq!(disk.partitions().count(), 1);
+}
+
+#[test]
+fn ebr_chains_beyond_256_records_are_corrupt() {
+    let mut image = vec![0u8; 1000 * 512];
+    mbr_entry(&mut image, 446, 0x0F, 1, 999);
+    image[510..512].copy_from_slice(&[0x55, 0xAA]);
+    for k in 0..257 {
+        let at = (1 + k * 2) * 512;
+        mbr_entry(&mut image, at + 446, 0x83, 1, 1);
+        if k < 256 {
+            mbr_entry(&mut image, at + 462, 0x05, (k as u32 + 1) * 2, 2);
+        }
+        image[at + 510..at + 512].copy_from_slice(&[0x55, 0xAA]);
+    }
+    let mut dev = device(image);
+    let err = read(&mut dev).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Corrupt);
+    assert_eq!(Detail::of(&err), Some(Detail::EbrChain));
+    let err = scan(&mut dev, |_| ControlFlow::Continue(())).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Corrupt);
+    assert_eq!(Detail::of(&err), Some(Detail::EbrChain));
 }
 
 /// A GPT image written by hand: a protective MBR, the primary header at 1

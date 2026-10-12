@@ -16,6 +16,31 @@ fn guid(n: u8) -> Guid {
     Guid::from_bytes([n; 16])
 }
 
+#[test]
+fn logical_partition_edits_respect_the_reader_chain_limit() {
+    let mut table = Mbr::new(1000, B512).unwrap();
+    table
+        .add(MbrEntry::new(MbrType::EXTENDED_LBA, 1, 999))
+        .unwrap();
+    for k in 0..256 {
+        table
+            .add_logical(MbrEntry::new(MbrType::LINUX, 2 + k * 2, 1))
+            .unwrap();
+    }
+    let mut dev = MemDevice::new(vec![0u8; 1000 * 512], B512);
+    let disk = Disk::new(table.clone());
+    write(&mut dev, &disk).unwrap();
+    assert_eq!(read(&mut dev).unwrap(), disk);
+
+    let before = table.clone();
+    let err = table
+        .add_logical(MbrEntry::new(MbrType::LINUX, 514, 1))
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::LimitExceeded);
+    assert_eq!(err.detail(), Detail::TableFull);
+    assert_eq!(table, before);
+}
+
 fn gpt() -> Gpt {
     Gpt::new(guid(0xD1), 10_000, B512).unwrap()
 }
