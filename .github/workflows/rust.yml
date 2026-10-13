@@ -637,9 +637,9 @@ jobs:
         run: |
           cargo +nightly miri test -p hadris-iso-raw --lib
           cargo +nightly miri test -p hadris-iso --lib -- name:: rock_ridge::
-      - name: Miri file device geometry and aligned adapter
+      - name: Miri file device geometry, access mode and aligned adapter
         run: |
-          MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test -p hadris-storage --lib file_device_explicit_block_size
+          MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test -p hadris-storage --lib file_device_
           cargo +nightly miri test -p hadris-storage --no-default-features --features sync --example aligned_device
       - name: Miri - hadris-part (on-disk layouts, CRC, UTF-16 partition names)
         run: cargo +nightly miri test -p hadris-part --lib

@@ -187,6 +187,151 @@ fn nodes_outside_the_directories_are_invalid_handles() {
 }
 
 #[test]
+fn stale_nodes_are_invalid_handles() {
+    for case in cases() {
+        let mut token = MountToken::new();
+        let mut fat = mount(&mut token, case, common::blank(case));
+        let root = fat.root();
+        write_file(&mut fat, root, "a.txt", b"old");
+        let mut listed = None;
+        fat.list(root, DirCursor::START, |entry| {
+            listed = Some(entry.node());
+            ControlFlow::Break(())
+        })
+        .unwrap();
+        let listed = listed.unwrap();
+        fat.remove_file(root, "a.txt").unwrap();
+        write_file(&mut fat, root, "b.txt", b"new data");
+        let mut current = None;
+        fat.list(root, DirCursor::START, |entry| {
+            current = Some(entry.node());
+            ControlFlow::Break(())
+        })
+        .unwrap();
+        assert_eq!(
+            fat.open_node(listed, OpenOptions::new().read().write())
+                .unwrap_err()
+                .kind(),
+            ErrorKind::InvalidHandle,
+            "{}",
+            case.name
+        );
+        assert_ne!(current.unwrap(), listed);
+        let file = fat
+            .open_node(current.unwrap(), OpenOptions::new().read())
+            .unwrap();
+        let mut buf = [0u8; 16];
+        assert_eq!(fat.read(&file, &mut buf).unwrap(), 8);
+        fat.close(file).unwrap();
+    }
+}
+
+#[test]
+fn nodes_of_another_mount_are_invalid_handles() {
+    let case = CASES[0];
+    let image = common::build(case);
+    let mut tokens = [MountToken::new(), MountToken::new()];
+    let [first_token, second_token] = &mut tokens;
+    let mut first = mount(first_token, case, image.clone());
+    let mut second = mount(second_token, case, image);
+    let mut node = None;
+    first
+        .list(first.root(), DirCursor::START, |entry| {
+            if entry.file_type() == FileType::File {
+                node = Some(entry.node());
+                return ControlFlow::Break(());
+            }
+            ControlFlow::Continue(())
+        })
+        .unwrap();
+    let node = node.unwrap();
+    assert_eq!(
+        second
+            .open_node(node, OpenOptions::new().read())
+            .unwrap_err()
+            .kind(),
+        ErrorKind::InvalidHandle
+    );
+    let file = first.open_node(node, OpenOptions::new().read()).unwrap();
+    first.close(file).unwrap();
+}
+
+#[test]
+fn labels_serials_extents_and_stat_match_fatfs() {
+    use hadris_fat::VolumeLabel;
+    for case in cases() {
+        let mut token = MountToken::new();
+        let mut fat = mount(&mut token, case, common::build(case));
+        let root = fat.root();
+        let data = common::payload(40_000, 6);
+        write_file(&mut fat, root, "mapped.bin", &data);
+        fat.set_label(Some(VolumeLabel::new("embedded").unwrap()))
+            .unwrap();
+        let mut buf = [0u8; 16];
+        assert_eq!(fat.label(&mut buf).unwrap(), Some("EMBEDDED"));
+        let serial = fat.set_volume_serial(0x0bad_cafe);
+        let file = fat
+            .open(root, "mapped.bin", OpenOptions::new().read().write())
+            .unwrap();
+        fat.seek(&file, SeekFrom::End(0)).unwrap();
+        fat.write(&file, b"tail").unwrap();
+        let meta = fat.stat(&file).unwrap();
+        assert_eq!(meta.len(), data.len() as u64 + 4, "{}", case.name);
+        assert_eq!(meta.file_type(), FileType::File);
+        let mut extents = Vec::new();
+        let mut out = [hadris_fs::Extent::new(0, 0); 2];
+        let mut from = 0;
+        loop {
+            let count = fat.extents(&file, from, &mut out).unwrap();
+            if count == 0 {
+                break;
+            }
+            extents.extend_from_slice(&out[..count]);
+            let last = out[count - 1];
+            from = last.file_offset() + last.len();
+        }
+        fat.close(file).unwrap();
+        let after = image(fat);
+        common::assert_checks_clean(case, &after, case.name);
+        common::fsck(&after, case.name);
+
+        let mut fs = common::mount(case, &after);
+        let mut label = [0u8; 16];
+        assert_eq!(fs.label(&mut label).unwrap(), Some("EMBEDDED"));
+        match serial {
+            Ok(()) => assert_eq!(fs.info().volume_serial(), Some(0x0bad_cafe)),
+            Err(error) => {
+                assert_eq!(error.kind(), ErrorKind::Unsupported);
+                assert_eq!(fs.info().volume_serial(), None);
+            }
+        }
+        use common::FsPaths;
+        let node = fs.resolve_path("/mapped.bin").unwrap();
+        let mut hosted = Vec::new();
+        let mut from = 0;
+        while fs.extents(node, from, &mut out[..1]).unwrap() == 1 {
+            hosted.push(out[0]);
+            from = out[0].file_offset() + out[0].len();
+        }
+        assert_eq!(extents, hosted, "{}", case.name);
+        let mut mapped = Vec::new();
+        for extent in &extents {
+            let at = extent.offset() as usize;
+            mapped.extend_from_slice(&after[at..at + extent.len() as usize]);
+        }
+        let mut expected = data.clone();
+        expected.extend_from_slice(b"tail");
+        assert_eq!(mapped, expected, "{}", case.name);
+
+        let mut fat = mount(&mut token, case, after);
+        fat.set_label(None).unwrap();
+        assert_eq!(fat.label(&mut buf).unwrap(), None);
+        let after = image(fat);
+        common::assert_checks_clean(case, &after, case.name);
+    }
+}
+
+#[test]
 fn writes_what_fatfs_check_and_fsck_accept() {
     for case in cases() {
         let mut mount_token_0 = MountToken::new();
@@ -1363,6 +1508,151 @@ mod interrupted {
                     }
                 }
             }
+        }
+    }
+
+    /// A replacing rename cut at any write keeps the target until the moved
+    /// source is published under its name; `sync` then leaves either both
+    /// files or the moved source alone.
+    #[test]
+    fn replacing_rename_keeps_the_target_after_every_failed_write() {
+        let source = common::payload(9000, 3);
+        let target = common::payload(5000, 4);
+        for case in cases() {
+            let mut token = MountToken::new();
+            let mut fat = mount(&mut token, case, common::blank(case));
+            let root = fat.root();
+            write_file(&mut fat, root, "a long source name.bin", &source);
+            write_file(&mut fat, root, "target.bin", &target);
+            let image = image(fat);
+            let mut finished = false;
+            for budget in 0..100 {
+                let left = Rc::new(Cell::new(budget));
+                let dev = Faulty {
+                    inner: common::device(case, image.clone()),
+                    budget: left.clone(),
+                };
+                let mut token = MountToken::new();
+                let mut fat: Fat<Faulty> = Fat::mount(dev, &mut token).unwrap();
+                let root = fat.root();
+                let result = fat.rename(root, "a long source name.bin", root, "TARGET.BIN");
+                let what = format!("{} budget={budget}", case.name);
+                if let Err(error) = &result {
+                    assert_eq!(error.kind(), ErrorKind::Io, "{what}");
+                    if fat.metadata(root, "a long source name.bin").is_ok() {
+                        let meta = fat.metadata(root, "target.bin");
+                        assert!(meta.is_ok(), "{what}: the target is gone");
+                    }
+                }
+                left.set(usize::MAX);
+                fat.sync().unwrap();
+                let after = fat.unmount().unwrap().inner.into_inner();
+                common::assert_checks_clean(case, &after, &what);
+                let mut fs = common::mount(case, &after);
+                let names = common::names(&mut fs, "/");
+                if names.len() == 2 {
+                    assert!(result.is_err(), "{what}");
+                    assert_eq!(
+                        common::read(&mut fs, "/a long source name.bin"),
+                        source,
+                        "{what}"
+                    );
+                    assert_eq!(common::read(&mut fs, "/target.bin"), target, "{what}");
+                } else {
+                    assert_eq!(names, ["TARGET.BIN"], "{what}");
+                    assert_eq!(common::read(&mut fs, "/TARGET.BIN"), source, "{what}");
+                }
+                if result.is_ok() {
+                    common::fsck(&after, &what);
+                    finished = true;
+                    break;
+                }
+            }
+            assert!(finished, "{}", case.name);
+        }
+    }
+
+    /// A power cut after any write of a replacing rename leaves a volume
+    /// where the target's name resolves to the old target with the source
+    /// still in place, or to the moved source.
+    #[test]
+    fn replacing_rename_resolves_by_name_after_a_power_cut() {
+        let source = common::payload(9000, 3);
+        let target = common::payload(5000, 4);
+        for case in cases() {
+            let mut token = MountToken::new();
+            let mut fat = mount(&mut token, case, common::blank(case));
+            let root = fat.root();
+            write_file(&mut fat, root, "a long source name.bin", &source);
+            write_file(&mut fat, root, "target.bin", &target);
+            let image = image(fat);
+            let mut finished = false;
+            for budget in 0..100 {
+                let dev = Faulty {
+                    inner: common::device(case, image.clone()),
+                    budget: Rc::new(Cell::new(budget)),
+                };
+                let mut token = MountToken::new();
+                let mut fat: Fat<Faulty> = Fat::mount(dev, &mut token).unwrap();
+                let root = fat.root();
+                let result = fat.rename(root, "a long source name.bin", root, "TARGET.BIN");
+                let cut = fat.into_inner().inner.into_inner();
+                let what = format!("{} budget={budget}", case.name);
+                use common::FsPaths;
+                let mut fs = common::mount(case, &cut);
+                let named = common::read(&mut fs, "/target.bin");
+                if named == target {
+                    assert!(result.is_err(), "{what}");
+                    assert_eq!(
+                        common::read(&mut fs, "/a long source name.bin"),
+                        source,
+                        "{what}"
+                    );
+                } else {
+                    assert_eq!(named, source, "{what}: the name resolves to neither file");
+                }
+                if result.is_ok() {
+                    assert!(
+                        fs.resolve_path("/a long source name.bin").is_err(),
+                        "{what}"
+                    );
+                    finished = true;
+                    break;
+                }
+            }
+            assert!(finished, "{}", case.name);
+        }
+    }
+
+    /// The slot of a file whose `close` failed is freed by the next `sync`
+    /// that writes its size.
+    #[test]
+    fn sync_frees_the_slot_of_a_failed_close() {
+        for case in cases() {
+            let left = Rc::new(Cell::new(usize::MAX));
+            let dev = Faulty {
+                inner: common::device(case, common::blank(case)),
+                budget: left.clone(),
+            };
+            let mut token = MountToken::new();
+            let mut fat: Fat<Faulty, 1> = Fat::mount(dev, &mut token).unwrap();
+            let root = fat.root();
+            let write = OpenOptions::new().write().create();
+            let file = fat.open(root, "log.bin", write).unwrap();
+            fat.write(&file, &[5; 700]).unwrap();
+            left.set(0);
+            assert_eq!(fat.close(file).unwrap_err().kind(), ErrorKind::Io);
+            left.set(usize::MAX);
+            assert_eq!(
+                fat.open(root, "other", write).unwrap_err().kind(),
+                ErrorKind::LimitExceeded
+            );
+            fat.sync().unwrap();
+            let other = fat.open(root, "other", write).unwrap();
+            fat.close(other).unwrap();
+            assert_eq!(fat.metadata(root, "log.bin").unwrap().len(), 700);
+            let after = fat.unmount().unwrap().inner.into_inner();
+            common::assert_checks_clean(case, &after, case.name);
         }
     }
 

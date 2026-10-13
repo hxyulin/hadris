@@ -171,15 +171,15 @@ const fn node_id(raw: u64) -> NodeId {
 
 const ROOT: NodeId = node_id(1);
 /// A node id holds the slot of its short entry, the entry's byte offset
-/// divided by 32, in its low `SLOT_BITS` bits. The bits above, the tier,
-/// count up when that id is taken by a pinned node that has since moved
-/// away from the slot, so a listing and a lookup of one entry agree on its
-/// id. A FAT volume has at most `2^32` sectors of 4096 bytes, so slots stay
-/// below `2^39`, and no id is 0.
-const SLOT_BITS: u32 = 40;
-const SLOT_MASK: u64 = (1 << SLOT_BITS) - 1;
-/// Highest value of the bits above the slot, so ids stay below `2^63`.
-const MAX_TIER: u64 = (1 << (63 - SLOT_BITS)) - 1;
+/// divided by 32, above its low `TAG_BITS` bits. Those hold the entry's
+/// [`entry_tag`](crate::names::entry_tag), counted up past ids pinned nodes
+/// that moved away from the slot still hold, so a listing and a lookup of
+/// one entry agree on its id, and an unpinned id whose slot now holds an
+/// entry with another tag is refused. A FAT volume has at most `2^32` sectors of
+/// 4096 bytes, so slots stay below `2^39`, ids below `2^62`, and no id of a
+/// directory slot is 0.
+const TAG_BITS: u32 = 23;
+const TAG_MASK: u64 = (1 << TAG_BITS) - 1;
 /// The id of the table slot `create` reserves before it writes anything.
 /// Never handed out.
 const RESERVED: NodeId = match NodeId::new(1 << 63) {
@@ -191,8 +191,6 @@ const ENTRY_SIZE: u64 = raw::ENTRY_SIZE as u64;
 const MAX_FILE_SIZE: u64 = u32::MAX as u64;
 /// The first name byte of a deleted entry.
 const DELETED: u8 = raw::ENTRY_FREE;
-/// The boot sector's label when the volume has none.
-const NO_NAME: &[u8; 11] = b"NO NAME    ";
 
 /// State of a pinned node.
 #[derive(Debug, Clone, Copy)]
@@ -228,18 +226,6 @@ impl Node {
             opens: 0,
             unlinked: false,
         }
-    }
-}
-
-/// The extended boot signature of a boot sector whose serial is followed by
-/// a label and a filesystem type; `0x28` has only the serial.
-const EXT_BOOT_SIGNATURE_LABEL: u8 = 0x29;
-
-/// Byte offset of the serial in the boot sector; the label follows it.
-const fn bpb_serial_offset(kind: FatKind) -> u64 {
-    match kind {
-        FatKind::Fat32 => 0x43,
-        _ => 0x27,
     }
 }
 
@@ -990,11 +976,11 @@ impl<D: BlockDevice> FatFs<D> {
             }
             (None, None) => {}
         }
-        let serial_at = bpb_serial_offset(self.fat.geometry().kind());
+        let serial_at = crate::names::bpb_serial_offset(self.fat.geometry().kind());
         let mut signature = [0u8];
         self.read_raw(serial_at - 1, &mut signature).await?;
-        if signature[0] == EXT_BOOT_SIGNATURE_LABEL {
-            let bytes = label.map_or(*NO_NAME, |label| *label.as_bytes());
+        if signature[0] == crate::names::EXT_BOOT_SIGNATURE_LABEL {
+            let bytes = label.map_or(*crate::names::NO_NAME, |label| *label.as_bytes());
             self.put_boot(serial_at + 4, &bytes).await?;
         }
         Ok(())
@@ -1008,7 +994,7 @@ impl<D: BlockDevice> FatFs<D> {
         if self.fat.geometry().volume_serial().is_none() {
             return Err(ErrorKind::Unsupported.into());
         }
-        self.put_boot(bpb_serial_offset(self.fat.geometry().kind()), &serial.to_le_bytes()).await?;
+        self.put_boot(crate::names::bpb_serial_offset(self.fat.geometry().kind()), &serial.to_le_bytes()).await?;
         self.fat.set_volume_serial(serial);
         Ok(())
     }
@@ -1111,8 +1097,8 @@ impl<D: BlockDevice> FatFs<D> {
             .insert(reserved, placeholder)
             .map_err(|_| ErrorKind::LimitExceeded)?;
         let append = self.append_index.take();
-        let node = match self.create_entry(start, &new, &plan, is_dir, attrs).await {
-            Ok(node) => node,
+        let (node, entry) = match self.create_entry(start, &new, &plan, is_dir, attrs).await {
+            Ok(created) => created,
             Err(err) => {
                 self.nodes.remove(reserved);
                 return Err(err);
@@ -1127,7 +1113,7 @@ impl<D: BlockDevice> FatFs<D> {
             }
         }
         self.nodes.remove(reserved);
-        let id = self.free_id(node.entry).ok_or(ErrorKind::LimitExceeded)?;
+        let id = self.free_id(node.entry, &entry).ok_or(ErrorKind::LimitExceeded)?;
         self.nodes
             .insert(id, node)
             .map_err(|_| ErrorKind::LimitExceeded)?;
@@ -1608,10 +1594,7 @@ impl<D: BlockDevice> FatFs<D> {
             return Ok((Some(id), *node));
         }
         let (offset, entry) = self.unpinned(id).await?;
-        match self.pinned_at(offset) {
-            Some(pinned) => Ok((Some(pinned), *self.nodes.get(pinned).ok_or(ErrorKind::Corrupt)?)),
-            None => Ok((None, Node::new(offset, &entry, self.fat.geometry().kind()))),
-        }
+        Ok((None, Node::new(offset, &entry, self.fat.geometry().kind())))
     }
 
     async fn file_node(&mut self, id: NodeId) -> FsResult<(Option<NodeId>, Node), D::Error> {
@@ -2021,7 +2004,7 @@ impl<D: BlockDevice> FatFs<D> {
         plan: &Plan,
         is_dir: bool,
         attrs: &SetAttr,
-    ) -> FsResult<Node, D::Error> {
+    ) -> FsResult<(Node, ShortEntry), D::Error> {
         let kind = self.fat.geometry().kind();
         let now = self.now();
         let attr = if is_dir { raw::ATTR_DIRECTORY } else { raw::ATTR_ARCHIVE };
@@ -2079,7 +2062,7 @@ impl<D: BlockDevice> FatFs<D> {
             }
         };
         self.pending = None;
-        Ok(Node {
+        let node = Node {
             entry: offset,
             first,
             size: 0,
@@ -2088,7 +2071,8 @@ impl<D: BlockDevice> FatFs<D> {
             dirty: false,
             opens: 0,
             unlinked: false,
-        })
+        };
+        Ok((node, entry))
     }
 
     async fn set_dot_dot(&mut self, dir: u32, parent: u32) -> FsResult<(), D::Error> {
@@ -2431,30 +2415,34 @@ impl<D: BlockDevice> FatFs<D> {
     }
 
     /// The pinned node whose short entry is at `offset`. Unless a pinned
-    /// node has moved, that is the tier-0 id of the slot, found by key.
+    /// node has moved, its id is among the ids of the slot.
     fn pinned_at(&self, offset: u64) -> Option<NodeId> {
         if !self.moved {
-            let id = node_id(offset / ENTRY_SIZE);
-            return self.nodes.get(id).is_some_and(|node| node.entry == offset).then_some(id);
+            let base = (offset / ENTRY_SIZE) << TAG_BITS;
+            return self
+                .nodes
+                .find_in(node_id(base), node_id(base | TAG_MASK), |_, node| node.entry == offset);
         }
         self.nodes.find(|_, node| node.entry == offset)
     }
 
-    /// The first id for the entry at `offset` that no node in the table
-    /// holds. `None` only when every generation of the slot is taken.
-    fn free_id(&self, offset: u64) -> Option<NodeId> {
-        let slot = offset / ENTRY_SIZE;
-        (0..=MAX_TIER)
-            .map(|tier| node_id(tier << SLOT_BITS | slot))
+    /// The first id for `entry` at `offset` that no node in the table
+    /// holds, from the one its tag names. `None` only when every id of the
+    /// slot is taken.
+    fn free_id(&self, offset: u64, entry: &ShortEntry) -> Option<NodeId> {
+        let base = (offset / ENTRY_SIZE) << TAG_BITS;
+        let tag = u64::from(crate::names::entry_tag(entry));
+        (0..=TAG_MASK)
+            .map(|step| node_id(base | (tag + step) & TAG_MASK))
             .find(|&id| self.nodes.get(id).is_none())
     }
 
-    /// The id of the entry at `offset` without pinning it: its pinned id,
+    /// The id of `entry` at `offset` without pinning it: its pinned id,
     /// else the id a lookup would pin.
-    fn id_at(&self, offset: u64) -> NodeId {
+    fn id_at(&self, offset: u64, entry: &ShortEntry) -> NodeId {
         self.pinned_at(offset)
-            .or_else(|| self.free_id(offset))
-            .unwrap_or(node_id(offset / ENTRY_SIZE))
+            .or_else(|| self.free_id(offset, entry))
+            .unwrap_or(RESERVED)
     }
 
     /// Pins the node whose short entry is at `offset`.
@@ -2463,7 +2451,7 @@ impl<D: BlockDevice> FatFs<D> {
             self.nodes.pin(id);
             return Ok(id);
         }
-        let id = self.free_id(offset).ok_or(ErrorKind::LimitExceeded)?;
+        let id = self.free_id(offset, entry).ok_or(ErrorKind::LimitExceeded)?;
         self.nodes
             .insert(id, Node::new(offset, entry, self.fat.geometry().kind()))
             .map_err(|_| ErrorKind::LimitExceeded)?;
@@ -2473,18 +2461,26 @@ impl<D: BlockDevice> FatFs<D> {
 
     /// The entry of an id that is not pinned, decoded from its location.
     /// The slot must lie in a directory region and hold a plausible visible
-    /// entry; anything else is [`ErrorKind::InvalidHandle`].
+    /// entry that no other id is pinned on and whose id this is; anything
+    /// else is [`ErrorKind::InvalidHandle`].
     async fn unpinned(&mut self, id: NodeId) -> FsResult<(u64, ShortEntry), D::Error> {
         let raw = id.get();
         if raw == ROOT.get() || raw >= RESERVED.get() {
             return Err(ErrorKind::InvalidHandle.into());
         }
-        let offset = (raw & SLOT_MASK) * ENTRY_SIZE;
+        let offset = (raw >> TAG_BITS) * ENTRY_SIZE;
         if !crate::names::in_directory_region(self.fat.geometry(), offset) {
             return Err(ErrorKind::InvalidHandle.into());
         }
         match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
-            Slot::Short(entry) if entry.is_visible() && crate::names::plausible_entry(&entry, self.fat.geometry()) => Ok((offset, entry)),
+            Slot::Short(entry)
+                if entry.is_visible()
+                    && crate::names::plausible_entry(&entry, self.fat.geometry())
+                    && self.pinned_at(offset).is_none()
+                    && self.free_id(offset, &entry) == Some(id) =>
+            {
+                Ok((offset, entry))
+            }
             _ => Err(ErrorKind::InvalidHandle.into()),
         }
     }
@@ -2682,7 +2678,11 @@ impl<D: BlockDevice> FatFs<D> {
     }
 
     /// Metadata of a pinned node or of an id just returned by
-    /// `readdir`. Directories have length 0.
+    /// `readdir`. Directories have length 0. An unpinned id whose slot now
+    /// holds an entry with another short name, creation time or type fails
+    /// with [`ErrorKind::InvalidHandle`]; one that differs only in its long
+    /// name, as a file recreated under the same `~N` alias with a clock that
+    /// does not move, is not detected.
     pub async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
         if node == ROOT {
             return Ok(Metadata::new(FileType::Dir, permissions(true, false)));
@@ -2714,7 +2714,7 @@ impl<D: BlockDevice> FatFs<D> {
         let units = long.finish(found.entry.lfn_checksum());
         let mut name = NameBuf::new();
         write_name(&mut name, units.filter(|units| !units.is_empty()), &found.entry, self.code_page)?;
-        let node = self.id_at(found.offset);
+        let node = self.id_at(found.offset, &found.entry);
         let state = match self.pinned_at(found.offset).and_then(|id| self.nodes.get(id)) {
             Some(state) => *state,
             None => Node::new(found.offset, &found.entry, self.fat.geometry().kind()),

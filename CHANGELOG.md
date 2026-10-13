@@ -38,8 +38,35 @@ Each published package owns its version and may be released independently.
   `FatFs::rename` does (a file by a file, an empty directory by a
   directory) instead of failing with `AlreadyExists`. Type mismatches,
   non-empty directories and open targets fail with `IsADirectory`,
-  `NotADirectory`, `DirectoryNotEmpty` and `Busy`. The target is removed
-  before the move, so a move that fails afterwards leaves the target gone.
+  `NotADirectory`, `DirectoryNotEmpty` and `Busy`. The new entry is
+  written before the target is removed, so a move that fails leaves both
+  the source and the target in place; a replace in a full FAT12/16 root
+  directory, where the new name has no free slots, fails with `NoSpace`.
+
+- **FAT:** A node id or embedded `Node` whose directory slot now holds an
+  entry with another short name, creation time or type, or bytes that only
+  look like an entry, fails with `InvalidHandle` instead of naming that
+  entry. `FatFs` ids carry a tag of those fields beside the slot, so their
+  values change; an id stays the same while it is pinned. The long name is
+  not covered: with a clock that does not move, such as the default
+  `NoClock`, a file created in the slot of a removed one under the same
+  `~N` short name (`Quarterly report two.txt` after
+  `Quarterly report one.txt`) is not detected, and the stale id names it.
+
+- **Embedded FAT (breaking):** `Node` and `Entry` carry the mount's
+  lifetime, as `File` does: they are `Node<'mount>` and `Entry<'a, 'mount>`,
+  and `open_node` refuses a node of another mount with `InvalidHandle`.
+
+- **Embedded FAT:** A file whose `close` failed no longer holds its slot
+  until `unmount`: the next `sync` that writes its size frees it. New
+  `set_label`, `set_volume_serial`, `extents` and `stat` (by `File`) match
+  the hosted `FatFs` methods.
+
+- **hadris-storage:** `host::FileDevice::new` and `with_block_size` read the
+  descriptor's access mode on Unix to decide whether the device is
+  writable, instead of a zero-length write, which POSIX lets succeed on a
+  read-only descriptor (Miri's does), so a read-only file could be reported
+  writable.
 
 - **ISO El Torito:** `BootInfo::Table` writes the 56-byte table with its 40
   reserved bytes cleared, as mkisofs and xorriso `-boot-info-table` do.

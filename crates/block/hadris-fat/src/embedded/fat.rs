@@ -4,20 +4,20 @@ use hadris_fat_raw::io::{BlockBuf, ChainPos, DirStart, DirWalk, Fat as Volume};
 use hadris_fat_raw::lfn::Assembler;
 use hadris_fat_raw::{self as raw, LongEntry, RootLocation, ShortEntry, Slot, date, short_name};
 use hadris_fs::{
-    DateTime, DirCursor, ErrorKind, FsResult, FsStats, Metadata, MountError, OpenOptions, SeekFrom,
-    SetAttr,
+    DateTime, DirCursor, ErrorKind, Extent, FsResult, FsStats, Metadata, MountError, OpenOptions,
+    SeekFrom, SetAttr,
 };
 
 use super::rawio;
 use super::storage::BlockDevice;
 use crate::embedded::{
-    BLOCK, Dir, Entry, FLAG_APPEND, FLAG_DIRTY, FLAG_READ, FLAG_WRITE, File, FileSlot, MAX_DEPTH,
-    MAX_FILE_SIZE, MountToken, Node, Options, Owner, Pending, Run, short_units,
+    BLOCK, Dir, Entry, FLAG_APPEND, FLAG_CLOSED, FLAG_DIRTY, FLAG_READ, FLAG_WRITE, File, FileSlot,
+    MAX_DEPTH, MAX_FILE_SIZE, MountToken, Node, Options, Owner, Pending, Run, short_units,
 };
 use crate::names::{
     CANDIDATES, NewName, apply_attributes, is_exact, matches, read_only_bit, set_read_only, stamp,
 };
-use crate::{FatKind, Geometry};
+use crate::{FatKind, Geometry, VolumeLabel};
 
 const ENTRY_SIZE: u64 = raw::ENTRY_SIZE as u64;
 
@@ -61,6 +61,9 @@ enum RenamePhase {
 struct Rename {
     source: Run,
     source_offset: u64,
+    /// The entry the move replaces, in the destination directory, removed
+    /// once the move is published.
+    target: Target,
     destination: u64,
     directory: u32,
     parent: u32,
@@ -68,6 +71,32 @@ struct Rename {
     old_end: u64,
     new_end: u64,
     phase: RenamePhase,
+}
+
+/// A replaced entry: its short entry's offset, 0 for none, its first
+/// cluster and the slots of its name.
+#[derive(Clone, Copy)]
+struct Target {
+    offset: u64,
+    cluster: u32,
+    first: u16,
+    short: u16,
+}
+
+/// Entries a new name may take the name of.
+#[derive(Clone, Copy, Default)]
+struct Skip {
+    /// Offsets of short entries whose names do not count as taken; 0 for
+    /// none.
+    entries: [u64; 2],
+    /// No name counts as taken: the entry planned is a volume label.
+    label: bool,
+}
+
+impl Skip {
+    fn covers(&self, offset: u64) -> bool {
+        self.label || self.entries.contains(&offset)
+    }
 }
 
 /// What a directory scan looks for.
@@ -278,7 +307,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         &mut self,
         dir: Dir,
         from: DirCursor,
-        mut each: impl FnMut(&Entry<'_>) -> ControlFlow<()>,
+        mut each: impl FnMut(&Entry<'_, 'mount>) -> ControlFlow<()>,
     ) -> FsResult<(), D::Error> {
         let start = self.start(dir)?;
         let Ok(mut slot) = u32::try_from(from.into_raw()) else {
@@ -297,7 +326,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
                     &short[..len]
                 }
             };
-            let entry = Entry::new(name, found.entry, found.offset, found.slot as u64 + 1, zone);
+            let entry = Entry::new(self.owner, name, found.entry, found.offset, found.slot as u64 + 1, zone);
             if each(&entry).is_break() {
                 break;
             }
@@ -336,11 +365,11 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
 
     /// Opens the file a listed [`Entry`] names, without a lookup. The
     /// position is valid until its directory changes; a position that no
-    /// longer holds a file fails with [`ErrorKind::NotFound`], and one
-    /// outside the directories of this volume, or holding an entry no FAT
-    /// driver writes, with [`ErrorKind::InvalidHandle`].
+    /// longer holds a file fails with [`ErrorKind::NotFound`], and a node of
+    /// another mount, or whose slot now holds an entry with another short
+    /// name, creation time or type, with [`ErrorKind::InvalidHandle`].
     /// `create_new` fails with [`ErrorKind::AlreadyExists`].
-    pub async fn open_node(&mut self, node: Node, options: OpenOptions) -> FsResult<File<'mount>, D::Error> {
+    pub async fn open_node(&mut self, node: Node<'_>, options: OpenOptions) -> FsResult<File<'mount>, D::Error> {
         options.validate().map_err(ErrorKind::from)?;
         if options.is_create_new() {
             return Err(ErrorKind::AlreadyExists.into());
@@ -350,14 +379,14 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         }
         let index = self.free_slot()?;
         let offset = node.offset();
-        if !crate::names::in_directory_region(self.fat.geometry(), offset) {
+        if !node.belongs_to(self.owner) || !crate::names::in_directory_region(self.fat.geometry(), offset) {
             return Err(ErrorKind::InvalidHandle.into());
         }
         let entry = match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
             Slot::Short(entry) if entry.is_visible() => entry,
             _ => return Err(ErrorKind::NotFound.into()),
         };
-        if !crate::names::plausible_entry(&entry, self.fat.geometry()) {
+        if crate::names::entry_tag(&entry) != node.tag() || !crate::names::plausible_entry(&entry, self.fat.geometry()) {
             return Err(ErrorKind::InvalidHandle.into());
         }
         self.open_entry(index, offset, &entry, options).await
@@ -473,12 +502,14 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
 
     /// Closes the file: writes its size and modification time to its
     /// entry, without flushing the device, and frees its slot. When the
-    /// write fails the slot stays taken until `sync` or `unmount` writes
-    /// it.
+    /// write fails the slot stays taken until a `sync` writes it.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all))]
     pub async fn close(&mut self, file: File<'_>) -> FsResult<(), D::Error> {
         let index = self.slot(&file)?;
-        self.publish(index).await?;
+        if let Err(err) = self.publish(index).await {
+            self.files[index].flags |= FLAG_CLOSED;
+            return Err(err);
+        }
         self.files[index] = FileSlot::FREE;
         Ok(())
     }
@@ -647,11 +678,15 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// [`ErrorKind::Busy`]. Fails with [`ErrorKind::InvalidInput`] when a
     /// directory would move into itself. A change of case only is allowed.
     ///
-    /// The target is removed before the move starts, so a move that then
-    /// fails leaves the source in place and the target gone.
+    /// The new entry is written to free slots before a replaced target is
+    /// removed, so a move that fails leaves both the source and the target
+    /// in place. A replace therefore needs room for the new name besides
+    /// the target's slots, and fails with [`ErrorKind::NoSpace`] in a full
+    /// FAT12/16 root directory.
     ///
     /// While this driver remains alive, the next mutation or `sync` completes
-    /// a published move or rolls back an incomplete destination after interruption.
+    /// a published move, removing the target, or rolls back an incomplete
+    /// destination after interruption.
     pub async fn rename(&mut self, from_dir: Dir, from: &str, to_dir: Dir, to: &str) -> FsResult<(), D::Error> {
         self.prepare().await?;
         let from_start = self.start(from_dir)?;
@@ -670,9 +705,13 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
                 return Err(ErrorKind::InvalidInput.into());
             }
         }
+        let mut replaced = Target { offset: 0, cluster: 0, first: 0, short: 0 };
         match self.find(to_start, Query::Name(to)).await? {
             Some(target) if target.offset == src.offset && target.exact => return Ok(()),
             Some(target) if target.offset != src.offset => {
+                if self.open_slot(target.offset).is_some() {
+                    return Err(ErrorKind::Busy.into());
+                }
                 match (is_dir, target.entry.is_dir()) {
                     (true, false) => return Err(ErrorKind::NotADirectory.into()),
                     (false, true) => return Err(ErrorKind::IsADirectory.into()),
@@ -684,11 +723,22 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
                     }
                     (false, false) => {}
                 }
-                self.remove_located(to_start, &target).await?;
+                replaced = Target {
+                    offset: target.offset,
+                    cluster: target.entry.first_cluster(kind),
+                    first: target.first as u16,
+                    short: target.slot as u16,
+                };
             }
             _ => {}
         }
-        let skip = (from_start == to_start).then_some(src.offset);
+        let skip = Skip {
+            entries: [
+                if from_start == to_start { src.offset } else { 0 },
+                replaced.offset,
+            ],
+            label: false,
+        };
         let plan = self.plan(to_start, to, false, &new, skip).await?;
         self.grow(&plan).await?;
         moved.set_name(plan.short);
@@ -715,6 +765,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         self.rename = Some(Rename {
             source: Run { dir: from_start, first: src.first, short: src.slot },
             source_offset: src.offset,
+            target: replaced,
             destination,
             directory: if is_dir && old_parent != new_parent { moved.first_cluster(kind) } else { 0 },
             parent: new_parent,
@@ -735,29 +786,117 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// `None` when it has none, decoded through the code page into `buf`.
     /// Fails with [`ErrorKind::LimitExceeded`] when `buf` is too short.
     pub async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
-        let mut walk = DirWalk::new(self.fat.root());
-        let mut slot = 0;
-        let mut label = None;
-        while let Some(offset) = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot).await? {
-            match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
-                Slot::End => break,
-                Slot::Short(entry) if entry.is_label() => {
-                    label = Some(entry.name());
-                    break;
-                }
-                _ => {}
-            }
-            slot += 1;
-        }
-        let Some(label) = label else {
+        let Some((_, entry)) = self.find_label().await? else {
             return Ok(None);
         };
+        let label = entry.name();
         let code_page = self.options.code_page();
         let mut text = [0u8; short_name::DISPLAY_MAX];
         let len = short_name::display_label(&label, |byte| code_page.decode(byte), &mut text);
         let out = buf.get_mut(..len).ok_or(ErrorKind::LimitExceeded)?;
         out.copy_from_slice(&text[..len]);
         Ok(Some(core::str::from_utf8(out).map_err(|_| ErrorKind::Corrupt)?))
+    }
+
+    /// Sets the volume label, or removes it with `None`, as the hosted
+    /// driver does: the label entry of the root directory is rewritten,
+    /// created in a free slot (the FAT32 root grows when it has none) or
+    /// deleted, then the copy in the boot sector, and on FAT32 in the backup
+    /// boot sector, is set, to `NO NAME` when removed. A boot sector without
+    /// an extended boot signature of `0x29` has no copy.
+    pub async fn set_label(&mut self, label: Option<VolumeLabel>) -> FsResult<(), D::Error> {
+        self.prepare().await?;
+        match (self.find_label().await?, label) {
+            (Some((offset, _)), None) => self.put(offset, &[raw::ENTRY_FREE]).await?,
+            (Some((offset, mut entry)), Some(label)) => {
+                entry.set_name(*label.as_bytes());
+                self.stamp_label(&mut entry);
+                self.put(offset, &entry.encode()).await?;
+            }
+            (None, Some(label)) => {
+                let mut entry = ShortEntry::new(*label.as_bytes(), raw::ATTR_VOLUME_ID);
+                self.stamp_label(&mut entry);
+                let root = self.fat.root();
+                let new = NewName::new("LABEL", self.options.code_page(), self.options.fold())?;
+                let plan = self.plan(root, "LABEL", false, &new, Skip { label: true, ..Skip::default() }).await?;
+                self.grow(&plan).await?;
+                self.insert_entry(root, &new, &plan, &entry).await?;
+            }
+            (None, None) => {}
+        }
+        let serial_at = crate::names::bpb_serial_offset(self.kind());
+        let mut signature = [0u8];
+        rawio::read_bytes(&mut self.dev, &mut self.block, serial_at - 1, &mut signature).await?;
+        if signature[0] == crate::names::EXT_BOOT_SIGNATURE_LABEL {
+            let bytes = label.map_or(*crate::names::NO_NAME, |label| *label.as_bytes());
+            self.put_boot(serial_at + 4, &bytes).await?;
+        }
+        Ok(())
+    }
+
+    /// Writes `serial` to the boot sector, and on FAT32 to the backup boot
+    /// sector. Fails with [`ErrorKind::Unsupported`] when the boot sector
+    /// has no extended boot signature, and so no serial field.
+    pub async fn set_volume_serial(&mut self, serial: u32) -> FsResult<(), D::Error> {
+        self.prepare().await?;
+        if self.fat.geometry().volume_serial().is_none() {
+            return Err(ErrorKind::Unsupported.into());
+        }
+        self.put_boot(crate::names::bpb_serial_offset(self.kind()), &serial.to_le_bytes()).await?;
+        self.fat.set_volume_serial(serial);
+        Ok(())
+    }
+
+    /// The metadata of an open file, with the size its slot holds.
+    pub async fn stat(&mut self, file: &File<'_>) -> FsResult<Metadata, D::Error> {
+        let state = self.files[self.slot(file)?];
+        let entry = self.read_short(state.entry).await?;
+        Ok(crate::names::metadata(&entry, false, state.size as u64, self.options.utc_offset()))
+    }
+
+    /// Maps an open file to the device, FIEMAP style, as the hosted
+    /// driver's `extents` does: fills `out` with the runs of consecutive
+    /// clusters that hold its bytes from file offset `from` on, and returns
+    /// how many it filled. A run is whole clusters, except that the last
+    /// ends with the file. Call again from the end of the last run for
+    /// more; 0 means there are none. Fails with [`ErrorKind::Corrupt`] when
+    /// the chain leaves the data clusters or is longer than the volume.
+    pub async fn extents(&mut self, file: &File<'_>, from: u64, out: &mut [Extent]) -> FsResult<usize, D::Error> {
+        let state = self.files[self.slot(file)?];
+        let len = state.size as u64;
+        if state.first == 0 || out.is_empty() {
+            return Ok(0);
+        }
+        let cluster_size = self.fat.geometry().cluster_size() as u64;
+        let mut cluster = self.fat.check_cluster(state.first)?;
+        let mut count = 0;
+        let mut run: Option<(u64, u64, u64)> = None;
+        let mut index = 0u64;
+        while index * cluster_size < len {
+            let at = self.fat.cluster_at(cluster)?;
+            run = match run {
+                Some((file, disk, bytes)) if disk + bytes == at => Some((file, disk, bytes + cluster_size)),
+                Some(done) => {
+                    if crate::push_run(out, &mut count, done, from, len, len) {
+                        return Ok(count);
+                    }
+                    Some((index * cluster_size, at, cluster_size))
+                }
+                None => Some((index * cluster_size, at, cluster_size)),
+            };
+            index += 1;
+            if index >= self.fat.geometry().max_cluster() as u64 {
+                return Err(ErrorKind::Corrupt.into());
+            }
+            match rawio::next(&mut self.dev, &mut self.block, &self.fat, cluster).await? {
+                Some(next) => cluster = self.fat.check_cluster(next)?,
+                None => break,
+            }
+        }
+        if let Some(done) = run {
+            crate::push_run(out, &mut count, done, from, len, len);
+        }
+        Ok(count)
     }
 
     /// Total and free clusters. The free count comes from FSInfo or one
@@ -773,7 +912,8 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
 
     /// Finishes what an interrupted operation left, writes the sizes of
     /// open and dropped files and the FAT32 FSInfo free count, and flushes
-    /// the device.
+    /// the device. The slot of a file whose `close` failed is freed once its
+    /// size is written.
     ///
     /// FAT16/32 is marked clean after these writes are flushed, unless it
     /// was dirty at mount or recovery encountered unrecoverable corruption
@@ -791,11 +931,48 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         self.recover().await?;
         for index in 0..FILES {
             self.publish(index).await?;
+            if self.files[index].has(FLAG_CLOSED) {
+                self.files[index] = FileSlot::FREE;
+            }
         }
         let written = rawio::write_fs_info(&mut self.dev, &mut self.block, &mut self.fat).await;
         self.note(written)?;
         let cleared = rawio::clear_dirty(&mut self.dev, &mut self.block, &mut self.fat).await;
         self.note(cleared)
+    }
+
+    /// The root directory's label entry and its offset.
+    async fn find_label(&mut self) -> FsResult<Option<(u64, ShortEntry)>, D::Error> {
+        let mut walk = DirWalk::new(self.fat.root());
+        let mut slot = 0;
+        while let Some(offset) = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot).await? {
+            match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
+                Slot::End => break,
+                Slot::Short(entry) if entry.is_label() => return Ok(Some((offset, entry))),
+                _ => {}
+            }
+            slot += 1;
+        }
+        Ok(None)
+    }
+
+    fn stamp_label(&self, entry: &mut ShortEntry) {
+        let (date, time, tenths) = date::encode(self.now(), self.options.utc_offset());
+        entry.set_created(date, time, tenths);
+        entry.set_modified(date, time);
+        entry.set_accessed_date(date);
+    }
+
+    /// Writes `bytes` at `offset` in the boot sector, and first in the
+    /// FAT32 backup boot sector when that is valid.
+    async fn put_boot(&mut self, offset: u64, bytes: &[u8]) -> FsResult<(), D::Error> {
+        if self.kind() == FatKind::Fat32
+            && rawio::read_backup_geometry(&mut self.dev, &mut self.block).await.is_ok()
+        {
+            let backup = raw::layout::BACKUP_BOOT_SECTOR as u64 * self.fat.geometry().sector_size() as u64;
+            self.put(backup + offset, bytes).await?;
+        }
+        self.put(offset, bytes).await
     }
 
     fn kind(&self) -> FatKind {
@@ -1186,7 +1363,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// offset.
     async fn create_entry(&mut self, dir: DirStart, text: &str, is_dir: bool) -> FsResult<(u64, ShortEntry), D::Error> {
         let new = NewName::new(text, self.options.code_page(), self.options.fold())?;
-        let plan = self.plan(dir, text, true, &new, None).await?;
+        let plan = self.plan(dir, text, true, &new, Skip::default()).await?;
         let now = self.now();
         let kind = self.kind();
         let attr = if is_dir { raw::ATTR_DIRECTORY } else { raw::ATTR_ARCHIVE };
@@ -1236,9 +1413,9 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     outline! {
         /// Finds room for `new` in `dir` and picks its short name. With
         /// `check_exists`, an entry matching `text` fails with
-        /// [`ErrorKind::AlreadyExists`]. The short name of the entry at `skip`
-        /// does not count as taken.
-        async fn plan(&mut self, dir: DirStart, text: &str, check_exists: bool, new: &NewName<'_>, skip: Option<u64>) -> FsResult<Plan, D::Error> {
+        /// [`ErrorKind::AlreadyExists`]. The short names `skip` covers do
+        /// not count as taken.
+        async fn plan(&mut self, dir: DirStart, text: &str, check_exists: bool, new: &NewName<'_>, skip: Skip) -> FsResult<Plan, D::Error> {
             let (code_page, fold) = (self.options.code_page(), self.options.fold());
             let needed = new.slots();
             let mut walk = DirWalk::new(dir);
@@ -1268,7 +1445,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
                         }
                         Slot::Short(entry) => {
                             let units = long.finish(entry.lfn_checksum()).filter(|units| !units.is_empty());
-                            if skip != Some(offset) && !entry.is_label() {
+                            if !skip.covers(offset) && !entry.is_label() {
                                 if check_exists && entry.is_visible() && matches(text, units, &entry, code_page, fold) {
                                     return Err(ErrorKind::AlreadyExists.into());
                                 }
@@ -1331,7 +1508,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     }
 
     /// A short name with a hashed `HHHH~N` tail that no entry of `dir` has.
-    async fn hashed_short(&mut self, dir: DirStart, text: &str, skip: Option<u64>) -> FsResult<[u8; 11], D::Error> {
+    async fn hashed_short(&mut self, dir: DirStart, text: &str, skip: Skip) -> FsResult<[u8; 11], D::Error> {
         let (code_page, fold) = (self.options.code_page(), self.options.fold());
         for suffix in CANDIDATES as u8..=u8::MAX {
             let Some(mut candidate) = crate::names::short_name(text, suffix, code_page, fold) else {
@@ -1345,13 +1522,13 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         Err(ErrorKind::AlreadyExists.into())
     }
 
-    async fn short_taken(&mut self, dir: DirStart, name: &[u8; 11], skip: Option<u64>) -> FsResult<bool, D::Error> {
+    async fn short_taken(&mut self, dir: DirStart, name: &[u8; 11], skip: Skip) -> FsResult<bool, D::Error> {
         let mut walk = DirWalk::new(dir);
         let mut slot = 0;
         while let Some(offset) = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot).await? {
             match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
                 Slot::End => break,
-                Slot::Short(entry) if entry.name() == *name && !entry.is_label() && skip != Some(offset) => return Ok(true),
+                Slot::Short(entry) if entry.name() == *name && !entry.is_label() && !skip.covers(offset) => return Ok(true),
                 _ => {}
             }
             slot += 1;
@@ -1435,6 +1612,15 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
             self.free_chain(first).await?;
         }
         Ok(())
+    }
+
+    outline! {
+        /// Marks the short entry at `offset` and the slots of `run` before
+        /// it deleted.
+        async fn clear_entry(&mut self, offset: u64, run: Run) -> FsResult<(), D::Error> {
+            self.put(offset, &[raw::ENTRY_FREE]).await?;
+            self.clear(run.dir, run.first, run.short).await
+        }
     }
 
     /// Marks slots `from..to` of `dir` deleted.
@@ -1708,10 +1894,22 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
                 slot.entry = rename.destination;
             }
         }
-        self.put(rename.source_offset, &[raw::ENTRY_FREE]).await?;
-        self.clear(rename.source.dir, rename.source.first, rename.source.short).await?;
+        let target = rename.target;
+        let destination = match rename.parent {
+            0 => self.fat.root(),
+            parent => DirStart::Chain(parent),
+        };
+        if target.offset != 0 {
+            self.clear_entry(target.offset, Run { dir: destination, first: target.first as u32, short: target.short as u32 }).await?;
+        }
+        self.clear_entry(rename.source_offset, rename.source).await?;
         self.run = None;
         self.rename = None;
+        if target.cluster != 0 {
+            self.pending = Pending::chain(target.cluster, Owner::Entry(target.offset));
+            self.reclaim(target.cluster, 0).await?;
+            self.pending = Pending::NONE;
+        }
         Ok(())
     }
 

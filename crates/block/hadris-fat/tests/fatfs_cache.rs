@@ -1058,7 +1058,9 @@ fn listing_hint_matches_aliases_and_invalidates_mutations() {
         .unwrap()
         .unwrap();
     assert_eq!(entry.name().to_str().unwrap(), long);
-    let at = entry.node().get() as usize * 32;
+    let mut record = [hadris_fs::Extent::new(0, 0); 1];
+    assert_eq!(fs.records(entry.node(), &mut record).unwrap(), 1);
+    let at = record[0].offset() as usize;
     let hadris_fat_raw::Slot::Short(short) =
         hadris_fat_raw::Slot::parse(image[at..at + 32].try_into().unwrap())
     else {

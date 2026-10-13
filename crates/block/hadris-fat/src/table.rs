@@ -47,6 +47,22 @@ impl<V> Table<V> {
             .map(|(id, _)| *id)
     }
 
+    /// The first entry with an id in `from..=to` for which `pred` holds.
+    pub(crate) fn find_in(
+        &self,
+        from: NodeId,
+        to: NodeId,
+        mut pred: impl FnMut(NodeId, &V) -> bool,
+    ) -> Option<NodeId> {
+        if from > to {
+            return None;
+        }
+        self.nodes
+            .range(from..=to)
+            .find(|(id, (_, value))| pred(**id, value))
+            .map(|(id, _)| *id)
+    }
+
     pub(crate) fn for_each_mut(&mut self, mut f: impl FnMut(NodeId, &mut V)) {
         for (id, (_, value)) in &mut self.nodes {
             f(*id, value);
