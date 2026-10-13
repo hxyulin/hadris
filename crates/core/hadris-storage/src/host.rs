@@ -203,11 +203,35 @@ fn write_all_at(file: &mut File, buf: &[u8], offset: u64) -> io::Result<()> {
     }
 }
 
-/// Whether `file` was opened for writing. A write of no bytes transfers
-/// nothing, and the OS refuses it on a handle without write access.
+/// Whether `file` was opened for writing. On Unix this is the access mode
+/// of its descriptor: POSIX lets a write of no bytes succeed without
+/// checking access, as Miri's does. Elsewhere a write of no bytes, which
+/// Windows refuses on a handle without write access, is the probe.
 #[cfg(feature = "sync")]
 fn accepts_writes(file: &File) -> bool {
-    io::Write::write(&mut &*file, &[]).is_ok()
+    #[cfg(unix)]
+    {
+        use core::ffi::c_int;
+        use std::os::fd::AsRawFd;
+
+        const F_GETFL: c_int = 3;
+        const O_ACCMODE: c_int = 3;
+        const O_RDONLY: c_int = 0;
+
+        // SAFETY: the descriptor stays open for the life of `file`, and
+        // F_GETFL takes no argument.
+        let flags = unsafe { fcntl(file.as_raw_fd(), F_GETFL) };
+        flags >= 0 && flags & O_ACCMODE != O_RDONLY
+    }
+    #[cfg(not(unix))]
+    {
+        io::Write::write(&mut &*file, &[]).is_ok()
+    }
+}
+
+#[cfg(all(feature = "sync", unix))]
+unsafe extern "C" {
+    fn fcntl(fd: core::ffi::c_int, cmd: core::ffi::c_int, ...) -> core::ffi::c_int;
 }
 
 /// A failed write or flush of `err`, kept as the device error. An OS
