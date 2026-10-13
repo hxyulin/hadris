@@ -1,5 +1,3 @@
-use std::fs::File;
-
 use hadris_fs::FileType;
 use hadris_iso::Namespace;
 use hadris_iso::raw::{PathTableHeader, VolumeDescriptor};
@@ -421,8 +419,8 @@ fn check_rrip_fields(
 
 /// Verify ISO image integrity
 pub fn verify(args: VerifyArgs) -> Result<()> {
-    let file_size = hadris_storage::host::file_len(&File::open(&args.input)?)?;
-    let mut dev = open(&args.input)?;
+    let mut dev = open(&args.input, &args.locate)?;
+    let file_size = dev.len();
     let mut iso = view(&mut dev, Namespace::Preferred)?;
 
     if args.verbose {

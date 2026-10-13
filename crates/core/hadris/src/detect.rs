@@ -89,6 +89,22 @@ impl Detection {
     }
 }
 
+/// Which partition `open_partition` mounts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Select {
+    /// The partition in this table slot, as
+    /// [`Partition::slot`](crate::part::Partition::slot) numbers it: the GPT
+    /// entry index, the MBR slot (0 to 3), or 4 and up for MBR logical
+    /// partitions.
+    Index(usize),
+    /// The GPT partition with this unique partition GUID.
+    Guid(crate::part::Guid),
+    /// The first partition, in table order, holding a filesystem that
+    /// mounts.
+    First,
+}
+
 /// The kind of partition table the MBR entries of sector 0 describe:
 /// protective, ordinary, or both.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

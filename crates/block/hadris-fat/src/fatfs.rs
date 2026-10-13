@@ -857,6 +857,12 @@ impl<D: BlockDevice> FatFs<D> {
         self.fat.geometry()
     }
 
+    /// The volume serial number from the boot sector, or `None` when the
+    /// boot sector has no extended boot signature and so no serial field.
+    pub fn volume_serial(&self) -> Option<u32> {
+        self.fat.geometry().volume_serial()
+    }
+
     /// Whether the volume was not cleanly unmounted: the clean bit of FAT
     /// entry 1 was clear at mount. Always false on FAT12, which has no
     /// such bit.

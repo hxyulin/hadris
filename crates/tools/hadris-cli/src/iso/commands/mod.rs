@@ -26,18 +26,18 @@ use hadris_iso::sync::{IsoFs, write};
 use hadris_iso::{IsoOptions, Namespace};
 use hadris_storage::host::FileDevice;
 
-use crate::common::Target;
+use crate::common::{Device, Locate, Target};
 
 pub(super) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-type View<'a> = IsoFs<&'a mut FileDevice>;
+type View<'a> = IsoFs<&'a mut Device>;
 
-fn open(path: &Path) -> Result<FileDevice> {
-    Ok(FileDevice::open(path)?)
+fn open(path: &Path, locate: &Locate) -> Result<Device> {
+    Ok(locate.open(path)?)
 }
 
 /// The image on `dev`, read through the tree `namespace` names.
-fn view(dev: &mut FileDevice, namespace: Namespace) -> Result<View<'_>> {
+fn view(dev: &mut Device, namespace: Namespace) -> Result<View<'_>> {
     IsoFs::mount_namespace(dev, hadris_fs::MountOptions::new(), namespace)
         .map_err(|err| err.into_parts().0.into())
 }
@@ -46,7 +46,7 @@ fn view(dev: &mut FileDevice, namespace: Namespace) -> Result<View<'_>> {
 /// enhanced tree, then the primary tree) when `path` is in it, and otherwise
 /// the primary tree, whose lookups ignore ASCII case, so ISO 9660 paths such
 /// as `/README.TXT` work too.
-fn view_for<'a>(iso: &'a mut FileDevice, path: &str) -> Result<View<'a>> {
+fn view_for<'a>(iso: &'a mut Device, path: &str) -> Result<View<'a>> {
     let mut preferred_view = view(iso, Namespace::Preferred)?;
     let preferred = match preferred_view.resolve(path.as_bytes(), Resolve::Lexical) {
         Ok(node) => {

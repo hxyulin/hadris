@@ -25,13 +25,16 @@ use hadris_fat::{async_::format as fat_format, exfat::async_::format as exfat_fo
 #[cfg(all(feature = "alloc", feature = "write"))]
 use hadris_udf::async_::write as udf_write;
 
+#[cfg(feature = "alloc")]
+use hadris_part::async_::{open as part_open, read as part_read};
+
 #[path = "open.rs"]
 mod open;
 pub use open::detect;
 #[cfg(all(feature = "alloc", feature = "write"))]
 pub use open::format;
 #[cfg(feature = "alloc")]
-pub use open::{AnyFs, open};
+pub use open::{AnyFs, detect_partitions, open, open_partition};
 
 #[cfg(all(feature = "alloc", feature = "unstable-apfs"))]
 pub use open::open_apfs;

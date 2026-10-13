@@ -10,7 +10,7 @@ use super::{Result, View, open, view_for};
 /// Extract files from an ISO image. The root is merged into the output
 /// directory; any other path lands at `<output>/<name>`.
 pub fn extract(args: ExtractArgs) -> Result<()> {
-    let mut iso = open(&args.input)?;
+    let mut iso = open(&args.input, &args.locate)?;
     let from = args.path.as_deref().unwrap_or("/");
     let (namespace, name, is_dir) = {
         let mut view = view_for(&mut iso, from)?;

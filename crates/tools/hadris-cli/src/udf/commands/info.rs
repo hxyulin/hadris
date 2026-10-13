@@ -3,7 +3,7 @@ use super::{Result, entries, open};
 
 /// Display information about a UDF image
 pub fn info(args: InfoArgs) -> Result<()> {
-    let mut udf = open(&args.input)?;
+    let mut udf = open(&args.input, &args.locate)?;
 
     println!("UDF Image: {}", args.input.display());
     println!();

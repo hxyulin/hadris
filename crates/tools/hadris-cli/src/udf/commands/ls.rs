@@ -3,7 +3,7 @@ use super::{Result, entries, open, type_char};
 
 /// List directory contents
 pub fn ls(args: LsArgs) -> Result<()> {
-    let mut udf = open(&args.input)?;
+    let mut udf = open(&args.input, &args.locate)?;
     let items = entries(&mut udf, &args.path)?;
     if args.all {
         for name in [".", ".."] {

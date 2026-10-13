@@ -20,18 +20,18 @@ use hadris_fs::MountOptions;
 use std::io::Write;
 use std::path::Path;
 
+use crate::common::{Device, Locate};
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{DirCursor, DirEntry, FileType, OpenMode, Resolve};
-use hadris_storage::host::FileDevice;
 use hadris_udf::sync::UdfFs;
 
 pub(super) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-pub(super) type Udf = UdfFs<FileDevice>;
+pub(super) type Udf = UdfFs<Device>;
 
-/// Opens the UDF volume in the image at `path`.
-pub(super) fn open(path: &Path) -> Result<Udf> {
-    Ok(UdfFs::mount(FileDevice::open(path)?, MountOptions::new())?)
+/// Opens the UDF volume `locate` selects in the image at `path`.
+pub(super) fn open(path: &Path, locate: &Locate) -> Result<Udf> {
+    Ok(UdfFs::mount(locate.open(path)?, MountOptions::new())?)
 }
 
 /// The entries of the directory at `path`, sorted as the volume lists them.

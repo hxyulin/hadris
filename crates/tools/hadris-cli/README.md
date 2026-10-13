@@ -38,9 +38,33 @@ cargo build --locked --release -p hadris-cli
 | `hadris apfs` | `info`, `ls`, `stat`, `cat`, `extract` (experimental, read-only) |
 | `hadris cpio` | `info`, `ls`, `cat`, `extract`, `create` |
 | `hadris detect` | Lists every format an image or device holds |
+| `hadris ls`, `cat`, `extract`, `stat` | Any FAT, exFAT, ISO 9660, UDF or APFS volume an image holds |
 
 `list` is an alias of `ls` and `check` of `verify` in every format. Run
 `hadris <format> <command> --help` for the options of a command.
+
+The top-level `ls`, `cat`, `extract` and `stat` detect the filesystem, as
+`hadris detect` does, and mount it read-only. On a partitioned disk they
+mount the first partition holding a filesystem, or the one `--partition`
+names. `stat` prints the format, label, serial number and space of the
+volume, and the type, size and modification time of a path (the root by
+default).
+
+```bash
+hadris ls disk.img
+hadris cat disk.img /EFI/BOOT/grub.cfg --partition 0
+hadris extract disk.img -o out --partition 1
+hadris stat disk.img /docs/a.txt
+```
+
+`--partition <slot>` selects a partition by its slot in the MBR or GPT: the
+GPT entry index, the MBR slot (0 to 3), or 4 and up for MBR logical
+partitions; Linux partition numbers are one higher. The `fat`, `iso` and
+`udf` commands that read an image also take `--partition`, or `--offset
+<bytes>` for a volume at a byte offset that is a multiple of the block size.
+`hadris fat` finds FAT and exFAT with `hadris detect`'s rules, and
+`--backup-boot` mounts read-only from the backup boot sector (FAT32 sector 6,
+the exFAT backup boot region) when the primary one is damaged.
 
 ```bash
 hadris apfs info container.img

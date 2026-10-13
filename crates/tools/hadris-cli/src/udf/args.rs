@@ -1,7 +1,7 @@
 use clap::Parser;
 use std::path::PathBuf;
 
-use crate::common::{RevisionArg, Target};
+use crate::common::{Locate, RevisionArg, Target};
 use crate::iso::IsoFlags;
 
 #[derive(Debug, Clone, clap::Args)]
@@ -39,6 +39,8 @@ pub enum Command {
 pub struct InfoArgs {
     /// Path to UDF image
     pub input: PathBuf,
+    #[command(flatten)]
+    pub locate: Locate,
     /// Show detailed information
     #[arg(short, long)]
     pub verbose: bool,
@@ -49,6 +51,8 @@ pub struct InfoArgs {
 pub struct LsArgs {
     /// Path to UDF image
     pub input: PathBuf,
+    #[command(flatten)]
+    pub locate: Locate,
     /// Directory path within the image (default: root)
     #[arg(default_value = "/")]
     pub path: String,
@@ -65,6 +69,8 @@ pub struct LsArgs {
 pub struct TreeArgs {
     /// Path to UDF image
     pub input: PathBuf,
+    #[command(flatten)]
+    pub locate: Locate,
     /// Starting directory path within the image
     #[arg(default_value = "/")]
     pub path: String,
@@ -78,6 +84,8 @@ pub struct TreeArgs {
 pub struct CatArgs {
     /// Path to UDF image
     pub input: PathBuf,
+    #[command(flatten)]
+    pub locate: Locate,
     /// Path within the image
     pub path: String,
 }
@@ -87,6 +95,8 @@ pub struct CatArgs {
 pub struct ExtractArgs {
     /// Path to UDF image
     pub input: PathBuf,
+    #[command(flatten)]
+    pub locate: Locate,
     /// Output directory for extracted files
     #[arg(short, long, default_value = ".")]
     pub output: PathBuf,
@@ -125,6 +135,8 @@ pub struct CreateArgs {
 pub struct VerifyArgs {
     /// Path to UDF image
     pub input: PathBuf,
+    #[command(flatten)]
+    pub locate: Locate,
     /// Print every path as it is checked
     #[arg(short, long)]
     pub verbose: bool,

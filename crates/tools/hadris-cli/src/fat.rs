@@ -1,24 +1,26 @@
 //! `hadris fat`: FAT12/16/32 and exFAT images.
 
-use std::fs::{self, File};
-use std::io::{Read as _, Write as _};
+use std::fs;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
-use crate::common::{Target, read_source};
+use crate::common::{Device, Locate, Target, read_source};
 use anyhow::{Context, Result, bail};
 use clap::{Subcommand, ValueEnum};
+use hadris::ImageFormat;
 use hadris_fat::exfat::sync::ExFatFs;
 use hadris_fat::sync::FatFs;
 use hadris_fat::{CacheOptions, FatKind, exfat};
 use hadris_fat_raw::{RawBpb, RawBpbExt16, RawBpbExt32};
 use hadris_storage::host::FileDevice;
+use hadris_storage::sync::BlockDevice;
 
 use hadris_fs::TreeEntry;
 use hadris_fs::host;
 use hadris_fs::sync::{FileSystem, copy_tree, read_tree};
 use hadris_fs::{
-    Attributes, Clock, DirCursor, FileType, Finding, Metadata, MountOptions, NodeId, OpenMode,
-    Resolve, SystemClock,
+    Attributes, Clock, DirCursor, FileType, Finding, Metadata, MountError, MountOptions, NodeId,
+    OpenMode, Resolve, SystemClock,
 };
 
 #[derive(clap::Args)]
@@ -31,19 +33,19 @@ pub struct Args {
 enum Commands {
     /// Display volume information
     Info {
-        /// Path to the FAT or exFAT image file
-        image: PathBuf,
+        #[command(flatten)]
+        image: Image,
     },
     /// Display detailed filesystem statistics
     Stat {
-        /// Path to the FAT or exFAT image file
-        image: PathBuf,
+        #[command(flatten)]
+        image: Image,
     },
     /// List directory contents
     #[command(alias = "list")]
     Ls {
-        /// Path to the FAT or exFAT image file
-        image: PathBuf,
+        #[command(flatten)]
+        image: Image,
         /// Path within the filesystem (default: root)
         #[arg(default_value = "/")]
         path: String,
@@ -53,8 +55,8 @@ enum Commands {
     },
     /// Display directory tree
     Tree {
-        /// Path to the FAT or exFAT image file
-        image: PathBuf,
+        #[command(flatten)]
+        image: Image,
         /// Starting path within the filesystem
         #[arg(default_value = "/")]
         path: String,
@@ -64,8 +66,8 @@ enum Commands {
     },
     /// Analyze filesystem fragmentation
     Fragmentation {
-        /// Path to the FAT or exFAT image file
-        image: PathBuf,
+        #[command(flatten)]
+        image: Image,
         /// Maximum number of fragmented files to show
         #[arg(short, long, default_value = "10")]
         top: usize,
@@ -73,30 +75,30 @@ enum Commands {
     /// Check filesystem integrity without changing the image
     #[command(alias = "check")]
     Verify {
-        /// Path to the FAT or exFAT image file
-        image: PathBuf,
+        #[command(flatten)]
+        image: Image,
         /// Show verbose output
         #[arg(short, long)]
         verbose: bool,
     },
     /// Show cluster chain for a file
     Chain {
-        /// Path to the FAT or exFAT image file
-        image: PathBuf,
+        #[command(flatten)]
+        image: Image,
         /// Path to the file within the filesystem
         file_path: String,
     },
     /// Print a file's contents to stdout
     Cat {
-        /// Path to the FAT or exFAT image file
-        image: PathBuf,
+        #[command(flatten)]
+        image: Image,
         /// Path to the file within the filesystem
         path: String,
     },
     /// Extract files from an image
     Extract {
-        /// Path to the FAT or exFAT image file
-        image: PathBuf,
+        #[command(flatten)]
+        image: Image,
         /// Output directory
         #[arg(short, long, default_value = ".")]
         output: PathBuf,
@@ -122,6 +124,34 @@ enum Commands {
         #[arg(short = 'V', long, alias = "volume-label", default_value = "HADRIS")]
         volume_name: String,
     },
+}
+
+/// The FAT or exFAT volume a command reads.
+#[derive(clap::Args)]
+struct Image {
+    /// Path to the FAT or exFAT image file
+    image: PathBuf,
+    #[command(flatten)]
+    locate: Locate,
+    /// Mount read-only from the backup boot sector (FAT32 sector 6, the exFAT
+    /// backup boot region) when the primary one is damaged
+    #[arg(long)]
+    backup_boot: bool,
+}
+
+impl Image {
+    fn device(&self) -> Result<Device> {
+        self.locate.open(&self.image)
+    }
+
+    fn options(&self) -> MountOptions {
+        let options = MountOptions::new().with_clock(&SystemClock).read_only();
+        if self.backup_boot {
+            options.backup_boot()
+        } else {
+            options
+        }
+    }
 }
 
 #[derive(clap::Args)]
@@ -197,21 +227,18 @@ pub fn run(cli: Args) -> Result<()> {
             path,
             cache,
         } => {
-            let exfat = is_exfat(&boot_sector(&image)?);
-            if exfat && cache.fat_only() {
-                bail!("FAT cache settings apply to FAT12/16/32 images, not exFAT");
-            }
-            let file = FileDevice::open(&image).context("Failed to open image file")?;
-            let dev =
-                hadris_storage::sync::ReadAhead::new(file, cache.read_ahead_blocks.unwrap_or(0));
-            let options = MountOptions::new().with_clock(&SystemClock).read_only();
-            if exfat {
-                let fs =
-                    ExFatFs::mount(dev, options).context("Failed to parse exFAT filesystem")?;
-                cmd_extract(fs, &output, path.as_deref())
-            } else {
-                let fs = FatFs::mount(dev, options).context("Failed to parse FAT filesystem")?;
-                cmd_extract(fs.with_cache(cache.options()), &output, path.as_deref())
+            let dev = hadris_storage::sync::ReadAhead::new(
+                image.device()?,
+                cache.read_ahead_blocks.unwrap_or(0),
+            );
+            match mount(dev, &image)? {
+                Volume::ExFat(_) if cache.fat_only() => {
+                    bail!("FAT cache settings apply to FAT12/16/32 images, not exFAT")
+                }
+                Volume::ExFat(fs) => cmd_extract(*fs, &output, path.as_deref()),
+                Volume::Fat(fs) => {
+                    cmd_extract(fs.with_cache(cache.options()), &output, path.as_deref())
+                }
             }
         }
         Commands::Create {
@@ -224,13 +251,10 @@ pub fn run(cli: Args) -> Result<()> {
     }
 }
 
-type Fat = FatFs<FileDevice>;
-type ExFat = ExFatFs<FileDevice>;
-
 /// A mounted FAT12/16/32 or exFAT volume.
-enum Volume {
-    Fat(Box<Fat>),
-    ExFat(Box<ExFat>),
+enum Volume<D = Device> {
+    Fat(Box<FatFs<D>>),
+    ExFat(Box<ExFatFs<D>>),
 }
 
 /// Runs `$body` with `$fs` bound to `&mut` the driver of a `&mut Volume`.
@@ -244,35 +268,62 @@ macro_rules! with_fs {
 }
 use with_fs;
 
-/// Reads the first sector of an image.
-fn boot_sector(path: &Path) -> Result<[u8; 512]> {
-    let mut sector = [0u8; 512];
-    File::open(path)
-        .and_then(|mut file| file.read_exact(&mut sector))
-        .with_context(|| format!("Failed to read boot sector: {}", path.display()))?;
-    Ok(sector)
-}
-
-fn is_exfat(sector: &[u8; 512]) -> bool {
-    let boot: hadris_fat_raw::exfat::BootSector = bytemuck::pod_read_unaligned(sector);
-    boot.file_system_name == hadris_fat_raw::exfat::FILE_SYSTEM_NAME
-}
-
-/// Mounts an image read-only as FAT12/16/32 or exFAT, whichever its boot
-/// sector names.
-fn open(path: &Path) -> Result<Volume> {
-    let exfat = is_exfat(&boot_sector(path)?);
-    let file = FileDevice::open(path)
-        .with_context(|| format!("Failed to open image file: {}", path.display()))?;
-    if exfat {
-        let options = MountOptions::new().with_clock(&SystemClock).read_only();
-        let fs = ExFatFs::mount(file, options).context("Failed to parse exFAT filesystem")?;
-        Ok(Volume::ExFat(Box::new(fs)))
-    } else {
-        let options = MountOptions::new().with_clock(&SystemClock).read_only();
-        let fs = FatFs::mount(file, options).context("Failed to parse FAT filesystem")?;
-        Ok(Volume::Fat(Box::new(fs)))
+/// Mounts the FAT12/16/32 or exFAT volume [`detect`](hadris::sync::detect)
+/// finds on `dev`. With `--backup-boot`, a device whose primary boot sector
+/// names no format is tried as exFAT, then as FAT32, from the backup.
+fn mount<D: BlockDevice<Error = std::io::Error>>(mut dev: D, image: &Image) -> Result<Volume<D>> {
+    let options = image.options();
+    let found = hadris::sync::detect(&mut dev)
+        .with_context(|| format!("Failed to read image file: {}", image.image.display()))?;
+    let format = found
+        .iter()
+        .map(|candidate| candidate.format())
+        .find(|format| matches!(format, ImageFormat::Fat(_) | ImageFormat::ExFat));
+    match format {
+        Some(ImageFormat::ExFat) => {
+            let fs = ExFatFs::mount(dev, options)
+                .map_err(MountError::into_error)
+                .context("Failed to parse exFAT filesystem")?;
+            Ok(Volume::ExFat(Box::new(fs)))
+        }
+        Some(_) => {
+            let fs = FatFs::mount(dev, options)
+                .map_err(MountError::into_error)
+                .context("Failed to parse FAT filesystem")?;
+            Ok(Volume::Fat(Box::new(fs)))
+        }
+        None if image.backup_boot => {
+            let dev = match ExFatFs::mount(dev, options) {
+                Ok(fs) => return Ok(Volume::ExFat(Box::new(fs))),
+                Err(err) => err.into_parts().1,
+            };
+            let fs = FatFs::mount(dev, options)
+                .map_err(MountError::into_error)
+                .context("No valid exFAT or FAT32 backup boot sector")?;
+            Ok(Volume::Fat(Box::new(fs)))
+        }
+        None => bail!("No FAT or exFAT volume in {}", image.image.display()),
     }
+}
+
+/// Mounts an image read-only as FAT12/16/32 or exFAT, whichever
+/// [`detect`](hadris::sync::detect) finds.
+fn open(image: &Image) -> Result<Volume> {
+    mount(image.device()?, image)
+}
+
+/// The boot sector the volume was mounted from.
+fn boot_sector(volume: &mut Volume, image: &Image) -> Result<[u8; 512]> {
+    let at = match &*volume {
+        Volume::Fat(fs) if image.backup_boot && fs.info().kind() == FatKind::Fat32 => {
+            6 * u64::from(fs.info().sector_size())
+        }
+        Volume::ExFat(fs) if image.backup_boot => 12 * fs.info().sector_size(),
+        _ => 0,
+    };
+    let mut sector = [0u8; 512];
+    with_fs!(volume, fs => fs.read_raw(at, &mut sector)).context("Failed to read boot sector")?;
+    Ok(sector)
 }
 
 fn text(bytes: &[u8]) -> String {
@@ -283,7 +334,6 @@ fn text(bytes: &[u8]) -> String {
 /// expose.
 struct FatBoot {
     oem_name: String,
-    volume_id: u32,
     label: String,
     fs_type: String,
 }
@@ -291,16 +341,15 @@ struct FatBoot {
 fn fat_boot(sector: &[u8; 512], kind: FatKind) -> FatBoot {
     let (bpb, ext) = sector.split_at(size_of::<RawBpb>());
     let bpb: RawBpb = bytemuck::pod_read_unaligned(bpb);
-    let (volume_id, label, fs_type) = if kind == FatKind::Fat32 {
+    let (label, fs_type) = if kind == FatKind::Fat32 {
         let ext: RawBpbExt32 = bytemuck::pod_read_unaligned(&ext[..size_of::<RawBpbExt32>()]);
-        (ext.volume_id, ext.volume_label, ext.fs_type)
+        (ext.volume_label, ext.fs_type)
     } else {
         let ext: RawBpbExt16 = bytemuck::pod_read_unaligned(&ext[..size_of::<RawBpbExt16>()]);
-        (ext.volume_id, ext.volume_label, ext.fs_type)
+        (ext.volume_label, ext.fs_type)
     };
     FatBoot {
         oem_name: text(&bpb.oem_name),
-        volume_id: u32::from_le_bytes(volume_id),
         label: text(&label),
         fs_type: text(&fs_type),
     }
@@ -324,16 +373,16 @@ fn volume_label(volume: &mut Volume, sector: &[u8; 512]) -> Result<String> {
     }
 }
 
-fn type_name(volume: &Volume) -> String {
+fn type_name<D: BlockDevice>(volume: &Volume<D>) -> String {
     match volume {
         Volume::Fat(fs) => format!("{:?}", fs.info().kind()),
         Volume::ExFat(_) => "exFAT".to_string(),
     }
 }
 
-fn cmd_info(image: &Path) -> Result<()> {
-    let sector = boot_sector(image)?;
+fn cmd_info(image: &Image) -> Result<()> {
     let mut volume = open(image)?;
+    let sector = boot_sector(&mut volume, image)?;
     let label = volume_label(&mut volume, &sector)?;
     let stats = with_fs!(&mut volume, fs => fs.statfs()).context("Failed to read the volume")?;
 
@@ -345,7 +394,10 @@ fn cmd_info(image: &Path) -> Result<()> {
             println!("FAT Type:        {:?}", fs.info().kind());
             println!("OEM Name:        {}", boot.oem_name);
             println!("Volume Label:    {label}");
-            println!("Volume ID:       {:08X}", boot.volume_id);
+            match fs.volume_serial() {
+                Some(serial) => println!("Volume ID:       {serial:08X}"),
+                None => println!("Volume ID:       none"),
+            }
             println!("FS Type String:  {}", boot.fs_type);
             println!("Cluster Size:    {} bytes", stats.block_size());
         }
@@ -357,7 +409,7 @@ fn cmd_info(image: &Path) -> Result<()> {
             println!("============================");
             println!("FS Revision:     {}.{:02}", revision >> 8, revision & 0xFF);
             println!("Volume Label:    {label}");
-            println!("Volume ID:       {:08X}", fs.info().volume_serial());
+            println!("Volume ID:       {:08X}", fs.volume_serial());
             println!(
                 "Sector Size:     {} bytes",
                 1u32 << boot.bytes_per_sector_shift
@@ -428,9 +480,8 @@ fn enter(ancestors: &mut Vec<NodeId>, node: NodeId, path: &str) -> Result<()> {
 
 /// Checks the image with the checker of its kind, and returns each finding
 /// as text.
-fn check_image(image: &Path, volume: &Volume, clusters: u64) -> Result<Vec<String>> {
-    let mut dev = FileDevice::open(image)
-        .with_context(|| format!("Failed to open image file: {}", image.display()))?;
+fn check_image(image: &Image, volume: &Volume, clusters: u64) -> Result<Vec<String>> {
+    let mut dev = image.device()?;
     let mut scratch = vec![0u8; 1024 + (clusters.div_ceil(8) as usize).max(512)];
     let mut findings = Vec::new();
     let mut note = |finding: &Finding<'_>| {
@@ -443,9 +494,9 @@ fn check_image(image: &Path, volume: &Volume, clusters: u64) -> Result<Vec<Strin
     Ok(findings)
 }
 
-fn cmd_stat(image: &Path) -> Result<()> {
-    let sector = boot_sector(image)?;
+fn cmd_stat(image: &Image) -> Result<()> {
     let mut volume = open(image)?;
+    let sector = boot_sector(&mut volume, image)?;
     let label = volume_label(&mut volume, &sector)?;
     let stats = with_fs!(&mut volume, fs => fs.statfs()).context("Failed to gather statistics")?;
     let (mut files, mut directories) = (0, 0);
@@ -542,7 +593,7 @@ fn attribute_flags(attrs: Attributes) -> String {
     .collect()
 }
 
-fn cmd_ls<D: FileSystem>(fs: &mut D, path: &str, long: bool) -> Result<()> {
+pub(crate) fn cmd_ls<D: FileSystem>(fs: &mut D, path: &str, long: bool) -> Result<()> {
     for (name, meta, _) in list_dir(fs, path)? {
         let is_dir = meta.file_type().is_dir();
         if long {
@@ -687,7 +738,7 @@ fn count_fragments(chain: &[u32]) -> u32 {
         .count() as u32
 }
 
-fn cmd_fragmentation(image: &Path, top: usize) -> Result<()> {
+fn cmd_fragmentation(image: &Image, top: usize) -> Result<()> {
     let mut volume = open(image)?;
     let mut files = Vec::new();
     with_fs!(&mut volume, fs => walk_root(fs, "/").and_then(|mut ancestors| walk_files(fs, "/", &mut ancestors, &mut files)))
@@ -744,7 +795,7 @@ fn cmd_fragmentation(image: &Path, top: usize) -> Result<()> {
     Ok(())
 }
 
-fn cmd_verify(image: &Path, verbose: bool) -> Result<()> {
+fn cmd_verify(image: &Image, verbose: bool) -> Result<()> {
     let mut volume = open(image)?;
     let stats =
         with_fs!(&mut volume, fs => fs.statfs()).context("Failed to read the allocation table")?;
@@ -789,7 +840,7 @@ fn print_chain(chain: &[u32], offset: usize) {
     }
 }
 
-fn cmd_chain(image: &Path, file_path: &str) -> Result<()> {
+fn cmd_chain(image: &Image, file_path: &str) -> Result<()> {
     let mut volume = open(image)?;
     let meta = with_fs!(&mut volume, fs => {
         let node = resolve(&mut **fs, file_path)?;
@@ -824,7 +875,7 @@ fn cmd_chain(image: &Path, file_path: &str) -> Result<()> {
     Ok(())
 }
 
-fn cmd_cat<D: FileSystem>(fs: &mut D, path: &str) -> Result<()> {
+pub(crate) fn cmd_cat<D: FileSystem>(fs: &mut D, path: &str) -> Result<()> {
     let node = resolve(fs, path)?;
     let copied = copy_to_stdout(fs, node);
     fs.forget(node, 1);
@@ -856,7 +907,7 @@ fn copy_to_stdout<D: FileSystem>(fs: &mut D, node: NodeId) -> Result<()> {
 
 /// Extracts `path` (the root when `None`) below `output`. The root is merged
 /// into `output`; anything else lands at `output/<stored name>`.
-fn cmd_extract<D: FileSystem + Send + 'static>(
+pub(crate) fn cmd_extract<D: FileSystem + Send + 'static>(
     mut fs: D,
     output: &Path,
     path: Option<&str>,
@@ -956,7 +1007,11 @@ fn estimate_image_size(bytes: u64, entries: u64, fat_type: KindArg) -> u64 {
 
 /// Formats `file` as `fat_type`, stamped with `SOURCE_DATE_EPOCH` or the
 /// current time, and mounts it for writing.
-fn format_image(mut file: FileDevice, fat_type: KindArg, label: &str) -> Result<Volume> {
+fn format_image(
+    mut file: FileDevice,
+    fat_type: KindArg,
+    label: &str,
+) -> Result<Volume<FileDevice>> {
     let time = host::source_date_epoch()?.unwrap_or_else(|| SystemClock.now());
     let mount = MountOptions::new().with_clock(&SystemClock);
     if fat_type == KindArg::Exfat {
@@ -1029,7 +1084,7 @@ fn cmd_create(
 }
 
 /// Format a size in bytes to a human-readable string.
-fn format_size(bytes: u64) -> String {
+pub(crate) fn format_size(bytes: u64) -> String {
     const KB: u64 = 1024;
     const MB: u64 = KB * 1024;
     const GB: u64 = MB * 1024;

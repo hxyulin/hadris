@@ -6,6 +6,9 @@ use std::str::FromStr;
 use anyhow::{Context, Result, bail};
 use hadris_fs::host::{self, OnError, TreeOptions};
 use hadris_fs::{Clock, DateTime, SystemClock, Tree};
+use hadris_storage::Partition;
+use hadris_storage::host::FileDevice;
+use hadris_storage::sync::BlockDevice;
 use hadris_udf::UdfRevision;
 
 use crate::output::Output;
@@ -26,6 +29,53 @@ impl Target {
     pub fn create(&self) -> Result<(std::fs::File, Output)> {
         Output::create(&self.output, self.force)
             .with_context(|| format!("cannot create {}", self.output.display()))
+    }
+}
+
+/// The window of an image file a read command mounts.
+pub type Device = Partition<FileDevice>;
+
+/// Where in an image or disk the volume a command reads starts.
+#[derive(Debug, Clone, Default, clap::Args)]
+pub struct Locate {
+    /// Partition table slot of the volume: the GPT entry index, the MBR slot
+    /// (0 to 3), or 4 and up for MBR logical partitions
+    #[arg(long, conflicts_with = "offset")]
+    pub partition: Option<usize>,
+    /// Byte offset of the volume in the image, a multiple of the block size
+    #[arg(long)]
+    pub offset: Option<u64>,
+}
+
+impl Locate {
+    /// Opens `image` read-only and selects the volume's window of it.
+    pub fn open(&self, image: &Path) -> Result<Device> {
+        let dev =
+            FileDevice::open(image).with_context(|| format!("cannot open {}", image.display()))?;
+        self.select(dev)
+            .with_context(|| format!("cannot locate the volume in {}", image.display()))
+    }
+
+    /// The window of `dev` the flags select: a partition, the bytes from an
+    /// offset, or the whole device.
+    pub fn select(&self, mut dev: FileDevice) -> Result<Device> {
+        if let Some(slot) = self.partition {
+            let disk = hadris::part::sync::read(&mut dev).context("cannot read partition table")?;
+            let entry = disk
+                .partition(slot)
+                .with_context(|| format!("no partition in slot {slot}"))?;
+            return Ok(hadris::part::sync::open(dev, &entry)?);
+        }
+        let block = u64::from(dev.block_size().get());
+        let len = dev.block_count() * block;
+        let offset = self.offset.unwrap_or(0);
+        if offset % block != 0 {
+            bail!("offset {offset} is not a multiple of the {block}-byte block size");
+        }
+        if offset > len {
+            bail!("offset {offset} is past the end of the {len}-byte image");
+        }
+        Ok(Partition::new(dev, offset, len - offset))
     }
 }
 

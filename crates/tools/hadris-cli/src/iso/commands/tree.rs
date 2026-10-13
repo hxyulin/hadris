@@ -4,7 +4,7 @@ use super::{Result, View, join, list_dir, open, view_for};
 
 /// Display directory tree
 pub fn tree(args: TreeArgs) -> Result<()> {
-    let mut iso = open(&args.input)?;
+    let mut iso = open(&args.input, &args.locate)?;
     let mut view = view_for(&mut iso, &args.path)?;
 
     println!("{}", args.path);
