@@ -221,7 +221,7 @@ fn record(data: &[u8], is_kek: bool) -> Result<KeyRecord<'_>> {
     digest.update([1, 22, 32, 23, 21, 5]);
     digest.update(salt);
     let hmac_key = Zeroizing::new(<[u8; 32]>::from(digest.finalize()));
-    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(hmac_key.as_ref())
+    let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(hmac_key.as_ref())
         .map_err(|_| ApfsError::InvalidValue("key blob HMAC key"))?;
     mac.update(sequence.0);
     mac.verify_slice(signature)
@@ -450,7 +450,7 @@ mod tests {
     fn key_blob(payload: &[u8]) -> Vec<u8> {
         let body = tlv(0xa3, payload);
         let key: [u8; 32] = Sha256::digest([1, 22, 32, 23, 21, 5, 0, 0, 0, 0, 0, 0, 0, 0]).into();
-        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&key).unwrap();
+        let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(&key).unwrap();
         mac.update(&body);
         let signature = mac.finalize().into_bytes();
         tlv(
