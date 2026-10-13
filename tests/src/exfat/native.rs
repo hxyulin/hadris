@@ -66,6 +66,33 @@ impl Exfatprogs {
         self.run("mkfs.exfat", &["-L", LABEL, "-c", &cluster], image)
     }
 
+    /// The exfatprogs version, from `fsck.exfat -V`.
+    pub fn version(self) -> Option<(u32, u32, u32)> {
+        let output = match self {
+            Self::Local => Command::new("fsck.exfat").arg("-V").output().ok()?,
+            Self::Docker => Command::new("docker")
+                .args(["run", "--rm", DOCKER_IMAGE, "fsck.exfat", "-V"])
+                .output()
+                .ok()?,
+        };
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let version = text
+            .split("exfatprogs version :")
+            .nth(1)?
+            .split_whitespace()
+            .next()?;
+        let mut parts = version.split('.').map(|part| part.parse().ok());
+        Some((
+            parts.next()??,
+            parts.next()??,
+            parts.next().flatten().unwrap_or(0),
+        ))
+    }
+
     /// Runs `fsck.exfat -n` on `image`.
     pub fn fsck(self, image: &Path) -> Result<(), String> {
         self.run("fsck.exfat", &["-n"], image)

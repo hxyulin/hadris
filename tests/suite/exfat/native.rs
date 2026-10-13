@@ -30,10 +30,16 @@ fn checkers() -> Option<(Option<Exfatprogs>, bool)> {
     Some((exfatprogs, macos))
 }
 
-/// exfatprogs refuses TexFAT volumes, which have two FATs.
+/// exfatprogs refuses TexFAT volumes, which have two FATs. Before 1.2.3
+/// its fsck buffers two clusters of a directory, so with 512-byte clusters
+/// it misreads a valid 19-entry set that spans three clusters.
 fn fsck_all(image: &Path, exfatprogs: Option<Exfatprogs>, macos: bool) -> Result<(), String> {
     let bytes = std::fs::read(image).map_err(|error| error.to_string())?;
-    if let Some(tools) = exfatprogs.filter(|_| bytes[110] == 1) {
+    let small_clusters = bytes[108] + bytes[109] == 9;
+    let usable = |tools: &Exfatprogs| {
+        bytes[110] == 1 && (!small_clusters || tools.version().is_none_or(|v| v >= (1, 2, 3)))
+    };
+    if let Some(tools) = exfatprogs.filter(usable) {
         tools
             .fsck(image)
             .map_err(|error| format!("fsck.exfat: {error}"))?;
