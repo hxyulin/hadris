@@ -637,3 +637,34 @@ pub fn with_macos_mount(image: &[u8], f: impl FnOnce(&Path)) -> Option<Vec<u8>> 
     assert!(detach.ok()?.status.success(), "hdiutil detach failed");
     Some(std::fs::read(&path).unwrap())
 }
+
+/// Runs exfatprogs `tune.exfat` with `args` on a copy of `image`, from the
+/// `PATH` or the `hadris-exfatprogs` Docker image, and returns its output
+/// and the image afterwards, or `None` when neither is available.
+pub fn tune_exfat(image: &[u8], args: &[&str]) -> Option<(String, Vec<u8>)> {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("tune.img");
+    std::fs::write(&path, image).unwrap();
+    let output = match Command::new("tune.exfat").args(args).arg(&path).output() {
+        Ok(output) => output,
+        Err(_) if available(&Tool::Docker) => Command::new("docker")
+            .args(["run", "--rm", "-v"])
+            .arg(format!("{}:/w", dir.path().display()))
+            .args(["hadris-exfatprogs", "tune.exfat"])
+            .args(args)
+            .arg("/w/tune.img")
+            .output()
+            .ok()?,
+        Err(_) => return None,
+    };
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.status.success(),
+        "tune.exfat {args:?} failed:\n{text}"
+    );
+    Some((text, std::fs::read(&path).unwrap()))
+}

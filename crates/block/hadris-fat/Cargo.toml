@@ -38,6 +38,7 @@ tracing = ["std", "dep:tracing"]
 [dependencies]
 hadris-common = { workspace = true, features = ["bytemuck"] }
 hadris-fat-raw = { workspace = true }
+hadris-part = { workspace = true }
 hadris-io = { workspace = true }
 hadris-fs = { workspace = true }
 hadris-storage = { workspace = true }

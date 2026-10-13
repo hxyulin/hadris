@@ -345,6 +345,13 @@ impl Oracle<'_> {
                 0x81 => system.bitmap.push(entry.to_vec()),
                 0x82 => system.upcase.push(entry.to_vec()),
                 0x83 => system.label.push(entry.to_vec()),
+                0xA0 => {
+                    if !root {
+                        return Err(format!("{path}: Volume GUID entry outside the root"));
+                    }
+                    check_guid(entry)?;
+                    system.guid.push(entry.to_vec());
+                }
                 0x85 => {
                     let count = 1 + entry[1] as usize;
                     if !(3..=19).contains(&count) || index + count > entries.len() {
@@ -526,6 +533,33 @@ struct SystemEntries {
     bitmap: Vec<Vec<u8>>,
     upcase: Vec<Vec<u8>>,
     label: Vec<Vec<u8>>,
+    guid: Vec<Vec<u8>>,
+}
+
+/// Checks a Volume GUID entry: `SecondaryCount` 0, `AllocationPossible`
+/// 0, a matching `SetChecksum` and a GUID other than the null GUID.
+fn check_guid(entry: &[u8]) -> Result<(), String> {
+    let mut sum = 0u16;
+    for (at, &byte) in entry.iter().enumerate() {
+        if at != 2 && at != 3 {
+            sum = (if sum & 1 != 0 { 0x8000u16 } else { 0 })
+                .wrapping_add(sum >> 1)
+                .wrapping_add(byte as u16);
+        }
+    }
+    if entry[1] != 0 {
+        return Err(format!("the Volume GUID has SecondaryCount {}", entry[1]));
+    }
+    if entry[4] & 1 != 0 {
+        return Err("the Volume GUID sets AllocationPossible".into());
+    }
+    if u16_at(entry, 2)? != sum {
+        return Err("the Volume GUID fails its SetChecksum".into());
+    }
+    if entry[6..22].iter().all(|&byte| byte == 0) {
+        return Err("the Volume GUID is the null GUID".into());
+    }
+    Ok(())
 }
 
 /// Decodes an up-case table, compressed or not, into 65536 mappings.
@@ -708,7 +742,11 @@ fn check(bytes: &[u8]) -> Result<(Summary, FsState), String> {
     let mut entries = BTreeMap::new();
     let mut all = SystemEntries::default();
     oracle.read_directory(&root_bytes, "/", &mut entries, &mut all)?;
-    if all.bitmap.len() != fat_count || all.upcase.len() != 1 || all.label.len() > 1 {
+    if all.bitmap.len() != fat_count
+        || all.upcase.len() != 1
+        || all.label.len() > 1
+        || all.guid.len() > 1
+    {
         return Err("the root holds a system entry more than once".into());
     }
     let label = match all.label.first() {

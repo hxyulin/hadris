@@ -10,7 +10,7 @@ use hadris_fs::MountOptions;
 
 use common::{Geometry, clean, fsck};
 use hadris_fat::exfat::sync::{ExFatFs, format, write};
-use hadris_fat::exfat::{ExFatOptions, VolumeLabel};
+use hadris_fat::exfat::{ExFatOptions, Guid, VolumeLabel};
 use hadris_fs::{Content, ErrorKind, NoClock, Node, Tree};
 
 #[test]
@@ -221,4 +221,154 @@ fn built_image_is_clean() {
     clean(&mut fs, "build");
     let ran = fsck(&image, "build");
     eprintln!("native checkers run: {ran}");
+}
+
+/// The `SetChecksum` of a one-entry set, computed as the specification
+/// gives it.
+fn guid_checksum(entry: &[u8]) -> u16 {
+    let mut sum = 0u16;
+    for (at, &byte) in entry.iter().enumerate() {
+        if at != 2 && at != 3 {
+            sum = (if sum & 1 != 0 { 0x8000u16 } else { 0 })
+                .wrapping_add(sum >> 1)
+                .wrapping_add(u16::from(byte));
+        }
+    }
+    sum
+}
+
+#[test]
+fn volume_guids_derive_from_the_seed_and_follow_the_specification() {
+    let guid = |options: ExFatOptions| common::formatted(8 << 20, options).volume_guid().unwrap();
+    let seeded = guid(ExFatOptions::new().with_seed(7)).unwrap();
+    assert_eq!(guid(ExFatOptions::new().with_seed(7)), Some(seeded));
+    assert_ne!(guid(ExFatOptions::new().with_seed(8)), Some(seeded));
+    assert_ne!(guid(ExFatOptions::new()), Some(seeded));
+    assert_eq!(seeded.to_bytes()[7] >> 4, 4);
+    let fixed: Guid = "0123abcd-4567-89ef-0123-456789abcdef".parse().unwrap();
+    assert_eq!(
+        guid(ExFatOptions::new().with_volume_guid(Some(fixed))),
+        Some(fixed)
+    );
+    assert_eq!(guid(ExFatOptions::new().with_volume_guid(None)), None);
+    let mut dev = common::device(vec![0u8; 8 << 20], 512);
+    let nil = ExFatOptions::new().with_volume_guid(Some(Guid::NIL));
+    assert_eq!(
+        format(&mut dev, &nil).unwrap_err().kind(),
+        ErrorKind::InvalidInput
+    );
+
+    let options = ExFatOptions::new()
+        .with_label(VolumeLabel::new("GUID").unwrap())
+        .with_volume_guid(Some(fixed));
+    let image = common::image(common::formatted(8 << 20, options));
+    let geo = Geometry::of(&image);
+    let entries = geo.root_entries(&image, 0xA0);
+    assert_eq!(entries.len(), 1);
+    let entry = &image[entries[0]..entries[0] + 32];
+    assert_eq!(entry[1], 0, "SecondaryCount");
+    assert_eq!(&entry[4..6], [0, 0], "GeneralPrimaryFlags");
+    assert_eq!(
+        &entry[6..22],
+        [
+            0xcd, 0xab, 0x23, 0x01, 0x67, 0x45, 0xef, 0x89, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab,
+            0xcd, 0xef
+        ]
+    );
+    assert_eq!(entry[22..], [0; 10]);
+    assert_eq!(
+        u16::from_le_bytes([entry[2], entry[3]]),
+        guid_checksum(entry)
+    );
+    fsck(&image, "volume guid");
+
+    let mut tree = Tree::new();
+    tree.insert("a.txt", Node::file(Content::bytes("a")))
+        .unwrap();
+    let options = ExFatOptions::new().with_size(8 << 20).with_seed(1);
+    let mut a = Vec::new();
+    write(&mut a, &tree, &options).unwrap();
+    tree.insert("b.txt", Node::file(Content::bytes("b")))
+        .unwrap();
+    let mut b = Vec::new();
+    write(&mut b, &tree, &options).unwrap();
+    assert_ne!(
+        common::mount(&a).volume_guid().unwrap(),
+        common::mount(&b).volume_guid().unwrap(),
+        "different trees get different GUIDs"
+    );
+}
+
+#[test]
+fn volume_guids_are_set_replaced_and_removed() {
+    let first: Guid = "11111111-2222-3333-4444-555555555555".parse().unwrap();
+    let second: Guid = "66666666-7777-8888-9999-aaaaaaaaaaaa".parse().unwrap();
+    let mut fs = common::formatted(8 << 20, ExFatOptions::new().with_volume_guid(None));
+    assert_eq!(fs.volume_guid().unwrap(), None);
+    fs.set_volume_guid(Some(first)).unwrap();
+    assert_eq!(fs.volume_guid().unwrap(), Some(first));
+    fs.set_volume_guid(Some(second)).unwrap();
+    assert_eq!(
+        fs.set_volume_guid(Some(Guid::NIL)).unwrap_err().kind(),
+        ErrorKind::InvalidInput
+    );
+    fs.sync().unwrap();
+    let image = common::image(fs);
+    assert_eq!(Geometry::of(&image).root_entries(&image, 0xA0).len(), 1);
+    let mut fs = common::mount(&image);
+    assert_eq!(fs.volume_guid().unwrap(), Some(second));
+    clean(&mut fs, "set guid");
+    fsck(&image, "set guid");
+
+    fs.set_volume_guid(None).unwrap();
+    assert_eq!(fs.volume_guid().unwrap(), None);
+    fs.set_volume_guid(None).unwrap();
+    fs.sync().unwrap();
+    let image = common::image(fs);
+    let geo = Geometry::of(&image);
+    assert_eq!(geo.root_entries(&image, 0xA0), []);
+    assert_eq!(geo.root_entries(&image, 0x20).len(), 1);
+    fsck(&image, "removed guid");
+
+    let mut corrupt = common::image(common::formatted(
+        8 << 20,
+        ExFatOptions::new().with_volume_guid(Some(first)),
+    ));
+    let at = Geometry::of(&corrupt).root_entries(&corrupt, 0xA0)[0];
+    corrupt[at + 10] ^= 1;
+    let mut fs = common::mount(&corrupt);
+    assert_eq!(fs.volume_guid().unwrap(), None, "a bad SetChecksum");
+    fs.set_volume_guid(Some(first)).unwrap();
+    assert_eq!(fs.volume_guid().unwrap(), Some(first));
+}
+
+#[test]
+fn volume_guids_match_tune_exfat() {
+    let guid: Guid = "0123abcd-4567-89ef-0123-456789abcdef".parse().unwrap();
+    let image = common::image(common::formatted(
+        8 << 20,
+        ExFatOptions::new().with_volume_guid(Some(guid)),
+    ));
+    let Some((printed, _)) = common::tune_exfat(&image, &["-u"]) else {
+        if std::env::var_os("HADRIS_REQUIRE_EXTERNAL_TOOLS").is_some() {
+            panic!("tune.exfat is unavailable");
+        }
+        eprintln!("skipping: tune.exfat is not available");
+        return;
+    };
+    assert!(
+        printed.to_lowercase().contains(&guid.to_string()),
+        "tune.exfat -u printed {printed:?}"
+    );
+
+    let other: Guid = "fedcba98-7654-3210-fedc-ba9876543210".parse().unwrap();
+    let (_, tuned) = common::tune_exfat(&image, &["-U", &other.to_string()]).unwrap();
+    let mut fs = common::mount(&tuned);
+    assert_eq!(fs.volume_guid().unwrap(), Some(other));
+    clean(&mut fs, "tune.exfat -U");
+
+    let image = common::image(common::formatted(8 << 20, ExFatOptions::new().with_seed(3)));
+    let expected = common::mount(&image).volume_guid().unwrap().unwrap();
+    let (printed, _) = common::tune_exfat(&image, &["-u"]).unwrap();
+    assert!(printed.to_lowercase().contains(&expected.to_string()));
 }

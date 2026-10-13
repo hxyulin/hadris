@@ -537,3 +537,136 @@ fn a_gpt_index_is_mirrored_once() {
         Detail::Mirror
     );
 }
+
+#[test]
+fn set_entry_count_moves_the_usable_area_and_checks_partitions() {
+    let mut table = gpt();
+    table
+        .add(GptEntry::new(types::BASIC_DATA, guid(1), 100, 100))
+        .unwrap();
+    table.set_entry_count(4).unwrap();
+    assert_eq!(table.entry_count(), 4);
+    assert_eq!((table.first_usable(), table.last_usable()), (3, 9997));
+    table.set_entry_count(256).unwrap();
+    assert_eq!((table.first_usable(), table.last_usable()), (66, 9934));
+
+    let before = table.clone();
+    let err = table.set_entry_count(512).unwrap_err();
+    assert_eq!(
+        (err.kind(), err.detail()),
+        (ErrorKind::InvalidInput, Detail::Overlap)
+    );
+    assert_eq!(err.index(), Some(0));
+    assert_eq!(
+        table.set_entry_count(0).unwrap_err().detail(),
+        Detail::GptEntries
+    );
+    assert_eq!(table, before);
+
+    table.remove(0).unwrap();
+    let slot = table
+        .add(GptEntry::new(types::BASIC_DATA, guid(2), 300, 10))
+        .unwrap();
+    assert_eq!(slot, 0);
+    table.set_entry_count(1).unwrap();
+    table
+        .add(GptEntry::new(types::BASIC_DATA, guid(3), 400, 10))
+        .unwrap_err();
+    table.set_entry_count(2).unwrap();
+    table
+        .add(GptEntry::new(types::BASIC_DATA, guid(3), 400, 10))
+        .unwrap();
+    let err = table.set_entry_count(1).unwrap_err();
+    assert_eq!((err.detail(), err.index()), (Detail::GptEntries, Some(1)));
+
+    let mut dev = MemDevice::new(vec![0u8; 10_000 * 512], B512);
+    let disk = Disk::new(table);
+    write(&mut dev, &disk).unwrap();
+    assert_eq!(read(&mut dev).unwrap(), disk);
+}
+
+#[test]
+fn relocate_backup_follows_the_disk_size() {
+    let mut table = gpt();
+    table
+        .add(GptEntry::new(types::BASIC_DATA, guid(1), 100, 9000))
+        .unwrap();
+    table.relocate_backup(20_000).unwrap();
+    assert_eq!(table.block_count(), 20_000);
+    assert_eq!(table.backup_lba(), 19_999);
+    assert_eq!((table.first_usable(), table.last_usable()), (34, 19_966));
+    table
+        .add(GptEntry::new(
+            types::LINUX_FILESYSTEM,
+            guid(2),
+            9100,
+            10_000,
+        ))
+        .unwrap();
+
+    let mut dev = MemDevice::new(vec![0u8; 20_000 * 512], B512);
+    let disk = Disk::new(table.clone());
+    write(&mut dev, &disk).unwrap();
+    assert_eq!(read(&mut dev).unwrap(), disk);
+
+    let before = table.clone();
+    let err = table.relocate_backup(19_000).unwrap_err();
+    assert_eq!((err.detail(), err.index()), (Detail::Overlap, Some(1)));
+    assert_eq!(
+        table.relocate_backup(60).unwrap_err().kind(),
+        ErrorKind::NoSpace
+    );
+    assert_eq!(
+        table.relocate_backup(0).unwrap_err().kind(),
+        ErrorKind::NoSpace
+    );
+    assert_eq!(table, before);
+    table.remove(1).unwrap();
+    table.relocate_backup(9200).unwrap();
+    assert_eq!(table.last_usable(), 9166);
+}
+
+#[test]
+fn hybrid_mirror_rebuilds_the_mbr() {
+    let mut table = gpt();
+    for (n, start) in [(1, 100), (2, 300), (3, 500)] {
+        table
+            .add(GptEntry::new(types::BASIC_DATA, guid(n), start, 100))
+            .unwrap();
+    }
+    let mut config = HybridMbr::new().with_protective_slot(2);
+    config
+        .add_mirrored(2, MbrType::FAT32_LBA, PartitionFlags::empty())
+        .unwrap();
+    config
+        .add_mirrored(0, MbrType::EFI_SYSTEM, PartitionFlags::BOOTABLE)
+        .unwrap();
+    let hybrid = Hybrid::new(table, &config).unwrap();
+    assert_eq!(hybrid.mirror(), config);
+
+    let mut dev = MemDevice::new(vec![0u8; 10_000 * 512], B512);
+    write(&mut dev, &Disk::new(hybrid.clone())).unwrap();
+    let mut disk = read(&mut dev).unwrap();
+    let PartitionTable::Hybrid(back) = disk.table_mut() else {
+        panic!("expected a hybrid table");
+    };
+    assert_eq!(back.mirror(), config);
+    assert_eq!(
+        Hybrid::new(back.gpt().clone(), &back.mirror()).unwrap(),
+        hybrid
+    );
+
+    back.gpt_mut().resize(0, 50).unwrap();
+    back.gpt_mut().remove(1).unwrap();
+    let mirror = back.mirror();
+    assert_eq!(mirror, config);
+    let rebuilt = Hybrid::new(back.gpt().clone(), &mirror).unwrap();
+    assert_eq!(rebuilt.raw_entry(1).unwrap().sector_count(), 50);
+
+    back.gpt_mut().remove(2).unwrap();
+    let mut expected = HybridMbr::new().with_protective_slot(2);
+    expected
+        .add_mirrored(0, MbrType::EFI_SYSTEM, PartitionFlags::BOOTABLE)
+        .unwrap();
+    assert_eq!(back.mirror(), expected);
+}

@@ -15,7 +15,7 @@ use hadris_fat_raw::exfat::io::{BootRegion, ClusterState, DirWalk, ExFat, Extent
 use hadris_fat_raw::exfat::{self as raw, ENTRY_SIZE, MAX_SET, NameUnits, RawEntry};
 use hadris_fat_raw::name as names;
 
-use crate::exfat::{Geometry, VolumeLabel, le16, le32, le64};
+use crate::exfat::{Geometry, Guid, VolumeLabel, entry_guid, guid_entry, le16, le32, le64};
 use crate::table::Table;
 use crate::{permissions, push_run, read_only_bit};
 use hadris_fat_raw::io::{ChainPos, Held};
@@ -876,11 +876,40 @@ impl<D: BlockDevice> ExFatFs<D> {
                 entry[2 + index * 2..4 + index * 2].copy_from_slice(&unit.to_le_bytes());
             }
         }
-        if let Some((offset, _)) = self.find_label().await? {
+        if let Some((offset, _)) = self.find_root_entry(raw::ENTRY_LABEL).await? {
             return self.put_bytes(offset, &entry).await;
         }
         if label.is_none() {
             return Ok(());
+        }
+        let start = self.root_start();
+        let plan = self.plan(start, None, 1, None).await?;
+        let mut set = [[0u8; ENTRY_SIZE]; MAX_SET];
+        set[0] = entry;
+        self.insert(start, ROOT_ENTRY, &plan, &set[..1], SetWrite::Insert).await?;
+        Ok(())
+    }
+
+    /// Sets the Volume GUID, or removes the root directory's Volume GUID
+    /// entry with `None`. The entry is rewritten with its `SetChecksum`, or
+    /// created in a free slot of the root directory, which grows when it has
+    /// none. Fails with [`ErrorKind::InvalidInput`] for the null GUID, which
+    /// the specification reserves.
+    pub async fn set_volume_guid(&mut self, guid: Option<Guid>) -> FsResult<(), D::Error> {
+        if guid.is_some_and(Guid::is_nil) {
+            return Err(ErrorKind::InvalidInput.into());
+        }
+        self.prepare().await?;
+        let found = self.find_root_entry(raw::ENTRY_GUID).await?;
+        let Some(guid) = guid else {
+            if let Some((offset, _)) = found {
+                self.put_bytes(offset, &[raw::ENTRY_GUID & !raw::IN_USE]).await?;
+            }
+            return Ok(());
+        };
+        let entry = guid_entry(guid);
+        if let Some((offset, _)) = found {
+            return self.put_bytes(offset, &entry).await;
         }
         let start = self.root_start();
         let plan = self.plan(start, None, 1, None).await?;
@@ -926,7 +955,7 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// The volume label from the Volume Label entry of the root directory,
     /// or `None` when there is none or it is empty.
     async fn volume_label(&mut self) -> FsResult<Option<VolumeLabel>, D::Error> {
-        Ok(self.find_label().await?.and_then(|(_, entry)| {
+        Ok(self.find_root_entry(raw::ENTRY_LABEL).await?.and_then(|(_, entry)| {
             let count = entry[1] as usize;
             if count == 0 || count > raw::MAX_LABEL_UNITS {
                 return None;
@@ -1755,7 +1784,9 @@ impl<D: BlockDevice> ExFatFs<D> {
         Ok(stream[0] != raw::ENTRY_STREAM || (stream[3] as usize == name.len() && le16(&stream, 4) == hash))
     }
 
-    async fn find_label(&mut self) -> FsResult<Option<(u64, RawEntry)>, D::Error> {
+    /// The first in-use root directory entry of type `kind`, with its
+    /// byte offset.
+    async fn find_root_entry(&mut self, kind: u8) -> FsResult<Option<(u64, RawEntry)>, D::Error> {
         let mut walk = walk(self.root_start());
         let mut slot = 0;
         while let Some(offset) = self.slot_offset(&mut walk, slot).await? {
@@ -1763,7 +1794,7 @@ impl<D: BlockDevice> ExFatFs<D> {
             self.get_bytes(offset, &mut entry).await?;
             match entry[0] {
                 raw::ENTRY_END => break,
-                raw::ENTRY_LABEL => return Ok(Some((offset, entry))),
+                found if found == kind => return Ok(Some((offset, entry))),
                 _ => {}
             }
             slot += 1;
@@ -2565,6 +2596,14 @@ impl<D: BlockDevice> ExFatFs<D> {
         };
         let len = names::utf16_to_utf8(label.as_utf16().iter().copied(), buf).ok_or(ErrorKind::LimitExceeded)?;
         Ok(core::str::from_utf8(&buf[..len]).ok())
+    }
+
+    /// The Volume GUID from the root directory's Volume GUID entry, or
+    /// `None` when there is none or it is invalid: a `SecondaryCount` or
+    /// `AllocationPossible` other than 0, a wrong `SetChecksum`, or the
+    /// null GUID.
+    pub async fn volume_guid(&mut self) -> FsResult<Option<Guid>, D::Error> {
+        Ok(self.find_root_entry(raw::ENTRY_GUID).await?.and_then(|(_, entry)| entry_guid(&entry)))
     }
 
     /// Finds `name` in `dir` and pins the result. Names compare through

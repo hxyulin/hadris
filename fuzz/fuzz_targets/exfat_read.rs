@@ -128,6 +128,7 @@ fn drive(data: &[u8]) {
         return;
     };
     let _ = fs.label(&mut [0u8; 64]);
+    let _ = fs.volume_guid();
     let _ = fs.statfs();
 
     // Depth-guarded worklist with a flat work budget: a corrupt directory

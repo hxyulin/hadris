@@ -5,3 +5,4 @@
 mod exfat;
 mod fat;
 mod iso;
+mod part;

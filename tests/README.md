@@ -55,12 +55,14 @@ tests/
       xorriso.rs      xorriso/libisofs adapter and helpers
       mkisofs.rs      cdrtools mkisofs / genisoimage adapter
       native.rs       hdiutil producer and kernel ISO reader
+    part/             GPT fdisk (sgdisk) helpers for partition tables
   suite/              the single test binary
     main.rs
     fat/{spec,limits,peers,native}.rs
     exfat/{spec,limits,native}.rs
     iso/{spec,peers,native,volume_descriptors,directory,multi_extent,
          rock_ridge,relocation,boot,hybrid,session}.rs
+    part/peers.rs     GPT and hybrid MBR edits against sgdisk
 ```
 
 Tests are addressed as `<format>::<topic>::<name>`:

@@ -60,6 +60,23 @@ Each published package owns its version and may be released independently.
   stays misaligned. Devices whose physical block size equals their logical
   one format as before.
 
+- **Partition tables:** `Gpt::relocate_backup(block_count)` moves the backup
+  header and entry array to the end of a grown disk and moves the last
+  usable block with them, byte for byte as `sgdisk -e` does.
+  `Gpt::set_entry_count(n)` resizes the entry arrays and the usable area as
+  `sgdisk --resize-table` does, and fails without changes when the arrays
+  would cover a partition or drop a used slot. `Hybrid::gpt_mut()` edits the
+  GPT of a hybrid table, and `Hybrid::mirror()` returns the `HybridMbr`
+  that rebuilds its MBR, so hybrids written by `sgdisk -h` round-trip.
+
+- **exFAT Volume GUID:** `ExFatFs::volume_guid()` reads the root
+  directory's Volume GUID entry (0xA0), and `set_volume_guid` writes,
+  replaces or removes it with its `SetChecksum`, in the byte order exfatprogs
+  `tune.exfat` uses. `format` and `write` now write a Volume GUID derived
+  from the seed, or the time without one, so output stays reproducible;
+  `ExFatOptions::with_volume_guid` sets it or, with `None`, leaves it out.
+  `hadris_fat::exfat::Guid` is `hadris_part::Guid`.
+
 - **FAT/exFAT verification:** Add 25 Kani proofs for entry codecs, boot geometry,
   formatter bounds, allocation, names, timestamps and checksums. A daily
   scheduled workflow runs the pinned verifier and retains per-proof reports;
