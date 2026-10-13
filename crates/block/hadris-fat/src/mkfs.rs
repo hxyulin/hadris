@@ -46,25 +46,34 @@ pub(crate) fn offset_sectors(offset: u64, sector_size: u64) -> Result<u64, Error
 }
 
 /// Plans the layout, adding reserved sectors until the data region starts
-/// on a multiple of `options.alignment`, or of the device's physical block
-/// size when that is larger than a sector.
+/// on a multiple of `options.alignment` from the volume start. Without an
+/// explicit alignment or reserved sector count, it aligns the data region
+/// to the device's `physical` block size, when that is larger than a
+/// sector, from the start of the disk, which lies `offset` bytes before
+/// the volume.
 fn plan(
     request: Request,
     sector_size: u32,
     physical: u32,
+    offset: u64,
     options: &FatOptions,
 ) -> Result<Layout, ErrorKind> {
     let mut layout = layout::plan(&request).map_err(layout_error)?;
-    let device = (physical > sector_size && physical.is_power_of_two()).then_some(physical);
-    let Some(align) = options.alignment.or(device) else {
-        return Ok(layout);
+    let device = (options.reserved_sectors.is_none()
+        && physical > sector_size
+        && physical.is_power_of_two())
+    .then_some(physical);
+    let (align, base) = match (options.alignment, device) {
+        (Some(align), _) => (align, 0),
+        (None, Some(physical)) => (physical, offset),
+        (None, None) => return Ok(layout),
     };
     if !align.is_power_of_two() || align < sector_size {
         return Err(ErrorKind::InvalidInput);
     }
     let align = align as u64;
     for _ in 0..8 {
-        let short = (align - layout.data_start() % align) % align;
+        let short = (align - (base + layout.data_start()) % align) % align;
         if short == 0 {
             return Ok(layout);
         }
@@ -113,15 +122,16 @@ pub(crate) fn prepare<D: BlockDevice>(
     if let Some(sectors) = options.reserved_sectors {
         request = request.with_reserved_sectors(sectors);
     }
+    let hidden = offset_sectors(
+        options.partition_offset.unwrap_or(dev.disk_offset()),
+        sector_size as u64,
+    )?;
     let layout = plan(
         request,
         sector_size,
         dev.physical_block_size().get(),
+        hidden * sector_size as u64,
         options,
-    )?;
-    let hidden = offset_sectors(
-        options.partition_offset.unwrap_or(dev.disk_offset()),
-        sector_size as u64,
     )?;
     let hidden = u32::try_from(hidden).map_err(|_| ErrorKind::LimitExceeded)?;
     let mut fields = BootFields::new()

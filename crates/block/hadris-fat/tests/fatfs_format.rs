@@ -503,6 +503,48 @@ fn sizes_alignment_and_growable_devices() {
     exercise(grown, 512, FatKind::Fat12, "grown");
 }
 
+/// The byte offset of the data region of the 512-byte-sector volume `image`
+/// starts with.
+fn data_start(image: &[u8]) -> u64 {
+    let reserved = u16::from_le_bytes([image[14], image[15]]) as u64;
+    let fat = match u16::from_le_bytes([image[22], image[23]]) {
+        0 => u32::from_le_bytes(image[36..40].try_into().unwrap()) as u64,
+        fat => fat as u64,
+    };
+    let root = (u16::from_le_bytes([image[17], image[18]]) as u64 * 32).div_ceil(512);
+    (reserved + 2 * fat + root) * 512
+}
+
+#[test]
+fn physical_alignment_counts_the_partition_offset() {
+    let offset = 63 * 512;
+    let mut disk = advanced::Advanced::new(64 * MIB as usize, 512, 4096);
+    let mut part = hadris_storage::Partition::new(&mut disk, offset, 32 * MIB);
+    format(&mut part, &FatOptions::new().with_kind(FatKind::Fat16)).unwrap();
+    let image = disk.inner.into_inner();
+    let volume = &image[offset as usize..];
+    assert_eq!(u32::from_le_bytes(volume[28..32].try_into().unwrap()), 63);
+    assert_eq!((offset + data_start(volume)) % 4096, 0);
+
+    let mut dev = advanced::Advanced::new(64 * MIB as usize, 512, 4096);
+    let options = FatOptions::new().with_partition_offset(offset);
+    format(&mut dev, &options).unwrap();
+    assert_eq!((offset + data_start(&dev.inner.into_inner())) % 4096, 0);
+}
+
+#[test]
+fn explicit_reserved_sectors_skip_physical_alignment() {
+    for reserved in [1u16, 7] {
+        let mut dev = advanced::Advanced::new(64 * MIB as usize, 512, 4096);
+        let options = FatOptions::new()
+            .with_kind(FatKind::Fat16)
+            .with_reserved_sectors(reserved);
+        format(&mut dev, &options).unwrap();
+        let image = dev.inner.into_inner();
+        assert_eq!(u16::from_le_bytes([image[14], image[15]]), reserved);
+    }
+}
+
 #[test]
 fn the_data_region_follows_the_physical_block_size() {
     for kind in [FatKind::Fat12, FatKind::Fat16, FatKind::Fat32] {
@@ -511,15 +553,6 @@ fn the_data_region_follows_the_physical_block_size() {
         let options = FatOptions::new().with_kind(kind);
         format(&mut plain, &options).unwrap();
         format(&mut dev, &options).unwrap();
-        let data_start = |image: &[u8]| {
-            let reserved = u16::from_le_bytes([image[14], image[15]]) as u64;
-            let fat = match u16::from_le_bytes([image[22], image[23]]) {
-                0 => u32::from_le_bytes(image[36..40].try_into().unwrap()) as u64,
-                fat => fat as u64,
-            };
-            let root = (u16::from_le_bytes([image[17], image[18]]) as u64 * 32).div_ceil(512);
-            (reserved + 2 * fat + root) * 512
-        };
         let image = dev.inner.into_inner();
         assert_eq!(data_start(&image) % 4096, 0, "{kind:?}");
         let unaligned = plain.into_inner();

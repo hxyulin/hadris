@@ -38,8 +38,11 @@ Each published package owns its version and may be released independently.
   `write_at` and `set_attr`. `OpenOptions::with_attr` sets the initial
   attributes of a file the open creates, in `Volume::open` and the embedded
   FAT `open`, which previously created every file with default attributes.
-  `read_tree` takes each entry's metadata from the listing and looks up only
-  files and symlinks, instead of a `lookup` and `stat` per entry. All are in
+  `read_tree` takes the metadata of directories and special files from the
+  listing instead of a `lookup` and `stat` per entry; files and symlinks
+  are still looked up and stated, so an entry a driver lists as damaged
+  fails with `Corrupt`. `Volume::read` treats the reported length as a hint,
+  so a damaged image claiming a huge file cannot abort the process. All are in
   every mode.
 
 - **hadris-storage:** `BlockDevice::physical_block_size` (sync and async)
@@ -50,8 +53,12 @@ Each published package owns its version and may be released independently.
 
 - **FAT/exFAT format:** Without `with_alignment`, the FAT data region and
   the exFAT FAT and cluster heap are aligned to the device's physical block
-  size when it is larger than a sector. Devices whose physical block size
-  equals their logical one format as before.
+  size when it is larger than a sector. FAT measures this alignment from the
+  disk start, counting the partition offset, and skips it when
+  `with_reserved_sectors` is set; exFAT measures it from the volume start,
+  so a partition whose offset is not a multiple of the physical block size
+  stays misaligned. Devices whose physical block size equals their logical
+  one format as before.
 
 - **FAT/exFAT verification:** Add 25 Kani proofs for entry codecs, boot geometry,
   formatter bounds, allocation, names, timestamps and checksums. A daily

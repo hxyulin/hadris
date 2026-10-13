@@ -222,7 +222,10 @@ impl ExFatOptions {
     /// Aligns the FAT and the cluster heap to `bytes` from the start of the
     /// volume: a power of two of at least the sector size. The default
     /// alignment is raised to the device's physical block size when that
-    /// is larger.
+    /// is larger. Both are measured from the volume start, so a volume
+    /// whose partition offset is not a multiple of the physical block size,
+    /// such as one at sector 63 of a 512e disk, stays misaligned on the
+    /// disk.
     pub const fn with_alignment(mut self, bytes: u32) -> Self {
         self.alignment = Some(bytes);
         self

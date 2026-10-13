@@ -238,8 +238,11 @@ impl FatOptions {
 
     /// Starts the data region `bytes` from the start of the volume, or a
     /// multiple of it, by adding reserved sectors: a power of two of at
-    /// least the sector size. Without it, the data region is aligned to the
-    /// device's physical block size when that is larger than a sector.
+    /// least the sector size. Without it or
+    /// [`with_reserved_sectors`](Self::with_reserved_sectors), the data
+    /// region is aligned to the device's physical block size when that is
+    /// larger than a sector, measured from the start of the disk: the
+    /// partition offset is taken into account.
     pub const fn with_alignment(mut self, bytes: u32) -> Self {
         self.alignment = Some(bytes);
         self

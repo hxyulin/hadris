@@ -525,13 +525,16 @@ fn query_physical_block_size(file: &File) -> Option<u32> {
     use std::os::fd::AsRawFd;
 
     let mut size: u32 = 0;
-    // SAFETY: the open descriptor remains valid, and the request writes one
-    // 32-bit physical block size into the supplied pointer.
+    // SAFETY: the open descriptor remains valid, and `BLKPBSZGET` writes one
+    // `unsigned int` physical block size into the supplied pointer.
     #[cfg(target_os = "linux")]
     let ok = unsafe { libc::ioctl(file.as_raw_fd(), libc::BLKPBSZGET, &mut size as *mut u32) == 0 };
     #[cfg(target_vendor = "apple")]
     let ok = {
         const DKIOCGETPHYSICALBLOCKSIZE: core::ffi::c_ulong = 0x4004_644D;
+        // SAFETY: the open descriptor remains valid, and
+        // `DKIOCGETPHYSICALBLOCKSIZE` is `_IOR('d', 77, uint32_t)`, which
+        // writes one `u32` into the supplied pointer.
         unsafe {
             ioctl(
                 file.as_raw_fd(),

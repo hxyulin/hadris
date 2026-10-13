@@ -76,7 +76,7 @@ fn shift_of(value: u64) -> Option<u8> {
 
 /// Plans a volume of `device_bytes`, or says why it cannot. Without an
 /// explicit alignment the FAT and the heap are aligned to at least the
-/// device's `physical` block size.
+/// device's `physical` block size, from the volume start.
 fn plan(
     device_bytes: u64,
     block_size: u32,

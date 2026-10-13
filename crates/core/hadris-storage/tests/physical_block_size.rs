@@ -68,7 +68,7 @@ mod sync {
     #[test]
     fn wrappers_forward_it() {
         let mut dev = Advanced::new();
-        assert_eq!((&mut dev).physical_block_size(), PHYSICAL);
+        assert_eq!(BlockDevice::physical_block_size(&&mut dev), PHYSICAL);
         let boxed: Box<Advanced> = Box::new(Advanced::new());
         assert_eq!(boxed.physical_block_size(), PHYSICAL);
         assert_eq!(

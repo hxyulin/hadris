@@ -177,9 +177,10 @@ async fn stored_name<F: FileSystem>(
 
 /// Adds everything below the directories on `stack` to `tree`. The walk
 /// holds the lock throughout, so it lists directories by the ids `readdir`
-/// returned without pinning them, and takes each entry's metadata from the
-/// listing; only files, whose content keeps a pin, and symlinks, whose
-/// target is read, are looked up.
+/// returned without pinning them and takes their metadata, and that of
+/// special files, from the listing. Files, whose content keeps a pin, and
+/// symlinks, whose target is read, are looked up and stated, so one whose
+/// metadata a driver could only list as damaged fails the walk.
 async fn walk<F: FileSystem + Send + 'static>(
     fs: &mut F,
     vol: &Volume<F>,
@@ -210,19 +211,31 @@ async fn walk<F: FileSystem + Send + 'static>(
             stack.push((entry.node(), DirCursor::START, path));
             continue;
         }
+        if !matches!(meta.file_type(), FileType::File | FileType::Symlink) {
+            tree.insert(&path, special(meta))?;
+            continue;
+        }
+        let child = vol.hold(fs.lookup(dir, entry.name()).await.map_err(|err| PathError::from(err).with_path(&path))?);
+        let meta = match fs.stat(child.node()).await {
+            Ok(meta) if meta.file_type().is_dir() => Err(ErrorKind::Corrupt.into()),
+            other => other,
+        };
+        let meta = match meta {
+            Ok(meta) => meta,
+            Err(err) => {
+                child.forget(fs);
+                return Err(PathError::from(err).with_path(&path));
+            }
+        };
         if meta.file_type().is_file() && meta.nlink() > 1 {
-            if let Some((_, first)) = seen.iter().find(|(node, _)| *node == entry.node()) {
+            if let Some((_, first)) = seen.iter().find(|(node, _)| *node == child.node()) {
+                child.forget(fs);
                 tree.link(first, &path)?;
                 continue;
             }
-            seen.push((entry.node(), path.clone()));
+            seen.push((child.node(), path.clone()));
         }
-        let node = if matches!(meta.file_type(), FileType::File | FileType::Symlink) {
-            let child = vol.hold(fs.lookup(dir, entry.name()).await.map_err(|err| PathError::from(err).with_path(&path))?);
-            node_of(fs, vol, child, meta).await.map_err(|err| err.with_path(&path))?
-        } else {
-            special(meta)
-        };
+        let node = node_of(fs, vol, child, &meta).await.map_err(|err| err.with_path(&path))?;
         tree.insert(&path, node)?;
     }
     Ok(())

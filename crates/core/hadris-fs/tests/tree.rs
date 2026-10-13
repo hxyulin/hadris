@@ -213,10 +213,23 @@ fn read_tree_takes_metadata_from_the_listing() {
     let after = vol.lock().lookups_and_stats();
     assert_eq!(
         (after.0 - before.0, after.1 - before.1),
-        (7, 1),
-        "one lookup per file and symlink, one stat for the top"
+        (7, 8),
+        "one lookup and stat per file and symlink, one stat for the top"
     );
     assert_eq!(tree.get("etc/conf").unwrap().content().unwrap().len(), 9);
     drop(tree);
     assert_eq!(vol.into_inner().ok().unwrap().open_nodes(), 1);
+}
+
+#[test]
+fn read_tree_fails_at_an_entry_listed_as_damaged() {
+    for path in ["/etc/conf", "/link"] {
+        let mut fs = fixture();
+        fs.damage(path);
+        let vol = Volume::new(fs);
+        let err = read_tree(&vol, "/").unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Corrupt, "{path}");
+        assert_eq!(err.path(), Some(path.as_bytes()));
+        assert_eq!(vol.into_inner().ok().unwrap().open_nodes(), 1);
+    }
 }

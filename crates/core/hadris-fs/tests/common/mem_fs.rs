@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use hadris_fs::{
     Capabilities, CaseRule, Charset, DateTime, DirCursor, DirEntry, ErrorKind, FileType, FsResult,
@@ -39,6 +39,8 @@ pub struct MemFs {
     scanned: u64,
     lookups: u64,
     stats: u64,
+    claimed: HashMap<usize, u64>,
+    damaged: HashSet<usize>,
 }
 
 fn id(index: usize) -> NodeId {
@@ -72,6 +74,8 @@ impl MemFs {
             scanned: 0,
             lookups: 0,
             stats: 0,
+            claimed: HashMap::new(),
+            damaged: HashSet::new(),
         }
     }
 
@@ -146,6 +150,21 @@ impl MemFs {
     /// Node slots `readdir` has looked at, as a directory scan would.
     pub fn scanned(&self) -> u64 {
         self.scanned
+    }
+
+    /// Makes the node at `path` report `len` bytes whatever it holds, as a
+    /// damaged image can.
+    pub fn claim_len(&mut self, path: &str, len: u64) {
+        let index = self.find(path).expect("fixture path exists");
+        self.claimed.insert(index, len);
+    }
+
+    /// Makes `stat` of the node at `path` fail with `Corrupt` and `readdir`
+    /// list it with the placeholder metadata NTFS and UDF give a node they
+    /// cannot read: a file of length 0 with mode 0.
+    pub fn damage(&mut self, path: &str) {
+        let index = self.find(path).expect("fixture path exists");
+        self.damaged.insert(index);
     }
 
     /// `lookup` and `stat` calls made.
@@ -252,7 +271,8 @@ impl MemFs {
             Some(Kind::Link(target)) => (FileType::Symlink, target.len()),
             _ => (FileType::Dir, 0),
         };
-        let meta = Metadata::new(file_type, Permissions::new(0o755)).with_len(len as u64);
+        let len = self.claimed.get(&index).copied().unwrap_or(len as u64);
+        let meta = Metadata::new(file_type, Permissions::new(0o755)).with_len(len);
         match self.nodes[index].as_ref().and_then(|n| n.modified) {
             Some(time) => meta.with_modified(time),
             None => meta,
@@ -386,6 +406,9 @@ impl FileSystem for MemFs {
         if let Kind::Alias(_) = self.node(node)?.kind {
             return Err(ErrorKind::InvalidHandle.into());
         }
+        if self.damaged.contains(&(node.get() as usize - 1)) {
+            return Err(ErrorKind::Corrupt.into());
+        }
         Ok(self.metadata(node.get() as usize - 1))
     }
 
@@ -409,7 +432,12 @@ impl FileSystem for MemFs {
             _ => i,
         };
         let next = DirCursor::from_raw(i as u64 + 1);
-        let entry = DirEntry::new(Name::new(&node.name), id(index), self.metadata(index), next)?;
+        let meta = if self.damaged.contains(&index) {
+            Metadata::new(FileType::File, Permissions::new(0))
+        } else {
+            self.metadata(index)
+        };
+        let entry = DirEntry::new(Name::new(&node.name), id(index), meta, next)?;
         Ok(Some(entry))
     }
 

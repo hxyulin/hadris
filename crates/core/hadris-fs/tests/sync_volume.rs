@@ -546,3 +546,18 @@ fn positional_io_and_attributes() {
     let fs = vol.into_inner().unwrap();
     assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));
 }
+
+#[test]
+fn read_takes_the_length_as_a_hint() {
+    let mut fs = fixture();
+    fs.claim_len("/a.txt", u64::MAX);
+    fs.claim_len("/etc/conf", 2);
+    let vol = Volume::new(fs);
+    assert_eq!(vol.read("/a.txt").unwrap(), b"root a");
+    assert_eq!(vol.read("/etc/conf").unwrap(), b"key=value");
+    let big: Vec<u8> = (0..3 << 20).map(|i| i as u8).collect();
+    vol.write("/big", &big).unwrap();
+    assert_eq!(vol.read("/big").unwrap(), big);
+    let fs = vol.into_inner().unwrap();
+    assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));
+}

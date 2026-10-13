@@ -571,19 +571,29 @@ async fn open_held<F: FileSystem + ?Sized>(
     Ok(node.keep())
 }
 
-/// Reads all of the open file `node`.
+/// The most `read_all` reserves up front from a file's reported length.
+const READ_HINT: usize = 1 << 20;
+
+/// Reads all of the open file `node` until a read returns 0. The reported
+/// length is only a hint, so a damaged image that claims a huge file grows
+/// the buffer as data arrives; a failed allocation is
+/// [`ErrorKind::LimitExceeded`].
 async fn read_all<F: FileSystem + ?Sized>(fs: &mut F, node: NodeId) -> FsResult<Vec<u8>, F::DeviceError> {
-    let len = usize::try_from(fs.stat(node).await?.len()).map_err(|_| ErrorKind::LimitExceeded)?;
-    let mut data = alloc::vec![0u8; len];
-    let mut filled = 0;
-    while filled < data.len() {
-        match fs.read(node, filled as u64, &mut data[filled..]).await? {
-            0 => break,
-            n => filled += n,
+    let hint = usize::try_from(fs.stat(node).await?.len()).unwrap_or(usize::MAX);
+    let mut data = Vec::new();
+    data.try_reserve(hint.clamp(1, READ_HINT)).map_err(|_| ErrorKind::LimitExceeded)?;
+    loop {
+        if data.len() == data.capacity() {
+            data.try_reserve(data.len().max(4096)).map_err(|_| ErrorKind::LimitExceeded)?;
+        }
+        let filled = data.len();
+        data.resize(data.capacity(), 0);
+        let n = fs.read(node, filled as u64, &mut data[filled..]).await?;
+        data.truncate(filled + n);
+        if n == 0 {
+            return Ok(data);
         }
     }
-    data.truncate(filled);
-    Ok(data)
 }
 
 async fn is_symlink<F: FileSystem + ?Sized>(fs: &mut F, node: NodeId) -> bool {
