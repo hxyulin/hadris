@@ -47,6 +47,43 @@
 pub mod embedded;
 mod options;
 pub use hadris_fat_raw::exfat::{Detail, Geometry};
+pub use hadris_part::Guid;
+
+/// The Volume GUID entry for `guid`: no secondary entries, no allocation,
+/// and its `SetChecksum`.
+#[cfg_attr(
+    not(all(
+        any(feature = "alloc", feature = "write"),
+        any(feature = "sync", feature = "async")
+    )),
+    allow(dead_code)
+)]
+pub(crate) fn guid_entry(guid: Guid) -> hadris_fat_raw::exfat::RawEntry {
+    let mut entry = [0u8; hadris_fat_raw::exfat::ENTRY_SIZE];
+    entry[0] = hadris_fat_raw::exfat::ENTRY_GUID;
+    entry[6..22].copy_from_slice(&guid.to_bytes());
+    hadris_fat_raw::exfat::seal(core::slice::from_mut(&mut entry));
+    entry
+}
+
+/// The GUID of a Volume GUID entry, or `None` unless its `SecondaryCount`
+/// and `AllocationPossible` are 0, its `SetChecksum` matches and the GUID
+/// is not null.
+#[cfg_attr(
+    not(all(feature = "alloc", any(feature = "sync", feature = "async"))),
+    allow(dead_code)
+)]
+pub(crate) fn entry_guid(entry: &hadris_fat_raw::exfat::RawEntry) -> Option<Guid> {
+    let checksum = hadris_fat_raw::exfat::set_checksum(core::slice::from_ref(entry));
+    let mut bytes = [0u8; 16];
+    bytes.copy_from_slice(&entry[6..22]);
+    let guid = Guid::from_bytes(bytes);
+    let valid = entry[1] == 0
+        && entry[4] & hadris_fat_raw::exfat::ALLOCATION_POSSIBLE == 0
+        && le16(entry, 2) == checksum
+        && !guid.is_nil();
+    valid.then_some(guid)
+}
 
 /// Reads a little-endian `u16` at `at`.
 #[cfg_attr(

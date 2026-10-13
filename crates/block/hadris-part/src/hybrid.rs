@@ -97,7 +97,7 @@ mod table {
     use crate::disk::Partitions;
     use crate::error::{Detail, TableError};
     use crate::raw::{Chs, RawMbrEntry};
-    use crate::{Gpt, MbrType, Partition};
+    use crate::{Gpt, MbrType, Partition, PartitionFlags};
 
     /// A GPT together with a hybrid MBR that mirrors some of its partitions.
     ///
@@ -186,6 +186,56 @@ mod table {
         /// The GPT.
         pub const fn gpt(&self) -> &Gpt {
             &self.gpt
+        }
+
+        /// The GPT, for edits.
+        ///
+        /// The MBR entries are kept as read or built. After an edit that
+        /// moves a mirrored partition or changes the disk size, rebuild them
+        /// with `Hybrid::new(hybrid.gpt().clone(), &hybrid.mirror())`.
+        pub fn gpt_mut(&mut self) -> &mut Gpt {
+            &mut self.gpt
+        }
+
+        /// The configuration that rebuilds this hybrid MBR with
+        /// [`new`](Self::new): the slot of the protective entry, and each
+        /// other entry in slot order as a mirror of the GPT partition that
+        /// starts where it does, preferring one of the same length.
+        ///
+        /// Entries that start no GPT partition, that start one an earlier
+        /// entry already mirrors, and extended entries are left out. A hybrid MBR built by [`new`](Self::new), or one whose
+        /// mirrors directly follow each other around the protective entry
+        /// as `gdisk` writes them, round-trips.
+        pub fn mirror(&self) -> HybridMbr {
+            let protective = self
+                .entries
+                .iter()
+                .position(|e| MbrType::new(e.kind).is_protective())
+                .unwrap_or(0);
+            let mut config = HybridMbr::new().with_protective_slot(protective);
+            for entry in &self.entries {
+                let kind = MbrType::new(entry.kind);
+                if kind.is_empty() || kind.is_protective() || kind.is_extended() {
+                    continue;
+                }
+                let start = u64::from(entry.start_lba());
+                let len = u64::from(entry.sector_count());
+                let mirrored =
+                    |slot: usize| config.mirror_slots().any(|(_, m)| m.gpt_index == slot);
+                let mut starting = self
+                    .gpt
+                    .partitions()
+                    .filter(|p| p.start() == start && !mirrored(p.slot()));
+                let exact = starting.clone().find(|p| p.len() == len);
+                let Some(partition) = exact.or_else(|| starting.next()) else {
+                    continue;
+                };
+                let flags = PartitionFlags::from_mbr(entry.boot_indicator);
+                if config.add_mirrored(partition.slot(), kind, flags).is_err() {
+                    break;
+                }
+            }
+            config
         }
 
         /// The GPT, dropping the hybrid MBR.

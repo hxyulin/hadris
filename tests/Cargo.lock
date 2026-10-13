@@ -143,6 +143,7 @@ dependencies = [
  "hadris-fs",
  "hadris-io",
  "hadris-macros",
+ "hadris-part",
  "hadris-storage",
 ]
 
@@ -241,6 +242,7 @@ dependencies = [
  "hadris-fs",
  "hadris-io",
  "hadris-iso",
+ "hadris-part",
  "hadris-storage",
  "hadris-udf",
  "tempfile",

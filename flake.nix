@@ -20,6 +20,7 @@
           packages = [
             pkgs.cdrtools
             pkgs.dosfstools
+            pkgs.gptfdisk
             pkgs.libarchive
             pkgs.mtools
             pkgs.python3

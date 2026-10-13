@@ -191,10 +191,10 @@ fn boot_sector(layout: &Layout, partition_offset: u64, serial: u32) -> BootSecto
     boot
 }
 
-/// The root directory's first entries: the label, when there is one, the
-/// Allocation Bitmaps and the Up-case Table.
-fn root_entries(layout: &Layout, options: &ExFatOptions) -> ([RawEntry; 4], usize) {
-    let mut entries = [[0u8; ENTRY_SIZE]; 4];
+/// The root directory's first entries: the label and the Volume GUID, when
+/// there are, the Allocation Bitmaps and the Up-case Table.
+fn root_entries(layout: &Layout, options: &ExFatOptions) -> ([RawEntry; 5], usize) {
+    let mut entries = [[0u8; ENTRY_SIZE]; 5];
     let mut count = 0;
     if let Some(label) = &options.label {
         let entry = &mut entries[count];
@@ -203,6 +203,10 @@ fn root_entries(layout: &Layout, options: &ExFatOptions) -> ([RawEntry; 4], usiz
         for (index, unit) in label.as_utf16().iter().enumerate() {
             entry[2 + index * 2..4 + index * 2].copy_from_slice(&unit.to_le_bytes());
         }
+        count += 1;
+    }
+    if let Some(guid) = options.resolved_guid() {
+        entries[count] = crate::exfat::guid_entry(guid);
         count += 1;
     }
     for index in 0..layout.fats {
@@ -229,6 +233,13 @@ struct Prepared {
 }
 
 fn prepare<D: BlockDevice>(dev: &D, options: &ExFatOptions) -> Result<Prepared, ErrorKind> {
+    if options
+        .volume_guid
+        .flatten()
+        .is_some_and(crate::exfat::Guid::is_nil)
+    {
+        return Err(ErrorKind::InvalidInput);
+    }
     let block_size = dev.block_size().get() as usize;
     if block_size > super::block_io::MAX_BLOCK_SIZE {
         return Err(ErrorKind::Unsupported);
@@ -270,10 +281,10 @@ io_transform! {
 /// The volume fills the device unless [`ExFatOptions::with_size`] asks for
 /// another size; pass a `hadris_storage` `Partition` to format a partition.
 /// Written are both boot regions, the FATs, the allocation bitmaps, the
-/// recommended up-case table and the root directory with its label, bitmap
-/// and up-case entries; the rest of the cluster heap is left as it is,
-/// except that a growable device is grown to the volume's end. The boot
-/// sector is written last, and the device is flushed.
+/// recommended up-case table and the root directory with its label, Volume
+/// GUID, bitmap and up-case entries; the rest of the cluster heap is left
+/// as it is, except that a growable device is grown to the volume's end.
+/// The boot sector is written last, and the device is flushed.
 ///
 /// Fails with [`ErrorKind::InvalidInput`] when an option is out of range,
 /// with [`ErrorKind::NoSpace`] when the device is smaller than the size or

@@ -44,6 +44,7 @@ harness = false
 [dependencies]
 hadris-fat = { path = "../crates/block/hadris-fat", default-features = false, features = ["std", "sync", "write"] }
 hadris-fs = { path = "../crates/core/hadris-fs", default-features = false, features = ["std", "sync"] }
+hadris-part = { path = "../crates/block/hadris-part", default-features = false, features = ["std", "sync"] }
 hadris-io = { path = "../crates/core/hadris-io", default-features = false, features = ["std", "sync"] }
 hadris-storage = { path = "../crates/core/hadris-storage", default-features = false, features = ["std", "sync"] }
 hadris-iso = { path = "../crates/optical/hadris-iso", default-features = false, features = ["std", "sync", "cache"] }

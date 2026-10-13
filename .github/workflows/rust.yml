@@ -472,7 +472,7 @@ jobs:
       - name: Install FAT image tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y dosfstools mtools time
+          sudo apt-get install -y dosfstools mtools time gdisk
       - name: Run test harness unit tests
         run: "cargo test --manifest-path tests/Cargo.toml --lib"
       - name: Run V3 performance harness smoke check
@@ -513,6 +513,8 @@ jobs:
           }
       - name: Run FAT conformance and interoperability tests
         run: "cargo test --manifest-path tests/Cargo.toml fat:: -- --skip exfat:: --nocapture"
+      - name: Run partition table interoperability tests against sgdisk
+        run: "cargo test --manifest-path tests/Cargo.toml part:: -- --nocapture"
 
   test-optical:
     needs: changes

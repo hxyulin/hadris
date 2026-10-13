@@ -10,7 +10,7 @@
 use core::ops::ControlFlow;
 
 use hadris_part::sync::{open, read, scan, write};
-use hadris_part::{Disk, GptEntry, Guid, MbrEntry, MbrType, PartitionTable};
+use hadris_part::{Disk, Gpt, GptEntry, Guid, Hybrid, MbrEntry, MbrType, PartitionTable};
 use hadris_storage::{BlockSize, MemDevice};
 use libfuzzer_sys::fuzz_target;
 
@@ -40,17 +40,52 @@ fn edit(disk: &mut Disk, data: &[u8]) {
                 assert_eq!(*mbr, before, "ORACLE: failed MBR edits changed the table");
             }
         }
-        PartitionTable::Gpt(gpt) => {
-            let before = gpt.clone();
-            let entry = GptEntry::new(Guid::from_bytes([0xA5; 16]), Guid::NIL, start, len);
-            if gpt.add(entry).is_err()
-                && gpt.resize(index, len).is_err()
-                && gpt.remove(index).is_err()
-            {
-                assert_eq!(*gpt, before, "ORACLE: failed GPT edits changed the table");
+        PartitionTable::Gpt(gpt) => edit_gpt(gpt, data, start, len, index),
+        PartitionTable::Hybrid(hybrid) => {
+            let mirror = hybrid.mirror();
+            edit_gpt(hybrid.gpt_mut(), data, start, len, index);
+            if let Ok(rebuilt) = Hybrid::new(hybrid.gpt().clone(), &mirror) {
+                assert_eq!(
+                    rebuilt.mirror(),
+                    mirror,
+                    "ORACLE: a rebuilt hybrid MBR has different mirrors"
+                );
+                *hybrid = rebuilt;
             }
         }
         _ => {}
+    }
+}
+
+fn edit_gpt(gpt: &mut Gpt, data: &[u8], start: u64, len: u64, index: usize) {
+    let before = gpt.clone();
+    let entry = GptEntry::new(Guid::from_bytes([0xA5; 16]), Guid::NIL, start, len);
+    if gpt.add(entry).is_err() && gpt.resize(index, len).is_err() && gpt.remove(index).is_err() {
+        assert_eq!(*gpt, before, "ORACLE: failed GPT edits changed the table");
+    }
+    let before = gpt.clone();
+    let count = (word(data, 464) % 512) as usize;
+    if gpt.set_entry_count(count).is_err() {
+        assert_eq!(
+            *gpt, before,
+            "ORACLE: a failed entry count change changed the table"
+        );
+    }
+    let before = gpt.clone();
+    let blocks = gpt
+        .block_count()
+        .saturating_add_signed(word(data, 472) as i8 as i64);
+    if gpt.relocate_backup(blocks).is_err() {
+        assert_eq!(
+            *gpt, before,
+            "ORACLE: a failed backup move changed the table"
+        );
+    } else {
+        assert_eq!(
+            gpt.backup_lba(),
+            blocks - 1,
+            "ORACLE: the backup header did not move"
+        );
     }
 }
 

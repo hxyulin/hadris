@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use hadris_fs::ErrorKind;
 use hadris_storage::BlockSize;
 
-use crate::codec::{blocks_for, check_block_size};
+use crate::codec::{MAX_ARRAY_BYTES, blocks_for, check_block_size};
 use crate::disk::Partitions;
 use crate::error::{Detail, TableError};
 use crate::raw::{self, RawGptEntry, RawGptHeader};
@@ -265,6 +265,102 @@ impl Gpt {
         self.entries.len()
     }
 
+    /// Changes the number of entry slots to `count`, as `sgdisk
+    /// --resize-table` does, and moves the first and last usable blocks so
+    /// both entry arrays fit. The count is not rounded up to fill the last
+    /// array block.
+    ///
+    /// UEFI requires at least 16 KiB of entry array, 128 entries of 128
+    /// bytes. Smaller counts are accepted, as `sgdisk` accepts them, but
+    /// such a table is outside the specification.
+    ///
+    /// Fails with [`ErrorKind::InvalidInput`] when `count` is zero or drops
+    /// a used slot, [`ErrorKind::LimitExceeded`] when the array would pass
+    /// 64 MiB, the largest one `read` accepts, [`ErrorKind::NoSpace`] when
+    /// the disk leaves no usable block, and with [`Detail::Overlap`] naming
+    /// the first partition the new arrays would cover.
+    pub fn set_entry_count(&mut self, count: usize) -> Result<(), TableError> {
+        if count == 0 {
+            return Err(TableError::invalid(Detail::GptEntries));
+        }
+        if let Some(used) = self.entries[count.min(self.entries.len())..]
+            .iter()
+            .position(|e| !e.is_unused())
+        {
+            return Err(TableError::invalid(Detail::GptEntries).at(count + used));
+        }
+        let bytes = u64::try_from(count)
+            .ok()
+            .and_then(|n| n.checked_mul(u64::from(self.entry_size)))
+            .filter(|&bytes| bytes <= MAX_ARRAY_BYTES)
+            .ok_or(TableError::new(
+                ErrorKind::LimitExceeded,
+                Detail::GptEntries,
+            ))?;
+        let array = blocks_for(bytes, self.block_size);
+        let (first_usable, last_usable) = self.usable(self.backup_lba, array)?;
+        self.check_usable(first_usable, last_usable)?;
+        self.entries.resize(count, RawGptEntry::default());
+        self.first_usable = first_usable;
+        self.last_usable = last_usable;
+        self.backup_entries_lba = last_usable + 1;
+        Ok(())
+    }
+
+    /// Moves the backup header to the last block of a disk of `block_count`
+    /// blocks and its entry array right before it, and makes the last usable
+    /// block the one before that array, as `sgdisk -e` does after an image
+    /// grows. The first usable block stays.
+    ///
+    /// Fails with [`ErrorKind::NoSpace`] when the disk leaves no usable
+    /// block, and with [`ErrorKind::InvalidInput`] and
+    /// [`Detail::Overlap`] naming the first partition that would end past
+    /// the new usable area.
+    pub fn relocate_backup(&mut self, block_count: u64) -> Result<(), TableError> {
+        let array = self.array_blocks();
+        let backup_lba = block_count
+            .checked_sub(1)
+            .ok_or(TableError::new(ErrorKind::NoSpace, Detail::DiskTooSmall))?;
+        let (_, last_usable) = self.usable(backup_lba, array)?;
+        if last_usable < self.first_usable {
+            return Err(TableError::new(ErrorKind::NoSpace, Detail::DiskTooSmall));
+        }
+        self.check_usable(self.first_usable, last_usable)?;
+        self.block_count = block_count;
+        self.backup_lba = backup_lba;
+        self.last_usable = last_usable;
+        self.backup_entries_lba = last_usable + 1;
+        Ok(())
+    }
+
+    fn array_blocks(&self) -> u64 {
+        blocks_for(
+            self.entries.len() as u64 * u64::from(self.entry_size),
+            self.block_size,
+        )
+    }
+
+    /// The usable range left by arrays of `array` blocks after the primary
+    /// array start and before the backup header at `backup_lba`.
+    fn usable(&self, backup_lba: u64, array: u64) -> Result<(u64, u64), TableError> {
+        let first = self.primary_entries_lba.checked_add(array);
+        let last = backup_lba.checked_sub(array).and_then(|b| b.checked_sub(1));
+        match (first, last) {
+            (Some(first), Some(last)) if last >= first => Ok((first, last)),
+            _ => Err(TableError::new(ErrorKind::NoSpace, Detail::DiskTooSmall)),
+        }
+    }
+
+    fn check_usable(&self, first_usable: u64, last_usable: u64) -> Result<(), TableError> {
+        let outside = self.entries.iter().position(|e| {
+            !e.is_unused() && (e.first_lba() < first_usable || e.last_lba() > last_usable)
+        });
+        match outside {
+            Some(index) => Err(TableError::invalid(Detail::Overlap).at(index)),
+            None => Ok(()),
+        }
+    }
+
     /// The copy that failed validation when the table was read, if one did.
     /// The table came from the other copy, and writing it repairs both.
     pub const fn damaged_copy(&self) -> Option<GptCopy> {
@@ -398,10 +494,7 @@ impl Gpt {
     /// Whether both copies fit around the usable area of a disk of
     /// `block_count` blocks.
     pub(crate) fn fits(&self, block_count: u64) -> bool {
-        let array = blocks_for(
-            self.entries.len() as u64 * u64::from(self.entry_size),
-            self.block_size,
-        );
+        let array = self.array_blocks();
         let primary_end = self.primary_entries_lba.checked_add(array);
         let backup_end = self.backup_entries_lba.checked_add(array);
         self.primary_entries_lba >= 2

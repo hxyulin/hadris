@@ -287,7 +287,12 @@ chained allocations, fragmented bitmaps and up-case tables, and entry sets
 that cross clusters; it writes FAT chains, grows directories, and keeps
 `VolumeDirty` and `PercentInUse`. On TexFAT volumes it follows `ActiveFat`
 and keeps both FATs and bitmaps equal. TexFAT transactions and repair are
-not supported. The conformance suite in `tests/` qualifies it against
+not supported. `format` writes a Volume GUID entry derived from the seed,
+or the time without one, unless `ExFatOptions::with_volume_guid` sets or
+omits it; `ExFatFs::volume_guid()` and `set_volume_guid` read and change
+it, as `tune.exfat -u`/`-U` do. The GUID is stored as the Microsoft `GUID`
+structure, as Windows writes it; exfatprogs 1.2 shows the same bytes in raw
+order, so its text form differs. The conformance suite in `tests/` qualifies it against
 exfatprogs, macOS `newfs_exfat`/`fsck_exfat` and the macOS kernel driver.
 
 ### For Bootloaders and Embedded Systems

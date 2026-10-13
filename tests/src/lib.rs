@@ -4,7 +4,7 @@
 //!
 //! - [`harness`]: format-agnostic building blocks (temporary workspaces,
 //!   external command execution, native mounts, scorecards, tree diffing).
-//! - [`fat`], [`exfat`] and [`iso`]: per-format semantic models, specification oracles,
+//! - [`fat`], [`exfat`], [`iso`] and [`part`]: per-format semantic models, specification oracles,
 //!   scenario generators, and adapters for every implementation under test.
 //! - `suite/`: the test binary that combines the two into executable checks.
 //!
@@ -15,3 +15,4 @@ pub mod exfat;
 pub mod fat;
 pub mod harness;
 pub mod iso;
+pub mod part;

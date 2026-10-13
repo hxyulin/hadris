@@ -114,6 +114,7 @@ Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 | EXFAT:7.1 | `BitmapEntry` | partial | `exfat_read::fragmented_bitmap_and_upcase_table`, `exfat_check::bitmap_mismatches_are_found`, `exfat_write::texfat_keeps_both_fats_and_bitmaps` | `exfat_read` | Bitmaps are read and written through their FAT chains; on TexFAT volumes the bitmap `ActiveFat` selects is read and both are written. TexFAT transactions are not supported. |
 | EXFAT:7.2 | `UpcaseEntry` | full | `exfat_read::fragmented_bitmap_and_upcase_table`, `exfat_check::upcase_checksum_is_checked` | `exfat_read` |  |
 | EXFAT:7.3 | `LabelEntry` | full | `exfat_write::labels_are_set_and_removed` | `exfat_read` |  |
+| EXFAT:7.5 | `GuidEntry` | full | `exfat_format::volume_guids_derive_from_the_seed_and_follow_the_specification`, `exfat_format::volume_guids_are_set_replaced_and_removed` | `exfat_read` |  |
 
 ## hadris-part
 

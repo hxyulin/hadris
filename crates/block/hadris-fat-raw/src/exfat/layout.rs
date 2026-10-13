@@ -315,6 +315,34 @@ pub struct LabelEntry {
     pub reserved: [u8; 8],
 }
 
+/// The Volume GUID directory entry of the root directory, a benign
+/// primary entry with no secondary entries.
+///
+/// @hadris-spec EXFAT:7.5
+/// @hadris-compliance full
+/// @hadris-tests exfat_format::volume_guids_derive_from_the_seed_and_follow_the_specification, exfat_format::volume_guids_are_set_replaced_and_removed
+/// @hadris-fuzz exfat_read
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct GuidEntry {
+    /// `EntryType`, [`ENTRY_GUID`].
+    pub entry_type: u8,
+    /// `SecondaryCount`, 0.
+    pub secondary_count: u8,
+    /// `SetChecksum`
+    pub set_checksum: U16<LittleEndian>,
+    /// `GeneralPrimaryFlags`, with `AllocationPossible` 0.
+    pub general_primary_flags: U16<LittleEndian>,
+    /// `VolumeGuid`, laid out as the Microsoft `GUID` structure: the first
+    /// three groups of the text form little-endian, the last two in order,
+    /// as Windows writes it. exfatprogs 1.2 parses and prints these bytes
+    /// in raw order instead, so its text form differs for the same bytes.
+    /// All zeros is invalid.
+    pub volume_guid: [u8; 16],
+    /// `Reserved`
+    pub reserved: [u8; 10],
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -328,6 +356,7 @@ mod tests {
             size_of::<NameEntry>(),
             size_of::<BitmapEntry>(),
             size_of::<UpcaseEntry>(),
+            size_of::<GuidEntry>(),
             size_of::<LabelEntry>(),
         ] {
             assert_eq!(size, ENTRY_SIZE);

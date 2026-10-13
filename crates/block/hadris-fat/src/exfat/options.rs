@@ -4,6 +4,9 @@ use hadris_fs::ErrorKind;
 #[cfg(feature = "write")]
 use hadris_fs::{DateTime, NoClock};
 
+#[cfg(feature = "write")]
+use super::Guid;
+
 use hadris_fat_raw::exfat::{MAX_LABEL_UNITS, valid_unit};
 
 /// An exFAT volume label: 1 to 11 UTF-16 code units, stored as given.
@@ -91,8 +94,8 @@ impl fmt::Debug for VolumeLabel {
 /// recommended up-case table. The volume fills the device, and its
 /// partition offset is the device's `disk_offset`.
 ///
-/// The serial derives from the seed, or from the time when there is none,
-/// so the same options give the same bytes every time. `write` also stamps
+/// The serial and the Volume GUID derive from the seed, or from the time
+/// when there is none, so the same options give the same bytes every time. `write` also stamps
 /// the nodes the tree gives no time with the time, [`NoClock::TIME`] by
 /// default.
 ///
@@ -129,6 +132,7 @@ pub struct ExFatOptions {
     pub(crate) time: DateTime,
     pub(crate) seed: Option<u64>,
     pub(crate) serial: Option<u32>,
+    pub(crate) volume_guid: Option<Option<Guid>>,
     pub(crate) sector_size: Option<u32>,
     pub(crate) cluster_size: Option<u32>,
     pub(crate) fat_count: u8,
@@ -147,6 +151,7 @@ impl ExFatOptions {
             time: NoClock::TIME,
             seed: None,
             serial: None,
+            volume_guid: None,
             sector_size: None,
             cluster_size: None,
             fat_count: 1,
@@ -170,15 +175,16 @@ impl ExFatOptions {
     }
 
     /// Stamps the nodes `write` copies without times with `time`, and
-    /// derives the serial from it when there is no seed.
+    /// derives the serial and the Volume GUID from it when there is no
+    /// seed.
     pub const fn with_time(mut self, time: DateTime) -> Self {
         self.time = time;
         self
     }
 
-    /// Derives the serial from `seed` instead of the time. `write` mixes in
-    /// the tree's paths, sizes and times, so different trees get different
-    /// serials.
+    /// Derives the serial and the Volume GUID from `seed` instead of the
+    /// time. `write` mixes in the tree's paths, sizes and times, so
+    /// different trees get different serials and GUIDs.
     pub const fn with_seed(mut self, seed: u64) -> Self {
         self.seed = Some(seed);
         self
@@ -187,6 +193,14 @@ impl ExFatOptions {
     /// Sets the volume serial number instead of deriving it.
     pub const fn with_serial(mut self, serial: u32) -> Self {
         self.serial = Some(serial);
+        self
+    }
+
+    /// Sets the Volume GUID instead of deriving it, or leaves the root
+    /// directory without a Volume GUID entry with `None`. `format` fails
+    /// with `ErrorKind::InvalidInput` for the null GUID.
+    pub const fn with_volume_guid(mut self, guid: Option<Guid>) -> Self {
+        self.volume_guid = Some(guid);
         self
     }
 
@@ -229,6 +243,36 @@ impl ExFatOptions {
     pub const fn with_alignment(mut self, bytes: u32) -> Self {
         self.alignment = Some(bytes);
         self
+    }
+}
+
+#[cfg(feature = "write")]
+#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
+impl ExFatOptions {
+    /// The Volume GUID `format` writes: the one set, or a version 4 GUID
+    /// derived from the seed, or the time when there is none.
+    pub(crate) fn resolved_guid(&self) -> Option<Guid> {
+        if let Some(guid) = self.volume_guid {
+            return guid;
+        }
+        let mut state = match self.seed {
+            Some(seed) => seed ^ 0x4755_4944_6578_4641,
+            None => {
+                (self.time.unix_seconds() as u64).rotate_left(32)
+                    ^ u64::from(self.time.nanoseconds())
+            }
+        };
+        let mut bytes = [0u8; 16];
+        for chunk in bytes.chunks_exact_mut(8) {
+            state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = state;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            chunk.copy_from_slice(&(z ^ (z >> 31)).to_le_bytes());
+        }
+        bytes[7] = (bytes[7] & 0x0F) | 0x40;
+        bytes[8] = (bytes[8] & 0x3F) | 0x80;
+        Some(Guid::from_bytes(bytes))
     }
 }
 
