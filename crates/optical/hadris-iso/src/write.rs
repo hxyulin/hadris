@@ -235,7 +235,7 @@ async fn checksum<D: BlockDevice, S: BlockDevice>(out: &mut D, reader: &mut Sour
         if let Some(grub2) = grub2 {
             patch(&mut buf[..take], offset, GRUB2_BOOT_INFO, grub2);
         }
-        sum = raw::BootInfoTable::checksum(sum, &buf[..take]);
+        sum = raw::BootInfoTable::word_sum(sum, &buf[..take]);
         offset += take as u64;
     }
     Ok(sum)

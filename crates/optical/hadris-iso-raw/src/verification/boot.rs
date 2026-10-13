@@ -40,9 +40,9 @@ fn boot_info_checksum_sums_zero_padded_words() {
     for (index, byte) in bytes[..len].iter().enumerate() {
         expected = expected.wrapping_add(u32::from(*byte) << (8 * (index % 4)));
     }
-    let whole = BootInfoTable::checksum(initial, &bytes[..len]);
+    let whole = BootInfoTable::word_sum(initial, &bytes[..len]);
     assert_eq!(whole, expected);
-    let first = BootInfoTable::checksum(initial, &bytes[..split]);
-    assert_eq!(BootInfoTable::checksum(first, &bytes[split..len]), whole);
+    let first = BootInfoTable::word_sum(initial, &bytes[..split]);
+    assert_eq!(BootInfoTable::word_sum(first, &bytes[split..len]), whole);
     kani::cover!(len % 4 != 0 && split > 0, "partial last word after a split");
 }

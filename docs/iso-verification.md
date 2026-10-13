@@ -84,7 +84,7 @@ acceptance rules and arithmetic independently.
 - **Boot (two):** for every 32-byte validation entry, the checksum the writer
   computes excludes only the checksum word, and an entry is valid exactly when
   its header ID is 1, its key is `55 AA` and its sixteen words sum to zero.
-  `BootInfoTable::checksum`, which the writer uses for the boot information
+  `BootInfoTable::word_sum`, which the writer uses for the boot information
   table, equals the sum of every byte shifted by its position in its 32-bit
   word; a trailing partial word is therefore counted zero-padded, the fix
   made in #299. Splitting the input at any multiple of four bytes gives the

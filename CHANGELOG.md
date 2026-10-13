@@ -88,7 +88,7 @@ Each published package owns its version and may be released independently.
   workflow runs them; the FAT/exFAT and ISO proof stages now share
   `scripts/verify-proofs.py`, which replaces `scripts/verify-fat.py`.
 
-- **ISO raw codecs:** Add `BootInfoTable::checksum`, the zero-padded word sum
+- **ISO raw codecs:** Add `BootInfoTable::word_sum`, the zero-padded word sum
   a boot information table records. The writer now uses it.
 
 - **FAT/exFAT verification:** Add 25 Kani proofs for entry codecs, boot geometry,

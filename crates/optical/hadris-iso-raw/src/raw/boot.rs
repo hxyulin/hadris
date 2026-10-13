@@ -211,7 +211,7 @@ impl BootInfoTable {
     /// Adds the 32-bit little-endian words of `bytes` to `sum`, counting a
     /// last partial word zero-padded, as mkisofs and xorriso do. A buffer
     /// split across calls must be split at multiples of four bytes.
-    pub fn checksum(sum: u32, bytes: &[u8]) -> u32 {
+    pub fn word_sum(sum: u32, bytes: &[u8]) -> u32 {
         bytes.chunks(4).fold(sum, |sum, word| {
             let mut padded = [0; 4];
             padded[..word.len()].copy_from_slice(word);
