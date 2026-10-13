@@ -119,8 +119,8 @@
       "summary": "Descriptor timestamps encode every date and time component as fixed-width decimal digits.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-iso-raw/src/raw/mod.rs", "name": "DecDateTime::from_datetime"}],
-      "tests": [{"path": "crates/optical/hadris-iso-raw/src/raw/mod.rs", "name": "dates_round_trip", "kind": "unit"}],
+      "symbols": [{"path": "crates/optical/hadris-iso-raw/src/raw/mod.rs", "name": "DecDateTime::from_datetime"}, {"path": "crates/optical/hadris-iso-raw/src/raw/mod.rs", "name": "digits"}],
+      "tests": [{"path": "crates/optical/hadris-iso-raw/src/raw/mod.rs", "name": "dates_round_trip", "kind": "unit"}, {"path": "crates/optical/hadris-iso-raw/src/verification/dates.rs", "name": "descriptor_date_digits_are_fixed_width_decimal", "kind": "proof"}],
       "gap": null
     },
     {
@@ -144,7 +144,7 @@
       "direction": "read",
       "status": "verified",
       "symbols": [{"path": "crates/optical/hadris-iso-raw/src/raw/directory.rs", "name": "DirectoryRecord::parse"}],
-      "tests": [{"path": "crates/optical/hadris-iso-raw/src/raw/directory.rs", "name": "directory_record_rejects_invalid_bounds_and_endian_copy", "kind": "unit"}],
+      "tests": [{"path": "crates/optical/hadris-iso-raw/src/raw/directory.rs", "name": "directory_record_rejects_invalid_bounds_and_endian_copy", "kind": "unit"}, {"path": "crates/optical/hadris-iso-raw/src/verification/records.rs", "name": "directory_record_parse_matches_specification", "kind": "proof"}],
       "gap": null
     },
     {
@@ -156,7 +156,7 @@
       "direction": "read",
       "status": "verified",
       "symbols": [{"path": "crates/optical/hadris-iso-raw/src/raw/directory.rs", "name": "DirectoryRecord::parse"}],
-      "tests": [{"path": "crates/optical/hadris-iso-raw/src/raw/directory.rs", "name": "directory_record_rejects_invalid_bounds_and_endian_copy", "kind": "unit"}],
+      "tests": [{"path": "crates/optical/hadris-iso-raw/src/raw/directory.rs", "name": "directory_record_rejects_invalid_bounds_and_endian_copy", "kind": "unit"}, {"path": "crates/optical/hadris-iso-raw/src/verification/records.rs", "name": "directory_record_parse_matches_specification", "kind": "proof"}],
       "gap": null
     },
     {
@@ -168,7 +168,7 @@
       "direction": "read",
       "status": "verified",
       "symbols": [{"path": "crates/optical/hadris-iso-raw/src/raw/directory.rs", "name": "DirectoryRecord::parse"}],
-      "tests": [{"path": "crates/optical/hadris-iso-raw/src/raw/directory.rs", "name": "directory_record_rejects_invalid_bounds_and_endian_copy", "kind": "unit"}],
+      "tests": [{"path": "crates/optical/hadris-iso-raw/src/raw/directory.rs", "name": "directory_record_rejects_invalid_bounds_and_endian_copy", "kind": "unit"}, {"path": "crates/optical/hadris-iso-raw/src/verification/records.rs", "name": "directory_record_parse_matches_specification", "kind": "proof"}],
       "gap": null
     },
     {
@@ -179,8 +179,8 @@
       "summary": "An even-length directory-record identifier is followed by a zero padding byte.",
       "direction": "both",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-iso-raw/src/raw/directory.rs", "name": "DirectoryRecord::parse"}],
-      "tests": [{"path": "crates/optical/hadris-iso-raw/src/raw/directory.rs", "name": "directory_record_parse_roundtrip", "kind": "unit"}, {"path": "crates/optical/hadris-iso-raw/src/raw/directory.rs", "name": "directory_record_rejects_invalid_bounds_and_endian_copy", "kind": "unit"}],
+      "symbols": [{"path": "crates/optical/hadris-iso-raw/src/raw/directory.rs", "name": "DirectoryRecord::parse"}, {"path": "crates/optical/hadris-iso-raw/src/raw/directory.rs", "name": "DirectoryRecord::new"}],
+      "tests": [{"path": "crates/optical/hadris-iso-raw/src/raw/directory.rs", "name": "directory_record_parse_roundtrip", "kind": "unit"}, {"path": "crates/optical/hadris-iso-raw/src/raw/directory.rs", "name": "directory_record_rejects_invalid_bounds_and_endian_copy", "kind": "unit"}, {"path": "crates/optical/hadris-iso-raw/src/verification/records.rs", "name": "directory_record_parse_matches_specification", "kind": "proof"}, {"path": "crates/optical/hadris-iso-raw/src/verification/records.rs", "name": "directory_record_new_parses_back", "kind": "proof"}],
       "gap": null
     },
     {
@@ -201,10 +201,10 @@
       "clause": "7.5.1",
       "normativity": "shall",
       "summary": "A file identifier contains a file-version separator and a version number from 1 through 32767.",
-      "direction": "write",
+      "direction": "both",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/plan/names.rs", "name": "convert_l1"}],
-      "tests": [{"path": "tests/suite/iso/spec.rs", "name": "hadris_iso_matches_ecma_119_oracle", "kind": "integration"}, {"path": "crates/optical/hadris-iso/src/plan/names.rs", "name": "level_1_names", "kind": "unit"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/plan/names.rs", "name": "convert_l1"}, {"path": "crates/optical/hadris-iso/src/name.rs", "name": "version"}],
+      "tests": [{"path": "tests/suite/iso/spec.rs", "name": "hadris_iso_matches_ecma_119_oracle", "kind": "integration"}, {"path": "crates/optical/hadris-iso/src/plan/names.rs", "name": "level_1_names", "kind": "unit"}, {"path": "crates/optical/hadris-iso/src/verification.rs", "name": "file_identifier_version_matches_specification", "kind": "proof"}],
       "gap": null
     },
     {
@@ -266,6 +266,114 @@
       "symbols": [{"path": "crates/optical/hadris-iso-raw/src/raw/directory.rs", "name": "DirectoryRecordHeader::extended_attr_record"}],
       "tests": [],
       "gap": "The reader skips the declared blocks but does not decode their body, and creation does not emit them."
+    },
+    {
+      "id": "ECMA-119-1987:7.2.1#single-byte-order",
+      "source": "ECMA-119-1987",
+      "clause": "7.2.1-7.2.2; 7.3.1-7.3.2",
+      "normativity": "shall",
+      "summary": "Single-byte-order 16- and 32-bit fields store their value least-significant byte first or most-significant byte first, as each field specifies.",
+      "direction": "both",
+      "status": "verified",
+      "symbols": [{"path": "crates/optical/hadris-iso-raw/src/raw/mod.rs", "name": "U16Le"}, {"path": "crates/optical/hadris-iso-raw/src/raw/mod.rs", "name": "U32Be"}],
+      "tests": [{"path": "crates/optical/hadris-iso-raw/src/verification.rs", "name": "single_byte_order_fields_match_layout", "kind": "proof"}],
+      "gap": null
+    },
+    {
+      "id": "ECMA-119-1987:7.2.3#both-byte-order",
+      "source": "ECMA-119-1987",
+      "clause": "7.2.3; 7.3.3",
+      "normativity": "shall",
+      "summary": "A both-byte-order field stores the little-endian encoding followed by the big-endian encoding of the same value.",
+      "direction": "both",
+      "status": "verified",
+      "symbols": [{"path": "crates/optical/hadris-iso-raw/src/raw/mod.rs", "name": "U16Both::is_consistent"}, {"path": "crates/optical/hadris-iso-raw/src/raw/mod.rs", "name": "U32Both::is_consistent"}],
+      "tests": [{"path": "crates/optical/hadris-iso-raw/src/verification.rs", "name": "both_byte_order_fields_match_layout", "kind": "proof"}, {"path": "crates/optical/hadris-iso-raw/src/raw/mod.rs", "name": "both_endian_fields_detect_mismatches", "kind": "unit"}],
+      "gap": null
+    },
+    {
+      "id": "ECMA-119-1987:7.5.1#d-characters",
+      "source": "ECMA-119-1987",
+      "clause": "7.5.1; 7.6.1",
+      "normativity": "shall",
+      "summary": "Primary file names, extensions and directory identifiers consist of d-characters: uppercase Latin letters, digits and underscore.",
+      "direction": "write",
+      "status": "partial",
+      "symbols": [{"path": "crates/optical/hadris-iso/src/plan/names.rs", "name": "convert_char"}, {"path": "crates/optical/hadris-iso/src/plan/names.rs", "name": "convert_l1"}],
+      "tests": [{"path": "crates/optical/hadris-iso/src/verification.rs", "name": "primary_name_characters_are_d_characters", "kind": "proof"}, {"path": "crates/optical/hadris-iso/src/plan/names.rs", "name": "names_map_per_character", "kind": "unit"}],
+      "gap": "The default NameCase::Upper produces only d-characters; the opt-in NameCase::Preserve keeps lowercase letters for compatibility with other producers."
+    },
+    {
+      "id": "ECMA-119-1987:8.4.26.1#decimal-date-ranges",
+      "source": "ECMA-119-1987",
+      "clause": "8.4.26.1",
+      "normativity": "shall",
+      "summary": "Descriptor date digits give a year from 1 to 9999, a valid calendar date, hour, minute and second, hundredths, and an offset of -48 to +52 quarter hours; all-zero digits mean unspecified.",
+      "direction": "read",
+      "status": "partial",
+      "symbols": [{"path": "crates/optical/hadris-iso-raw/src/raw/mod.rs", "name": "DecDateTime::to_datetime"}],
+      "tests": [{"path": "crates/optical/hadris-iso-raw/src/verification/dates.rs", "name": "descriptor_dates_accept_exactly_valid_fields", "kind": "proof"}],
+      "gap": "The reader accepts offsets from -95 to +95 quarter hours, any offset that stays within one day, rather than rejecting values outside -48 to +52."
+    },
+    {
+      "id": "ECMA-119-1987:9.1.5#recording-date",
+      "source": "ECMA-119-1987",
+      "clause": "9.1.5",
+      "normativity": "shall",
+      "summary": "A directory-record date is seven binary values: years since 1900, month, day, hour, minute, second and a signed GMT offset in quarter hours; all zeros mean unspecified.",
+      "direction": "both",
+      "status": "partial",
+      "symbols": [{"path": "crates/optical/hadris-iso-raw/src/raw/mod.rs", "name": "DirDateTime::to_datetime"}, {"path": "crates/optical/hadris-iso-raw/src/raw/mod.rs", "name": "DirDateTime::from_datetime"}],
+      "tests": [{"path": "crates/optical/hadris-iso-raw/src/verification/dates.rs", "name": "directory_dates_accept_exactly_valid_fields", "kind": "proof"}, {"path": "crates/optical/hadris-iso-raw/src/raw/mod.rs", "name": "dates_round_trip", "kind": "unit"}],
+      "gap": "The reader accepts offsets from -95 to +95 quarter hours, any offset that stays within one day, rather than rejecting values outside -48 to +52."
+    },
+    {
+      "id": "ECMA-119-1987:9.4.3#path-table-byte-order",
+      "source": "ECMA-119-1987",
+      "clause": "9.4.3-9.4.4",
+      "normativity": "shall",
+      "summary": "Path-table records store the extent location and parent directory number least-significant byte first in a Type L table and most-significant byte first in a Type M table.",
+      "direction": "both",
+      "status": "verified",
+      "symbols": [{"path": "crates/optical/hadris-iso-raw/src/raw/path_table.rs", "name": "PathTableHeader::little"}, {"path": "crates/optical/hadris-iso-raw/src/raw/path_table.rs", "name": "PathTableHeader::big"}],
+      "tests": [{"path": "crates/optical/hadris-iso-raw/src/verification.rs", "name": "path_table_records_match_layout", "kind": "proof"}],
+      "gap": null
+    },
+    {
+      "id": "ECMA-119-1987:9.4.6#path-table-padding",
+      "source": "ECMA-119-1987",
+      "clause": "9.4.6",
+      "normativity": "shall",
+      "summary": "A path-table record whose directory identifier has an odd length ends with one padding byte, so every record has an even length.",
+      "direction": "both",
+      "status": "verified",
+      "symbols": [{"path": "crates/optical/hadris-iso-raw/src/raw/path_table.rs", "name": "PathTableHeader::record_len"}],
+      "tests": [{"path": "crates/optical/hadris-iso-raw/src/verification.rs", "name": "path_table_records_match_layout", "kind": "proof"}],
+      "gap": null
+    },
+    {
+      "id": "EL-TORITO-1.0:2.1#validation-checksum",
+      "source": "EL-TORITO-1.0",
+      "clause": "2.1",
+      "normativity": "shall",
+      "summary": "The boot catalog validation entry has header ID 1, key bytes 55h and AAh, and a checksum word that makes the entry's sixteen little-endian words sum to zero.",
+      "direction": "both",
+      "status": "verified",
+      "symbols": [{"path": "crates/optical/hadris-iso-raw/src/raw/boot.rs", "name": "BootValidationEntry::is_valid"}, {"path": "crates/optical/hadris-iso-raw/src/raw/boot.rs", "name": "BootValidationEntry::new"}, {"path": "crates/optical/hadris-iso/src/boot.rs", "name": "CatalogParser::feed"}],
+      "tests": [{"path": "crates/optical/hadris-iso-raw/src/verification/boot.rs", "name": "el_torito_validation_checksum_matches_specification", "kind": "proof"}],
+      "gap": null
+    },
+    {
+      "id": "IEEE-P1281-1.12:4.1#entry-bounds",
+      "source": "IEEE-P1281-1.12",
+      "clause": "4.1; 5.4",
+      "normativity": "shall",
+      "summary": "Each system-use entry has a two-byte signature, a length byte covering the whole entry and at least four, and a version byte; an ST entry ends the area.",
+      "direction": "read",
+      "status": "partial",
+      "symbols": [{"path": "crates/optical/hadris-iso/src/rock_ridge.rs", "name": "Scan::feed"}, {"path": "crates/optical/hadris-iso-raw/src/raw/susp.rs", "name": "SuspEntries"}],
+      "tests": [{"path": "crates/optical/hadris-iso-raw/src/verification/susp.rs", "name": "susp_walk_stays_in_bounds_and_terminates", "kind": "proof"}, {"path": "crates/optical/hadris-iso-raw/src/raw/susp.rs", "name": "entries_stop_at_terminators_and_bad_lengths", "kind": "unit"}],
+      "gap": "The proof covers the SuspEntries iterator; the driver's Scan::feed walker, which also flags malformed lengths, has only unit and fuzz coverage."
     }
   ]
 }

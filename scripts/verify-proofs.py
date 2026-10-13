@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the FAT proof inventory or execute it with pinned Kani and reports."""
+"""Check Kani proof inventories or execute one with pinned Kani and reports."""
 
 from __future__ import annotations
 
@@ -17,16 +17,17 @@ import time
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = Path("spec/proofs/fat.json")
-GROUPS = ("entries", "geometry", "allocation", "names", "checksums")
+INVENTORIES = Path("spec/proofs")
 PROOF = re.compile(r"#\[kani::proof\]\s*(?:#\[[^\]]*\]\s*)*fn\s+(\w+)")
+MATRIX = re.compile(r"^\s*group:\s*\[([^\]]*)\]\s*$", re.MULTILINE)
 
 
-def inventory(root: Path) -> dict:
-    document = json.loads((root / MANIFEST).read_text())
-    if document["schema_version"] != 1 or document["crate"] != "hadris-fat-raw" or document["features"]:
-        raise ValueError("unsupported proof manifest configuration")
-    base = Path("crates/block/hadris-fat-raw/src")
+def suites(root: Path) -> list[str]:
+    return sorted(path.stem for path in (root / INVENTORIES).glob("*.json"))
+
+
+def discover(root: Path, crate: dict) -> dict[str, str]:
+    base = Path(crate["path"]) / "src"
     discovered = {}
     for path in sorted((root / base).rglob("*.rs")):
         names = PROOF.findall(path.read_text())
@@ -34,7 +35,7 @@ def inventory(root: Path) -> dict:
             continue
         relative = path.relative_to(root / base)
         if relative != Path("verification.rs") and relative.parts[0] != "verification":
-            raise ValueError(f"proof harness outside verification modules: {relative}")
+            raise ValueError(f"proof harness outside verification modules: {base / relative}")
         parts = list(relative.with_suffix("").parts)
         if parts[-1] == "mod":
             parts.pop()
@@ -44,14 +45,36 @@ def inventory(root: Path) -> dict:
             if harness in discovered:
                 raise ValueError(f"duplicate proof harness: {harness}")
             discovered[harness] = str(path.relative_to(root))
+    return discovered
+
+
+def inventory(root: Path, suite: str) -> dict:
+    document = json.loads((root / INVENTORIES / f"{suite}.json").read_text())
+    if document["schema_version"] != 2:
+        raise ValueError(f"{suite}: unsupported proof manifest schema")
+    groups = document["groups"]
+    crates = document["crates"]
+    if not groups or len(groups) != len(set(groups)) or not crates:
+        raise ValueError(f"{suite}: groups and crates must be non-empty and unique")
+    for name, crate in crates.items():
+        if not isinstance(crate["features"], list) or not (root / crate["path"] / "Cargo.toml").is_file():
+            raise ValueError(f"{suite}: invalid crate configuration: {name}")
+    workflow = (root / document["workflow"]).read_text()
+    matrices = [[group.strip() for group in found.split(",")] for found in MATRIX.findall(workflow)]
+    if matrices != [groups]:
+        raise ValueError(f"{suite}: workflow group matrix must list exactly {groups}")
+    discovered = {}
+    for name, crate in crates.items():
+        discovered.update({(name, harness): path for harness, path in discover(root, crate).items()})
     rows = document["harnesses"]
-    names = [row["harness"] for row in rows]
-    if not names or len(names) != len(set(names)) or set(names) != set(discovered):
-        raise ValueError("proof manifest must cover every harness exactly once")
-    requirements = json.loads((root / "spec/requirements/hadris-fat.json").read_text())["requirements"]
+    keys = [(row["crate"], row["harness"]) for row in rows]
+    if not keys or len(keys) != len(set(keys)) or set(keys) != set(discovered):
+        raise ValueError(f"{suite}: proof manifest must cover every harness exactly once")
+    requirements = json.loads((root / document["catalog"]).read_text())["requirements"]
     requirement_ids = {row["id"] for row in requirements}
     for row in rows:
-        if row["path"] != discovered[row["harness"]] or row["group"] not in GROUPS:
+        key = (row["crate"], row["harness"])
+        if row["path"] != discovered[key] or row["group"] not in groups:
             raise ValueError(f"invalid proof mapping: {row['harness']}")
         if not row["scope"].strip() or not set(row["requirements"]) <= requirement_ids:
             raise ValueError(f"invalid proof scope or requirement: {row['harness']}")
@@ -65,14 +88,17 @@ def inventory(root: Path) -> dict:
             raise ValueError(f"proof citations disagree with requirement catalog: {row['harness']}")
         if not isinstance(row["covers"], int) or row["covers"] < 0:
             raise ValueError(f"invalid cover count: {row['harness']}")
+    unused = set(groups) - {row["group"] for row in rows}
+    if unused:
+        raise ValueError(f"{suite}: groups without harnesses: {sorted(unused)}")
     return document
 
 
-def input_digest(root: Path) -> str:
+def input_digest(root: Path, suite: str, document: dict) -> str:
     paths = set((root / "crates").rglob("*.rs")) | set((root / "crates").rglob("Cargo.toml"))
     paths.update(root / path for path in (
-        "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", str(MANIFEST),
-        "scripts/verify-fat.py", "scripts/check-compliance-catalog.py", "spec/requirements/hadris-fat.json",
+        "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", str(INVENTORIES / f"{suite}.json"),
+        "scripts/verify-proofs.py", "scripts/check-compliance-catalog.py", document["catalog"],
     ))
     digest = hashlib.sha256()
     for path in sorted(paths):
@@ -91,13 +117,19 @@ def run_group(command: list[str], cwd: Path, output, timeout: float) -> int | No
         return None
 
 
-def run_harness(root: Path, row: dict, report_dir: Path, timeout: int) -> dict:
-    log = report_dir / (row["harness"].replace("::", "-") + ".log")
-    command = [
-        "cargo", "kani", "-p", "hadris-fat-raw", "--lib", "--no-default-features",
+def command_for(row: dict, features: list[str], timeout: int) -> list[str]:
+    command = ["cargo", "kani", "-p", row["crate"], "--lib", "--no-default-features"]
+    if features:
+        command += ["--features", ",".join(features)]
+    return command + [
         "--exact", "--harness", row["harness"], "--output-format", "terse",
         "-Z", "unstable-options", "--harness-timeout", f"{timeout}s",
     ]
+
+
+def run_harness(root: Path, row: dict, features: list[str], report_dir: Path, timeout: int) -> dict:
+    log = report_dir / f"{row['crate']}-{row['harness'].replace('::', '-')}.log"
+    command = command_for(row, features, timeout)
     started = time.monotonic()
     status = "failed"
     with log.open("w") as output:
@@ -115,53 +147,63 @@ def run_harness(root: Path, row: dict, report_dir: Path, timeout: int) -> dict:
         r"1 successfully verified harnesses, 0 failures, 1 total", text
     ) and covers_passed:
         status = "passed"
-    return {**row, "status": status, "returncode": returncode,
+    return {**row, "features": features, "status": status, "returncode": returncode,
             "seconds": round(time.monotonic() - started, 3), "log": log.name, "command": command,
             "satisfied_covers": sum(passed for passed, _ in covers)}
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("suite", nargs="?", choices=suites(ROOT),
+                        help="inventory under spec/proofs/; --check without it checks every inventory")
     parser.add_argument("--check", action="store_true", help="validate inventory without running Kani")
-    parser.add_argument("--group", choices=GROUPS)
-    parser.add_argument("--report-dir", type=Path, default=Path("output/fat-proofs"))
+    parser.add_argument("--group")
+    parser.add_argument("--report-dir", type=Path)
     parser.add_argument("--timeout", type=int, default=300, help="solver seconds per harness")
     args = parser.parse_args(argv)
     if args.timeout < 1:
         parser.error("--timeout must be positive")
+    if args.suite is None and not args.check:
+        parser.error("a suite is required unless --check is given")
+    selected = [args.suite] if args.suite else suites(ROOT)
+    documents = {}
     try:
-        document = inventory(ROOT)
-    except (ValueError, KeyError, OSError) as error:
+        for suite in selected:
+            documents[suite] = inventory(ROOT, suite)
+    except (ValueError, KeyError, TypeError, OSError) as error:
         print(error, file=sys.stderr)
         return 1
+    if args.group is not None and (args.suite is None or args.group not in documents[args.suite]["groups"]):
+        parser.error(f"--group must be one of {documents[args.suite]['groups'] if args.suite else 'a suite group'}")
     if subprocess.run([sys.executable, "scripts/check-compliance-catalog.py"], cwd=ROOT).returncode:
         return 1
     if args.check:
-        print(f"proof inventory: {len(document['harnesses'])} harnesses, all mapped")
+        for suite, document in documents.items():
+            print(f"{suite} proof inventory: {len(document['harnesses'])} harnesses, all mapped")
         return 0
+    suite, document = args.suite, documents[args.suite]
     version = subprocess.run(["cargo", "kani", "--version"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
     if f"Kani Rust Verifier {document['verifier_version']} " not in version:
         print(f"install kani-verifier {document['verifier_version']} before running proofs", file=sys.stderr)
         return 1
-    report_dir = args.report_dir.resolve()
+    report_dir = (args.report_dir or Path(f"output/{suite}-proofs")).resolve()
     report_dir.mkdir(parents=True, exist_ok=True)
     rows = [row for row in document["harnesses"] if args.group is None or row["group"] == args.group]
-    if not rows:
-        print("no harnesses selected", file=sys.stderr)
-        return 1
     report = {
-        "schema_version": 1, "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+        "schema_version": 2, "suite": suite,
+        "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)),
-        "input_sha256": input_digest(ROOT), "host": platform.machine(), "verifier": version.strip(),
-        "features": document["features"], "solver_timeout_seconds": args.timeout,
+        "input_sha256": input_digest(ROOT, suite, document), "host": platform.machine(),
+        "verifier": version.strip(), "crates": document["crates"], "solver_timeout_seconds": args.timeout,
         "group": args.group, "expected_harnesses": len(rows), "status": "running", "results": [],
     }
     def save() -> None:
         (report_dir / "results.json").write_text(json.dumps(report, indent=2) + "\n")
     save()
     for row in rows:
-        print(f"Verifying {row['harness']}...", flush=True)
-        result = run_harness(ROOT, row, report_dir, args.timeout)
+        print(f"Verifying {row['crate']} {row['harness']}...", flush=True)
+        features = document["crates"][row["crate"]]["features"]
+        result = run_harness(ROOT, row, features, report_dir, args.timeout)
         report["results"].append(result)
         save()
         print(f"  {result['status']} ({result['seconds']}s)", flush=True)

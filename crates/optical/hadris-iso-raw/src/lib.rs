@@ -7,5 +7,7 @@
 #![deny(missing_docs)]
 
 pub mod raw;
+#[cfg(kani)]
+mod verification;
 
 pub use raw::*;

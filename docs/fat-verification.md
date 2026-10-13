@@ -9,18 +9,20 @@ the detached `tests/` suite. It does not establish whole-driver conformance.
 ```bash
 cargo +stable install --locked kani-verifier --version 0.68.0
 cargo kani setup
-python3 scripts/verify-fat.py
+python3 scripts/verify-proofs.py fat
 
 # Validate the inventory without a verifier, or run one group.
-python3 scripts/verify-fat.py --check
-python3 scripts/verify-fat.py --group geometry
+python3 scripts/verify-proofs.py fat --check
+python3 scripts/verify-proofs.py fat --group geometry
 ```
 
 The runner checks the requirement catalog and the complete
 [`proof inventory`](../spec/proofs/fat.json), then selects each harness by
-exact name. Missing or duplicate mappings, mismatched requirement citations,
-failed properties, insufficient unwinding bounds, unsatisfied acceptance
-covers, zero selected proofs and timeouts fail the run. Kani itself can return
+exact name. The runner is shared with the [ISO 9660 proofs](iso-verification.md).
+Missing or duplicate mappings, a workflow matrix that omits a group,
+mismatched requirement citations, failed properties, insufficient unwinding
+bounds, unsatisfied acceptance covers, zero selected proofs and timeouts fail
+the run. Kani itself can return
 success for an unreachable cover, so the runner checks cover counts explicitly.
 Normal Rust builds exclude the harnesses with
 `cfg(kani)`; no verifier dependency or allocator is added to library builds.

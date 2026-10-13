@@ -207,6 +207,19 @@ pub struct BootInfoTable {
     pub checksum: U32Le,
 }
 
+impl BootInfoTable {
+    /// Adds the 32-bit little-endian words of `bytes` to `sum`, counting a
+    /// last partial word zero-padded, as mkisofs and xorriso do. A buffer
+    /// split across calls must be split at multiples of four bytes.
+    pub fn word_sum(sum: u32, bytes: &[u8]) -> u32 {
+        bytes.chunks(4).fold(sum, |sum, word| {
+            let mut padded = [0; 4];
+            padded[..word.len()].copy_from_slice(word);
+            sum.wrapping_add(u32::from_le_bytes(padded))
+        })
+    }
+}
+
 /// The GRUB 2 and ISOLINUX form of [`BootInfoTable`], with 40 reserved
 /// bytes after it.
 #[repr(C)]

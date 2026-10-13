@@ -41,12 +41,16 @@ Evidence with `kind: "proof"` names a `#[kani::proof]` harness, not an
 ordinary Rust test. The checker validates its source reference; the separate
 scheduled proof workflow executes it. A proof may establish only part of the requirement,
 such as checksum calculation rather than rejection by the mounted driver.
-The [FAT/exFAT verification guide](../docs/fat-verification.md) records those boundaries.
+The [FAT/exFAT](../docs/fat-verification.md) and [ISO 9660](../docs/iso-verification.md)
+verification guides record those boundaries.
 
-`proofs/fat.json` maps every harness to its source, execution group, scope,
-expected acceptance-cover count and any associated requirement records.
-`python3 scripts/verify-fat.py --check` validates inventory completeness and
-bidirectional citation consistency without requiring Kani. Proof results are
+Each `proofs/*.json` inventory names its requirement catalog, scheduled
+workflow, execution groups and crates with their Cargo features. It maps every
+harness to its crate, source, group, scope, expected acceptance-cover count
+and any associated requirement records.
+`python3 scripts/verify-proofs.py --check` validates inventory completeness,
+workflow group matrices and bidirectional citation consistency without
+requiring Kani. Proof results are
 generated artifacts, not permanent conformance statuses in this inventory.
 
 The checker never downloads specifications and does not require `.spec-cache/`

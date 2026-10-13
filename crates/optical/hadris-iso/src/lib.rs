@@ -118,6 +118,8 @@ mod options;
 #[cfg(feature = "alloc")]
 mod plan;
 mod rock_ridge;
+#[cfg(kani)]
+mod verification;
 mod volume_info;
 
 /// On-disk layouts and I/O-free codecs, shared with `hadris-iso-raw`.

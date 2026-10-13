@@ -143,6 +143,32 @@
       "retrieved": "2026-07-24",
       "sha256": "dfd232671daaca21378a32adf9ac539f962a3a702600eb85ee70260a793b17ca",
       "profiles": ["ntfs-partial"]
+    },
+    {
+      "id": "EL-TORITO-1.0",
+      "title": "\"El Torito\" Bootable CD-ROM Format Specification",
+      "issuer": "Phoenix Technologies and IBM",
+      "edition": "version 1.0",
+      "published": "1995-01-25",
+      "official_url": "https://download.intel.com/support/motherboards/desktop/sb/specscdrom.pdf",
+      "local_path": ".spec-cache/sources/el-torito-1.0.pdf",
+      "redistribution": "all-rights-reserved-local-reference-only",
+      "retrieved": null,
+      "sha256": null,
+      "profiles": ["el-torito"]
+    },
+    {
+      "id": "IEEE-P1281-1.12",
+      "title": "IEEE P1281 System Use Sharing Protocol",
+      "issuer": "Rock Ridge Technical Working Group",
+      "edition": "draft standard version 1.12",
+      "published": "1994-07-07",
+      "official_url": "https://web.archive.org/web/2017/http://www.ymi.com/ymi/sites/default/files/pdf/Systems%20Use%20P1281.pdf",
+      "local_path": ".spec-cache/sources/ieee-p1281-1.12.pdf",
+      "redistribution": "all-rights-reserved-local-reference-only",
+      "retrieved": null,
+      "sha256": null,
+      "profiles": ["susp", "rock-ridge"]
     }
   ]
 }
