@@ -342,13 +342,41 @@ fn volume_guids_are_set_replaced_and_removed() {
     assert_eq!(fs.volume_guid().unwrap(), Some(first));
 }
 
+/// The 16 bytes of the only Volume GUID entry of `image`.
+fn guid_bytes(image: &[u8]) -> [u8; 16] {
+    let entries = Geometry::of(image).root_entries(image, 0xA0);
+    assert_eq!(entries.len(), 1);
+    image[entries[0] + 6..entries[0] + 22].try_into().unwrap()
+}
+
+/// The hex digits of `text`, dashes dropped, as bytes left to right.
+fn hex_bytes(text: &str) -> [u8; 16] {
+    let digits: Vec<u8> = text
+        .chars()
+        .filter(|c| *c != '-')
+        .map(|c| c.to_digit(16).unwrap() as u8)
+        .collect();
+    assert_eq!(digits.len(), 32, "{text:?}");
+    std::array::from_fn(|i| (digits[2 * i] << 4) | digits[2 * i + 1])
+}
+
+/// Compares the bytes on disk, which Hadris stores as the Microsoft `GUID`
+/// structure. exfatprogs 1.2 parses and prints them in raw order, and its
+/// printer shows byte 5 in place of byte 6, so the GUIDs Hadris writes have
+/// bytes 5 and 6 equal. Later exfatprogs releases use the Microsoft layout
+/// for the text form, which is `Guid`'s `Display`.
 #[test]
 fn volume_guids_match_tune_exfat() {
-    let guid: Guid = "0123abcd-4567-89ef-0123-456789abcdef".parse().unwrap();
+    let bytes = [
+        0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xab, 0xcd, 0xef, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba,
+        0xdc,
+    ];
+    let guid = Guid::from_bytes(bytes);
     let image = common::image(common::formatted(
         8 << 20,
         ExFatOptions::new().with_volume_guid(Some(guid)),
     ));
+    assert_eq!(guid_bytes(&image), bytes);
     let Some((printed, _)) = common::tune_exfat(&image, &["-u"]) else {
         if std::env::var_os("HADRIS_REQUIRE_EXTERNAL_TOOLS").is_some() {
             panic!("tune.exfat is unavailable");
@@ -356,19 +384,25 @@ fn volume_guids_match_tune_exfat() {
         eprintln!("skipping: tune.exfat is not available");
         return;
     };
+    let text = printed
+        .lines()
+        .find_map(|line| line.strip_prefix("GUID: "))
+        .unwrap_or_else(|| panic!("tune.exfat -u printed {printed:?}"))
+        .trim();
     assert!(
-        printed.to_lowercase().contains(&guid.to_string()),
-        "tune.exfat -u printed {printed:?}"
+        hex_bytes(text) == bytes || text == guid.to_string(),
+        "tune.exfat -u printed {text} for the bytes {bytes:02x?}"
     );
 
-    let other: Guid = "fedcba98-7654-3210-fedc-ba9876543210".parse().unwrap();
-    let (_, tuned) = common::tune_exfat(&image, &["-U", &other.to_string()]).unwrap();
+    let input = "fedcba98-7654-3210-0f1e-2d3c4b5a6978";
+    let (_, tuned) = common::tune_exfat(&image, &["-U", input]).unwrap();
+    let raw = guid_bytes(&tuned);
+    let parsed: Guid = input.parse().unwrap();
+    assert!(
+        raw == hex_bytes(input) || raw == parsed.to_bytes(),
+        "tune.exfat -U {input} stored {raw:02x?}"
+    );
     let mut fs = common::mount(&tuned);
-    assert_eq!(fs.volume_guid().unwrap(), Some(other));
+    assert_eq!(fs.volume_guid().unwrap(), Some(Guid::from_bytes(raw)));
     clean(&mut fs, "tune.exfat -U");
-
-    let image = common::image(common::formatted(8 << 20, ExFatOptions::new().with_seed(3)));
-    let expected = common::mount(&image).volume_guid().unwrap().unwrap();
-    let (printed, _) = common::tune_exfat(&image, &["-u"]).unwrap();
-    assert!(printed.to_lowercase().contains(&expected.to_string()));
 }

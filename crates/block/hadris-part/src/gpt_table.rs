@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use hadris_fs::ErrorKind;
 use hadris_storage::BlockSize;
 
-use crate::codec::{blocks_for, check_block_size};
+use crate::codec::{MAX_ARRAY_BYTES, blocks_for, check_block_size};
 use crate::disk::Partitions;
 use crate::error::{Detail, TableError};
 use crate::raw::{self, RawGptEntry, RawGptHeader};
@@ -270,11 +270,15 @@ impl Gpt {
     /// both entry arrays fit. The count is not rounded up to fill the last
     /// array block.
     ///
+    /// UEFI requires at least 16 KiB of entry array, 128 entries of 128
+    /// bytes. Smaller counts are accepted, as `sgdisk` accepts them, but
+    /// such a table is outside the specification.
+    ///
     /// Fails with [`ErrorKind::InvalidInput`] when `count` is zero or drops
     /// a used slot, [`ErrorKind::LimitExceeded`] when the array would pass
-    /// 4 GiB, [`ErrorKind::NoSpace`] when the disk leaves no usable block,
-    /// and with [`Detail::Overlap`] naming the first partition the new
-    /// arrays would cover.
+    /// 64 MiB, the largest one `read` accepts, [`ErrorKind::NoSpace`] when
+    /// the disk leaves no usable block, and with [`Detail::Overlap`] naming
+    /// the first partition the new arrays would cover.
     pub fn set_entry_count(&mut self, count: usize) -> Result<(), TableError> {
         if count == 0 {
             return Err(TableError::invalid(Detail::GptEntries));
@@ -285,14 +289,15 @@ impl Gpt {
         {
             return Err(TableError::invalid(Detail::GptEntries).at(count + used));
         }
-        let bytes = u32::try_from(count)
+        let bytes = u64::try_from(count)
             .ok()
-            .and_then(|n| n.checked_mul(self.entry_size))
+            .and_then(|n| n.checked_mul(u64::from(self.entry_size)))
+            .filter(|&bytes| bytes <= MAX_ARRAY_BYTES)
             .ok_or(TableError::new(
                 ErrorKind::LimitExceeded,
                 Detail::GptEntries,
             ))?;
-        let array = blocks_for(u64::from(bytes), self.block_size);
+        let array = blocks_for(bytes, self.block_size);
         let (first_usable, last_usable) = self.usable(self.backup_lba, array)?;
         self.check_usable(first_usable, last_usable)?;
         self.entries.resize(count, RawGptEntry::default());

@@ -202,8 +202,8 @@ mod table {
         /// other entry in slot order as a mirror of the GPT partition that
         /// starts where it does, preferring one of the same length.
         ///
-        /// Entries that start no GPT partition and extended entries are
-        /// left out. A hybrid MBR built by [`new`](Self::new), or one whose
+        /// Entries that start no GPT partition, that start one an earlier
+        /// entry already mirrors, and extended entries are left out. A hybrid MBR built by [`new`](Self::new), or one whose
         /// mirrors directly follow each other around the protective entry
         /// as `gdisk` writes them, round-trips.
         pub fn mirror(&self) -> HybridMbr {
@@ -220,7 +220,12 @@ mod table {
                 }
                 let start = u64::from(entry.start_lba());
                 let len = u64::from(entry.sector_count());
-                let mut starting = self.gpt.partitions().filter(|p| p.start() == start);
+                let mirrored =
+                    |slot: usize| config.mirror_slots().any(|(_, m)| m.gpt_index == slot);
+                let mut starting = self
+                    .gpt
+                    .partitions()
+                    .filter(|p| p.start() == start && !mirrored(p.slot()));
                 let exact = starting.clone().find(|p| p.len() == len);
                 let Some(partition) = exact.or_else(|| starting.next()) else {
                     continue;

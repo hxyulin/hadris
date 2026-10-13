@@ -333,8 +333,11 @@ pub struct GuidEntry {
     pub set_checksum: U16<LittleEndian>,
     /// `GeneralPrimaryFlags`, with `AllocationPossible` 0.
     pub general_primary_flags: U16<LittleEndian>,
-    /// `VolumeGuid`, in the mixed-endian byte order of a Microsoft GUID;
-    /// all zeros is invalid.
+    /// `VolumeGuid`, laid out as the Microsoft `GUID` structure: the first
+    /// three groups of the text form little-endian, the last two in order,
+    /// as Windows writes it. exfatprogs 1.2 parses and prints these bytes
+    /// in raw order instead, so its text form differs for the same bytes.
+    /// All zeros is invalid.
     pub volume_guid: [u8; 16],
     /// `Reserved`
     pub reserved: [u8; 10],

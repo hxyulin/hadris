@@ -290,7 +290,9 @@ and keeps both FATs and bitmaps equal. TexFAT transactions and repair are
 not supported. `format` writes a Volume GUID entry derived from the seed,
 or the time without one, unless `ExFatOptions::with_volume_guid` sets or
 omits it; `ExFatFs::volume_guid()` and `set_volume_guid` read and change
-it, as `tune.exfat -u`/`-U` do. The conformance suite in `tests/` qualifies it against
+it, as `tune.exfat -u`/`-U` do. The GUID is stored as the Microsoft `GUID`
+structure, as Windows writes it; exfatprogs 1.2 shows the same bytes in raw
+order, so its text form differs. The conformance suite in `tests/` qualifies it against
 exfatprogs, macOS `newfs_exfat`/`fsck_exfat` and the macOS kernel driver.
 
 ### For Bootloaders and Embedded Systems

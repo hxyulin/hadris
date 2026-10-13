@@ -670,3 +670,43 @@ fn hybrid_mirror_rebuilds_the_mbr() {
         .unwrap();
     assert_eq!(back.mirror(), expected);
 }
+
+#[test]
+fn set_entry_count_stops_at_the_largest_array_read_accepts() {
+    let mut table = Gpt::new(guid(0xD2), 300_000, B512).unwrap();
+    let before = table.clone();
+    for count in [524_289, 1_000_000, usize::MAX] {
+        let err = table.set_entry_count(count).unwrap_err();
+        assert_eq!(
+            (err.kind(), err.detail()),
+            (ErrorKind::LimitExceeded, Detail::GptEntries)
+        );
+    }
+    assert_eq!(table, before);
+    table.set_entry_count(524_288).unwrap();
+    assert_eq!(table.first_usable(), 2 + 131_072);
+}
+
+#[test]
+fn hybrid_mirror_maps_a_gpt_slot_once() {
+    let mut table = gpt();
+    table
+        .add(GptEntry::new(types::EFI_SYSTEM, guid(1), 100, 100))
+        .unwrap();
+    let mut config = HybridMbr::new();
+    config
+        .add_mirrored(0, MbrType::EFI_SYSTEM, PartitionFlags::empty())
+        .unwrap();
+    let mut dev = MemDevice::new(vec![0u8; 10_000 * 512], B512);
+    write(&mut dev, &Disk::new(Hybrid::new(table, &config).unwrap())).unwrap();
+    let image = dev.get_mut();
+    image.copy_within(462..478, 478);
+    image[478 + 4] = MbrType::FAT32_LBA.code();
+    let disk = read(&mut dev).unwrap();
+    let PartitionTable::Hybrid(hybrid) = disk.table() else {
+        panic!("expected a hybrid table");
+    };
+    assert_eq!(hybrid.mbr_partitions().count(), 2);
+    assert_eq!(hybrid.mirror(), config);
+    Hybrid::new(hybrid.gpt().clone(), &hybrid.mirror()).unwrap();
+}

@@ -893,8 +893,10 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// Sets the Volume GUID, or removes the root directory's Volume GUID
     /// entry with `None`. The entry is rewritten with its `SetChecksum`, or
     /// created in a free slot of the root directory, which grows when it has
-    /// none. Fails with [`ErrorKind::InvalidInput`] for the null GUID, which
-    /// the specification reserves.
+    /// none. The GUID is stored as the Microsoft `GUID` structure, as
+    /// [`volume_guid`](Self::volume_guid) reads it. Fails with
+    /// [`ErrorKind::InvalidInput`] for the null GUID, which the
+    /// specification reserves.
     pub async fn set_volume_guid(&mut self, guid: Option<Guid>) -> FsResult<(), D::Error> {
         if guid.is_some_and(Guid::is_nil) {
             return Err(ErrorKind::InvalidInput.into());
@@ -2602,6 +2604,11 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// `None` when there is none or it is invalid: a `SecondaryCount` or
     /// `AllocationPossible` other than 0, a wrong `SetChecksum`, or the
     /// null GUID.
+    ///
+    /// The 16 bytes are read as the Microsoft `GUID` structure, the layout
+    /// [`Guid::to_bytes`] uses. exfatprogs 1.2 `tune.exfat -u` prints the
+    /// same bytes in raw order, so its text differs from [`Guid`]'s
+    /// `Display` in the first three groups.
     pub async fn volume_guid(&mut self) -> FsResult<Option<Guid>, D::Error> {
         Ok(self.find_root_entry(raw::ENTRY_GUID).await?.and_then(|(_, entry)| entry_guid(&entry)))
     }

@@ -65,14 +65,18 @@ Each published package owns its version and may be released independently.
   usable block with them, byte for byte as `sgdisk -e` does.
   `Gpt::set_entry_count(n)` resizes the entry arrays and the usable area as
   `sgdisk --resize-table` does, and fails without changes when the arrays
-  would cover a partition or drop a used slot. `Hybrid::gpt_mut()` edits the
+  would cover a partition, drop a used slot or pass the 64 MiB array
+  `read` accepts. Counts below 128 are accepted, as sgdisk does, though
+  UEFI asks for at least 16 KiB of entries. `Hybrid::gpt_mut()` edits the
   GPT of a hybrid table, and `Hybrid::mirror()` returns the `HybridMbr`
   that rebuilds its MBR, so hybrids written by `sgdisk -h` round-trip.
 
 - **exFAT Volume GUID:** `ExFatFs::volume_guid()` reads the root
   directory's Volume GUID entry (0xA0), and `set_volume_guid` writes,
-  replaces or removes it with its `SetChecksum`, in the byte order exfatprogs
-  `tune.exfat` uses. `format` and `write` now write a Volume GUID derived
+  replaces or removes it with its `SetChecksum`. The GUID is stored as the
+  Microsoft `GUID` structure (mixed-endian, `Guid::to_bytes`), as Windows
+  writes it; exfatprogs 1.2 `tune.exfat` parses and prints the same 16
+  bytes in raw order, so its text form differs in the first three groups. `format` and `write` now write a Volume GUID derived
   from the seed, or the time without one, so output stays reproducible;
   `ExFatOptions::with_volume_guid` sets it or, with `None`, leaves it out.
   `hadris_fat::exfat::Guid` is `hadris_part::Guid`.
