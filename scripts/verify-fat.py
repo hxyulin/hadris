@@ -6,9 +6,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import platform
 from pathlib import Path
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -78,6 +80,17 @@ def input_digest(root: Path) -> str:
     return digest.hexdigest()
 
 
+def run_group(command: list[str], cwd: Path, output, timeout: float) -> int | None:
+    """Run `command` in its own process group, killing the whole group on timeout."""
+    process = subprocess.Popen(command, cwd=cwd, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+    try:
+        return process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+        return None
+
+
 def run_harness(root: Path, row: dict, report_dir: Path, timeout: int) -> dict:
     log = report_dir / (row["harness"].replace("::", "-") + ".log")
     command = [
@@ -88,11 +101,8 @@ def run_harness(root: Path, row: dict, report_dir: Path, timeout: int) -> dict:
     started = time.monotonic()
     status = "failed"
     with log.open("w") as output:
-        try:
-            result = subprocess.run(command, cwd=root, stdout=output, stderr=subprocess.STDOUT, timeout=timeout + 120)
-            returncode = result.returncode
-        except subprocess.TimeoutExpired:
-            returncode = None
+        returncode = run_group(command, root, output, timeout + 120)
+        if returncode is None:
             status = "timeout"
     text = log.read_text()
     covers = [(int(passed), int(total)) for passed, total in re.findall(

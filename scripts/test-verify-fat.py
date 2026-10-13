@@ -4,8 +4,8 @@
 import importlib.util
 import json
 from pathlib import Path
-import subprocess
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -78,10 +78,10 @@ class ProofRunnerTests(unittest.TestCase):
         runner.inventory(self.root)
 
     def result(self, text, code=0):
-        def fake_run(command, **kwargs):
-            kwargs["stdout"].write(text)
-            return subprocess.CompletedProcess(command, code)
-        with patch.object(runner.subprocess, "run", side_effect=fake_run):
+        def fake_run(command, cwd, output, timeout):
+            output.write(text)
+            return code
+        with patch.object(runner, "run_group", side_effect=fake_run):
             return runner.run_harness(self.root, self.row, self.root, 1)
 
     def test_exactly_one_successful_proof_passes(self):
@@ -108,10 +108,18 @@ class ProofRunnerTests(unittest.TestCase):
         self.assertEqual(self.result(success + "\n1 of 1 cover properties satisfied")["status"], "passed")
 
     def test_timeout_cannot_pass(self):
-        with patch.object(runner.subprocess, "run", side_effect=subprocess.TimeoutExpired("cargo", 1)):
+        with patch.object(runner, "run_group", return_value=None):
             result = runner.run_harness(self.root, self.row, self.root, 1)
         self.assertEqual(result["status"], "timeout")
         self.assertIsNone(result["returncode"])
+
+    def test_timeout_kills_whole_process_group(self):
+        marker = self.root / "survivor"
+        command = ["sh", "-c", f"(sleep 2; touch '{marker}') & wait"]
+        with (self.root / "log").open("w") as output:
+            self.assertIsNone(runner.run_group(command, self.root, output, 0.5))
+        time.sleep(2.5)
+        self.assertFalse(marker.exists())
 
 
 if __name__ == "__main__":

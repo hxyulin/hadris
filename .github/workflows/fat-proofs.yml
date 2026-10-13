@@ -27,6 +27,8 @@ jobs:
         group: [entries, geometry, allocation, names, checksums]
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Install pinned Kani verifier
         run: |
           rustup toolchain install stable --profile minimal
