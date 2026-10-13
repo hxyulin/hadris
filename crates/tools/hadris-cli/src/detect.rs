@@ -32,7 +32,7 @@ pub fn run(args: Args) -> Result<()> {
     Ok(())
 }
 
-fn name(format: ImageFormat) -> String {
+pub fn name(format: ImageFormat) -> String {
     match format {
         ImageFormat::Fat(kind) => format!("{kind:?}").to_uppercase(),
         ImageFormat::ExFat => "exFAT".into(),

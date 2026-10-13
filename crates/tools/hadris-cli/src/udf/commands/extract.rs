@@ -9,7 +9,7 @@ use super::{Result, Udf, open};
 /// Extract files from a UDF image. The root is merged into the output
 /// directory; any other path lands at `<output>/<name>`.
 pub fn extract(args: ExtractArgs) -> Result<()> {
-    let mut udf = open(&args.input)?;
+    let mut udf = open(&args.input, &args.locate)?;
     let from = args.path.as_deref().unwrap_or("/");
     let name = stored_name(&mut udf, from)?;
     let node = udf.resolve(from.as_bytes(), Resolve::Lexical)?;

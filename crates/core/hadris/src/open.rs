@@ -1,9 +1,13 @@
 #[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+#[cfg(feature = "alloc")]
 use hadris_fs::{
-    Capabilities, DirCursor, DirEntry, FsStats, Metadata, Name, NodeId, OpenMode, RenameMode,
-    Resolve, SetAttr,
+    Capabilities, DirCursor, DirEntry, Extent, FsStats, Metadata, Name, NodeId, OpenMode,
+    RenameMode, Resolve, SetAttr,
 };
 use hadris_fs::{ErrorKind, FsResult, MountError, MountOptions};
+#[cfg(feature = "alloc")]
+use hadris_part::Partition;
 use hadris_storage::BlockIndex;
 
 use crate::detect::{
@@ -16,7 +20,9 @@ use super::ApfsContainer;
 use super::ApfsFs;
 use super::{BlockDevice, IsoFs, UdfFs, exio, rawio};
 #[cfg(feature = "alloc")]
-use super::{ExFatFs, FatFs, FileSystem};
+use super::{ExFatFs, FatFs, FileSystem, part_open, part_read};
+#[cfg(feature = "alloc")]
+use crate::Select;
 
 /// The largest device block `detect` reads.
 const MAX_BLOCK: usize = 4096;
@@ -220,6 +226,53 @@ impl<D: BlockDevice> AnyFs<D> {
             Self::Apfs(_) => ImageFormat::Apfs,
         }
     }
+
+    /// Maps `node` to the device with the format's own `extents`: fills
+    /// `out` with the byte runs that hold its data from file offset `from`
+    /// on, and returns how many it filled. Call again from the end of the
+    /// last run for more; 0 means there are none. Fails with
+    /// [`ErrorKind::Unsupported`] on APFS.
+    pub async fn extents(&mut self, node: NodeId, from: u64, out: &mut [Extent]) -> FsResult<usize, D::Error> {
+        match self {
+            Self::Fat(fs) => fs.extents(node, from, out).await,
+            Self::ExFat(fs) => fs.extents(node, from, out).await,
+            Self::Iso(fs) => fs.extents(node, from, out).await,
+            Self::Udf(fs) => fs.extents(node, from, out).await,
+            Self::Apfs(_) => Err(ErrorKind::Unsupported.into()),
+        }
+    }
+
+    /// The volume serial number: the boot sector's on FAT and exFAT, and on
+    /// UDF the serial the volume set identifier starts with. `None` when the
+    /// volume records none. Fails with [`ErrorKind::Unsupported`] on ISO
+    /// 9660 and APFS, which have no serial number.
+    pub fn volume_serial(&self) -> FsResult<Option<u64>, D::Error> {
+        match self {
+            Self::Fat(fs) => Ok(fs.volume_serial().map(u64::from)),
+            Self::ExFat(fs) => Ok(Some(u64::from(fs.volume_serial()))),
+            Self::Udf(fs) => Ok(fs.info().volume_serial()),
+            Self::Iso(_) | Self::Apfs(_) => Err(ErrorKind::Unsupported.into()),
+        }
+    }
+
+    /// Sets the volume label, or removes it with `None`, with the format's
+    /// own `set_label`. Fails with the error of the format's label type
+    /// when `label` does not fit it, with [`ErrorKind::ReadOnly`] on a
+    /// read-only mount, and with [`ErrorKind::Unsupported`] on ISO 9660,
+    /// UDF and APFS.
+    pub async fn set_label(&mut self, label: Option<&str>) -> FsResult<(), D::Error> {
+        match self {
+            Self::Fat(fs) => {
+                let label = label.map(hadris_fat::VolumeLabel::new).transpose()?;
+                fs.set_label(label).await
+            }
+            Self::ExFat(fs) => {
+                let label = label.map(hadris_fat::exfat::VolumeLabel::new).transpose()?;
+                fs.set_label(label).await
+            }
+            Self::Iso(_) | Self::Udf(_) | Self::Apfs(_) => Err(ErrorKind::Unsupported.into()),
+        }
+    }
 }
 
 /// Detects what `dev` holds and mounts the first filesystem found with
@@ -228,9 +281,10 @@ impl<D: BlockDevice> AnyFs<D> {
 /// Fails with the mount error of the first filesystem found when none
 /// mounts (`Corrupt` where the driver says `NotRecognized`, as in
 /// [`detect`]), and with [`ErrorKind::NotRecognized`] for a device holding
-/// no filesystem: a partition table, an archive, nothing recognized, or
-/// an NTFS volume (message `"ntfs"`), which [`detect`] lists but `open`
-/// does not reach in 3.0. APFS mounts a container's sole volume; containers with
+/// no filesystem: a partition table (mount its partitions with
+/// [`open_partition`]), an archive, nothing recognized, or an NTFS volume
+/// (message `"ntfs"`), which [`detect`] lists but `open` does not reach in
+/// 3.0. APFS mounts a container's sole volume; containers with
 /// multiple volumes require explicit selection with `open_apfs` instead.
 /// The [`MountError`] gives `dev` back.
 #[cfg(feature = "alloc")]
@@ -275,6 +329,92 @@ pub async fn open<D: BlockDevice>(mut dev: D, options: MountOptions) -> Result<A
     }
     let err = failed.unwrap_or_else(|| {
         hadris_fs::Error::new(ErrorKind::NotRecognized, other.unwrap_or("no filesystem recognized"))
+    });
+    Err(MountError::new(err, dev))
+}
+
+/// Reads the partition table of `dev` and detects what each partition
+/// holds, as [`detect`] does for a whole device, in the order the table
+/// lists them. A partition that does not fit on `dev` has an empty
+/// [`Detection`].
+///
+/// Fails as `hadris_part`'s `read` does: with [`ErrorKind::NotRecognized`]
+/// when `dev` has no partition table, [`ErrorKind::Corrupt`] when the
+/// table is invalid, and with the device's errors.
+#[cfg(feature = "alloc")]
+pub async fn detect_partitions<D: BlockDevice>(dev: &mut D) -> FsResult<Vec<(Partition, Detection)>, D::Error> {
+    let disk = part_read(&mut *dev).await?;
+    let mut found = Vec::new();
+    for partition in disk.partitions() {
+        let detection = match part_open(&mut *dev, &partition) {
+            Ok(mut window) => detect(&mut window).await?,
+            Err(_) => Detection::new(),
+        };
+        found.push((partition, detection));
+    }
+    Ok(found)
+}
+
+/// Reads the partition table of `dev` and mounts the filesystem of the
+/// partition `select` names with `options`, as [`open`] mounts a whole
+/// device. The filesystem's device is the partition's window of `dev`.
+///
+/// Fails as `hadris_part`'s `read` does when `dev` has no valid partition
+/// table, with [`ErrorKind::NotFound`] when no partition has the index or
+/// GUID asked for, and with the error of [`open`] for the selected
+/// partition. [`Select::First`] skips partitions holding no filesystem and
+/// partitions that do not fit on `dev`. It fails with the error of the
+/// first partition holding a filesystem that does not mount; when none
+/// holds one, with the [`ErrorKind::InvalidInput`] of the first partition
+/// that does not fit, as on a truncated image, and otherwise with
+/// [`ErrorKind::NotRecognized`]. The [`MountError`] gives `dev` back.
+#[cfg(feature = "alloc")]
+pub async fn open_partition<D: BlockDevice>(
+    mut dev: D,
+    select: Select,
+    options: MountOptions,
+) -> Result<AnyFs<hadris_storage::Partition<D>>, MountError<D, D::Error>> {
+    let disk = match part_read(&mut dev).await {
+        Ok(disk) => disk,
+        Err(err) => return Err(MountError::new(err, dev)),
+    };
+    let first = select == Select::First;
+    let mut failed = None;
+    let mut unreachable = None;
+    for partition in disk.partitions() {
+        let chosen = match select {
+            Select::Index(slot) => partition.slot() == slot,
+            Select::Guid(guid) => partition.unique_guid() == Some(guid),
+            Select::First => true,
+        };
+        if !chosen {
+            continue;
+        }
+        let (offset, len) = match part_open(&mut dev, &partition) {
+            Ok(window) => (window.offset(), window.len()),
+            Err(err) if first => {
+                unreachable.get_or_insert(err);
+                continue;
+            }
+            Err(err) => return Err(MountError::new(err, dev)),
+        };
+        let window = hadris_storage::Partition::new(dev, offset, len);
+        let err = match open(window, options).await {
+            Ok(fs) => return Ok(fs),
+            Err(err) => err,
+        };
+        let (err, back) = err.into_parts();
+        dev = back.into_inner();
+        if !first || err.kind() == ErrorKind::Io {
+            return Err(MountError::new(err, dev));
+        }
+        if err.kind() != ErrorKind::NotRecognized {
+            failed.get_or_insert(err);
+        }
+    }
+    let err = failed.or(unreachable).unwrap_or_else(|| match select {
+        Select::First => hadris_fs::Error::new(ErrorKind::NotRecognized, "no partition holds a filesystem"),
+        _ => hadris_fs::Error::new(ErrorKind::NotFound, "no such partition"),
     });
     Err(MountError::new(err, dev))
 }

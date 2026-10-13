@@ -8,6 +8,27 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **Partition-aware open:** `hadris::sync::open_partition` and
+  `hadris::async_::open_partition` read the MBR or GPT of a device and mount
+  the partition a `hadris::Select` names (`Index(slot)`, `Guid(guid)` or
+  `First`), returning an `AnyFs` over the partition's window and the device
+  on failure. `detect_partitions` returns each partition with the
+  `Detection` of its contents. The `detect` feature now enables `part`.
+
+- **`AnyFs` format extras:** `AnyFs::extents`, `AnyFs::volume_serial` and
+  `AnyFs::set_label` dispatch to the drivers that have them and fail with
+  `Unsupported` elsewhere. `FatFs::volume_serial` and `ExFatFs::volume_serial`
+  return the boot sector's serial number.
+
+- **CLI:** Top-level `hadris ls`, `cat`, `extract` and `stat` mount any
+  filesystem `hadris detect` finds, on a whole image, its first partition
+  holding one, or the partition `--partition` names. The `fat`, `iso` and
+  `udf` read commands take `--partition` and `--offset`. `hadris fat` finds
+  FAT and exFAT through `detect` instead of reading the boot sector itself,
+  and `--backup-boot` mounts from the backup boot sector of a volume whose
+  primary one is damaged. `fat info` reads the boot sector through the
+  mounted volume.
+
 - **FAT/exFAT verification:** Add 25 Kani proofs for entry codecs, boot geometry,
   formatter bounds, allocation, names, timestamps and checksums. A daily
   scheduled workflow runs the pinned verifier and retains per-proof reports;

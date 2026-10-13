@@ -6,6 +6,7 @@ mod common;
 mod cpio;
 mod detect;
 mod fat;
+mod generic;
 mod iso;
 mod output;
 mod udf;
@@ -36,6 +37,15 @@ enum Format {
     Cpio(cpio::Args),
     /// List every format an image or device holds
     Detect(detect::Args),
+    /// List a directory of any filesystem an image holds
+    #[command(alias = "list")]
+    Ls(generic::LsArgs),
+    /// Print a file of any filesystem an image holds to stdout
+    Cat(generic::CatArgs),
+    /// Extract a file or directory of any filesystem an image holds
+    Extract(generic::ExtractArgs),
+    /// Show the volume and a path of any filesystem an image holds
+    Stat(generic::StatArgs),
 }
 
 fn main() {
@@ -47,6 +57,10 @@ fn main() {
         Format::Udf(args) => udf::run(args).map_err(|err| anyhow::anyhow!("{err}")),
         Format::Cpio(args) => cpio::run(args),
         Format::Detect(args) => detect::run(args),
+        Format::Ls(args) => generic::ls(args),
+        Format::Cat(args) => generic::cat(args),
+        Format::Extract(args) => generic::extract(args),
+        Format::Stat(args) => generic::stat(args),
     };
     if let Err(err) = result {
         eprintln!("Error: {err:#}");

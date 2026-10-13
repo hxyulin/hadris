@@ -2,7 +2,7 @@ use clap::Parser;
 use hadris_iso::{IsoLevel, NameCase};
 use std::{path::PathBuf, str::FromStr};
 
-use crate::common::Target;
+use crate::common::{Locate, Target};
 
 #[derive(Debug, Clone, clap::Args)]
 pub struct Args {
@@ -38,6 +38,8 @@ pub enum Command {
 pub struct InfoArgs {
     /// Path to ISO image
     pub input: PathBuf,
+    #[command(flatten)]
+    pub locate: Locate,
     /// Show detailed volume descriptor information
     #[arg(short, long)]
     pub verbose: bool,
@@ -48,6 +50,8 @@ pub struct InfoArgs {
 pub struct LsArgs {
     /// Path to ISO image
     pub input: PathBuf,
+    #[command(flatten)]
+    pub locate: Locate,
     /// Directory path within ISO (default: root)
     #[arg(default_value = "/")]
     pub path: String,
@@ -64,6 +68,8 @@ pub struct LsArgs {
 pub struct TreeArgs {
     /// Path to ISO image
     pub input: PathBuf,
+    #[command(flatten)]
+    pub locate: Locate,
     /// Starting directory path within ISO
     #[arg(default_value = "/")]
     pub path: String,
@@ -77,6 +83,8 @@ pub struct TreeArgs {
 pub struct ExtractArgs {
     /// Path to ISO image
     pub input: PathBuf,
+    #[command(flatten)]
+    pub locate: Locate,
     /// Output directory for extracted files
     #[arg(short, long, default_value = ".")]
     pub output: PathBuf,
@@ -164,6 +172,8 @@ pub struct IsoFlags {
 pub struct VerifyArgs {
     /// Path to ISO image
     pub input: PathBuf,
+    #[command(flatten)]
+    pub locate: Locate,
     /// Verbose output
     #[arg(short, long)]
     pub verbose: bool,
@@ -217,6 +227,8 @@ pub struct MkisofsArgs {
 pub struct CatArgs {
     /// Path to ISO image
     pub input: PathBuf,
+    #[command(flatten)]
+    pub locate: Locate,
     /// File path within ISO (e.g., /SUBDIR/FILE.TXT)
     pub path: String,
 }

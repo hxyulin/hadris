@@ -58,14 +58,16 @@ Inspect an existing image, or create one from a directory:
 
 ```sh
 hadris detect disk.img
+hadris ls disk.img --partition 1
 hadris fat ls disk.img
 hadris iso create ./files -o image.iso --joliet --rock-ridge
 hadris iso extract image.iso -o extracted
 ```
 
 The `hadris` command has `fat`, `iso`, `udf`, `cpio`, `apfs` and `detect`
-subcommands. `fat` handles FAT and exFAT; `udf bridge` authors hybrid optical
-images. Image creation refuses an existing output unless `--force` is supplied;
+subcommands, and `ls`, `cat`, `extract` and `stat` for any filesystem it
+detects, on a whole image or one partition. `fat` handles FAT and exFAT;
+`udf bridge` authors hybrid optical images. Image creation refuses an existing output unless `--force` is supplied;
 extraction refuses to replace existing files.
 
 For a self-contained source example that creates, detects and extracts FAT,

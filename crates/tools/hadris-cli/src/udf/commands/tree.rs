@@ -3,7 +3,7 @@ use super::{Result, Udf, entries, join, open};
 
 /// Display directory tree
 pub fn tree(args: TreeArgs) -> Result<()> {
-    let mut udf = open(&args.input)?;
+    let mut udf = open(&args.input, &args.locate)?;
     println!("{}", args.path);
     print_tree(&mut udf, &args.path, "", 0, args.depth)
 }

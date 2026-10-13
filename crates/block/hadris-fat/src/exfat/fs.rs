@@ -721,6 +721,11 @@ impl<D: BlockDevice> ExFatFs<D> {
         self.vol.geometry()
     }
 
+    /// The volume serial number from the boot sector.
+    pub fn volume_serial(&self) -> u32 {
+        self.vol.geometry().volume_serial()
+    }
+
     /// Whether `VolumeDirty` was set at mount: the volume was not cleanly
     /// unmounted.
     pub fn was_dirty(&self) -> bool {

@@ -22,8 +22,11 @@
 //! - `sync::detect` and `async_::detect` (with `detect`): every format a
 //!   device holds, as `ImageFormat`s in a `Detection`, each with the
 //!   damage a mount would report. With `alloc`, `open` mounts the first
-//!   filesystem found as an `AnyFs`, and with `write`, `format` writes an
-//!   empty FAT, exFAT or UDF volume from a `FormatOptions`.
+//!   filesystem found as an `AnyFs`, `open_partition` mounts the MBR or GPT
+//!   partition a `Select` names, `detect_partitions` gives a `Detection` per
+//!   partition, and with `write`, `format` writes an empty FAT, exFAT or UDF
+//!   volume from a `FormatOptions`. `AnyFs` reaches the format extras
+//!   `extents`, `volume_serial` and `set_label` by `match`.
 //! - `apfs`: the read-only APFS preview, behind `unstable-apfs`.
 //! - `ntfs`: the NTFS preview, behind `unstable-ntfs`.
 //! - `host` (with `std` and `sync`): host files, directories and image
@@ -33,8 +36,9 @@
 //! # Feature flags
 //!
 //! One feature per format (`fat`, `part`, `iso`, `udf`, `cpio`) adds
-//! that crate. `archive` adds `cpio`, and `detect` adds `detect`, `open`
-//! and `AnyFs` with `fat`, `iso`, `udf`, `cpio` and the APFS reader. The platform (`std`, `alloc`), mode (`sync`,
+//! that crate. `archive` adds `cpio`, and `detect` adds `detect`, `open`,
+//! `open_partition` and `AnyFs` with `fat`, `part`, `iso`, `udf`, `cpio` and
+//! the APFS reader. The platform (`std`, `alloc`), mode (`sync`,
 //! `async`) and `write` features are forwarded to every enabled crate.
 //! `unstable-ntfs` adds the NTFS preview, whose native API may change in
 //! 3.x minors. `unstable-apfs` exposes the native APFS preview API. Containers
@@ -68,6 +72,9 @@
 
 #[cfg(all(feature = "std", feature = "sync", feature = "detect"))]
 extern crate std;
+
+#[cfg(all(feature = "alloc", feature = "detect"))]
+extern crate alloc;
 
 /// I/O traits with the device's own error, and adapters.
 pub use hadris_io as io;
@@ -161,7 +168,7 @@ pub mod host {
 mod detect;
 #[cfg(feature = "detect")]
 #[cfg_attr(docsrs, doc(cfg(feature = "detect")))]
-pub use detect::{Candidate, Detection, ImageFormat};
+pub use detect::{Candidate, Detection, ImageFormat, Select};
 
 /// The filesystem `sync::format` and `async_::format` write, with its
 /// options.
@@ -215,6 +222,9 @@ pub mod sync {
     #[cfg(all(feature = "alloc", feature = "write"))]
     use hadris_udf::sync::write as udf_write;
 
+    #[cfg(feature = "alloc")]
+    use hadris_part::sync::{open as part_open, read as part_read};
+
     #[path = "open.rs"]
     mod open;
     pub use open::detect;
@@ -223,7 +233,7 @@ pub mod sync {
     #[cfg(all(feature = "alloc", feature = "unstable-apfs"))]
     pub use open::open_apfs;
     #[cfg(feature = "alloc")]
-    pub use open::{AnyFs, open};
+    pub use open::{AnyFs, detect_partitions, open, open_partition};
 }
 
 /// Detection, opening and formatting for local and Send devices, generated

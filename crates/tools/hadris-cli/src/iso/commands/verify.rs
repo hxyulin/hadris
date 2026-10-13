@@ -1,5 +1,3 @@
-use std::fs::File;
-
 use hadris_fs::FileType;
 use hadris_iso::Namespace;
 use hadris_iso::raw::{PathTableHeader, VolumeDescriptor};
@@ -116,20 +114,29 @@ fn check_volume_descriptors(
     found
 }
 
-fn check_volume_size(iso: &View<'_>, file_size: u64, verbose: bool) -> Vec<VerifyIssue> {
+/// Compares the declared volume size with the bytes available: the file,
+/// or the partition or offset window when `windowed`, which may be larger
+/// than the volume it holds.
+fn check_volume_size(
+    iso: &View<'_>,
+    file_size: u64,
+    windowed: bool,
+    verbose: bool,
+) -> Vec<VerifyIssue> {
     let mut issues = Vec::new();
     let declared_size =
         u64::from(iso.info().volume_space_size()) * u64::from(iso.info().block_size());
+    let source = if windowed { "volume window" } else { "file" };
 
     if verbose {
-        println!("  Volume size: {declared_size} bytes (declared), {file_size} bytes (file)");
+        println!("  Volume size: {declared_size} bytes (declared), {file_size} bytes ({source})");
     }
 
     if declared_size > file_size {
         issues.push(VerifyIssue::error(format!(
-            "Volume declares {declared_size} bytes but file is only {file_size} bytes (truncated image)"
+            "Volume declares {declared_size} bytes but {source} is only {file_size} bytes (truncated image)"
         )));
-    } else if file_size > declared_size + 32 * 1024 {
+    } else if !windowed && file_size > declared_size + 32 * 1024 {
         issues.push(VerifyIssue::warning(format!(
             "File size ({}) exceeds declared volume size ({}) by {} bytes (common with hybrid boot images)",
             file_size,
@@ -421,8 +428,8 @@ fn check_rrip_fields(
 
 /// Verify ISO image integrity
 pub fn verify(args: VerifyArgs) -> Result<()> {
-    let file_size = hadris_storage::host::file_len(&File::open(&args.input)?)?;
-    let mut dev = open(&args.input)?;
+    let mut dev = open(&args.input, &args.locate)?;
+    let file_size = dev.len();
     let mut iso = view(&mut dev, Namespace::Preferred)?;
 
     if args.verbose {
@@ -431,7 +438,8 @@ pub fn verify(args: VerifyArgs) -> Result<()> {
 
     let mut all_issues = Vec::new();
     let descriptors = check_volume_descriptors(&mut iso, args.verbose, &mut all_issues);
-    all_issues.extend(check_volume_size(&iso, file_size, args.verbose));
+    let windowed = args.locate.partition.is_some() || args.locate.offset.is_some();
+    all_issues.extend(check_volume_size(&iso, file_size, windowed, args.verbose));
     if descriptors.boot_catalog.is_some() {
         all_issues.extend(check_boot_catalog(&mut iso, args.verbose));
     }

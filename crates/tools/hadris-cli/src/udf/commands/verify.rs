@@ -10,7 +10,7 @@ use super::{Result, Udf, copy_file, entries, join};
 pub fn verify(args: VerifyArgs) -> Result<()> {
     println!("Verifying: {}", args.input.display());
 
-    let mut udf = match super::open(&args.input) {
+    let mut udf = match super::open(&args.input, &args.locate) {
         Ok(udf) => {
             println!("  [OK] Anchor, volume descriptors and file set descriptor");
             udf
