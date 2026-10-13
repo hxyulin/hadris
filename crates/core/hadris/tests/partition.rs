@@ -166,6 +166,56 @@ fn a_missing_partition_or_table_gives_the_device_back() {
     assert!(detect_partitions(&mut device(1 << 20, 512)).is_err());
 }
 
+/// An MBR disk truncated to 6 MiB: slot 0 starts past its end, and slot 1
+/// at 1 MiB holds a FAT volume, unless `fat` is `None`, damaged when
+/// `Some(true)`.
+fn truncated_disk(fat: Option<bool>) -> Dev {
+    let mut dev = device(16 << 20, 512);
+    let layout = DiskLayout::mbr()
+        .partition(PartitionSpec::new(MbrType::LINUX, Size::MiB(4)).with_start(8 << 11))
+        .partition(PartitionSpec::new(MbrType::FAT16, Size::MiB(4)).with_start(1 << 11));
+    let disk = part::sync::create(&mut dev, &layout).unwrap();
+    let data = disk.partition(1).unwrap();
+    assert_eq!(disk.partition(0).unwrap().start(), 8 << 11);
+    if fat.is_some() {
+        format_fat(&mut dev, &data, Some(FatKind::Fat12));
+    }
+    let mut bytes = dev.into_inner();
+    if fat == Some(true) {
+        let boot = (data.start() * 512) as usize;
+        bytes[boot + 11..boot + 13].fill(0);
+    }
+    bytes.truncate(6 << 20);
+    MemDevice::new(bytes, BlockSize::new(512).unwrap())
+}
+
+#[test]
+fn first_prefers_filesystem_errors_to_partitions_past_the_end() {
+    let fs = open_partition(
+        truncated_disk(Some(false)),
+        Select::First,
+        MountOptions::new(),
+    )
+    .unwrap();
+    assert_eq!(fs.into_inner().offset(), 1 << 20);
+
+    let err = open_partition(
+        truncated_disk(Some(true)),
+        Select::First,
+        MountOptions::new(),
+    )
+    .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Corrupt);
+
+    let err = open_partition(truncated_disk(None), Select::First, MountOptions::new()).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidInput);
+    assert_eq!(err.into_parts().1.into_inner().len(), 6 << 20);
+
+    let err =
+        open_partition(truncated_disk(None), Select::Index(0), MountOptions::new()).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidInput);
+}
+
 #[test]
 fn any_fs_reaches_format_extras() {
     let mut fs = open_partition(gpt_disk(), Select::Index(0), MountOptions::new()).unwrap();

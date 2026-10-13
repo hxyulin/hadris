@@ -168,7 +168,9 @@ fn fat_commands_take_a_partition_or_offset() {
 
     let whole = run(&["fat", "ls"], &image);
     assert!(!whole.status.success());
-    assert!(String::from_utf8_lossy(&whole.stderr).contains("No FAT or exFAT volume"));
+    let whole = String::from_utf8_lossy(&whole.stderr);
+    assert!(whole.contains("No FAT or exFAT volume"), "{whole}");
+    assert!(whole.contains("--partition"), "{whole}");
     let unaligned = run(&["fat", "ls", "--offset", "100"], &image);
     assert!(!unaligned.status.success());
     let both = run(&["fat", "ls", "--offset", "0", "--partition", "0"], &image);
@@ -231,4 +233,10 @@ fn optical_commands_take_a_partition() {
         "optical"
     );
     assert!(stdout(&run(&["ls"], &image)).contains("README.TXT"));
+
+    let verify = run(&["iso", "verify", "--partition", "0", "-v"], &image);
+    let report = String::from_utf8_lossy(&verify.stdout);
+    assert!(report.contains("(volume window)"), "{report}");
+    assert!(!report.contains("exceeds declared volume size"), "{report}");
+    assert!(verify.status.success(), "{verify:?}");
 }

@@ -363,9 +363,11 @@ pub async fn detect_partitions<D: BlockDevice>(dev: &mut D) -> FsResult<Vec<(Par
 /// table, with [`ErrorKind::NotFound`] when no partition has the index or
 /// GUID asked for, and with the error of [`open`] for the selected
 /// partition. [`Select::First`] skips partitions holding no filesystem and
-/// fails with the error of the first partition that does but does not
-/// mount, or [`ErrorKind::NotRecognized`] when none holds one. The
-/// [`MountError`] gives `dev` back.
+/// partitions that do not fit on `dev`. It fails with the error of the
+/// first partition holding a filesystem that does not mount; when none
+/// holds one, with the [`ErrorKind::InvalidInput`] of the first partition
+/// that does not fit, as on a truncated image, and otherwise with
+/// [`ErrorKind::NotRecognized`]. The [`MountError`] gives `dev` back.
 #[cfg(feature = "alloc")]
 pub async fn open_partition<D: BlockDevice>(
     mut dev: D,
@@ -378,6 +380,7 @@ pub async fn open_partition<D: BlockDevice>(
     };
     let first = select == Select::First;
     let mut failed = None;
+    let mut unreachable = None;
     for partition in disk.partitions() {
         let chosen = match select {
             Select::Index(slot) => partition.slot() == slot,
@@ -390,7 +393,7 @@ pub async fn open_partition<D: BlockDevice>(
         let (offset, len) = match part_open(&mut dev, &partition) {
             Ok(window) => (window.offset(), window.len()),
             Err(err) if first => {
-                failed.get_or_insert(err);
+                unreachable.get_or_insert(err);
                 continue;
             }
             Err(err) => return Err(MountError::new(err, dev)),
@@ -409,7 +412,7 @@ pub async fn open_partition<D: BlockDevice>(
             failed.get_or_insert(err);
         }
     }
-    let err = failed.unwrap_or_else(|| match select {
+    let err = failed.or(unreachable).unwrap_or_else(|| match select {
         Select::First => hadris_fs::Error::new(ErrorKind::NotRecognized, "no partition holds a filesystem"),
         _ => hadris_fs::Error::new(ErrorKind::NotFound, "no such partition"),
     });

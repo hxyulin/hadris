@@ -302,6 +302,15 @@ fn mount<D: BlockDevice<Error = std::io::Error>>(mut dev: D, image: &Image) -> R
                 .context("No valid exFAT or FAT32 backup boot sector")?;
             Ok(Volume::Fat(Box::new(fs)))
         }
+        None if found
+            .iter()
+            .any(|c| matches!(c.format(), ImageFormat::Mbr | ImageFormat::Gpt)) =>
+        {
+            bail!(
+                "No FAT or exFAT volume in {}: it holds a partition table; select a partition with --partition",
+                image.image.display()
+            )
+        }
         None => bail!("No FAT or exFAT volume in {}", image.image.display()),
     }
 }
