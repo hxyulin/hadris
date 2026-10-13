@@ -45,6 +45,38 @@ pub(crate) fn plausible_entry(entry: &ShortEntry, geo: &raw::Geometry) -> bool {
     name_ok && entry.attributes() & 0xC0 == 0 && first_ok
 }
 
+/// A 32-bit FNV-1a hash of the parts of a short entry that stay fixed while
+/// it lives in its slot: the stored name, the creation time and whether it
+/// is a directory. Node locators carry it, so a locator whose slot now holds
+/// another entry, or bytes that only look like one, is refused.
+pub(crate) fn entry_tag(entry: &ShortEntry) -> u32 {
+    let (date, time, tenths) = entry.created();
+    let [d0, d1] = date.to_le_bytes();
+    let [t0, t1] = time.to_le_bytes();
+    let name = entry.name();
+    let rest = [tenths, t0, t1, d0, d1, entry.is_dir() as u8];
+    name.iter()
+        .chain(rest.iter())
+        .fold(0x811c_9dc5, |hash: u32, &byte| {
+            (hash ^ byte as u32).wrapping_mul(0x0100_0193)
+        })
+}
+
+/// The boot sector's label when the volume has none.
+pub(crate) const NO_NAME: &[u8; 11] = b"NO NAME    ";
+
+/// The extended boot signature of a boot sector whose serial is followed by
+/// a label and a filesystem type; `0x28` has only the serial.
+pub(crate) const EXT_BOOT_SIGNATURE_LABEL: u8 = 0x29;
+
+/// Byte offset of the serial in the boot sector; the label follows it.
+pub(crate) const fn bpb_serial_offset(kind: raw::FatKind) -> u64 {
+    match kind {
+        raw::FatKind::Fat32 => 0x43,
+        _ => 0x27,
+    }
+}
+
 /// `ch` folded by `fold` when it is in the Basic Multilingual Plane.
 pub(crate) fn fold_char(ch: char, fold: fn(u16) -> u16) -> char {
     match u16::try_from(ch as u32) {

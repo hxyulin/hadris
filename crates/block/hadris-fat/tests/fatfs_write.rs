@@ -643,8 +643,8 @@ fn listed_ids_are_the_ids_lookup_pins() {
     fs.rename(root, name("a"), root, name("b"), RenameMode::Replace)
         .unwrap();
     let c = create(&mut fs, root, "c", FileType::File);
-    assert_eq!(c.get() & ((1 << 40) - 1), a.get(), "c takes a's old slot");
-    assert_eq!(c.get() >> 40, 1, "a still holds the slot's first id");
+    assert_eq!(c.get() >> 23, a.get() >> 23, "c takes a's old slot");
+    assert_ne!(c, a);
     fs.forget(c, 1);
     let listed = listed_id(&mut fs, root, "c");
     let looked_up = fs.lookup(root, name("c")).unwrap();
@@ -656,8 +656,8 @@ fn listed_ids_are_the_ids_lookup_pins() {
     assert_eq!(fs.open_nodes(), 1);
     assert_eq!(
         listed_id(&mut fs, root, "c"),
-        a,
-        "with a forgotten, c takes the slot's first id"
+        c,
+        "c keeps its id with a forgotten"
     );
 }
 
@@ -2480,16 +2480,78 @@ fn forged_node_ids_are_invalid_handles() {
         let data = write(&mut fs, root, "data.bin", &forged);
         let mut out = [hadris_fs::Extent::new(0, 0); 1];
         assert_eq!(fs.extents(data, 0, &mut out).unwrap(), 1);
-        let id = NodeId::new(out[0].offset() / 32).unwrap();
+        let slot = out[0].offset() / 32;
+        for raw in [slot]
+            .into_iter()
+            .chain((0..256).map(|tag| slot << 23 | tag))
+        {
+            let id = NodeId::new(raw).unwrap();
+            assert_eq!(
+                fs.stat(id).unwrap_err().kind(),
+                ErrorKind::InvalidHandle,
+                "{}",
+                case.name
+            );
+            assert_eq!(
+                fs.write(id, 0, b"x").unwrap_err().kind(),
+                ErrorKind::InvalidHandle,
+                "{}",
+                case.name
+            );
+        }
+    }
+}
+
+#[test]
+fn stale_node_ids_are_invalid_handles() {
+    use hadris_fat::FatOptions;
+    for case in CASES {
+        let mut fs = common::formatted(case, FatOptions::new());
+        let root = fs.root();
+        let file = write(&mut fs, root, "a.txt", b"old");
+        fs.forget(file, 1);
+        let listed = fs.readdir(root, DirCursor::START).unwrap().unwrap().node();
+        fs.unlink(root, Name::new("a.txt")).unwrap();
+        let other = write(&mut fs, root, "b.txt", b"new data");
+        fs.forget(other, 1);
+        let entry = fs.readdir(root, DirCursor::START).unwrap().unwrap();
+        assert_eq!(entry.name().to_str().unwrap(), "b.txt", "{}", case.name);
+        let mut buf = [0u8; 8];
+        for kind in [
+            fs.stat(listed).map(drop),
+            fs.read(listed, 0, &mut buf).map(drop),
+            fs.write(listed, 0, b"x").map(drop),
+            fs.setattr(listed, &SetAttr::new().with_attributes(Attributes::HIDDEN)),
+        ]
+        .map(|result| result.unwrap_err().kind())
+        {
+            assert_eq!(kind, ErrorKind::InvalidHandle, "{}", case.name);
+        }
+        assert_ne!(entry.node(), listed, "{}", case.name);
+        assert_eq!(fs.stat(entry.node()).unwrap().len(), 8, "{}", case.name);
+
+        let pinned = fs.lookup(root, Name::new("b.txt")).unwrap();
+        assert_eq!(pinned, entry.node(), "{}", case.name);
         assert_eq!(
-            fs.stat(id).unwrap_err().kind(),
-            ErrorKind::InvalidHandle,
+            fs.readdir(root, DirCursor::START).unwrap().unwrap().node(),
+            pinned
+        );
+        fs.setattr(
+            pinned,
+            &SetAttr::new().with_created(DateTime::from_unix_seconds(86_400 * 365 * 20).unwrap()),
+        )
+        .unwrap();
+        assert_eq!(
+            fs.readdir(root, DirCursor::START).unwrap().unwrap().node(),
+            pinned,
             "{}",
             case.name
         );
+        fs.forget(pinned, 1);
+        let relisted = fs.readdir(root, DirCursor::START).unwrap().unwrap().node();
         assert_eq!(
-            fs.write(id, 0, b"x").unwrap_err().kind(),
-            ErrorKind::InvalidHandle,
+            fs.lookup(root, Name::new("b.txt")).unwrap(),
+            relisted,
             "{}",
             case.name
         );

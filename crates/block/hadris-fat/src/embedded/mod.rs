@@ -17,7 +17,8 @@
 //! - A [`File`] is a slot index, consumed by `close`. It carries a
 //!   mount identity and generation, so one from another volume fails with
 //!   `InvalidHandle`. A dropped `File` keeps its slot until `unmount`;
-//!   `sync` and `unmount` still write its size.
+//!   `sync` and `unmount` still write its size. A `close` that fails keeps
+//!   the slot until a `sync` writes the size.
 //! - `list` lends each [`Entry`] to a callback; its UTF-16 name lives on
 //!   the call's stack. [`Entry::node`] with `open_node` opens a listed
 //!   file without a second lookup.
@@ -264,27 +265,62 @@ impl<'mount> File<'mount> {
     }
 }
 
-/// Where a listed entry is: valid for `open_node` until its directory
-/// changes. Use it only with its originating mount; node locators do not
-/// check mount identity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Node {
+/// Where a listed entry is: valid for `open_node` on its mount until its
+/// directory changes. It carries the mount identity, as a [`File`] does,
+/// and a tag of the entry, so a node from another mount, or one whose slot
+/// now holds another entry, fails with `InvalidHandle`.
+#[derive(Debug, Clone, Copy)]
+pub struct Node<'mount> {
+    owner: &'mount MountToken,
     offset: u64,
+    tag: u32,
 }
 
-impl Node {
-    pub(crate) const fn new(offset: u64) -> Self {
-        Self { offset }
+impl PartialEq for Node<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        core::ptr::eq(self.owner, other.owner)
+            && self.offset == other.offset
+            && self.tag == other.tag
+    }
+}
+
+impl Eq for Node<'_> {}
+
+impl core::hash::Hash for Node<'_> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        core::ptr::hash(self.owner, state);
+        self.offset.hash(state);
+        self.tag.hash(state);
+    }
+}
+
+impl<'mount> Node<'mount> {
+    pub(crate) fn new(owner: &'mount MountToken, offset: u64, entry: &ShortEntry) -> Self {
+        Self {
+            owner,
+            offset,
+            tag: crate::names::entry_tag(entry),
+        }
+    }
+
+    pub(crate) fn belongs_to(&self, owner: &MountToken) -> bool {
+        core::ptr::eq(self.owner, owner)
     }
 
     pub(crate) const fn offset(self) -> u64 {
         self.offset
     }
+
+    pub(crate) const fn tag(self) -> u32 {
+        self.tag
+    }
 }
 
-/// One directory entry, lent to the callback of `list`.
+/// One directory entry of the mount `'mount`, lent to the callback of
+/// `list`.
 #[derive(Debug)]
-pub struct Entry<'a> {
+pub struct Entry<'a, 'mount> {
+    owner: &'mount MountToken,
     name: &'a [u16],
     short: ShortEntry,
     offset: u64,
@@ -292,8 +328,9 @@ pub struct Entry<'a> {
     zone: Option<i16>,
 }
 
-impl<'a> Entry<'a> {
+impl<'a, 'mount> Entry<'a, 'mount> {
     pub(crate) const fn new(
+        owner: &'mount MountToken,
         name: &'a [u16],
         short: ShortEntry,
         offset: u64,
@@ -301,6 +338,7 @@ impl<'a> Entry<'a> {
         zone: Option<i16>,
     ) -> Self {
         Self {
+            owner,
             name,
             short,
             offset,
@@ -365,8 +403,8 @@ impl<'a> Entry<'a> {
     }
 
     /// The entry's position, for `open_node`.
-    pub fn node(&self) -> Node {
-        Node::new(self.offset)
+    pub fn node(&self) -> Node<'mount> {
+        Node::new(self.owner, self.offset, &self.short)
     }
 
     /// Where a `list` continues after this entry.
@@ -380,6 +418,9 @@ pub(crate) const FLAG_WRITE: u8 = 1 << 1;
 pub(crate) const FLAG_APPEND: u8 = 1 << 2;
 /// The entry lacks the slot's size and modification time.
 pub(crate) const FLAG_DIRTY: u8 = 1 << 3;
+/// `close` consumed the handle but could not write the size; `sync` frees
+/// the slot once it does.
+pub(crate) const FLAG_CLOSED: u8 = 1 << 4;
 
 /// One open file.
 #[derive(Debug, Clone, Copy)]

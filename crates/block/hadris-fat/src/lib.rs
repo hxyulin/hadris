@@ -417,7 +417,7 @@ use names::{permissions, read_only_bit};
 /// `*count` on when it holds bytes of the file from `from`, cut to the
 /// file's `len` and split where its bytes past `valid` read as zeros.
 /// Returns true when `out` was full before the run was added whole.
-#[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
+#[cfg(any(feature = "sync", feature = "async"))]
 fn push_run(
     out: &mut [hadris_fs::Extent],
     count: &mut usize,
