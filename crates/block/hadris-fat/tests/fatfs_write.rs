@@ -2502,6 +2502,52 @@ fn forged_node_ids_are_invalid_handles() {
     }
 }
 
+/// A clock that moves on a second with every reading.
+struct Ticking(std::sync::atomic::AtomicI64);
+
+impl Clock for Ticking {
+    fn now(&self) -> DateTime {
+        let tick = self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        DateTime::from_unix_seconds(1_000_000_000 + tick).unwrap()
+    }
+}
+
+/// The tag covers the short name and creation time, not the long name: a
+/// file recreated in the same slot under the same `~N` alias is refused only
+/// when the clock gives it another creation time.
+#[test]
+fn stale_ids_with_a_shared_alias_depend_on_the_creation_time() {
+    static TICKING: Ticking = Ticking(std::sync::atomic::AtomicI64::new(0));
+    let case = CASES[0];
+    for (options, refused) in [
+        (MountOptions::new(), false),
+        (MountOptions::new().with_clock(&TICKING), true),
+    ] {
+        let mut fs = FatFs::mount(common::device(case, common::blank(case)), options).unwrap();
+        let root = fs.root();
+        let one = write(&mut fs, root, "Quarterly report one.txt", b"one");
+        fs.forget(one, 1);
+        let stale = fs.readdir(root, DirCursor::START).unwrap().unwrap().node();
+        fs.unlink(root, Name::new("Quarterly report one.txt"))
+            .unwrap();
+        let two = write(&mut fs, root, "Quarterly report two.txt", b"second");
+        fs.forget(two, 1);
+        let entry = fs.readdir(root, DirCursor::START).unwrap().unwrap();
+        assert_eq!(entry.name().to_str().unwrap(), "Quarterly report two.txt");
+        match fs.stat(stale) {
+            Err(error) => {
+                assert!(refused);
+                assert_eq!(error.kind(), ErrorKind::InvalidHandle);
+            }
+            Ok(meta) => {
+                assert!(!refused, "a new creation time must refuse the stale id");
+                assert_eq!(meta.len(), 6);
+                assert_eq!(entry.node(), stale);
+            }
+        }
+    }
+}
+
 #[test]
 fn stale_node_ids_are_invalid_handles() {
     use hadris_fat::FatOptions;

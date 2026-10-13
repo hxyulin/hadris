@@ -366,8 +366,8 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// Opens the file a listed [`Entry`] names, without a lookup. The
     /// position is valid until its directory changes; a position that no
     /// longer holds a file fails with [`ErrorKind::NotFound`], and a node of
-    /// another mount, or whose slot now holds another entry, with
-    /// [`ErrorKind::InvalidHandle`].
+    /// another mount, or whose slot now holds an entry with another short
+    /// name, creation time or type, with [`ErrorKind::InvalidHandle`].
     /// `create_new` fails with [`ErrorKind::AlreadyExists`].
     pub async fn open_node(&mut self, node: Node<'_>, options: OpenOptions) -> FsResult<File<'mount>, D::Error> {
         options.validate().map_err(ErrorKind::from)?;
@@ -1899,10 +1899,10 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
             0 => self.fat.root(),
             parent => DirStart::Chain(parent),
         };
-        self.clear_entry(rename.source_offset, rename.source).await?;
         if target.offset != 0 {
             self.clear_entry(target.offset, Run { dir: destination, first: target.first as u32, short: target.short as u32 }).await?;
         }
+        self.clear_entry(rename.source_offset, rename.source).await?;
         self.run = None;
         self.rename = None;
         if target.cluster != 0 {

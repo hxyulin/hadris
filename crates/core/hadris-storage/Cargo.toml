@@ -26,7 +26,7 @@ async = ["hadris-io/async"]
 hadris-io = { workspace = true }
 hadris-macros.workspace = true
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(unix)'.dependencies]
 libc = { workspace = true, optional = true }
 
 [[example]]

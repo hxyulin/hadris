@@ -1572,6 +1572,58 @@ mod interrupted {
         }
     }
 
+    /// A power cut after any write of a replacing rename leaves a volume
+    /// where the target's name resolves to the old target with the source
+    /// still in place, or to the moved source.
+    #[test]
+    fn replacing_rename_resolves_by_name_after_a_power_cut() {
+        let source = common::payload(9000, 3);
+        let target = common::payload(5000, 4);
+        for case in cases() {
+            let mut token = MountToken::new();
+            let mut fat = mount(&mut token, case, common::blank(case));
+            let root = fat.root();
+            write_file(&mut fat, root, "a long source name.bin", &source);
+            write_file(&mut fat, root, "target.bin", &target);
+            let image = image(fat);
+            let mut finished = false;
+            for budget in 0..100 {
+                let dev = Faulty {
+                    inner: common::device(case, image.clone()),
+                    budget: Rc::new(Cell::new(budget)),
+                };
+                let mut token = MountToken::new();
+                let mut fat: Fat<Faulty> = Fat::mount(dev, &mut token).unwrap();
+                let root = fat.root();
+                let result = fat.rename(root, "a long source name.bin", root, "TARGET.BIN");
+                let cut = fat.into_inner().inner.into_inner();
+                let what = format!("{} budget={budget}", case.name);
+                use common::FsPaths;
+                let mut fs = common::mount(case, &cut);
+                let named = common::read(&mut fs, "/target.bin");
+                if named == target {
+                    assert!(result.is_err(), "{what}");
+                    assert_eq!(
+                        common::read(&mut fs, "/a long source name.bin"),
+                        source,
+                        "{what}"
+                    );
+                } else {
+                    assert_eq!(named, source, "{what}: the name resolves to neither file");
+                }
+                if result.is_ok() {
+                    assert!(
+                        fs.resolve_path("/a long source name.bin").is_err(),
+                        "{what}"
+                    );
+                    finished = true;
+                    break;
+                }
+            }
+            assert!(finished, "{}", case.name);
+        }
+    }
+
     /// The slot of a file whose `close` failed is freed by the next `sync`
     /// that writes its size.
     #[test]

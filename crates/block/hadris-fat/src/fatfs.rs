@@ -174,8 +174,8 @@ const ROOT: NodeId = node_id(1);
 /// divided by 32, above its low `TAG_BITS` bits. Those hold the entry's
 /// [`entry_tag`](crate::names::entry_tag), counted up past ids pinned nodes
 /// that moved away from the slot still hold, so a listing and a lookup of
-/// one entry agree on its id, and an unpinned id whose slot now holds
-/// another entry is refused. A FAT volume has at most `2^32` sectors of
+/// one entry agree on its id, and an unpinned id whose slot now holds an
+/// entry with another tag is refused. A FAT volume has at most `2^32` sectors of
 /// 4096 bytes, so slots stay below `2^39`, ids below `2^62`, and no id of a
 /// directory slot is 0.
 const TAG_BITS: u32 = 23;
@@ -2679,7 +2679,10 @@ impl<D: BlockDevice> FatFs<D> {
 
     /// Metadata of a pinned node or of an id just returned by
     /// `readdir`. Directories have length 0. An unpinned id whose slot now
-    /// holds another entry fails with [`ErrorKind::InvalidHandle`].
+    /// holds an entry with another short name, creation time or type fails
+    /// with [`ErrorKind::InvalidHandle`]; one that differs only in its long
+    /// name, as a file recreated under the same `~N` alias with a clock that
+    /// does not move, is not detected.
     pub async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
         if node == ROOT {
             return Ok(Metadata::new(FileType::Dir, permissions(true, false)));

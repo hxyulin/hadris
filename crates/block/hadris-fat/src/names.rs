@@ -48,7 +48,10 @@ pub(crate) fn plausible_entry(entry: &ShortEntry, geo: &raw::Geometry) -> bool {
 /// A 32-bit FNV-1a hash of the parts of a short entry that stay fixed while
 /// it lives in its slot: the stored name, the creation time and whether it
 /// is a directory. Node locators carry it, so a locator whose slot now holds
-/// another entry, or bytes that only look like one, is refused.
+/// an entry that differs in one of those, or bytes that only look like an
+/// entry, is refused. The long name is not covered: with a clock that does
+/// not move, such as the default `NoClock`, a new entry that takes the slot
+/// and the same `~N` short name of a removed one gets the same tag.
 pub(crate) fn entry_tag(entry: &ShortEntry) -> u32 {
     let (date, time, tenths) = entry.created();
     let [d0, d1] = date.to_le_bytes();

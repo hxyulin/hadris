@@ -267,8 +267,11 @@ impl<'mount> File<'mount> {
 
 /// Where a listed entry is: valid for `open_node` on its mount until its
 /// directory changes. It carries the mount identity, as a [`File`] does,
-/// and a tag of the entry, so a node from another mount, or one whose slot
-/// now holds another entry, fails with `InvalidHandle`.
+/// and a tag of the entry's short name, creation time and type, so a node
+/// from another mount, or one whose slot now holds an entry that differs in
+/// those, fails with `InvalidHandle`. A new file in the slot with the same
+/// short name and creation time, as under the default clock, is not
+/// detected.
 #[derive(Debug, Clone, Copy)]
 pub struct Node<'mount> {
     owner: &'mount MountToken,

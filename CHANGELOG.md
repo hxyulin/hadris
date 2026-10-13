@@ -43,13 +43,15 @@ Each published package owns its version and may be released independently.
   the source and the target in place; a replace in a full FAT12/16 root
   directory, where the new name has no free slots, fails with `NoSpace`.
 
-- **FAT:** A node id or embedded `Node` whose directory slot now holds
-  another entry, or bytes that only look like one, fails with
-  `InvalidHandle` instead of naming that entry. `FatFs` ids carry a tag of
-  the entry's short name, creation time and type beside its slot, so their
-  values change; an id stays the same while it is pinned. An entry recreated
-  in the same slot with the same short name and creation time is not told
-  apart.
+- **FAT:** A node id or embedded `Node` whose directory slot now holds an
+  entry with another short name, creation time or type, or bytes that only
+  look like an entry, fails with `InvalidHandle` instead of naming that
+  entry. `FatFs` ids carry a tag of those fields beside the slot, so their
+  values change; an id stays the same while it is pinned. The long name is
+  not covered: with a clock that does not move, such as the default
+  `NoClock`, a file created in the slot of a removed one under the same
+  `~N` short name (`Quarterly report two.txt` after
+  `Quarterly report one.txt`) is not detected, and the stale id names it.
 
 - **Embedded FAT (breaking):** `Node` and `Entry` carry the mount's
   lifetime, as `File` does: they are `Node<'mount>` and `Entry<'a, 'mount>`,
