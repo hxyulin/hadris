@@ -39,6 +39,9 @@ defmt = { version = "1.0", optional = true }
 hadris-io = { workspace = true }
 hadris-storage = { workspace = true, features = ["sync", "alloc"] }
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+
 [[test]]
 name = "io"
 required-features = ["sync"]

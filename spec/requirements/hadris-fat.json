@@ -36,6 +36,11 @@
           "path": "crates/block/hadris-fat/tests/fatfs_format.rs",
           "name": "rejects_bad_options_and_devices",
           "kind": "integration"
+        },
+        {
+          "path": "crates/block/hadris-fat-raw/src/verification/geometry.rs",
+          "name": "fat_invalid_cluster_sizes_are_rejected",
+          "kind": "proof"
         }
       ],
       "gap": null
@@ -69,6 +74,11 @@
           "path": "crates/block/hadris-fat/tests/fatfs_format.rs",
           "name": "smallest_volumes_and_kind_boundaries",
           "kind": "integration"
+        },
+        {
+          "path": "crates/block/hadris-fat-raw/src/verification/geometry.rs",
+          "name": "fat16_accepted_geometry_is_bounded",
+          "kind": "proof"
         }
       ],
       "gap": null
@@ -123,6 +133,11 @@
           "path": "crates/block/hadris-fat/tests/fatfs_read.rs",
           "name": "fat32_uses_only_the_active_fat_when_mirroring_is_disabled",
           "kind": "integration"
+        },
+        {
+          "path": "crates/block/hadris-fat-raw/src/verification/geometry.rs",
+          "name": "fat32_accepted_geometry_is_bounded",
+          "kind": "proof"
         }
       ],
       "gap": null
@@ -150,6 +165,11 @@
           "path": "crates/block/hadris-fat-raw/src/entry.rs",
           "name": "fat32_keeps_reserved_nibble",
           "kind": "unit"
+        },
+        {
+          "path": "crates/block/hadris-fat-raw/src/verification.rs",
+          "name": "fat32_updates_preserve_reserved_bits",
+          "kind": "proof"
         }
       ],
       "gap": null
@@ -178,6 +198,11 @@
           "path": "crates/block/hadris-fat/tests/fatfs_read.rs",
           "name": "cyclic_chains_are_corrupt_instead_of_repeating",
           "kind": "integration"
+        },
+        {
+          "path": "crates/block/hadris-fat-raw/src/verification.rs",
+          "name": "fat_chain_markers_match_specification",
+          "kind": "proof"
         }
       ],
       "gap": null
@@ -219,6 +244,11 @@
           "path": "crates/block/hadris-fat/tests/fatfs_check.rs",
           "name": "corruptions_report_their_findings",
           "kind": "integration"
+        },
+        {
+          "path": "crates/block/hadris-fat-raw/src/verification/allocation.rs",
+          "name": "fsinfo_signatures_are_required_and_hints_preserved",
+          "kind": "proof"
         }
       ],
       "gap": null
@@ -288,6 +318,11 @@
           "path": "crates/block/hadris-fat/tests/fatfs_write.rs",
           "name": "remove_files_and_directories",
           "kind": "integration"
+        },
+        {
+          "path": "crates/block/hadris-fat-raw/src/verification/names.rs",
+          "name": "directory_slots_match_disk_markers",
+          "kind": "proof"
         }
       ],
       "gap": null
@@ -334,6 +369,16 @@
           "path": "crates/block/hadris-fat/tests/fatfs_write.rs",
           "name": "long_names_up_to_255_units",
           "kind": "integration"
+        },
+        {
+          "path": "crates/block/hadris-fat-raw/src/verification/names.rs",
+          "name": "lfn_checksum_matches_specification",
+          "kind": "proof"
+        },
+        {
+          "path": "crates/block/hadris-fat-raw/src/verification/names.rs",
+          "name": "lfn_fields_preserve_code_units_and_terminator",
+          "kind": "proof"
         }
       ],
       "gap": null
@@ -375,6 +420,11 @@
           "path": "crates/block/hadris-fat-raw/src/exfat/codec.rs",
           "name": "checksums_skip_their_own_fields",
           "kind": "unit"
+        },
+        {
+          "path": "crates/block/hadris-fat-raw/src/verification/checksums.rs",
+          "name": "exfat_boot_checksum_excludes_only_mutable_fields",
+          "kind": "proof"
         }
       ],
       "gap": null
@@ -462,6 +512,11 @@
           "path": "crates/block/hadris-fat/tests/exfat_check.rs",
           "name": "upcase_checksum_is_checked",
           "kind": "integration"
+        },
+        {
+          "path": "crates/block/hadris-fat-raw/src/verification/checksums.rs",
+          "name": "exfat_table_checksum_matches_bounded_prefixes",
+          "kind": "proof"
         }
       ],
       "gap": null
@@ -517,6 +572,11 @@
           "path": "crates/block/hadris-fat-raw/src/exfat/codec.rs",
           "name": "checksums_skip_their_own_fields",
           "kind": "unit"
+        },
+        {
+          "path": "crates/block/hadris-fat-raw/src/verification.rs",
+          "name": "exfat_entry_checksum_matches_specification",
+          "kind": "proof"
         }
       ],
       "gap": null
