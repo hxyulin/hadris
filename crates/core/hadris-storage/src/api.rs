@@ -35,6 +35,15 @@ pub trait BlockDevice: ErrorType {
     /// Size of one block.
     fn block_size(&self) -> BlockSize;
 
+    /// Size of one physical block: the unit the media writes without a
+    /// read-modify-write, such as 4096 bytes on an Advanced Format disk with
+    /// 512-byte logical blocks. A multiple of
+    /// [`block_size`](Self::block_size), which it defaults to. Formatters
+    /// align their layout to it.
+    fn physical_block_size(&self) -> BlockSize {
+        self.block_size()
+    }
+
     /// Number of addressable blocks.
     fn block_count(&self) -> u64;
 
@@ -95,6 +104,10 @@ impl<D: BlockDevice + ?Sized> BlockDevice for &mut D {
         D::block_size(self)
     }
 
+    fn physical_block_size(&self) -> BlockSize {
+        D::physical_block_size(self)
+    }
+
     fn block_count(&self) -> u64 {
         D::block_count(self)
     }
@@ -132,6 +145,10 @@ impl<D: BlockDevice + ?Sized> BlockDevice for &mut D {
 impl<D: BlockDevice + ?Sized> BlockDevice for alloc::boxed::Box<D> {
     fn block_size(&self) -> BlockSize {
         D::block_size(self)
+    }
+
+    fn physical_block_size(&self) -> BlockSize {
+        D::physical_block_size(self)
     }
 
     fn block_count(&self) -> u64 {
@@ -429,6 +446,10 @@ impl<D: BlockDevice> BlockDevice for Partition<D> {
         self.inner.block_size()
     }
 
+    fn physical_block_size(&self) -> BlockSize {
+        self.inner.physical_block_size()
+    }
+
     fn block_count(&self) -> u64 {
         self.len() / u64::from(self.inner.block_size().get())
     }
@@ -466,6 +487,10 @@ impl<D: BlockDevice> BlockDevice for Partition<D> {
 impl<D: BlockDevice> BlockDevice for ReadOnly<D> {
     fn block_size(&self) -> BlockSize {
         self.0.block_size()
+    }
+
+    fn physical_block_size(&self) -> BlockSize {
+        self.0.physical_block_size()
     }
 
     fn block_count(&self) -> u64 {
@@ -575,6 +600,7 @@ impl<D: ErrorType> ErrorType for ReadAhead<D> {
 #[cfg(feature = "alloc")]
 impl<D: BlockDevice> BlockDevice for ReadAhead<D> {
     fn block_size(&self) -> BlockSize { self.inner.block_size() }
+    fn physical_block_size(&self) -> BlockSize { self.inner.physical_block_size() }
     fn block_count(&self) -> u64 { self.inner.block_count() }
     fn max_block_count(&self) -> u64 { self.inner.max_block_count() }
     fn disk_offset(&self) -> u64 { self.inner.disk_offset() }
@@ -758,6 +784,10 @@ impl<D: ErrorType> ErrorType for Cache<D> {
 impl<D: BlockDevice> BlockDevice for Cache<D> {
     fn block_size(&self) -> BlockSize {
         self.inner.block_size()
+    }
+
+    fn physical_block_size(&self) -> BlockSize {
+        self.inner.physical_block_size()
     }
 
     fn block_count(&self) -> u64 {

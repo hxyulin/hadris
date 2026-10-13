@@ -2,6 +2,7 @@ use super::super::io;
 use super::volume::Volume;
 use super::*;
 use crate::{Error, OpenOptions};
+use alloc::vec::Vec;
 use hadris_io::SeekFrom;
 
 io_transform! {
@@ -61,6 +62,31 @@ impl<F: FileSystem> File<F> {
         let n = fs.write(self.node, self.pos, buf).await?;
         self.pos += n as u64;
         Ok(n)
+    }
+
+    /// Reads at `offset` without moving the position, as `pread`.
+    pub async fn read_at(&self, offset: u64, buf: &mut [u8]) -> FsResult<usize, F::DeviceError> {
+        if !self.options.is_read() {
+            return Err(ErrorKind::InvalidInput.into());
+        }
+        self.vol.lock().await.read(self.node, offset, buf).await
+    }
+
+    /// Writes at `offset` without moving the position, as `pwrite`, also in
+    /// append mode. Returns the successful byte count; see
+    /// [`FileSystem::write`] for errors.
+    pub async fn write_at(&self, offset: u64, buf: &[u8]) -> FsResult<usize, F::DeviceError> {
+        if !self.options.is_write() {
+            return Err(ErrorKind::InvalidInput.into());
+        }
+        self.vol.lock().await.write(self.node, offset, buf).await
+    }
+
+    /// Changes the file's times, permissions, owner or attributes. It needs
+    /// no write access, as `fchmod` does not, but a read-only mount refuses
+    /// it.
+    pub async fn set_attr(&self, changes: &SetAttr) -> FsResult<(), F::DeviceError> {
+        self.vol.lock().await.setattr(self.node, changes).await
     }
 
     /// Moves the position and returns it.
@@ -164,6 +190,12 @@ impl<F: FileSystem> ReadDir<F> {
         Self { vol, dir, cursor: DirCursor::START, done: false }
     }
 
+    /// Opens the file `entry`, listed by this `ReadDir`, as
+    /// [`Volume::open_node`] does.
+    pub async fn open(&self, entry: &DirEntry, options: OpenOptions) -> FsResult<File<F>, F::DeviceError> {
+        self.vol.open_node(self.dir, entry, options).await
+    }
+
     /// The next entry, or `None` at the end or after an error.
     pub async fn next_entry(&mut self) -> Option<FsResult<DirEntry, F::DeviceError>> {
         if self.done {
@@ -202,11 +234,149 @@ impl<F: FileSystem> Drop for ReadDir<F> {
     }
 }
 
+/// A depth-first walk below a directory of a [`Volume`], from
+/// [`Volume::walk`]: each directory comes before its children, which come
+/// in `readdir` order, and every entry carries its path.
+///
+/// An `Iterator` in the sync mode; call [`next_entry`](Self::next_entry) in
+/// the async mode. The walk pins the directory it started from and nothing
+/// below it, and locks the volume once per step. The ids it lists stay
+/// valid while the tree does not change, so a change made between steps may
+/// end the walk with [`ErrorKind::NotFound`]. A directory that is one of
+/// its own ancestors ends it with [`ErrorKind::Corrupt`], and one more than
+/// 1024 levels deep with [`ErrorKind::LimitExceeded`]. Fuses after an
+/// error.
+pub struct WalkDir<F: FileSystem> {
+    vol: Volume<F>,
+    top: NodeId,
+    walk: Walk<'static>,
+    path: Vec<u8>,
+    ends: Vec<usize>,
+    parents: Vec<NodeId>,
+}
+
+/// One entry of a [`WalkDir`].
+#[derive(Clone)]
+pub struct WalkDirEntry {
+    path: Vec<u8>,
+    dir: NodeId,
+    entry: DirEntry,
+    depth: u32,
+}
+
+impl WalkDirEntry {
+    /// The path of the entry: the walked path, `/` and the names below it.
+    pub fn path(&self) -> &[u8] {
+        &self.path
+    }
+
+    /// The directory that lists the entry, for [`Volume::open_node`].
+    pub fn dir(&self) -> NodeId {
+        self.dir
+    }
+
+    /// The directory entry, with the name, node and metadata `readdir`
+    /// gave.
+    pub fn entry(&self) -> &DirEntry {
+        &self.entry
+    }
+
+    /// The depth, 1 for the children of the walked directory.
+    pub fn depth(&self) -> u32 {
+        self.depth
+    }
+
+    /// Takes the path.
+    pub fn into_path(self) -> Vec<u8> {
+        self.path
+    }
+}
+
+impl core::fmt::Debug for WalkDirEntry {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("WalkDirEntry")
+            .field("path", &crate::name::Name::from_bytes(&self.path))
+            .field("dir", &self.dir)
+            .field("entry", &self.entry)
+            .field("depth", &self.depth)
+            .finish()
+    }
+}
+
+impl<F: FileSystem> WalkDir<F> {
+    pub(super) fn new(vol: Volume<F>, top: NodeId, path: &[u8]) -> Self {
+        let mut base = path.to_vec();
+        while base.last() == Some(&b'/') {
+            base.pop();
+        }
+        Self {
+            vol,
+            top,
+            walk: Walk::new(top),
+            ends: alloc::vec![base.len()],
+            parents: alloc::vec![top],
+            path: base,
+        }
+    }
+
+    /// Stops the walk from descending into the directory just returned.
+    pub fn skip_dir(&mut self) {
+        self.walk.skip_dir();
+    }
+
+    /// The next entry, or `None` at the end or after an error.
+    pub async fn next_entry(&mut self) -> Option<FsResult<WalkDirEntry, F::DeviceError>> {
+        let next = self.walk.next(&mut *self.vol.lock().await).await;
+        let found = match next {
+            Ok(Some(found)) => found,
+            Ok(None) => return None,
+            Err(err) => return Some(Err(err)),
+        };
+        let depth = found.depth();
+        let entry = *found.entry();
+        let parent = depth as usize - 1;
+        self.ends.truncate(depth as usize);
+        self.parents.truncate(depth as usize);
+        self.path.truncate(self.ends[parent]);
+        self.path.push(b'/');
+        self.path.extend_from_slice(entry.name().as_bytes());
+        let dir = self.parents[parent];
+        if entry.file_type().is_dir() {
+            self.ends.push(self.path.len());
+            self.parents.push(entry.node());
+        }
+        Some(Ok(WalkDirEntry { path: self.path.clone(), dir, entry, depth }))
+    }
+}
+
+impl<F: FileSystem> core::fmt::Debug for WalkDir<F> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("WalkDir")
+            .field("top", &self.top)
+            .field("walk", &self.walk)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<F: FileSystem> Drop for WalkDir<F> {
+    fn drop(&mut self) {
+        self.vol.release(self.top, false);
+    }
+}
+
 }
 
 sync_only! {
     impl<F: FileSystem> Iterator for ReadDir<F> {
         type Item = FsResult<DirEntry, F::DeviceError>;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            self.next_entry()
+        }
+    }
+
+    impl<F: FileSystem> Iterator for WalkDir<F> {
+        type Item = FsResult<WalkDirEntry, F::DeviceError>;
 
         fn next(&mut self) -> Option<Self::Item> {
             self.next_entry()

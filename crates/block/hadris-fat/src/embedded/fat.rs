@@ -306,8 +306,9 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     }
 
     /// Opens the file `name` in `dir` in a free slot. `options` follow
-    /// `std::fs::OpenOptions`: `create` and `create_new` create the file,
-    /// `truncate` empties it, and `append` makes every write go to the end.
+    /// `std::fs::OpenOptions`: `create` and `create_new` create the file
+    /// with the options' [`attr`](OpenOptions::attr), `truncate` empties
+    /// it, and `append` makes every write go to the end.
     ///
     /// Fails with [`ErrorKind::LimitExceeded`] when every slot is taken,
     /// [`ErrorKind::IsADirectory`] for a directory,
@@ -327,7 +328,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
             Some(found) => (found.offset, found.entry),
             None if options.is_create() || options.is_create_new() => {
                 self.prepare().await?;
-                self.create_entry(start, name, false).await?
+                self.create_entry(start, name, false, options.attr()).await?
             }
             None => return Err(ErrorKind::NotFound.into()),
         };
@@ -493,7 +494,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         self.prepare().await?;
         let start = self.start(dir)?;
         check_entry_name(name)?;
-        let (_, entry) = self.create_entry(start, name, true).await?;
+        let (_, entry) = self.create_entry(start, name, true, &SetAttr::new()).await?;
         Ok(Dir::new(entry.first_cluster(self.kind())))
     }
 
@@ -511,7 +512,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
                 Some(_) => return Err(ErrorKind::NotADirectory.into()),
                 None => {
                     self.prepare().await?;
-                    let (_, entry) = self.create_entry(start, part, true).await?;
+                    let (_, entry) = self.create_entry(start, part, true, &SetAttr::new()).await?;
                     Dir::new(entry.first_cluster(self.kind()))
                 }
             };
@@ -1184,7 +1185,13 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// Creates the entry `text` in `dir`: a directory's zeroed cluster with
     /// `.` and `..` first, then the name. Returns the short entry and its
     /// offset.
-    async fn create_entry(&mut self, dir: DirStart, text: &str, is_dir: bool) -> FsResult<(u64, ShortEntry), D::Error> {
+    async fn create_entry(
+        &mut self,
+        dir: DirStart,
+        text: &str,
+        is_dir: bool,
+        attrs: &SetAttr,
+    ) -> FsResult<(u64, ShortEntry), D::Error> {
         let new = NewName::new(text, self.options.code_page(), self.options.fold())?;
         let plan = self.plan(dir, text, true, &new, None).await?;
         let now = self.now();
@@ -1192,7 +1199,19 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         let attr = if is_dir { raw::ATTR_DIRECTORY } else { raw::ATTR_ARCHIVE };
         let mut entry = ShortEntry::new(plan.short, attr);
         entry.set_nt_case(plan.nt_case);
-        stamp(&mut entry, now, now, now, self.options.utc_offset());
+        if let Some(attributes) = attrs.attributes() {
+            apply_attributes(&mut entry, attributes);
+        }
+        if attrs.permissions().is_some_and(|mode| mode.bits() & 0o222 == 0) {
+            set_read_only(&mut entry, true);
+        }
+        stamp(
+            &mut entry,
+            attrs.created().unwrap_or(now),
+            attrs.modified().unwrap_or(now),
+            attrs.accessed().unwrap_or(now),
+            self.options.utc_offset(),
+        );
         self.grow(&plan).await?;
         let last = plan.start + plan.slots - 1;
         let mut walk = DirWalk::new(dir);

@@ -66,7 +66,22 @@ fs.forget(node, 1);
 // The volume: paths and any number of handles, on any thread.
 let vol = Volume::new(fs);
 let mut log = vol.open("/log.txt", OpenOptions::new().write().create().append())?;
+vol.write("/boot.cfg", b"timeout=5")?;
+for entry in vol.walk("/")? {
+    let entry = entry?;
+    if entry.entry().file_type().is_file() {
+        let file = vol.open_node(entry.dir(), entry.entry(), OpenOptions::new().read())?;
+        file.close()?;
+    }
+}
 ```
+
+`Volume` also has `read`, `write` and `exists` as in `std::fs`, and `walk`,
+which yields every entry below a directory with its path and stops at a
+directory loop. `open_node` opens an entry a listing returned without a path,
+pinning it by a lookup of its name, and `OpenOptions::with_attr` gives a
+created file its initial attributes. `File` has `read_at`, `write_at` and
+`set_attr`.
 
 `r#async` has the same API with `Send` futures, so generic code over
 `F: FileSystem + 'static` can spawn on multi-threaded executors.

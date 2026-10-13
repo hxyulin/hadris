@@ -25,7 +25,7 @@ sync_only! {
     mod handle;
     send_only! { mod read_tree; }
     mod volume;
-    pub use handle::{File, ReadDir};
+    pub use handle::{File, ReadDir, WalkDir, WalkDirEntry};
     send_only! { pub use read_tree::read_tree; }
     pub use volume::{Volume, VolumeGuard};
 }
@@ -35,7 +35,7 @@ async_only! {
     mod handle;
     send_only! { mod read_tree; }
     mod volume;
-    pub use handle::{File, ReadDir};
+    pub use handle::{File, ReadDir, WalkDir, WalkDirEntry};
     send_only! { pub use read_tree::read_tree; }
     pub use volume::{Volume, VolumeGuard};
 }

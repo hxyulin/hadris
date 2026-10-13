@@ -19,7 +19,11 @@ const BLOCK: BlockSize = crate::device::BLOCK_512;
 /// A host image file or disk device.
 ///
 /// Regular image files default to 512-byte blocks. Disk devices use their
-/// logical block size reported by the OS. Use [`open_with_block_size`](Self::open_with_block_size)
+/// logical block size reported by the OS, and report the OS's physical block
+/// size as [`physical_block_size`](crate::sync::BlockDevice::physical_block_size)
+/// on Linux, macOS and FreeBSD; elsewhere, and for image files, it equals
+/// the logical block size unless set with
+/// [`with_physical_block_size`](Self::with_physical_block_size). Use [`open_with_block_size`](Self::open_with_block_size)
 /// or [`with_block_size`](Self::with_block_size) for an image with different
 /// geometry or a device whose geometry cannot be queried. Trailing bytes
 /// that do not fill a block are not addressable.
@@ -60,6 +64,7 @@ pub struct FileDevice {
     file: File,
     len: u64,
     block_size: BlockSize,
+    physical_block_size: BlockSize,
     writable: bool,
     grows: bool,
 }
@@ -98,6 +103,21 @@ impl FileDevice {
         Self::measure(file, writable, Some(block_size))
     }
 
+    /// Reports `physical` as the physical block size, for an image of a disk
+    /// whose physical blocks are larger than its logical ones. Fails with
+    /// [`io::ErrorKind::InvalidInput`] unless it is a multiple of the
+    /// logical block size.
+    pub fn with_physical_block_size(mut self, physical: BlockSize) -> io::Result<Self> {
+        if physical.get() % self.block_size.get() != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the physical block size is not a multiple of the logical block size",
+            ));
+        }
+        self.physical_block_size = physical;
+        Ok(self)
+    }
+
     /// Recovers the file.
     pub fn into_inner(self) -> File {
         self.file
@@ -129,10 +149,14 @@ impl FileDevice {
                     "cannot determine the device's logical block size",
                 )
             })?;
+        let physical_block_size = disk_physical_block_size(&file, meta.as_ref())
+            .filter(|physical| physical.get() % block_size.get() == 0)
+            .unwrap_or(block_size);
         Ok(Self {
             file,
             len,
             block_size,
+            physical_block_size,
             writable,
             grows,
         })
@@ -236,6 +260,10 @@ impl ErrorType for FileDevice {
 impl crate::sync::BlockDevice for FileDevice {
     fn block_size(&self) -> BlockSize {
         self.block_size
+    }
+
+    fn physical_block_size(&self) -> BlockSize {
+        self.physical_block_size
     }
 
     fn block_count(&self) -> u64 {
@@ -481,6 +509,65 @@ fn query_block_size(file: &File) -> Option<u32> {
     not(any(target_vendor = "apple", target_os = "freebsd", target_os = "linux"))
 ))]
 fn query_block_size(_file: &File) -> Option<u32> {
+    None
+}
+
+#[cfg(all(feature = "sync", unix))]
+fn disk_physical_block_size(file: &File, meta: Option<&Metadata>) -> Option<BlockSize> {
+    if !is_device(meta) {
+        return None;
+    }
+    query_physical_block_size(file).and_then(BlockSize::new)
+}
+
+#[cfg(all(feature = "sync", any(target_vendor = "apple", target_os = "linux")))]
+fn query_physical_block_size(file: &File) -> Option<u32> {
+    use std::os::fd::AsRawFd;
+
+    let mut size: u32 = 0;
+    // SAFETY: the open descriptor remains valid, and the request writes one
+    // 32-bit physical block size into the supplied pointer.
+    #[cfg(target_os = "linux")]
+    let ok = unsafe { libc::ioctl(file.as_raw_fd(), libc::BLKPBSZGET, &mut size as *mut u32) == 0 };
+    #[cfg(target_vendor = "apple")]
+    let ok = {
+        const DKIOCGETPHYSICALBLOCKSIZE: core::ffi::c_ulong = 0x4004_644D;
+        unsafe {
+            ioctl(
+                file.as_raw_fd(),
+                DKIOCGETPHYSICALBLOCKSIZE,
+                &mut size as *mut u32,
+            ) == 0
+        }
+    };
+    ok.then_some(size)
+}
+
+/// FreeBSD reports the physical block size as the stripe size, 0 when the
+/// provider has none.
+#[cfg(all(feature = "sync", target_os = "freebsd"))]
+fn query_physical_block_size(file: &File) -> Option<u32> {
+    use std::os::fd::AsRawFd;
+
+    const DIOCGSTRIPESIZE: core::ffi::c_ulong = 0x4008_648B;
+    let mut size: i64 = 0;
+    // SAFETY: the open descriptor remains valid, and the request writes one
+    // `off_t` into the supplied pointer.
+    let ok = unsafe { ioctl(file.as_raw_fd(), DIOCGSTRIPESIZE, &mut size as *mut i64) == 0 };
+    if ok { u32::try_from(size).ok() } else { None }
+}
+
+#[cfg(all(
+    feature = "sync",
+    unix,
+    not(any(target_vendor = "apple", target_os = "freebsd", target_os = "linux"))
+))]
+fn query_physical_block_size(_file: &File) -> Option<u32> {
+    None
+}
+
+#[cfg(all(feature = "sync", not(unix)))]
+fn disk_physical_block_size(_file: &File, _meta: Option<&Metadata>) -> Option<BlockSize> {
     None
 }
 

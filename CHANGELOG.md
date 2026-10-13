@@ -29,6 +29,30 @@ Each published package owns its version and may be released independently.
   primary one is damaged. `fat info` reads the boot sector through the
   mounted volume.
 
+- **hadris-fs shared tier:** `Volume` gains `read`, `write` and `exists` as
+  in `std::fs`, `walk`, a depth-first `WalkDir` that yields each entry with
+  its path and ends at a directory loop with `Corrupt`, and `open_node`,
+  which opens an entry a `ReadDir` or `WalkDir` listed by looking its name
+  up in its directory and fails with `NotFound` once the name leads
+  elsewhere (`ReadDir::open` is the shorthand). `File` gains `read_at`,
+  `write_at` and `set_attr`. `OpenOptions::with_attr` sets the initial
+  attributes of a file the open creates, in `Volume::open` and the embedded
+  FAT `open`, which previously created every file with default attributes.
+  `read_tree` takes each entry's metadata from the listing and looks up only
+  files and symlinks, instead of a `lookup` and `stat` per entry. All are in
+  every mode.
+
+- **hadris-storage:** `BlockDevice::physical_block_size` (sync and async)
+  reports the media's write unit and defaults to `block_size`. `&mut`,
+  `Box`, `Cache`, `ReadAhead`, `ReadOnly` and `Partition` forward it, and
+  `host::FileDevice` reads it from the OS on Linux, macOS and FreeBSD, with
+  `FileDevice::with_physical_block_size` to set it for an image.
+
+- **FAT/exFAT format:** Without `with_alignment`, the FAT data region and
+  the exFAT FAT and cluster heap are aligned to the device's physical block
+  size when it is larger than a sector. Devices whose physical block size
+  equals their logical one format as before.
+
 - **FAT/exFAT verification:** Add 25 Kani proofs for entry codecs, boot geometry,
   formatter bounds, allocation, names, timestamps and checksums. A daily
   scheduled workflow runs the pinned verifier and retains per-proof reports;

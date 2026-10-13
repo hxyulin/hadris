@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use hadris_fs::{
-    Capabilities, CaseRule, Charset, DirCursor, DirEntry, ErrorKind, FileType, FsResult, FsStats,
-    Metadata, Name, NodeId, OpenMode, Permissions, RenameMode, SetAttr,
+    Capabilities, CaseRule, Charset, DateTime, DirCursor, DirEntry, ErrorKind, FileType, FsResult,
+    FsStats, Metadata, Name, NodeId, OpenMode, Permissions, RenameMode, SetAttr,
 };
 
 use super::FileSystem;
@@ -20,6 +20,7 @@ struct Node {
     name: Vec<u8>,
     parent: usize,
     kind: Kind,
+    modified: Option<DateTime>,
 }
 
 /// An in-memory filesystem with symlinks, `parent`, pin and open counting
@@ -36,6 +37,8 @@ pub struct MemFs {
     stall_in: Option<u32>,
     fail_truncate: bool,
     scanned: u64,
+    lookups: u64,
+    stats: u64,
 }
 
 fn id(index: usize) -> NodeId {
@@ -54,6 +57,7 @@ impl MemFs {
             name: Vec::new(),
             parent: 0,
             kind: Kind::Dir,
+            modified: None,
         };
         Self {
             nodes: vec![Some(root)],
@@ -66,6 +70,8 @@ impl MemFs {
             stall_in: None,
             fail_truncate: false,
             scanned: 0,
+            lookups: 0,
+            stats: 0,
         }
     }
 
@@ -87,6 +93,7 @@ impl MemFs {
             name: name.as_bytes().to_vec(),
             parent,
             kind,
+            modified: None,
         }));
     }
 
@@ -98,6 +105,7 @@ impl MemFs {
             name: name.as_bytes().to_vec(),
             parent,
             kind: Kind::Alias(target),
+            modified: None,
         }));
     }
 
@@ -138,6 +146,11 @@ impl MemFs {
     /// Node slots `readdir` has looked at, as a directory scan would.
     pub fn scanned(&self) -> u64 {
         self.scanned
+    }
+
+    /// `lookup` and `stat` calls made.
+    pub fn lookups_and_stats(&self) -> (u64, u64) {
+        (self.lookups, self.stats)
     }
 
     /// `close` calls that succeeded.
@@ -239,7 +252,11 @@ impl MemFs {
             Some(Kind::Link(target)) => (FileType::Symlink, target.len()),
             _ => (FileType::Dir, 0),
         };
-        Metadata::new(file_type, Permissions::new(0o755)).with_len(len as u64)
+        let meta = Metadata::new(file_type, Permissions::new(0o755)).with_len(len as u64);
+        match self.nodes[index].as_ref().and_then(|n| n.modified) {
+            Some(time) => meta.with_modified(time),
+            None => meta,
+        }
     }
 
     fn file_mut(&mut self, node: NodeId) -> FsResult<&mut Vec<u8>, MemError> {
@@ -268,7 +285,13 @@ impl MemFs {
         Ok(index)
     }
 
-    fn add_node(&mut self, dir: NodeId, name: &Name, kind: Kind) -> FsResult<NodeId, MemError> {
+    fn add_node(
+        &mut self,
+        dir: NodeId,
+        name: &Name,
+        kind: Kind,
+        attrs: &SetAttr,
+    ) -> FsResult<NodeId, MemError> {
         self.writable()?;
         name.check()?;
         self.device()?;
@@ -280,6 +303,7 @@ impl MemFs {
             name: name.as_bytes().to_vec(),
             parent: dir,
             kind,
+            modified: attrs.modified(),
         }));
         Ok(self.pin(self.nodes.len() - 1))
     }
@@ -330,6 +354,7 @@ impl FileSystem for MemFs {
     }
 
     async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, MemError> {
+        self.lookups += 1;
         self.tick().await;
         name.check()?;
         self.device()?;
@@ -355,6 +380,7 @@ impl FileSystem for MemFs {
     }
 
     async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, MemError> {
+        self.stats += 1;
         self.stall().await;
         self.device()?;
         if let Kind::Alias(_) = self.node(node)?.kind {
@@ -433,14 +459,20 @@ impl FileSystem for MemFs {
         Ok(n)
     }
 
-    async fn setattr(&mut self, node: NodeId, _changes: &SetAttr) -> FsResult<(), MemError> {
+    async fn setattr(&mut self, node: NodeId, changes: &SetAttr) -> FsResult<(), MemError> {
         self.stall().await;
         self.writable()?;
         self.node(node)?;
+        if let Some(time) = changes.modified()
+            && let Some(Some(found)) = self.nodes.get_mut(node.get() as usize - 1)
+        {
+            found.modified = Some(time);
+        }
         Ok(())
     }
 
     async fn write(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, MemError> {
+        self.tick().await;
         self.writable()?;
         self.device()?;
         let data = self.file_mut(node)?;
@@ -466,12 +498,12 @@ impl FileSystem for MemFs {
         self.device()
     }
 
-    async fn create(&mut self, dir: NodeId, name: &Name, _attrs: &SetAttr) -> FsResult<NodeId, MemError> {
-        self.add_node(dir, name, Kind::File(Vec::new()))
+    async fn create(&mut self, dir: NodeId, name: &Name, attrs: &SetAttr) -> FsResult<NodeId, MemError> {
+        self.add_node(dir, name, Kind::File(Vec::new()), attrs)
     }
 
-    async fn mkdir(&mut self, dir: NodeId, name: &Name, _attrs: &SetAttr) -> FsResult<NodeId, MemError> {
-        self.add_node(dir, name, Kind::Dir)
+    async fn mkdir(&mut self, dir: NodeId, name: &Name, attrs: &SetAttr) -> FsResult<NodeId, MemError> {
+        self.add_node(dir, name, Kind::Dir, attrs)
     }
 
     async fn unlink(&mut self, dir: NodeId, name: &Name) -> FsResult<(), MemError> {

@@ -1,5 +1,7 @@
 //! `format` checked against the host `fsck`, the on-disk layout and `FatFs`.
 
+#[path = "common/advanced.rs"]
+mod advanced;
 #[path = "common/fatfs.rs"]
 mod common;
 use common::{FsPaths, VolumePaths};
@@ -499,6 +501,45 @@ fn sizes_alignment_and_growable_devices() {
     assert_eq!(geometry.kind(), FatKind::Fat12);
     assert_eq!(grown.len() as u64, 2 * MIB);
     exercise(grown, 512, FatKind::Fat12, "grown");
+}
+
+#[test]
+fn the_data_region_follows_the_physical_block_size() {
+    for kind in [FatKind::Fat12, FatKind::Fat16, FatKind::Fat32] {
+        let mut plain = device(64 * MIB, 512);
+        let mut dev = advanced::Advanced::new(64 * MIB as usize, 512, 4096);
+        let options = FatOptions::new().with_kind(kind);
+        format(&mut plain, &options).unwrap();
+        format(&mut dev, &options).unwrap();
+        let data_start = |image: &[u8]| {
+            let reserved = u16::from_le_bytes([image[14], image[15]]) as u64;
+            let fat = match u16::from_le_bytes([image[22], image[23]]) {
+                0 => u32::from_le_bytes(image[36..40].try_into().unwrap()) as u64,
+                fat => fat as u64,
+            };
+            let root = (u16::from_le_bytes([image[17], image[18]]) as u64 * 32).div_ceil(512);
+            (reserved + 2 * fat + root) * 512
+        };
+        let image = dev.inner.into_inner();
+        assert_eq!(data_start(&image) % 4096, 0, "{kind:?}");
+        let unaligned = plain.into_inner();
+        if data_start(&unaligned) % 4096 != 0 {
+            assert_ne!(
+                image[14..16],
+                unaligned[14..16],
+                "{kind:?} reserved sectors"
+            );
+        }
+        exercise(image, 512, kind, "physical alignment");
+    }
+    let mut dev = advanced::Advanced::new(64 * MIB as usize, 512, 4096);
+    format(&mut dev, &FatOptions::new().with_alignment(512)).unwrap();
+    let image = dev.inner.into_inner();
+    assert_eq!(
+        u16::from_le_bytes([image[14], image[15]]),
+        1,
+        "an explicit alignment wins"
+    );
 }
 
 #[test]

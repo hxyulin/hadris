@@ -204,3 +204,19 @@ fn lazy_content_is_read_in_its_own_mode() {
         1
     );
 }
+
+#[test]
+fn read_tree_takes_metadata_from_the_listing() {
+    let vol = Volume::new(fixture());
+    let before = vol.lock().lookups_and_stats();
+    let tree = read_tree(&vol, "/").unwrap();
+    let after = vol.lock().lookups_and_stats();
+    assert_eq!(
+        (after.0 - before.0, after.1 - before.1),
+        (7, 1),
+        "one lookup per file and symlink, one stat for the top"
+    );
+    assert_eq!(tree.get("etc/conf").unwrap().content().unwrap().len(), 9);
+    drop(tree);
+    assert_eq!(vol.into_inner().ok().unwrap().open_nodes(), 1);
+}

@@ -154,6 +154,52 @@ fn lists_from_a_cursor_and_opens_listed_nodes() {
 }
 
 #[test]
+fn created_files_take_the_open_options_attributes() {
+    let case = CASES[0];
+    let mut token = MountToken::new();
+    let mut fat = mount(&mut token, case, common::build(case));
+    let root = fat.root();
+    let time = DateTime::from_unix_seconds(1_700_000_000).unwrap();
+    let attrs = SetAttr::new()
+        .with_attributes(Attributes::HIDDEN)
+        .with_modified(time);
+    let file = fat
+        .open(
+            root,
+            "made.txt",
+            OpenOptions::new().write().create_new().with_attr(attrs),
+        )
+        .unwrap();
+    fat.close(file).unwrap();
+    let file = fat
+        .open(root, "plain.txt", OpenOptions::new().write().create_new())
+        .unwrap();
+    fat.close(file).unwrap();
+    fat.set_attr(root, "plain.txt", &attrs).unwrap();
+    let made = fat.metadata(root, "made.txt").unwrap();
+    let plain = fat.metadata(root, "plain.txt").unwrap();
+    assert!(made.attributes().contains(Attributes::HIDDEN));
+    assert_eq!(made.modified(), plain.modified());
+    assert_eq!(made.attributes(), plain.attributes());
+    let file = fat
+        .open(
+            root,
+            "README.TXT",
+            OpenOptions::new().write().create().with_attr(attrs),
+        )
+        .unwrap();
+    fat.close(file).unwrap();
+    assert!(
+        !fat.metadata(root, "README.TXT")
+            .unwrap()
+            .attributes()
+            .contains(Attributes::HIDDEN),
+        "an existing file keeps its attributes"
+    );
+    common::fsck(&image(fat), "embedded create with attributes");
+}
+
+#[test]
 fn nodes_outside_the_directories_are_invalid_handles() {
     let (fat16, fat32) = (CASES[1], CASES[2]);
     let mut token_16 = MountToken::new();

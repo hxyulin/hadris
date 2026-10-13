@@ -117,6 +117,9 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
     fn block_size(&self) -> BlockSize {
         self.inner.block_size()
     }
+    fn physical_block_size(&self) -> BlockSize {
+        self.inner.physical_block_size()
+    }
     fn block_count(&self) -> u64 {
         self.inner.block_count()
     }

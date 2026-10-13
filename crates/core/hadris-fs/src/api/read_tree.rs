@@ -58,6 +58,15 @@ pub(super) fn attrs_of(meta: &Metadata) -> SetAttr {
     attrs
 }
 
+/// The tree node of a device node, FIFO or socket.
+fn special(meta: &Metadata) -> Node {
+    let device = match meta.file_type() {
+        FileType::CharDevice | FileType::BlockDevice => Some(meta.device().unwrap_or(DeviceNumber::new(0, 0))),
+        _ => None,
+    };
+    Node::special(meta.file_type(), device).with_attrs(attrs_of(meta))
+}
+
 /// A pinned file of a volume, read through a clone of the volume.
 struct VolumeContent<F: FileSystem> {
     vol: Volume<F>,
@@ -132,12 +141,10 @@ pub async fn read_tree<F: FileSystem + Send + 'static>(vol: &Volume<F>, path: im
         top.forget(&mut *fs);
         return Err(err);
     }
-    let mut stack: Vec<(Held<'_>, DirCursor, Vec<u8>)> = alloc::vec![(top, DirCursor::START, Vec::new())];
+    let mut stack: Vec<(NodeId, DirCursor, Vec<u8>)> = alloc::vec![(top.node(), DirCursor::START, Vec::new())];
     let mut seen: Vec<(NodeId, Vec<u8>)> = Vec::new();
     let result = walk(&mut *fs, vol, &mut tree, &mut stack, &mut seen).await;
-    for (node, ..) in stack {
-        node.forget(&mut *fs);
-    }
+    top.forget(&mut *fs);
     result.map(|()| tree)
 }
 
@@ -168,21 +175,24 @@ async fn stored_name<F: FileSystem>(
     found
 }
 
-async fn walk<'v, F: FileSystem + Send + 'static>(
+/// Adds everything below the directories on `stack` to `tree`. The walk
+/// holds the lock throughout, so it lists directories by the ids `readdir`
+/// returned without pinning them, and takes each entry's metadata from the
+/// listing; only files, whose content keeps a pin, and symlinks, whose
+/// target is read, are looked up.
+async fn walk<F: FileSystem + Send + 'static>(
     fs: &mut F,
-    vol: &'v Volume<F>,
+    vol: &Volume<F>,
     tree: &mut Tree,
-    stack: &mut Vec<(Held<'v>, DirCursor, Vec<u8>)>,
+    stack: &mut Vec<(NodeId, DirCursor, Vec<u8>)>,
     seen: &mut Vec<(NodeId, Vec<u8>)>,
 ) -> Result<(), PathError> {
     while let Some((dir, cursor, prefix)) = stack.last_mut() {
-        let dir = dir.node();
+        let dir = *dir;
         let entry = match fs.readdir(dir, *cursor).await {
             Ok(Some(entry)) => entry,
             Ok(None) => {
-                if let Some((done, ..)) = stack.pop() {
-                    done.forget(fs);
-                }
+                stack.pop();
                 continue;
             }
             Err(err) => return Err(PathError::from(err).with_path(&prefix[..])),
@@ -191,34 +201,28 @@ async fn walk<'v, F: FileSystem + Send + 'static>(
         let mut path = prefix.clone();
         path.push(b'/');
         path.extend_from_slice(entry.name().as_bytes());
-        let child = vol.hold(fs.lookup(dir, entry.name()).await.map_err(|err| PathError::from(err).with_path(&path))?);
-        let meta = match fs.stat(child.node()).await {
-            Ok(meta) => meta,
-            Err(err) => {
-                child.forget(fs);
-                return Err(PathError::from(err).with_path(&path));
-            }
-        };
+        let meta = entry.metadata();
         if meta.file_type().is_dir() {
-            let entered = enter(stack.iter().map(|(node, ..)| node.node()), child.node())
+            enter(stack.iter().map(|(node, ..)| *node), entry.node())
                 .map_err(PathError::from)
-                .and_then(|()| tree.insert(&path, Node::dir().with_attrs(attrs_of(&meta))));
-            if let Err(err) = entered {
-                child.forget(fs);
-                return Err(err.with_path(&path));
-            }
-            stack.push((child, DirCursor::START, path));
+                .and_then(|()| tree.insert(&path, Node::dir().with_attrs(attrs_of(meta))))
+                .map_err(|err| err.with_path(&path))?;
+            stack.push((entry.node(), DirCursor::START, path));
             continue;
         }
         if meta.file_type().is_file() && meta.nlink() > 1 {
-            if let Some((_, first)) = seen.iter().find(|(node, _)| *node == child.node()) {
-                child.forget(fs);
+            if let Some((_, first)) = seen.iter().find(|(node, _)| *node == entry.node()) {
                 tree.link(first, &path)?;
                 continue;
             }
-            seen.push((child.node(), path.clone()));
+            seen.push((entry.node(), path.clone()));
         }
-        let node = node_of(fs, vol, child, &meta).await.map_err(|err| err.with_path(&path))?;
+        let node = if matches!(meta.file_type(), FileType::File | FileType::Symlink) {
+            let child = vol.hold(fs.lookup(dir, entry.name()).await.map_err(|err| PathError::from(err).with_path(&path))?);
+            node_of(fs, vol, child, meta).await.map_err(|err| err.with_path(&path))?
+        } else {
+            special(meta)
+        };
         tree.insert(&path, node)?;
     }
     Ok(())
@@ -246,10 +250,7 @@ async fn node_of<F: FileSystem + Send + 'static>(
             },
             Err(kind) => Err(PathError::from(kind)),
         },
-        FileType::CharDevice | FileType::BlockDevice => {
-            Ok(Node::special(meta.file_type(), Some(meta.device().unwrap_or(DeviceNumber::new(0, 0)))))
-        }
-        other => Ok(Node::special(other, None)),
+        _ => Ok(special(meta)),
     };
     node.forget(fs);
     Ok(made?.with_attrs(attrs))

@@ -268,3 +268,281 @@ fn dropping_a_written_file_closes_it() {
     assert_eq!(vol.lock().closes(), before + 2);
     assert_eq!(open_nodes(vol), 1);
 }
+
+#[test]
+fn whole_file_helpers() {
+    let vol = Volume::new(fixture());
+    assert_eq!(vol.read("/etc/conf").unwrap(), b"key=value");
+    vol.write("/new.txt", b"fresh").unwrap();
+    assert_eq!(vol.read("/new.txt").unwrap(), b"fresh");
+    vol.write("/new.txt", "x").unwrap();
+    assert_eq!(vol.read("/new.txt").unwrap(), b"x");
+    vol.write("/empty", []).unwrap();
+    assert_eq!(vol.read("/empty").unwrap(), b"");
+    assert!(vol.exists("/new.txt").unwrap());
+    assert!(vol.exists("/etc").unwrap());
+    assert!(!vol.exists("/missing").unwrap());
+    assert_eq!(
+        vol.exists("/a.txt/x").unwrap_err().kind(),
+        ErrorKind::NotADirectory
+    );
+    assert_eq!(
+        vol.read("/etc").unwrap_err().kind(),
+        ErrorKind::IsADirectory
+    );
+    assert_eq!(vol.read("/nope").unwrap_err().kind(), ErrorKind::NotFound);
+    assert_eq!(
+        vol.write("/etc", b"x").unwrap_err().kind(),
+        ErrorKind::IsADirectory
+    );
+    let read_only = Volume::new(fixture().read_only());
+    assert_eq!(
+        read_only.write("/a.txt", b"x").unwrap_err().kind(),
+        ErrorKind::ReadOnly
+    );
+    assert_eq!(read_only.read("/a.txt").unwrap(), b"root a");
+    let fs = vol.into_inner().unwrap();
+    assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));
+}
+
+#[test]
+fn walk_yields_paths_depth_first() {
+    let vol = Volume::new(fixture());
+    let paths = |path: &str| -> Vec<String> {
+        vol.walk(path)
+            .unwrap()
+            .map(|entry| String::from_utf8(entry.unwrap().into_path()).unwrap())
+            .collect()
+    };
+    let all = [
+        "/etc",
+        "/etc/conf",
+        "/etc/up",
+        "/link",
+        "/abs",
+        "/loop",
+        "/long",
+        "/a.txt",
+    ];
+    assert_eq!(paths("/"), all);
+    assert_eq!(paths(""), all);
+    assert_eq!(paths("/etc/"), ["/etc/conf", "/etc/up"]);
+    assert_eq!(paths("etc"), ["etc/conf", "etc/up"]);
+
+    let mut walk = vol.walk("/").unwrap();
+    let first = walk.next().unwrap().unwrap();
+    assert_eq!((first.path(), first.depth()), (&b"/etc"[..], 1));
+    assert!(first.entry().file_type().is_dir());
+    walk.skip_dir();
+    let next = walk.next().unwrap().unwrap();
+    assert_eq!(next.path(), b"/link");
+    assert_eq!(next.dir(), vol.lock().root());
+    drop(walk);
+
+    let deep = vol.walk("/etc").unwrap().next().unwrap().unwrap();
+    assert_eq!(deep.depth(), 1);
+    assert_eq!(
+        vol.walk("/a.txt").unwrap_err().kind(),
+        ErrorKind::NotADirectory
+    );
+    assert_eq!(vol.walk("/nope").unwrap_err().kind(), ErrorKind::NotFound);
+    assert_eq!(open_nodes(vol), 1);
+}
+
+#[test]
+fn walk_stops_at_a_directory_loop() {
+    for (dir, target) in [("/etc", "/etc"), ("/etc", "/")] {
+        let mut fs = fixture();
+        fs.alias(dir, "back", target);
+        let vol = Volume::new(fs);
+        let mut walk = vol.walk("/").unwrap();
+        let err = walk.by_ref().find_map(Result::err).unwrap();
+        assert_eq!(err.kind(), ErrorKind::Corrupt, "{dir} -> {target}");
+        assert!(walk.next().is_none(), "fused");
+        drop(walk);
+        assert_eq!(open_nodes(vol), 1);
+    }
+}
+
+#[test]
+fn open_node_opens_a_listed_entry() {
+    let vol = Volume::new(fixture());
+    let mut dir = vol.read_dir("/etc").unwrap();
+    let entries: Vec<_> = dir.by_ref().map(Result::unwrap).collect();
+    let entry = |name: &[u8]| {
+        entries
+            .iter()
+            .find(|e| e.name().as_bytes() == name)
+            .unwrap()
+    };
+    let mut file = dir.open(entry(b"conf"), OpenOptions::new().read()).unwrap();
+    let mut text = String::new();
+    file.read_to_string(&mut text).unwrap();
+    assert_eq!(text, "key=value");
+    drop(file);
+    assert_eq!(
+        dir.open(entry(b"up"), OpenOptions::new().read())
+            .unwrap_err()
+            .kind(),
+        ErrorKind::Symlink
+    );
+    assert_eq!(
+        dir.open(entry(b"conf"), OpenOptions::new().write().create_new())
+            .unwrap_err()
+            .kind(),
+        ErrorKind::AlreadyExists
+    );
+    assert_eq!(
+        dir.open(entry(b"conf"), OpenOptions::new())
+            .unwrap_err()
+            .kind(),
+        ErrorKind::InvalidInput
+    );
+    let file = dir
+        .open(
+            entry(b"conf"),
+            OpenOptions::new().write().create().truncate(),
+        )
+        .unwrap();
+    assert_eq!(file.metadata().unwrap().len(), 0);
+    file.close().unwrap();
+
+    vol.remove_file("/etc/conf").unwrap();
+    write(&vol, "/etc/conf", b"replaced").unwrap();
+    assert_eq!(
+        dir.open(entry(b"conf"), OpenOptions::new().read())
+            .unwrap_err()
+            .kind(),
+        ErrorKind::NotFound,
+        "the name leads to another node"
+    );
+    vol.rename("/etc/conf", "/etc/moved").unwrap();
+    let moved = vol
+        .read_dir("/etc")
+        .unwrap()
+        .map(Result::unwrap)
+        .find(|e| e.name().as_bytes() == b"moved")
+        .unwrap();
+    vol.rename("/etc/moved", "/etc/conf").unwrap();
+    assert_eq!(
+        dir.open(&moved, OpenOptions::new().read())
+            .unwrap_err()
+            .kind(),
+        ErrorKind::NotFound,
+        "the name is gone"
+    );
+    drop(dir);
+
+    let found = vol
+        .walk("/")
+        .unwrap()
+        .map(Result::unwrap)
+        .find(|e| e.path() == b"/etc/conf")
+        .unwrap();
+    let mut file = vol
+        .open_node(
+            found.dir(),
+            found.entry(),
+            OpenOptions::new().read().write(),
+        )
+        .unwrap();
+    file.write_all(b"via walk").unwrap();
+    file.close().unwrap();
+    assert_eq!(read(&vol, "/etc/conf").unwrap(), b"via walk");
+
+    let read_only = Volume::new(fixture().read_only());
+    let root = read_only.lock().root();
+    let a = read_only
+        .read_dir("/")
+        .unwrap()
+        .map(Result::unwrap)
+        .find(|e| e.name().as_bytes() == b"a.txt")
+        .unwrap();
+    assert_eq!(
+        read_only
+            .open_node(root, &a, OpenOptions::new().write())
+            .unwrap_err()
+            .kind(),
+        ErrorKind::ReadOnly
+    );
+    read_only
+        .open_node(root, &a, OpenOptions::new().read())
+        .unwrap()
+        .close()
+        .unwrap();
+    assert_eq!(open_nodes(read_only), 1);
+    let fs = vol.into_inner().unwrap();
+    assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));
+}
+
+#[test]
+fn positional_io_and_attributes() {
+    let time = hadris_fs::DateTime::from_unix_seconds(1_700_000_000).unwrap();
+    let later = hadris_fs::DateTime::from_unix_seconds(1_800_000_000).unwrap();
+    let vol = Volume::new(fixture());
+    let mut file = vol
+        .open("/a.txt", OpenOptions::new().read().write())
+        .unwrap();
+    file.seek(SeekFrom::Start(2)).unwrap();
+    assert_eq!(file.write_at(4, b"AB").unwrap(), 2);
+    let mut buf = [0u8; 3];
+    assert_eq!(file.read_at(0, &mut buf).unwrap(), 3);
+    assert_eq!(&buf, b"roo");
+    assert_eq!(file.read_at(6, &mut buf).unwrap(), 0);
+    file.read_exact(&mut buf).unwrap();
+    assert_eq!(&buf, b"otA", "the position is untouched");
+    file.set_attr(&SetAttr::new().with_modified(time)).unwrap();
+    assert_eq!(file.metadata().unwrap().modified(), Some(time));
+    file.close().unwrap();
+
+    let reader = vol.open("/a.txt", OpenOptions::new().read()).unwrap();
+    assert_eq!(
+        reader.write_at(0, b"x").unwrap_err().kind(),
+        ErrorKind::InvalidInput
+    );
+    reader
+        .set_attr(&SetAttr::new().with_modified(later))
+        .unwrap();
+    drop(reader);
+    let writer = vol.open("/a.txt", OpenOptions::new().write()).unwrap();
+    assert_eq!(
+        writer.read_at(0, &mut buf).unwrap_err().kind(),
+        ErrorKind::InvalidInput
+    );
+    drop(writer);
+
+    let stamped = SetAttr::new().with_modified(time);
+    let made = vol
+        .open(
+            "/made",
+            OpenOptions::new().write().create().with_attr(stamped),
+        )
+        .unwrap();
+    assert_eq!(made.metadata().unwrap().modified(), Some(time));
+    made.close().unwrap();
+    let kept = vol
+        .open(
+            "/a.txt",
+            OpenOptions::new().write().create().with_attr(stamped),
+        )
+        .unwrap();
+    assert_eq!(
+        kept.metadata().unwrap().modified(),
+        Some(later),
+        "an existing file keeps its attributes"
+    );
+    kept.close().unwrap();
+    let fresh = vol
+        .open(
+            "/fresh",
+            OpenOptions::new().write().create_new().with_attr(stamped),
+        )
+        .unwrap();
+    assert_eq!(fresh.metadata().unwrap().modified(), Some(time));
+    drop(fresh);
+    assert!(vol.metadata("/plain").is_err());
+    write(&vol, "/plain", b"").unwrap();
+    assert_eq!(vol.metadata("/plain").unwrap().modified(), None);
+    let fs = vol.into_inner().unwrap();
+    assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));
+}

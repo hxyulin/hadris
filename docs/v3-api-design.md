@@ -683,7 +683,8 @@ std::thread::spawn(move || worker.metadata("/big.bin"));
 `open`, `metadata`, `symlink_metadata`, `read_dir`, `read_link`,
 `create_dir`, `create_dir_all`, `remove_file`, `remove_dir`,
 `remove_dir_all`, `rename` (replaces an existing target, as
-`std::fs::rename` does) and `set_attr`. There is no `DriverExt` or `PathExt`
+`std::fs::rename` does), `set_attr`, `read`, `write`, `exists` and `walk`,
+plus `open_node` for an entry a listing returned. There is no `DriverExt` or `PathExt`
 and no extension trait in their place (S6). `Volume` does not implement
 `FileSystem`: path `open` and `rename` would share names with the node
 methods on one type.
