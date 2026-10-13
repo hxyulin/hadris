@@ -48,6 +48,9 @@ hadris-fs = { workspace = true, features = ["contract"] }
 hadris-storage = { workspace = true, features = ["std", "sync"] }
 tempfile.workspace = true
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+
 [[test]]
 name = "roundtrip"
 required-features = ["std", "sync"]

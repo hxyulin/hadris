@@ -1,0 +1,174 @@
+{
+  "schema_version": 2,
+  "verifier_version": "0.68.0",
+  "catalog": "spec/requirements/hadris-iso.json",
+  "workflow": ".github/workflows/iso-proofs.yml",
+  "groups": [
+    "fields",
+    "records",
+    "dates",
+    "susp",
+    "boot",
+    "names"
+  ],
+  "crates": {
+    "hadris-iso-raw": {
+      "path": "crates/optical/hadris-iso-raw",
+      "features": []
+    },
+    "hadris-iso": {
+      "path": "crates/optical/hadris-iso",
+      "features": [
+        "alloc",
+        "sync"
+      ]
+    }
+  },
+  "harnesses": [
+    {
+      "harness": "verification::both_byte_order_fields_match_layout",
+      "crate": "hadris-iso-raw",
+      "path": "crates/optical/hadris-iso-raw/src/verification.rs",
+      "group": "fields",
+      "scope": "All 8-byte U32Both and 4-byte U16Both images and all u32/u16 values written over them.",
+      "requirements": [
+        "ECMA-119-1987:7.2.3#both-byte-order"
+      ],
+      "covers": 0
+    },
+    {
+      "harness": "verification::single_byte_order_fields_match_layout",
+      "crate": "hadris-iso-raw",
+      "path": "crates/optical/hadris-iso-raw/src/verification.rs",
+      "group": "fields",
+      "scope": "All 4- and 2-byte images and all u32/u16 values for U32Le, U32Be, U16Le and U16Be.",
+      "requirements": [
+        "ECMA-119-1987:7.2.1#single-byte-order"
+      ],
+      "covers": 0
+    },
+    {
+      "harness": "verification::path_table_records_match_layout",
+      "crate": "hadris-iso-raw",
+      "path": "crates/optical/hadris-iso-raw/src/verification.rs",
+      "group": "fields",
+      "scope": "All identifier lengths, u32 extents and u16 parents for both table types; all 8-byte headers for decoding and record length.",
+      "requirements": [
+        "ECMA-119-1987:9.4.3#path-table-byte-order",
+        "ECMA-119-1987:9.4.6#path-table-padding"
+      ],
+      "covers": 0
+    },
+    {
+      "harness": "verification::records::directory_record_parse_matches_specification",
+      "crate": "hadris-iso-raw",
+      "path": "crates/optical/hadris-iso-raw/src/verification/records.rs",
+      "group": "records",
+      "scope": "All 256-byte buffers and every input length 0 to 256; exact acceptance predicate; one symbolic index per copied region; unwind 5.",
+      "requirements": [
+        "ECMA-119-1987:9.1.1#directory-record-bounds",
+        "ECMA-119-1987:9.1.3#directory-extent-endian-copies",
+        "ECMA-119-1987:9.1.6#reserved-flags",
+        "ECMA-119-1987:9.1.12#identifier-padding"
+      ],
+      "covers": 1
+    },
+    {
+      "harness": "verification::records::directory_record_new_parses_back",
+      "crate": "hadris-iso-raw",
+      "path": "crates/optical/hadris-iso-raw/src/verification/records.rs",
+      "group": "records",
+      "scope": "Names and system use areas of every length 0 to 256 with arbitrary bytes; one symbolic index per region; unwind 5.",
+      "requirements": [
+        "ECMA-119-1987:9.1.12#identifier-padding"
+      ],
+      "covers": 1
+    },
+    {
+      "harness": "verification::dates::directory_dates_accept_exactly_valid_fields",
+      "crate": "hadris-iso-raw",
+      "path": "crates/optical/hadris-iso-raw/src/verification/dates.rs",
+      "group": "dates",
+      "scope": "All 7-byte directory dates; exact acceptance predicate, recorded offset and its effect on the instant.",
+      "requirements": [
+        "ECMA-119-1987:9.1.5#recording-date"
+      ],
+      "covers": 1
+    },
+    {
+      "harness": "verification::dates::descriptor_dates_accept_exactly_valid_fields",
+      "crate": "hadris-iso-raw",
+      "path": "crates/optical/hadris-iso-raw/src/verification/dates.rs",
+      "group": "dates",
+      "scope": "All 17-byte descriptor dates; exact digit and acceptance predicate, hundredths, recorded offset and its effect on the instant; unwind 8.",
+      "requirements": [
+        "ECMA-119-1987:8.4.26.1#decimal-date-ranges"
+      ],
+      "covers": 1
+    },
+    {
+      "harness": "verification::dates::descriptor_date_digits_are_fixed_width_decimal",
+      "crate": "hadris-iso-raw",
+      "path": "crates/optical/hadris-iso-raw/src/verification/dates.rs",
+      "group": "dates",
+      "scope": "Every value below 10000 for 4-digit fields and below 100 for 2-digit fields, the ranges the encoder writes; all 4-byte strings for parsing; unwind 5.",
+      "requirements": [
+        "ECMA-119-1987:8.4.26.1#decimal-date-format"
+      ],
+      "covers": 0
+    },
+    {
+      "harness": "verification::susp::susp_walk_stays_in_bounds_and_terminates",
+      "crate": "hadris-iso-raw",
+      "path": "crates/optical/hadris-iso-raw/src/verification/susp.rs",
+      "group": "susp",
+      "scope": "All system use areas of 0 to 32 bytes and every usize skip; walk compared with an independent position model; unwind 10.",
+      "requirements": [
+        "IEEE-P1281-1.12:4.1#entry-bounds"
+      ],
+      "covers": 2
+    },
+    {
+      "harness": "verification::boot::el_torito_validation_checksum_matches_specification",
+      "crate": "hadris-iso-raw",
+      "path": "crates/optical/hadris-iso-raw/src/verification/boot.rs",
+      "group": "boot",
+      "scope": "All 32-byte validation entries and all platform IDs for construction; unwind 17.",
+      "requirements": [
+        "EL-TORITO-1.0:2.1#validation-checksum"
+      ],
+      "covers": 1
+    },
+    {
+      "harness": "verification::boot::boot_info_checksum_sums_zero_padded_words",
+      "crate": "hadris-iso-raw",
+      "path": "crates/optical/hadris-iso-raw/src/verification/boot.rs",
+      "group": "boot",
+      "scope": "Images of 0 to 16 bytes, every u32 incoming sum and every four-byte-aligned split; unwind 17.",
+      "requirements": [],
+      "covers": 1
+    },
+    {
+      "harness": "verification::file_identifier_version_matches_specification",
+      "crate": "hadris-iso",
+      "path": "crates/optical/hadris-iso/src/verification.rs",
+      "group": "names",
+      "scope": "Identifiers of 0 to 8 bytes in both single-byte and UCS-2 encodings; version stripping for single-byte names; unwind 10.",
+      "requirements": [
+        "ECMA-119-1987:7.5.1#file-identifier-version"
+      ],
+      "covers": 2
+    },
+    {
+      "harness": "verification::primary_name_characters_are_d_characters",
+      "crate": "hadris-iso",
+      "path": "crates/optical/hadris-iso/src/verification.rs",
+      "group": "names",
+      "scope": "Every Unicode scalar value under both name-case policies.",
+      "requirements": [
+        "ECMA-119-1987:7.5.1#d-characters"
+      ],
+      "covers": 0
+    }
+  ]
+}

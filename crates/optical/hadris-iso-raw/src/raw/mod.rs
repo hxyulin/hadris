@@ -218,7 +218,7 @@ impl<const N: usize> fmt::Debug for IsoStr<N> {
     }
 }
 
-fn digits<const N: usize>(mut value: u32) -> [u8; N] {
+pub(crate) fn digits<const N: usize>(mut value: u32) -> [u8; N] {
     let mut out = [b'0'; N];
     for byte in out.iter_mut().rev() {
         *byte = b'0' + (value % 10) as u8;
@@ -227,7 +227,7 @@ fn digits<const N: usize>(mut value: u32) -> [u8; N] {
     out
 }
 
-fn parse_digits(bytes: &[u8]) -> Option<u32> {
+pub(crate) fn parse_digits(bytes: &[u8]) -> Option<u32> {
     bytes.iter().try_fold(0u32, |acc, &byte| {
         byte.is_ascii_digit()
             .then(|| acc * 10 + u32::from(byte - b'0'))

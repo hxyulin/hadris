@@ -1,11 +1,25 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "verifier_version": "0.68.0",
-  "crate": "hadris-fat-raw",
-  "features": [],
+  "catalog": "spec/requirements/hadris-fat.json",
+  "workflow": ".github/workflows/fat-proofs.yml",
+  "groups": [
+    "entries",
+    "geometry",
+    "allocation",
+    "names",
+    "checksums"
+  ],
+  "crates": {
+    "hadris-fat-raw": {
+      "path": "crates/block/hadris-fat-raw",
+      "features": []
+    }
+  },
   "harnesses": [
     {
       "harness": "verification::fat12_updates_preserve_neighbor",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification.rs",
       "group": "entries",
       "scope": "Full three-byte states and u32 values; both parity windows; sized buffers.",
@@ -14,6 +28,7 @@
     },
     {
       "harness": "verification::fat16_entries_are_little_endian",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification.rs",
       "group": "entries",
       "scope": "Full two-byte states, u32 values and u64 cluster arguments; sized buffers.",
@@ -22,6 +37,7 @@
     },
     {
       "harness": "verification::fat32_updates_preserve_reserved_bits",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification.rs",
       "group": "entries",
       "scope": "Full four-byte states, u32 values and u64 cluster arguments; sized buffers.",
@@ -32,6 +48,7 @@
     },
     {
       "harness": "verification::fat_chain_markers_match_specification",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification.rs",
       "group": "entries",
       "scope": "All three FAT widths; full u32 stored values and maximum-cluster bounds.",
@@ -42,6 +59,7 @@
     },
     {
       "harness": "verification::exfat_entry_checksum_matches_specification",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification.rs",
       "group": "checksums",
       "scope": "Full 32-byte entries, u16 incoming sums and usize indexes; unwind 33.",
@@ -52,6 +70,7 @@
     },
     {
       "harness": "verification::exfat_name_hash_matches_specification",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification.rs",
       "group": "checksums",
       "scope": "Full u16 incoming hashes and code units; unwind 3; units already up-cased.",
@@ -60,6 +79,7 @@
     },
     {
       "harness": "verification::allocation::fat_entry_offsets_fit_valid_cluster_domain",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification/allocation.rs",
       "group": "allocation",
       "scope": "Full u32 cluster domain; does not cover arbitrary u64 arguments to entry_offset.",
@@ -68,6 +88,7 @@
     },
     {
       "harness": "verification::allocation::chain_guard_detects_all_four_node_graph_cycles",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification/allocation.rs",
       "group": "allocation",
       "scope": "All directed successor graphs on four nodes, all starts; detect within sixteen steps without false positives; unwind 17.",
@@ -76,6 +97,7 @@
     },
     {
       "harness": "verification::allocation::fsinfo_signatures_are_required_and_hints_preserved",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification/allocation.rs",
       "group": "allocation",
       "scope": "Full u32 signatures and free/next hints, including unknown all-ones values; unwind 5.",
@@ -86,6 +108,7 @@
     },
     {
       "harness": "verification::checksums::exfat_boot_checksum_excludes_only_mutable_fields",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification/checksums.rs",
       "group": "checksums",
       "scope": "All 113-byte prefixes, full u32 incoming sums and u64 sector indexes; unwind 114; not complete boot regions.",
@@ -96,6 +119,7 @@
     },
     {
       "harness": "verification::checksums::exfat_table_checksum_matches_bounded_prefixes",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification/checksums.rs",
       "group": "checksums",
       "scope": "All byte strings of lengths zero through eight and full u32 incoming sums; unwind 9.",
@@ -106,6 +130,7 @@
     },
     {
       "harness": "verification::checksums::exfat_name_hash_matches_bounded_names",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification/checksums.rs",
       "group": "checksums",
       "scope": "All up-cased u16 strings of lengths zero through eight; unwind 9; not up-case table validation.",
@@ -114,6 +139,7 @@
     },
     {
       "harness": "verification::geometry::fat16_accepted_geometry_is_bounded",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification/geometry.rs",
       "group": "geometry",
       "scope": "Symbolic boot fields; supported sector sizes, valid signature and nonzero fixed root; conditional on acceptance.",
@@ -124,6 +150,7 @@
     },
     {
       "harness": "verification::geometry::fat32_accepted_geometry_is_bounded",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification/geometry.rs",
       "group": "geometry",
       "scope": "Symbolic boot fields; supported sector sizes, FAT32 layout, version zero and valid signature; conditional on acceptance.",
@@ -134,6 +161,7 @@
     },
     {
       "harness": "verification::geometry::fat_invalid_cluster_sizes_are_rejected",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification/geometry.rs",
       "group": "geometry",
       "scope": "Arbitrary 512-byte boot sector; checks rejection of invalid sector/cluster sizes.",
@@ -144,6 +172,7 @@
     },
     {
       "harness": "verification::geometry::exfat_accepted_geometry_is_bounded",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification/geometry.rs",
       "group": "geometry",
       "scope": "Symbolic boot fields; valid filesystem name, signature, revision 1.00 and MustBeZero; conditional on acceptance; unwind 54.",
@@ -152,6 +181,7 @@
     },
     {
       "harness": "verification::geometry::explicit_fat_layout_fits_volume",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification/geometry.rs",
       "group": "geometry",
       "scope": "All u32 volume-sector counts and three FAT kinds; explicit 512-byte sectors/clusters, default metadata; unwind 4.",
@@ -160,6 +190,7 @@
     },
     {
       "harness": "verification::names::lfn_checksum_matches_specification",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification/names.rs",
       "group": "names",
       "scope": "Full 11-byte short-name domain; unwind 12.",
@@ -170,6 +201,7 @@
     },
     {
       "harness": "verification::names::lfn_fields_preserve_code_units_and_terminator",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification/names.rs",
       "group": "names",
       "scope": "Full thirteen-u16 fragment domain; independent byte layout and first terminator/filler position; unwind 33 (including byte comparison).",
@@ -180,6 +212,7 @@
     },
     {
       "harness": "verification::names::directory_slots_match_disk_markers",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification/names.rs",
       "group": "names",
       "scope": "Full 32-byte directory-slot domain; marker and attribute classification only.",
@@ -190,6 +223,7 @@
     },
     {
       "harness": "verification::names::short_entry_cluster_fields_match_specification",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification/names.rs",
       "group": "names",
       "scope": "Symbolic short-entry fields; non-deleted short-name marker and archive attribute fixed.",
@@ -198,6 +232,7 @@
     },
     {
       "harness": "verification::names::short_name_escape_preserves_other_bytes",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification/names.rs",
       "group": "names",
       "scope": "Full 11-byte short-name domain; leading 0x05 normalization is intentional; unwind 12.",
@@ -206,6 +241,7 @@
     },
     {
       "harness": "verification::names::ascii_case_fold_matches_specification",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification/names.rs",
       "group": "names",
       "scope": "Full u16 domain; ASCII folding only, not Unicode tables.",
@@ -214,6 +250,7 @@
     },
     {
       "harness": "verification::names::exfat_name_units_reject_forbidden_characters",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification/names.rs",
       "group": "names",
       "scope": "Full u16 code-unit domain; forbidden character classification only.",
@@ -222,6 +259,7 @@
     },
     {
       "harness": "verification::names::fat_timestamp_packing_matches_bit_fields",
+      "crate": "hadris-fat-raw",
       "path": "crates/block/hadris-fat-raw/src/verification/names.rs",
       "group": "names",
       "scope": "Full u16 year and u8 calendar/time fields; clamps/masks API behavior, not calendar validity.",

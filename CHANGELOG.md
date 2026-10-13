@@ -81,6 +81,16 @@ Each published package owns its version and may be released independently.
   `ExFatOptions::with_volume_guid` sets it or, with `None`, leaves it out.
   `hadris_fat::exfat::Guid` is `hadris_part::Guid`.
 
+- **ISO 9660 verification:** Add 13 Kani proofs for byte-order fields, path
+  table and directory record layout, directory and descriptor dates, SUSP
+  entry walking, the El Torito validation checksum, the boot info table
+  checksum, and file identifier versions and d-characters. A daily scheduled
+  workflow runs them; the FAT/exFAT and ISO proof stages now share
+  `scripts/verify-proofs.py`, which replaces `scripts/verify-fat.py`.
+
+- **ISO raw codecs:** Add `BootInfoTable::checksum`, the zero-padded word sum
+  a boot information table records. The writer now uses it.
+
 - **FAT/exFAT verification:** Add 25 Kani proofs for entry codecs, boot geometry,
   formatter bounds, allocation, names, timestamps and checksums. A daily
   scheduled workflow runs the pinned verifier and retains per-proof reports;

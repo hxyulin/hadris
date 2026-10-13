@@ -85,7 +85,8 @@ jobs:
               - 'spec/**'
               - 'docs/compliance/**'
               - 'docs/spec-coverage.md'
-              - 'scripts/{check-spec-annotations.py,check-compliance-catalog.py,verify-fat.py,test-verify-fat.py}'
+              - 'scripts/{check-spec-annotations.py,check-compliance-catalog.py,verify-proofs.py,test-verify-proofs.py}'
+              - '.github/workflows/{fat,iso}-proofs.yml'
             licenses:
               - '**/Cargo.{toml,lock}'
               - 'deny.toml'
@@ -134,10 +135,10 @@ jobs:
         run: python3 scripts/check-compliance-catalog.py --self-test
       - name: Check compliance catalogs
         run: python3 scripts/check-compliance-catalog.py
-      - name: Check FAT proof inventory
-        run: python3 scripts/verify-fat.py --check
+      - name: Check FAT and ISO proof inventories
+        run: python3 scripts/verify-proofs.py --check
       - name: Test proof runner
-        run: python3 scripts/test-verify-fat.py
+        run: python3 scripts/test-verify-proofs.py
 
   check:
     needs: changes

@@ -20,7 +20,7 @@ pub(crate) const JOLIET_MAX_CHARS: usize = 64;
 
 /// The byte a name character becomes: ASCII letters, digits and `_`, and
 /// `_` for every other character.
-fn convert_char(c: char, case: NameCase) -> u8 {
+pub(crate) fn convert_char(c: char, case: NameCase) -> u8 {
     match c {
         'a'..='z' if case == NameCase::Upper => c.to_ascii_uppercase() as u8,
         _ if c.is_ascii_alphanumeric() || c == '_' => c as u8,

@@ -25,6 +25,10 @@ a descriptor sequence without a primary descriptor. Raw-image tests directly
 prove directory-sector padding, directory identifier grammar, and adversarial
 path-table ordering.
 
+Bounded Kani proofs of the raw codecs, record parsing, dates, SUSP walking,
+El Torito checksums and identifier versions run on a schedule; the
+[ISO verification guide](../iso-verification.md) lists their scopes.
+
 Remaining `partial` entries are intentional work items. A status becomes
 `verified` only when a clause-sized claim has direct executable evidence; a
 successful Hadris-to-Hadris round trip is not by itself a conformance oracle.

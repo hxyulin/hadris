@@ -92,14 +92,15 @@ RUSTUP_TOOLCHAIN=1.88.0 RUSTFLAGS="-D warnings" python3 scripts/check-features.p
 
 ### CI coverage
 
-FAT/exFAT formal proofs run in the separate daily and manually triggered
-[`fat-proofs.yml`](.github/workflows/fat-proofs.yml), rather than on every PR.
-PR checks validate the proof inventory and runner. Run
-`python3 scripts/verify-fat.py` locally with the pinned Kani installation, or
-use `--group geometry` to select one group. The
-[verification guide](docs/fat-verification.md) documents proof scopes, reports
-and schedule limitations. Scheduled results apply to the tested commit and
-do not block an earlier merge.
+FAT/exFAT and ISO 9660 formal proofs run in the separate daily and manually
+triggered [`fat-proofs.yml`](.github/workflows/fat-proofs.yml) and
+[`iso-proofs.yml`](.github/workflows/iso-proofs.yml), rather than on every PR.
+PR checks validate the proof inventories and runner. Run
+`python3 scripts/verify-proofs.py fat` or `python3 scripts/verify-proofs.py iso`
+locally with the pinned Kani installation, or add `--group <name>` to select one
+group. The [FAT](docs/fat-verification.md) and [ISO](docs/iso-verification.md)
+verification guides document proof scopes, reports and schedule limitations.
+Scheduled results apply to the tested commit and do not block an earlier merge.
 
 Rust CI always reports the required `Check`, `Test (ubuntu-latest)`, `Format`
 and `Clippy` contexts. Workflow path globs select expensive jobs:
