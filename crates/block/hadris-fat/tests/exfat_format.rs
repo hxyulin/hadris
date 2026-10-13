@@ -1,6 +1,8 @@
 //! `format` lays out volumes that `ExFatFs`, `check` and the native tools
 //! accept, for every sector size and a range of cluster sizes.
 
+#[path = "common/advanced.rs"]
+mod advanced;
 #[path = "common/exfat.rs"]
 mod common;
 use common::FsPaths;
@@ -53,6 +55,22 @@ fn layouts_follow_the_volume_size() {
         }
         fsck(&image, &format!("{size} bytes"));
     }
+}
+
+#[test]
+fn the_default_alignment_follows_the_physical_block_size() {
+    let mut dev = advanced::Advanced::new(8 << 20, 512, 64 << 10);
+    format(&mut dev, &ExFatOptions::new()).unwrap();
+    let image = dev.inner.into_inner();
+    let geo = Geometry::of(&image);
+    assert_eq!(geo.cluster, 4096);
+    assert_eq!((geo.fat % (64 << 10), geo.heap % (64 << 10)), (0, 0));
+    fsck(&image, "64 KiB physical blocks");
+
+    let mut dev = advanced::Advanced::new(8 << 20, 512, 64 << 10);
+    format(&mut dev, &ExFatOptions::new().with_alignment(4096)).unwrap();
+    let geo = Geometry::of(&dev.inner.into_inner());
+    assert_eq!(geo.fat, 24 * 512, "an explicit alignment wins");
 }
 
 #[test]

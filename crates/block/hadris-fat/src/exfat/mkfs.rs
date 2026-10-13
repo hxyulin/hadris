@@ -74,8 +74,15 @@ fn shift_of(value: u64) -> Option<u8> {
         .then(|| value.trailing_zeros() as u8)
 }
 
-/// Plans a volume of `device_bytes`, or says why it cannot.
-fn plan(device_bytes: u64, block_size: u32, options: &ExFatOptions) -> Result<Layout, ErrorKind> {
+/// Plans a volume of `device_bytes`, or says why it cannot. Without an
+/// explicit alignment the FAT and the heap are aligned to at least the
+/// device's `physical` block size, from the volume start.
+fn plan(
+    device_bytes: u64,
+    block_size: u32,
+    physical: u32,
+    options: &ExFatOptions,
+) -> Result<Layout, ErrorKind> {
     let sector = options.sector_size.unwrap_or(match block_size {
         512 | 1024 | 2048 | 4096 => block_size,
         _ => 512,
@@ -104,10 +111,15 @@ fn plan(device_bytes: u64, block_size: u32, options: &ExFatOptions) -> Result<La
     if cluster < sector || cluster > MAX_CLUSTER as u64 {
         return Err(ErrorKind::InvalidInput);
     }
+    let physical = if physical.is_power_of_two() {
+        u64::from(physical)
+    } else {
+        sector
+    };
     let align = options
         .alignment
         .map(u64::from)
-        .unwrap_or(if volume >= 64 << 20 { 1 << 20 } else { cluster });
+        .unwrap_or((if volume >= 64 << 20 { 1 << 20 } else { cluster }).max(physical));
     if !align.is_power_of_two() || align < sector {
         return Err(ErrorKind::InvalidInput);
     }
@@ -227,7 +239,12 @@ fn prepare<D: BlockDevice>(dev: &D, options: &ExFatOptions) -> Result<Prepared, 
         dev.block_count(),
         dev.max_block_count(),
     )?;
-    let layout = plan(device_bytes, block_size as u32, options)?;
+    let layout = plan(
+        device_bytes,
+        block_size as u32,
+        dev.physical_block_size().get(),
+        options,
+    )?;
     let partition_offset = offset_sectors(
         options.partition_offset.unwrap_or(dev.disk_offset()),
         layout.sector(),
@@ -436,17 +453,17 @@ mod tests {
 
     #[test]
     fn layouts_match_mkfs_exfat() {
-        let layout = plan(64 << 20, 512, &ExFatOptions::new()).unwrap();
+        let layout = plan(64 << 20, 512, 512, &ExFatOptions::new()).unwrap();
         assert_eq!(layout.fat_offset, 2048);
         assert_eq!(layout.heap_offset, 4096);
         assert_eq!(layout.root(), 5);
         assert_eq!(
-            plan(512 << 10, 512, &ExFatOptions::new()).err(),
+            plan(512 << 10, 512, 512, &ExFatOptions::new()).err(),
             Some(ErrorKind::NoSpace)
         );
         let odd = ExFatOptions::new().with_cluster_size(3000);
         assert_eq!(
-            plan(8 << 20, 512, &odd).err(),
+            plan(8 << 20, 512, 512, &odd).err(),
             Some(ErrorKind::InvalidInput)
         );
     }

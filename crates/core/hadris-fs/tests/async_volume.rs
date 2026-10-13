@@ -290,3 +290,189 @@ fn futures_are_send() {
     };
     block_on(assert_send(copy)).unwrap();
 }
+
+/// Polls `future` once and drops it. Its output, if it finished.
+fn poll_capture<F: core::future::Future>(future: F) -> Option<F::Output> {
+    let mut context = core::task::Context::from_waker(core::task::Waker::noop());
+    let mut future = core::pin::pin!(future);
+    match future.as_mut().poll(&mut context) {
+        core::task::Poll::Ready(out) => Some(out),
+        core::task::Poll::Pending => None,
+    }
+}
+
+#[test]
+fn helpers_handles_and_walks() {
+    block_on(async {
+        let time = hadris_fs::DateTime::from_unix_seconds(1_700_000_000).unwrap();
+        let vol = Volume::new(fixture());
+        vol.write("/new.txt", b"fresh").await.unwrap();
+        assert_eq!(vol.read("/new.txt").await.unwrap(), b"fresh");
+        assert!(vol.exists("/etc/conf").await.unwrap());
+        assert!(!vol.exists("/missing").await.unwrap());
+
+        let mut walk = vol.walk("/etc").await.unwrap();
+        let mut paths = Vec::new();
+        let mut conf = None;
+        while let Some(entry) = walk.next_entry().await {
+            let entry = entry.unwrap();
+            if entry.path() == b"/etc/conf" {
+                conf = Some(entry.clone());
+            }
+            paths.push(entry.into_path());
+        }
+        assert_eq!(paths, [b"/etc/conf".to_vec(), b"/etc/up".to_vec()]);
+        drop(walk);
+        let conf = conf.unwrap();
+
+        let file = vol
+            .open_node(conf.dir(), conf.entry(), OpenOptions::new().read().write())
+            .await
+            .unwrap();
+        assert_eq!(file.write_at(0, b"KEY").await.unwrap(), 3);
+        let mut buf = [0u8; 9];
+        assert_eq!(file.read_at(0, &mut buf).await.unwrap(), 9);
+        assert_eq!(&buf, b"KEY=value");
+        file.set_attr(&SetAttr::new().with_modified(time))
+            .await
+            .unwrap();
+        file.close().await.unwrap();
+
+        let dir = vol.read_dir("/").await.unwrap();
+        let made = vol
+            .open(
+                "/made",
+                OpenOptions::new()
+                    .write()
+                    .create()
+                    .with_attr(SetAttr::new().with_modified(time)),
+            )
+            .await
+            .unwrap();
+        assert_eq!(made.metadata().await.unwrap().modified(), Some(time));
+        made.close().await.unwrap();
+        let mut dir = dir;
+        let mut a = None;
+        while let Some(entry) = dir.next_entry().await {
+            let entry = entry.unwrap();
+            if entry.name().as_bytes() == b"a.txt" {
+                a = Some(entry);
+            }
+        }
+        dir.open(&a.unwrap(), OpenOptions::new().read())
+            .await
+            .unwrap()
+            .close()
+            .await
+            .unwrap();
+        drop(dir);
+        let fs = vol.into_inner().await.unwrap();
+        assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));
+    });
+}
+
+#[test]
+fn dropped_helpers_leave_no_pins_or_opens() {
+    block_on(async {
+        let vol = Volume::new(fixture());
+        let root = vol.lock().await.root();
+        let mut listing = vol.read_dir("/").await.unwrap();
+        let mut a = None;
+        while let Some(entry) = listing.next_entry().await {
+            let entry = entry.unwrap();
+            if entry.name().as_bytes() == b"a.txt" {
+                a = Some(entry);
+            }
+        }
+        drop(listing);
+        let a = a.unwrap();
+        let calls: [(&str, &dyn Fn() -> bool); 6] = [
+            ("read", &|| poll_once(vol.read("/etc/conf"))),
+            ("write", &|| poll_once(vol.write("/etc/conf", b"key=value"))),
+            ("exists", &|| poll_once(vol.exists("/etc/conf"))),
+            ("walk", &|| poll_once(vol.walk("/etc"))),
+            ("open_node", &|| {
+                poll_once(vol.open_node(root, &a, OpenOptions::new().write().truncate()))
+            }),
+            ("open with attrs", &|| {
+                poll_once(
+                    vol.open(
+                        "/made",
+                        OpenOptions::new()
+                            .write()
+                            .create()
+                            .with_attr(SetAttr::new()),
+                    ),
+                )
+            }),
+        ];
+        for (name, call) in calls {
+            for stall in 0.. {
+                vol.lock().await.stall_in(stall);
+                let pending = call();
+                let mut fs = vol.lock().await;
+                assert_eq!(
+                    (fs.open_nodes(), fs.open_files()),
+                    (1, 0),
+                    "{name} stalled at call {stall}"
+                );
+                fs.stall_in(u32::MAX);
+                drop(fs);
+                if !pending {
+                    break;
+                }
+            }
+        }
+        assert_eq!(vol.read("/etc/conf").await.unwrap(), b"key=value");
+
+        let file = vol
+            .open("/a.txt", OpenOptions::new().read().write())
+            .await
+            .unwrap();
+        vol.lock().await.stall_in(0);
+        cancel(file.read_at(0, &mut [0u8; 4]));
+        vol.lock().await.stall_in(0);
+        cancel(file.write_at(0, b"x"));
+        vol.lock().await.stall_next();
+        cancel(file.set_attr(&SetAttr::new()));
+        file.close().await.unwrap();
+        let fs = vol.into_inner().await.unwrap();
+        assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));
+    });
+}
+
+#[test]
+fn a_dropped_walk_step_loses_no_entry() {
+    block_on(async {
+        let vol = Volume::new(fixture());
+        let all = block_on(async {
+            let mut walk = vol.walk("/").await.unwrap();
+            let mut all = Vec::new();
+            while let Some(entry) = walk.next_entry().await {
+                all.push(entry.unwrap().into_path());
+            }
+            all
+        });
+        assert_eq!(all.len(), 8);
+        for stall in 0.. {
+            let mut walk = vol.walk("/").await.unwrap();
+            vol.lock().await.stall_in(stall);
+            let mut paths = Vec::new();
+            let mut dropped = false;
+            loop {
+                match poll_capture(walk.next_entry()) {
+                    Some(Some(entry)) => paths.push(entry.unwrap().into_path()),
+                    Some(None) => break,
+                    None => dropped = true,
+                }
+            }
+            assert_eq!(paths, all, "stalled at call {stall}");
+            vol.lock().await.stall_in(u32::MAX);
+            if !dropped {
+                break;
+            }
+        }
+        let fs = vol.into_inner().await.unwrap();
+        assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));
+    });
+}

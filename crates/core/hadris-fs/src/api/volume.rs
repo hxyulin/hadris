@@ -1,5 +1,5 @@
-use super::handle::{File, ReadDir};
-use super::paths::{cancelled, components, resolve_parent, split_parent};
+use super::handle::{File, ReadDir, WalkDir};
+use super::paths::{cancelled, components, resolve_parent, split_parent, write_all_at};
 use super::super::lock::{Guard, Lock};
 use super::*;
 use crate::OpenOptions;
@@ -279,7 +279,7 @@ impl<F: FileSystem> Volume<F> {
         if options.is_write() && !fs.capabilities().writable() {
             return Err(ErrorKind::ReadOnly.into());
         }
-        let mut node = if options.is_create() || options.is_create_new() {
+        let node = if options.is_create() || options.is_create_new() {
             let (dir, name) = resolve_parent(&mut *fs, path, how).await?;
             let dir = self.hold(dir);
             let found = match fs.lookup(dir.node(), name).await {
@@ -287,7 +287,7 @@ impl<F: FileSystem> Volume<F> {
                     fs.forget(node, 1);
                     Err(ErrorKind::AlreadyExists.into())
                 }
-                Err(err) if err.kind() == ErrorKind::NotFound => fs.create(dir.node(), name, &SetAttr::new()).await,
+                Err(err) if err.kind() == ErrorKind::NotFound => fs.create(dir.node(), name, options.attr()).await,
                 other => other,
             };
             dir.forget(&mut *fs);
@@ -301,28 +301,105 @@ impl<F: FileSystem> Volume<F> {
         } else {
             self.hold(fs.resolve(path, how).await?)
         };
-        let mode = if options.is_write() { OpenMode::Write } else { OpenMode::Read };
-        if let Err(err) = fs.open(node.node(), mode).await {
-            node.forget(&mut *fs);
-            return Err(err);
-        }
-        node.open = true;
-        if options.is_truncate() && !options.is_create_new() {
-            let emptied = match fs.stat(node.node()).await {
-                Ok(meta) if meta.len() > 0 => fs.truncate(node.node(), 0).await,
-                Ok(_) => Ok(()),
-                Err(err) => Err(err),
-            };
-            if let Err(err) = emptied {
-                let _ = fs.close(node.node()).await;
-                node.closed();
-                node.forget(&mut *fs);
-                return Err(err);
-            }
-        }
-        let node = node.keep();
+        let node = open_held(&mut *fs, node, options).await?;
         drop(fs);
         Ok(File::new(self.clone(), node, options))
+    }
+
+    /// Opens the file `entry` names in the directory `dir`, as `readdir`
+    /// listed it, without resolving a path. `dir` is pinned, as the
+    /// directory of a [`ReadDir`] or the root is, or was listed by this
+    /// volume and has not changed since, as the
+    /// [`dir`](super::WalkDirEntry::dir) of a [`WalkDir`] entry.
+    ///
+    /// The file is pinned by looking `entry`'s name up in `dir`, so the
+    /// lookup rules of the format apply; a name that no longer leads to
+    /// `entry`'s node, as after the directory changed, fails with
+    /// [`ErrorKind::NotFound`]. A symlink is not followed and fails with
+    /// [`ErrorKind::Symlink`]. `create` changes nothing, `create_new` fails
+    /// with [`ErrorKind::AlreadyExists`], and the other options apply as for
+    /// [`open`](Self::open).
+    pub async fn open_node(
+        &self,
+        dir: NodeId,
+        entry: &DirEntry,
+        options: OpenOptions,
+    ) -> FsResult<File<F>, F::DeviceError> {
+        options.validate()?;
+        if options.is_create_new() {
+            return Err(ErrorKind::AlreadyExists.into());
+        }
+        let mut fs = self.lock().await;
+        if options.is_write() && !fs.capabilities().writable() {
+            return Err(ErrorKind::ReadOnly.into());
+        }
+        let node = self.hold(fs.lookup(dir, entry.name()).await?);
+        if node.node() != entry.node() {
+            node.forget(&mut *fs);
+            return Err(ErrorKind::NotFound.into());
+        }
+        let node = open_held(&mut *fs, node, options).await?;
+        drop(fs);
+        Ok(File::new(self.clone(), node, options))
+    }
+
+    /// Reads the whole file at `path`, as `std::fs::read`.
+    pub async fn read(&self, path: impl AsRef<[u8]>) -> FsResult<Vec<u8>, F::DeviceError> {
+        let file = self.open(path, OpenOptions::new().read()).await?;
+        let mut fs = self.lock().await;
+        let read = read_all(&mut *fs, file.node()).await;
+        drop(fs);
+        let closed = file.close().await;
+        let data = read?;
+        closed?;
+        Ok(data)
+    }
+
+    /// Writes `contents` as the whole file at `path`, creating it or
+    /// truncating it first, as `std::fs::write`.
+    pub async fn write(&self, path: impl AsRef<[u8]>, contents: impl AsRef<[u8]>) -> FsResult<(), F::DeviceError> {
+        let file = self.open(path, OpenOptions::new().write().create().truncate()).await?;
+        let mut fs = self.lock().await;
+        let written = write_all_at(&mut *fs, file.node(), 0, contents.as_ref()).await;
+        drop(fs);
+        let closed = file.close().await;
+        written?;
+        closed
+    }
+
+    /// Whether `path` names a node, following a final symlink when the
+    /// volume's policy does, as `std::fs::exists`: `Ok(false)` when it is
+    /// not found, and other errors as they are.
+    pub async fn exists(&self, path: impl AsRef<[u8]>) -> FsResult<bool, F::DeviceError> {
+        match self.metadata(path).await {
+            Ok(_) => Ok(true),
+            Err(err) if err.kind() == ErrorKind::NotFound => Ok(false),
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Walks everything below the directory at `path`, depth first, each
+    /// directory before its children, yielding every entry with its path.
+    ///
+    /// A directory that leads back to one of its ancestors, which only a
+    /// corrupt volume holds, ends the walk with [`ErrorKind::Corrupt`].
+    /// Each step locks the volume once; see [`WalkDir`] for changes made
+    /// during the walk.
+    pub async fn walk(&self, path: impl AsRef<[u8]>) -> FsResult<WalkDir<F>, F::DeviceError> {
+        let path = path.as_ref();
+        let mut fs = self.lock().await;
+        let node = self.hold(fs.resolve(path, self.shared.resolve).await?);
+        match fs.stat(node.node()).await {
+            Ok(meta) if meta.file_type().is_dir() => {
+                let node = node.keep();
+                drop(fs);
+                Ok(WalkDir::new(self.clone(), node, path))
+            }
+            other => {
+                node.forget(&mut *fs);
+                Err(other.err().unwrap_or_else(|| ErrorKind::NotADirectory.into()))
+            }
+        }
     }
 
     /// Metadata of the node at `path`, following a final symlink when the
@@ -462,6 +539,60 @@ impl<F: FileSystem> Volume<F> {
         let set = fs.setattr(node.node(), changes).await;
         node.forget(&mut *fs);
         set
+    }
+}
+
+/// Opens the pinned `node` for `options`, emptying it for `truncate`, and
+/// hands its pin to the caller. On an error the pin is forgotten.
+async fn open_held<F: FileSystem + ?Sized>(
+    fs: &mut F,
+    mut node: Held<'_>,
+    options: OpenOptions,
+) -> FsResult<NodeId, F::DeviceError> {
+    let mode = if options.is_write() { OpenMode::Write } else { OpenMode::Read };
+    if let Err(err) = fs.open(node.node(), mode).await {
+        node.forget(fs);
+        return Err(err);
+    }
+    node.open = true;
+    if options.is_truncate() && !options.is_create_new() {
+        let emptied = match fs.stat(node.node()).await {
+            Ok(meta) if meta.len() > 0 => fs.truncate(node.node(), 0).await,
+            Ok(_) => Ok(()),
+            Err(err) => Err(err),
+        };
+        if let Err(err) = emptied {
+            let _ = fs.close(node.node()).await;
+            node.closed();
+            node.forget(fs);
+            return Err(err);
+        }
+    }
+    Ok(node.keep())
+}
+
+/// The most `read_all` reserves up front from a file's reported length.
+const READ_HINT: usize = 1 << 20;
+
+/// Reads all of the open file `node` until a read returns 0. The reported
+/// length is only a hint, so a damaged image that claims a huge file grows
+/// the buffer as data arrives; a failed allocation is
+/// [`ErrorKind::LimitExceeded`].
+async fn read_all<F: FileSystem + ?Sized>(fs: &mut F, node: NodeId) -> FsResult<Vec<u8>, F::DeviceError> {
+    let hint = usize::try_from(fs.stat(node).await?.len()).unwrap_or(usize::MAX);
+    let mut data = Vec::new();
+    data.try_reserve(hint.clamp(1, READ_HINT)).map_err(|_| ErrorKind::LimitExceeded)?;
+    loop {
+        if data.len() == data.capacity() {
+            data.try_reserve(data.len().max(4096)).map_err(|_| ErrorKind::LimitExceeded)?;
+        }
+        let filled = data.len();
+        data.resize(data.capacity(), 0);
+        let n = fs.read(node, filled as u64, &mut data[filled..]).await?;
+        data.truncate(filled + n);
+        if n == 0 {
+            return Ok(data);
+        }
     }
 }
 

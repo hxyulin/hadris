@@ -39,6 +39,9 @@ impl<D: BlockDevice> BlockDevice for MetadataDevice<D> {
     fn block_size(&self) -> hadris_storage::BlockSize {
         self.inner.block_size()
     }
+    fn physical_block_size(&self) -> hadris_storage::BlockSize {
+        self.inner.physical_block_size()
+    }
     fn block_count(&self) -> u64 {
         self.inner.block_count()
     }
@@ -97,6 +100,9 @@ impl<D: BlockDevice> BlockDevice for MetadataDevice<D> {
     type State = D::State;
     fn block_size(&self) -> hadris_storage::BlockSize {
         self.inner.block_size()
+    }
+    fn physical_block_size(&self) -> hadris_storage::BlockSize {
+        self.inner.physical_block_size()
     }
     fn block_count(&self) -> u64 {
         self.inner.block_count()

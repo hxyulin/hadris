@@ -3098,3 +3098,66 @@ fn committed_replacement_survives_repeated_source_cleanup_failures() {
     let image = fs.unmount().unwrap().into_image();
     common::assert_checks_clean(case, &image, "repeated replacement cleanup failures");
 }
+
+#[test]
+fn the_shared_tier_opens_listed_nodes_and_creates_with_attributes() {
+    for case in CASES {
+        let vol = Volume::new(open(case, common::build(case)));
+        let mut files = Vec::new();
+        for entry in vol.walk("/").unwrap() {
+            let entry = entry.unwrap();
+            if !entry.entry().file_type().is_file() {
+                continue;
+            }
+            let mut file = vol
+                .open_node(entry.dir(), entry.entry(), OpenOptions::new().read())
+                .unwrap();
+            let mut data = Vec::new();
+            file.read_to_end(&mut data).unwrap();
+            file.close().unwrap();
+            assert_eq!(data, vol.read(entry.path()).unwrap(), "{}", case.name);
+            assert_eq!(
+                entry.entry().metadata().len(),
+                vol.metadata(entry.path()).unwrap().len()
+            );
+            files.push((entry.path().to_vec(), data.len() as u64));
+        }
+        assert!(!files.is_empty());
+        let tree = hadris_fs::sync::read_tree(&vol, "/").unwrap();
+        for (path, len) in files {
+            let node = tree.get(&path).unwrap();
+            assert_eq!(node.content().unwrap().len(), len, "{}", case.name);
+        }
+        drop(tree);
+
+        let hidden = SetAttr::new().with_attributes(Attributes::HIDDEN);
+        let file = vol
+            .open(
+                "/Nested Dir/made.txt",
+                OpenOptions::new().write().create_new().with_attr(hidden),
+            )
+            .unwrap();
+        assert!(
+            file.metadata()
+                .unwrap()
+                .attributes()
+                .contains(Attributes::HIDDEN)
+        );
+        assert_eq!(file.write_at(3, b"abc").unwrap(), 3);
+        file.set_attr(&SetAttr::new().with_attributes(Attributes::empty()))
+            .unwrap();
+        file.close().unwrap();
+        assert_eq!(vol.read("/Nested Dir/made.txt").unwrap(), b"\0\0\0abc");
+        assert!(
+            !vol.metadata("/Nested Dir/made.txt")
+                .unwrap()
+                .attributes()
+                .contains(Attributes::HIDDEN)
+        );
+        vol.write("/Nested Dir/made.txt", b"whole").unwrap();
+        assert!(vol.exists("/nested dir/MADE.TXT").unwrap());
+        let mut fs = vol.into_inner().unwrap();
+        fs.sync().unwrap();
+        fsck(&fs.into_inner().into_inner(), case.name);
+    }
+}

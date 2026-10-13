@@ -1,6 +1,6 @@
 use core::fmt;
 
-use crate::ErrorKind;
+use crate::{ErrorKind, SetAttr};
 
 /// How the node-level `open` opens a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -113,81 +113,112 @@ impl core::error::Error for OpenOptionsError {}
 /// modifiers:
 ///
 /// ```
-/// use hadris_fs::OpenOptions;
+/// use hadris_fs::{OpenOptions, Permissions, SetAttr};
 ///
 /// let log = OpenOptions::new().write().create().append();
 /// assert!(log.validate().is_ok());
 /// assert!(OpenOptions::new().read().truncate().validate().is_err());
+/// let private = log.with_attr(SetAttr::new().with_permissions(Permissions::new(0o600)));
+/// assert_eq!(private.attr().permissions(), Some(Permissions::new(0o600)));
 /// ```
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct OpenOptions(OpenFlags);
+pub struct OpenOptions {
+    flags: OpenFlags,
+    attr: SetAttr,
+}
 
 impl OpenOptions {
     /// Options that request nothing yet.
     pub const fn new() -> Self {
-        Self(OpenFlags::empty())
+        Self {
+            flags: OpenFlags::empty(),
+            attr: SetAttr::new(),
+        }
+    }
+
+    const fn with(self, flag: OpenFlags) -> Self {
+        Self {
+            flags: self.flags.union(flag),
+            attr: self.attr,
+        }
     }
 
     /// Requests read access.
     pub const fn read(self) -> Self {
-        Self(self.0.union(OpenFlags::READ))
+        self.with(OpenFlags::READ)
     }
 
     /// Requests write access.
     pub const fn write(self) -> Self {
-        Self(self.0.union(OpenFlags::WRITE))
+        self.with(OpenFlags::WRITE)
     }
 
     /// Writes always go to the end of the file.
     pub const fn append(self) -> Self {
-        Self(self.0.union(OpenFlags::APPEND))
+        self.with(OpenFlags::APPEND)
     }
 
     /// Truncates the file to length 0 when opened.
     pub const fn truncate(self) -> Self {
-        Self(self.0.union(OpenFlags::TRUNCATE))
+        self.with(OpenFlags::TRUNCATE)
     }
 
     /// Creates the file if it does not exist.
     pub const fn create(self) -> Self {
-        Self(self.0.union(OpenFlags::CREATE))
+        self.with(OpenFlags::CREATE)
     }
 
     /// Creates the file, failing with [`ErrorKind::AlreadyExists`] if it
     /// exists. Takes precedence over [`create`](Self::create) and
     /// [`truncate`](Self::truncate).
     pub const fn create_new(self) -> Self {
-        Self(self.0.union(OpenFlags::CREATE_NEW))
+        self.with(OpenFlags::CREATE_NEW)
+    }
+
+    /// The initial attributes of a file this open creates, as the mode
+    /// argument of `open(2)`. An existing file keeps its attributes, and
+    /// fields the format cannot store are ignored, as `create` ignores them.
+    pub const fn with_attr(self, attr: SetAttr) -> Self {
+        Self {
+            flags: self.flags,
+            attr,
+        }
+    }
+
+    /// The initial attributes given to [`with_attr`](Self::with_attr), empty
+    /// by default.
+    pub const fn attr(&self) -> &SetAttr {
+        &self.attr
     }
 
     /// Returns whether read access was requested.
     pub const fn is_read(&self) -> bool {
-        self.0.contains(OpenFlags::READ)
+        self.flags.contains(OpenFlags::READ)
     }
 
     /// Returns whether write access was requested.
     pub const fn is_write(&self) -> bool {
-        self.0.contains(OpenFlags::WRITE)
+        self.flags.contains(OpenFlags::WRITE)
     }
 
     /// Returns whether append mode was requested.
     pub const fn is_append(&self) -> bool {
-        self.0.contains(OpenFlags::APPEND)
+        self.flags.contains(OpenFlags::APPEND)
     }
 
     /// Returns whether truncation was requested.
     pub const fn is_truncate(&self) -> bool {
-        self.0.contains(OpenFlags::TRUNCATE)
+        self.flags.contains(OpenFlags::TRUNCATE)
     }
 
     /// Returns whether creation was requested.
     pub const fn is_create(&self) -> bool {
-        self.0.contains(OpenFlags::CREATE)
+        self.flags.contains(OpenFlags::CREATE)
     }
 
     /// Returns whether exclusive creation was requested.
     pub const fn is_create_new(&self) -> bool {
-        self.0.contains(OpenFlags::CREATE_NEW)
+        self.flags.contains(OpenFlags::CREATE_NEW)
     }
 
     /// Rejects contradictory combinations and options that request no
@@ -196,7 +227,7 @@ impl OpenOptions {
         if !self.is_read() && !self.is_write() {
             return Err(OpenOptionsError::NoAccess);
         }
-        let needs_write = self.0.intersects(
+        let needs_write = self.flags.intersects(
             OpenFlags::APPEND
                 .union(OpenFlags::TRUNCATE)
                 .union(OpenFlags::CREATE)

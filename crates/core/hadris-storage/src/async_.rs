@@ -16,6 +16,11 @@ pub trait BlockDevice: ErrorType {
     type State: Default + Unpin;
     /// Logical block size.
     fn block_size(&self) -> BlockSize;
+    /// Physical block size, a multiple of `block_size`, which it defaults
+    /// to. Formatters align their layout to it.
+    fn physical_block_size(&self) -> BlockSize {
+        self.block_size()
+    }
     /// Addressable blocks.
     fn block_count(&self) -> u64;
     /// Maximum writable blocks.
@@ -183,6 +188,9 @@ macro_rules! borrow_device {
         fn block_size(&self) -> BlockSize {
             D::block_size(self)
         }
+        fn physical_block_size(&self) -> BlockSize {
+            D::physical_block_size(self)
+        }
         fn block_count(&self) -> u64 {
             D::block_count(self)
         }
@@ -343,6 +351,9 @@ impl<D: BlockDevice> BlockDevice for Partition<D> {
     fn block_size(&self) -> BlockSize {
         self.get_ref().block_size()
     }
+    fn physical_block_size(&self) -> BlockSize {
+        self.get_ref().physical_block_size()
+    }
     fn block_count(&self) -> u64 {
         self.len() / u64::from(self.block_size().get())
     }
@@ -396,6 +407,9 @@ impl<D: BlockDevice> BlockDevice for crate::ReadOnly<D> {
     type State = D::State;
     fn block_size(&self) -> BlockSize {
         self.0.block_size()
+    }
+    fn physical_block_size(&self) -> BlockSize {
+        self.0.physical_block_size()
     }
     fn block_count(&self) -> u64 {
         self.0.block_count()
@@ -689,6 +703,9 @@ impl BlockDevice for crate::host::FileDevice {
     type State = ();
     fn block_size(&self) -> BlockSize {
         crate::sync::BlockDevice::block_size(self)
+    }
+    fn physical_block_size(&self) -> BlockSize {
+        crate::sync::BlockDevice::physical_block_size(self)
     }
     fn block_count(&self) -> u64 {
         crate::sync::BlockDevice::block_count(self)

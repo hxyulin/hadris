@@ -23,7 +23,10 @@ mounts a device that says false read-only. A device that says true may
 still refuse a later write with `ReadOnly`, as an SD card does when its
 lock switch moves while mounted. `max_block_count()` is how far a device
 grows when written past its end, and `disk_offset()` is the byte offset of
-block 0 on the disk a device is a window of.
+block 0 on the disk a device is a window of. `physical_block_size()` is the
+unit the media writes without a read-modify-write, such as 4096 bytes on a
+512e disk; it defaults to `block_size()`, every wrapper forwards it, and the
+FAT and exFAT formatters align their layout to it.
 
 ## Core types
 
@@ -53,7 +56,8 @@ for a file you opened. Disk devices such as `/dev/sdb`,
 `host::file_len` measures them with the platform's disk size request
 (seeking to the end on Linux), since their metadata reports 0, and
 physical devices use their OS-reported logical block size on Linux, macOS,
-FreeBSD and Windows. `FileDevice` refuses unknown capacity or logical block
+FreeBSD and Windows, and their physical block size on Linux, macOS and
+FreeBSD (`FileDevice::with_physical_block_size` sets it for an image). `FileDevice` refuses unknown capacity or logical block
 size; use an explicit block-size constructor when the size is known but the
 OS query is unavailable:
 
