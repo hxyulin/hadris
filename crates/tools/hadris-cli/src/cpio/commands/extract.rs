@@ -9,7 +9,7 @@ use hadris_io::sync::Read;
 
 use hadris_cpio::sync::Entry;
 
-use super::{GroupKey, Input, link_key, open_reader};
+use super::{GroupKey, Input, for_each_entry, link_key, open_reader};
 
 /// Where `name` goes below `output`, or `None` for a name that is the
 /// output directory itself, such as `.` or `./`. Leading `/` and `.`
@@ -360,21 +360,25 @@ pub fn extract(
         buf: vec![0u8; 64 * 1024],
     };
 
-    while let Some(mut entry) = reader.next_entry().context("Failed to read entry")? {
+    let mut current = 1;
+    for_each_entry(&mut reader, |segment, entry| {
+        if segment != current {
+            current = segment;
+            x.links = Links::default();
+        }
         let stored = entry
             .path_str()
             .context("Entry name is not UTF-8")?
             .to_string();
         let Some(name) = relocate(&select, &stored) else {
-            x.unselected(&mut entry)?;
-            continue;
+            return x.unselected(entry);
         };
         let Some(dest) = destination(&output, &name)? else {
             if entry.file_type() != FileType::Dir {
                 bail!("refusing to extract an entry without a name: {name}");
             }
             count += 1;
-            continue;
+            return Ok(());
         };
         let file_type = entry.file_type();
         if !matches!(
@@ -383,7 +387,7 @@ pub fn extract(
         ) {
             eprintln!("warning: skipping {name} ({file_type:?})");
             count += 1;
-            continue;
+            return Ok(());
         }
         if let Some(parent) = dest.parent() {
             make_dirs(&x.output, parent, &mut x.made)?;
@@ -395,11 +399,12 @@ pub fn extract(
                 make_dirs(&x.output, &dest, &mut x.made)?;
                 x.dir_modes.insert(dest, entry.mode());
             }
-            FileType::File => x.file(&mut entry, &dest)?,
-            _ => x.symlink(&mut entry, &dest)?,
+            FileType::File => x.file(entry, &dest)?,
+            _ => x.symlink(entry, &dest)?,
         }
         count += 1;
-    }
+        Ok(())
+    })?;
     x.finish();
 
     if count == 0 && !select.is_empty() {

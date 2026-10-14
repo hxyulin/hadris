@@ -169,6 +169,14 @@ Each published package owns its version and may be released independently.
 - **CLI (`hadris cpio extract`), breaking:** Setuid, setgid and sticky bits
   are dropped by default; `--preserve-special-bits` keeps them.
 
+- **CLI (`hadris cpio`):** `ls`, `info`, `cat` and `extract` read every
+  segment of concatenated archives, such as an x86 microcode archive followed
+  by an initramfs, instead of stopping at the first trailer. `ls` marks each
+  segment after the first with `segment <n>:`, and `info` reports the
+  segment count and each segment's format. A name in a later segment replaces
+  the earlier one in `extract`, and `cat` prints the last entry of a name.
+  Non-cpio data after a trailer ends the archive with a warning.
+
 - **CLI (`hadris fat`):** `chain` on the fixed FAT12/16 root directory
   reports that it has no cluster chain instead of underflowing, and `tree`,
   `stat` and `fragmentation` stop with an error at a directory loop in a

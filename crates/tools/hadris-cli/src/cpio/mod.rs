@@ -28,7 +28,7 @@ pub enum ArchiveFormat {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// List archive entries
+    /// List archive entries, of every segment of concatenated archives
     #[command(alias = "list")]
     Ls {
         /// Path to the CPIO archive, or - for standard input

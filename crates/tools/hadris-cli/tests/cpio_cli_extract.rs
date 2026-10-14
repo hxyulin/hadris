@@ -217,3 +217,21 @@ fn special_bits_are_kept_only_on_request() {
     assert_eq!(mode(&out.join("d/suid")), 0o4755);
     assert_eq!(mode(&out.join("d")), 0o1777);
 }
+
+#[test]
+fn cat_reads_a_hard_link_from_the_name_with_data() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut other = link("b", 3, b"other");
+    other.dev = (1, 0);
+    let path = dir.path().join("a.cpio");
+    let archive = newc(&[link("a", 3, b""), other, link("c", 3, b"data")]);
+    std::fs::write(&path, archive).unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_hadris"))
+        .args(["cpio", "cat"])
+        .arg(&path)
+        .arg("a")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(output.stdout, b"data");
+}
