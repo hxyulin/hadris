@@ -68,10 +68,14 @@ pub enum Detail {
     SizeMismatch,
     /// A directory nested deeper than the checker follows.
     TooDeep,
+    /// The checker stopped walking the tree: the allocations it reached,
+    /// counted again each time a cross-linked directory is entered, add up
+    /// to more than twice the volume's clusters.
+    LimitExceeded,
 }
 
 impl Detail {
-    const ALL: [Self; 23] = [
+    const ALL: [Self; 24] = [
         Self::BootSector,
         Self::BootChecksum,
         Self::BackupBootRegion,
@@ -95,6 +99,7 @@ impl Detail {
         Self::BadCluster,
         Self::SizeMismatch,
         Self::TooDeep,
+        Self::LimitExceeded,
     ];
 
     pub(crate) const fn description(self) -> &'static str {
@@ -122,6 +127,7 @@ impl Detail {
             Self::BadCluster => "chain runs into a bad cluster",
             Self::SizeMismatch => "allocation length does not match the data length",
             Self::TooDeep => "directory nested too deep to check",
+            Self::LimitExceeded => "tree is too cross-linked to check; the walk stopped",
         }
     }
 

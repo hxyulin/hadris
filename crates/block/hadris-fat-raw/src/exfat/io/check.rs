@@ -122,6 +122,10 @@ struct Checker<'a, D, F> {
     findings: u64,
     passes: u32,
     used: u32,
+    /// Clusters claimed in this walk, counted again for each claim.
+    claimed: u64,
+    /// Whether this walk claimed more than twice the volume's clusters.
+    exhausted: bool,
     sink: F,
     /// A run of lost clusters not yet reported.
     lost: (u32, u32),
@@ -165,8 +169,13 @@ io_transform! {
 /// directories; deeper directories are reported and not entered. A path
 /// that does not fit ends at the last whole name that does. A directory
 /// that shares its first cluster with one of its ancestors is reported as a
-/// cross-link and not entered, and no more directories are entered once
-/// there have been as many as the volume has clusters.
+/// cross-link and not entered. Without memory for every directory, one
+/// reached through two branches is entered each time; once the clusters
+/// claimed in a walk, counted again for each claim, exceed twice the
+/// volume's clusters, which only cross-links reach, the walk ends with a
+/// [`Detail::LimitExceeded`] finding. Every pass walks the same way, so
+/// each stops at the same place and a pass costs at most about as much as
+/// a full volume without cross-links.
 ///
 /// Fails with [`ErrorKind::LimitExceeded`] when `scratch` is shorter than
 /// 1536 bytes and with [`ErrorKind::Unsupported`] for device blocks above
@@ -201,6 +210,8 @@ pub async fn check<D: BlockDevice, F: FnMut(&Finding<'_>)>(
         findings: 0,
         passes: 0,
         used: 0,
+        claimed: 0,
+        exhausted: false,
         sink: on_finding,
         lost: (0, 0),
         free_in_use: (0, 0),
@@ -458,6 +469,16 @@ impl<D: BlockDevice, F: FnMut(&Finding<'_>)> Checker<'_, D, F> {
 
     /// Claims the clusters of `claim` for the entry being checked.
     async fn mark(&mut self, claim: Claim) -> FsResult<(), D::Error> {
+        if self.exhausted {
+            return Ok(());
+        }
+        self.claimed += claim.clusters as u64;
+        if self.claimed > 2 * self.vol.geometry().cluster_count() as u64 {
+            self.exhausted = true;
+            let at = Location::Cluster(claim.first as u64);
+            self.once(found(Detail::LimitExceeded).with_location(at), Scope::Entry);
+            return Ok(());
+        }
         let mut cluster = claim.first;
         for index in 0..claim.clusters {
             if (self.lo..self.hi).contains(&cluster) {
@@ -519,6 +540,7 @@ impl<D: BlockDevice, F: FnMut(&Finding<'_>)> Checker<'_, D, F> {
 
     async fn walk_tree(&mut self) -> FsResult<(), D::Error> {
         (self.dir_len, self.name_len, self.hidden) = (0, 0, 0);
+        (self.claimed, self.exhausted) = (0, false);
         let root = self.vol.geometry().root();
         let Some(claim) = self.claim(ROOT_ENTRY, root, u64::MAX, false).await? else {
             return Ok(());
@@ -529,8 +551,7 @@ impl<D: BlockDevice, F: FnMut(&Finding<'_>)> Checker<'_, D, F> {
         };
         let mut stack = [root; MAX_DEPTH];
         let mut depth = 1;
-        let mut budget = self.vol.geometry().cluster_count();
-        while depth > 0 {
+        while depth > 0 && !self.exhausted {
             let mut dir = stack[depth - 1];
             let slot = dir.slot;
             self.name_len = 0;
@@ -576,14 +597,13 @@ impl<D: BlockDevice, F: FnMut(&Finding<'_>)> Checker<'_, D, F> {
                     dir.slot = slot + count;
                     let first = child.map(|child| child.walk.dir().first());
                     let looped = stack[..depth].iter().any(|dir| Some(dir.walk.dir().first()) == first);
-                    if let Some(child) = child.filter(|_| !looped && budget > 0) {
+                    if let Some(child) = child.filter(|_| !looped) {
                         if depth == MAX_DEPTH {
                             self.once(found(Detail::TooDeep).with_location(Location::Byte(at)), Scope::Entry);
                         } else {
                             stack[depth - 1] = dir;
                             stack[depth] = child;
                             depth += 1;
-                            budget -= 1;
                             self.descend();
                             continue;
                         }

@@ -1824,8 +1824,8 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// Searches the tree from the root, to a depth of [`MAX_DEPTH`].
     ///
     /// Fails with [`ErrorKind::Corrupt`] when a directory holds one of its
-    /// ancestors, or when more directories are entered than the volume has
-    /// clusters.
+    /// ancestors, or when the directories entered, each counted at its
+    /// `DataLength` and at least one cluster, add up to more than the heap.
     async fn search(&mut self, target: Target) -> FsResult<Option<u64>, D::Error> {
         let (start, entry) = match target {
             Target::Below(start, _) => (start, u64::MAX),
@@ -1833,7 +1833,8 @@ impl<D: BlockDevice> ExFatFs<D> {
         };
         let mut stack = [(start, entry, 0u32); MAX_DEPTH];
         let mut depth = 1;
-        let mut budget = self.vol.geometry().cluster_count();
+        let geo = self.vol.geometry();
+        let mut budget = geo.cluster_count() as u64 * geo.cluster_size();
         let mut deeper = false;
         let mut set = Set::new();
         while depth > 0 {
@@ -1857,7 +1858,8 @@ impl<D: BlockDevice> ExFatFs<D> {
                 if depth == MAX_DEPTH {
                     deeper = true;
                 } else {
-                    budget = budget.checked_sub(1).ok_or(ErrorKind::Corrupt)?;
+                    let cost = set.data_len().max(self.vol.geometry().cluster_size());
+                    budget = budget.checked_sub(cost).ok_or(ErrorKind::Corrupt)?;
                     stack[depth] = (DirStart { alloc: set.alloc(), size: set.data_len() }, set.offset, 0);
                     depth += 1;
                 }

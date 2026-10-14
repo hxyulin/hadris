@@ -21,10 +21,13 @@ Each published package owns its version and may be released independently.
   remembered, and `rename` of a directory, no longer hang on a volume whose
   directories hold one of their ancestors or are cross-linked into a graph
   that grows exponentially. The tree search fails with `Corrupt` when a
-  directory names an ancestor's first cluster or once more directories are
-  entered than the volume has clusters. `exfat::check` reports such a loop as
-  a cross-link without entering it, and stops entering directories after as
-  many as the volume has clusters.
+  directory names an ancestor's first cluster or once the directories it
+  entered, each counted at its `DataLength`, add up to more than the heap.
+  `exfat::check` reports such a loop as a cross-link without entering it,
+  and ends a walk with a new `Detail::LimitExceeded` finding once the
+  clusters it claimed, counted again for each cross-linked claim, exceed
+  twice the volume's clusters, so a branching graph of cross-linked
+  directories or files no longer keeps each bitmap pass busy.
 
 - **ISO 9660 writer:** Trees with names that are not UTF-8 are written.
   Files, write regions and report extents are keyed by the tree's byte path
