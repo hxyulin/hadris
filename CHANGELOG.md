@@ -211,7 +211,9 @@ Each published package owns its version and may be released independently.
   the earlier one in `extract`, and `cat` prints the last entry of a name.
   For a zero-length hard link name, `cat` prints the data of the group's
   member that carries it, whether that member comes before or after the
-  name. Non-cpio data after a trailer ends the archive with a warning.
+  name. `cat` reads the data through the handle it scanned instead of
+  reopening the archive, and fails if the file ends inside the data. Non-cpio
+  data after a trailer ends the archive with a warning.
 
 - **hadris-fat (exFAT):** Removing, replacing by rename, truncating or
   growing a file or directory with a contiguous (`NoFatChain`) allocation

@@ -32,7 +32,11 @@ fn open_reader(path: &Path) -> Result<CpioReader<Input>> {
                 .with_context(|| format!("Failed to open archive: {}", path.display()))?,
         )
     };
-    Ok(CpioReader::new(StdIo::new(BufReader::new(input))))
+    Ok(reader(input))
+}
+
+fn reader(input: Box<dyn Read>) -> CpioReader<Input> {
+    CpioReader::new(StdIo::new(BufReader::new(input)))
 }
 
 /// Calls `each` with every entry of every concatenated segment, as the
