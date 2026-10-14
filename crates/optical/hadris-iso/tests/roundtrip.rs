@@ -1382,3 +1382,32 @@ fn async_writes_non_utf8_names_alike() {
         );
     });
 }
+
+#[test]
+fn long_symlink_targets_read_back() {
+    let target = |count: usize| {
+        (0..count)
+            .map(|i| format!("{i:0200}"))
+            .collect::<Vec<_>>()
+            .join("/")
+    };
+    let (short, long) = (target(30), target(200));
+    let mut tree = Tree::new();
+    tree.insert("short", Node::symlink(short.as_bytes()))
+        .unwrap();
+    tree.insert("long", Node::symlink(long.as_bytes())).unwrap();
+    let mut iso = image(&tree, &IsoOptions::default().with_rock_ridge());
+    let mut rr =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::RockRidge).unwrap();
+    for (name, target) in [("/short", &short), ("/long", &long)] {
+        let link = rr.resolve_path(name).unwrap();
+        let meta = rr.stat(link).unwrap();
+        assert_eq!(meta.file_type(), FileType::Symlink);
+        assert_eq!(meta.len(), target.len() as u64);
+        let mut buf = vec![0u8; 64 * 1024];
+        assert_eq!(rr.readlink(link, &mut buf).unwrap(), target.as_bytes());
+    }
+    let mut listed = rr.names("/").unwrap();
+    listed.sort();
+    assert_eq!(listed, ["long", "short"]);
+}

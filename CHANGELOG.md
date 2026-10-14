@@ -59,6 +59,14 @@ Each published package owns its version and may be released independently.
   different values; ids from `readdir` still match `lookup` and survive
   writes and renames of other entries.
 
+- **ISO 9660 Rock Ridge continuation bounds:** The continuation areas of one
+  record are limited to 4 MiB in total, so a crafted `CE` length (up to
+  4 GiB) fails with `Corrupt` and `Detail::SystemUse` before it is read,
+  instead of every listing and `stat` reading it. The limit on chained
+  areas rises from 16 to 256: images with 17 to 31 areas, which Linux and
+  libisofs read, and Hadris's own images with symlink targets over about
+  32 KiB were reported as damaged.
+
 - **ISO 9660 damaged Rock Ridge entries:** One record with a malformed Rock
   Ridge area no longer makes its directory unlistable or its siblings
   unfindable. In the Rock Ridge tree `readdir` lists it under its ISO 9660

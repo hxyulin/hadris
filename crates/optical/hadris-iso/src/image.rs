@@ -18,7 +18,22 @@ use crate::volume_info::VolumeInfo;
 /// The largest device block the reader buffers.
 pub(crate) const MAX_DEVICE_BLOCK: usize = 4096;
 /// Continuation areas followed for one record.
-const MAX_CONTINUATIONS: usize = 16;
+///
+/// Linux isofs follows at most 31, and libisofs writes at most 31 unless
+/// xorriso `-max_ce_entries` raises it; hadris writes one block-sized area
+/// per 2 KiB of entries. 256 areas hold 512 KiB of entries, eight times
+/// what Linux reads, while a cycle of areas costs at most 256 reads.
+const MAX_CONTINUATIONS: usize = 256;
+/// The continuation area bytes, summed over all areas, read for one
+/// record.
+///
+/// Linux isofs keeps each area inside one block, so it reads at most 31
+/// blocks (62 KiB) per record, and libisofs rejects any single area over
+/// 1 MiB as damaged. 4 MiB in total is four times the largest area
+/// libisofs accepts and 64 times what Linux reads, so no image those read
+/// is refused, while a crafted length (up to 4 GiB per area) cannot make
+/// each listing or `stat` read the whole image.
+const MAX_CONTINUATION_BYTES: u64 = 4 << 20;
 /// Records of one multi-extent file.
 const MAX_EXTENTS: usize = 1 << 16;
 
@@ -429,6 +444,7 @@ impl View {
         scan.next = None;
         scan.feed(record.system_use(), usize::from(skip));
         let mut area = [0u8; SECTOR_SIZE];
+        let mut budget = MAX_CONTINUATION_BYTES;
         for count in 0..=MAX_CONTINUATIONS {
             if scan.malformed {
                 return Err(Detail::SystemUse.corrupt());
@@ -441,9 +457,10 @@ impl View {
             }
             let len = u64::from(ce.length.get());
             let offset = u64::from(ce.block.get()) * self.bs() + u64::from(ce.offset.get());
-            if len == 0 || u64::from(ce.offset.get()) >= self.bs() || offset.checked_add(len).is_none_or(|end| end > self.len) {
+            if len == 0 || len > budget || u64::from(ce.offset.get()) >= self.bs() || offset.checked_add(len).is_none_or(|end| end > self.len) {
                 return Err(Detail::SystemUse.corrupt());
             }
+            budget -= len;
             let mut left = len;
             let mut at = offset;
             let mut held = 0;

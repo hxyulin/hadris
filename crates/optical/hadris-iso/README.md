@@ -223,8 +223,12 @@ preserves volume identifiers and namespaces but omits boot configuration.
 Rock Ridge readers reject malformed known SUSP entries and continuation
 pointers with inconsistent endian fields, zero lengths, offsets outside their
 logical block or ranges outside the image. Continuation areas can span blocks
-and are parsed with a fixed 2048-byte buffer. A record can follow at most 16
-continuation areas; an unfinished chain at that bound is corrupt. Unknown
+and are parsed with a fixed 2048-byte buffer. A record can follow at most 256
+continuation areas holding at most 4 MiB in total; a chain past either bound
+is corrupt, and an area whose declared length passes the byte bound is
+rejected before it is read. Linux reads at most 31 areas of one block each
+(62 KiB), and libisofs rejects single areas over 1 MiB, so both bounds leave
+a wide margin over real images. Unknown
 extensions remain skippable, and overlong Rock Ridge names retain the ISO-name
 fallback. A record whose Rock Ridge area is rejected does not hide its
 siblings: `readdir` lists it under its ISO 9660 identifier with no

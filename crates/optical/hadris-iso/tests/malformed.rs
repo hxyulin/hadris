@@ -18,11 +18,15 @@ fn record(name: &[u8], area: &[u8], block: u32, len: u32, directory: bool) -> Di
 }
 
 fn image(area: &[u8], size: u32) -> (Vec<u8>, NodeId) {
-    let mut bytes = vec![0; 96 * 2048];
+    image_of(area, size, 96)
+}
+
+fn image_of(area: &[u8], size: u32, blocks: u32) -> (Vec<u8>, NodeId) {
+    let mut bytes = vec![0; blocks as usize * 2048];
     let root = record(&[0], &[], 20, size, true);
     let pvd = &mut bytes[16 * 2048..17 * 2048];
     pvd[..7].copy_from_slice(b"\x01CD001\x01");
-    pvd[80..88].copy_from_slice(bytemuck::bytes_of(&U32Both::new(96)));
+    pvd[80..88].copy_from_slice(bytemuck::bytes_of(&U32Both::new(blocks)));
     for at in [120, 124] {
         pvd[at..at + 4].copy_from_slice(bytemuck::bytes_of(&U16Both::new(1)));
     }
@@ -125,7 +129,7 @@ fn long_symlink() -> (Vec<u8>, NodeId, Vec<u8>) {
 }
 
 fn chain(count: usize, cycle: bool) -> (Vec<u8>, NodeId) {
-    let (mut bytes, node) = image(&ce(30, 0, 28), 2048);
+    let (mut bytes, node) = image_of(&ce(30, 0, 28), 2048, 96.max(31 + count as u32));
     for i in 0..count {
         let area = if i + 1 < count || cycle {
             ce(if cycle { 30 } else { 31 + i as u32 }, 0, 28)
@@ -174,8 +178,9 @@ macro_rules! regressions {
                 }
                 for (count, cycle, valid) in [
                     (1, false, true),
-                    (16, false, true),
-                    (17, false, false),
+                    (31, false, true),
+                    (256, false, true),
+                    (257, false, false),
                     (1, true, false),
                 ] {
                     let (bytes, node) = chain(count, cycle);
@@ -238,6 +243,53 @@ macro_rules! regressions {
                     .unwrap()
                     .unwrap();
                 assert_eq!(entry.name().as_bytes(), b"continued");
+
+                let mut area = Vec::new();
+                while area.len() < 1 << 20 {
+                    let mut unknown = vec![0; 255];
+                    unknown[..4].copy_from_slice(b"ZZ\xff\x7f");
+                    area.extend(unknown);
+                }
+                area.extend(nm(b"big"));
+                let (mut bytes, node) = image_of(&ce(30, 8, area.len() as u32), 2048, 600);
+                bytes[30 * 2048 + 8..30 * 2048 + 8 + area.len()].copy_from_slice(&area);
+                let mut fs =
+                    IsoFs::mount(MemDevice::new(bytes, common::SECTOR), MountOptions::new())
+                        .await
+                        .unwrap();
+                fs.stat(node).await.unwrap();
+                let entry = fs
+                    .readdir(fs.root(), DirCursor::START)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(entry.name().as_bytes(), b"big");
+
+                let blocks = 2600u32;
+                for len in [(4 << 20) + 1, (blocks - 30) * 2048] {
+                    let (bytes, node) = image_of(&ce(30, 0, len), 2048, blocks);
+                    let mut fs =
+                        IsoFs::mount(MemDevice::new(bytes, common::SECTOR), MountOptions::new())
+                            .await
+                            .unwrap();
+                    let err = fs.stat(node).await.unwrap_err();
+                    assert_eq!(err.kind(), ErrorKind::Corrupt, "{len}");
+                    assert_eq!(Detail::of(&err), Some(Detail::SystemUse));
+                }
+                let (bytes, node) = image_of(&ce(30, 0, 4 << 20), 2048, blocks);
+                let mut fs =
+                    IsoFs::mount(MemDevice::new(bytes, common::SECTOR), MountOptions::new())
+                        .await
+                        .unwrap();
+                fs.stat(node).await.unwrap();
+                let (mut bytes, node) = image_of(&ce(30, 0, 3 << 20), 2048, 3600);
+                bytes[30 * 2048..30 * 2048 + 28].copy_from_slice(&ce(2000, 0, 3 << 20));
+                let mut fs =
+                    IsoFs::mount(MemDevice::new(bytes, common::SECTOR), MountOptions::new())
+                        .await
+                        .unwrap();
+                let err = fs.stat(node).await.unwrap_err();
+                assert_eq!(Detail::of(&err), Some(Detail::SystemUse));
 
                 let mut area = ce(33, 0, 13);
                 for _ in 0..8 {
