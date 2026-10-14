@@ -8,6 +8,15 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **CLI directory loops:** `iso tree`, `iso verify --strict`, `udf tree`,
+  `udf verify` and `udf compare` stop at a directory that leads back to one
+  on its own path, as in a damaged image, and report
+  `Directory loop at <path>: corrupt filesystem data` with a non-zero exit
+  instead of running forever. Every CLI tree walk, including the `fat`
+  ones, now fails past 1024 levels, the limit of `read_tree` (`iso verify`
+  previously stopped at 256), and the `iso` and `udf` walks list
+  directories by node instead of resolving each path from the root.
+
 - **Partition-aware open:** `hadris::sync::open_partition` and
   `hadris::async_::open_partition` read the MBR or GPT of a device and mount
   the partition a `hadris::Select` names (`Index(slot)`, `Guid(guid)` or

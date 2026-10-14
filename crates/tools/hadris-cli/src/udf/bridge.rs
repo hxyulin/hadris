@@ -14,7 +14,7 @@ use hadris_udf::sync::UdfFs;
 use hadris_udf::{UdfId, UdfOptions};
 
 use super::args::BridgeArgs;
-use crate::common::{build_time, read_source};
+use crate::common::{Ancestors, build_time, read_source};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -76,10 +76,22 @@ pub fn compare(path: &Path) -> Result<()> {
     let names_match = namespace != Namespace::Primary;
     let mut iso_nodes = BTreeMap::new();
     let root = view.root();
-    collect(&mut view, root, "", &mut iso_nodes)?;
+    collect(
+        &mut view,
+        root,
+        "",
+        &mut Ancestors::new(root),
+        &mut iso_nodes,
+    )?;
     let mut udf_nodes = BTreeMap::new();
     let root = udf.root();
-    collect(&mut udf, root, "", &mut udf_nodes)?;
+    collect(
+        &mut udf,
+        root,
+        "",
+        &mut Ancestors::new(root),
+        &mut udf_nodes,
+    )?;
     if namespace == Namespace::RockRidge {
         for name in relocation_dirs(&mut iso, &iso_nodes, &udf_nodes)? {
             iso_nodes.remove(&name);
@@ -162,6 +174,7 @@ fn collect<F: FileSystem>(
     fs: &mut F,
     dir: NodeId,
     prefix: &str,
+    ancestors: &mut Ancestors,
     nodes: &mut BTreeMap<String, Node>,
 ) -> Result<()> {
     let mut cursor = DirCursor::START;
@@ -172,7 +185,14 @@ fn collect<F: FileSystem>(
         let result = match entry.file_type() {
             FileType::Dir => {
                 nodes.insert(path.clone(), Node::Directory);
-                collect(fs, node, &path, nodes)
+                ancestors
+                    .enter(node, &format!("/{path}"))
+                    .map_err(Into::into)
+                    .and_then(|()| {
+                        let collected = collect(fs, node, &path, ancestors, nodes);
+                        ancestors.leave();
+                        collected
+                    })
             }
             FileType::File => hash_file(fs, node).map(|(len, hash)| {
                 nodes.insert(path, Node::File(len, hash));

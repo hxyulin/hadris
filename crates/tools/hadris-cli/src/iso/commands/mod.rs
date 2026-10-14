@@ -83,24 +83,24 @@ fn list_dir(view: &mut View<'_>, path: &str) -> Result<Vec<Entry>> {
     let dir = view
         .resolve(path.as_bytes(), Resolve::Lexical)
         .map_err(|err| format!("Directory not found: {path}: {err}"))?;
-    let mut entries = Vec::new();
-    let mut cursor = DirCursor::START;
-    let listed = loop {
-        match view.readdir(dir, cursor) {
-            Ok(Some(entry)) => {
-                cursor = entry.next_cursor();
-                entries.push(Entry {
-                    name: String::from_utf8_lossy(entry.name().as_bytes()).into_owned(),
-                    node: entry.node(),
-                    meta: *entry.metadata(),
-                });
-            }
-            Ok(None) => break Ok(entries),
-            Err(err) => break Err(err.into()),
-        }
-    };
+    let listed = list_node(view, dir);
     view.forget(dir, 1);
     listed
+}
+
+/// The entries of the directory `dir`, in directory order.
+fn list_node(view: &mut View<'_>, dir: NodeId) -> Result<Vec<Entry>> {
+    let mut entries = Vec::new();
+    let mut cursor = DirCursor::START;
+    while let Some(entry) = view.readdir(dir, cursor)? {
+        cursor = entry.next_cursor();
+        entries.push(Entry {
+            name: String::from_utf8_lossy(entry.name().as_bytes()).into_owned(),
+            node: entry.node(),
+            meta: *entry.metadata(),
+        });
+    }
+    Ok(entries)
 }
 
 /// The first logical block of a node's data.
