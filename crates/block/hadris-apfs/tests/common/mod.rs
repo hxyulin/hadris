@@ -20,7 +20,17 @@ pub enum Variant {
     Revisit,
     /// File 0 claims a size of `u64::MAX`.
     HugeFile,
+    /// A case- and normalization-sensitive volume with `j_drec_key_t` keys.
+    PlainKeys,
+    /// A volume flagged sealed whose file extents live in the file extent tree.
+    SealedFext,
 }
+
+/// The volume incompatible features of [`Variant::Plain`]: normalization
+/// insensitivity, as macOS formats volumes, so directory keys are hashed.
+pub const DEFAULT_VOLUME_INCOMPAT: u64 = 0x8;
+/// Block holding the [`Variant::SealedFext`] file extent tree.
+pub const FEXT_TREE_BLOCK: u64 = 19;
 pub const VOLUME_OID: u64 = 1026;
 pub const FS_ROOT_OID: u64 = 1027;
 pub const FS_ROOT_BLOCK: u64 = 6;
@@ -162,9 +172,18 @@ fn inode_entry(id: u64, private_id: u64, mode: u16, size: u64) -> Entry {
 }
 
 fn drec_entry(parent: u64, name: &str, file_id: u64) -> Entry {
+    drec_entry_bytes(parent, name.as_bytes(), file_id, true)
+}
+
+/// A directory record for `name`, with a hashed or a plain key.
+pub fn drec_entry_bytes(parent: u64, name: &[u8], file_id: u64, hashed: bool) -> Entry {
     let mut key = fs_key(parent, 9);
-    key.extend_from_slice(&((name.len() + 1) as u32).to_le_bytes());
-    key.extend_from_slice(name.as_bytes());
+    if hashed {
+        key.extend_from_slice(&((name.len() + 1) as u32).to_le_bytes());
+    } else {
+        key.extend_from_slice(&((name.len() + 1) as u16).to_le_bytes());
+    }
+    key.extend_from_slice(name);
     key.push(0);
     let mut value = file_id.to_le_bytes().to_vec();
     value.extend_from_slice(&0_u64.to_le_bytes());
@@ -194,13 +213,17 @@ pub fn build_image() -> Vec<u8> {
 }
 
 pub fn build_image_variant(variant: Variant) -> Vec<u8> {
-    let sealed = variant == Variant::Sealed;
+    let sealed = matches!(variant, Variant::Sealed | Variant::SealedFext);
     let node_flags = match variant {
-        Variant::Plain => 0,
-        Variant::Sealed => 8,
+        Variant::Sealed | Variant::SealedFext => 8,
         Variant::Encrypted => 4,
-        Variant::Revisit => 0,
-        Variant::HugeFile => 0,
+        _ => 0,
+    };
+    let hashed = variant != Variant::PlainKeys;
+    let volume_incompat = match variant {
+        Variant::PlainKeys => 0,
+        Variant::SealedFext => DEFAULT_VOLUME_INCOMPAT | 0x20,
+        _ => DEFAULT_VOLUME_INCOMPAT,
     };
     let rebase = if sealed { FS_ROOT_OID } else { 0 };
     let tree_flags = if sealed { 0x80 | 0x100 } else { 0 };
@@ -237,6 +260,11 @@ pub fn build_image_variant(variant: Variant) -> Vec<u8> {
 
     let mut volume = object(VOLUME_OID, 1, 13);
     put(&mut volume, 32, b"APSB");
+    put(&mut volume, 56, &volume_incompat.to_le_bytes());
+    if variant == Variant::SealedFext {
+        put(&mut volume, 1032, &FEXT_TREE_BLOCK.to_le_bytes());
+        put(&mut volume, 1040, &0x4000_0002_u32.to_le_bytes());
+    }
     put(&mut volume, 128, &4_u64.to_le_bytes());
     put(&mut volume, 136, &FS_ROOT_OID.to_le_bytes());
     put(&mut volume, 704, b"Test");
@@ -271,7 +299,12 @@ pub fn build_image_variant(variant: Variant) -> Vec<u8> {
     let leaf_records = |range: std::ops::Range<u64>| {
         let mut entries = Vec::new();
         for index in range.clone() {
-            entries.push(drec_entry(2, &file_name(index), inode(index)));
+            entries.push(drec_entry_bytes(
+                2,
+                file_name(index).as_bytes(),
+                inode(index),
+                hashed,
+            ));
         }
         for index in range {
             let size = if variant == Variant::HugeFile && index == 0 {
@@ -280,7 +313,9 @@ pub fn build_image_variant(variant: Variant) -> Vec<u8> {
                 file_contents(index).len() as u64
             };
             entries.push(inode_entry(inode(index), private(index), 0o100644, size));
-            entries.push(extent_entry(private(index), BLOCK as u64, 10 + index));
+            if variant != Variant::SealedFext {
+                entries.push(extent_entry(private(index), BLOCK as u64, 10 + index));
+            }
         }
         entries
     };
@@ -321,6 +356,30 @@ pub fn build_image_variant(variant: Variant) -> Vec<u8> {
         ),
     );
 
+    if variant == Variant::SealedFext {
+        let fext: Vec<Entry> = (0..FILE_COUNT)
+            .map(|index| {
+                let mut key = private(index).to_le_bytes().to_vec();
+                key.extend_from_slice(&0_u64.to_le_bytes());
+                let mut value = (BLOCK as u64).to_le_bytes().to_vec();
+                value.extend_from_slice(&(10 + index).to_le_bytes());
+                (key, value)
+            })
+            .collect();
+        write(
+            FEXT_TREE_BLOCK as usize,
+            btree_node(
+                FEXT_TREE_BLOCK,
+                true,
+                true,
+                0,
+                Some((16, 16)),
+                0x10,
+                false,
+                &fext,
+            ),
+        );
+    }
     for index in 0..FILE_COUNT {
         let mut data = vec![0_u8; BLOCK];
         let contents = file_contents(index);

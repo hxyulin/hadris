@@ -86,6 +86,25 @@ Each published package owns its version and may be released independently.
   a bit set for an index block in a sparse run still fails with `Corrupt`,
   as does a bitmap with fewer bits than the allocation has blocks.
 
+- **APFS incompatible features and directory keys:** Mounting now checks the
+  checkpoint's and the selected volume's incompatible features against
+  `NX_READABLE_INCOMPAT_MASK` and `APFS_READABLE_INCOMPAT_MASK`. The container
+  feature `NX_INCOMPAT_VERSION2` and the volume features `CASE_INSENSITIVE`,
+  `NORMALIZATION_INSENSITIVE`, `DATALESS_SNAPS`, `ENC_ROLLED` and
+  `SEALED_VOLUME` are accepted; version 1 and Fusion containers, volumes with
+  `INCOMPLETE_RESTORE` or the reserved `0x40` bit, and undefined bits fail with
+  `Unsupported` and `Detail::Feature`. All `NX_INCOMPAT_*` and
+  `APFS_INCOMPAT_*` constants from the specification are defined, with
+  `check_incompatible_features` on both superblocks. Directory records on
+  volumes that are neither case- nor normalization-insensitive are read with
+  the plain `j_drec_key_t` layout instead of the hashed one:
+  `DirectoryEntryRecord::parse`, `OwnedDirectoryEntryRecord::parse`,
+  `parse_directory_entries` and `parse_owned_directory_entries` take a
+  `DirectoryKeyLayout`, chosen by `VolumeSuperblock::directory_key_layout`.
+  Sealed volumes read file extents from the file extent tree
+  (`VolumeSuperblock::fext_tree_oid`, `Container::sealed_file_extents`,
+  `FileExtentRecord::parse_fext`), so their files no longer read as zeros.
+
 - **APFS checkpoint selection:** `Container::open` reads block zero's
   geometry and checkpoint descriptor area, requiring the `NXSB` magic and
   in-bounds geometry but no longer its checksum, so a single damaged block

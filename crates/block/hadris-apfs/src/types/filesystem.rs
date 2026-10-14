@@ -43,6 +43,17 @@ impl FileSystemKey {
     }
 }
 
+/// Layout of a directory entry key, chosen by the volume's incompatible
+/// features; see [`crate::types::VolumeSuperblock::directory_key_layout`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DirectoryKeyLayout {
+    /// `j_drec_hashed_key_t`: a 32-bit field with a 10-bit name length and a
+    /// 22-bit name hash at offset 8, then the name.
+    Hashed,
+    /// `j_drec_key_t`: a 16-bit name length at offset 8, then the name.
+    Plain,
+}
+
 /// Parsed directory entry record.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -58,16 +69,27 @@ pub struct DirectoryEntryRecord<'a> {
 }
 
 impl<'a> DirectoryEntryRecord<'a> {
-    /// Parses a directory entry key/value pair.
-    pub fn parse(key: &'a [u8], value: &'a [u8]) -> crate::Result<Self> {
+    /// Parses a directory entry key/value pair stored in `layout`.
+    pub fn parse(
+        key: &'a [u8],
+        value: &'a [u8],
+        layout: DirectoryKeyLayout,
+    ) -> crate::Result<Self> {
         let header = FileSystemKey::parse(key)?;
         if header.record_type != FS_TYPE_DIRECTORY_RECORD {
             return Err(crate::ApfsError::InvalidValue("directory record key type"));
         }
-        let name_len_and_hash = u32::from_le_bytes(crate::types::take(key, 8)?);
-        let name_len = (name_len_and_hash & 0x3ff) as usize;
+        let (name_len, name_start) = match layout {
+            DirectoryKeyLayout::Hashed => {
+                let name_len_and_hash = u32::from_le_bytes(crate::types::take(key, 8)?);
+                ((name_len_and_hash & 0x3ff) as usize, 12)
+            }
+            DirectoryKeyLayout::Plain => {
+                (u16::from_le_bytes(crate::types::take(key, 8)?) as usize, 10)
+            }
+        };
         let name_bytes = key
-            .get(12..12 + name_len)
+            .get(name_start..name_start + name_len)
             .ok_or(crate::ApfsError::InputTooSmall)?;
         let name_bytes = name_bytes.strip_suffix(&[0]).unwrap_or(name_bytes);
         Ok(Self {
@@ -102,9 +124,10 @@ pub struct OwnedDirectoryEntryRecord {
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 impl OwnedDirectoryEntryRecord {
-    /// Parses a directory entry key/value pair into an owned record.
-    pub fn parse(key: &[u8], value: &[u8]) -> crate::Result<Self> {
-        let entry = DirectoryEntryRecord::parse(key, value)?;
+    /// Parses a directory entry key/value pair stored in `layout` into an
+    /// owned record.
+    pub fn parse(key: &[u8], value: &[u8], layout: DirectoryKeyLayout) -> crate::Result<Self> {
+        let entry = DirectoryEntryRecord::parse(key, value, layout)?;
         Ok(Self {
             parent_id: entry.parent_id,
             file_id: entry.file_id,
@@ -256,6 +279,22 @@ impl FileExtentRecord {
     }
 }
 
+impl FileExtentRecord {
+    /// Parses a sealed volume's file extent tree entry (`fext_tree_key_t`
+    /// and `fext_tree_val_t`). Such extents are never encrypted.
+    pub fn parse_fext(key: &[u8], value: &[u8]) -> crate::Result<Self> {
+        let length_and_flags = le_u64(value, 0)?;
+        Ok(Self {
+            id: le_u64(key, 0)?,
+            logical_address: le_u64(key, 8)?,
+            length: length_and_flags & 0x00ff_ffff_ffff_ffff,
+            flags: ((length_and_flags >> 56) & 0xff) as u8,
+            physical_block: le_u64(value, 8)?,
+            cryptography_id: 0,
+        })
+    }
+}
+
 /// Returns a file's size: the inode's data-stream size when present, then
 /// its uncompressed size when set, otherwise the end of its last extent.
 pub fn stream_size(inode: &InodeRecord, extents: &[FileExtentRecord]) -> u64 {
@@ -338,28 +377,31 @@ pub fn names_match(stored: &str, wanted: &str, case_insensitive: bool) -> bool {
     }
 }
 
-/// Parses directory entries from filesystem-tree leaf entries.
+/// Parses directory entries stored in `layout` from filesystem-tree leaf entries.
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub fn parse_directory_entries<'a>(
     entries: impl IntoIterator<Item = crate::types::FixedEntry<'a>>,
     parent_id: u64,
+    layout: DirectoryKeyLayout,
 ) -> alloc::vec::Vec<DirectoryEntryRecord<'a>> {
     entries
         .into_iter()
-        .filter_map(|entry| DirectoryEntryRecord::parse(entry.key, entry.value).ok())
+        .filter_map(|entry| DirectoryEntryRecord::parse(entry.key, entry.value, layout).ok())
         .filter(|entry| entry.parent_id == parent_id)
         .collect()
 }
 
-/// Parses owned directory entries from filesystem-tree leaf entries.
+/// Parses owned directory entries stored in `layout` from filesystem-tree
+/// leaf entries.
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub fn parse_owned_directory_entries(
     entries: impl IntoIterator<Item = crate::types::OwnedEntry>,
     parent_id: u64,
+    layout: DirectoryKeyLayout,
 ) -> alloc::vec::Vec<OwnedDirectoryEntryRecord> {
     entries
         .into_iter()
-        .filter_map(|entry| OwnedDirectoryEntryRecord::parse(&entry.key, &entry.value).ok())
+        .filter_map(|entry| OwnedDirectoryEntryRecord::parse(&entry.key, &entry.value, layout).ok())
         .filter(|entry| entry.parent_id == parent_id)
         .collect()
 }
@@ -376,6 +418,44 @@ mod tests {
         key.extend_from_slice(name.as_bytes());
         key.push(0);
         key
+    }
+
+    fn drec(name: &[u8], hashed: bool) -> (alloc::vec::Vec<u8>, alloc::vec::Vec<u8>) {
+        let mut key = (2 | (u64::from(FS_TYPE_DIRECTORY_RECORD) << 60))
+            .to_le_bytes()
+            .to_vec();
+        if hashed {
+            key.extend_from_slice(&((name.len() as u32 + 1) | (0x1234 << 10)).to_le_bytes());
+        } else {
+            key.extend_from_slice(&(name.len() as u16 + 1).to_le_bytes());
+        }
+        key.extend_from_slice(name);
+        key.push(0);
+        let mut value = 16_u64.to_le_bytes().to_vec();
+        value.extend_from_slice(&0_u64.to_le_bytes());
+        value.extend_from_slice(&DT_REG.to_le_bytes());
+        (key, value)
+    }
+
+    #[test]
+    fn directory_keys_parse_in_both_layouts() {
+        for (hashed, layout) in [
+            (true, DirectoryKeyLayout::Hashed),
+            (false, DirectoryKeyLayout::Plain),
+        ] {
+            let (key, value) = drec(b"notes.txt", hashed);
+            let entry = DirectoryEntryRecord::parse(&key, &value, layout).unwrap();
+            assert_eq!(entry.parent_id, 2);
+            assert_eq!(entry.file_id, 16);
+            assert_eq!(entry.name, "notes.txt");
+            assert_eq!(entry.file_type(), DT_REG);
+        }
+        let (key, value) = drec(b"notes.txt", false);
+        assert_ne!(
+            DirectoryEntryRecord::parse(&key, &value, DirectoryKeyLayout::Hashed)
+                .map(|entry| entry.name),
+            Ok("notes.txt")
+        );
     }
 
     #[test]

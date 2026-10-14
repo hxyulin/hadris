@@ -493,3 +493,69 @@ fn mount_takes_the_newest_valid_checkpoint_in_the_whole_descriptor_area() {
     let image = checkpoint_image(&[(23, 2, None, false), (22, 6, Some(0xAA), true)]);
     assert_eq!(latest_xid(image), 1);
 }
+
+fn reseal(image: &mut [u8], block: usize, offset: usize, value: u64) {
+    let block = &mut image[block * BLOCK..(block + 1) * BLOCK];
+    block[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
+    let checksum = hadris_apfs::types::checksum::fletcher64(block).unwrap();
+    block[..8].copy_from_slice(&checksum.to_le_bytes());
+}
+
+fn read_all_files(fs: &mut ApfsFs<MemDevice<Vec<u8>>>) {
+    let root = fs.root();
+    for index in 0..FILE_COUNT {
+        let node = fs.lookup(root, Name::new(&file_name(index))).unwrap();
+        let mut buf = vec![0; BLOCK];
+        let n = fs.read(node, 0, &mut buf).unwrap();
+        assert_eq!(&buf[..n], file_contents(index));
+    }
+}
+
+#[test]
+fn directory_keys_follow_the_volume_name_features() {
+    let mut fs = mount(build_image_variant(Variant::PlainKeys));
+    hadris_fs::sync::contract::check_read_only(&mut fs).unwrap();
+    read_all_files(&mut fs);
+    for flags in [1, 8, 9] {
+        let mut image = build_image();
+        set_volume_incompatible_features(&mut image, flags);
+        read_all_files(&mut mount(image));
+    }
+}
+
+#[test]
+fn sealed_volumes_read_extents_from_the_file_extent_tree() {
+    let mut fs = mount(build_image_variant(Variant::SealedFext));
+    hadris_fs::sync::contract::check_read_only(&mut fs).unwrap();
+    read_all_files(&mut fs);
+}
+
+#[test]
+fn unreadable_incompatible_features_refuse_the_mount() {
+    for (block, offset, flags) in [
+        (0, 64, 0x1),
+        (0, 64, 0x100),
+        (0, 64, 0x200),
+        (3, 56, DEFAULT_VOLUME_INCOMPAT | 0x10),
+        (3, 56, DEFAULT_VOLUME_INCOMPAT | 0x40),
+        (3, 56, DEFAULT_VOLUME_INCOMPAT | 0x80),
+        (3, 56, DEFAULT_VOLUME_INCOMPAT | (1 << 63)),
+    ] {
+        let mut image = build_image();
+        reseal(&mut image, block, offset, flags);
+        let Err(error) = ApfsFs::mount(device(image.clone()), MountOptions::new()) else {
+            panic!("incompatible feature {flags:#x} mounted");
+        };
+        assert_eq!(error.kind(), ErrorKind::Unsupported, "{flags:#x}");
+        assert_eq!(
+            hadris_apfs::Detail::of(error.error()),
+            Some(hadris_apfs::Detail::Feature)
+        );
+        assert_eq!(error.into_device().into_inner(), image);
+    }
+    for (block, offset, flags) in [(0, 64, 0x2), (3, 56, DEFAULT_VOLUME_INCOMPAT | 0x2 | 0x4)] {
+        let mut image = build_image();
+        reseal(&mut image, block, offset, flags);
+        read_all_files(&mut mount(image));
+    }
+}

@@ -58,7 +58,17 @@ generic file access, VFS operations and volume selection shape this API.
   back to older checkpoints, then to a verified block zero.
 - Container and volume object maps, resolved at the volume's transaction.
 - Physical and virtual B-trees, including sealed volumes with hashed index
-  entries and nodes stored without object headers.
+  entries, nodes stored without object headers and file extents kept in the
+  file extent tree.
+- Incompatible features: mounting accepts the container feature
+  `NX_INCOMPAT_VERSION2` and the volume features `CASE_INSENSITIVE`,
+  `NORMALIZATION_INSENSITIVE`, `DATALESS_SNAPS`, `ENC_ROLLED` and
+  `SEALED_VOLUME`. Version 1 and Fusion containers, volumes with
+  `INCOMPLETE_RESTORE` or the reserved `0x40` bit, and any bit the
+  specification does not define fail with `ErrorKind::Unsupported` and
+  `Detail::Feature`. Directory keys use the hashed layout
+  (`j_drec_hashed_key_t`) on case- or normalization-insensitive volumes and
+  the plain layout (`j_drec_key_t`) otherwise.
 - Directory listing and path lookup, case-insensitive on volumes formatted
   that way. Path lookup handles `.` and `..`, clamps parent traversal at the
   volume root, and requires directories for intermediate components and trailing

@@ -47,8 +47,20 @@ struct Index {
 }
 
 impl Index {
-    fn parse<E>(entries: Vec<crate::types::OwnedEntry>, limit: Option<usize>) -> FsResult<Self, E> {
+    fn parse<E>(
+        entries: Vec<crate::types::OwnedEntry>,
+        sealed_extents: Vec<FileExtentRecord>,
+        layout: filesystem::DirectoryKeyLayout,
+        limit: Option<usize>,
+    ) -> FsResult<Self, E> {
         let mut index = Self::default();
+        for extent in sealed_extents {
+            extent
+                .logical_address
+                .checked_add(extent.length)
+                .ok_or(ErrorKind::Corrupt)?;
+            index.extents.entry(extent.id).or_default().push(extent);
+        }
         for entry in entries {
             let key = FileSystemKey::parse(&entry.key)?;
             match key.record_type {
@@ -63,7 +75,8 @@ impl Index {
                     }
                 }
                 filesystem::FS_TYPE_DIRECTORY_RECORD => {
-                    let record = OwnedDirectoryEntryRecord::parse(&entry.key, &entry.value)?;
+                    let record =
+                        OwnedDirectoryEntryRecord::parse(&entry.key, &entry.value, layout)?;
                     if record.name == "." || record.name == ".." {
                         continue;
                     }
@@ -261,7 +274,11 @@ impl<D: BlockDevice> ApfsFs<D> {
     /// Mounts the sole volume in the container's newest checkpoint.
     ///
     /// Containers with no volumes fail with `NotFound`; multiple volumes
-    /// require [`Self::mount_volume`] and fail with `InvalidInput`.
+    /// require [`Self::mount_volume`] and fail with `InvalidInput`. Container
+    /// or selected-volume incompatible features this reader cannot read fail
+    /// with `Unsupported` and [`Detail::Feature`]; see
+    /// [`ContainerSuperblock::check_incompatible_features`] and
+    /// [`VolumeSuperblock::check_incompatible_features`].
     /// Mount failures return the device for inspection or retry.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn mount(device: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
@@ -334,6 +351,7 @@ impl<D: BlockDevice> ApfsFs<D> {
         credentials: Option<(&[u8], Option<[u8; 16]>)>,
     ) -> FsResult<(ContainerSuperblock, VolumeSuperblock, Index), D::Error> {
         let checkpoint = container.latest_superblock().await?;
+        checkpoint.check_incompatible_features()?;
         let volumes = container.volume_superblocks(&checkpoint).await?;
         let mut selected = None;
         for volume in volumes {
@@ -352,6 +370,7 @@ impl<D: BlockDevice> ApfsFs<D> {
             }
         }
         let volume = selected.ok_or_else(|| selection_error(ErrorKind::NotFound, "APFS volume not found"))?;
+        volume.check_incompatible_features()?;
         if checkpoint.flags & 4 != 0 && volume.flags & crate::types::volume::APFS_FS_UNENCRYPTED == 0 {
             if volume.flags & crate::types::volume::APFS_FS_ONEKEY == 0 {
                 return Err(crate::ApfsError::Unsupported("APFS per-file-key encryption").into());
@@ -369,7 +388,9 @@ impl<D: BlockDevice> ApfsFs<D> {
                 return Err(ErrorKind::Unsupported.into());
             }
         }
-        let index = Index::parse(container.filesystem_root_owned_entries(&volume).await?, limit)?;
+        let entries = container.filesystem_root_owned_entries(&volume).await?;
+        let sealed_extents = container.sealed_file_extents(&volume).await?;
+        let index = Index::parse(entries, sealed_extents, volume.directory_key_layout(), limit)?;
         index.validate::<D::Error>(&volume, checkpoint.block_size, checkpoint.block_count)?;
         let root = index.inodes.get(&crate::types::filesystem::INODE_ROOT_DIRECTORY)
             .ok_or_else(|| Error::new(ErrorKind::Corrupt, "APFS root inode missing"))?;

@@ -1,5 +1,6 @@
 //! APFS volume superblock parsing.
 
+use crate::types::filesystem::DirectoryKeyLayout;
 use crate::types::object::{ObjectHeader, ObjectType};
 use crate::types::{le_u32, le_u64, take};
 
@@ -7,6 +8,36 @@ use crate::types::{le_u32, le_u64, take};
 pub const VOLUME_MAGIC: [u8; 4] = *b"APSB";
 /// Incompatible feature flag: file names are compared case-insensitively.
 pub const APFS_INCOMPAT_CASE_INSENSITIVE: u64 = 0x1;
+/// Incompatible feature flag: at least one snapshot has no data.
+pub const APFS_INCOMPAT_DATALESS_SNAPS: u64 = 0x2;
+/// Incompatible feature flag: the volume's encryption has changed at least once.
+pub const APFS_INCOMPAT_ENC_ROLLED: u64 = 0x4;
+/// Incompatible feature flag: file names are compared normalization-insensitively.
+pub const APFS_INCOMPAT_NORMALIZATION_INSENSITIVE: u64 = 0x8;
+/// Incompatible feature flag: a restore to the volume is in progress or was aborted.
+pub const APFS_INCOMPAT_INCOMPLETE_RESTORE: u64 = 0x10;
+/// Incompatible feature flag: the volume is sealed and keeps file extents in
+/// the file extent tree.
+pub const APFS_INCOMPAT_SEALED_VOLUME: u64 = 0x20;
+/// Incompatible feature flag reserved by the specification.
+pub const APFS_INCOMPAT_RESERVED_40: u64 = 0x40;
+/// Volume incompatible features the APFS specification defines.
+pub const APFS_SUPPORTED_INCOMPAT_MASK: u64 = APFS_INCOMPAT_CASE_INSENSITIVE
+    | APFS_INCOMPAT_DATALESS_SNAPS
+    | APFS_INCOMPAT_ENC_ROLLED
+    | APFS_INCOMPAT_NORMALIZATION_INSENSITIVE
+    | APFS_INCOMPAT_INCOMPLETE_RESTORE
+    | APFS_INCOMPAT_SEALED_VOLUME
+    | APFS_INCOMPAT_RESERVED_40;
+/// Volume incompatible features this reader can mount.
+///
+/// Dataless snapshots only affect snapshots, which are not read, and
+/// encryption rolling leaves the record formats unchanged.
+pub const APFS_READABLE_INCOMPAT_MASK: u64 = APFS_INCOMPAT_CASE_INSENSITIVE
+    | APFS_INCOMPAT_DATALESS_SNAPS
+    | APFS_INCOMPAT_ENC_ROLLED
+    | APFS_INCOMPAT_NORMALIZATION_INSENSITIVE
+    | APFS_INCOMPAT_SEALED_VOLUME;
 /// Volume data is not encrypted at the APFS software layer.
 pub const APFS_FS_UNENCRYPTED: u64 = 0x1;
 /// Volume software encryption uses a single volume key.
@@ -57,6 +88,10 @@ pub struct VolumeSuperblock {
     pub flags: u64,
     /// Null-terminated UTF-8 volume name bytes.
     pub volume_name: [u8; VOLUME_NAME_LENGTH],
+    /// File extent tree physical OID, used by sealed volumes.
+    pub fext_tree_oid: u64,
+    /// File extent tree object type.
+    pub fext_tree_type: u32,
 }
 
 impl VolumeSuperblock {
@@ -93,12 +128,55 @@ impl VolumeSuperblock {
             volume_id: take(data, 240)?,
             flags: le_u64(data, 264)?,
             volume_name: take(data, 704)?,
+            fext_tree_oid: le_u64(data, 1032)?,
+            fext_tree_type: le_u32(data, 1040)?,
         })
     }
 
     /// Returns whether the volume compares file names case-insensitively.
     pub const fn is_case_insensitive(&self) -> bool {
         self.incompatible_features & APFS_INCOMPAT_CASE_INSENSITIVE != 0
+    }
+
+    /// Returns whether the volume is sealed.
+    pub const fn is_sealed(&self) -> bool {
+        self.incompatible_features & APFS_INCOMPAT_SEALED_VOLUME != 0
+    }
+
+    /// Returns the layout of directory entry keys: hashed when names are
+    /// case- or normalization-insensitive, plain otherwise.
+    pub const fn directory_key_layout(&self) -> DirectoryKeyLayout {
+        if self.incompatible_features
+            & (APFS_INCOMPAT_CASE_INSENSITIVE | APFS_INCOMPAT_NORMALIZATION_INSENSITIVE)
+            != 0
+        {
+            DirectoryKeyLayout::Hashed
+        } else {
+            DirectoryKeyLayout::Plain
+        }
+    }
+
+    /// Fails with [`crate::ApfsError::Unsupported`] when an incompatible
+    /// feature outside [`APFS_READABLE_INCOMPAT_MASK`] is set: an incomplete
+    /// restore, the reserved `0x40` bit, or a bit the specification does not
+    /// define.
+    pub const fn check_incompatible_features(&self) -> crate::Result<()> {
+        let unreadable = self.incompatible_features & !APFS_READABLE_INCOMPAT_MASK;
+        if unreadable == 0 {
+            Ok(())
+        } else if unreadable & APFS_INCOMPAT_INCOMPLETE_RESTORE != 0 {
+            Err(crate::ApfsError::Unsupported(
+                "APFS volume with an incomplete restore",
+            ))
+        } else if unreadable & APFS_INCOMPAT_RESERVED_40 != 0 {
+            Err(crate::ApfsError::Unsupported(
+                "APFS volume incompatible feature 0x40",
+            ))
+        } else {
+            Err(crate::ApfsError::Unsupported(
+                "unknown APFS volume incompatible feature",
+            ))
+        }
     }
 
     /// Returns the volume name as UTF-8 up to the first NUL byte.

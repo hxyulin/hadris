@@ -774,10 +774,11 @@ where
         directory_id: u64,
     ) -> hadris_fs::FsResult<alloc::vec::Vec<OwnedDirectoryEntryRecord>, D::Error> {
         let mut records = alloc::vec::Vec::new();
+        let layout = volume.directory_key_layout();
         for entry in self.filesystem_root_owned_entries(volume).await? {
             let key = FileSystemKey::parse(&entry.key)?;
             if key.id == directory_id && key.record_type == crate::types::filesystem::FS_TYPE_DIRECTORY_RECORD {
-                records.push(OwnedDirectoryEntryRecord::parse(&entry.key, &entry.value)?);
+                records.push(OwnedDirectoryEntryRecord::parse(&entry.key, &entry.value, layout)?);
             }
         }
         Ok(records)
@@ -887,7 +888,8 @@ where
         Ok(None)
     }
 
-    /// Finds file extents for an inode/private data-stream identifier in the root filesystem tree.
+    /// Finds file extents for an inode/private data-stream identifier in the
+    /// root filesystem tree and, on sealed volumes, the file extent tree.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub async fn file_extents(
         &mut self,
@@ -901,7 +903,25 @@ where
                 extents.push(FileExtentRecord::parse(&entry.key, &entry.value)?);
             }
         }
+        extents.extend(self.sealed_file_extents(volume).await?.into_iter().filter(|extent| extent.id == id));
         extents.sort_by_key(|extent| extent.logical_address);
+        Ok(extents)
+    }
+
+    /// Returns every extent in a sealed volume's file extent tree, or none
+    /// when the volume is not sealed or has no such tree.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub async fn sealed_file_extents(
+        &mut self,
+        volume: &VolumeSuperblock,
+    ) -> hadris_fs::FsResult<alloc::vec::Vec<FileExtentRecord>, D::Error> {
+        if !volume.is_sealed() || volume.fext_tree_oid == 0 {
+            return Ok(alloc::vec::Vec::new());
+        }
+        let mut extents = alloc::vec::Vec::new();
+        for entry in self.btree_leaf_entries(volume.fext_tree_oid).await? {
+            extents.push(FileExtentRecord::parse_fext(&entry.key, &entry.value)?);
+        }
         Ok(extents)
     }
 
