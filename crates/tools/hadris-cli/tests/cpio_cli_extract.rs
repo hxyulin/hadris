@@ -235,3 +235,56 @@ fn cat_reads_a_hard_link_from_the_name_with_data() {
     assert!(output.status.success(), "{output:?}");
     assert_eq!(output.stdout, b"data");
 }
+
+fn cat(archive: &[u8], name: &str) -> (Output, Output) {
+    use std::io::Write as _;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("a.cpio");
+    std::fs::write(&path, archive).unwrap();
+    let file = std::process::Command::new(env!("CARGO_BIN_EXE_hadris"))
+        .args(["cpio", "cat"])
+        .arg(&path)
+        .arg(name)
+        .output()
+        .unwrap();
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_hadris"))
+        .args(["cpio", "cat", "-", name])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(archive).unwrap();
+    (file, child.wait_with_output().unwrap())
+}
+
+#[test]
+fn cat_reads_a_hard_link_whose_data_came_first() {
+    let mut other = link("b", 3, b"other");
+    other.dev = (1, 0);
+    let archive = newc(&[link("c", 3, b"data"), other, link("a", 3, b"")]);
+    for output in <[Output; 2]>::from(cat(&archive, "a")) {
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(output.stdout, b"data");
+    }
+
+    let archive = newc(&[
+        link("c", 3, b"data"),
+        link("a", 3, b""),
+        entry("a", 0o100644, b"new"),
+    ]);
+    for output in <[Output; 2]>::from(cat(&archive, "a")) {
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(output.stdout, b"new");
+    }
+
+    let archive = newc(&[
+        link("c", 3, b"old"),
+        link("a", 3, b""),
+        link("d", 3, b"late"),
+    ]);
+    for output in <[Output; 2]>::from(cat(&archive, "a")) {
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(output.stdout, b"late");
+    }
+}

@@ -209,7 +209,9 @@ Each published package owns its version and may be released independently.
   segment after the first with `segment <n>:`, and `info` reports the
   segment count and each segment's format. A name in a later segment replaces
   the earlier one in `extract`, and `cat` prints the last entry of a name.
-  Non-cpio data after a trailer ends the archive with a warning.
+  For a zero-length hard link name, `cat` prints the data of the group's
+  member that carries it, whether that member comes before or after the
+  name. Non-cpio data after a trailer ends the archive with a warning.
 
 - **hadris-fat (exFAT):** Removing, replacing by rename, truncating or
   growing a file or directory with a contiguous (`NoFatChain`) allocation
