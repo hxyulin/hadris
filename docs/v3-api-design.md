@@ -689,6 +689,16 @@ and no extension trait in their place (S6). `Volume` does not implement
 `FileSystem`: path `open` and `rename` would share names with the node
 methods on one type.
 
+**Panics.** A panic while the volume holds its filesystem may leave the
+driver mid-change, so the volume fails for good: every later path and handle
+call returns `Io` with `hadris_fs::Detail::VolumeFailed` without reaching the
+driver, queued calls of dropped handles are discarded, `lock()` panics and
+`is_failed()` tells. `into_inner()` still returns the filesystem. The sync
+volume detects the panic by the poisoning of its `std::sync::Mutex`; the
+async one marks itself failed when a poll of one of its calls unwinds, which
+needs no `std`, and with `std` when a `VolumeGuard` is dropped while
+unwinding.
+
 **Trees in and out.** `copy_tree(&Tree, &mut F, dir)` copies a tree into any
 mounted filesystem, and `read_tree(&Volume<F>, path)` turns a mounted subtree
 into a `Tree` whose file content is read lazily (4.7). The host side is
@@ -819,7 +829,7 @@ impl<E: ..> From<Error<E>> for std::io::Error { .. }          // std
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ErrorKind {
-    Io,                  // the device failed; device_error() is Some
+    Io,                  // the device failed (device_error() is Some), or a Volume failed after a panic
     NotRecognized,       // the bytes are not this format at all
     Corrupt,             // this format, but it violates the specification
     NotFound,

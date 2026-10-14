@@ -7,12 +7,16 @@ impl<T> Lock<T> {
         Self(async_lock::Mutex::new(value))
     }
 
-    pub(crate) async fn lock(&self) -> Guard<'_, T> {
-        self.0.lock().await
+    pub(crate) async fn lock(&self) -> Option<Guard<'_, T>> {
+        Some(self.0.lock().await)
     }
 
     pub(crate) fn try_lock(&self) -> Option<Guard<'_, T>> {
         self.0.try_lock()
+    }
+
+    pub(crate) fn poisoned(&self) -> bool {
+        false
     }
 
     pub(crate) fn into_inner(self) -> T {

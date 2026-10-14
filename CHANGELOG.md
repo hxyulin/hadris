@@ -135,6 +135,15 @@ Each published package owns its version and may be released independently.
   `Detail::Checksum` (or the newest candidate's error). Without `alloc`,
   `Container::open` still requires block zero's checksum. Refs #295.
 
+- **A panic fails the `Volume`:** a panic during a call on a sync or async
+  `Volume`, in the driver, the device or code holding its `lock()` guard,
+  used to be ignored, leaving later calls to run on a driver left
+  mid-change. The volume now fails for good: every later path and handle
+  call returns kind `Io` with the new `hadris_fs::Detail::VolumeFailed`,
+  calls queued by dropped handles are discarded, `lock()` panics, and the
+  new `Volume::is_failed` tells. `into_inner` still gives the filesystem
+  back. The async volume detects the panic without `std` too.
+
 - **`PathError` keeps its paths in `std::io::Error`:** converting a
   `PathError` whose source is an `std::io::Error` now wraps it instead of
   returning the source, so host failures propagated with `?` keep the tree

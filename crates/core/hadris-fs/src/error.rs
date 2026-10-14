@@ -2,6 +2,75 @@ use core::fmt;
 
 pub use hadris_io::{DetailCode, Errno, Error, ErrorKind, FsResult, Location};
 
+const DOMAIN: &str = "hadris-fs";
+
+/// What exactly went wrong in `hadris-fs` itself, beyond the [`ErrorKind`].
+///
+/// Read it back from an [`Error`] with [`Detail::of`].
+///
+/// ```rust
+/// use hadris_fs::{Detail, Error, ErrorKind};
+///
+/// let err: Error<()> = Detail::VolumeFailed.error();
+/// assert_eq!(err.kind(), ErrorKind::Io);
+/// assert_eq!(Detail::of(&err), Some(Detail::VolumeFailed));
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Detail {
+    /// A call on a `Volume` panicked while it held the filesystem, so the
+    /// driver may be left mid-change. Every later call on the volume fails
+    /// with this detail and kind [`ErrorKind::Io`].
+    VolumeFailed = 1,
+}
+
+impl Detail {
+    const ALL: [Self; 1] = [Self::VolumeFailed];
+
+    const fn description(self) -> &'static str {
+        match self {
+            Self::VolumeFailed => "volume failed after a panic during a call on it",
+        }
+    }
+
+    /// The detail `hadris-fs` recorded on `err`, if any.
+    pub fn of<E>(err: &Error<E>) -> Option<Self> {
+        err.detail().and_then(Self::from_code)
+    }
+
+    /// The detail `code` stands for, when it is one of this crate's codes.
+    pub fn from_code(code: DetailCode) -> Option<Self> {
+        let code = code.code_in(DOMAIN)?;
+        Self::ALL.into_iter().find(|detail| *detail as u16 == code)
+    }
+
+    /// The code this detail is recorded with, in the `hadris-fs` domain.
+    /// Codes never change meaning.
+    pub const fn code(self) -> DetailCode {
+        DetailCode::new(DOMAIN, self as u16)
+    }
+
+    /// The error `hadris-fs` reports for this detail.
+    pub fn error<E>(self) -> Error<E> {
+        let kind = match self {
+            Self::VolumeFailed => ErrorKind::Io,
+        };
+        Error::new(kind, self.description()).with_detail(self.code())
+    }
+}
+
+impl From<Detail> for DetailCode {
+    fn from(detail: Detail) -> Self {
+        detail.code()
+    }
+}
+
+impl fmt::Display for Detail {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.description())
+    }
+}
+
 impl<E> From<crate::NameError> for Error<E> {
     fn from(err: crate::NameError) -> Self {
         Error::new(err.kind(), err.description())
@@ -320,6 +389,16 @@ mod tests {
     }
 
     impl core::error::Error for Ata {}
+
+    #[test]
+    fn details_round_trip() {
+        for detail in Detail::ALL {
+            let err: Error<Ata> = detail.error();
+            assert_eq!(Detail::of(&err), Some(detail));
+        }
+        let foreign = DetailCode::new("hadris-fat", Detail::VolumeFailed as u16);
+        assert_eq!(Detail::from_code(foreign), None);
+    }
 
     #[test]
     fn value_errors_convert_to_their_kind() {

@@ -6,6 +6,7 @@ use crate::OpenOptions;
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 /// A call a dropped handle could not make, waiting for the next lock.
 #[derive(Debug, Clone, Copy)]
@@ -28,6 +29,17 @@ pub(super) struct Shared<F> {
     fs: Lock<F>,
     pending: spin::Mutex<VecDeque<Pending>>,
     resolve: Resolve,
+    failed: AtomicBool,
+}
+
+/// Marks a volume failed when dropped, as by an unwind out of a poll.
+#[allow(dead_code)]
+struct Unwinding<'a>(&'a AtomicBool);
+
+impl Drop for Unwinding<'_> {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+    }
 }
 
 /// A pin held across an `.await`. Dropped before [`forget`](Self::forget)
@@ -97,6 +109,22 @@ io_transform! {
 /// [`Resolve`] policy given to [`with_resolve`](Self::with_resolve),
 /// [`Resolve::Lexical`] for [`new`](Self::new).
 ///
+/// # Panics during a call
+///
+/// A panic while the filesystem is locked, in a driver, a device or the
+/// caller's own code holding a [`VolumeGuard`], may leave the driver
+/// mid-change, so the volume fails for good. Every later path or handle
+/// call returns [`Detail::VolumeFailed`](crate::Detail::VolumeFailed) with
+/// kind [`ErrorKind::Io`], without reaching the driver, and calls that
+/// dropped handles queued are discarded. [`is_failed`](Self::is_failed)
+/// tells, and [`into_inner`](Self::into_inner) still gives the filesystem
+/// back, whose state may then be inconsistent.
+///
+/// The sync volume detects every such panic by the poisoning of its
+/// `std::sync::Mutex`. The async volume detects a panic out of a poll of its
+/// own calls and handle calls, also without `std`, and with `std` any panic
+/// that drops a [`VolumeGuard`] while unwinding.
+///
 /// ```rust,no_run
 /// use hadris_fs::sync::{FileSystem, Volume};
 /// use hadris_fs::{FsResult, OpenOptions};
@@ -120,6 +148,8 @@ pub struct VolumeGuard<'a, F: FileSystem> {
     fs: Guard<'a, F>,
     #[allow(dead_code)]
     pending: &'a spin::Mutex<VecDeque<Pending>>,
+    #[allow(dead_code)]
+    failed: &'a AtomicBool,
 }
 
 impl<F> Clone for Volume<F> {
@@ -150,8 +180,14 @@ impl<F: FileSystem> core::ops::DerefMut for VolumeGuard<'_, F> {
 
 impl<F: FileSystem> Drop for VolumeGuard<'_, F> {
     fn drop(&mut self) {
+        #[cfg(feature = "std")]
+        if std::thread::panicking() {
+            self.failed.store(true, Ordering::Release);
+        }
         sync_only! {
-            run_pending(self.pending, &mut *self.fs);
+            if !self.failed.load(Ordering::Acquire) {
+                run_pending(self.pending, &mut *self.fs);
+            }
         }
     }
 }
@@ -186,6 +222,7 @@ impl<F: FileSystem> Volume<F> {
                 fs: Lock::new(fs),
                 pending: spin::Mutex::new(VecDeque::new()),
                 resolve,
+                failed: AtomicBool::new(false),
             }),
         }
     }
@@ -195,30 +232,86 @@ impl<F: FileSystem> Volume<F> {
     /// Dropping a [`File`] or [`ReadDir`] of this volume while holding the
     /// guard queues its close and does not deadlock. Calling a path method
     /// on this volume while holding the guard deadlocks, as with any mutex.
+    ///
+    /// # Panics
+    ///
+    /// When the volume [failed](Self::is_failed), as locking a poisoned
+    /// `std::sync::Mutex` and unwrapping does. Check
+    /// [`is_failed`](Self::is_failed) first, or take the filesystem back
+    /// with [`into_inner`](Self::into_inner).
     pub async fn lock(&self) -> VolumeGuard<'_, F> {
-        let mut fs = self.shared.fs.lock().await;
+        let entered = watched!(self, { self.enter().await });
+        match entered {
+            Ok(guard) => guard,
+            Err(_) => panic!("the volume failed after a panic during a call on it"),
+        }
+    }
+
+    /// Whether a panic during a call failed the volume, so every later
+    /// call returns [`Detail::VolumeFailed`](crate::Detail::VolumeFailed).
+    pub fn is_failed(&self) -> bool {
+        self.shared.failed.load(Ordering::Acquire) || self.shared.fs.poisoned()
+    }
+
+    /// Locks the filesystem for a call, or fails when the volume failed.
+    pub(super) async fn enter(&self) -> FsResult<VolumeGuard<'_, F>, F::DeviceError> {
+        if self.is_failed() {
+            return Err(crate::Detail::VolumeFailed.error());
+        }
+        let Some(mut fs) = self.shared.fs.lock().await else {
+            return Err(crate::Detail::VolumeFailed.error());
+        };
+        if self.shared.failed.load(Ordering::Acquire) {
+            return Err(crate::Detail::VolumeFailed.error());
+        }
         run_pending(&self.shared.pending, &mut *fs).await;
-        VolumeGuard { fs, pending: &self.shared.pending }
+        Ok(VolumeGuard { fs, pending: &self.shared.pending, failed: &self.shared.failed })
     }
 
     /// Returns the filesystem, after the calls dropped handles queued, or
     /// the volume while clones or handles of it exist.
+    ///
+    /// A [failed](Self::is_failed) volume gives its filesystem back without
+    /// making the queued calls. Its state may be inconsistent, so check it
+    /// or discard it rather than writing through it.
     pub async fn into_inner(self) -> Result<F, Self> {
         match Arc::try_unwrap(self.shared) {
             Ok(shared) => {
+                let failed = shared.failed.load(Ordering::Acquire) || shared.fs.poisoned();
                 let mut fs = shared.fs.into_inner();
-                run_pending(&shared.pending, &mut fs).await;
+                if !failed {
+                    run_pending(&shared.pending, &mut fs).await;
+                }
                 Ok(fs)
             }
             Err(shared) => Err(Self { shared }),
         }
     }
 
+    async_only! {
+    /// Polls `call`, marking the volume failed if a poll of it unwinds. A
+    /// call dropped between polls, as by a cancelled future, is not a
+    /// failure.
+    pub(super) async fn watch<T>(&self, call: impl core::future::Future<Output = T>) -> T {
+        let mut call = core::pin::pin!(call);
+        core::future::poll_fn(|cx| {
+            let armed = Unwinding(&self.shared.failed);
+            let polled = call.as_mut().poll(cx);
+            core::mem::forget(armed);
+            polled
+        })
+        .await
+    }
+    }
+
     /// Makes the call a dropped handle owes on `node`: forgets it, after
     /// closing it when `close` is set. Runs now when the lock is free and
     /// the call needs no `.await`, and queues it for the next lock
-    /// otherwise.
+    /// otherwise. A failed volume drops the call.
     pub(super) fn release(&self, node: NodeId, close: bool) {
+        if self.is_failed() {
+            return;
+        }
         sync_only! {
             if let Some(mut fs) = self.shared.fs.try_lock() {
                 run_pending(&self.shared.pending, &mut *fs);
@@ -272,38 +365,40 @@ impl<F: FileSystem> Volume<F> {
     /// and a symlink the volume's policy does not follow with
     /// [`ErrorKind::Symlink`].
     pub async fn open(&self, path: impl AsRef<[u8]>, options: OpenOptions) -> FsResult<File<F>, F::DeviceError> {
-        options.validate()?;
-        let how = self.shared.resolve;
-        let path = path.as_ref();
-        let mut fs = self.lock().await;
-        if options.is_write() && !fs.capabilities().writable() {
-            return Err(ErrorKind::ReadOnly.into());
-        }
-        let node = if options.is_create() || options.is_create_new() {
-            let (dir, name) = resolve_parent(&mut *fs, path, how).await?;
-            let dir = self.hold(dir);
-            let found = match fs.lookup(dir.node(), name).await {
-                Ok(node) if options.is_create_new() => {
-                    fs.forget(node, 1);
-                    Err(ErrorKind::AlreadyExists.into())
-                }
-                Err(err) if err.kind() == ErrorKind::NotFound => fs.create(dir.node(), name, options.attr()).await,
-                other => other,
-            };
-            dir.forget(&mut *fs);
-            let node = self.hold(found?);
-            if how == Resolve::Follow && is_symlink(&mut *fs, node.node()).await {
-                node.forget(&mut *fs);
-                self.hold(fs.resolve(path, how).await?)
-            } else {
-                node
+        watched!(self, {
+            options.validate()?;
+            let how = self.shared.resolve;
+            let path = path.as_ref();
+            let mut fs = self.enter().await?;
+            if options.is_write() && !fs.capabilities().writable() {
+                return Err(ErrorKind::ReadOnly.into());
             }
-        } else {
-            self.hold(fs.resolve(path, how).await?)
-        };
-        let node = open_held(&mut *fs, node, options).await?;
-        drop(fs);
-        Ok(File::new(self.clone(), node, options))
+            let node = if options.is_create() || options.is_create_new() {
+                let (dir, name) = resolve_parent(&mut *fs, path, how).await?;
+                let dir = self.hold(dir);
+                let found = match fs.lookup(dir.node(), name).await {
+                    Ok(node) if options.is_create_new() => {
+                        fs.forget(node, 1);
+                        Err(ErrorKind::AlreadyExists.into())
+                    }
+                    Err(err) if err.kind() == ErrorKind::NotFound => fs.create(dir.node(), name, options.attr()).await,
+                    other => other,
+                };
+                dir.forget(&mut *fs);
+                let node = self.hold(found?);
+                if how == Resolve::Follow && is_symlink(&mut *fs, node.node()).await {
+                    node.forget(&mut *fs);
+                    self.hold(fs.resolve(path, how).await?)
+                } else {
+                    node
+                }
+            } else {
+                self.hold(fs.resolve(path, how).await?)
+            };
+            let node = open_held(&mut *fs, node, options).await?;
+            drop(fs);
+            Ok(File::new(self.clone(), node, options))
+        })
     }
 
     /// Opens the file `entry` names in the directory `dir`, as `readdir`
@@ -325,46 +420,52 @@ impl<F: FileSystem> Volume<F> {
         entry: &DirEntry,
         options: OpenOptions,
     ) -> FsResult<File<F>, F::DeviceError> {
-        options.validate()?;
-        if options.is_create_new() {
-            return Err(ErrorKind::AlreadyExists.into());
-        }
-        let mut fs = self.lock().await;
-        if options.is_write() && !fs.capabilities().writable() {
-            return Err(ErrorKind::ReadOnly.into());
-        }
-        let node = self.hold(fs.lookup(dir, entry.name()).await?);
-        if node.node() != entry.node() {
-            node.forget(&mut *fs);
-            return Err(ErrorKind::NotFound.into());
-        }
-        let node = open_held(&mut *fs, node, options).await?;
-        drop(fs);
-        Ok(File::new(self.clone(), node, options))
+        watched!(self, {
+            options.validate()?;
+            if options.is_create_new() {
+                return Err(ErrorKind::AlreadyExists.into());
+            }
+            let mut fs = self.enter().await?;
+            if options.is_write() && !fs.capabilities().writable() {
+                return Err(ErrorKind::ReadOnly.into());
+            }
+            let node = self.hold(fs.lookup(dir, entry.name()).await?);
+            if node.node() != entry.node() {
+                node.forget(&mut *fs);
+                return Err(ErrorKind::NotFound.into());
+            }
+            let node = open_held(&mut *fs, node, options).await?;
+            drop(fs);
+            Ok(File::new(self.clone(), node, options))
+        })
     }
 
     /// Reads the whole file at `path`, as `std::fs::read`.
     pub async fn read(&self, path: impl AsRef<[u8]>) -> FsResult<Vec<u8>, F::DeviceError> {
-        let file = self.open(path, OpenOptions::new().read()).await?;
-        let mut fs = self.lock().await;
-        let read = read_all(&mut *fs, file.node()).await;
-        drop(fs);
-        let closed = file.close().await;
-        let data = read?;
-        closed?;
-        Ok(data)
+        watched!(self, {
+            let file = self.open(path, OpenOptions::new().read()).await?;
+            let mut fs = self.enter().await?;
+            let read = read_all(&mut *fs, file.node()).await;
+            drop(fs);
+            let closed = file.close().await;
+            let data = read?;
+            closed?;
+            Ok(data)
+        })
     }
 
     /// Writes `contents` as the whole file at `path`, creating it or
     /// truncating it first, as `std::fs::write`.
     pub async fn write(&self, path: impl AsRef<[u8]>, contents: impl AsRef<[u8]>) -> FsResult<(), F::DeviceError> {
-        let file = self.open(path, OpenOptions::new().write().create().truncate()).await?;
-        let mut fs = self.lock().await;
-        let written = write_all_at(&mut *fs, file.node(), 0, contents.as_ref()).await;
-        drop(fs);
-        let closed = file.close().await;
-        written?;
-        closed
+        watched!(self, {
+            let file = self.open(path, OpenOptions::new().write().create().truncate()).await?;
+            let mut fs = self.enter().await?;
+            let written = write_all_at(&mut *fs, file.node(), 0, contents.as_ref()).await;
+            drop(fs);
+            let closed = file.close().await;
+            written?;
+            closed
+        })
     }
 
     /// Whether `path` names a node, following a final symlink when the
@@ -386,20 +487,22 @@ impl<F: FileSystem> Volume<F> {
     /// Each step locks the volume once; see [`WalkDir`] for changes made
     /// during the walk.
     pub async fn walk(&self, path: impl AsRef<[u8]>) -> FsResult<WalkDir<F>, F::DeviceError> {
-        let path = path.as_ref();
-        let mut fs = self.lock().await;
-        let node = self.hold(fs.resolve(path, self.shared.resolve).await?);
-        match fs.stat(node.node()).await {
-            Ok(meta) if meta.file_type().is_dir() => {
-                let node = node.keep();
-                drop(fs);
-                Ok(WalkDir::new(self.clone(), node, path))
+        watched!(self, {
+            let path = path.as_ref();
+            let mut fs = self.enter().await?;
+            let node = self.hold(fs.resolve(path, self.shared.resolve).await?);
+            match fs.stat(node.node()).await {
+                Ok(meta) if meta.file_type().is_dir() => {
+                    let node = node.keep();
+                    drop(fs);
+                    Ok(WalkDir::new(self.clone(), node, path))
+                }
+                other => {
+                    node.forget(&mut *fs);
+                    Err(other.err().unwrap_or_else(|| ErrorKind::NotADirectory.into()))
+                }
             }
-            other => {
-                node.forget(&mut *fs);
-                Err(other.err().unwrap_or_else(|| ErrorKind::NotADirectory.into()))
-            }
-        }
+        })
     }
 
     /// Metadata of the node at `path`, following a final symlink when the
@@ -414,74 +517,88 @@ impl<F: FileSystem> Volume<F> {
     }
 
     async fn stat_path(&self, path: &[u8], how: Resolve) -> FsResult<Metadata, F::DeviceError> {
-        let mut fs = self.lock().await;
-        let node = self.hold(fs.resolve(path, how).await?);
-        let meta = fs.stat(node.node()).await;
-        node.forget(&mut *fs);
-        meta
+        watched!(self, {
+            let mut fs = self.enter().await?;
+            let node = self.hold(fs.resolve(path, how).await?);
+            let meta = fs.stat(node.node()).await;
+            node.forget(&mut *fs);
+            meta
+        })
     }
 
     /// Lists the directory at `path`.
     pub async fn read_dir(&self, path: impl AsRef<[u8]>) -> FsResult<ReadDir<F>, F::DeviceError> {
-        let mut fs = self.lock().await;
-        let node = self.hold(fs.resolve(path.as_ref(), self.shared.resolve).await?);
-        match fs.stat(node.node()).await {
-            Ok(meta) if meta.file_type().is_dir() => {
-                let node = node.keep();
-                drop(fs);
-                Ok(ReadDir::new(self.clone(), node))
+        watched!(self, {
+            let mut fs = self.enter().await?;
+            let node = self.hold(fs.resolve(path.as_ref(), self.shared.resolve).await?);
+            match fs.stat(node.node()).await {
+                Ok(meta) if meta.file_type().is_dir() => {
+                    let node = node.keep();
+                    drop(fs);
+                    Ok(ReadDir::new(self.clone(), node))
+                }
+                other => {
+                    node.forget(&mut *fs);
+                    Err(other.err().unwrap_or_else(|| ErrorKind::NotADirectory.into()))
+                }
             }
-            other => {
-                node.forget(&mut *fs);
-                Err(other.err().unwrap_or_else(|| ErrorKind::NotADirectory.into()))
-            }
-        }
+        })
     }
 
     /// The target of the symlink at `path`.
     pub async fn read_link(&self, path: impl AsRef<[u8]>) -> FsResult<Vec<u8>, F::DeviceError> {
-        let mut fs = self.lock().await;
-        let node = self.hold(fs.resolve(path.as_ref(), no_follow(self.shared.resolve)).await?);
-        let target = read_link_of(&mut *fs, node.node()).await;
-        node.forget(&mut *fs);
-        target
+        watched!(self, {
+            let mut fs = self.enter().await?;
+            let node = self.hold(fs.resolve(path.as_ref(), no_follow(self.shared.resolve)).await?);
+            let target = read_link_of(&mut *fs, node.node()).await;
+            node.forget(&mut *fs);
+            target
+        })
     }
 
     /// Creates the directory at `path`.
     pub async fn create_dir(&self, path: impl AsRef<[u8]>) -> FsResult<(), F::DeviceError> {
-        let mut fs = self.lock().await;
-        let (dir, name) = resolve_parent(&mut *fs, path.as_ref(), self.shared.resolve).await?;
-        let dir = self.hold(dir);
-        let made = fs.mkdir(dir.node(), name, &SetAttr::new()).await;
-        dir.forget(&mut *fs);
-        fs.forget(made?, 1);
-        Ok(())
+        watched!(self, {
+            let mut fs = self.enter().await?;
+            let (dir, name) = resolve_parent(&mut *fs, path.as_ref(), self.shared.resolve).await?;
+            let dir = self.hold(dir);
+            let made = fs.mkdir(dir.node(), name, &SetAttr::new()).await;
+            dir.forget(&mut *fs);
+            fs.forget(made?, 1);
+            Ok(())
+        })
     }
 
     /// Creates the directory at `path` and every missing parent.
     pub async fn create_dir_all(&self, path: impl AsRef<[u8]>) -> FsResult<(), F::DeviceError> {
-        let mut fs = self.lock().await;
-        create_dir_all(&mut *fs, &self.shared.pending, path.as_ref(), self.shared.resolve).await
+        watched!(self, {
+            let mut fs = self.enter().await?;
+            create_dir_all(&mut *fs, &self.shared.pending, path.as_ref(), self.shared.resolve).await
+        })
     }
 
     /// Removes the file or symlink at `path`.
     pub async fn remove_file(&self, path: impl AsRef<[u8]>) -> FsResult<(), F::DeviceError> {
-        let mut fs = self.lock().await;
-        let (dir, name) = resolve_parent(&mut *fs, path.as_ref(), self.shared.resolve).await?;
-        let dir = self.hold(dir);
-        let removed = fs.unlink(dir.node(), name).await;
-        dir.forget(&mut *fs);
-        removed
+        watched!(self, {
+            let mut fs = self.enter().await?;
+            let (dir, name) = resolve_parent(&mut *fs, path.as_ref(), self.shared.resolve).await?;
+            let dir = self.hold(dir);
+            let removed = fs.unlink(dir.node(), name).await;
+            dir.forget(&mut *fs);
+            removed
+        })
     }
 
     /// Removes the empty directory at `path`.
     pub async fn remove_dir(&self, path: impl AsRef<[u8]>) -> FsResult<(), F::DeviceError> {
-        let mut fs = self.lock().await;
-        let (dir, name) = resolve_parent(&mut *fs, path.as_ref(), self.shared.resolve).await?;
-        let dir = self.hold(dir);
-        let removed = fs.rmdir(dir.node(), name).await;
-        dir.forget(&mut *fs);
-        removed
+        watched!(self, {
+            let mut fs = self.enter().await?;
+            let (dir, name) = resolve_parent(&mut *fs, path.as_ref(), self.shared.resolve).await?;
+            let dir = self.hold(dir);
+            let removed = fs.rmdir(dir.node(), name).await;
+            dir.forget(&mut *fs);
+            removed
+        })
     }
 
     /// Removes the directory at `path` and everything in it. A symlink at
@@ -489,56 +606,62 @@ impl<F: FileSystem> Volume<F> {
     /// and a path ending in `.` or `..` fails with
     /// [`ErrorKind::InvalidInput`] before anything is removed.
     pub async fn remove_dir_all(&self, path: impl AsRef<[u8]>) -> FsResult<(), F::DeviceError> {
-        let path = path.as_ref();
-        let how = self.shared.resolve;
-        split_parent(path)?;
-        let mut fs = self.lock().await;
-        let node = self.hold(fs.resolve(path, no_follow(how)).await?);
-        let emptied = match fs.stat(node.node()).await {
-            Ok(meta) if !meta.file_type().is_dir() => Err(ErrorKind::NotADirectory.into()),
-            Ok(_) if node.node() == fs.root() => Err(ErrorKind::InvalidInput.into()),
-            Ok(_) => empty_dir(&mut *fs, &self.shared.pending, node.node()).await,
-            Err(err) => Err(err),
-        };
-        node.forget(&mut *fs);
-        emptied?;
-        let (dir, name) = resolve_parent(&mut *fs, path, how).await?;
-        let dir = self.hold(dir);
-        let removed = fs.rmdir(dir.node(), name).await;
-        dir.forget(&mut *fs);
-        removed
+        watched!(self, {
+            let path = path.as_ref();
+            let how = self.shared.resolve;
+            split_parent(path)?;
+            let mut fs = self.enter().await?;
+            let node = self.hold(fs.resolve(path, no_follow(how)).await?);
+            let emptied = match fs.stat(node.node()).await {
+                Ok(meta) if !meta.file_type().is_dir() => Err(ErrorKind::NotADirectory.into()),
+                Ok(_) if node.node() == fs.root() => Err(ErrorKind::InvalidInput.into()),
+                Ok(_) => empty_dir(&mut *fs, &self.shared.pending, node.node()).await,
+                Err(err) => Err(err),
+            };
+            node.forget(&mut *fs);
+            emptied?;
+            let (dir, name) = resolve_parent(&mut *fs, path, how).await?;
+            let dir = self.hold(dir);
+            let removed = fs.rmdir(dir.node(), name).await;
+            dir.forget(&mut *fs);
+            removed
+        })
     }
 
     /// Moves `from` to `to`, replacing an existing `to` as
     /// `std::fs::rename` does. The node keeps its id.
     pub async fn rename(&self, from: impl AsRef<[u8]>, to: impl AsRef<[u8]>) -> FsResult<(), F::DeviceError> {
-        let how = self.shared.resolve;
-        let mut fs = self.lock().await;
-        let (from_dir, from_name) = resolve_parent(&mut *fs, from.as_ref(), how).await?;
-        let from_dir = self.hold(from_dir);
-        let moved = match resolve_parent(&mut *fs, to.as_ref(), how).await {
-            Ok((to_dir, to_name)) => {
-                let to_dir = self.hold(to_dir);
-                let moved = fs
-                    .rename(from_dir.node(), from_name, to_dir.node(), to_name, RenameMode::Replace)
-                    .await;
-                to_dir.forget(&mut *fs);
-                moved
-            }
-            Err(err) => Err(err),
-        };
-        from_dir.forget(&mut *fs);
-        moved
+        watched!(self, {
+            let how = self.shared.resolve;
+            let mut fs = self.enter().await?;
+            let (from_dir, from_name) = resolve_parent(&mut *fs, from.as_ref(), how).await?;
+            let from_dir = self.hold(from_dir);
+            let moved = match resolve_parent(&mut *fs, to.as_ref(), how).await {
+                Ok((to_dir, to_name)) => {
+                    let to_dir = self.hold(to_dir);
+                    let moved = fs
+                        .rename(from_dir.node(), from_name, to_dir.node(), to_name, RenameMode::Replace)
+                        .await;
+                    to_dir.forget(&mut *fs);
+                    moved
+                }
+                Err(err) => Err(err),
+            };
+            from_dir.forget(&mut *fs);
+            moved
+        })
     }
 
     /// Changes the times, permissions, owner or attributes of the node at
     /// `path`.
     pub async fn set_attr(&self, path: impl AsRef<[u8]>, changes: &SetAttr) -> FsResult<(), F::DeviceError> {
-        let mut fs = self.lock().await;
-        let node = self.hold(fs.resolve(path.as_ref(), self.shared.resolve).await?);
-        let set = fs.setattr(node.node(), changes).await;
-        node.forget(&mut *fs);
-        set
+        watched!(self, {
+            let mut fs = self.enter().await?;
+            let node = self.hold(fs.resolve(path.as_ref(), self.shared.resolve).await?);
+            let set = fs.setattr(node.node(), changes).await;
+            node.forget(&mut *fs);
+            set
+        })
     }
 }
 

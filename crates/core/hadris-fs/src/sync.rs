@@ -19,14 +19,22 @@ macro_rules! async_only {
     ($($item:tt)*) => {};
 }
 
+/// Runs a `Volume` call; the sync lock detects panics by poisoning.
+#[allow(unused_macros)]
+macro_rules! watched {
+    ($vol:expr, $body:block) => {
+        $body
+    };
+}
+
 #[allow(clippy::duplicate_mod)]
 #[path = "api/mod.rs"]
 mod api;
 pub use api::*;
 
-/// The lock of a sync `Volume`: `std::sync::Mutex`, with poisoning ignored,
-/// since a panic inside a driver call leaves the driver as a failed call
-/// does.
+/// The lock of a sync `Volume`: `std::sync::Mutex`, which a panic while
+/// it is held poisons. A poisoned lock hands out no guard, so the volume
+/// reports itself failed instead of reaching a driver left mid-call.
 #[cfg(feature = "std")]
 mod lock {
     pub(crate) type Guard<'a, T> = std::sync::MutexGuard<'a, T>;
@@ -38,16 +46,18 @@ mod lock {
             Self(std::sync::Mutex::new(value))
         }
 
-        pub(crate) fn lock(&self) -> Guard<'_, T> {
-            self.0.lock().unwrap_or_else(|poison| poison.into_inner())
+        /// The guard, or `None` when the lock is poisoned.
+        pub(crate) fn lock(&self) -> Option<Guard<'_, T>> {
+            self.0.lock().ok()
         }
 
+        /// The guard, or `None` when the lock is held or poisoned.
         pub(crate) fn try_lock(&self) -> Option<Guard<'_, T>> {
-            match self.0.try_lock() {
-                Ok(guard) => Some(guard),
-                Err(std::sync::TryLockError::Poisoned(poison)) => Some(poison.into_inner()),
-                Err(std::sync::TryLockError::WouldBlock) => None,
-            }
+            self.0.try_lock().ok()
+        }
+
+        pub(crate) fn poisoned(&self) -> bool {
+            self.0.is_poisoned()
         }
 
         pub(crate) fn into_inner(self) -> T {

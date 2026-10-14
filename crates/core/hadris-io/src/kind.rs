@@ -9,8 +9,9 @@ use core::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ErrorKind {
-    /// The device failed; [`Error::device_error`](crate::Error::device_error)
-    /// returns its error.
+    /// The device failed, and
+    /// [`Error::device_error`](crate::Error::device_error) returns its error,
+    /// or a shared volume failed after a panic (`hadris_fs::Detail`).
     Io,
     /// The bytes are not this format at all.
     NotRecognized,

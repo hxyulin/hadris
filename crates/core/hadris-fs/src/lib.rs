@@ -82,7 +82,7 @@ pub use contract::ContractViolation;
 pub use dir::{DirCursor, DirEntry};
 #[cfg(feature = "alloc")]
 pub use error::PathError;
-pub use error::{DetailCode, Errno, Error, ErrorKind, FsResult, Location, MountError};
+pub use error::{Detail, DetailCode, Errno, Error, ErrorKind, FsResult, Location, MountError};
 pub use extent::Extent;
 pub use fuse::FuseOnError;
 pub use hadris_io::SeekFrom;

@@ -19,6 +19,14 @@ macro_rules! async_only {
     ($($item:tt)*) => { $($item)* };
 }
 
+/// Runs a `Volume` call, marking the volume failed if a poll of it panics.
+#[allow(unused_macros)]
+macro_rules! watched {
+    ($vol:expr, $body:block) => {
+        $vol.watch(async move $body).await
+    };
+}
+
 #[allow(clippy::duplicate_mod)]
 #[path = "api/mod.rs"]
 mod api;

@@ -83,15 +83,17 @@ io_transform! {
 
 impl<F: FileSystem> VolumeContent<F> {
     async fn read(&self, offset: u64, buf: &mut [u8]) -> Result<usize, PathError> {
-        let mut fs = self.vol.lock().await;
-        fs.open(self.node, OpenMode::Read).await?;
-        let open = self.vol.hold_open(self.node);
-        let read = fs.read(self.node, offset, buf).await;
-        open.keep();
-        let closed = fs.close(self.node).await;
-        let n = read?;
-        closed?;
-        Ok(n)
+        watched!(self.vol, {
+            let mut fs = self.vol.enter().await?;
+            fs.open(self.node, OpenMode::Read).await?;
+            let open = self.vol.hold_open(self.node);
+            let read = fs.read(self.node, offset, buf).await;
+            open.keep();
+            let closed = fs.close(self.node).await;
+            let n = read?;
+            closed?;
+            Ok(n)
+        })
     }
 }
 
@@ -114,38 +116,40 @@ impl<F: FileSystem> VolumeContent<F> {
 /// [`ErrorKind::Corrupt`], and a tree more than 1024 directories deep with
 /// [`ErrorKind::LimitExceeded`].
 pub async fn read_tree<F: FileSystem + Send + 'static>(vol: &Volume<F>, path: impl AsRef<[u8]>) -> Result<Tree, PathError> {
-    let path = path.as_ref();
-    let mut fs = vol.lock().await;
-    let top = vol.hold(fs.resolve(path, Resolve::Lexical).await.map_err(|err| PathError::from(err).with_path(path))?);
-    let mut tree = Tree::new();
-    let meta = match fs.stat(top.node()).await {
-        Ok(meta) => meta,
-        Err(err) => {
-            top.forget(&mut *fs);
-            return Err(PathError::from(err).with_path(path));
-        }
-    };
-    if !meta.file_type().is_dir() {
-        let name = match stored_name(&mut *fs, vol, path, top.node()).await {
-            Ok(name) => name,
+    watched!(vol, {
+        let path = path.as_ref();
+        let mut fs = vol.enter().await?;
+        let top = vol.hold(fs.resolve(path, Resolve::Lexical).await.map_err(|err| PathError::from(err).with_path(path))?);
+        let mut tree = Tree::new();
+        let meta = match fs.stat(top.node()).await {
+            Ok(meta) => meta,
             Err(err) => {
                 top.forget(&mut *fs);
                 return Err(PathError::from(err).with_path(path));
             }
         };
-        let node = node_of(&mut *fs, vol, top, &meta).await.map_err(|err| err.with_path(path))?;
-        tree.insert(&name, node)?;
-        return Ok(tree);
-    }
-    if let Err(err) = tree.replace("/", Node::dir().with_attrs(attrs_of(&meta))) {
+        if !meta.file_type().is_dir() {
+            let name = match stored_name(&mut *fs, vol, path, top.node()).await {
+                Ok(name) => name,
+                Err(err) => {
+                    top.forget(&mut *fs);
+                    return Err(PathError::from(err).with_path(path));
+                }
+            };
+            let node = node_of(&mut *fs, vol, top, &meta).await.map_err(|err| err.with_path(path))?;
+            tree.insert(&name, node)?;
+            return Ok(tree);
+        }
+        if let Err(err) = tree.replace("/", Node::dir().with_attrs(attrs_of(&meta))) {
+            top.forget(&mut *fs);
+            return Err(err);
+        }
+        let mut stack: Vec<(NodeId, DirCursor, Vec<u8>)> = alloc::vec![(top.node(), DirCursor::START, Vec::new())];
+        let mut seen: Vec<(NodeId, Vec<u8>)> = Vec::new();
+        let result = walk(&mut *fs, vol, &mut tree, &mut stack, &mut seen).await;
         top.forget(&mut *fs);
-        return Err(err);
-    }
-    let mut stack: Vec<(NodeId, DirCursor, Vec<u8>)> = alloc::vec![(top.node(), DirCursor::START, Vec::new())];
-    let mut seen: Vec<(NodeId, Vec<u8>)> = Vec::new();
-    let result = walk(&mut *fs, vol, &mut tree, &mut stack, &mut seen).await;
-    top.forget(&mut *fs);
-    result.map(|()| tree)
+        result.map(|()| tree)
+    })
 }
 
 /// The name `node`, found at `path`, is listed under in its directory: the

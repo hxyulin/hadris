@@ -239,7 +239,7 @@ with `std::io`-like kinds. V3 has one error type for every crate.
 | `NotRecognized` | `ErrorKind` variant | The bytes are not this format at all. `Corrupt` now means "this format, but damaged". |
 | `Location` | same | `Byte(u64)`, `Block(u64)`, `Cluster(u64)`, `NameByte(u32)`. |
 | `DetailCode` | same | A `u16` code within a crate's domain. Read it back with the crate's `Detail::of(&err)`. |
-| `Detail` | `hadris_fat::Detail`, `hadris_fat::exfat::Detail`, `hadris_iso::Detail`, `hadris_udf::Detail`, `hadris_cpio::Detail`, `hadris_part::Detail`, `hadris_ntfs::Detail` | `#[non_exhaustive]` numbered codes naming the structure at fault. `Detail::of(&err) -> Option<Detail>`, `Detail::from_code(code)`, `Detail::code()`. Replaces the variants of the V2 error enums. |
+| `Detail` | `hadris_fs::Detail`, `hadris_fat::Detail`, `hadris_fat::exfat::Detail`, `hadris_iso::Detail`, `hadris_udf::Detail`, `hadris_cpio::Detail`, `hadris_part::Detail`, `hadris_ntfs::Detail` | `#[non_exhaustive]` numbered codes naming the structure at fault. `Detail::of(&err) -> Option<Detail>`, `Detail::from_code(code)`, `Detail::code()`. Replaces the variants of the V2 error enums. |
 | `Errno` | same | `ErrorKind::errno()` returns one symbolic errno per kind; `Errno::linux()` gives the number. `Unsupported` is `EOPNOTSUPP`, `Corrupt` is `EUCLEAN`, `InvalidHandle` is `ESTALE`. |
 | `MountError<D, E>` | `hadris_fs`, `hadris` | Returned by `mount`, `unmount` and `hadris::sync::open`: the `Error<E>` and the device given back (`into_device`, `into_parts`, `into_error`). `?` converts it to `Error<E>`, `PathError` or `std::io::Error`. |
 | `PathError` | `hadris_fs`, `hadris` (`alloc`) | Kind, message, location, detail, the path within the tree or volume, the host path with `std`, and the device error boxed as its `source()`. Returned by writers, `Tree` edits, `copy_tree`, `read_tree` and the `host` module. Takes `?` from any `Error<E>` or `MountError`. Unrelated to the V2 `hadris_path::PathError`. |
@@ -427,6 +427,12 @@ node and format-specific calls and `into_inner()`. `File` has `read`,
 `Iterator` in `sync` and has `next_entry()` in `r#async`. The sync `Volume`
 needs `std`; the async one needs `alloc`. `Volume::with_resolve(fs,
 Resolve::Follow)` gives POSIX path semantics; the default is lexical.
+
+A panic during a call on a `Volume`, in the driver or the device, fails it
+for good instead of being ignored: every later call returns kind `Io` with
+`hadris_fs::Detail::VolumeFailed`, `lock()` panics, and `is_failed()` tells.
+`into_inner()` still gives the filesystem and its device back, but the
+driver may be left mid-change, so check the image before trusting it.
 
 `Walk::new(dir)` (`alloc`) or `Walk::with_stack(dir, &mut frames)` lists a
 tree depth first on the bare driver.
