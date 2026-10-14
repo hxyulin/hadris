@@ -641,11 +641,14 @@ fn apfs_shared_open_requires_selection_for_multiple_volumes() {
 #[test]
 fn apfs_damaged_container_remains_recognized() {
     let mut bytes = apfs_fixture::build_image();
-    bytes[72] ^= 1;
+    bytes[36] ^= 1;
     assert_eq!(
         formats(bytes, 512),
         vec![(ImageFormat::Apfs, Some(ErrorKind::Corrupt))]
     );
+    let mut bytes = apfs_fixture::build_image();
+    bytes[72] ^= 1;
+    assert_eq!(formats(bytes, 512), vec![(ImageFormat::Apfs, None)]);
 }
 
 #[test]
