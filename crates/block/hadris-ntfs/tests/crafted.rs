@@ -439,6 +439,96 @@ fn corrupt_index_blocks_fail() {
 }
 
 #[test]
+fn huge_sparse_index_allocations_scan_only_the_stored_bitmap() {
+    for bitmap in [
+        HugeBitmap::Uninitialized(1),
+        HugeBitmap::Sparse,
+        HugeBitmap::Listed,
+    ] {
+        let mut fs = open(huge_index_image(bitmap, 0x01));
+        assert_eq!(list(&mut fs, "/SUBDIR"), ["A.TXT", "B.TXT"], "{bitmap:?}");
+        assert_eq!(fs.read_to_vec("/SUBDIR/b.txt").unwrap(), b"bb");
+        assert_eq!(
+            fs.metadata("/SUBDIR/UNUSED.TXT").unwrap_err().kind(),
+            ErrorKind::NotFound
+        );
+        let root = fs.root();
+        let sub = fs.lookup(root, name("SUBDIR")).unwrap();
+        for node in [2, 3, 1 << 20, HUGE_BLOCKS, HUGE_BLOCKS + 1] {
+            let cursor = DirCursor::from_raw(node << 16);
+            assert!(fs.readdir(sub, cursor).unwrap().is_none(), "{bitmap:?}");
+        }
+
+        let mut fs = open(huge_index_image(bitmap, 0x03));
+        assert_eq!(list(&mut fs, "/SUBDIR"), ["A.TXT", "B.TXT", "UNUSED.TXT"]);
+        assert_eq!(fs.read_to_vec("/SUBDIR/unused.txt").unwrap(), b"x");
+    }
+
+    let mut fs = open(huge_index_image(HugeBitmap::Uninitialized(0), 0x01));
+    assert!(list(&mut fs, "/SUBDIR").is_empty());
+    assert_eq!(
+        fs.metadata("/SUBDIR/A.TXT").unwrap_err().kind(),
+        ErrorKind::NotFound
+    );
+}
+
+#[test]
+fn index_blocks_in_use_in_sparse_runs_are_corrupt() {
+    let mut fs = open(huge_index_image(HugeBitmap::Sparse, 0x05));
+    let root = fs.root();
+    let sub = fs.lookup(root, name("SUBDIR")).unwrap();
+    let mut cursor = DirCursor::START;
+    let mut names = Vec::new();
+    let err = loop {
+        match fs.readdir(sub, cursor) {
+            Ok(Some(entry)) => {
+                names.push(entry.name().to_str().unwrap().to_string());
+                cursor = entry.next_cursor();
+            }
+            Ok(None) => panic!("the listing ended"),
+            Err(err) => break err,
+        }
+    };
+    assert_eq!(names, ["A.TXT", "B.TXT"]);
+    assert_eq!(err.kind(), ErrorKind::Corrupt);
+    let b = fs.lookup(sub, name("B.TXT")).unwrap();
+    assert_eq!(fs.read_to_vec("/SUBDIR/B.TXT").unwrap(), b"bb");
+    assert_eq!(fs.stat(b).unwrap().len(), 2);
+    assert_eq!(
+        fs.lookup(sub, name("NONE.TXT")).unwrap_err().kind(),
+        ErrorKind::Corrupt
+    );
+}
+
+#[cfg(feature = "async")]
+#[test]
+fn async_modes_scan_only_the_stored_bitmap() {
+    block_on(async {
+        let mut fs = hadris_ntfs::r#async::NtfsFs::mount(
+            device(huge_index_image(HugeBitmap::Uninitialized(1), 0x01)),
+            MountOptions::new(),
+        )
+        .await
+        .unwrap();
+        let root = fs.root();
+        let sub = fs.lookup(root, name("SUBDIR")).await.unwrap();
+        assert_eq!(
+            fs.lookup(sub, name("UNUSED.TXT")).await.unwrap_err().kind(),
+            ErrorKind::NotFound
+        );
+        let first = fs.readdir(sub, DirCursor::START).await.unwrap().unwrap();
+        let second = fs.readdir(sub, first.next_cursor()).await.unwrap().unwrap();
+        assert_eq!(second.name().as_bytes(), b"B.TXT");
+        assert!(
+            fs.readdir(sub, second.next_cursor())
+                .await
+                .unwrap()
+                .is_none()
+        );
+    });
+}
+
+#[test]
 fn forged_ids_are_invalid_handles() {
     let mut fs = open(base_image());
     for raw_id in [u64::MAX, 1 << 40, reference(16) + (1 << 48), reference(25)] {

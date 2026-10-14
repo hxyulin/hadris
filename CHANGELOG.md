@@ -77,6 +77,15 @@ Each published package owns its version and may be released independently.
   `stat`ed with their full length instead of failing with `LimitExceeded`;
   `readlink` reads them into a large enough buffer.
 
+- **NTFS sparse directory indexes:** `NtfsFs::lookup` and `readdir` no
+  longer take ~2^40 steps on a directory whose `$INDEX_ALLOCATION` declares
+  a huge, sparse allocation. They find index blocks in use by reading the
+  `$I30` bitmap a chunk at a time, skipping zero bytes eight blocks at a
+  time and skipping the bitmap's sparse and uninitialized parts without
+  reading them, as those read as zeros. Results and cursors are unchanged:
+  a bit set for an index block in a sparse run still fails with `Corrupt`,
+  as does a bitmap with fewer bits than the allocation has blocks.
+
 - **CLI directory loops:** `iso tree`, `iso verify --strict`, `udf tree`,
   `udf verify` and `udf compare` stop at a directory that leads back to one
   on its own path, as in a damaged image, and report
