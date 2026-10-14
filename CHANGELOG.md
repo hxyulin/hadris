@@ -135,6 +135,13 @@ Each published package owns its version and may be released independently.
   `Detail::Checksum` (or the newest candidate's error). Without `alloc`,
   `Container::open` still requires block zero's checksum. Refs #295.
 
+- **`PathError` keeps its paths in `std::io::Error`:** converting a
+  `PathError` whose source is an `std::io::Error` now wraps it instead of
+  returning the source, so host failures propagated with `?` keep the tree
+  and host paths in `Display` and in the payload. `raw_os_error()` of the
+  converted error is now `None`; downcast `get_ref()` to `PathError` and use
+  the new `PathError::raw_os_error()`.
+
 - **`std::io::Error` conversion keeps the context:** `Error<E>` (and
   `MountError`) converted to `std::io::Error` no longer drops the kind,
   message, location and detail when a device error is present. The device

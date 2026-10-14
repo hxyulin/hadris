@@ -260,7 +260,11 @@ Converting:
   `io::Error` as itself.
 - Generic code names the device error through the trait:
   `fn f<F: FileSystem>(fs: &mut F) -> FsResult<(), F::DeviceError>`.
-- Code that mixes devices returns `PathError`.
+- Code that mixes devices returns `PathError`. With `std` it converts to
+  `std::io::Error` with the `PathError` as the payload, keeping the tree
+  and host paths, so `raw_os_error()` of the result is `None`. Downcast
+  `get_ref()` to `PathError` and call `PathError::raw_os_error()` for the
+  OS error code.
 
 Before and after:
 
