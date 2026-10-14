@@ -1006,9 +1006,11 @@ impl<D: BlockDevice> FatFs<D> {
     }
 
     /// Writes `bytes` at `offset` in the boot sector, and first in the
-    /// FAT32 backup boot sector when that is valid.
+    /// FAT32 backup boot sector when that is valid and within the reserved
+    /// sectors.
     async fn put_boot(&mut self, offset: u64, bytes: &[u8]) -> FsResult<(), D::Error> {
         if self.fat.geometry().kind() == FatKind::Fat32
+            && self.fat.geometry().reserved_sectors() > raw::layout::BACKUP_BOOT_SECTOR
             && rawio::read_backup_geometry(&mut self.dev, &mut self.block).await.is_ok()
         {
             let backup = raw::layout::BACKUP_BOOT_SECTOR as u64 * self.fat.geometry().sector_size() as u64;

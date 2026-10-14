@@ -8,6 +8,14 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **FAT reserved sectors:** A FAT12, FAT16 or FAT32 boot sector with a
+  reserved sector count of 0, whose first FAT would overlap the boot
+  sector, no longer mounts: `parse_boot`, `FatFs::mount`, the embedded
+  `Fat::mount` and `check` fail with `Corrupt` and `Detail::BootSector`, as
+  Linux rejects it. Setting the label or serial of a FAT32 volume no longer
+  writes sector 6 as a backup boot sector unless it lies within the
+  reserved sectors; a copy there would be FAT data.
+
 - **CLI directory loops:** `iso tree`, `iso verify --strict`, `udf tree`,
   `udf verify` and `udf compare` stop at a directory that leads back to one
   on its own path, as in a damaged image, and report

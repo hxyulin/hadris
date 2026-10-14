@@ -351,9 +351,6 @@ impl<D: BlockDevice, F: FnMut(&Finding<'_>)> Checker<'_, D, F> {
         if !matches!(media, 0xF0 | 0xF8..=0xFF) {
             self.report(said(Detail::BootSector, "invalid media descriptor").with_location(at), Scope::Volume);
         }
-        if reserved == 0 {
-            self.report(said(Detail::BootSector, "reserved sector count is 0").with_location(at), Scope::Volume);
-        }
         let total16 = u16::from_le_bytes(bpb.total_sectors_16);
         let total32 = u32::from_le_bytes(bpb.total_sectors_32);
         if total16 != 0 && (total32 != 0 || geo.kind() == FatKind::Fat32) {
