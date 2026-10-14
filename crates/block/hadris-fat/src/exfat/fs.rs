@@ -1821,6 +1821,10 @@ impl<D: BlockDevice> ExFatFs<D> {
     }
 
     /// Searches the tree from the root, to a depth of [`MAX_DEPTH`].
+    ///
+    /// Fails with [`ErrorKind::Corrupt`] when a directory holds one of its
+    /// ancestors, or when more directories are entered than the volume has
+    /// clusters.
     async fn search(&mut self, target: Target) -> FsResult<Option<u64>, D::Error> {
         let (start, entry) = match target {
             Target::Below(start, _) => (start, u64::MAX),
@@ -1828,6 +1832,7 @@ impl<D: BlockDevice> ExFatFs<D> {
         };
         let mut stack = [(start, entry, 0u32); MAX_DEPTH];
         let mut depth = 1;
+        let mut budget = self.vol.geometry().cluster_count();
         let mut deeper = false;
         let mut set = Set::new();
         while depth > 0 {
@@ -1845,9 +1850,13 @@ impl<D: BlockDevice> ExFatFs<D> {
                 _ => {}
             }
             if set.is_dir() && set.first() != 0 {
+                if stack[..depth].iter().any(|(dir, _, _)| dir.alloc.first == set.first()) {
+                    return Err(ErrorKind::Corrupt.into());
+                }
                 if depth == MAX_DEPTH {
                     deeper = true;
                 } else {
+                    budget = budget.checked_sub(1).ok_or(ErrorKind::Corrupt)?;
                     stack[depth] = (DirStart { alloc: set.alloc(), size: set.data_len() }, set.offset, 0);
                     depth += 1;
                 }
@@ -2651,7 +2660,10 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// The directory containing `dir`, pinned. The root is its own parent.
     ///
     /// The node table remembers the directory a node was found in; when it
-    /// does not, the tree is searched from the root, to a depth of 64.
+    /// does not, the tree is searched from the root, to a depth of 64. A
+    /// directory that holds one of its ancestors, or a tree with more
+    /// directories than the volume has clusters, fails the search with
+    /// [`ErrorKind::Corrupt`].
     pub async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
         if dir == ROOT {
             return Ok(ROOT);

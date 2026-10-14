@@ -17,6 +17,15 @@ Each published package owns its version and may be released independently.
   previously stopped at 256), and the `iso` and `udf` walks list
   directories by node instead of resolving each path from the root.
 
+- **exFAT directory loops:** `ExFatFs::parent` of a node whose parent is not
+  remembered, and `rename` of a directory, no longer hang on a volume whose
+  directories hold one of their ancestors or are cross-linked into a graph
+  that grows exponentially. The tree search fails with `Corrupt` when a
+  directory names an ancestor's first cluster or once more directories are
+  entered than the volume has clusters. `exfat::check` reports such a loop as
+  a cross-link without entering it, and stops entering directories after as
+  many as the volume has clusters.
+
 - **Partition-aware open:** `hadris::sync::open_partition` and
   `hadris::async_::open_partition` read the MBR or GPT of a device and mount
   the partition a `hadris::Select` names (`Index(slot)`, `Guid(guid)` or

@@ -163,7 +163,10 @@ io_transform! {
 /// walked once for each `(scratch.len() - 1024) * 8` clusters, so the
 /// findings are the same with any size, with a fixed stack of 64
 /// directories; deeper directories are reported and not entered. A path
-/// that does not fit ends at the last whole name that does.
+/// that does not fit ends at the last whole name that does. A directory
+/// that shares its first cluster with one of its ancestors is reported as a
+/// cross-link and not entered, and no more directories are entered once
+/// there have been as many as the volume has clusters.
 ///
 /// Fails with [`ErrorKind::LimitExceeded`] when `scratch` is shorter than
 /// 1536 bytes and with [`ErrorKind::Unsupported`] for device blocks above
@@ -526,6 +529,7 @@ impl<D: BlockDevice, F: FnMut(&Finding<'_>)> Checker<'_, D, F> {
         };
         let mut stack = [root; MAX_DEPTH];
         let mut depth = 1;
+        let mut budget = self.vol.geometry().cluster_count();
         while depth > 0 {
             let mut dir = stack[depth - 1];
             let slot = dir.slot;
@@ -570,13 +574,16 @@ impl<D: BlockDevice, F: FnMut(&Finding<'_>)> Checker<'_, D, F> {
                 raw::ENTRY_FILE => {
                     let (count, child) = self.file_set(&mut dir, slot, at, entry).await?;
                     dir.slot = slot + count;
-                    if let Some(child) = child {
+                    let first = child.map(|child| child.walk.dir().first());
+                    let looped = stack[..depth].iter().any(|dir| Some(dir.walk.dir().first()) == first);
+                    if let Some(child) = child.filter(|_| !looped && budget > 0) {
                         if depth == MAX_DEPTH {
                             self.once(found(Detail::TooDeep).with_location(Location::Byte(at)), Scope::Entry);
                         } else {
                             stack[depth - 1] = dir;
                             stack[depth] = child;
                             depth += 1;
+                            budget -= 1;
                             self.descend();
                             continue;
                         }
