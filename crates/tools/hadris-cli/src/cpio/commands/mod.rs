@@ -15,7 +15,7 @@ use std::io::{self, BufReader, Read};
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use hadris_cpio::sync::CpioReader;
+use hadris_cpio::sync::{CpioReader, Entry};
 use hadris_fs::FileType;
 use hadris_io::StdIo;
 
@@ -32,6 +32,14 @@ fn open_reader(path: &Path) -> Result<CpioReader<Input>> {
         )
     };
     Ok(CpioReader::new(StdIo::new(BufReader::new(input))))
+}
+
+/// The key of a hard link group: device major and minor, and inode.
+type GroupKey = (u32, u32, u64);
+
+fn link_key(entry: &Entry<'_, Input>) -> GroupKey {
+    let dev = entry.dev();
+    (dev.major(), dev.minor(), entry.ino())
 }
 
 fn format_size(bytes: u64) -> String {

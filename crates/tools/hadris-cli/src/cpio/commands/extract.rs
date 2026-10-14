@@ -9,7 +9,7 @@ use hadris_io::sync::Read;
 
 use hadris_cpio::sync::Entry;
 
-use super::{Input, open_reader};
+use super::{GroupKey, Input, link_key, open_reader};
 
 /// Where `name` goes below `output`, or `None` for a name that is the
 /// output directory itself, such as `.` or `./`. Leading `/` and `.`
@@ -47,26 +47,121 @@ fn replace(dest: &Path, created: &HashSet<PathBuf>) -> Result<()> {
         if !created.contains(dest) {
             bail!("refusing to replace an existing file: {}", dest.display());
         }
-        fs::remove_file(dest).ok();
+        fs::remove_file(dest).with_context(|| format!("Failed to replace {}", dest.display()))?;
     }
     Ok(())
 }
 
+/// Creates the regular file `dest`, failing if anything, a symlink
+/// included, is already there.
+fn create_file(dest: &Path) -> Result<File> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    options
+        .open(dest)
+        .with_context(|| format!("Failed to write file: {}", dest.display()))
+}
+
 #[cfg(unix)]
-fn set_mode(dest: &Path, mode: u32) {
+fn set_mode(file: &File, mode: u32) {
     use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(dest, fs::Permissions::from_mode(mode & 0o7777)).ok();
+    file.set_permissions(fs::Permissions::from_mode(mode)).ok();
 }
 
 #[cfg(not(unix))]
-fn set_mode(_dest: &Path, _mode: u32) {}
+fn set_mode(_file: &File, _mode: u32) {}
 
-/// Names of a hard link group: the path holding the data, and names seen
-/// before the data.
+#[cfg(unix)]
+fn set_dir_mode(dir: &Path, mode: u32) {
+    use std::os::unix::fs::OpenOptionsExt;
+    if let Ok(dir) = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY)
+        .open(dir)
+    {
+        set_mode(&dir, mode);
+    }
+}
+
+#[cfg(not(unix))]
+fn set_dir_mode(_dir: &Path, _mode: u32) {}
+
+/// Creates `dir` and its missing parents below `output`, recording the
+/// directories this run creates in `made`. An existing directory is
+/// accepted; anything else in the way fails.
+fn make_dirs(output: &Path, dir: &Path, made: &mut HashSet<PathBuf>) -> Result<()> {
+    if dir == output {
+        return Ok(());
+    }
+    match dir.symlink_metadata() {
+        Ok(meta) if meta.is_dir() => return Ok(()),
+        Ok(_) => bail!("refusing to replace an existing file: {}", dir.display()),
+        Err(_) => {}
+    }
+    if let Some(parent) = dir.parent() {
+        make_dirs(output, parent, made)?;
+    }
+    fs::create_dir(dir)
+        .with_context(|| format!("Failed to create directory: {}", dir.display()))?;
+    made.insert(dir.to_path_buf());
+    Ok(())
+}
+
+/// Fails unless `path` is a regular file, not a symlink, that this run
+/// created, so a hard link never reaches a file outside the extraction.
+fn ours(path: &Path, created: &HashSet<PathBuf>) -> Result<()> {
+    let regular = path.symlink_metadata().is_ok_and(|meta| meta.is_file());
+    if !regular || !created.contains(path) {
+        bail!(
+            "refusing to hard link a file this extraction did not create: {}",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
+/// Makes `name` another name of `data`, replacing the file at `name`.
+fn relink(data: &Path, name: &Path, created: &HashSet<PathBuf>) -> Result<()> {
+    ours(data, created)?;
+    ours(name, created)?;
+    fs::remove_file(name).with_context(|| format!("Failed to link {}", name.display()))?;
+    fs::hard_link(data, name).with_context(|| format!("Failed to link {}", name.display()))
+}
+
+/// The extracted names of a hard link group, in archive order. Once
+/// `linked`, they are all names of the file holding the group's data;
+/// before, each is an empty file waiting for it.
+#[derive(Default)]
+struct Group {
+    names: Vec<PathBuf>,
+    linked: bool,
+}
+
+/// The hard link groups, with the group each name belongs to, so a later
+/// entry of that name takes it out of its group, as
+/// `hadris_cpio::sync::read_tree` does.
 #[derive(Default)]
 struct Links {
-    data: Option<PathBuf>,
-    waiting: Vec<PathBuf>,
+    groups: HashMap<GroupKey, Group>,
+    owners: HashMap<PathBuf, GroupKey>,
+}
+
+impl Links {
+    fn release(&mut self, path: &Path) {
+        if let Some(key) = self.owners.remove(path)
+            && let Some(group) = self.groups.get_mut(&key)
+        {
+            group.names.retain(|name| name != path);
+            if group.names.is_empty() {
+                group.linked = false;
+            }
+        }
+    }
 }
 
 /// Where an entry named `name` lands when extracting `select`, the
@@ -92,29 +187,153 @@ fn relocate(select: &[&str], name: &str) -> Option<String> {
     Some(out)
 }
 
-fn copy_data(entry: &mut Entry<'_, Input>, dest: &Path, buf: &mut [u8]) -> Result<()> {
-    let mut file =
-        File::create(dest).with_context(|| format!("Failed to write file: {}", dest.display()))?;
-    loop {
-        let read = entry.read(buf).context("Failed to read file data")?;
-        if read == 0 {
+/// The state of one extraction.
+struct Extractor {
+    output: PathBuf,
+    /// The permission bits kept from the archive.
+    mask: u32,
+    /// Files and symlinks this run created.
+    created: HashSet<PathBuf>,
+    /// Directories this run created.
+    made: HashSet<PathBuf>,
+    /// Modes of directory entries, applied once the archive ends.
+    dir_modes: HashMap<PathBuf, u32>,
+    links: Links,
+    buf: Vec<u8>,
+}
+
+impl Extractor {
+    /// Writes the data of `entry` to a new file at `dest`.
+    fn write_file(&mut self, entry: &mut Entry<'_, Input>, dest: &Path) -> Result<()> {
+        let mut file = create_file(dest)?;
+        self.created.insert(dest.to_path_buf());
+        loop {
+            let read = entry
+                .read(&mut self.buf)
+                .context("Failed to read file data")?;
+            if read == 0 {
+                break;
+            }
+            file.write_all(&self.buf[..read])
+                .with_context(|| format!("Failed to write file: {}", dest.display()))?;
+        }
+        set_mode(&file, entry.mode() & self.mask);
+        Ok(())
+    }
+
+    /// Writes the data of `entry` to `dest`, which is clear, and makes
+    /// every name of the group `key` a link to it.
+    fn fill_group(
+        &mut self,
+        entry: &mut Entry<'_, Input>,
+        key: GroupKey,
+        dest: &Path,
+    ) -> Result<()> {
+        self.write_file(entry, dest)?;
+        let group = self.links.groups.entry(key).or_default();
+        for name in &group.names {
+            if name != dest {
+                relink(dest, name, &self.created)?;
+            }
+        }
+        group.linked = true;
+        Ok(())
+    }
+
+    /// Hard link data whose own name is outside the selection still fills
+    /// the selected names of its group.
+    fn unselected(&mut self, entry: &mut Entry<'_, Input>) -> Result<()> {
+        if entry.file_type() != FileType::File || entry.nlink() < 2 || entry.len() == 0 {
             return Ok(());
         }
-        file.write_all(&buf[..read])?;
+        let key = link_key(entry);
+        let Some(first) = self
+            .links
+            .groups
+            .get(&key)
+            .and_then(|group| group.names.first().cloned())
+        else {
+            return Ok(());
+        };
+        ours(&first, &self.created)?;
+        fs::remove_file(&first)
+            .with_context(|| format!("Failed to replace {}", first.display()))?;
+        self.fill_group(entry, key, &first)
+    }
+
+    fn file(&mut self, entry: &mut Entry<'_, Input>, dest: &Path) -> Result<()> {
+        if entry.nlink() < 2 {
+            return self.write_file(entry, dest);
+        }
+        let key = link_key(entry);
+        if entry.len() > 0 {
+            self.fill_group(entry, key, dest)?;
+        } else {
+            let group = self.links.groups.entry(key).or_default();
+            match group.names.first() {
+                Some(data) if group.linked => {
+                    ours(data, &self.created)?;
+                    fs::hard_link(data, dest)
+                        .with_context(|| format!("Failed to link {}", dest.display()))?;
+                    self.created.insert(dest.to_path_buf());
+                }
+                _ => self.write_file(entry, dest)?,
+            }
+        }
+        self.links
+            .groups
+            .entry(key)
+            .or_default()
+            .names
+            .push(dest.to_path_buf());
+        self.links.owners.insert(dest.to_path_buf(), key);
+        Ok(())
+    }
+
+    fn symlink(&mut self, entry: &mut Entry<'_, Input>, dest: &Path) -> Result<()> {
+        let mut target = Vec::new();
+        loop {
+            let read = entry
+                .read(&mut self.buf)
+                .context("Failed to read symlink target")?;
+            if read == 0 {
+                break;
+            }
+            target.extend_from_slice(&self.buf[..read]);
+        }
+        let target = String::from_utf8(target).context("Symlink target is not valid UTF-8")?;
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&target, dest)
+            .with_context(|| format!("Failed to create symlink: {}", dest.display()))?;
+        #[cfg(not(unix))]
+        std::os::windows::fs::symlink_file(&target, dest)
+            .with_context(|| format!("Failed to create symlink: {}", dest.display()))?;
+        self.created.insert(dest.to_path_buf());
+        Ok(())
+    }
+
+    /// Applies the directory modes, deepest first so a read-only directory
+    /// does not block its children, and only to directories this run
+    /// created.
+    fn finish(self) {
+        let mut dirs: Vec<(PathBuf, u32)> = self
+            .dir_modes
+            .into_iter()
+            .filter(|(dir, _)| self.made.contains(dir))
+            .collect();
+        dirs.sort_by_key(|(dir, _)| std::cmp::Reverse(dir.components().count()));
+        for (dir, mode) in dirs {
+            set_dir_mode(&dir, mode & self.mask);
+        }
     }
 }
 
-fn link_waiting(group: &mut Links, data: &Path) -> Result<()> {
-    for waiting in group.waiting.drain(..) {
-        fs::remove_file(&waiting).ok();
-        fs::hard_link(data, &waiting)
-            .with_context(|| format!("Failed to link {}", waiting.display()))?;
-    }
-    group.data = Some(data.to_path_buf());
-    Ok(())
-}
-
-pub fn extract(archive: PathBuf, output: PathBuf, path: Option<&str>) -> Result<()> {
+pub fn extract(
+    archive: PathBuf,
+    output: PathBuf,
+    path: Option<&str>,
+    preserve_special_bits: bool,
+) -> Result<()> {
     let select: Vec<&str> = path
         .unwrap_or("/")
         .split('/')
@@ -131,9 +350,15 @@ pub fn extract(archive: PathBuf, output: PathBuf, path: Option<&str>) -> Result<
         .with_context(|| format!("Failed to create output directory: {}", output.display()))?;
 
     let mut count: u64 = 0;
-    let mut links: HashMap<u64, Links> = HashMap::new();
-    let mut created = HashSet::new();
-    let mut buf = vec![0u8; 64 * 1024];
+    let mut x = Extractor {
+        output: output.clone(),
+        mask: if preserve_special_bits { 0o7777 } else { 0o777 },
+        created: HashSet::new(),
+        made: HashSet::new(),
+        dir_modes: HashMap::new(),
+        links: Links::default(),
+        buf: vec![0u8; 64 * 1024],
+    };
 
     while let Some(mut entry) = reader.next_entry().context("Failed to read entry")? {
         let stored = entry
@@ -141,17 +366,7 @@ pub fn extract(archive: PathBuf, output: PathBuf, path: Option<&str>) -> Result<
             .context("Entry name is not UTF-8")?
             .to_string();
         let Some(name) = relocate(&select, &stored) else {
-            // Hard-link data outside the selection still fills the selected
-            // names of its group.
-            if entry.file_type() == FileType::File && entry.nlink() > 1 && entry.len() > 0 {
-                if let Some(group) = links.get_mut(&entry.ino()) {
-                    if group.data.is_none() && !group.waiting.is_empty() {
-                        let data = group.waiting.remove(0);
-                        copy_data(&mut entry, &data, &mut buf)?;
-                        link_waiting(group, &data)?;
-                    }
-                }
-            }
+            x.unselected(&mut entry)?;
             continue;
         };
         let Some(dest) = destination(&output, &name)? else {
@@ -161,66 +376,31 @@ pub fn extract(archive: PathBuf, output: PathBuf, path: Option<&str>) -> Result<
             count += 1;
             continue;
         };
+        let file_type = entry.file_type();
+        if !matches!(
+            file_type,
+            FileType::Dir | FileType::File | FileType::Symlink
+        ) {
+            eprintln!("warning: skipping {name} ({file_type:?})");
+            count += 1;
+            continue;
+        }
         if let Some(parent) = dest.parent() {
-            fs::create_dir_all(parent)?;
+            make_dirs(&x.output, parent, &mut x.made)?;
         }
-        match entry.file_type() {
+        x.links.release(&dest);
+        replace(&dest, &x.created)?;
+        match file_type {
             FileType::Dir => {
-                replace(&dest, &created)?;
-                fs::create_dir_all(&dest)
-                    .with_context(|| format!("Failed to create directory: {}", dest.display()))?;
-                set_mode(&dest, entry.mode());
+                make_dirs(&x.output, &dest, &mut x.made)?;
+                x.dir_modes.insert(dest, entry.mode());
             }
-            FileType::File => {
-                let group = (entry.nlink() > 1).then(|| links.entry(entry.ino()).or_default());
-                replace(&dest, &created)?;
-                match group {
-                    Some(group) if entry.len() == 0 => {
-                        if let Some(data) = &group.data {
-                            fs::hard_link(data, &dest)
-                                .with_context(|| format!("Failed to link {}", dest.display()))?;
-                        } else {
-                            File::create(&dest)?;
-                            group.waiting.push(dest.clone());
-                        }
-                    }
-                    group => {
-                        copy_data(&mut entry, &dest, &mut buf)?;
-                        if let Some(group) = group {
-                            link_waiting(group, &dest)?;
-                        }
-                    }
-                }
-                set_mode(&dest, entry.mode());
-            }
-            FileType::Symlink => {
-                let mut target = Vec::new();
-                loop {
-                    let read = entry
-                        .read(&mut buf)
-                        .context("Failed to read symlink target")?;
-                    if read == 0 {
-                        break;
-                    }
-                    target.extend_from_slice(&buf[..read]);
-                }
-                let target =
-                    String::from_utf8(target).context("Symlink target is not valid UTF-8")?;
-                replace(&dest, &created)?;
-                #[cfg(unix)]
-                std::os::unix::fs::symlink(&target, &dest)
-                    .with_context(|| format!("Failed to create symlink: {}", dest.display()))?;
-                #[cfg(not(unix))]
-                std::os::windows::fs::symlink_file(&target, &dest)
-                    .with_context(|| format!("Failed to create symlink: {}", dest.display()))?;
-            }
-            other => {
-                eprintln!("warning: skipping {name} ({other:?})");
-            }
+            FileType::File => x.file(&mut entry, &dest)?,
+            _ => x.symlink(&mut entry, &dest)?,
         }
-        created.insert(dest);
         count += 1;
     }
+    x.finish();
 
     if count == 0 && !select.is_empty() {
         bail!("Not found in archive: {}", path.unwrap_or("/"));

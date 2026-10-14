@@ -155,6 +155,20 @@ Each published package owns its version and may be released independently.
   cdrtools mkisofs 3.02. Images whose length after byte 64 was not a
   multiple of four previously recorded a different sum.
 
+- **CLI (`hadris cpio extract`), security:** A hard link group no longer
+  writes data to, or changes the mode of, a name that a later entry replaced
+  with a symlink, which let an archive write or chmod a host file outside the
+  output directory. Files are created with `create_new` and `O_NOFOLLOW` and
+  their mode is set on the open file, and a name only becomes a hard link to
+  a regular file this extraction created. Hard links are matched by device
+  and inode number instead of inode alone. Modes are applied only to files
+  and directories the extraction creates, so an existing directory such as
+  `~/.ssh` keeps its mode, and directory modes are applied after the archive
+  ends, so a read-only directory with children extracts.
+
+- **CLI (`hadris cpio extract`), breaking:** Setuid, setgid and sticky bits
+  are dropped by default; `--preserve-special-bits` keeps them.
+
 - **CLI (`hadris fat`):** `chain` on the fixed FAT12/16 root directory
   reports that it has no cluster chain instead of underflowing, and `tree`,
   `stat` and `fragmentation` stop with an error at a directory loop in a

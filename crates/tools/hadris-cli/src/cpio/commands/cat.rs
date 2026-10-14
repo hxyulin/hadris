@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use hadris_io::sync::Read;
 
-use super::open_reader;
+use super::{link_key, open_reader};
 
 pub fn cat(archive: PathBuf, path: &str) -> Result<()> {
     let mut reader = open_reader(&archive)?;
@@ -12,12 +12,12 @@ pub fn cat(archive: PathBuf, path: &str) -> Result<()> {
 
     while let Some(mut entry) = reader.next_entry().context("Failed to read entry")? {
         let wanted =
-            normalize(entry.path()) == normalize(path.as_bytes()) || link == Some(entry.ino());
+            normalize(entry.path()) == normalize(path.as_bytes()) || link == Some(link_key(&entry));
         if !wanted {
             continue;
         }
         if entry.len() == 0 && entry.nlink() > 1 {
-            link = Some(entry.ino());
+            link = Some(link_key(&entry));
             continue;
         }
         let mut stdout = io::stdout().lock();

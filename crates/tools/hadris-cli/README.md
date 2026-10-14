@@ -84,6 +84,16 @@ UDF `create` and `bridge` accept writable revisions `1.02`, `1.50`, `2.00`
 and `2.01`. Revisions `2.50` and `2.60` require metadata partitions and are
 rejected during argument parsing until the writer supports them.
 
+`hadris cpio extract` streams the archive. A later entry replaces a file or
+symlink an earlier entry of the same name created, and takes that name out of
+its hard link group; hard links are matched by device and inode number.
+Files are created anew, never through an existing symlink, and get their
+mode from the open file. Modes are applied only to files and directories the
+extraction creates, so an existing directory keeps its own; directory modes
+are applied once the archive ends, deepest first, so a read-only directory
+can still receive its children. Setuid, setgid and sticky bits are dropped
+unless `--preserve-special-bits` is given.
+
 FAT12/16/32 extraction uses a bounded one-entry listing hint by default. Tune
 `hadris fat extract` independently for the access pattern:
 
