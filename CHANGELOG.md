@@ -26,6 +26,18 @@ Each published package owns its version and may be released independently.
   a cross-link without entering it, and stops entering directories after as
   many as the volume has clusters.
 
+- **ISO 9660 writer:** Trees with names that are not UTF-8 are written.
+  Files, write regions and report extents are keyed by the tree's byte path
+  instead of a lossy copy, so `write`, `write_bridge` and `Session::write`
+  no longer fail mid-image, `Report::extents` finds such files by their
+  bytes, and a kept boot catalog follows boot images with such names. Rock
+  Ridge `NM` entries store the name's bytes as they are; the primary,
+  ISO 9660:1999 and Joliet identifiers still map U+FFFD for each invalid
+  sequence. The "iso 9660 names are unicode" warning is only reported
+  without Rock Ridge. A planned file missing from the tree, or whose length
+  changed, now fails with `Corrupt` and its path before any block is
+  written, instead of during the write.
+
 - **Partition-aware open:** `hadris::sync::open_partition` and
   `hadris::async_::open_partition` read the MBR or GPT of a device and mount
   the partition a `hadris::Select` names (`Index(slot)`, `Guid(guid)` or

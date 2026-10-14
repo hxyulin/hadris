@@ -128,7 +128,7 @@ impl DirectoryBuilder<'_, '_> {
         let split = if self.rock_ridge {
             let mut b = SuBuilder::default();
             self.directory_posix(&mut b, child);
-            b.nm(c.name.as_bytes());
+            b.nm(&c.raw);
             if Some(child) != p.rr_moved
                 && c.physical
                     .iter()
@@ -185,7 +185,7 @@ impl DirectoryBuilder<'_, '_> {
                 f.links,
                 p.file_serial(f),
             );
-            b.nm(f.name.as_bytes());
+            b.nm(&f.raw);
             match f.kind {
                 FileKind::Symlink { .. } => {
                     if let Some(target) = p.tree.get(&f.path).and_then(Node::target) {

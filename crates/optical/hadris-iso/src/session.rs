@@ -61,7 +61,12 @@ fn set_attr(meta: &hadris_fs::Metadata, rock_ridge: bool) -> SetAttr {
 }
 
 /// The first byte and the total length of the file at `path` in `report`.
-fn span(report: &Report, path: &str) -> Option<Extent> {
+fn trim_slashes(path: &[u8]) -> &[u8] {
+    let start = path.iter().position(|&b| b != b'/').unwrap_or(path.len());
+    &path[start..]
+}
+
+fn span(report: &Report, path: &[u8]) -> Option<Extent> {
     let extents = report.extents(path)?;
     let first = extents.first()?;
     Some(Extent::new(
@@ -128,7 +133,7 @@ fn files(tree: &Tree) -> Vec<(Vec<u8>, hadris_fs::TreeEntry<'_>)> {
 struct BootImage {
     /// The entry's byte offset in the catalog.
     at: usize,
-    path: String,
+    path: Vec<u8>,
     /// The image's length when the catalog was last written.
     len: u64,
     /// The boot information table the image holds.
@@ -417,7 +422,7 @@ impl<D: BlockDevice> Session<D> {
         check_output(&out, &plan)?;
         for region in &plan.regions {
             let content = match region {
-                Region::File { path, .. } => self.tree.get(path).and_then(Node::content),
+                Region::File { path, len, .. } => Some(super::write::planned_content(&self.tree, path, *len)?),
                 Region::Content { content, .. } => Some(content),
                 Region::Bytes { .. } => None,
             };
@@ -655,7 +660,6 @@ impl<D: BlockDevice> Session<D> {
         for (path, entry) in files(&self.tree) {
             let Some(content) = entry.node().content() else { continue };
             if let Some(first) = content.stored_extents().and_then(|extents| extents.first()) {
-                let path = String::from_utf8_lossy(&path).into_owned();
                 firsts.entry(first.offset()).or_insert((path, content.len()));
             }
         }
@@ -696,15 +700,15 @@ impl<D: BlockDevice> Session<D> {
             if boot.table == BootInfo::None {
                 continue;
             }
-            let want = boot.path.trim_start_matches('/');
+            let want = trim_slashes(&boot.path);
             for region in regions.iter_mut() {
                 let Region::File { block, path, len, info } = region else {
                     continue;
                 };
-                if path.trim_start_matches('/') != want {
+                if trim_slashes(path) != want {
                     continue;
                 }
-                let fail = |detail: Detail| PathError::from(detail.invalid::<Infallible>()).with_path(boot.path.as_str());
+                let fail = |detail: Detail| PathError::from(detail.invalid::<Infallible>()).with_path(&boot.path);
                 if *len < boot.table.min_len() {
                     return Err(fail(Detail::BootInfoTable));
                 }
@@ -725,7 +729,7 @@ impl<D: BlockDevice> Session<D> {
         for boot in &self.boot {
             match self.tree.get(&boot.path).and_then(Node::content) {
                 Some(content) if !content.is_empty() => {}
-                _ => return Err(PathError::from(Detail::BootImage.invalid::<Infallible>()).with_path(boot.path.as_str())),
+                _ => return Err(PathError::from(Detail::BootImage.invalid::<Infallible>()).with_path(&boot.path)),
             }
         }
         Ok(())

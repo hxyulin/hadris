@@ -121,7 +121,7 @@ pub(crate) enum Region {
     /// The content of the file at a tree path, padded to whole blocks.
     File {
         block: u64,
-        path: String,
+        path: Vec<u8>,
         len: u64,
         info: Option<InfoTable>,
     },
@@ -187,8 +187,11 @@ enum FileKind {
 
 #[derive(Debug)]
 struct PFile {
+    /// The name as text, for the identifiers that map characters.
     name: String,
-    path: String,
+    /// The name as the tree has it, for Rock Ridge.
+    raw: Vec<u8>,
+    path: Vec<u8>,
     kind: FileKind,
     meta: SetAttr,
     links: u32,
@@ -207,11 +210,14 @@ impl PFile {
 
 #[derive(Debug)]
 struct PDir {
+    /// The name as text, for the identifiers that map characters.
     name: String,
+    /// The name as the tree has it, for Rock Ridge.
+    raw: Vec<u8>,
     /// The primary identifier's source: `RRD000001` for a relocated
     /// directory, the name otherwise.
     iso_name: String,
-    path: String,
+    path: Vec<u8>,
     meta: SetAttr,
     parent: usize,
     dirs: Vec<usize>,
@@ -292,18 +298,21 @@ pub(crate) fn normalize(path: &str) -> String {
     out
 }
 
-/// A tree name as text; names that are not UTF-8 get U+FFFD and a
-/// warning.
-fn text(name: &Name, path: &str, warnings: &mut Vec<Warning>) -> String {
+/// A tree name as text, for the identifiers that map characters; names
+/// that are not UTF-8 get U+FFFD and, when no Rock Ridge name keeps the
+/// bytes, a warning.
+fn text(name: &Name, path: &[u8], rock_ridge: bool, warnings: &mut Vec<Warning>) -> String {
     match core::str::from_utf8(name.as_bytes()) {
         Ok(text) => String::from(text),
         Err(_) => {
             let text = String::from_utf8_lossy(name.as_bytes()).into_owned();
-            warnings.push(
-                Warning::new(WarningKind::Renamed, "iso 9660 names are unicode")
-                    .with_path(path)
-                    .with_stored_as(&text),
-            );
+            if !rock_ridge {
+                warnings.push(
+                    Warning::new(WarningKind::Renamed, "iso 9660 names are unicode")
+                        .with_path(path)
+                        .with_stored_as(&text),
+                );
+            }
             text
         }
     }
@@ -356,12 +365,14 @@ pub(crate) fn measure(
     Ok(out)
 }
 
-fn join(parent: &str, name: &str) -> String {
-    if parent == "/" {
-        alloc::format!("/{name}")
-    } else {
-        alloc::format!("{parent}/{name}")
+fn join(parent: &[u8], name: &[u8]) -> Vec<u8> {
+    let mut path = Vec::with_capacity(parent.len() + 1 + name.len());
+    path.extend_from_slice(parent);
+    if parent != b"/" {
+        path.push(b'/');
     }
+    path.extend_from_slice(name);
+    path
 }
 
 /// Plans writing `tree` as an ISO 9660 image, without I/O, and returns the
@@ -437,8 +448,9 @@ impl Planner<'_> {
         let root = self.tree.root();
         self.dirs.push(PDir {
             name: String::new(),
+            raw: Vec::new(),
             iso_name: String::new(),
-            path: String::from("/"),
+            path: b"/".to_vec(),
             meta: *root.node().attrs(),
             parent: 0,
             dirs: Vec::new(),
@@ -453,15 +465,16 @@ impl Planner<'_> {
             let path = self.dirs[dir].path.clone();
             let mut children = Vec::new();
             for (raw_name, child) in entry.children() {
-                let raw_path = join(&path, &String::from_utf8_lossy(raw_name.as_bytes()));
-                let name = text(raw_name, &raw_path, &mut self.warnings);
-                let child_path = join(&path, &name);
+                let child_path = join(&path, raw_name.as_bytes());
+                let name = text(raw_name, &child_path, self.rock_ridge, &mut self.warnings);
+                let raw = raw_name.as_bytes().to_vec();
                 let node = child.node();
                 let kind = match node.file_type() {
                     FileType::Dir => {
                         let id = self.dirs.len();
                         self.dirs.push(PDir {
                             name: name.clone(),
+                            raw,
                             iso_name: name,
                             path: child_path,
                             meta: *node.attrs(),
@@ -517,6 +530,7 @@ impl Planner<'_> {
                 let id = self.files.len();
                 self.files.push(PFile {
                     name,
+                    raw,
                     path: child_path,
                     kind,
                     meta: *node.attrs(),
@@ -535,7 +549,7 @@ impl Planner<'_> {
     }
 
     /// The tree entry of the file at `path`.
-    fn file_entry(&self, path: &str) -> Option<TreeEntry<'_>> {
+    fn file_entry(&self, path: &[u8]) -> Option<TreeEntry<'_>> {
         self.tree
             .entry(path)
             .filter(|entry| entry.node().file_type() == FileType::File)
@@ -571,7 +585,9 @@ impl Planner<'_> {
         for entry in el_torito.entries() {
             let len = match (entry.image(), entry.appended()) {
                 (Some(path), _) => {
-                    let node = self.file_entry(path).ok_or(invalid(Detail::BootImage))?;
+                    let node = self
+                        .file_entry(path.as_bytes())
+                        .ok_or(invalid(Detail::BootImage))?;
                     self.contents.get(&node.id()).map_or(0, |info| info.len)
                 }
                 (None, Some(index)) => appended
@@ -649,7 +665,7 @@ impl Planner<'_> {
         let parent = self
             .dirs
             .iter()
-            .position(|dir| dir.path == parent_path)
+            .position(|dir| dir.path == parent_path.as_bytes())
             .ok_or(invalid(Detail::CatalogPath))?;
         let node = self
             .tree
@@ -670,7 +686,7 @@ impl Planner<'_> {
                     && self.dirs[parent]
                         .files
                         .iter()
-                        .any(|&f| self.files[f].name.as_bytes() == child_name.as_bytes())
+                        .any(|&f| self.files[f].raw == child_name.as_bytes())
             })
             .count();
         let entries = el_torito.entries().len().saturating_sub(1);
@@ -678,7 +694,8 @@ impl Planner<'_> {
         let id = self.files.len();
         self.files.push(PFile {
             name: name.to_string(),
-            path: path.clone(),
+            raw: name.as_bytes().to_vec(),
+            path: path.as_bytes().to_vec(),
             kind: FileKind::Catalog { len },
             meta: SetAttr::new(),
             links: 1,
@@ -793,7 +810,7 @@ impl Planner<'_> {
         if let Some(&dir) = self.dirs[0]
             .dirs
             .iter()
-            .find(|&&dir| self.dirs[dir].name == other)
+            .find(|&&dir| self.dirs[dir].raw == other.as_bytes())
             && rules.directory(&self.dirs[dir].iso_name) < rules.directory(rr_name)
         {
             return Err(invalid(Detail::Relocation));
@@ -802,7 +819,7 @@ impl Planner<'_> {
             .dirs
             .iter()
             .copied()
-            .find(|&dir| self.dirs[dir].name == rr_name);
+            .find(|&dir| self.dirs[dir].raw == rr_name.as_bytes());
         let id = match existing {
             Some(id) => id,
             None if self.tree.root().child(rr_name).is_some() => {
@@ -812,8 +829,9 @@ impl Planner<'_> {
                 let id = self.dirs.len();
                 self.dirs.push(PDir {
                     name: String::from(rr_name),
+                    raw: rr_name.as_bytes().to_vec(),
                     iso_name: String::from(rr_name),
-                    path: join("/", rr_name),
+                    path: join(b"/", rr_name.as_bytes()),
                     meta: SetAttr::new(),
                     parent: 0,
                     dirs: Vec::new(),
@@ -828,7 +846,7 @@ impl Planner<'_> {
             }
         };
         for &dir in &moved {
-            let stored = join(&self.dirs[id].path, &self.dirs[dir].iso_name);
+            let stored = join(&self.dirs[id].path, self.dirs[dir].iso_name.as_bytes());
             self.warnings.push(
                 Warning::new(WarningKind::Relocated, "rock ridge relocation")
                     .with_path(&self.dirs[dir].path)
@@ -1040,7 +1058,9 @@ impl Planner<'_> {
     // El Torito.
 
     fn boot_image(&self, path: &str) -> PlanResult<(u32, u64)> {
-        let node = self.file_entry(path).ok_or(invalid(Detail::BootImage))?;
+        let node = self
+            .file_entry(path.as_bytes())
+            .ok_or(invalid(Detail::BootImage))?;
         let len = self.contents.get(&node.id()).map_or(0, |info| info.len);
         let block = self
             .extents
@@ -1513,8 +1533,8 @@ impl Planner<'_> {
                 .files
                 .iter()
                 .filter(|f| !matches!(f.kind, FileKind::Catalog { .. }))
-                .map(|f| (&f.name, &f.path));
-            let dirs = self.dirs.iter().skip(1).map(|d| (&d.name, &d.path));
+                .map(|f| (&f.raw, &f.path));
+            let dirs = self.dirs.iter().skip(1).map(|d| (&d.raw, &d.path));
             for (_, path) in files
                 .chain(dirs)
                 .filter(|(name, _)| !names::rock_ridge_lists(name))
