@@ -30,12 +30,17 @@ const fn node_id(raw: u64) -> NodeId {
 
 const ROOT: NodeId = node_id(1);
 /// A node id holds the slot of its File entry, the entry's byte offset
-/// divided by 32, in its low `SLOT_BITS` bits, and a tier above, as in
-/// `FatFs`. An exFAT heap ends below `2^58` bytes, so slots stay below
-/// `2^53`.
-const SLOT_BITS: u32 = 53;
-const SLOT_MASK: u64 = (1 << SLOT_BITS) - 1;
-const MAX_TIER: u64 = (1 << (63 - SLOT_BITS)) - 1;
+/// divided by 32, above its low tag bits, as in `FatFs`. Those hold the
+/// entry set's [`set_tag`], counted up past ids pinned nodes that moved
+/// away from the slot still hold, so a listing and a lookup of one set
+/// agree on its id, and an unpinned id whose slot now holds a set with
+/// another tag is refused. A mount takes as many tag bits as its slots
+/// leave below bit 63, at most [`MAX_TAG_BITS`]: an exFAT heap ends below
+/// `2^58` bytes, so slots stay below `2^53` and at least 10 bits remain.
+const MAX_TAG_BITS: u32 = 32;
+/// Directory clusters freed during a mount that are remembered one by one;
+/// past this many runs any cluster may have been one.
+const MAX_FREED_DIRS: usize = 64;
 /// The id of the table slot `create` reserves before it writes anything.
 const RESERVED: NodeId = match NodeId::new(1 << 63) {
     Some(id) => id,
@@ -181,6 +186,10 @@ impl Set {
         le64(&self.raw[1], 8)
     }
 
+    fn tag(&self) -> u32 {
+        set_tag(&self.raw[0], &self.raw[1])
+    }
+
     fn alloc(&self) -> Alloc {
         Alloc {
             first: self.first(),
@@ -222,6 +231,39 @@ impl Set {
                 (alloc, le64(entry, 24))
             })
     }
+}
+
+/// A 32-bit FNV-1a hash of the parts of an entry set that stay fixed while
+/// it lives in its slot: the creation time, whether it is a directory, and
+/// the length and `NameHash` of its name, which a rename that changes only
+/// the case keeps. Node ids carry it, so an id whose slot now holds another
+/// set, or bytes that only look like one, is refused. With a clock that
+/// does not move, such as the default `NoClock`, a new set that takes the
+/// slot of a removed one with the same name gets the same tag.
+fn set_tag(primary: &RawEntry, stream: &RawEntry) -> u32 {
+    let dir = le16(primary, 4) & raw::ATTR_DIRECTORY != 0;
+    let fixed = [
+        primary[8],
+        primary[9],
+        primary[10],
+        primary[11],
+        primary[20],
+        primary[22],
+        dir as u8,
+        stream[3],
+        stream[4],
+        stream[5],
+    ];
+    fixed.iter().fold(0x811c_9dc5, |hash: u32, &byte| {
+        (hash ^ byte as u32).wrapping_mul(0x0100_0193)
+    })
+}
+
+/// The low bits of a node id that hold the tag on a volume whose cluster
+/// heap ends at byte `end`.
+fn tag_bits(end: u64) -> u32 {
+    let slots = u64::BITS - (end / ENTRY_SIZE as u64).leading_zeros();
+    63u32.saturating_sub(slots).min(MAX_TAG_BITS)
 }
 
 /// Whether the entries form a File entry set with a Stream Extension, the
@@ -532,7 +574,13 @@ fn entry_name(name: &Name, invalid: ErrorKind) -> Result<&str, ErrorKind> {
 /// identified by the location of their File entry; `lookup`, `create` and
 /// `parent` pin the node they return, `forget` unpins it, and a pinned node
 /// keeps its id across `rename`. Ids from `readdir` are not pinned
-/// and stay valid until that directory changes.
+/// and stay valid until that directory changes. An unpinned id carries a
+/// hash of its entry set's creation time, type and name hash, so one whose
+/// slot now holds another set, or that points into the clusters of a
+/// directory removed during the mount without naming an entry set the tree
+/// still reaches, fails with [`ErrorKind::InvalidHandle`]. A set that takes
+/// the slot of a removed one with the same name and creation time, as with
+/// a clock that does not move, is not told apart.
 ///
 /// Names are UTF-16, up to 255 code units, and compare through the
 /// volume's up-case table, so lookups ignore case as the volume defines
@@ -620,6 +668,13 @@ pub struct ExFatFs<D> {
     moved: bool,
     /// A known `(index, cluster)` of the root directory's chain.
     root_hint: ChainPos,
+    /// The low bits of a node id that hold its tag.
+    tag_bits: u32,
+    /// Runs of clusters of directories removed during the mount, which an
+    /// id decoded from its slot may still point into.
+    freed_dirs: alloc::vec::Vec<Run>,
+    /// More directory clusters were freed than `freed_dirs` holds.
+    freed_any: bool,
 }
 
 impl<D> fmt::Debug for ExFatFs<D> {
@@ -680,6 +735,8 @@ impl<D: BlockDevice> ExFatFs<D> {
             Err(error) => return Err(MountError::new(error, dev)),
         };
         let upcase_valid = upcase.is_valid();
+        let geometry = vol.geometry();
+        let heap_end = geometry.heap_start().saturating_add(u64::from(geometry.cluster_count()).saturating_mul(geometry.cluster_size()));
         Ok(Self {
             dev,
             vol,
@@ -693,6 +750,9 @@ impl<D: BlockDevice> ExFatFs<D> {
             zone: options.utc_offset(),
             moved: false,
             root_hint: ChainPos::NONE,
+            tag_bits: tag_bits(heap_end),
+            freed_dirs: alloc::vec::Vec::new(),
+            freed_any: false,
         })
     }
 
@@ -1024,8 +1084,8 @@ impl<D: BlockDevice> ExFatFs<D> {
         self.nodes.insert(RESERVED, placeholder).map_err(|_| ErrorKind::LimitExceeded)?;
         let created = self.create_set(start, dir_entry, &units, hash, &plan, is_dir, attrs).await;
         self.nodes.remove(RESERVED);
-        let node = created?;
-        let id = self.free_id(node.entry).ok_or(ErrorKind::LimitExceeded)?;
+        let (node, tag) = created?;
+        let id = self.free_id(node.entry, tag).ok_or(ErrorKind::LimitExceeded)?;
         self.nodes.insert(id, node).map_err(|_| ErrorKind::LimitExceeded)?;
         Ok(id)
     }
@@ -1058,6 +1118,9 @@ impl<D: BlockDevice> ExFatFs<D> {
             return Err(ErrorKind::DirectoryNotEmpty.into());
         }
         self.check_set_allocs(&found.set, &state).await?;
+        if state.dir {
+            self.note_freed_dir(&state).await?;
+        }
         if let Some(held) = self.held_alloc(&state, Owner::Removed(found.set.offset))? {
             self.pending = Some(held);
         }
@@ -1599,10 +1662,7 @@ impl<D: BlockDevice> ExFatFs<D> {
         }
         let mut set = Set::new();
         self.unpinned(id, &mut set).await?;
-        match self.pinned_at(set.offset) {
-            Some(pinned) => Ok((Some(pinned), *self.nodes.get(pinned).ok_or(ErrorKind::Corrupt)?)),
-            None => Ok((None, Node::from_set(&set, UNKNOWN_PARENT))),
-        }
+        Ok((None, Node::from_set(&set, UNKNOWN_PARENT)))
     }
 
     async fn node(&mut self, id: NodeId) -> FsResult<Node, D::Error> {
@@ -1647,27 +1707,96 @@ impl<D: BlockDevice> ExFatFs<D> {
         self.vol.geometry().cluster_offset(cluster).ok_or(ErrorKind::Corrupt)
     }
 
+    fn tag_mask(&self) -> u64 {
+        (1 << self.tag_bits) - 1
+    }
+
+    /// The lowest id of the slot at `offset`.
+    fn slot_base(&self, offset: u64) -> u64 {
+        (offset / ENTRY_SIZE as u64) << self.tag_bits
+    }
+
     /// The pinned node whose File entry is at `offset`. Unless a pinned
-    /// node has moved, that is the tier-0 id of the slot, found by key.
+    /// node has moved, its id is among the ids of the slot.
     fn pinned_at(&self, offset: u64) -> Option<NodeId> {
         if !self.moved {
-            let id = node_id(offset / ENTRY_SIZE as u64);
-            return self.nodes.get(id).is_some_and(|node| node.entry == offset).then_some(id);
+            let base = self.slot_base(offset);
+            return self
+                .nodes
+                .find_in(node_id(base), node_id(base | self.tag_mask()), |_, node| node.entry == offset);
         }
         self.nodes.find(|_, node| node.entry == offset)
     }
 
-    fn free_id(&self, offset: u64) -> Option<NodeId> {
-        let slot = offset / ENTRY_SIZE as u64;
-        (0..=MAX_TIER)
-            .map(|tier| node_id(tier << SLOT_BITS | slot))
+    /// The first id for a set with `tag` at `offset` that no node in the
+    /// table holds, from the one its tag names. `None` only when every id
+    /// of the slot is taken.
+    fn free_id(&self, offset: u64, tag: u32) -> Option<NodeId> {
+        let (base, mask) = (self.slot_base(offset), self.tag_mask());
+        let tag = u64::from(tag) & mask;
+        (0..=mask)
+            .map(|step| node_id(base | (tag + step) & mask))
             .find(|&id| self.nodes.get(id).is_none())
     }
 
-    fn id_at(&self, offset: u64) -> NodeId {
-        self.pinned_at(offset)
-            .or_else(|| self.free_id(offset))
-            .unwrap_or(node_id(offset / ENTRY_SIZE as u64))
+    /// The id of `set` without pinning it: its pinned id, else the id a
+    /// lookup would pin.
+    fn id_at(&self, set: &Set) -> NodeId {
+        self.pinned_at(set.offset)
+            .or_else(|| self.free_id(set.offset, set.tag()))
+            .unwrap_or(RESERVED)
+    }
+
+    /// Remembers the clusters of the directory `node` before it is removed,
+    /// so that ids of sets it held are checked against the tree once the
+    /// clusters may hold something else.
+    async fn note_freed_dir(&mut self, node: &Node) -> FsResult<(), D::Error> {
+        let size = self.vol.geometry().cluster_size();
+        let count = u32::try_from(node.len.div_ceil(size)).unwrap_or(u32::MAX);
+        if node.first == 0 || count == 0 {
+            return Ok(());
+        }
+        if node.contiguous {
+            self.note_freed_run(Run { first: node.first, count });
+            return Ok(());
+        }
+        let mut run = Run { first: node.first, count: 1 };
+        let mut at = node.first;
+        for _ in 1..count.min(self.vol.geometry().cluster_count()) {
+            let next = match self.next_cluster(at).await {
+                Ok(Some(next)) => next,
+                Ok(None) => break,
+                Err(err) if err.kind() == ErrorKind::Corrupt => break,
+                Err(err) => return Err(err),
+            };
+            if next == at.wrapping_add(1) {
+                run.count += 1;
+            } else {
+                self.note_freed_run(run);
+                run = Run { first: next, count: 1 };
+            }
+            at = next;
+        }
+        self.note_freed_run(run);
+        Ok(())
+    }
+
+    fn note_freed_run(&mut self, run: Run) {
+        if self.freed_any {
+            return;
+        }
+        if self.freed_dirs.len() == MAX_FREED_DIRS {
+            self.freed_dirs = alloc::vec::Vec::new();
+            self.freed_any = true;
+            return;
+        }
+        self.freed_dirs.push(run);
+    }
+
+    /// Whether `cluster` may have belonged to a directory removed during the
+    /// mount.
+    fn freed_dir(&self, cluster: u32) -> bool {
+        self.freed_any || self.freed_dirs.iter().any(|run| cluster.wrapping_sub(run.first) < run.count)
     }
 
     /// Pins the node whose entry set is `set`, found in the directory whose
@@ -1682,7 +1811,7 @@ impl<D: BlockDevice> ExFatFs<D> {
             }
             return Ok(id);
         }
-        let id = self.free_id(set.offset).ok_or(ErrorKind::LimitExceeded)?;
+        let id = self.free_id(set.offset, set.tag()).ok_or(ErrorKind::LimitExceeded)?;
         self.nodes
             .insert(id, Node::from_set(set, parent))
             .map_err(|_| ErrorKind::LimitExceeded)?;
@@ -1696,14 +1825,21 @@ impl<D: BlockDevice> ExFatFs<D> {
         if raw_id == ROOT.get() || raw_id >= RESERVED.get() {
             return Err(ErrorKind::InvalidHandle.into());
         }
-        let offset = (raw_id & SLOT_MASK) * ENTRY_SIZE as u64;
-        if self.vol.geometry().cluster_of(offset).is_none() {
+        let offset = (raw_id >> self.tag_bits) * ENTRY_SIZE as u64;
+        let Some(cluster) = self.vol.geometry().cluster_of(offset) else {
+            return Err(ErrorKind::InvalidHandle.into());
+        };
+        match self.set_at(offset, set).await {
+            Err(err) if err.kind() == ErrorKind::Corrupt => return Err(ErrorKind::InvalidHandle.into()),
+            other => other?,
+        }
+        if self.pinned_at(offset).is_some() || self.free_id(offset, set.tag()) != Some(id) {
             return Err(ErrorKind::InvalidHandle.into());
         }
-        match self.set_at(offset, set).await {
-            Err(err) if err.kind() == ErrorKind::Corrupt => Err(ErrorKind::InvalidHandle.into()),
-            other => other,
+        if self.freed_dir(cluster) && self.search(Target::ParentOf(offset)).await?.is_none() {
+            return Err(ErrorKind::InvalidHandle.into());
         }
+        Ok(())
     }
 
     /// Reads the entry set whose File entry is at `offset` into `set`.
@@ -2242,7 +2378,7 @@ impl<D: BlockDevice> ExFatFs<D> {
         plan: &Plan,
         is_dir: bool,
         attrs: &SetAttr,
-    ) -> FsResult<Node, D::Error> {
+    ) -> FsResult<(Node, u32), D::Error> {
         let now = self.now();
         let mut primary = [0u8; ENTRY_SIZE];
         let attributes = if is_dir { raw::ATTR_DIRECTORY } else { raw::ATTR_ARCHIVE };
@@ -2273,19 +2409,20 @@ impl<D: BlockDevice> ExFatFs<D> {
         match inserted {
             Ok(entry) => {
                 self.pending = None;
-                Ok(Node {
-                entry,
-                parent: dir_entry,
-                first: alloc.first,
-                len,
-                valid: len,
-                contiguous: false,
-                dir: is_dir,
-                hint: ChainPos::NONE,
-                dirty: false,
-                opens: 0,
-                unlinked: false,
-                })
+                let node = Node {
+                    entry,
+                    parent: dir_entry,
+                    first: alloc.first,
+                    len,
+                    valid: len,
+                    contiguous: false,
+                    dir: is_dir,
+                    hint: ChainPos::NONE,
+                    dirty: false,
+                    opens: 0,
+                    unlinked: false,
+                };
+                Ok((node, set_tag(&set[0], &set[1])))
             }
             Err(err) => {
                 let _ = self.recover().await;
@@ -2414,6 +2551,9 @@ impl<D: BlockDevice> ExFatFs<D> {
             return Err(ErrorKind::DirectoryNotEmpty.into());
         }
         self.check_set_allocs(&target.set, &target_node).await?;
+        if target_node.dir {
+            self.note_freed_dir(&target_node).await?;
+        }
         let needed = 2 + name.entries() as u32 + src.set.extras().len() as u32;
         let plan = self.plan(to, None, needed, Some(&target.set)).await?;
         let (to, plan) = self.grow_first(to, to_entry, &plan).await?;
@@ -2868,7 +3008,7 @@ impl<D: BlockDevice> ExFatFs<D> {
         let mut name: NameBuf = NameBuf::new();
         name.fill(|buf| names::utf16_to_utf8(set.name_units(), buf).ok_or(NameError::TooLong))
             .map_err(|_| ErrorKind::Corrupt)?;
-        let node = self.id_at(set.offset);
+        let node = self.id_at(&set);
         let state = match self.pinned_at(set.offset).and_then(|id| self.nodes.get(id)) {
             Some(state) => *state,
             None => Node::from_set(&set, dir_entry),

@@ -105,6 +105,16 @@ pub fn chain<D: hadris_storage::sync::BlockDevice>(fs: &mut ExFatFs<D>, node: No
     }
 }
 
+/// The byte offset of the File entry of `node`, decoded from its id as
+/// `ExFatFs` encodes it: the slot above as many tag bits as the slots of
+/// the volume leave below bit 63, at most 32.
+pub fn entry_offset<D: hadris_storage::sync::BlockDevice>(fs: &ExFatFs<D>, node: NodeId) -> u64 {
+    let geo = fs.info();
+    let end = geo.heap_start() + geo.cluster_count() as u64 * geo.cluster_size();
+    let tag_bits = (63 - (64 - (end / 32).leading_zeros())).min(32);
+    (node.get() >> tag_bits) * 32
+}
+
 /// The names in the directory at `path`, in directory order.
 pub fn names(fs: &mut Fs, path: &str) -> Vec<String> {
     let dir = fs.resolve_path(path).unwrap();

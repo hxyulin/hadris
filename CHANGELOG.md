@@ -48,6 +48,17 @@ Each published package owns its version and may be released independently.
   written across two device blocks and interrupted between them, previously
   left them allocated past the size.
 
+- **hadris-fat (exFAT):** `ExFatFs` node ids carry a hash of the entry set's
+  creation time, type, name length and `NameHash` in their low bits, as
+  `FatFs` ids carry one of the short entry, and the slot above as many of
+  them as the volume needs. An unpinned id whose slot now holds another
+  set, such as one created after the old one was removed, fails with
+  `InvalidHandle` instead of naming the new set, and so does one that
+  points into the clusters of a directory removed during the mount unless
+  the tree still reaches a set there. Ids are opaque, so callers see only
+  different values; ids from `readdir` still match `lookup` and survive
+  writes and renames of other entries.
+
 - **CLI directory loops:** `iso tree`, `iso verify --strict`, `udf tree`,
   `udf verify` and `udf compare` stop at a directory that leads back to one
   on its own path, as in a damaged image, and report
