@@ -1184,3 +1184,169 @@ fn the_iso_1999_tree_keeps_names_up_to_207_bytes() {
     assert_eq!(view.names(&format!("/{dir}")).unwrap(), [file]);
     assert_eq!(view.read_to_vec(&format!("/{dir}/{file}")).unwrap(), b"x");
 }
+
+fn byte_named_tree() -> Tree {
+    let mut tree = Tree::new();
+    for (path, data) in byte_named_files() {
+        tree.insert(&path, Node::file(Content::bytes(data)))
+            .unwrap();
+    }
+    tree
+}
+
+fn byte_named_files() -> Vec<(Vec<u8>, Vec<u8>)> {
+    let mut files = vec![
+        (b"/caf\xe9.txt".to_vec(), b"one".to_vec()),
+        (b"/\xff".to_vec(), b"two".to_vec()),
+        (b"/dir\xe9/f\xff.bin".to_vec(), b"three".to_vec()),
+        (b"/plain.txt".to_vec(), b"plain".to_vec()),
+    ];
+    files.sort();
+    files
+}
+
+/// Every file below `path`, as its listed path and its content.
+fn raw_files<D: FileSystem>(view: &mut D, path: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
+    let dir = view.resolve(path, hadris_fs::Resolve::Lexical).unwrap();
+    let mut entries = Vec::new();
+    let mut cursor = hadris_fs::DirCursor::START;
+    while let Some(entry) = view.readdir(dir, cursor).unwrap() {
+        cursor = entry.next_cursor();
+        entries.push((entry.name().as_bytes().to_vec(), entry.file_type()));
+    }
+    view.forget(dir, 1);
+    let mut out = Vec::new();
+    for (name, kind) in entries {
+        let mut child = path.to_vec();
+        if child != b"/" {
+            child.push(b'/');
+        }
+        child.extend_from_slice(&name);
+        if kind == FileType::Dir {
+            out.extend(raw_files(view, &child));
+        } else {
+            let node = view.resolve(&child, hadris_fs::Resolve::Lexical).unwrap();
+            let data = common::read_node(view, node).unwrap();
+            view.forget(node, 1);
+            out.push((child, data));
+        }
+    }
+    out.sort();
+    out
+}
+
+/// A Rock Ridge `NM` entry holding `name`.
+fn nm_entry(name: &[u8]) -> Vec<u8> {
+    [&b"NM"[..], &[5 + name.len() as u8, 1, 0], name].concat()
+}
+
+#[test]
+fn non_utf8_names_write_through_the_primary_tree() {
+    let tree = byte_named_tree();
+    let options = IsoOptions::default().with_level(IsoLevel::L2);
+    let report = hadris_iso::plan(&tree, &options).unwrap();
+    for (path, _) in byte_named_files() {
+        assert!(report.extents(&path).is_some(), "{path:?}");
+    }
+    let renamed = report
+        .warnings()
+        .iter()
+        .filter(|w| w.message() == "iso 9660 names are unicode")
+        .count();
+    assert_eq!(renamed, 4);
+    let mut iso = image(&tree, &options);
+    let mut view = IsoFs::mount(&mut iso, MountOptions::new()).unwrap();
+    let mut found: Vec<_> = raw_files(&mut view, b"/")
+        .into_iter()
+        .map(|(_, data)| data)
+        .collect();
+    found.sort();
+    let mut expected: Vec<_> = byte_named_files()
+        .into_iter()
+        .map(|(_, data)| data)
+        .collect();
+    expected.sort();
+    assert_eq!(found, expected);
+}
+
+#[test]
+fn non_utf8_names_keep_their_bytes_in_rock_ridge() {
+    let tree = byte_named_tree();
+    let options = IsoOptions::default().with_rock_ridge();
+    let report = hadris_iso::plan(&tree, &options).unwrap();
+    assert!(
+        report
+            .warnings()
+            .iter()
+            .all(|w| w.message() != "iso 9660 names are unicode")
+    );
+    let mut iso = image(&tree, &options);
+    let bytes = iso.get_ref().clone();
+    for name in [&b"caf\xe9.txt"[..], b"\xff", b"dir\xe9", b"f\xff.bin"] {
+        let entry = nm_entry(name);
+        assert!(
+            bytes.windows(entry.len()).any(|window| window == entry),
+            "{name:?}"
+        );
+    }
+    let mut rr =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::RockRidge).unwrap();
+    assert_eq!(raw_files(&mut rr, b"/"), byte_named_files());
+}
+
+#[test]
+fn non_utf8_names_reach_joliet_as_replacement_characters() {
+    let tree = byte_named_tree();
+    let mut iso = image(&tree, &IsoOptions::default().with_joliet());
+    let mut joliet =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::Joliet).unwrap();
+    let mut expected: Vec<_> = byte_named_files()
+        .into_iter()
+        .map(|(path, data)| {
+            (
+                String::from_utf8_lossy(&path).into_owned().into_bytes(),
+                data,
+            )
+        })
+        .collect();
+    expected.sort();
+    assert_eq!(raw_files(&mut joliet, b"/"), expected);
+}
+
+#[cfg(feature = "async")]
+#[test]
+fn async_writes_non_utf8_names_alike() {
+    use hadris_fs::Resolve;
+    let tree = byte_named_tree();
+    let options = IsoOptions::default().with_rock_ridge().with_joliet();
+    let sync_image = image(&tree, &options).into_inner();
+    common::block_on(async {
+        let size = hadris_iso::plan(&tree, &options).unwrap().size();
+        let mut dev = hadris_storage::MemDevice::new(vec![0u8; size as usize], common::SECTOR);
+        let report = hadris_iso::r#async::write(&mut dev, &tree, &options)
+            .await
+            .unwrap();
+        assert!(report.extents(b"/\xff").is_some());
+        assert_eq!(dev.get_ref(), &sync_image);
+        let mut view = hadris_iso::r#async::IsoFs::mount(dev, MountOptions::new())
+            .await
+            .unwrap();
+        let root = view.resolve(b"/", Resolve::Lexical).await.unwrap();
+        let mut names = Vec::new();
+        let mut cursor = hadris_fs::DirCursor::START;
+        while let Some(entry) = view.readdir(root, cursor).await.unwrap() {
+            cursor = entry.next_cursor();
+            names.push(entry.name().as_bytes().to_vec());
+        }
+        names.sort();
+        assert_eq!(
+            names,
+            [
+                b"caf\xe9.txt".to_vec(),
+                b"dir\xe9".to_vec(),
+                b"plain.txt".to_vec(),
+                b"\xff".to_vec(),
+            ]
+        );
+    });
+}
