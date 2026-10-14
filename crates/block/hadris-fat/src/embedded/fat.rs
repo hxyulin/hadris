@@ -139,6 +139,11 @@ fn check_entry_name(name: &str) -> Result<(), ErrorKind> {
     }
 }
 
+/// Whether `entry` is the `.` entry of the directory at `first`.
+fn is_dot_of(entry: &ShortEntry, kind: FatKind, first: u32) -> bool {
+    entry.name() == *b".          " && entry.is_dir() && entry.first_cluster(kind) == first
+}
+
 io_transform! {
 
 /// A FAT12, FAT16 or FAT32 volume for firmware, with `FILES` file slots.
@@ -283,7 +288,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// [`ErrorKind::NotADirectory`].
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all))]
     pub async fn open_dir(&mut self, parent: Dir, name: &str) -> FsResult<Dir, D::Error> {
-        let start = self.start(parent)?;
+        let start = self.start(parent).await?;
         match name {
             "." => return Ok(parent),
             ".." if parent.is_root() => return Ok(Dir::ROOT),
@@ -309,7 +314,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         from: DirCursor,
         mut each: impl FnMut(&Entry<'_, 'mount>) -> ControlFlow<()>,
     ) -> FsResult<(), D::Error> {
-        let start = self.start(dir)?;
+        let start = self.start(dir).await?;
         let Ok(mut slot) = u32::try_from(from.into_raw()) else {
             return Ok(());
         };
@@ -350,7 +355,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
             self.writable()?;
         }
         let index = self.free_slot()?;
-        let start = self.start(dir)?;
+        let start = self.start(dir).await?;
         check_entry_name(name)?;
         let (offset, entry) = match self.find(start, Query::Name(name)).await? {
             Some(_) if options.is_create_new() => return Err(ErrorKind::AlreadyExists.into()),
@@ -523,7 +528,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// [`ErrorKind::NoSpace`] when a FAT12/16 root directory is full.
     pub async fn create_dir(&mut self, dir: Dir, name: &str) -> FsResult<Dir, D::Error> {
         self.prepare().await?;
-        let start = self.start(dir)?;
+        let start = self.start(dir).await?;
         check_entry_name(name)?;
         let (_, entry) = self.create_entry(start, name, true, &SetAttr::new()).await?;
         Ok(Dir::new(entry.first_cluster(self.kind())))
@@ -537,7 +542,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         let mut current = dir;
         for part in path.split('/').filter(|part| !part.is_empty() && *part != ".") {
             check_entry_name(part)?;
-            let start = self.start(current)?;
+            let start = self.start(current).await?;
             current = match self.find(start, Query::Name(part)).await? {
                 Some(found) if found.entry.is_dir() => self.child(&found.entry)?,
                 Some(_) => return Err(ErrorKind::NotADirectory.into()),
@@ -554,7 +559,8 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// The metadata of `name` in `dir`. An open file's size is the one its
     /// slots hold.
     pub async fn metadata(&mut self, dir: Dir, name: &str) -> FsResult<Metadata, D::Error> {
-        let found = self.lookup(dir, name).await?;
+        let start = self.start(dir).await?;
+        let found = self.lookup(start, name).await?;
         let size = self
             .open_slot(found.offset)
             .map_or(found.entry.size(), |index| self.files[index].size);
@@ -569,7 +575,8 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         if changes.owner().is_some() {
             return Err(ErrorKind::Unsupported.into());
         }
-        let found = self.lookup(dir, name).await?;
+        let start = self.start(dir).await?;
+        let found = self.lookup(start, name).await?;
         let read_only = match changes.permissions() {
             Some(wanted) => Some(read_only_bit(found.entry.is_dir(), wanted).ok_or(ErrorKind::Unsupported)?),
             None => None,
@@ -602,8 +609,8 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// [`ErrorKind::Busy`] while the file is open.
     pub async fn remove_file(&mut self, dir: Dir, name: &str) -> FsResult<(), D::Error> {
         self.prepare().await?;
-        let start = self.start(dir)?;
-        let found = self.lookup(dir, name).await?;
+        let start = self.start(dir).await?;
+        let found = self.lookup(start, name).await?;
         if found.entry.is_dir() {
             return Err(ErrorKind::IsADirectory.into());
         }
@@ -615,8 +622,8 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// [`ErrorKind::DirectoryNotEmpty`] for a directory with entries.
     pub async fn remove_dir(&mut self, dir: Dir, name: &str) -> FsResult<(), D::Error> {
         self.prepare().await?;
-        let start = self.start(dir)?;
-        let found = self.lookup(dir, name).await?;
+        let start = self.start(dir).await?;
+        let found = self.lookup(start, name).await?;
         if !found.entry.is_dir() {
             return Err(ErrorKind::NotADirectory.into());
         }
@@ -635,8 +642,8 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// before.
     pub async fn remove_dir_all(&mut self, dir: Dir, name: &str) -> FsResult<(), D::Error> {
         self.prepare().await?;
-        let start = self.start(dir)?;
-        let top = self.lookup(dir, name).await?;
+        let start = self.start(dir).await?;
+        let top = self.lookup(start, name).await?;
         if !top.entry.is_dir() {
             return Err(ErrorKind::NotADirectory.into());
         }
@@ -690,8 +697,8 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// destination after interruption.
     pub async fn rename(&mut self, from_dir: Dir, from: &str, to_dir: Dir, to: &str) -> FsResult<(), D::Error> {
         self.prepare().await?;
-        let from_start = self.start(from_dir)?;
-        let to_start = self.start(to_dir)?;
+        let from_start = self.start(from_dir).await?;
+        let to_start = self.start(to_dir).await?;
         check_entry_name(from)?;
         check_entry_name(to)?;
         let new = NewName::new(to, self.options.code_page(), self.options.fold())?;
@@ -1021,11 +1028,28 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         self.files.iter().position(|slot| !slot.is_free() && slot.entry == offset)
     }
 
-    fn start(&self, dir: Dir) -> Result<DirStart, ErrorKind> {
+    /// Where `dir`'s slots are. A subdirectory whose first cluster does
+    /// not begin with its own `.` entry was removed, and `dir` fails with
+    /// [`ErrorKind::InvalidHandle`].
+    async fn start(&mut self, dir: Dir) -> FsResult<DirStart, D::Error> {
         if dir.is_root() {
             return Ok(self.fat.root());
         }
-        Ok(DirStart::Chain(self.fat.check_cluster(dir.first())?))
+        let first = self.fat.check_cluster(dir.first())?;
+        match rawio::read_slot(&mut self.dev, &mut self.block, self.fat.cluster_at(first)?).await? {
+            Slot::Short(entry) if is_dot_of(&entry, self.kind(), first) => Ok(DirStart::Chain(first)),
+            _ => Err(ErrorKind::InvalidHandle.into()),
+        }
+    }
+
+    /// Marks the `.` entry of the directory at `first`, which nothing links
+    /// any more, deleted, so that a [`Dir`] still naming it fails.
+    async fn retire_dir(&mut self, first: u32) -> FsResult<(), D::Error> {
+        let at = self.fat.cluster_at(first)?;
+        match rawio::read_slot(&mut self.dev, &mut self.block, at).await? {
+            Slot::Short(entry) if is_dot_of(&entry, self.kind(), first) => self.put(at, &[raw::ENTRY_FREE]).await,
+            _ => Ok(()),
+        }
     }
 
     /// The directory a subdirectory entry names.
@@ -1045,8 +1069,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         }
     }
 
-    async fn lookup(&mut self, dir: Dir, name: &str) -> FsResult<Located, D::Error> {
-        let start = self.start(dir)?;
+    async fn lookup(&mut self, start: DirStart, name: &str) -> FsResult<Located, D::Error> {
         check_entry_name(name)?;
         Ok(self.find(start, Query::Name(name)).await?.ok_or(ErrorKind::NotFound)?)
     }
@@ -1630,6 +1653,9 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         self.clear(dir, found.first, found.slot).await?;
         self.run = None;
         if first != 0 {
+            if found.entry.is_dir() {
+                self.retire_dir(first).await?;
+            }
             self.free_chain(first).await?;
         }
         Ok(())
@@ -1928,6 +1954,9 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         self.rename = None;
         if target.cluster != 0 {
             self.pending = Pending::chain(target.cluster, Owner::Entry(target.offset));
+            if self.fat.is_cluster(target.cluster) {
+                self.retire_dir(target.cluster).await?;
+            }
             self.reclaim(target.cluster, 0).await?;
             self.pending = Pending::NONE;
         }

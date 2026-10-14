@@ -1962,3 +1962,68 @@ fn a_file_may_share_the_label_name() {
         assert_eq!(common::names(&mut fs, "/"), ["MYDISK"]);
     }
 }
+
+#[test]
+fn dirs_of_removed_directories_fail() {
+    for case in cases() {
+        let mut token = MountToken::new();
+        let mut fat = mount(&mut token, case, common::blank(case));
+        let root = fat.root();
+        let live = fat.create_dir(root, "live").unwrap();
+        let gone = fat.create_dir(root, "gone").unwrap();
+        fat.remove_dir(root, "gone").unwrap();
+        let stale = |fat: &mut Fat<Dev>| {
+            let create = OpenOptions::new().write().create();
+            [
+                fat.open(gone, "new", create).err().map(|err| err.kind()),
+                fat.create_dir(gone, "sub").err().map(|err| err.kind()),
+                fat.open_dir(gone, ".").err().map(|err| err.kind()),
+                fat.metadata(gone, "x").err().map(|err| err.kind()),
+                fat.list(gone, DirCursor::START, |_| ControlFlow::Continue(()))
+                    .err()
+                    .map(|err| err.kind()),
+            ]
+        };
+        assert_eq!(
+            stale(&mut fat),
+            [Some(ErrorKind::InvalidHandle); 5],
+            "{}",
+            case.name
+        );
+        let replaced = fat.create_dir(root, "replaced").unwrap();
+        let moved = fat.create_dir(root, "moved").unwrap();
+        fat.rename(root, "moved", root, "replaced").unwrap();
+        assert_eq!(
+            fat.open_dir(replaced, ".").unwrap_err().kind(),
+            ErrorKind::InvalidHandle
+        );
+        assert_eq!(fat.open_dir(moved, ".").unwrap(), moved);
+
+        let stats = fat.stats().unwrap();
+        let len = stats.free_blocks() as usize * stats.block_size() as usize;
+        let data = common::payload(len, 9);
+        let file = fat
+            .open(root, "fill", OpenOptions::new().write().create())
+            .unwrap();
+        for chunk in data.chunks(64 * 1024) {
+            assert_eq!(fat.write(&file, chunk).unwrap(), chunk.len());
+        }
+        fat.close(file).unwrap();
+        assert_eq!(fat.stats().unwrap().free_blocks(), 0, "{}", case.name);
+        assert_eq!(
+            stale(&mut fat),
+            [Some(ErrorKind::InvalidHandle); 5],
+            "{}",
+            case.name
+        );
+        assert_eq!(read_file(&mut fat, root, "fill"), data, "{}", case.name);
+        let mut listed = names(&mut fat, root);
+        listed.sort();
+        assert_eq!(listed, ["fill", "live", "replaced"]);
+        assert_eq!(fat.open_dir(root, "replaced").unwrap(), moved);
+        assert_eq!(names(&mut fat, live), Vec::<String>::new());
+        assert_eq!(fat.open_dir(live, ".").unwrap(), live);
+        let bytes = image(fat);
+        common::assert_checks_clean(case, &bytes, "stale dir");
+    }
+}

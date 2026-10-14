@@ -8,6 +8,15 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **Embedded FAT stale directories:** Using an embedded `Dir` of a removed
+  subdirectory fails with `InvalidHandle` instead of reading or writing
+  entries in its old cluster, which may since hold file data. Each use of
+  a subdirectory checks that its first sector begins with its own `.`
+  entry, and `remove_dir`, `remove_dir_all` and a rename that replaces a
+  directory delete that entry before freeing the clusters. A `Dir` whose
+  cluster has become the first cluster of a new directory still names
+  that directory.
+
 - **`hadris-fat` features without a mode:** `--no-default-features` with
   `alloc`, `std` or `alloc,write` and neither `sync` nor `async` builds
   again. `CacheOptions`, like `FatFs`, needs `alloc` and a mode. CI checks
