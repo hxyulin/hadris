@@ -309,17 +309,34 @@ enum Owner {
     Entry(u64),
     /// The entry set at this byte offset, of a node being removed.
     Removed(u64),
+    /// A shrink to `len` bytes that the entry set at `entry` may not record
+    /// yet: once it records `len`, recovery cuts the chain at `tail`, or
+    /// frees the run when `tail` is 0, and leaves the file whole otherwise.
+    Cut { entry: u64, len: u64, tail: u32 },
 }
 
 /// Clusters an unfinished operation holds: allocated but not yet linked,
 /// or unlinked but not yet freed. The next writing operation frees them
-/// unless `owner` links `head` on disk.
+/// unless `owner` links `head`, or the first cluster of `run`, on disk.
 #[derive(Debug, Clone, Copy)]
 struct Pending {
     /// The chain, and one more chain, allocated or being freed, that the
     /// chain does not reach: a single cluster, or one that leads into it.
     held: Held,
     owner: Owner,
+    /// Clusters of a contiguous (`NoFatChain`) allocation being freed.
+    run: Run,
+}
+
+/// The `count` clusters from `first`.
+#[derive(Debug, Clone, Copy)]
+struct Run {
+    first: u32,
+    count: u32,
+}
+
+impl Run {
+    const NONE: Self = Self { first: 0, count: 0 };
 }
 
 impl Pending {
@@ -327,6 +344,15 @@ impl Pending {
         Self {
             held: Held::new(head, 0),
             owner,
+            run: Run::NONE,
+        }
+    }
+
+    const fn run(first: u32, count: u32, owner: Owner) -> Self {
+        Self {
+            held: Held::NONE,
+            owner,
+            run: Run { first, count },
         }
     }
 }
@@ -560,8 +586,10 @@ fn entry_name(name: &Name, invalid: ErrorKind) -> Result<&str, ErrorKind> {
 /// so a process that stops in between can leave the node under both names.
 ///
 /// The driver remembers what an unfinished operation leaves: clusters
-/// allocated but not yet linked or unlinked but not yet freed, and an entry
-/// set it was writing. The next `create`, `mkdir`, `unlink`, `rmdir`,
+/// allocated but not yet linked or unlinked but not yet freed, chained or
+/// contiguous (`NoFatChain`), and an entry set it was writing. Clusters a
+/// shrinking `truncate` gives up are freed only once the entry set records
+/// the new size; while it still records the old one the file keeps them. The next `create`, `mkdir`, `unlink`, `rmdir`,
 /// `rename`, `write`, `truncate`, `setattr`, `set_label` or `sync` frees the clusters
 /// unless the interrupted write linked them, removes a new set that did
 /// not land whole or a moved set whose old set was not yet being removed,
@@ -1030,8 +1058,8 @@ impl<D: BlockDevice> ExFatFs<D> {
             return Err(ErrorKind::DirectoryNotEmpty.into());
         }
         self.check_set_allocs(&found.set, &state).await?;
-        if state.first != 0 && !state.contiguous {
-            self.pending = Some(Pending::chain(state.first, Owner::Removed(found.set.offset)));
+        if let Some(held) = self.held_alloc(&state, Owner::Removed(found.set.offset))? {
+            self.pending = Some(held);
         }
         self.clear_set(&found.set).await?;
         if let Some(id) = pinned {
@@ -1196,9 +1224,19 @@ impl<D: BlockDevice> ExFatFs<D> {
     }
 
     async fn finish_pending(&mut self) -> FsResult<(), D::Error> {
-        let Some(pending) = self.pending else {
+        let Some(mut pending) = self.pending else {
             return Ok(());
         };
+        if let Owner::Cut { entry, len, tail } = pending.owner {
+            if !self.shrunk(entry, len).await? {
+                self.pending = None;
+                return Ok(());
+            }
+            pending.owner = if tail == 0 { Owner::None } else { Owner::Tail(tail) };
+        }
+        if pending.run.count != 0 {
+            return self.finish_run(pending).await;
+        }
         let (head, extra) = (pending.held.head(), pending.held.extra());
         let mut owned = head != 0 && self.links(pending.owner, head).await?;
         if let Owner::Tail(tail) = pending.owner
@@ -1234,11 +1272,57 @@ impl<D: BlockDevice> ExFatFs<D> {
         Ok(())
     }
 
+    /// Frees the contiguous run of `pending` unless its owner's entry set
+    /// still names it.
+    async fn finish_run(&mut self, pending: Pending) -> FsResult<(), D::Error> {
+        let Run { first, count } = pending.run;
+        if !self.links(pending.owner, first).await? {
+            if let Owner::Removed(offset) = pending.owner
+                && let Some(id) = self.pinned_at(offset)
+                && self.nodes.get(id).is_some_and(|node| node.first == first)
+            {
+                self.mark_unlinked(id);
+            }
+            self.pending = Some(Pending { owner: Owner::None, ..pending });
+            self.free_run(first, count).await?;
+        }
+        if let Owner::Entry(offset) = pending.owner {
+            self.reconcile(offset).await?;
+        }
+        self.pending = None;
+        Ok(())
+    }
+
+    /// Whether the entry set at `offset` records the `DataLength` an
+    /// interrupted shrink wrote, as it does once that write landed. A
+    /// pinned node there then takes the sizes, as the shrink would have
+    /// given it.
+    async fn shrunk(&mut self, offset: u64, len: u64) -> FsResult<bool, D::Error> {
+        let mut set = Set::new();
+        match self.set_at(offset, &mut set).await {
+            Ok(()) => {}
+            Err(err) if err.kind() == ErrorKind::Corrupt => return Ok(false),
+            Err(err) => return Err(err),
+        }
+        if set.data_len() != len {
+            return Ok(false);
+        }
+        if let Some(id) = self.pinned_at(offset) {
+            self.clean(id);
+            if let Some(node) = self.nodes.get_mut(id) {
+                node.len = len;
+                node.valid = set.valid_len().min(len);
+                node.hint = ChainPos::NONE;
+            }
+        }
+        Ok(true)
+    }
+
     /// Whether `owner` links the chain at `head` on disk.
     async fn links(&mut self, owner: Owner, head: u32) -> FsResult<bool, D::Error> {
         Ok(match owner {
             Owner::None => false,
-            Owner::Cluster(prev) | Owner::Tail(prev) => {
+            Owner::Cluster(prev) | Owner::Tail(prev) | Owner::Cut { tail: prev, .. } => {
                 self.vol.geometry().is_cluster(prev) && self.fat_entry(prev).await? == head
             }
             Owner::Entry(offset) | Owner::Removed(offset) => {
@@ -1291,6 +1375,7 @@ impl<D: BlockDevice> ExFatFs<D> {
             self.pending = Some(Pending {
                 held: Held::new(next.unwrap_or(keep), cluster),
                 owner: Owner::None,
+                run: Run::NONE,
             });
             self.set_bit(cluster, ClusterState::Free).await?;
             match next {
@@ -2332,8 +2417,7 @@ impl<D: BlockDevice> ExFatFs<D> {
         let needed = 2 + name.entries() as u32 + src.set.extras().len() as u32;
         let plan = self.plan(to, None, needed, Some(&target.set)).await?;
         let (to, plan) = self.grow_first(to, to_entry, &plan).await?;
-        let held = (target_node.first != 0 && !target_node.contiguous)
-            .then(|| Pending::chain(target_node.first, Owner::Removed(target.set.offset)));
+        let held = self.held_alloc(&target_node, Owner::Removed(target.set.offset))?;
         self.pending = held;
         let placed = match self.clear_set(&target.set).await {
             Ok(()) => self.place_moved(&src.set, src_node, src_id, to, to_entry, &plan, name, hash).await,
@@ -2465,7 +2549,11 @@ impl<D: BlockDevice> ExFatFs<D> {
     async fn free_chain(&mut self, first: u32) -> FsResult<(), D::Error> {
         let held = self.pending.map_or(Held::NONE, |pending| pending.held);
         self.writable()?;
-        let pending = self.pending.insert(Pending { held, owner: Owner::None });
+        let pending = self.pending.insert(Pending {
+            held,
+            owner: Owner::None,
+            run: Run::NONE,
+        });
         let result = exio::free_chain(&mut self.dev, &mut self.block, &mut self.vol, &mut pending.held, first).await;
         self.note_refusal(&result);
         result?;
@@ -2490,7 +2578,25 @@ impl<D: BlockDevice> ExFatFs<D> {
             return Ok(());
         }
         let tail = self.run_tail(alloc.first, len)?;
-        self.free_run(alloc.first, tail - alloc.first + 1).await
+        self.free_run(alloc.first, tail - alloc.first + 1).await?;
+        self.pending = None;
+        Ok(())
+    }
+
+    /// What freeing the allocation of `node` holds until it is freed,
+    /// linked through `owner`.
+    fn held_alloc(&self, node: &Node, owner: Owner) -> Result<Option<Pending>, ErrorKind> {
+        if node.first == 0 {
+            return Ok(None);
+        }
+        if !node.contiguous {
+            return Ok(Some(Pending::chain(node.first, owner)));
+        }
+        if node.len == 0 {
+            return Ok(None);
+        }
+        let tail = self.run_tail(node.first, node.len)?;
+        Ok(Some(Pending::run(node.first, tail - node.first + 1, owner)))
     }
 
     /// Frees the allocations of the benign secondary entries of `set`,
@@ -2979,21 +3085,35 @@ impl<D: BlockDevice> ExFatFs<D> {
         let keep = len.div_ceil(cluster_size) as u32;
         let had = state.len.div_ceil(cluster_size) as u32;
         let alloc = if keep == 0 { Alloc { first: 0, contiguous: false } } else { state.alloc() };
-        if keep == 0 && state.first != 0 && !state.contiguous {
-            self.pending = Some(Pending::chain(state.first, Owner::Entry(state.entry)));
+        let shrinks = state.first != 0 && keep != had;
+        let mut tail = None;
+        if shrinks && keep == 0 {
+            self.pending = self.held_alloc(&state, Owner::Entry(state.entry))?;
+        } else if shrinks && state.contiguous {
+            let cut = Owner::Cut { entry: state.entry, len, tail: 0 };
+            self.pending = Some(Pending::run(state.first + keep, had - keep, cut));
+        } else if shrinks {
+            let last = self.locate_cluster(state.alloc(), ChainPos::NONE, keep - 1).await?.cluster();
+            if let Some(next) = self.next_cluster(last).await? {
+                tail = Some((last, next));
+                let cut = Owner::Cut { entry: state.entry, len, tail: last };
+                self.pending = Some(Pending::chain(next, cut));
+            }
         }
         self.store(id, &state, alloc, len, state.valid.min(len), ChainPos::NONE).await?;
-        if state.first == 0 || keep == had {
+        if !shrinks {
             return Ok(());
         }
         if keep == 0 {
             return self.free_alloc(state.alloc(), state.len).await;
         }
         if state.contiguous {
-            return self.free_run(state.first + keep, had - keep).await;
+            self.pending = Some(Pending::run(state.first + keep, had - keep, Owner::None));
+            self.free_run(state.first + keep, had - keep).await?;
+            self.pending = None;
+            return Ok(());
         }
-        let last = self.locate_cluster(state.alloc(), ChainPos::NONE, keep - 1).await?.cluster();
-        if let Some(next) = self.next_cluster(last).await? {
+        if let Some((last, next)) = tail {
             self.pending = Some(Pending::chain(next, Owner::Tail(last)));
             self.set_fat(last, raw::FAT_END).await?;
             self.free_chain(next).await?;

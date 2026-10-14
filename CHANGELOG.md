@@ -37,6 +37,17 @@ Each published package owns its version and may be released independently.
   `fsck`. The next writing operation or `sync` now frees them when the entry
   records the new size, and leaves the file whole when it does not.
 
+- **hadris-fat (exFAT):** Clusters of a contiguous (`NoFatChain`) allocation
+  that `unlink`, `rmdir`, a replacing `rename` or `truncate` frees are
+  recorded as pending before the entry set changes, as chained ones were,
+  so a failed write or a dropped future no longer leaves them allocated
+  with nothing naming them. The next writing operation or `sync` frees them
+  unless the entry set still names them. A shrink to a non-zero length,
+  chained or contiguous, frees the clusters past the new size only once the
+  entry set records it; a size write that landed but failed, or a set
+  written across two device blocks and interrupted between them, previously
+  left them allocated past the size.
+
 - **CLI directory loops:** `iso tree`, `iso verify --strict`, `udf tree`,
   `udf verify` and `udf compare` stop at a directory that leads back to one
   on its own path, as in a damaged image, and report

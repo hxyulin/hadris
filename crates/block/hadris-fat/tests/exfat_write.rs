@@ -2025,3 +2025,108 @@ fn contiguous_runs_are_freed_and_linked_a_device_block_at_a_time() {
     });
     assert!(linked <= 8, "append wrote {linked} times");
 }
+
+/// A device whose write number `fail` fails once, after reaching the
+/// medium when `land` is set, as a write whose outcome is unknown.
+struct FailAt {
+    inner: Device,
+    fail: std::rc::Rc<std::cell::Cell<Option<usize>>>,
+    land: bool,
+}
+
+impl hadris_io::ErrorType for FailAt {
+    type Error = core::convert::Infallible;
+}
+
+impl BlockDevice for FailAt {
+    fn block_size(&self) -> BlockSize {
+        self.inner.block_size()
+    }
+
+    fn block_count(&self) -> u64 {
+        self.inner.block_count()
+    }
+
+    fn writable(&self) -> bool {
+        self.inner.writable()
+    }
+
+    fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>> {
+        self.inner.read_blocks(first, buf)
+    }
+
+    fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<(), Error<Self::Error>> {
+        match self.fail.get() {
+            Some(0) => {
+                self.fail.set(None);
+                if self.land {
+                    self.inner.write_blocks(first, buf)?;
+                }
+                Err(Error::new(ErrorKind::Io, "injected write failure"))
+            }
+            Some(left) => {
+                self.fail.set(Some(left - 1));
+                self.inner.write_blocks(first, buf)
+            }
+            None => self.inner.write_blocks(first, buf),
+        }
+    }
+}
+
+/// Unlinking or replacing a contiguous file, and shrinking a contiguous or
+/// chained one, with a write that fails at any step, landed or not, leave
+/// no lost or cross-linked clusters once `sync` has recovered.
+#[test]
+fn contiguous_frees_and_shrinks_recover_from_a_failed_write_at_every_step() {
+    let image = common::shrink_image();
+    for op in 0..common::SHRINK_OPS {
+        for land in [false, true] {
+            let mut completed = false;
+            for writes in 0..40 {
+                let what = format!("op {op} land {land} write {writes}");
+                let fail = std::rc::Rc::new(std::cell::Cell::new(None));
+                let dev = FailAt {
+                    inner: common::device(image.clone(), 512),
+                    fail: fail.clone(),
+                    land,
+                };
+                let mut fs = ExFatFs::mount(dev, MountOptions::new()).unwrap();
+                let root = fs.root();
+                let node = match op {
+                    2 | 3 => Some(fs.lookup(root, name("victim.bin")).unwrap()),
+                    4 => Some(fs.lookup(root, name("chained.bin")).unwrap()),
+                    _ => None,
+                };
+                fail.set(Some(writes));
+                let result = match (op, node) {
+                    (0, _) => fs.unlink(root, name("victim.bin")),
+                    (1, _) => fs.rename(
+                        root,
+                        name("source.bin"),
+                        root,
+                        name("target.bin"),
+                        RenameMode::Replace,
+                    ),
+                    (3, Some(node)) => fs.truncate(node, 0),
+                    (_, Some(node)) => fs.truncate(node, 513),
+                    _ => unreachable!(),
+                };
+                fail.set(None);
+                if let Err(err) = &result {
+                    assert_eq!(err.kind(), ErrorKind::Io, "{what}");
+                }
+                fs.sync().unwrap();
+                if let Some(node) = node {
+                    fs.forget(node, 1);
+                }
+                let after = fs.into_inner().inner.into_inner();
+                common::check_shrink_op(&after, op, result.is_ok(), &what);
+                if result.is_ok() {
+                    completed = true;
+                    break;
+                }
+            }
+            assert!(completed, "op {op} land {land} never completed");
+        }
+    }
+}
