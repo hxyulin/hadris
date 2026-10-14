@@ -110,7 +110,8 @@ fn unselected_link_data_does_not_follow_a_replaced_name() {
         entry("sel/a", 0o120777, target.as_bytes()),
         link("other/b", 5, b"PWNED"),
     ]);
-    extract(dir.path(), &archive, &["-p", "sel"]);
+    let output = extract(dir.path(), &archive, &["-p", "sel"]);
+    assert!(output.status.success(), "{output:?}");
     assert_eq!(std::fs::read(&victim).unwrap(), b"original");
     assert!(
         dir.path()
