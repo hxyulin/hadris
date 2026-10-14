@@ -1226,6 +1226,9 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         entry.set_modified(date, time);
         entry.set_accessed_date(date);
         entry.set_attributes(entry.attributes() | raw::ATTR_ARCHIVE);
+        if let Some((tail, next)) = cut {
+            self.pending = Pending::chain(next, Owner::Cut { entry: state.entry, size: len as u32, tail });
+        }
         self.put(state.entry, &entry.encode()).await?;
         if let Some((last, next)) = cut {
             self.pending = Pending::chain(next, Owner::Tail(last));
@@ -1884,6 +1887,14 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
                 }
                 false
             }
+            Owner::Cut { entry, size, tail } => {
+                let landed = self.shrunk(entry, size).await?;
+                if landed && linked {
+                    let end = self.kind().end_of_chain();
+                    self.set_fat(tail, end).await?;
+                }
+                !landed
+            }
             Owner::First(offset) => {
                 if linked {
                     let mut entry = self.read_short(offset).await?;
@@ -1963,12 +1974,32 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         Ok(())
     }
 
+    /// Whether the short entry at `offset` records the `size` an
+    /// interrupted shrink wrote. The open files of that entry then take it,
+    /// as the shrink would have given them.
+    async fn shrunk(&mut self, offset: u64, size: u32) -> FsResult<bool, D::Error> {
+        let landed = matches!(
+            rawio::read_slot(&mut self.dev, &mut self.block, offset).await?,
+            Slot::Short(entry) if entry.is_visible() && entry.size() == size
+        );
+        if landed {
+            for slot in self.files.iter_mut() {
+                if !slot.is_free() && slot.entry == offset {
+                    slot.size = size;
+                    slot.flags &= !FLAG_DIRTY;
+                    slot.at = ChainPos::NONE;
+                }
+            }
+        }
+        Ok(landed)
+    }
+
     /// Whether `owner` links the chain at `head` on disk.
     async fn links(&mut self, owner: Owner, head: u32) -> FsResult<bool, D::Error> {
         let kind = self.kind();
         Ok(match owner {
             Owner::None => false,
-            Owner::Cluster(prev) | Owner::Tail(prev) => {
+            Owner::Cluster(prev) | Owner::Tail(prev) | Owner::Cut { tail: prev, .. } => {
                 self.fat.is_cluster(prev)
                     && rawio::get(&mut self.dev, &mut self.block, &self.fat, prev).await? & kind.mask() == head
             }

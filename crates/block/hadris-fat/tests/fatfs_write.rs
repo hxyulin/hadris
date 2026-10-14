@@ -3161,3 +3161,109 @@ fn the_shared_tier_opens_listed_nodes_and_creates_with_attributes() {
         fsck(&fs.into_inner().into_inner(), case.name);
     }
 }
+
+/// A device whose write number `fail` fails once, after reaching the
+/// medium when `land` is set, as a write whose outcome is unknown.
+struct FailAt {
+    inner: Device,
+    fail: std::rc::Rc<std::cell::Cell<Option<usize>>>,
+    land: bool,
+}
+
+impl hadris_io::ErrorType for FailAt {
+    type Error = core::convert::Infallible;
+}
+
+impl BlockDevice for FailAt {
+    fn block_size(&self) -> BlockSize {
+        self.inner.block_size()
+    }
+
+    fn block_count(&self) -> u64 {
+        self.inner.block_count()
+    }
+
+    fn writable(&self) -> bool {
+        self.inner.writable()
+    }
+
+    fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>> {
+        self.inner.read_blocks(first, buf)
+    }
+
+    fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<(), Error<Self::Error>> {
+        match self.fail.get() {
+            Some(0) => {
+                self.fail.set(None);
+                if self.land {
+                    self.inner.write_blocks(first, buf)?;
+                }
+                Err(Error::new(ErrorKind::Io, "injected write failure"))
+            }
+            Some(left) => {
+                self.fail.set(Some(left - 1));
+                self.inner.write_blocks(first, buf)
+            }
+            None => self.inner.write_blocks(first, buf),
+        }
+    }
+}
+
+/// A shrink to a non-zero length whose write fails at any step, landed or
+/// not, leaves the old file or the shrunk one, with no lost clusters once
+/// the next operation has recovered.
+#[test]
+fn shrink_recovers_from_a_failed_write_at_every_step() {
+    for case in CASES[..3].iter().copied() {
+        let blank = common::blank(case);
+        let cluster = hadris_fat_raw::parse_boot(blank[..512].try_into().unwrap())
+            .unwrap()
+            .cluster_size() as usize;
+        let old = common::payload(4 * cluster, 3);
+        let mut fs = open(case, blank);
+        let root = fs.root();
+        let file = create(&mut fs, root, "LOG.BIN", FileType::File);
+        write_all(&mut fs, file, 0, &old);
+        fs.forget(file, 1);
+        let before = fs.unmount().unwrap().into_inner();
+        for land in [false, true] {
+            let mut completed = false;
+            for writes in 0..40 {
+                let what = format!("{} land {land} write {writes}", case.name);
+                let fail = std::rc::Rc::new(std::cell::Cell::new(None));
+                let dev = FailAt {
+                    inner: common::device(case, before.clone()),
+                    fail: fail.clone(),
+                    land,
+                };
+                let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
+                let file = fs.lookup(fs.root(), name("LOG.BIN")).unwrap();
+                fail.set(Some(writes));
+                let result = fs.truncate(file, cluster as u64 + 1);
+                fail.set(None);
+                fs.sync().unwrap();
+                fs.forget(file, 1);
+                let image = fs.unmount().unwrap().inner.into_inner();
+                let (_, found) = common::check_dev(&mut common::device(case, image.clone()), 8192);
+                let found: Vec<_> = found
+                    .into_iter()
+                    .filter(|found| found.detail != hadris_fat::Detail::FreeCount)
+                    .collect();
+                assert_eq!(found, [], "{what}");
+                let data = common::read(&mut common::mount(case, &image), "/LOG.BIN");
+                assert!(
+                    data.len() == old.len() || data.len() == cluster + 1,
+                    "{what}: length {}",
+                    data.len()
+                );
+                assert_eq!(data[..], old[..data.len()], "{what}");
+                if result.is_ok() {
+                    assert_eq!(data.len(), cluster + 1, "{what}");
+                    completed = true;
+                    break;
+                }
+            }
+            assert!(completed, "{} land {land}: never completed", case.name);
+        }
+    }
+}

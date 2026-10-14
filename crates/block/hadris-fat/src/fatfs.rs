@@ -405,6 +405,10 @@ enum Owner {
     Entry(u64),
     /// The short entry at this byte offset, of a node being removed.
     Removed(u64),
+    /// The FAT entry of `tail` after a shrink to `size` bytes that the short
+    /// entry at `entry` may not record yet: recovery cuts the chain there
+    /// once the entry records `size`, and leaves it to the file otherwise.
+    Cut { entry: u64, size: u32, tail: u32 },
 }
 
 /// Clusters an unfinished operation holds: allocated but not yet linked,
@@ -570,7 +574,9 @@ io_transform! {
 /// - `write` and `truncate` link new clusters before they publish the new
 ///   size, so an interrupted write leaves a chain longer than the size;
 ///   the next writing operation cuts it back. A shrinking `truncate` writes
-///   the new size before it frees clusters.
+///   the new size before it frees clusters; when that write fails or is
+///   interrupted, the next writing operation frees the clusters past the
+///   new size if the entry records it, and leaves the file whole if not.
 /// - `create` prepares a new directory's cluster, then writes the name
 ///   entries, the short entry last. `unlink` and `rmdir` clear the short entry first.
 ///   Long-name entries an interruption leaves without their short entry
@@ -1302,9 +1308,16 @@ impl<D: BlockDevice> FatFs<D> {
             }
             self.run = None;
         }
-        let Some(pending) = self.pending else {
+        let Some(mut pending) = self.pending else {
             return Ok(());
         };
+        if let Owner::Cut { entry, size, tail } = pending.owner {
+            if !self.shrunk(entry, size).await? {
+                self.pending = None;
+                return Ok(());
+            }
+            pending.owner = Owner::Tail(tail);
+        }
         let (head, extra) = (pending.held.head(), pending.held.extra());
         let mut owned = head != 0 && self.links(pending.owner, head).await?;
         if matches!(pending.owner, Owner::Tail(_)) && !owned && extra != 0 {
@@ -1347,7 +1360,7 @@ impl<D: BlockDevice> FatFs<D> {
     async fn links(&mut self, owner: Owner, head: u32) -> FsResult<bool, D::Error> {
         Ok(match owner {
             Owner::None => false,
-            Owner::Cluster(prev) | Owner::Tail(prev) => {
+            Owner::Cluster(prev) | Owner::Tail(prev) | Owner::Cut { tail: prev, .. } => {
                 self.check_cluster(prev).is_ok()
                     && rawio::get(&mut self.dev, &mut self.block, &self.fat, prev).await? & self.fat.geometry().kind().mask() == head
             }
@@ -1356,6 +1369,25 @@ impl<D: BlockDevice> FatFs<D> {
                 Slot::Short(entry) if entry.is_visible() && entry.first_cluster(self.fat.geometry().kind()) == head
             ),
         })
+    }
+
+    /// Whether the short entry at `offset` records the `size` an
+    /// interrupted shrink wrote, as it does once that write landed. A
+    /// pinned node there then takes the size, as the shrink would have
+    /// given it.
+    async fn shrunk(&mut self, offset: u64, size: u32) -> FsResult<bool, D::Error> {
+        let landed = matches!(
+            rawio::read_slot(&mut self.dev, &mut self.block, offset).await?,
+            Slot::Short(entry) if entry.is_visible() && entry.size() == size
+        );
+        if landed && let Some(id) = self.pinned_at(offset) {
+            self.clean(id);
+            if let Some(node) = self.nodes.get_mut(id) {
+                node.size = size;
+                node.hint = ChainPos::NONE;
+            }
+        }
+        Ok(landed)
     }
 
     /// Brings a pinned node at `offset` in line with its entry after an
@@ -2981,6 +3013,10 @@ impl<D: BlockDevice> FatFs<D> {
             {
                 cut = Some((last, next));
             }
+        }
+        if let Some((tail, next)) = cut {
+            let owner = Owner::Cut { entry: state.entry, size: len as u32, tail };
+            self.pending = Some(Pending::chain(next, owner));
         }
         self.store(id, &state, first, len as u32, ChainPos::NONE).await?;
         if let Some((last, next)) = cut {

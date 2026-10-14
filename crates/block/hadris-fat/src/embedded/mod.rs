@@ -490,6 +490,10 @@ pub(crate) enum Owner {
     /// The first cluster of the short entry at this offset, of an empty
     /// file being given its first clusters: cleared and freed.
     First(u64),
+    /// The FAT entry of `tail` after a shrink to `size` bytes that the short
+    /// entry at `entry` may not record yet: the chain is cut there and freed
+    /// once the entry records `size`, and kept otherwise.
+    Cut { entry: u64, size: u32, tail: u32 },
 }
 
 /// Clusters an unfinished operation holds.

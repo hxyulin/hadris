@@ -30,6 +30,13 @@ Each published package owns its version and may be released independently.
   writes sector 6 as a backup boot sector unless it lies within the
   reserved sectors; a copy there would be FAT data.
 
+- **hadris-fat (FAT, embedded FAT):** A `truncate` or `set_len` that shrinks
+  a file to a non-zero length records the clusters past the new size before
+  it writes the size. A failed or interrupted size write that still reached
+  the disk previously left those clusters chained past the size, lost until
+  `fsck`. The next writing operation or `sync` now frees them when the entry
+  records the new size, and leaves the file whole when it does not.
+
 - **CLI directory loops:** `iso tree`, `iso verify --strict`, `udf tree`,
   `udf verify` and `udf compare` stop at a directory that leads back to one
   on its own path, as in a damaged image, and report

@@ -1702,6 +1702,123 @@ mod interrupted {
         }
     }
 
+    /// A device whose write number `fail` fails once, after reaching the
+    /// medium when `land` is set, as a write whose outcome is unknown.
+    struct FailAt {
+        inner: Dev,
+        fail: Rc<Cell<Option<usize>>>,
+        land: bool,
+    }
+
+    impl hadris_io::ErrorType for FailAt {
+        type Error = core::convert::Infallible;
+    }
+
+    impl BlockDevice for FailAt {
+        fn block_size(&self) -> BlockSize {
+            self.inner.block_size()
+        }
+
+        fn block_count(&self) -> u64 {
+            self.inner.block_count()
+        }
+
+        fn writable(&self) -> bool {
+            self.inner.writable()
+        }
+
+        fn read_blocks(
+            &mut self,
+            first: BlockIndex,
+            buf: &mut [u8],
+        ) -> Result<(), Error<Self::Error>> {
+            self.inner.read_blocks(first, buf)
+        }
+
+        fn write_blocks(
+            &mut self,
+            first: BlockIndex,
+            buf: &[u8],
+        ) -> Result<(), Error<Self::Error>> {
+            match self.fail.get() {
+                Some(0) => {
+                    self.fail.set(None);
+                    if self.land {
+                        self.inner.write_blocks(first, buf)?;
+                    }
+                    Err(Error::new(ErrorKind::Io, "injected write failure"))
+                }
+                Some(left) => {
+                    self.fail.set(Some(left - 1));
+                    self.inner.write_blocks(first, buf)
+                }
+                None => self.inner.write_blocks(first, buf),
+            }
+        }
+    }
+
+    /// A shrink to a non-zero length whose write fails at any step, landed
+    /// or not, leaves the old file or the shrunk one, with no lost clusters
+    /// once `sync` has recovered.
+    #[test]
+    fn shrink_recovers_from_a_failed_write_at_every_step() {
+        for case in cases().take(3) {
+            let blank = common::blank(case);
+            let cluster = hadris_fat_raw::parse_boot(blank[..512].try_into().unwrap())
+                .unwrap()
+                .cluster_size() as usize;
+            let old = common::payload(4 * cluster, 3);
+            let mut token = MountToken::new();
+            let mut fat = mount(&mut token, case, blank);
+            let root = fat.root();
+            write_file(&mut fat, root, "LOG.BIN", &old);
+            let before = image(fat);
+            for land in [false, true] {
+                let mut completed = false;
+                for writes in 0..40 {
+                    let what = format!("{} land {land} write {writes}", case.name);
+                    let fail = Rc::new(Cell::new(None));
+                    let dev = FailAt {
+                        inner: common::device(case, before.clone()),
+                        fail: fail.clone(),
+                        land,
+                    };
+                    let mut token = MountToken::new();
+                    let mut fat: Fat<FailAt> = Fat::mount(dev, &mut token).unwrap();
+                    let file = fat
+                        .open(fat.root(), "LOG.BIN", OpenOptions::new().write())
+                        .unwrap();
+                    fail.set(Some(writes));
+                    let result = fat.set_len(&file, cluster as u64 + 1);
+                    fail.set(None);
+                    fat.sync().unwrap();
+                    fat.close(file).unwrap();
+                    let after = fat.unmount().unwrap().inner.into_inner();
+                    let (_, found) =
+                        common::check_dev(&mut common::device(case, after.clone()), 8192);
+                    let found: Vec<_> = found
+                        .into_iter()
+                        .filter(|found| found.detail != Detail::FreeCount)
+                        .collect();
+                    assert_eq!(found, [], "{what}");
+                    let data = common::read(&mut common::mount(case, &after), "/LOG.BIN");
+                    assert!(
+                        data.len() == old.len() || data.len() == cluster + 1,
+                        "{what}: length {}",
+                        data.len()
+                    );
+                    assert_eq!(data[..], old[..data.len()], "{what}");
+                    if result.is_ok() {
+                        assert_eq!(data.len(), cluster + 1, "{what}");
+                        completed = true;
+                        break;
+                    }
+                }
+                assert!(completed, "{} land {land}: never completed", case.name);
+            }
+        }
+    }
+
     fn run(fat: &mut Fat<Faulty>, op: u32) -> Result<(), hadris_fs::Error<std::io::Error>> {
         let root = fat.root();
         let write = OpenOptions::new().write();
