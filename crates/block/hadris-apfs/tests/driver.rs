@@ -412,26 +412,99 @@ fn backend_payloads_survive_mount_and_read_failures_and_mutations_never_touch_st
     assert_eq!(error.device_error(), Some(&DeviceFailure(73)));
 }
 
-#[test]
-fn mount_refuses_dangling_entries_wrong_types_duplicate_names_and_outside_extents() {
-    for case in ["dangling", "type", "duplicate", "extent"] {
-        let image = invalid_directory_image(case);
-        let Err(error) = ApfsFs::mount(device(image.clone()), MountOptions::new()) else {
-            panic!("malformed {case} mounted");
-        };
-        assert_eq!(error.kind(), ErrorKind::Corrupt, "{case}");
-        assert_eq!(error.into_device().into_inner(), image);
+fn listing(fs: &mut ApfsFs<MemDevice<Vec<u8>>>) -> Vec<(Vec<u8>, NodeId, FileType)> {
+    let root = fs.root();
+    let mut cursor = DirCursor::START;
+    let mut entries = Vec::new();
+    while let Some(entry) = fs.readdir(root, cursor).unwrap() {
+        cursor = entry.next_cursor();
+        entries.push((
+            entry.name().as_bytes().to_vec(),
+            entry.node(),
+            entry.metadata().file_type(),
+        ));
+    }
+    entries
+}
+
+fn check_intact_files(fs: &mut ApfsFs<MemDevice<Vec<u8>>>, listed: &[(Vec<u8>, NodeId, FileType)]) {
+    for index in 2..FILE_COUNT {
+        let name = file_name(index);
+        assert!(listed.iter().any(|(listed, ..)| listed == name.as_bytes()));
+        let node = fs.lookup(fs.root(), Name::new(&name)).unwrap();
+        let mut buf = vec![0; BLOCK];
+        let n = fs.read(node, 0, &mut buf).unwrap();
+        assert_eq!(&buf[..n], file_contents(index));
     }
 }
 
 #[test]
-fn invalid_utf8_directory_names_are_corrupt_and_return_the_device() {
-    let image = invalid_directory_image("utf8");
-    let Err(error) = ApfsFs::mount(device(image.clone()), MountOptions::new()) else {
-        panic!("invalid UTF-8 directory name mounted");
-    };
-    assert_eq!(error.kind(), ErrorKind::Corrupt);
-    assert_eq!(error.into_device().into_inner(), image);
+fn damaged_records_mount_and_fail_only_their_own_node() {
+    for (case, listed_type) in [
+        ("dangling", FileType::File),
+        ("type", FileType::Dir),
+        ("extent", FileType::File),
+        ("mode", FileType::File),
+        ("inode", FileType::File),
+    ] {
+        let mut fs = mount(invalid_directory_image(case));
+        let listed = listing(&mut fs);
+        check_intact_files(&mut fs, &listed);
+        let (_, node, kind) = listed
+            .iter()
+            .find(|(name, ..)| name == b"file0.txt")
+            .unwrap_or_else(|| panic!("{case}: damaged entry not listed"));
+        assert_eq!(*kind, listed_type, "{case}");
+        assert_eq!(fs.lookup(fs.root(), Name::new("file0.txt")).unwrap(), *node);
+        assert_eq!(
+            fs.stat(*node).unwrap_err().kind(),
+            ErrorKind::Corrupt,
+            "{case}"
+        );
+        assert_eq!(
+            fs.read(*node, 0, &mut [0; 8]).unwrap_err().kind(),
+            ErrorKind::Corrupt,
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn symlinks_with_stream_targets_list_and_fail_readlink() {
+    let mut fs = mount(invalid_directory_image("symlink_stream"));
+    let listed = listing(&mut fs);
+    check_intact_files(&mut fs, &listed);
+    let (_, node, kind) = listed.iter().find(|(name, ..)| name == b"link").unwrap();
+    assert_eq!(*kind, FileType::Symlink);
+    assert_eq!(fs.stat(*node).unwrap_err().kind(), ErrorKind::Unsupported);
+    assert_eq!(
+        fs.readlink(*node, &mut [0; 64]).unwrap_err().kind(),
+        ErrorKind::Unsupported
+    );
+}
+
+#[test]
+fn names_are_not_folded_rejected_by_length_or_required_to_be_utf8() {
+    let mut fs = mount(invalid_directory_image("duplicate"));
+    let listed = listing(&mut fs);
+    check_intact_files(&mut fs, &listed);
+    for name in ["file0.txt", "FILE0.TXT"] {
+        assert!(listed.iter().any(|(listed, ..)| listed == name.as_bytes()));
+        let node = fs.lookup(fs.root(), Name::new(name)).unwrap();
+        assert_eq!(fs.stat(node).unwrap().len(), file_contents(0).len() as u64);
+    }
+
+    let long = LONG_NAME.repeat(300);
+    for (case, name) in [("utf8", &b"\xffile0.txt"[..]), ("long", long.as_bytes())] {
+        let mut fs = mount(invalid_directory_image(case));
+        let listed = listing(&mut fs);
+        check_intact_files(&mut fs, &listed);
+        let (_, node, _) = listed.iter().find(|(listed, ..)| listed == name).unwrap();
+        assert_eq!(fs.lookup(fs.root(), Name::new(name)).unwrap(), *node);
+        let mut buf = [0; 64];
+        let n = fs.read(*node, 0, &mut buf).unwrap();
+        assert_eq!(&buf[..n], file_contents(0));
+    }
 }
 
 fn checkpoint_image(copies: &[(usize, u64, Option<u8>, bool)]) -> Vec<u8> {

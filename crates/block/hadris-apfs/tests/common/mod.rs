@@ -526,6 +526,12 @@ pub fn duplicate_volume_names_image() -> Vec<u8> {
     image
 }
 
+/// Repeated 300 times, the 600-byte name of `invalid_directory_image("long")`.
+#[allow(dead_code)]
+pub const LONG_NAME: &str = "\u{e9}";
+
+/// A root directory whose `file0.txt` entry is damaged as `case` says.
+/// Files 2 to 5 stay intact.
 #[allow(dead_code)]
 pub fn invalid_directory_image(case: &str) -> Vec<u8> {
     let mut image = build_image();
@@ -548,6 +554,24 @@ pub fn invalid_directory_image(case: &str) -> Vec<u8> {
         "utf8" => records[1].0[12] = 0xff,
         "type" => put(&mut records[1].1, 16, &4_u16.to_le_bytes()),
         "duplicate" => records.push(drec_entry(2, "FILE0.TXT", 16)),
+        "mode" => put(&mut records[2].1, 80, &0o644_u16.to_le_bytes()),
+        "inode" => records[2].1.truncate(40),
+        "long" => records[1] = drec_entry(2, &LONG_NAME.repeat(300), 16),
+        "symlink_stream" => {
+            let mut link = drec_entry(2, "link", 22);
+            put(&mut link.1, 16, &10_u16.to_le_bytes());
+            let name = "com.apple.fs.symlink";
+            let mut key = fs_key(22, 4);
+            key.extend_from_slice(&((name.len() + 1) as u16).to_le_bytes());
+            key.extend_from_slice(name.as_bytes());
+            key.push(0);
+            let mut value = 1_u16.to_le_bytes().to_vec();
+            value.extend_from_slice(&0_u16.to_le_bytes());
+            value.extend_from_slice(&[0; 16]);
+            records.push(link);
+            records.push(inode_entry(22, 22, 0o120777, 9));
+            records.push((key, value));
+        }
         _ => panic!("unknown malformed directory case"),
     }
     let block = btree_node(1028, false, true, 0, None, 0, false, &records);

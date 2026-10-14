@@ -86,6 +86,24 @@ Each published package owns its version and may be released independently.
   a bit set for an index block in a sparse run still fails with `Corrupt`,
   as does a bitmap with fewer bits than the allocation has blocks.
 
+- **APFS per-node damage:** One unusable record no longer fails an APFS
+  mount or a whole `readdir`. A directory entry whose inode is missing,
+  malformed, duplicated, of an unknown mode or of another type than the entry
+  records, a directory whose inode names another parent, a file whose extents
+  overlap, overflow or leave the container, and a symlink whose target is
+  stored in a data stream are listed with the type the directory record holds;
+  `stat`, `open`, `read` and `readlink` on that node return the error
+  (`Corrupt`, or `Unsupported` for stream targets). Unparsable directory and
+  extended-attribute records are skipped. The case-folding duplicate-name
+  check, which did not use Apple's folding, is removed. Directory names are
+  kept as their on-disk bytes: names that are not UTF-8 are listed and looked
+  up by those bytes, and the 255-byte limit is replaced by the key's
+  name-length field (`Capabilities::max_name_bytes` reports 1022 for hashed
+  keys). Symlink targets are returned as bytes without UTF-8 validation.
+  `DirectoryEntryRecord::name` is now `&[u8]`, with `name_str` for UTF-8;
+  `OwnedDirectoryEntryRecord` keeps a `String` name and still rejects names
+  that are not UTF-8.
+
 - **APFS incompatible features and directory keys:** Mounting now checks the
   checkpoint's and the selected volume's incompatible features against
   `NX_READABLE_INCOMPAT_MASK` and `APFS_READABLE_INCOMPAT_MASK`. The container

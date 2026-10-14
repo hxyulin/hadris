@@ -74,6 +74,15 @@ generic file access, VFS operations and volume selection shape this API.
   volume root, and requires directories for intermediate components and trailing
   slashes. Symlinks are returned without following them.
 - Inode metadata: mode, owner, BSD flags, timestamps and data-stream size.
+- Directory names as stored, including names that are not UTF-8 and names
+  longer than 255 bytes, up to the key's name-length field (1022 bytes for
+  hashed keys). Listings of names longer than `DirEntry::MAX_NAME` fail with
+  `NameTooLong` at that entry.
+- Damage confined to one node: a directory entry whose inode is missing,
+  malformed, of an unknown mode or of another type than the entry records,
+  whose extents overlap or leave the container, or whose symlink target is
+  stored in a data stream, is listed with the entry's type only. `stat`,
+  `read`, `open` and `readlink` on that node return the error.
 - File data from extents, with sparse extents and uncovered ranges read as
   zeros.
 - Symlink targets and hard links.

@@ -64,8 +64,9 @@ pub struct DirectoryEntryRecord<'a> {
     pub file_id: u64,
     /// Directory entry flags; the bits in [`DREC_TYPE_MASK`] are the file type.
     pub flags: u16,
-    /// Entry name.
-    pub name: &'a str,
+    /// Entry name bytes as stored, without the terminating NUL. APFS names
+    /// are UTF-8, but the bytes are not validated; see [`Self::name_str`].
+    pub name: &'a [u8],
 }
 
 impl<'a> DirectoryEntryRecord<'a> {
@@ -96,9 +97,14 @@ impl<'a> DirectoryEntryRecord<'a> {
             parent_id: header.id,
             file_id: le_u64(value, 0)?,
             flags: u16::from_le_bytes(crate::types::take(value, 16)?),
-            name: core::str::from_utf8(name_bytes)
-                .map_err(|_| crate::ApfsError::InvalidValue("directory name UTF-8"))?,
+            name: name_bytes,
         })
+    }
+
+    /// Returns the name as UTF-8.
+    pub fn name_str(&self) -> crate::Result<&'a str> {
+        core::str::from_utf8(self.name)
+            .map_err(|_| crate::ApfsError::InvalidValue("directory name UTF-8"))
     }
 
     /// Returns the file type, such as [`DT_DIR`], [`DT_REG`] or [`DT_LNK`].
@@ -125,14 +131,15 @@ pub struct OwnedDirectoryEntryRecord {
 #[cfg(any(feature = "alloc", feature = "std"))]
 impl OwnedDirectoryEntryRecord {
     /// Parses a directory entry key/value pair stored in `layout` into an
-    /// owned record.
+    /// owned record. Names that are not UTF-8 fail with
+    /// [`crate::ApfsError::InvalidValue`].
     pub fn parse(key: &[u8], value: &[u8], layout: DirectoryKeyLayout) -> crate::Result<Self> {
         let entry = DirectoryEntryRecord::parse(key, value, layout)?;
         Ok(Self {
             parent_id: entry.parent_id,
             file_id: entry.file_id,
             flags: entry.flags,
-            name: entry.name.into(),
+            name: entry.name_str()?.into(),
         })
     }
 
@@ -447,14 +454,40 @@ mod tests {
             let entry = DirectoryEntryRecord::parse(&key, &value, layout).unwrap();
             assert_eq!(entry.parent_id, 2);
             assert_eq!(entry.file_id, 16);
-            assert_eq!(entry.name, "notes.txt");
+            assert_eq!(entry.name, b"notes.txt");
             assert_eq!(entry.file_type(), DT_REG);
         }
         let (key, value) = drec(b"notes.txt", false);
         assert_ne!(
             DirectoryEntryRecord::parse(&key, &value, DirectoryKeyLayout::Hashed)
                 .map(|entry| entry.name),
-            Ok("notes.txt")
+            Ok(&b"notes.txt"[..])
+        );
+    }
+
+    #[test]
+    fn directory_names_keep_bytes_that_are_not_utf8() {
+        let name = b"caf\xe9\xff.txt";
+        let (key, value) = drec(name, true);
+        let entry = DirectoryEntryRecord::parse(&key, &value, DirectoryKeyLayout::Hashed).unwrap();
+        assert_eq!(entry.name, name);
+        assert_eq!(
+            entry.name_str(),
+            Err(crate::ApfsError::InvalidValue("directory name UTF-8"))
+        );
+        assert_eq!(
+            OwnedDirectoryEntryRecord::parse(&key, &value, DirectoryKeyLayout::Hashed),
+            Err(crate::ApfsError::InvalidValue("directory name UTF-8"))
+        );
+        let long = alloc::vec![0xe2; 1022];
+        let (key, value) = drec(&long, true);
+        let entry = DirectoryEntryRecord::parse(&key, &value, DirectoryKeyLayout::Hashed).unwrap();
+        assert_eq!(entry.name.len(), 1022);
+        let mut key = key;
+        key.truncate(key.len() - 1);
+        assert_eq!(
+            DirectoryEntryRecord::parse(&key, &value, DirectoryKeyLayout::Hashed),
+            Err(crate::ApfsError::InputTooSmall)
         );
     }
 
