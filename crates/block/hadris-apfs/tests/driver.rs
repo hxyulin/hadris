@@ -222,16 +222,84 @@ fn unidentified_images_and_bad_checksums_have_distinct_errors() {
         panic!("an empty image mounted");
     };
     assert_eq!(error.kind(), ErrorKind::NotRecognized);
-    let mut image = build_image();
+    for mut image in [
+        build_image(),
+        checkpoint_image(&[(21, 4, None, false), (22, 6, None, false)]),
+    ] {
+        image[500] ^= 1;
+        let Err(error) = ApfsFs::mount(device(image), MountOptions::new()) else {
+            panic!("a corrupt container mounted");
+        };
+        assert_eq!(error.kind(), ErrorKind::Corrupt);
+        assert_eq!(
+            hadris_apfs::Detail::of(error.error()),
+            Some(hadris_apfs::Detail::Checksum)
+        );
+    }
+}
+
+#[test]
+fn a_bad_block_zero_checksum_mounts_from_a_valid_checkpoint() {
+    let mut image = checkpoint_image(&[(21, 4, None, true), (22, 6, None, false)]);
     image[500] ^= 1;
-    let Err(error) = ApfsFs::mount(device(image), MountOptions::new()) else {
-        panic!("a corrupt container mounted");
+    image[72] ^= 1;
+    let mut container = hadris_apfs::sync::Container::open(device(image.clone())).unwrap();
+    let latest = container.latest_superblock().unwrap();
+    assert_eq!(latest.object.transaction_identifier, 4);
+    assert_eq!(container.superblock(), &latest);
+    let mut fs = mount(image);
+    hadris_fs::sync::contract::check_read_only(&mut fs).unwrap();
+    assert_eq!(fs.checkpoint().object.transaction_identifier, 4);
+}
+
+#[test]
+fn block_zero_geometry_is_checked_without_its_checksum() {
+    let mut image = checkpoint_image(&[(21, 4, None, true)]);
+    image[112..120].copy_from_slice(&(IMAGE_BLOCKS as u64 - 1).to_le_bytes());
+    let checksum = hadris_apfs::types::checksum::fletcher64(&image[..BLOCK]).unwrap();
+    image[..8].copy_from_slice(&checksum.to_le_bytes());
+    let Err(error) = hadris_apfs::sync::Container::open(device(image)) else {
+        panic!("a descriptor area outside the container opened");
     };
     assert_eq!(error.kind(), ErrorKind::Corrupt);
-    assert_eq!(
-        hadris_apfs::Detail::of(error.error()),
-        Some(hadris_apfs::Detail::Checksum)
-    );
+}
+
+fn corrupt_newest_checkpoint_image(map: bool) -> Vec<u8> {
+    use hadris_apfs::types::checksum::fletcher64;
+    let mut image = checkpoint_image(&[(21, 4, None, true)]);
+    let mut newest = image[..BLOCK].to_vec();
+    newest[16..24].copy_from_slice(&6_u64.to_le_bytes());
+    newest[136..140].copy_from_slice(&1_u32.to_le_bytes());
+    newest[140..144].copy_from_slice(&2_u32.to_le_bytes());
+    if !map {
+        newest[160..168].copy_from_slice(&19_u64.to_le_bytes());
+    }
+    let checksum = fletcher64(&newest).unwrap();
+    newest[..8].copy_from_slice(&checksum.to_le_bytes());
+    image[23 * BLOCK..24 * BLOCK].copy_from_slice(&newest);
+    let mut checkpoint_map = vec![0_u8; BLOCK];
+    checkpoint_map[8..16].copy_from_slice(&22_u64.to_le_bytes());
+    checkpoint_map[16..24].copy_from_slice(&6_u64.to_le_bytes());
+    checkpoint_map[24..28].copy_from_slice(&(0x4000_000c_u32).to_le_bytes());
+    checkpoint_map[32..36].copy_from_slice(&1_u32.to_le_bytes());
+    let checksum = fletcher64(&checkpoint_map).unwrap();
+    checkpoint_map[..8].copy_from_slice(&checksum.to_le_bytes());
+    if map {
+        checkpoint_map[100] ^= 1;
+    }
+    image[22 * BLOCK..23 * BLOCK].copy_from_slice(&checkpoint_map);
+    image
+}
+
+#[test]
+fn an_unverifiable_newest_checkpoint_falls_back_to_an_older_one() {
+    for map in [true, false] {
+        let image = corrupt_newest_checkpoint_image(map);
+        assert_eq!(latest_xid(image.clone()), 4, "map corrupt: {map}");
+        let mut fs = mount(image);
+        hadris_fs::sync::contract::check_read_only(&mut fs).unwrap();
+        assert_eq!(fs.checkpoint().object.transaction_identifier, 4);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

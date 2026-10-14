@@ -52,6 +52,10 @@ generic file access, VFS operations and volume selection shape this API.
   selection; wrong credentials retain the device and report `InvalidInput`
   with `Detail::Credentials`.
 - Container superblocks, the checkpoint descriptor ring and checkpoint maps.
+  Block zero supplies the geometry and descriptor area; its checksum is not
+  required. `latest_superblock` and mounting use the newest descriptor-area
+  superblock whose checksum, checkpoint map and object map verify, falling
+  back to older checkpoints, then to a verified block zero.
 - Container and volume object maps, resolved at the volume's transaction.
 - Physical and virtual B-trees, including sealed volumes with hashed index
   entries and nodes stored without object headers.

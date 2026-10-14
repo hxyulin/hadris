@@ -86,6 +86,18 @@ Each published package owns its version and may be released independently.
   a bit set for an index block in a sparse run still fails with `Corrupt`,
   as does a bitmap with fewer bits than the allocation has blocks.
 
+- **APFS checkpoint selection:** `Container::open` reads block zero's
+  geometry and checkpoint descriptor area, requiring the `NXSB` magic and
+  in-bounds geometry but no longer its checksum, so a single damaged block
+  zero no longer fails a mount when valid checkpoints exist.
+  `Container::latest_superblock` (and mounting) now uses the newest
+  descriptor-area superblock whose checksum, checkpoint map blocks, object
+  map and object-map root node verify, falling back to older checkpoints and
+  then to block zero when its checksum is valid. Device errors are returned
+  immediately; when nothing verifies, the error is `Corrupt` with
+  `Detail::Checksum` (or the newest candidate's error). Without `alloc`,
+  `Container::open` still requires block zero's checksum. Refs #295.
+
 - **CLI directory loops:** `iso tree`, `iso verify --strict`, `udf tree`,
   `udf verify` and `udf compare` stop at a directory that leads back to one
   on its own path, as in a damaged image, and report

@@ -28,6 +28,8 @@ pub struct Container<D> {
     device: D,
     info: ContainerInfo,
     device_block_size: u32,
+    #[cfg(feature = "alloc")]
+    zero_error: Option<crate::ApfsError>,
     #[cfg(feature = "encryption")]
     unlocked: Option<UnlockedVolume>,
 }
@@ -53,9 +55,13 @@ where
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn try_open(mut device: D) -> core::result::Result<Self, hadris_fs::MountError<D, D::Error>> {
         match Self::read_info(&mut device).await {
-            Ok(info) => {
+            Ok((info, zero_error)) => {
                 let device_block_size = device.block_size().get();
+                #[cfg(not(feature = "alloc"))]
+                let _ = zero_error;
                 Ok(Self { device, info, device_block_size,
+                    #[cfg(feature = "alloc")]
+                    zero_error,
                     #[cfg(feature = "encryption")]
                     unlocked: None,
                 })
@@ -64,7 +70,7 @@ where
         }
     }
 
-    async fn read_info(device: &mut D) -> hadris_fs::FsResult<ContainerInfo, D::Error> {
+    async fn read_info(device: &mut D) -> hadris_fs::FsResult<(ContainerInfo, Option<crate::ApfsError>), D::Error> {
         let sector_size = device.block_size().get() as usize;
         if sector_size > 4096 || 4096 % sector_size != 0 {
             return Err(hadris_fs::Error::new(hadris_fs::ErrorKind::Unsupported, "APFS device block size"));
@@ -84,19 +90,31 @@ where
         if superblock.block_count > device.block_count() / u64::from(superblock.block_size / sector_size as u32) {
             return Err(crate::ApfsError::InvalidValue("APFS container exceeds device").into());
         }
-        if superblock.block_size == 4096 {
-            verify_object(&header)?;
+        let base = superblock.checkpoint_descriptor_area_block;
+        let count = superblock.checkpoint_descriptor_area_block_count;
+        if base & (1_u64 << 63) == 0
+            && count & (1_u32 << 31) == 0
+            && base.checked_add(u64::from(count)).is_none_or(|end| end > superblock.block_count)
+        {
+            return Err(crate::ApfsError::InvalidValue("checkpoint descriptor area outside container").into());
+        }
+        let zero_error = if superblock.block_size == 4096 {
+            verify_object(&header).err()
         } else {
             #[cfg(feature = "alloc")]
             {
                 let mut block = alloc::vec![0u8; superblock.block_size as usize];
                 device.read_blocks(BlockIndex::new(0), &mut block).await?;
-                verify_object(&block)?;
+                verify_object(&block).err()
             }
             #[cfg(not(feature = "alloc"))]
             return Err(crate::ApfsError::Unsupported("APFS blocks larger than 4096 bytes without alloc").into());
+        };
+        #[cfg(not(feature = "alloc"))]
+        if let Some(error) = zero_error {
+            return Err(error.into());
         }
-        Ok(ContainerInfo { superblock })
+        Ok((ContainerInfo { superblock }, zero_error))
     }
 
     /// Returns container metadata parsed during open.
@@ -105,6 +123,11 @@ where
     }
 
     /// Returns the block-zero superblock.
+    ///
+    /// With `alloc`, opening only requires block zero's magic and geometry,
+    /// not its checksum. When the checksum is invalid, this returns the
+    /// unverified copy until [`Self::latest_superblock`] selects a verified
+    /// checkpoint, which then replaces it.
     pub const fn superblock(&self) -> &ContainerSuperblock {
         &self.info.superblock
     }
@@ -289,23 +312,65 @@ where
         Ok(superblocks)
     }
 
-    /// Returns the valid checkpoint superblock with the highest transaction
-    /// identifier whose geometry and UUID match block zero, falling back to
-    /// block zero when the descriptor area holds none.
+    /// Returns the newest checkpoint superblock that verifies.
+    ///
+    /// Candidates come from [`Self::superblocks_sorted`], then block zero when
+    /// its checksum is valid. A candidate is used only when its checkpoint map
+    /// blocks, object map and object-map root node verify; otherwise older
+    /// ones are tried. While block zero verifies, candidates must match its
+    /// block size, block count and UUID; when it does not, they must match
+    /// its block size and fit the device. Device errors are returned
+    /// immediately. When no candidate verifies, the newest candidate's error,
+    /// or block zero's checksum error, is returned.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub async fn latest_superblock(&mut self) -> hadris_fs::FsResult<ContainerSuperblock, D::Error> {
-        let zero = &self.info.superblock;
-        let (block_size, block_count, uuid) = (zero.block_size, zero.block_count, zero.uuid);
-        Ok(self
-            .superblocks_sorted()
-            .await?
-            .into_iter()
-            .find(|checkpoint| {
-                checkpoint.block_size == block_size
-                    && checkpoint.block_count == block_count
-                    && checkpoint.uuid == uuid
-            })
-            .unwrap_or_else(|| self.info.superblock.clone()))
+        let zero = self.info.superblock.clone();
+        let device_blocks = self.device.block_count() / u64::from(zero.block_size / self.device_block_size);
+        let mut first_error = None;
+        let mut candidates = self.superblocks_sorted().await?;
+        candidates.retain(|checkpoint| {
+            checkpoint.block_size == zero.block_size
+                && if self.zero_error.is_none() {
+                    checkpoint.block_count == zero.block_count && checkpoint.uuid == zero.uuid
+                } else {
+                    checkpoint.block_count <= device_blocks
+                }
+        });
+        if self.zero_error.is_none() {
+            candidates.push(zero);
+        }
+        for checkpoint in candidates {
+            match self.verify_checkpoint(&checkpoint).await {
+                Ok(()) => {
+                    if self.zero_error.take().is_some() {
+                        self.info.superblock = checkpoint.clone();
+                    }
+                    return Ok(checkpoint);
+                }
+                Err(error) if error.kind() == hadris_fs::ErrorKind::Io => return Err(error),
+                Err(error) => {
+                    first_error.get_or_insert(error);
+                }
+            }
+        }
+        Err(first_error.unwrap_or_else(|| {
+            self.zero_error.clone().map_or_else(
+                || hadris_fs::Error::new(hadris_fs::ErrorKind::Corrupt, "no APFS checkpoint superblock verifies")
+                    .with_detail(crate::Detail::Checksum.code()),
+                hadris_fs::Error::from,
+            )
+        }))
+    }
+
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    async fn verify_checkpoint(&mut self, checkpoint: &ContainerSuperblock) -> hadris_fs::FsResult<(), D::Error> {
+        let previous = core::mem::replace(&mut self.info.superblock.block_count, checkpoint.block_count);
+        let mut result = self.checkpoint_map_blocks(checkpoint).await.map(drop);
+        if result.is_ok() {
+            result = self.object_map_owned_root_node(checkpoint).await.map(drop);
+        }
+        self.info.superblock.block_count = previous;
+        result
     }
 
     /// Reads checkpoint map blocks referenced by a superblock.
