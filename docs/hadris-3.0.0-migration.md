@@ -247,9 +247,17 @@ with `std::io`-like kinds. V3 has one error type for every crate.
 
 Converting:
 
-- With `std`, `Error<E>` converts to `std::io::Error` with `?`. A device error
-  that is already an `io::Error` comes back as itself, so `raw_os_error()`
-  survives. `hadris_io::into_std_error` converts any device error.
+- With `std`, `Error<E>` converts to `std::io::Error` with `?`, keeping the
+  message, location and detail. A device error that is an `io::Error` comes
+  back as itself only when the `Error<E>` adds nothing to it (no message,
+  location or detail, and kind `Io` or one that maps to the device error's
+  kind). Otherwise `raw_os_error()` of the result is `None`: the `Error<E>`
+  is the payload (`get_ref()` downcasts to it) and the device `io::Error`
+  is its `source()`, so read the OS error code with
+  `std::error::Error::source(&io).and_then(|e| e.downcast_ref::<std::io::Error>())`,
+  or from `err.device_error()` before converting.
+  `hadris_io::into_std_error` converts a bare device error and returns an
+  `io::Error` as itself.
 - Generic code names the device error through the trait:
   `fn f<F: FileSystem>(fs: &mut F) -> FsResult<(), F::DeviceError>`.
 - Code that mixes devices returns `PathError`.

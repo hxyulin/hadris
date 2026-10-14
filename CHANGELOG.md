@@ -135,6 +135,16 @@ Each published package owns its version and may be released independently.
   `Detail::Checksum` (or the newest candidate's error). Without `alloc`,
   `Container::open` still requires block zero's checksum. Refs #295.
 
+- **`std::io::Error` conversion keeps the context:** `Error<E>` (and
+  `MountError`) converted to `std::io::Error` no longer drops the kind,
+  message, location and detail when a device error is present. The device
+  `io::Error` comes back as itself only when the `Error<E>` adds nothing to
+  it; otherwise the result has the mapped kind (`Io` takes the device
+  error's kind), the `Error<E>` as its payload and the device error as its
+  `source()`. `raw_os_error()` of such a converted error is now `None`; read
+  the code from `source()` downcast to `std::io::Error`, or from
+  `device_error()` before converting.
+
 - **CLI directory loops:** `iso tree`, `iso verify --strict`, `udf tree`,
   `udf verify` and `udf compare` stop at a directory that leads back to one
   on its own path, as in a damaged image, and report

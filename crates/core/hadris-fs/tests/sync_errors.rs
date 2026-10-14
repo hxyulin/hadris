@@ -38,8 +38,14 @@ fn std_users_get_io_errors() {
     );
     vol.lock().fail_next(MemError::Timeout { lba: 1 });
     let err = read_io(&vol, "/a.txt").unwrap_err();
-    let inner = err.into_inner().unwrap().downcast::<MemError>().unwrap();
-    assert_eq!(*inner, MemError::Timeout { lba: 1 });
+    let source = std::error::Error::source(&err).unwrap();
+    assert_eq!(
+        source.downcast_ref::<MemError>(),
+        Some(&MemError::Timeout { lba: 1 })
+    );
+    let inner = err.into_inner().unwrap();
+    let inner = inner.downcast::<hadris_fs::Error<MemError>>().unwrap();
+    assert_eq!(inner.device_error(), Some(&MemError::Timeout { lba: 1 }));
 }
 
 #[test]
