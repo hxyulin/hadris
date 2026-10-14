@@ -355,6 +355,98 @@ fn contiguous_files_grow_into_chains() {
     fsck(&image, "contiguous");
 }
 
+/// Two adjacent contiguous files `a` and `b`, 3 clusters each, with free
+/// clusters after them, and a file `c` to rename onto `a`.
+fn adjacent_contiguous() -> (Vec<u8>, Geometry) {
+    let mut fs = common::small(8 << 20, 512);
+    let root = fs.root();
+    for (text, seed) in [("c", 3), ("a", 1), ("b", 2)] {
+        let node = common::write(&mut fs, root, text, &common::payload(1500, seed));
+        fs.forget(node, 1);
+    }
+    fs.sync().unwrap();
+    let mut image = common::image(fs);
+    let geo = Geometry::of(&image);
+    for text in ["a", "b"] {
+        let set = geo.set(&image, geo.root, text);
+        geo.unchain(&mut image, &set);
+    }
+    (image, geo)
+}
+
+fn first_cluster(image: &[u8], geo: &Geometry, text: &str) -> u32 {
+    le32(image, geo.set(image, geo.root, text)[1] + 20)
+}
+
+#[test]
+fn contiguous_runs_over_other_files_are_not_freed() {
+    let (mut image, geo) = adjacent_contiguous();
+    let a = first_cluster(&image, &geo, "a");
+    let b = first_cluster(&image, &geo, "b");
+    assert_eq!(b, a + 3);
+    assert!(!geo.used(&image, b + 3));
+    let set = geo.set(&image, geo.root, "a");
+    let len = 8 * geo.cluster as u64;
+    image[set[1] + 24..set[1] + 32].copy_from_slice(&len.to_le_bytes());
+    geo.reseal(&mut image, &set);
+    let mut fs = common::mount(&image);
+    let root = fs.root();
+    let before = free(&mut fs);
+    let node = fs.resolve_path("/a").unwrap();
+    for len in [1, 0, len + 1] {
+        assert_eq!(
+            fs.truncate(node, len).unwrap_err().kind(),
+            ErrorKind::Corrupt
+        );
+    }
+    fs.forget(node, 1);
+    assert_eq!(
+        fs.unlink(root, name("a")).unwrap_err().kind(),
+        ErrorKind::Corrupt
+    );
+    assert_eq!(
+        fs.rename(root, name("c"), root, name("a"), RenameMode::Replace)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::Corrupt
+    );
+    assert_eq!(free(&mut fs), before);
+    assert_eq!(fs.read_to_vec("/b").unwrap(), common::payload(1500, 2));
+    fs.sync().unwrap();
+    let after = common::image(fs);
+    assert_eq!(after, image);
+    assert!((a..b + 3).all(|cluster| geo.used(&after, cluster)));
+    let mut fs = common::mount(&after);
+    assert_eq!(fs.read_to_vec("/b").unwrap(), common::payload(1500, 2));
+    assert_eq!(fs.read_to_vec("/c").unwrap(), common::payload(1500, 3));
+}
+
+#[test]
+fn contiguous_runs_are_freed_exactly() {
+    let (image, geo) = adjacent_contiguous();
+    let a = first_cluster(&image, &geo, "a");
+    let b = first_cluster(&image, &geo, "b");
+    let mut fs = common::mount(&image);
+    let root = fs.root();
+    let before = free(&mut fs);
+    let node = fs.resolve_path("/a").unwrap();
+    fs.truncate(node, 600).unwrap();
+    assert_eq!(free(&mut fs), before + 1);
+    fs.forget(node, 1);
+    fs.unlink(root, name("a")).unwrap();
+    assert_eq!(free(&mut fs), before + 3);
+    fs.rename(root, name("c"), root, name("b"), RenameMode::Replace)
+        .unwrap();
+    assert_eq!(free(&mut fs), before + 6);
+    fs.sync().unwrap();
+    clean(&mut fs, "contiguous frees");
+    let after = common::image(fs);
+    assert!((a..b + 3).all(|cluster| !geo.used(&after, cluster)));
+    let mut fs = common::mount(&after);
+    assert_eq!(fs.read_to_vec("/b").unwrap(), common::payload(1500, 3));
+    fsck(&after, "contiguous frees");
+}
+
 #[test]
 fn rename_keeps_the_id_and_moves_directories() {
     let mut fs = common::small(8 << 20, 4096);

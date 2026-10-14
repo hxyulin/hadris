@@ -195,6 +195,15 @@ Each published package owns its version and may be released independently.
   the earlier one in `extract`, and `cat` prints the last entry of a name.
   Non-cpio data after a trailer ends the archive with a warning.
 
+- **hadris-fat (exFAT):** Removing, replacing by rename, truncating or
+  growing a file or directory with a contiguous (`NoFatChain`) allocation
+  checks that the allocation bitmap marks every cluster its `DataLength`
+  covers used, and fails with `Corrupt` before writing anything otherwise.
+  A corrupt `DataLength` reaching into free clusters previously freed the
+  clusters of other files past it, which were then allocated twice. The
+  same applies to contiguous vendor allocations of a removed entry set.
+  `hadris-fat-raw` exports the check as `exfat::io::run_used` in each mode.
+
 - **CLI (`hadris fat`):** `chain` on the fixed FAT12/16 root directory
   reports that it has no cluster chain instead of underflowing, and `tree`,
   `stat` and `fragmentation` stop with an error at a directory loop in a

@@ -299,6 +299,29 @@ impl ExFat {
     }
 }
 
+/// Whether the `count` bits from bit `from` of `bytes` are all set, bit 0
+/// being the low bit of byte 0. Bits past the end of `bytes` count as clear.
+fn bits_set(bytes: &[u8], from: u64, count: u64) -> bool {
+    let Some(end) = from
+        .checked_add(count)
+        .filter(|&end| end <= bytes.len() as u64 * 8)
+    else {
+        return false;
+    };
+    let mut bit = from;
+    while bit < end {
+        let base = bit & !7;
+        let low = bit - base;
+        let high = (end - base).min(8);
+        let mask = ((0xFFu16 << low) & ((1u16 << high) - 1)) as u8;
+        if bytes[(base / 8) as usize] & mask != mask {
+            return false;
+        }
+        bit = base + 8;
+    }
+    true
+}
+
 #[cfg(feature = "sync")]
 #[path = ""]
 pub mod sync {
@@ -320,8 +343,8 @@ pub mod sync {
 
     pub use volume::{
         allocate, allocate_run, begin_write, bit, bitmap_bytes, clear_dirty, clear_set, count_free,
-        free_chain, get, link_run, next, read_backup_boot, read_boot, read_volume, set, set_bit,
-        set_bits, slot_offset, upcase, write_percent_in_use, write_set,
+        free_chain, get, link_run, next, read_backup_boot, read_boot, read_volume, run_used, set,
+        set_bit, set_bits, slot_offset, upcase, write_percent_in_use, write_set,
     };
 }
 
@@ -346,8 +369,8 @@ pub mod async_ {
 
     pub use volume::{
         allocate, allocate_run, begin_write, bit, bitmap_bytes, clear_dirty, clear_set, count_free,
-        free_chain, get, link_run, next, read_backup_boot, read_boot, read_volume, set, set_bit,
-        set_bits, slot_offset, upcase, write_percent_in_use, write_set,
+        free_chain, get, link_run, next, read_backup_boot, read_boot, read_volume, run_used, set,
+        set_bit, set_bits, slot_offset, upcase, write_percent_in_use, write_set,
     };
 }
 
@@ -357,3 +380,24 @@ pub use async_ as r#async;
 /// Compatibility alias for the unified asynchronous primitives.
 #[cfg(feature = "async")]
 pub use async_ as local;
+
+#[cfg(test)]
+mod tests {
+    use super::bits_set;
+
+    #[test]
+    fn bits_set_checks_every_bit_of_the_range() {
+        let bytes = [0b1111_1100, 0xFF, 0b0000_0111];
+        assert!(bits_set(&bytes, 2, 17));
+        assert!(bits_set(&bytes, 3, 5));
+        assert!(bits_set(&bytes, 8, 8));
+        assert!(bits_set(&bytes, 0, 0));
+        assert!(!bits_set(&bytes, 1, 2));
+        assert!(!bits_set(&bytes, 2, 18));
+        assert!(!bits_set(&bytes, 23, 1));
+        assert!(!bits_set(&bytes, 20, 8));
+        assert!(!bits_set(&bytes, u64::MAX, 2));
+        assert!(bits_set(&[0xFF; 8], 0, 64));
+        assert!(!bits_set(&[0xFF, 0xFF, 0xFF, 0xEF], 0, 32));
+    }
+}
