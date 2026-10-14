@@ -164,6 +164,26 @@
     },
     {
       "crate": "hadris-fat",
+      "tier": "no-mode",
+      "features": ""
+    },
+    {
+      "crate": "hadris-fat",
+      "tier": "no-mode-alloc",
+      "features": "alloc"
+    },
+    {
+      "crate": "hadris-fat",
+      "tier": "no-mode-alloc-write",
+      "features": "alloc,write"
+    },
+    {
+      "crate": "hadris-fat",
+      "tier": "no-mode-std",
+      "features": "std"
+    },
+    {
+      "crate": "hadris-fat",
       "tier": "no-std",
       "features": "sync"
     },

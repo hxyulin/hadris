@@ -8,6 +8,11 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **`hadris-fat` features without a mode:** `--no-default-features` with
+  `alloc`, `std` or `alloc,write` and neither `sync` nor `async` builds
+  again. `CacheOptions`, like `FatFs`, needs `alloc` and a mode. CI checks
+  these tiers.
+
 - **FAT reserved sectors:** A FAT12, FAT16 or FAT32 boot sector with a
   reserved sector count of 0, whose first FAT would overlap the boot
   sector, no longer mounts: `parse_boot`, `FatFs::mount`, the embedded
