@@ -226,7 +226,12 @@ logical block or ranges outside the image. Continuation areas can span blocks
 and are parsed with a fixed 2048-byte buffer. A record can follow at most 16
 continuation areas; an unfinished chain at that bound is corrupt. Unknown
 extensions remain skippable, and overlong Rock Ridge names retain the ISO-name
-fallback. Ordinary ISO system-use bytes are interpreted as SUSP only after the
+fallback. A record whose Rock Ridge area is rejected does not hide its
+siblings: `readdir` lists it under its ISO 9660 identifier with no
+permissions and length 0, `lookup` finds it by that name, and `stat`, `open`
+and `readlink` on it fail with `Corrupt`. Symlink targets have no fixed
+length limit; `stat` counts them without buffering, and `readlink` needs a
+buffer of that length. Ordinary ISO system-use bytes are interpreted as SUSP only after the
 root's `SP` entry identifies it.
 
 ### Rock Ridge relocation

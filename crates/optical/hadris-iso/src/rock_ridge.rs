@@ -138,11 +138,13 @@ impl RockRidgeInfo {
     }
 }
 
-/// A byte buffer that entries are joined into.
+/// A byte buffer that entries are joined into. `len` counts every byte
+/// pushed, also those that did not fit `buf` and were dropped.
 pub(crate) struct Sink<'a> {
     pub(crate) buf: &'a mut [u8],
     pub(crate) len: usize,
     pub(crate) overflow: bool,
+    last: Option<u8>,
 }
 
 impl<'a> Sink<'a> {
@@ -151,17 +153,21 @@ impl<'a> Sink<'a> {
             buf,
             len: 0,
             overflow: false,
+            last: None,
         }
     }
 
     fn push(&mut self, bytes: &[u8]) {
-        match self.buf.get_mut(self.len..self.len + bytes.len()) {
-            Some(dst) => {
-                dst.copy_from_slice(bytes);
-                self.len += bytes.len();
-            }
-            None => self.overflow = true,
+        let Some(&last) = bytes.last() else {
+            return;
+        };
+        let end = self.len.saturating_add(bytes.len());
+        match self.buf.get_mut(self.len..end) {
+            Some(dst) if !self.overflow => dst.copy_from_slice(bytes),
+            _ => self.overflow = true,
         }
+        self.len = end;
+        self.last = Some(last);
     }
 }
 
@@ -222,6 +228,11 @@ impl<'a> Scan<'a> {
             Some(sink) => Ok(sink.len),
             None => Ok(0),
         }
+    }
+
+    /// The length of the joined `SL` target, also when it did not fit.
+    pub(crate) fn link_total(&self) -> usize {
+        self.link.as_ref().map_or(0, |sink| sink.len)
     }
 
     /// Takes complete entries of an area, possibly in several chunks. Returns
@@ -419,7 +430,7 @@ impl<'a> Scan<'a> {
                 }
                 continue;
             }
-            if sink.len > 0 && sink.buf[sink.len - 1] != b'/' {
+            if sink.last.is_some_and(|last| last != b'/') {
                 sink.push(b"/");
             }
             if flags.contains(SlComponentFlags::CURRENT) {
@@ -477,6 +488,29 @@ mod tests {
         let len = scan.link_len().unwrap();
         assert!(scan.info.is_symlink());
         assert_eq!(&buf[..len], b"/usr/lib/../x");
+    }
+
+    #[test]
+    fn symlink_length_counts_past_the_buffer() {
+        let long = [b'x'; 240];
+        let mut area = sl(0x01, &[(0x08, b""), (0x00, &long)]);
+        area.extend(sl(0x00, &[(0x00, &long), (0x00, b"y")]));
+        let expected = 1 + 240 + 1 + 240 + 1 + 1;
+        let mut scan = Scan::new().with_link(&mut []);
+        scan.feed(&area, 0);
+        assert_eq!(scan.link_total(), expected);
+        assert_eq!(scan.link_len(), Err(ErrorKind::LimitExceeded));
+        let mut buf = [0u8; 300];
+        let mut scan = Scan::new().with_link(&mut buf);
+        scan.feed(&area, 0);
+        assert_eq!(scan.link_total(), expected);
+        assert_eq!(scan.link_len(), Err(ErrorKind::LimitExceeded));
+        assert_eq!(&buf[..242], &[b"/".as_slice(), &long, b"/"].concat()[..]);
+        let mut buf = [0u8; 484];
+        let mut scan = Scan::new().with_link(&mut buf);
+        scan.feed(&area, 0);
+        assert_eq!(scan.link_len(), Ok(expected));
+        assert_eq!(&buf[480..], b"xx/y");
     }
 
     #[test]

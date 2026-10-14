@@ -59,6 +59,16 @@ Each published package owns its version and may be released independently.
   different values; ids from `readdir` still match `lookup` and survive
   writes and renames of other entries.
 
+- **ISO 9660 damaged Rock Ridge entries:** One record with a malformed Rock
+  Ridge area no longer makes its directory unlistable or its siblings
+  unfindable. In the Rock Ridge tree `readdir` lists it under its ISO 9660
+  identifier with no permissions and length 0, `lookup` finds it by that
+  name, and `stat`, `open` and `readlink` on it fail with `Corrupt`, as the
+  UDF reader does for a damaged file entry. Hard-link resolution skips such
+  records. Symlinks whose targets are longer than 4096 bytes are listed and
+  `stat`ed with their full length instead of failing with `LimitExceeded`;
+  `readlink` reads them into a large enough buffer.
+
 - **CLI directory loops:** `iso tree`, `iso verify --strict`, `udf tree`,
   `udf verify` and `udf compare` stop at a directory that leads back to one
   on its own path, as in a damaged image, and report
