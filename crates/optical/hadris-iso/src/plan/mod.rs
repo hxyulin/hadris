@@ -299,16 +299,21 @@ pub(crate) fn normalize(path: &str) -> String {
 }
 
 /// A tree name as text, for the identifiers that map characters; names
-/// that are not UTF-8 get U+FFFD and, when no Rock Ridge name keeps the
-/// bytes, a warning.
-fn text(name: &Name, path: &[u8], rock_ridge: bool, warnings: &mut Vec<Warning>) -> String {
+/// that are not UTF-8 get U+FFFD and, with `renamed`, a warning with that
+/// message.
+fn text(
+    name: &Name,
+    path: &[u8],
+    renamed: Option<&'static str>,
+    warnings: &mut Vec<Warning>,
+) -> String {
     match core::str::from_utf8(name.as_bytes()) {
         Ok(text) => String::from(text),
         Err(_) => {
             let text = String::from_utf8_lossy(name.as_bytes()).into_owned();
-            if !rock_ridge {
+            if let Some(message) = renamed {
                 warnings.push(
-                    Warning::new(WarningKind::Renamed, "iso 9660 names are unicode")
+                    Warning::new(WarningKind::Renamed, message)
                         .with_path(path)
                         .with_stored_as(&text),
                 );
@@ -444,7 +449,24 @@ impl Planner<'_> {
     // -----------------------------------------------------------------------
     // Gathering the tree.
 
+    /// The warning for a name that is not UTF-8, naming the trees that
+    /// store it with U+FFFD; `None` when only the primary tree does and
+    /// Rock Ridge keeps the bytes there.
+    fn renamed_message(&self) -> Option<&'static str> {
+        let has = |kind: fn(&TreeKind) -> bool| self.trees.iter().any(|(tree, _)| kind(tree));
+        let joliet = has(|tree| matches!(tree, TreeKind::Joliet(_)));
+        let enhanced = has(|tree| matches!(tree, TreeKind::Enhanced));
+        match (self.rock_ridge, joliet, enhanced) {
+            (false, _, _) => Some("iso 9660 names are unicode"),
+            (true, true, true) => Some("joliet and iso 9660:1999 names are unicode"),
+            (true, true, false) => Some("joliet names are unicode"),
+            (true, false, true) => Some("iso 9660:1999 names are unicode"),
+            (true, false, false) => None,
+        }
+    }
+
     fn gather(&mut self) -> PlanResult<()> {
+        let renamed = self.renamed_message();
         let root = self.tree.root();
         self.dirs.push(PDir {
             name: String::new(),
@@ -466,7 +488,7 @@ impl Planner<'_> {
             let mut children = Vec::new();
             for (raw_name, child) in entry.children() {
                 let child_path = join(&path, raw_name.as_bytes());
-                let name = text(raw_name, &child_path, self.rock_ridge, &mut self.warnings);
+                let name = text(raw_name, &child_path, renamed, &mut self.warnings);
                 let raw = raw_name.as_bytes().to_vec();
                 let node = child.node();
                 let kind = match node.file_type() {

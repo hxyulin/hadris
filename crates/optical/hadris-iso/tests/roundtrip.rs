@@ -1295,6 +1295,38 @@ fn non_utf8_names_keep_their_bytes_in_rock_ridge() {
 }
 
 #[test]
+fn non_utf8_names_warn_for_trees_rock_ridge_does_not_cover() {
+    let tree = byte_named_tree();
+    let rock_ridge = IsoOptions::default().with_rock_ridge();
+    for (options, message) in [
+        (rock_ridge.clone().with_joliet(), "joliet names are unicode"),
+        (
+            rock_ridge.clone().with_iso1999(),
+            "iso 9660:1999 names are unicode",
+        ),
+        (
+            rock_ridge.clone().with_joliet().with_iso1999(),
+            "joliet and iso 9660:1999 names are unicode",
+        ),
+    ] {
+        let report = hadris_iso::plan(&tree, &options).unwrap();
+        let renamed = report
+            .warnings()
+            .iter()
+            .filter(|w| w.message() == message)
+            .count();
+        assert_eq!(renamed, 4, "{message}");
+    }
+    let report = hadris_iso::plan(&tree, &rock_ridge).unwrap();
+    assert!(
+        report
+            .warnings()
+            .iter()
+            .all(|w| !w.message().ends_with("names are unicode"))
+    );
+}
+
+#[test]
 fn non_utf8_names_reach_joliet_as_replacement_characters() {
     let tree = byte_named_tree();
     let mut iso = image(&tree, &IsoOptions::default().with_joliet());

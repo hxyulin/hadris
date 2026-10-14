@@ -36,8 +36,9 @@ Each published package owns its version and may be released independently.
   bytes, and a kept boot catalog follows boot images with such names. Rock
   Ridge `NM` entries store the name's bytes as they are; the primary,
   ISO 9660:1999 and Joliet identifiers still map U+FFFD for each invalid
-  sequence. The "iso 9660 names are unicode" warning is only reported
-  without Rock Ridge. A planned file missing from the tree, or whose length
+  sequence. Such names warn "iso 9660 names are unicode" without Rock
+  Ridge; with it, only when a Joliet or ISO 9660:1999 tree is written, with
+  a message naming those trees. A planned file missing from the tree, or whose length
   changed, now fails with `Corrupt` and its path before any block is
   written, instead of during the write.
 
