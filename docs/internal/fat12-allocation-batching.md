@@ -52,8 +52,8 @@ Measurements used Rust 1.97.1 on Apple M3 Pro, seven samples per case, a 2 MiB
 FAT12 volume with 512-byte clusters/device blocks, and disabled hosted caches.
 The device is memory-backed: timings measure CPU work, while transfer counts
 and byte totals describe device traffic. Baselines were collected from
-`dbcb38fe`. Full CSVs are [before](benchmarks/fat12-allocation-before.csv) and
-[after](benchmarks/fat12-allocation-after.csv).
+`dbcb38fe`. Full CSVs are [before](../benchmarks/fat12-allocation-before.csv) and
+[after](../benchmarks/fat12-allocation-after.csv).
 
 | Driver/workload | Reads before → after | Writes before → after | Written bytes before → after | Median CPU before → after |
 |---|---:|---:|---:|---:|

@@ -62,7 +62,9 @@ One filesystem type accepts both local and Send block devices. Implement
 `hadris::storage::async_::BlockDevice` with operation-owned state and poll
 hooks. `SendBlockDevice` follows automatically when both the device and its
 state are Send. Generic code requiring Send operation futures uses that
-stronger bound; a Send device value alone is insufficient.
+stronger bound; a Send device value alone is insufficient. See
+[implement an asynchronous block device](./async-devices.md) for the full
+contract.
 
 Use `hadris::fs::local::FileSystem` and `local::Volume` for local devices, or
 `hadris::fs::async_::FileSystem` and `async_::Volume` for the stronger Send

@@ -89,5 +89,5 @@ cover partitioned boot media, extraction, streaming initramfs and VFS integratio
 
 The unified device contract uses operation-owned state and poll hooks. Format
 callers use the `async_` namespace.
-See the [device migration guide](https://github.com/hxyulin/hadris/blob/main/docs/async-devices.md)
+See [implement an asynchronous block device](./guides/async-devices.md)
 for local and Send drivers, stream adapters, cancellation and custom devices.

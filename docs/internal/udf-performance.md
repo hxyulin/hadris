@@ -4,7 +4,7 @@ Measured on 2026-10-05 with Rust 1.97.1, Cargo's optimized bench profile and an
 Apple M3 Pro. Each row has one warm-up and 21 measured samples, reporting the
 median. The final harness was run against baseline `a8d5149b` and the optimized
 reader, so before/after cases use the same instrumentation and fixtures.
-The [benchmark guide](performance.md#udf-benchmark) describes workload boundaries.
+The [benchmark guide](../performance.md#udf-benchmark) describes workload boundaries.
 
 ## Identifier reuse
 
@@ -109,10 +109,10 @@ remain unimplemented.
 
 ## Data
 
-- [Uncached baseline](benchmarks/udf-reader-before.csv)
-- [Identifier reuse](benchmarks/udf-reader-identifiers.csv)
-- [Eight cached blocks](benchmarks/udf-reader-cache8.csv)
-- [32 cached blocks](benchmarks/udf-reader-cache32.csv)
+- [Uncached baseline](../benchmarks/udf-reader-before.csv)
+- [Identifier reuse](../benchmarks/udf-reader-identifiers.csv)
+- [Eight cached blocks](../benchmarks/udf-reader-cache8.csv)
+- [32 cached blocks](../benchmarks/udf-reader-cache32.csv)
 
 ## Fragmented allocation follow-up
 
@@ -206,11 +206,11 @@ production driver changes are included in this follow-up.
 
 Follow-up data:
 
-- [Fragmented workloads, uncached](benchmarks/udf-fragmented-uncached.csv)
-- [Fragmented workloads, cache 8](benchmarks/udf-fragmented-cache8.csv)
-- [Fragmented workloads, cache 32](benchmarks/udf-fragmented-cache32.csv)
-- [CRC and name kernels](benchmarks/udf-kernels.csv)
-- [Aggregated native top-of-stack samples](benchmarks/udf-profile-samples.csv)
+- [Fragmented workloads, uncached](../benchmarks/udf-fragmented-uncached.csv)
+- [Fragmented workloads, cache 8](../benchmarks/udf-fragmented-cache8.csv)
+- [Fragmented workloads, cache 32](../benchmarks/udf-fragmented-cache32.csv)
+- [CRC and name kernels](../benchmarks/udf-kernels.csv)
+- [Aggregated native top-of-stack samples](../benchmarks/udf-profile-samples.csv)
 
 
 ## In-place allocation walker
@@ -248,14 +248,14 @@ and async modes. The async test cancels while reloading each saved AED, then
 retries and verifies exact bytes. Existing malformed-chain and traversal-limit
 tests remain in place.
 
-- [Fresh uncached baseline](benchmarks/udf-walker-before.csv)
-- [In-place walker](benchmarks/udf-walker-after.csv)
+- [Fresh uncached baseline](../benchmarks/udf-walker-before.csv)
+- [In-place walker](../benchmarks/udf-walker-after.csv)
 
 
 Cached runs at capacities 8 and 32 also reproduce all baseline I/O counts,
 for 324 checked cases in total. Their CSVs are
-[cache 8](benchmarks/udf-walker-cache8.csv) and
-[cache 32](benchmarks/udf-walker-cache32.csv).
+[cache 8](../benchmarks/udf-walker-cache8.csv) and
+[cache 32](../benchmarks/udf-walker-cache32.csv).
 
 A repeat of the native profiles shows contiguous lookup's copy share falling
 from 46.1% to 18.7%. Its clearing share rises from 32.0% to 47.9% as total runtime
@@ -263,5 +263,5 @@ falls; that percentage increase does not establish increased clearing cost.
 Contiguous listing's copy share falls from 37.0% to 30.8%. Scattered AED reads
 remain dominated by copying and validation. The same sampling and
 instrumentation limits apply to the
-[post-change samples](benchmarks/udf-walker-profile.csv). Buffer clearing is a
+[post-change samples](../benchmarks/udf-walker-profile.csv). Buffer clearing is a
 separate candidate and remains unchanged in this commit.

@@ -134,3 +134,8 @@ pub mod async_;
 /// retain the shared `Send + Sync + 'static` error contract.
 #[cfg(feature = "async")]
 pub mod local;
+
+/// Compiles the README's Rust examples as doctests.
+#[cfg(all(doctest, feature = "std", feature = "sync"))]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

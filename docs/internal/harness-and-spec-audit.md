@@ -54,10 +54,10 @@ five RSS samples are insufficient to characterize rare tails. Background
 activity and scheduler variation remain visible, especially in the FAT cache
 comparison, so the deterministic read counts are the stronger evidence.
 
-- [Raw samples](benchmarks/harness-v3-audit-samples.csv)
-- [Medians and ranges](benchmarks/harness-v3-audit-summary.csv)
-- [Per-run provenance](benchmarks/harness-v3-audit-metadata.txt)
-- [Harness configuration and commands](../tests/README.md#v3-performance-harness)
+- [Raw samples](../benchmarks/harness-v3-audit-samples.csv)
+- [Medians and ranges](../benchmarks/harness-v3-audit-summary.csv)
+- [Per-run provenance](../benchmarks/harness-v3-audit-metadata.txt)
+- [Harness configuration and commands](../../tests/README.md#v3-performance-harness)
 
 ## Directory scaling
 
@@ -194,20 +194,20 @@ valid CRCs and tag checksums, so checksum detection does not explain their
 acceptance. The catalog's partial FID requirement now records the additional
 unchecked fields. The probe diagnoses input validation, not memory unsafety or
 an exploit. Its source and observed output are archived in the
-[diagnostic evidence](benchmarks/harness-v3-audit-fid-probe.txt).
+[diagnostic evidence](../benchmarks/harness-v3-audit-fid-probe.txt).
 The authoritative rules are in the
 [ECMA-167 third edition](https://ecma-international.org/wp-content/uploads/ECMA-167_3rd_edition_june_1997.pdf).
 
 Relevant repository evidence:
 
-- [V3 requirements](v3/actions.md#3-non-functional-constraints) and
-  [known limitations](../KNOWN_ISSUES.md).
-- [FAT power-cut tests](../crates/block/hadris-fat/tests/fatfs_check.rs) and
-  [embedded power-cut tests](../crates/block/hadris-fat/tests/embedded.rs).
-- [UDF identifier reader](../crates/optical/hadris-udf/src/read.rs),
-  [ISO lookup and enumeration](../crates/optical/hadris-iso/src/image.rs), and
-  [storage cache indexing](../crates/core/hadris-storage/src/cache.rs).
-- [Clause catalog and source provenance](../spec/README.md).
+- [V3 requirements](../v3/actions.md#3-non-functional-constraints) and
+  [known limitations](../../KNOWN_ISSUES.md).
+- [FAT power-cut tests](../../crates/block/hadris-fat/tests/fatfs_check.rs) and
+  [embedded power-cut tests](../../crates/block/hadris-fat/tests/embedded.rs).
+- [UDF identifier reader](../../crates/optical/hadris-udf/src/read.rs),
+  [ISO lookup and enumeration](../../crates/optical/hadris-iso/src/image.rs), and
+  [storage cache indexing](../../crates/core/hadris-storage/src/cache.rs).
+- [Clause catalog and source provenance](../../spec/README.md).
 
 ## Coverage gaps and recommended sequence
 

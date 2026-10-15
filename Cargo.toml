@@ -22,6 +22,7 @@ rust-version = "1.88.0"
 authors = ["hxyulin"]
 license = "MIT"
 repository = "https://github.com/hxyulin/hadris"
+homepage = "https://hxyulin.github.io/hadris/"
 
 [workspace.dependencies]
 bytemuck = { version = "1.22.0", default-features = false }

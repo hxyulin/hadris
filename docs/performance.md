@@ -4,7 +4,7 @@ Start with device I/O counts when optimizing write amplification. Runtime,
 driver state, heap use, stack use and flash size are separate measurements;
 an improvement in one can cost more in another.
 
-The separate [exFAT audit](exfat-performance.md) covers hosted and embedded
+The separate [exFAT audit](internal/exfat-performance.md) covers hosted and embedded
 read runs and append traversal, with device counts and reproducible CSV data.
 
 ## FAT benchmark
@@ -36,7 +36,7 @@ with `with_chain_positions` and `with_blocks`; zero disables either one.
 Use the chain index for backward or scattered reads and metadata caching for
 repeated FAT/directory reads. File payload reads bypass the metadata cache;
 writes invalidate overlapping entries immediately. Sequential workloads can
-pay extra CPU for cache maintenance. The [hosted optimization report](fat-hosted-optimizations.md)
+pay extra CPU for cache maintenance. The [hosted optimization report](internal/fat-hosted-optimizations.md)
 records separate cache measurements and tests for each step.
 Directory-prefix indexing is separately opt-in with
 `with_directory_entries(N)`. It learns validated entries during ordinary
@@ -44,10 +44,10 @@ lookups and retains their original chain-walk guard to resume subsequent
 misses safely. It holds one directory at a time; switching directories or
 mutating the filesystem discards the prefix. Use it for repeated lookups in a
 stable directory; no full scan is performed for a cold single-name lookup.
-See the [directory-index measurements](fat-directory-index-performance.md)
+See the [directory-index measurements](internal/fat-directory-index-performance.md)
 for CPU results and small-capacity fallback behavior.
 
-The [FAT12 allocation report](fat12-allocation-batching.md) measures packed-entry
+The [FAT12 allocation report](internal/fat12-allocation-batching.md) measures packed-entry
 batching for both hosted and allocator-free embedded drivers.
 CSV goes to stdout, so Cargo's build messages on stderr do not enter the file.
 
@@ -133,9 +133,9 @@ the affected conformance and cancellation tests before accepting an
 optimization: metadata ordering and interrupted-write recovery constrain
 which writes can be combined or removed.
 
-The [bootloader and hosted FAT audit](fat-hosted-performance-audit.md) records
+The [bootloader and hosted FAT audit](internal/fat-hosted-performance-audit.md) records
 the measured baseline and proposed optimization order;
-[implemented optimizations](fat-hosted-optimizations.md) record each change
+[implemented optimizations](internal/fat-hosted-optimizations.md) record each change
 and its validation.
 
 ## ISO reader and writer
@@ -417,7 +417,7 @@ refactor.
 
 ## CPIO streaming benchmark
 
-The [CPIO audit](cpio-performance.md) covers direct and buffered streaming reads,
+The [CPIO audit](internal/cpio-performance.md) covers direct and buffered streaming reads,
 skips, tree loading and writing, including hard links and host-backed content.
 Run `cargo bench -p hadris-cpio --bench performance -- --smoke` for its 144
 verified cases, or use `--samples 21 --csv` for measurements.
@@ -454,7 +454,7 @@ lookup can warm cached blocks before non-mount measurements. Each sample starts
 with a new cache, rather than retaining cached data from earlier samples.
 The CSV records the configured capacity in `cache_blocks`.
 
-The [UDF reader report](udf-performance.md) compares the uncached baseline,
+The [UDF reader report](internal/udf-performance.md) compares the uncached baseline,
 identifier reuse and optional cache sizes, including the 512-byte eviction case.
 
 The 108 cases combine those workloads with contiguous allocation, fragmented

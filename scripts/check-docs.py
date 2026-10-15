@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
+"""Checks documentation links, TOML recipes, current versions and package
+READMEs. Needs Python 3.11 or newer (tomllib), as in `nix develop`."""
 
 from __future__ import annotations
 
 import re
 import sys
 import tempfile
+
+if sys.version_info < (3, 11):
+    raise SystemExit("check-docs.py needs Python 3.11 or newer (tomllib)")
+
 import tomllib
 from pathlib import Path
 from urllib.parse import unquote
@@ -21,7 +27,15 @@ def documentation_files() -> list[Path]:
         ROOT / "examples" / "README.md",
         ROOT / "CONTRIBUTING.md",
         ROOT / "KNOWN_ISSUES.md",
+        ROOT / "CHANGELOG.md",
+        ROOT / "SECURITY.md",
+        ROOT / "AGENTS.md",
     ]
+    files.extend(
+        readme
+        for directory in ("tests", "scripts", "fuzz", "spec")
+        if (readme := ROOT / directory / "README.md").exists()
+    )
     files.extend((ROOT / "docs").glob("**/*.md"))
     files.extend((ROOT / "crates").glob("**/README.md"))
     files.extend((ROOT / "website" / "docs").glob("**/*.md"))

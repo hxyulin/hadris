@@ -198,3 +198,8 @@ mod tests {
         assert_eq!(err.kind(), ErrorKind::Corrupt);
     }
 }
+
+/// Compiles the README's Rust examples as doctests.
+#[cfg(all(doctest, feature = "std", feature = "sync"))]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

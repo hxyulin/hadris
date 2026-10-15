@@ -98,3 +98,8 @@ pub enum VolumeSelector<'a> {
     /// The exact UTF-8 volume name. Duplicate names are ambiguous.
     Name(&'a str),
 }
+
+/// Compiles the README's Rust examples as doctests.
+#[cfg(all(doctest, feature = "std", feature = "sync"))]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

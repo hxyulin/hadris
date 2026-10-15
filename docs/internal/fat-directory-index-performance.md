@@ -63,12 +63,12 @@ The 21-sample cold EFI boot-load check retained exactly 27/26/39 device reads
 for FAT12/16/32 with the index enabled or disabled. Median CPU time changed
 31.67→35.21 µs, 24.42→24.38 µs and 34.71→35.88 µs respectively. The index
 provided no boot-path I/O benefit and can add CPU/allocation work. Keep it
-disabled for single-path boot loading. CSV inputs are [boot disabled](benchmarks/fat-directory-index-boot-disabled.csv)
-and [boot indexed](benchmarks/fat-directory-index-boot-128.csv).
+disabled for single-path boot loading. CSV inputs are [boot disabled](../benchmarks/fat-directory-index-boot-disabled.csv)
+and [boot indexed](../benchmarks/fat-directory-index-boot-128.csv).
 
-CSV inputs: [disabled](benchmarks/fat-directory-index-disabled.csv),
-[16 entries](benchmarks/fat-directory-index-16.csv),
-[128 entries](benchmarks/fat-directory-index-128.csv).
+CSV inputs: [disabled](../benchmarks/fat-directory-index-disabled.csv),
+[16 entries](../benchmarks/fat-directory-index-16.csv),
+[128 entries](../benchmarks/fat-directory-index-128.csv).
 
 ```sh
 cargo +1.97.1 bench -p hadris-fat --bench performance -- \

@@ -36,3 +36,8 @@
 
 /// Types
 pub mod types;
+
+/// Compiles the README's Rust examples as doctests.
+#[cfg(all(doctest, feature = "bytemuck"))]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

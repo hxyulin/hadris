@@ -97,9 +97,9 @@ benchmark every format against V2. Follow-up profiling should separate host
 metadata/security work, tree construction, lookup and transport before deciding
 what to optimize or whether an explicit content-only extraction mode is useful.
 
-[Raw samples](benchmarks/v2-v3-fat-extraction.csv),
-[image I/O](benchmarks/v2-v3-fat-image-io.csv), and
-[binary/fixture metadata](benchmarks/v2-v3-fat-extraction-metadata.json).
+[Raw samples](../benchmarks/v2-v3-fat-extraction.csv),
+[image I/O](../benchmarks/v2-v3-fat-image-io.csv), and
+[binary/fixture metadata](../benchmarks/v2-v3-fat-extraction-metadata.json).
 Reproduce on macOS with `tests/peers/compare-fat-generations.py`, passing
 `--v2`, `--v3`, `--image`, `--counter` (the Darwin interposer dylib), and
 `--output`. Use the same prepared 1,000-file fixture as the peer harness.
@@ -131,7 +131,7 @@ include binaries, SHA-256 metadata, logs, counter output and the runner under
 - APFS/NTFS native preview limitations remain; Linux FUSE deployment and internal
   Apple-silicon FileVault are separate qualification work, not promotion evidence.
 
-See [KNOWN_ISSUES](../KNOWN_ISSUES.md) and the [3.0 action catalog](v3/actions.md).
+See [KNOWN_ISSUES](../../KNOWN_ISSUES.md) and the [3.0 action catalog](../v3/actions.md).
 The action catalog is a requirements list, not proof that each marked item has
 been implemented. Its individual unmet 3.0 requirements need a disposition
 before calling the release stable.

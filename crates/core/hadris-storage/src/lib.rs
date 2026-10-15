@@ -66,3 +66,8 @@ pub use geometry::{BlockCount, BlockGeometry, BlockIndex, BlockRange, BlockSize}
 /// Common async device operations and explicit Send guarantees.
 #[cfg(feature = "async")]
 pub mod async_;
+
+/// Compiles the README's Rust examples as doctests.
+#[cfg(all(doctest, feature = "std", feature = "sync"))]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

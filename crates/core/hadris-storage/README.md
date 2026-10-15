@@ -170,16 +170,11 @@ rewritable disk solely by implementing whole-block reads.
 unboxed futures. `SendBlockDevice` is implemented automatically when the device
 and its state are Send. Generic code requiring Send futures should use that
 marker, while filesystem algorithms can use the common device contract.
-`async_` adapters accept local devices without a wrapper. See the [ISO guide](../../../docs/unified-async-iso.md) for
-reader, writer and session usage.
-
-Poll hooks receive the same request and state until completion. Before returning,
-including Pending, they must stop accessing borrowed request buffers. Backends
-performing I/O between polls need owned stable transfer buffers. State must not
-retain pointers into its own movable fields. On Pending, register the supplied
-waker for progress. `cancel` must tolerate cancellation before starting I/O and
-must never panic, including when a poll hook unwinds. Buffer safety cannot depend
-on cancellation running because futures can be forgotten.
+`async_` adapters accept local devices without a wrapper. The poll-hook,
+buffer and cancellation rules are in
+[implement an asynchronous block device](https://hxyulin.github.io/hadris/guides/async-devices),
+and the [ISO guide](../../../docs/unified-async-iso.md) covers reader, writer
+and session usage.
 
 Borrowed devices, boxes, partitions, byte views, read-ahead and write-back caches
 use the same contract. Cancellation of a cache flush preserves dirty blocks for

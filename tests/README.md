@@ -97,7 +97,7 @@ Reports are written to `tests/target/reports/<format>/`.
 
 ## Adding tests
 
-The [test migration audit](../docs/test-migration-audit.md) maps historical
+The [test migration audit](../docs/internal/test-migration-audit.md) maps historical
 scenarios to current assertions and records intentional removals, Cargo
 discovery and CI/manual qualification boundaries.
 
@@ -138,7 +138,7 @@ runs skip a test if its tool is unavailable unless
 
 ## V3 performance harness
 
-The [harness and specification audit](../docs/harness-and-spec-audit.md) records
+The [harness and specification audit](../docs/internal/harness-and-spec-audit.md) records
 directory scaling, cache budgets, isolated RSS and correctness follow-ups.
 
 ```bash

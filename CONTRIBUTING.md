@@ -493,10 +493,19 @@ npm run versions
 npm run build
 ```
 
+The repository's Python scripts need Python 3.11 or newer; `nix develop`
+provides one, or run them with `uv run --python 3.12 scripts/check-docs.py`.
+
 Keep the documentation layers focused: the root README is the project
 overview, the website contains concepts and workflows, crate READMEs cover
 package selection and features, and rustdoc documents individual APIs. Prefer
 linking to compiled examples over duplicating snippets that can drift.
+Crate README Rust blocks compile as doctests: each library's `lib.rs` includes
+its README in a `ReadmeDoctests` item, built with the crate's default
+features, so `cargo test --doc` covers them (mark a block `rust,ignore` when it
+cannot compile on its own). Snippets in `website/docs`, the migration guide and
+the `hadris-macros` README, whose example needs `hadris-io`, are not compiled;
+keep them close to a compiled example or doctest.
 
 Public API compatibility is checked by `scripts/check-semver.sh`, using
 `cargo-semver-checks` on stable Rust. Its default feature selection includes

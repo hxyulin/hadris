@@ -3,7 +3,8 @@
 Storage's `async` feature exposes `hadris_storage::async_::BlockDevice` for both
 local and Send devices. Implement its poll hooks and operation-owned
 `State: Default + Unpin` once. `SendBlockDevice` is derived automatically when
-both the device and its state are Send. The [device migration guide](async-devices.md)
+both the device and its state are Send.
+[Implement an asynchronous block device](../website/docs/guides/async-devices.md)
 explains backend hooks, cancellation and stream adapters.
 
 ISO uses one `hadris_iso::async_::IsoFs<D>` type. Partitions,

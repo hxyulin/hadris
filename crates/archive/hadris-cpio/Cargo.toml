@@ -7,6 +7,7 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 description = "Pure Rust cpio archives (newc, crc, odc, old binary) with an allocation-free streaming reader and a writer for Linux initramfs"
 keywords = ["cpio", "archive", "initramfs", "linux", "no-std"]
 categories = ["filesystem", "encoding", "no-std"]

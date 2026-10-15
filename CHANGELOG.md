@@ -487,6 +487,18 @@ The raw-format crates retain independent versions: `hadris-fat-raw` is
   include the `embedded-io` bridges. The `@hadris-spec` annotation blocks
   are no longer part of the rendered rustdoc.
 
+- **Packaging:** Every package sets the documentation site as its
+  homepage.
+
+- **Docs:** The async block-device contract is one site page, "Implement
+  an asynchronous block device", which replaces `docs/async-devices.md`.
+  Audits, performance investigations and V2 release notes move to
+  `docs/internal/` and `docs/releases/`, indexed by `docs/README.md`.
+  `SECURITY.md` has a supported-versions policy, and crate README examples
+  compile as doctests. The umbrella docs no longer mention a nonexistent
+  `archive` feature, and the migration guide's feature table matches the
+  manifests.
+
 ### Removed
 
 - **CLI RC2:** Remove the standalone `hadris-apfs-cli` package; APFS commands

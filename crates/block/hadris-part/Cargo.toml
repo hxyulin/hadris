@@ -6,6 +6,7 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 description = "Partition table support for MBR, GPT, and Hybrid MBR"
 readme = "README.md"
 keywords = ["partition", "mbr", "gpt", "disk", "no-std"]

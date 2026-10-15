@@ -201,3 +201,8 @@ extern crate self as hadris_iso;
 #[cfg(feature = "async")]
 #[path = "unified.rs"]
 pub mod async_;
+
+/// Compiles the README's Rust examples as doctests.
+#[cfg(all(doctest, feature = "std", feature = "sync"))]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

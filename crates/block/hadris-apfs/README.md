@@ -19,9 +19,10 @@ backend's error through `hadris_fs::Error<D::Error>`.
 A default mount requires exactly one volume. Select another with
 `ApfsFs::mount_volume(device, options, VolumeSelector::Index(index))`, or select
 by APFS object ID, UUID or name. Failed mounts return the device through
-`MountError`. The umbrella detects and mounts single-volume APFS containers through `detect`.
-The `unstable-apfs` feature exposes native inspection and explicit volume
-selection; the unified CLI provides `hadris apfs` commands.
+`MountError`. The umbrella's `detect` lists APFS containers without
+mounting them; its `unstable-apfs` feature adds mounting of single-volume
+containers through `open`, native inspection and explicit volume
+selection. The unified CLI provides `hadris apfs` commands.
 Enable `hadris`'s `apfs-encryption` feature for password unlocking through its
 native re-export. Ordinary format detection does not enable crypto dependencies.
 

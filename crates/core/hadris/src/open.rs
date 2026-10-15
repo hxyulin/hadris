@@ -190,8 +190,10 @@ pub async fn detect<D: BlockDevice + ?Sized>(dev: &mut D) -> FsResult<Detection,
 /// A mounted filesystem of any format [`open`] reaches. It implements
 /// `FileSystem` by delegation; format extras are reached by `match`.
 ///
-/// `Apfs` exists only with `unstable-apfs`, and NTFS is added as a variant
-/// once it is stable.
+/// Preview formats join only behind their `unstable-*` feature, outside
+/// semver: `Apfs` exists only with `unstable-apfs`. NTFS has no variant;
+/// `open` fails on it with `NotRecognized`, and `hadris::ntfs` (with
+/// `unstable-ntfs`) mounts it directly.
 #[cfg(feature = "alloc")]
 #[derive(Debug)]
 #[non_exhaustive]

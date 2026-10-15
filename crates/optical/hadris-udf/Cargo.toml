@@ -7,6 +7,7 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 readme = "README.md"
 description = "Pure Rust UDF library with allocation-free reading and a writer for standalone and ISO 9660 bridge volumes"
 keywords = ["udf", "disk-image", "optical-disc", "filesystem", "no-std"]

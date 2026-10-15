@@ -276,12 +276,6 @@ Use `hadris_storage::async_::BlockDevice` and supply `State`,
 `poll_read_blocks`, optional `poll_write_blocks`/`poll_flush`, and `cancel`.
 Callers await the provided read/write/flush methods. `SendBlockDevice` is
 automatic when the device and state are Send; the same filesystem type works
-with local devices too.
-
-Hooks must release access to caller buffers before returning Pending and
-arrange wakeups when progress becomes possible. `cancel` must be safe when
-idle and must not panic, including during unwinding before I/O starts. State
-must not retain pointers to its own movable fields. Continuing hardware I/O
-needs owned stable buffers. The
-[full migration guide](https://github.com/hxyulin/hadris/blob/main/docs/async-devices.md)
-explains backend state, stream adapters and partial-write semantics.
+with local devices too. [Implement an asynchronous block device](./async-devices.md)
+gives the polling, cancellation and buffer rules, stream adapters and
+partial-write semantics.

@@ -170,3 +170,8 @@ pub use mbr::{Mbr, MbrEntry};
 pub use mbr_type::MbrType;
 pub use name::PartitionName;
 pub use partition::{GptCopy, Partition, PartitionFlags, PartitionKind, TableKind};
+
+/// Compiles the README's Rust examples as doctests.
+#[cfg(all(doctest, feature = "std", feature = "sync"))]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
