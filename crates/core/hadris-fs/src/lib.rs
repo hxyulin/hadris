@@ -65,6 +65,7 @@ mod contract;
 mod dir;
 mod error;
 mod extent;
+mod forward;
 mod fuse;
 mod guid;
 #[cfg(feature = "std")]
