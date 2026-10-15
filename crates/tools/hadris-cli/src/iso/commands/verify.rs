@@ -1,10 +1,12 @@
-use hadris_fs::FileType;
+use hadris_fs::sync::FileSystem;
+use hadris_fs::{FileType, NodeId};
 use hadris_iso::Namespace;
 use hadris_iso::raw::{PathTableHeader, VolumeDescriptor};
 
 use super::super::args::VerifyArgs;
 
-use super::{Entry, Result, View, join, list_dir, open, view};
+use super::{Entry, Result, View, join, list_dir, list_node, open, view};
+use crate::common::Ancestors;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum IssueSeverity {
@@ -32,9 +34,6 @@ impl VerifyIssue {
         }
     }
 }
-
-/// Directory nesting past which the image is assumed to loop.
-const MAX_DEPTH: usize = 256;
 
 /// What the descriptor scan found.
 struct Descriptors {
@@ -277,18 +276,13 @@ fn check_path_table(
 fn walk(view: &mut View<'_>, issues: &mut Vec<VerifyIssue>) -> Vec<(String, Entry)> {
     fn visit(
         view: &mut View<'_>,
+        dir: NodeId,
         path: &str,
-        depth: usize,
+        ancestors: &mut Ancestors,
         out: &mut Vec<(String, Entry)>,
         issues: &mut Vec<VerifyIssue>,
     ) {
-        if depth > MAX_DEPTH {
-            issues.push(VerifyIssue::error(format!(
-                "Directory nesting exceeds {MAX_DEPTH} levels (possible loop in image)"
-            )));
-            return;
-        }
-        let entries = match list_dir(view, path) {
+        let entries = match list_node(view, dir) {
             Ok(entries) => entries,
             Err(error) => {
                 issues.push(VerifyIssue::error(format!(
@@ -299,16 +293,25 @@ fn walk(view: &mut View<'_>, issues: &mut Vec<VerifyIssue>) -> Vec<(String, Entr
         };
         for entry in entries {
             let child = join(path, &entry.name);
+            let node = entry.node;
             let is_dir = entry.meta.file_type().is_dir();
             out.push((child.clone(), entry));
-            if is_dir {
-                visit(view, &child, depth + 1, out, issues);
+            if !is_dir {
+                continue;
+            }
+            match ancestors.enter(node, &child) {
+                Ok(()) => {
+                    visit(view, node, &child, ancestors, out, issues);
+                    ancestors.leave();
+                }
+                Err(error) => issues.push(VerifyIssue::error(error.to_string())),
             }
         }
     }
 
     let mut out = Vec::new();
-    visit(view, "/", 0, &mut out, issues);
+    let root = view.root();
+    visit(view, root, "/", &mut Ancestors::new(root), &mut out, issues);
     out
 }
 

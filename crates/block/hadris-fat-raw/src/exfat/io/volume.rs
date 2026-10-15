@@ -3,7 +3,7 @@ use hadris_fs::{Error, ErrorKind, FsResult};
 use super::block::{load, read_bytes, store, write_bytes};
 use super::storage::BlockDevice;
 use crate::exfat::io::{
-    BootRegion, ClusterState, DirWalk, Dirty, ExFat, Extent, UPCASE_CACHE, Upcase,
+    BootRegion, ClusterState, DirWalk, Dirty, ExFat, Extent, UPCASE_CACHE, Upcase, bits_set,
 };
 use crate::exfat::{self as raw, Detail, ENTRY_SIZE, Geometry, RawEntry, UpcaseDecoder};
 use crate::io::{BlockBuf, ChainPos, ClusterGroup, Held};
@@ -573,6 +573,38 @@ pub async fn bit<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &mut Ex
     let mut byte = [0u8; 1];
     bitmap_bytes(dev, block, vol, index as u64 / 8, &mut byte).await?;
     Ok(byte[0] & (1 << (index % 8)) != 0)
+}
+
+/// Whether the active bitmap marks every one of the `count` clusters from
+/// `first` used, read a chunk of bitmap bytes at a time. A range outside the
+/// cluster heap fails with [`ErrorKind::Corrupt`].
+pub async fn run_used<D: BlockDevice>(
+    dev: &mut D,
+    block: &mut BlockBuf,
+    vol: &mut ExFat,
+    first: u32,
+    count: u32,
+) -> FsResult<bool, D::Error> {
+    if count == 0 {
+        return Ok(true);
+    }
+    let start = (check_cluster(&vol.geo, first)? - raw::FIRST_CLUSTER) as u64;
+    check_cluster(&vol.geo, first.checked_add(count - 1).ok_or(ErrorKind::Corrupt)?)?;
+    let end = start + count as u64;
+    let mut chunk = [0u8; 64];
+    let mut bit = start;
+    while bit < end {
+        let pos = bit / 8;
+        let want = (end.div_ceil(8) - pos).min(chunk.len() as u64) as usize;
+        let n = bitmap_bytes(dev, block, vol, pos, &mut chunk[..want]).await?;
+        let from = bit % 8;
+        let span = (n as u64 * 8 - from).min(end - bit);
+        if !bits_set(&chunk[..n], from, span) {
+            return Ok(false);
+        }
+        bit += span;
+    }
+    Ok(true)
 }
 
 /// Sets the bitmap bit of `cluster` to `state`, in the bitmap of the FAT

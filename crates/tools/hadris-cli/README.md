@@ -84,6 +84,26 @@ UDF `create` and `bridge` accept writable revisions `1.02`, `1.50`, `2.00`
 and `2.01`. Revisions `2.50` and `2.60` require metadata partitions and are
 rejected during argument parsing until the writer supports them.
 
+`hadris cpio extract` streams the archive. A later entry replaces a file or
+symlink an earlier entry of the same name created, and takes that name out of
+its hard link group; hard links are matched by device and inode number.
+Files are created anew, never through an existing symlink, and get their
+mode from the open file. Modes are applied only to files and directories the
+extraction creates, so an existing directory keeps its own; directory modes
+are applied once the archive ends, deepest first, so a read-only directory
+can still receive its children. Setuid, setgid and sticky bits are dropped
+unless `--preserve-special-bits` is given.
+
+The cpio commands read every segment of concatenated archives, as the Linux
+kernel does for an x86 microcode archive followed by an initramfs
+(`cat a.cpio b.cpio > c.cpio`). `ls` prints a blank line and `segment <n>:`
+before the entries of each segment after the first, and `info` counts the
+segments and gives each one's format and entry count. The same name in two
+segments behaves as a later entry of one archive: `extract` replaces the
+earlier file and `cat` prints the last one. Hard links are matched within a
+segment. Data after a trailer that is not a cpio header, such as a
+compressed initramfs, ends the archive with a warning.
+
 FAT12/16/32 extraction uses a bounded one-entry listing hint by default. Tune
 `hadris fat extract` independently for the access pattern:
 

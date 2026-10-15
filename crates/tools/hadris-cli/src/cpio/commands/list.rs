@@ -1,13 +1,19 @@
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 
-use super::{format_filetype, format_mode, open_reader};
+use super::{for_each_entry, format_filetype, format_mode, open_reader};
 
 pub fn list(archive: PathBuf, long: bool) -> Result<()> {
     let mut reader = open_reader(&archive)?;
+    let mut current = 1;
 
-    while let Some(entry) = reader.next_entry().context("Failed to read entry")? {
+    for_each_entry(&mut reader, |segment, entry| {
+        if segment != current {
+            current = segment;
+            println!();
+            println!("segment {segment}:");
+        }
         let name = entry.path_str().unwrap_or("<invalid utf-8>");
         if long {
             println!(
@@ -23,7 +29,8 @@ pub fn list(archive: PathBuf, long: bool) -> Result<()> {
         } else {
             println!("{name}");
         }
-    }
+        Ok(())
+    })?;
 
     Ok(())
 }

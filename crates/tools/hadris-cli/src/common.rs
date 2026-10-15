@@ -5,7 +5,7 @@ use std::str::FromStr;
 
 use anyhow::{Context, Result, bail};
 use hadris_fs::host::{self, OnError, TreeOptions};
-use hadris_fs::{Clock, DateTime, SystemClock, Tree};
+use hadris_fs::{Clock, DateTime, NodeId, SystemClock, Tree};
 use hadris_storage::Partition;
 use hadris_storage::host::FileDevice;
 use hadris_storage::sync::BlockDevice;
@@ -99,6 +99,42 @@ pub fn read_source(source: &Path) -> Result<Tree> {
 /// system time otherwise.
 pub fn build_time() -> Result<DateTime> {
     Ok(host::source_date_epoch()?.unwrap_or_else(|| SystemClock.now()))
+}
+
+/// The deepest directory level a recursive walk enters, the limit of
+/// `hadris_fs::read_tree` and `hadris_fs::Walk`.
+pub const MAX_WALK_DEPTH: usize = 1024;
+
+/// The directories from the top of a recursive walk down to the one being
+/// listed, so that a damaged image whose directory leads back to one of them
+/// fails instead of looping, and a walk stops at [`MAX_WALK_DEPTH`] levels.
+#[derive(Debug)]
+pub struct Ancestors(Vec<NodeId>);
+
+impl Ancestors {
+    /// The ancestors of a walk starting from the directory `top`.
+    pub fn new(top: NodeId) -> Self {
+        Self(vec![top])
+    }
+
+    /// Descends into the directory `node` at `path`, failing when it is
+    /// already on the walk's path or the walk is too deep. A successful
+    /// call is paired with [`Ancestors::leave`].
+    pub fn enter(&mut self, node: NodeId, path: &str) -> Result<()> {
+        if self.0.contains(&node) {
+            bail!("Directory loop at {path}: corrupt filesystem data");
+        }
+        if self.0.len() >= MAX_WALK_DEPTH {
+            bail!("Directory nesting exceeds {MAX_WALK_DEPTH} levels at {path}: limit exceeded");
+        }
+        self.0.push(node);
+        Ok(())
+    }
+
+    /// Returns from the directory the last [`Ancestors::enter`] entered.
+    pub fn leave(&mut self) {
+        self.0.pop();
+    }
 }
 
 /// A writable UDF revision: `1.02`, `1.50`, `2.00` or `2.01`.

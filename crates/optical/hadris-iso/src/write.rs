@@ -48,15 +48,23 @@ pub(crate) fn check_output<D: BlockDevice>(out: &D, plan: &Plan) -> Result<(), P
     Ok(())
 }
 
-/// Checks that this mode can read every file the plan writes. Stored
-/// files are read from the output itself.
+/// The content the plan writes at `path`, which must still have `len`
+/// bytes.
+pub(crate) fn planned_content<'t>(tree: &'t Tree, path: &[u8], len: u64) -> Result<&'t Content, PathError> {
+    tree.get(path)
+        .and_then(|node| node.content())
+        .filter(|content| content.len() == len)
+        .ok_or_else(|| PathError::from(Detail::Content.corrupt::<Infallible>()).with_path(path))
+}
+
+/// Checks that every file the plan writes is in the tree and that this mode
+/// can read it. Stored files are read from the output itself.
 pub(crate) fn check_contents(tree: &Tree, plan: &Plan) -> Result<(), PathError> {
     for region in &plan.regions {
         match region {
-            Region::File { path, .. } => {
-                if let Some(content) = tree.get(path).and_then(|node| node.content())
-                    && content.stored_extents().is_none()
-                {
+            Region::File { path, len, .. } => {
+                let content = planned_content(tree, path, *len)?;
+                if content.stored_extents().is_none() {
                     ContentReader::check(content).map_err(|err| err.with_path(path))?;
                 }
             }
@@ -119,11 +127,7 @@ pub(crate) async fn emit_from<D: BlockDevice, S: BlockDevice>(
                 write_sectors(out, *block, data).await?;
             }
             Region::File { block, path, len, info } => {
-                let changed = || PathError::from(Detail::Content.corrupt::<Infallible>()).with_path(path);
-                let content = tree.get(path).and_then(|node| node.content()).ok_or_else(changed)?;
-                if content.len() != *len {
-                    return Err(changed());
-                }
+                let content = planned_content(tree, path, *len)?;
                 file(out, content, *block, *info, &mut buf, source.as_deref_mut()).await.map_err(|err| err.with_path(path))?;
             }
             Region::Content { block, content, info } => {
@@ -292,4 +296,64 @@ async fn file<D: BlockDevice, S: BlockDevice>(
     Ok(())
 }
 
+}
+
+#[cfg(test)]
+mod tests {
+    use hadris_fs::{Content, ErrorKind, Node, Tree};
+
+    use super::check_contents;
+    use crate::options::IsoOptions;
+    use crate::plan::{self, Base, Region};
+
+    fn planned(tree: &Tree) -> plan::Plan {
+        let contents = plan::measure(tree, false).unwrap();
+        plan::lay_out(
+            tree,
+            &IsoOptions::default().with_rock_ridge(),
+            &contents,
+            Base::image(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn file_regions_carry_raw_tree_paths() {
+        let mut tree = Tree::new();
+        tree.insert(&b"d\xe9/\xff"[..], Node::file(Content::bytes("x")))
+            .unwrap();
+        let plan = planned(&tree);
+        let paths: alloc::vec::Vec<_> = plan
+            .regions
+            .iter()
+            .filter_map(|region| match region {
+                Region::File { path, .. } => Some(path.as_slice()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(paths, [&b"/d\xe9/\xff"[..]]);
+        check_contents(&tree, &plan).unwrap();
+    }
+
+    #[test]
+    fn missing_or_changed_contents_fail_the_check() {
+        let mut tree = Tree::new();
+        tree.insert("a.txt", Node::file(Content::bytes("abc")))
+            .unwrap();
+        let mut plan = planned(&tree);
+        for region in &mut plan.regions {
+            if let Region::File { path, .. } = region {
+                *path = b"/gone".to_vec();
+            }
+        }
+        let err = check_contents(&tree, &plan).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Corrupt);
+        assert_eq!(err.path(), Some(&b"/gone"[..]));
+
+        let plan = planned(&tree);
+        tree.replace("a.txt", Node::file(Content::bytes("abcd")))
+            .unwrap();
+        let err = check_contents(&tree, &plan).unwrap_err();
+        assert_eq!(err.path(), Some(&b"/a.txt"[..]));
+    }
 }

@@ -28,7 +28,7 @@ pub enum ArchiveFormat {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// List archive entries
+    /// List archive entries, of every segment of concatenated archives
     #[command(alias = "list")]
     Ls {
         /// Path to the CPIO archive, or - for standard input
@@ -59,7 +59,8 @@ enum Commands {
         #[arg(short, long)]
         verbose: bool,
     },
-    /// Extract a CPIO archive to a directory
+    /// Extract a CPIO archive to a directory. Modes are applied only to files
+    /// and directories this run creates, directories' once the archive ends
     Extract {
         /// Path to the CPIO archive, or - for standard input
         archive: PathBuf,
@@ -70,6 +71,10 @@ enum Commands {
         /// other than the root is written to `<output>/<name>`
         #[arg(short, long)]
         path: Option<String>,
+        /// Keep setuid, setgid and sticky bits from the archive; by default
+        /// only the rwx permission bits are applied
+        #[arg(long)]
+        preserve_special_bits: bool,
     },
     /// Print a file's contents from the archive to stdout
     Cat {
@@ -99,7 +104,8 @@ pub fn run(cli: Args) -> Result<()> {
             archive,
             output,
             path,
-        } => commands::extract(archive, output, path.as_deref()),
+            preserve_special_bits,
+        } => commands::extract(archive, output, path.as_deref(), preserve_special_bits),
         Commands::Cat { archive, path } => commands::cat(archive, &path),
     }
 }

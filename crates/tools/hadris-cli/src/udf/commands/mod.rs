@@ -22,7 +22,7 @@ use std::path::Path;
 
 use crate::common::{Device, Locate};
 use hadris_fs::sync::FileSystem;
-use hadris_fs::{DirCursor, DirEntry, FileType, OpenMode, Resolve};
+use hadris_fs::{DirCursor, DirEntry, FileType, NodeId, OpenMode, Resolve};
 use hadris_udf::sync::UdfFs;
 
 pub(super) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -37,20 +37,20 @@ pub(super) fn open(path: &Path, locate: &Locate) -> Result<Udf> {
 /// The entries of the directory at `path`, sorted as the volume lists them.
 pub(super) fn entries(udf: &mut Udf, path: &str) -> Result<Vec<DirEntry>> {
     let dir = udf.resolve(path.as_bytes(), Resolve::Lexical)?;
-    let mut items = Vec::new();
-    let mut cursor = DirCursor::START;
-    let listed = loop {
-        match udf.readdir(dir, cursor) {
-            Ok(Some(entry)) => {
-                cursor = entry.next_cursor();
-                items.push(entry);
-            }
-            Ok(None) => break Ok(items),
-            Err(err) => break Err(err.into()),
-        }
-    };
+    let listed = list(udf, dir);
     udf.forget(dir, 1);
     listed
+}
+
+/// The entries of the directory `dir`, sorted as the volume lists them.
+pub(super) fn list(udf: &mut Udf, dir: NodeId) -> Result<Vec<DirEntry>> {
+    let mut items = Vec::new();
+    let mut cursor = DirCursor::START;
+    while let Some(entry) = udf.readdir(dir, cursor)? {
+        cursor = entry.next_cursor();
+        items.push(entry);
+    }
+    Ok(items)
 }
 
 /// Copies the file at `path` to `out` and returns its length.
@@ -61,7 +61,7 @@ pub(super) fn copy_file(udf: &mut Udf, path: &str, out: &mut impl Write) -> Resu
     copied
 }
 
-fn copy_node(udf: &mut Udf, node: hadris_fs::NodeId, out: &mut impl Write) -> Result<u64> {
+pub(super) fn copy_node(udf: &mut Udf, node: NodeId, out: &mut impl Write) -> Result<u64> {
     udf.open(node, OpenMode::Read)?;
     let mut buf = [0u8; 64 * 1024];
     let mut offset = 0u64;

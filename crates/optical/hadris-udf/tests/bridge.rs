@@ -366,3 +366,66 @@ fn hybrid_tables_cover_the_whole_bridge_image() {
         verify(&bytes);
     }
 }
+
+#[test]
+fn bridges_write_non_utf8_names() {
+    let mut tree = Tree::new();
+    tree.insert(&b"caf\xe9.txt"[..], Node::file(Content::bytes("one")))
+        .unwrap();
+    tree.insert(&b"d\xe9/\xff"[..], Node::file(Content::bytes(large())))
+        .unwrap();
+    let options = options(UdfRevision::V2_01);
+    let report = hadris_udf::plan_bridge(&tree, &options.iso, &options.udf).unwrap();
+    assert!(report.extents(b"/caf\xe9.txt").is_some());
+    let bytes = create(&tree, &options);
+
+    let mut iso = MemDevice::new(&bytes[..], BlockSize::new(2048).unwrap());
+    let mut rr = hadris_iso::sync::IsoFs::mount_namespace(
+        &mut iso,
+        MountOptions::new(),
+        Namespace::RockRidge,
+    )
+    .unwrap();
+    let mut iso_extents = Vec::new();
+    for (path, data) in [
+        (&b"/caf\xe9.txt"[..], &b"one"[..]),
+        (b"/d\xe9/\xff", &large()),
+    ] {
+        let node = rr.resolve(path, hadris_fs::Resolve::Lexical).unwrap();
+        assert_eq!(common::read_node(&mut rr, node).unwrap(), data);
+        let mut extents = [Extent::new(0, 0); 4];
+        let n = rr.extents(node, 0, &mut extents).unwrap();
+        iso_extents.push(extents[..n].to_vec());
+    }
+
+    let mut udf = hadris_udf::sync::UdfFs::mount(
+        MemDevice::new(&bytes[..], BlockSize::new(2048).unwrap()),
+        MountOptions::new(),
+    )
+    .unwrap();
+    let mut udf_extents = Vec::new();
+    for (path, data) in [
+        ("/caf\u{FFFD}.txt", &b"one"[..]),
+        ("/d\u{FFFD}/\u{FFFD}", &large()),
+    ] {
+        assert_eq!(udf.read_to_vec(path).unwrap(), data);
+        let node = udf.resolve_path(path).unwrap();
+        let mut extents = [Extent::new(0, 0); 4];
+        let n = udf.extents(node, 0, &mut extents).unwrap();
+        udf_extents.push(extents[..n].to_vec());
+    }
+    assert_eq!(iso_extents, udf_extents);
+
+    let run = async {
+        let mut dev = MemDevice::new(vec![0u8; bytes.len()], BlockSize::new(2048).unwrap());
+        let written =
+            hadris_udf::r#async::write_bridge(&mut dev, &tree, &options.iso, &options.udf)
+                .await
+                .unwrap();
+        assert_eq!(written, report);
+        assert_eq!(dev.get_ref(), &bytes);
+    };
+    let mut run = std::pin::pin!(run);
+    let mut cx = core::task::Context::from_waker(core::task::Waker::noop());
+    while run.as_mut().poll(&mut cx).is_pending() {}
+}

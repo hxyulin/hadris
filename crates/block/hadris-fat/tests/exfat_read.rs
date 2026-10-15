@@ -446,3 +446,102 @@ fn contiguous_runs_respect_valid_data_and_heap_bounds() {
         );
     }
 }
+
+/// Points the stream entry of `set` at the allocation of `target`'s.
+fn alias(geo: &Geometry, image: &mut [u8], set: &[usize], target: &[usize]) {
+    let (from, to) = (target[1], set[1]);
+    image[to + 1] = image[from + 1];
+    let fields: Vec<u8> = image[from + 8..from + 32].to_vec();
+    image[to + 8..to + 32].copy_from_slice(&fields);
+    geo.reseal(image, set);
+}
+
+/// The first unpinned directory id `readdir` lists in `path`.
+fn listed_dir(fs: &mut common::Fs, path: &str) -> hadris_fs::NodeId {
+    let dir = fs.resolve_path(path).unwrap();
+    let entry = fs.readdir(dir, DirCursor::START).unwrap().unwrap();
+    fs.forget(dir, 1);
+    entry.node()
+}
+
+fn search_errors(image: &[u8]) -> (ErrorKind, ErrorKind) {
+    let mut fs = common::mount(image);
+    let z = listed_dir(&mut fs, "/outer");
+    let parent = fs.parent(z).map(|_| ()).map_err(|err| err.kind());
+    let root = fs.root();
+    let renamed = fs
+        .rename(
+            root,
+            hadris_fs::Name::new("d0"),
+            root,
+            hadris_fs::Name::new("outer"),
+            hadris_fs::RenameMode::Replace,
+        )
+        .map_err(|err| err.kind());
+    (parent.unwrap_err(), renamed.unwrap_err())
+}
+
+#[test]
+fn directory_loops_end_tree_searches_as_corrupt() {
+    let mut fs = common::small(4 << 20, 4096);
+    let root = fs.root();
+    let d0 = common::mkdir(&mut fs, root, "d0");
+    common::mkdir(&mut fs, d0, "a");
+    common::mkdir(&mut fs, d0, "b");
+    let outer = common::mkdir(&mut fs, root, "outer");
+    common::mkdir(&mut fs, outer, "z");
+    let image = common::image(fs);
+    let geo = Geometry::of(&image);
+    let d0 = geo.set(&image, geo.root, "d0");
+    let first = le32(&image, d0[1] + 20);
+
+    let mut looped = image.clone();
+    for name in ["a", "b"] {
+        let set = geo.set(&looped, first, name);
+        alias(&geo, &mut looped, &set, &d0);
+    }
+    assert_eq!(
+        search_errors(&looped),
+        (ErrorKind::Corrupt, ErrorKind::Corrupt)
+    );
+    let (_, found) = common::check_dev(&mut common::device(looped, 512), 4096);
+    assert!(
+        found.iter().any(|f| f.detail == Detail::CrossLink),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn cross_linked_directories_end_tree_searches_as_corrupt() {
+    const LEVELS: usize = 16;
+    let mut fs = common::small(4 << 20, 4096);
+    let root = fs.root();
+    for level in 0..LEVELS {
+        let dir = common::mkdir(&mut fs, root, &format!("d{level}"));
+        common::mkdir(&mut fs, dir, "a");
+        common::mkdir(&mut fs, dir, "b");
+    }
+    let outer = common::mkdir(&mut fs, root, "outer");
+    common::mkdir(&mut fs, outer, "z");
+    let mut image = common::image(fs);
+    let geo = Geometry::of(&image);
+    assert!((geo.count as usize) < 1 << LEVELS);
+    for level in 0..LEVELS - 1 {
+        let dir = geo.set(&image, geo.root, &format!("d{level}"));
+        let next = geo.set(&image, geo.root, &format!("d{}", level + 1));
+        let first = le32(&image, dir[1] + 20);
+        for name in ["a", "b"] {
+            let set = geo.set(&image, first, name);
+            alias(&geo, &mut image, &set, &next);
+        }
+    }
+    assert_eq!(
+        search_errors(&image),
+        (ErrorKind::Corrupt, ErrorKind::Corrupt)
+    );
+    let (_, found) = common::check_dev(&mut common::device(image, 512), 4096);
+    assert!(
+        found.iter().any(|f| f.detail == Detail::CrossLink),
+        "{found:?}"
+    );
+}

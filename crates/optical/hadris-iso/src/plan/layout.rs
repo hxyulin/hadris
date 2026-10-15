@@ -4,7 +4,6 @@ use super::{
     PlanResult, Planner, Region, SECTOR, block_of, too_large,
 };
 use alloc::collections::{BTreeMap, BTreeSet};
-use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -14,7 +13,7 @@ use crate::raw::{FileFlags, SECTOR_SIZE};
 struct PlacedFile {
     block: u64,
     node: usize,
-    path: String,
+    path: Vec<u8>,
     len: u64,
 }
 

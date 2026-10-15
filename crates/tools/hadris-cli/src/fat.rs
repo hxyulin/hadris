@@ -4,7 +4,7 @@ use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
-use crate::common::{Device, Locate, Target, read_source};
+use crate::common::{Ancestors, Device, Locate, Target, read_source};
 use anyhow::{Context, Result, bail};
 use clap::{Subcommand, ValueEnum};
 use hadris::ImageFormat;
@@ -451,7 +451,7 @@ fn percent(part: u64, total: u64) -> f64 {
 fn count_tree<D: FileSystem>(
     fs: &mut D,
     path: &str,
-    ancestors: &mut Vec<NodeId>,
+    ancestors: &mut Ancestors,
     files: &mut u64,
     dirs: &mut u64,
 ) -> Result<()> {
@@ -460,9 +460,9 @@ fn count_tree<D: FileSystem>(
         match meta.file_type() {
             FileType::Dir => {
                 let child = join(path, &name);
-                enter(ancestors, node, &child)?;
+                ancestors.enter(node, &child)?;
                 count_tree(fs, &child, ancestors, files, dirs)?;
-                ancestors.pop();
+                ancestors.leave();
             }
             _ => *files += 1,
         }
@@ -471,20 +471,10 @@ fn count_tree<D: FileSystem>(
 }
 
 /// The directories a recursive walk starts from: the node at `path`.
-fn walk_root<D: FileSystem>(fs: &mut D, path: &str) -> Result<Vec<NodeId>> {
+fn walk_root<D: FileSystem>(fs: &mut D, path: &str) -> Result<Ancestors> {
     let node = resolve(fs, path)?;
     fs.forget(node, 1);
-    Ok(vec![node])
-}
-
-/// Adds the directory `node` at `path` to the walk's `ancestors`, failing
-/// when it is already one of them: a directory loop in a damaged image.
-fn enter(ancestors: &mut Vec<NodeId>, node: NodeId, path: &str) -> Result<()> {
-    if ancestors.contains(&node) {
-        bail!("Directory loop at {path}: the image is damaged");
-    }
-    ancestors.push(node);
-    Ok(())
+    Ok(Ancestors::new(node))
 }
 
 /// Checks the image with the checker of its kind, and returns each finding
@@ -635,7 +625,7 @@ fn cmd_tree<D: FileSystem>(fs: &mut D, path: &str, max_depth: Option<usize>) -> 
 fn print_tree<D: FileSystem>(
     fs: &mut D,
     path: &str,
-    ancestors: &mut Vec<NodeId>,
+    ancestors: &mut Ancestors,
     prefix: &str,
     max_depth: Option<usize>,
     current_depth: usize,
@@ -658,7 +648,7 @@ fn print_tree<D: FileSystem>(
                 format!("{prefix}│   ")
             };
             let child = join(path, &name);
-            enter(ancestors, node, &child)?;
+            ancestors.enter(node, &child)?;
             print_tree(
                 fs,
                 &child,
@@ -667,7 +657,7 @@ fn print_tree<D: FileSystem>(
                 max_depth,
                 current_depth + 1,
             )?;
-            ancestors.pop();
+            ancestors.leave();
         } else {
             println!("{prefix}{connector}{name}");
         }
@@ -679,16 +669,16 @@ fn print_tree<D: FileSystem>(
 fn walk_files<D: FileSystem>(
     fs: &mut D,
     path: &str,
-    ancestors: &mut Vec<NodeId>,
+    ancestors: &mut Ancestors,
     out: &mut Vec<(String, u64)>,
 ) -> Result<()> {
     for (name, meta, node) in list_dir(fs, path)? {
         let child = join(path, &name);
         match meta.file_type() {
             FileType::Dir => {
-                enter(ancestors, node, &child)?;
+                ancestors.enter(node, &child)?;
                 walk_files(fs, &child, ancestors, out)?;
-                ancestors.pop();
+                ancestors.leave();
             }
             _ => out.push((child, meta.len())),
         }

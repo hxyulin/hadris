@@ -1,20 +1,39 @@
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use hadris_cpio::Format;
 
-use super::{format_filetype, format_mode, format_size, open_reader};
+use super::{for_each_entry, format_filetype, format_mode, format_size, open_reader};
+
+fn format_name(format: Option<Format>) -> &'static str {
+    match format {
+        Some(Format::Newc) => "newc (070701)",
+        Some(Format::Crc) => "newc+crc (070702)",
+        Some(Format::Odc) => "odc (070707)",
+        Some(Format::Binary) => "old binary",
+        Some(_) => "unknown",
+        None => "empty archive",
+    }
+}
 
 pub fn info(archive: PathBuf) -> Result<()> {
     let mut reader = open_reader(&archive)?;
 
     let mut entry_count: u64 = 0;
     let mut total_data_size: u64 = 0;
-    let mut format: Option<Format> = None;
+    let mut segments: Vec<(Option<Format>, u64)> = Vec::new();
     let mut details = Vec::new();
 
-    while let Some(entry) = reader.next_entry().context("Failed to read entry")? {
+    let count = for_each_entry(&mut reader, |segment, entry| {
+        if segments.len() < segment {
+            segments.resize(segment, (None, 0));
+            if segment > 1 {
+                details.push(format!("  segment {segment}:"));
+            }
+        }
+        let (format, entries) = &mut segments[segment - 1];
         format.get_or_insert(entry.format());
+        *entries += 1;
         entry_count += 1;
         total_data_size += entry.len();
         details.push(format!(
@@ -34,20 +53,30 @@ pub fn info(archive: PathBuf) -> Result<()> {
             entry.rdev().minor(),
             entry.check(),
         ));
-    }
+        Ok(())
+    })?;
+    segments.resize(count.max(1), (None, 0));
 
-    let format_str = match format {
-        Some(Format::Newc) => "newc (070701)",
-        Some(Format::Crc) => "newc+crc (070702)",
-        Some(Format::Odc) => "odc (070707)",
-        Some(Format::Binary) => "old binary",
-        Some(_) => "unknown",
-        None => "empty archive",
+    let formats: Vec<Format> = segments.iter().filter_map(|(format, _)| *format).collect();
+    let format_str = if formats.windows(2).all(|pair| pair[0] == pair[1]) {
+        format_name(formats.first().copied())
+    } else {
+        "mixed"
     };
 
     println!("CPIO Archive Information");
     println!("========================");
     println!("Format:       {format_str}");
+    println!("Segments:     {}", segments.len());
+    if segments.len() > 1 {
+        for (index, (format, entries)) in segments.iter().enumerate() {
+            println!(
+                "  {}: {}, {entries} entries",
+                index + 1,
+                format_name(*format)
+            );
+        }
+    }
     println!("Entries:      {entry_count}");
     println!(
         "Total data:   {} ({} bytes)",

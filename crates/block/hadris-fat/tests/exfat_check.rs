@@ -274,3 +274,52 @@ fn deep_trees_are_reported() {
     let found = kinds(&image);
     assert!(found.contains(&Detail::TooDeep), "{found:?}");
 }
+
+/// Points the stream entry of `set` at the allocation of `target`'s.
+fn alias(geo: &Geometry, image: &mut [u8], set: &[usize], target: &[usize]) {
+    let (from, to) = (target[1], set[1]);
+    image[to + 1] = image[from + 1];
+    let fields: Vec<u8> = image[from + 8..from + 32].to_vec();
+    image[to + 8..to + 32].copy_from_slice(&fields);
+    geo.reseal(image, set);
+}
+
+#[test]
+fn branching_cross_linked_directories_end_the_walk() {
+    const LEVELS: usize = 20;
+    let mut fs = common::small(8 << 20, 512);
+    let root = fs.root();
+    for level in 0..LEVELS {
+        let dir = common::mkdir(&mut fs, root, &format!("d{level}"));
+        for name in ["a", "b"] {
+            let child = common::mkdir(&mut fs, dir, name);
+            fs.forget(child, 1);
+        }
+        fs.forget(dir, 1);
+    }
+    fs.sync().unwrap();
+    let mut image = common::image(fs);
+    let geo = Geometry::of(&image);
+    assert!((geo.count as usize) < 1 << LEVELS);
+    for level in 0..LEVELS - 1 {
+        let dir = geo.set(&image, geo.root, &format!("d{level}"));
+        let next = geo.set(&image, geo.root, &format!("d{}", level + 1));
+        let first = le32(&image, dir[1] + 20);
+        for name in ["a", "b"] {
+            let set = geo.set(&image, first, name);
+            alias(&geo, &mut image, &set, &next);
+        }
+    }
+    let (report, _) = run(&image, 512);
+    assert!(report.passes() > 1, "{report:?}");
+    let found = kinds(&image);
+    assert!(found.contains(&Detail::CrossLink), "{found:?}");
+    assert_eq!(
+        found
+            .iter()
+            .filter(|kind| **kind == Detail::LimitExceeded)
+            .count(),
+        1,
+        "{found:?}"
+    );
+}

@@ -311,6 +311,15 @@ impl Geometry {
         out
     }
 
+    /// Whether the bitmap marks `cluster` used.
+    pub fn used(&self, image: &[u8], cluster: u32) -> bool {
+        let entry = self.root_entries(image, 0x81)[0];
+        let index = (cluster - 2) as usize;
+        let chain = self.chain(image, le32(image, entry + 20));
+        let at = self.at(chain[index / 8 / self.cluster]) + index / 8 % self.cluster;
+        image[at] & (1 << (index % 8)) != 0
+    }
+
     /// Sets or clears the bitmap bit of `cluster`.
     pub fn set_bit(&self, image: &mut [u8], cluster: u32, used: bool) {
         let entry = self.root_entries(image, 0x81)[0];

@@ -257,7 +257,7 @@ pub(crate) fn primary_keeps(name: &str, stored: &[u8]) -> bool {
 
 /// Whether readers list `name` under its Rock Ridge name: the reader lists
 /// a longer one under its ISO 9660 identifier.
-pub(crate) fn rock_ridge_lists(name: &str) -> bool {
+pub(crate) fn rock_ridge_lists(name: &[u8]) -> bool {
     name.len() <= hadris_fs::DirEntry::MAX_NAME
 }
 

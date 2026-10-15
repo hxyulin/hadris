@@ -1029,6 +1029,7 @@ impl<D: BlockDevice> ExFatFs<D> {
         if state.dir && !self.dir_is_empty(state.alloc(), state.len).await? {
             return Err(ErrorKind::DirectoryNotEmpty.into());
         }
+        self.check_set_allocs(&found.set, &state).await?;
         if state.first != 0 && !state.contiguous {
             self.pending = Some(Pending::chain(state.first, Owner::Removed(found.set.offset)));
         }
@@ -1821,6 +1822,10 @@ impl<D: BlockDevice> ExFatFs<D> {
     }
 
     /// Searches the tree from the root, to a depth of [`MAX_DEPTH`].
+    ///
+    /// Fails with [`ErrorKind::Corrupt`] when a directory holds one of its
+    /// ancestors, or when the directories entered, each counted at its
+    /// `DataLength` and at least one cluster, add up to more than the heap.
     async fn search(&mut self, target: Target) -> FsResult<Option<u64>, D::Error> {
         let (start, entry) = match target {
             Target::Below(start, _) => (start, u64::MAX),
@@ -1828,6 +1833,8 @@ impl<D: BlockDevice> ExFatFs<D> {
         };
         let mut stack = [(start, entry, 0u32); MAX_DEPTH];
         let mut depth = 1;
+        let geo = self.vol.geometry();
+        let mut budget = geo.cluster_count() as u64 * geo.cluster_size();
         let mut deeper = false;
         let mut set = Set::new();
         while depth > 0 {
@@ -1845,9 +1852,14 @@ impl<D: BlockDevice> ExFatFs<D> {
                 _ => {}
             }
             if set.is_dir() && set.first() != 0 {
+                if stack[..depth].iter().any(|(dir, _, _)| dir.alloc.first == set.first()) {
+                    return Err(ErrorKind::Corrupt.into());
+                }
                 if depth == MAX_DEPTH {
                     deeper = true;
                 } else {
+                    let cost = set.data_len().max(self.vol.geometry().cluster_size());
+                    budget = budget.checked_sub(cost).ok_or(ErrorKind::Corrupt)?;
                     stack[depth] = (DirStart { alloc: set.alloc(), size: set.data_len() }, set.offset, 0);
                     depth += 1;
                 }
@@ -2010,7 +2022,7 @@ impl<D: BlockDevice> ExFatFs<D> {
             unlinked: false,
         };
         if old.first != 0 && old.contiguous {
-            self.contiguous_tail(&old)?;
+            self.used_run_tail(old.first, old.len).await?;
         }
         let owner = if old.first == 0 { Owner::Entry(dir_entry) } else { Owner::None };
         let added = self.allocate_chain(count, true, owner).await?;
@@ -2065,6 +2077,36 @@ impl<D: BlockDevice> ExFatFs<D> {
         let clusters = u32::try_from(len.div_ceil(self.vol.geometry().cluster_size())).map_err(|_| ErrorKind::Corrupt)?;
         let tail = self.check_cluster(first)?.checked_add(clusters.max(1) - 1).ok_or(ErrorKind::Corrupt)?;
         self.check_cluster(tail)
+    }
+
+    /// The last cluster of the contiguous run of `len` bytes at `first`, or
+    /// [`ErrorKind::Corrupt`] when it runs past the cluster heap or the
+    /// bitmap does not mark all of it used.
+    async fn used_run_tail(&mut self, first: u32, len: u64) -> FsResult<u32, D::Error> {
+        let tail = self.run_tail(first, len)?;
+        if !exio::run_used(&mut self.dev, &mut self.block, &mut self.vol, first, tail - first + 1).await? {
+            return Err(ErrorKind::Corrupt.into());
+        }
+        Ok(tail)
+    }
+
+    /// Checks that `free_alloc` may free the allocation of `len` bytes: a
+    /// contiguous one must lie in the cluster heap and be marked used.
+    async fn check_alloc(&mut self, alloc: Alloc, len: u64) -> FsResult<(), D::Error> {
+        if alloc.first != 0 && alloc.contiguous && len != 0 {
+            self.used_run_tail(alloc.first, len).await?;
+        }
+        Ok(())
+    }
+
+    /// Checks every allocation that removing `set`, whose node is `node`,
+    /// frees, before anything is written.
+    async fn check_set_allocs(&mut self, set: &Set, node: &Node) -> FsResult<(), D::Error> {
+        self.check_alloc(node.alloc(), node.len).await?;
+        for (alloc, len) in set.extra_allocs() {
+            self.check_alloc(alloc, len).await?;
+        }
+        Ok(())
     }
 
     /// Links the chain at `added` after the allocation of `node`, giving a
@@ -2286,6 +2328,7 @@ impl<D: BlockDevice> ExFatFs<D> {
         if target_node.dir && !self.dir_is_empty(target_node.alloc(), target_node.len).await? {
             return Err(ErrorKind::DirectoryNotEmpty.into());
         }
+        self.check_set_allocs(&target.set, &target_node).await?;
         let needed = 2 + name.entries() as u32 + src.set.extras().len() as u32;
         let plan = self.plan(to, None, needed, Some(&target.set)).await?;
         let (to, plan) = self.grow_first(to, to_entry, &plan).await?;
@@ -2475,7 +2518,7 @@ impl<D: BlockDevice> ExFatFs<D> {
             return Err(ErrorKind::NoSpace.into());
         }
         if state.first != 0 && state.contiguous {
-            self.contiguous_tail(state)?;
+            self.used_run_tail(state.first, state.len).await?;
         }
         let owner = if state.first == 0 { Owner::Entry(state.entry) } else { Owner::None };
         let added = self.allocate_chain(extra, false, owner).await?;
@@ -2651,7 +2694,10 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// The directory containing `dir`, pinned. The root is its own parent.
     ///
     /// The node table remembers the directory a node was found in; when it
-    /// does not, the tree is searched from the root, to a depth of 64.
+    /// does not, the tree is searched from the root, to a depth of 64. A
+    /// directory that holds one of its ancestors, or a tree with more
+    /// directories than the volume has clusters, fails the search with
+    /// [`ErrorKind::Corrupt`].
     pub async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
         if dir == ROOT {
             return Ok(ROOT);
@@ -2906,8 +2952,9 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// `DataLength` only, so it reads as zeros without writing them.
     /// Shrinking writes the new sizes at once and frees the clusters past
     /// them. A changed size sets the archive attribute. A contiguous
-    /// allocation that runs past the cluster heap fails with
-    /// [`ErrorKind::Corrupt`] before anything is written.
+    /// allocation that runs past the cluster heap, or that the bitmap does
+    /// not mark used throughout, fails with [`ErrorKind::Corrupt`] before
+    /// anything is written.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat", level = "trace", skip_all, fields(node = ?node, len = len)))]
     pub async fn truncate(&mut self, node: NodeId, len: u64) -> FsResult<(), D::Error> {
         self.prepare().await?;
@@ -2926,7 +2973,7 @@ impl<D: BlockDevice> ExFatFs<D> {
             return Ok(());
         }
         if state.first != 0 && state.contiguous {
-            self.contiguous_tail(&state)?;
+            self.used_run_tail(state.first, state.len).await?;
         }
         let cluster_size = self.vol.geometry().cluster_size();
         let keep = len.div_ceil(cluster_size) as u32;

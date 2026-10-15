@@ -752,3 +752,108 @@ fn reading_a_file_of_many_extents_takes_linear_reads() {
         "{small} reads for 64 extents, {large} for 256"
     );
 }
+
+fn rr_read(bytes: &[u8], path: &[u8]) -> Vec<u8> {
+    use hadris_fs::sync::FileSystem;
+    let mut iso = MemDevice::new(bytes.to_vec(), common::SECTOR);
+    let mut rr =
+        IsoFs::mount_namespace(&mut iso, MountOptions::new(), Namespace::RockRidge).unwrap();
+    let node = rr.resolve(path, hadris_fs::Resolve::Lexical).unwrap();
+    common::read_node(&mut rr, node).unwrap()
+}
+
+fn latin1_tree() -> hadris_fs::Tree {
+    let mut tree = hadris_fs::Tree::new();
+    tree.insert(&b"caf\xe9.txt"[..], Node::file(Content::bytes("one")))
+        .unwrap();
+    tree.insert(&b"r\xe9p/\xff"[..], Node::file(Content::bytes("two")))
+        .unwrap();
+    tree
+}
+
+#[test]
+fn sessions_rewrite_latin1_rock_ridge_names() {
+    let opts = IsoOptions::default().with_rock_ridge().with_joliet();
+    for mode in [SessionMode::Append, SessionMode::Rewrite] {
+        let mut session = Session::open(grown(image(&latin1_tree(), &opts))).unwrap();
+        assert!(session.tree().get(&b"/caf\xe9.txt"[..]).is_some());
+        session
+            .tree_mut()
+            .replace(&b"caf\xe9.txt"[..], Node::file(Content::bytes("uno")))
+            .unwrap();
+        session
+            .tree_mut()
+            .insert(&b"r\xe9p/na\xefve"[..], Node::file(Content::bytes("new")))
+            .unwrap();
+        let report = session.write(&opts, mode).unwrap();
+        assert!(report.extents(b"/r\xe9p/na\xefve").is_some(), "{mode:?}");
+        let bytes = session.into_inner().into_inner();
+        assert_eq!(rr_read(&bytes, b"/caf\xe9.txt"), b"uno", "{mode:?}");
+        assert_eq!(rr_read(&bytes, b"/r\xe9p/\xff"), b"two", "{mode:?}");
+        assert_eq!(rr_read(&bytes, b"/r\xe9p/na\xefve"), b"new", "{mode:?}");
+    }
+}
+
+#[test]
+fn kept_catalogs_follow_boot_images_with_latin1_names() {
+    let tree = sample(false, false);
+    let mut bytes = grown(image(&tree, &options())).into_inner();
+    let from = b"NM\x0d\x01\x00boot.img";
+    let at: Vec<_> = (0..bytes.len() - from.len())
+        .filter(|&i| &bytes[i..i + from.len()] == from)
+        .collect();
+    assert_eq!(at.len(), 1);
+    bytes[at[0] + 5..at[0] + 13].copy_from_slice(b"b\xf4\xf4t.img");
+    let mut session = Session::open(MemDevice::new(bytes, common::SECTOR)).unwrap();
+    assert!(session.tree().get(&b"boot/b\xf4\xf4t.img"[..]).is_some());
+    let replaced = vec![0x5Au8; 4096];
+    session
+        .tree_mut()
+        .replace(
+            &b"boot/b\xf4\xf4t.img"[..],
+            Node::file(Content::bytes(replaced.clone())),
+        )
+        .unwrap();
+    let opts = session.options();
+    let report = session.write(&opts, SessionMode::Rewrite).unwrap();
+    let moved = report
+        .extents(b"boot/b\xf4\xf4t.img")
+        .map(|e| e[0])
+        .unwrap();
+    let mut iso = session.into_inner();
+    let catalog = IsoFs::mount(&mut iso, MountOptions::new())
+        .unwrap()
+        .catalog()
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        u64::from(catalog.entries()[0].load_block()) * 2048,
+        moved.offset()
+    );
+    assert_eq!(rr_read(iso.get_ref(), b"/boot/b\xf4\xf4t.img"), replaced);
+}
+
+#[cfg(feature = "async")]
+#[test]
+fn async_sessions_rewrite_latin1_names_alike() {
+    let opts = IsoOptions::default().with_rock_ridge();
+    let dev = grown(image(&latin1_tree(), &opts));
+    let mut sync_session =
+        Session::open(MemDevice::new(dev.get_ref().clone(), common::SECTOR)).unwrap();
+    sync_session
+        .tree_mut()
+        .insert(&b"r\xe9p/na\xefve"[..], Node::file(Content::bytes("new")))
+        .unwrap();
+    sync_session.write(&opts, SessionMode::Rewrite).unwrap();
+    let expected = sync_session.into_inner().into_inner();
+    assert_eq!(rr_read(&expected, b"/r\xe9p/na\xefve"), b"new");
+    common::block_on(async {
+        let mut session = hadris_iso::r#async::Session::open(dev).await.unwrap();
+        session
+            .tree_mut()
+            .insert(&b"r\xe9p/na\xefve"[..], Node::file(Content::bytes("new")))
+            .unwrap();
+        session.write(&opts, SessionMode::Rewrite).await.unwrap();
+        assert_eq!(session.into_inner().into_inner(), expected);
+    });
+}

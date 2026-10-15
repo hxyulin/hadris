@@ -8,6 +8,40 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **CLI directory loops:** `iso tree`, `iso verify --strict`, `udf tree`,
+  `udf verify` and `udf compare` stop at a directory that leads back to one
+  on its own path, as in a damaged image, and report
+  `Directory loop at <path>: corrupt filesystem data` with a non-zero exit
+  instead of running forever. Every CLI tree walk, including the `fat`
+  ones, now fails past 1024 levels, the limit of `read_tree` (`iso verify`
+  previously stopped at 256), and the `iso` and `udf` walks list
+  directories by node instead of resolving each path from the root.
+
+- **exFAT directory loops:** `ExFatFs::parent` of a node whose parent is not
+  remembered, and `rename` of a directory, no longer hang on a volume whose
+  directories hold one of their ancestors or are cross-linked into a graph
+  that grows exponentially. The tree search fails with `Corrupt` when a
+  directory names an ancestor's first cluster or once the directories it
+  entered, each counted at its `DataLength`, add up to more than the heap.
+  `exfat::check` reports such a loop as a cross-link without entering it,
+  and ends a walk with a new `Detail::LimitExceeded` finding once the
+  clusters it claimed, counted again for each cross-linked claim, exceed
+  twice the volume's clusters, so a branching graph of cross-linked
+  directories or files no longer keeps each bitmap pass busy.
+
+- **ISO 9660 writer:** Trees with names that are not UTF-8 are written.
+  Files, write regions and report extents are keyed by the tree's byte path
+  instead of a lossy copy, so `write`, `write_bridge` and `Session::write`
+  no longer fail mid-image, `Report::extents` finds such files by their
+  bytes, and a kept boot catalog follows boot images with such names. Rock
+  Ridge `NM` entries store the name's bytes as they are; the primary,
+  ISO 9660:1999 and Joliet identifiers still map U+FFFD for each invalid
+  sequence. Such names warn "iso 9660 names are unicode" without Rock
+  Ridge; with it, only when a Joliet or ISO 9660:1999 tree is written, with
+  a message naming those trees. A planned file missing from the tree, or whose length
+  changed, now fails with `Corrupt` and its path before any block is
+  written, instead of during the write.
+
 - **Partition-aware open:** `hadris::sync::open_partition` and
   `hadris::async_::open_partition` read the MBR or GPT of a device and mount
   the partition a `hadris::Select` names (`Index(slot)`, `Guid(guid)` or
@@ -154,6 +188,41 @@ Each published package owns its version and may be released independently.
   last 1 to 3 bytes as a zero-padded word, matching xorriso 1.5.8 and
   cdrtools mkisofs 3.02. Images whose length after byte 64 was not a
   multiple of four previously recorded a different sum.
+
+- **CLI (`hadris cpio extract`), security:** A hard link group no longer
+  writes data to, or changes the mode of, a name that a later entry replaced
+  with a symlink, which let an archive write or chmod a host file outside the
+  output directory. Files are created with `create_new` and `O_NOFOLLOW` and
+  their mode is set on the open file, and a name only becomes a hard link to
+  a regular file this extraction created. Hard links are matched by device
+  and inode number instead of inode alone. Modes are applied only to files
+  and directories the extraction creates, so an existing directory such as
+  `~/.ssh` keeps its mode, and directory modes are applied after the archive
+  ends, so a read-only directory with children extracts.
+
+- **CLI (`hadris cpio extract`), breaking:** Setuid, setgid and sticky bits
+  are dropped by default; `--preserve-special-bits` keeps them.
+
+- **CLI (`hadris cpio`):** `ls`, `info`, `cat` and `extract` read every
+  segment of concatenated archives, such as an x86 microcode archive followed
+  by an initramfs, instead of stopping at the first trailer. `ls` marks each
+  segment after the first with `segment <n>:`, and `info` reports the
+  segment count and each segment's format. A name in a later segment replaces
+  the earlier one in `extract`, and `cat` prints the last entry of a name.
+  For a zero-length hard link name, `cat` prints the data of the group's
+  member that carries it, whether that member comes before or after the
+  name. `cat` reads the data through the handle it scanned instead of
+  reopening the archive, and fails if the file ends inside the data. Non-cpio
+  data after a trailer ends the archive with a warning.
+
+- **hadris-fat (exFAT):** Removing, replacing by rename, truncating or
+  growing a file or directory with a contiguous (`NoFatChain`) allocation
+  checks that the allocation bitmap marks every cluster its `DataLength`
+  covers used, and fails with `Corrupt` before writing anything otherwise.
+  A corrupt `DataLength` reaching into free clusters previously freed the
+  clusters of other files past it, which were then allocated twice. The
+  same applies to contiguous vendor allocations of a removed entry set.
+  `hadris-fat-raw` exports the check as `exfat::io::run_used` in each mode.
 
 - **CLI (`hadris fat`):** `chain` on the fixed FAT12/16 root directory
   reports that it has no cluster chain instead of underflowing, and `tree`,

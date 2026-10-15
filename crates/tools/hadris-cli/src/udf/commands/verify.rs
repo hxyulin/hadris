@@ -1,9 +1,11 @@
 use std::io;
 
-use hadris_fs::FileType;
+use hadris_fs::sync::FileSystem;
+use hadris_fs::{FileType, NodeId};
 
 use super::super::args::VerifyArgs;
-use super::{Result, Udf, copy_file, entries, join};
+use super::{Result, Udf, copy_node, join, list};
+use crate::common::Ancestors;
 
 /// Verify UDF image structural integrity: open the volume, then walk the
 /// whole tree and read every file.
@@ -27,7 +29,15 @@ pub fn verify(args: VerifyArgs) -> Result<()> {
     println!("  UDF revision: {}", udf.info().revision());
 
     let mut tally = Tally::default();
-    walk(&mut udf, "/", args.verbose, &mut tally);
+    let root = udf.root();
+    walk(
+        &mut udf,
+        root,
+        "/",
+        &mut Ancestors::new(root),
+        args.verbose,
+        &mut tally,
+    );
     println!(
         "  Directory tree: {} files, {} directories, {} errors",
         tally.files,
@@ -51,8 +61,15 @@ struct Tally {
     errors: Vec<String>,
 }
 
-fn walk(udf: &mut Udf, path: &str, verbose: bool, tally: &mut Tally) {
-    let items = match entries(udf, path) {
+fn walk(
+    udf: &mut Udf,
+    dir: NodeId,
+    path: &str,
+    ancestors: &mut Ancestors,
+    verbose: bool,
+    tally: &mut Tally,
+) {
+    let items = match list(udf, dir) {
         Ok(items) => items,
         Err(e) => {
             tally.errors.push(format!("{path}: {e}"));
@@ -67,11 +84,24 @@ fn walk(udf: &mut Udf, path: &str, verbose: bool, tally: &mut Tally) {
         match item.file_type() {
             FileType::Dir => {
                 tally.dirs += 1;
-                walk(udf, &child, verbose, tally);
+                match ancestors.enter(item.node(), &child) {
+                    Ok(()) => {
+                        walk(udf, item.node(), &child, ancestors, verbose, tally);
+                        ancestors.leave();
+                    }
+                    Err(e) => tally.errors.push(e.to_string()),
+                }
             }
             FileType::File => {
                 tally.files += 1;
-                let read = copy_file(udf, &child, &mut io::sink());
+                let read = udf
+                    .lookup(dir, item.name())
+                    .map_err(Into::into)
+                    .and_then(|node| {
+                        let copied = copy_node(udf, node, &mut io::sink());
+                        udf.forget(node, 1);
+                        copied
+                    });
                 if let Err(e) = read {
                     tally.errors.push(format!("{child}: {e}"));
                 }
