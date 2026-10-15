@@ -176,6 +176,32 @@ class ReleasePlanTests(unittest.TestCase):
         self.assertIn("CHANGELOG.md needs exactly one", result.stderr)
         self.assertFalse((self.root / "notes").exists())
 
+    def test_dated_section_without_tag_fails(self):
+        changelog = self.root / "CHANGELOG.md"
+        changelog.write_text(changelog.read_text() + "\n## [3.0.0-rc.0] - 2026-10-01\n\nNever tagged.\n")
+        result = self.plan("--notes", "joint", "all")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("section [3.0.0-rc.0] is dated but tag v3.0.0-rc.0 does not exist", result.stderr)
+        self.git("tag", "v3.0.0-rc.0")
+        result = self.plan("--notes", "joint", "all")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_dated_section_without_tag_fails_independent_releases(self):
+        changelog = self.root / "CHANGELOG.md"
+        changelog.write_text(changelog.read_text() + "\n## [3.0.0-rc.0] - 2026-10-01\n\nNever tagged.\n")
+        result = self.plan("hadris")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("tag v3.0.0-rc.0 does not exist", result.stderr)
+
+    def test_undated_unreleased_section_is_allowed_but_not_released(self):
+        changelog = self.root / "CHANGELOG.md"
+        changelog.write_text("## [3.0.0-rc.2] - Unreleased\n\nPending.\n\n" + changelog.read_text())
+        result = self.plan("--notes", "joint", "all")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.plan("--notes", "3.0.0-rc.2", "all")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("section [3.0.0-rc.2] has no release date", result.stderr)
+
     def test_workflow_creates_rc_tags_and_prereleases_and_skips_reruns(self):
         releases = self.github_releases()
         self.assertEqual([r[2] for r in releases], [
