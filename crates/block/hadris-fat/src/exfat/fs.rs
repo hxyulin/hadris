@@ -1297,10 +1297,9 @@ impl<D: BlockDevice> ExFatFs<D> {
             }
             pending.owner = if tail == 0 { Owner::None } else { Owner::Tail(tail) };
         }
-        if pending.run.count != 0 {
-            return self.finish_run(pending).await;
-        }
-        let (head, extra) = (pending.held.head(), pending.held.extra());
+        let run = pending.run.count != 0;
+        let head = if run { pending.run.first } else { pending.held.head() };
+        let extra = pending.held.extra();
         let mut owned = head != 0 && self.links(pending.owner, head).await?;
         if let Owner::Tail(tail) = pending.owner
             && owned
@@ -1324,33 +1323,16 @@ impl<D: BlockDevice> ExFatFs<D> {
                 owner: Owner::None,
                 ..pending
             });
-            if extra != 0 {
-                self.reclaim(extra, head).await?;
+            if run {
+                self.free_run(head, pending.run.count).await?;
+            } else {
+                if extra != 0 {
+                    self.reclaim(extra, head).await?;
+                }
+                if head != 0 {
+                    self.reclaim(head, 0).await?;
+                }
             }
-            if head != 0 {
-                self.reclaim(head, 0).await?;
-            }
-        }
-        self.pending = None;
-        Ok(())
-    }
-
-    /// Frees the contiguous run of `pending` unless its owner's entry set
-    /// still names it.
-    async fn finish_run(&mut self, pending: Pending) -> FsResult<(), D::Error> {
-        let Run { first, count } = pending.run;
-        if !self.links(pending.owner, first).await? {
-            if let Owner::Removed(offset) = pending.owner
-                && let Some(id) = self.pinned_at(offset)
-                && self.nodes.get(id).is_some_and(|node| node.first == first)
-            {
-                self.mark_unlinked(id);
-            }
-            self.pending = Some(Pending { owner: Owner::None, ..pending });
-            self.free_run(first, count).await?;
-        }
-        if let Owner::Entry(offset) = pending.owner {
-            self.reconcile(offset).await?;
         }
         self.pending = None;
         Ok(())
@@ -1836,10 +1818,23 @@ impl<D: BlockDevice> ExFatFs<D> {
         if self.pinned_at(offset).is_some() || self.free_id(offset, set.tag()) != Some(id) {
             return Err(ErrorKind::InvalidHandle.into());
         }
-        if self.freed_dir(cluster) && self.search(Target::ParentOf(offset)).await?.is_none() {
+        if self.freed_dir(cluster) && !self.reachable(offset).await? {
             return Err(ErrorKind::InvalidHandle.into());
         }
         Ok(())
+    }
+
+    /// Whether the tree reaches the entry set at `offset`. The async search
+    /// is boxed so that the futures of every node lookup do not hold it.
+    async fn reachable(&mut self, offset: u64) -> FsResult<bool, D::Error> {
+        let target = Target::ParentOf(offset);
+        sync_only! {
+            let found = self.search(target).await?;
+        }
+        async_only! {
+            let found = alloc::boxed::Box::pin(self.search(target)).await?;
+        }
+        Ok(found.is_some())
     }
 
     /// Reads the entry set whose File entry is at `offset` into `set`.
