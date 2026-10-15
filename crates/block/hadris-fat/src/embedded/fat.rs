@@ -139,11 +139,6 @@ fn check_entry_name(name: &str) -> Result<(), ErrorKind> {
     }
 }
 
-/// Whether `entry` is the `.` entry of the directory at `first`.
-fn is_dot_of(entry: &ShortEntry, kind: FatKind, first: u32) -> bool {
-    entry.name() == *b".          " && entry.is_dir() && entry.first_cluster(kind) == first
-}
-
 io_transform! {
 
 /// A FAT12, FAT16 or FAT32 volume for firmware, with `FILES` file slots.
@@ -388,10 +383,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         if !node.belongs_to(self.owner) || !crate::names::in_directory_region(self.fat.geometry(), offset) {
             return Err(ErrorKind::InvalidHandle.into());
         }
-        let entry = match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
-            Slot::Short(entry) if entry.is_visible() => entry,
-            _ => return Err(ErrorKind::NotFound.into()),
-        };
+        let entry = self.visible_at(offset).await?.ok_or(ErrorKind::NotFound)?;
         if crate::names::entry_tag(&entry) != node.tag() || !crate::names::plausible_entry(&entry, self.fat.geometry()) {
             return Err(ErrorKind::InvalidHandle.into());
         }
@@ -1035,21 +1027,30 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         if dir.is_root() {
             return Ok(self.fat.root());
         }
-        let first = self.fat.check_cluster(dir.first())?;
-        match rawio::read_slot(&mut self.dev, &mut self.block, self.fat.cluster_at(first)?).await? {
-            Slot::Short(entry) if is_dot_of(&entry, self.kind(), first) => Ok(DirStart::Chain(first)),
-            _ => Err(ErrorKind::InvalidHandle.into()),
+        match self.dot_entry(dir.first()).await? {
+            Some(_) => Ok(DirStart::Chain(dir.first())),
+            None => Err(ErrorKind::InvalidHandle.into()),
         }
     }
 
     /// Marks the `.` entry of the directory at `first`, which nothing links
     /// any more, deleted, so that a [`Dir`] still naming it fails.
     async fn retire_dir(&mut self, first: u32) -> FsResult<(), D::Error> {
-        let at = self.fat.cluster_at(first)?;
-        match rawio::read_slot(&mut self.dev, &mut self.block, at).await? {
-            Slot::Short(entry) if is_dot_of(&entry, self.kind(), first) => self.put(at, &[raw::ENTRY_FREE]).await,
-            _ => Ok(()),
+        match self.dot_entry(first).await? {
+            Some(at) => self.put(at, &[raw::ENTRY_FREE]).await,
+            None => Ok(()),
         }
+    }
+
+    /// The offset of the `.` entry the directory at cluster `first` begins
+    /// with, if it begins with one.
+    async fn dot_entry(&mut self, first: u32) -> FsResult<Option<u64>, D::Error> {
+        let at = self.fat.cluster_at(first)?;
+        let kind = self.kind();
+        Ok(match rawio::read_slot(&mut self.dev, &mut self.block, at).await? {
+            Slot::Short(entry) if entry.name() == *b".          " && entry.is_dir() && entry.first_cluster(kind) == first => Some(at),
+            _ => None,
+        })
     }
 
     /// The directory a subdirectory entry names.
@@ -1786,6 +1787,15 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         Ok(None)
     }
 
+    /// The short entry at `offset`, unless the slot holds something else,
+    /// the volume label or a `.` or `..` entry.
+    async fn visible_at(&mut self, offset: u64) -> FsResult<Option<ShortEntry>, D::Error> {
+        Ok(match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
+            Slot::Short(entry) if entry.is_visible() => Some(entry),
+            _ => None,
+        })
+    }
+
     async fn read_short(&mut self, offset: u64) -> FsResult<ShortEntry, D::Error> {
         match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
             Slot::Short(entry) => Ok(entry),
@@ -1863,7 +1873,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         if let Some(run) = self.run {
             let mut walk = DirWalk::new(run.dir);
             let short = match rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, run.short).await? {
-                Some(at) => matches!(rawio::read_slot(&mut self.dev, &mut self.block, at).await?, Slot::Short(entry) if entry.is_visible()),
+                Some(at) => self.visible_at(at).await?.is_some(),
                 None => true,
             };
             if !short {
@@ -1880,15 +1890,11 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         let linked = head != 0 && self.links(pending.owner, head).await?;
         let keep = match pending.owner {
             Owner::Cluster(_) | Owner::Entry(_) => linked,
-            Owner::Tail(tail) => {
-                if linked {
-                    let end = self.kind().end_of_chain();
-                    self.set_fat(tail, end).await?;
-                }
-                false
-            }
-            Owner::Cut { entry, size, tail } => {
-                let landed = self.shrunk(entry, size).await?;
+            Owner::Tail(tail) | Owner::Cut { tail, .. } => {
+                let landed = match pending.owner {
+                    Owner::Cut { entry, size, .. } => self.shrunk(entry, size).await?,
+                    _ => true,
+                };
                 if landed && linked {
                     let end = self.kind().end_of_chain();
                     self.set_fat(tail, end).await?;
@@ -1923,7 +1929,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         rename.phase = match rename.phase {
             RenamePhase::Inserting => RenamePhase::RollingBack,
             RenamePhase::Publishing => {
-                if matches!(rawio::read_slot(&mut self.dev, &mut self.block, rename.destination).await?, Slot::Short(entry) if entry.is_visible() && entry.encode() == rename.expected) {
+                if self.visible_at(rename.destination).await?.is_some_and(|entry| entry.encode() == rename.expected) {
                     RenamePhase::Committed
                 } else { RenamePhase::RollingBack }
             }
@@ -1978,10 +1984,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// interrupted shrink wrote. The open files of that entry then take it,
     /// as the shrink would have given them.
     async fn shrunk(&mut self, offset: u64, size: u32) -> FsResult<bool, D::Error> {
-        let landed = matches!(
-            rawio::read_slot(&mut self.dev, &mut self.block, offset).await?,
-            Slot::Short(entry) if entry.is_visible() && entry.size() == size
-        );
+        let landed = self.visible_at(offset).await?.is_some_and(|entry| entry.size() == size);
         if landed {
             for slot in self.files.iter_mut() {
                 if !slot.is_free() && slot.entry == offset {
@@ -2003,10 +2006,9 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
                 self.fat.is_cluster(prev)
                     && rawio::get(&mut self.dev, &mut self.block, &self.fat, prev).await? & kind.mask() == head
             }
-            Owner::Entry(offset) | Owner::First(offset) => matches!(
-                rawio::read_slot(&mut self.dev, &mut self.block, offset).await?,
-                Slot::Short(entry) if entry.is_visible() && entry.first_cluster(kind) == head
-            ),
+            Owner::Entry(offset) | Owner::First(offset) => {
+                self.visible_at(offset).await?.is_some_and(|entry| entry.first_cluster(kind) == head)
+            }
         })
     }
 
