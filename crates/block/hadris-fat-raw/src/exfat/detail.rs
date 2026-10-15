@@ -16,62 +16,62 @@ pub enum Detail {
     /// inconsistent with the rest of the volume.
     BootSector = 1,
     /// The checksum sector of the main boot region does not match it.
-    BootChecksum,
+    BootChecksum = 2,
     /// The backup boot region differs from the main one.
-    BackupBootRegion,
+    BackupBootRegion = 3,
     /// The up-case table is missing, does not match its checksum, or maps
     /// one of the first 128 code points other than the specification
     /// requires.
-    UpcaseTable,
+    UpcaseTable = 4,
     /// An entry set whose `SetChecksum` does not match its entries.
-    SetChecksum,
+    SetChecksum = 5,
     /// A `NameHash` that is not the hash of the up-cased name.
-    NameHash,
+    NameHash = 6,
     /// A file whose `ValidDataLength` exceeds its `DataLength`.
-    ValidDataLength,
+    ValidDataLength = 7,
     /// The Allocation Bitmap is missing, too short, or marks clusters in
     /// use as free.
-    Bitmap,
+    Bitmap = 8,
     /// An allocation starts at a cluster that is not a heap cluster, or
     /// has none although it is not empty.
-    InvalidCluster,
+    InvalidCluster = 9,
     /// A chain links to a free, reserved or out-of-range value.
-    BrokenChain,
+    BrokenChain = 10,
     /// A chain links back to one of its own clusters.
-    CyclicChain,
+    CyclicChain = 11,
     /// A cluster is in more than one allocation.
-    CrossLink,
+    CrossLink = 12,
     /// Clusters the bitmap marks allocated that no allocation reaches.
-    LostClusters,
+    LostClusters = 13,
     /// A name that is empty, holds a character exFAT forbids, or is `.` or
     /// `..`.
-    BadName,
+    BadName = 14,
     /// `VolumeFlags` marks the volume dirty.
-    Dirty,
+    Dirty = 15,
     /// `PercentInUse` is neither unknown nor the share of allocated
     /// clusters.
-    PercentInUse,
+    PercentInUse = 16,
     /// FAT entries 0 and 1 do not hold the media type and `0xFFFFFFFF`.
-    FatEntries,
+    FatEntries = 17,
     /// An Allocation Bitmap, Up-case Table or Volume Label entry outside
     /// the root directory, a second one in it, or a label that is too long.
-    RootEntry,
+    RootEntry = 18,
     /// A File entry without its Stream Extension and File Name entries, or
     /// secondary entries that follow no primary entry.
-    EntrySet,
+    EntrySet = 19,
     /// A directory whose size is not a whole number of clusters, above
     /// 256 MiB, or different from its `ValidDataLength`.
-    DirectorySize,
+    DirectorySize = 20,
     /// A chain runs into a cluster marked bad.
-    BadCluster,
+    BadCluster = 21,
     /// An allocation is longer or shorter than its `DataLength` needs.
-    SizeMismatch,
+    SizeMismatch = 22,
     /// A directory nested deeper than the checker follows.
-    TooDeep,
+    TooDeep = 23,
     /// The checker stopped walking the tree: the allocations it reached,
     /// counted again each time a cross-linked directory is entered, add up
     /// to more than twice the volume's clusters.
-    LimitExceeded,
+    LimitExceeded = 24,
 }
 
 impl Detail {
@@ -185,5 +185,41 @@ mod tests {
         let fat = crate::Detail::BootSector.code();
         assert_eq!(Detail::from_code(fat), None);
         assert_eq!(crate::Detail::from_code(Detail::BootSector.code()), None);
+    }
+
+    #[test]
+    fn detail_codes_are_pinned() {
+        let pinned = [
+            (Detail::BootSector, 1),
+            (Detail::BootChecksum, 2),
+            (Detail::BackupBootRegion, 3),
+            (Detail::UpcaseTable, 4),
+            (Detail::SetChecksum, 5),
+            (Detail::NameHash, 6),
+            (Detail::ValidDataLength, 7),
+            (Detail::Bitmap, 8),
+            (Detail::InvalidCluster, 9),
+            (Detail::BrokenChain, 10),
+            (Detail::CyclicChain, 11),
+            (Detail::CrossLink, 12),
+            (Detail::LostClusters, 13),
+            (Detail::BadName, 14),
+            (Detail::Dirty, 15),
+            (Detail::PercentInUse, 16),
+            (Detail::FatEntries, 17),
+            (Detail::RootEntry, 18),
+            (Detail::EntrySet, 19),
+            (Detail::DirectorySize, 20),
+            (Detail::BadCluster, 21),
+            (Detail::SizeMismatch, 22),
+            (Detail::TooDeep, 23),
+            (Detail::LimitExceeded, 24),
+        ];
+        assert_eq!(pinned.len(), Detail::ALL.len());
+        for (detail, number) in pinned {
+            let code = DetailCode::new("hadris-fat::exfat", number);
+            assert_eq!(detail.code(), code);
+            assert_eq!(Detail::from_code(code), Some(detail));
+        }
     }
 }

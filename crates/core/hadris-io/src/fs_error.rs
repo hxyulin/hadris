@@ -334,7 +334,13 @@ impl fmt::Display for Location {
 ///
 /// Each format crate names one domain and converts its `Detail` enum to and
 /// from these codes, so `Detail::of(&err)` finds its own codes and ignores
-/// another crate's. Codes are stable within a domain.
+/// another crate's. Codes are stable within a domain: a number keeps its
+/// meaning in every version, and each format crate pins its numbers in a
+/// test.
+///
+/// A domain is the name of the crate users read the `Detail` from, such as
+/// `"hadris-iso"`. A crate with a second `Detail` enum appends its module,
+/// as `"hadris-fat::exfat"` does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DetailCode {
     domain: &'static str,
@@ -342,7 +348,7 @@ pub struct DetailCode {
 }
 
 impl DetailCode {
-    /// Code `code` of `domain`, which is the crate name by convention and
+    /// Code `code` of `domain`, which follows the naming rule above and
     /// must not be empty.
     pub const fn new(domain: &'static str, code: u16) -> Self {
         Self { domain, code }

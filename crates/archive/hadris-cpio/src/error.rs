@@ -142,4 +142,26 @@ mod tests {
         let foreign = DetailCode::new("another-crate", Detail::ALL[0] as u16);
         assert_eq!(Detail::from_code(foreign), None);
     }
+
+    #[test]
+    fn detail_codes_are_pinned() {
+        let pinned = [
+            (Detail::Magic, 1),
+            (Detail::Field, 2),
+            (Detail::Name, 3),
+            (Detail::Padding, 4),
+            (Detail::Check, 5),
+            (Detail::Checksum, 6),
+            (Detail::Trailer, 7),
+            (Detail::Truncated, 8),
+            (Detail::Entry, 10),
+            (Detail::Format, 11),
+        ];
+        assert_eq!(pinned.len(), Detail::ALL.len());
+        for (detail, number) in pinned {
+            let code = DetailCode::new("hadris-cpio", number);
+            assert_eq!(detail.code(), code);
+            assert_eq!(Detail::from_code(code), Some(detail));
+        }
+    }
 }

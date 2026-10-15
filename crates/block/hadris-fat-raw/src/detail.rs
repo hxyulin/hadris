@@ -11,6 +11,10 @@ const DOMAIN: &str = "hadris-fat";
 ///
 /// Read it back from an [`Error`] with [`Detail::of`], or from a finding
 /// with [`Detail::from_code`]. Codes never change meaning.
+///
+/// The codes are in the `hadris-fat` domain, since `hadris-fat` re-exports
+/// this type. They keep their numbers in every version of this crate, so
+/// two versions in one build read each other's codes alike.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Detail {
@@ -18,47 +22,47 @@ pub enum Detail {
     /// inconsistent with the rest of the volume.
     BootSector = 1,
     /// The FAT32 backup boot sector differs from the boot sector.
-    BackupBootSector,
+    BackupBootSector = 2,
     /// FAT entries 0 and 1 do not hold the media byte and end-of-chain
     /// marks.
-    ReservedEntries,
+    ReservedEntries = 3,
     /// The FAT32 FSInfo sector has wrong signatures.
-    FsInfo,
+    FsInfo = 4,
     /// The FSInfo free count is neither unknown nor the free clusters in
     /// the FAT.
-    FreeCount,
+    FreeCount = 5,
     /// A mirrored FAT copy differs from the active one.
-    FatCopiesDiffer,
+    FatCopiesDiffer = 6,
     /// A chain starts at a cluster that is not a data cluster, or a
     /// directory has no cluster.
-    InvalidCluster,
+    InvalidCluster = 7,
     /// A chain links to a free, reserved or out-of-range value.
-    BrokenChain,
+    BrokenChain = 8,
     /// A chain links back to one of its own clusters.
-    CyclicChain,
+    CyclicChain = 9,
     /// A file's chain is longer or shorter than its size needs.
-    SizeMismatch,
+    SizeMismatch = 10,
     /// A cluster is in more than one chain.
-    CrossLink,
+    CrossLink = 11,
     /// Allocated clusters that no chain reaches.
-    LostClusters,
+    LostClusters = 12,
     /// A `.` or `..` entry is missing, wrong or out of place.
-    DotEntries,
+    DotEntries = 13,
     /// A short name holds a byte FAT does not allow.
-    BadName,
+    BadName = 14,
     /// A long name does not match the checksum of its short entry.
-    LfnChecksum,
+    LfnChecksum = 15,
     /// Long-name fragments that do not end in a short entry.
-    OrphanLfn,
+    OrphanLfn = 16,
     /// The FAT16 or FAT32 clean-shutdown bit is clear: the volume was not
     /// unmounted cleanly.
-    Dirty,
+    Dirty = 17,
     /// A chain runs into a cluster marked bad.
-    BadCluster,
+    BadCluster = 18,
     /// A directory entry records a non-zero size.
-    DirectorySize,
+    DirectorySize = 19,
     /// A volume label entry outside the root directory, or a second one.
-    Label,
+    Label = 20,
 }
 
 impl Detail {
@@ -176,5 +180,37 @@ mod tests {
         let err: Error<()> = Detail::boot(BootError::NotFat("bytes per sector"));
         assert_eq!(err.kind(), ErrorKind::NotRecognized);
         assert_eq!(Detail::of(&err), Some(Detail::BootSector));
+    }
+
+    #[test]
+    fn detail_codes_are_pinned() {
+        let pinned = [
+            (Detail::BootSector, 1),
+            (Detail::BackupBootSector, 2),
+            (Detail::ReservedEntries, 3),
+            (Detail::FsInfo, 4),
+            (Detail::FreeCount, 5),
+            (Detail::FatCopiesDiffer, 6),
+            (Detail::InvalidCluster, 7),
+            (Detail::BrokenChain, 8),
+            (Detail::CyclicChain, 9),
+            (Detail::SizeMismatch, 10),
+            (Detail::CrossLink, 11),
+            (Detail::LostClusters, 12),
+            (Detail::DotEntries, 13),
+            (Detail::BadName, 14),
+            (Detail::LfnChecksum, 15),
+            (Detail::OrphanLfn, 16),
+            (Detail::Dirty, 17),
+            (Detail::BadCluster, 18),
+            (Detail::DirectorySize, 19),
+            (Detail::Label, 20),
+        ];
+        assert_eq!(pinned.len(), Detail::ALL.len());
+        for (detail, number) in pinned {
+            let code = DetailCode::new("hadris-fat", number);
+            assert_eq!(detail.code(), code);
+            assert_eq!(Detail::from_code(code), Some(detail));
+        }
     }
 }

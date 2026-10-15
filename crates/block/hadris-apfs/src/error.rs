@@ -1,5 +1,7 @@
 use core::fmt;
 
+const DOMAIN: &str = "hadris-apfs";
+
 /// APFS operation error.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -73,24 +75,25 @@ pub enum Detail {
 }
 
 impl Detail {
+    const ALL: [Self; 7] = [
+        Self::Magic,
+        Self::Structure,
+        Self::Checksum,
+        Self::Address,
+        Self::Feature,
+        Self::VolumeSelection,
+        Self::Credentials,
+    ];
+
     /// Returns the stable APFS detail code.
     pub const fn code(self) -> hadris_fs::DetailCode {
-        hadris_fs::DetailCode::new("hadris-apfs", self as u16)
+        hadris_fs::DetailCode::new(DOMAIN, self as u16)
     }
 
     /// Reads an APFS detail from a shared error.
     pub fn of<E>(error: &hadris_fs::Error<E>) -> Option<Self> {
-        let code = error.detail()?.code_in("hadris-apfs")?;
-        match code {
-            1 => Some(Self::Magic),
-            2 => Some(Self::Structure),
-            3 => Some(Self::Checksum),
-            4 => Some(Self::Address),
-            5 => Some(Self::Feature),
-            6 => Some(Self::VolumeSelection),
-            7 => Some(Self::Credentials),
-            _ => None,
-        }
+        let code = error.detail()?.code_in(DOMAIN)?;
+        Self::ALL.into_iter().find(|detail| *detail as u16 == code)
     }
 }
 
@@ -118,5 +121,31 @@ impl<E> From<ApfsError> for hadris_fs::Error<E> {
             ApfsError::Unsupported(message) => (ErrorKind::Unsupported, message, Detail::Feature),
         };
         Self::new(kind, message).with_detail(detail.code())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hadris_fs::{DetailCode, Error, ErrorKind};
+
+    #[test]
+    fn detail_codes_are_pinned() {
+        let pinned = [
+            (Detail::Magic, 1),
+            (Detail::Structure, 2),
+            (Detail::Checksum, 3),
+            (Detail::Address, 4),
+            (Detail::Feature, 5),
+            (Detail::VolumeSelection, 6),
+            (Detail::Credentials, 7),
+        ];
+        assert_eq!(pinned.len(), Detail::ALL.len());
+        for (detail, number) in pinned {
+            let code = DetailCode::new("hadris-apfs", number);
+            assert_eq!(detail.code(), code);
+            let err: Error<()> = Error::new(ErrorKind::Corrupt, "").with_detail(code);
+            assert_eq!(Detail::of(&err), Some(detail));
+        }
     }
 }
