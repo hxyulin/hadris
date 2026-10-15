@@ -450,7 +450,7 @@ mod tests {
             .with_path("/a");
         assert_eq!(err.raw_os_error(), Some(13));
         let io: std::io::Error = err.into();
-        assert_eq!(io.kind(), std::io::ErrorKind::PermissionDenied);
+        assert_eq!(io.kind(), std::io::Error::from_raw_os_error(13).kind());
         assert_eq!(io.raw_os_error(), None);
         assert_eq!(alloc::format!("{io}"), "opening failed: /a");
         let source = std::error::Error::source(&io).unwrap();

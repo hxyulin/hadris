@@ -722,7 +722,7 @@ pub struct Volume<F> { .. }                  // Arc inside; Clone shares the vol
 impl<F: FileSystem> Volume<F> {
     pub fn new(fs: F) -> Self;                             // paths resolve lexically
     pub fn with_resolve(fs: F, resolve: Resolve) -> Self;
-    pub fn lock(&self) -> VolumeGuard<'_, F>;              // Deref and DerefMut to F
+    pub fn lock(&self) -> FsResult<VolumeGuard<'_, F>, F::DeviceError>; // guard derefs to F
     pub fn into_inner(self) -> Result<F, Self>;            // Err while clones or handles exist
     // path methods (4.3)
 }
