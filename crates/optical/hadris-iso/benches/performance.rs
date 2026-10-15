@@ -301,7 +301,6 @@ fn samples() -> usize {
         .max(1)
 }
 fn configure<D: BlockDevice>(fs: IsoFs<D>, mode: u8) -> IsoFs<D> {
-    #[cfg(feature = "cache")]
     if mode != 0 {
         let options = hadris_iso::CacheOptions::new()
             .with_blocks(64)
@@ -328,11 +327,7 @@ fn main() {
                 IsoOptions::new()
             };
             let bytes = image(&flat(n, hard), &opts);
-            let modes: &[u8] = if cfg!(feature = "cache") {
-                &[0, 1, 2]
-            } else {
-                &[0]
-            };
+            let modes: &[u8] = &[0, 1, 2];
             for &mode in modes {
                 for (name, op) in [
                     ("mount", Op::Mount),
@@ -386,11 +381,7 @@ fn main() {
     for block in [512, 2048, 4096] {
         for chunk in [512, 4096, 65536, 1024 * 1024] {
             for unaligned in [false, true] {
-                let modes: &[u8] = if cfg!(feature = "cache") {
-                    &[0, 1]
-                } else {
-                    &[0]
-                };
+                let modes: &[u8] = &[0, 1];
                 for &mode in modes {
                     row(
                         &format!("read-1MiB-cache{mode}-chunk{chunk}-unaligned{unaligned}"),

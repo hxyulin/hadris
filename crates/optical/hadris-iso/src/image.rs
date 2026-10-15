@@ -176,7 +176,7 @@ struct View {
     root: Root,
     len: u64,
     versions: Option<(Dir, bool)>,
-    #[cfg(feature = "cache")]
+    #[cfg(feature = "alloc")]
     cache: Option<crate::cache::ReaderCache>,
 }
 
@@ -286,7 +286,7 @@ impl View {
             root,
             len,
             versions: None,
-            #[cfg(feature = "cache")]
+            #[cfg(feature = "alloc")]
             cache: None,
         }
     }
@@ -317,13 +317,13 @@ impl View {
     }
 
     async fn metadata_sector<D: BlockDevice>(&mut self, dev: &mut D, offset: u64, out: &mut [u8]) -> Result<(), Error<D::Error>> {
-        #[cfg(feature = "cache")]
+        #[cfg(feature = "alloc")]
         if let Some(bytes) = self.cache.as_mut().and_then(|cache|cache.blocks.get(offset)) {
             out.copy_from_slice(&bytes[..out.len()]);
             return Ok(());
         }
         read_bytes(dev, self.len, offset, out).await?;
-        #[cfg(feature = "cache")]
+        #[cfg(feature = "alloc")]
         if let Some(cache) = &mut self.cache {
             let mut bytes = [0; SECTOR_SIZE];
             bytes[..out.len()].copy_from_slice(out);
@@ -333,7 +333,7 @@ impl View {
     }
 
     async fn record_at<D: BlockDevice>(&mut self, dev: &mut D, offset: u64) -> Result<DirectoryRecord, Error<D::Error>> {
-        #[cfg(feature = "cache")]
+        #[cfg(feature = "alloc")]
         if let Some(record) = self.cache.as_mut().and_then(|cache|cache.records.get(offset)) {
             return Ok(record);
         }
@@ -347,7 +347,7 @@ impl View {
         let within = (offset % bs) as usize;
         match DirectoryRecord::parse(&block[within..]) {
             Ok(Some(record)) => {
-                #[cfg(feature = "cache")]
+                #[cfg(feature = "alloc")]
                 if let Some(cache) = &mut self.cache { cache.records.insert(offset, record); }
                 Ok(record)
             },
@@ -553,7 +553,7 @@ impl View {
     }
 
     async fn first_link<D: BlockDevice>(&mut self, dev: &mut D, key: LinkKey, skip: u8) -> Result<Option<u64>, Error<D::Error>> {
-        #[cfg(feature = "cache")]
+        #[cfg(feature = "alloc")]
         {
             let build = self.cache.as_ref().is_some_and(|cache|cache.link_capacity>0 && !cache.links_attempted);
             if build {
@@ -572,9 +572,9 @@ impl View {
     /// names.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
     async fn scan_links<D: BlockDevice>(&mut self, dev: &mut D, key: Option<LinkKey>, skip: u8) -> Result<Option<u64>, Error<D::Error>> {
-        #[cfg(feature = "cache")]
+        #[cfg(feature = "alloc")]
         let mut index = alloc::collections::BTreeMap::new();
-        #[cfg(feature = "cache")]
+        #[cfg(feature = "alloc")]
         let limit = self.cache.as_ref().map_or(0, |cache|cache.link_capacity);
         let (table, size) = self.root.path_table;
         let base = u64::from(table) * self.bs();
@@ -608,7 +608,7 @@ impl View {
                 if info.links().unwrap_or(1) <= 1 || info.is_relocated() || info.child_link().is_some() {
                     continue;
                 }
-                #[cfg(feature = "cache")]
+                #[cfg(feature = "alloc")]
                 if key.is_none() {
                     let serial = info.serial().filter(|&serial|serial != 0).map(LinkKey::Serial);
                     let extent = if record.header().data_len.get()>0 { self.extent_start(&record).map(LinkKey::Extent) } else { None };
@@ -633,7 +633,7 @@ impl View {
                 }
             }
         }
-        #[cfg(feature = "cache")]
+        #[cfg(feature = "alloc")]
         if key.is_none() {
             if let Some(cache) = &mut self.cache { cache.links = index; }
         }
@@ -1138,16 +1138,16 @@ impl<D: BlockDevice> IsoFs<D> {
     /// Payload reads remain direct. This allocates storage for the configured
     /// capacities; mounting without this method still uses no allocator.
     /// The image must remain unchanged while cached data is retained.
-    #[cfg(feature = "cache")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "cache")))]
+    #[cfg(feature = "alloc")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
     pub fn with_cache(mut self, options: crate::CacheOptions) -> Self {
         self.view.cache = Some(crate::cache::ReaderCache::new(options));
         self
     }
 
     /// Discards cached metadata while retaining the configured storage.
-    #[cfg(feature = "cache")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "cache")))]
+    #[cfg(feature = "alloc")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
     pub fn clear_cache(&mut self) {
         self.view.versions = None;
         if let Some(cache) = &mut self.view.cache { cache.clear(); }

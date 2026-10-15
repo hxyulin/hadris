@@ -102,10 +102,10 @@ extern crate alloc;
 #[cfg(all(feature = "std", not(test)))]
 extern crate std;
 
-#[cfg(feature = "cache")]
+#[cfg(feature = "alloc")]
 mod cache;
-#[cfg(feature = "cache")]
-#[cfg_attr(docsrs, doc(cfg(feature = "cache")))]
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub use cache::CacheOptions;
 
 mod boot;
@@ -187,6 +187,6 @@ pub use volume_info::{IsoDate, IsoId, VolumeInfo};
 extern crate self as hadris_iso;
 
 /// The common async API, with Send guarantees derived from the device and operation state.
-#[cfg(any(feature = "async", feature = "async-local"))]
+#[cfg(feature = "async")]
 #[path = "unified.rs"]
 pub mod async_;

@@ -1,7 +1,6 @@
 #![cfg(all(
     target_os = "macos",
     feature = "encryption",
-    feature = "read",
     feature = "std",
     any(feature = "sync", feature = "async")
 ))]

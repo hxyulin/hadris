@@ -35,7 +35,7 @@
 //! | Feature | Default | Purpose |
 //! |---|---:|---|
 //! | `alloc` | via `std` | [`OwnedName`], [`PathError`], [`Tree`], [`Report`], `copy_tree` and `ContentReader` in each mode, and the async `Volume` with its `read_tree` |
-//! | `std` | Yes | Implies `alloc`; adds [`SystemClock`], the sync `Volume` with its `std::io` handles and `read_tree`, [`host`] with `sync`, and conversions to `std::io::Error` |
+//! | `std` | Yes | Implies `alloc`; adds [`SystemClock`], [`host`], the sync `Volume` with its `std::io` handles and `read_tree`, and conversions to `std::io::Error` |
 //! | `sync` | Yes | The blocking API in `sync` |
 //! | `async` | No | The Send API in `async_`, plus the local API in `local` |
 //! | `async-local` | No | Local asynchronous API without `Send` device or future bounds |
@@ -124,5 +124,5 @@ pub mod async_;
 /// `Volume` and its handles require `alloc` and pointer-sized atomics.
 /// Lazy `read_tree` content is not included in this initial tier. Device errors
 /// retain the shared `Send + Sync + 'static` error contract.
-#[cfg(feature = "async-local")]
+#[cfg(feature = "async")]
 pub mod local;

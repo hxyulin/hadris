@@ -34,10 +34,10 @@
 //! on-disk parsers return [`ApfsError`]. Mount failures return the original
 //! device in [`hadris_fs::MountError`].
 //!
-//! `std` implies `alloc`. `read` enables readers, `sync` enables blocking
-//! APIs, and `async` enables unified asynchronous APIs with local or Send devices. Without
-//! `alloc`, the native container header and block reader remains usable.
-//! `encryption` implies `read` and `alloc` and adds optional crypto dependencies.
+//! `std` implies `alloc`. `sync` enables blocking APIs, and `async` enables
+//! unified asynchronous APIs with local or Send devices. Without `alloc`, the
+//! native container header and block reader remains usable. `encryption`
+//! implies `alloc` and adds optional crypto dependencies.
 //!
 //! ```rust,no_run
 //! use std::fs::File;
@@ -75,12 +75,11 @@ mod crypto;
 pub mod error;
 pub mod types;
 
-#[cfg(all(feature = "read", feature = "async"))]
+#[cfg(feature = "async")]
 #[path = "async/mod.rs"]
 pub mod async_;
-#[cfg(feature = "read")]
 pub mod read;
-#[cfg(all(feature = "read", feature = "sync"))]
+#[cfg(feature = "sync")]
 pub mod sync;
 
 pub use error::{ApfsError, Detail, Result};

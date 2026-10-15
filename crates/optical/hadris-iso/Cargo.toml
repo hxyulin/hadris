@@ -14,7 +14,7 @@ categories = ["filesystem", "embedded", "no-std"]
 exclude = ["/spec"]
 
 [package.metadata.docs.rs]
-features = ["std", "sync", "async", "async-local", "tracing", "cache"]
+features = ["std", "sync", "async", "tracing"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
@@ -24,10 +24,7 @@ alloc = ["hadris-io/alloc", "hadris-fs/alloc", "hadris-storage/alloc", "dep:hadr
 # Implies `alloc`; `std::io::Error` conversions and host files as tree content.
 std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std", "hadris-part/std"]
 sync = ["hadris-io/sync", "hadris-fs/sync", "hadris-storage/sync", "hadris-part?/sync"]
-async-local = ["hadris-part?/async", "hadris-io/async", "hadris-storage/async", "hadris-fs/async-local"]
-async = ["hadris-fs/async-local", "hadris-io/async", "hadris-fs/async", "hadris-storage/async", "hadris-part?/async"]
-
-cache = ["alloc"]
+async = ["hadris-io/async", "hadris-fs/async", "hadris-storage/async", "hadris-part?/async"]
 
 tracing = ["std", "dep:tracing", "hadris-part?/tracing"]
 
@@ -93,7 +90,7 @@ name = "raw_compat"
 
 [[test]]
 name = "unified_async"
-required-features = ["std", "sync", "async", "async-local"]
+required-features = ["std", "sync", "async"]
 
 [[test]]
 name = "unified_write"

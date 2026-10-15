@@ -1,4 +1,4 @@
-#![cfg(all(feature = "read", feature = "sync", feature = "alloc"))]
+#![cfg(all(feature = "sync", feature = "alloc"))]
 
 mod common;
 #[path = "common/failing_device.rs"]

@@ -104,21 +104,6 @@
       "crate": "hadris-storage",
       "tier": "std-async",
       "features": "std,async"
-    },
-    {
-      "crate": "hadris-fs",
-      "tier": "no-std-local",
-      "features": "async-local"
-    },
-    {
-      "crate": "hadris-fs",
-      "tier": "alloc-local",
-      "features": "alloc,async-local"
-    },
-    {
-      "crate": "hadris-fs",
-      "tier": "all-async-modes",
-      "features": "alloc,sync,async,async-local"
     }
   ],
   "block": [
@@ -285,32 +270,32 @@
     {
       "crate": "hadris-apfs",
       "tier": "no-std",
-      "features": "read"
+      "features": ""
     },
     {
       "crate": "hadris-apfs",
       "tier": "no-std-sync",
-      "features": "read,sync"
+      "features": "sync"
     },
     {
       "crate": "hadris-apfs",
       "tier": "no-std-async",
-      "features": "read,async"
+      "features": "async"
     },
     {
       "crate": "hadris-apfs",
       "tier": "alloc-sync",
-      "features": "alloc,read,sync"
+      "features": "alloc,sync"
     },
     {
       "crate": "hadris-apfs",
-      "tier": "async-read",
-      "features": "alloc,read,async"
+      "tier": "alloc-async",
+      "features": "alloc,async"
     },
     {
       "crate": "hadris-apfs",
       "tier": "all-capabilities",
-      "features": "std,alloc,sync,async,read,encryption"
+      "features": "std,alloc,sync,async,encryption"
     },
     {
       "crate": "hadris-apfs",
@@ -330,7 +315,7 @@
     {
       "crate": "hadris-apfs",
       "tier": "hosted-tracing",
-      "features": "tracing,sync,async,read,encryption"
+      "features": "tracing,sync,async,encryption"
     },
     {
       "crate": "hadris-ntfs",
@@ -430,39 +415,9 @@
       "features": "tracing,sync,async"
     },
     {
-      "crate": "hadris-iso",
-      "tier": "cached-sync",
-      "features": "cache,sync"
-    },
-    {
-      "crate": "hadris-iso",
-      "tier": "cached-async",
-      "features": "cache,async"
-    },
-    {
       "crate": "hadris-udf",
       "tier": "hosted-tracing",
       "features": "tracing,sync,async"
-    },
-    {
-      "crate": "hadris-iso",
-      "tier": "no-std-local",
-      "features": "async-local"
-    },
-    {
-      "crate": "hadris-iso",
-      "tier": "alloc-local",
-      "features": "alloc,async-local"
-    },
-    {
-      "crate": "hadris-iso",
-      "tier": "cached-local",
-      "features": "cache,async-local"
-    },
-    {
-      "crate": "hadris-iso",
-      "tier": "all-async-modes",
-      "features": "std,sync,async,async-local,cache"
     }
   ],
   "archive": [

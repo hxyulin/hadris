@@ -15,11 +15,10 @@ repository.workspace = true
 features = ["std", "sync", "async", "encryption", "tracing"]
 
 [features]
-default = ["std", "read", "sync"]
+default = ["std", "sync"]
 std = ["alloc", "hadris-io/std", "hadris-storage/std", "hadris-fs/std"]
 alloc = ["hadris-fs/alloc", "hadris-storage/alloc"]
-encryption = ["alloc", "read", "dep:aes", "dep:aes-kw", "dep:xts-mode", "dep:pbkdf2", "dep:sha2", "dep:hmac", "dep:zeroize"]
-read = []
+encryption = ["alloc", "dep:aes", "dep:aes-kw", "dep:xts-mode", "dep:pbkdf2", "dep:sha2", "dep:hmac", "dep:zeroize"]
 sync = ["hadris-io/sync", "hadris-storage/sync", "hadris-fs/sync"]
 async = ["hadris-io/async", "hadris-storage/async", "hadris-fs/async"]
 

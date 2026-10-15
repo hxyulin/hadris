@@ -31,11 +31,11 @@ udf = ["dep:hadris-udf"]
 cpio = ["dep:hadris-cpio"]
 # `detect`, `open`, `open_partition`, `detect_partitions` and `AnyFs` in
 # `sync` and `async`, over every format they recognize, and `host::open`.
-detect = ["fat", "part", "iso", "udf", "cpio", "dep:hadris-fat-raw", "dep:hadris-macros", "dep:hadris-apfs", "hadris-apfs/read"]
+detect = ["fat", "part", "iso", "udf", "cpio", "dep:hadris-fat-raw", "dep:hadris-macros", "dep:hadris-apfs"]
 # The NTFS preview, whose native API may change in 3.x minors.
 unstable-ntfs = ["dep:hadris-ntfs"]
 # The read-only APFS preview, whose native API may change in 3.x minors.
-unstable-apfs = ["dep:hadris-apfs", "hadris-apfs/read"]
+unstable-apfs = ["dep:hadris-apfs"]
 apfs-encryption = ["unstable-apfs", "hadris-apfs/encryption"]
 
 [dependencies]
@@ -66,4 +66,4 @@ required-features = ["tracing", "sync", "async", "iso", "udf", "cpio", "part", "
 
 [dev-dependencies]
 tracing.workspace = true
-hadris-apfs = { workspace = true, features = ["std", "sync", "read"] }
+hadris-apfs = { workspace = true, features = ["std", "sync"] }

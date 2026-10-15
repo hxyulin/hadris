@@ -112,7 +112,6 @@ macro_rules! cases {
                     assert_eq!(data, [i as u8; 16]);
                     assert_eq!(fs.stat(alias).await.unwrap().nlink(), 2);
                 }
-                #[cfg(feature = "cache")]
                 for capacity in [1, 512] {
                     let options = hadris_iso::CacheOptions::new()
                         .with_blocks(32)
@@ -162,7 +161,6 @@ macro_rules! cases {
                             .unwrap()
                     );
                 }
-                #[cfg(feature = "cache")]
                 {
                     let mut image =
                         common::image(&linked(), &IsoOptions::new().with_rock_ridge()).into_inner();
@@ -191,7 +189,6 @@ macro_rules! cases {
                             .unwrap()
                     );
                 }
-                #[cfg(feature = "cache")]
                 {
                     let mut tree = Tree::new();
                     tree.insert("a", Node::file(Content::bytes("a"))).unwrap();
@@ -276,7 +273,6 @@ macro_rules! cases {
                     reads.load(Ordering::Relaxed) < 300,
                     "listing should reuse the parsed file record"
                 );
-                #[cfg(feature = "cache")]
                 {
                     let dev = Counted {
                         inner: common::image(&plain, &IsoOptions::new().with_rock_ridge()),
@@ -360,7 +356,7 @@ cases!(sync, lookup_defers_link_identity_sync, sync_case);
 #[cfg(feature = "async")]
 cases!(async_, lookup_defers_link_identity_async, async_case);
 
-#[cfg(all(feature = "cache", feature = "async"))]
+#[cfg(feature = "async")]
 #[test]
 fn cancelled_cache_miss_is_not_retained() {
     use hadris_fs::{MountOptions, Name};
