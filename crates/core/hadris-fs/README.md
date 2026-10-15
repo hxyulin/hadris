@@ -14,6 +14,7 @@ The vocabulary is mode-independent and performs no I/O:
 - `DirCursor` and `DirEntry` for resumable directory reads; an entry holds its name inline
 - `OpenMode`, `OpenOptions`, `RenameMode` and `Resolve`
 - `FuseOnError`, an iterator adapter that ends after the first `Err`
+- `Guid` and `GuidParseError`, the mixed-endian GUID of GPT and exFAT, which `hadris-part` and `hadris-fat` re-export; `Guid::random` needs `std`
 - `MountOptions`, one mount configuration for every format: read-only,
   the `Clock`, the UTC offset of zoneless timestamps, the FAT `CodePage`
   (`Cp437` by default, or `Ascii`), a node cap and backup boot structures.
@@ -128,7 +129,7 @@ assert!(OpenOptions::new().write().create().append().validate().is_ok());
 | Feature | Default | Purpose |
 |---|---:|---|
 | `alloc` | via `std` | `OwnedName`, `PathError`, `Tree`, `Report`, `copy_tree` and `ContentReader` in each mode, async volumes with pointer-sized atomics, lazy `read_tree` in the Send tier, and `Box` forwarding |
-| `std` | Yes | Implies `alloc`; adds `SystemClock`, `host` (its tree functions also need `sync`), the sync `Volume` with its `std::io` handles and `read_tree`, and conversions to `std::io::Error` |
+| `std` | Yes | Implies `alloc`; adds `SystemClock`, `Guid::random`, `host` (its tree functions also need `sync`), the sync `Volume` with its `std::io` handles and `read_tree`, and conversions to `std::io::Error` |
 | `sync` | Yes | The blocking API in `sync` |
 | `async` | No | Both the Send contract and handles in `async_` and the local contract and handles in `local` |
 | `unstable-contract` | No | The driver contract kit: `contract::check` in each mode, for testing a format against the `FileSystem` contract. Outside semver; enable it in dev-dependencies only |

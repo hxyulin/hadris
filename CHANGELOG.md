@@ -65,6 +65,16 @@ Each published package owns its version and may be released independently.
   `Clone`, so later options can own their values. Clone it to mount more
   than once with the same options. Its rustdoc now lists which driver
   honours which option.
+- **hadris-fs, hadris-part, hadris-fat (breaking for hadris-fat's
+  dependencies):** `Guid` and `GuidParseError` move from `hadris-part` to
+  `hadris-fs`, the stable base. `hadris_part::{Guid, GuidParseError}` and
+  `hadris_fat::exfat::Guid` re-export them, so every path and method stays
+  the same; `Guid::random` needs the `std` feature of `hadris-fs`, which
+  `std` of `hadris-part` and `hadris-fat` enables. `hadris-fat` no longer
+  depends on `hadris-part`, so a FAT build no longer compiles the
+  partition crate and a `hadris-part` major release is not a `hadris-fat`
+  one.
+
 - **hadris-fs (breaking):** `Attributes` is a hand-written
   `#[repr(transparent)]` newtype over `u32` instead of a `bitflags` type,
   so `bitflags` is no longer part of the `hadris-fs` API. It keeps `NONE`,
@@ -343,7 +353,7 @@ Each published package owns its version and may be released independently.
   bytes in raw order, so its text form differs in the first three groups. `format` and `write` now write a Volume GUID derived
   from the seed, or the time without one, so output stays reproducible;
   `ExFatOptions::with_volume_guid` sets it or, with `None`, leaves it out.
-  `hadris_fat::exfat::Guid` is `hadris_part::Guid`.
+  `hadris_fat::exfat::Guid` is `hadris_fs::Guid`.
 
 - **ISO 9660 verification:** Add 13 Kani proofs for byte-order fields, path
   table and directory record layout, directory and descriptor dates, SUSP

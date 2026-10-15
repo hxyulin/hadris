@@ -554,7 +554,6 @@ dependencies = [
  "hadris-fs",
  "hadris-io",
  "hadris-macros",
- "hadris-part",
  "hadris-storage",
  "pretty_assertions",
  "static_assertions",

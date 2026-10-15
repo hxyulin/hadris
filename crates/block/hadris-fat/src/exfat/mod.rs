@@ -47,7 +47,7 @@
 pub mod embedded;
 mod options;
 pub use hadris_fat_raw::exfat::{Detail, Geometry};
-pub use hadris_part::Guid;
+pub use hadris_fs::Guid;
 
 /// The Volume GUID entry for `guid`: no secondary entries, no allocation,
 /// and its `SetChecksum`.

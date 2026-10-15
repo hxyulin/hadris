@@ -4,7 +4,8 @@
 //! The crate root defines the mode-independent types every Hadris filesystem
 //! speaks: node identity, file types, byte names, timestamps and clocks,
 //! metadata and attribute changes, capabilities, errors, directory entries
-//! and cursors, open and mount options, path policies, FAT code pages, and what checkers
+//! and cursors, open and mount options, path policies, FAT code pages, the
+//! mixed-endian [`Guid`] of GPT and exFAT, and what checkers
 //! report ([`Finding`], [`Severity`], [`CheckReport`]). None of them does
 //! I/O.
 //!
@@ -35,7 +36,7 @@
 //! | Feature | Default | Purpose |
 //! |---|---:|---|
 //! | `alloc` | via `std` | [`OwnedName`], [`PathError`], [`Tree`], [`Report`], `copy_tree` and `ContentReader` in each mode, and the async `Volume` with its `read_tree` |
-//! | `std` | Yes | Implies `alloc`; adds [`SystemClock`], [`host`], the sync `Volume` with its `std::io` handles and `read_tree`, and conversions to `std::io::Error` |
+//! | `std` | Yes | Implies `alloc`; adds [`SystemClock`], [`Guid::random`], [`host`], the sync `Volume` with its `std::io` handles and `read_tree`, and conversions to `std::io::Error` |
 //! | `sync` | Yes | The blocking API in `sync` |
 //! | `async` | No | The Send API in `async_`, plus the local API in `local` |
 //! | `unstable-contract` | No | The driver contract kit, `contract::check` in each mode, and `ContractViolation` |
@@ -64,6 +65,7 @@ mod dir;
 mod error;
 mod extent;
 mod fuse;
+mod guid;
 #[cfg(feature = "std")]
 pub mod host;
 mod meta;
@@ -90,6 +92,7 @@ pub use error::PathError;
 pub use error::{Detail, DetailCode, Errno, Error, ErrorKind, FsResult, Location, MountError};
 pub use extent::Extent;
 pub use fuse::FuseOnError;
+pub use guid::{Guid, GuidParseError};
 pub use hadris_io::SeekFrom;
 pub use meta::{Attributes, Metadata, Owner, Permissions, SetAttr};
 pub use mount::MountOptions;

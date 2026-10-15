@@ -1,17 +1,26 @@
 use core::fmt;
 use core::str::FromStr;
 
-/// A 128-bit GUID in the mixed-endian byte order GPT stores.
+/// A 128-bit GUID in the mixed-endian byte order GPT and exFAT store.
 ///
 /// The first three groups of the text form are little-endian on disk, the
 /// last two big-endian. [`Display`](fmt::Display) prints the lowercase text
 /// form, and [`FromStr`] parses it in either case, with or without braces.
+/// `hadris-part` re-exports it as `hadris_part::Guid` and `hadris-fat` as
+/// `hadris_fat::exfat::Guid`.
 ///
 /// ```rust
-/// use hadris_part::Guid;
+/// use hadris_fs::Guid;
 ///
 /// let esp: Guid = "C12A7328-F81F-11D2-BA4B-00A0C93EC93B".parse().unwrap();
-/// assert_eq!(esp, hadris_part::gpt::types::EFI_SYSTEM);
+/// let fields = Guid::from_fields(
+///     0xC12A_7328,
+///     0xF81F,
+///     0x11D2,
+///     [0xBA, 0x4B, 0x00, 0xA0, 0xC9, 0x3E, 0xC9, 0x3B],
+/// );
+/// assert_eq!(esp, fields);
+/// assert_eq!(esp.to_bytes()[..4], [0x28, 0x73, 0x2A, 0xC1]);
 /// assert_eq!(esp.to_string(), "c12a7328-f81f-11d2-ba4b-00a0c93ec93b");
 /// ```
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
@@ -58,13 +67,13 @@ impl Guid {
     /// in a `const` context, returning `None` when it is malformed.
     ///
     /// ```rust
-    /// use hadris_part::Guid;
+    /// use hadris_fs::Guid;
     ///
     /// const LINUX: Guid = match Guid::parse_const("0FC63DAF-8483-4772-8E79-3D69D8477DE4") {
     ///     Some(guid) => guid,
     ///     None => panic!("bad GUID"),
     /// };
-    /// assert_eq!(LINUX, hadris_part::gpt::types::LINUX_FILESYSTEM);
+    /// assert_eq!(LINUX.to_string(), "0fc63daf-8483-4772-8e79-3d69d8477de4");
     /// ```
     pub const fn parse_const(text: &str) -> Option<Self> {
         let s = text.as_bytes();
@@ -103,7 +112,6 @@ impl Guid {
     /// Hadris never makes one on its own: every constructor that needs a
     /// GUID takes it.
     #[cfg(feature = "std")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     pub fn random() -> Self {
         use std::hash::{BuildHasher, Hasher};
 
@@ -119,42 +127,9 @@ impl Guid {
             }
             chunk.copy_from_slice(&hasher.finish().to_le_bytes());
         }
-        Self(bytes).with_version_4()
-    }
-
-    /// This GUID with the version 4 and RFC 4122 variant bits set.
-    pub(crate) const fn with_version_4(mut self) -> Self {
-        self.0[7] = (self.0[7] & 0x0F) | 0x40;
-        self.0[8] = (self.0[8] & 0x3F) | 0x80;
-        self
-    }
-
-    /// A version 4 GUID derived from this one and `index`, the same for the
-    /// same inputs.
-    pub(crate) const fn derive(self, index: u64) -> Self {
-        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-        let mut bytes = self.0;
-        let mut i = 0;
-        while i < 16 {
-            hash ^= self.0[i] as u64;
-            hash = hash.wrapping_mul(0x0100_0000_01b3);
-            i += 1;
-        }
-        let index = index.to_le_bytes();
-        let mut j = 0;
-        while j < 8 {
-            hash ^= index[j] as u64;
-            hash = hash.wrapping_mul(0x0100_0000_01b3);
-            j += 1;
-        }
-        let mixed = hash.to_le_bytes();
-        let mut k = 0;
-        while k < 8 {
-            bytes[k] ^= mixed[k];
-            bytes[k + 8] ^= mixed[7 - k];
-            k += 1;
-        }
-        Self(bytes).with_version_4()
+        bytes[7] = (bytes[7] & 0x0F) | 0x40;
+        bytes[8] = (bytes[8] & 0x3F) | 0x80;
+        Self(bytes)
     }
 }
 
@@ -267,16 +242,6 @@ mod tests {
         ] {
             assert_eq!(bad.parse::<Guid>(), Err(GuidParseError), "{bad}");
         }
-    }
-
-    #[test]
-    fn derived_guids_are_stable_version_4_and_distinct() {
-        let disk = Guid::from_bytes([7; 16]);
-        let a = disk.derive(0);
-        assert_eq!(a, disk.derive(0));
-        assert_ne!(a, disk.derive(1));
-        assert_eq!(a.to_bytes()[7] >> 4, 4);
-        assert_eq!(a.to_bytes()[8] >> 6, 0b10);
     }
 
     #[cfg(feature = "std")]

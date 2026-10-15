@@ -1402,7 +1402,7 @@ resolution is a value, `hadris_fs::Resolve::{Lexical, Follow, NoFollow}`.
 | `hadris_part::GptPartitionEntry`, `gpt::GptPartitionEntry` | `hadris_part::GptEntry`, `hadris_part::raw::RawGptEntry` |
 | `gpt::GptPartitionName` | `hadris_part::PartitionName` |
 | `gpt::GptAttributes` | `u64` attributes (`Gpt::set_attributes`, `GptEntry::with_attributes`), `PartitionFlags`, `raw::GPT_ATTR_*` |
-| `hadris_part::Guid`, `gpt::Guid` | `hadris_part::Guid` |
+| `hadris_part::Guid`, `gpt::Guid` | `hadris_part::Guid`, a re-export of `hadris_fs::Guid` |
 | `Guid::from_str` (inherent) | `Guid::parse_const`, or `str::parse` through `FromStr` |
 | `Guid::UNUSED` | `Guid::NIL` |
 | `Guid::EFI_SYSTEM` and the other type constants | `hadris_part::gpt::types::EFI_SYSTEM`, ... |
@@ -1412,7 +1412,7 @@ resolution is a value, `hadris_fs::Resolve::{Lexical, Follow, NoFollow}`.
 | `hadris_part::validate_partition_alignment`, `geometry::validate_all_partitions_aligned` | Removed |
 | `hadris_part::Error`, `error::Error`, `hadris_part::Result` | `hadris_fs::Error<E>` with `hadris_part::Detail`; `hadris_part::TableError` for edits |
 | `hadris_part::{Le, Read, Write, Seek, SeekFrom, ReadExt, Parsable, Writable, Error, ErrorKind, IoResult}` re-exports | Removed; use `hadris_io` directly |
-| (new) | `Disk`, `DiskLayout`, `PartitionSpec`, `Size`, `Alignment`, `PartitionFlags`, `Partitions`, `Runs`, `Run`, `GptCopy`, `GuidParseError`, `{sync, async_}::{read, write, create, open, scan}`, `raw` |
+| (new) | `Disk`, `DiskLayout`, `PartitionSpec`, `Size`, `Alignment`, `PartitionFlags`, `Partitions`, `Runs`, `Run`, `GptCopy`, `GuidParseError` (a re-export of `hadris_fs::GuidParseError`), `{sync, async_}::{read, write, create, open, scan}`, `raw` |
 
 ### hadris-ntfs
 

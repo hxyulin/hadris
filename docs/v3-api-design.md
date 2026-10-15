@@ -1001,7 +1001,7 @@ different content gives different ids. `FatOptions::with_serial` and
 |---|---|
 | `hadris-io` | Kept. `ErrorType`, `Read`, `Write`, `Seek`, `ExactError`, `FromEmbedded`, `StdIo`, in `sync`, `async_` and `local`. |
 | `hadris-storage` | Kept and adopted by every filesystem. `BlockDevice` in `sync`, `async_` and `local`, `Partition`, `Vec<u8>`, `StreamDevice`, `MemDevice`, `Cache`, `ByteView`. |
-| `hadris-fs` | New. Vocabulary, `Error<E>`, `PathError`, `MountOptions`, `FileSystem`, `Volume` and its handles, `Walk`, `Tree`, `Content`, `Report`, `copy_tree`, `read_tree`, `Finding`, `Severity`, `CheckReport`. |
+| `hadris-fs` | New. Vocabulary, `Error<E>`, `PathError`, `Guid`, `MountOptions`, `FileSystem`, `Volume` and its handles, `Walk`, `Tree`, `Content`, `Report`, `copy_tree`, `read_tree`, `Finding`, `Severity`, `CheckReport`. |
 | `hadris-fs-contract` | Not created. The driver test kit (4.3) is `hadris-fs`'s `unstable-contract` feature, outside 3.0 semver, so contract rules can change in any release. |
 | `hadris-<fmt>-raw` | New, one per format, each with its own version: I/O-free codecs and `raw::io` primitives (4.15). `hadris-fat-raw` covers FAT and exFAT. |
 | `hadris-common` | 0.x, versioned like the raw crates (0.3.0, below the 3.0.0 line it had in the release candidates). Only the little-endian `U16`, `U32` and `U64` the `hadris-fat-raw` layouts use, with no `zerocopy` dependency. Raw crates may expose its types; stable 3.x crates may not (R12). |
@@ -1533,7 +1533,7 @@ for p in disk.partitions() {
 ```
 
 - `MbrType(u8)` with associated constants replaces `MbrPartitionType` and the 256-variant `MbrPartitionTypeFull`.
-- GPT type GUIDs move to `gpt::types`. `Guid` implements `FromStr`; the inherent `from_str` becomes `Guid::parse_const`. `Guid::random` exists only with `std`.
+- GPT type GUIDs move to `gpt::types`. `Guid` implements `FromStr`; the inherent `from_str` becomes `Guid::parse_const`. `Guid::random` exists only with `std`. `Guid` and `GuidParseError` live in `hadris-fs`, the stable base, and `hadris-part` re-exports them at the same paths, so `hadris-fat` names the exFAT Volume GUID as `hadris_fs::Guid` without depending on the partition crate (R12).
 - `Gpt` fields are private. Edits go through methods that keep CRCs correct. Writing always computes CRCs.
 - `HybridMbr` has private fields and `add_mirrored(..)`, identical with and without `alloc`.
 - The six `*ReadExt`/`*WriteExt` traits and `PartitionInfoTrait` collapse into `read`, `write`, `create`, `scan` and `open` in each mode, and the layouts and CRC in the raw layer. `open` returns the shared `Partition<D>` (4.2), so the filesystem mounted on it formats with the right hidden sectors.

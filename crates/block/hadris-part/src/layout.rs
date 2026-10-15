@@ -264,7 +264,7 @@ impl DiskLayout {
             let name = spec.name.unwrap_or(Ok(PartitionName::EMPTY))?;
             let unique = spec
                 .unique_guid
-                .unwrap_or_else(|| disk_guid.derive(index as u64));
+                .unwrap_or_else(|| derive_guid(disk_guid, index as u64));
             let entry = GptEntry::new(type_guid, unique, start, len)
                 .with_name(name)
                 .with_flags(spec.flags);
@@ -355,6 +355,37 @@ fn entry(spec: &PartitionSpec, start: u64, len: u64) -> MbrEntry {
     MbrEntry::new(kind, start, len).with_flags(spec.flags)
 }
 
+/// A version 4 GUID derived from `guid` and `index`, the same for the same
+/// inputs.
+const fn derive_guid(guid: Guid, index: u64) -> Guid {
+    let source = guid.to_bytes();
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut bytes = source;
+    let mut i = 0;
+    while i < 16 {
+        hash ^= source[i] as u64;
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+        i += 1;
+    }
+    let index = index.to_le_bytes();
+    let mut j = 0;
+    while j < 8 {
+        hash ^= index[j] as u64;
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+        j += 1;
+    }
+    let mixed = hash.to_le_bytes();
+    let mut k = 0;
+    while k < 8 {
+        bytes[k] ^= mixed[k];
+        bytes[k + 8] ^= mixed[7 - k];
+        k += 1;
+    }
+    bytes[7] = (bytes[7] & 0x0F) | 0x40;
+    bytes[8] = (bytes[8] & 0x3F) | 0x80;
+    Guid::from_bytes(bytes)
+}
+
 const fn align_up(block: u64, align: u64) -> u64 {
     match block.checked_next_multiple_of(align) {
         Some(aligned) => aligned,
@@ -384,5 +415,20 @@ fn fit(spec: &PartitionSpec) -> impl Fn(TableError) -> TableError {
     move |err| match err.detail() {
         Detail::OutOfBounds if placed => TableError::new(ErrorKind::NoSpace, Detail::DiskTooSmall),
         _ => err,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn derived_guids_are_stable_version_4_and_distinct() {
+        let disk = Guid::from_bytes([7; 16]);
+        let a = derive_guid(disk, 0);
+        assert_eq!(a, derive_guid(disk, 0));
+        assert_ne!(a, derive_guid(disk, 1));
+        assert_eq!(a.to_bytes()[7] >> 4, 4);
+        assert_eq!(a.to_bytes()[8] >> 6, 0b10);
     }
 }
