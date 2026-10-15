@@ -33,6 +33,7 @@ class ReleasePlanTests(unittest.TestCase):
             {"name": "example", "version": "0.1.0", "publish": [], "dependencies": []},
         ]
         self.write_metadata()
+        self.write_requirements(hadris="3.0.0-rc.1")
         (self.root / "CHANGELOG.md").write_text(
             "## [joint] - 2026-10-06\n\nJoint release notes.\n\n"
             "## [hadris 3.0.0-rc.1] - 2026-10-06\n\nUmbrella release notes.\n"
@@ -59,6 +60,14 @@ class ReleasePlanTests(unittest.TestCase):
 
     def write_metadata(self):
         (self.root / "metadata.json").write_text(json.dumps({"packages": self.packages}))
+
+    def write_requirements(self, hadris, raw="0.1.0"):
+        (self.root / "Cargo.toml").write_text(
+            "[workspace.dependencies]\n"
+            f'hadris = {{ version = "{hadris}", path = "hadris" }}\n'
+            f'hadris-fat-raw = {{ version = "{raw}", path = "raw" }}\n'
+            'bytemuck = "1.22.0"\n'
+        )
 
     def git(self, *args):
         return subprocess.run(
@@ -131,6 +140,7 @@ class ReleasePlanTests(unittest.TestCase):
 
     def test_joint_stable_github_release(self):
         self.packages[0]["version"] = "3.0.0"
+        self.write_requirements(hadris="3.0.0")
         self.write_metadata()
         result = self.plan("--github-plan", "--notes", "joint", "all")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -164,11 +174,50 @@ class ReleasePlanTests(unittest.TestCase):
                 self.assertEqual(result.stdout, "")
 
     def test_conflicting_crate_tag_fails(self):
+        self.git("checkout", "--quiet", "-b", "side")
+        self.git("commit", "--quiet", "--allow-empty", "-m", "Side commit")
         self.git("tag", "hadris-v3.0.0-rc.1")
+        self.git("checkout", "--quiet", "-")
+        self.git("commit", "--quiet", "--allow-empty", "-m", "Later commit")
+        for crates in (["all"], ["hadris"]):
+            with self.subTest(crates=crates):
+                result = self.plan("--github-plan", "--notes", "joint", *crates)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("hadris: tag hadris-v3.0.0-rc.1 already names", result.stderr)
+
+    def test_all_leaves_out_crates_released_at_an_ancestor(self):
+        self.git("tag", "hadris-fat-raw-v0.1.0")
         self.git("commit", "--quiet", "--allow-empty", "-m", "Later commit")
         result = self.plan("--github-plan", "--notes", "joint", "all")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), [
+            "hadris 3.0.0-rc.1 hadris-v3.0.0-rc.1",
+            "Hadris 3.0.0-rc.1 v3.0.0-rc.1",
+        ])
+        self.assertIn("hadris-fat-raw 0.1.0: already released as hadris-fat-raw-v0.1.0", result.stderr)
+        result = self.plan("--notes", "joint", "hadris-fat-raw", "hadris")
         self.assertEqual(result.returncode, 1)
-        self.assertIn("hadris: tag hadris-v3.0.0-rc.1 already names", result.stderr)
+        self.assertIn("hadris-fat-raw: tag hadris-fat-raw-v0.1.0 already names", result.stderr)
+
+    def test_all_fails_when_every_crate_is_released(self):
+        self.git("tag", "hadris-fat-raw-v0.1.0")
+        self.git("tag", "hadris-v3.0.0-rc.1")
+        self.git("commit", "--quiet", "--allow-empty", "-m", "Later commit")
+        result = self.plan("--notes", "joint", "all")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("every selected crate is already released", result.stderr)
+
+    def test_stale_workspace_requirement_fails(self):
+        self.packages[0]["version"] = "3.0.0"
+        self.write_metadata()
+        result = self.plan("--notes", "joint", "all")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("hadris: [workspace.dependencies] requires 3.0.0-rc.1, not 3.0.0", result.stderr)
+        for requirement in ("^3.0.0", "=3.0.0", "~3.0.0"):
+            with self.subTest(requirement=requirement):
+                self.write_requirements(hadris=requirement)
+                result = self.plan("--notes", "joint", "all")
+                self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_missing_notes_fail_without_writing_files(self):
         result = self.plan("--github-plan", "--notes", "missing", "--notes-dir", "notes", "all")
@@ -230,6 +279,7 @@ class ReleasePlanTests(unittest.TestCase):
 
     def test_workflow_marks_only_stable_workspace_release_latest(self):
         self.packages[0]["version"] = "3.0.0"
+        self.write_requirements(hadris="3.0.0")
         self.write_metadata()
         releases = self.github_releases()
         self.assertEqual([r[2] for r in releases if "--latest" in r], ["v3.0.0"])
