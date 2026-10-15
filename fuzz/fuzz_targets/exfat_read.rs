@@ -8,9 +8,10 @@
 //! read twice and the bytes must match, and listed entries must re-resolve
 //! by name through `lookup`. A lookup passes over an entry set whose stored
 //! `NameHash` is wrong, and a volume whose up-case table is invalid compares
-//! names through a fallback, so the re-resolution oracle excuses a `NotFound`
-//! exactly where `check` reports those findings (a corrupt image can make a
-//! listed name legitimately unresolvable; a clean one may not).
+//! names through a fallback, so the re-resolution oracle excuses a `NotFound`,
+//! or the `Corrupt` of a broken chain later in the directory, exactly where
+//! `check` reports those findings (a corrupt image can make a listed name
+//! legitimately unresolvable; a clean one may not).
 
 use std::collections::HashSet;
 
@@ -167,7 +168,9 @@ fn drive(data: &[u8]) {
                 lookups += 1;
                 let found = match fs.lookup(dir, child_name) {
                     Ok(found) => Some(found),
-                    Err(err) if err.kind() == ErrorKind::NotFound => {
+                    // An entry lookup cannot match makes it scan the rest of
+                    // the directory, which may end in a broken chain.
+                    Err(err) if matches!(err.kind(), ErrorKind::NotFound | ErrorKind::Corrupt) => {
                         let mut records = [Extent::new(0, 0); 19];
                         let hash_suspect = fs
                             .records(node, &mut records)
