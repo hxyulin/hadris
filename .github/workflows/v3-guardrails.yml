@@ -74,5 +74,5 @@ jobs:
       - uses: actions/checkout@v7
       - name: Self-test lint
         run: python3 scripts/check-non-exhaustive.py --self-test
-      - name: Check public enums and structs
+      - name: Check public enums, structs and raw re-exports (R1, R12)
         run: python3 scripts/check-non-exhaustive.py

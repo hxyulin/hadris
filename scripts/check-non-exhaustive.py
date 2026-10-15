@@ -26,6 +26,11 @@ This is a text heuristic, not a Rust parser. Known limits:
 - Test-only modules declared as `#[cfg(test)] mod name;` in another file are
   scanned unless the file is named `tests.rs`.
 
+It also enforces R12 for the same crates: a format crate never re-exports
+a `hadris-<fmt>-raw` crate wholesale, so `pub use hadris_<fmt>_raw::*`,
+`pub use hadris_<fmt>_raw::module::*` and `pub use hadris_<fmt>_raw as name`
+are reported, in every file including `raw` modules.
+
 Exits 1 when anything is reported.
 """
 
@@ -48,6 +53,10 @@ SKIP_BLOCK = re.compile(
     r"|\bmacro_rules!\s*\w+\s*\{"
 )
 REPR_LAYOUT = re.compile(r"#\s*\[\s*repr\s*\(\s*(?:C\b|transparent\b)")
+RAW_GLOB = re.compile(
+    r"\bpub(?:\s*\([^)]*\))?\s+use\s+(?:::)?(hadris_\w+_raw)\b"
+    r"(?:\s+as\b|(?:\s*::\s*\w+)*\s*::\s*\*|(?:\s*::\s*\w+)*\s*::\s*\{[^}]*(?<![\w:])\*)"
+)
 PREVIEW_MOD = re.compile(
     r'#\s*\[\s*cfg\s*\(\s*feature\s*=\s*"unstable-[^"]*"\s*\)\s*\]\s*'
     r"(?:#\s*\[[^\]]*\]\s*)*pub\s+mod\s+(\w+)\s*;"
@@ -166,6 +175,21 @@ def scan_source(src: str) -> list[tuple[int, str, str]]:
     return findings
 
 
+def scan_raw_globs(src: str) -> list[tuple[int, str]]:
+    clean = strip_comments_and_strings(src)
+    return [(clean.count("\n", 0, m.start()) + 1, m.group(1)) for m in RAW_GLOB.finditer(clean)]
+
+
+def driver_files(root: Path) -> list[tuple[str, Path]]:
+    files = []
+    for group in GROUPS:
+        for crate in sorted((root / "crates" / group).glob("*/")):
+            src = crate / "src"
+            if src.is_dir() and not crate.name.endswith("-raw"):
+                files.extend((crate.name, path) for path in sorted(src.rglob("*.rs")))
+    return files
+
+
 def preview_modules(lib_src: str) -> set[str]:
     """Names of `unstable-*` preview modules declared in a crate's lib.rs."""
     without_comments = re.sub(r"//[^\n]*|/\*.*?\*/", "", lib_src, flags=re.S)
@@ -235,6 +259,20 @@ pub mod raw;
     if previews != {"exfat", "stream"}:
         print(f"self-test failed: preview modules {sorted(previews)}", file=sys.stderr)
         return 1
+    reexports = """
+pub use hadris_iso_raw::*;
+pub mod raw { pub use hadris_udf_raw::raw::*; }
+pub use hadris_cpio_raw as raw;
+pub(crate) use hadris_fat_raw::exfat::{Detail, *};
+pub use hadris_fat_raw::{Detail, FatKind};
+pub use hadris_fat_raw::exfat::Geometry;
+use hadris_iso_raw::*;
+// pub use hadris_ntfs_raw::*;
+"""
+    globs = [name for _, name in scan_raw_globs(reexports)]
+    if globs != ["hadris_iso_raw", "hadris_udf_raw", "hadris_cpio_raw", "hadris_fat_raw"]:
+        print(f"self-test failed: raw re-exports {globs}", file=sys.stderr)
+        return 1
     print("self-test passed")
     return 0
 
@@ -267,13 +305,23 @@ def main() -> int:
         for message in preview:
             print(f"  {message}")
 
+    globs = []
+    for crate, path in driver_files(args.root):
+        for line, name in scan_raw_globs(path.read_text(encoding="utf-8")):
+            rel = path.relative_to(args.root)
+            globs.append(f"{rel}:{line}: {crate} re-exports {name} wholesale (R12)")
+    for message in globs:
+        print(message)
+
     if counts:
         print("\nR1 findings per crate:")
         for crate, count in sorted(counts.items()):
             print(f"  {crate}: {count}")
         print(f"  total: {sum(counts.values())}")
         return 1
-    print("no R1 findings")
+    if globs:
+        return 1
+    print("no R1 or R12 findings")
     return 0
 
 
