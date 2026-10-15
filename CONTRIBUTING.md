@@ -493,6 +493,9 @@ npm run versions
 npm run build
 ```
 
+The repository's Python scripts need Python 3.11 or newer; `nix develop`
+provides one, or run them with `uv run --python 3.12 scripts/check-docs.py`.
+
 Keep the documentation layers focused: the root README is the project
 overview, the website contains concepts and workflows, crate READMEs cover
 package selection and features, and rustdoc documents individual APIs. Prefer
