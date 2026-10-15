@@ -20,7 +20,9 @@
 # same change (the next release candidate, or the next major after 3.0.0),
 # and cargo-semver-checks then infers the allowed change from the two
 # versions. A version that was never released may still break, since nothing
-# depends on it; the crate is skipped.
+# depends on it; the crate is skipped. A crate whose major version drops
+# below the baseline's (hadris-common moving from 3.0.0-rc.2 to 0.x) starts
+# a new version line with nothing to compare against, and is skipped too.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
@@ -103,6 +105,10 @@ for crate in "${crates[@]}"; do
       echo "$crate $version: not in $baseline, skipped"
       continue
     fi
+  fi
+  if (( ${version%%.*} < ${baseline_version%%.*} )); then
+    echo "$crate $version: moved below $baseline_version to a new version line, skipped"
+    continue
   fi
   release_type=infer
   if [[ "$version" == "$baseline_version" ]]; then

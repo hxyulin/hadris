@@ -65,6 +65,15 @@ Each published package owns its version and may be released independently.
   `Clone`, so later options can own their values. Clone it to mount more
   than once with the same options. Its rustdoc now lists which driver
   honours which option.
+- **hadris-common (breaking):** The crate leaves the 3.x line and is
+  versioned 0.3.0, like the raw crates whose public layout fields use its
+  integers; no stable 3.x crate exposes its types. Published 0.x versions
+  stop at 0.2.1, so 0.3.0 does not reuse one. It keeps only `U16`, `U32`
+  and `U64` with inherent `new`, `get` and `set`, the `Endianness` trait
+  and `LittleEndian`. Removed, all without users: the `zerocopy`
+  re-exports `U16Le` through `I64Be` and the `zerocopy` dependency, `U24`,
+  `BigEndian`, `NativeEndian`, the `Endian` trait, `Endianness::is_le`,
+  `get_u24` and `set_u24`, and `align_up`.
 
 - **Embedded FAT stale directories:** Using an embedded `Dir` of a removed
   subdirectory fails with `InvalidHandle` instead of reading or writing

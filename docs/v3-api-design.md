@@ -269,6 +269,9 @@ lockstep release.
 - Raw crates (`hadris-<fmt>-raw`) version separately and are never
   re-exported wholesale. A format crate re-exports only the raw items its
   own signatures use ([Q13](#7-open-questions)).
+- `hadris-common` is a 0.x support crate versioned like the raw crates.
+  Raw crates may expose its types in their layouts; stable 3.x crates may
+  not.
 - No new wholesale re-export of one crate by another is added.
 
 Each release is tagged `<crate>-v<version>`, and the release workflow publishes one crate or a set (step 14).
@@ -1001,7 +1004,7 @@ different content gives different ids. `FatOptions::with_serial` and
 | `hadris-fs` | New. Vocabulary, `Error<E>`, `PathError`, `MountOptions`, `FileSystem`, `Volume` and its handles, `Walk`, `Tree`, `Content`, `Report`, `copy_tree`, `read_tree`, `Finding`, `Severity`, `CheckReport`. |
 | `hadris-fs-contract` | Not created. The driver test kit (4.3) is `hadris-fs`'s `unstable-contract` feature, outside 3.0 semver, so contract rules can change in any release. |
 | `hadris-<fmt>-raw` | New, one per format, each with its own version: I/O-free codecs and `raw::io` primitives (4.15). `hadris-fat-raw` covers FAT and exFAT. |
-| `hadris-common` | Internal. Endianness and fixed-size string types, merged with `hadris-fixed` into one set. Documented as not for direct use. |
+| `hadris-common` | 0.x, versioned like the raw crates (0.3.0, below the 3.0.0 line it had in the release candidates). Only the little-endian `U16`, `U32` and `U64` the `hadris-fat-raw` layouts use, with no `zerocopy` dependency. Raw crates may expose its types; stable 3.x crates may not (R12). |
 | `hadris-fixed` | Merged into `hadris-common`. |
 | `hadris-path` | Merged into `hadris-fs`. |
 | `hadris-macros` | Kept, internal. |

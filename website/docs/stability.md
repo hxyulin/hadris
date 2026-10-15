@@ -45,7 +45,9 @@ any release.
   for its own breaking changes. The umbrella `hadris` bumps its major when a
   crate it re-exports does. `hadris-fat-raw` versions independently and is
   0.2.0 in RC2. The ISO, UDF and CPIO raw crates start at 0.1.0 and also
-  version independently.
+  version independently. `hadris-common`, whose endian integers the
+  `hadris-fat-raw` layouts use, is a 0.x support crate (0.3.0) versioned
+  the same way; no stable 3.x crate exposes its types.
 
 `cargo semver-checks` checks compatibility against each crate's latest 3.x
 release, with feature builds, sync/async contract tests and the non-exhaustive

@@ -1,11 +1,11 @@
 //! # Hadris Common
 //!
-//! Internal support crate for the Hadris filesystem crates. It is not meant
-//! for direct use: its API follows the needs of the other Hadris crates and
-//! can change in any release. Depend on `hadris` or a format crate instead.
+//! Endian-aware integers for the on-disk layouts of the Hadris raw crates.
 //!
-//! It provides endian-aware integers, which `hadris-fat` uses for its
-//! on-disk layouts.
+//! This is a 0.x support crate, versioned like the raw crates. The public
+//! fields of `hadris-fat-raw` layouts use its types, so a breaking change here
+//! is a breaking change there; it never appears in the API of a stable 3.x
+//! crate. Depend on `hadris` or a format crate unless you read raw layouts.
 //!
 //! ## Feature Flags
 //!
@@ -15,15 +15,15 @@
 //!
 //! ## Key Types
 //!
-//! - **Endian numbers**: [`types::number::U16`], [`types::number::U32`],
-//!   [`types::number::U64`], unsigned integers parameterized by endianness.
-//! - **Endianness**: [`types::endian::Endianness`], the compile-time byte
-//!   order of the number types.
+//! - **Endian numbers**: [`types::number::U16`], [`types::number::U32`] and
+//!   [`types::number::U64`], unsigned integers stored in a fixed byte order.
+//! - **Byte order**: [`types::endian::LittleEndian`], the only
+//!   [`types::endian::Endianness`] the layouts need.
 //!
 //! ## Example
 //!
 //! ```rust
-//! use hadris_common::types::endian::{Endian, LittleEndian};
+//! use hadris_common::types::endian::LittleEndian;
 //! use hadris_common::types::number::U32;
 //!
 //! let value = U32::<LittleEndian>::new(0x12345678);

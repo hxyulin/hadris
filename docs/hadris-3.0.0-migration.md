@@ -110,7 +110,7 @@ Sections:
 | `hadris` | `hadris`. Flat re-exports (`hadris::fat`, `hadris::iso`, `hadris::cpio`), `detect`, `open`, `AnyFs` and the `host` module. See [Features](#features). |
 | `hadris-io` | `hadris-io`. New trait shapes and the crate-wide `Error<E>`. |
 | `hadris-storage` | `hadris-storage`. One `BlockDevice` trait, used by every filesystem. |
-| `hadris-common` | `hadris-common`, internal. Only the endian integers remain. |
+| `hadris-common` | `hadris-common` 0.3.0, a 0.x support crate like the raw crates. Only the little-endian integers remain. |
 | `hadris-macros` | `hadris-macros`, internal. |
 | `hadris-fixed` | Removed. The fixed-capacity types have no public successor. |
 | `hadris-path` | Removed. Paths are `/`-separated bytes (`impl AsRef<[u8]>`), resolved by `FileSystem::resolve` and `Volume` with `hadris_fs::Resolve`. |
@@ -185,7 +185,7 @@ Per crate:
 | `hadris` | `std`, `alloc`, `sync`, `async`, `read`, `write`, `block`, `optical`, `archive`, `path`, `fixed`, `storage`, `fat`, `part`, `iso`, `udf`, `cd`, `cpio` (default `std`, `sync`, `read`, `write`, `fixed`, `path`, `iso`, `fat`, `cpio`) | `std`, `alloc`, `sync`, `async`, `write`, `fat`, `part`, `iso`, `udf`, `cpio`, `detect`, `unstable-ntfs`, `unstable-apfs`, `apfs-encryption`, `tracing` (default `std`, `sync`, `write`, `fat`, `iso`, `cpio`, `detect`) | `read`: drop it. `archive`: use `cpio`. `block`, `optical`: use `detect` (adds `fat`, `iso`, `udf`, `cpio`) and `part`. `cd`: use `udf`. `storage`: `hadris::storage` is always there. `path`, `fixed`: the crates are gone. `write` now only forwards FAT formatting. |
 | `hadris-io` | `std`, `alloc`, `sync`, `async` | `std`, `alloc`, `sync`, `async`, `embedded-io` | `embedded-io` is now optional and gates `FromEmbedded` and the `embedded-io` conversions. `async` also enables `local`. |
 | `hadris-storage` | `std`, `alloc`, `sync`, `async` | `std`, `alloc`, `sync`, `async` | None. `async` also enables `local`. |
-| `hadris-common` | `std`, `alloc`, `sync`, `async`, `bytemuck`, `optical` | `bytemuck` | The crate is internal; do not depend on it. |
+| `hadris-common` | `std`, `alloc`, `sync`, `async`, `bytemuck`, `optical` | `bytemuck` | The crate is 0.x; depend on it only to name `hadris-fat-raw` field types. |
 | `hadris-fs` | (new) | `std`, `alloc`, `sync`, `async`, `unstable-contract` (default `std`, `sync`) | `unstable-contract` adds the driver test kit `contract::check`, outside semver; enable it in dev-dependencies only. |
 | `hadris-fat` | `read`, `write`, `lfn`, `std`, `sync`, `async`, `alloc`, `cache`, `tool`, `unstable-exfat`, `defmt`, `dirty-file-panic` (default `read`, `write`, `lfn`, `std`, `sync`) | `std`, `sync`, `async`, `alloc`, `write`, `defmt` (default `std`, `sync`, `write`) | `read`, `lfn`: always on. `cache`: use `FatFs::with_cache(CacheOptions)` for bounded metadata/lookup caches, or wrap the device in `hadris_storage::sync::Cache` for write-back block caching. `tool`: use `check` (always compiled) and `FatFs::extents`. `unstable-exfat`: exFAT is in every build. `dirty-file-panic`: gone. `write` now adds only `format`; it no longer implies `alloc` or `read`. `FatFs`, `ExFatFs` and the tree writer `write` need `alloc`. `defmt` now derives only on `FatKind`. |
 | `hadris-fat-raw` | (new) | `sync`, `async`, `defmt` (no defaults) | `sync` and `async` add the device primitives in `io` and `exfat::io`. |
@@ -1239,13 +1239,19 @@ follows. In V3, name I/O items through their mode module:
 
 ### hadris-common
 
-`hadris-common` is internal in V3; do not depend on it directly.
+`hadris-common` leaves the 3.x line and is versioned 0.x (0.3.0) like the
+raw crates, whose public layout fields use its integers. No stable 3.x crate
+exposes it; depend on it only to name the field types of `hadris-fat-raw`.
 
 | V2 path | V3 path or replacement |
 |---|---|
-| `hadris_common::types::number::{U16, U24, U32, U64}` and the `U16Le`, `U32Be`, ... aliases | Kept; they gained inherent `new`, `get` and `set` |
-| `hadris_common::types::number::align_up` | Kept |
-| `hadris_common::types::endian::{Endian, Endianness, BigEndian, LittleEndian, NativeEndian}` | Kept. `Endianness::get()` is `Endianness::is_le()` |
+| `hadris_common::types::number::{U16, U32, U64}` | Kept; `new`, `get` and `set` are inherent methods |
+| `hadris_common::types::number::U24` | Removed, unused |
+| `hadris_common::types::number::{U16Le, U32Be, ...}` (the `zerocopy` re-exports) | Removed with the `zerocopy` dependency. Use `zerocopy::little_endian::U16` and its twins directly |
+| `hadris_common::types::number::align_up` | Removed. Use `u64::next_multiple_of` |
+| `hadris_common::types::endian::{Endianness, LittleEndian}` | Kept. `Endianness::get()` and `is_le()` are gone |
+| `hadris_common::types::endian::Endian` | Removed; use the inherent `new`, `get` and `set` |
+| `hadris_common::types::endian::{BigEndian, NativeEndian}` | Removed, unused |
 | `hadris_common::types::endian::EndianType` | Removed |
 | `hadris_common::types::endian::MaybePod` | Removed; the `Endian` associated types have no bounds and `bytemuck` only adds `Pod` impls |
 | `hadris_common::types::extent::Extent` | `hadris_fs::Extent` |

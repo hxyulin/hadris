@@ -27,6 +27,9 @@ def main():
         manifest = root / "crates/hadris/Cargo.toml"
         manifest.parent.mkdir(parents=True)
         manifest.write_text('[package]\nname = "hadris"\nversion = "2.5.0"\n')
+        common = root / "crates/hadris-common/Cargo.toml"
+        common.parent.mkdir(parents=True)
+        common.write_text('[package]\nname = "hadris-common"\nversion = "3.0.0-rc.2"\n')
         git("add", ".")
         git("commit", "--quiet", "-m", "V2 baseline")
         baseline = git("rev-parse", "HEAD")
@@ -34,12 +37,14 @@ def main():
         new_manifest = root / "crates/hadris-fat-raw/Cargo.toml"
         new_manifest.parent.mkdir(parents=True)
         new_manifest.write_text('[package]\nname = "hadris-fat-raw"\nversion = "0.1.0"\n')
+        common.write_text('[package]\nname = "hadris-common"\nversion = "0.3.0"\n')
         git("add", ".")
         git("commit", "--quiet", "-m", "V3 with a new crate")
 
         packages = [
             {"name": "hadris", "version": "3.0.0-rc.1", "manifest_path": str(manifest)},
             {"name": "hadris-fat-raw", "version": "0.1.0", "manifest_path": str(new_manifest)},
+            {"name": "hadris-common", "version": "0.3.0", "manifest_path": str(common)},
         ]
         (root / "metadata.json").write_text(json.dumps({"packages": packages}))
         cargo = root / "bin/cargo"
@@ -74,6 +79,7 @@ else:
         result, invocation = run(baseline)
         assert result.returncode == 0, result.stderr
         assert "hadris-fat-raw 0.1.0: not in" in result.stdout, result.stdout
+        assert "hadris-common 0.3.0: moved below 3.0.0-rc.2" in result.stdout, result.stdout
         assert json.loads(invocation.read_text()) == ["--baseline-rev", baseline, "-p", "hadris"]
 
         for ref in ("refs/remotes/origin/main", "refs/heads/main"):
@@ -97,7 +103,7 @@ else:
         result, invocation = run("missing-baseline")
         assert result.returncode != 0 and not invocation.exists()
 
-    print("Semver baseline selection: new crates, release rules and failures passed")
+    print("Semver baseline selection: new crates, new version lines, release rules and failures passed")
 
 
 if __name__ == "__main__":
