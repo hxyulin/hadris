@@ -267,7 +267,7 @@ cargo run -p hadris-fat --example shared_volume -- disk.img
 | `async` | Asynchronous API for local and `Send` devices in `async_` | `hadris-io/async` |
 | `std` | `hadris_storage::host::FileDevice` for image files and `SystemClock` | `std`, `alloc` |
 | `defmt` | `defmt::Format` for `FatKind` | `defmt` |
-| `tracing` | [Function spans](../../../docs/tracing.md) for FAT/exFAT operations and FAT allocation/write paths; disabled by default | `std`, `alloc`, `tracing` |
+| `tracing` | [Function spans](../../../docs/tracing.md) for FAT/exFAT operations and FAT allocation/write paths, also without `std`; disabled by default | `tracing` |
 
 Default features: `write`, `std`, `sync`
 

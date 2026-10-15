@@ -68,7 +68,7 @@ references, so they are stable and hard links share one.
 | `alloc` | via `std` | Forwards `alloc` to `hadris-fs` and `hadris-storage` |
 | `sync` | Yes | The blocking API in `sync` |
 | `async` | No | The unified asynchronous API in `async_` |
-| `tracing` | No | Operation spans through the `tracing` crate; implies `std` |
+| `tracing` | No | Operation spans through the `tracing` crate, also without `std` |
 
 Reading needs no allocator in any mode. No feature changes what an item
 does.
@@ -91,8 +91,8 @@ scripts/test-ntfs.sh cargo test -p hadris-ntfs --all-features
 
 ## Tracing
 
-The opt-in `tracing` feature enables `std` and emits operation spans through the
-application’s subscriber. It is disabled by default. See the
+The opt-in `tracing` feature emits operation spans through the application’s
+subscriber, with or without `std`. It is disabled by default. See the
 [tracing guide](../../../docs/tracing.md) for targets, metadata and async behavior.
 
 ## Volume bounds

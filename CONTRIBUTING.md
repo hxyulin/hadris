@@ -131,7 +131,7 @@ hosted and embedded drivers. Run it with
 measurement boundaries and embedded flash/stack measurements.
 
 The ISO benchmark runs with
-`cargo bench -p hadris-iso --bench performance --features cache`; the same
+`cargo bench -p hadris-iso --bench performance`; the same
 performance guide documents its workloads, cache settings and measurement
 boundaries.
 

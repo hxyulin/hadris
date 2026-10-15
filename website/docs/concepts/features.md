@@ -11,8 +11,7 @@ Hadris separates three decisions that many crates combine:
 3. **Capability:** `write` (FAT formatting), and in the umbrella crate one
    feature per format
 
-Stable format crates always compile reading; the APFS preview still has a
-`read` feature. The APIs and Cargo examples below target RC2. Until RC2 is
+Every format crate always compiles reading; none has a `read` feature. The APIs and Cargo examples below target RC2. Until RC2 is
 published, use a workspace checkout as described in
 [getting started](../getting-started.md). See the [async guide](../guides/async-io.md)
 for custom device migration. Choose each dimension
@@ -62,8 +61,10 @@ futures. The `async` feature enables both filesystem tiers. Storage has no
 and Send `async_` contracts, and CPIO retains its Send stream API.
 Device errors remain `Send + Sync + 'static` in every mode.
 
-The sync and async APIs retain mode-specific differences: `hadris-fs::host`
-uses blocking `std::fs` and is sync-only. A sync `Volume` needs `std`; async
+The sync and async APIs retain mode-specific differences: the tree
+functions of `hadris-fs::host` (`file`, `read_tree`, `write_tree`) use
+blocking `std::fs` and are sync-only, while its mount and build defaults and
+`hadris-storage::host::FileDevice` need only `std`. A sync `Volume` needs `std`; async
 volumes need `alloc` and pointer-sized atomics. Local volumes do not expose
 lazy `read_tree`, whose content sources still require Send and Sync.
 
@@ -140,6 +141,8 @@ compiled, and `alloc` adds the writer.
 - Use the umbrella with defaults disabled for one dependency and one format; use leaf crates for direct ownership of their versions.
 - Treat `hadris-ntfs` and `unstable-ntfs` as a preview whose native API may
   change in minor releases.
+- `tracing` adds spans without selecting `std`, so `no_std` builds can trace
+  when they have a global allocator, which the `tracing` crate needs.
 
 The workspace CI checks representative allocation-free, `alloc`, `std`, sync,
 async, and combined-mode tiers for every stable format crate.

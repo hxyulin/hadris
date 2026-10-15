@@ -101,7 +101,7 @@ The header layouts are in `hadris_cpio::raw`.
 | `alloc` | via `std` | The writer, `plan`, `read_tree` and `normalize_path` |
 | `sync` | yes | The blocking API in `sync` |
 | `async` | no | The asynchronous API with `Send` futures in `async_` |
-| `tracing` | no | Operation spans through the `tracing` crate; implies `std` |
+| `tracing` | no | Operation spans through the `tracing` crate, also without `std` |
 
 A bootloader that only reads uses
 `default-features = false, features = ["sync"]`.
@@ -114,8 +114,8 @@ A bootloader that only reads uses
 
 ## Tracing
 
-The opt-in `tracing` feature enables `std` and emits operation spans through the
-application’s subscriber. It is disabled by default. See the
+The opt-in `tracing` feature emits operation spans through the application’s
+subscriber, with or without `std`. It is disabled by default. See the
 [tracing guide](../../../docs/tracing.md) for targets, metadata and async behavior.
 
 The [streaming audit and benchmark](../../../docs/cpio-performance.md) records

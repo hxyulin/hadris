@@ -35,17 +35,19 @@ Subscriber-specific layers can export these spans for visualization or
 profiling. Async spans enter on each poll and exit when it returns; no span
 guard stays entered across an await or after cancellation.
 
-`tracing` explicitly enables `std` (which already enables `alloc` in Hadris).
-It is disabled by default. The plain `sync`/`async` and `alloc` tiers remain
-available without it; enabling tracing selects the hosted tier even with
-`default-features = false`. Cargo unifies features for a crate, so every
-dependency must leave tracing and `std` disabled for a no-allocator firmware
-build. No custom observer API or global callback registry is needed.
+`tracing` is independent of `std`: it adds spans to whichever tiers are
+enabled, including `no_std` builds, and `std` turns on `tracing/std`. It is
+disabled by default. The `tracing` crate itself needs `liballoc` without
+`std`, so a `no_std` build that enables it needs a global allocator even when
+the Hadris `alloc` feature stays off; a no-allocator firmware build leaves
+tracing disabled in every dependency, since Cargo unifies features for a
+crate. No custom observer API or global callback registry is needed.
 
 ```bash
 cargo check -p hadris-fat --no-default-features --features sync,write
 cargo check -p hadris-fat --no-default-features --features alloc,async,write
 cargo check -p hadris-fat --no-default-features --features tracing,sync,async,write
+cargo check -p hadris-fat --no-default-features --features std,tracing,sync,async,write
 cargo test -p hadris-fat --all-features --test tracing
 ```
 

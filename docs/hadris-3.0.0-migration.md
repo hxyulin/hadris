@@ -162,7 +162,7 @@ back into the build.
 
 Rules that hold for every V3 crate:
 
-- Reading is always compiled. Stable crates have no `read` feature; the APFS preview still has one.
+- Reading is always compiled. No crate has a `read` feature.
 - `sync` and `async` select parallel namespaces (`sync`, `async_`) and may be
   enabled together. `std` implies `alloc` but selects no I/O mode.
 - A feature only adds items. No feature changes what an existing item does;
@@ -186,12 +186,12 @@ Per crate:
 | `hadris-io` | `std`, `alloc`, `sync`, `async` | `std`, `alloc`, `sync`, `async`, `embedded-io` | `embedded-io` is now optional and gates `FromEmbedded` and the `embedded-io` conversions. `async` also enables `local`. |
 | `hadris-storage` | `std`, `alloc`, `sync`, `async` | `std`, `alloc`, `sync`, `async` | None. `async` also enables `local`. |
 | `hadris-common` | `std`, `alloc`, `sync`, `async`, `bytemuck`, `optical` | `bytemuck` | The crate is internal; do not depend on it. |
-| `hadris-fs` | (new) | `std`, `alloc`, `sync`, `async`, `contract` (default `std`, `sync`) | `contract` adds the driver test kit `contract::check`. |
+| `hadris-fs` | (new) | `std`, `alloc`, `sync`, `async`, `unstable-contract` (default `std`, `sync`) | `unstable-contract` adds the driver test kit `contract::check`, outside semver; enable it in dev-dependencies only. |
 | `hadris-fat` | `read`, `write`, `lfn`, `std`, `sync`, `async`, `alloc`, `cache`, `tool`, `unstable-exfat`, `defmt`, `dirty-file-panic` (default `read`, `write`, `lfn`, `std`, `sync`) | `std`, `sync`, `async`, `alloc`, `write`, `defmt` (default `std`, `sync`, `write`) | `read`, `lfn`: always on. `cache`: use `FatFs::with_cache(CacheOptions)` for bounded metadata/lookup caches, or wrap the device in `hadris_storage::sync::Cache` for write-back block caching. `tool`: use `check` (always compiled) and `FatFs::extents`. `unstable-exfat`: exFAT is in every build. `dirty-file-panic`: gone. `write` now adds only `format`; it no longer implies `alloc` or `read`. `FatFs`, `ExFatFs` and the tree writer `write` need `alloc`. `defmt` now derives only on `FatKind`. |
 | `hadris-fat-raw` | (new) | `sync`, `async`, `defmt` (no defaults) | `sync` and `async` add the device primitives in `io` and `exfat::io`. |
 | `hadris-part` | `std`, `sync`, `async`, `alloc`, `read`, `write`, `crc`, `rand` | `std`, `alloc`, `sync`, `async` | `read`, `write`: always on. `crc`: CRCs are always computed and checked. `rand`: pass GUIDs yourself or call `Guid::random()` (`std`). `Disk`, the tables and `DiskLayout` need `alloc`; `scan` and `open` do not. |
 | `hadris-ntfs` | `read`, `std`, `sync`, `async`, `alloc` | `std`, `alloc`, `sync`, `async` | `read`: reading needs no allocator now. |
-| `hadris-iso` | `read`, `alloc`, `std`, `sync`, `async`, `write`, `joliet`, `unstable-streaming` (default `std`, `write`, `sync`) | `std`, `alloc`, `sync`, `async`, `cache`, `tracing` (default `std`, `sync`) | `read`: gone, reading needs no allocator. `write`, `joliet`: the writer, sessions and boot catalog reader need `alloc`. `unstable-streaming`: `hadris_fs::host::file` content is read while the image is written. |
+| `hadris-iso` | `read`, `alloc`, `std`, `sync`, `async`, `write`, `joliet`, `unstable-streaming` (default `std`, `write`, `sync`) | `std`, `alloc`, `sync`, `async`, `tracing` (default `std`, `sync`) | `read`: gone, reading needs no allocator. `IsoFs::with_cache(CacheOptions)` needs only `alloc`. `write`, `joliet`: the writer, sessions and boot catalog reader need `alloc`. `unstable-streaming`: `hadris_fs::host::file` content is read while the image is written. |
 | `hadris-udf` | `read`, `alloc`, `std`, `write`, `sync`, `async`, `unstable-streaming` | `std`, `alloc`, `sync`, `async` | `read`, `write`: the writer needs `alloc` and no longer needs `std`. `unstable-streaming`: as for ISO. |
 | `hadris-cpio` | `read`, `alloc`, `std`, `write`, `sync`, `async` | `std`, `alloc`, `sync`, `async` | `read`: the reader is always compiled and needs no allocator. `write`: the writer needs `alloc`. |
 | `hadris-block`, `hadris-optical`, `hadris-cd`, `hadris-archive` | various | crate removed | See [Crate map](#crate-map). |
@@ -1064,9 +1064,12 @@ RC2 or a workspace checkout of `main`.
   does not relax the error contract.
 - The async `ReadDir` has `next_entry().await` instead of `Iterator`.
 - The async `Volume` needs `alloc`; the sync one needs `std`.
-- The `hadris_fs::host` module is sync only. Lazy content is readable only in
-  the mode that produced it; an async writer given a host file fails with
-  `Unsupported` before writing.
+- `hadris_fs::host::{mount_options, local_utc_offset, source_date_epoch}`
+  need only `std`; `host::{file, read_tree, write_tree}` are sync only. Lazy
+  content is readable only in the mode that produced it; an async writer
+  given a host file fails with `Unsupported` before writing.
+  `hadris_storage::host::FileDevice` needs only `std` and implements the
+  block-device contract of each enabled mode.
 
 ```rust
 // 2.4 (website/docs/guides/async-io.md at tag v2.4.0)
@@ -1639,8 +1642,8 @@ Writing:
 
 ## Additions after the initial V3 migration
 
-The optional `tracing` feature enables hosted instrumentation and is off by
-default. FAT cache settings are explicit through `CacheOptions`; ordinary
+The optional `tracing` feature adds instrumentation in every tier, including
+`no_std`, and is off by default. FAT cache settings are explicit through `CacheOptions`; ordinary
 mounts stay uncached, while CLI extraction uses `CacheOptions::sequential()`.
 `hadris-storage::ReadAhead` offers an independent, bounded read-ahead budget in
 `sync` and `async_`. CLI extraction accepts
@@ -1650,6 +1653,20 @@ APFS password unlocking is opt-in with `hadris-apfs/encryption` or the umbrella'
 `apfs-encryption` feature. It covers qualified software-encrypted single-key
 volumes, not internal Apple-silicon hardware FileVault. See the
 [encryption scope](apfs-encryption.md).
+
+## Feature changes after RC2
+
+These breaking feature changes landed after `3.0.0-rc.2`:
+
+| RC2 | 3.0 |
+|---|---|
+| `hadris-apfs/read` (default) | Removed; the readers need only `sync` or `async`. Drop it from feature lists, including `hadris-apfs/read` in your own features. |
+| `hadris-iso/cache` | Removed; `CacheOptions`, `IsoFs::with_cache` and `IsoFs::clear_cache` need only `alloc`. |
+| `hadris-fs/async-local`, `hadris-iso/async-local` | Removed; `async` enables `hadris_fs::local` and both async tiers. |
+| `hadris-fs/contract` | Renamed `unstable-contract`; the kit is outside semver. |
+| `tracing` implies `std` | `tracing` is independent of `std`; enable `std` yourself if you relied on it. |
+| `hadris_storage::host::FileDevice` needs `std` and `sync` | Needs `std`; it implements `async_::BlockDevice` with `async` alone. |
+| `hadris_fs::host` needs `std` and `sync` | The module needs `std`; the tree functions also need `sync`. |
 
 ## APFS added in V2 2.5
 

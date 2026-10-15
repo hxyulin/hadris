@@ -29,12 +29,10 @@ desktop tools as well as `no_std` bootloaders, kernels and firmware.
 | Feature | Description | Default |
 |---------|-------------|---------|
 | `std` | Implies `alloc`; `std::io::Error` conversions and host files as tree content | Yes |
-| `alloc` | The writer, sessions, `BootCatalog` and the `Tree` input | via `std` |
+| `alloc` | The writer, sessions, `BootCatalog`, the `Tree` input and the bounded metadata caches of `CacheOptions` | via `std` |
 | `sync` | Blocking API in `hadris_iso::sync` | Yes |
 | `async` | Common and Send asynchronous API in `hadris_iso::async_` | - |
-| `async-local` | The same `async_` API with the local filesystem feature tier | - |
-| `cache` | Bounded metadata caches configured through `CacheOptions`; implies `alloc` | - |
-| `tracing` | Operation spans through the `tracing` crate; implies `std` | - |
+| `tracing` | Operation spans through the `tracing` crate, also without `std` | - |
 
 No feature changes what an item does. Joliet, Rock Ridge, El Torito and the
 enhanced tree are always available.
@@ -299,21 +297,20 @@ cargo run -p hadris-iso --example create_bootable_iso -- bootable.iso
 
 ## Tracing
 
-The opt-in `tracing` feature enables `std` and emits operation spans through the
-application’s subscriber. It is disabled by default. See the
+The opt-in `tracing` feature emits operation spans through the application’s
+subscriber, with or without `std`. It is disabled by default. See the
 [tracing guide](../../../docs/tracing.md) for targets, metadata and async behavior.
 
 ## Optional reader cache
 
-Enable `cache` and call `IsoFs::with_cache(CacheOptions::new())` after mounting
+With `alloc`, call `IsoFs::with_cache(CacheOptions::new())` after mounting
 to cache up to eight logical metadata sectors and 32 parsed directory records.
 `with_blocks` and `with_records` set independent capacities; zero disables that
 part. The cache allocates those capacities and never caches file payloads.
 The image must remain unchanged while cached metadata is retained.
 `clear_cache` discards retained metadata; remount if volume descriptors change.
-Without `with_cache`, reading remains allocation-free, even with the feature
-enabled. The feature implies `alloc` and works with both sync and async APIs
-without requiring `std`.
+Without `with_cache`, reading remains allocation-free. The cache works with
+both sync and async APIs without requiring `std`.
 
 `CacheOptions::with_links` additionally bounds a lazy canonical hard-link
 index, disabled by default. Its first hard-link lookup scans directory records
@@ -323,7 +320,7 @@ no partial index; subsequent lookups use the normal scan until `clear_cache`.
 
 ### Performance measurements
 
-`cargo bench -p hadris-iso --bench performance --features cache` reports device
+`cargo bench -p hadris-iso --bench performance` reports device
 calls, transferred bytes and min/median/max runtime for reader and writer
 workloads. See [the performance guide](../../../docs/performance.md) for cache
 settings, filtering, CSV baselines and measurement boundaries.
@@ -354,9 +351,8 @@ A device and its operation state that implement `Send` automatically satisfy
 `SendBlockDevice`. Reader operations, writers and sessions then produce Send
 futures. `IsoFs` implements `hadris_fs::local::FileSystem` for all common devices
 and the Send filesystem contract for `SendBlockDevice` devices.
-The `async` feature enables both capabilities. `async-local` remains available
-for the local filesystem feature tier; neither requires an allocator for reading.
-The `alloc` feature enables writers and sessions in either async feature tier.
+The `async` feature enables both capabilities; neither requires an allocator
+for reading. The `alloc` feature enables writers and sessions.
 
 ## Documentation
 

@@ -26,6 +26,35 @@ Each published package owns its version and may be released independently.
   modules are removed. No driver accepted their `BlockDevice` traits;
   implement the poll-based `async_::BlockDevice` or `async_::Stream`, or
   bridge a synchronous stream with `BlockingStream`.
+- **Features (breaking):** `hadris-apfs` drops its `read` feature (it was
+  on by default); the readers need only `sync` or `async`, and the
+  umbrella no longer forwards `hadris-apfs/read`. `hadris-iso` drops
+  `cache`: `CacheOptions`, `IsoFs::with_cache` and `IsoFs::clear_cache`
+  need only `alloc`. `hadris-fs` and `hadris-iso` drop `async-local`;
+  `async` already enabled `hadris_fs::local`, and builds on the same
+  targets.
+
+- **hadris-fs (breaking):** The `contract` feature is renamed
+  `unstable-contract`. The driver contract kit (`contract::check`,
+  `contract::check_read_only`, `ContractViolation`) is outside semver and
+  hidden from the rendered docs; enable it in dev-dependencies only.
+
+- **tracing (breaking):** `tracing` no longer implies `std` in any crate,
+  and the `tracing` dependency is built without its default features, so
+  `no_std` builds can trace (the `tracing` crate needs a global allocator
+  there). `std` turns on `tracing/std`. Builds that relied on `tracing` for
+  `std` must enable `std` themselves.
+
+- **Host tier without `sync`:** `hadris_storage::host::FileDevice` needs
+  only `std` and implements `async_::BlockDevice` with `async` alone, so a
+  `std,async` build has a host file device. `hadris_fs::host` needs only
+  `std`; `mount_options`, `local_utc_offset` and `source_date_epoch` no
+  longer need `sync`, while `file`, `read_tree` and `write_tree` still do.
+  `hadris-fs` `sync` and `async` forward to `hadris-storage`.
+
+- **hadris-fs dependencies:** `hadris-storage` is an optional dependency
+  enabled by `std`, so `hadris-fat-raw` and `hadris-iso-raw` without `std`
+  no longer pull in `hadris-storage`.
 
 - **Embedded FAT stale directories:** Using an embedded `Dir` of a removed
   subdirectory fails with `InvalidHandle` instead of reading or writing

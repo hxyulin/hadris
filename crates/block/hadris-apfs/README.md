@@ -162,16 +162,15 @@ APFS partition first, for example with `hadris-part`.
 |---------|---------|-------------|
 | `std`   | Yes     | Standard library support (enables `alloc`) |
 | `alloc` | Yes     | Heap allocation; required by the B-tree and file readers |
-| `read`  | Yes     | The container readers |
 | `sync`  | Yes     | Synchronous readers in `hadris_apfs::sync` |
 | `async` | No      | Unified asynchronous readers in `hadris_apfs::async_` |
-| `encryption` | No | Password-based software FileVault unlocking; implies `alloc` and `read` |
-| `tracing` | No | Operation spans through the `tracing` crate; implies `std` |
+| `encryption` | No | Password-based software FileVault unlocking; implies `alloc` |
+| `tracing` | No | Operation spans through the `tracing` crate, also without `std` |
 
 ## Tracing
 
-The opt-in `tracing` feature enables `std` and emits operation spans through the
-application’s subscriber. It is disabled by default. See the
+The opt-in `tracing` feature emits operation spans through the application’s
+subscriber, with or without `std`. It is disabled by default. See the
 [tracing guide](../../../docs/tracing.md) for targets, metadata and async behavior.
 
 ## Object mappings

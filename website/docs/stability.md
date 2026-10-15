@@ -26,7 +26,10 @@ In 3.0, exFAT is stable as `hadris_fat::exfat::sync::ExFatFs` and
 the `unstable-exfat` preview. The `hadris-ntfs` reader, and the
 `unstable-ntfs` feature of `hadris` that exposes its native API, stay outside
 the stability promise: its `FileSystem` implementation follows the frozen
-trait, but its native methods may change in 3.x minor releases.
+trait, but its native methods may change in 3.x minor releases. The driver
+contract kit behind `hadris-fs`'s `unstable-contract` feature is a test aid
+for format authors and is also outside the promise; its rules may change in
+any release.
 
 ## Compatibility policy
 

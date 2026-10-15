@@ -28,8 +28,8 @@ kind of device. A Send filesystem value alone does not guarantee Send I/O
 futures. Local futures may retain `Rc` state across suspension.
 
 Volumes require `alloc` and pointer-sized atomics. The reader also supports
-allocation-free `no_std` configurations. The `async-local` feature selects the
-local contract without enabling Send volume support.
+allocation-free `no_std` configurations. The `async` feature enables both the
+local and the Send contract.
 
 ## Writing and sessions
 

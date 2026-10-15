@@ -595,9 +595,9 @@ The contract, stated in the trait docs:
 - In async, cancellation leaves no newly acquired pin. This resource cleanup contract is independent of filesystem rollback.
 - Write methods default to `ReadOnly`, so a read-only format implements only the read half and gains writes later by overriding them. `fsync` and `sync` default to `Ok`: on a read-only mount they succeed when there is nothing to write and fail with `ReadOnly` only when changes the mount refused to write are pending, so `File::sync_all` and a shutdown `sync` work on any read-only mount through `AnyFs`.
 
-The `hadris-fs-contract` crate (outside 3.0 semver) checks the
-format-independent rules of this contract as a test kit, which every format
-port runs.
+The driver contract kit, `hadris-fs`'s `unstable-contract` feature (outside
+3.0 semver, hidden from the rendered docs), checks the format-independent
+rules of this contract as a test kit, which every format port runs.
 
 What each choice buys, and what it replaced:
 
@@ -939,7 +939,7 @@ Keep the `strip_async!` code generation and use it everywhere:
 - Only types that do I/O live in `sync` and `async_`. `async_` is the only name of the async mode; the `r#async` aliases were removed before 3.0.0.
 - Send filesystem and byte-stream traits use `impl Future<Output = T> + Send`; the generator produces sync and local variants. Block-format algorithms use the common poll-device contract, with conditional forwarding to the stronger Send filesystem trait.
 - One async block-format driver supports local and Send devices. Its operation futures are Send when both the device and its state are Send. `hadris-fs::local` supplies local traits and handles; `hadris-fs::async_` supplies the stronger Send tier. The `async` feature enables both. CPIO still uses the Send byte-stream contract, and lazy tree content retains its Send requirements. [Q2](#7-open-questions) records the earlier mode decisions.
-- Every crate exposes the same public items in both modes. R11 requires review and tests for mode parity, with these intended differences: `Iterator` versus `next_entry`, the `std::io` impls, and the sync-only `host` module.
+- Every crate exposes the same public items in both modes. R11 requires review and tests for mode parity, with these intended differences: `Iterator` versus `next_entry`, the `std::io` impls, and the sync-only host tree functions (`hadris_fs::host::{file, read_tree, write_tree}`; the rest of `host` and `hadris_storage::host::FileDevice` need only `std`).
 - Sync stays generated rather than wrapping async code in `block_on`: that was measured at 40 to 49% more code and 70% more worst-case stack on thumbv7em (4.15).
 - `hadris-macros` gains span-preserving errors so contributors see the right line.
 
@@ -960,16 +960,17 @@ and non-`Send` contracts differ:
 | Feature | Meaning |
 |---|---|
 | `alloc` | Heap-backed items: `FatFs` and `ExFatFs`, the async `Volume`, `Tree` and the writers, `PathError`, `copy_tree`, `open` and `AnyFs`, `Walk::new`, `Box` forwarding. |
-| `std` | Implies `alloc`. The sync `Volume`, `std::io` impls on sync handles, `From<Error<E>> for std::io::Error`, `StdIo`, `SystemClock`, the `host` module, sync `read_tree` and ISO `Session`. |
+| `std` | Implies `alloc`. The sync `Volume`, `std::io` impls on sync handles, `From<Error<E>> for std::io::Error`, `StdIo`, `SystemClock`, the `host` modules (`FileDevice` in each enabled mode; the host tree functions with `sync`), sync `read_tree` and ISO `Session`. Without `std`, `hadris-fs` does not depend on `hadris-storage`. |
 | `embedded-io` | `FromEmbedded<T>` for embedded-io and embedded-io-async streams. Nothing else names embedded-io. |
 | `sync` | Sync API. On by default. |
-| `async` | Async API: `Send` futures in the shared tier, `local` futures in the embedded API. |
+| `async` | Async API: `Send` futures in the shared tier, `local` futures in the embedded API and `hadris_fs::local`. There is no separate local-only feature: `async` builds on every target `sync` does, including those without atomic compare-and-swap. |
 | `write` | Kept on `hadris-fat` and forwarded by the umbrella (S4 in 4.17). It only adds items. Other crates gain one in 3.x only if needed, which is additive. |
-| `unstable-*` | Enables a preview module, such as `unstable-ntfs`. Never changes stable items. |
+| `tracing` | Spans through the `tracing` crate. Independent of `std`, so `no_std` builds can trace (the `tracing` crate needs `liballoc` there); `std` turns on `tracing/std`. |
+| `unstable-*` | Enables a preview module, such as `unstable-ntfs`, or the driver contract kit, `hadris-fs`'s `unstable-contract`. Outside semver; never changes stable items. |
 
-- `read` is dropped; reading is always available. `async-send` is dropped.
+- `read` is dropped; reading is always available, in `hadris-apfs` too. `async-send` and `async-local` are dropped.
 - `crc` and `rand` stop being user-facing features. CRC is always compiled. GUIDs come from the caller or the seed (4.10).
-- `cache` stops being a feature. `Cache<D>` is always available and costs nothing unless constructed.
+- `cache` stops being a feature. `Cache<D>` is always available and costs nothing unless constructed; ISO's `CacheOptions` needs only `alloc`.
 - No feature changes behaviour. Path semantics (4.12), the time zone default (post-pass decision C) and the node table (4.5) are values or types, so enabling a feature anywhere in the build only adds items. The same holds for `Walk`: `Walk::new` needs `alloc` and `Walk::with_stack` does not, as two constructors, not one whose stack depends on a feature.
 - `hadris-fs` defaults to `std` and `sync` like every other crate (D3).
 - The umbrella forwards the same axes plus one feature per format.
@@ -997,7 +998,7 @@ different content gives different ids. `FatOptions::with_serial` and
 | `hadris-io` | Kept. `ErrorType`, `Read`, `Write`, `Seek`, `ExactError`, `FromEmbedded`, `StdIo`, in `sync`, `async_` and `local`. |
 | `hadris-storage` | Kept and adopted by every filesystem. `BlockDevice` in `sync`, `async_` and `local`, `Partition`, `Vec<u8>`, `StreamDevice`, `MemDevice`, `Cache`, `ByteView`. |
 | `hadris-fs` | New. Vocabulary, `Error<E>`, `PathError`, `MountOptions`, `FileSystem`, `Volume` and its handles, `Walk`, `Tree`, `Content`, `Report`, `copy_tree`, `read_tree`, `Finding`, `Severity`, `CheckReport`. |
-| `hadris-fs-contract` | New, 0.x, outside 3.0 semver. The driver test kit (4.3). |
+| `hadris-fs-contract` | Not created. The driver test kit (4.3) is `hadris-fs`'s `unstable-contract` feature, outside 3.0 semver, so contract rules can change in any release. |
 | `hadris-<fmt>-raw` | New, one per format, each with its own version: I/O-free codecs and `raw::io` primitives (4.15). `hadris-fat-raw` covers FAT and exFAT. |
 | `hadris-common` | Internal. Endianness and fixed-size string types, merged with `hadris-fixed` into one set. Documented as not for direct use. |
 | `hadris-fixed` | Merged into `hadris-common`. |
@@ -1234,8 +1235,8 @@ iterators, the Rock Ridge decoder, CS0 and d-character codecs and descriptor
 selection. NTFS exposes its record layer under `unstable-ntfs`. cpio and
 partitions need little beyond making existing codecs public.
 
-**Other simplifications.** The `contract` kit moves to a `hadris-fs-contract`
-crate outside 3.0 semver. Path resolution is the `Resolve` enum (`Lexical`,
+**Other simplifications.** The contract kit is `hadris-fs`'s
+`unstable-contract` feature, outside 3.0 semver. Path resolution is the `Resolve` enum (`Lexical`,
 `Follow`, `NoFollow`) on `resolve` and `Volume::with_resolve`; the
 `Resolver` trait, `Posix<N>` and `WithResolver` are removed.
 

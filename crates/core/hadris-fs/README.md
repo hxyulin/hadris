@@ -49,11 +49,11 @@ from one source:
   cannot hold, and `read_tree` (with the `Volume`), which reads a mounted
   volume into a `Tree` whose content is read lazily through the volume
 
-The `host` module (`std` and `sync`) connects trees to the host:
-`read_tree` and `write_tree` between host directories and trees, with
-symlink, error, exclude, owner and clamp policies for reading; `file` for
-host files as content; `source_date_epoch`; and `mount_options` and
-`local_utc_offset`, the host clock and time zone. `write_tree` never
+The `host` module (`std`) connects trees to the host:
+`source_date_epoch`, and `mount_options` and `local_utc_offset`, the host
+clock and time zone; and with `sync`, `read_tree` and `write_tree` between
+host directories and trees, with symlink, error, exclude, owner and clamp
+policies for reading, and `file` for host files as content. `write_tree` never
 writes outside its directory.
 
 ```rust,ignore
@@ -126,18 +126,20 @@ assert!(OpenOptions::new().write().create().append().validate().is_ok());
 | Feature | Default | Purpose |
 |---|---:|---|
 | `alloc` | via `std` | `OwnedName`, `PathError`, `Tree`, `Report`, `copy_tree` and `ContentReader` in each mode, async volumes with pointer-sized atomics, lazy `read_tree` in the Send tier, and `Box` forwarding |
-| `std` | Yes | Implies `alloc`; adds `SystemClock`, the sync `Volume` with its `std::io` handles and `read_tree`, `host` with `sync`, and conversions to `std::io::Error` |
+| `std` | Yes | Implies `alloc`; adds `SystemClock`, `host` (its tree functions also need `sync`), the sync `Volume` with its `std::io` handles and `read_tree`, and conversions to `std::io::Error` |
 | `sync` | Yes | The blocking API in `sync` |
 | `async` | No | Both the Send contract and handles in `async_` and the local contract and handles in `local` |
-| `async-local` | No | The filesystem contract and handles with potentially non-Send futures in `local` |
-| `contract` | No | The driver contract kit: `contract::check` in each mode, for testing a format against the `FileSystem` contract |
+| `unstable-contract` | No | The driver contract kit: `contract::check` in each mode, for testing a format against the `FileSystem` contract. Outside semver; enable it in dev-dependencies only |
+
+Without `std`, `hadris-fs` does not depend on `hadris-storage`, so the raw
+crates that use its vocabulary stay free of the I/O stack.
 
 ## Local asynchronous access
 
-Enable `async-local` for the `local` filesystem contract, whose futures need
-not implement `Send`. Enable `alloc` for `local::Volume` and its handles;
-these also require pointer-sized atomics. The `async` feature enables this
-local tier as well as the stronger Send contract in `async_`.
+The `async` feature enables the `local` filesystem contract, whose futures
+need not implement `Send`, as well as the stronger Send contract in `async_`.
+Enable `alloc` for `local::Volume` and its handles; these also require
+pointer-sized atomics.
 
 ISO supports both contracts with one reader type. See the
 [unified ISO async guide](../../../docs/unified-async-iso.md) for device
