@@ -31,9 +31,9 @@
 //!   `detect` it also adds `AnyFs::Apfs`, APFS mounting in `open` and
 //!   `open_apfs`.
 //! - `ntfs`: the NTFS preview, behind `unstable-ntfs`.
-//! - `host` (with `std` and `sync`): host files, directories and image
-//!   files for builders and tools, and `host::open` and `host::open_with`
-//!   (with `detect`).
+//! - `host` (with `std`): host files, directories and image files for
+//!   builders and tools; the tree functions need `sync`, and `host::open`
+//!   and `host::open_with` need `sync` and `detect`.
 //!
 //! # Feature flags
 //!
@@ -108,22 +108,23 @@ pub use hadris_fs::{DetailCode, Errno, Error, ErrorKind, FsResult, Location, Mou
 /// writers, `file` makes tree content of a host file, `source_date_epoch`
 /// reads the build time, `mount_options` gives the host clock and time
 /// zone, `FileDevice` opens image files and devices, and `StdIo` adapts
-/// `std::io` streams. Errors are `PathError` with the host path set.
-#[cfg(all(feature = "std", feature = "sync"))]
-#[cfg_attr(docsrs, doc(cfg(all(feature = "std", feature = "sync"))))]
+/// `std::io` streams. Errors are `PathError` with the host path set. The
+/// tree functions and `open` need `sync`.
+#[cfg(feature = "std")]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 pub mod host {
-    pub use hadris_fs::host::{
-        OnError, Symlinks, TreeOptions, file, local_utc_offset, mount_options, read_tree,
-        source_date_epoch, write_tree,
-    };
+    #[cfg(feature = "sync")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "sync")))]
+    pub use hadris_fs::host::{OnError, Symlinks, TreeOptions, file, read_tree, write_tree};
+    pub use hadris_fs::host::{local_utc_offset, mount_options, source_date_epoch};
     pub use hadris_io::StdIo;
     pub use hadris_storage::host::FileDevice;
 
     /// Detects the format of the image or device at `path` and mounts it
     /// read-only with [`mount_options`], as
     /// [`sync::open`](crate::sync::open) does.
-    #[cfg(feature = "detect")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "detect")))]
+    #[cfg(all(feature = "detect", feature = "sync"))]
+    #[cfg_attr(docsrs, doc(cfg(all(feature = "detect", feature = "sync"))))]
     pub fn open(
         path: impl AsRef<std::path::Path>,
     ) -> Result<crate::sync::AnyFs<FileDevice>, crate::PathError> {
@@ -140,8 +141,8 @@ pub mod host {
     /// # let _ = fs;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    #[cfg(feature = "detect")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "detect")))]
+    #[cfg(all(feature = "detect", feature = "sync"))]
+    #[cfg_attr(docsrs, doc(cfg(all(feature = "detect", feature = "sync"))))]
     pub fn open_with(
         path: impl AsRef<std::path::Path>,
         options: crate::fs::MountOptions,

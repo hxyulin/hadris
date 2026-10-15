@@ -79,10 +79,10 @@
 //! | Feature | Default | Description |
 //! |---|---|---|
 //! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
-//! | `alloc` | via `std` | The writer, sessions and the `Tree` input |
+//! | `alloc` | via `std` | The writer, sessions, the `Tree` input and the bounded reader metadata caches |
 //! | `sync` | Yes | The blocking API in `sync` |
-//! | `cache` | No | Opt-in bounded reader metadata caches; implies `alloc` |
 //! | `async` | No | The common asynchronous API in `async_`; futures are Send for Send devices and operation state |
+//! | `tracing` | No | Operation spans through the `tracing` crate, also without `std` |
 //!
 //! No feature changes what an item does.
 

@@ -17,8 +17,9 @@ published, use a workspace checkout as described in
 for custom device migration. Choose each dimension
 explicitly when disabling default features. Enabling `std` provides heap
 allocation, but it does not implicitly select `sync` or `async`. A feature
-only adds items: none changes what an existing item does, and only
-`unstable-*` features add APIs outside the stability promise.
+only adds items: none changes what an existing item does, except
+`unstable-apfs`, which makes `detect` and `open` handle APFS for the whole
+build. Only `unstable-*` features add APIs outside the stability promise.
 
 ## Platform features
 

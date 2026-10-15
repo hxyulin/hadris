@@ -115,7 +115,7 @@ pub use walk::{WalkEntry, WalkFrame};
 #[cfg(feature = "sync")]
 pub mod sync;
 
-/// The asynchronous API, generated from the same source as [`sync`], with
+/// The asynchronous API, generated from the same source as `sync`, with
 /// `Send` futures for generic code on multi-threaded executors.
 ///
 /// Every trait has `Send` (and `Sync` when it has `&self` async methods) as

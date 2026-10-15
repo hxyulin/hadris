@@ -31,7 +31,7 @@ pub use tree::{OnError, Symlinks, TreeOptions, file, read_tree, write_tree};
 use crate::{DateTime, ErrorKind, MountOptions, PathError, SystemClock};
 
 /// `SOURCE_DATE_EPOCH` from the environment, the time reproducible builds
-/// pass to `with_time` and [`TreeOptions::with_clamp`]. `None` when it is
+/// pass to `with_time` and `TreeOptions::with_clamp`. `None` when it is
 /// not set; [`ErrorKind::InvalidInput`] when it is not a decimal number of
 /// seconds.
 pub fn source_date_epoch() -> Result<Option<DateTime>, PathError> {
