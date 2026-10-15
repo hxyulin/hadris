@@ -233,18 +233,13 @@ impl<F: FileSystem> Volume<F> {
     /// guard queues its close and does not deadlock. Calling a path method
     /// on this volume while holding the guard deadlocks, as with any mutex.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// When the volume [failed](Self::is_failed), as locking a poisoned
-    /// `std::sync::Mutex` and unwrapping does. Check
-    /// [`is_failed`](Self::is_failed) first, or take the filesystem back
-    /// with [`into_inner`](Self::into_inner).
-    pub async fn lock(&self) -> VolumeGuard<'_, F> {
-        let entered = watched!(self, { self.enter().await });
-        match entered {
-            Ok(guard) => guard,
-            Err(_) => panic!("the volume failed after a panic during a call on it"),
-        }
+    /// [`Detail::VolumeFailed`](crate::Detail::VolumeFailed) when the volume
+    /// [failed](Self::is_failed). Take the filesystem back with
+    /// [`into_inner`](Self::into_inner) to inspect or discard it.
+    pub async fn lock(&self) -> FsResult<VolumeGuard<'_, F>, F::DeviceError> {
+        watched!(self, { self.enter().await })
     }
 
     /// Whether a panic during a call failed the volume, so every later

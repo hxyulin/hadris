@@ -43,7 +43,7 @@
 //! )?;
 //! backup.write_all(&config)?;
 //! backup.close()?;
-//! vol.lock().sync()?;
+//! vol.lock()?.sync()?;
 //! # Ok(())
 //! # }
 //! # #[cfg(not(all(feature = "sync", feature = "std")))]

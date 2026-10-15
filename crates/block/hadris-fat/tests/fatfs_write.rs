@@ -1392,7 +1392,7 @@ fn two_handles_on_a_volume_see_one_size() {
     assert_eq!(vol.read_to_vec("/a/moved.txt").unwrap(), b"deep");
     vol.remove_dir_all("/a/b").unwrap();
     assert!(!vol.exists("/a/b").unwrap());
-    vol.lock().sync().unwrap();
+    vol.lock().unwrap().sync().unwrap();
     let fs = vol.into_inner().unwrap();
     assert_eq!(fs.open_nodes(), 1);
     let image = image(fs);

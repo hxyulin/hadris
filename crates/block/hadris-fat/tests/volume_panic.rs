@@ -222,8 +222,7 @@ mod sync {
                 assert_failed(file.read(&mut buf));
                 assert_failed(file.metadata());
                 drop(file);
-                let locked = catch_unwind(AssertUnwindSafe(|| drop(vol.lock())));
-                assert!(locked.is_err(), "lock() of a failed volume panics");
+                assert_failed(vol.lock().map(drop));
                 let fs = vol.into_inner().unwrap();
                 let image = fs.into_inner().inner.into_inner();
                 assert_eq!(image.len() as u64, CASES[0].size);
@@ -265,8 +264,7 @@ mod asynchronous {
             assert_failed(vol.rename("/dir", "/dir2").await);
             assert_failed(vol.read_dir("/").await.map(drop));
         });
-        let locked = catch_unwind(AssertUnwindSafe(|| drop(block_on(vol.lock()))));
-        assert!(locked.is_err(), "lock() of a failed volume panics");
+        assert_failed(block_on(vol.lock()).map(drop));
         let fs = block_on(vol.into_inner()).unwrap();
         let image = fs.into_inner().dev.inner.into_inner();
         assert_eq!(image.len() as u64, CASES[0].size);

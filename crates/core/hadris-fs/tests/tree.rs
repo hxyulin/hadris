@@ -24,7 +24,7 @@ fn read_tree_reads_content_lazily_through_the_volume() {
     assert_eq!(read_all(conf.content().unwrap()), b"key=value");
     assert_eq!(tree.get("link").unwrap().target(), Some(&b"etc"[..]));
     assert_eq!(tree.get("etc/up").unwrap().file_type(), FileType::Symlink);
-    assert_eq!(vol.lock().open_files(), 0);
+    assert_eq!(vol.lock().unwrap().open_files(), 0);
 
     let vol = match vol.into_inner() {
         Ok(_) => panic!("the tree holds the volume"),
@@ -208,9 +208,9 @@ fn lazy_content_is_read_in_its_own_mode() {
 #[test]
 fn read_tree_takes_metadata_from_the_listing() {
     let vol = Volume::new(fixture());
-    let before = vol.lock().lookups_and_stats();
+    let before = vol.lock().unwrap().lookups_and_stats();
     let tree = read_tree(&vol, "/").unwrap();
-    let after = vol.lock().lookups_and_stats();
+    let after = vol.lock().unwrap().lookups_and_stats();
     assert_eq!(
         (after.0 - before.0, after.1 - before.1),
         (7, 8),

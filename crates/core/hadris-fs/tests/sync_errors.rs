@@ -36,7 +36,7 @@ fn std_users_get_io_errors() {
         read_io(&vol, "/nope").unwrap_err().kind(),
         std::io::ErrorKind::NotFound
     );
-    vol.lock().fail_next(MemError::Timeout { lba: 1 });
+    vol.lock().unwrap().fail_next(MemError::Timeout { lba: 1 });
     let err = read_io(&vol, "/a.txt").unwrap_err();
     let source = std::error::Error::source(&err).unwrap();
     assert_eq!(
@@ -84,7 +84,7 @@ fn code_mixing_devices_uses_path_error() {
     let dst = Volume::new(MemFs::new());
     copy(&src, &dst, "/a.txt").unwrap();
     assert_eq!(read(&dst, "/a.txt").unwrap(), b"root a");
-    src.lock().fail_next(MemError::Timeout { lba: 3 });
+    src.lock().unwrap().fail_next(MemError::Timeout { lba: 3 });
     let err = copy(&src, &dst, "/a.txt").unwrap_err();
     assert_eq!(
         err.downcast_device::<MemError>(),

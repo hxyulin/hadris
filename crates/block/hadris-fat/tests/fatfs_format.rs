@@ -48,7 +48,7 @@ fn exercise(image: Vec<u8>, block: u32, expected: FatKind, name: &str) -> Vec<u8
     vol.write_file("/Some Dir/inner/data.bin", &payload)
         .unwrap();
     vol.write_file("/README.TXT", b"formatted").unwrap();
-    vol.lock().sync().unwrap();
+    vol.lock().unwrap().sync().unwrap();
     let image = vol.into_inner().unwrap().into_inner().into_inner();
     let dev = MemDevice::new(image.clone(), BlockSize::new(block).unwrap());
     let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
@@ -346,13 +346,13 @@ fn smallest_volumes_and_kind_boundaries() {
         BlockSize::new(512).unwrap(),
     );
     let vol = Volume::new(FatFs::mount(dev, MountOptions::new()).unwrap());
-    assert_eq!(vol.lock().statfs().unwrap().free_blocks(), 1);
+    assert_eq!(vol.lock().unwrap().statfs().unwrap().free_blocks(), 1);
     vol.write_file("/ONE.TXT", b"1").unwrap();
     assert_eq!(
         vol.write_file("/TWO.TXT", b"2").unwrap_err().kind(),
         ErrorKind::NoSpace
     );
-    vol.lock().sync().unwrap();
+    vol.lock().unwrap().sync().unwrap();
     let image = vol.into_inner().unwrap().into_inner().into_inner();
     assert_eq!(bpb_label(&image), b"NO NAME    ");
     fsck(&image, "smallest");

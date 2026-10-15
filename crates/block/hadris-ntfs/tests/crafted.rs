@@ -63,7 +63,7 @@ fn contract_holds_in_every_mode_and_tier() {
     let mut fs = open(image.clone());
     hadris_fs::sync::contract::check_read_only(&mut fs).unwrap();
     let vol = hadris_fs::sync::Volume::new(open(image.clone()));
-    hadris_fs::sync::contract::check_read_only(&mut *vol.lock()).unwrap();
+    hadris_fs::sync::contract::check_read_only(&mut *vol.lock().unwrap()).unwrap();
     let mut fs = open(allocation_image(1024, &[0x01], None));
     hadris_fs::sync::contract::check_read_only(&mut fs).unwrap();
 
@@ -80,7 +80,7 @@ fn contract_holds_in_every_mode_and_tier() {
             .await
             .unwrap();
         let vol = hadris_fs::r#async::Volume::new(fs);
-        hadris_fs::r#async::contract::check_read_only(&mut *vol.lock().await)
+        hadris_fs::r#async::contract::check_read_only(&mut *vol.lock().await.unwrap())
             .await
             .unwrap();
     });

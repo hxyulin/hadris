@@ -22,7 +22,7 @@ fn sync_raw_and_shared_tiers() {
             hadris_udf::sync::UdfFs::mount(MemDevice::new(bytes, SECTOR), MountOptions::new())
                 .unwrap(),
         );
-        hadris_fs::sync::contract::check_read_only(&mut *vol.lock()).unwrap();
+        hadris_fs::sync::contract::check_read_only(&mut *vol.lock().unwrap()).unwrap();
     }
 }
 
@@ -46,7 +46,7 @@ fn async_modes() {
                 .await
                 .unwrap();
         let vol = hadris_fs::r#async::Volume::new(udf);
-        hadris_fs::r#async::contract::check_read_only(&mut *vol.lock().await)
+        hadris_fs::r#async::contract::check_read_only(&mut *vol.lock().await.unwrap())
             .await
             .unwrap();
     });

@@ -140,7 +140,8 @@ Each published package owns its version and may be released independently.
   used to be ignored, leaving later calls to run on a driver left
   mid-change. The volume now fails for good: every later path and handle
   call returns kind `Io` with the new `hadris_fs::Detail::VolumeFailed`,
-  calls queued by dropped handles are discarded, `lock()` panics, and the
+  calls queued by dropped handles are discarded, `lock()` now returns a
+  `FsResult` and fails with `VolumeFailed` too instead of panicking, and the
   new `Volume::is_failed` tells. `into_inner` still gives the filesystem
   back. The async volume detects the panic without `std` too.
 

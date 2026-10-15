@@ -89,7 +89,7 @@ fn async_futures_move_to_other_threads() {
     assert_eq!(long.join().unwrap(), common::payload(5000, 1));
 
     let task = async {
-        let mut fs = vol.lock().await;
+        let mut fs = vol.lock().await.unwrap();
         let root = fs.root();
         fs.lookup(root, Name::new(LONG_NAME))
             .await
@@ -279,7 +279,7 @@ fn async_writers_on_other_threads() {
         );
         assert_eq!(data.join().unwrap(), common::payload(20_000, i));
     }
-    block_on(async { vol.lock().await.sync().await }).unwrap();
+    block_on(async { vol.lock().await.unwrap().sync().await }).unwrap();
     let fs = block_on(Arc::into_inner(vol).unwrap().into_inner()).unwrap();
     assert_eq!(fs.open_nodes(), 1);
 }
@@ -333,7 +333,7 @@ fn format_in_the_async_modes() {
             .unwrap();
         let vol = Volume::new(fs);
         vol.write_file("/async.txt", b"async").await.unwrap();
-        vol.lock().await.sync().await.unwrap();
+        vol.lock().await.unwrap().sync().await.unwrap();
         vol.into_inner().await.unwrap().into_inner().into_inner()
     });
     let mut dev = device();

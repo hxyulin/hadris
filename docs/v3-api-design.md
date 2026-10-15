@@ -692,7 +692,8 @@ methods on one type.
 **Panics.** A panic while the volume holds its filesystem may leave the
 driver mid-change, so the volume fails for good: every later path and handle
 call returns `Io` with `hadris_fs::Detail::VolumeFailed` without reaching the
-driver, queued calls of dropped handles are discarded, `lock()` panics and
+driver, queued calls of dropped handles are discarded, `lock()` returns
+`VolumeFailed` too and
 `is_failed()` tells. `into_inner()` still returns the filesystem. The sync
 volume detects the panic by the poisoning of its `std::sync::Mutex`; the
 async one marks itself failed when a poll of one of its calls unwinds, which
@@ -729,7 +730,7 @@ impl<F: FileSystem> Volume<F> {
 
 - `Volume<F>` has no lock type parameter. The sync `Volume` uses the std mutex and needs `std`; the async one uses a portable async mutex and needs only `alloc`. Stored types never name a lock.
 - The lock is held for one call. A path resolves under one lock hold, so a path costs one lock, not one per component.
-- `vol.lock()` returns a guard to the driver for node calls and format-specific calls. Dropping a `File` or `ReadDir` of the volume while holding the guard queues its close and does not deadlock; with `alloc` the queue grows, so it has no fixed limit. Calling a path method on the same volume while holding the guard deadlocks, as with any mutex; `lock()` documents it.
+- `vol.lock()` returns a guard to the driver, or `VolumeFailed` on a failed volume, for node calls and format-specific calls. Dropping a `File` or `ReadDir` of the volume while holding the guard queues its close and does not deadlock; with `alloc` the queue grows, so it has no fixed limit. Calling a path method on the same volume while holding the guard deadlocks, as with any mutex; `lock()` documents it.
 - Clones are cheap and share the volume, so a handle or a clone can move to another thread or task. The `async_::Volume` tier guarantees Send futures when the driver satisfies its Send filesystem trait; for block drivers both the device and its state must be Send. Local volumes remain on their executor.
 - Operations on one volume serialize, as they do in V2.
 

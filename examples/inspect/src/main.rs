@@ -128,7 +128,7 @@ fn read_only_mount_changes_nothing(image: &[u8]) -> Result<()> {
     for entry in vol.read_dir("/case")? {
         entry?;
     }
-    vol.lock().sync()?;
+    vol.lock()?.sync()?;
     let fs = vol.into_inner().ok().context("a handle is still open")?;
     let copy = fs.unmount().map_err(|err| err.into_error())?;
     ensure!(

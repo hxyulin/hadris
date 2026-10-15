@@ -62,7 +62,7 @@ vol.create_dir_all("/logs")?;
 let mut log = vol.open("/logs/boot.txt", OpenOptions::new().write().create())?;
 log.write(b"booted")?;
 log.close()?;
-vol.lock().sync()?;
+vol.lock()?.sync()?;
 # Ok(())
 # }
 ```

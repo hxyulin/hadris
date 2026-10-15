@@ -430,7 +430,7 @@ Resolve::Follow)` gives POSIX path semantics; the default is lexical.
 
 A panic during a call on a `Volume`, in the driver or the device, fails it
 for good instead of being ignored: every later call returns kind `Io` with
-`hadris_fs::Detail::VolumeFailed`, `lock()` panics, and `is_failed()` tells.
+`hadris_fs::Detail::VolumeFailed`, `lock()` included, and `is_failed()` tells.
 `into_inner()` still gives the filesystem and its device back, but the
 driver may be left mid-change, so check the image before trusting it.
 
@@ -522,7 +522,7 @@ let vol = Volume::new(FatFs::mount(device, MountOptions::new().with_clock(&Syste
 let mut file = vol.open("/hello.txt", OpenOptions::new().write().create().truncate())?;
 file.write_all(b"Hello from Hadris\n")?;
 file.close()?;
-vol.lock().sync()?;
+vol.lock()?.sync()?;
 ```
 
 The bare driver without a `Volume`:
@@ -552,7 +552,7 @@ Common V2 calls:
 | `delete` | `vol.remove_file`, `vol.remove_dir`, `vol.remove_dir_all`; `fs.unlink`, `fs.rmdir` |
 | `rename` | `vol.rename(from, to)` (replaces an existing target); `fs.rename(.., RenameMode)` |
 | `truncate`, `set_times`, `set_attributes` | `File::set_len`, `vol.set_attr(path, &SetAttr)`; `fs.truncate`, `fs.setattr` |
-| `flush()`, `sync()` | `fs.sync()` or `vol.lock().sync()`; `File::sync_all()` for one file |
+| `flush()`, `sync()` | `fs.sync()` or `vol.lock()?.sync()`; `File::sync_all()` for one file |
 | `into_inner()` | `unmount()` (syncs) or `into_inner()`; on a volume, `vol.into_inner()` first |
 | `volume_info()`, `fat_type()`, `read_root_label()` | `fs.info()` (`Geometry`: `kind()`, `volume_serial()`, `cluster_size()`), `fs.label(&mut buf)` |
 | `set_root_label` | `fs.set_label(Some(VolumeLabel::new("DATA")?))` |

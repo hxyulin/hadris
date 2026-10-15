@@ -88,7 +88,7 @@ created file its initial attributes. `File` has `read_at`, `write_at` and
 
 A panic while a `Volume` holds its filesystem, in the driver, the device or
 code holding the `lock()` guard, fails the volume for good: every later call
-returns kind `Io` with `hadris_fs::Detail::VolumeFailed`, `lock()` panics,
+returns kind `Io` with `hadris_fs::Detail::VolumeFailed`, `lock()` included,
 `is_failed()` tells, and `into_inner()` still gives the filesystem back,
 whose state may be inconsistent.
 
