@@ -5,8 +5,9 @@ macro_rules! io_transform {
     ($($item:tt)*) => { $($item)* };
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(all(feature = "alloc", feature = "unstable-apfs"))]
 use hadris_apfs::async_::ApfsFs;
+#[cfg(feature = "unstable-apfs")]
 use hadris_apfs::async_::Container as ApfsContainer;
 #[cfg(feature = "alloc")]
 use hadris_fat::async_::FatFs;

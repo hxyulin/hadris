@@ -638,6 +638,7 @@ fn apfs_shared_open_requires_selection_for_multiple_volumes() {
     assert_eq!(get(&mut fs, "/file0.txt"), apfs_fixture::file_contents(0));
 }
 
+#[cfg(feature = "unstable-apfs")]
 #[test]
 fn apfs_damaged_container_remains_recognized() {
     let mut bytes = apfs_fixture::build_image();
@@ -651,20 +652,18 @@ fn apfs_damaged_container_remains_recognized() {
     assert_eq!(formats(bytes, 512), vec![(ImageFormat::Apfs, None)]);
 }
 
+#[cfg(not(feature = "unstable-apfs"))]
 #[test]
-fn apfs_shared_open_works_without_native_preview_feature() {
-    let mut fs = open(
+fn apfs_is_detected_but_not_opened_without_the_preview_feature() {
+    let mut bytes = apfs_fixture::build_image();
+    bytes[36] ^= 1;
+    assert_eq!(formats(bytes, 512), vec![(ImageFormat::Apfs, None)]);
+    let err = open(
         device(apfs_fixture::build_image(), 512),
         MountOptions::new(),
     )
-    .unwrap();
-    assert!(matches!(fs, AnyFs::Apfs(_)));
-    assert_eq!(get(&mut fs, "/file0.txt"), apfs_fixture::file_contents(0));
-    assert!(
-        open(
-            device(apfs_fixture::multi_volume_image(), 512),
-            MountOptions::new()
-        )
-        .is_err()
-    );
+    .unwrap_err();
+    let (err, _) = err.into_parts();
+    assert_eq!(err.kind(), ErrorKind::NotRecognized);
+    assert_eq!(err.message(), "apfs");
 }

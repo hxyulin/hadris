@@ -27,7 +27,9 @@
 //!   partition, and with `write`, `format` writes an empty FAT, exFAT or UDF
 //!   volume from a `FormatOptions`. `AnyFs` reaches the format extras
 //!   `extents`, `volume_serial` and `set_label` by `match`.
-//! - `apfs`: the read-only APFS preview, behind `unstable-apfs`.
+//! - `apfs`: the read-only APFS preview, behind `unstable-apfs`. With
+//!   `detect` it also adds `AnyFs::Apfs`, APFS mounting in `open` and
+//!   `open_apfs`.
 //! - `ntfs`: the NTFS preview, behind `unstable-ntfs`.
 //! - `host` (with `std` and `sync`): host files, directories and image
 //!   files for builders and tools, and `host::open` and `host::open_with`
@@ -37,13 +39,20 @@
 //!
 //! One feature per format (`fat`, `part`, `iso`, `udf`, `cpio`) adds
 //! that crate. `archive` adds `cpio`, and `detect` adds `detect`, `open`,
-//! `open_partition` and `AnyFs` with `fat`, `part`, `iso`, `udf`, `cpio` and
-//! the APFS reader. The platform (`std`, `alloc`), mode (`sync`,
-//! `async`) and `write` features are forwarded to every enabled crate.
-//! `unstable-ntfs` adds the NTFS preview, whose native API may change in
-//! 3.x minors. `unstable-apfs` exposes the native APFS preview API. Containers
-//! with multiple volumes require explicit selection with `open_apfs`. The default set is `std`, `sync`, `write`,
-//! `fat`, `iso`, `cpio` and `detect`. No feature changes what an item does.
+//! `open_partition` and `AnyFs` with `fat`, `part`, `iso`, `udf` and
+//! `cpio`. `detect` lists APFS containers and NTFS volumes from their
+//! signatures but does not mount them. The platform (`std`, `alloc`), mode
+//! (`sync`, `async`) and `write` features are forwarded to every enabled
+//! crate. The default set is `std`, `sync`, `write`, `fat`, `iso`, `cpio`
+//! and `detect`.
+//!
+//! `unstable-ntfs` adds the NTFS preview. `unstable-apfs` adds the
+//! read-only APFS preview and, with `detect`, `AnyFs::Apfs`, APFS damage
+//! checks in `detect`, single-volume APFS mounting in `open` and
+//! `open_apfs` for containers with multiple volumes. Everything an
+//! `unstable-*` feature adds is outside semver and may change in any
+//! release; `hadris-ntfs` and `hadris-apfs` are versioned 0.x. No other
+//! feature changes what an item does.
 //!
 //! # Quick start
 //!
@@ -198,8 +207,9 @@ pub mod sync {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
     }
 
-    #[cfg(feature = "alloc")]
+    #[cfg(all(feature = "alloc", feature = "unstable-apfs"))]
     use hadris_apfs::sync::ApfsFs;
+    #[cfg(feature = "unstable-apfs")]
     use hadris_apfs::sync::Container as ApfsContainer;
     #[cfg(feature = "alloc")]
     use hadris_fat::exfat::sync::ExFatFs;
@@ -253,7 +263,7 @@ pub use hadris_fat as fat;
 #[cfg_attr(docsrs, doc(cfg(feature = "part")))]
 pub use hadris_part as part;
 
-/// The NTFS preview. Its native API may change in 3.x minors.
+/// The NTFS preview, outside semver.
 #[cfg(feature = "unstable-ntfs")]
 #[cfg_attr(docsrs, doc(cfg(feature = "unstable-ntfs")))]
 pub use hadris_ntfs as ntfs;
@@ -273,7 +283,7 @@ pub use hadris_udf as udf;
 #[cfg_attr(docsrs, doc(cfg(feature = "cpio")))]
 pub use hadris_cpio as cpio;
 
-/// The read-only APFS preview. Its native API may change in 3.x minors.
+/// The read-only APFS preview, outside semver.
 #[cfg(feature = "unstable-apfs")]
 #[cfg_attr(docsrs, doc(cfg(feature = "unstable-apfs")))]
 pub use hadris_apfs as apfs;
