@@ -215,14 +215,14 @@
 //! compatible, and a breaking change to one of them is a major version of
 //! this crate. Depend on `hadris-fat-raw` directly to use the rest.
 
-#![cfg_attr(not(test), no_std)]
+#![no_std]
 #![deny(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![allow(async_fn_in_trait)]
 // Sync and async APIs intentionally compile the same source modules twice.
 #![allow(clippy::duplicate_mod)]
 
-#[cfg(all(feature = "std", not(test)))]
+#[cfg(any(feature = "std", test))]
 extern crate std;
 
 #[cfg(test)]

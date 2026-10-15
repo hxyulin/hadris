@@ -451,6 +451,7 @@ impl<'a> Scan<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::vec;
 
     fn sl(flags: u8, components: &[(u8, &[u8])]) -> alloc::vec::Vec<u8> {
         let mut out = alloc::vec![b'S', b'L', 0, 1, flags];

@@ -57,10 +57,13 @@
 //! | `async` | No | The unified device primitives in `io::async_`, with Send futures when the device and its state are Send |
 //! | `defmt` | No | `defmt::Format` for [`FatKind`] |
 
-#![cfg_attr(not(test), no_std)]
+#![no_std]
 #![deny(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![allow(clippy::duplicate_mod)]
+
+#[cfg(test)]
+extern crate std;
 
 mod boot;
 mod bpb;

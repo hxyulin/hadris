@@ -56,6 +56,7 @@ impl fmt::Display for UdfRevision {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::format;
 
     #[test]
     fn revisions_print_as_decimal_versions() {
