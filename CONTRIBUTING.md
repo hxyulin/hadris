@@ -323,6 +323,16 @@ versions separately from 0.1.0. The preview crates `hadris-ntfs` and
 features, which are outside semver, that never bumps `hadris`'s major. The
 examples are `publish = false`.
 
+The raw crates (`hadris-fat-raw`, `hadris-iso-raw`, `hadris-udf-raw`,
+`hadris-cpio-raw`) stay at 0.x and version on their own; a breaking change
+bumps their 0.x minor. A format crate re-exports only the raw items its own
+public signatures use, never the whole raw crate
+(`scripts/check-non-exhaustive.py` rejects `pub use hadris_<format>_raw::*`).
+Those re-exported items are frozen for the format crate's major: change them
+only additively, and treat any other change as a breaking change of the
+format crate. [`website/docs/stability.md`](website/docs/stability.md#raw-crates)
+lists them.
+
 To release, bump the versions of the crates being released and of their
 requirements in `[workspace.dependencies]`, and add a dated
 `CHANGELOG.md` section for them, in a PR:

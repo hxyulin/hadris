@@ -112,6 +112,26 @@ Each published package owns its version and may be released independently.
   predate this scheme; a bare `cargo add` picks 2.5.0, so name the
   version. Everything the `unstable-ntfs` and `unstable-apfs` features of
   `hadris` add is outside semver and may change in any `hadris` release.
+- **Raw crate re-exports (breaking):** `hadris-iso`, `hadris-udf` and
+  `hadris-cpio` no longer re-export their whole 0.x raw crate, which made
+  every breaking raw release a breaking change of the 3.x driver.
+  `hadris_iso::raw` keeps only `VolumeDescriptor`, `BootSectionEntry` and
+  the types of their fields and methods (the descriptors,
+  `VolumeDescriptorHeader`, `DescriptorType`, `RootDirectoryRecord`,
+  `DirectoryRecordHeader`, `FileFlags`, `DecDateTime`, `DirDateTime`,
+  `IsoStr`, `U16Both`, `U32Both`, `U16Le`, `U32Le` and `U32Be`).
+  `hadris_udf::raw` and `hadris_cpio::raw` are removed. Depend on
+  `hadris-iso-raw`, `hadris-udf-raw` or `hadris-cpio-raw` for the other
+  layouts and codecs. `hadris-fat` also re-exports `RootLocation` and
+  `ChainError`, which `Geometry::root` and `FatKind::next` return. The items
+  each driver re-exports are frozen for its 3.x series, as
+  `website/docs/stability.md` lists; `scripts/check-non-exhaustive.py`
+  rejects wholesale raw re-exports.
+
+- **hadris-iso-raw, hadris-udf-raw, hadris-cpio-raw (breaking):** Each item
+  has one path, at the crate root. The `raw` module that duplicated every
+  item (`hadris_iso_raw::raw::DirectoryRecord` and
+  `hadris_iso_raw::DirectoryRecord`) is removed.
 
 - **Embedded FAT stale directories:** Using an embedded `Dir` of a removed
   subdirectory fails with `InvalidHandle` instead of reading or writing

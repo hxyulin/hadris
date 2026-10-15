@@ -76,10 +76,16 @@ Versioning:
 - Every library crate ships 3.0.0 together. After 3.0.0 each crate has its
   own version and bumps its major only for its own breaking changes. The
   umbrella `hadris` bumps its major whenever a crate it re-exports does.
-- `hadris-fat-raw` is new, starts at 0.1.0 and versions separately. It is
-  never re-exported whole: `hadris-fat` re-exports only `FatKind`,
-  `Geometry`, `Detail`, `exfat::Detail`, `exfat::Geometry` and the `check`
-  functions.
+- The raw crates `hadris-fat-raw` (0.2.0), `hadris-iso-raw`,
+  `hadris-udf-raw` and `hadris-cpio-raw` (0.1.0) are new, stay at 0.x and
+  version separately. Every item is at the raw crate's root. They are never
+  re-exported whole: `hadris-fat` re-exports only `FatKind`, `Geometry`,
+  `RootLocation`, `ChainError`, `Detail`, `exfat::Detail`,
+  `exfat::Geometry` and the `check` functions; `hadris_iso::raw` holds only
+  `VolumeDescriptor`, `BootSectionEntry` and the types of their fields; and
+  `hadris-udf` and `hadris-cpio` have no `raw` module. Those re-exported
+  items are frozen for 3.x. Depend on a raw crate directly for anything
+  else (see [stability](../website/docs/stability.md#raw-crates)).
 - `hadris-cli` (the `hadris` binary) versions apart from the library.
 - The MSRV is unchanged: Rust 1.88.0 (`rust-version` in the workspace
   `Cargo.toml`).
@@ -136,6 +142,7 @@ New crates:
 |---|---|
 | `hadris-fs` | Shared vocabulary (`NodeId`, `Name`, `Metadata`, `DateTime`, `MountOptions`), the `FileSystem` trait, `Volume` with `File` and `ReadDir`, `Walk`, `Tree`, `Node`, `Content`, `Report`, `copy_tree`, `read_tree`, `Finding`, `CheckReport`, the `host` module, and re-exports of the `hadris-io` error items. |
 | `hadris-fat-raw` | FAT12/16/32 and exFAT on-disk layouts, I/O-free codecs, device primitives (`io`, `exfat::io`) and the allocation-free checkers. Version 0.2.0 in RC2. |
+| `hadris-iso-raw`, `hadris-udf-raw`, `hadris-cpio-raw` | ISO 9660, UDF and cpio on-disk layouts and I/O-free codecs, at each crate's root. Version 0.1.0. |
 | `hadris-cli` | The single `hadris` binary. Install RC2 from crates.io after publication as shown in [Command-line tools](#command-line-tools). |
 
 For applications that deliberately use individual format crates, the same API
@@ -1206,7 +1213,7 @@ follows. In V3, name I/O items through their mode module:
 | `hadris_io::sync::{Read, Write, Seek}` | Same path. Each now has an `ErrorType` supertrait with the implementor's error; `read_exact` and `write_all` return `ExactError<E>` |
 | `hadris_io::r#async::{Read, Write, Seek}` | `hadris_io::async_::{Read, Write, Seek}` (futures `Send`) or `hadris_io::local::{Read, Write, Seek}` (not `Send`) |
 | `hadris_io::{ReadSeek, ReadWrite, ReadWriteSeek}` and their mode twins | Removed. Write the bounds out: `R: Read + Seek` |
-| `hadris_io::{ReadExt, Parsable, Writable}` and their mode twins | Removed. Read raw layouts from the format crates' `raw` modules |
+| `hadris_io::{ReadExt, Parsable, Writable}` and their mode twins | Removed. Read raw layouts with the `hadris-<format>-raw` crates |
 | `hadris_io::Borrowed` and mode twins | Removed. `&mut T` implements the traits |
 | `hadris_io::FromEmbedded`, `hadris_io::sync::FromEmbedded`, `hadris_io::r#async::FromEmbedded` | `hadris_io::FromEmbedded` (feature `embedded-io`); one type for both modes |
 | `hadris_io::ToEmbedded`, `hadris_io::sync::ToEmbedded` | Removed. `StdIo` implements the `embedded-io` traits with the `embedded-io` feature |
@@ -1379,7 +1386,7 @@ resolution is a value, `hadris_fs::Resolve::{Lexical, Follow, NoFollow}`.
 | `exfat::{RawFileDirectoryEntry, RawStreamExtensionEntry, RawFileNameEntry}` | `hadris_fat_raw::exfat::{FileEntry, StreamEntry, NameEntry}` |
 | `exfat::FileAttributes` | `hadris_fs::Attributes` |
 | `exfat::Error`, `exfat::Result` | `hadris_fs::Error<E>`, `hadris_fat::exfat::Detail` |
-| (new) | `hadris_fat::{sync, async_}::{format, write, check}`, `FatOptions`, `Geometry`, `Detail`, `exfat::{ExFatOptions, VolumeLabel, Geometry, Detail}`, `embedded` and `exfat::embedded` |
+| (new) | `hadris_fat::{sync, async_}::{format, write, check}`, `FatOptions`, `Geometry`, `RootLocation`, `ChainError`, `Detail`, `exfat::{ExFatOptions, VolumeLabel, Geometry, Detail}`, `embedded` and `exfat::embedded` |
 
 ### hadris-part
 
@@ -1448,7 +1455,7 @@ release train, so each 0.y release may break its native API; write
 | `hadris_optical::OpticalFormat` | `hadris::ImageFormat::{Iso, Udf, IsoUdfBridge}` |
 | `hadris_optical::detect::sync::detect`, `detect::r#async::detect` | `hadris::sync::detect`, `hadris::async_::detect` |
 | `hadris_optical::detect::OpticalFormats` | `hadris::Detection` |
-| `hadris_optical::detect::UdfVrs` | Removed; `hadris_udf::VolumeInfo::revision()` after mounting, or `hadris_udf::raw::vsd::{NSR02, NSR03}` for a raw probe |
+| `hadris_optical::detect::UdfVrs` | Removed; `hadris_udf::VolumeInfo::revision()` after mounting, or `hadris_udf_raw::vsd::{NSR02, NSR03}` for a raw probe |
 | `hadris_optical::{Error, Result}` | `hadris::MountError`, `hadris::Error` |
 | `hadris_optical::{iso, udf, cd}` | `hadris::iso`, `hadris::udf`; `cd` is `hadris::udf::{plan_bridge, sync::write_bridge}` |
 
@@ -1491,7 +1498,7 @@ Reading:
 | `IsoImage::read_bytes_at` | `IsoFs::read_raw(offset, buf)` |
 | `read::IsoImageInfo`, `IsoImage::read_pvd` | `IsoFs::info()` returning `hadris_iso::VolumeInfo` (`id(IsoId)`, `date(IsoDate)`, `block_size`, `volume_space_size`) |
 | `IsoImage::read_volume_descriptors`, `read::VolumeDescriptorIter` | `IsoFs::descriptor(index)` |
-| `IsoImage::{path_table, path_table_entries}`, `path::{PathTableEntry, PathTableEntryHeader, PathTableEntryIter, PathTableInfo, PathTableRef}` | Removed; `hadris_iso::raw::PathTableHeader` is the layout |
+| `IsoImage::{path_table, path_table_entries}`, `path::{PathTableEntry, PathTableEntryHeader, PathTableEntryIter, PathTableInfo, PathTableRef}` | Removed; `hadris_iso_raw::PathTableHeader` is the layout |
 | `IsoImage::{has_evd, supports_rrip}` | `IsoFs::namespaces()` |
 | `read::{BootInfo, BootEntryInfo, BootSectionIter}` | `IsoFs::boot_catalog(&mut buf)` returning `hadris_iso::BootCatalog`, `CatalogEntries`, `CatalogEntry`; `IsoFs::boot_image(&entry)` |
 | `boot::{BootCatalog, BaseBootCatalog}` | `hadris_iso::BootCatalog` (borrows the caller's buffer) |
@@ -1503,34 +1510,37 @@ Reading:
 | `read::Extent` | `hadris_fs::Extent`; `IsoFs::extents`, `IsoFs::records` |
 | `read::{IsoName, FilenameType, NameError}` | Removed |
 | `read::PathSeparator` | Removed; paths are `/`-separated |
-| `read::collect_su_entries`, `susp::{SystemUseIter, SystemUseField}` | `hadris_iso::raw::{SuspEntries, SuspEntry}` |
-| `susp::ContinuationArea` | `hadris_iso::raw::ContinuationArea` |
+| `read::collect_su_entries`, `susp::{SystemUseIter, SystemUseField}` | `hadris_iso_raw::{SuspEntries, SuspEntry}` |
+| `susp::ContinuationArea` | `hadris_iso_raw::ContinuationArea` |
 | `susp::{ExtensionReference, PaddingField, SplitSu, SuspIdentifier, SuspTerminator, SystemUseHeader, SystemUseBuilder}` | Removed |
 | `hadris_iso::IsoCursor`, `io::IsoCursor`, `io::LogicalSector` | Removed |
 | `hadris_iso::io` and the root re-exports (`Read`, `Seek`, `SeekFrom`, `Error`, `ErrorKind`, `IoResult`, `Parsable`, `Writable`, `ReadExt`, `try_io_result_option`) | Removed; use `hadris_io` |
 
-On-disk layouts, now in `hadris_iso::raw`:
+On-disk layouts, now in the `hadris-iso-raw` crate. `hadris_iso::raw` also
+re-exports `VolumeDescriptor`, `BootSectionEntry` and the types of their
+fields (descriptors, `DirectoryRecordHeader`, `RootDirectoryRecord`,
+`FileFlags`, dates, `IsoStr` and the integer fields):
 
 | V2 path | V3 path or replacement |
 |---|---|
-| `volume::{PrimaryVolumeDescriptor, SupplementaryVolumeDescriptor, BootRecordVolumeDescriptor, VolumeDescriptorHeader, VolumeDescriptorSetTerminator, VolumeDescriptor}` | `hadris_iso::raw::` same names |
-| `volume::VolumeDescriptorType` | `hadris_iso::raw::DescriptorType` |
+| `volume::{PrimaryVolumeDescriptor, SupplementaryVolumeDescriptor, BootRecordVolumeDescriptor, VolumeDescriptorHeader, VolumeDescriptorSetTerminator, VolumeDescriptor}` | `hadris_iso_raw::` same names |
+| `volume::VolumeDescriptorType` | `hadris_iso_raw::DescriptorType` |
 | `volume::{UnknownVolumeDescriptor, VolumeDescriptorList, VolumeError}` | Removed; `IsoFs::descriptor(index)`, errors with `hadris_iso::Detail` |
-| `directory::{DirectoryRecord, DirectoryRecordHeader, DirDateTime, FileFlags}` | `hadris_iso::raw::` same names |
-| `directory::RootDirectoryEntry` | `hadris_iso::raw::RootDirectoryRecord` |
+| `directory::{DirectoryRecord, DirectoryRecordHeader, DirDateTime, FileFlags}` | `hadris_iso_raw::` same names |
+| `directory::RootDirectoryEntry` | `hadris_iso_raw::RootDirectoryRecord` |
 | `directory::NotADirectoryError` | `ErrorKind::NotADirectory` |
-| `boot::{BootValidationEntry, BootSectionEntry, BootSectionEntryExtension, BootInfoTable, Grub2BootInfoTable}` | `hadris_iso::raw::` same names |
-| `boot::BootSectionHeaderEntry` | `hadris_iso::raw::BootCatalogHeader` |
+| `boot::{BootValidationEntry, BootSectionEntry, BootSectionEntryExtension, BootInfoTable, Grub2BootInfoTable}` | `hadris_iso_raw::` same names |
+| `boot::BootSectionHeaderEntry` | `hadris_iso_raw::BootCatalogHeader` |
 | `boot::ElToritoWriter` | Removed; internal to the writer |
-| `rrip::{PxEntry, PnEntry, NmFlags, SlComponentFlags, TfFlags}` | `hadris_iso::raw::` same names |
+| `rrip::{PxEntry, PnEntry, NmFlags, SlComponentFlags, TfFlags}` | `hadris_iso_raw::` same names |
 | `rrip::{ClEntry, NmEntry, PlEntry, ReEntry, SlEntry, SlComponent, TfEntry, RockRidgeEntry}` | Removed; `IsoFs::rock_ridge(node)` decodes them |
 | `rrip::PosixFileMode` | `hadris_fs::Permissions` |
 | `rrip::{RripBuilder, RripOptions}` | `IsoOptions::{with_rock_ridge, with_preserve, with_relocation}` |
-| `types::IsoStr` | `hadris_iso::raw::IsoStr` (`as_str` returns `Result`) |
-| `types::DecDateTime` | `hadris_iso::raw::DecDateTime` |
-| `types::{LsbMsb, U16LsbMsb, U32LsbMsb}` | `hadris_iso::raw::{U16Both, U32Both}` |
+| `types::IsoStr` | `hadris_iso_raw::IsoStr` (`as_str` returns `Result`) |
+| `types::DecDateTime` | `hadris_iso_raw::DecDateTime` |
+| `types::{LsbMsb, U16LsbMsb, U32LsbMsb}` | `hadris_iso_raw::{U16Both, U32Both}` |
 | `types::{IsoString, IsoStringA, IsoStringD, IsoStrA, IsoStrD, CharsetA, CharsetD, CharsetD1, Charset, StdNum, IsoStrError}` | Removed |
-| `joliet::ESCAPE_SEQUNCES` | `hadris_iso::raw::JOLIET_ESCAPES` |
+| `joliet::ESCAPE_SEQUNCES` | `hadris_iso_raw::JOLIET_ESCAPES` |
 | `joliet::JolietLevel` | `hadris_iso::JolietLevel` (reading); the writer uses `IsoOptions::with_joliet()` |
 | `joliet::{decode_joliet_name, encode_joliet_name, is_likely_joliet_name}` | Removed |
 | `file::{ConvertedName, EntryType, convert_l1, convert_l2, convert_l3, convert_joliet3, FilenameL1, FilenameL2, FilenameL3}` | Removed; `IsoOptions::{with_level, with_name_case}` choose the rules |
@@ -1573,19 +1583,19 @@ Writing:
 | `UdfVolumeInfo::{partition_start, partition_length}` | `VolumeInfo::partitions()` yielding `hadris_udf::PartitionInfo` |
 | `dir::decode_filename` | Removed; `readdir` decodes names |
 | `hadris_udf::UdfRevision` | `hadris_udf::UdfRevision` |
-| `hadris_udf::UdfTimestamp` | `hadris_udf::raw::Timestamp`; `hadris_fs::DateTime` in `Metadata` |
-| `hadris_udf::FileType`, `file::FileType` | `hadris_fs::FileType`; ICB codes in `hadris_udf::raw::file_type` |
-| `file::{FileEntry, ExtendedFileEntry, IcbTag}` | `hadris_udf::raw::{FileEntry, ExtendedFileEntry, IcbTag}` |
-| `file::AllocationType` | `hadris_udf::raw::allocation::{SHORT, LONG, EXTENDED, EMBEDDED}` |
-| `dir::{FileIdentifierDescriptor, FileCharacteristics}` | `hadris_udf::raw::{FileIdentifierDescriptor, FileCharacteristics}` |
-| `descriptor::{AnchorVolumeDescriptorPointer, CharSpec, FileSetDescriptor, LbAddr, LogicalVolumeDescriptor, PartitionDescriptor, PrimaryVolumeDescriptor, Type1PartitionMap}` | `hadris_udf::raw::` same names |
-| `descriptor::DescriptorTag` | `hadris_udf::raw::Tag` |
-| `descriptor::EntityIdentifier` | `hadris_udf::raw::EntityId`; decoded as `hadris_udf::EntityId` in `VolumeInfo` |
-| `descriptor::ExtentDescriptor` | `hadris_udf::raw::ExtentAd` |
-| `descriptor::{LongAllocationDescriptor, ShortAllocationDescriptor}` | `hadris_udf::raw::{LongAd, ShortAd}` |
-| `descriptor::TagIdentifier` | `hadris_udf::raw::tag::*` constants |
-| `descriptor::ExtentType` | `hadris_udf::raw::extent::*` constants |
-| `descriptor::VrsType`, `descriptor::vrs` | `hadris_udf::raw::vsd::*` constants, `hadris_udf::raw::VolumeStructureDescriptor` |
+| `hadris_udf::UdfTimestamp` | `hadris_udf_raw::Timestamp`; `hadris_fs::DateTime` in `Metadata` |
+| `hadris_udf::FileType`, `file::FileType` | `hadris_fs::FileType`; ICB codes in `hadris_udf_raw::file_type` |
+| `file::{FileEntry, ExtendedFileEntry, IcbTag}` | `hadris_udf_raw::{FileEntry, ExtendedFileEntry, IcbTag}` |
+| `file::AllocationType` | `hadris_udf_raw::allocation::{SHORT, LONG, EXTENDED, EMBEDDED}` |
+| `dir::{FileIdentifierDescriptor, FileCharacteristics}` | `hadris_udf_raw::{FileIdentifierDescriptor, FileCharacteristics}` |
+| `descriptor::{AnchorVolumeDescriptorPointer, CharSpec, FileSetDescriptor, LbAddr, LogicalVolumeDescriptor, PartitionDescriptor, PrimaryVolumeDescriptor, Type1PartitionMap}` | `hadris_udf_raw::` same names |
+| `descriptor::DescriptorTag` | `hadris_udf_raw::Tag` |
+| `descriptor::EntityIdentifier` | `hadris_udf_raw::EntityId`; decoded as `hadris_udf::EntityId` in `VolumeInfo` |
+| `descriptor::ExtentDescriptor` | `hadris_udf_raw::ExtentAd` |
+| `descriptor::{LongAllocationDescriptor, ShortAllocationDescriptor}` | `hadris_udf_raw::{LongAd, ShortAd}` |
+| `descriptor::TagIdentifier` | `hadris_udf_raw::tag::*` constants |
+| `descriptor::ExtentType` | `hadris_udf_raw::extent::*` constants |
+| `descriptor::VrsType`, `descriptor::vrs` | `hadris_udf_raw::vsd::*` constants, `hadris_udf_raw::VolumeStructureDescriptor` |
 | `descriptor::parse_vrs` | Removed; `UdfFs::mount` checks the recognition sequence, `hadris::sync::detect` finds it |
 | `descriptor::PartitionContents` | Removed; `hadris_udf::PartitionKind` in `PartitionInfo` |
 | `write::UdfWriter` (`new`, `create`, `write_vrs`, `write_avdp`, `write_pvd`, `write_lvid`, `write_fids`, ...) | `hadris_udf::sync::write(dev, &tree, &UdfOptions)`; the descriptor writers are internal |
@@ -1596,7 +1606,7 @@ Writing:
 | `write::{UdfFileExtent, UdfFileInfo, UdfDirInfo}` | `Report::extents(path)`, `Report::files()` |
 | `hadris_udf::{Error, Result}` | `hadris_fs::Error<E>` or `PathError`, with `hadris_udf::Detail` |
 | io re-exports at the root | Removed; use `hadris_io` |
-| (new) | `plan`, `plan_bridge`, `{sync, async_}::{write, write_bridge}`, `UdfId`, `VolumeInfo`, `EntityId`, `PartitionInfo`, `PartitionKind`, `Detail`, `raw` |
+| (new) | `plan`, `plan_bridge`, `{sync, async_}::{write, write_bridge}`, `UdfId`, `VolumeInfo`, `EntityId`, `PartitionInfo`, `PartitionKind`, `Detail` |
 
 ### hadris-cpio
 
@@ -1608,11 +1618,11 @@ Writing:
 | `skip_entry_data`, `skip_entry_data_owned` | Drop the `Entry`; the next `next_entry` skips unread data |
 | `seek_to_entry` | Removed |
 | `hadris_cpio::{CpioEntry, CpioEntryOwned}` | `hadris_cpio::sync::Entry` (`path`, `path_str`, `offset`, `data_offset`, `len`, `mode`, `file_type`, `metadata`, ...) |
-| `hadris_cpio::CpioEntryHeader`, `entry::CpioEntryHeader` | `Entry` accessors; the header layouts are `hadris_cpio::raw::{NewcFields, OdcFields, BinaryFields}` |
-| `hadris_cpio::CpioMagic`, `header::CpioMagic` | `hadris_cpio::Format::{Newc, Crc, Odc, Binary}`; `raw::{NEWC_MAGIC, NEWC_CRC_MAGIC, ODC_MAGIC, BINARY_MAGIC}` |
-| `hadris_cpio::RawNewcHeader`, `header::RawNewcHeader` (14-argument `build`) | `hadris_cpio::raw::NewcHeader` built from `raw::NewcFields` |
+| `hadris_cpio::CpioEntryHeader`, `entry::CpioEntryHeader` | `Entry` accessors; the header layouts are `hadris_cpio_raw::{NewcFields, OdcFields, BinaryFields}` |
+| `hadris_cpio::CpioMagic`, `header::CpioMagic` | `hadris_cpio::Format::{Newc, Crc, Odc, Binary}`; `hadris_cpio_raw::{NEWC_MAGIC, NEWC_CRC_MAGIC, ODC_MAGIC, BINARY_MAGIC}` |
+| `hadris_cpio::RawNewcHeader`, `header::RawNewcHeader` (14-argument `build`) | `hadris_cpio_raw::NewcHeader` built from `hadris_cpio_raw::NewcFields` |
 | `hadris_cpio::FileType`, `mode::FileType` | `hadris_fs::FileType` (`Entry::file_type`) |
-| `mode::make_mode` | `hadris_cpio::raw::S_IF*` constants |
+| `mode::make_mode` | `hadris_cpio_raw::S_IF*` constants |
 | `hadris_cpio::CpioArchiveWriter`, `write::CpioArchiveWriter` | `hadris_cpio::sync::Writer<W>` (`new`, `append`, `append_hard_links`, `append_file`, `finish`) or `hadris_cpio::sync::write(out, &tree, &CpioOptions)` |
 | `CpioArchiveWriter::finish(&tree)` | `hadris_cpio::sync::write`, which returns a `Report` |
 | `hadris_cpio::CpioWriteOptions`, `write::CpioWriteOptions` (`crc(bool)`) | `hadris_cpio::CpioOptions` (`with_format(Format)`, `with_time`) |
@@ -1621,7 +1631,7 @@ Writing:
 | `write::from_fs::FromFsError` | `hadris_fs::PathError` |
 | `hadris_cpio::{Error, Result}`, `error::*` | `hadris_fs::Error<E>` with `hadris_cpio::Detail` |
 | io re-exports at the root | Removed; use `hadris_io` |
-| (new) | `plan`, `{sync, async_}::{read_tree, write, EntryWriter}`, `ReaderOptions`, `raw` |
+| (new) | `plan`, `{sync, async_}::{read_tree, write, EntryWriter}`, `ReaderOptions` |
 
 ## Checklist
 

@@ -282,9 +282,16 @@ lockstep release.
 - The umbrella `hadris` re-exports the format crates, so it bumps its
   major whenever a stable re-exported crate does. Previews behind
   `unstable-*` are outside semver and never bump it.
-- Raw crates (`hadris-<fmt>-raw`) version separately and are never
-  re-exported wholesale. A format crate re-exports only the raw items its
-  own signatures use ([Q13](#7-open-questions)).
+- Raw crates (`hadris-<fmt>-raw`) stay at 0.x, version separately and are
+  never re-exported wholesale. A format crate re-exports only the raw items
+  its own signatures use, with the types their fields and methods use
+  ([Q13](#7-open-questions), Q17). Those items are frozen for the format
+  crate's major: the raw crate only adds to them. The rest of a raw crate
+  may break in any 0.x minor. `scripts/check-non-exhaustive.py` rejects
+  `pub use hadris_<fmt>_raw::*` and `pub use hadris_<fmt>_raw as ..` in the
+  format crates.
+- A raw crate has one path per item, its crate root; it has no `raw`
+  module of its own (R5).
 - `hadris-common` is a 0.x support crate versioned like the raw crates.
   Raw crates may expose its types in their layouts; stable 3.x crates may
   not.
@@ -1391,7 +1398,7 @@ let report = fat::sync::check(&mut dev, &mut scratch, |f| eprintln!("{f}"))?;
 - `format(&mut dev, &opts) -> FsResult<Geometry, D::Error>` needs no allocator; the caller then mounts with its own options (VOL-FORMAT-07). `FatOptions` (`with_kind`, `with_size`, `with_label`, `with_time`, `with_seed`, `with_cluster_size`, `with_sector_size`, `with_reserved_sectors`, `with_fat_count`, `with_root_entries`, `with_media`, `with_oem_name`, `with_serial`, `with_partition_offset`, `with_alignment`) is `Copy` with the label inline, and serves both `format` and the tree writer `fat::sync::write`. `ExFatOptions` is the same without the FAT-only knobs. They replace `FormatOptions`, `FatVolumeFormatter`, `FatFormatOptions`, `ExFatFormatOptions`, `format_exfat` and `ExFatLayoutParams`. The partition offset defaults to `BlockDevice::disk_offset`. Without `with_kind`, volumes below 16 MiB are FAT12, below 512 MiB FAT16, and larger ones FAT32; the cluster size starts from the V2 tables and doubles or halves until the count fits. Option errors are checked before any write.
 - `check(&mut dev, scratch, on_finding) -> FsResult<CheckReport, D::Error>` runs on the unmounted device with no allocator. It reports each shared `Finding` (4.15) with a `fat::Detail` code through the callback. Cross-links and lost clusters need a bit per cluster: the scratch buffer covers a window of clusters, and the tree is walked once per window, so the findings do not depend on its size. The tree is walked without a stack by following `..` entries. A `repair` pass and an `analysis` module are 3.x.
 - Extras: `info()` returns `fat::Geometry` (the type `raw::parse_boot` and `format` return), `extents`, `records`, `read_raw`, `was_dirty` (false on FAT12, which has no flag), `mark_clean` (clears the flag at the next sync, after a clean check), `set_label(Option<VolumeLabel>)` and `set_volume_serial`. FAT attribute bits are `stat().attributes()` and `SetAttr::with_attributes`; cluster chains are `extents`. This replaces `kind()`, `label()` as an inherent method, `set_label(&VolumeLabel)`, `fat_attributes`, `set_fat_attributes` and `cluster_chain`.
-- The raw layer is the `hadris-fat-raw` crate: `FatKind`, `Geometry`, `RootLocation`, `parse_boot`, `boot_code`, `Slot`, `ShortEntry`, `LongEntry`, `lfn_checksum`, and the folding functions `fold_ascii` and `fold_unicode`; its `exfat` module adds `boot_checksum`, `set_checksum`, `name_hash` and `EntrySet`. `hadris-fat` re-exports only the raw items its own signatures use (`FatKind`, `Geometry`, `Detail`, `exfat::Detail` and `check`), not the crate (R12, Q13).
+- The raw layer is the `hadris-fat-raw` crate: `FatKind`, `Geometry`, `RootLocation`, `parse_boot`, `boot_code`, `Slot`, `ShortEntry`, `LongEntry`, `lfn_checksum`, and the folding functions `fold_ascii` and `fold_unicode`; its `exfat` module adds `boot_checksum`, `set_checksum`, `name_hash` and `EntrySet`. `hadris-fat` re-exports only the raw items its own signatures use (`FatKind`, `Geometry`, `RootLocation`, `ChainError`, `Detail`, `exfat::Geometry`, `exfat::Detail` and `check`), not the crate, and those items are frozen for `hadris-fat` 3.x (R12, Q13, Q17).
 - Shared FAT folds Unicode case as Windows does, and shared exFAT compares through the volume's up-case table, with no folding option. The code page defaults to `Cp437`.
 - The FAT sector cache is gone as a separate thing. Users wrap the device in `Cache<D>`. `FatSectorCache`, `CachedFat`, `with_cached_fat` and `fat_cache` are removed (#27).
 - `expect("Fixed root info required ...")` sites return `ErrorKind::Corrupt`. exFAT internals (`allocate_cluster`, `sync_bitmap`, `parse_entry_set`) become private; the pieces tools need are in `raw`.
@@ -1957,6 +1964,27 @@ user:
   lasting dependency, like the pinned nightly of the firmware-size checks.
   It is bumped deliberately, together with any budget the new compiler
   moves.
+
+**Q17. Raw crates in the 3.x API.** Resolved 2026-10-15 by the user, with
+curated re-exports rather than lockstep 3.x raw versions:
+
+- `hadris-iso`, `hadris-udf` and `hadris-cpio` no longer glob re-export
+  their raw crates. `hadris_iso::raw` keeps `VolumeDescriptor` (from
+  `IsoFs::descriptor`), `BootSectionEntry` (from `CatalogEntry::raw`) and
+  the types of their fields and methods. `hadris-udf` and `hadris-cpio`
+  use no raw type in their API and have no `raw` module. Tools such as
+  `hadris-cli` depend on the raw crates directly.
+- `hadris-fat` keeps its curated re-exports instead of owning the types:
+  `Detail` and `exfat::Detail` are the code tables the raw device
+  primitives write into errors and findings, so a copy in `hadris-fat`
+  would duplicate the tables and their `DetailCode` domains, and mirroring
+  `Geometry`, `exfat::Geometry` and `FatKind` would duplicate about forty
+  accessors and every conversion between them. It adds `RootLocation` and
+  `ChainError`, which `Geometry::root` and `FatKind::next` return, so no
+  type its API returns needs `hadris-fat-raw` to name. All of them are
+  frozen for `hadris-fat` 3.x.
+- The raw crates stay at 0.x and each has one path per item, its crate
+  root (R5); the `raw` module inside each raw crate is gone.
 
 ## RC2 asynchronous device contract
 

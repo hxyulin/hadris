@@ -65,12 +65,34 @@ trait, but their native APIs may still change.
   version and release tag (`hadris-fat-v3.1.0`) and bumps its major only
   for its own breaking changes. The umbrella `hadris` bumps its major when a
   stable crate it re-exports does; a break in a preview behind an
-  `unstable-*` feature does not bump it. `hadris-fat-raw` versions independently and is
-  0.2.0 in RC2. The ISO, UDF and CPIO raw crates start at 0.1.0 and also
-  version independently. `hadris-common`, whose endian integers the
-  `hadris-fat-raw` layouts use, is a 0.x support crate (0.3.0) versioned
-  the same way; no stable 3.x crate exposes its types. The NTFS and APFS
-  previews are 0.x, as above.
+  `unstable-*` feature does not bump it. `hadris-common`, whose endian
+  integers the `hadris-fat-raw` layouts use, is a 0.x support crate (0.3.0)
+  versioned like the raw crates; no stable 3.x crate exposes its types. The
+  NTFS and APFS previews are 0.x, as above.
+
+## Raw crates
+
+The `hadris-<format>-raw` crates (`hadris-fat-raw` 0.2, `hadris-iso-raw`,
+`hadris-udf-raw` and `hadris-cpio-raw` 0.1) hold on-disk layouts and I/O-free
+codecs. They stay at 0.x and version on their own, so any 0.x minor release
+may break them; depend on them directly with a `0.x` requirement.
+
+A format crate never re-exports its raw crate wholesale. It re-exports only
+the raw items its own API takes or returns, and the types their fields and
+methods use. Those items are part of the format crate's 3.x API and are
+frozen: a raw release may add methods or new variants of `#[non_exhaustive]`
+enums to them, but a breaking change to one would need a new major of the
+format crate. The rest of the raw crate is not covered by the format crate's
+promise.
+
+| Format crate | Raw items it re-exports |
+|--------------|-------------------------|
+| `hadris-fat` | `FatKind`, `Geometry`, `RootLocation`, `ChainError`, `Detail`, `exfat::Geometry`, `exfat::Detail` and the `check` functions |
+| `hadris-iso` | `hadris_iso::raw`: `VolumeDescriptor`, `BootSectionEntry` and the descriptor, directory-record header, date, identifier and integer field types they contain |
+| `hadris-udf` | None |
+| `hadris-cpio` | None |
+
+A CI lint rejects `pub use hadris_<format>_raw::*` in the format crates.
 
 `cargo semver-checks` checks compatibility against each crate's latest 3.x
 release, with feature builds, sync/async contract tests and the non-exhaustive
