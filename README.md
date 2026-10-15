@@ -24,7 +24,7 @@ through a shared filesystem API.
 
 **Release candidate:** V3 [3.0.0-rc.1](CHANGELOG.md#300-rc1---2026-10-06)
 is the latest published release candidate; `main` carries the next one,
-`3.0.0-rc.2`, which the recipes below use. **Stable:** V2 [2.5.0](https://github.com/hxyulin/hadris/tree/v2.5.0),
+`3.0.0-rc.2`, which the recipes below use once it is published. **Stable:** V2 [2.5.0](https://github.com/hxyulin/hadris/tree/v2.5.0),
 with maintenance on [`v2`](https://github.com/hxyulin/hadris/tree/v2).
 The [migration guide](docs/hadris-3.0.0-migration.md) covers the API and CLI changes.
 

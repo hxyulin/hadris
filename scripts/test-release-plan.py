@@ -193,6 +193,19 @@ class ReleasePlanTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("tag v3.0.0-rc.0 does not exist", result.stderr)
 
+    def test_dated_section_is_exempt_only_for_the_workspace_version(self):
+        changelog = self.root / "CHANGELOG.md"
+        changelog.write_text(
+            "## [3.0.0-rc.1] - 2026-10-06\n\nThis release.\n\n"
+            "## [3.0.0-rc.2] - 2026-10-07\n\nNot this one.\n\n" + changelog.read_text()
+        )
+        result = self.plan("--notes", "3.0.0-rc.2", "all")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("section [3.0.0-rc.2] is dated but tag v3.0.0-rc.2 does not exist", result.stderr)
+        changelog.write_text(changelog.read_text().replace("## [3.0.0-rc.2] - 2026-10-07", "## [3.0.0-rc.2] - Unreleased"))
+        result = self.plan("--notes", "3.0.0-rc.1", "all")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_undated_unreleased_section_is_allowed_but_not_released(self):
         changelog = self.root / "CHANGELOG.md"
         changelog.write_text("## [3.0.0-rc.2] - Unreleased\n\nPending.\n\n" + changelog.read_text())

@@ -142,7 +142,9 @@ def main() -> int:
             notes = ""
         plan.append((name, version, tag, notes))
 
-    errors.extend(untagged_dated_sections(changelog, {args.notes}))
+    workspace_version = packages["hadris"]["version"] if "hadris" in packages else None
+    releasing = {args.notes} if args.notes and args.notes == workspace_version else set()
+    errors.extend(untagged_dated_sections(changelog, releasing))
 
     if args.notes and "hadris" in selected:
         version = packages["hadris"]["version"]
