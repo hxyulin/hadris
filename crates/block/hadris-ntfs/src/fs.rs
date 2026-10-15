@@ -1549,39 +1549,13 @@ impl<D: BlockDevice> NtfsFs<D> {
         Err(ErrorKind::InvalidInput.into())
     }
 }
-impl<D: BlockDevice> FileSystem for NtfsFs<D> {
-    type DeviceError = D::Error;
-    fn capabilities(&self) -> Capabilities { NtfsFs::capabilities(self) }
-    fn root(&self) -> NodeId { NtfsFs::root(self) }
-    async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> { NtfsFs::lookup(self ,dir, name).await }
-    async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> { NtfsFs::readdir(self ,dir, from).await }
-    async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> { NtfsFs::stat(self ,node).await }
-    async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> { NtfsFs::read(self ,node, offset, buf).await }
-    async fn statfs(&mut self) -> FsResult<FsStats, D::Error> { NtfsFs::statfs(self).await }
-    fn forget(&mut self, node: NodeId, count: u64) { NtfsFs::forget(self ,node, count) }
-    async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> { NtfsFs::parent(self ,dir).await }
-    async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> { NtfsFs::label(self ,buf).await }
-    async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> { NtfsFs::open(self ,node, mode).await }
-    async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> { NtfsFs::close(self ,node).await }
-    async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> { NtfsFs::readlink(self ,node, buf).await }
+hadris_fs::__forward_filesystem! {
+    async fn NtfsFs<D: BlockDevice> as FileSystem { read }
 }
 
 send_filesystem! {
-impl<D: hadris_storage::async_::SendBlockDevice> hadris_fs::async_::FileSystem for NtfsFs<D> {
-    type DeviceError = D::Error;
-    fn capabilities(&self) -> Capabilities { NtfsFs::capabilities(self) }
-    fn root(&self) -> NodeId { NtfsFs::root(self) }
-    async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> { NtfsFs::lookup(self ,dir, name).await }
-    async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> { NtfsFs::readdir(self ,dir, from).await }
-    async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> { NtfsFs::stat(self ,node).await }
-    async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> { NtfsFs::read(self ,node, offset, buf).await }
-    async fn statfs(&mut self) -> FsResult<FsStats, D::Error> { NtfsFs::statfs(self).await }
-    fn forget(&mut self, node: NodeId, count: u64) { NtfsFs::forget(self ,node, count) }
-    async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> { NtfsFs::parent(self ,dir).await }
-    async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> { NtfsFs::label(self ,buf).await }
-    async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> { NtfsFs::open(self ,node, mode).await }
-    async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> { NtfsFs::close(self ,node).await }
-    async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> { NtfsFs::readlink(self ,node, buf).await }
+hadris_fs::__forward_filesystem! {
+    async fn NtfsFs<D: hadris_storage::async_::SendBlockDevice> as hadris_fs::async_::FileSystem { read }
 }
 }
 
