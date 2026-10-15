@@ -200,3 +200,8 @@ pub fn normalize_path(name: &[u8]) -> Option<alloc::borrow::Cow<'_, [u8]>> {
 pub use build::plan;
 pub use error::Detail;
 pub use options::{CpioOptions, Format, ReaderOptions};
+
+/// Compiles the README's Rust examples as doctests.
+#[cfg(all(doctest, feature = "std", feature = "sync"))]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

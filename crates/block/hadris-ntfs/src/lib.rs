@@ -117,3 +117,8 @@ pub mod sync {
 pub mod async_;
 
 pub use error::Detail;
+
+/// Compiles the README's Rust examples as doctests.
+#[cfg(all(doctest, feature = "std", feature = "sync"))]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

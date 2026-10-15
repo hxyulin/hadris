@@ -514,3 +514,8 @@ mod tests {
         assert!(matches!(test_fn(), Some(Err(InvalidSeek))));
     }
 }
+
+/// Compiles the README's Rust examples as doctests.
+#[cfg(all(doctest, feature = "std", feature = "sync"))]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

@@ -455,3 +455,8 @@ pub use hadris_fat_raw::{ChainError, Detail, FatKind, Geometry, RootLocation};
 #[cfg(feature = "write")]
 pub use options::FatOptions;
 pub use options::VolumeLabel;
+
+/// Compiles the README's Rust examples as doctests.
+#[cfg(all(doctest, feature = "std", feature = "sync", feature = "write"))]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

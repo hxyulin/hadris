@@ -102,3 +102,8 @@ pub use entry::{
 pub use lfn::checksum as lfn_checksum;
 pub use name::{fold_ascii, fold_unicode};
 pub use slot::{LongEntry, MAX_DIR_ENTRIES, ShortEntry, Slot};
+
+/// Compiles the README's Rust examples as doctests.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
