@@ -16,13 +16,13 @@ features = ["std", "sync", "async", "encryption", "tracing"]
 
 [features]
 default = ["std", "sync"]
-std = ["alloc", "hadris-io/std", "hadris-storage/std", "hadris-fs/std"]
+std = ["alloc", "hadris-io/std", "hadris-storage/std", "hadris-fs/std", "tracing?/std"]
 alloc = ["hadris-fs/alloc", "hadris-storage/alloc"]
 encryption = ["alloc", "dep:aes", "dep:aes-kw", "dep:xts-mode", "dep:pbkdf2", "dep:sha2", "dep:hmac", "dep:zeroize"]
 sync = ["hadris-io/sync", "hadris-storage/sync", "hadris-fs/sync"]
 async = ["hadris-io/async", "hadris-storage/async", "hadris-fs/async"]
 
-tracing = ["std", "dep:tracing"]
+tracing = ["dep:tracing"]
 
 [dependencies]
 tracing = { workspace = true, optional = true }

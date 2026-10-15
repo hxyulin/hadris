@@ -22,11 +22,11 @@ default = ["std", "sync"]
 # The writer, sessions, the boot catalog reader and the tree input.
 alloc = ["hadris-io/alloc", "hadris-fs/alloc", "hadris-storage/alloc", "dep:hadris-part", "hadris-part/alloc"]
 # Implies `alloc`; `std::io::Error` conversions and host files as tree content.
-std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std", "hadris-part/std"]
+std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std", "hadris-part/std", "tracing?/std"]
 sync = ["hadris-io/sync", "hadris-fs/sync", "hadris-storage/sync", "hadris-part?/sync"]
 async = ["hadris-io/async", "hadris-fs/async", "hadris-storage/async", "hadris-part?/async"]
 
-tracing = ["std", "dep:tracing", "hadris-part?/tracing"]
+tracing = ["dep:tracing", "hadris-part?/tracing"]
 
 [dependencies]
 hadris-iso-raw = { workspace = true }

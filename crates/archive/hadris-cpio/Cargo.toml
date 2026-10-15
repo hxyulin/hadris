@@ -21,11 +21,11 @@ default = ["std", "sync"]
 # The writer and the `Tree` input.
 alloc = ["hadris-io/alloc", "hadris-fs/alloc"]
 # Implies `alloc`; `std::io::Error` conversions and host files as tree content.
-std = ["alloc", "hadris-io/std", "hadris-fs/std"]
+std = ["alloc", "hadris-io/std", "hadris-fs/std", "tracing?/std"]
 sync = ["hadris-io/sync", "hadris-fs/sync"]
 async = ["hadris-io/async", "hadris-fs/async"]
 
-tracing = ["std", "dep:tracing"]
+tracing = ["dep:tracing"]
 
 [dependencies]
 hadris-cpio-raw = { workspace = true }

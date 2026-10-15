@@ -23,7 +23,7 @@ sync = ["hadris-io/sync", "hadris-storage/sync", "hadris-fs/sync", "hadris-fat?/
 async = ["hadris-io/async", "hadris-storage/async", "hadris-fs/async", "hadris-fat?/async", "hadris-part?/async", "hadris-ntfs?/async", "hadris-iso?/async", "hadris-udf?/async", "hadris-cpio?/async", "hadris-apfs?/async", "hadris-fat-raw?/async"]
 # FAT and exFAT formatting, and `format` with `detect`.
 write = ["hadris-fat?/write"]
-tracing = ["std", "hadris-fat?/tracing", "hadris-iso?/tracing", "hadris-udf?/tracing", "hadris-apfs?/tracing", "hadris-ntfs?/tracing", "hadris-part?/tracing", "hadris-cpio?/tracing"]
+tracing = ["hadris-fat?/tracing", "hadris-iso?/tracing", "hadris-udf?/tracing", "hadris-apfs?/tracing", "hadris-ntfs?/tracing", "hadris-part?/tracing", "hadris-cpio?/tracing"]
 fat = ["dep:hadris-fat"]
 part = ["dep:hadris-part"]
 iso = ["dep:hadris-iso"]

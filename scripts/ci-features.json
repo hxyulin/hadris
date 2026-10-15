@@ -234,8 +234,18 @@
     },
     {
       "crate": "hadris-fat",
-      "tier": "hosted-tracing",
+      "tier": "no-std-tracing",
       "features": "tracing,sync,async,write"
+    },
+    {
+      "crate": "hadris-fat",
+      "tier": "no-std-tracing-sync",
+      "features": "tracing,sync"
+    },
+    {
+      "crate": "hadris-fat",
+      "tier": "hosted-tracing",
+      "features": "std,tracing,sync,async,write"
     },
     {
       "crate": "hadris-fat",
@@ -319,17 +329,17 @@
     },
     {
       "crate": "hadris-apfs",
-      "tier": "hosted-tracing",
+      "tier": "no-std-tracing",
       "features": "tracing,sync,async,encryption"
     },
     {
       "crate": "hadris-ntfs",
-      "tier": "hosted-tracing",
+      "tier": "no-std-tracing",
       "features": "tracing,sync,async"
     },
     {
       "crate": "hadris-part",
-      "tier": "hosted-tracing",
+      "tier": "no-std-tracing",
       "features": "tracing,sync,async"
     }
   ],
@@ -416,12 +426,12 @@
     },
     {
       "crate": "hadris-iso",
-      "tier": "hosted-tracing",
+      "tier": "no-std-tracing",
       "features": "tracing,sync,async"
     },
     {
       "crate": "hadris-udf",
-      "tier": "hosted-tracing",
+      "tier": "no-std-tracing",
       "features": "tracing,sync,async"
     }
   ],
@@ -468,7 +478,7 @@
     },
     {
       "crate": "hadris-cpio",
-      "tier": "hosted-tracing",
+      "tier": "no-std-tracing",
       "features": "tracing,sync,async"
     }
   ],
@@ -575,7 +585,7 @@
     },
     {
       "crate": "hadris",
-      "tier": "hosted-all-format-tracing",
+      "tier": "no-std-all-format-tracing",
       "features": "tracing,sync,async,detect,part,unstable-ntfs,apfs-encryption"
     }
   ]

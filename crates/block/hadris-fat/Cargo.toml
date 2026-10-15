@@ -27,13 +27,14 @@ std = [
   "hadris-io/std",
   "hadris-fs/std",
   "hadris-storage/std",
+  "tracing?/std",
 ]
 # `format` in each mode. `FatFs` and `ExFatFs` read and write without it.
 write = []
 # Derives `defmt::Format` on `FatKind` so it can be logged through
 # `defmt::info!` etc. without going through `Debug`.
 defmt = ["hadris-fat-raw/defmt"]
-tracing = ["std", "dep:tracing"]
+tracing = ["dep:tracing"]
 
 [dependencies]
 hadris-common = { workspace = true, features = ["bytemuck"] }
