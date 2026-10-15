@@ -209,8 +209,11 @@
 //! drivers are built on are the separate `hadris-fat-raw` crate, which has
 //! its own version. This crate re-exports only what its own signatures use:
 //! [`FatKind`], [`Geometry`], [`Detail`], `exfat::Geometry`,
-//! `exfat::Detail` and the `check` functions.
-//! Depend on `hadris-fat-raw` directly to use the rest.
+//! `exfat::Detail` and the `check` functions, with [`RootLocation`] and
+//! [`ChainError`], which methods of `Geometry` and `FatKind` return. These
+//! items are part of this crate's 3.x API: `hadris-fat-raw` keeps them
+//! compatible, and a breaking change to one of them is a major version of
+//! this crate. Depend on `hadris-fat-raw` directly to use the rest.
 
 #![cfg_attr(not(test), no_std)]
 #![deny(missing_docs)]
@@ -447,7 +450,7 @@ fn push_run(
     false
 }
 
-pub use hadris_fat_raw::{Detail, FatKind, Geometry};
+pub use hadris_fat_raw::{ChainError, Detail, FatKind, Geometry, RootLocation};
 #[cfg(feature = "write")]
 pub use options::FatOptions;
 pub use options::VolumeLabel;

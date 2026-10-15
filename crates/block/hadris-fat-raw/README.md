@@ -6,10 +6,17 @@ codecs for drivers, tools and firmware.
 ## Overview
 
 `hadris-fat-raw` holds what the `hadris-fat` drivers are built on, for
-anyone whose case those drivers do not cover. It has its own version, so the
-low-level API can change without a new major version of `hadris-fat`, and
-`hadris-fat` re-exports only the items its own API uses (`FatKind`,
-`Detail`, `exfat::Detail` and `check`).
+anyone whose case those drivers do not cover. It has its own 0.x version,
+and `hadris-fat` does not re-export it wholesale, so most of the low-level
+API can change without a new major version of `hadris-fat`.
+
+The exception is the items `hadris-fat` re-exports because its own API
+uses them: `FatKind`, `Geometry`, `RootLocation`, `ChainError`, `Detail`,
+`exfat::Geometry`, `exfat::Detail` and the `check` functions of `io` and
+`exfat::io`. These are frozen for `hadris-fat` 3.x: a release of this
+crate may add to them (new methods, and new variants of the
+`#[non_exhaustive]` enums) but makes no breaking change to them, and the
+codes of `Detail` and `exfat::Detail` never change meaning.
 
 The layouts and codecs work on bytes and plain values without I/O or an
 allocator. Optional device primitives are described below:

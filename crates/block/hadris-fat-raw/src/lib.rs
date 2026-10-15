@@ -2,7 +2,11 @@
 //!
 //! The on-disk layer of FAT12, FAT16, FAT32 and exFAT, for drivers, tools
 //! and firmware that the `hadris-fat` driver does not fit. `hadris-fat`
-//! builds on it and re-exports only the items its own API uses.
+//! builds on it and re-exports only the items its own API uses:
+//! [`FatKind`], [`Geometry`], [`RootLocation`], [`ChainError`], [`Detail`],
+//! [`exfat::Geometry`], [`exfat::Detail`] and the `check` functions. Those
+//! items are frozen for `hadris-fat` 3.x: releases of this crate add to
+//! them but make no breaking change to them.
 //!
 //! Everything here works on bytes and plain values, does no I/O and needs
 //! no allocator:

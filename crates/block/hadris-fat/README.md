@@ -384,9 +384,11 @@ chain walks, batched allocation and freeing, directory slots and `mkfs`,
 generated for each mode; `exfat::io` holds the exFAT bitmap, up-case and
 entry set primitives `ExFatFs` is built on. It is for tools and firmware that the drivers do
 not fit. It has its own version, so `hadris-fat` does not re-export it:
-only `FatKind`, `Detail`, `exfat::Detail` and the `check` functions, which
-this crate's own API uses, are available here. Depend on `hadris-fat-raw`
-directly for the rest.
+only the items this crate's own API uses are available here: `FatKind`,
+`Geometry`, `RootLocation`, `ChainError`, `Detail`, `exfat::Geometry`,
+`exfat::Detail` and the `check` functions. They are part of the
+`hadris-fat` 3.x API, so `hadris-fat-raw` keeps them compatible. Depend on
+`hadris-fat-raw` directly for the rest.
 
 ## No-std Compatibility
 
