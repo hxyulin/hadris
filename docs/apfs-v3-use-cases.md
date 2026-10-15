@@ -55,7 +55,7 @@ The umbrella's `detect` feature recognizes APFS containers. With the
 `unstable-apfs` feature, `open` also mounts them as `AnyFs::Apfs`, following
 the same single-volume rule, and the feature exposes native inspection and
 explicit volume selection. Without it, `open` fails on an APFS container
-with `NotRecognized`, so the stable umbrella does not depend on the 0.x
+with `NotRecognized`, so the stable umbrella does not depend on the preview
 `hadris-apfs` crate.
 Explicit APFS opening provides selection for multi-volume containers. The unified
 CLI uses the driver for ordinary file operations and the container for native

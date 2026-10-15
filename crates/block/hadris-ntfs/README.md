@@ -3,7 +3,8 @@
 `hadris-ntfs` is a read-only NTFS reader that needs no allocator. It is a
 preview in Hadris 3.0: it implements the `hadris-fs` `FileSystem` trait,
 whose shape is frozen, and its native methods may still change in 3.x
-minors.
+minors. Depend on it with `hadris-ntfs = "~3.0"` to take only compatible
+updates.
 
 `NtfsFs` opens a volume on any `hadris-storage` block device, in blocking
 and asynchronous forms, so `Volume` and the file handles of `hadris-fs`

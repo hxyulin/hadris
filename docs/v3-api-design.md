@@ -296,14 +296,15 @@ lockstep release.
   Raw crates may expose its types in their layouts; stable 3.x crates may
   not.
 - No new wholesale re-export of one crate by another is added.
-- Preview crates (`hadris-ntfs`, `hadris-apfs`) are versioned 0.x and leave
-  the 3.0 release train: each 0.y release may break their API and patch
-  releases stay compatible, which is what Cargo assumes for 0.x. They
-  start at 0.1.0. crates.io also holds their 2.x and 3.0.0-rc.1 releases,
-  so a bare `cargo add` picks 2.5.0 and the docs name the version. A
+- Preview crates (`hadris-ntfs`, `hadris-apfs`) ship 3.0.0 with the
+  release train and keep 3.x versions, but are exempt from semver: a
+  breaking change bumps their minor, never their major, and patch releases
+  stay compatible, so users pin them with `~3.y`. Decided 2026-10-15 over
+  a 0.x version (a fresh 0.1.0 sorts below their published 2.x releases,
+  so a bare `cargo add` would pick 2.5.0) and over renaming the crates. A
   stable crate depends on a preview crate only behind an `unstable-*`
-  feature, so a 0.y bump never changes its stable API. A preview that
-  becomes stable moves to the major its umbrella is on.
+  feature, so a preview break never changes its stable API. A preview
+  that becomes stable starts following semver from its next major.
 
 Each release is tagged `<crate>-v<version>`, and the release workflow publishes one crate or a set (step 14).
 

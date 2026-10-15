@@ -3,7 +3,8 @@
 `hadris-apfs` is an experimental, read-only reader for APFS containers and
 volumes. It supports synchronous and asynchronous I/O and can be used in
 `no_std` environments with an allocator. Its API is outside the Hadris 3.x
-stability promise and may change in a minor release.
+stability promise and may change in a minor release; depend on it with
+`hadris-apfs = "~3.0"` to take only compatible updates.
 
 The crate is suitable for inspecting unencrypted APFS images and, with the
 `encryption` feature, password-encrypted single-key APFS volumes made by macOS. It

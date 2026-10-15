@@ -124,7 +124,7 @@ Sections:
 | `hadris-block` | Removed. Use `hadris::{sync, async_}::{detect, open, AnyFs}`, `hadris::host::open`, and `hadris_part::sync::open` for partitions. |
 | `hadris-fat` | `hadris-fat`. On-disk layouts moved to `hadris-fat-raw`. exFAT is stable. |
 | `hadris-part` | `hadris-part`. New `Disk` API on block devices. |
-| `hadris-ntfs` | `hadris-ntfs` 0.1, still a preview versioned 0.x outside the 3.x promise (write `hadris-ntfs = "0.1"`). `hadris::ntfs` behind the umbrella's `unstable-ntfs` feature. |
+| `hadris-ntfs` | `hadris-ntfs` 3.0, still a preview outside the 3.x promise that may break in a minor release (write `hadris-ntfs = "~3.0"`). `hadris::ntfs` behind the umbrella's `unstable-ntfs` feature. |
 | `hadris-optical` | Removed. Use `hadris::{sync, async_}::{detect, open, AnyFs}`. |
 | `hadris-cd` | Removed. The ISO 9660 and UDF bridge writer is `hadris_udf::plan_bridge` and `hadris_udf::{sync, async_}::write_bridge`. |
 | `hadris-iso` | `hadris-iso`. One reader, `IsoFs`; the writer takes a `Tree`. |
@@ -183,7 +183,8 @@ Rules that hold for every V3 crate:
   have no `local` module.
 - Only `unstable-*` features add APIs outside the stability promise, and
   everything they add may change in any release. The preview crates
-  `hadris-ntfs` and `hadris-apfs` are versioned 0.x, not 3.x.
+  `hadris-ntfs` and `hadris-apfs` carry 3.x versions but may break in a
+  minor release.
 - No crate re-exports a mode at its root. Write `hadris_fat::sync::FatFs`,
   not `hadris_fat::FatFs`.
 
@@ -1426,9 +1427,9 @@ resolution is a value, `hadris_fs::Resolve::{Lexical, Follow, NoFollow}`.
 
 ### hadris-ntfs
 
-NTFS stays a preview. The crate is versioned 0.x (0.1.0), outside the 3.x
-release train, so each 0.y release may break its native API; write
-`hadris-ntfs = "0.1"`, since a bare `cargo add hadris-ntfs` picks 2.5.0.
+NTFS stays a preview. The crate keeps a 3.x version but is outside the
+stability promise, so a 3.y minor release may break its native API; write
+`hadris-ntfs = "~3.0"` to take only compatible updates.
 
 | V2 path | V3 path or replacement |
 |---|---|
@@ -1711,10 +1712,9 @@ APFS arrived after the V2 2.4 API mapped above. V3 now has a read-only
 | `root_leaf_volume_object_map_values` | `volume_object_map_values`, traversing all object-map leaves |
 | Standalone APFS inspection tool | Unified `hadris apfs info`, `ls`, `stat`, `cat` and `extract`; `hadris-apfs-cli` is removed from the workspace in RC2 |
 
-`hadris-apfs` is a preview versioned 0.x (0.1.0), outside the 3.x release
-train: each 0.y release may break its API. Write `hadris-apfs = "0.1"`; the
-2.5.0 and 3.0.0-rc.1 releases predate this scheme, and a bare
-`cargo add hadris-apfs` picks 2.5.0.
+`hadris-apfs` is a preview outside the 3.x stability promise: it keeps a
+3.x version, but a 3.y minor release may break its API. Write
+`hadris-apfs = "~3.0"` to take only compatible updates.
 
 The umbrella's `detect` feature lists APFS containers as
 `ImageFormat::Apfs` from their signature but does not mount them.

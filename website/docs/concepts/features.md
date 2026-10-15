@@ -140,9 +140,9 @@ compiled, and `alloc` adds the writer.
 - Add `alloc` only when the chosen API returns or stores owned data.
 - Use the umbrella with defaults disabled for one dependency and one format; use leaf crates for direct ownership of their versions.
 - Treat `hadris-ntfs`, `hadris-apfs`, `unstable-ntfs` and `unstable-apfs`
-  as previews outside semver. The crates are versioned 0.x; depend on
-  `"0.1"` explicitly, and pin `hadris` when enabling an `unstable-*`
-  feature. See [stability](../stability.md).
+  as previews outside semver. The crates carry 3.x versions but may break
+  in a minor release; depend on them with `"~3.0"`, and pin `hadris` when
+  enabling an `unstable-*` feature. See [stability](../stability.md).
 - `tracing` adds spans without selecting `std`, so `no_std` builds can trace
   when they have a global allocator, which the `tracing` crate needs.
 

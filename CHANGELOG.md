@@ -104,14 +104,12 @@ Each published package owns its version and may be released independently.
   `AnyFs` is `#[non_exhaustive]`, so the variant returns without a break
   when APFS is stable.
 
-- **hadris-apfs, hadris-ntfs (breaking):** The preview crates are versioned
-  0.1.0 instead of 3.0.0-rc.2 and leave the 3.x release train: each 0.y
-  release may break their API, which Cargo treats as incompatible, and
-  patch releases stay compatible. Depend on `hadris-apfs = "0.1"` and
-  `hadris-ntfs = "0.1"`. The 2.x and 3.0.0-rc.1 releases on crates.io
-  predate this scheme; a bare `cargo add` picks 2.5.0, so name the
-  version. Everything the `unstable-ntfs` and `unstable-apfs` features of
-  `hadris` add is outside semver and may change in any `hadris` release.
+- **hadris-apfs, hadris-ntfs:** The preview crates keep 3.x version
+  numbers but are outside the 3.x stability promise: a 3.y minor release
+  may break their native API, and patch releases stay compatible. Pin them
+  with `~3.0` to take only compatible updates. Everything the
+  `unstable-ntfs` and `unstable-apfs` features of `hadris` add is outside
+  semver and may change in any `hadris` release.
 - **Raw crate re-exports (breaking):** `hadris-iso`, `hadris-udf` and
   `hadris-cpio` no longer re-export their whole 0.x raw crate, which made
   every breaking raw release a breaking change of the 3.x driver.

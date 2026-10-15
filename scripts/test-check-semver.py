@@ -103,7 +103,24 @@ else:
         result, invocation = run("missing-baseline")
         assert result.returncode != 0 and not invocation.exists()
 
-    print("Semver baseline selection: new crates, new version lines, release rules and failures passed")
+        apfs = root / "crates/hadris-apfs/Cargo.toml"
+        apfs.parent.mkdir(parents=True)
+        apfs.write_text('[package]\nname = "hadris-apfs"\nversion = "3.0.0"\n')
+        git("add", ".")
+        git("commit", "--quiet", "-m", "APFS preview release")
+        git("tag", "hadris-apfs-v3.0.0")
+        for version, release_type in (("3.0.1", []), ("3.1.0", ["--release-type", "major"])):
+            apfs.write_text(f'[package]\nname = "hadris-apfs"\nversion = "{version}"\n')
+            (root / "metadata.json").write_text(json.dumps({"packages": [
+                {"name": "hadris-apfs", "version": version, "manifest_path": str(apfs)},
+            ]}))
+            result, invocation = run("HEAD")
+            assert result.returncode == 0, result.stderr
+            assert json.loads(invocation.read_text()) == [
+                "--baseline-rev", "hadris-apfs-v3.0.0", *release_type, "-p", "hadris-apfs",
+            ], (version, result.stdout)
+
+    print("Semver baseline selection: new crates, new version lines, release rules, previews and failures passed")
 
 
 if __name__ == "__main__":

@@ -33,12 +33,10 @@ The `hadris-ntfs` and `hadris-apfs` readers are previews outside the
 stability promise. Their `FileSystem` implementations follow the frozen
 trait, but their native APIs may still change.
 
-- Both crates are versioned 0.x (0.1.0), not 3.x, and are not part of the
-  3.0 release train. Each 0.y release may break their API; patch releases
-  stay compatible, so `hadris-apfs = "0.1"` only takes compatible updates.
-  crates.io also holds their older 2.x and 3.0.0-rc.1 releases, and a bare
-  `cargo add hadris-apfs` picks 2.5.0, so name the version:
-  `cargo add hadris-apfs@0.1`.
+- Both crates carry 3.x versions and ship with the 3.0 release, but are
+  exempt from semver: a 3.y minor release may break their API, and patch
+  releases stay compatible. Depend on them with `~`, for example
+  `hadris-apfs = "~3.0"`, to take only compatible updates.
 - In `hadris`, everything the `unstable-ntfs` and `unstable-apfs` features
   add is outside semver and may change in any release. That covers the
   `hadris::ntfs` and `hadris::apfs` re-exports, and with `detect`, the
@@ -68,7 +66,7 @@ trait, but their native APIs may still change.
   `unstable-*` feature does not bump it. `hadris-common`, whose endian
   integers the `hadris-fat-raw` layouts use, is a 0.x support crate (0.3.0)
   versioned like the raw crates; no stable 3.x crate exposes its types. The
-  NTFS and APFS previews are 0.x, as above.
+  NTFS and APFS previews break only in minor releases, as above.
 
 ## Raw crates
 

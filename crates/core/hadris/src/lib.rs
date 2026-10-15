@@ -51,8 +51,8 @@
 //! checks in `detect`, single-volume APFS mounting in `open` and
 //! `open_apfs` for containers with multiple volumes. Everything an
 //! `unstable-*` feature adds is outside semver and may change in any
-//! release; `hadris-ntfs` and `hadris-apfs` are versioned 0.x. No other
-//! feature changes what an item does.
+//! release; `hadris-ntfs` and `hadris-apfs` may break in a minor release.
+//! No other feature changes what an item does.
 //!
 //! # Quick start
 //!

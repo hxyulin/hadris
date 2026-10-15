@@ -318,9 +318,10 @@ its own (R12 in [`docs/v3-api-design.md`](docs/v3-api-design.md)). A crate
 bumps its major only for its own breaking changes, and the umbrella `hadris`
 bumps its major when a stable crate it re-exports does. `hadris-fat-raw`
 versions separately from 0.1.0. The preview crates `hadris-ntfs` and
-`hadris-apfs` are versioned 0.x from 0.1.0: a breaking change bumps their
-0.y, and since the umbrella reaches them only through `unstable-*`
-features, which are outside semver, that never bumps `hadris`'s major. The
+`hadris-apfs` keep 3.x versions but are exempt from the semver promise: a
+breaking change to them bumps their minor, never their major, and since the
+umbrella reaches them only through `unstable-*` features, which are outside
+semver, it never bumps `hadris`'s major either. The
 examples are `publish = false`.
 
 The raw crates (`hadris-fat-raw`, `hadris-iso-raw`, `hadris-udf-raw`,

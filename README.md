@@ -145,8 +145,9 @@ dosfstools, xorriso, libarchive, udftools and native OS readers. See the
 [FAT](docs/compliance/hadris-fat.md), [ISO](docs/compliance/hadris-iso.md) and
 [UDF](docs/compliance/hadris-udf.md) profiles for results and coverage boundaries.
 
-NTFS and APFS remain previews: `hadris-ntfs` and `hadris-apfs` are versioned
-0.x outside the 3.x stability promise, and the umbrella reaches them only
+NTFS and APFS remain previews: `hadris-ntfs` and `hadris-apfs` carry 3.x
+versions but are outside the 3.x stability promise, and may break in a
+minor release (pin them with `~3.0`). The umbrella reaches them only
 through its `unstable-ntfs` and `unstable-apfs` features. See
 [stability](website/docs/stability.md). Optional APFS software unlocking
 uses the `encryption` feature; Apple-silicon hardware FileVault needs separate

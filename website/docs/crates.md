@@ -82,9 +82,9 @@ points for kernels, firmware, and other storage libraries:
 ## Preview APIs
 
 The `hadris-ntfs` and `hadris-apfs` crates are outside the stable API
-promise and are versioned 0.x (0.1.0): each 0.y release may break them.
+promise: they carry 3.x versions, but a 3.y minor release may break them.
 They are appropriate for evaluation and compatibility testing. Depend on
-`"0.1"` explicitly, since older 2.x releases also exist on crates.io. See
+them with `"~3.0"` to take only compatible updates. See
 [stability](./stability.md).
 
 The umbrella's `detect` lists NTFS volumes in every build, and `open` refuses
