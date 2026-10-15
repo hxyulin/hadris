@@ -661,7 +661,7 @@ fn backup_boot_mounts_fat32_from_sector_6() {
     damaged[11..13].copy_from_slice(&[0, 0]);
     let dev = |bytes: Vec<u8>| MemDevice::new(bytes, BlockSize::new(512).unwrap());
     assert!(FatFs::mount(dev(damaged.clone()), MountOptions::new()).is_err());
-    let mut fs = FatFs::mount(dev(damaged), backup).unwrap();
+    let mut fs = FatFs::mount(dev(damaged), backup.clone()).unwrap();
     assert!(fs.is_read_only());
     assert!(
         fs.resolve(b"/kept.txt", hadris_fs::Resolve::Lexical)
@@ -670,7 +670,7 @@ fn backup_boot_mounts_fat32_from_sector_6() {
 
     let mut no_backup = image;
     no_backup[6 * 512 + 11..6 * 512 + 13].copy_from_slice(&[0, 0]);
-    let err = FatFs::mount(dev(no_backup.clone()), backup).unwrap_err();
+    let err = FatFs::mount(dev(no_backup.clone()), backup.clone()).unwrap_err();
     assert_eq!(err.error().kind(), ErrorKind::Corrupt);
     assert!(
         !FatFs::mount(dev(no_backup), MountOptions::new())

@@ -297,11 +297,11 @@ pub async fn open<D: BlockDevice>(mut dev: D, options: MountOptions) -> Result<A
     let mut other = None;
     for candidate in found.iter() {
         let mounted = match candidate.format() {
-            ImageFormat::Fat(_) => FatFs::mount(dev, options).await.map(AnyFs::Fat),
-            ImageFormat::ExFat => ExFatFs::mount(dev, options).await.map(AnyFs::ExFat),
-            ImageFormat::Iso => IsoFs::mount(dev, options).await.map(AnyFs::Iso),
-            ImageFormat::Udf | ImageFormat::IsoUdfBridge => UdfFs::mount(dev, options).await.map(AnyFs::Udf),
-            ImageFormat::Apfs => ApfsFs::mount(dev, options).await.map(AnyFs::Apfs),
+            ImageFormat::Fat(_) => FatFs::mount(dev, options.clone()).await.map(AnyFs::Fat),
+            ImageFormat::ExFat => ExFatFs::mount(dev, options.clone()).await.map(AnyFs::ExFat),
+            ImageFormat::Iso => IsoFs::mount(dev, options.clone()).await.map(AnyFs::Iso),
+            ImageFormat::Udf | ImageFormat::IsoUdfBridge => UdfFs::mount(dev, options.clone()).await.map(AnyFs::Udf),
+            ImageFormat::Apfs => ApfsFs::mount(dev, options.clone()).await.map(AnyFs::Apfs),
             ImageFormat::Ntfs => {
                 other.get_or_insert("ntfs");
                 continue;
@@ -399,7 +399,7 @@ pub async fn open_partition<D: BlockDevice>(
             Err(err) => return Err(MountError::new(err, dev)),
         };
         let window = hadris_storage::Partition::new(dev, offset, len);
-        let err = match open(window, options).await {
+        let err = match open(window, options.clone()).await {
             Ok(fs) => return Ok(fs),
             Err(err) => err,
         };

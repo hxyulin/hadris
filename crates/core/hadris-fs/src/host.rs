@@ -63,6 +63,7 @@ pub fn mount_options() -> MountOptions {
     static CLOCK: SystemClock = SystemClock;
     let options = MountOptions::new().with_clock(&CLOCK);
     options
+        .clone()
         .with_utc_offset(local_utc_offset())
         .unwrap_or(options)
 }

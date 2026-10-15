@@ -465,6 +465,12 @@ code-page providers and the per-format open functions:
 | `with_node_limit(n)` | Cap pinned and open nodes of `FatFs` and `ExFatFs` |
 | `backup_boot()` | Mount FAT32 or exFAT read-only from the backup boot region; UDF reads the end anchors first |
 
+`MountOptions` is `Clone` but not `Copy`: clone it to mount twice with the
+same options. Each driver ignores the options it does not honour. FAT
+honours all of them; exFAT all but the code page; UDF only `backup_boot`;
+APFS only the node cap; ISO 9660 and NTFS none. ISO 9660, UDF, NTFS and
+APFS always mount read-only. The `MountOptions` rustdoc has the table.
+
 `hadris_fs::host::mount_options()` is the host default: the system clock and
 the local UTC offset.
 

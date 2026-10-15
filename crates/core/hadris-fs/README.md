@@ -16,7 +16,9 @@ The vocabulary is mode-independent and performs no I/O:
 - `FuseOnError`, an iterator adapter that ends after the first `Err`
 - `MountOptions`, one mount configuration for every format: read-only,
   the `Clock`, the UTC offset of zoneless timestamps, the FAT `CodePage`
-  (`Cp437` by default, or `Ascii`), a node cap and backup boot structures
+  (`Cp437` by default, or `Ascii`), a node cap and backup boot structures.
+  Each driver ignores the options it does not apply; the rustdoc lists
+  which driver honours which
 - `Tree`, `Node` and `Content` (`alloc`): the input of every image
   writer and of `copy_tree`. A tree holds files, directories, symlinks,
   special files and hard links, each with the `SetAttr` it asks for, at

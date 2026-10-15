@@ -10,6 +10,21 @@ use crate::{Clock, CodePage, Cp437, DateTimeError, NoClock};
 /// UTC, reads FAT short names in [`Cp437`], and does not cap the node
 /// table. The defaults are the same on every target.
 ///
+/// Which options each driver honours:
+///
+/// | Option | FAT | exFAT | ISO 9660 | UDF | NTFS | APFS |
+/// |---|---|---|---|---|---|---|
+/// | [`read_only`](Self::read_only) | yes | yes | always read-only | always read-only | always read-only | always read-only |
+/// | [`with_clock`](Self::with_clock) | yes | yes | no | no | no | no |
+/// | [`with_utc_offset`](Self::with_utc_offset) | yes | yes | no | no | no | no |
+/// | [`with_code_page`](Self::with_code_page) | yes | no | no | no | no | no |
+/// | [`with_node_limit`](Self::with_node_limit) | yes | yes | no | no | no | yes |
+/// | [`backup_boot`](Self::backup_boot) | yes | yes | no | yes | no | no |
+///
+/// A driver ignores an option it does not honour; it never fails because
+/// of one. `MountOptions` is `Clone` but not `Copy`, so later 3.x releases
+/// can add options that own their values.
+///
 /// ```rust
 /// use hadris_fs::{Ascii, MountOptions};
 ///
@@ -22,7 +37,7 @@ use crate::{Clock, CodePage, Cp437, DateTimeError, NoClock};
 /// assert_eq!(options.utc_offset(), Some(60));
 /// # Ok::<(), hadris_fs::DateTimeError>(())
 /// ```
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct MountOptions {
     read_only: bool,
     clock: &'static dyn Clock,
@@ -47,13 +62,15 @@ impl MountOptions {
 
     /// Mounts for reading only: the driver never writes to the device, not
     /// even a dirty flag, and writing methods fail with
-    /// [`ErrorKind::ReadOnly`](crate::ErrorKind::ReadOnly).
+    /// [`ErrorKind::ReadOnly`](crate::ErrorKind::ReadOnly). Only FAT and
+    /// exFAT mount read-write; the other drivers are always read-only.
     pub const fn read_only(mut self) -> Self {
         self.read_only = true;
         self
     }
 
-    /// Stamps new and changed nodes with the time from `clock`.
+    /// Stamps new and changed nodes with the time from `clock`. FAT and
+    /// exFAT only.
     pub const fn with_clock(mut self, clock: &'static dyn Clock) -> Self {
         self.clock = clock;
         self
@@ -61,7 +78,7 @@ impl MountOptions {
 
     /// Reads and writes timestamps stored without a zone, such as FAT's,
     /// as local time `minutes` east of UTC. Fails when `minutes` is beyond
-    /// a day.
+    /// a day. FAT and exFAT only.
     pub const fn with_utc_offset(mut self, minutes: i16) -> Result<Self, DateTimeError> {
         match NoClock::TIME.with_utc_offset_minutes(Some(minutes)) {
             Ok(_) => {
@@ -72,7 +89,7 @@ impl MountOptions {
         }
     }
 
-    /// Reads and generates FAT short names in `code_page`.
+    /// Reads and generates FAT short names in `code_page`. FAT only.
     pub const fn with_code_page(mut self, code_page: &'static dyn CodePage) -> Self {
         self.code_page = code_page;
         self
@@ -81,13 +98,16 @@ impl MountOptions {
     /// Caps the nodes a driver keeps pinned or open at once. Past the cap,
     /// `lookup`, `create` and `mkdir` fail with
     /// [`ErrorKind::LimitExceeded`](crate::ErrorKind::LimitExceeded).
+    /// FAT, exFAT and APFS only.
     pub const fn with_node_limit(mut self, nodes: usize) -> Self {
         self.node_limit = Some(nodes);
         self
     }
 
     /// Mounts from the backup boot structures instead of the primary ones,
-    /// where the format has them.
+    /// where the format has them: the FAT32 backup boot sector, the exFAT
+    /// backup boot region, and for UDF the anchors at the end of the volume
+    /// and the reserve volume descriptor sequence.
     pub const fn backup_boot(mut self) -> Self {
         self.backup_boot = true;
         self

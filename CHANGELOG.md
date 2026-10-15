@@ -61,6 +61,11 @@ Each published package owns its version and may be released independently.
   `hadris::Detection`, which hold an `Error<Infallible>`, are `Clone` but
   no longer `Copy`. Call `.clone()` where an error was copied.
 
+- **hadris-fs (breaking):** `MountOptions` is no longer `Copy`; it stays
+  `Clone`, so later options can own their values. Clone it to mount more
+  than once with the same options. Its rustdoc now lists which driver
+  honours which option.
+
 - **Embedded FAT stale directories:** Using an embedded `Dir` of a removed
   subdirectory fails with `InvalidHandle` instead of reading or writing
   entries in its old cluster, which may since hold file data. Each use of

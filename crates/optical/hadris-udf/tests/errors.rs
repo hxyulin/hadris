@@ -388,8 +388,11 @@ fn reserve_sequence_preserves_device_failures() {
         } else {
             MountOptions::new()
         };
-        let failed =
-            UdfFs::mount(FailingDevice::new(bytes.clone(), fallback as u64), options).unwrap_err();
+        let failed = UdfFs::mount(
+            FailingDevice::new(bytes.clone(), fallback as u64),
+            options.clone(),
+        )
+        .unwrap_err();
         assert_device_failure(failed.into_error());
         #[cfg(feature = "async")]
         common::block_on(async {

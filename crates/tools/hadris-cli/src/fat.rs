@@ -293,7 +293,7 @@ fn mount<D: BlockDevice<Error = std::io::Error>>(mut dev: D, image: &Image) -> R
             Ok(Volume::Fat(Box::new(fs)))
         }
         None if image.backup_boot => {
-            let dev = match ExFatFs::mount(dev, options) {
+            let dev = match ExFatFs::mount(dev, options.clone()) {
                 Ok(fs) => return Ok(Volume::ExFat(Box::new(fs))),
                 Err(err) => err.into_parts().1,
             };
