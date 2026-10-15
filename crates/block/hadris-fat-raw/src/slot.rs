@@ -158,6 +158,7 @@ impl ShortEntry {
     }
 
     /// Encodes the entry as a directory slot.
+    #[inline(never)]
     pub fn encode(&self) -> [u8; 32] {
         bytemuck::cast(RawDirEntry {
             name: self.name,
