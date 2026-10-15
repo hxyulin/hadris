@@ -109,7 +109,7 @@ def package(source: Path, version: str, target: str, output: Path, epoch: int | 
                         entry.mode = mode
                         entry.mtime = epoch
                         bundle.addfile(entry, io.BytesIO(data))
-    archive.with_suffix(archive.suffix + ".sha256").write_text(checksum(archive))
+    archive.with_suffix(archive.suffix + ".sha256").write_text(checksum(archive), newline="\n")
     return archive
 
 
