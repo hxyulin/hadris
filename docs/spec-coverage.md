@@ -29,8 +29,9 @@ The checker rejects annotations in `///` or `//!` comments.
   supplementary robustness evidence, not proof of conformance.
 - `partial` requires an `@hadris-note` describing the gap.
 - `@hadris-tests` names runnable test functions; `@hadris-fuzz` names a target
-  under `fuzz/`. CI verifies that cited functions and targets exist. Fuzz
-  targets are local discovery tools, not CI jobs.
+  under `fuzz/`. CI verifies that cited functions and targets exist. Rust CI
+  builds the fuzz targets and replays their committed seeds; long fuzzing
+  runs are local discovery work.
 - Annotate spec-facing layouts and entry points, not private helpers or every
   call site.
 
