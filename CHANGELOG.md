@@ -8,6 +8,20 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Changed
+
+- **hadris-storage:** The async adapters report the same error messages and
+  locations as the sync ones for out-of-range block requests, buffers that
+  are not whole blocks, unaligned partitions, `ByteView` byte ranges past
+  the end of the device and writes to a read-only `MemDevice`.
+
+### Fixed
+
+- **hadris-storage:** The sync `Partition` rejects a request past the end
+  of the device (its `block_count` for reads, `max_block_count` for
+  writes) with `InvalidInput` before it reaches the device, as the async
+  `Partition` already did.
+
 ## [3.0.0-rc.2] - 2026-10-15
 
 The second release candidate of the 3.0 API. All 3.x packages, including
