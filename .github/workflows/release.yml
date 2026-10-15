@@ -4,6 +4,11 @@ name: Release
 # scripts/release-plan.py orders them, derives each tag (<crate>-v<version>)
 # and reads the release notes from CHANGELOG.md. Joint releases including
 # hadris also create a workspace release (v<version>). See CONTRIBUTING.md.
+#
+# Publishing requires a successful push run of Rust CI (and of V3 guardrails,
+# when it ran) for the commit, and builds every CLI release target before any
+# crate reaches crates.io. Only the `publish` job, in the `release`
+# environment, can read crates.io credentials.
 
 on:
   workflow_dispatch:
@@ -50,10 +55,28 @@ env:
   RUSTUP_TOOLCHAIN: 1.97.1
 
 jobs:
-  release:
-    if: inputs.mode != 'cli-assets'
-    name: ${{ inputs.mode }} ${{ inputs.crates }}
+  guard:
+    name: Require main
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Releases run from main
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Releases run from main, not $GITHUB_REF" >&2
+            exit 1
+          fi
+
+  release:
+    needs: guard
+    if: inputs.mode != 'cli-assets'
+    name: Plan and verify the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
     outputs:
       plan: ${{ steps.plan.outputs.plan }}
       github_plan: ${{ steps.plan.outputs.github_plan }}
@@ -62,14 +85,11 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.97.1
           components: rustfmt
-      # Publishing several unpublished crates that depend on one another
-      # needs a newer Cargo than the 1.88 MSRV.
-      - name: Install stable Cargo for packaging
-        run: rustup toolchain install stable --profile minimal
 
       - name: Plan the release
         id: plan
@@ -79,10 +99,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
-            echo "Releases run from main, not $GITHUB_REF" >&2
-            exit 1
-          fi
           read -ra crates <<< "$CRATES"
           plan="$(python3 scripts/release-plan.py --notes "$NOTES" "${crates[@]}")"
           github_plan="$(python3 scripts/release-plan.py --github-plan --notes "$NOTES" "${crates[@]}")"
@@ -96,6 +112,41 @@ jobs:
             echo "EOF"
             echo "cli_tag=$(awk '$1 == "hadris-cli" {print $3}' <<< "$plan")"
           } >> "$GITHUB_OUTPUT"
+
+      # The full CI matrix (semver, MSRV tiers, Windows and macOS, Miri,
+      # interoperability) runs on the push to main, not here.
+      - name: Require successful CI for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.mode }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=0
+          require() {
+            local run state conclusion url
+            run="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$1/runs?head_sha=$GITHUB_SHA&event=push&per_page=1" \
+              --jq '.workflow_runs[0] // empty | "\(.status) \(.conclusion) \(.html_url)"')"
+            if [[ -z "$run" ]]; then
+              echo "$1: no push run for $GITHUB_SHA"
+              [[ "$2" == optional ]] || status=1
+              return 0
+            fi
+            read -r state conclusion url <<< "$run"
+            echo "$1: $state, $conclusion ($url)"
+            if [[ "$state" != completed || "$conclusion" != success ]]; then
+              status=1
+            fi
+          }
+          require rust.yml required
+          require v3-guardrails.yml optional
+          if (( status )); then
+            if [[ "$MODE" == publish ]]; then
+              echo "::error::CI has not passed for $GITHUB_SHA; wait for it or fix main before publishing"
+              exit 1
+            fi
+            echo "::warning::CI has not passed for $GITHUB_SHA yet; publish mode will refuse this commit"
+          fi
 
       - name: Check workspace
         env:
@@ -115,48 +166,98 @@ jobs:
           while read -r name _ _; do
             args+=(-p "$name")
           done <<< "$PLAN"
-          cargo +stable publish --locked --dry-run "${args[@]}"
+          cargo publish --locked --dry-run "${args[@]}"
 
+  cli-build:
+    name: Build unified CLI binaries
+    needs: release
+    if: needs.release.outputs.cli_tag != ''
+    cache-mode: none
+    uses: ./.github/workflows/cli-release.yml
+    with:
+      stage: build
+
+  publish:
+    name: Publish crates
+    needs: [release, cli-build]
+    if: >-
+      always() && !cancelled() && inputs.mode == 'publish' &&
+      needs.release.result == 'success' &&
+      (needs.cli-build.result == 'success' || needs.cli-build.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.97.1
+      # Trusted publishing needs every crate to exist on crates.io with this
+      # workflow configured as its publisher; until then the repository
+      # variable stays unset and the CARGO_REGISTRY_TOKEN secret is used.
+      - name: Get a crates.io token through trusted publishing
+        id: auth
+        if: vars.CRATES_IO_TRUSTED_PUBLISHING == 'true'
+        uses: rust-lang/crates-io-auth-action@v1
       - name: Publish crates
-        if: inputs.mode == 'publish'
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-          PLAN: ${{ steps.plan.outputs.plan }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}
+          PLAN: ${{ needs.release.outputs.plan }}
         shell: bash
         run: |
           set -euo pipefail
           if [[ -z "$CARGO_REGISTRY_TOKEN" ]]; then
-            echo "The CARGO_REGISTRY_TOKEN secret is required" >&2
+            echo "A crates.io token is required: trusted publishing or the CARGO_REGISTRY_TOKEN secret" >&2
             exit 1
           fi
 
           agent="hadris-release-workflow ($GITHUB_SERVER_URL/$GITHUB_REPOSITORY)"
-          crate_exists() {
-            curl --fail --silent --user-agent "$agent" \
-              "https://crates.io/api/v1/crates/$1/$2" > /dev/null 2>&1
+          # Succeeds when crates.io has the version, fails when it does not,
+          # and stops the job when crates.io cannot tell.
+          published() {
+            local attempt code
+            for attempt in 1 2 3 4 5; do
+              code="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                --user-agent "$agent" "https://crates.io/api/v1/crates/$1/$2" || true)"
+              case "$code" in
+                200) return 0 ;;
+                404) return 1 ;;
+              esac
+              echo "crates.io answered $code for $1 $2; retrying" >&2
+              sleep $((attempt * 10))
+            done
+            echo "could not tell whether $1 $2 is on crates.io" >&2
+            exit 1
           }
 
           # A rerun resumes a partial publication: crates already on
           # crates.io at this version are left out.
           args=()
           while read -r name version _; do
-            if crate_exists "$name" "$version"; then
+            if published "$name" "$version"; then
               echo "$name $version is already published; skipping"
             else
               args+=(-p "$name")
             fi
           done <<< "$PLAN"
           if (( ${#args[@]} )); then
+            # The release job verified these packages from this commit.
             # Cargo publishes in dependency order and waits for each crate
             # to reach the index before publishing its dependents.
-            cargo +stable publish --locked "${args[@]}"
+            cargo publish --locked --no-verify "${args[@]}"
           fi
 
   github-release:
     name: Tag and create GitHub releases
-    if: inputs.mode == 'publish'
-    needs: release
+    needs: [release, publish]
+    if: always() && !cancelled() && inputs.mode == 'publish' && needs.publish.result == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       actions: write
       contents: write
@@ -167,7 +268,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.97.1
-          components: rustfmt
       - name: Tag and create releases
         env:
           GH_TOKEN: ${{ github.token }}
@@ -226,17 +326,20 @@ jobs:
           set -euo pipefail
           gh workflow run docs.yml --ref main
 
+  # Publish mode attaches the binaries cli-build made from this commit;
+  # cli-assets mode rebuilds an existing release from its tag.
   cli-assets:
-    name: Build and upload unified CLI binaries
+    name: Upload unified CLI binaries
     cache-mode: none
-    needs: [release, github-release]
+    needs: [guard, release, github-release]
     if: >-
-      always() && !cancelled() &&
+      always() && !cancelled() && needs.guard.result == 'success' &&
       (inputs.mode == 'cli-assets' ||
       (inputs.mode == 'publish' && needs.github-release.result == 'success' && needs.release.outputs.cli_tag != ''))
     permissions:
       contents: write
     uses: ./.github/workflows/cli-release.yml
     with:
+      stage: ${{ inputs.mode == 'cli-assets' && 'all' || 'upload' }}
       tag: ${{ inputs.mode == 'cli-assets' && inputs.cli-tag || needs.release.outputs.cli_tag }}
       workspace-tag: ${{ inputs.mode == 'cli-assets' && inputs.cli-workspace-tag || '' }}
