@@ -2,6 +2,7 @@ use hadris_fs::{Error, ErrorKind, FsResult};
 
 use super::block::{load, read_bytes, store, write_bytes};
 use super::storage::BlockDevice;
+use crate::bytes::{le32, le64};
 use crate::exfat::io::{
     BootRegion, ClusterState, DirWalk, Dirty, ExFat, Extent, UPCASE_CACHE, Upcase, bits_set,
 };
@@ -14,16 +15,6 @@ const VOLUME_FLAGS_AT: u64 = 106;
 const PERCENT_AT: u64 = 112;
 /// The largest up-case table: 65536 mappings, uncompressed.
 const MAX_UPCASE_LEN: u64 = 0x2_0000;
-
-fn le32(bytes: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
-}
-
-fn le64(bytes: &[u8], at: usize) -> u64 {
-    let mut value = [0u8; 8];
-    value.copy_from_slice(&bytes[at..at + 8]);
-    u64::from_le_bytes(value)
-}
 
 /// Whether the FAT entries of `a` and `b` lie in one device block of every
 /// FAT written.
