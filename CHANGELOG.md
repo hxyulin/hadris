@@ -22,6 +22,10 @@ Each published package owns its version and may be released independently.
   writes) with `InvalidInput` before it reaches the device, as the async
   `Partition` already did.
 
+- **hadris-cli:** `hadris iso` and `hadris udf` errors include their
+  cause, such as the OS error when an image cannot be opened, as
+  `hadris fat` and `hadris cpio` already did.
+
 ## [3.0.0-rc.2] - 2026-10-15
 
 The second release candidate of the 3.0 API. All 3.x packages, including
