@@ -14,6 +14,7 @@
 //! `Options::new().with_fold(hadris_fat_raw::fold_unicode)` matches every
 //! name a Windows up-case table does in the Basic Multilingual Plane.
 
+pub(crate) use hadris_fat_raw::bytes::{le16, le32, le64};
 use hadris_fat_raw::exfat::{self as raw, RawEntry};
 use hadris_fat_raw::io::ChainPos;
 use hadris_fs::{Attributes, DirCursor, FileType, Metadata};
@@ -86,20 +87,6 @@ impl Node {
     pub(crate) const fn slot(self) -> u32 {
         self.slot
     }
-}
-
-pub(crate) fn le16(bytes: &[u8], at: usize) -> u16 {
-    u16::from_le_bytes([bytes[at], bytes[at + 1]])
-}
-
-pub(crate) fn le32(bytes: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
-}
-
-pub(crate) fn le64(bytes: &[u8], at: usize) -> u64 {
-    let mut value = [0u8; 8];
-    value.copy_from_slice(&bytes[at..at + 8]);
-    u64::from_le_bytes(value)
 }
 
 /// The File and Stream Extension entries of a set, which hold everything

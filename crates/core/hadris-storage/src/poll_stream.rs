@@ -54,7 +54,7 @@ pub trait Stream: ErrorType {
         _: &mut Context<'_>,
         _: &[u8],
     ) -> Poll<Result<usize, Error<Self::Error>>> {
-        Poll::Ready(Err(ErrorKind::ReadOnly.into()))
+        Poll::Ready(Err(Error::new(ErrorKind::ReadOnly, "stream is read-only")))
     }
     /// Makes earlier writes durable.
     fn poll_flush(
@@ -249,8 +249,9 @@ impl<T: Stream> StreamDevice<T> {
         first: BlockIndex,
     ) -> Poll<Result<(), Error<T::Error>>> {
         if !state.positioned {
-            let Some(offset) = first.get().checked_mul(u64::from(self.size.get())) else {
-                return Poll::Ready(Err(ErrorKind::InvalidInput.into()));
+            let offset = match crate::device::byte_offset(self.size, first) {
+                Ok(offset) => offset,
+                Err(error) => return Poll::Ready(Err(error)),
             };
             match self
                 .inner

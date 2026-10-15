@@ -1,6 +1,7 @@
 use core::fmt;
 
 use super::block_io::{BlockBuf, new_block, read_bytes, write_bytes};
+use super::dirs;
 use super::fsapi::FileSystem;
 use super::rawio;
 use super::storage::BlockDevice;
@@ -21,7 +22,7 @@ use crate::names::{
     CANDIDATES, NewName, Query, apply_attributes, is_exact, permissions, read_only_bit,
     set_read_only, stamp,
 };
-use crate::table::Table;
+use crate::table::{NodeState, RESERVED, ROOT, Table, entry_name, node_id};
 use crate::{FatKind, Geometry, VolumeLabel, push_run};
 
 struct MetadataDevice<D> {
@@ -167,15 +168,6 @@ impl<D: BlockDevice> BlockDevice for MetadataDevice<D> {
 }
 }
 
-/// `NodeId::new` for ids that are not 0 by construction.
-const fn node_id(raw: u64) -> NodeId {
-    match NodeId::new(raw) {
-        Some(id) => id,
-        None => RESERVED,
-    }
-}
-
-const ROOT: NodeId = node_id(1);
 /// A node id holds the slot of its short entry, the entry's byte offset
 /// divided by 32, above its low `TAG_BITS` bits. Those hold the entry's
 /// [`entry_tag`](crate::names::entry_tag), counted up past ids pinned nodes
@@ -186,12 +178,6 @@ const ROOT: NodeId = node_id(1);
 /// directory slot is 0.
 const TAG_BITS: u32 = 23;
 const TAG_MASK: u64 = (1 << TAG_BITS) - 1;
-/// The id of the table slot `create` reserves before it writes anything.
-/// Never handed out.
-const RESERVED: NodeId = match NodeId::new(1 << 63) {
-    Some(id) => id,
-    None => panic!("not 0"),
-};
 /// Size of one directory entry.
 const ENTRY_SIZE: u64 = raw::ENTRY_SIZE as u64;
 const MAX_FILE_SIZE: u64 = u32::MAX as u64;
@@ -232,6 +218,39 @@ impl Node {
             opens: 0,
             unlinked: false,
         }
+    }
+}
+
+impl NodeState for Node {
+    fn is_dir(&self) -> bool {
+        self.dir
+    }
+
+    fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+
+    fn set_dirty(&mut self, dirty: bool) {
+        self.dirty = dirty;
+    }
+
+    fn opens(&self) -> u32 {
+        self.opens
+    }
+
+    fn set_opens(&mut self, opens: u32) {
+        self.opens = opens;
+    }
+
+    fn is_unlinked(&self) -> bool {
+        self.unlinked
+    }
+
+    fn unlink(&mut self) {
+        self.unlinked = true;
+        self.entry = u64::MAX;
+        self.first = 0;
+        self.size = 0;
     }
 }
 
@@ -479,15 +498,6 @@ fn write_name(
         _ => ErrorKind::Corrupt,
     })?;
     Ok(len)
-}
-
-/// The name a query must be, as a string: not `.` or `..`.
-fn entry_name(name: &Name, invalid: ErrorKind) -> Result<&str, ErrorKind> {
-    match name.to_str() {
-        Ok("." | "..") => Err(ErrorKind::InvalidInput),
-        Ok(text) => Ok(text),
-        Err(_) => Err(invalid),
-    }
 }
 
 io_transform! {
@@ -1148,7 +1158,7 @@ impl<D: BlockDevice> FatFs<D> {
             _ => {}
         }
         let pinned = self.pinned_at(found.offset);
-        if pinned.is_some_and(|id| self.is_open(id)) {
+        if pinned.is_some_and(|id| self.nodes.is_open(id)) {
             return Err(ErrorKind::Busy.into());
         }
         let first = match pinned.and_then(|id| self.nodes.get(id)) {
@@ -1381,7 +1391,7 @@ impl<D: BlockDevice> FatFs<D> {
             Slot::Short(entry) if entry.is_visible() && entry.size() == size
         );
         if landed && let Some(id) = self.pinned_at(offset) {
-            self.clean(id);
+            self.nodes.clean(id);
             if let Some(node) = self.nodes.get_mut(id) {
                 node.size = size;
                 node.hint = ChainPos::NONE;
@@ -1402,7 +1412,7 @@ impl<D: BlockDevice> FatFs<D> {
         let first = entry.first_cluster(self.fat.geometry().kind());
         let stale = self.nodes.get(id).is_some_and(|node| node.first != first);
         if stale {
-            self.clean(id);
+            self.nodes.clean(id);
             if let Some(node) = self.nodes.get_mut(id) {
                 node.first = first;
                 node.size = entry.size();
@@ -1440,56 +1450,12 @@ impl<D: BlockDevice> FatFs<D> {
         Ok(())
     }
 
-    /// Pins held by callers, not counting the driver's own pin on a dirty
-    /// node.
-    fn user_pins(&self, id: NodeId) -> u32 {
-        let dirty = self.nodes.get(id).is_some_and(|node| node.dirty);
-        self.nodes.pins(id).saturating_sub(dirty as u32)
-    }
-
-    fn is_open(&self, id: NodeId) -> bool {
-        self.nodes.get(id).is_some_and(|node| node.opens > 0)
-    }
-
     /// Drops the table state of a node whose entry was just removed. A node
     /// callers still pin stays, marked unlinked, so its id answers
     /// `NotFound` until the last `forget`.
     fn mark_unlinked(&mut self, id: NodeId) {
-        self.clean(id);
-        if self.nodes.pins(id) == 0 {
-            self.nodes.remove(id);
-        } else if let Some(node) = self.nodes.get_mut(id) {
+        if self.nodes.mark_unlinked(id) {
             self.moved = true;
-            node.unlinked = true;
-            node.entry = u64::MAX;
-            node.first = 0;
-            node.size = 0;
-        }
-    }
-
-    fn mark_dirty(&mut self, id: NodeId) {
-        let fresh = match self.nodes.get_mut(id) {
-            Some(node) if !node.dirty => {
-                node.dirty = true;
-                true
-            }
-            _ => false,
-        };
-        if fresh {
-            self.nodes.pin(id);
-        }
-    }
-
-    fn clean(&mut self, id: NodeId) {
-        let was_dirty = match self.nodes.get_mut(id) {
-            Some(node) if node.dirty => {
-                node.dirty = false;
-                true
-            }
-            _ => false,
-        };
-        if was_dirty {
-            self.nodes.unpin(id);
         }
     }
 
@@ -1587,7 +1553,7 @@ impl<D: BlockDevice> FatFs<D> {
                 node.size = size;
                 node.hint = hint;
             }
-            self.clean(id);
+            self.nodes.clean(id);
         }
         Ok(())
     }
@@ -1608,7 +1574,7 @@ impl<D: BlockDevice> FatFs<D> {
                     node.size = size;
                     node.hint = hint;
                 }
-                self.mark_dirty(id);
+                self.nodes.mark_dirty(id);
                 Ok(())
             }
             _ => self.store(id, state, first, size, hint).await,
@@ -1734,7 +1700,7 @@ impl<D: BlockDevice> FatFs<D> {
             if self.fat.geometry().root() == RootLocation::Cluster(cluster) {
                 return Ok(false);
             }
-            match self.dot_dot(cluster).await? {
+            match dirs::dot_dot(&mut self.dev, &mut self.block, &self.fat, cluster).await? {
                 Some(up) => cluster = up,
                 None => return Ok(false),
             }
@@ -1871,7 +1837,8 @@ impl<D: BlockDevice> FatFs<D> {
         } else if let Some(bit) = (1..new.candidates.len()).find(|bit| taken & (1 << bit) == 0) {
             new.candidates[bit]
         } else {
-            self.hashed_short(dir, text, skip).await?
+            let skip = |slot, offset| skip.covers(slot, offset);
+            dirs::hashed_short(&mut self.dev, &mut self.block, &self.fat, dir, text, self.code_page, raw::fold_unicode, &skip).await?
         };
         if let Some(mut index) = append {
             index.slot = start;
@@ -1887,36 +1854,6 @@ impl<D: BlockDevice> FatFs<D> {
             short,
             nt_case: if new.short_only() { new.case_bits.unwrap_or(0) } else { 0 },
         })
-    }
-
-    /// A short name with a hashed `HHHH~N` tail that no entry of `dir` has.
-    async fn hashed_short(&mut self, dir: DirStart, text: &str, skip: Skip) -> FsResult<[u8; 11], D::Error> {
-        for suffix in CANDIDATES as u8..=u8::MAX {
-            let Some(mut candidate) = crate::names::short_name(text, suffix, self.code_page, raw::fold_unicode) else {
-                continue;
-            };
-            short_name::to_disk(&mut candidate);
-            if !self.short_taken(dir, &candidate, skip).await? {
-                return Ok(candidate);
-            }
-        }
-        Err(ErrorKind::AlreadyExists.into())
-    }
-
-    async fn short_taken(&mut self, dir: DirStart, name: &[u8; 11], skip: Skip) -> FsResult<bool, D::Error> {
-        let mut walk = DirWalk::new(dir);
-        let mut slot = 0;
-        while let Some(offset) = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot).await? {
-            match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
-                Slot::End => break,
-                Slot::Short(entry) if entry.name() == *name && !entry.is_label() && !skip.covers(slot, offset) => {
-                    return Ok(true);
-                }
-                _ => {}
-            }
-            slot += 1;
-        }
-        Ok(false)
     }
 
     /// Appends the zeroed clusters `plan` needs to its directory. Returns
@@ -2218,7 +2155,7 @@ impl<D: BlockDevice> FatFs<D> {
         src_id: Option<NodeId>,
     ) -> FsResult<(), D::Error> {
         let target_id = self.pinned_at(target.offset);
-        if target_id.is_some_and(|id| self.is_open(id)) {
+        if target_id.is_some_and(|id| self.nodes.is_open(id)) {
             return Err(ErrorKind::Busy.into());
         }
         match (moved.is_dir(), target.entry.is_dir()) {
@@ -2584,22 +2521,6 @@ impl<D: BlockDevice> FatFs<D> {
         Ok(None)
     }
 
-    /// The parent cluster recorded in the `..` entry of the directory at
-    /// `first`, or `None` for the root.
-    async fn dot_dot(&mut self, first: u32) -> FsResult<Option<u32>, D::Error> {
-        let offset = self.cluster_at(first)? + ENTRY_SIZE;
-        let Slot::Short(entry) = rawio::read_slot(&mut self.dev, &mut self.block, offset).await? else {
-            return Err(ErrorKind::Corrupt.into());
-        };
-        if !entry.is_dot_dot() {
-            return Err(ErrorKind::Corrupt.into());
-        }
-        let cluster = entry.first_cluster(self.fat.geometry().kind());
-        if cluster == 0 || self.fat.geometry().root() == RootLocation::Cluster(cluster) {
-            return Ok(None);
-        }
-        Ok(Some(self.check_cluster(cluster)?))
-    }
 }
 
 impl<D: BlockDevice> FatFs<D> {
@@ -2672,17 +2593,7 @@ impl<D: BlockDevice> FatFs<D> {
     /// `close`, `fsync` or `sync`; a removed node leaves the table with its
     /// last pin.
     pub fn forget(&mut self, node: NodeId, count: u64) {
-        if node == ROOT {
-            return;
-        }
-        for _ in 0..count.min(u64::from(self.user_pins(node))) {
-            if self.nodes.unpin(node) == Some(0)
-                && self.nodes.get(node).is_some_and(|n| n.unlinked)
-            {
-                self.nodes.remove(node);
-                break;
-            }
-        }
+        self.nodes.forget(node, count);
         if self.nodes.is_empty() {
             self.moved = false;
         }
@@ -2699,10 +2610,10 @@ impl<D: BlockDevice> FatFs<D> {
         let DirStart::Chain(first) = self.dir_start(dir).await? else {
             return Ok(ROOT);
         };
-        let Some(up) = self.dot_dot(first).await? else {
+        let Some(up) = dirs::dot_dot(&mut self.dev, &mut self.block, &self.fat, first).await? else {
             return Ok(ROOT);
         };
-        let grand = match self.dot_dot(up).await? {
+        let grand = match dirs::dot_dot(&mut self.dev, &mut self.block, &self.fat, up).await? {
             Some(cluster) => DirStart::Chain(cluster),
             None => self.fat.root(),
         };
@@ -2802,28 +2713,13 @@ impl<D: BlockDevice> FatFs<D> {
     /// [`ErrorKind::InvalidHandle`] for an id that is not pinned, and
     /// [`ErrorKind::NotFound`] for a removed node.
     pub async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
-        if node == ROOT {
-            return Err(ErrorKind::IsADirectory.into());
-        }
-        let read_only = self.read_only;
-        match self.nodes.get_mut(node) {
-            Some(state) if state.unlinked => Err(ErrorKind::NotFound.into()),
-            Some(state) if state.dir => Err(ErrorKind::IsADirectory.into()),
-            Some(_) if mode == OpenMode::Write && read_only => Err(ErrorKind::ReadOnly.into()),
-            Some(state) => {
-                state.opens = state.opens.saturating_add(1);
-                Ok(())
-            }
-            None => Err(ErrorKind::InvalidHandle.into()),
-        }
+        Ok(self.nodes.open(node, mode, self.read_only)?)
     }
 
     /// Ends one `open` and writes the node's pending size and modification
     /// time to its directory entry, without flushing the device.
     pub async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
-        if let Some(state) = self.nodes.get_mut(node) {
-            state.opens = state.opens.saturating_sub(1);
-        }
+        self.nodes.close(node);
         self.publish_node(node).await
     }
 
@@ -2915,7 +2811,7 @@ impl<D: BlockDevice> FatFs<D> {
         }
         self.put_data(state.entry, Some(&entry.encode()), ENTRY_SIZE as usize).await?;
         if let Some(id) = id {
-            self.clean(id);
+            self.nodes.clean(id);
         }
         Ok(())
     }
@@ -3185,7 +3081,7 @@ impl<D: BlockDevice> FatFs<D> {
         while let Some(id) = self.nodes.find(|_, node| node.dirty) {
             match self.flush_node(id).await {
                 Err(err) if err.kind() == ErrorKind::Corrupt => {
-                    self.clean(id);
+                    self.nodes.clean(id);
                     corrupt = Some(err);
                 }
                 other => other?,

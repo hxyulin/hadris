@@ -242,120 +242,17 @@ mod table;
 pub use cache::CacheOptions;
 
 #[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
-macro_rules! filesystem_impl_for {
-    ($driver:ident, $device:path, $trait:path) => {
-        io_transform! {
-            impl<D: $device> $trait for $driver<D> {
-                type DeviceError = D::Error;
-                fn capabilities(&self) -> Capabilities {
-                    self.capabilities()
-                }
-                fn root(&self) -> NodeId {
-                    self.root()
-                }
-                async fn statfs(&mut self) -> FsResult<FsStats, D::Error> {
-                    self.statfs().await
-                }
-                async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
-                    self.label(buf).await
-                }
-                async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
-                    self.lookup(dir, name).await
-                }
-                fn forget(&mut self, node: NodeId, count: u64) {
-                    self.forget(node, count)
-                }
-                async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
-                    self.parent(dir).await
-                }
-                async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
-                    self.stat(node).await
-                }
-                async fn readdir(
-                    &mut self,
-                    dir: NodeId,
-                    from: DirCursor,
-                ) -> FsResult<Option<DirEntry>, D::Error> {
-                    self.readdir(dir, from).await
-                }
-                async fn readlink<'b>(
-                    &mut self,
-                    node: NodeId,
-                    buf: &'b mut [u8],
-                ) -> FsResult<&'b [u8], D::Error> {
-                    self.readlink(node, buf).await
-                }
-                async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
-                    self.open(node, mode).await
-                }
-                async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
-                    self.close(node).await
-                }
-                async fn read(
-                    &mut self,
-                    node: NodeId,
-                    offset: u64,
-                    buf: &mut [u8],
-                ) -> FsResult<usize, D::Error> {
-                    self.read(node, offset, buf).await
-                }
-                async fn setattr(&mut self, node: NodeId, changes: &SetAttr) -> FsResult<(), D::Error> {
-                    self.setattr(node, changes).await
-                }
-                async fn write(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, D::Error> {
-                    self.write(node, offset, buf).await
-                }
-                async fn truncate(&mut self, node: NodeId, len: u64) -> FsResult<(), D::Error> {
-                    self.truncate(node, len).await
-                }
-                async fn fsync(&mut self, node: NodeId) -> FsResult<(), D::Error> {
-                    self.fsync(node).await
-                }
-                async fn create(
-                    &mut self,
-                    dir: NodeId,
-                    name: &Name,
-                    attrs: &SetAttr,
-                ) -> FsResult<NodeId, D::Error> {
-                    self.create(dir, name, attrs).await
-                }
-                async fn mkdir(
-                    &mut self,
-                    dir: NodeId,
-                    name: &Name,
-                    attrs: &SetAttr,
-                ) -> FsResult<NodeId, D::Error> {
-                    self.mkdir(dir, name, attrs).await
-                }
-                async fn unlink(&mut self, dir: NodeId, name: &Name) -> FsResult<(), D::Error> {
-                    self.unlink(dir, name).await
-                }
-                async fn rmdir(&mut self, dir: NodeId, name: &Name) -> FsResult<(), D::Error> {
-                    self.rmdir(dir, name).await
-                }
-                async fn rename(
-                    &mut self,
-                    from_dir: NodeId,
-                    from: &Name,
-                    to_dir: NodeId,
-                    to: &Name,
-                    mode: RenameMode,
-                ) -> FsResult<(), D::Error> {
-                    self.rename(from_dir, from, to_dir, to, mode).await
-                }
-                async fn sync(&mut self) -> FsResult<(), D::Error> {
-                    self.sync().await
-                }
-            }
-        }
-    };
-}
-#[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
 macro_rules! filesystem_impl {
     ($driver:ident) => {
-        filesystem_impl_for!($driver, BlockDevice, FileSystem);
+        io_transform! {
+            hadris_fs::__forward_filesystem! {
+                async fn $driver<D: BlockDevice> as FileSystem { read write }
+            }
+        }
         async_only! {
-            filesystem_impl_for!($driver, hadris_storage::async_::SendBlockDevice, hadris_fs::async_::FileSystem);
+            hadris_fs::__forward_filesystem! {
+                async fn $driver<D: hadris_storage::async_::SendBlockDevice> as hadris_fs::async_::FileSystem { read write }
+            }
         }
     };
 }
@@ -385,8 +282,10 @@ pub mod sync {
     use hadris_fat_raw::io::sync as rawio;
     #[cfg(feature = "alloc")]
     use hadris_fs::sync as fsapi;
-    #[cfg(any(feature = "alloc", feature = "write"))]
     use hadris_storage::sync as storage;
+
+    #[path = "dirs.rs"]
+    pub(crate) mod dirs;
 
     #[cfg(any(feature = "alloc", feature = "write"))]
     #[path = "block_io.rs"]

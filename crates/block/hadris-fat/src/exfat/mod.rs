@@ -85,34 +85,9 @@ pub(crate) fn entry_guid(entry: &hadris_fat_raw::exfat::RawEntry) -> Option<Guid
     valid.then_some(guid)
 }
 
-/// Reads a little-endian `u16` at `at`.
-#[cfg_attr(
-    not(all(feature = "alloc", any(feature = "sync", feature = "async"))),
-    allow(dead_code)
-)]
-pub(crate) fn le16(bytes: &[u8], at: usize) -> u16 {
-    u16::from_le_bytes([bytes[at], bytes[at + 1]])
-}
-
-/// Reads a little-endian `u32` at `at`.
-#[cfg_attr(
-    not(all(feature = "alloc", any(feature = "sync", feature = "async"))),
-    allow(dead_code)
-)]
-pub(crate) fn le32(bytes: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
-}
-
-/// Reads a little-endian `u64` at `at`.
-#[cfg_attr(
-    not(all(feature = "alloc", any(feature = "sync", feature = "async"))),
-    allow(dead_code)
-)]
-pub(crate) fn le64(bytes: &[u8], at: usize) -> u64 {
-    let mut value = [0u8; 8];
-    value.copy_from_slice(&bytes[at..at + 8]);
-    u64::from_le_bytes(value)
-}
+pub(crate) use hadris_fat_raw::bytes::le16;
+#[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
+pub(crate) use hadris_fat_raw::bytes::{le32, le64};
 #[cfg(feature = "write")]
 pub use options::ExFatOptions;
 pub use options::VolumeLabel;

@@ -73,6 +73,8 @@ mod slot;
 #[cfg(kani)]
 mod verification;
 
+#[doc(hidden)]
+pub mod bytes;
 pub mod date;
 pub mod exfat;
 #[cfg(any(feature = "sync", feature = "async"))]

@@ -3,6 +3,7 @@ use hadris_fs::{CheckReport, ErrorKind, Finding, FsResult, Location, Severity};
 use super::block::read_bytes;
 use super::storage::BlockDevice;
 use super::volume::{bitmap_bytes, get, read_boot, read_volume, slot_offset, upcase};
+use crate::bytes::{le16, le32, le64};
 use crate::exfat::io::{BootRegion, DirWalk, ExFat, Extent, Upcase};
 use crate::exfat::{self as raw, Detail, ENTRY_SIZE, NameUnits, RawEntry};
 use crate::io::BlockBuf;
@@ -23,20 +24,6 @@ const ROOT_ENTRY: u64 = 0;
 const VOLUME_FLAGS_AT: u64 = 106;
 /// Offset of `PercentInUse` in the boot sector.
 const PERCENT_AT: u64 = 112;
-
-fn le16(bytes: &[u8], at: usize) -> u16 {
-    u16::from_le_bytes([bytes[at], bytes[at + 1]])
-}
-
-fn le32(bytes: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
-}
-
-fn le64(bytes: &[u8], at: usize) -> u64 {
-    let mut value = [0u8; 8];
-    value.copy_from_slice(&bytes[at..at + 8]);
-    u64::from_le_bytes(value)
-}
 
 /// Where a chain ends.
 #[derive(Clone, Copy)]

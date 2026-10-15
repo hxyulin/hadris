@@ -11,5 +11,6 @@ use hadris_storage::async_ as storage;
 mod fs;
 pub use fs::NtfsFs;
 
-#[path = "async_defaults.rs"]
-mod defaults;
+hadris_fs::__forward_filesystem! {
+    shims NtfsFs<D: storage::BlockDevice> { resolve write }
+}

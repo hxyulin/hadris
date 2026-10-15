@@ -1,4 +1,5 @@
 use super::async_::BlockDevice;
+use crate::read_ahead::Plan;
 use crate::{BlockIndex, BlockSize};
 use core::task::{Context, Poll};
 use hadris_io::{Error, ErrorType};
@@ -10,16 +11,7 @@ use hadris_io::{Error, ErrorType};
 #[derive(Debug)]
 pub struct ReadAhead<D> {
     inner: D,
-    capacity: usize,
-    block_size: usize,
-    windows: [Window; 2],
-    recent: usize,
-}
-#[derive(Debug, Default)]
-struct Window {
-    first: u64,
-    count: usize,
-    data: alloc::vec::Vec<u8>,
+    windows: crate::read_ahead::Windows,
 }
 /// Progress of a read-ahead request.
 #[derive(Debug, Default)]
@@ -35,26 +27,16 @@ impl<D: BlockDevice> ReadAhead<D> {
     /// Retains up to `capacity` blocks. Zero disables read-ahead.
     pub fn new(inner: D, capacity: usize) -> Self {
         let size = inner.block_size().get() as usize;
-        let capacity = capacity
-            .min(isize::MAX as usize / size)
-            .min(usize::try_from(inner.block_count()).unwrap_or(usize::MAX));
-        Self {
-            inner,
-            capacity,
-            block_size: size,
-            windows: Default::default(),
-            recent: 1,
-        }
+        let windows = crate::read_ahead::Windows::new(size, capacity, inner.block_count());
+        Self { inner, windows }
     }
     /// Maximum retained block count.
     pub fn capacity(&self) -> usize {
-        self.capacity
+        self.windows.capacity()
     }
     /// Invalidates retained data.
     pub fn clear(&mut self) {
-        for window in &mut self.windows {
-            window.count = 0;
-        }
+        self.windows.clear();
     }
     /// Borrows the device.
     pub fn get_ref(&self) -> &D {
@@ -106,70 +88,26 @@ impl<D: BlockDevice> BlockDevice for ReadAhead<D> {
             return Poll::Ready(Err(error));
         }
         let size = self.block_size().get() as usize;
-        let count = buf.len() / size;
-        if size != self.block_size {
-            self.windows = Default::default();
-            self.block_size = size;
-            self.capacity = self.capacity.min(isize::MAX as usize / size);
-        }
         if state.phase == 0 {
-            if self.capacity == 0 || buf.is_empty() {
-                state.phase = 2;
-            } else {
-                for (slot, window) in self.windows.iter().enumerate() {
-                    if first.get() >= window.first {
-                        let offset = first.get() - window.first;
-                        if offset <= window.count as u64
-                            && count as u64 <= window.count as u64 - offset
-                        {
-                            let at = offset as usize * size;
-                            buf.copy_from_slice(&window.data[at..at + buf.len()]);
-                            self.recent = slot;
-                            return Poll::Ready(Ok(()));
-                        }
-                    }
-                }
-                let adjacent = self
-                    .windows
-                    .iter()
-                    .position(|w| w.count != 0 && w.first + w.count as u64 == first.get());
-                state.slot = adjacent.unwrap_or_else(|| {
-                    if self.capacity == 1 {
-                        0
-                    } else {
-                        1 - self.recent
-                    }
-                });
-                let capacity = if state.slot == 0 {
-                    self.capacity - self.capacity / 2
-                } else {
-                    self.capacity / 2
-                };
-                if count > capacity {
-                    state.phase = 2;
-                } else {
-                    let available = usize::try_from(self.block_count().saturating_sub(first.get()))
-                        .unwrap_or(usize::MAX);
-                    state.fetched = if adjacent.is_some() {
-                        capacity.min(available)
-                    } else {
-                        count
-                    };
-                    let window = &mut self.windows[state.slot];
-                    window.count = 0;
-                    window.data.resize(capacity * size, 0);
+            let block_count = self.block_count();
+            match self
+                .windows
+                .plan(self.block_size(), block_count, first, buf)
+            {
+                Plan::Hit => return Poll::Ready(Ok(())),
+                Plan::Bypass => state.phase = 2,
+                Plan::Fetch { slot, fetched } => {
+                    state.slot = slot;
+                    state.fetched = fetched;
                     state.phase = 1;
                 }
             }
         }
         state.pending = true;
         let result = if state.phase == 1 {
-            self.inner.poll_read_blocks(
-                &mut state.child,
-                cx,
-                first,
-                &mut self.windows[state.slot].data[..state.fetched * size],
-            )
+            let target = self.windows.target(state.slot, state.fetched);
+            self.inner
+                .poll_read_blocks(&mut state.child, cx, first, target)
         } else {
             self.inner
                 .poll_read_blocks(&mut state.child, cx, first, buf)
@@ -177,14 +115,11 @@ impl<D: BlockDevice> BlockDevice for ReadAhead<D> {
         state.pending = result.is_pending();
         match result {
             Poll::Ready(Ok(())) if state.phase == 1 => {
-                let window = &mut self.windows[state.slot];
-                window.first = first.get();
-                window.count = state.fetched;
-                buf.copy_from_slice(&window.data[..buf.len()]);
-                self.recent = state.slot;
+                self.windows
+                    .fill(state.slot, state.fetched, first.get(), buf);
                 Poll::Ready(Ok(()))
             }
-            Poll::Ready(Err(_)) if state.phase == 1 && state.fetched != count => {
+            Poll::Ready(Err(_)) if state.phase == 1 && state.fetched * size != buf.len() => {
                 state.child = Default::default();
                 state.phase = 2;
                 self.poll_read_blocks(state, cx, first, buf)
@@ -204,14 +139,8 @@ impl<D: BlockDevice> BlockDevice for ReadAhead<D> {
         {
             return Poll::Ready(Err(error));
         }
-        let end = first
-            .get()
-            .saturating_add((buf.len() / self.block_size().get() as usize) as u64);
-        for window in &mut self.windows {
-            if window.first < end && first.get() < window.first + window.count as u64 {
-                window.count = 0;
-            }
-        }
+        let size = self.block_size().get() as usize;
+        self.windows.invalidate(size, first.get(), buf.len());
         state.pending = true;
         let result = self
             .inner

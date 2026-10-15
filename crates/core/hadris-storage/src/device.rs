@@ -122,6 +122,24 @@ impl<B: MemBuffer> MemDevice<B> {
         let start = (first.get() * u64::from(self.block_size.get())) as usize;
         Ok(start..start + len)
     }
+
+    #[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
+    pub(crate) fn read_into<E>(&self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<E>> {
+        let range = self.range(first, buf.len())?;
+        buf.copy_from_slice(&self.buffer.bytes()[range]);
+        Ok(())
+    }
+
+    #[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
+    pub(crate) fn write_from<E>(&mut self, first: BlockIndex, buf: &[u8]) -> Result<(), Error<E>> {
+        let range = self.range(first, buf.len())?;
+        let bytes = self.buffer.bytes_mut().ok_or(Error::new(
+            ErrorKind::ReadOnly,
+            "memory buffer is read-only",
+        ))?;
+        bytes[range].copy_from_slice(buf);
+        Ok(())
+    }
 }
 
 /// A byte window of another device, such as an MBR or GPT partition or the
@@ -130,8 +148,9 @@ impl<B: MemBuffer> MemDevice<B> {
 /// Block 0 of the partition is the device block at byte `offset`. `D` can
 /// be owned or `&mut`. The offset and length must be multiples of the
 /// device block size; a request to a partition that is not, or one past
-/// the partition's end, fails with [`ErrorKind::InvalidInput`] and never
-/// reaches the device. `disk_offset` adds `offset` to the device's own, and
+/// the partition's end or the device's (its `block_count` for reads and
+/// `max_block_count` for writes), fails with [`ErrorKind::InvalidInput`]
+/// and never reaches the device. `disk_offset` adds `offset` to the device's own, and
 /// the partition is writable when the device is.
 #[derive(Debug, Clone)]
 pub struct Partition<D> {
@@ -177,11 +196,13 @@ impl<D> Partition<D> {
     }
 
     /// The device block that holds block `first` of the partition, once the
-    /// `len` bytes from there are known to lie within it.
-    #[cfg_attr(not(feature = "sync"), allow(dead_code))]
+    /// `len` bytes from there are known to lie within both the partition and
+    /// the first `limit` blocks of the device.
+    #[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
     pub(crate) fn locate<E>(
         &self,
         block_size: BlockSize,
+        limit: u64,
         first: BlockIndex,
         len: usize,
     ) -> Result<BlockIndex, Error<E>> {
@@ -193,10 +214,12 @@ impl<D> Partition<D> {
             ));
         }
         check_blocks(block_size, self.len / size, first, len)?;
-        (self.offset / size)
+        let at = (self.offset / size)
             .checked_add(first.get())
             .map(BlockIndex::new)
-            .ok_or_else(|| out_of_range(first))
+            .ok_or_else(|| out_of_range(first))?;
+        check_blocks(block_size, limit, at, len)?;
+        Ok(at)
     }
 }
 
@@ -272,13 +295,63 @@ pub(crate) fn out_of_range<E>(first: BlockIndex) -> Error<E> {
     .with_location(Location::Block(first.get()))
 }
 
-#[cfg_attr(not(any(feature = "sync", feature = "std")), allow(dead_code))]
+#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
 pub(crate) fn byte_offset<E>(block_size: BlockSize, first: BlockIndex) -> Result<u64, Error<E>> {
     first
         .get()
         .checked_mul(u64::from(block_size.get()))
         .ok_or_else(|| out_of_range(first))
 }
+
+#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
+pub(crate) fn past_end<E>(offset: u64) -> Error<E> {
+    Error::new(
+        ErrorKind::InvalidInput,
+        "byte range past the end of the device",
+    )
+    .with_location(Location::Byte(offset))
+}
+
+#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
+pub(crate) fn block_too_large<E>() -> Error<E> {
+    Error::new(
+        ErrorKind::Unsupported,
+        "block size exceeds the adapter buffer",
+    )
+}
+
+#[cfg(feature = "alloc")]
+#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
+pub(crate) fn vec_read<E>(image: &[u8], first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<E>> {
+    check_blocks(BLOCK_512, image.len() as u64 / 512, first, buf.len())?;
+    let start = byte_offset(BLOCK_512, first)? as usize;
+    buf.copy_from_slice(&image[start..start + buf.len()]);
+    Ok(())
+}
+
+#[cfg(feature = "alloc")]
+#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
+pub(crate) fn vec_write<E>(
+    image: &mut alloc::vec::Vec<u8>,
+    first: BlockIndex,
+    buf: &[u8],
+) -> Result<(), Error<E>> {
+    check_blocks(BLOCK_512, VEC_MAX_BLOCKS, first, buf.len())?;
+    let start = byte_offset(BLOCK_512, first)? as usize;
+    let end = start + buf.len();
+    if end > image.len() {
+        image
+            .try_reserve(end - image.len())
+            .map_err(|_| Error::new(ErrorKind::NoSpace, "cannot grow the image"))?;
+        image.resize(end, 0);
+    }
+    image[start..end].copy_from_slice(buf);
+    Ok(())
+}
+
+#[cfg(feature = "alloc")]
+#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
+pub(crate) const VEC_MAX_BLOCKS: u64 = isize::MAX as u64 / 512;
 
 impl<B> hadris_io::ErrorType for MemDevice<B> {
     type Error = core::convert::Infallible;

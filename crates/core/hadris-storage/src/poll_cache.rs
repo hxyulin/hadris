@@ -153,11 +153,7 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
                 .poll_read_blocks(&mut state.child, cx, first, buf);
             state.pending = result.is_pending();
             if let Poll::Ready(Ok(())) = result {
-                for index in self.cache.dirty_in(first.get(), count) {
-                    let at = (index - first.get()) as usize * size;
-                    let slot = self.cache.peek(index).unwrap();
-                    buf[at..at + size].copy_from_slice(self.cache.data(slot));
-                }
+                self.cache.overlay_dirty(first.get(), buf);
             }
             return result;
         }
@@ -170,15 +166,7 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
                     state.done += 1;
                     continue;
                 }
-                state.loaded_end = state.done + 1;
-                while state.loaded_end < count
-                    && self
-                        .cache
-                        .peek(first.get() + state.loaded_end as u64)
-                        .is_none()
-                {
-                    state.loaded_end += 1;
-                }
+                state.loaded_end = self.cache.uncached_end(first.get(), state.done, count);
                 state.phase = 2;
             }
             if state.phase == 2 {

@@ -30,6 +30,9 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+#[cfg(any(feature = "sync", feature = "async"))]
+#[macro_use]
+mod byte_view;
 #[cfg(feature = "alloc")]
 mod cache;
 mod device;
@@ -40,6 +43,8 @@ pub mod host;
 mod poll_cache;
 #[cfg(all(feature = "async", feature = "alloc"))]
 mod poll_read_ahead;
+#[cfg(feature = "alloc")]
+mod read_ahead;
 mod scratch;
 
 #[cfg(feature = "sync")]

@@ -13,8 +13,10 @@ macro_rules! io_transform {
 use hadris_fat_raw::io::async_ as rawio;
 #[cfg(feature = "alloc")]
 use hadris_fs::local as fsapi;
-#[cfg(any(feature = "alloc", feature = "write"))]
 use hadris_storage::async_ as storage;
+
+#[path = "dirs.rs"]
+pub(crate) mod dirs;
 
 #[cfg(any(feature = "alloc", feature = "write"))]
 #[path = "block_io.rs"]

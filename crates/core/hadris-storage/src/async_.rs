@@ -1,5 +1,6 @@
 //! Unified asynchronous block storage.
 //! Operation futures derive Send from their device and operation state.
+use crate::device::check_blocks;
 use crate::{BlockIndex, BlockSize, MemBuffer, MemDevice, Partition};
 use core::future::Future;
 use core::pin::Pin;
@@ -116,21 +117,6 @@ impl<'a, D: BlockDevice + ?Sized> Operation<'a, D> {
         }
     }
 }
-fn range<E>(size: BlockSize, count: u64, first: BlockIndex, len: usize) -> Result<(), Error<E>> {
-    let size = size.get() as usize;
-    if len % size != 0
-        || first
-            .get()
-            .checked_add((len / size) as u64)
-            .is_none_or(|end| end > count)
-    {
-        return Err(
-            Error::new(ErrorKind::InvalidInput, "block range outside device")
-                .with_location(hadris_io::Location::Block(first.get())),
-        );
-    }
-    Ok(())
-}
 impl<D: BlockDevice + ?Sized> Future for Operation<'_, D> {
     type Output = Result<(), Error<D::Error>>;
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -138,18 +124,20 @@ impl<D: BlockDevice + ?Sized> Future for Operation<'_, D> {
         assert!(!this.done, "operation polled after completion");
         if !this.checked {
             let result = match &this.request {
-                Request::Read(first, buf) => range(
+                Request::Read(first, buf) => check_blocks(
                     this.device.block_size(),
                     this.device.block_count(),
                     *first,
                     buf.len(),
-                ),
-                Request::Write(first, buf) => range(
+                )
+                .map(drop),
+                Request::Write(first, buf) => check_blocks(
                     this.device.block_size(),
                     this.device.max_block_count(),
                     *first,
                     buf.len(),
-                ),
+                )
+                .map(drop),
                 Request::Flush => Ok(()),
             };
             this.checked = true;
@@ -256,10 +244,7 @@ impl<B: MemBuffer> BlockDevice for MemDevice<B> {
         first: BlockIndex,
         buf: &mut [u8],
     ) -> Poll<Result<(), Error<Self::Error>>> {
-        Poll::Ready(
-            self.range(first, buf.len())
-                .map(|range| buf.copy_from_slice(&self.buffer.bytes()[range])),
-        )
+        Poll::Ready(self.read_into(first, buf))
     }
     fn poll_write_blocks(
         &mut self,
@@ -268,17 +253,7 @@ impl<B: MemBuffer> BlockDevice for MemDevice<B> {
         first: BlockIndex,
         buf: &[u8],
     ) -> Poll<Result<(), Error<Self::Error>>> {
-        let range = match self.range(first, buf.len()) {
-            Ok(range) => range,
-            Err(e) => return Poll::Ready(Err(e)),
-        };
-        Poll::Ready(match self.buffer.bytes_mut() {
-            Some(bytes) => {
-                bytes[range].copy_from_slice(buf);
-                Ok(())
-            }
-            None => Err(Error::new(ErrorKind::ReadOnly, "device is read-only")),
-        })
+        Poll::Ready(self.write_from(first, buf))
     }
     fn cancel(&mut self, _: &mut ()) {}
 }
@@ -289,10 +264,10 @@ impl BlockDevice for alloc::vec::Vec<u8> {
         crate::device::BLOCK_512
     }
     fn block_count(&self) -> u64 {
-        self.len() as u64 / 512
+        self.len() as u64 / u64::from(crate::device::BLOCK_512.get())
     }
     fn max_block_count(&self) -> u64 {
-        isize::MAX as u64 / 512
+        crate::device::VEC_MAX_BLOCKS
     }
     fn writable(&self) -> bool {
         true
@@ -304,13 +279,7 @@ impl BlockDevice for alloc::vec::Vec<u8> {
         first: BlockIndex,
         buf: &mut [u8],
     ) -> Poll<Result<(), Error<Self::Error>>> {
-        Poll::Ready(
-            crate::device::check_blocks(self.block_size(), self.block_count(), first, buf.len())
-                .map(|_| {
-                    let start = first.get() as usize * 512;
-                    buf.copy_from_slice(&self[start..start + buf.len()]);
-                }),
-        )
+        Poll::Ready(crate::device::vec_read(self, first, buf))
     }
     fn poll_write_blocks(
         &mut self,
@@ -319,24 +288,7 @@ impl BlockDevice for alloc::vec::Vec<u8> {
         first: BlockIndex,
         buf: &[u8],
     ) -> Poll<Result<(), Error<Self::Error>>> {
-        let result = crate::device::check_blocks(
-            self.block_size(),
-            self.max_block_count(),
-            first,
-            buf.len(),
-        )
-        .and_then(|_| {
-            let start = first.get() as usize * 512;
-            let end = start + buf.len();
-            if end > self.len() {
-                self.try_reserve(end - self.len())
-                    .map_err(|_| Error::new(ErrorKind::NoSpace, "cannot grow the image"))?;
-                self.resize(end, 0);
-            }
-            self[start..end].copy_from_slice(buf);
-            Ok(())
-        });
-        Poll::Ready(result)
+        Poll::Ready(crate::device::vec_write(self, first, buf))
     }
     fn cancel(&mut self, _: &mut ()) {}
 }
@@ -370,7 +322,8 @@ impl<D: BlockDevice> BlockDevice for Partition<D> {
         first: BlockIndex,
         buf: &mut [u8],
     ) -> Poll<Result<(), Error<Self::Error>>> {
-        let at = match partition_block(self, first, buf.len(), false) {
+        let limit = self.get_ref().block_count();
+        let at = match self.locate(self.block_size(), limit, first, buf.len()) {
             Ok(at) => at,
             Err(e) => return Poll::Ready(Err(e)),
         };
@@ -383,7 +336,8 @@ impl<D: BlockDevice> BlockDevice for Partition<D> {
         first: BlockIndex,
         buf: &[u8],
     ) -> Poll<Result<(), Error<Self::Error>>> {
-        let at = match partition_block(self, first, buf.len(), true) {
+        let limit = self.get_ref().max_block_count();
+        let at = match self.locate(self.block_size(), limit, first, buf.len()) {
             Ok(at) => at,
             Err(e) => return Poll::Ready(Err(e)),
         };
@@ -430,202 +384,9 @@ impl<D: BlockDevice> BlockDevice for crate::ReadOnly<D> {
         self.0.cancel(state);
     }
 }
-fn partition_block<D: BlockDevice>(
-    part: &Partition<D>,
-    first: BlockIndex,
-    len: usize,
-    writing: bool,
-) -> Result<BlockIndex, Error<D::Error>> {
-    let size = u64::from(part.block_size().get());
-    if part.offset() % size != 0 || part.len() % size != 0 {
-        return Err(Error::new(ErrorKind::InvalidInput, "unaligned partition"));
-    }
-    range(part.block_size(), part.block_count(), first, len)?;
-    let at = part
-        .offset()
-        .checked_div(size)
-        .and_then(|offset| offset.checked_add(first.get()))
-        .map(BlockIndex::new)
-        .ok_or(Error::new(
-            ErrorKind::InvalidInput,
-            "partition offset overflow",
-        ))?;
-    let limit = if writing {
-        part.get_ref().max_block_count()
-    } else {
-        part.get_ref().block_count()
-    };
-    range(part.block_size(), limit, at, len)?;
-    Ok(at)
-}
-
 use hadris_io::SeekFrom;
-fn past_end<E>(offset: u64) -> Error<E> {
-    Error::new(ErrorKind::InvalidInput, "byte range outside device")
-        .with_location(hadris_io::Location::Byte(offset))
-}
-fn block_too_large<E>() -> Error<E> {
-    Error::new(
-        ErrorKind::Unsupported,
-        "block size exceeds scratch capacity",
-    )
-}
-/// Byte-granular read-modify-write access to a block device.
-///
-/// The one-block scratch buffer keeps the last partial block the view read
-/// or wrote, so small accesses within one block cost one device read. A
-/// write that covers that block replaces it, and a failed or cancelled
-/// access forgets it. Changes made to the device other than through the
-/// view need [`get_mut`](Self::get_mut), which forgets it too.
-#[derive(Debug)]
-pub struct ByteView<D> {
-    inner: D,
-    position: u64,
-    scratch: crate::scratch::Scratch,
-    cached: Option<u64>,
-}
 
-impl<D: BlockDevice> ByteView<D> {
-    /// Wraps a device.
-    ///
-    /// Without `alloc`, block sizes above 4096 bytes fail with
-    /// [`ErrorKind::Unsupported`] on the first partial-block access.
-    pub fn new(inner: D) -> Self {
-        Self {
-            inner,
-            position: 0,
-            scratch: crate::scratch::Scratch::new(),
-            cached: None,
-        }
-    }
-
-    /// Device length in bytes.
-    pub fn len(&self) -> u64 {
-        self.inner
-            .block_count()
-            .saturating_mul(u64::from(self.inner.block_size().get()))
-    }
-
-    /// Whether the device has no blocks.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Recovers the device.
-    pub fn into_inner(self) -> D {
-        self.inner
-    }
-
-    /// Borrows the device.
-    pub fn get_ref(&self) -> &D {
-        &self.inner
-    }
-
-    /// Mutably borrows the device, forgetting the block the view keeps.
-    pub fn get_mut(&mut self) -> &mut D {
-        self.cached = None;
-        &mut self.inner
-    }
-
-    /// Fills `buf` from byte `offset`.
-    ///
-    /// A range past the end of the device fails with
-    /// [`ErrorKind::InvalidInput`].
-    pub async fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<(), Error<D::Error>> {
-        if !self.fits(offset, buf.len()) {
-            return Err(past_end(offset));
-        }
-        let size = self.inner.block_size().get() as usize;
-        let mut done = 0;
-        while done < buf.len() {
-            let pos = offset + done as u64;
-            let block = pos / size as u64;
-            let within = (pos % size as u64) as usize;
-            let left = buf.len() - done;
-            if within == 0 && left >= size {
-                let whole = left / size * size;
-                self.inner
-                    .read_blocks(BlockIndex::new(block), &mut buf[done..done + whole])
-                    .await?;
-                done += whole;
-            } else {
-                let n = (size - within).min(left);
-                self.load(block, size).await?;
-                let scratch = self.scratch.get(size).ok_or_else(block_too_large)?;
-                buf[done..done + n].copy_from_slice(&scratch[within..within + n]);
-                done += n;
-            }
-        }
-        Ok(())
-    }
-
-    /// Writes all of `buf` at byte `offset`.
-    pub async fn write_at(&mut self, offset: u64, buf: &[u8]) -> Result<(), Error<D::Error>> {
-        if !self.fits(offset, buf.len()) {
-            return Err(past_end(offset));
-        }
-        let size = self.inner.block_size().get() as usize;
-        let mut done = 0;
-        while done < buf.len() {
-            let pos = offset + done as u64;
-            let block = pos / size as u64;
-            let within = (pos % size as u64) as usize;
-            let left = buf.len() - done;
-            if within == 0 && left >= size {
-                let whole = left / size * size;
-                if self
-                    .cached
-                    .is_some_and(|cached| cached.wrapping_sub(block) < (whole / size) as u64)
-                {
-                    self.cached = None;
-                }
-                self.inner
-                    .write_blocks(BlockIndex::new(block), &buf[done..done + whole])
-                    .await?;
-                done += whole;
-            } else {
-                let n = (size - within).min(left);
-                self.load(block, size).await?;
-                self.cached = None;
-                let scratch = self.scratch.get(size).ok_or_else(block_too_large)?;
-                scratch[within..within + n].copy_from_slice(&buf[done..done + n]);
-                self.inner
-                    .write_blocks(BlockIndex::new(block), scratch)
-                    .await?;
-                self.cached = Some(block);
-                done += n;
-            }
-        }
-        Ok(())
-    }
-
-    async fn load(&mut self, block: u64, size: usize) -> Result<(), Error<D::Error>> {
-        if self.cached == Some(block) {
-            return Ok(());
-        }
-        self.cached = None;
-        let scratch = self.scratch.get(size).ok_or_else(block_too_large)?;
-        self.inner
-            .read_blocks(BlockIndex::new(block), scratch)
-            .await?;
-        self.cached = Some(block);
-        Ok(())
-    }
-
-    fn fits(&self, offset: u64, len: usize) -> bool {
-        offset
-            .checked_add(len as u64)
-            .is_some_and(|end| end <= self.len())
-    }
-
-    fn remaining(&self) -> usize {
-        usize::try_from(self.len().saturating_sub(self.position)).unwrap_or(usize::MAX)
-    }
-}
-
-impl<D: ErrorType> ErrorType for ByteView<D> {
-    type Error = Error<D::Error>;
-}
+byte_view!(keep_async);
 
 impl<D: SendBlockDevice> hadris_io::async_::Read for ByteView<D> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
@@ -651,12 +412,7 @@ impl<D: SendBlockDevice> hadris_io::async_::Write for ByteView<D> {
 
 impl<D: SendBlockDevice> hadris_io::async_::Seek for ByteView<D> {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
-        let position = pos.resolve(self.position, self.len()).ok_or(Error::new(
-            ErrorKind::InvalidInput,
-            "seek to a negative or overflowing position",
-        ))?;
-        self.position = position;
-        Ok(position)
+        self.seek_to(pos)
     }
 }
 
@@ -689,12 +445,7 @@ impl<D: BlockDevice> hadris_io::local::Write for ByteView<D> {
 
 impl<D: BlockDevice> hadris_io::local::Seek for ByteView<D> {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
-        let position = pos.resolve(self.position, self.len()).ok_or(Error::new(
-            ErrorKind::InvalidInput,
-            "seek to a negative or overflowing position",
-        ))?;
-        self.position = position;
-        Ok(position)
+        self.seek_to(pos)
     }
 }
 

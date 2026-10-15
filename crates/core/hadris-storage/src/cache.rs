@@ -175,6 +175,27 @@ impl CacheState {
             .map(|(&index, &slot)| (index, slot))
     }
 
+    /// Copies the dirty cached blocks among those `buf` holds from block
+    /// `first` over the device's copies, after a read that bypassed the cache.
+    pub(crate) fn overlay_dirty(&self, first: u64, buf: &mut [u8]) {
+        let size = self.block_size;
+        for index in self.dirty_in(first, buf.len() / size) {
+            let at = (index - first) as usize * size;
+            let slot = self.slots[&index];
+            buf[at..at + size].copy_from_slice(&self.entries[slot].data);
+        }
+    }
+
+    /// The end of the run of uncached blocks of a `count`-block request from
+    /// block `first` that starts at its uncached block `from`.
+    pub(crate) fn uncached_end(&self, first: u64, from: usize, count: usize) -> usize {
+        let mut end = from + 1;
+        while end < count && self.peek(first + end as u64).is_none() {
+            end += 1;
+        }
+        end
+    }
+
     /// Drops every cached block that has no unflushed write.
     pub(crate) fn drop_clean(&mut self) {
         for slot in 0..self.entries.len() {
