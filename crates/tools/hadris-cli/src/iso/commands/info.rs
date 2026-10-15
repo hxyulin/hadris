@@ -3,7 +3,7 @@ use hadris_iso::{JolietLevel, Namespace};
 
 use super::super::args::InfoArgs;
 
-use super::{Result, open};
+use anyhow::Result;
 
 fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
@@ -21,7 +21,7 @@ fn ucs2(bytes: &[u8]) -> String {
 
 /// Display information about an ISO image
 pub fn info(args: InfoArgs) -> Result<()> {
-    let mut dev = open(&args.input, &args.locate)?;
+    let mut dev = args.locate.open(&args.input)?;
     let mut iso = super::view(&mut dev, hadris_iso::Namespace::Preferred)?;
     let block_size = u64::from(iso.info().block_size());
 

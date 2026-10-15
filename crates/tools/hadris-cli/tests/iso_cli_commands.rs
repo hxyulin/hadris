@@ -92,6 +92,37 @@ fn extract_merges_the_root_and_names_other_paths() {
 }
 
 #[test]
+fn extract_reports_the_tree_and_destination() {
+    let temp = tempfile::tempdir().unwrap();
+    let image = image(temp.path());
+    let out = temp.path().join("out");
+    let shown = stdout_of(&["extract", "-v", &image, "-o", text(&out), "-p", "/docs"]);
+    let dest = out.join("docs");
+    assert_eq!(
+        shown,
+        format!(
+            "Extracting /docs from the RockRidge tree to {0}\nExtracted /docs to {0}\n",
+            dest.display()
+        )
+    );
+    let shown = stdout_of(&["extract", &image, "-o", text(&out), "-p", "/readme.txt"]);
+    assert_eq!(
+        shown,
+        format!(
+            "Extracted /readme.txt to {}\n",
+            out.join("readme.txt").display()
+        )
+    );
+
+    let missing = run(&["extract", &image, "-o", text(&out), "-p", "/missing"]);
+    let stderr = String::from_utf8_lossy(&missing.stderr);
+    assert!(
+        stderr.starts_with("Error: Not found: /missing: "),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn cat_list_alias_and_strict_check() {
     let temp = tempfile::tempdir().unwrap();
     let image = image(temp.path());

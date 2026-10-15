@@ -1,13 +1,14 @@
+use anyhow::{Context, Result};
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{NodeId, Resolve};
 
 use super::super::args::TreeArgs;
-use super::{Entry, Result, View, join, list_node, open, view_for};
-use crate::common::Ancestors;
+use super::{Entry, View, list_node, view_for};
+use crate::common::{Ancestors, join};
 
 /// Display directory tree
 pub fn tree(args: TreeArgs) -> Result<()> {
-    let mut iso = open(&args.input, &args.locate)?;
+    let mut iso = args.locate.open(&args.input)?;
     let mut view = view_for(&mut iso, &args.path)?;
 
     println!("{}", args.path);
@@ -16,7 +17,7 @@ pub fn tree(args: TreeArgs) -> Result<()> {
     }
     let top = view
         .resolve(args.path.as_bytes(), Resolve::Lexical)
-        .map_err(|err| format!("Directory not found: {}: {err}", args.path))?;
+        .with_context(|| format!("Directory not found: {}", args.path))?;
     let entries = list_node(&mut view, top);
     view.forget(top, 1);
     let entries = entries?;
@@ -64,7 +65,7 @@ impl Printer<'_, '_> {
     fn descend(&mut self, node: NodeId, path: &str, prefix: &str, depth: usize) -> Result<()> {
         self.ancestors.enter(node, path)?;
         let printed = list_node(self.view, node)
-            .map_err(|err| format!("{path}: {err}").into())
+            .with_context(|| path.to_string())
             .and_then(|entries| self.print(entries, path, prefix, depth));
         self.ancestors.leave();
         printed

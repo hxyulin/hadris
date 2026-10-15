@@ -3,10 +3,9 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use hadris_cpio::{CpioOptions, Format};
-use hadris_fs::WarningKind;
 use hadris_io::StdIo;
 
-use crate::common::{Target, read_source};
+use crate::common::{Target, print_warnings, read_source};
 use crate::cpio::ArchiveFormat;
 
 pub fn create(
@@ -49,11 +48,7 @@ pub fn create(
         report
     };
 
-    for warning in report.warnings() {
-        if verbose || !matches!(warning.kind(), WarningKind::Dropped(_)) {
-            eprintln!("warning: {warning}");
-        }
-    }
+    print_warnings(&report, verbose);
     if !to_stdout {
         println!("Created {name} archive: {}", output.display());
     }

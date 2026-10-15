@@ -1,5 +1,8 @@
+use anyhow::Result;
+
 use super::super::args::LsArgs;
-use super::{Result, entries, open, type_char};
+use super::{entries, open};
+use crate::common::type_char;
 
 /// List directory contents
 pub fn ls(args: LsArgs) -> Result<()> {

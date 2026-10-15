@@ -10,6 +10,7 @@ mod generic;
 mod iso;
 mod output;
 mod udf;
+mod vfs;
 
 use clap::{Parser, Subcommand};
 
@@ -53,8 +54,8 @@ fn main() {
     let result = match Cli::parse().command {
         Format::Apfs(args) => apfs::run(args),
         Format::Fat(args) => fat::run(args),
-        Format::Iso(args) => iso::run(args).map_err(|err| anyhow::anyhow!("{err}")),
-        Format::Udf(args) => udf::run(args).map_err(|err| anyhow::anyhow!("{err}")),
+        Format::Iso(args) => iso::run(args),
+        Format::Udf(args) => udf::run(args),
         Format::Cpio(args) => cpio::run(args),
         Format::Detect(args) => detect::run(args),
         Format::Ls(args) => generic::ls(args),

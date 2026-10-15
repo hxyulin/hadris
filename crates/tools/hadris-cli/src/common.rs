@@ -5,7 +5,7 @@ use std::str::FromStr;
 
 use anyhow::{Context, Result, bail};
 use hadris_fs::host::{self, OnError, TreeOptions};
-use hadris_fs::{Clock, DateTime, NodeId, SystemClock, Tree};
+use hadris_fs::{Clock, DateTime, FileType, NodeId, Report, SystemClock, Tree, WarningKind};
 use hadris_storage::Partition;
 use hadris_storage::host::FileDevice;
 use hadris_storage::sync::BlockDevice;
@@ -29,6 +29,28 @@ impl Target {
     pub fn create(&self) -> Result<(std::fs::File, Output)> {
         Output::create(&self.output, self.force)
             .with_context(|| format!("cannot create {}", self.output.display()))
+    }
+
+    /// Writes an image to the output with `write`, padding a regular file to
+    /// at least `min_len` bytes. The file appears only once it is complete.
+    pub fn write_image<T>(
+        &self,
+        min_len: u64,
+        write: impl FnOnce(&mut FileDevice) -> Result<T>,
+    ) -> Result<T> {
+        let output = &self.output;
+        let (file, pending) = self.create()?;
+        let mut dev =
+            FileDevice::new(file).with_context(|| format!("cannot create {}", output.display()))?;
+        let written = write(&mut dev)?;
+        let file = dev.into_inner();
+        if pending.is_regular() && file.metadata()?.len() < min_len {
+            file.set_len(min_len)?;
+        }
+        pending
+            .commit(file)
+            .with_context(|| format!("cannot write {}", output.display()))?;
+        Ok(written)
     }
 }
 
@@ -134,6 +156,59 @@ impl Ancestors {
     /// Returns from the directory the last [`Ancestors::enter`] entered.
     pub fn leave(&mut self) {
         self.0.pop();
+    }
+}
+
+/// Prints a writer's warnings. Dropped metadata, which a format without room
+/// for it reports for every entry, only when `verbose`.
+pub fn print_warnings(report: &Report, verbose: bool) {
+    for warning in report.warnings() {
+        if verbose || !matches!(warning.kind(), WarningKind::Dropped(_)) {
+            eprintln!("warning: {warning}");
+        }
+    }
+}
+
+/// `/`-joined image path of `name` in the directory `dir`.
+pub fn join(dir: &str, name: &str) -> String {
+    if dir.ends_with('/') {
+        format!("{dir}{name}")
+    } else {
+        format!("{dir}/{name}")
+    }
+}
+
+/// The `ls -l` type character of `file_type`.
+pub fn type_char(file_type: FileType) -> char {
+    match file_type {
+        FileType::File => '-',
+        FileType::Dir => 'd',
+        FileType::Symlink => 'l',
+        FileType::CharDevice => 'c',
+        FileType::BlockDevice => 'b',
+        FileType::Fifo => 'p',
+        FileType::Socket => 's',
+        _ => '?',
+    }
+}
+
+/// Format a size in bytes to a human-readable string.
+pub fn format_size(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+    const TB: u64 = GB * 1024;
+
+    if bytes >= TB {
+        format!("{:.2} TB", bytes as f64 / TB as f64)
+    } else if bytes >= GB {
+        format!("{:.2} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.2} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.2} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{bytes} B")
     }
 }
 

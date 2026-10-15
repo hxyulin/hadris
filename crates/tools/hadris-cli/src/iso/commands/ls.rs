@@ -1,24 +1,13 @@
-use hadris_fs::FileType;
+use anyhow::Result;
 
 use super::super::args::LsArgs;
 
-use super::{Result, first_block, list_dir, open, view_for};
-
-fn type_char(file_type: FileType) -> char {
-    match file_type {
-        FileType::Dir => 'd',
-        FileType::Symlink => 'l',
-        FileType::CharDevice => 'c',
-        FileType::BlockDevice => 'b',
-        FileType::Fifo => 'p',
-        FileType::Socket => 's',
-        _ => '-',
-    }
-}
+use super::{first_block, list_dir, view_for};
+use crate::common::type_char;
 
 /// List directory contents
 pub fn ls(args: LsArgs) -> Result<()> {
-    let mut iso = open(&args.input, &args.locate)?;
+    let mut iso = args.locate.open(&args.input)?;
     let mut view = view_for(&mut iso, &args.path)?;
     let entries = list_dir(&mut view, &args.path)?;
 

@@ -1,9 +1,11 @@
+use anyhow::Result;
 use hadris_fs::DateTime;
 use hadris_iso::{BootEntry, BootInfo, ElTorito, Hybrid, IsoId, IsoOptions};
 
 use super::super::args::{CreateArgs, IsoFlags};
 
-use super::{Result, build_time, normalize_path, print_warnings, read_source, write_image};
+use super::{normalize_path, write_image};
+use crate::common::{build_time, print_warnings, read_source};
 
 /// The path of the visible boot catalog in created images.
 pub(super) const CATALOG_PATH: &str = "boot.catalog";

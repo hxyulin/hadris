@@ -1,5 +1,7 @@
+use anyhow::Result;
+
 use super::super::args::InfoArgs;
-use super::{Result, entries, open};
+use super::{entries, open};
 
 /// Display information about a UDF image
 pub fn info(args: InfoArgs) -> Result<()> {

@@ -5,8 +5,9 @@ use std::collections::BTreeMap;
 use std::hash::Hasher;
 use std::path::Path;
 
+use anyhow::{Context, Result, bail};
 use hadris_fs::sync::FileSystem;
-use hadris_fs::{DirCursor, FileType, MountOptions, NodeId, OpenMode, Resolve, WarningKind};
+use hadris_fs::{DirCursor, FileType, MountError, MountOptions, NodeId, OpenMode, Resolve};
 use hadris_iso::Namespace;
 use hadris_iso::sync::IsoFs;
 use hadris_storage::host::FileDevice;
@@ -14,14 +15,11 @@ use hadris_udf::sync::UdfFs;
 use hadris_udf::{UdfId, UdfOptions};
 
 use super::args::BridgeArgs;
-use crate::common::{Ancestors, build_time, read_source};
-
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+use crate::common::{Ancestors, build_time, print_warnings, read_source};
 
 /// Writes a bridge image of the host directory `args.source`: ISO 9660
 /// with the `iso create` options, and UDF over the same file data.
 pub fn create(args: BridgeArgs) -> Result<()> {
-    let output = &args.target.output;
     let tree = read_source(&args.source)?;
     let time = build_time()?;
     let iso = crate::iso::iso_options(&args.iso, time);
@@ -40,19 +38,11 @@ pub fn create(args: BridgeArgs) -> Result<()> {
         return Ok(());
     }
 
-    let (file, pending) = args.target.create()?;
-    let mut dev = FileDevice::new(file)
-        .map_err(|err| format!("cannot create {}: {err}", output.display()))?;
-    let report = hadris_udf::sync::write_bridge(&mut dev, &tree, &iso, &udf)?;
-    pending
-        .commit(dev.into_inner())
-        .map_err(|err| format!("cannot write {}: {err}", output.display()))?;
-    for warning in report.warnings() {
-        if args.verbose || !matches!(warning.kind(), WarningKind::Dropped(_)) {
-            eprintln!("warning: {warning}");
-        }
-    }
-    println!("Created: {}", output.display());
+    let report = args.target.write_image(0, |dev| {
+        Ok(hadris_udf::sync::write_bridge(dev, &tree, &iso, &udf)?)
+    })?;
+    print_warnings(&report, args.verbose);
+    println!("Created: {}", args.target.output.display());
     Ok(())
 }
 
@@ -67,9 +57,11 @@ enum Node {
 pub fn compare(path: &Path) -> Result<()> {
     let mut iso = FileDevice::open(path)?;
     IsoFs::mount(&mut iso, MountOptions::new())
-        .map_err(|error| format!("ISO namespace is not readable: {}", error.error()))?;
+        .map_err(MountError::into_error)
+        .context("ISO namespace is not readable")?;
     let mut udf = UdfFs::mount(FileDevice::open(path)?, MountOptions::new())
-        .map_err(|error| format!("UDF namespace is not readable: {error}"))?;
+        .map_err(MountError::into_error)
+        .context("UDF namespace is not readable")?;
 
     let mut view = IsoFs::mount(&mut iso, MountOptions::new()).map_err(|err| err.into_parts().0)?;
     let namespace = view.namespace();
@@ -105,7 +97,7 @@ pub fn compare(path: &Path) -> Result<()> {
         iso_contents.sort();
         udf_contents.sort();
         if iso_contents != udf_contents {
-            return Err("ISO and UDF namespaces differ".into());
+            bail!("ISO and UDF namespaces differ");
         }
         println!(
             "Verified: {} ({} shared entries)",
@@ -121,7 +113,7 @@ pub fn compare(path: &Path) -> Result<()> {
                 eprintln!("  mismatch: {key}");
             }
         }
-        return Err("ISO and UDF namespaces differ".into());
+        bail!("ISO and UDF namespaces differ");
     }
     println!(
         "Verified: {} ({} shared entries)",
@@ -185,14 +177,11 @@ fn collect<F: FileSystem>(
         let result = match entry.file_type() {
             FileType::Dir => {
                 nodes.insert(path.clone(), Node::Directory);
-                ancestors
-                    .enter(node, &format!("/{path}"))
-                    .map_err(Into::into)
-                    .and_then(|()| {
-                        let collected = collect(fs, node, &path, ancestors, nodes);
-                        ancestors.leave();
-                        collected
-                    })
+                ancestors.enter(node, &format!("/{path}")).and_then(|()| {
+                    let collected = collect(fs, node, &path, ancestors, nodes);
+                    ancestors.leave();
+                    collected
+                })
             }
             FileType::File => hash_file(fs, node).map(|(len, hash)| {
                 nodes.insert(path, Node::File(len, hash));

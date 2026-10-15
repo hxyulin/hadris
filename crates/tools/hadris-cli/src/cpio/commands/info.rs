@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use anyhow::Result;
 use hadris_cpio::Format;
 
-use super::{for_each_entry, format_filetype, format_mode, format_size, open_reader};
+use super::{for_each_entry, format_mode, open_reader};
+use crate::common::{format_size, type_char};
 
 fn format_name(format: Option<Format>) -> &'static str {
     match format {
@@ -38,7 +39,7 @@ pub fn info(archive: PathBuf) -> Result<()> {
         total_data_size += entry.len();
         details.push(format!(
             "  {}{} {}\n    ino={} nlink={} uid={} gid={} size={} mtime={}\n    dev={},{} rdev={},{} check={:#010x}",
-            format_filetype(entry.file_type()),
+            type_char(entry.file_type()),
             format_mode(entry.mode()),
             entry.path_str().unwrap_or("<invalid utf-8>"),
             entry.ino(),

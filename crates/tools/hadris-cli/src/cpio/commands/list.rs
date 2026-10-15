@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 
-use super::{for_each_entry, format_filetype, format_mode, open_reader};
+use super::{for_each_entry, format_mode, open_reader};
+use crate::common::type_char;
 
 pub fn list(archive: PathBuf, long: bool) -> Result<()> {
     let mut reader = open_reader(&archive)?;
@@ -18,7 +19,7 @@ pub fn list(archive: PathBuf, long: bool) -> Result<()> {
         if long {
             println!(
                 "{}{} {:>5} {:>5} {:>8} {} {}",
-                format_filetype(entry.file_type()),
+                type_char(entry.file_type()),
                 format_mode(entry.mode()),
                 entry.uid(),
                 entry.gid(),
