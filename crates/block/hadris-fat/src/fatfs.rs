@@ -1,6 +1,7 @@
 use core::fmt;
 
 use super::block_io::{BlockBuf, new_block, read_bytes, write_bytes};
+use super::dirs;
 use super::fsapi::FileSystem;
 use super::rawio;
 use super::storage::BlockDevice;
@@ -1699,7 +1700,7 @@ impl<D: BlockDevice> FatFs<D> {
             if self.fat.geometry().root() == RootLocation::Cluster(cluster) {
                 return Ok(false);
             }
-            match self.dot_dot(cluster).await? {
+            match dirs::dot_dot(&mut self.dev, &mut self.block, &self.fat, cluster).await? {
                 Some(up) => cluster = up,
                 None => return Ok(false),
             }
@@ -1836,7 +1837,8 @@ impl<D: BlockDevice> FatFs<D> {
         } else if let Some(bit) = (1..new.candidates.len()).find(|bit| taken & (1 << bit) == 0) {
             new.candidates[bit]
         } else {
-            self.hashed_short(dir, text, skip).await?
+            let skip = |slot, offset| skip.covers(slot, offset);
+            dirs::hashed_short(&mut self.dev, &mut self.block, &self.fat, dir, text, self.code_page, raw::fold_unicode, &skip).await?
         };
         if let Some(mut index) = append {
             index.slot = start;
@@ -1852,36 +1854,6 @@ impl<D: BlockDevice> FatFs<D> {
             short,
             nt_case: if new.short_only() { new.case_bits.unwrap_or(0) } else { 0 },
         })
-    }
-
-    /// A short name with a hashed `HHHH~N` tail that no entry of `dir` has.
-    async fn hashed_short(&mut self, dir: DirStart, text: &str, skip: Skip) -> FsResult<[u8; 11], D::Error> {
-        for suffix in CANDIDATES as u8..=u8::MAX {
-            let Some(mut candidate) = crate::names::short_name(text, suffix, self.code_page, raw::fold_unicode) else {
-                continue;
-            };
-            short_name::to_disk(&mut candidate);
-            if !self.short_taken(dir, &candidate, skip).await? {
-                return Ok(candidate);
-            }
-        }
-        Err(ErrorKind::AlreadyExists.into())
-    }
-
-    async fn short_taken(&mut self, dir: DirStart, name: &[u8; 11], skip: Skip) -> FsResult<bool, D::Error> {
-        let mut walk = DirWalk::new(dir);
-        let mut slot = 0;
-        while let Some(offset) = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot).await? {
-            match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
-                Slot::End => break,
-                Slot::Short(entry) if entry.name() == *name && !entry.is_label() && !skip.covers(slot, offset) => {
-                    return Ok(true);
-                }
-                _ => {}
-            }
-            slot += 1;
-        }
-        Ok(false)
     }
 
     /// Appends the zeroed clusters `plan` needs to its directory. Returns
@@ -2549,22 +2521,6 @@ impl<D: BlockDevice> FatFs<D> {
         Ok(None)
     }
 
-    /// The parent cluster recorded in the `..` entry of the directory at
-    /// `first`, or `None` for the root.
-    async fn dot_dot(&mut self, first: u32) -> FsResult<Option<u32>, D::Error> {
-        let offset = self.cluster_at(first)? + ENTRY_SIZE;
-        let Slot::Short(entry) = rawio::read_slot(&mut self.dev, &mut self.block, offset).await? else {
-            return Err(ErrorKind::Corrupt.into());
-        };
-        if !entry.is_dot_dot() {
-            return Err(ErrorKind::Corrupt.into());
-        }
-        let cluster = entry.first_cluster(self.fat.geometry().kind());
-        if cluster == 0 || self.fat.geometry().root() == RootLocation::Cluster(cluster) {
-            return Ok(None);
-        }
-        Ok(Some(self.check_cluster(cluster)?))
-    }
 }
 
 impl<D: BlockDevice> FatFs<D> {
@@ -2654,10 +2610,10 @@ impl<D: BlockDevice> FatFs<D> {
         let DirStart::Chain(first) = self.dir_start(dir).await? else {
             return Ok(ROOT);
         };
-        let Some(up) = self.dot_dot(first).await? else {
+        let Some(up) = dirs::dot_dot(&mut self.dev, &mut self.block, &self.fat, first).await? else {
             return Ok(ROOT);
         };
-        let grand = match self.dot_dot(up).await? {
+        let grand = match dirs::dot_dot(&mut self.dev, &mut self.block, &self.fat, up).await? {
             Some(cluster) => DirStart::Chain(cluster),
             None => self.fat.root(),
         };

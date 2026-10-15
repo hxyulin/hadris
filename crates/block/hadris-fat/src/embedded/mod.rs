@@ -577,6 +577,7 @@ pub mod sync {
         ($($item:tt)*) => { #[inline(never)] $($item)* };
     }
 
+    use crate::sync::dirs;
     use hadris_fat_raw::io::sync as rawio;
     use hadris_storage::sync as storage;
 
@@ -604,6 +605,7 @@ pub mod async_ {
         ($($item:tt)*) => { $($item)* };
     }
 
+    use crate::async_::dirs;
     use hadris_fat_raw::io::async_ as rawio;
     use hadris_storage::async_ as storage;
 

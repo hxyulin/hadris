@@ -8,6 +8,7 @@ use hadris_fs::{
     SeekFrom, SetAttr,
 };
 
+use super::dirs;
 use super::rawio;
 use super::storage::BlockDevice;
 use crate::embedded::{
@@ -287,7 +288,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         match name {
             "." => return Ok(parent),
             ".." if parent.is_root() => return Ok(Dir::ROOT),
-            ".." => return Ok(self.dot_dot(parent.first()).await?.map_or(Dir::ROOT, Dir::new)),
+            ".." => return Ok(dirs::dot_dot(&mut self.dev, &mut self.block, &self.fat, parent.first()).await?.map_or(Dir::ROOT, Dir::new)),
             _ => {}
         }
         check_name(name)?;
@@ -655,7 +656,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
                 Some(child) => self.remove_located(DirStart::Chain(current), &child).await?,
                 None if current == top_first => break,
                 None => {
-                    let parent = self.dot_dot(current).await?.ok_or(ErrorKind::Corrupt)?;
+                    let parent = dirs::dot_dot(&mut self.dev, &mut self.block, &self.fat, current).await?.ok_or(ErrorKind::Corrupt)?;
                     let entry = self
                         .find(DirStart::Chain(parent), Query::Dir(current))
                         .await?
@@ -1542,7 +1543,9 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
             } else if let Some(bit) = (1..new.candidates.len()).find(|bit| taken & (1 << bit) == 0) {
                 new.candidates[bit]
             } else {
-                self.hashed_short(dir, text, skip).await?
+                let (code_page, fold) = (self.options.code_page(), self.options.fold());
+                let skip = |_, offset| skip.covers(offset);
+                dirs::hashed_short(&mut self.dev, &mut self.block, &self.fat, dir, text, code_page, fold, &skip).await?
             };
             Ok(Plan {
                 start,
@@ -1553,35 +1556,6 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
                 nt_case: if new.short_only() { new.case_bits.unwrap_or(0) } else { 0 },
             })
         }
-    }
-
-    /// A short name with a hashed `HHHH~N` tail that no entry of `dir` has.
-    async fn hashed_short(&mut self, dir: DirStart, text: &str, skip: Skip) -> FsResult<[u8; 11], D::Error> {
-        let (code_page, fold) = (self.options.code_page(), self.options.fold());
-        for suffix in CANDIDATES as u8..=u8::MAX {
-            let Some(mut candidate) = crate::names::short_name(text, suffix, code_page, fold) else {
-                continue;
-            };
-            short_name::to_disk(&mut candidate);
-            if !self.short_taken(dir, &candidate, skip).await? {
-                return Ok(candidate);
-            }
-        }
-        Err(ErrorKind::AlreadyExists.into())
-    }
-
-    async fn short_taken(&mut self, dir: DirStart, name: &[u8; 11], skip: Skip) -> FsResult<bool, D::Error> {
-        let mut walk = DirWalk::new(dir);
-        let mut slot = 0;
-        while let Some(offset) = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot).await? {
-            match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
-                Slot::End => break,
-                Slot::Short(entry) if entry.name() == *name && !entry.is_label() && !skip.covers(offset) => return Ok(true),
-                _ => {}
-            }
-            slot += 1;
-        }
-        Ok(false)
     }
 
     /// Appends the zeroed clusters `plan` needs to its directory.
@@ -1693,23 +1667,6 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         self.put(at, &entry.encode()).await
     }
 
-    /// The parent cluster in the `..` entry of the directory at `first`,
-    /// or `None` for the root.
-    async fn dot_dot(&mut self, first: u32) -> FsResult<Option<u32>, D::Error> {
-        let offset = self.fat.cluster_at(first)? + ENTRY_SIZE;
-        let Slot::Short(entry) = rawio::read_slot(&mut self.dev, &mut self.block, offset).await? else {
-            return Err(ErrorKind::Corrupt.into());
-        };
-        if !entry.is_dot_dot() {
-            return Err(ErrorKind::Corrupt.into());
-        }
-        let cluster = entry.first_cluster(self.kind());
-        if cluster == 0 || self.fat.geometry().root() == RootLocation::Cluster(cluster) {
-            return Ok(None);
-        }
-        Ok(Some(self.fat.check_cluster(cluster)?))
-    }
-
     /// Whether `dir` is the directory starting at `ancestor` or below it.
     async fn is_within(&mut self, dir: DirStart, ancestor: u32) -> FsResult<bool, D::Error> {
         let DirStart::Chain(mut cluster) = dir else {
@@ -1722,7 +1679,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
             if self.fat.geometry().root() == RootLocation::Cluster(cluster) {
                 return Ok(false);
             }
-            match self.dot_dot(cluster).await? {
+            match dirs::dot_dot(&mut self.dev, &mut self.block, &self.fat, cluster).await? {
                 Some(up) => cluster = up,
                 None => return Ok(false),
             }

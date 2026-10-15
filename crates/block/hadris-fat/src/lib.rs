@@ -385,8 +385,10 @@ pub mod sync {
     use hadris_fat_raw::io::sync as rawio;
     #[cfg(feature = "alloc")]
     use hadris_fs::sync as fsapi;
-    #[cfg(any(feature = "alloc", feature = "write"))]
     use hadris_storage::sync as storage;
+
+    #[path = "dirs.rs"]
+    pub(crate) mod dirs;
 
     #[cfg(any(feature = "alloc", feature = "write"))]
     #[path = "block_io.rs"]
