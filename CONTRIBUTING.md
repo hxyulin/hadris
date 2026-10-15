@@ -515,8 +515,13 @@ a tagged release candidate must remain compatible unless its version is bumped.
 Backward-compatible APIs are welcome with documentation, feature-tier coverage
 and tests.
 
-Feature-gated items should use `#[cfg_attr(docsrs, doc(cfg(...)))]` where the
-crate already enables `docsrs` (see `hadris-part`, `hadris`).
+Every published library crate enables `#![cfg_attr(docsrs, feature(doc_cfg))]`
+and sets `rustdoc-args = ["--cfg", "docsrs"]` in `[package.metadata.docs.rs]`,
+so docs.rs labels feature-gated items. Check a docs.rs build with
+`RUSTDOCFLAGS="--cfg docsrs -D warnings" cargo +nightly doc --workspace --no-deps --all-features`.
+Each crate ships `LICENSE-MIT` as a link to the root license, and a crate
+README must live in its crate directory so its relative links resolve on
+crates.io; `scripts/check-docs.py` checks both.
 
 ## License
 

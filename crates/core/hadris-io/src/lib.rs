@@ -99,6 +99,7 @@
 
 #![no_std]
 #![deny(missing_docs)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![allow(async_fn_in_trait)]
 
 #[cfg(feature = "alloc")]

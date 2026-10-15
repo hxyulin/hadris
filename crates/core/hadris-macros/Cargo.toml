@@ -11,6 +11,9 @@ readme = "README.md"
 keywords = ["macro", "async", "sync", "proc-macro"]
 categories = ["development-tools::procedural-macro-helpers"]
 
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
+
 [lib]
 proc-macro = true
 

@@ -8,6 +8,7 @@
 
 #![no_std]
 #![deny(missing_docs)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 /// Magic of the portable ASCII format (`newc`).
 pub const NEWC_MAGIC: &[u8; 6] = b"070701";

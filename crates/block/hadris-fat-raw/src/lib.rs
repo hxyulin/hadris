@@ -59,6 +59,7 @@
 
 #![cfg_attr(not(test), no_std)]
 #![deny(missing_docs)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![allow(clippy::duplicate_mod)]
 
 mod boot;
