@@ -114,6 +114,23 @@ else:
                 "--baseline-rev", "hadris-apfs-v3.0.0", *release_type, "-p", "hadris-apfs",
             ], (version, result.stdout)
 
+        git("tag", "-d", "hadris-apfs-v3.0.0")
+        rc1 = git("rev-parse", "hadris-v3.0.0-rc.1^{commit}")
+        for version in ("3.0.0-rc.2", "3.0.0"):
+            manifest.write_text(f'[package]\nname = "hadris"\nversion = "{version}"\n')
+            git("commit", "--quiet", "-am", f"hadris {version}")
+            (root / "metadata.json").write_text(json.dumps({"packages": [
+                {"name": "hadris", "version": version, "manifest_path": str(manifest)},
+            ]}))
+            for failure in (0, 1):
+                result, invocation = run("HEAD", failure=failure)
+                assert result.returncode == 0, "an unreleased version only reports breaks"
+                assert "reported against hadris-v3.0.0-rc.1" in result.stdout, result.stdout
+                assert json.loads(invocation.read_text()) == [
+                    "--baseline-rev", rc1, "--release-type", "minor", "-p", "hadris",
+                ], (version, result.stdout)
+                assert ("breaking changes since the previous pre-release" in result.stdout) == bool(failure)
+
     print("Semver baseline selection: new crates, release rules, previews and failures passed")
 
 

@@ -1,7 +1,9 @@
 name: V3 guardrails
 
-# Stability rule checks from docs/v3-api-design.md (R11). Every check blocks
-# since 3.0.0-rc.1. scripts/check-semver.sh documents the semver baselines.
+# Stability rule checks from docs/v3-api-design.md (R1, R11, R12). A finding
+# fails the job. Until a crate's version is released, scripts/check-semver.sh
+# only reports breaks against its previous pre-release as warnings; it
+# documents the semver baselines.
 
 on:
   push:
@@ -37,7 +39,7 @@ on:
 
 concurrency:
   group: guardrails-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -49,10 +51,12 @@ jobs:
   semver:
     name: semver-checks
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
       # cargo-semver-checks needs a newer toolchain than the pinned 1.88.
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
@@ -70,8 +74,11 @@ jobs:
   non-exhaustive:
     name: non_exhaustive lint (R1)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Self-test lint
         run: python3 scripts/check-non-exhaustive.py --self-test
       - name: Check public enums, structs and raw re-exports (R1, R12)
