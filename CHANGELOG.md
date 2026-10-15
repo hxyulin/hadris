@@ -55,6 +55,11 @@ Each published package owns its version and may be released independently.
 - **hadris-fs dependencies:** `hadris-storage` is an optional dependency
   enabled by `std`, so `hadris-fat-raw` and `hadris-iso-raw` without `std`
   no longer pull in `hadris-storage`.
+- **hadris-io, hadris (breaking):** `Error<E>` is no longer `Copy`; it
+  stays `Clone` when `E` is. A `Copy` impl would have frozen every private
+  field to `Copy` for all of 3.x. `hadris::Candidate` and
+  `hadris::Detection`, which hold an `Error<Infallible>`, are `Clone` but
+  no longer `Copy`. Call `.clone()` where an error was copied.
 
 - **Embedded FAT stale directories:** Using an embedded `Dir` of a removed
   subdirectory fails with `InvalidHandle` instead of reading or writing

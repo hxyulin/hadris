@@ -131,8 +131,8 @@ pub async fn detect<D: BlockDevice + ?Sized>(dev: &mut D) -> FsResult<Detection,
     } else {
         None
     };
-    if let (Some(_), Some(udf)) = (iso, udf) {
-        found.push(ImageFormat::IsoUdfBridge, udf);
+    if let (Some(_), Some(udf)) = (&iso, &udf) {
+        found.push(ImageFormat::IsoUdfBridge, udf.clone());
     }
     if let Some(iso) = iso {
         found.push(ImageFormat::Iso, iso);

@@ -851,7 +851,8 @@ pub enum ErrorKind {
 }
 ```
 
-- The context is `Copy` and needs no allocation: a static message, an optional location and a detail code, so nothing is dropped at crate boundaries. The detail code is a `u16` within a static domain (the crate name), so `Detail::of` of one crate never misreads another crate's code. Each crate has a `#[non_exhaustive] enum Detail` read back with `Detail::of(&err)`. Two errors are equal when their kinds and device errors are; the context never takes part. Detail codes are shared with `check` findings (4.15), so the finding for a bad boot sector carries the code mount fails with. The per-crate `Error` wrappers are removed.
+- The context is static and needs no allocation: a static message, an optional location and a detail code, so nothing is dropped at crate boundaries. The detail code is a `u16` within a static domain (the crate name), so `Detail::of` of one crate never misreads another crate's code. Each crate has a `#[non_exhaustive] enum Detail` read back with `Detail::of(&err)`. Two errors are equal when their kinds and device errors are; the context never takes part. Detail codes are shared with `check` findings (4.15), so the finding for a bad boot sector carries the code mount fails with. The per-crate `Error` wrappers are removed.
+- `Error<E>` is `Clone` when `E` is, but not `Copy` (decided before 3.0, ISSUE-09). A `Copy` impl would freeze every private field to `Copy` for all of 3.x, so a later owned message, boxed context or backtrace would be a breaking change.
 - `NotRecognized` separates "not this format" from `Corrupt`, so `detect` and `open` can tell a foreign device from a damaged one.
 - `ErrorKind::errno()` returns a symbolic `Errno` (one per kind); `Errno::linux()` gives the number. `Unsupported` is `EOPNOTSUPP`, never `ENOSYS`; `NotRecognized` and `InvalidInput` are `EINVAL`, `Corrupt` is `EUCLEAN` (Linux `EFSCORRUPTED`), `LimitExceeded` is `EOVERFLOW` and `InvalidHandle` is `ESTALE`. One kind maps to one errno, so FAT chmod refusals give `EOPNOTSUPP` where Linux vfat gives `EPERM`. `Errno::darwin()` for macFUSE is additive.
 - An error either shows its source's text in `Display` or returns it from `source()`, never both, so `anyhow`'s `{:#}` prints each message once.
@@ -1311,7 +1312,7 @@ Pass 3 (per-format extras), accepted on 2026-09-24:
 - `detect` lists every format found, each with the error mount would give. `open` returns an `AnyFs` enum, which reaches extras by `match`.
 - `Walk` stops at 1024 levels with `LimitExceeded`. It uses a heap stack under `alloc` and a caller-lent stack without it, through distinct constructors, not a feature switch.
 - Extraction is `host::write_tree(dir, &tree)`, with no options until 3.x.
-- Pass 1 changes: `BlockDevice::disk_offset`; `SetAttr` sets attributes; `MountOptions` gains `with_node_limit` and `backup_boot`; `Error` is `Clone` and `Copy` when the device error is; the trait contract gives a directory one id however it is reached.
+- Pass 1 changes: `BlockDevice::disk_offset`; `SetAttr` sets attributes; `MountOptions` gains `with_node_limit` and `backup_boot`; `Error` is `Clone` when the device error is (`Copy` was dropped before 3.0); the trait contract gives a directory one id however it is reached.
 - Pass 2 changes: format modules are no longer alloc-only, and builder items are gated one by one instead; `Tree` rejects `..`; `FileDevice` tracks whether its file is writable.
 - Open: `FileDevice` does not know a partition's start offset for `/dev/sdb1`; `SystemArea` and `Guid` belong in the partition crate; the async module shows a subset; cpio extraction builds the whole tree in memory.
 

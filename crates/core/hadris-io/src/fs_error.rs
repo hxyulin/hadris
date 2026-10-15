@@ -7,9 +7,12 @@ use crate::{ErrorKind, ExactError};
 /// `E` is the device's own error, kept without allocation: a kernel gets its
 /// driver's error back through [`device_error`](Self::device_error), and
 /// failures of the filesystem itself have none. Callers match on
-/// [`kind`](Self::kind). The rest of the context is `Copy` and static: a
-/// message, an optional [`Location`] and an optional [`DetailCode`] that a
-/// format crate's `Detail::of` reads back.
+/// [`kind`](Self::kind). The rest of the context is static: a message, an
+/// optional [`Location`] and an optional [`DetailCode`] that a format crate's
+/// `Detail::of` reads back.
+///
+/// `Error` is `Clone` when `E` is, but never `Copy`, so later 3.x releases
+/// can add owned context without a breaking change.
 ///
 /// `Display` shows the message and the location. A device error is the
 /// [`source`](core::error::Error::source), never part of the message, so a
@@ -34,7 +37,7 @@ use crate::{ErrorKind, ExactError};
 /// let err: Error<AtaError> = ErrorKind::NotFound.into();
 /// assert_eq!((err.kind(), err.device_error()), (ErrorKind::NotFound, None));
 /// ```
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Error<E> {
     message: &'static str,
     domain: &'static str,
@@ -388,12 +391,13 @@ mod tests {
     impl core::error::Error for Ata {}
 
     #[test]
-    fn context_is_copy_and_ignored_by_equality() {
+    fn context_is_cloned_and_ignored_by_equality() {
         let err = Error::new(ErrorKind::Corrupt, "bad boot sector")
             .with_location(Location::Byte(510))
             .with_detail(DetailCode::new("hadris-fat", 3));
-        let copy: Error<Ata> = err;
+        let copy: Error<Ata> = err.clone();
         assert_eq!(copy, err);
+        assert_eq!(copy.location(), Some(Location::Byte(510)));
         assert_eq!(err, Error::from(ErrorKind::Corrupt));
         assert_eq!(err.detail().and_then(|d| d.code_in("hadris-fat")), Some(3));
         assert_eq!(err.detail().and_then(|d| d.code_in("hadris-iso")), None);

@@ -236,7 +236,7 @@ with `std::io`-like kinds. V3 has one error type for every crate.
 
 | Item | Where | What it is |
 |---|---|---|
-| `Error<E>` | `hadris_io`, re-exported as `hadris_fs::Error` and `hadris::Error` | A kind, a static `message()`, an optional `location()`, an optional `detail()` code, and the device's own error `E` (`device_error()`, `into_device_error()`, `map_device`). `Clone` and `Copy` when `E` is. No allocation. |
+| `Error<E>` | `hadris_io`, re-exported as `hadris_fs::Error` and `hadris::Error` | A kind, a static `message()`, an optional `location()`, an optional `detail()` code, and the device's own error `E` (`device_error()`, `into_device_error()`, `map_device`). `Clone` when `E` is, never `Copy`. No allocation. |
 | `FsResult<T, E>` | same | `Result<T, Error<E>>`. Replaces the per-crate `Result` aliases. |
 | `ErrorKind` | same | `#[non_exhaustive]`: `Io`, `NotRecognized`, `Corrupt`, `NotFound`, `AlreadyExists`, `NotADirectory`, `IsADirectory`, `DirectoryNotEmpty`, `NoSpace`, `ReadOnly`, `InvalidInput`, `Unsupported`, `LimitExceeded`, `NameTooLong`, `FileTooLarge`, `Symlink`, `InvalidHandle`, `Busy`. The V2 `std::io`-style kinds (`InvalidData`, `UnexpectedEof`, `Other`, `PermissionDenied`, ...) are gone. |
 | `NotRecognized` | `ErrorKind` variant | The bytes are not this format at all. `Corrupt` now means "this format, but damaged". |
