@@ -26,7 +26,8 @@ These pages describe the `3.0.0-rc.2` API. The
 for registry installation and explains source checkouts before publication.
 V2 `2.5.0` is the published stable library version and remains in the version
 selector. The [migration guide](./migration.md) covers the upgrade from 2.4/2.5. In 3.0, exFAT is stable in `hadris-fat`, and the
-`hadris-ntfs` reader stays a preview outside the stability promise. See
+`hadris-ntfs` and `hadris-apfs` readers stay previews, versioned 0.x
+outside the stability promise. See
 [Stability and compatibility](./stability.md).
 
 :::

@@ -182,8 +182,23 @@ the shape of an existing item. `ErrorKind::NoSpace` exists in every build even
 though only a `write` build produces it.
 
 Previews use a separate module behind an `unstable-*` feature, for example
-`hadris::ntfs` behind `unstable-ntfs`, never cfg-gated variants.
-Anything outside such a module is covered by semver.
+`hadris::ntfs` behind `unstable-ntfs`, never cfg-gated variants of stable
+types. Anything outside such a module is covered by semver.
+
+One exception, decided 2026-10-15: `AnyFs::Apfs` exists only with
+`unstable-apfs`, together with APFS mounting in `open`, the APFS damage
+check in `detect` and `open_apfs`. `AnyFs` is `#[non_exhaustive]`, so a
+build that enables the feature only gains a variant, and the variant joins
+every build without a break once APFS is stable. Without the feature,
+`detect` still lists `ImageFormat::Apfs` from the container's `NXSB`
+signature and `open` fails on it with `NotRecognized` (`"apfs"`), as for
+NTFS (Q12). Wrapping `ApfsFs` in an opaque umbrella type was the rejected
+alternative: it would still tie the stable `detect` feature to the preview
+crate's version.
+
+Everything an `unstable-*` feature adds is outside semver and may change in
+any release, patch releases included. Users who enable one pin `hadris`
+with `=` or `~`.
 
 ### R4. On-disk layouts live in `raw`
 
@@ -254,7 +269,7 @@ Growing `FileSystem` has two more rules, both stated in the trait docs:
 
 ### R12. Crates version independently after 3.0.0
 
-Every crate ships 3.0.0 together. After that each crate has its own
+Every stable crate ships 3.0.0 together. After that each crate has its own
 version and bumps its major only for its own breaking changes; there is no
 lockstep release.
 
@@ -265,7 +280,8 @@ lockstep release.
   bridge writer takes `hadris-iso` options), and a major version of that
   dependency is a major version of the crate that exposes it.
 - The umbrella `hadris` re-exports the format crates, so it bumps its
-  major whenever a re-exported crate does.
+  major whenever a stable re-exported crate does. Previews behind
+  `unstable-*` are outside semver and never bump it.
 - Raw crates (`hadris-<fmt>-raw`) version separately and are never
   re-exported wholesale. A format crate re-exports only the raw items its
   own signatures use ([Q13](#7-open-questions)).
@@ -273,6 +289,14 @@ lockstep release.
   Raw crates may expose its types in their layouts; stable 3.x crates may
   not.
 - No new wholesale re-export of one crate by another is added.
+- Preview crates (`hadris-ntfs`, `hadris-apfs`) are versioned 0.x and leave
+  the 3.0 release train: each 0.y release may break their API and patch
+  releases stay compatible, which is what Cargo assumes for 0.x. They
+  start at 0.1.0. crates.io also holds their 2.x and 3.0.0-rc.1 releases,
+  so a bare `cargo add` picks 2.5.0 and the docs name the version. A
+  stable crate depends on a preview crate only behind an `unstable-*`
+  feature, so a 0.y bump never changes its stable API. A preview that
+  becomes stable moves to the major its umbrella is on.
 
 Each release is tagged `<crate>-v<version>`, and the release workflow publishes one crate or a set (step 14).
 
@@ -970,7 +994,7 @@ and non-`Send` contracts differ:
 | `async` | Async API: `Send` futures in the shared tier, `local` futures in the embedded API and `hadris_fs::local`. There is no separate local-only feature: `async` builds on every target `sync` does, including those without atomic compare-and-swap. |
 | `write` | Kept on `hadris-fat` and forwarded by the umbrella (S4 in 4.17). It only adds items. Other crates gain one in 3.x only if needed, which is additive. |
 | `tracing` | Spans through the `tracing` crate. Independent of `std`, so `no_std` builds can trace (the `tracing` crate needs `liballoc` there); `std` turns on `tracing/std`. |
-| `unstable-*` | Enables a preview module, such as `unstable-ntfs`, or the driver contract kit, `hadris-fs`'s `unstable-contract`. Outside semver; never changes stable items. |
+| `unstable-*` | Enables a preview, such as `unstable-ntfs` or `unstable-apfs`, or the driver contract kit, `hadris-fs`'s `unstable-contract`. Outside semver. Never changes stable items; `unstable-apfs` adds the `AnyFs::Apfs` variant (R3). |
 
 - `read` is dropped; reading is always available, in `hadris-apfs` too. `async-send` and `async-local` are dropped.
 - `crc` and `rand` stop being user-facing features. CRC is always compiled. GUIDs come from the caller or the seed (4.10).

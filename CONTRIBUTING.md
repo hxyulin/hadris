@@ -313,11 +313,15 @@ before returning. Summaries are written to `external-tools-accuracy.txt`,
 
 Each package declares its own version in its `Cargo.toml`, and
 `[workspace.dependencies]` holds the requirement every other crate uses.
-Every crate ships 3.0.0 together; after that each crate versions on its own
-(R12 in [`docs/v3-api-design.md`](docs/v3-api-design.md)). A crate bumps its
-major only for its own breaking changes, and the umbrella `hadris` bumps its
-major when a crate it re-exports does. `hadris-fat-raw` versions separately
-from 0.1.0. The examples are `publish = false`.
+Every stable crate ships 3.0.0 together; after that each crate versions on
+its own (R12 in [`docs/v3-api-design.md`](docs/v3-api-design.md)). A crate
+bumps its major only for its own breaking changes, and the umbrella `hadris`
+bumps its major when a stable crate it re-exports does. `hadris-fat-raw`
+versions separately from 0.1.0. The preview crates `hadris-ntfs` and
+`hadris-apfs` are versioned 0.x from 0.1.0: a breaking change bumps their
+0.y, and since the umbrella reaches them only through `unstable-*`
+features, which are outside semver, that never bumps `hadris`'s major. The
+examples are `publish = false`.
 
 To release, bump the versions of the crates being released and of their
 requirements in `[workspace.dependencies]`, and add a dated

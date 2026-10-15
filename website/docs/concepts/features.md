@@ -80,7 +80,7 @@ lazy `read_tree`, whose content sources still require Send and Sync.
 | `hadris-cpio` | CPIO newc, CRC and odc; old binary read | Yes | Yes | Yes | Yes | Allocation-free (writing needs `alloc`) | Stable |
 | `hadris-ntfs` | NTFS | Yes | No | Yes | Yes | Allocation-free | Preview |
 | `hadris-apfs` | APFS containers and volumes | Yes | No | Yes | Yes | `alloc` | Preview |
-| `hadris` `detect` | Detection of every format above, opening FAT, exFAT, ISO 9660, UDF and single-volume APFS as `AnyFs` | Yes | N/A | Yes | Yes | Allocation-free detection; `open` needs `alloc` | Stable |
+| `hadris` `detect` | Detection of every format above, opening FAT, exFAT, ISO 9660 and UDF as `AnyFs`, and single-volume APFS with `unstable-apfs` | Yes | N/A | Yes | Yes | Allocation-free detection; `open` needs `alloc` | Stable |
 
 "Allocation-free" means the core parser can operate without a global
 allocator. Higher-level conveniences such as owned filenames, collected
@@ -139,8 +139,10 @@ compiled, and `alloc` adds the writer.
 - Select at least one I/O mode for APIs that access storage.
 - Add `alloc` only when the chosen API returns or stores owned data.
 - Use the umbrella with defaults disabled for one dependency and one format; use leaf crates for direct ownership of their versions.
-- Treat `hadris-ntfs` and `unstable-ntfs` as a preview whose native API may
-  change in minor releases.
+- Treat `hadris-ntfs`, `hadris-apfs`, `unstable-ntfs` and `unstable-apfs`
+  as previews outside semver. The crates are versioned 0.x; depend on
+  `"0.1"` explicitly, and pin `hadris` when enabling an `unstable-*`
+  feature. See [stability](../stability.md).
 - `tracing` adds spans without selecting `std`, so `no_std` builds can trace
   when they have a global allocator, which the `tracing` crate needs.
 

@@ -93,6 +93,25 @@ Each published package owns its version and may be released independently.
   re-exports `U16Le` through `I64Be` and the `zerocopy` dependency, `U24`,
   `BigEndian`, `NativeEndian`, the `Endian` trait, `Endianness::is_le`,
   `get_u24` and `set_u24`, and `align_up`.
+- **hadris (breaking):** The APFS preview is no longer part of the stable
+  `detect` feature. `AnyFs::Apfs`, APFS mounting in `open`,
+  `open_partition` and `host::open`, and the APFS damage check in `detect`
+  need `unstable-apfs`, and `detect` no longer depends on `hadris-apfs`.
+  Without `unstable-apfs`, `detect` still lists an APFS container as
+  `ImageFormat::Apfs` from its `NXSB` signature, with no damage, and `open`
+  fails on it with `NotRecognized` and message `"apfs"`, as it does for
+  NTFS. Enable `unstable-apfs` to keep mounting APFS through `open`.
+  `AnyFs` is `#[non_exhaustive]`, so the variant returns without a break
+  when APFS is stable.
+
+- **hadris-apfs, hadris-ntfs (breaking):** The preview crates are versioned
+  0.1.0 instead of 3.0.0-rc.2 and leave the 3.x release train: each 0.y
+  release may break their API, which Cargo treats as incompatible, and
+  patch releases stay compatible. Depend on `hadris-apfs = "0.1"` and
+  `hadris-ntfs = "0.1"`. The 2.x and 3.0.0-rc.1 releases on crates.io
+  predate this scheme; a bare `cargo add` picks 2.5.0, so name the
+  version. Everything the `unstable-ntfs` and `unstable-apfs` features of
+  `hadris` add is outside semver and may change in any `hadris` release.
 
 - **Embedded FAT stale directories:** Using an embedded `Dir` of a removed
   subdirectory fails with `InvalidHandle` instead of reading or writing

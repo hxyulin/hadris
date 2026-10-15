@@ -118,7 +118,7 @@ Sections:
 | `hadris-block` | Removed. Use `hadris::{sync, async_}::{detect, open, AnyFs}`, `hadris::host::open`, and `hadris_part::sync::open` for partitions. |
 | `hadris-fat` | `hadris-fat`. On-disk layouts moved to `hadris-fat-raw`. exFAT is stable. |
 | `hadris-part` | `hadris-part`. New `Disk` API on block devices. |
-| `hadris-ntfs` | `hadris-ntfs`, still a preview. `hadris::ntfs` behind the umbrella's `unstable-ntfs` feature. |
+| `hadris-ntfs` | `hadris-ntfs` 0.1, still a preview versioned 0.x outside the 3.x promise (write `hadris-ntfs = "0.1"`). `hadris::ntfs` behind the umbrella's `unstable-ntfs` feature. |
 | `hadris-optical` | Removed. Use `hadris::{sync, async_}::{detect, open, AnyFs}`. |
 | `hadris-cd` | Removed. The ISO 9660 and UDF bridge writer is `hadris_udf::plan_bridge` and `hadris_udf::{sync, async_}::write_bridge`. |
 | `hadris-iso` | `hadris-iso`. One reader, `IsoFs`; the writer takes a `Tree`. |
@@ -174,7 +174,9 @@ Rules that hold for every V3 crate:
   which every async driver accepts. `local` names a separate contract
   without `Send` bounds wherever it appears; storage and the format crates
   have no `local` module.
-- Only `unstable-*` features add APIs outside the stability promise.
+- Only `unstable-*` features add APIs outside the stability promise, and
+  everything they add may change in any release. The preview crates
+  `hadris-ntfs` and `hadris-apfs` are versioned 0.x, not 3.x.
 - No crate re-exports a mode at its root. Write `hadris_fat::sync::FatFs`,
   not `hadris_fat::FatFs`.
 
@@ -885,14 +887,15 @@ let vol = Volume::new(fs);
   and `iter()` give `Candidate`s with `format()` and `damage()`. The block
   size is the device's; there is no block size argument.
 - `hadris::ImageFormat` (`#[non_exhaustive]`): `Fat(FatKind)`, `ExFat`,
-  `Iso`, `Udf`, `IsoUdfBridge`, `Cpio(Format)`, `Mbr`, `Gpt`, `Ntfs`. It
+  `Iso`, `Udf`, `IsoUdfBridge`, `Cpio(Format)`, `Mbr`, `Gpt`, `Ntfs`, `Apfs`. It
   replaces `BlockFormat`, `FatVariant`, `PartitionTableKind`,
   `OpticalFormat` and `OpticalFormats`.
 - `hadris::sync::open(dev, MountOptions)` (`alloc`) mounts the first
   filesystem found as `hadris::sync::AnyFs` (`Fat`, `ExFat`, `Iso`, `Udf`),
   which implements `FileSystem`, and has `unmount` and `into_inner`. Reach a
   driver's extras by `match`. NTFS, partition tables and archives fail with
-  `ErrorKind::NotRecognized`, giving the device back.
+  `ErrorKind::NotRecognized`, giving the device back, and so does APFS
+  unless `unstable-apfs` adds the `AnyFs::Apfs` variant.
 - `hadris::host::open(path)` opens an image read-only with
   `host::mount_options()`.
 - `OpenPolicy` has no successor. A bridge image opens as UDF; mount
@@ -1416,7 +1419,9 @@ resolution is a value, `hadris_fs::Resolve::{Lexical, Follow, NoFollow}`.
 
 ### hadris-ntfs
 
-NTFS stays a preview; its native API may change in 3.x minors.
+NTFS stays a preview. The crate is versioned 0.x (0.1.0), outside the 3.x
+release train, so each 0.y release may break its native API; write
+`hadris-ntfs = "0.1"`, since a bare `cargo add hadris-ntfs` picks 2.5.0.
 
 | V2 path | V3 path or replacement |
 |---|---|
@@ -1696,9 +1701,18 @@ APFS arrived after the V2 2.4 API mapped above. V3 now has a read-only
 | `root_leaf_volume_object_map_values` | `volume_object_map_values`, traversing all object-map leaves |
 | Standalone APFS inspection tool | Unified `hadris apfs info`, `ls`, `stat`, `cat` and `extract`; `hadris-apfs-cli` is removed from the workspace in RC2 |
 
-The umbrella's `detect` feature includes APFS detection and single-volume
-mounting. `unstable-apfs` additionally exposes native APFS APIs and explicit
-selection through `open_apfs`. APFS native interfaces remain a preview;
-the shared filesystem behavior follows the V3 trait contract. The mounted
+`hadris-apfs` is a preview versioned 0.x (0.1.0), outside the 3.x release
+train: each 0.y release may break its API. Write `hadris-apfs = "0.1"`; the
+2.5.0 and 3.0.0-rc.1 releases predate this scheme, and a bare
+`cargo add hadris-apfs` picks 2.5.0.
+
+The umbrella's `detect` feature lists APFS containers as
+`ImageFormat::Apfs` from their signature but does not mount them.
+`unstable-apfs` adds the `hadris::apfs` re-export, `AnyFs::Apfs`,
+single-volume mounting in `open` and `host::open`, the APFS damage check in
+`detect`, and explicit selection through `open_apfs`. In RC2, `detect`
+mounted APFS without `unstable-apfs`; add the feature to keep that. The
+APFS parts of the umbrella remain a preview outside semver; the shared
+filesystem behavior follows the V3 trait contract. The mounted
 driver indexes metadata in memory, requires `alloc` and supports `no_std`.
 See the [APFS use cases](apfs-v3-use-cases.md) for the scenarios and limits.

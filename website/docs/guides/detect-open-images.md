@@ -89,7 +89,8 @@ directly to choose an ISO namespace.
 A failed open returns the device in a `MountError`. NTFS volumes, partition
 tables and archives fail with `ErrorKind::NotRecognized` (the messages are
 `"ntfs"`, `"partition table"` and `"archive"`), and so does a device with no
-known format.
+known format. APFS containers do too (`"apfs"`) unless the `unstable-apfs`
+preview feature adds `AnyFs::Apfs`.
 
 ## Open a partition
 
