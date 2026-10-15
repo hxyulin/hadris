@@ -27,6 +27,11 @@
     },
     {
       "crate": "hadris-fs",
+      "tier": "std-async-host-helpers",
+      "features": "std,async"
+    },
+    {
+      "crate": "hadris-fs",
       "tier": "no-std-async",
       "features": "async"
     },
@@ -84,6 +89,21 @@
       "crate": "hadris-storage",
       "tier": "alloc-async",
       "features": "alloc,async"
+    },
+    {
+      "crate": "hadris-storage",
+      "tier": "std-no-mode",
+      "features": "std"
+    },
+    {
+      "crate": "hadris-storage",
+      "tier": "std-sync",
+      "features": "std,sync"
+    },
+    {
+      "crate": "hadris-storage",
+      "tier": "std-async",
+      "features": "std,async"
     },
     {
       "crate": "hadris-fs",

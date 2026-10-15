@@ -17,8 +17,9 @@
 //!
 //! [`Tree`], [`Node`] and [`Content`] (`alloc`) are the input of every
 //! image writer, and [`Report`] is what every writer, planner and
-//! `copy_tree` returns. [`host`] (`std` and `sync`) moves trees between host
-//! directories and writers.
+//! `copy_tree` returns. [`host`] (`std`) has the host's mount and build
+//! defaults and, with `sync`, moves trees between host directories and
+//! writers.
 //!
 //! [`Error<E>`] is the error of every filesystem operation, re-exported from
 //! `hadris-io` with [`ErrorKind`], [`Location`], [`DetailCode`] and
@@ -60,7 +61,7 @@ mod dir;
 mod error;
 mod extent;
 mod fuse;
-#[cfg(all(feature = "std", feature = "sync"))]
+#[cfg(feature = "std")]
 pub mod host;
 mod meta;
 mod mount;

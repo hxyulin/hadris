@@ -17,8 +17,8 @@
 //! Send capability derives automatically from the device and operation state.
 //! Mode-independent devices such as [`MemDevice`], [`Partition`] and `Vec<u8>`
 //! also support the synchronous contract.
-//! With `std` and `sync`, `host::FileDevice` is a host image file or disk
-//! device.
+//! With `std`, `host::FileDevice` is a host image file or disk device, with
+//! the block-device contract of each enabled mode.
 
 #![no_std]
 #![allow(async_fn_in_trait)]

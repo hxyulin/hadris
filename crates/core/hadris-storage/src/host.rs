@@ -2,18 +2,16 @@
 
 use std::fs::{File, Metadata};
 use std::io::{self, Seek, SeekFrom};
-#[cfg(feature = "sync")]
 use std::path::Path;
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "async")]
+use core::task::{Context, Poll};
+
 use hadris_io::{Error, ErrorKind, ErrorType, Location};
 
-#[cfg(feature = "sync")]
 use crate::device::{byte_offset, check_blocks};
-#[cfg(feature = "sync")]
 use crate::{BlockIndex, BlockSize};
 
-#[cfg(feature = "sync")]
 const BLOCK: BlockSize = crate::device::BLOCK_512;
 
 /// A host image file or disk device.
@@ -58,7 +56,6 @@ const BLOCK: BlockSize = crate::device::BLOCK_512;
 /// # std::fs::remove_file(&path).unwrap();
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
-#[cfg(feature = "sync")]
 #[derive(Debug)]
 pub struct FileDevice {
     file: File,
@@ -69,7 +66,6 @@ pub struct FileDevice {
     grows: bool,
 }
 
-#[cfg(feature = "sync")]
 impl FileDevice {
     /// Opens the image or device at `path` read-only.
     pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
@@ -165,7 +161,6 @@ impl FileDevice {
 
 /// Fills `buf` from byte `offset` of `file` with positional reads where the
 /// platform has them, so a read takes one system call.
-#[cfg(feature = "sync")]
 fn read_exact_at(file: &mut File, buf: &mut [u8], offset: u64) -> io::Result<()> {
     #[cfg(unix)]
     {
@@ -197,7 +192,6 @@ fn read_exact_at(file: &mut File, buf: &mut [u8], offset: u64) -> io::Result<()>
 
 /// Writes all of `buf` at byte `offset` of `file`, as [`read_exact_at`]
 /// reads.
-#[cfg(feature = "sync")]
 fn write_all_at(file: &mut File, buf: &[u8], offset: u64) -> io::Result<()> {
     #[cfg(unix)]
     {
@@ -231,7 +225,6 @@ fn write_all_at(file: &mut File, buf: &[u8], offset: u64) -> io::Result<()> {
 /// of its descriptor: POSIX lets a write of no bytes succeed without
 /// checking access, as Miri's does. Elsewhere a write of no bytes, which
 /// Windows refuses on a handle without write access, is the probe.
-#[cfg(feature = "sync")]
 fn accepts_writes(file: &File) -> bool {
     #[cfg(unix)]
     {
@@ -251,7 +244,6 @@ fn accepts_writes(file: &File) -> bool {
 /// A failed write or flush of `err`, kept as the device error. An OS
 /// refusal to write, as on a read-only filesystem or write-protected media,
 /// has kind [`ErrorKind::ReadOnly`].
-#[cfg(feature = "sync")]
 pub(crate) fn write_error(err: io::Error, message: &'static str) -> Error<io::Error> {
     let refused = matches!(
         err.kind(),
@@ -265,9 +257,61 @@ pub(crate) fn write_error(err: io::Error, message: &'static str) -> Error<io::Er
     }
 }
 
-#[cfg(feature = "sync")]
 impl ErrorType for FileDevice {
     type Error = io::Error;
+}
+
+#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
+impl FileDevice {
+    fn blocks(&self) -> u64 {
+        self.len / u64::from(self.block_size.get())
+    }
+
+    fn max_blocks(&self) -> u64 {
+        if self.writable && self.grows {
+            u64::MAX / u64::from(self.block_size.get())
+        } else {
+            self.blocks()
+        }
+    }
+
+    fn read_file_blocks(
+        &mut self,
+        first: BlockIndex,
+        buf: &mut [u8],
+    ) -> Result<(), Error<io::Error>> {
+        check_blocks(self.block_size, self.blocks(), first, buf.len())?;
+        let offset = byte_offset(self.block_size, first)?;
+        read_exact_at(&mut self.file, buf, offset).map_err(|err| {
+            Error::device(err, "reading the file failed")
+                .with_location(Location::Block(first.get()))
+        })
+    }
+
+    fn write_file_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<(), Error<io::Error>> {
+        if !self.writable {
+            return Err(Error::new(
+                ErrorKind::ReadOnly,
+                "file is not open for writing",
+            ));
+        }
+        check_blocks(self.block_size, self.max_blocks(), first, buf.len())?;
+        let offset = byte_offset(self.block_size, first)?;
+        write_all_at(&mut self.file, buf, offset).map_err(|err| {
+            write_error(err, "writing the file failed").with_location(Location::Block(first.get()))
+        })?;
+        self.len = self.len.max(offset + buf.len() as u64);
+        Ok(())
+    }
+
+    fn flush_file(&mut self) -> Result<(), Error<io::Error>> {
+        if !self.writable {
+            return Ok(());
+        }
+        self.file
+            .sync_data()
+            .map_err(|err| write_error(err, "syncing the file failed"))
+    }
 }
 
 #[cfg(feature = "sync")]
@@ -281,15 +325,11 @@ impl crate::sync::BlockDevice for FileDevice {
     }
 
     fn block_count(&self) -> u64 {
-        self.len / u64::from(self.block_size.get())
+        self.blocks()
     }
 
     fn max_block_count(&self) -> u64 {
-        if self.writable && self.grows {
-            u64::MAX / u64::from(self.block_size.get())
-        } else {
-            self.block_count()
-        }
+        self.max_blocks()
     }
 
     fn writable(&self) -> bool {
@@ -297,40 +337,75 @@ impl crate::sync::BlockDevice for FileDevice {
     }
 
     fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<io::Error>> {
-        check_blocks(self.block_size, self.block_count(), first, buf.len())?;
-        let offset = byte_offset(self.block_size, first)?;
-        read_exact_at(&mut self.file, buf, offset).map_err(|err| {
-            Error::device(err, "reading the file failed")
-                .with_location(Location::Block(first.get()))
-        })
+        self.read_file_blocks(first, buf)
     }
 
     fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<(), Error<io::Error>> {
-        if !self.writable {
-            return Err(Error::new(
-                ErrorKind::ReadOnly,
-                "file is not open for writing",
-            ));
-        }
-        check_blocks(self.block_size, self.max_block_count(), first, buf.len())?;
-        let offset = byte_offset(self.block_size, first)?;
-        write_all_at(&mut self.file, buf, offset).map_err(|err| {
-            write_error(err, "writing the file failed").with_location(Location::Block(first.get()))
-        })?;
-        self.len = self.len.max(offset + buf.len() as u64);
-        Ok(())
+        self.write_file_blocks(first, buf)
     }
 
     /// Calls `sync_data`, so a flush reaches stable storage. A read-only
     /// device has nothing to write and succeeds without syncing.
     fn flush(&mut self) -> Result<(), Error<io::Error>> {
-        if !self.writable {
-            return Ok(());
-        }
-        self.file
-            .sync_data()
-            .map_err(|err| write_error(err, "syncing the file failed"))
+        self.flush_file()
     }
+}
+
+#[cfg(feature = "async")]
+impl crate::async_::BlockDevice for FileDevice {
+    type State = ();
+
+    fn block_size(&self) -> BlockSize {
+        self.block_size
+    }
+
+    fn physical_block_size(&self) -> BlockSize {
+        self.physical_block_size
+    }
+
+    fn block_count(&self) -> u64 {
+        self.blocks()
+    }
+
+    fn max_block_count(&self) -> u64 {
+        self.max_blocks()
+    }
+
+    fn writable(&self) -> bool {
+        self.writable
+    }
+
+    fn poll_read_blocks(
+        &mut self,
+        _: &mut (),
+        _: &mut Context<'_>,
+        first: BlockIndex,
+        buf: &mut [u8],
+    ) -> Poll<Result<(), Error<io::Error>>> {
+        Poll::Ready(self.read_file_blocks(first, buf))
+    }
+
+    fn poll_write_blocks(
+        &mut self,
+        _: &mut (),
+        _: &mut Context<'_>,
+        first: BlockIndex,
+        buf: &[u8],
+    ) -> Poll<Result<(), Error<io::Error>>> {
+        Poll::Ready(self.write_file_blocks(first, buf))
+    }
+
+    /// Calls `sync_data`, so a flush reaches stable storage. A read-only
+    /// device has nothing to write and succeeds without syncing.
+    fn poll_flush(
+        &mut self,
+        _: &mut (),
+        _: &mut Context<'_>,
+    ) -> Poll<Result<(), Error<io::Error>>> {
+        Poll::Ready(self.flush_file())
+    }
+
+    fn cancel(&mut self, _: &mut ()) {}
 }
 
 /// The length in bytes of a host file or disk device.
@@ -372,11 +447,7 @@ pub fn file_len(file: &File) -> io::Result<u64> {
     Ok(end)
 }
 
-#[cfg(any(
-    all(feature = "sync", unix),
-    target_vendor = "apple",
-    target_os = "freebsd"
-))]
+#[cfg(unix)]
 fn is_device(meta: Option<&Metadata>) -> bool {
     use std::os::unix::fs::FileTypeExt;
     meta.is_some_and(|meta| {
@@ -483,7 +554,7 @@ unsafe extern "system" {
     ) -> i32;
 }
 
-#[cfg(all(feature = "sync", unix))]
+#[cfg(unix)]
 fn disk_block_size(file: &File, meta: Option<&Metadata>) -> Option<BlockSize> {
     if !is_device(meta) {
         return None;
@@ -491,10 +562,7 @@ fn disk_block_size(file: &File, meta: Option<&Metadata>) -> Option<BlockSize> {
     query_block_size(file).and_then(BlockSize::new)
 }
 
-#[cfg(all(
-    feature = "sync",
-    any(target_vendor = "apple", target_os = "freebsd", target_os = "linux")
-))]
+#[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "linux"))]
 fn query_block_size(file: &File) -> Option<u32> {
     use std::os::fd::AsRawFd;
 
@@ -518,7 +586,6 @@ fn query_block_size(file: &File) -> Option<u32> {
 }
 
 #[cfg(all(
-    feature = "sync",
     unix,
     not(any(target_vendor = "apple", target_os = "freebsd", target_os = "linux"))
 ))]
@@ -526,7 +593,7 @@ fn query_block_size(_file: &File) -> Option<u32> {
     None
 }
 
-#[cfg(all(feature = "sync", unix))]
+#[cfg(unix)]
 fn disk_physical_block_size(file: &File, meta: Option<&Metadata>) -> Option<BlockSize> {
     if !is_device(meta) {
         return None;
@@ -534,7 +601,7 @@ fn disk_physical_block_size(file: &File, meta: Option<&Metadata>) -> Option<Bloc
     query_physical_block_size(file).and_then(BlockSize::new)
 }
 
-#[cfg(all(feature = "sync", any(target_vendor = "apple", target_os = "linux")))]
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
 fn query_physical_block_size(file: &File) -> Option<u32> {
     use std::os::fd::AsRawFd;
 
@@ -562,7 +629,7 @@ fn query_physical_block_size(file: &File) -> Option<u32> {
 
 /// FreeBSD reports the physical block size as the stripe size, 0 when the
 /// provider has none.
-#[cfg(all(feature = "sync", target_os = "freebsd"))]
+#[cfg(target_os = "freebsd")]
 fn query_physical_block_size(file: &File) -> Option<u32> {
     use std::os::fd::AsRawFd;
 
@@ -575,7 +642,6 @@ fn query_physical_block_size(file: &File) -> Option<u32> {
 }
 
 #[cfg(all(
-    feature = "sync",
     unix,
     not(any(target_vendor = "apple", target_os = "freebsd", target_os = "linux"))
 ))]
@@ -583,12 +649,12 @@ fn query_physical_block_size(_file: &File) -> Option<u32> {
     None
 }
 
-#[cfg(all(feature = "sync", not(unix)))]
+#[cfg(not(unix))]
 fn disk_physical_block_size(_file: &File, _meta: Option<&Metadata>) -> Option<BlockSize> {
     None
 }
 
-#[cfg(all(feature = "sync", windows))]
+#[cfg(windows)]
 fn disk_block_size(file: &File, _meta: Option<&Metadata>) -> Option<BlockSize> {
     use std::os::windows::io::AsRawHandle;
 
@@ -627,7 +693,7 @@ fn disk_block_size(file: &File, _meta: Option<&Metadata>) -> Option<BlockSize> {
     }
 }
 
-#[cfg(all(feature = "sync", not(any(unix, windows))))]
+#[cfg(not(any(unix, windows)))]
 fn disk_block_size(_file: &File, _meta: Option<&Metadata>) -> Option<BlockSize> {
     None
 }

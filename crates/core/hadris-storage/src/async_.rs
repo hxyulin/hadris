@@ -698,55 +698,6 @@ impl<D: BlockDevice> hadris_io::local::Seek for ByteView<D> {
     }
 }
 
-#[cfg(all(feature = "std", feature = "sync"))]
-impl BlockDevice for crate::host::FileDevice {
-    type State = ();
-    fn block_size(&self) -> BlockSize {
-        crate::sync::BlockDevice::block_size(self)
-    }
-    fn physical_block_size(&self) -> BlockSize {
-        crate::sync::BlockDevice::physical_block_size(self)
-    }
-    fn block_count(&self) -> u64 {
-        crate::sync::BlockDevice::block_count(self)
-    }
-    fn max_block_count(&self) -> u64 {
-        crate::sync::BlockDevice::max_block_count(self)
-    }
-    fn disk_offset(&self) -> u64 {
-        crate::sync::BlockDevice::disk_offset(self)
-    }
-    fn writable(&self) -> bool {
-        crate::sync::BlockDevice::writable(self)
-    }
-    fn poll_read_blocks(
-        &mut self,
-        _: &mut (),
-        _: &mut Context<'_>,
-        first: BlockIndex,
-        buf: &mut [u8],
-    ) -> Poll<Result<(), Error<Self::Error>>> {
-        Poll::Ready(crate::sync::BlockDevice::read_blocks(self, first, buf))
-    }
-    fn poll_write_blocks(
-        &mut self,
-        _: &mut (),
-        _: &mut Context<'_>,
-        first: BlockIndex,
-        buf: &[u8],
-    ) -> Poll<Result<(), Error<Self::Error>>> {
-        Poll::Ready(crate::sync::BlockDevice::write_blocks(self, first, buf))
-    }
-    fn poll_flush(
-        &mut self,
-        _: &mut (),
-        _: &mut Context<'_>,
-    ) -> Poll<Result<(), Error<Self::Error>>> {
-        Poll::Ready(crate::sync::BlockDevice::flush(self))
-    }
-    fn cancel(&mut self, _: &mut ()) {}
-}
-
 #[path = "poll_stream.rs"]
 mod stream;
 #[cfg(feature = "sync")]
