@@ -77,6 +77,15 @@ operation state tracks seek and partial transfer progress safely across polls.
 It forwards cancellation to the stream. Growth is controlled by the backend's
 explicit capability.
 
+`async_::Stream` is not the byte-stream contract of the format crates. CPIO
+and lazy tree content read through `hadris_io::async_::{Read, Write, Seek}`
+and their `local` twins, which use `async fn` and return the bare error.
+`Stream` has the block device's shape instead (`Error<Self::Error>`, owned
+`State`, `cancel`) and only backs `StreamDevice`. `ByteView` turns a block
+device into the `hadris_io` traits; nothing turns those traits into a
+`Stream`, so a source that serves both a CPIO reader and a `StreamDevice`
+implements both traits.
+
 With `sync`, `BlockingStream::new(stream)` adapts an existing synchronous
 stream. It blocks the executor during the synchronous call. Use
 `BlockingStream::new_growable(stream)` only when the stream supports extending

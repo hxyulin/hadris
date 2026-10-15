@@ -189,6 +189,9 @@ the contract through synchronous OS I/O and therefore blocks the polling thread.
 Arbitrary borrowed async stream futures cannot be safely converted to
 resumable poll operations, so backends implement the poll contract directly. The unified `StreamDevice` accepts the poll-native
 `Stream` trait, whose state and cancellation follow the device contract.
+`Stream` only backs `StreamDevice`; cpio and lazy tree content read bytes
+through the `hadris_io` async `Read`, `Write` and `Seek` traits instead, and
+`ByteView` turns a block device into those traits.
 `BlockingStream::new` keeps a fixed size; use `new_growable` only for a stream
 known to support extension. Reconstruct a `StreamDevice` after changing its
 length through `get_mut` so its readable block count stays accurate.

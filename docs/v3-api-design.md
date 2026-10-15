@@ -1939,3 +1939,17 @@ local operations and conditional Send futures through owned operation state.
 `async_` is the only async namespace; the historical
 mode decisions above describe earlier development stages. CPIO byte-stream
 contracts and lazy content-source requirements remain separate.
+
+Two async byte-stream contracts remain in 3.0 (ISSUE-09, CORE-11).
+`hadris_io::{async_, local}::{Read, Write, Seek}` is the canonical one: format
+crates consume it (cpio, lazy tree content), with `async fn` and the bare
+`Self::Error`. `hadris_storage::async_::Stream` is the poll-based byte contract
+with the block device's shape (`Error<Self::Error>`, owned `State`, `cancel`),
+and only backs `StreamDevice`. `ByteView` bridges a block device to the
+`hadris_io` traits. No bridge goes the other way, because an `async fn` future
+that borrows its buffer cannot be retained between polls. A source that serves
+both a cpio reader and a `StreamDevice` implements both traits. `Stream` is
+stable like the rest of `async_`: the stability promise has no provisional tier
+outside `unstable-*` features. Moving it into `hadris-io` with a re-export
+stays possible in 3.x; a blanket bridge between the two would conflict with
+types that implement both, so it would be a breaking change.

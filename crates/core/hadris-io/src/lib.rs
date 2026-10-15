@@ -83,6 +83,19 @@
 //! let err = Uart.read_exact(&mut [0; 4]).unwrap_err();
 //! assert!(matches!(err, hadris_io::ExactError::Io(UartError::Framing)));
 //! ```
+//!
+//! ## Async byte streams and block devices
+//!
+//! The async `Read`, `Write` and `Seek` traits are the byte-stream contract
+//! of the format crates: cpio archives and lazy tree content read through
+//! them, and they return the implementor's bare error. Block devices use
+//! the poll-based contract of `hadris-storage` instead, whose hooks return
+//! [`Error<E>`](Error), keep per-operation state and can be cancelled.
+//! `hadris-storage` also has a poll-based byte `Stream` with the same
+//! shape, which only backs its `StreamDevice`. Its `ByteView` turns a
+//! block device into these traits; nothing turns these traits into a
+//! `Stream`, since an `async fn` future that borrows its buffer cannot be
+//! kept between polls. A source that serves both implements both.
 
 #![no_std]
 #![deny(missing_docs)]

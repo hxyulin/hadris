@@ -8,6 +8,20 @@ use hadris_io::{Error, ErrorKind, ErrorType, SeekFrom};
 /// Hooks must release borrowed buffers before returning, including Pending.
 /// State must not retain pointers to its own movable fields. Hardware that
 /// continues accessing memory between polls needs owned stable buffers.
+///
+/// This trait only backs [`StreamDevice`]. The byte-stream contract of the
+/// format crates, which cpio and lazy tree content read through, is
+/// [`hadris_io::async_::Read`], [`Write`](hadris_io::async_::Write) and
+/// [`Seek`](hadris_io::async_::Seek) (and their `local` twins). Those
+/// traits use `async fn` and return the bare `Self::Error`; this one has
+/// poll hooks that return [`Error`], a per-operation
+/// [`State`](Self::State) and [`cancel`](Self::cancel), the shape of
+/// [`BlockDevice`], so a `StreamDevice` operation can be resumed and
+/// cancelled. [`ByteView`](crate::async_::ByteView) turns a block device
+/// into the `hadris_io` traits; nothing turns those traits into a
+/// `Stream`, since an `async fn` future that borrows its buffer cannot be
+/// kept between polls. A source that serves both a cpio reader and a
+/// `StreamDevice` implements both contracts.
 pub trait Stream: ErrorType {
     /// State created separately for each operation.
     type State: Default + Unpin;
