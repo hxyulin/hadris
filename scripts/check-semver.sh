@@ -20,7 +20,10 @@
 # same change (the next release candidate, or the next major after 3.0.0),
 # and cargo-semver-checks then infers the allowed change from the two
 # versions. A version that was never released may still break, since nothing
-# depends on it; the crate is skipped. The preview and internal crates
+# depends on it, so it never fails the check. When an earlier pre-release of
+# the same version is tagged (`<crate>-v3.0.0-rc.1` for 3.0.0-rc.2 or 3.0.0),
+# the crate is compared against it as a minor release and breaking changes
+# are reported as warnings; otherwise it is skipped. The preview and internal crates
 # (hadris-apfs, hadris-ntfs, hadris-common) are exempt from semver within
 # 3.x: a minor bump may break their API, so it is checked as a major.
 set -euo pipefail
@@ -90,8 +93,32 @@ latest_release() {
     tail -n 1
 }
 
+# Prints the newest tagged pre-release of version `$2`, or of the version
+# `$2` is a pre-release of, that sorts before `$2` and is an ancestor of
+# HEAD, or nothing.
+previous_prerelease() {
+  local core="${2%%-*}" tag candidate
+  while read -r tag; do
+    candidate="${tag#"$1-v"}"
+    if [[ -z "$tag" || "$candidate" == "$2" ]]; then
+      continue
+    fi
+    # Every pre-release of a version precedes it; two pre-releases compare by
+    # version sort.
+    if [[ "$2" == *-* && "$(printf '%s\n%s\n' "$candidate" "$2" | sort -V | head -n 1)" != "$candidate" ]]; then
+      continue
+    fi
+    if git merge-base --is-ancestor "$tag^{commit}" HEAD; then
+      echo "$candidate"
+      return 0
+    fi
+  done < <(git tag --list "$1-v$core-*" --sort=-v:refname)
+}
+
 # Crates that share a baseline and a release type run in one invocation.
 declare -A groups=()
+# Unreleased crates reported against an earlier pre-release, by its commit.
+declare -A previews=()
 for crate in "${crates[@]}"; do
   manifest="$(jq -r --arg name "$crate" '.packages[] | select(.name == $name) | .manifest_path' <<<"$metadata")"
   version="$(jq -r --arg name "$crate" '.packages[] | select(.name == $name) | .version' <<<"$metadata")"
@@ -111,7 +138,13 @@ for crate in "${crates[@]}"; do
   release_type=infer
   if [[ "$version" == "$baseline_version" ]]; then
     if [[ -z "$(git tag --list "$crate-v$version")" ]]; then
-      echo "$crate $version: not released yet, breaking changes allowed, skipped"
+      previous="$(previous_prerelease "$crate" "$version")"
+      if [[ -n "$previous" ]]; then
+        echo "$crate $version: not released yet, reported against $crate-v$previous without failing"
+        previews["$(git rev-parse "$crate-v$previous^{commit}")"]+=" -p $crate"
+      else
+        echo "$crate $version: not released yet, breaking changes allowed, skipped"
+      fi
       continue
     fi
     release_type=minor
@@ -131,5 +164,25 @@ for key in "${!groups[@]}"; do
   fi
   # shellcheck disable=SC2086
   cargo "+$toolchain" semver-checks check-release "${args[@]}" ${groups[$key]} || status=1
+done
+for commit in "${!previews[@]}"; do
+  # A reported break only warns; a run that fails without a semver summary
+  # (a tool or baseline error) fails the check.
+  log="$(mktemp)"
+  # shellcheck disable=SC2086
+  if ! cargo "+$toolchain" semver-checks check-release --baseline-rev "$commit" --release-type minor ${previews[$commit]} 2>&1 | tee "$log"; then
+    if grep -q "semver requires new" "$log"; then
+      message="breaking changes since the previous pre-release of${previews[$commit]//-p /}; allowed until it is released"
+      if [[ "${GITHUB_ACTIONS:-}" == true ]]; then
+        echo "::warning title=semver-checks (informational)::$message"
+      else
+        echo "warning: $message"
+      fi
+    else
+      echo "semver-checks failed against the previous pre-release of${previews[$commit]//-p /}" >&2
+      status=1
+    fi
+  fi
+  rm -f "$log"
 done
 exit "$status"

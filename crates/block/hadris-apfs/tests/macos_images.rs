@@ -38,8 +38,21 @@ impl Drop for Image {
 struct Mounted<'a>(&'a Path);
 
 impl Drop for Mounted<'_> {
+    /// Retries while macOS still holds the new volume (Spotlight indexing),
+    /// then forces the detach.
     fn drop(&mut self) {
-        hdiutil(&["detach", "-quiet", self.0.to_str().unwrap()]);
+        let mount = self.0.to_str().unwrap();
+        for _ in 0..5 {
+            let detached = Command::new("hdiutil")
+                .args(["detach", "-quiet", mount])
+                .status()
+                .is_ok_and(|status| status.success());
+            if detached {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+        hdiutil(&["detach", "-quiet", "-force", mount]);
     }
 }
 

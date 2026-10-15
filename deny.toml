@@ -1,5 +1,25 @@
+# cargo-deny policy for the root workspace and the detached tests/ and fuzz/
+# workspaces (`cargo deny --manifest-path <dir>/Cargo.toml check`).
+
 [graph]
 all-features = true
+
+[advisories]
+yanked = "deny"
+unmaintained = "workspace"
+ignore = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+# The conformance suite pins rust-fatfs by revision as a peer implementation.
+allow-git = ["https://github.com/rafalh/rust-fatfs"]
+unused-allowed-source = "allow"
 
 [licenses]
 allow = [
@@ -9,6 +29,11 @@ allow = [
 ]
 confidence-threshold = 0.8
 include-dev = true
+unused-license-exception = "allow"
 exceptions = [
-    { name = "subtle", version = "=2.6.1", allow = ["BSD-3-Clause"] },
+    # libFuzzer's runtime, linked only into the fuzz harnesses.
+    { name = "libfuzzer-sys", allow = ["NCSA"] },
 ]
+
+[licenses.private]
+ignore = true

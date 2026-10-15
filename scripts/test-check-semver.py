@@ -56,7 +56,10 @@ elif args[1:] == ['semver-checks', '--version']:
     print('cargo-semver-checks test')
 elif args[1:3] == ['semver-checks', 'check-release']:
     Path('invocation.json').write_text(json.dumps(args[3:]))
-    sys.exit(int(os.environ.get('SEMVER_TEST_EXIT', '0')))
+    code = int(os.environ.get('SEMVER_TEST_EXIT', '0'))
+    if code == 1:
+        print('     Summary semver requires new major version: 1 major and 0 minor checks failed')
+    sys.exit(min(code, 1))
 else:
     sys.exit('Unexpected cargo arguments: ' + repr(args))
 """)
@@ -113,6 +116,30 @@ else:
             assert json.loads(invocation.read_text()) == [
                 "--baseline-rev", "hadris-apfs-v3.0.0", *release_type, "-p", "hadris-apfs",
             ], (version, result.stdout)
+
+        git("tag", "-d", "hadris-apfs-v3.0.0")
+        rc1 = git("rev-parse", "hadris-v3.0.0-rc.1^{commit}")
+        main_branch = git("rev-parse", "--abbrev-ref", "HEAD")
+        git("checkout", "--quiet", "-b", "side")
+        git("commit", "--quiet", "--allow-empty", "-m", "a later pre-release on another branch")
+        git("tag", "hadris-v3.0.0-rc.9")
+        git("checkout", "--quiet", main_branch)
+        for version in ("3.0.0-rc.2", "3.0.0"):
+            manifest.write_text(f'[package]\nname = "hadris"\nversion = "{version}"\n')
+            git("commit", "--quiet", "-am", f"hadris {version}")
+            (root / "metadata.json").write_text(json.dumps({"packages": [
+                {"name": "hadris", "version": version, "manifest_path": str(manifest)},
+            ]}))
+            result, _ = run("HEAD", failure=2)
+            assert result.returncode != 0, ("a semver-checks error must fail the check", result.stdout, result.stderr)
+            for failure in (0, 1):
+                result, invocation = run("HEAD", failure=failure)
+                assert result.returncode == 0, "an unreleased version only reports breaks"
+                assert "reported against hadris-v3.0.0-rc.1" in result.stdout, result.stdout
+                assert json.loads(invocation.read_text()) == [
+                    "--baseline-rev", rc1, "--release-type", "minor", "-p", "hadris",
+                ], (version, result.stdout)
+                assert ("breaking changes since the previous pre-release" in result.stdout) == bool(failure)
 
     print("Semver baseline selection: new crates, release rules, previews and failures passed")
 

@@ -1,13 +1,42 @@
 version: 2
 updates:
   - package-ecosystem: cargo
-    directory: "/"
+    directories:
+      - "/"
+      - "/tests"
+      - "/fuzz"
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    groups:
+      # The RustCrypto crates the APFS encryption uses move together.
+      rustcrypto:
+        patterns:
+          - "aes*"
+          - "cipher"
+          - "digest"
+          - "hmac"
+          - "pbkdf2"
+          - "sha*"
+          - "xts-mode"
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+
+  - package-ecosystem: npm
+    directory: "/website"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      website:
+        update-types:
+          - minor
+          - patch

@@ -18,7 +18,7 @@ permissions:
 
 concurrency:
   group: rust-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -28,22 +28,27 @@ jobs:
   changes:
     name: CI scope
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read
+    # A push to main runs the full scope, so the release gate's CI run for a
+    # commit covers everything, not only the paths that push changed.
     outputs:
-      rust: ${{ steps.scope.outputs.rust }}
-      suite: ${{ steps.scope.outputs.suite }}
-      native: ${{ steps.scope.outputs.native }}
-      spec: ${{ steps.scope.outputs.spec }}
-      licenses: ${{ steps.scope.outputs.licenses }}
-      formatting: ${{ steps.scope.outputs.formatting }}
-      async_contract: ${{ steps.scope.outputs.async_contract }}
-      release: ${{ steps.scope.outputs.release }}
+      rust: ${{ github.event_name == 'push' || steps.scope.outputs.rust == 'true' }}
+      suite: ${{ github.event_name == 'push' || steps.scope.outputs.suite == 'true' }}
+      native: ${{ github.event_name == 'push' || steps.scope.outputs.native == 'true' }}
+      spec: ${{ github.event_name == 'push' || steps.scope.outputs.spec == 'true' }}
+      licenses: ${{ github.event_name == 'push' || steps.scope.outputs.licenses == 'true' }}
+      formatting: ${{ github.event_name == 'push' || steps.scope.outputs.formatting == 'true' }}
+      async_contract: ${{ github.event_name == 'push' || steps.scope.outputs.async_contract == 'true' }}
+      release: ${{ github.event_name == 'push' || steps.scope.outputs.release == 'true' }}
+      fuzz: ${{ github.event_name == 'push' || steps.scope.outputs.fuzz == 'true' }}
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
+          fetch-depth: ${{ github.event_name == 'push' && '0' || '1' }}
+          persist-credentials: false
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: scope
         with:
@@ -77,6 +82,9 @@ jobs:
             suite:
               - 'tests/**'
               - '!tests/README.md'
+            fuzz:
+              - 'fuzz/**'
+              - '!fuzz/README.md'
             native:
               - 'flake.{nix,lock}'
               - '.envrc'
@@ -98,8 +106,11 @@ jobs:
     if: needs.changes.outputs.release == 'true'
     name: Release plan regressions
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Test crate and workspace release plans
         run: python3 scripts/test-release-plan.py
       - name: Test CLI archive layout and resumable asset uploads
@@ -108,15 +119,24 @@ jobs:
   licenses:
     needs: changes
     if: needs.changes.outputs.licenses == 'true'
-    name: Dependency licenses
+    name: "Dependency policy (${{ matrix.workspace }})"
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace: [".", tests, fuzz]
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # Advisories, bans, licenses and sources; supply-chain.yml repeats
+      # this weekly so new advisories surface without a manifest change.
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           rust-version: "1.97.1"
+          manifest-path: ${{ matrix.workspace }}/Cargo.toml
           command: check
-          command-arguments: licenses
 
   # Enforce annotation grammar, evidence references, and coverage-table parity.
   # See docs/spec-coverage.md#annotation-convention.
@@ -125,8 +145,11 @@ jobs:
     if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.suite == 'true' || needs.changes.outputs.spec == 'true'
     name: Spec annotations
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Self-test checker
         run: python3 scripts/check-spec-annotations.py --self-test
       - name: Check @hadris-* tags
@@ -140,11 +163,27 @@ jobs:
       - name: Test proof runner
         run: python3 scripts/test-verify-proofs.py
 
+  # check-docs.py reads prose, manifests and link targets anywhere in the
+  # tree, so it runs on every change rather than behind a path filter.
+  docs-links:
+    name: Documentation links
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Self-test documentation checker
+        run: python3 scripts/check-docs.py --self-test
+      - name: Check documentation links, TOML recipes and package READMEs
+        run: python3 scripts/check-docs.py
+
   check:
     needs: changes
     if: always() && !cancelled()
     name: Check
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # Promote rustc warnings to errors so issues like `unconditional_recursion`
     # (see issue #23) fail CI instead of slipping through.
     env:
@@ -156,6 +195,8 @@ jobs:
         run: exit 1
       - uses: actions/checkout@v7
         if: needs.changes.outputs.rust == 'true'
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         if: needs.changes.outputs.rust == 'true'
         with:
@@ -171,10 +212,13 @@ jobs:
     if: needs.changes.outputs.rust == 'true'
     name: Test default features
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       RUSTFLAGS: "-D warnings"
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.97.1
@@ -187,16 +231,19 @@ jobs:
     if: needs.changes.outputs.async_contract == 'true'
     name: "Unified async contracts (${{ matrix.toolchain }})"
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
       RUSTFLAGS: "-D warnings"
-      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+    # The hosted toolchain runs these tests in the `test` job.
     strategy:
       fail-fast: false
       matrix:
-        toolchain: ["1.88.0", "1.97.1"]
+        toolchain: ["1.88.0"]
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: ${{ matrix.toolchain }}
@@ -212,6 +259,7 @@ jobs:
     if: needs.changes.outputs.rust == 'true'
     name: "MSRV features (${{ matrix.group }})"
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       RUSTUP_TOOLCHAIN: 1.88.0
       RUSTFLAGS: "-D warnings"
@@ -221,6 +269,8 @@ jobs:
         group: [core, block, optical, archive, facades]
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
         with:
           toolchain: 1.88.0
@@ -235,6 +285,7 @@ jobs:
     if: needs.changes.outputs.rust == 'true'
     name: "Build ${{ matrix.target }}"
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       RUSTUP_TOOLCHAIN: 1.88.0
       RUSTFLAGS: "-D warnings"
@@ -249,6 +300,8 @@ jobs:
           - riscv32imc-unknown-none-elf
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.88.0
@@ -264,8 +317,11 @@ jobs:
     if: needs.changes.outputs.rust == 'true'
     name: Embedded flash and stack
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       # -Z emit-stack-sizes needs the pinned nightly.
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
@@ -285,6 +341,7 @@ jobs:
     if: always() && !cancelled()
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -292,6 +349,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         if: needs.changes.outputs.rust == 'true'
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         if: needs.changes.outputs.rust == 'true'
         with:
@@ -355,8 +414,11 @@ jobs:
     if: needs.changes.outputs.rust == 'true'
     name: Test disk device size (FreeBSD)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Measure an md device in a FreeBSD VM
         uses: vmactions/freebsd-vm@v1
         with:
@@ -379,10 +441,13 @@ jobs:
     if: needs.changes.outputs.rust == 'true'
     name: Test disk device size (Windows)
     runs-on: windows-latest
+    timeout-minutes: 30
     env:
       HADRIS_REQUIRE_TEST_DISK: "1"
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.97.1
@@ -409,13 +474,16 @@ jobs:
     if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.suite == 'true' || needs.changes.outputs.native == 'true'
     name: Test exFAT (with external tools)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
-          toolchain: 1.88.0
+          toolchain: 1.97.1
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -438,11 +506,14 @@ jobs:
     if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.suite == 'true' || needs.changes.outputs.native == 'true'
     name: Test NTFS (with ntfsprogs)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
-          toolchain: 1.88.0
+          toolchain: 1.97.1
       - uses: Swatinem/rust-cache@v2
       - name: Install ntfsprogs
         run: |
@@ -458,13 +529,16 @@ jobs:
     if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.suite == 'true' || needs.changes.outputs.native == 'true'
     name: Test FAT conformance and interoperability
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
       HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
-          toolchain: 1.88.0
+          toolchain: 1.97.1
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -522,11 +596,14 @@ jobs:
     if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.suite == 'true' || needs.changes.outputs.native == 'true'
     name: Test optical interoperability
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
-          toolchain: 1.88.0
+          toolchain: 1.97.1
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -561,10 +638,13 @@ jobs:
     if: needs.changes.outputs.rust == 'true'
     name: Docs
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       RUSTDOCFLAGS: "-D warnings"
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.97.1
@@ -581,8 +661,11 @@ jobs:
     if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.suite == 'true' || needs.changes.outputs.formatting == 'true'
     name: Format
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.97.1
@@ -597,8 +680,11 @@ jobs:
     if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.suite == 'true'
     name: Clippy
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.97.1
@@ -623,33 +709,97 @@ jobs:
     # historically-unsafe code paths (see issues #26 and #28). Miri is too slow
     # — and too restricted (no real I/O) — to run the full test suite, but
     # these targeted tests catch regressions cheaply.
+    # The firmware nightly's Miri lacks fcntl(F_GETFL) on files.
+    timeout-minutes: 45
+    env:
+      RUSTUP_TOOLCHAIN: nightly-2026-10-10
     steps:
       - uses: actions/checkout@v7
-      - name: Install nightly toolchain with miri
-        run: |
-          rustup toolchain install nightly --component miri
-          rustup +nightly component add miri
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: nightly-2026-10-10
+          components: miri, rust-src
       - name: Setup miri
-        run: cargo +nightly miri setup
+        run: cargo miri setup
       - uses: Swatinem/rust-cache@v2
       - name: Miri - hadris-common (endian integers)
-        run: cargo +nightly miri test -p hadris-common --lib
+        run: cargo miri test -p hadris-common --lib
       - name: Miri - hadris-fat-raw (LFN UTF-16, surrogate pairs and name decoding)
-        run: cargo +nightly miri test -p hadris-fat-raw --lib
+        run: cargo miri test -p hadris-fat-raw --lib
       - name: Miri - hadris-iso (on-disk layouts, name and Rock Ridge decoding)
         run: |
-          cargo +nightly miri test -p hadris-iso-raw --lib
-          cargo +nightly miri test -p hadris-iso --lib -- name:: rock_ridge::
+          cargo miri test -p hadris-iso-raw --lib
+          cargo miri test -p hadris-iso --lib -- name:: rock_ridge::
+      - name: Miri - hadris-fs (Name byte-slice cast)
+        run: "cargo miri test -p hadris-fs --lib name::"
       - name: Miri file device geometry, access mode and aligned adapter
         run: |
-          MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test -p hadris-storage --lib file_device_
-          cargo +nightly miri test -p hadris-storage --no-default-features --features sync --example aligned_device
+          MIRIFLAGS="-Zmiri-disable-isolation" cargo miri test -p hadris-storage --lib file_device_
+          cargo miri test -p hadris-storage --no-default-features --features sync --example aligned_device
       - name: Miri - hadris-part (on-disk layouts, CRC, UTF-16 partition names)
-        run: cargo +nightly miri test -p hadris-part --lib
+        run: cargo miri test -p hadris-part --lib
       - name: Miri - hadris-apfs (layouts and record decoding)
         run: |
-          cargo +nightly miri test -p hadris-apfs --lib
-          RUSTFLAGS='--cfg aes_backend="soft"' cargo +nightly miri test -p hadris-apfs --all-features --lib crypto::tests
-          cargo +nightly miri test -p hadris-apfs --all-features --test driver names_are_not_folded_rejected_by_length_or_required_to_be_utf8
+          cargo miri test -p hadris-apfs --lib
+          RUSTFLAGS='--cfg aes_backend="soft"' cargo miri test -p hadris-apfs --all-features --lib crypto::tests
+          cargo miri test -p hadris-apfs --all-features --test driver names_are_not_folded_rejected_by_length_or_required_to_be_utf8
       - name: Miri - hadris-ntfs (records, mapping pairs, UTF-16 names)
-        run: cargo +nightly miri test -p hadris-ntfs --lib
+        run: cargo miri test -p hadris-ntfs --lib
+
+  # Builds every cargo-fuzz harness, so API changes cannot silently break
+  # them, replays the committed seeds and fuzzes each target briefly.
+  fuzz:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.fuzz == 'true'
+    name: Fuzz targets
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RUSTUP_TOOLCHAIN: nightly-2026-09-04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: nightly-2026-09-04
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz -> target
+          key: fuzz
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --version 0.13.2 --locked
+      - name: Build the fuzz targets
+        working-directory: fuzz
+        run: cargo fuzz build
+      - name: Replay the committed seeds
+        working-directory: fuzz
+        shell: bash
+        run: |
+          set -euo pipefail
+          for target in $(cargo fuzz list); do
+            if [[ -d "corpus/$target" ]]; then
+              cargo fuzz run "$target" "corpus/$target" -- -runs=0
+            fi
+          done
+      # Timed fuzzing runs on pushes to main only, so a crash it happens to
+      # find does not fail an unrelated pull request.
+      - name: Fuzz each target for 10 seconds
+        if: github.event_name == 'push'
+        working-directory: fuzz
+        shell: bash
+        run: |
+          set -euo pipefail
+          for target in $(cargo fuzz list); do
+            scratch="$(mktemp -d)"
+            cargo fuzz run "$target" "$scratch" -- -max_total_time=10 -max_len=65536
+          done
+      - name: Upload crash inputs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts/
+          if-no-files-found: ignore

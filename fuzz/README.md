@@ -1,10 +1,11 @@
 # Fuzzing
 
 Coverage-guided fuzz harnesses for the untrusted-input parsers, one per reader,
-plus one stateful writer harness per writable driver. These are **local / developer tools**; they
-are intentionally **not** run in CI (nightly + long-running; corpus replay
-belongs in a developer workflow or a separate scheduled job outside the PR
-gate).
+plus one stateful writer harness per writable driver. Long fuzzing runs are
+local developer work. Rust CI's `Fuzz targets` job builds every harness on the
+pinned nightly and replays the committed seeds under `corpus/` with
+`-runs=0`, so API drift and regressions on the seeds fail the PR. Pushes to
+main also fuzz each target for 10 seconds and upload crash inputs. `Cargo.lock` is committed so those builds are reproducible.
 
 | Target      | Entry point                          | Exercises |
 |-------------|--------------------------------------|-----------|
@@ -135,7 +136,8 @@ cargo-fuzz writes the crashing input to `artifacts/<target>/crash-<hash>`.
 2. Minimize: `cargo +nightly fuzz tmin <target> artifacts/<target>/crash-<hash>`
 3. Fix the reader so that input returns an `Err` (or satisfies the oracle).
 4. Keep the artifact in `corpus/<target>/` so it replays on every local
-   `-runs=0` pass.
+   `-runs=0` pass. Add a regression test in the owning crate, and commit a
+   small minimized input (`git add -f`) when CI should replay it too.
 
 ## Notes
 

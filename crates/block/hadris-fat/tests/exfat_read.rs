@@ -10,7 +10,7 @@ use hadris_fs::MountOptions;
 use common::{Geometry, Tool, clean, fsck, fsck_with, le32, put32};
 use hadris_fat::exfat::Detail;
 use hadris_fat::exfat::sync::ExFatFs;
-use hadris_fs::{DirCursor, ErrorKind, FileType};
+use hadris_fs::{DirCursor, ErrorKind, FileType, Name};
 
 type Patch = Box<dyn Fn(&mut Vec<u8>)>;
 type Damage = fn(&mut [u8]);
@@ -543,5 +543,63 @@ fn cross_linked_directories_end_tree_searches_as_corrupt() {
     assert!(
         found.iter().any(|f| f.detail == Detail::CrossLink),
         "{found:?}"
+    );
+}
+
+/// Regression for the exfat_read fuzz oracle (SAFE-04): `lookup` returns a
+/// match before it reads later clusters, while a listed entry it cannot
+/// match scans on into the broken rest of the directory and fails with
+/// `Corrupt`, not `NotFound`.
+#[test]
+fn unmatchable_entry_before_a_broken_chain_is_corrupt() {
+    let mut fs = common::small(1 << 20, 4096);
+    let root = fs.root();
+    for name in ["empty", "intact"]
+        .into_iter()
+        .map(str::to_owned)
+        .chain((0..50).map(|i| format!("f{i:02}")))
+    {
+        let node = common::write(&mut fs, root, &name, b"x");
+        fs.forget(node, 1);
+    }
+    fs.sync().unwrap();
+    let mut image = common::image(fs);
+    let geo = Geometry::of(&image);
+    let chain = geo.chain(&image, geo.root);
+    assert!(chain.len() >= 2, "the root must span two clusters");
+    let set = geo.set(&image, geo.root, "empty");
+    assert!(set.iter().all(|&at| at < geo.at(chain[0]) + geo.cluster));
+    image[set[1] + 4] ^= 1;
+    geo.reseal(&mut image, &set);
+    geo.set_fat(&mut image, chain[0], 0);
+
+    let (_, found) = common::check_dev(&mut common::device(image.clone(), 512), 4096);
+    assert!(
+        found.iter().any(|f| f.detail == Detail::NameHash),
+        "{found:?}"
+    );
+    let mut fs =
+        ExFatFs::mount(common::device(image, 512), MountOptions::new().read_only()).unwrap();
+    let root = fs.root();
+    let mut cursor = DirCursor::START;
+    let mut listed = Vec::new();
+    let end = loop {
+        match fs.readdir(root, cursor) {
+            Ok(Some(entry)) => {
+                cursor = entry.next_cursor();
+                listed.push(entry.name().to_str().unwrap().to_owned());
+            }
+            Ok(None) => break Ok(()),
+            Err(err) => break Err(err.kind()),
+        }
+    };
+    assert_eq!(end, Err(ErrorKind::Corrupt));
+    assert!(listed.iter().any(|name| name == "empty"), "{listed:?}");
+    let intact = fs.lookup(root, Name::new("intact")).unwrap();
+    fs.forget(intact, 1);
+    assert_eq!(
+        fs.lookup(root, Name::new("empty"))
+            .map_err(|err| err.kind()),
+        Err(ErrorKind::Corrupt)
     );
 }

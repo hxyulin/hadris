@@ -1,11 +1,23 @@
 name: CLI release assets
 
+# Stages: `all` builds an existing hadris-cli-v<version> release from its tag
+# and attaches the archives; `build` builds the dispatched commit without a
+# tag or upload, so a release can fail before anything is published; `upload`
+# attaches the archives an earlier `build` stage of the same run made, after
+# checking that the tag names the commit they were built from.
+
 on:
   workflow_call:
     inputs:
+      stage:
+        description: all, build or upload
+        required: false
+        default: all
+        type: string
       tag:
-        description: Existing hadris-cli-v<version> release
-        required: true
+        description: Existing hadris-cli-v<version> release (all and upload stages)
+        required: false
+        default: ""
         type: string
       workspace-tag:
         description: Optional workspace release for legacy binstall discovery
@@ -25,12 +37,14 @@ env:
 jobs:
   plan:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
@@ -38,20 +52,40 @@ jobs:
         id: plan
         env:
           GH_TOKEN: ${{ github.token }}
+          STAGE: ${{ inputs.stage }}
           TAG: ${{ inputs.tag }}
           WORKSPACE_TAG: ${{ inputs.workspace-tag }}
         shell: bash
         run: |
           set -euo pipefail
-          matrix="$(python scripts/cli-release.py plan "$TAG" --workspace-tag "$WORKSPACE_TAG")"
-          gh release view "$TAG" > /dev/null
-          if [[ -n "$WORKSPACE_TAG" ]]; then
-            gh release view "$WORKSPACE_TAG" > /dev/null
-          fi
+          case "$STAGE" in
+            build)
+              matrix="$(python scripts/cli-release.py plan --commit "$GITHUB_SHA")"
+              ;;
+            all | upload)
+              matrix="$(python scripts/cli-release.py plan "$TAG" --workspace-tag "$WORKSPACE_TAG")"
+              gh release view "$TAG" > /dev/null
+              if [[ -n "$WORKSPACE_TAG" ]]; then
+                gh release view "$WORKSPACE_TAG" > /dev/null
+              fi
+              ;;
+            *)
+              echo "unknown stage $STAGE" >&2
+              exit 1
+              ;;
+          esac
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           commit="$(python -c 'import json,sys; print(json.loads(sys.argv[1])["include"][0]["commit"])' "$matrix")"
-          git archive --format=tar --output=cli-source.tar "$commit"
+          if [[ "$STAGE" == upload ]]; then
+            if [[ "$commit" != "$GITHUB_SHA" ]]; then
+              echo "$TAG names $commit, but this run built $GITHUB_SHA" >&2
+              exit 1
+            fi
+          else
+            git archive --format=tar --output=cli-source.tar "$commit"
+          fi
       - uses: actions/upload-artifact@v7
+        if: inputs.stage != 'upload'
         with:
           name: cli-source
           path: cli-source.tar
@@ -60,6 +94,8 @@ jobs:
   build:
     name: ${{ matrix.target }}
     needs: plan
+    if: inputs.stage != 'upload'
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
@@ -119,11 +155,18 @@ jobs:
   upload:
     name: Attach CLI archives and checksums
     needs: [plan, build]
+    if: >-
+      always() && !cancelled() && inputs.stage != 'build' &&
+      needs.plan.result == 'success' &&
+      (needs.build.result == 'success' || (inputs.stage == 'upload' && needs.build.result == 'skipped'))
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"

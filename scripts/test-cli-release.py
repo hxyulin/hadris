@@ -96,6 +96,19 @@ class CliReleaseTests(unittest.TestCase):
         self.assertTrue(all(row["commit"] == self.git("rev-parse", "HEAD") for row in rows))
         self.assertTrue(all(row["version"] == VERSION for row in rows))
 
+    def test_build_only_plan_needs_no_tag(self):
+        self.git("commit", "--quiet", "--allow-empty", "-m", "Untagged commit")
+        with patch.object(CLI, "run", side_effect=lambda *args: self.git(*args[1:])):
+            rows = CLI.commit_plan("HEAD")["include"]
+            self.assertEqual({row["target"] for row in rows}, set(CLI.TARGETS))
+            self.assertTrue(all(row["commit"] == self.git("rev-parse", "HEAD") for row in rows))
+            self.assertTrue(all(row["version"] == VERSION for row in rows))
+            manifest = self.source / CLI.MANIFEST
+            manifest.write_text(manifest.read_text().replace('name = "hadris"', 'name = "other"'))
+            self.git("commit", "--quiet", "-am", "No unified binary")
+            with self.assertRaisesRegex(ValueError, "unified hadris binary"):
+                CLI.commit_plan("HEAD")
+
     def test_plan_rejects_wrong_package_or_version(self):
         for tag in ("main", "hadris-apfs-cli-v3.0.0-rc.1", "hadris-cli-v3.0.0-rc.1;echo"):
             with self.subTest(tag=tag), self.assertRaises(ValueError):

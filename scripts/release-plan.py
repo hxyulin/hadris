@@ -6,10 +6,15 @@ usage: scripts/release-plan.py [--notes SECTION] [--notes-dir DIR] [--github-pla
 Prints one line per crate in dependency order: name, version and tag
 (`<crate>-v<version>`). Fails when a crate is not published, a version is
 not a semantic version, a tag already names another commit, the
-CHANGELOG.md section is missing, undated or empty, or another dated
-workspace section `## [<version>]` has no `v<version>` tag. Unpublished
-sections stay undated, such as `## [3.0.0-rc.2] - Unreleased`, until the
-release dates them.
+`[workspace.dependencies]` requirement of a crate does not name its
+version, the CHANGELOG.md section is missing, undated or empty, or another
+dated workspace section `## [<version>]` has no `v<version>` tag.
+Unpublished sections stay undated, such as `## [3.0.0-rc.2] - Unreleased`,
+until the release dates them.
+
+With `all`, a crate whose tag already names an ancestor of HEAD was
+released earlier at this version (such as a 0.x raw crate during a joint
+3.x release) and is left out with a notice.
 
 Release notes come from the section `## [<crate> <version>] - YYYY-MM-DD`,
 or from `## [SECTION] - YYYY-MM-DD` for every crate with --notes SECTION
@@ -26,6 +31,7 @@ import json
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -105,6 +111,20 @@ def tag_commit(tag: str) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
+def is_ancestor(commit: str, head: str) -> bool:
+    result = subprocess.run(["git", "merge-base", "--is-ancestor", commit, head], cwd=ROOT)
+    return result.returncode == 0
+
+
+def workspace_requirements() -> dict:
+    manifest = tomllib.loads((ROOT / "Cargo.toml").read_text())
+    dependencies = manifest.get("workspace", {}).get("dependencies", {})
+    return {
+        name: spec.get("version") if isinstance(spec, dict) else spec
+        for name, spec in dependencies.items()
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("crates", nargs="+")
@@ -125,6 +145,7 @@ def main() -> int:
 
     head = run("git", "rev-parse", "HEAD").strip()
     changelog = (ROOT / "CHANGELOG.md").read_text()
+    requirements = workspace_requirements()
     errors = []
     plan = []
     for name in dependency_order(packages, selected):
@@ -134,7 +155,13 @@ def main() -> int:
             errors.append(f"{name}: {version} is not a semantic version")
         commit = tag_commit(tag)
         if commit and commit != head:
+            if args.crates == ["all"] and is_ancestor(commit, head):
+                print(f"{name} {version}: already released as {tag}; left out", file=sys.stderr)
+                continue
             errors.append(f"{name}: tag {tag} already names {commit}")
+        requirement = requirements.get(name)
+        if requirement is not None and requirement.lstrip("^=~") != version:
+            errors.append(f"{name}: [workspace.dependencies] requires {requirement}, not {version}")
         try:
             notes = changelog_section(changelog, args.notes or f"{name} {version}")
         except ValueError as error:
@@ -146,7 +173,9 @@ def main() -> int:
     releasing = {args.notes} if args.notes and args.notes == workspace_version else set()
     errors.extend(untagged_dated_sections(changelog, releasing))
 
-    if args.notes and "hadris" in selected:
+    if not plan and not errors:
+        errors.append("every selected crate is already released")
+    if args.notes and any(name == "hadris" for name, _, _, _ in plan):
         version = packages["hadris"]["version"]
         tag = f"v{version}"
         commit = tag_commit(tag)

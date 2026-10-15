@@ -30,28 +30,37 @@ def run(*args: str, cwd: Path = ROOT) -> str:
     return subprocess.run(args, cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
 
 
+def commit_plan(rev: str) -> dict:
+    """Plans native builds of the CLI at `rev`, with no release tag."""
+    commit = run("git", "rev-parse", "--verify", f"{rev}^{{commit}}")
+    manifest = tomllib.loads(run("git", "show", f"{commit}:{MANIFEST.as_posix()}"))
+    package = manifest["package"]
+    if package["name"] != "hadris-cli":
+        raise ValueError(f"{MANIFEST} is not the hadris-cli package")
+    if not any(binary["name"] == "hadris" for binary in manifest.get("bin", [])):
+        raise ValueError("the CLI must ship the unified hadris binary")
+    epoch = int(run("git", "show", "-s", "--format=%ct", commit))
+    return {"include": [
+        {"target": target, "runner": runner, "commit": commit, "version": package["version"], "epoch": epoch}
+        for target, runner in TARGETS.items()
+    ]}
+
+
 def release_plan(tag: str, workspace_tag: str = "") -> dict:
     if not re.fullmatch(r"hadris-cli-v[0-9A-Za-z.-]+", tag):
         raise ValueError("expected an existing hadris-cli-v<version> tag")
-    commit = run("git", "rev-parse", "--verify", f"refs/tags/{tag}^{{commit}}")
-    manifest = tomllib.loads(run("git", "show", f"{commit}:{MANIFEST.as_posix()}"))
-    package = manifest["package"]
-    version = package["version"]
-    if package["name"] != "hadris-cli" or tag != f"hadris-cli-v{version}":
+    plan = commit_plan(f"refs/tags/{tag}")
+    commit = plan["include"][0]["commit"]
+    version = plan["include"][0]["version"]
+    if tag != f"hadris-cli-v{version}":
         raise ValueError("CLI tag does not match the package version at its commit")
-    if not any(binary["name"] == "hadris" for binary in manifest.get("bin", [])):
-        raise ValueError("the tagged CLI must ship the unified hadris binary")
     if workspace_tag:
         if workspace_tag != f"v{version}":
             raise ValueError("workspace release must use the CLI's version")
         workspace_commit = run("git", "rev-parse", "--verify", f"refs/tags/{workspace_tag}^{{commit}}")
         if workspace_commit != commit:
             raise ValueError("workspace and CLI tags must name the same commit")
-    epoch = int(run("git", "show", "-s", "--format=%ct", commit))
-    return {"include": [
-        {"target": target, "runner": runner, "commit": commit, "version": version, "epoch": epoch}
-        for target, runner in TARGETS.items()
-    ]}
+    return plan
 
 
 def archive_stem(version: str, target: str) -> str:
@@ -151,8 +160,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
     plan = commands.add_parser("plan")
-    plan.add_argument("tag")
+    plan.add_argument("tag", nargs="?", default="")
     plan.add_argument("--workspace-tag", default="")
+    plan.add_argument("--commit", default="", help="plan an untagged build of this revision")
     pack = commands.add_parser("package")
     pack.add_argument("--source", type=Path, required=True)
     pack.add_argument("--version", required=True)
@@ -165,7 +175,10 @@ def main() -> None:
     publish.add_argument("--directory", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "plan":
-        print(json.dumps(release_plan(args.tag, args.workspace_tag)))
+        if bool(args.commit) == bool(args.tag):
+            parser.error("plan takes a tag or --commit")
+        plan = commit_plan(args.commit) if args.commit else release_plan(args.tag, args.workspace_tag)
+        print(json.dumps(plan))
     elif args.command == "package":
         smoke_test(args.source, args.version, args.target)
         print(package(args.source, args.version, args.target, args.output, args.epoch))
