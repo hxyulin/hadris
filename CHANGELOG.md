@@ -84,10 +84,10 @@ Each published package owns its version and may be released independently.
   `bitflags` surface is gone: use `NONE` for `empty()`, and
   `from_bits_truncate` for `from_bits` and `from_bits_retain`.
 
-- **hadris-common (breaking):** The crate leaves the 3.x line and is
-  versioned 0.3.0, like the raw crates whose public layout fields use its
-  integers; no stable 3.x crate exposes its types. Published 0.x versions
-  stop at 0.2.1, so 0.3.0 does not reuse one. It keeps only `U16`, `U32`
+- **hadris-common (breaking):** The crate is internal: it keeps a 3.x
+  version but is exempt from semver, so a 3.y minor release may break it
+  and users pin it with `~3.0`. The raw crates' public layout fields use its
+  integers; no stable 3.x crate exposes its types. It keeps only `U16`, `U32`
   and `U64` with inherent `new`, `get` and `set`, the `Endianness` trait
   and `LittleEndian`. Removed, all without users: the `zerocopy`
   re-exports `U16Le` through `I64Be` and the `zerocopy` dependency, `U24`,

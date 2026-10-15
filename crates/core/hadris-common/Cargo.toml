@@ -1,6 +1,6 @@
 [package]
 name = "hadris-common"
-version = "0.3.0"
+version = "3.0.0-rc.2"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true

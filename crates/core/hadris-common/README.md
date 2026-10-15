@@ -4,8 +4,10 @@ Endian-aware integer types for the on-disk layouts of the Hadris raw crates.
 
 ## Overview
 
-This is a 0.x support crate, versioned like the raw crates. The public fields
-of the `hadris-fat-raw` layouts use its types, so a breaking change here is a
+This is an internal support crate. It keeps a 3.x version but is exempt from
+semver: a 3.y minor release may break it, and patch releases stay
+compatible, so depend on it with `"~3.0"`. The public fields of the
+`hadris-fat-raw` layouts use its types, so a breaking change here is a
 breaking change of `hadris-fat-raw`. No stable 3.x crate exposes it. Depend on
 `hadris` or a format crate unless you read raw layouts; `hadris-fat-raw`
 users rarely need to name these types, since `new`, `get` and `set` are
@@ -32,7 +34,7 @@ assert_eq!(value.get(), 0x12345678);
 ## Documentation
 
 - [Feature and capability guide](https://hxyulin.github.io/hadris/concepts/features)
-- [API reference](https://docs.rs/hadris-common/0.3.0)
+- [API reference](https://docs.rs/hadris-common/3.0.0-rc.2)
 
 ## License
 

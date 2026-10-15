@@ -20,11 +20,9 @@
 # same change (the next release candidate, or the next major after 3.0.0),
 # and cargo-semver-checks then infers the allowed change from the two
 # versions. A version that was never released may still break, since nothing
-# depends on it; the crate is skipped. A crate whose major version drops
-# below the baseline's (hadris-common moving from 3.0.0-rc.2 to 0.x) starts
-# a new version line with nothing to compare against, and is skipped too.
-# The preview crates (hadris-apfs, hadris-ntfs) are exempt from semver
-# within 3.x: a minor bump may break their API, so it is checked as a major.
+# depends on it; the crate is skipped. The preview and internal crates
+# (hadris-apfs, hadris-ntfs, hadris-common) are exempt from semver within
+# 3.x: a minor bump may break their API, so it is checked as a major.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
@@ -70,7 +68,7 @@ crates=(
   hadris-udf-raw
 )
 
-previews=" hadris-apfs hadris-ntfs "
+exempt=" hadris-apfs hadris-common hadris-ntfs "
 
 metadata="$(cargo metadata --no-deps --format-version 1)"
 
@@ -110,10 +108,6 @@ for crate in "${crates[@]}"; do
       continue
     fi
   fi
-  if (( ${version%%.*} < ${baseline_version%%.*} )); then
-    echo "$crate $version: moved below $baseline_version to a new version line, skipped"
-    continue
-  fi
   release_type=infer
   if [[ "$version" == "$baseline_version" ]]; then
     if [[ -z "$(git tag --list "$crate-v$version")" ]]; then
@@ -121,7 +115,7 @@ for crate in "${crates[@]}"; do
       continue
     fi
     release_type=minor
-  elif [[ "$previews" == *" $crate "* && "$(cut -d. -f1-2 <<<"$version")" != "$(cut -d. -f1-2 <<<"$baseline_version")" ]]; then
+  elif [[ "$exempt" == *" $crate "* && "$(cut -d. -f1-2 <<<"$version")" != "$(cut -d. -f1-2 <<<"$baseline_version")" ]]; then
     release_type=major
   fi
   echo "$crate $version against $baseline ($baseline_version), release type $release_type"

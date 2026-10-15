@@ -286,15 +286,18 @@ lockstep release.
   never re-exported wholesale. A format crate re-exports only the raw items
   its own signatures use, with the types their fields and methods use
   ([Q13](#7-open-questions), Q17). Those items are frozen for the format
-  crate's major: the raw crate only adds to them. The rest of a raw crate
-  may break in any 0.x minor. `scripts/check-non-exhaustive.py` rejects
+  crate's major: the raw crate only adds to them, and the format crate
+  stays on one 0.x line of it for the whole major, since a new 0.y would
+  make the re-exported types distinct from a direct dependency's. The rest
+  of a raw crate may break in any 0.x minor. `scripts/check-non-exhaustive.py` rejects
   `pub use hadris_<fmt>_raw::*` and `pub use hadris_<fmt>_raw as ..` in the
   format crates.
 - A raw crate has one path per item, its crate root; it has no `raw`
   module of its own (R5).
-- `hadris-common` is a 0.x support crate versioned like the raw crates.
-  Raw crates may expose its types in their layouts; stable 3.x crates may
-  not.
+- `hadris-common` is an internal support crate on 3.x, exempt from semver
+  like the previews: a 3.y minor may break it. Raw crates may expose its
+  types in their layouts; stable 3.x crates may not. A 0.x version was
+  dropped because 0.3.0 sorts below its published 2.x releases.
 - No new wholesale re-export of one crate by another is added.
 - Preview crates (`hadris-ntfs`, `hadris-apfs`) ship 3.0.0 with the
   release train and keep 3.x versions, but are exempt from semver: a
@@ -988,7 +991,7 @@ and non-`Send` contracts differ:
 |---|---|---|---|
 | `hadris-io` | Blocking byte-stream traits | Byte-stream traits with `Send` supertraits and `Send` futures (`async`) | The same traits without the `Send` bound, for single-threaded executors (`async`) |
 | `hadris-storage` | Blocking `BlockDevice` and adapters | One poll-based `BlockDevice` for local and Send devices; `SendBlockDevice` when the device and its state are Send (`async`) | None |
-| `hadris-fs` | Blocking `FileSystem` and `Volume` | `FileSystem` and `Volume` with `Send` bounds and futures (`async`) | `FileSystem` and `Volume` without `Send` bounds (`async-local`, implied by `async`) |
+| `hadris-fs` | Blocking `FileSystem` and `Volume` | `FileSystem` and `Volume` with `Send` bounds and futures (`async`) | `FileSystem` and `Volume` without `Send` bounds (`async`) |
 | Format crates and `hadris-fat-raw` | Blocking driver or primitives | One driver or set of primitives for local and Send devices; filesystem drivers implement the `hadris-fs` `local` contract and, when Send, the `async_` one (`async`) | None |
 
 ### 4.9 Feature flags
@@ -1002,12 +1005,12 @@ and non-`Send` contracts differ:
 | `async` | Async API: `Send` futures in the shared tier, `local` futures in the embedded API and `hadris_fs::local`. There is no separate local-only feature: `async` builds on every target `sync` does, including those without atomic compare-and-swap. |
 | `write` | Kept on `hadris-fat` and forwarded by the umbrella (S4 in 4.17). It only adds items. Other crates gain one in 3.x only if needed, which is additive. |
 | `tracing` | Spans through the `tracing` crate. Independent of `std`, so `no_std` builds can trace (the `tracing` crate needs `liballoc` there); `std` turns on `tracing/std`. |
-| `unstable-*` | Enables a preview, such as `unstable-ntfs` or `unstable-apfs`, or the driver contract kit, `hadris-fs`'s `unstable-contract`. Outside semver. Never changes stable items; `unstable-apfs` adds the `AnyFs::Apfs` variant (R3). |
+| `unstable-*` | Enables a preview, such as `unstable-ntfs` or `unstable-apfs`, or the driver contract kit, `hadris-fs`'s `unstable-contract`. Outside semver. Never changes stable items, with one exception: `unstable-apfs` adds the `AnyFs::Apfs` variant and changes what the stable `detect` and `open` do with an APFS container (R3). |
 
 - `read` is dropped; reading is always available, in `hadris-apfs` too. `async-send` and `async-local` are dropped.
 - `crc` and `rand` stop being user-facing features. CRC is always compiled. GUIDs come from the caller or the seed (4.10).
 - `cache` stops being a feature. `Cache<D>` is always available and costs nothing unless constructed; ISO's `CacheOptions` needs only `alloc`.
-- No feature changes behaviour. Path semantics (4.12), the time zone default (post-pass decision C) and the node table (4.5) are values or types, so enabling a feature anywhere in the build only adds items. The same holds for `Walk`: `Walk::new` needs `alloc` and `Walk::with_stack` does not, as two constructors, not one whose stack depends on a feature.
+- No feature changes behaviour. Path semantics (4.12), the time zone default (post-pass decision C) and the node table (4.5) are values or types, so enabling a feature anywhere in the build only adds items. The one exception is `unstable-apfs`: through feature unification, any crate in the build that enables it makes `detect` check APFS damage and `open` mount APFS instead of failing with `NotRecognized` (`"apfs"`). The same holds for `Walk`: `Walk::new` needs `alloc` and `Walk::with_stack` does not, as two constructors, not one whose stack depends on a feature.
 - `hadris-fs` defaults to `std` and `sync` like every other crate (D3).
 - The umbrella forwards the same axes plus one feature per format.
 
@@ -1036,7 +1039,7 @@ different content gives different ids. `FatOptions::with_serial` and
 | `hadris-fs` | New. Vocabulary, `Error<E>`, `PathError`, `Guid`, `MountOptions`, `FileSystem`, `Volume` and its handles, `Walk`, `Tree`, `Content`, `Report`, `copy_tree`, `read_tree`, `Finding`, `Severity`, `CheckReport`. |
 | `hadris-fs-contract` | Not created. The driver test kit (4.3) is `hadris-fs`'s `unstable-contract` feature, outside 3.0 semver, so contract rules can change in any release. |
 | `hadris-<fmt>-raw` | New, one per format, each with its own version: I/O-free codecs and `raw::io` primitives (4.15). `hadris-fat-raw` covers FAT and exFAT. |
-| `hadris-common` | 0.x, versioned like the raw crates (0.3.0, below the 3.0.0 line it had in the release candidates). Only the little-endian `U16`, `U32` and `U64` the `hadris-fat-raw` layouts use, with no `zerocopy` dependency. Raw crates may expose its types; stable 3.x crates may not (R12). |
+| `hadris-common` | Internal, 3.x but exempt from semver: a 3.y minor may break it. Only the little-endian `U16`, `U32` and `U64` the `hadris-fat-raw` layouts use, with no `zerocopy` dependency. Raw crates may expose its types; stable 3.x crates may not (R12). |
 | `hadris-fixed` | Merged into `hadris-common`. |
 | `hadris-path` | Merged into `hadris-fs`. |
 | `hadris-macros` | Kept, internal. |

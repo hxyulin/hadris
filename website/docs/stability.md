@@ -64,9 +64,9 @@ trait, but their native APIs may still change.
   for its own breaking changes. The umbrella `hadris` bumps its major when a
   stable crate it re-exports does; a break in a preview behind an
   `unstable-*` feature does not bump it. `hadris-common`, whose endian
-  integers the `hadris-fat-raw` layouts use, is a 0.x support crate (0.3.0)
-  versioned like the raw crates; no stable 3.x crate exposes its types. The
-  NTFS and APFS previews break only in minor releases, as above.
+  integers the `hadris-fat-raw` layouts use, is an internal crate that,
+  like the NTFS and APFS previews, keeps a 3.x version but breaks only in
+  minor releases; no stable 3.x crate exposes its types.
 
 ## Raw crates
 
@@ -80,8 +80,10 @@ the raw items its own API takes or returns, and the types their fields and
 methods use. Those items are part of the format crate's 3.x API and are
 frozen: a raw release may add methods or new variants of `#[non_exhaustive]`
 enums to them, but a breaking change to one would need a new major of the
-format crate. The rest of the raw crate is not covered by the format crate's
-promise.
+format crate. A format crate also stays on one 0.x line of its raw crate for
+its whole major, so its re-exported items stay the same types as those of a
+direct dependency on that line. The rest of the raw crate is not covered by
+the format crate's promise.
 
 | Format crate | Raw items it re-exports |
 |--------------|-------------------------|
