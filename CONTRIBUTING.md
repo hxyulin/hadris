@@ -103,17 +103,27 @@ verification guides document proof scopes, reports and schedule limitations.
 Scheduled results apply to the tested commit and do not block an earlier merge.
 
 Rust CI always reports the required `Check`, `Test (ubuntu-latest)`, `Format`
-and `Clippy` contexts. Workflow path globs select expensive jobs:
+and `Clippy` contexts, and runs `Documentation links` (`scripts/check-docs.py`)
+on every change. Workflow path globs select expensive jobs:
 
 | Changed inputs | Coverage |
 |---|---|
-| Library/example sources, fixtures, manifests, toolchain or build-check tooling | Workspace tests, MSRV tiers, embedded builds, Miri, docs and interoperability |
+| Library/example sources, fixtures, manifests, toolchain or build-check tooling | Workspace tests, MSRV tiers, embedded builds, Miri, fuzz targets, docs and interoperability |
 | Detached `tests/` suite | Suite formatting, Clippy and conformance/interoperability jobs |
+| Detached `fuzz/` harnesses | Fuzz targets: build every harness, replay the committed seeds, fuzz each target for 10 seconds |
 | Native-tool setup or peer helper scripts | Native and interoperability jobs |
 | Rustfmt configuration | Workspace and conformance-suite formatting |
 | Specification catalogs or checkers | Specification checks |
-| Manifests, lockfiles or license policy | Dependency licenses |
+| Manifests, lockfiles or `deny.toml` | Dependency policy: `cargo deny check` (advisories, bans, licenses, sources) for the root, `tests/` and `fuzz/` workspaces |
 | README, website or unrelated prose | Documentation workflow; Rust builds/tests are skipped |
+
+[`supply-chain.yml`](.github/workflows/supply-chain.yml) repeats the
+dependency policy weekly, so a new RustSec advisory against a locked
+dependency fails without a manifest change. Run it locally with
+`cargo deny check` and
+`cargo deny --manifest-path tests/Cargo.toml check` (likewise for `fuzz/`).
+Push runs on `main` are never cancelled by a later push, so every main
+commit gets a complete CI and semver run.
 
 The path-filter action's rules live in `rust.yml`; no custom change-detection
 script is needed. Required checks still complete for docs-only PRs, and a
@@ -360,37 +370,62 @@ then with `mode: publish`:
 
 - `crates`: `all`, or the crate names separated by spaces, such as
   `hadris-fat hadris`. A crate's unreleased workspace dependencies must be in
-  the same run or already on crates.io.
+  the same run or already on crates.io. With `all`, a crate whose tag
+  `<crate>-v<version>` already names an earlier commit of `main` was released
+  before at that version and is left out with a notice, so a joint 3.x
+  release does not need the unchanged 0.x raw crates bumped. Naming such a
+  crate explicitly fails.
 - `notes`: empty for per-crate sections, or the section title of a joint
   release.
 
-`scripts/release-plan.py` checks the plan in both modes: the crates exist
-and are published, each version is a semantic version, the tag
-`<crate>-v<version>` does not name another commit, and the CHANGELOG
-section exists with a date. `dry-run` then runs fmt, check and tests, and
-packages and verifies every crate with `cargo +stable publish --dry-run`,
-which resolves unpublished workspace dependencies in the same run.
-`publish` also publishes with `cargo +stable publish`, in dependency order,
-skipping versions already on crates.io so a failed run can be rerun. It
-then creates and pushes the tags `<crate>-v<version>`, one GitHub release
-per tag (pre-releases for versions with a pre-release suffix; the umbrella
-`hadris` is marked latest for stable releases). A joint release with `notes`
-set that includes `hadris` also creates a workspace tag `v<version>` and a
-`Hadris <version>` GitHub release using the umbrella crate's version and the
-shared notes. The workspace release is marked latest only when stable;
-release candidates remain pre-releases. Both tag formats are checked before
-publication, and reruns skip releases that already exist. It then rebuilds
-the documentation site, which versions itself from the `hadris-vX.Y.Z`
-tags. Never create release tags by
-hand. Publishing needs the `CARGO_REGISTRY_TOKEN` repository secret.
+Every mode first checks that it runs from `main`. `scripts/release-plan.py`
+checks the plan in both release modes: the crates exist and are published,
+each version is a semantic version, the tag `<crate>-v<version>` does not
+name another commit, the crate's `[workspace.dependencies]` requirement
+names exactly its version (`X.Y.Z`, `^X.Y.Z`, `=X.Y.Z` or `~X.Y.Z`), and the
+CHANGELOG section exists with a date. The release job then looks up the
+push runs of Rust CI and, when it ran, V3 guardrails for the commit:
+`publish` refuses to continue unless they succeeded, and `dry-run` only
+warns, so wait for CI on `main` before publishing. It runs fmt, check and
+tests, and packages and verifies every crate with
+`cargo publish --dry-run` on the pinned 1.97.1 toolchain, which resolves
+unpublished workspace dependencies in the same run. When the plan includes
+`hadris-cli`, both modes also build its release binaries (below) from the
+commit before anything is published.
 
-Releasing `hadris-cli` also builds the unified `hadris` binary from its tag for
-Linux x86-64/ARM64 (static musl), macOS Intel/Apple Silicon (macOS 11+) and
+`publish` then publishes with `cargo publish --no-verify` (the dry run
+verified the same commit), in dependency order, skipping versions already on
+crates.io so a failed run can be rerun; any crates.io answer other than
+found or not found stops the job instead of being read as "not published".
+It then creates and pushes the tags `<crate>-v<version>` and one GitHub
+release per tag; versions with a pre-release suffix become pre-releases. A
+joint release with `notes` set that includes `hadris` also creates a
+workspace tag `v<version>` and a `Hadris <version>` GitHub release using the
+umbrella crate's version and the shared notes. When stable, the workspace
+release `v<version>` is marked latest in a joint release, and otherwise
+`hadris-v<version>` when `hadris` is released. Both tag formats are checked
+before publication, and reruns skip releases that already exist. It then
+rebuilds the documentation site, which versions itself from the
+`hadris-vX.Y.Z` tags. Never create release tags by hand.
+
+Only the `publish` job reads crates.io credentials, and it runs in the
+`release` deployment environment. Restrict that environment to `main` and
+give it a required reviewer in the repository settings. It uses crates.io
+trusted publishing when the repository variable
+`CRATES_IO_TRUSTED_PUBLISHING` is `true` (every published crate must list
+`release.yml` and the `release` environment as its trusted publisher), and
+otherwise the `CARGO_REGISTRY_TOKEN` secret. A crate's first release still
+needs the token, since trusted publishing applies only to existing crates.
+
+Releasing `hadris-cli` also builds the unified `hadris` binary for Linux
+x86-64/ARM64 (static musl), macOS Intel/Apple Silicon (macOS 11+) and
 Windows x86-64. Every native build runs the APFS CLI regressions and checks
 the version and APFS command help. Archives contain the binary, README and
 MIT license in `hadris-cli-<version>-<target>/`; Windows uses ZIP and other
 targets use TGZ. Each archive has a matching `.sha256` checksum. All target
-builds must succeed before assets are attached to the per-crate release.
+builds must succeed before any crate is published; after the GitHub
+releases exist, the same archives are attached to the per-crate release,
+once the CLI tag is confirmed to name the commit they were built from.
 
 To backfill an existing CLI release, run `Release` with `mode: cli-assets`
 and `cli-tag: hadris-cli-v3.0.0-rc.1`. This mode only builds and uploads
@@ -410,7 +445,7 @@ Check a plan locally before opening the release PR:
 scripts/release-plan.py --notes 3.0.0-rc.2 all
 scripts/release-plan.py --github-plan --notes 3.0.0-rc.2 all
 scripts/release-plan.py hadris-fat hadris
-cargo +stable publish --dry-run -p hadris-fat -p hadris
+cargo +1.97.1 publish --dry-run -p hadris-fat -p hadris
 ```
 
 The 2.x releases on `main` used one workspace version and `vX.Y.Z` tags.
@@ -433,10 +468,13 @@ Branch from `main` and target it for V3 changes. The `v2` branch preserves the
    `cargo +stable install cargo-semver-checks`.
 6. `scripts/check-semver.sh` checks each library crate against its latest
    3.x release tag (`<crate>-vX.Y.Z`), or against the target branch before
-   the crate's 3.0.0. While the version is unchanged, a PR must be a
+   the crate's 3.0.0. While a released version is unchanged, a PR must be a
    compatible minor change, release candidates included. A deliberate break
    bumps the crate's version in the same PR, to the next pre-release or
-   major, unless the current version was never released.
+   major. A version that is not released yet, such as `3.0.0-rc.2` while
+   only `3.0.0-rc.1` is tagged, is compared against the previous
+   pre-release and its breaking changes are reported as warnings without
+   failing the PR.
 
 ## Safety and fuzzing
 
@@ -444,18 +482,26 @@ Branch from `main` and target it for V3 changes. The `v2` branch preserves the
   regression test and run the targeted Miri job from the `miri` job in
   [`.github/workflows/rust.yml`](.github/workflows/rust.yml):
 
+  CI pins Miri to `nightly-2026-10-10`:
+
   ```bash
-  cargo +nightly miri test -p hadris-common --lib
-  cargo +nightly miri test -p hadris-fat-raw --lib
-  cargo +nightly miri test -p hadris-iso-raw --lib
-  cargo +nightly miri test -p hadris-iso --lib -- name:: rock_ridge::
-  cargo +nightly miri test -p hadris-part --lib
-  cargo +nightly miri test -p hadris-ntfs --lib
+  rustup toolchain install nightly-2026-10-10 --component miri,rust-src
+  export RUSTUP_TOOLCHAIN=nightly-2026-10-10
+  cargo miri test -p hadris-common --lib
+  cargo miri test -p hadris-fat-raw --lib
+  cargo miri test -p hadris-iso-raw --lib
+  cargo miri test -p hadris-iso --lib -- name:: rock_ridge::
+  cargo miri test -p hadris-fs --lib name::
+  cargo miri test -p hadris-part --lib
+  cargo miri test -p hadris-ntfs --lib
   ```
 
-- Fuzz harnesses under [`fuzz/`](fuzz/) are **local tools** (not part of PR CI).
+- Fuzz harnesses live under [`fuzz/`](fuzz/). Rust CI's `Fuzz targets` job
+  builds them on `nightly-2026-09-04`, replays the committed seeds with
+  `-runs=0` and fuzzes each target for 10 seconds; long runs stay local.
   Replay corpora with `cargo +nightly fuzz run <target> -- -runs=0` after
-  parser fixes; prefer a normal unit/integration test for PR-gating regressions.
+  parser fixes, and turn each crash into a normal unit or integration test in
+  the owning crate.
 
 ## Spec annotations
 
@@ -465,9 +511,10 @@ in [`docs/spec-coverage.md`](docs/spec-coverage.md#annotation-convention).
 
 - `full` needs `@hadris-tests`; `@hadris-fuzz` is optional additional coverage.
 - `partial` needs `@hadris-note` describing the gap.
-- Fuzz targets are local discovery tools, not CI gates.
+- `@hadris-fuzz` names a discovery tool; CI only builds the fuzz targets and
+  replays their committed seeds, so it is not test evidence.
 
-CI runs the grammar + table-sync check (never `cargo fuzz`):
+CI runs the grammar + table-sync check:
 
 ```bash
 python3 scripts/check-spec-annotations.py --self-test
