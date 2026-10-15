@@ -1,0 +1,36 @@
+name: Supply chain
+
+# Weekly cargo-deny run, so a RustSec advisory or a yanked release against
+# a locked dependency surfaces without a manifest change. Rust CI runs the
+# same check when manifests, lockfiles or deny.toml change.
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supply-chain
+  cancel-in-progress: false
+
+jobs:
+  deny:
+    name: "Dependency policy (${{ matrix.workspace }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace: [".", tests, fuzz]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          rust-version: "1.97.1"
+          manifest-path: ${{ matrix.workspace }}/Cargo.toml
+          command: check
