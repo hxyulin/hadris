@@ -316,13 +316,13 @@ Each package declares its own version in its `Cargo.toml`, and
 Every stable crate ships 3.0.0 together; after that each crate versions on
 its own (R12 in [`docs/v3-api-design.md`](docs/v3-api-design.md)). A crate
 bumps its major only for its own breaking changes, and the umbrella `hadris`
-bumps its major when a stable crate it re-exports does. `hadris-fat-raw`
-versions separately from 0.1.0. The preview crates `hadris-ntfs` and
-`hadris-apfs` keep 3.x versions but are exempt from the semver promise: a
-breaking change to them bumps their minor, never their major, and since the
-umbrella reaches them only through `unstable-*` features, which are outside
-semver, it never bumps `hadris`'s major either. The
-examples are `publish = false`.
+bumps its major when a stable crate it re-exports does. The raw crates
+version separately on 0.x (see below). The preview crates `hadris-ntfs` and
+`hadris-apfs`, and the internal `hadris-common`, keep 3.x versions but are
+exempt from the semver promise: a breaking change to them bumps their minor,
+never their major, and users pin them with `~3.0`. Since the umbrella reaches
+the previews only through `unstable-*` features, which are outside semver, it
+never bumps `hadris`'s major either. The examples are `publish = false`.
 
 The raw crates (`hadris-fat-raw`, `hadris-iso-raw`, `hadris-udf-raw`,
 `hadris-cpio-raw`) stay at 0.x and version on their own; a breaking change
@@ -336,14 +336,23 @@ its whole major: moving to the next 0.y changes the identity of the
 re-exported types, so it is a breaking change of the format crate too. [`website/docs/stability.md`](website/docs/stability.md#raw-crates)
 lists them.
 
-To release, bump the versions of the crates being released and of their
-requirements in `[workspace.dependencies]`, and add a dated
-`CHANGELOG.md` section for them, in a PR:
+Changes collect in the undated section at the top of `CHANGELOG.md`, such
+as `## [3.0.0-rc.2] - Unreleased`, under Keep a Changelog subsections
+(Breaking first, then Added, Changed, Removed, Fixed and Security). To
+release, bump the versions of the crates being released and of their
+requirements in `[workspace.dependencies]`, and date the `CHANGELOG.md`
+section for them, in a PR:
 
 - one crate: `## [hadris-fat 3.1.0] - 2026-10-01`, the default heading for
   `<crate> <version>`;
 - a joint release: one section for all of them, such as
   `## [3.0.0-rc.2] - 2026-10-07`, named with the workflow's `notes` input.
+
+Date a section only in its release PR. `scripts/release-plan.py` refuses a
+dated workspace section `## [<version>]` whose `v<version>` tag does not
+exist, other than the one being released. For 3.0.0, consolidate the
+`3.0.0-rc.*` sections into one `## [3.0.0]` entry against 2.5.0, with the
+same subsections, and point its compare link at `v2.5.0...v3.0.0`.
 
 After that PR merges, run the `Release` workflow (Actions, Run workflow) on
 `main`, first with `mode: dry-run` and
@@ -413,7 +422,9 @@ Branch from `main` and target it for V3 changes. The `v2` branch preserves the
 
 1. Keep changes focused; prefer small PRs over mixed refactors.
 2. Update crate READMEs / rustdoc when public APIs or CLI commands change.
-3. Add a `[Unreleased]` note in [CHANGELOG.md](CHANGELOG.md) for user-visible work.
+3. Add a note for user-visible work to the undated top section of
+   [CHANGELOG.md](CHANGELOG.md), under its Breaking, Added, Changed, Removed,
+   Fixed or Security subsection.
 4. Do not commit secrets or large binary fixtures unless they are intentional
    corpus seeds under `fuzz/corpus/`.
 5. PRs to `main` also run the V3 guardrails in
@@ -424,8 +435,8 @@ Branch from `main` and target it for V3 changes. The `v2` branch preserves the
    3.x release tag (`<crate>-vX.Y.Z`), or against the target branch before
    the crate's 3.0.0. While the version is unchanged, a PR must be a
    compatible minor change, release candidates included. A deliberate break
-   bumps the crate's version in the same PR: the next release candidate
-   (`3.0.0-rc.2`) before 3.0.0, the next major after it.
+   bumps the crate's version in the same PR, to the next pre-release or
+   major, unless the current version was never released.
 
 ## Safety and fuzzing
 
