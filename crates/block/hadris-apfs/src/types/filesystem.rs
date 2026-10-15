@@ -46,6 +46,7 @@ impl FileSystemKey {
 /// Layout of a directory entry key, chosen by the volume's incompatible
 /// features; see [`crate::types::VolumeSuperblock::directory_key_layout`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum DirectoryKeyLayout {
     /// `j_drec_hashed_key_t`: a 32-bit field with a 10-bit name length and a
     /// 22-bit name hash at offset 8, then the name.
