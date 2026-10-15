@@ -364,7 +364,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-apfs"
-version = "0.1.0"
+version = "3.0.0-rc.2"
 dependencies = [
  "aes",
  "aes-kw",
@@ -633,7 +633,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-ntfs"
-version = "0.1.0"
+version = "3.0.0-rc.2"
 dependencies = [
  "bytemuck",
  "hadris-fs",

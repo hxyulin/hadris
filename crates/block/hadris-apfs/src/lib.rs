@@ -5,8 +5,8 @@
 
 //! An experimental, read-only APFS container and volume reader.
 //!
-//! A preview versioned 0.x, outside the Hadris 3.x stability promise: each
-//! 0.y release may break the API. Compressed files, hardware/per-file encryption, snapshots and writes are not
+//! The API is outside the Hadris 3.x stability promise and may change in a
+//! minor release. Compressed files, hardware/per-file encryption, snapshots and writes are not
 //! supported; see the README for the full scope.
 //!
 //! On-disk structures live in [`types`]. The readers in the `sync` and

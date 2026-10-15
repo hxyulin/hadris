@@ -2,9 +2,6 @@
 //!
 //! A read-only NTFS reader that needs no allocator.
 //!
-//! A preview versioned 0.x, outside the Hadris 3.x stability promise: each
-//! 0.y release may break the native API.
-//!
 //! `NtfsFs` opens a volume on a `hadris_storage` block device, in each mode
 //! (`sync::NtfsFs`, `async_::NtfsFs`). It implements the `hadris_fs`
 //! `FileSystem` trait read-only, so `Volume` and its handles work on it.
