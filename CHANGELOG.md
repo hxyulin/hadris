@@ -6,7 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Each published package owns its version and may be released independently.
 
-## [3.0.0-rc.2] - Unreleased
+## [Unreleased]
+
+## [3.0.0-rc.2] - 2026-10-15
 
 The second release candidate of the 3.0 API. All 3.x packages, including
 `hadris-common`, `hadris-macros` and the unified CLI, now use `3.0.0-rc.2`.
@@ -2327,7 +2329,8 @@ under Semantic Versioning.
 - **Build:** Disabled `thiserror` default features so the workspace builds as
   `no_std`. ([@aruiz](https://github.com/aruiz))
 
-[3.0.0-rc.2]: https://github.com/hxyulin/hadris/compare/v3.0.0-rc.1...HEAD
+[Unreleased]: https://github.com/hxyulin/hadris/compare/v3.0.0-rc.2...HEAD
+[3.0.0-rc.2]: https://github.com/hxyulin/hadris/compare/v3.0.0-rc.1...v3.0.0-rc.2
 [3.0.0-rc.1]: https://github.com/hxyulin/hadris/compare/v2.5.0...v3.0.0-rc.1
 [2.5.0]: https://github.com/hxyulin/hadris/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/hxyulin/hadris/compare/v2.3.0...v2.4.0
