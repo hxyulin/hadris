@@ -2,6 +2,7 @@
 """Validate @hadris-* spec annotation blocks.
 
 Rules (see docs/spec-coverage.md):
+  - annotations are plain `//` comments, never `///` or `//!` rustdoc
   - @hadris-compliance full  ⇒ @hadris-tests
   - @hadris-compliance partial ⇒ @hadris-note
   - cited tests and fuzz targets exist
@@ -23,6 +24,7 @@ TAG_RE = re.compile(
     r"^\s*(?://|///|\*)?\s*"
     r"@(hadris-(?:spec|compliance|tests|fuzz|note))\s*(.*)$"
 )
+DOC_TAG_RE = re.compile(r"^\s*//[/!]\s*@hadris-")
 COMPLIANCE_VALUES = frozenset({"full", "partial", "none", "n/a", "unknown"})
 
 
@@ -82,6 +84,15 @@ def parse_blocks(path: Path, text: str) -> list[Block]:
     if current is not None:
         blocks.append(current)
     return blocks
+
+
+def check_doc_comments(path: Path, text: str) -> list[str]:
+    return [
+        f"{path}:{lineno}: @hadris-* annotations belong in `//` comments; "
+        "`///` and `//!` publish them in rustdoc"
+        for lineno, line in enumerate(text.splitlines(), start=1)
+        if DOC_TAG_RE.match(line)
+    ]
 
 
 def check_block(block: Block) -> list[str]:
@@ -295,6 +306,7 @@ def run_checks(
 
     for path in iter_rust_files(root):
         text = path.read_text(encoding="utf-8")
+        errors.extend(check_doc_comments(path, text))
         for block in parse_blocks(path, text):
             all_blocks.append(block)
             errors.extend(check_block(block))
@@ -312,19 +324,19 @@ def run_checks(
 def _self_test() -> None:
     """Minimal fixture checks (no repo walk)."""
     sample = """
-/// @hadris-spec ECMA-TEST:1
-/// @hadris-compliance full
-/// @hadris-tests foo::bar
+// @hadris-spec ECMA-TEST:1
+// @hadris-compliance full
+// @hadris-tests foo::bar
 
-/// @hadris-spec ECMA-TEST:2
-/// @hadris-compliance full
+// @hadris-spec ECMA-TEST:2
+// @hadris-compliance full
 
-/// @hadris-spec ECMA-TEST:3
-/// @hadris-compliance partial
+// @hadris-spec ECMA-TEST:3
+// @hadris-compliance partial
 
-/// @hadris-spec ECMA-TEST:4
-/// @hadris-compliance partial
-/// @hadris-note gap
+// @hadris-spec ECMA-TEST:4
+// @hadris-compliance partial
+// @hadris-note gap
 """
     path = Path("fixture.rs")
     blocks = parse_blocks(path, sample)
@@ -342,9 +354,15 @@ def _self_test() -> None:
     # Fuzzing is robustness evidence, not sufficient conformance evidence.
     fuzz_only = parse_blocks(
         path,
-        "/// @hadris-spec X\n/// @hadris-compliance full\n/// @hadris-fuzz udf_read\n",
+        "// @hadris-spec X\n// @hadris-compliance full\n// @hadris-fuzz udf_read\n",
     )[0]
     assert any("fuzzing alone" in error for error in check_block(fuzz_only))
+
+    assert check_doc_comments(path, sample) == []
+    doc_tags = check_doc_comments(
+        path, "/// Item docs.\n/// @hadris-spec X\n//! @hadris-tests a::b\n// @hadris-note ok\n"
+    )
+    assert [error.split(":")[1] for error in doc_tags] == ["2", "3"], doc_tags
 
     assert evidence_names("foo::one, `bar::two`") == ["foo::one", "bar::two"]
 
@@ -362,8 +380,8 @@ def _self_test() -> None:
         assert runnable_test_names(root) == {"executable", "first", "after_long_comment"}
         helper = parse_blocks(
             path,
-            "/// @hadris-spec X\n/// @hadris-compliance full\n"
-            "/// @hadris-tests fixture::helper\n",
+            "// @hadris-spec X\n// @hadris-compliance full\n"
+            "// @hadris-tests fixture::helper\n",
         )[0]
         assert len(check_evidence(root, [helper])) == 1
 

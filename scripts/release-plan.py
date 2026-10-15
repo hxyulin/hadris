@@ -5,8 +5,11 @@ usage: scripts/release-plan.py [--notes SECTION] [--notes-dir DIR] [--github-pla
 
 Prints one line per crate in dependency order: name, version and tag
 (`<crate>-v<version>`). Fails when a crate is not published, a version is
-not a semantic version, a tag already names another commit, or the
-CHANGELOG.md section is missing, undated or empty.
+not a semantic version, a tag already names another commit, the
+CHANGELOG.md section is missing, undated or empty, or another dated
+workspace section `## [<version>]` has no `v<version>` tag. Unpublished
+sections stay undated, such as `## [3.0.0-rc.2] - Unreleased`, until the
+release dates them.
 
 Release notes come from the section `## [<crate> <version>] - YYYY-MM-DD`,
 or from `## [SECTION] - YYYY-MM-DD` for every crate with --notes SECTION
@@ -78,6 +81,23 @@ def changelog_section(text: str, title: str) -> str:
     return body + "\n"
 
 
+def untagged_dated_sections(text: str, releasing: set[str]) -> list[str]:
+    errors = []
+    for match in re.finditer(r"^## \[([^]]+)\] - (\d{4}-\d{2}-\d{2})\s*$", text, re.MULTILINE):
+        title = match.group(1)
+        if title in releasing:
+            continue
+        if not SEMVER.match(title):
+            continue
+        tag = f"v{title}"
+        if tag_commit(tag) is None:
+            errors.append(
+                f"CHANGELOG.md section [{title}] is dated but tag {tag} does not exist; "
+                "leave unpublished sections undated"
+            )
+    return errors
+
+
 def tag_commit(tag: str) -> str | None:
     result = subprocess.run(
         ["git", "rev-list", "-n", "1", tag], cwd=ROOT, capture_output=True, text=True
@@ -121,6 +141,10 @@ def main() -> int:
             errors.append(f"{name}: {error}")
             notes = ""
         plan.append((name, version, tag, notes))
+
+    workspace_version = packages["hadris"]["version"] if "hadris" in packages else None
+    releasing = {args.notes} if args.notes and args.notes == workspace_version else set()
+    errors.extend(untagged_dated_sections(changelog, releasing))
 
     if args.notes and "hadris" in selected:
         version = packages["hadris"]["version"]

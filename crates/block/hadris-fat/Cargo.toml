@@ -16,6 +16,7 @@ repository.workspace = true
 # modes. Build every mode.
 [package.metadata.docs.rs]
 features = ["std", "sync", "async", "write", "tracing"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["std", "sync", "write"]

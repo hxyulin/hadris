@@ -3,9 +3,7 @@
 This guide is for code and scripts written against Hadris 2.4 or 2.5 (the V2
 API) that move to Hadris 3.0 (the V3 API). The symbol tables describe the 2.4
 API; the final APFS section covers its addition in 2.5. It covers the library crates,
-their features, and the command-line tools. The dependency recipes and API
-descriptions target RC2. Until RC2 is published, use a workspace checkout
-of `main`; after publication, use the explicit release-candidate versions below.
+their features, and the command-line tools.
 
 Hadris 3.0 is a new API, not an incremental release. Every filesystem reads a
 block device instead of a byte stream, every driver implements one shared
@@ -26,7 +24,7 @@ default-features = false
 features = ["std", "sync", "fat"]
 ```
 
-These recipes select `3.0.0-rc.2` explicitly after publication; a plain
+These recipes select the release candidate explicitly; a plain
 `version = "3"` does not select a prerelease.
 For development snapshots, use a Git dependency pinned to a reviewed `rev`.
 
@@ -141,9 +139,9 @@ New crates:
 | Crate | Role |
 |---|---|
 | `hadris-fs` | Shared vocabulary (`NodeId`, `Name`, `Metadata`, `DateTime`, `MountOptions`), the `FileSystem` trait, `Volume` with `File` and `ReadDir`, `Walk`, `Tree`, `Node`, `Content`, `Report`, `copy_tree`, `read_tree`, `Finding`, `CheckReport`, the `host` module, and re-exports of the `hadris-io` error items. |
-| `hadris-fat-raw` | FAT12/16/32 and exFAT on-disk layouts, I/O-free codecs, device primitives (`io`, `exfat::io`) and the allocation-free checkers. Version 0.2.0 in RC2. |
+| `hadris-fat-raw` | FAT12/16/32 and exFAT on-disk layouts, I/O-free codecs, device primitives (`io`, `exfat::io`) and the allocation-free checkers. Version 0.2.0. |
 | `hadris-iso-raw`, `hadris-udf-raw`, `hadris-cpio-raw` | ISO 9660, UDF and cpio on-disk layouts and I/O-free codecs, at each crate's root. Version 0.1.0. |
-| `hadris-cli` | The single `hadris` binary. Install RC2 from crates.io after publication as shown in [Command-line tools](#command-line-tools). |
+| `hadris-cli` | The single `hadris` binary. Install it from crates.io as shown in [Command-line tools](#command-line-tools). |
 
 For applications that deliberately use individual format crates, the same API
 is available through separate dependencies:
@@ -356,7 +354,7 @@ pub trait BlockDevice: ErrorType {
 One trait replaces `BlockDevice` plus `BlockDeviceMut`. A read-only device
 implements the first three methods; the default `write_blocks` answers kind
 `ReadOnly`, and a device whose `writable()` is false is mounted read-only.
-RC2 asynchronous devices instead implement operation-owned `State` and poll
+Asynchronous devices instead implement operation-owned `State` and poll
 hooks; their provided read/write/flush methods remain awaitable. See the
 [async device migration guide](async-devices.md).
 
@@ -365,7 +363,7 @@ hooks; their provided read/write/flush methods remain awaitable. See the
 | `hadris_storage::host::FileDevice` (`std`, in each enabled mode) | A host image file (512-byte blocks by default) or disk device (OS-reported logical blocks). `open(path)` is read-only; `new(file)` takes a file you opened, writable if it was opened for writing. `open_with_block_size(path, size)` and `with_block_size(file, size)` specify image geometry explicitly. Also `hadris::host::FileDevice`. `std::fs::File` is no longer a device. |
 | `Vec<u8>` (`alloc`) | In-memory image with 512-byte blocks that grows when written past its end. |
 | `hadris_storage::MemDevice<B>` | `&[u8]` (read-only), `&mut [u8]`, arrays, `Vec<u8>` or `Box<[u8]>` with an explicit `BlockSize`. |
-| `hadris_storage::{sync, async_}::StreamDevice<T>` | The sync adapter accepts `Read + Seek` streams with `StreamWrite`. The RC2 async adapter accepts the poll-native `async_::Stream` contract; use `BlockingStream` for an explicit sync bridge. Replaces `SeekBlockDevice`. |
+| `hadris_storage::{sync, async_}::StreamDevice<T>` | The sync adapter accepts `Read + Seek` streams with `StreamWrite`. The async adapter accepts the poll-native `async_::Stream` contract; use `BlockingStream` for an explicit sync bridge. Replaces `SeekBlockDevice`. |
 | `hadris_storage::Partition<D>` | A byte window of a device. Replaces `PartitionView`. `hadris_part::sync::open` returns one. |
 | `hadris_storage::{sync, async_}::Cache<D>` (`alloc`) | Write-back LRU block cache for any device. Replaces the FAT sector cache. |
 | `hadris_storage::{sync, async_}::ByteView<D>` | Byte-granular reads and writes over a device. |
@@ -1053,15 +1051,9 @@ primitives in `io` and `exfat::io`, and the checkers `io::sync::check` and
 
 ## Async
 
-RC2 addresses the allocated local-filesystem gap tracked in
-[issue #267](https://github.com/hxyulin/hadris/issues/267). Published RC1 used
-the earlier Send-only shared filesystem tier; the following contract requires
-RC2 or a workspace checkout of `main`.
-
-- `async_` is the only async namespace. Code written against RC2 replaces
-  `r#async::`, `hadris_storage::local::` and `hadris_fat_raw::io::local::`
-  with `async_::`; the storage `legacy_async` and `legacy_local` modules are
-  removed. One block-format driver accepts both local and Send devices
+- `async_` is the only async namespace: there is no `r#async::`,
+  `hadris_storage::local::` or `hadris_fat_raw::io::local::`, and no storage
+  `legacy_async` or `legacy_local` module. One block-format driver accepts both local and Send devices
   through `hadris_storage::async_::BlockDevice`. Its poll hooks use an operation-owned
   `State: Default + Unpin`.
 - `SendBlockDevice` is automatic when both the device and its operation state
@@ -1235,7 +1227,7 @@ follows. In V3, name I/O items through their mode module:
 |---|---|
 | `hadris_storage::BlockDevice`, `hadris_storage::sync::BlockDevice` | `hadris_storage::sync::BlockDevice`; `read_blocks` takes a `BlockIndex` and returns `hadris_io::Error<Self::Error>` |
 | `hadris_storage::BlockDeviceMut`, `hadris_storage::sync::BlockDeviceMut` | Merged into `BlockDevice`: implement `writable`, `write_blocks` and `flush` |
-| `hadris_storage::r#async::{BlockDevice, BlockDeviceMut}` | RC2: `hadris_storage::async_::BlockDevice` with `State` and poll hooks; `SendBlockDevice` when device and state are Send. |
+| `hadris_storage::r#async::{BlockDevice, BlockDeviceMut}` | `hadris_storage::async_::BlockDevice` with `State` and poll hooks; `SendBlockDevice` when device and state are Send. |
 | `hadris_storage::SeekBlockDevice` and mode twins | `hadris_storage::{sync, async_}::StreamDevice<T>` |
 | `hadris_storage::PartitionView` | `hadris_storage::Partition<D>` over a block device |
 | `hadris_storage::Error` | `hadris_io::Error<D::Error>`; a refused write is kind `ReadOnly`, an out-of-range request `InvalidInput` |
@@ -1683,19 +1675,11 @@ APFS password unlocking is opt-in with `hadris-apfs/encryption` or the umbrella'
 volumes, not internal Apple-silicon hardware FileVault. See the
 [encryption scope](apfs-encryption.md).
 
-## Feature changes after RC2
+## Upgrading from a 3.0 release candidate
 
-These breaking feature changes landed after `3.0.0-rc.2`:
-
-| RC2 | 3.0 |
-|---|---|
-| `hadris-apfs/read` (default) | Removed; the readers need only `sync` or `async`. Drop it from feature lists, including `hadris-apfs/read` in your own features. |
-| `hadris-iso/cache` | Removed; `CacheOptions`, `IsoFs::with_cache` and `IsoFs::clear_cache` need only `alloc`. |
-| `hadris-fs/async-local`, `hadris-iso/async-local` | Removed; `async` enables `hadris_fs::local` and both async tiers. |
-| `hadris-fs/contract` | Renamed `unstable-contract`; the kit is outside semver. |
-| `tracing` implies `std` | `tracing` is independent of `std`; enable `std` yourself if you relied on it. |
-| `hadris_storage::host::FileDevice` needs `std` and `sync` | Needs `std`; it implements `async_::BlockDevice` with `async` alone. |
-| `hadris_fs::host` needs `std` and `sync` | The module needs `std`; the tree functions also need `sync`. |
+This guide maps V2 to 3.0. Changes between 3.0 release candidates, including
+renamed and removed features, are listed per release under Breaking in the
+[changelog](../CHANGELOG.md).
 
 ## APFS added in V2 2.5
 
@@ -1711,7 +1695,7 @@ APFS arrived after the V2 2.4 API mapped above. V3 now has a read-only
 | I/O returned as `ApfsError::Io(ErrorKind)` | `Error<D::Error>` preserving the backend payload; `Detail::of` identifies APFS failures |
 | Device consumed on a failed open | `Container::try_open` and driver mounts return `MountError` with the device |
 | `root_leaf_volume_object_map_values` | `volume_object_map_values`, traversing all object-map leaves |
-| Standalone APFS inspection tool | Unified `hadris apfs info`, `ls`, `stat`, `cat` and `extract`; `hadris-apfs-cli` is removed from the workspace in RC2 |
+| Standalone APFS inspection tool | Unified `hadris apfs info`, `ls`, `stat`, `cat` and `extract`; there is no separate `hadris-apfs-cli` |
 
 `hadris-apfs` is a preview outside the 3.x stability promise: it keeps a
 3.x version, but a 3.y minor release may break its API. Write
@@ -1721,8 +1705,7 @@ The umbrella's `detect` feature lists APFS containers as
 `ImageFormat::Apfs` from their signature but does not mount them.
 `unstable-apfs` adds the `hadris::apfs` re-export, `AnyFs::Apfs`,
 single-volume mounting in `open` and `host::open`, the APFS damage check in
-`detect`, and explicit selection through `open_apfs`. In RC2, `detect`
-mounted APFS without `unstable-apfs`; add the feature to keep that. The
+`detect`, and explicit selection through `open_apfs`. The
 APFS parts of the umbrella remain a preview outside semver; the shared
 filesystem behavior follows the V3 trait contract. The mounted
 driver indexes metadata in memory, requires `alloc` and supports `no_std`.

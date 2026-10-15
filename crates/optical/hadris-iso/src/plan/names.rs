@@ -34,10 +34,9 @@ fn push_converted(out: &mut Vec<u8>, part: &str, case: NameCase, max: usize) {
 }
 
 /// A Level 1 file identifier: 8.3 with `;1`.
-///
-/// @hadris-spec ECMA-119:7.5.1
-/// @hadris-compliance full
-/// @hadris-tests iso::spec::hadris_iso_matches_ecma_119_oracle
+// @hadris-spec ECMA-119:7.5.1
+// @hadris-compliance full
+// @hadris-tests iso::spec::hadris_iso_matches_ecma_119_oracle
 pub(crate) fn convert_l1(name: &str, case: NameCase) -> Vec<u8> {
     let mut out = Vec::with_capacity(14);
     match name.rsplit_once('.') {

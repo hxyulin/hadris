@@ -12,12 +12,11 @@ pub const HEADER_MORE: u8 = 0x90;
 pub const HEADER_FINAL: u8 = 0x91;
 
 /// El Torito boot catalog validation entry.
-///
-/// @hadris-spec El-Torito:validation
-/// @hadris-compliance partial
-/// @hadris-note The catalog entry is modeled and interoperability-tested, but the audit has not established clause-complete validation.
-/// @hadris-tests iso::boot::test_eltorito_boot_catalog_comparison
-/// @hadris-fuzz iso_read
+// @hadris-spec El-Torito:validation
+// @hadris-compliance partial
+// @hadris-note The catalog entry is modeled and interoperability-tested, but the audit has not established clause-complete validation.
+// @hadris-tests iso::boot::test_eltorito_boot_catalog_comparison
+// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct BootValidationEntry {
@@ -82,12 +81,11 @@ impl fmt::Debug for BootValidationEntry {
 
 /// El Torito section header entry (0x90/0x91) introducing a platform's boot
 /// entries.
-///
-/// @hadris-spec El-Torito:section-header
-/// @hadris-compliance partial
-/// @hadris-note The catalog entry is modeled and interoperability-tested, but the audit has not established clause-complete validation.
-/// @hadris-tests iso::boot::test_hadris_multisection_boot_catalog
-/// @hadris-fuzz iso_read
+// @hadris-spec El-Torito:section-header
+// @hadris-compliance partial
+// @hadris-note The catalog entry is modeled and interoperability-tested, but the audit has not established clause-complete validation.
+// @hadris-tests iso::boot::test_hadris_multisection_boot_catalog
+// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct BootCatalogHeader {
@@ -113,12 +111,11 @@ impl fmt::Debug for BootCatalogHeader {
 
 /// El Torito initial/default or section entry: the bootable image and its
 /// emulation media type.
-///
-/// @hadris-spec El-Torito:section-entry
-/// @hadris-compliance partial
-/// @hadris-note The catalog entry is modeled and interoperability-tested, but the audit has not established clause-complete validation.
-/// @hadris-tests iso::boot::test_floppy_emulation_media_type_and_default_load_size
-/// @hadris-fuzz iso_read
+// @hadris-spec El-Torito:section-entry
+// @hadris-compliance partial
+// @hadris-note The catalog entry is modeled and interoperability-tested, but the audit has not established clause-complete validation.
+// @hadris-tests iso::boot::test_floppy_emulation_media_type_and_default_load_size
+// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct BootSectionEntry {

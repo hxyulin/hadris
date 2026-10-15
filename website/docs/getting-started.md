@@ -10,9 +10,8 @@ only the formats and I/O mode the application needs.
 
 ## Get the release candidate
 
-These pages target `3.0.0-rc.2`. For registry installation after publication,
-select the release candidate explicitly. Before publication, or when testing
-development changes, use the source checkout below:
+These pages target `3.0.0-rc.2`; the latest published release candidate is
+`3.0.0-rc.1`. Select the release candidate explicitly:
 
 ```toml
 [dependencies.hadris]
@@ -22,10 +21,10 @@ features = ["std", "sync", "fat"]
 ```
 
 A plain `version = "3"` cannot select a prerelease. The recipes in these guides
-use the explicit RC2 version. For development snapshots, use a
+use the explicit version. For development snapshots, use a
 Git dependency pinned to a reviewed `rev`.
 
-After publication, install the command-line tool with cargo-binstall:
+Install the command-line tool with cargo-binstall:
 
 ```sh
 cargo binstall hadris-cli --version 3.0.0-rc.2
@@ -92,13 +91,12 @@ versions directly is useful.
 
 `std` implies `alloc`, but neither selects an I/O mode. `write` adds FAT and
 exFAT formatting; ordinary file mutation is already available in their drivers.
-Reading is always compiled in stable format crates. The APFS preview retains
-its `read` feature internally.
+Reading is always compiled; no format crate has a `read` feature.
 
 Use `Volume` for paths and handles, and the bare `FileSystem` trait for node
 operations and platform integrations. Close written files and explicitly
 unmount when errors from metadata publication or device flush must be reported.
-RC2 uses one driver for local and Send devices; operation state must also
+One driver serves local and Send devices; operation state must also
 be Send for Send futures. See [async support boundaries](./guides/async-io.md).
 
 ## Next steps

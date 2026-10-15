@@ -13,6 +13,7 @@ repository.workspace = true
 
 [package.metadata.docs.rs]
 features = ["std", "sync", "async", "encryption", "tracing"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["std", "sync"]

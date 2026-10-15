@@ -22,6 +22,7 @@ defmt = ["dep:defmt"]
 
 [package.metadata.docs.rs]
 features = ["sync", "async"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 hadris-common = { workspace = true, features = ["bytemuck"] }

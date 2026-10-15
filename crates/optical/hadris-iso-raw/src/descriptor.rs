@@ -101,12 +101,11 @@ impl fmt::Debug for VolumeDescriptorHeader {
 }
 
 /// Primary Volume Descriptor (ECMA-119 8.4)
-///
-/// @hadris-spec ECMA-119:8.4
-/// @hadris-compliance partial
-/// @hadris-note Core fields and their redundant endian copies are validated on read, but reserved fields, character sets and semantic constraints are not all validated.
-/// @hadris-tests errors::malformed_images_are_refused, roundtrip::every_tree_reads_back, iso::spec::hadris_iso_matches_ecma_119_oracle
-/// @hadris-fuzz iso_read
+// @hadris-spec ECMA-119:8.4
+// @hadris-compliance partial
+// @hadris-note Core fields and their redundant endian copies are validated on read, but reserved fields, character sets and semantic constraints are not all validated.
+// @hadris-tests errors::malformed_images_are_refused, roundtrip::every_tree_reads_back, iso::spec::hadris_iso_matches_ecma_119_oracle
+// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PrimaryVolumeDescriptor {
@@ -179,12 +178,11 @@ pub struct PrimaryVolumeDescriptor {
 ///
 /// It has the layout of the primary descriptor; the `flags` and
 /// `escape_sequences` fields take the place of unused bytes.
-///
-/// @hadris-spec ECMA-119:8.5
-/// @hadris-compliance partial
-/// @hadris-note Joliet SVDs (UCS-2, BMP only) and version-2 enhanced descriptors are read and written; the escape sequences recognized are the three Joliet levels.
-/// @hadris-tests roundtrip::every_tree_reads_back
-/// @hadris-fuzz iso_read
+// @hadris-spec ECMA-119:8.5
+// @hadris-compliance partial
+// @hadris-note Joliet SVDs (UCS-2, BMP only) and version-2 enhanced descriptors are read and written; the escape sequences recognized are the three Joliet levels.
+// @hadris-tests roundtrip::every_tree_reads_back
+// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct SupplementaryVolumeDescriptor {
@@ -293,12 +291,11 @@ descriptor_debug!(SupplementaryVolumeDescriptor);
 
 /// Boot Record Volume Descriptor (ECMA-119 8.2), locating the El Torito boot
 /// catalog.
-///
-/// @hadris-spec ECMA-119:8.2
-/// @hadris-compliance partial
-/// @hadris-note The descriptor locates El Torito data, but all ECMA-119 boot-record semantics are not implemented.
-/// @hadris-tests iso::boot::test_hadris_multisection_boot_catalog
-/// @hadris-fuzz iso_read
+// @hadris-spec ECMA-119:8.2
+// @hadris-compliance partial
+// @hadris-note The descriptor locates El Torito data, but all ECMA-119 boot-record semantics are not implemented.
+// @hadris-tests iso::boot::test_hadris_multisection_boot_catalog
+// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct BootRecordVolumeDescriptor {
@@ -343,12 +340,11 @@ impl fmt::Debug for BootRecordVolumeDescriptor {
 }
 
 /// Volume Descriptor Set Terminator (ECMA-119 8.3).
-///
-/// @hadris-spec ECMA-119:8.3
-/// @hadris-compliance partial
-/// @hadris-note The descriptor is emitted and recognized, and its body must be zero; the audit has not established validation of every other rule.
-/// @hadris-tests errors::malformed_images_are_refused
-/// @hadris-fuzz iso_read
+// @hadris-spec ECMA-119:8.3
+// @hadris-compliance partial
+// @hadris-note The descriptor is emitted and recognized, and its body must be zero; the audit has not established validation of every other rule.
+// @hadris-tests errors::malformed_images_are_refused
+// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct VolumeDescriptorSetTerminator {

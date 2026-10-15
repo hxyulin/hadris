@@ -10,7 +10,7 @@ cover individual replacements, CLI flags and APFS additions in 2.5.
 
 ## Select one dependency
 
-Follow the [RC2 installation recipe](./getting-started.md#get-the-release-candidate).
+Follow the [installation recipe](./getting-started.md#get-the-release-candidate).
 The umbrella reaches the same native APIs as individual format crates, including
 `hadris::fat`, `hadris::iso`, `hadris::fs`, `hadris::storage` and `hadris::io`.
 A known FAT image needs only `std`, `sync` and `fat`; add `write` for formatting.
@@ -65,9 +65,7 @@ Dropping a handle cannot report a flush or metadata error to the caller.
 | Non-`Send` asynchronous firmware | The common `storage::async_::BlockDevice` and `fs::local::FileSystem`; `fs::local::Volume` with allocation and pointer-sized atomics |
 
 Device errors still require `core::error::Error + Send + Sync + 'static` in
-every mode. `local` relaxes device and future bounds, not error bounds. The
-allocated local filesystem gap from RC1, tracked in
-[issue #267](https://github.com/hxyulin/hadris/issues/267), is resolved in RC2.
+every mode. `local` relaxes device and future bounds, not error bounds.
 
 Mutations are not transactions. A device error or cancelled future can leave
 partial changes. Confirm the [documented durability limits](https://github.com/hxyulin/hadris/blob/main/KNOWN_ISSUES.md)
@@ -87,10 +85,7 @@ It builds its own inputs and verifies the contents. The
 [other runnable examples](https://github.com/hxyulin/hadris/blob/main/examples/README.md)
 cover partitioned boot media, extraction, streaming initramfs and VFS integration.
 
-## RC2 async devices
-
-Apply the guidance above when migrating from V2. Applications already using
-RC1 must also migrate custom asynchronous devices to the RC2 poll contract.
+## Async devices
 
 The unified device contract uses operation-owned state and poll hooks. Format
 callers use the `async_` namespace.

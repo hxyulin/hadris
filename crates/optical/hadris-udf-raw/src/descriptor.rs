@@ -2,12 +2,11 @@ use super::{CharSpec, EntityId, ExtentAd, Tag, Timestamp, U16Le, U32Le};
 
 /// Volume Structure Descriptor (ECMA-167 2/9.1), one per 2048 bytes of
 /// the Volume Recognition Sequence from byte 32768.
-///
-/// @hadris-spec ECMA-167:2/9.1
-/// @hadris-compliance partial
-/// @hadris-note BEA01, NSR02 or NSR03 and TEA01 are written, after ISO 9660 descriptors in a bridge volume; the reader requires an NSR descriptor inside an extended area.
-/// @hadris-tests errors::malformed_volumes_are_refused, roundtrip::every_tree_reads_back
-/// @hadris-fuzz udf_read
+// @hadris-spec ECMA-167:2/9.1
+// @hadris-compliance partial
+// @hadris-note BEA01, NSR02 or NSR03 and TEA01 are written, after ISO 9660 descriptors in a bridge volume; the reader requires an NSR descriptor inside an extended area.
+// @hadris-tests errors::malformed_volumes_are_refused, roundtrip::every_tree_reads_back
+// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct VolumeStructureDescriptor {
@@ -32,12 +31,11 @@ impl VolumeStructureDescriptor {
 }
 
 /// Anchor Volume Descriptor Pointer (ECMA-167 3/10.2).
-///
-/// @hadris-spec ECMA-167:3/10.2
-/// @hadris-compliance partial
-/// @hadris-note Written at block 256 and at N-256; the reader looks at 256, N-256 and N-1 for each logical block size and falls back to the reserve sequence.
-/// @hadris-tests roundtrip::every_tree_reads_back, errors::reserve_sequence_and_backup_anchor_are_used
-/// @hadris-fuzz udf_read
+// @hadris-spec ECMA-167:3/10.2
+// @hadris-compliance partial
+// @hadris-note Written at block 256 and at N-256; the reader looks at 256, N-256 and N-1 for each logical block size and falls back to the reserve sequence.
+// @hadris-tests roundtrip::every_tree_reads_back, errors::reserve_sequence_and_backup_anchor_are_used
+// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct AnchorVolumeDescriptorPointer {
@@ -52,12 +50,11 @@ pub struct AnchorVolumeDescriptorPointer {
 }
 
 /// Primary Volume Descriptor (ECMA-167 3/10.1).
-///
-/// @hadris-spec ECMA-167:3/10.1
-/// @hadris-compliance partial
-/// @hadris-note The prevailing descriptor by sequence number is used; its volume identifier is read, the other fields are written but not checked.
-/// @hadris-tests roundtrip::every_tree_reads_back, read::prevailing_descriptors_win
-/// @hadris-fuzz udf_read
+// @hadris-spec ECMA-167:3/10.1
+// @hadris-compliance partial
+// @hadris-note The prevailing descriptor by sequence number is used; its volume identifier is read, the other fields are written but not checked.
+// @hadris-tests roundtrip::every_tree_reads_back, read::prevailing_descriptors_win
+// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PrimaryVolumeDescriptor {
@@ -131,12 +128,11 @@ pub struct ImplementationUseVolumeDescriptor {
 }
 
 /// Partition Descriptor (ECMA-167 3/10.5).
-///
-/// @hadris-spec ECMA-167:3/10.5
-/// @hadris-compliance partial
-/// @hadris-note The prevailing descriptor for each partition number is used; the start and length bound every extent; contents other than NSR02 and NSR03 are refused.
-/// @hadris-tests roundtrip::every_tree_reads_back, read::prevailing_descriptors_win
-/// @hadris-fuzz udf_read
+// @hadris-spec ECMA-167:3/10.5
+// @hadris-compliance partial
+// @hadris-note The prevailing descriptor for each partition number is used; the start and length bound every extent; contents other than NSR02 and NSR03 are refused.
+// @hadris-tests roundtrip::every_tree_reads_back, read::prevailing_descriptors_win
+// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PartitionDescriptor {
@@ -168,12 +164,11 @@ pub struct PartitionDescriptor {
 
 /// The fixed part of a Logical Volume Descriptor (ECMA-167 3/10.6); the
 /// partition maps follow it.
-///
-/// @hadris-spec ECMA-167:3/10.6
-/// @hadris-compliance partial
-/// @hadris-note The logical block size must be 512 to 4096 bytes and agree with the anchor; type 1 partition maps are read and other map types are refused as unsupported.
-/// @hadris-tests roundtrip::every_tree_reads_back, errors::unsupported_partition_maps_are_refused
-/// @hadris-fuzz udf_read
+// @hadris-spec ECMA-167:3/10.6
+// @hadris-compliance partial
+// @hadris-note The logical block size must be 512 to 4096 bytes and agree with the anchor; type 1 partition maps are read and other map types are refused as unsupported.
+// @hadris-tests roundtrip::every_tree_reads_back, errors::unsupported_partition_maps_are_refused
+// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct LogicalVolumeDescriptor {
@@ -205,12 +200,11 @@ pub struct LogicalVolumeDescriptor {
 }
 
 /// Type 1 partition map (ECMA-167 3/10.7.2): a partition of this volume.
-///
-/// @hadris-spec ECMA-167:3/10.7.2
-/// @hadris-compliance partial
-/// @hadris-note Up to eight type 1 maps are read; type 2 maps (virtual, sparable and metadata partitions) are refused as unsupported.
-/// @hadris-tests read::prevailing_descriptors_win, errors::unsupported_partition_maps_are_refused
-/// @hadris-fuzz udf_read
+// @hadris-spec ECMA-167:3/10.7.2
+// @hadris-compliance partial
+// @hadris-note Up to eight type 1 maps are read; type 2 maps (virtual, sparable and metadata partitions) are refused as unsupported.
+// @hadris-tests read::prevailing_descriptors_win, errors::unsupported_partition_maps_are_refused
+// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Type1PartitionMap {
@@ -250,12 +244,11 @@ pub struct TerminatingDescriptor {
 /// The fixed part of a Logical Volume Integrity Descriptor
 /// (ECMA-167 3/10.10); the free space table, the size table and the
 /// implementation use (UDF 2.2.6.4) follow it.
-///
-/// @hadris-spec ECMA-167:3/10.10
-/// @hadris-compliance partial
-/// @hadris-note Written closed with the next unique id, the partition size, and the file and directory counts; the reader takes the free space of a closed descriptor for the volume statistics.
-/// @hadris-tests roundtrip::every_tree_reads_back
-/// @hadris-fuzz udf_read
+// @hadris-spec ECMA-167:3/10.10
+// @hadris-compliance partial
+// @hadris-note Written closed with the next unique id, the partition size, and the file and directory counts; the reader takes the free space of a closed descriptor for the volume statistics.
+// @hadris-tests roundtrip::every_tree_reads_back
+// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct LogicalVolumeIntegrityDescriptor {

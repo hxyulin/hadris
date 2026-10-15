@@ -54,9 +54,9 @@ struct Entry<'a> {
     data: &'a [u8],
 }
 
-/// @hadris-spec Apple-APFS:Encryption
-/// @hadris-compliance partial
-/// @hadris-note Validates software keybags and unwraps single-key password records; hardware and per-file keys are unsupported.
+// @hadris-spec Apple-APFS:Encryption
+// @hadris-compliance partial
+// @hadris-note Validates software keybags and unwraps single-key password records; hardware and per-file keys are unsupported.
 pub(crate) struct Keybag<'a> {
     entries: Vec<Entry<'a>>,
 }

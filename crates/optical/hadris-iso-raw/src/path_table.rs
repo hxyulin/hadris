@@ -3,12 +3,11 @@
 /// The same layout serves both tables: the little-endian (type L) table
 /// stores `extent` and `parent` little-endian, the big-endian (type M) table
 /// big-endian. The directory identifier follows, padded to an even length.
-///
-/// @hadris-spec ECMA-119:9.4
-/// @hadris-compliance partial
-/// @hadris-note Both L- and M-type path tables are written and read; the optional secondary path tables are not populated.
-/// @hadris-tests iso::spec::hadris_iso_matches_ecma_119_oracle
-/// @hadris-fuzz iso_read
+// @hadris-spec ECMA-119:9.4
+// @hadris-compliance partial
+// @hadris-note Both L- and M-type path tables are written and read; the optional secondary path tables are not populated.
+// @hadris-tests iso::spec::hadris_iso_matches_ecma_119_oracle
+// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PathTableHeader {

@@ -1,12 +1,11 @@
 use super::{CharSpec, EntityId, LbAddr, LongAd, Tag, Timestamp, U16Le, U32Le, U64Le};
 
 /// File Set Descriptor (ECMA-167 4/14.1).
-///
-/// @hadris-spec ECMA-167:4/14.1
-/// @hadris-compliance partial
-/// @hadris-note The first descriptor of the file set sequence gives the root directory; later file sets and the system stream directory are not read.
-/// @hadris-tests roundtrip::every_tree_reads_back, errors::malformed_volumes_are_refused
-/// @hadris-fuzz udf_read
+// @hadris-spec ECMA-167:4/14.1
+// @hadris-compliance partial
+// @hadris-note The first descriptor of the file set sequence gives the root directory; later file sets and the system stream directory are not read.
+// @hadris-tests roundtrip::every_tree_reads_back, errors::malformed_volumes_are_refused
+// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct FileSetDescriptor {
@@ -51,12 +50,11 @@ pub struct FileSetDescriptor {
 }
 
 /// ICB tag (ECMA-167 4/14.6).
-///
-/// @hadris-spec ECMA-167:4/14.6
-/// @hadris-compliance partial
-/// @hadris-note Strategy 4 entries are read and written; the file type, allocation type and setuid, setgid and sticky flags are used, and indirect entries of strategy 4096 are not followed.
-/// @hadris-tests roundtrip::every_tree_reads_back
-/// @hadris-fuzz udf_read
+// @hadris-spec ECMA-167:4/14.6
+// @hadris-compliance partial
+// @hadris-note Strategy 4 entries are read and written; the file type, allocation type and setuid, setgid and sticky flags are used, and indirect entries of strategy 4096 are not followed.
+// @hadris-tests roundtrip::every_tree_reads_back
+// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct IcbTag {
@@ -150,12 +148,11 @@ bitflags::bitflags! {
 
 /// File Entry (ECMA-167 4/14.9); extended attributes and allocation
 /// descriptors follow it.
-///
-/// @hadris-spec ECMA-167:4/14.9
-/// @hadris-compliance partial
-/// @hadris-note Read with the file type, size, owner, permissions, link count and times; written with short allocation descriptors of at most 1 GiB each.
-/// @hadris-tests roundtrip::every_tree_reads_back, roundtrip::metadata_reads_back
-/// @hadris-fuzz udf_read
+// @hadris-spec ECMA-167:4/14.9
+// @hadris-compliance partial
+// @hadris-note Read with the file type, size, owner, permissions, link count and times; written with short allocation descriptors of at most 1 GiB each.
+// @hadris-tests roundtrip::every_tree_reads_back, roundtrip::metadata_reads_back
+// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct FileEntry {
@@ -203,12 +200,11 @@ pub struct FileEntry {
 
 /// Extended File Entry (ECMA-167 4/14.17); extended attributes and
 /// allocation descriptors follow it.
-///
-/// @hadris-spec ECMA-167:4/14.17
-/// @hadris-compliance partial
-/// @hadris-note Read like a file entry, with the creation time; the stream directory is not read.
-/// @hadris-tests read::extended_file_entries_read
-/// @hadris-fuzz udf_read
+// @hadris-spec ECMA-167:4/14.17
+// @hadris-compliance partial
+// @hadris-note Read like a file entry, with the creation time; the stream directory is not read.
+// @hadris-tests read::extended_file_entries_read
+// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ExtendedFileEntry {
@@ -281,12 +277,11 @@ bitflags::bitflags! {
 
 /// The fixed part of a File Identifier Descriptor (ECMA-167 4/14.4); the
 /// implementation use, the identifier and padding to four bytes follow.
-///
-/// @hadris-spec ECMA-167:4/14.4
-/// @hadris-compliance partial
-/// @hadris-note Identifiers and padding are validated across block and extent boundaries, including tag location and reserved fields; deleted and parent identifiers are skipped in listings, and implementation-use payloads and stream-directory semantics are not interpreted.
-/// @hadris-tests roundtrip::every_tree_reads_back, read::identifiers_cross_extent_boundaries, errors::malformed_identifier_fields_are_refused
-/// @hadris-fuzz udf_read
+// @hadris-spec ECMA-167:4/14.4
+// @hadris-compliance partial
+// @hadris-note Identifiers and padding are validated across block and extent boundaries, including tag location and reserved fields; deleted and parent identifiers are skipped in listings, and implementation-use payloads and stream-directory semantics are not interpreted.
+// @hadris-tests roundtrip::every_tree_reads_back, read::identifiers_cross_extent_boundaries, errors::malformed_identifier_fields_are_refused
+// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct FileIdentifierDescriptor {
@@ -317,12 +312,11 @@ impl FileIdentifierDescriptor {
 
 /// Allocation Extent Descriptor (ECMA-167 4/14.5): a block that continues
 /// a list of allocation descriptors.
-///
-/// @hadris-spec ECMA-167:4/14.5
-/// @hadris-compliance partial
-/// @hadris-note Followed from continuation extents of every allocation descriptor form, with a bound on the chain length; not written.
-/// @hadris-tests read::allocation_descriptors_of_every_form_read_back
-/// @hadris-fuzz udf_read
+// @hadris-spec ECMA-167:4/14.5
+// @hadris-compliance partial
+// @hadris-note Followed from continuation extents of every allocation descriptor form, with a bound on the chain length; not written.
+// @hadris-tests read::allocation_descriptors_of_every_form_read_back
+// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct AllocationExtentDescriptor {
@@ -336,12 +330,11 @@ pub struct AllocationExtentDescriptor {
 
 /// The fixed part of a Path Component (ECMA-167 4/14.16.1); a symbolic
 /// link's data is a sequence of them.
-///
-/// @hadris-spec ECMA-167:4/14.16.1
-/// @hadris-compliance partial
-/// @hadris-note Root, parent, current and named components are read and written; component versions are ignored.
-/// @hadris-tests name::tests::symlink_targets_round_trip
-/// @hadris-fuzz udf_read
+// @hadris-spec ECMA-167:4/14.16.1
+// @hadris-compliance partial
+// @hadris-note Root, parent, current and named components are read and written; component versions are ignored.
+// @hadris-tests name::tests::symlink_targets_round_trip
+// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PathComponent {

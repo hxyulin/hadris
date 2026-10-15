@@ -8,14 +8,19 @@ Not a public marketing matrix.
 ## Annotation convention
 
 Place one annotation block on each standards-facing on-disk type or public
-parse/format entry point:
+parse/format entry point, as plain `//` comments after its doc comment, so
+the block stays out of the published rustdoc:
 
 ```rust
-/// @hadris-spec ECMA-167:3/10.5
-/// @hadris-compliance full
-/// @hadris-tests comprehensive_udf::partition_descriptor
-/// @hadris-fuzz udf_read
+/// A partition descriptor.
+// @hadris-spec ECMA-167:3/10.5
+// @hadris-compliance full
+// @hadris-tests comprehensive_udf::partition_descriptor
+// @hadris-fuzz udf_read
+pub struct PartitionDescriptor;
 ```
+
+The checker rejects annotations in `///` or `//!` comments.
 
 - `@hadris-spec` is required and uses one stable `DOCUMENT:section` identifier.
 - `@hadris-compliance` is required and accepts `full`, `partial`, `none`,

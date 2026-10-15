@@ -9,7 +9,7 @@ Applications use the same subscriber for every format.
 
 ```toml
 [dependencies]
-hadris-fat = { version = "3.0.0-rc.1", features = ["tracing"] }
+hadris-fat = { version = "3.0.0-rc.2", features = ["tracing"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ```
 

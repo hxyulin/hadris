@@ -13,7 +13,8 @@ categories = ["no-std", "filesystem"]
 
 # docs.rs builds with default features only, which would hide the modes.
 [package.metadata.docs.rs]
-features = ["std", "sync", "async"]
+features = ["std", "sync", "async", "embedded-io"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["sync", "std"]

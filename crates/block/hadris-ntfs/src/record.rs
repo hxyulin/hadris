@@ -32,12 +32,11 @@ pub(crate) fn u64_at(buf: &[u8], at: usize) -> u64 {
 
 /// Decodes a clusters-per-record field of the boot sector: a positive value
 /// counts clusters, a negative one is a power of two in bytes.
-///
-/// @hadris-spec NTFS:Boot-Sector
-/// @hadris-compliance partial
-/// @hadris-tests record::tests::record_sizes_decode_both_encodings
-/// @hadris-fuzz ntfs_read
-/// @hadris-note Sizes above 4096 bytes are refused as unsupported.
+// @hadris-spec NTFS:Boot-Sector
+// @hadris-compliance partial
+// @hadris-tests record::tests::record_sizes_decode_both_encodings
+// @hadris-fuzz ntfs_read
+// @hadris-note Sizes above 4096 bytes are refused as unsupported.
 pub(crate) fn record_size(value: u8, cluster_size: u64) -> Result<u64, Detail> {
     let signed = value as i8;
     let size = if signed > 0 {
@@ -54,11 +53,10 @@ pub(crate) fn record_size(value: u8, cluster_size: u64) -> Result<u64, Detail> {
 }
 
 /// Applies the update sequence array of a `FILE` or `INDX` record in place.
-///
-/// @hadris-spec NTFS:Update-Sequence-Array
-/// @hadris-compliance unknown
-/// @hadris-tests record::tests::fixups_restore_each_stride, record::tests::fixups_reject_a_short_count, record::tests::fixups_use_512_byte_strides_on_4k_records
-/// @hadris-fuzz ntfs_read
+// @hadris-spec NTFS:Update-Sequence-Array
+// @hadris-compliance unknown
+// @hadris-tests record::tests::fixups_restore_each_stride, record::tests::fixups_reject_a_short_count, record::tests::fixups_use_512_byte_strides_on_4k_records
+// @hadris-fuzz ntfs_read
 pub(crate) fn apply_fixups(record: &mut [u8]) -> Result<(), Detail> {
     if record.len() < 8 || record.len() % FIXUP_STRIDE != 0 {
         return Err(Detail::UpdateSequence);
@@ -163,12 +161,11 @@ impl Attr<'_> {
 
 /// Iterates over the attributes of a fixed-up MFT record. It stops at the
 /// end marker and yields at most one error.
-///
-/// @hadris-spec NTFS:Attribute-Record
-/// @hadris-compliance partial
-/// @hadris-tests record::tests::attributes_are_bounded_by_the_used_size, record::tests::attributes_stop_at_the_end_marker, record::tests::attributes_need_an_end_marker
-/// @hadris-fuzz ntfs_read
-/// @hadris-note Resident and non-resident headers are validated within one record; the attributes of extension records are reached through `$ATTRIBUTE_LIST`.
+// @hadris-spec NTFS:Attribute-Record
+// @hadris-compliance partial
+// @hadris-tests record::tests::attributes_are_bounded_by_the_used_size, record::tests::attributes_stop_at_the_end_marker, record::tests::attributes_need_an_end_marker
+// @hadris-fuzz ntfs_read
+// @hadris-note Resident and non-resident headers are validated within one record; the attributes of extension records are reached through `$ATTRIBUTE_LIST`.
 pub(crate) struct Attrs<'a> {
     data: &'a [u8],
     offset: usize,
@@ -346,12 +343,11 @@ pub(crate) struct ListEntry<'a> {
 }
 
 /// Parses the `$ATTRIBUTE_LIST` entry at the start of `buf`.
-///
-/// @hadris-spec NTFS:Attribute-List
-/// @hadris-compliance partial
-/// @hadris-tests record::tests::list_entries_are_bounded, crafted::attribute_lists_join_extension_records, crafted::attribute_list_gaps_fail, crafted::index_roots_in_extension_records_are_followed, read::attribute_lists_on_a_real_volume
-/// @hadris-fuzz ntfs_read
-/// @hadris-note Streams, names and indexes are followed into extension records; `$MFT` may have at most 32 extents.
+// @hadris-spec NTFS:Attribute-List
+// @hadris-compliance partial
+// @hadris-tests record::tests::list_entries_are_bounded, crafted::attribute_lists_join_extension_records, crafted::attribute_list_gaps_fail, crafted::index_roots_in_extension_records_are_followed, read::attribute_lists_on_a_real_volume
+// @hadris-fuzz ntfs_read
+// @hadris-note Streams, names and indexes are followed into extension records; `$MFT` may have at most 32 extents.
 pub(crate) fn list_entry(buf: &[u8]) -> Result<ListEntry<'_>, Detail> {
     if buf.len() < 0x1A {
         return Err(Detail::AttributeList);
@@ -389,11 +385,10 @@ pub(crate) struct Run {
 
 /// Decodes mapping pairs. Each run's LCN is relative to the previous one.
 /// It yields at most one error.
-///
-/// @hadris-spec NTFS:Mapping-Pairs
-/// @hadris-compliance unknown
-/// @hadris-tests record::tests::runs_decode_relative_and_sparse_extents, record::tests::runs_reject_malformed_encodings
-/// @hadris-fuzz ntfs_read
+// @hadris-spec NTFS:Mapping-Pairs
+// @hadris-compliance unknown
+// @hadris-tests record::tests::runs_decode_relative_and_sparse_extents, record::tests::runs_reject_malformed_encodings
+// @hadris-fuzz ntfs_read
 pub(crate) struct Runs<'a> {
     data: &'a [u8],
     offset: usize,
@@ -486,12 +481,11 @@ pub(crate) struct FileName<'a> {
 }
 
 /// Parses a `$FILE_NAME` value.
-///
-/// @hadris-spec NTFS:File-Name
-/// @hadris-compliance partial
-/// @hadris-tests record::tests::file_names_parse_and_bound_the_name
-/// @hadris-fuzz ntfs_read
-/// @hadris-note Parses the parent reference, flags, namespace and full UTF-16 name; the copies of times and sizes and the reparse tag are not used.
+// @hadris-spec NTFS:File-Name
+// @hadris-compliance partial
+// @hadris-tests record::tests::file_names_parse_and_bound_the_name
+// @hadris-fuzz ntfs_read
+// @hadris-note Parses the parent reference, flags, namespace and full UTF-16 name; the copies of times and sizes and the reparse tag are not used.
 pub(crate) fn file_name(value: &[u8]) -> Result<FileName<'_>, Detail> {
     if value.len() < 0x42 {
         return Err(Detail::FileName);
@@ -541,12 +535,11 @@ pub(crate) struct IndexEntry<'a> {
 }
 
 /// Parses the index entry at `at` of `node`.
-///
-/// @hadris-spec NTFS:Index-Entry
-/// @hadris-compliance partial
-/// @hadris-tests record::tests::index_entries_are_bounded_by_the_node, read::large_directory_lists_every_entry
-/// @hadris-fuzz ntfs_read
-/// @hadris-note Every node is enumerated; child-node pointers are not followed for a keyed descent.
+// @hadris-spec NTFS:Index-Entry
+// @hadris-compliance partial
+// @hadris-tests record::tests::index_entries_are_bounded_by_the_node, read::large_directory_lists_every_entry
+// @hadris-fuzz ntfs_read
+// @hadris-note Every node is enumerated; child-node pointers are not followed for a keyed descent.
 pub(crate) fn index_entry<'a>(
     buf: &'a [u8],
     node: IndexNode,

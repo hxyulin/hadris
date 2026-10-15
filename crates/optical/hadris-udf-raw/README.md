@@ -14,9 +14,6 @@ does not re-export it, so this crate can change in a 0.x minor release
 without a new major version of `hadris-udf`. Use `hadris-udf` for
 mounting, filesystem access and image writing.
 
-The first publication is part of the RC2 release. Until publication, use a
-workspace path dependency.
-
 ## Documentation
 
 - [API reference](https://docs.rs/hadris-udf-raw/0.1.0)

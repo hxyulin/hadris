@@ -4,17 +4,17 @@ title: Stability and compatibility
 
 # Stability and compatibility
 
-Hadris 3.0.0-rc.2 is the current release candidate of the V3 API.
+These pages document Hadris 3.0.0-rc.2, the next release candidate of the
+V3 API; 3.0.0-rc.1 is the latest published release candidate.
 Hadris 2.5.0 is the current stable release of V2, whose source is retained at the
 [`v2.5.0` tag](https://github.com/hxyulin/hadris/tree/v2.5.0).
 See [installation](./getting-started.md) for the release candidate.
-The default site documents RC2, and archived V2 pages are available in the
-version selector. Released stable APIs follow Semantic Versioning: within a major series,
+Archived V2 pages are available in the version selector. Released stable APIs follow Semantic Versioning: within a major series,
 breaking changes require a new major version, minor releases add
 backward-compatible functionality, and patch releases carry correctness
 fixes, interoperability qualification, and documentation.
 
-Read the [RC2 release notes](https://github.com/hxyulin/hadris/blob/main/CHANGELOG.md),
+Read the [changelog](https://github.com/hxyulin/hadris/blob/main/CHANGELOG.md),
 the [3.0 API design](https://github.com/hxyulin/hadris/blob/main/docs/v3-api-design.md)
 or the [2.5.0 changelog](https://github.com/hxyulin/hadris/blob/v2.5.0/CHANGELOG.md#250---2026-10-03).
 The [migration guide](https://github.com/hxyulin/hadris/blob/main/docs/hadris-3.0.0-migration.md)
