@@ -1,9 +1,13 @@
 # hadris-ntfs
 
 `hadris-ntfs` is a read-only NTFS reader that needs no allocator. It is a
-preview in Hadris 3.0: it implements the `hadris-fs` `FileSystem` trait,
-whose shape is frozen, and its native methods may still change in 3.x
-minors.
+preview, versioned 0.x outside the Hadris 3.x stability promise: it
+implements the `hadris-fs` `FileSystem` trait, whose shape is frozen, but
+each 0.y release may break its native methods, and patch releases stay
+compatible. Depend on it as `hadris-ntfs = "0.1"`
+(`cargo add hadris-ntfs@0.1`); the 2.x and 3.0.0-rc.1 releases on
+crates.io predate this scheme, and a bare `cargo add hadris-ntfs` picks
+2.5.0.
 
 `NtfsFs` opens a volume on any `hadris-storage` block device, in blocking
 and asynchronous forms, so `Volume` and the file handles of `hadris-fs`
@@ -113,7 +117,7 @@ Send filesystem contract when its device and operation state are Send. The
 ## Documentation
 
 - [Specification coverage](../../../docs/spec-coverage.md#hadris-ntfs)
-- [API reference](https://docs.rs/hadris-ntfs/3.0.0-rc.2)
+- [API reference](https://docs.rs/hadris-ntfs/0.1.0)
 
 ## License
 

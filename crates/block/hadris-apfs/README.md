@@ -2,8 +2,12 @@
 
 `hadris-apfs` is an experimental, read-only reader for APFS containers and
 volumes. It supports synchronous and asynchronous I/O and can be used in
-`no_std` environments with an allocator. Its API is outside the Hadris 3.x
-stability promise and may change in a minor release.
+`no_std` environments with an allocator. It is a preview, versioned 0.x
+outside the Hadris 3.x stability promise: each 0.y release may break the
+API, and patch releases stay compatible. Depend on it as
+`hadris-apfs = "0.1"` (`cargo add hadris-apfs@0.1`); the 2.5.0 and
+3.0.0-rc.1 releases on crates.io predate this scheme, and a bare
+`cargo add hadris-apfs` picks 2.5.0.
 
 The crate is suitable for inspecting unencrypted APFS images and, with the
 `encryption` feature, password-encrypted single-key APFS volumes made by macOS. It
@@ -191,7 +195,7 @@ Send filesystem contract when its device and operation state are Send. The
 
 ## Documentation
 
-- [Library API](https://docs.rs/hadris-apfs/3.0.0-rc.2)
+- [Library API](https://docs.rs/hadris-apfs/0.1.0)
 - [Unified CLI (`hadris apfs`)](../../tools/hadris-cli/README.md)
 
 ## License
