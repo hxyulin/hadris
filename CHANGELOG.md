@@ -480,6 +480,13 @@ The raw-format crates retain independent versions: `hadris-fat-raw` is
   matched by disk location so truncated diagnostic paths cannot defeat the
   oracle. `apfs_read` joins the fleet script and the replay list.
 
+- **Packaging:** Every published package includes `LICENSE-MIT`. `hadris`
+  has its own crates.io README instead of the repository README, whose
+  relative links did not resolve there. Every library crate builds its
+  docs.rs pages with `--cfg docsrs` and feature badges, and `hadris-io`'s
+  include the `embedded-io` bridges. The `@hadris-spec` annotation blocks
+  are no longer part of the rendered rustdoc.
+
 ### Removed
 
 - **CLI RC2:** Remove the standalone `hadris-apfs-cli` package; APFS commands
