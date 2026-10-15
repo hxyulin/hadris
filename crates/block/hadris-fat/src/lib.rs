@@ -176,12 +176,12 @@
 //! | Feature  | Default | Description |
 //! |----------|---------|-------------|
 //! | `std`    | Yes     | Standard library support (enables `alloc`); `hadris_storage::host::FileDevice` and `SystemClock` from the storage and fs crates |
-//! | `alloc`  | No      | `FatFs`, `ExFatFs` and the tree writers `write`; without it the embedded API, `check`, `format` and the raw layer |
+//! | `alloc`  | via `std` | `FatFs`, `ExFatFs` and the tree writers `write`; without it the embedded API, `check`, `format` and the raw layer |
 //! | `sync`   | Yes     | Synchronous API in `sync` |
 //! | `async`  | No      | Asynchronous API for local and `Send` devices in `async_` |
 //! | `write`  | Yes     | `format`, and with `alloc` `write`, in each mode; `FatFs` and `ExFatFs` write without it |
 //! | `defmt`  | No      | `defmt::Format` for `FatKind` |
-//! | `tracing` | No | Function spans for FAT/exFAT operations and FAT allocation/write paths; enables `std` |
+//! | `tracing` | No | Function spans for FAT/exFAT operations and FAT allocation/write paths |
 //!
 //! No feature changes what an item does: `FatFs` always reads and writes long
 //! names.

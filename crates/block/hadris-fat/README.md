@@ -8,7 +8,7 @@ systems, SD cards, and USB drives.
 ## Features
 
 - **FAT12/16/32 Support** - Full read and write support for all FAT variants
-- **Volume Formatting** - Create new FAT12/16/32 volumes with automatic type selection
+- **Volume Formatting** - Create new FAT12/16/32 volumes with automatic type selection, and exFAT volumes
 - **Long Filenames (VFAT/LFN)** - Always read and written
 - **No-std Compatible** - Use in bootloaders and custom kernels
 - **No allocator needed** - The embedded API reads and writes, and `format` and `check` run, without `alloc`
@@ -358,10 +358,15 @@ hadris-fat = "3.0.0-rc.2"  # Uses default features
 
 | Variant | Max Volume Size | Max File Size | Cluster Size | Status |
 |---------|----------------|---------------|--------------|--------|
-| FAT12 | 32 MB | 32 MB | 512B - 8KB | Supported |
-| FAT16 | 2 GB | 2 GB | 2KB - 32KB | Supported |
-| FAT32 | 2 TB | 4 GB | 4KB - 32KB | Supported |
-| exFAT | 128 PB | 128 PB | 512B - 32MB | Supported |
+| FAT12 | 128 MB | 128 MB | 512 B - 32 KB | Supported |
+| FAT16 | 2 GB | 2 GB | 512 B - 32 KB | Supported |
+| FAT32 | 2 TB | 4 GB | 512 B - 32 KB | Supported |
+| exFAT | 128 PB | 128 PB | 512 B - 32 MB | Supported |
+
+The FAT limits assume 512-byte sectors and the specification's 32 KB
+cluster limit; larger sectors raise the volume limits. Volumes with 64 KB
+clusters, which Windows NT and Linux accept, also mount and are read and
+written, but `format` does not create them.
 
 ## Long Filename Support
 
@@ -401,14 +406,9 @@ only the items this crate's own API uses are available here: `FatKind`,
 - All I/O goes through `hadris-storage` block devices
 - Suitable for bootloaders, embedded systems, and custom kernels
 
-## Specification Compliance
+## Caching
 
-Implements the following specifications:
-
-- Microsoft FAT specification
-- VFAT (Long Filename) extension
-- exFAT specification (TexFAT transactions not supported)
-
+`FatFs` mounts without caches. `FatFs::with_cache` takes a `CacheOptions`.
 For sequential traversal, `CacheOptions::sequential()` retains only the most
 recently listed entry. A matching lookup reuses its parsed short entry and
 long name; other names or directories follow the normal lookup path. The hint
@@ -435,12 +435,18 @@ Pass the selected options to `FatFs::with_cache` before wrapping the driver in
 `Volume`. `with_directory_hint` can be combined with any of the other bounds.
 Zero disables a bounded component. Bounds count entries, positions or device
 blocks, rather than bytes; directory-prefix storage is reserved when configured,
-while long-name contents are copied as entries are learned. On this 64-bit Mac,
-the listing hint uses 88 bytes of heap storage for a short name and up to 598
-bytes for a maximum-length long name, excluding allocator overhead. Its memory
-use does not grow with directory size. Layouts vary by target.
+while long-name contents are copied as entries are learned. The listing
+hint's memory use does not grow with directory size.
 
-## Asynchronous byte streams
+## Specification Compliance
+
+Implements the following specifications:
+
+- Microsoft FAT specification
+- VFAT (Long Filename) extension
+- exFAT specification (TexFAT transactions not supported)
+
+## Asynchronous I/O
 
 The FAT, exFAT and embedded APIs name their asynchronous namespace `async_`.
 All asynchronous drivers accept
