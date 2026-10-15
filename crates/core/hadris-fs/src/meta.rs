@@ -57,28 +57,112 @@ impl Owner {
     }
 }
 
-bitflags::bitflags! {
-    /// DOS-style attribute flags shared by FAT, exFAT, NTFS and ISO hidden files.
-    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-    pub struct Attributes: u32 {
-        /// The node may not be written.
-        const READ_ONLY = 1 << 0;
-        /// The node is hidden from normal listings.
-        const HIDDEN = 1 << 1;
-        /// The node belongs to the operating system.
-        const SYSTEM = 1 << 2;
-        /// The node changed since the last backup.
-        const ARCHIVE = 1 << 5;
-    }
-}
+/// DOS-style attribute flags shared by FAT, exFAT, NTFS and ISO hidden files.
+///
+/// The bit values match the FAT attribute byte. Combine flags with `|` or
+/// [`union`](Self::union).
+#[repr(transparent)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct Attributes(u32);
 
 impl Attributes {
     /// No attribute set.
-    pub const NONE: Self = Self::empty();
+    pub const NONE: Self = Self(0);
+    /// The node may not be written.
+    pub const READ_ONLY: Self = Self(1 << 0);
+    /// The node is hidden from normal listings.
+    pub const HIDDEN: Self = Self(1 << 1);
+    /// The node belongs to the operating system.
+    pub const SYSTEM: Self = Self(1 << 2);
+    /// The node changed since the last backup.
+    pub const ARCHIVE: Self = Self(1 << 5);
+
+    const ALL: u32 = Self::READ_ONLY.0 | Self::HIDDEN.0 | Self::SYSTEM.0 | Self::ARCHIVE.0;
+    const NAMES: [(Self, &'static str); 4] = [
+        (Self::READ_ONLY, "READ_ONLY"),
+        (Self::HIDDEN, "HIDDEN"),
+        (Self::SYSTEM, "SYSTEM"),
+        (Self::ARCHIVE, "ARCHIVE"),
+    ];
+
+    /// Returns the flags of `bits`, dropping bits that are not a flag.
+    pub const fn from_bits_truncate(bits: u32) -> Self {
+        Self(bits & Self::ALL)
+    }
+
+    /// Returns the raw bits.
+    pub const fn bits(self) -> u32 {
+        self.0
+    }
+
+    /// Returns whether no flag is set.
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// Returns whether every flag of `other` is set in `self`.
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    /// Returns the flags of `self` and `other`.
+    #[must_use]
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
 
     /// Returns `self` without the flags of `other`.
+    #[must_use]
     pub const fn without(self, other: Self) -> Self {
-        self.difference(other)
+        Self(self.0 & !other.0)
+    }
+}
+
+impl core::ops::BitOr for Attributes {
+    type Output = Self;
+
+    fn bitor(self, other: Self) -> Self {
+        self.union(other)
+    }
+}
+
+impl core::ops::BitOrAssign for Attributes {
+    fn bitor_assign(&mut self, other: Self) {
+        *self = self.union(other);
+    }
+}
+
+impl core::ops::BitAnd for Attributes {
+    type Output = Self;
+
+    fn bitand(self, other: Self) -> Self {
+        Self(self.0 & other.0)
+    }
+}
+
+impl core::ops::BitAndAssign for Attributes {
+    fn bitand_assign(&mut self, other: Self) {
+        self.0 &= other.0;
+    }
+}
+
+impl fmt::Debug for Attributes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Attributes(")?;
+        if self.is_empty() {
+            f.write_str("NONE")?;
+        }
+        let mut first = true;
+        for (flag, name) in Self::NAMES {
+            if self.contains(flag) {
+                if !first {
+                    f.write_str(" | ")?;
+                }
+                f.write_str(name)?;
+                first = false;
+            }
+        }
+        f.write_str(")")
     }
 }
 
@@ -119,7 +203,7 @@ impl Metadata {
             changed: None,
             permissions,
             owner: None,
-            attributes: Attributes::empty(),
+            attributes: Attributes::NONE,
             nlink: 1,
             generation: 0,
             device: None,
@@ -429,7 +513,35 @@ mod tests {
     fn attributes_without() {
         let attrs = Attributes::HIDDEN.union(Attributes::ARCHIVE);
         assert_eq!(attrs.without(Attributes::HIDDEN), Attributes::ARCHIVE);
-        assert_eq!(Attributes::NONE, Attributes::empty());
+        assert_eq!(Attributes::NONE, Attributes::default());
+        assert!(Attributes::NONE.is_empty());
+    }
+
+    #[test]
+    fn attributes_bits_and_operators() {
+        let mut attrs = Attributes::READ_ONLY | Attributes::SYSTEM;
+        assert_eq!(attrs.bits(), 0b101);
+        assert!(attrs.contains(Attributes::READ_ONLY));
+        assert!(!attrs.contains(Attributes::READ_ONLY | Attributes::HIDDEN));
+        assert!(attrs.contains(Attributes::NONE));
+        attrs |= Attributes::ARCHIVE;
+        assert_eq!(attrs.bits(), 0x25);
+        attrs &= Attributes::ARCHIVE | Attributes::HIDDEN;
+        assert_eq!(attrs, Attributes::ARCHIVE);
+        assert_eq!(
+            Attributes::from_bits_truncate(0xff),
+            Attributes::READ_ONLY | Attributes::HIDDEN | Attributes::SYSTEM | Attributes::ARCHIVE
+        );
+        assert_eq!(Attributes::from_bits_truncate(0x18), Attributes::NONE);
+    }
+
+    #[test]
+    fn attributes_debug() {
+        assert_eq!(alloc::format!("{:?}", Attributes::NONE), "Attributes(NONE)");
+        assert_eq!(
+            alloc::format!("{:?}", Attributes::HIDDEN | Attributes::ARCHIVE),
+            "Attributes(HIDDEN | ARCHIVE)"
+        );
     }
 
     #[test]

@@ -392,7 +392,7 @@ pub(crate) fn apply_attributes(entry: &mut ShortEntry, attributes: Attributes) {
 
 /// The attributes of `entry` that [`Attributes`] maps.
 pub(crate) fn attributes(entry: &ShortEntry) -> Attributes {
-    let mut attributes = Attributes::empty();
+    let mut attributes = Attributes::NONE;
     for (bit, flag) in ATTR_MAPPED {
         if entry.attributes() & bit != 0 {
             attributes |= flag;

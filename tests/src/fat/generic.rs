@@ -197,7 +197,7 @@ where
         }
         Operation::SetAttrs { path, attrs } => {
             let node = resolve(fs, path, pins)?;
-            let mut attributes = Attributes::empty();
+            let mut attributes = Attributes::NONE;
             for (bit, flag) in ATTRIBUTES {
                 if attrs & bit != 0 {
                     attributes |= flag;

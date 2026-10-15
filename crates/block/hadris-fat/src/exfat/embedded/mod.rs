@@ -141,7 +141,7 @@ impl Head {
 
     fn metadata(&self, zone: Option<i16>) -> Metadata {
         let primary = &self.primary;
-        let mut attributes = Attributes::empty();
+        let mut attributes = Attributes::NONE;
         for (bit, flag) in [
             (raw::ATTR_READ_ONLY, Attributes::READ_ONLY),
             (raw::ATTR_HIDDEN, Attributes::HIDDEN),

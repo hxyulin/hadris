@@ -65,6 +65,15 @@ Each published package owns its version and may be released independently.
   `Clone`, so later options can own their values. Clone it to mount more
   than once with the same options. Its rustdoc now lists which driver
   honours which option.
+- **hadris-fs (breaking):** `Attributes` is a hand-written
+  `#[repr(transparent)]` newtype over `u32` instead of a `bitflags` type,
+  so `bitflags` is no longer part of the `hadris-fs` API. It keeps `NONE`,
+  `READ_ONLY`, `HIDDEN`, `SYSTEM`, `ARCHIVE`, `contains`, `union`,
+  `without`, `is_empty`, `bits`, `from_bits_truncate`, `|`, `|=`, `&` and
+  `&=`, and its `Debug` output still names the flags. The rest of the
+  `bitflags` surface is gone: use `NONE` for `empty()`, and
+  `from_bits_truncate` for `from_bits` and `from_bits_retain`.
+
 - **hadris-common (breaking):** The crate leaves the 3.x line and is
   versioned 0.3.0, like the raw crates whose public layout fields use its
   integers; no stable 3.x crate exposes its types. Published 0.x versions

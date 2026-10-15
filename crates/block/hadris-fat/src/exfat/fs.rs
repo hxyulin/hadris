@@ -437,7 +437,7 @@ impl SetPending {
 
 fn metadata(node: &Node, set: &Set, zone: Option<i16>) -> Metadata {
     let primary = &set.raw[0];
-    let mut attributes = Attributes::empty();
+    let mut attributes = Attributes::NONE;
     for (bit, flag) in ATTR_MAPPED {
         if set.attributes() & bit != 0 {
             attributes |= flag;

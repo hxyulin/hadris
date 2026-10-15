@@ -1357,7 +1357,7 @@ resolution is a value, `hadris_fs::Resolve::{Lexical, Follow, NoFollow}`.
 | `hadris_fat::raw::{RawBpb, RawBpbExt16, RawBpbExt32, RawFsInfo, BpbExt32Flags}` | `hadris_fat_raw::{RawBpb, RawBpbExt16, RawBpbExt32, RawFsInfo, BpbExt32Flags}` |
 | `hadris_fat::raw::RawFileEntry` | `hadris_fat_raw::RawDirEntry` (and `ShortEntry`) |
 | `hadris_fat::raw::RawLfnEntry` | `hadris_fat_raw::RawLfnEntry` (and `LongEntry`) |
-| `hadris_fat::raw::DirEntryAttrFlags` | `hadris_fs::Attributes` for the DOS bits; the raw constants are in `hadris_fat_raw` |
+| `hadris_fat::raw::DirEntryAttrFlags` | `hadris_fs::Attributes` for the DOS bits, a plain flag type rather than a `bitflags` one (`empty()` is `NONE`); the raw constants are in `hadris_fat_raw` |
 | `hadris_fat::raw::NtCaseFlags` | `hadris_fat_raw::short_name::case_bits` |
 | `hadris_fat::io::{Cluster, SectorCursor, SectorLike, error_from_kind}` | Removed |
 | `hadris_fat::{Read, Write, Seek, SeekFrom, ReadExt, Parsable, Writable, Error, ErrorKind, IoResult}` (io re-exports) | `hadris_io::sync::{Read, Write, Seek}`, `hadris_io::SeekFrom`; the rest removed |
