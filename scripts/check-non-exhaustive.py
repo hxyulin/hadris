@@ -55,8 +55,14 @@ SKIP_BLOCK = re.compile(
 REPR_LAYOUT = re.compile(r"#\s*\[\s*repr\s*\(\s*(?:C\b|transparent\b)")
 RAW_GLOB = re.compile(
     r"\bpub(?:\s*\([^)]*\))?\s+use\s+(?:::)?(hadris_\w+_raw)\b"
-    r"(?:\s+as\b|(?:\s*::\s*\w+)*\s*::\s*\*|(?:\s*::\s*\w+)*\s*::\s*\{[^}]*(?<![\w:])\*)"
+    r"(?:\s+as\b|\s*;|\s*::\s*\{[^}]*\bself\b"
+    r"|(?:\s*::\s*\w+)*\s*::\s*\*|(?:\s*::\s*\w+)*\s*::\s*\{[^}]*(?<![\w:])\*)"
 )
+RAW_PATH = re.compile(
+    r"\bpub(?:\s*\([^)]*\))?\s+use\s+(?:::)?(hadris_\w+_raw)((?:\s*::\s*\w+)*)"
+    r"(?:\s*::\s*\{([^}]*)\})?\s*;"
+)
+RAW_MOD = re.compile(r"\bpub\s+mod\s+(\w+)")
 PREVIEW_MOD = re.compile(
     r'#\s*\[\s*cfg\s*\(\s*feature\s*=\s*"unstable-[^"]*"\s*\)\s*\]\s*'
     r"(?:#\s*\[[^\]]*\]\s*)*pub\s+mod\s+(\w+)\s*;"
@@ -175,9 +181,30 @@ def scan_source(src: str) -> list[tuple[int, str, str]]:
     return findings
 
 
-def scan_raw_globs(src: str) -> list[tuple[int, str]]:
+def raw_modules(root: Path) -> dict[str, set[str]]:
+    """Public module names of each raw crate, keyed by its crate name."""
+    modules = {}
+    for group in GROUPS:
+        for crate in sorted((root / "crates" / group).glob("*-raw/")):
+            names = set()
+            for path in sorted((crate / "src").rglob("*.rs")):
+                names.update(RAW_MOD.findall(strip_comments_and_strings(path.read_text(encoding="utf-8"))))
+            modules[crate.name.replace("-", "_")] = names
+    return modules
+
+
+def scan_raw_globs(src: str, modules: dict[str, set[str]] | None = None) -> list[tuple[int, str]]:
+    """Wholesale re-exports of a raw crate: globs, the crate itself, or one of its modules."""
     clean = strip_comments_and_strings(src)
-    return [(clean.count("\n", 0, m.start()) + 1, m.group(1)) for m in RAW_GLOB.finditer(clean)]
+    found = {m.start(): m.group(1) for m in RAW_GLOB.finditer(clean)}
+    for m in RAW_PATH.finditer(clean):
+        names = modules.get(m.group(1), set()) if modules else set()
+        path = [s.strip() for s in m.group(2).split("::") if s.strip()]
+        items = [i.split(" as ")[0].strip() for i in (m.group(3) or "").split(",")]
+        last = [path[-1]] if path and m.group(3) is None else []
+        if any(name in names for name in last + items):
+            found.setdefault(m.start(), m.group(1))
+    return [(clean.count("\n", 0, start) + 1, name) for start, name in sorted(found.items())]
 
 
 def driver_files(root: Path) -> list[tuple[str, Path]]:
@@ -268,9 +295,16 @@ pub use hadris_fat_raw::{Detail, FatKind};
 pub use hadris_fat_raw::exfat::Geometry;
 use hadris_iso_raw::*;
 // pub use hadris_ntfs_raw::*;
+pub use hadris_iso_raw;
+pub use hadris_udf_raw::{self as udf_raw};
+pub use hadris_fat_raw::io;
+pub use hadris_fat_raw::{Detail, layout as l};
+pub use hadris_fat_raw::short_name::encode;
 """
-    globs = [name for _, name in scan_raw_globs(reexports)]
-    if globs != ["hadris_iso_raw", "hadris_udf_raw", "hadris_cpio_raw", "hadris_fat_raw"]:
+    modules = {"hadris_fat_raw": {"io", "layout", "short_name"}}
+    globs = [name for _, name in scan_raw_globs(reexports, modules)]
+    if globs != ["hadris_iso_raw", "hadris_udf_raw", "hadris_cpio_raw", "hadris_fat_raw",
+                 "hadris_iso_raw", "hadris_udf_raw", "hadris_fat_raw", "hadris_fat_raw"]:
         print(f"self-test failed: raw re-exports {globs}", file=sys.stderr)
         return 1
     print("self-test passed")
@@ -306,8 +340,9 @@ def main() -> int:
             print(f"  {message}")
 
     globs = []
+    modules = raw_modules(args.root)
     for crate, path in driver_files(args.root):
-        for line, name in scan_raw_globs(path.read_text(encoding="utf-8")):
+        for line, name in scan_raw_globs(path.read_text(encoding="utf-8"), modules):
             rel = path.relative_to(args.root)
             globs.append(f"{rel}:{line}: {crate} re-exports {name} wholesale (R12)")
     for message in globs:

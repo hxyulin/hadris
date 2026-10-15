@@ -331,7 +331,9 @@ public signatures use, never the whole raw crate
 (`scripts/check-non-exhaustive.py` rejects `pub use hadris_<format>_raw::*`).
 Those re-exported items are frozen for the format crate's major: change them
 only additively, and treat any other change as a breaking change of the
-format crate. [`website/docs/stability.md`](website/docs/stability.md#raw-crates)
+format crate. A format crate keeps its raw dependency on one 0.x line for
+its whole major: moving to the next 0.y changes the identity of the
+re-exported types, so it is a breaking change of the format crate too. [`website/docs/stability.md`](website/docs/stability.md#raw-crates)
 lists them.
 
 To release, bump the versions of the crates being released and of their

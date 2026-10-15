@@ -13,8 +13,8 @@ API can change without a new major version of `hadris-fat`.
 The exception is the items `hadris-fat` re-exports because its own API
 uses them: `FatKind`, `Geometry`, `RootLocation`, `ChainError`, `Detail`,
 `exfat::Geometry`, `exfat::Detail` and the `check` functions of `io` and
-`exfat::io`. These are frozen for `hadris-fat` 3.x: a release of this
-crate may add to them (new methods, and new variants of the
+`exfat::io`. These are frozen for `hadris-fat` 3.x, which stays on one 0.x
+line of this crate: a release of this crate may add to them (new methods, and new variants of the
 `#[non_exhaustive]` enums) but makes no breaking change to them, and the
 codes of `Detail` and `exfat::Detail` never change meaning.
 
