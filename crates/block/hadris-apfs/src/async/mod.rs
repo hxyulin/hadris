@@ -21,5 +21,6 @@ mod fs;
 pub use fs::ApfsFs;
 
 #[cfg(feature = "alloc")]
-#[path = "../async_defaults.rs"]
-mod defaults;
+hadris_fs::__forward_filesystem! {
+    shims ApfsFs<D: storage::BlockDevice> { resolve write }
+}
