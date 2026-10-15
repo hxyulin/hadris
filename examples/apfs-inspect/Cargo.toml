@@ -10,6 +10,6 @@ license.workspace = true
 anyhow.workspace = true
 tempfile.workspace = true
 hadris-apfs = { workspace = true, features = ["std", "sync"] }
-hadris-fs = { workspace = true, features = ["std", "sync", "contract"] }
+hadris-fs = { workspace = true, features = ["std", "sync", "unstable-contract"] }
 hadris-storage = { workspace = true, features = ["std", "sync"] }
 hadris-io = { workspace = true, features = ["std", "sync"] }

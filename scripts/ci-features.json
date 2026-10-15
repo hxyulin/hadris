@@ -41,6 +41,11 @@
       "features": "alloc,sync,async"
     },
     {
+      "crate": "hadris-fs",
+      "tier": "contract-kit",
+      "features": "std,sync,async,unstable-contract"
+    },
+    {
       "crate": "hadris-io",
       "tier": "no-std",
       "features": ""

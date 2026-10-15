@@ -14,7 +14,7 @@ include = ["src/**/*", "Cargo.toml", "README.md"]
 
 # docs.rs builds with default features only, which would hide the modes.
 [package.metadata.docs.rs]
-features = ["std", "sync", "async", "contract"]
+features = ["std", "sync", "async"]
 
 [features]
 default = ["std", "sync"]
@@ -22,8 +22,8 @@ alloc = ["hadris-io/alloc", "hadris-storage?/alloc", "dep:async-lock", "dep:spin
 std = ["alloc", "hadris-io/std", "dep:hadris-storage", "hadris-storage/std", "async-lock?/std", "dep:libc"]
 sync = ["hadris-io/sync", "hadris-storage?/sync", "dep:hadris-macros"]
 async = ["hadris-io/async", "hadris-storage?/async", "dep:hadris-macros"]
-# The driver contract kit: `contract::check` in each enabled mode.
-contract = []
+# The driver contract kit, outside semver: `contract::check` in each enabled mode.
+unstable-contract = []
 
 [dependencies]
 bitflags = { workspace = true }

@@ -36,7 +36,7 @@ hadris-storage = { workspace = true, default-features = false }
 hadris-macros = { workspace = true }
 
 [dev-dependencies]
-hadris-fs = { workspace = true, features = ["contract"] }
+hadris-fs = { workspace = true, features = ["unstable-contract"] }
 hadris-storage = { workspace = true, features = ["std", "sync"] }
 tempfile = { workspace = true }
 

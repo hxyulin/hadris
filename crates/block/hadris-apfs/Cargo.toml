@@ -40,4 +40,4 @@ hmac = { version = "0.13", default-features = false, optional = true }
 zeroize = { version = "1.8", default-features = false, features = ["alloc"], optional = true }
 
 [dev-dependencies]
-hadris-fs = { workspace = true, features = ["contract"] }
+hadris-fs = { workspace = true, features = ["unstable-contract"] }

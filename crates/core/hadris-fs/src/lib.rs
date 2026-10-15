@@ -38,10 +38,13 @@
 //! | `std` | Yes | Implies `alloc`; adds [`SystemClock`], [`host`], the sync `Volume` with its `std::io` handles and `read_tree`, and conversions to `std::io::Error` |
 //! | `sync` | Yes | The blocking API in `sync` |
 //! | `async` | No | The Send API in `async_`, plus the local API in `local` |
-//! | `async-local` | No | Local asynchronous API without `Send` device or future bounds |
-//! | `contract` | No | The driver contract kit, `contract::check` in each mode, and `ContractViolation` |
+//! | `unstable-contract` | No | The driver contract kit, `contract::check` in each mode, and `ContractViolation` |
 //!
 //! No feature changes what an item does.
+//!
+//! `unstable-contract` is a test kit for driver authors and is outside the
+//! 3.x semver promise: its rules and items may change in any release. Enable
+//! it only in dev-dependencies.
 
 #![no_std]
 #![deny(missing_docs)]
@@ -55,7 +58,7 @@ extern crate std;
 mod caps;
 mod check;
 mod code_page;
-#[cfg(feature = "contract")]
+#[cfg(feature = "unstable-contract")]
 mod contract;
 mod dir;
 mod error;
@@ -78,7 +81,8 @@ mod walk;
 pub use caps::{Capabilities, CaseRule, Charset, Field, FsStats, Stored};
 pub use check::{CheckReport, Finding, Severity};
 pub use code_page::{Ascii, CodePage, Cp437};
-#[cfg(feature = "contract")]
+#[cfg(feature = "unstable-contract")]
+#[doc(hidden)]
 pub use contract::ContractViolation;
 pub use dir::{DirCursor, DirEntry};
 #[cfg(feature = "alloc")]

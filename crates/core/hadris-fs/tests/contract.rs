@@ -1,6 +1,6 @@
 //! The in-memory test driver passes the contract kit in every mode.
 
-#![cfg(all(feature = "contract", feature = "std"))]
+#![cfg(all(feature = "unstable-contract", feature = "std"))]
 
 mod common;
 
