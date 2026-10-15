@@ -1,7 +1,7 @@
 use crate::error::Detail;
 use crate::namespace::{JolietLevel, Namespace, Namespaces};
-use crate::raw::{self, VolumeDescriptor};
 use crate::volume_info::VolumeInfo;
+use hadris_iso_raw::{self as raw, VolumeDescriptor};
 
 /// A directory tree's root: the first block of its data and its length.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

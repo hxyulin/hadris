@@ -1,8 +1,8 @@
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{Content, Extent, MountOptions, Name, Node, Tree};
 use hadris_storage::{BlockSize, MemDevice};
-use hadris_udf::raw::{FileIdentifierDescriptor, ShortAd, Tag, U32Le, tag};
 use hadris_udf::{UdfOptions, sync::UdfFs};
+use hadris_udf_raw::{FileIdentifierDescriptor, ShortAd, Tag, U32Le, tag};
 
 const BLOCK: usize = 2048;
 

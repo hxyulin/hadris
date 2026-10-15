@@ -892,7 +892,7 @@ fn caller_buffer_limits_include_nul_and_preserve_non_utf8_paths() {
 
 #[test]
 fn caller_buffer_accepts_names_beyond_default_limit() {
-    let path = vec![b'x'; hadris_cpio::raw::PATH_MAX + 1];
+    let path = vec![b'x'; hadris_cpio_raw::PATH_MAX + 1];
     let bytes = newc_entry(&path, 0o100644, b"", None);
     let mut default = CpioReader::new(Cursor::new(&bytes));
     assert_eq!(
@@ -936,7 +936,7 @@ fn segment_state_offsets_and_pending_byte_recovery() {
         ErrorKind::InvalidInput
     );
     let (mut input, buffer, pending) = reader.into_parts();
-    assert_eq!(buffer.len(), hadris_cpio::raw::PATH_MAX);
+    assert_eq!(buffer.len(), hadris_cpio_raw::PATH_MAX);
     assert_eq!(pending, Some(b'0'));
     let mut next = [0];
     input.read_exact(&mut next).unwrap();

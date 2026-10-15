@@ -47,7 +47,8 @@
 //! `IsoFs::boot_catalog` reads the El Torito catalog into a caller buffer,
 //! `IsoFs::rock_ridge` returns the Rock Ridge entries of a node, and
 //! `IsoFs::records` and `IsoFs::extents` locate its directory records and
-//! data for `IsoFs::read_raw`. The on-disk layouts are in [`raw`].
+//! data for `IsoFs::read_raw`. [`raw`] holds the on-disk layouts these
+//! methods return; the full set is in the `hadris-iso-raw` crate.
 //!
 //! ## Writing
 //!
@@ -122,10 +123,20 @@ mod rock_ridge;
 mod verification;
 mod volume_info;
 
-/// On-disk layouts and I/O-free codecs, shared with `hadris-iso-raw`.
+/// The `hadris-iso-raw` layouts this crate's API returns:
+/// [`VolumeDescriptor`](raw::VolumeDescriptor) from `IsoFs::descriptor`,
+/// [`BootSectionEntry`](raw::BootSectionEntry) from `CatalogEntry::raw`, and
+/// the types of their fields and methods.
+///
+/// The other layouts and codecs are in `hadris-iso-raw`, which versions
+/// apart from this crate; depend on it directly to use them.
 pub mod raw {
-    #[doc(inline)]
-    pub use hadris_iso_raw::*;
+    pub use hadris_iso_raw::{
+        BootRecordVolumeDescriptor, BootSectionEntry, DecDateTime, DescriptorType, DirDateTime,
+        DirectoryRecordHeader, FileFlags, IsoStr, PrimaryVolumeDescriptor, RootDirectoryRecord,
+        SupplementaryVolumeDescriptor, U16Both, U16Le, U32Be, U32Both, U32Le, VolumeDescriptor,
+        VolumeDescriptorHeader, VolumeDescriptorSetTerminator,
+    };
 }
 
 #[cfg(feature = "sync")]

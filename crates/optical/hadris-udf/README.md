@@ -154,9 +154,10 @@ subscriber, with or without `std`. It is disabled by default. See the
 ## Standalone codecs
 
 The on-disk layouts and I/O-free codecs live in
-[`hadris-udf-raw`](../hadris-udf-raw). Existing `hadris_udf::raw`
-paths remain available and refer to the same types. The raw crate needs
-neither an allocator nor a sync/async feature.
+[`hadris-udf-raw`](../hadris-udf-raw), which has its own 0.x version and
+needs neither an allocator nor a sync/async feature. This crate's API uses
+none of its types and does not re-export it; depend on `hadris-udf-raw`
+directly to read or write the layouts.
 
 ## Unified asynchronous API
 

@@ -84,7 +84,7 @@ fn damaged_entries_behind_listed_ids_are_corrupt() {
     let block = ((node.get() - 1) & 0xFFFF_FFFF) as u32;
     let sector = (0..good.len() / 2048)
         .find(|&sector| {
-            hadris_udf::raw::Tag::read(&good[sector * 2048..]).is_some_and(|tag| {
+            hadris_udf_raw::Tag::read(&good[sector * 2048..]).is_some_and(|tag| {
                 tag.is_checksum_valid()
                     && matches!(tag.identifier.get(), 261 | 266)
                     && tag.location.get() == block
@@ -544,7 +544,7 @@ fn malformed_identifier_fields_are_refused() {
         }
         at += (38 + iu + n + 3) & !3;
     }
-    let tag = hadris_udf::raw::Tag::read(&good[at..]).unwrap();
+    let tag = hadris_udf_raw::Tag::read(&good[at..]).unwrap();
     let crc_length = usize::from(tag.crc_length.get());
     let iu = usize::from(u16::from_le_bytes(
         good[at + 36..at + 38].try_into().unwrap(),
@@ -573,7 +573,7 @@ fn malformed_identifier_fields_are_refused() {
             _ => (),
         }
         let location = tag.location.get() + u32::from(field == "tag-location");
-        hadris_udf::raw::Tag::seal(
+        hadris_udf_raw::Tag::seal(
             &mut bad[at..],
             tag.identifier.get(),
             tag.version.get(),

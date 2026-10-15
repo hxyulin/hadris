@@ -49,7 +49,8 @@
 //! continuation extents, symbolic links and hard links. Virtual, sparable
 //! and metadata partitions (UDF 1.50 packet writing and 2.50) are refused
 //! as [`ErrorKind::Unsupported`](hadris_fs::ErrorKind::Unsupported).
-//! The on-disk layouts are in [`raw`].
+//! The on-disk layouts are in the `hadris-udf-raw` crate, which versions
+//! apart from this one.
 //!
 //! ## Writing
 //!
@@ -113,12 +114,6 @@ mod revision;
 mod time;
 mod volume;
 
-/// On-disk layouts and I/O-free codecs, shared with `hadris-udf-raw`.
-pub mod raw {
-    #[doc(inline)]
-    pub use hadris_udf_raw::*;
-}
-
 #[cfg(feature = "sync")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sync")))]
 #[path = ""]
@@ -174,7 +169,7 @@ mod tests {
     use hadris_fs::{Content, ErrorKind, MountOptions, Node, Tree};
     use hadris_storage::{BlockSize, MemDevice};
 
-    use crate::raw::Tag;
+    use hadris_udf_raw::Tag;
 
     #[test]
     fn map_tables_past_any_block_are_corrupt() {

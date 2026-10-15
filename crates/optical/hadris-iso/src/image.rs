@@ -11,9 +11,9 @@ use crate::boot::{BootCatalog, CatalogEntry, Emulation};
 use crate::error::{Detail, Error};
 use crate::info::{DescriptorScan, Info, Root};
 use crate::namespace::{Namespace, Namespaces};
-use crate::raw::{self, DirectoryRecord, FileFlags, SECTOR_SIZE};
 use crate::rock_ridge::{LinkKey, RockRidgeInfo, Scan};
 use crate::volume_info::VolumeInfo;
+use hadris_iso_raw::{self as raw, DirectoryRecord, FileFlags, SECTOR_SIZE};
 
 /// The largest device block the reader buffers.
 pub(crate) const MAX_DEVICE_BLOCK: usize = 4096;

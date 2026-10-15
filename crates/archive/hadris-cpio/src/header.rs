@@ -1,8 +1,9 @@
 use hadris_fs::{DeviceNumber, FileType};
 
 use crate::options::Format;
-use crate::raw::{
-    self, BINARY_HEADER_LEN, BinaryHeader, NEWC_HEADER_LEN, NewcHeader, ODC_HEADER_LEN, OdcHeader,
+use hadris_cpio_raw::{
+    self as raw, BINARY_HEADER_LEN, BinaryHeader, NEWC_HEADER_LEN, NewcHeader, ODC_HEADER_LEN,
+    OdcHeader,
 };
 
 /// A decoded header, whatever the format.

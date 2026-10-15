@@ -55,6 +55,3 @@ required-features = ["std", "sync"]
 [[test]]
 name = "interop"
 required-features = ["std", "sync"]
-
-[[test]]
-name = "raw_compat"

@@ -59,7 +59,8 @@ Reading needs no allocator, and the same API exists in `hadris::iso::async_`. `I
 descriptor's identifiers and dates, `IsoFs::rock_ridge` a node's Rock Ridge
 entries, `IsoFs::records` and `IsoFs::extents` where its directory records and
 data lie (read them with `IsoFs::read_raw`), and `hadris::iso::raw` the on-disk
-layouts.
+layouts those methods return. The other layouts, such as directory records and
+SUSP entries, are in the `hadris-iso-raw` crate.
 
 Use `hadris::sync::detect` and `hadris::sync::open` when an application must
 detect and open ISO-only, UDF-only, or bridge images. Use `hadris::udf::sync::write_bridge` to author a

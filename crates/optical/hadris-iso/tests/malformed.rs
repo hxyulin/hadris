@@ -1,7 +1,7 @@
 mod common;
 
 use hadris_fs::NodeId;
-use hadris_iso::raw::{DirectoryRecord, FileFlags, U16Both, U32Both};
+use hadris_iso_raw::{DirectoryRecord, FileFlags, U16Both, U32Both};
 
 fn record(name: &[u8], area: &[u8], block: u32, len: u32, directory: bool) -> DirectoryRecord {
     let mut record = DirectoryRecord::new(name, area).unwrap();
@@ -509,8 +509,8 @@ macro_rules! timestamp_regressions {
                 #[allow(unused_imports)]
                 use hadris_fs::$mode::FileSystem;
                 use hadris_fs::{DateTime, DirCursor, MountOptions};
-                use hadris_iso::raw::DirDateTime;
                 use hadris_iso::$mode::IsoFs;
+                use hadris_iso_raw::DirDateTime;
                 use hadris_storage::MemDevice;
 
                 let recorded = DateTime::from_unix_seconds(1_600_000_000)

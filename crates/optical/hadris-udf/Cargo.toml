@@ -79,8 +79,5 @@ harness = false
 required-features = ["std", "sync"]
 
 [[test]]
-name = "raw_compat"
-
-[[test]]
 name = "unified_async"
 required-features = ["std", "sync", "async"]

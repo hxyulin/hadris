@@ -243,6 +243,7 @@ dependencies = [
  "hadris-fs",
  "hadris-io",
  "hadris-iso",
+ "hadris-iso-raw",
  "hadris-part",
  "hadris-storage",
  "hadris-udf",

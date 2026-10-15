@@ -50,16 +50,13 @@ fn main() {
     for len in [22, 52, 168, 1024, 2048, 4096] {
         let bytes: Vec<u8> = (0..len).map(|i| (i * 31 % 251) as u8).collect();
         let expected = crc_reference(&bytes);
-        assert_eq!(hadris_udf::raw::crc16(&bytes), expected);
+        assert_eq!(hadris_udf_raw::crc16(&bytes), expected);
         for split in [0, len / 2, len] {
-            let crc = hadris_udf::raw::crc16(&bytes[..split]);
-            assert_eq!(
-                hadris_udf::raw::crc16_update(crc, &bytes[split..]),
-                expected
-            );
+            let crc = hadris_udf_raw::crc16(&bytes[..split]);
+            assert_eq!(hadris_udf_raw::crc16_update(crc, &bytes[split..]), expected);
         }
         row(&format!("crc/{len}"), len, samples, || {
-            hadris_udf::raw::crc16(black_box(&bytes)) as usize
+            hadris_udf_raw::crc16(black_box(&bytes)) as usize
         });
     }
     for (label, text) in [

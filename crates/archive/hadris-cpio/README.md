@@ -91,7 +91,7 @@ field is clamped and reported; other values that do not fit a header field
 fail before the entry is written. `CpioOptions::with_format(Format::Odc)` writes
 `odc`, whose device numbers are stored as `major << 8 | minor`.
 
-The header layouts are in `hadris_cpio::raw`.
+The header layouts are in `hadris-cpio-raw`.
 
 ## Feature flags
 
@@ -127,9 +127,10 @@ payload for every name, with each name reporting its own data offset.
 ## Standalone codecs
 
 The on-disk layouts and I/O-free codecs live in
-[`hadris-cpio-raw`](../hadris-cpio-raw). Existing `hadris_cpio::raw`
-paths remain available and refer to the same types. The raw crate needs
-neither an allocator nor a sync/async feature.
+[`hadris-cpio-raw`](../hadris-cpio-raw), which has its own 0.x version and
+needs neither an allocator nor a sync/async feature. This crate's API uses
+none of its types and does not re-export it; depend on `hadris-cpio-raw`
+directly to read or write the layouts.
 
 ## Asynchronous byte streams
 

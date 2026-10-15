@@ -43,7 +43,7 @@ fn versioned(namespace: Namespace, order: [usize; 3], split: bool) -> MemDevice<
         } else {
             name.into_bytes()
         };
-        let mut encoded = hadris_iso::raw::DirectoryRecord::new(&bytes, &[])
+        let mut encoded = hadris_iso_raw::DirectoryRecord::new(&bytes, &[])
             .unwrap()
             .as_bytes()
             .to_vec();

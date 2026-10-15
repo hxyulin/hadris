@@ -8,8 +8,8 @@ use hadris_fs::{
 
 use crate::UdfRevision;
 use crate::error::{Detail, Error};
-use crate::raw::{self, ExtendedFileEntry, FileEntry, IcbFlags, Tag, file_type, tag};
 use crate::time::to_datetime;
+use hadris_udf_raw::{self as raw, ExtendedFileEntry, FileEntry, IcbFlags, Tag, file_type, tag};
 
 /// The largest logical or device block the reader buffers.
 pub(crate) const MAX_BLOCK: usize = 4096;

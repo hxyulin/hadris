@@ -8,8 +8,8 @@ use super::names::Rules;
 use super::susp::{SplitSu, SuBuilder, inline_space};
 use super::{FileKind, PlanResult, Planner, SECTOR, TreeKind, invalid, too_large};
 use crate::error::Detail;
-use crate::raw::{DirDateTime, DirectoryRecord, FileFlags, SECTOR_SIZE, U16Both, U32Both};
 use crate::rock_ridge::{S_IFBLK, S_IFCHR, S_IFDIR, S_IFLNK, S_IFREG};
+use hadris_iso_raw::{DirDateTime, DirectoryRecord, FileFlags, SECTOR_SIZE, U16Both, U32Both};
 
 impl Planner<'_> {
     /// The records of `dir` in tree `ti`, sorted by identifier.

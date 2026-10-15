@@ -9,7 +9,7 @@ use common::Paths;
 use common::{image, open, pattern, reseal};
 use hadris_fs::{Content, Node, Tree};
 use hadris_udf::UdfOptions;
-use hadris_udf::raw::{ExtendedFileEntry, FileEntry, Tag, Timestamp, U16Le, U32Le, U64Le, tag};
+use hadris_udf_raw::{ExtendedFileEntry, FileEntry, Tag, Timestamp, U16Le, U32Le, U64Le, tag};
 
 const PARTITION: u64 = 290;
 
@@ -216,7 +216,7 @@ fn identifiers_cross_extent_boundaries() {
         bytes[start as usize * 2048..start as usize * 2048 + len as usize].to_vec();
     let mut pos = 0;
     while pos < identifiers.len() {
-        let fid: hadris_udf::raw::FileIdentifierDescriptor =
+        let fid: hadris_udf_raw::FileIdentifierDescriptor =
             bytemuck::pod_read_unaligned(&identifiers[pos..pos + 38]);
         let block = pos / 2048;
         let location = if block == 0 {
@@ -537,7 +537,7 @@ fn extended_allocations_follow_continuations_and_skip_empty_information() {
 fn transformed_icbs_reject_reads_and_extents() {
     use hadris_fs::sync::FileSystem;
     use hadris_fs::{ErrorKind, Extent};
-    use hadris_udf::raw::IcbFlags;
+    use hadris_udf_raw::IcbFlags;
 
     let (base, icb, data, _) = volume();
     let mut long = [0u8; 16];
@@ -604,7 +604,7 @@ fn transformed_icbs_reject_reads_and_extents() {
 #[test]
 fn identifier_names_reuse_crc_bytes_across_chunks() {
     use hadris_fs::sync::FileSystem;
-    use hadris_udf::raw::FileIdentifierDescriptor;
+    use hadris_udf_raw::FileIdentifierDescriptor;
 
     let name = "λ".repeat(120);
     let mut tree = Tree::new();
@@ -981,7 +981,7 @@ fn embedded_directory_tags_use_the_icb_location() {
     let mut identifiers = bytes[start as usize * 2048..start as usize * 2048 + len].to_vec();
     let mut pos = 0;
     while pos < identifiers.len() {
-        let fid: hadris_udf::raw::FileIdentifierDescriptor =
+        let fid: hadris_udf_raw::FileIdentifierDescriptor =
             bytemuck::pod_read_unaligned(&identifiers[pos..pos + 38]);
         Tag::seal(
             &mut identifiers[pos..pos + fid.total_len()],

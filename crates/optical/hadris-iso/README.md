@@ -97,7 +97,8 @@ volume size, identifiers (`IsoId`) and dates (`IsoDate`);
 its directory records lie and `IsoFs::extents` where its data lies, both
 read with `IsoFs::read_raw`; and `IsoFs::boot_catalog(&mut buf)` the El
 Torito catalog, parsed from the caller's buffer, with `IsoFs::boot_image`
-locating each entry's image. The on-disk layouts are in `hadris_iso::raw`.
+locating each entry's image. `hadris_iso::raw` holds the on-disk layouts
+these methods return; the rest are in `hadris-iso-raw`.
 
 ### Without an allocator
 
@@ -337,9 +338,13 @@ prove that the container was also an empty user directory.
 ## Standalone codecs
 
 The on-disk layouts and I/O-free codecs live in
-[`hadris-iso-raw`](../hadris-iso-raw). Existing `hadris_iso::raw`
-paths remain available and refer to the same types. The raw crate needs
-neither an allocator nor a sync/async feature.
+[`hadris-iso-raw`](../hadris-iso-raw), which has its own 0.x version and
+needs neither an allocator nor a sync/async feature. `hadris_iso::raw`
+re-exports only the items this crate's API returns: `VolumeDescriptor`,
+`BootSectionEntry` and the types of their fields and methods, which are
+part of the `hadris-iso` 3.x API. Depend on `hadris-iso-raw` directly for
+the other layouts, such as `DirectoryRecord`, the El Torito catalog
+entries and the SUSP and Rock Ridge entries.
 
 ## Unified asynchronous API
 

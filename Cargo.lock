@@ -395,6 +395,7 @@ dependencies = [
  "hadris-fs",
  "hadris-io",
  "hadris-iso",
+ "hadris-iso-raw",
  "hadris-storage",
  "hadris-udf",
  "libc",

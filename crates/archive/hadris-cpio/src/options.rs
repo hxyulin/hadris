@@ -24,7 +24,7 @@ impl Format {
     pub const fn max_file_size(self) -> u64 {
         match self {
             Self::Newc | Self::Crc | Self::Binary => u32::MAX as u64,
-            Self::Odc => crate::raw::OdcHeader::max(11),
+            Self::Odc => hadris_cpio_raw::OdcHeader::max(11),
         }
     }
 }

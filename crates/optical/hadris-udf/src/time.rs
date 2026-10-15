@@ -2,7 +2,7 @@
 
 use hadris_fs::{CivilDate, CivilTime, DateTime};
 
-use crate::raw::Timestamp;
+use hadris_udf_raw::Timestamp;
 
 /// The instant a timestamp records, or `None` when it is blank or out of
 /// range. Times without a zone, and agreement times, read as UTC.
@@ -35,8 +35,8 @@ pub(crate) fn from_datetime(time: DateTime) -> Option<Timestamp> {
     let offset = time.utc_offset_minutes().unwrap_or(0);
     let nanos = time.nanoseconds();
     Some(Timestamp {
-        type_and_zone: crate::raw::U16Le::new(0x1000 | (offset as u16 & 0x0FFF)),
-        year: crate::raw::U16Le::new(date.year() as u16),
+        type_and_zone: hadris_udf_raw::U16Le::new(0x1000 | (offset as u16 & 0x0FFF)),
+        year: hadris_udf_raw::U16Le::new(date.year() as u16),
         month: date.month(),
         day: date.day(),
         hour: clock.hour(),
@@ -90,7 +90,8 @@ mod tests {
     #[test]
     fn unspecified_zones_read_as_utc() {
         let mut ts = from_datetime(DateTime::from_unix_seconds(0).unwrap()).unwrap();
-        ts.type_and_zone = crate::raw::U16Le::new(0x1000 | (Timestamp::NO_ZONE as u16 & 0x0FFF));
+        ts.type_and_zone =
+            hadris_udf_raw::U16Le::new(0x1000 | (Timestamp::NO_ZONE as u16 & 0x0FFF));
         assert_eq!(to_datetime(&ts).unwrap().utc_offset_minutes(), None);
         assert_eq!(to_datetime(&ts).unwrap().unix_seconds(), 0);
     }

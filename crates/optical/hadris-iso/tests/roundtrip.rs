@@ -484,7 +484,7 @@ fn supplementary_escape_sequences_are_zero_padded() {
         .unwrap()
     {
         index += 1;
-        if let hadris_iso::raw::VolumeDescriptor::Supplementary(svd) = descriptor {
+        if let hadris_iso_raw::VolumeDescriptor::Supplementary(svd) = descriptor {
             let escapes = svd.escape_sequences;
             let used = if svd.is_enhanced() { 0 } else { 3 };
             assert!(
@@ -950,7 +950,7 @@ fn directories_have_no_length() {
 
 #[test]
 fn path_tables_use_final_directory_identifiers() {
-    use hadris_iso::raw::{DirectoryRecord, FileFlags};
+    use hadris_iso_raw::{DirectoryRecord, FileFlags};
     fn table(bytes: &[u8], start: usize, size: usize, big: bool) -> Vec<(Vec<u8>, u32, u16)> {
         let mut entries = Vec::new();
         let mut pos = start;

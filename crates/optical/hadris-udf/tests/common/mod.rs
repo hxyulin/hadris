@@ -96,8 +96,8 @@ pub fn open(bytes: Vec<u8>) -> hadris_udf::sync::UdfFs<MemDevice<Vec<u8>>> {
 /// bytes, keeping its identifier, version and location.
 pub fn reseal(bytes: &mut [u8], sector: u64, crc_length: usize) {
     let at = sector as usize * 2048;
-    let tag = hadris_udf::raw::Tag::read(&bytes[at..]).unwrap();
-    hadris_udf::raw::Tag::seal(
+    let tag = hadris_udf_raw::Tag::read(&bytes[at..]).unwrap();
+    hadris_udf_raw::Tag::seal(
         &mut bytes[at..at + 2048],
         tag.identifier.get(),
         tag.version.get(),

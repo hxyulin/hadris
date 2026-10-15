@@ -32,6 +32,7 @@ hadris-fat-raw.workspace = true
 hadris-fs = { workspace = true, features = ["std", "sync"] }
 hadris-io = { workspace = true, features = ["std", "sync"] }
 hadris-iso = { workspace = true, features = ["std", "sync"] }
+hadris-iso-raw.workspace = true
 hadris-storage = { workspace = true, features = ["std", "sync"] }
 hadris-udf = { workspace = true, features = ["std", "sync"] }
 anyhow.workspace = true

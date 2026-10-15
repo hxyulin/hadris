@@ -9,8 +9,9 @@ The package starts at version 0.1.0 and versions independently of the driver.
 hadris-udf-raw = "0.1.0"
 ```
 
-Types are available at the crate root. The driver preserves the same types
-under `hadris_udf::raw` for existing users. Use `hadris-udf` for
+Every item is at the crate root. `hadris-udf` builds on this crate but
+does not re-export it, so this crate can change in a 0.x minor release
+without a new major version of `hadris-udf`. Use `hadris-udf` for
 mounting, filesystem access and image writing.
 
 The first publication is part of the RC2 release. Until publication, use a

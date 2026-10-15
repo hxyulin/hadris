@@ -150,7 +150,7 @@ fn listing_the_end_of_a_4_gib_directory_stops() {
     dev.write_blocks(BlockIndex::new(root), &dot).unwrap();
     let last = root * 2048 + (1 << 32) - 2048;
     let mut block = [0u8; 2048];
-    let record = hadris_iso::raw::DirectoryRecord::new(b"A", &[0; 76]).unwrap();
+    let record = hadris_iso_raw::DirectoryRecord::new(b"A", &[0; 76]).unwrap();
     assert_eq!(record.len(), 110);
     block[2048 - 110..].copy_from_slice(record.as_bytes());
     dev.write_blocks(BlockIndex::new(last / 2048), &block)
@@ -169,7 +169,7 @@ fn listing_the_end_of_a_4_gib_directory_stops() {
 }
 
 fn record_chain_image(mismatched: bool) -> (Vec<u8>, hadris_fs::NodeId) {
-    use hadris_iso::raw::{DirectoryRecord, FileFlags, U16Both, U32Both};
+    use hadris_iso_raw::{DirectoryRecord, FileFlags, U16Both, U32Both};
 
     fn record(name: &[u8], block: u32, len: u32, flags: FileFlags) -> DirectoryRecord {
         let mut record = DirectoryRecord::new(name, &[]).unwrap();

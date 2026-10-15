@@ -1,7 +1,7 @@
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{FileType, NodeId};
 use hadris_iso::Namespace;
-use hadris_iso::raw::{PathTableHeader, VolumeDescriptor};
+use hadris_iso_raw::{PathTableHeader, VolumeDescriptor};
 
 use super::super::args::VerifyArgs;
 
@@ -161,7 +161,7 @@ fn check_boot_catalog(iso: &mut View<'_>, verbose: bool) -> Vec<VerifyIssue> {
         }
     };
 
-    let validation: hadris_iso::raw::BootValidationEntry =
+    let validation: hadris_iso_raw::BootValidationEntry =
         bytemuck::pod_read_unaligned(&catalog.as_bytes()[..32]);
     if validation.header_id != 0x01 {
         issues.push(VerifyIssue::error(format!(
@@ -520,15 +520,12 @@ pub fn verify(args: VerifyArgs) -> Result<()> {
 }
 
 /// The directory record a node id names, read through `records`.
-fn record(
-    view: &mut View<'_>,
-    node: hadris_fs::NodeId,
-) -> Option<hadris_iso::raw::DirectoryRecord> {
+fn record(view: &mut View<'_>, node: hadris_fs::NodeId) -> Option<hadris_iso_raw::DirectoryRecord> {
     let mut out = [hadris_fs::Extent::new(0, 0); 1];
     view.records(node, &mut out).ok()?;
     let mut bytes = vec![0u8; out[0].len() as usize];
     view.read_raw(out[0].offset(), &mut bytes).ok()?;
-    hadris_iso::raw::DirectoryRecord::parse(&bytes)
+    hadris_iso_raw::DirectoryRecord::parse(&bytes)
         .ok()
         .flatten()
 }

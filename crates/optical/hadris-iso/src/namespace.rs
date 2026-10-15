@@ -51,7 +51,7 @@ impl JolietLevel {
             Self::L2 => 1,
             Self::L3 => 2,
         };
-        out[..3].copy_from_slice(&crate::raw::JOLIET_ESCAPES[index]);
+        out[..3].copy_from_slice(&hadris_iso_raw::JOLIET_ESCAPES[index]);
         out
     }
 }
