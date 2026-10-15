@@ -5,7 +5,7 @@ ISO 9660, UDF, APFS and cpio images, and ISO 9660 and UDF bridge images, with on
 binary.
 
 With [cargo-binstall](https://github.com/cargo-bins/cargo-binstall) installed,
-download a prebuilt RC2 binary once the release is published:
+download a prebuilt binary:
 
 ```bash
 cargo binstall hadris-cli --version 3.0.0-rc.2
@@ -13,16 +13,15 @@ cargo binstall hadris-cli --version 3.0.0-rc.2
 
 Release assets cover Linux x86-64/ARM64 (static musl binaries), macOS Intel/
 Apple Silicon (macOS 11 or newer), and Windows x86-64. The `hadris` binary
-includes APFS inspection and extraction; RC2 replaces the standalone
-`hadris-apfs-cli` with `hadris apfs`.
+includes APFS inspection and extraction as `hadris apfs`.
 
-Or compile RC2 from crates.io after publication with Rust 1.88 or newer:
+Or compile it from crates.io with Rust 1.88 or newer:
 
 ```bash
 cargo install hadris-cli --version 3.0.0-rc.2 --locked
 ```
 
-Before publication, or for development, build it from a workspace checkout:
+For development, build it from a workspace checkout:
 
 ```bash
 cargo build --locked --release -p hadris-cli

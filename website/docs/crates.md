@@ -8,7 +8,7 @@ Start with `hadris` for one dependency that exposes the native format APIs,
 block devices and shared filesystem types. Disable defaults and select only
 the needed formats. Choose individual crates when independent versioning or
 an explicit dependency on one layer is useful. The
-[getting-started recipe](./getting-started.md) targets RC2 and explains how to use it before and after publication.
+[getting-started recipe](./getting-started.md) gives the dependency recipe.
 
 ![Hadris architecture: applications use the umbrella crate over block, optical, and archive formats backed by shared I/O, block devices, and filesystem APIs](/img/architecture-v3.svg)
 
@@ -19,9 +19,9 @@ an explicit dependency on one layer is useful. The
 | FAT12/16/32 or exFAT filesystem access | [`hadris-fat`](https://github.com/hxyulin/hadris/tree/main/crates/block/hadris-fat) | `FatFs` and `ExFatFs`, including formatting, checking and mutation |
 | Read-only NTFS access (preview) | [`hadris-ntfs`](https://github.com/hxyulin/hadris/tree/main/crates/block/hadris-ntfs) | Allocation-free reader; its native API is a preview |
 | FAT or exFAT on-disk structures without a driver | [`hadris-fat-raw`](https://github.com/hxyulin/hadris/tree/main/crates/block/hadris-fat-raw) | Layouts and I/O-free codecs that `hadris-fat` is built on |
-| CPIO on-disk structures without a driver | [`hadris-cpio-raw`](https://github.com/hxyulin/hadris/tree/main/crates/archive/hadris-cpio-raw) | Allocation-free layouts and I/O-free codecs; first publication pending |
-| UDF on-disk structures without a driver | [`hadris-udf-raw`](https://github.com/hxyulin/hadris/tree/main/crates/optical/hadris-udf-raw) | Allocation-free layouts and I/O-free codecs; first publication pending |
-| ISO on-disk structures without a driver | [`hadris-iso-raw`](https://github.com/hxyulin/hadris/tree/main/crates/optical/hadris-iso-raw) | Allocation-free layouts and I/O-free codecs; first publication pending |
+| CPIO on-disk structures without a driver | [`hadris-cpio-raw`](https://github.com/hxyulin/hadris/tree/main/crates/archive/hadris-cpio-raw) | Allocation-free layouts and I/O-free codecs |
+| UDF on-disk structures without a driver | [`hadris-udf-raw`](https://github.com/hxyulin/hadris/tree/main/crates/optical/hadris-udf-raw) | Allocation-free layouts and I/O-free codecs |
+| ISO on-disk structures without a driver | [`hadris-iso-raw`](https://github.com/hxyulin/hadris/tree/main/crates/optical/hadris-iso-raw) | Allocation-free layouts and I/O-free codecs |
 | MBR or GPT partition tables | [`hadris-part`](https://github.com/hxyulin/hadris/tree/main/crates/block/hadris-part) | Concrete partition parsing and writing |
 | ISO 9660 images | [`hadris-iso`](https://github.com/hxyulin/hadris/tree/main/crates/optical/hadris-iso) | ISO, Joliet, Rock Ridge, and El Torito APIs |
 | UDF images and hybrid ISO/UDF authoring | [`hadris-udf`](https://github.com/hxyulin/hadris/tree/main/crates/optical/hadris-udf) | UDF descriptors, reading, image creation, and bridge images sharing file data with ISO 9660 |

@@ -270,7 +270,7 @@ semantics; the [`embedded-storage` NOR contract](https://docs.rs/embedded-storag
 exposes separate erase and write granularities. Use a flash adapter or translation layer before presenting it as a
 rewritable `BlockDevice`.
 
-## RC2 asynchronous block devices
+## Asynchronous block devices
 
 Use `hadris_storage::async_::BlockDevice` and supply `State`,
 `poll_read_blocks`, optional `poll_write_blocks`/`poll_flush`, and `cancel`.

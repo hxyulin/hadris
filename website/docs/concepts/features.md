@@ -11,10 +11,9 @@ Hadris separates three decisions that many crates combine:
 3. **Capability:** `write` (FAT formatting), and in the umbrella crate one
    feature per format
 
-Every format crate always compiles reading; none has a `read` feature. The APIs and Cargo examples below target RC2. Until RC2 is
-published, use a workspace checkout as described in
-[getting started](../getting-started.md). See the [async guide](../guides/async-io.md)
-for custom device migration. Choose each dimension
+Every format crate always compiles reading; none has a `read` feature. See
+[getting started](../getting-started.md) for the dependency recipe and the
+[async guide](../guides/async-io.md) for custom devices. Choose each dimension
 explicitly when disabling default features. Enabling `std` provides heap
 allocation, but it does not implicitly select `sync` or `async`. A feature
 only adds items: none changes what an existing item does, except

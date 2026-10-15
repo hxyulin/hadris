@@ -1,6 +1,6 @@
 # Unified asynchronous devices
 
-The RC2 device API uses one asynchronous implementation for local and Send
+The device API uses one asynchronous implementation for local and Send
 operations in the `async_` namespace.
 The `sync` namespace keeps its synchronous contract.
 
@@ -102,7 +102,7 @@ where appropriate.
 Custom async block-device implementations must replace async method bodies
 with poll hooks and owned state. A backend that completes immediately can use
 `State = ()` and return `Poll::Ready`; a suspending backend records progress
-without retaining caller-buffer access. This is a deliberate RC2 API change.
+without retaining caller-buffer access. This is a deliberate 3.0 API change.
 
 ## Validation
 

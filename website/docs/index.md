@@ -21,9 +21,9 @@ directly to the [use-case guides](./guides/index.md).
 
 :::note Stability
 
-These pages describe the `3.0.0-rc.2` API. The
-[installation recipe](./getting-started.md) selects that prerelease explicitly
-for registry installation and explains source checkouts before publication.
+These pages describe the `3.0.0-rc.2` API; `3.0.0-rc.1` is the latest
+published release candidate. The [installation recipe](./getting-started.md)
+selects the prerelease explicitly.
 V2 `2.5.0` is the published stable library version and remains in the version
 selector. The [migration guide](./migration.md) covers the upgrade from 2.4/2.5. In 3.0, exFAT is stable in `hadris-fat`, and the
 `hadris-ntfs` and `hadris-apfs` readers stay previews outside the
