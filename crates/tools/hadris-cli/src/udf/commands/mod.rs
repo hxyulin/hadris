@@ -16,16 +16,16 @@ pub use ls::ls;
 pub use tree::tree;
 pub use verify::verify;
 
-use hadris_fs::MountOptions;
 use std::io::Write;
 use std::path::Path;
 
-use crate::common::{Device, Locate};
+use anyhow::Result;
 use hadris_fs::sync::FileSystem;
-use hadris_fs::{DirCursor, DirEntry, FileType, NodeId, OpenMode, Resolve};
+use hadris_fs::{DirEntry, MountOptions, NodeId, OpenMode, Resolve};
 use hadris_udf::sync::UdfFs;
 
-pub(super) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+use crate::common::{Device, Locate};
+use crate::vfs::entries as list;
 
 pub(super) type Udf = UdfFs<Device>;
 
@@ -40,17 +40,6 @@ pub(super) fn entries(udf: &mut Udf, path: &str) -> Result<Vec<DirEntry>> {
     let listed = list(udf, dir);
     udf.forget(dir, 1);
     listed
-}
-
-/// The entries of the directory `dir`, sorted as the volume lists them.
-pub(super) fn list(udf: &mut Udf, dir: NodeId) -> Result<Vec<DirEntry>> {
-    let mut items = Vec::new();
-    let mut cursor = DirCursor::START;
-    while let Some(entry) = udf.readdir(dir, cursor)? {
-        cursor = entry.next_cursor();
-        items.push(entry);
-    }
-    Ok(items)
 }
 
 /// Copies the file at `path` to `out` and returns its length.
@@ -81,21 +70,4 @@ pub(super) fn copy_node(udf: &mut Udf, node: NodeId, out: &mut impl Write) -> Re
     let len = copied?;
     closed?;
     Ok(len)
-}
-
-/// `/`-joined image path of `name` in `dir`.
-pub(super) fn join(dir: &str, name: &str) -> String {
-    format!("{}/{name}", dir.trim_end_matches('/'))
-}
-
-pub(super) fn type_char(file_type: FileType) -> char {
-    match file_type {
-        FileType::Dir => 'd',
-        FileType::Symlink => 'l',
-        FileType::CharDevice => 'c',
-        FileType::BlockDevice => 'b',
-        FileType::Fifo => 'p',
-        FileType::Socket => 's',
-        _ => '-',
-    }
 }

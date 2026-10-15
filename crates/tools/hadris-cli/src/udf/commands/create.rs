@@ -1,9 +1,8 @@
-use hadris_fs::WarningKind;
+use anyhow::Result;
 use hadris_udf::{UdfId, UdfOptions};
 
 use super::super::args::CreateArgs;
-use super::Result;
-use crate::common::{build_time, read_source};
+use crate::common::{build_time, print_warnings, read_source};
 
 /// Create a new UDF image
 pub fn create(args: CreateArgs) -> Result<()> {
@@ -35,18 +34,10 @@ pub fn create(args: CreateArgs) -> Result<()> {
         return Ok(());
     }
 
-    let (file, pending) = args.target.create()?;
-    let mut dev = hadris_storage::host::FileDevice::new(file)
-        .map_err(|err| format!("cannot create {}: {err}", output.display()))?;
-    let report = hadris_udf::sync::write(&mut dev, &tree, &options)?;
-    pending
-        .commit(dev.into_inner())
-        .map_err(|err| format!("cannot write {}: {err}", output.display()))?;
-    for warning in report.warnings() {
-        if !matches!(warning.kind(), WarningKind::Dropped(_)) || args.verbose {
-            eprintln!("warning: {warning}");
-        }
-    }
+    let report = args
+        .target
+        .write_image(0, |dev| Ok(hadris_udf::sync::write(dev, &tree, &options)?))?;
+    print_warnings(&report, args.verbose);
 
     if args.verbose {
         println!(

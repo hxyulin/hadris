@@ -1,3 +1,4 @@
+use anyhow::{Result, anyhow};
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{FileType, NodeId};
 use hadris_iso::Namespace;
@@ -5,8 +6,8 @@ use hadris_iso_raw::{PathTableHeader, VolumeDescriptor};
 
 use super::super::args::VerifyArgs;
 
-use super::{Entry, Result, View, join, list_dir, list_node, open, view};
-use crate::common::Ancestors;
+use super::{Entry, View, list_dir, list_node, view};
+use crate::common::{Ancestors, join};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum IssueSeverity {
@@ -329,7 +330,7 @@ fn check_root_directory(view: &mut View<'_>, verbose: bool) -> Vec<VerifyIssue> 
             }
         }
         Err(error) => issues.push(VerifyIssue::error(format!(
-            "Error reading root directory: {error}"
+            "Error reading root directory: {error:#}"
         ))),
     }
     issues
@@ -431,7 +432,7 @@ fn check_rrip_fields(
 
 /// Verify ISO image integrity
 pub fn verify(args: VerifyArgs) -> Result<()> {
-    let mut dev = open(&args.input, &args.locate)?;
+    let mut dev = args.locate.open(&args.input)?;
     let file_size = dev.len();
     let mut iso = view(&mut dev, Namespace::Preferred)?;
 
@@ -514,7 +515,7 @@ pub fn verify(args: VerifyArgs) -> Result<()> {
         if errors.is_empty() {
             Ok(())
         } else {
-            Err(format!("{} error(s) found", errors.len()).into())
+            Err(anyhow!("{} error(s) found", errors.len()))
         }
     }
 }

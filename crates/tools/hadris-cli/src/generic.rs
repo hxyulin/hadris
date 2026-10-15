@@ -9,8 +9,8 @@ use hadris::host::FileDevice;
 use hadris::sync::AnyFs;
 use hadris::{ErrorKind, ImageFormat, Select};
 
-use crate::common::{Device, Locate};
-use crate::{detect, fat};
+use crate::common::{Device, Locate, format_size};
+use crate::{detect, vfs};
 
 /// The image a generic command reads.
 #[derive(clap::Args)]
@@ -96,15 +96,15 @@ fn open(source: &Source) -> Result<AnyFs<Device>> {
 }
 
 pub fn ls(args: LsArgs) -> Result<()> {
-    fat::cmd_ls(&mut open(&args.source)?, &args.path, args.long)
+    vfs::ls(&mut open(&args.source)?, &args.path, args.long)
 }
 
 pub fn cat(args: CatArgs) -> Result<()> {
-    fat::cmd_cat(&mut open(&args.source)?, &args.path)
+    vfs::cat(&mut open(&args.source)?, &args.path)
 }
 
 pub fn extract(args: ExtractArgs) -> Result<()> {
-    fat::cmd_extract(open(&args.source)?, &args.output, args.path.as_deref())
+    vfs::extract(open(&args.source)?, &args.output, args.path.as_deref())
 }
 
 pub fn stat(args: StatArgs) -> Result<()> {
@@ -125,17 +125,11 @@ pub fn stat(args: StatArgs) -> Result<()> {
     println!("Block size:  {block} bytes");
     println!(
         "Capacity:    {} ({} bytes)",
-        fat::format_size(stats.total_bytes()),
+        format_size(stats.total_bytes()),
         stats.total_bytes()
     );
-    println!(
-        "Used:        {}",
-        fat::format_size(stats.used_blocks() * block)
-    );
-    println!(
-        "Free:        {}",
-        fat::format_size(stats.free_blocks() * block)
-    );
+    println!("Used:        {}", format_size(stats.used_blocks() * block));
+    println!("Free:        {}", format_size(stats.free_blocks() * block));
 
     let node = fs
         .resolve(args.path.as_bytes(), Resolve::Lexical)

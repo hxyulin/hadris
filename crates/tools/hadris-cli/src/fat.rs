@@ -1,10 +1,9 @@
 //! `hadris fat`: FAT12/16/32 and exFAT images.
 
-use std::fs;
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
-use crate::common::{Ancestors, Device, Locate, Target, read_source};
+use crate::common::{Ancestors, Device, Locate, Target, format_size, join, read_source};
+use crate::vfs::{self, list_dir, resolve};
 use anyhow::{Context, Result, bail};
 use clap::{Subcommand, ValueEnum};
 use hadris::ImageFormat;
@@ -17,11 +16,8 @@ use hadris_storage::sync::BlockDevice;
 
 use hadris_fs::TreeEntry;
 use hadris_fs::host;
-use hadris_fs::sync::{FileSystem, copy_tree, read_tree};
-use hadris_fs::{
-    Attributes, Clock, DirCursor, FileType, Finding, Metadata, MountError, MountOptions, NodeId,
-    OpenMode, Resolve, SystemClock,
-};
+use hadris_fs::sync::{FileSystem, copy_tree};
+use hadris_fs::{Clock, FileType, Finding, MountError, MountOptions, SystemClock};
 
 #[derive(clap::Args)]
 pub struct Args {
@@ -212,7 +208,7 @@ pub fn run(cli: Args) -> Result<()> {
         Commands::Info { image } => cmd_info(&image),
         Commands::Stat { image } => cmd_stat(&image),
         Commands::Ls { image, path, long } => {
-            with_fs!(&mut open(&image)?, fs => cmd_ls(fs, &path, long))
+            with_fs!(&mut open(&image)?, fs => vfs::ls(fs, &path, long))
         }
         Commands::Tree { image, path, depth } => {
             with_fs!(&mut open(&image)?, fs => cmd_tree(fs, &path, depth))
@@ -220,7 +216,7 @@ pub fn run(cli: Args) -> Result<()> {
         Commands::Fragmentation { image, top } => cmd_fragmentation(&image, top),
         Commands::Verify { image, verbose } => cmd_verify(&image, verbose),
         Commands::Chain { image, file_path } => cmd_chain(&image, &file_path),
-        Commands::Cat { image, path } => with_fs!(&mut open(&image)?, fs => cmd_cat(fs, &path)),
+        Commands::Cat { image, path } => with_fs!(&mut open(&image)?, fs => vfs::cat(fs, &path)),
         Commands::Extract {
             image,
             output,
@@ -235,9 +231,9 @@ pub fn run(cli: Args) -> Result<()> {
                 Volume::ExFat(_) if cache.fat_only() => {
                     bail!("FAT cache settings apply to FAT12/16/32 images, not exFAT")
                 }
-                Volume::ExFat(fs) => cmd_extract(*fs, &output, path.as_deref()),
+                Volume::ExFat(fs) => vfs::extract(*fs, &output, path.as_deref()),
                 Volume::Fat(fs) => {
-                    cmd_extract(fs.with_cache(cache.options()), &output, path.as_deref())
+                    vfs::extract(fs.with_cache(cache.options()), &output, path.as_deref())
                 }
             }
         }
@@ -541,81 +537,6 @@ fn cmd_stat(image: &Image) -> Result<()> {
     Ok(())
 }
 
-fn join(dir: &str, name: &str) -> String {
-    if dir.ends_with('/') {
-        format!("{dir}{name}")
-    } else {
-        format!("{dir}/{name}")
-    }
-}
-
-/// Resolves `path` and pins the node.
-fn resolve<D: FileSystem>(fs: &mut D, path: &str) -> Result<NodeId> {
-    fs.resolve(path.as_bytes(), Resolve::Lexical)
-        .with_context(|| format!("Failed to open: {path}"))
-}
-
-/// The entries of the directory at `path` with their metadata, in directory
-/// order.
-fn list_dir<D: FileSystem>(fs: &mut D, path: &str) -> Result<Vec<(String, Metadata, NodeId)>> {
-    let dir = resolve(fs, path)?;
-    let mut entries = Vec::new();
-    let mut cursor = DirCursor::START;
-    let listed = loop {
-        match fs.readdir(dir, cursor) {
-            Ok(Some(entry)) => {
-                cursor = entry.next_cursor();
-                match std::str::from_utf8(entry.name().as_bytes()) {
-                    Ok(name) => entries.push((name.to_string(), *entry.metadata(), entry.node())),
-                    Err(_) => {
-                        break Err(anyhow::anyhow!("Directory entry name is not valid UTF-8"));
-                    }
-                }
-            }
-            Ok(None) => break Ok(entries),
-            Err(err) => break Err(err).context("Failed to read directory entry"),
-        }
-    };
-    fs.forget(dir, 1);
-    listed
-}
-
-fn attribute_flags(attrs: Attributes) -> String {
-    [
-        (Attributes::READ_ONLY, 'r'),
-        (Attributes::HIDDEN, 'h'),
-        (Attributes::SYSTEM, 's'),
-        (Attributes::ARCHIVE, 'a'),
-    ]
-    .iter()
-    .map(|&(flag, c)| if attrs.contains(flag) { c } else { '-' })
-    .collect()
-}
-
-pub(crate) fn cmd_ls<D: FileSystem>(fs: &mut D, path: &str, long: bool) -> Result<()> {
-    for (name, meta, _) in list_dir(fs, path)? {
-        let is_dir = meta.file_type().is_dir();
-        if long {
-            println!(
-                "{}{} {:>10}  {}",
-                if is_dir { 'd' } else { '-' },
-                attribute_flags(meta.attributes()),
-                if is_dir {
-                    "<DIR>".to_string()
-                } else {
-                    meta.len().to_string()
-                },
-                name
-            );
-        } else if is_dir {
-            println!("{name}/");
-        } else {
-            println!("{name}");
-        }
-    }
-    Ok(())
-}
-
 fn cmd_tree<D: FileSystem>(fs: &mut D, path: &str, max_depth: Option<usize>) -> Result<()> {
     println!("{path}");
     let mut ancestors = walk_root(fs, path)?;
@@ -874,101 +795,6 @@ fn cmd_chain(image: &Image, file_path: &str) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn cmd_cat<D: FileSystem>(fs: &mut D, path: &str) -> Result<()> {
-    let node = resolve(fs, path)?;
-    let copied = copy_to_stdout(fs, node);
-    fs.forget(node, 1);
-    copied.with_context(|| format!("Failed to read file: {path}"))
-}
-
-fn copy_to_stdout<D: FileSystem>(fs: &mut D, node: NodeId) -> Result<()> {
-    fs.open(node, OpenMode::Read)?;
-    let mut stdout = std::io::stdout().lock();
-    let mut buf = vec![0u8; 64 * 1024];
-    let mut offset = 0u64;
-    let copied = loop {
-        match fs.read(node, offset, &mut buf) {
-            Ok(0) => break stdout.flush().context("Failed to write file to stdout"),
-            Ok(n) => {
-                if let Err(err) = stdout.write_all(&buf[..n]) {
-                    break Err(err).context("Failed to write file to stdout");
-                }
-                offset += n as u64;
-            }
-            Err(err) => break Err(err.into()),
-        }
-    };
-    let closed = fs.close(node);
-    copied?;
-    closed?;
-    Ok(())
-}
-
-/// Extracts `path` (the root when `None`) below `output`. The root is merged
-/// into `output`; anything else lands at `output/<stored name>`.
-pub(crate) fn cmd_extract<D: FileSystem + Send + 'static>(
-    mut fs: D,
-    output: &Path,
-    path: Option<&str>,
-) -> Result<()> {
-    let from = path.unwrap_or("/");
-    let name = stored_name(&mut fs, from)?;
-    let node = resolve(&mut fs, from)?;
-    let is_dir = fs.stat(node).map(|meta| meta.file_type().is_dir());
-    fs.forget(node, 1);
-    let is_dir = is_dir?;
-    let target = match &name {
-        Some(name) if is_dir => output.join(name),
-        _ => output.to_path_buf(),
-    };
-    fs::create_dir_all(&target)
-        .with_context(|| format!("Failed to create output directory: {}", target.display()))?;
-    let vol = hadris_fs::sync::Volume::new(fs);
-    let tree = read_tree(&vol, from).with_context(|| format!("Failed to read {from}"))?;
-    let report = host::write_tree(&target, &tree)
-        .with_context(|| format!("Failed to extract {from} to {}", target.display()))?;
-    for warning in report.warnings() {
-        eprintln!("warning: {warning}");
-    }
-    Ok(())
-}
-
-/// The name `path` is stored under in its directory, or `None` for the root.
-/// Fails on names that are not one plain host path component.
-fn stored_name<D: FileSystem>(fs: &mut D, path: &str) -> Result<Option<String>> {
-    let node = resolve(fs, path)?;
-    if node == fs.root() {
-        fs.forget(node, 1);
-        return Ok(None);
-    }
-    let found = find_name(fs, path, node);
-    fs.forget(node, 1);
-    let name = found?;
-    if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
-        bail!("Refusing to extract {path}: its stored name {name:?} is not a plain file name");
-    }
-    Ok(Some(name))
-}
-
-/// Scans the parent of `path` for the entry listed with id `node`.
-fn find_name<D: FileSystem>(fs: &mut D, path: &str, node: NodeId) -> Result<String> {
-    let parent = resolve(fs, &format!("{path}/.."))?;
-    let mut cursor = DirCursor::START;
-    let found = loop {
-        match fs.readdir(parent, cursor) {
-            Ok(Some(entry)) if entry.node() == node => break Ok(entry),
-            Ok(Some(entry)) => cursor = entry.next_cursor(),
-            Ok(None) => break Err(anyhow::anyhow!("{path} is not listed in its directory")),
-            Err(err) => break Err(err).context("Failed to read directory entry"),
-        }
-    };
-    fs.forget(parent, 1);
-    let entry = found?;
-    let name = std::str::from_utf8(entry.name().as_bytes())
-        .context("Directory entry name is not valid UTF-8")?;
-    Ok(name.to_string())
-}
-
 /// Total file bytes and entry count below `node`. Fails on entries FAT and
 /// exFAT cannot store.
 fn inventory(node: TreeEntry<'_>, path: &str, bytes: &mut u64, entries: &mut u64) -> Result<()> {
@@ -1080,24 +906,4 @@ fn cmd_create(
         .with_context(|| format!("Failed to write image: {}", output.display()))?;
     println!("Created {} ({kind}, {image_size} bytes)", output.display());
     Ok(())
-}
-
-/// Format a size in bytes to a human-readable string.
-pub(crate) fn format_size(bytes: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = KB * 1024;
-    const GB: u64 = MB * 1024;
-    const TB: u64 = GB * 1024;
-
-    if bytes >= TB {
-        format!("{:.2} TB", bytes as f64 / TB as f64)
-    } else if bytes >= GB {
-        format!("{:.2} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.2} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.2} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{bytes} B")
-    }
 }

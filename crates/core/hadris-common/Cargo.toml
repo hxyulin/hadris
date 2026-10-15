@@ -25,4 +25,3 @@ bytemuck = { workspace = true, optional = true, features = ["derive"] }
 
 [dev-dependencies]
 bytemuck = { workspace = true, features = ["derive"] }
-static_assertions.workspace = true

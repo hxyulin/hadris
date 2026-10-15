@@ -1,5 +1,3 @@
-#![cfg(all(feature = "sync", feature = "alloc"))]
-
 mod common;
 #[path = "common/failing_device.rs"]
 mod failing_device;

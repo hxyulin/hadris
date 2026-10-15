@@ -18,23 +18,16 @@ pub use mkisofs::mkisofs;
 pub use tree::tree;
 pub use verify::verify;
 
-use std::path::Path;
-
+use anyhow::{Context, Result};
 use hadris_fs::sync::FileSystem;
-use hadris_fs::{DateTime, DirCursor, Metadata, NodeId, Report, Resolve, Tree, WarningKind};
+use hadris_fs::{Metadata, NodeId, Report, Resolve, Tree};
 use hadris_iso::sync::{IsoFs, write};
 use hadris_iso::{IsoOptions, Namespace};
-use hadris_storage::host::FileDevice;
 
-use crate::common::{Device, Locate, Target};
-
-pub(super) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+use crate::common::{Device, Target, print_warnings};
+use crate::vfs::entries;
 
 type View<'a> = IsoFs<&'a mut Device>;
-
-fn open(path: &Path, locate: &Locate) -> Result<Device> {
-    Ok(locate.open(path)?)
-}
 
 /// The image on `dev`, read through the tree `namespace` names.
 fn view(dev: &mut Device, namespace: Namespace) -> Result<View<'_>> {
@@ -63,14 +56,6 @@ fn view_for<'a>(iso: &'a mut Device, path: &str) -> Result<View<'a>> {
     view(iso, namespace)
 }
 
-fn join(dir: &str, name: &str) -> String {
-    if dir.ends_with('/') {
-        format!("{dir}{name}")
-    } else {
-        format!("{dir}/{name}")
-    }
-}
-
 /// One directory entry: its name, node and metadata.
 struct Entry {
     name: String,
@@ -82,7 +67,7 @@ struct Entry {
 fn list_dir(view: &mut View<'_>, path: &str) -> Result<Vec<Entry>> {
     let dir = view
         .resolve(path.as_bytes(), Resolve::Lexical)
-        .map_err(|err| format!("Directory not found: {path}: {err}"))?;
+        .with_context(|| format!("Directory not found: {path}"))?;
     let listed = list_node(view, dir);
     view.forget(dir, 1);
     listed
@@ -90,17 +75,14 @@ fn list_dir(view: &mut View<'_>, path: &str) -> Result<Vec<Entry>> {
 
 /// The entries of the directory `dir`, in directory order.
 fn list_node(view: &mut View<'_>, dir: NodeId) -> Result<Vec<Entry>> {
-    let mut entries = Vec::new();
-    let mut cursor = DirCursor::START;
-    while let Some(entry) = view.readdir(dir, cursor)? {
-        cursor = entry.next_cursor();
-        entries.push(Entry {
+    Ok(entries(view, dir)?
+        .into_iter()
+        .map(|entry| Entry {
             name: String::from_utf8_lossy(entry.name().as_bytes()).into_owned(),
             node: entry.node(),
             meta: *entry.metadata(),
-        });
-    }
-    Ok(entries)
+        })
+        .collect())
 }
 
 /// The first logical block of a node's data.
@@ -113,28 +95,6 @@ fn first_block(view: &mut View<'_>, node: NodeId) -> Result<u64> {
     Ok(first.unwrap_or(0) / u64::from(view.info().block_size()))
 }
 
-/// Reads the host directory `source` into a tree, skipping with a warning
-/// what cannot be read.
-fn read_source(source: &Path) -> Result<Tree> {
-    Ok(crate::common::read_source(source)?)
-}
-
-/// The time new images are dated with: `SOURCE_DATE_EPOCH` when set, the
-/// system time otherwise.
-fn build_time() -> Result<DateTime> {
-    Ok(crate::common::build_time()?)
-}
-
-/// Prints the writer's warnings. Dropped metadata, which every image without
-/// Rock Ridge reports, only when `verbose`.
-fn print_warnings(report: &Report, verbose: bool) {
-    for warning in report.warnings() {
-        if verbose || !matches!(warning.kind(), WarningKind::Dropped(_)) {
-            eprintln!("warning: {warning}");
-        }
-    }
-}
-
 /// Writes `tree` to `output`, padded to at least 32 blocks. The file appears
 /// only once the image is complete.
 fn write_image(
@@ -143,21 +103,11 @@ fn write_image(
     options: &IsoOptions,
     verbose: bool,
 ) -> Result<Report> {
-    let output = &target.output;
-    let (file, pending) = target.create()?;
-    let mut dev = FileDevice::new(file)
-        .map_err(|err| format!("cannot create {}: {err}", output.display()))?;
-    let report = write(&mut dev, tree, options)?;
-    let file = dev.into_inner();
-    print_warnings(&report, verbose);
-    let min_size = 32 * 2048;
-    if pending.is_regular() && file.metadata()?.len() < min_size {
-        file.set_len(min_size)?;
-    }
-    pending
-        .commit(file)
-        .map_err(|err| format!("cannot write {}: {err}", output.display()))?;
-    Ok(report)
+    target.write_image(32 * 2048, |dev| {
+        let report = write(dev, tree, options)?;
+        print_warnings(&report, verbose);
+        Ok(report)
+    })
 }
 
 /// Normalize a path to use forward slashes (ISO 9660 standard).

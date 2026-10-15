@@ -1,9 +1,11 @@
+use anyhow::Result;
 use hadris_iso::{BootEntry, BootInfo, ElTorito, Hybrid, IsoId, IsoOptions};
 
 use super::super::args::MkisofsArgs;
 
 use super::create::CATALOG_PATH;
-use super::{Result, build_time, normalize_path, read_source, write_image};
+use super::{normalize_path, write_image};
+use crate::common::{build_time, read_source};
 
 /// xorriso-compatible mkisofs mode
 pub fn mkisofs(args: MkisofsArgs) -> Result<()> {

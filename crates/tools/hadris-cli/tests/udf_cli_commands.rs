@@ -74,6 +74,32 @@ fn extract_merges_the_root_and_names_other_paths() {
 }
 
 #[test]
+fn extract_reports_the_destination() {
+    let temp = tempfile::tempdir().unwrap();
+    let image = image(temp.path());
+    let out = temp.path().join("out");
+    let shown = stdout_of(&["extract", "-v", &image, "-o", text(&out), "-p", "/docs"]);
+    let dest = out.join("docs");
+    assert_eq!(
+        shown,
+        format!(
+            "Extracting /docs to {0}\nExtracted /docs to {0}\n",
+            dest.display()
+        )
+    );
+    let all = temp.path().join("all");
+    let shown = stdout_of(&["extract", &image, "-o", text(&all)]);
+    assert_eq!(shown, format!("Extracted / to {}\n", all.display()));
+
+    let missing = run(&["extract", &image, "-o", text(&out), "-p", "/missing"]);
+    let stderr = String::from_utf8_lossy(&missing.stderr);
+    assert!(
+        stderr.starts_with("Error: Not found: /missing: "),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn cat_list_alias_and_check() {
     let temp = tempfile::tempdir().unwrap();
     let image = image(temp.path());

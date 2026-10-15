@@ -174,7 +174,6 @@ dependencies = [
 name = "hadris-io"
 version = "3.0.0-rc.2"
 dependencies = [
- "bytemuck",
  "embedded-io",
  "embedded-io-async",
  "hadris-macros",
@@ -254,7 +253,6 @@ dependencies = [
 name = "hadris-udf"
 version = "3.0.0-rc.2"
 dependencies = [
- "bitflags",
  "bytemuck",
  "hadris-fs",
  "hadris-io",

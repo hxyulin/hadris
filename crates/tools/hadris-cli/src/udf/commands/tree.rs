@@ -1,9 +1,10 @@
+use anyhow::Result;
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{DirEntry, Resolve};
 
 use super::super::args::TreeArgs;
-use super::{Result, Udf, join, list, open};
-use crate::common::Ancestors;
+use super::{Udf, list, open};
+use crate::common::{Ancestors, join};
 
 /// Display directory tree
 pub fn tree(args: TreeArgs) -> Result<()> {
@@ -20,7 +21,7 @@ pub fn tree(args: TreeArgs) -> Result<()> {
         &mut udf,
         &mut ancestors,
         items?,
-        &args.path,
+        args.path.trim_end_matches('/'),
         "",
         1,
         args.depth,

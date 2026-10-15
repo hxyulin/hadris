@@ -1,11 +1,12 @@
 use std::io;
 
+use anyhow::{Result, anyhow};
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{FileType, NodeId};
 
 use super::super::args::VerifyArgs;
-use super::{Result, Udf, copy_node, join, list};
-use crate::common::Ancestors;
+use super::{Udf, copy_node, list};
+use crate::common::{Ancestors, join};
 
 /// Verify UDF image structural integrity: open the volume, then walk the
 /// whole tree and read every file.
@@ -51,7 +52,7 @@ pub fn verify(args: VerifyArgs) -> Result<()> {
     for error in &tally.errors {
         println!("  [FAIL] {error}");
     }
-    Err(format!("{} error(s) found", tally.errors.len()).into())
+    Err(anyhow!("{} error(s) found", tally.errors.len()))
 }
 
 #[derive(Default)]

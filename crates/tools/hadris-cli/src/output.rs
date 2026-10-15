@@ -22,12 +22,8 @@ impl Output {
     /// set, in which case a file is replaced when committed and a device is
     /// written in place.
     pub fn create(path: &Path, force: bool) -> io::Result<(File, Self)> {
-        Self::start(path, force)
-    }
-
-    fn start(path: &Path, replace: bool) -> io::Result<(File, Self)> {
         let (target, permissions) = match fs::metadata(path) {
-            Ok(_) if !replace => {
+            Ok(_) if !force => {
                 return Err(io::Error::new(
                     io::ErrorKind::AlreadyExists,
                     "the output exists; pass --force to replace it",
@@ -39,7 +35,7 @@ impl Output {
                 let output = Self {
                     path: path.to_path_buf(),
                     temp: None,
-                    replace,
+                    replace: force,
                 };
                 return Ok((file, output));
             }
@@ -64,7 +60,7 @@ impl Output {
         let output = Self {
             path: target,
             temp: Some(temp),
-            replace,
+            replace: force,
         };
         Ok((file, output))
     }

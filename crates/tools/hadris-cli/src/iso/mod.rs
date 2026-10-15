@@ -9,7 +9,7 @@ pub use commands::iso_options;
 use args::Command;
 
 /// Runs a `hadris iso` command.
-pub fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run(args: Args) -> anyhow::Result<()> {
     match args.cmd {
         Command::Info(args) => commands::info(args),
         Command::Ls(args) => commands::ls(args),

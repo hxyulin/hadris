@@ -125,6 +125,7 @@ pub(crate) fn label_latin1(bytes: &[u8], out: &mut [u8]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::vec::Vec;
 
     #[test]
     fn version_numbers_are_bounded_in_both_encodings() {

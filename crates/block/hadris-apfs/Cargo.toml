@@ -43,3 +43,35 @@ zeroize = { version = "1.8", default-features = false, features = ["alloc"], opt
 
 [dev-dependencies]
 hadris-fs = { workspace = true, features = ["unstable-contract"] }
+
+[[test]]
+name = "driver"
+required-features = ["sync", "alloc"]
+
+[[test]]
+name = "driver_async"
+required-features = ["async", "alloc"]
+
+[[test]]
+name = "encryption_validation"
+required-features = ["sync", "alloc"]
+
+[[test]]
+name = "multi_level_tree"
+required-features = ["sync", "alloc"]
+
+[[test]]
+name = "multi_level_tree_async"
+required-features = ["async", "alloc"]
+
+[[test]]
+name = "unified_async"
+required-features = ["async", "alloc"]
+
+[[test]]
+name = "macos_images"
+required-features = ["std", "sync"]
+
+[[test]]
+name = "encryption_macos"
+required-features = ["encryption", "std"]

@@ -68,7 +68,7 @@
 //!
 //! No feature changes what an item does.
 
-#![cfg_attr(not(test), no_std)]
+#![no_std]
 #![deny(missing_docs)]
 #![allow(async_fn_in_trait)]
 // Sync and async APIs intentionally compile the same source modules twice.
@@ -79,7 +79,7 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-#[cfg(all(feature = "std", not(test)))]
+#[cfg(any(feature = "std", test))]
 extern crate std;
 
 mod error;

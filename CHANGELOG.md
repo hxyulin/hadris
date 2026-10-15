@@ -15,12 +15,19 @@ Each published package owns its version and may be released independently.
   are not whole blocks, unaligned partitions, `ByteView` byte ranges past
   the end of the device and writes to a read-only `MemDevice`.
 
+- **hadris-io:** The `hadris-macros` proc-macro is built only with the
+  `sync` or `async` feature, and the unused `bytemuck` dependency is gone.
+
 ### Fixed
 
 - **hadris-storage:** The sync `Partition` rejects a request past the end
   of the device (its `block_count` for reads, `max_block_count` for
   writes) with `InvalidInput` before it reaches the device, as the async
   `Partition` already did.
+
+- **hadris-cli:** `hadris iso` and `hadris udf` errors include their
+  cause, such as the OS error when an image cannot be opened, as
+  `hadris fat` and `hadris cpio` already did.
 
 ## [3.0.0-rc.2] - 2026-10-15
 
