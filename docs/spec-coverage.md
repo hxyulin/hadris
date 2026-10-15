@@ -42,7 +42,8 @@ The checker rejects annotations in `///` or `//!` comments.
 3. Prefer `partial` + Notes over claiming `full`.
 4. Re-run `python3 scripts/check-spec-annotations.py`.
 
-Fuzz columns name targets under `fuzz/` (local only — not PR CI).
+Fuzz columns name targets under `fuzz/`. Rust CI builds them and replays the
+committed seeds; longer fuzzing runs locally.
 
 ## hadris-ntfs
 
