@@ -1,5 +1,3 @@
-#![cfg(all(feature = "async", feature = "alloc"))]
-
 mod common;
 
 use common::*;

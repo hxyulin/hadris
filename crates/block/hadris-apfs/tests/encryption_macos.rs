@@ -1,9 +1,4 @@
-#![cfg(all(
-    target_os = "macos",
-    feature = "encryption",
-    feature = "std",
-    any(feature = "sync", feature = "async")
-))]
+#![cfg(all(target_os = "macos", any(feature = "sync", feature = "async")))]
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
