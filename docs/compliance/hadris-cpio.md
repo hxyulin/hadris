@@ -7,7 +7,7 @@ streaming writer for `newc`, CRC-newc and `odc`. The atomic evidence is in
 
 This is narrower than the Linux initramfs buffer grammar. The reader follows
 concatenated uncompressed archives and the zero padding between them when
-the caller asks (`continue_after_trailer`), but it does not decompress
+the caller asks (`CpioReader::next_segment`), but it does not decompress
 compressed members. GNU cpio behavior is recorded only as informative
 interoperability context, not as a normative wire-format specification.
 
