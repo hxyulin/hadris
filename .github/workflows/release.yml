@@ -125,8 +125,12 @@ jobs:
           status=0
           require() {
             local run state conclusion url
-            run="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$1/runs?head_sha=$GITHUB_SHA&event=push&per_page=1" \
-              --jq '.workflow_runs[0] // empty | "\(.status) \(.conclusion) \(.html_url)"')"
+            if ! run="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$1/runs?head_sha=$GITHUB_SHA&event=push&per_page=1" \
+              --jq '.workflow_runs[0] // empty | "\(.status) \(.conclusion) \(.html_url)"')"; then
+              echo "$1: could not query the runs for $GITHUB_SHA"
+              status=1
+              return 0
+            fi
             if [[ -z "$run" ]]; then
               echo "$1: no push run for $GITHUB_SHA"
               [[ "$2" == optional ]] || status=1
@@ -173,6 +177,11 @@ jobs:
     needs: release
     if: needs.release.outputs.cli_tag != ''
     cache-mode: none
+    # cli-release.yml's upload job asks for contents: write, and GitHub checks
+    # nested permissions before the stage condition skips it. Its plan and
+    # build jobs keep the workflow-level contents: read.
+    permissions:
+      contents: write
     uses: ./.github/workflows/cli-release.yml
     with:
       stage: build

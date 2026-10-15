@@ -3,9 +3,9 @@
 Coverage-guided fuzz harnesses for the untrusted-input parsers, one per reader,
 plus one stateful writer harness per writable driver. Long fuzzing runs are
 local developer work. Rust CI's `Fuzz targets` job builds every harness on the
-pinned nightly, replays the committed seeds under `corpus/` with `-runs=0` and
-fuzzes each target for 10 seconds, so API drift and regressions on the seeds
-fail the PR. `Cargo.lock` is committed so those builds are reproducible.
+pinned nightly and replays the committed seeds under `corpus/` with
+`-runs=0`, so API drift and regressions on the seeds fail the PR. Pushes to
+main also fuzz each target for 10 seconds and upload crash inputs. `Cargo.lock` is committed so those builds are reproducible.
 
 | Target      | Entry point                          | Exercises |
 |-------------|--------------------------------------|-----------|

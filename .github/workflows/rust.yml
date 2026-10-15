@@ -32,16 +32,18 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+    # A push to main runs the full scope, so the release gate's CI run for a
+    # commit covers everything, not only the paths that push changed.
     outputs:
-      rust: ${{ steps.scope.outputs.rust }}
-      suite: ${{ steps.scope.outputs.suite }}
-      native: ${{ steps.scope.outputs.native }}
-      spec: ${{ steps.scope.outputs.spec }}
-      licenses: ${{ steps.scope.outputs.licenses }}
-      formatting: ${{ steps.scope.outputs.formatting }}
-      async_contract: ${{ steps.scope.outputs.async_contract }}
-      release: ${{ steps.scope.outputs.release }}
-      fuzz: ${{ steps.scope.outputs.fuzz }}
+      rust: ${{ github.event_name == 'push' || steps.scope.outputs.rust == 'true' }}
+      suite: ${{ github.event_name == 'push' || steps.scope.outputs.suite == 'true' }}
+      native: ${{ github.event_name == 'push' || steps.scope.outputs.native == 'true' }}
+      spec: ${{ github.event_name == 'push' || steps.scope.outputs.spec == 'true' }}
+      licenses: ${{ github.event_name == 'push' || steps.scope.outputs.licenses == 'true' }}
+      formatting: ${{ github.event_name == 'push' || steps.scope.outputs.formatting == 'true' }}
+      async_contract: ${{ github.event_name == 'push' || steps.scope.outputs.async_contract == 'true' }}
+      release: ${{ github.event_name == 'push' || steps.scope.outputs.release == 'true' }}
+      fuzz: ${{ github.event_name == 'push' || steps.scope.outputs.fuzz == 'true' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -772,7 +774,7 @@ jobs:
       - name: Build the fuzz targets
         working-directory: fuzz
         run: cargo fuzz build
-      - name: Replay the committed seeds and fuzz each target for 10 seconds
+      - name: Replay the committed seeds
         working-directory: fuzz
         shell: bash
         run: |
@@ -781,6 +783,23 @@ jobs:
             if [[ -d "corpus/$target" ]]; then
               cargo fuzz run "$target" "corpus/$target" -- -runs=0
             fi
+          done
+      # Timed fuzzing runs on pushes to main only, so a crash it happens to
+      # find does not fail an unrelated pull request.
+      - name: Fuzz each target for 10 seconds
+        if: github.event_name == 'push'
+        working-directory: fuzz
+        shell: bash
+        run: |
+          set -euo pipefail
+          for target in $(cargo fuzz list); do
             scratch="$(mktemp -d)"
             cargo fuzz run "$target" "$scratch" -- -max_total_time=10 -max_len=65536
           done
+      - name: Upload crash inputs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts/
+          if-no-files-found: ignore

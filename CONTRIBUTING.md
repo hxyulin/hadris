@@ -110,7 +110,7 @@ on every change. Workflow path globs select expensive jobs:
 |---|---|
 | Library/example sources, fixtures, manifests, toolchain or build-check tooling | Workspace tests, MSRV tiers, embedded builds, Miri, fuzz targets, docs and interoperability |
 | Detached `tests/` suite | Suite formatting, Clippy and conformance/interoperability jobs |
-| Detached `fuzz/` harnesses | Fuzz targets: build every harness, replay the committed seeds, fuzz each target for 10 seconds |
+| Detached `fuzz/` harnesses | Fuzz targets: build every harness, replay the committed seeds; on pushes to main, also fuzz each target for 10 seconds |
 | Native-tool setup or peer helper scripts | Native and interoperability jobs |
 | Rustfmt configuration | Workspace and conformance-suite formatting |
 | Specification catalogs or checkers | Specification checks |
@@ -498,7 +498,9 @@ Branch from `main` and target it for V3 changes. The `v2` branch preserves the
 
 - Fuzz harnesses live under [`fuzz/`](fuzz/). Rust CI's `Fuzz targets` job
   builds them on `nightly-2026-09-04`, replays the committed seeds with
-  `-runs=0` and fuzzes each target for 10 seconds; long runs stay local.
+  `-runs=0`, and on pushes to main fuzzes each target for 10 seconds and
+  uploads any crash input as the `fuzz-artifacts` artifact; long runs stay
+  local.
   Replay corpora with `cargo +nightly fuzz run <target> -- -runs=0` after
   parser fixes, and turn each crash into a normal unit or integration test in
   the owning crate.
