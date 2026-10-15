@@ -19,8 +19,8 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["sync", "std"]
-sync = []
-async = []
+sync = ["dep:hadris-macros"]
+async = ["dep:hadris-macros"]
 alloc = ["embedded-io?/alloc", "embedded-io-async?/alloc"]
 std = ["alloc", "embedded-io?/std", "embedded-io-async?/std"]
 # `FromEmbedded`, the `embedded-io` traits on `StdIo`, and conversions
@@ -28,7 +28,6 @@ std = ["alloc", "embedded-io?/std", "embedded-io-async?/std"]
 embedded-io = ["dep:embedded-io", "dep:embedded-io-async"]
 
 [dependencies]
-hadris-macros.workspace = true
-bytemuck.workspace = true
+hadris-macros = { workspace = true, optional = true }
 embedded-io = { workspace = true, optional = true }
 embedded-io-async = { workspace = true, optional = true }

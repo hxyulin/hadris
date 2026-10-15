@@ -55,8 +55,6 @@ bytemuck = { workspace = true, features = [
 [dev-dependencies]
 hadris-fat-raw = { workspace = true, features = ["sync"] }
 hadris-fs = { workspace = true, features = ["unstable-contract"] }
-pretty_assertions = "1.4.1"
-static_assertions = "1.1.0"
 tempfile = "3"
 
 [[test]]

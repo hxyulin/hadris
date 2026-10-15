@@ -28,7 +28,6 @@ homepage = "https://hxyulin.github.io/hadris/"
 bytemuck = { version = "1.22.0", default-features = false }
 bitflags = "2.9.0"
 static_assertions = "1.1.0"
-cfg-if = "1.0.0"
 embedded-io = { version = "0.7", default-features = false }
 embedded-io-async = { version = "0.7", default-features = false }
 tempfile = "3.19.1"

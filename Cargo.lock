@@ -265,12 +265,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "diff"
-version = "0.1.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56254986775e3233ffa9c4d7d3faaf6d36a2c09d30b20687e9f88bc8bafc16c8"
-
-[[package]]
 name = "digest"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -408,7 +402,6 @@ name = "hadris-common"
 version = "3.0.0-rc.2"
 dependencies = [
  "bytemuck",
- "static_assertions",
 ]
 
 [[package]]
@@ -556,8 +549,6 @@ dependencies = [
  "hadris-io",
  "hadris-macros",
  "hadris-storage",
- "pretty_assertions",
- "static_assertions",
  "tempfile",
  "tracing",
 ]
@@ -592,7 +583,6 @@ dependencies = [
 name = "hadris-io"
 version = "3.0.0-rc.2"
 dependencies = [
- "bytemuck",
  "embedded-io",
  "embedded-io-async",
  "hadris-macros",
@@ -671,7 +661,6 @@ dependencies = [
 name = "hadris-udf"
 version = "3.0.0-rc.2"
 dependencies = [
- "bitflags 2.13.2",
  "bytemuck",
  "hadris-fs",
  "hadris-io",
@@ -770,16 +759,6 @@ name = "pin-project-lite"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b3cff922bd51709b605d9ead9aa71031d81447142d828eb4a6eba76fe619f9b"
-
-[[package]]
-name = "pretty_assertions"
-version = "1.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ae130e2f271fbc2ac3a40fb1d07180839cdbbe443c7a27e1e3c13c5cac0116d"
-dependencies = [
- "diff",
- "yansi",
-]
 
 [[package]]
 name = "proc-macro2"
@@ -1032,12 +1011,6 @@ checksum = "e2acb658219ff8afdcedc1ea506709b2b32812719eb6ac36f47ae43f50404157"
 dependencies = [
  "cipher",
 ]
-
-[[package]]
-name = "yansi"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
 
 [[package]]
 name = "zeroize"
