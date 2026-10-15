@@ -9,11 +9,10 @@ use hadris_common::types::{
 ///
 /// It holds only the fields shared by FAT12, FAT16 and FAT32. The extended
 /// fields that follow it are [`RawBpbExt16`] and [`RawBpbExt32`].
-///
-/// @hadris-spec FAT:BPB
-/// @hadris-compliance full
-/// @hadris-tests boot::tests::check_bpb_rejects_bad_sizes, fatfs_format::rejects_bad_options_and_devices
-/// @hadris-fuzz fat_read
+// @hadris-spec FAT:BPB
+// @hadris-compliance full
+// @hadris-tests boot::tests::check_bpb_rejects_bad_sizes, fatfs_format::rejects_bad_options_and_devices
+// @hadris-fuzz fat_read
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct RawBpb {
@@ -215,11 +214,10 @@ unsafe impl bytemuck::AnyBitPattern for RawBpbExt32 {}
 pub struct BpbExt32Flags(u16);
 
 /// Raw FAT32 FSInfo sector.
-///
-/// @hadris-spec FAT:FSInfo
-/// @hadris-compliance full
-/// @hadris-tests boot::tests::fs_info_signatures, fatfs_read::fsinfo_unknown_values_mount_and_count_by_scanning
-/// @hadris-fuzz fat_read
+// @hadris-spec FAT:FSInfo
+// @hadris-compliance full
+// @hadris-tests boot::tests::fs_info_signatures, fatfs_read::fsinfo_unknown_values_mount_and_count_by_scanning
+// @hadris-fuzz fat_read
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub struct RawFsInfo {

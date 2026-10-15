@@ -881,12 +881,11 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// [`ErrorKind::Unsupported`] for device blocks or records above 4096
     /// bytes, or a `$MFT` in more than 32 extents. The device comes back in
     /// the [`MountError`].
-    ///
-    /// @hadris-spec NTFS:Master-File-Table
-    /// @hadris-compliance partial
-    /// @hadris-tests read::open_blank_volume, crafted::open_rejects_bad_boot_sectors, crafted::fragmented_mft_is_followed
-    /// @hadris-fuzz ntfs_read
-    /// @hadris-note Reads `$MFT` from its base record and extension records and checks file references; `$MFTMirr` recovery is not supported.
+    // @hadris-spec NTFS:Master-File-Table
+    // @hadris-compliance partial
+    // @hadris-tests read::open_blank_volume, crafted::open_rejects_bad_boot_sectors, crafted::fragmented_mft_is_followed
+    // @hadris-fuzz ntfs_read
+    // @hadris-note Reads `$MFT` from its base record and extension records and checks file references; `$MFTMirr` recovery is not supported.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all))]
     pub async fn mount(mut dev: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
         let _ = options;
@@ -1104,12 +1103,11 @@ impl<D: BlockDevice> NtfsFs<D> {
 
     /// Calls `visit` with the name and length of each named data stream of
     /// a node, the alternate data streams.
-    ///
-    /// @hadris-spec NTFS:Named-Streams
-    /// @hadris-compliance partial
-    /// @hadris-tests crafted::named_streams_are_listed_and_read, read::named_streams_read_back
-    /// @hadris-fuzz ntfs_read
-    /// @hadris-note Lists and reads named `$DATA` attributes; other attribute types are not exposed as streams.
+    // @hadris-spec NTFS:Named-Streams
+    // @hadris-compliance partial
+    // @hadris-tests crafted::named_streams_are_listed_and_read, read::named_streams_read_back
+    // @hadris-fuzz ntfs_read
+    // @hadris-note Lists and reads named `$DATA` attributes; other attribute types are not exposed as streams.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node)))]
     pub async fn streams(&mut self, node: NodeId, mut visit: impl FnMut(&str, u64)) -> FsResult<(), D::Error> {
         let mut rec = [0u8; MAX_RECORD];
@@ -1192,12 +1190,11 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// Win32 and DOS names. POSIX names match only exactly. A `$UpCase`
     /// page that cannot be read fails the lookup only when no entry
     /// matches exactly.
-    ///
-    /// @hadris-spec NTFS:Directory-Index
-    /// @hadris-compliance partial
-    /// @hadris-tests crafted::names_fold_case_through_upcase, read::large_directory_lists_every_entry
-    /// @hadris-fuzz ntfs_read
-    /// @hadris-note Walks the index root and every index block the bitmap marks in use instead of descending the B-tree by key.
+    // @hadris-spec NTFS:Directory-Index
+    // @hadris-compliance partial
+    // @hadris-tests crafted::names_fold_case_through_upcase, read::large_directory_lists_every_entry
+    // @hadris-fuzz ntfs_read
+    // @hadris-note Walks the index root and every index block the bitmap marks in use instead of descending the B-tree by key.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(dir = ?dir)))]
     /// Performs the [`FileSystem::lookup`] operation.
     pub async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
@@ -1418,12 +1415,11 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// with [`ErrorKind::IsADirectory`]; compressed and encrypted streams,
     /// and files whose data a WOF (CompactOS) or deduplication reparse point
     /// keeps elsewhere, with [`ErrorKind::Unsupported`].
-    ///
-    /// @hadris-spec NTFS:Data-Stream
-    /// @hadris-compliance partial
-    /// @hadris-tests read::files_read_back, crafted::streams_past_the_volume_fail, crafted::attribute_lists_join_extension_records
-    /// @hadris-fuzz ntfs_read
-    /// @hadris-note Reads resident, non-resident, sparse and partly initialized streams, also across extension records; compressed and encrypted streams, and WOF and deduplication reparse points, are unsupported.
+    // @hadris-spec NTFS:Data-Stream
+    // @hadris-compliance partial
+    // @hadris-tests read::files_read_back, crafted::streams_past_the_volume_fail, crafted::attribute_lists_join_extension_records
+    // @hadris-fuzz ntfs_read
+    // @hadris-note Reads resident, non-resident, sparse and partly initialized streams, also across extension records; compressed and encrypted streams, and WOF and deduplication reparse points, are unsupported.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node, offset = offset, bytes = buf.len())))]
     /// Performs the [`FileSystem::read`] operation.
     pub async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {

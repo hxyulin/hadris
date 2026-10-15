@@ -54,12 +54,11 @@ pub mod vsd {
 }
 
 /// Descriptor tag identifiers (ECMA-167 3/7.2.1, 4/7.2.1).
-///
-/// @hadris-spec ECMA-167:3/7.2.1
-/// @hadris-compliance partial
-/// @hadris-note Every identifier of ECMA-167 parts 3 and 4 is named; the reader checks the identifier each context requires.
-/// @hadris-tests tests::tag_seal_and_parse_roundtrip
-/// @hadris-fuzz udf_read
+// @hadris-spec ECMA-167:3/7.2.1
+// @hadris-compliance partial
+// @hadris-note Every identifier of ECMA-167 parts 3 and 4 is named; the reader checks the identifier each context requires.
+// @hadris-tests tests::tag_seal_and_parse_roundtrip
+// @hadris-fuzz udf_read
 pub mod tag {
     /// Primary Volume Descriptor.
     pub const PRIMARY_VOLUME: u16 = 1;
@@ -230,12 +229,11 @@ pub const fn crc16_update(crc: u16, data: &[u8]) -> u16 {
 }
 
 /// Descriptor tag (ECMA-167 3/7.2).
-///
-/// @hadris-spec ECMA-167:3/7.2
-/// @hadris-compliance partial
-/// @hadris-note The checksum, CRC, identifier, version, reserved byte and location are checked for volume, file set, file entry, allocation extent and file identifier descriptors; tag serial-number semantics are not validated.
-/// @hadris-tests tests::tag_seal_and_parse_roundtrip, errors::malformed_volumes_are_refused, errors::malformed_identifier_fields_are_refused
-/// @hadris-fuzz udf_read
+// @hadris-spec ECMA-167:3/7.2
+// @hadris-compliance partial
+// @hadris-note The checksum, CRC, identifier, version, reserved byte and location are checked for volume, file set, file entry, allocation extent and file identifier descriptors; tag serial-number semantics are not validated.
+// @hadris-tests tests::tag_seal_and_parse_roundtrip, errors::malformed_volumes_are_refused, errors::malformed_identifier_fields_are_refused
+// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Tag {
@@ -320,11 +318,10 @@ impl Tag {
 }
 
 /// Extent descriptor (ECMA-167 3/7.1).
-///
-/// @hadris-spec ECMA-167:3/7.1
-/// @hadris-compliance partial
-/// @hadris-note Extents of the volume descriptor sequences and the integrity sequence are followed; their bounds are checked against the device.
-/// @hadris-fuzz udf_read
+// @hadris-spec ECMA-167:3/7.1
+// @hadris-compliance partial
+// @hadris-note Extents of the volume descriptor sequences and the integrity sequence are followed; their bounds are checked against the device.
+// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ExtentAd {
@@ -347,12 +344,11 @@ pub struct LbAddr {
 
 /// Short allocation descriptor (ECMA-167 4/14.14.1): an extent in the
 /// partition of the entry that holds it.
-///
-/// @hadris-spec ECMA-167:4/14.14.1
-/// @hadris-compliance partial
-/// @hadris-note The four extent types are read; allocated-not-recorded and unallocated extents read as zeros, and a continuation leads to an allocation extent descriptor.
-/// @hadris-tests read::allocation_descriptors_of_every_form_read_back
-/// @hadris-fuzz udf_read
+// @hadris-spec ECMA-167:4/14.14.1
+// @hadris-compliance partial
+// @hadris-note The four extent types are read; allocated-not-recorded and unallocated extents read as zeros, and a continuation leads to an allocation extent descriptor.
+// @hadris-tests read::allocation_descriptors_of_every_form_read_back
+// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ShortAd {
@@ -364,12 +360,11 @@ pub struct ShortAd {
 
 /// Long allocation descriptor (ECMA-167 4/14.14.2): an extent in any
 /// partition of the logical volume.
-///
-/// @hadris-spec ECMA-167:4/14.14.2
-/// @hadris-compliance partial
-/// @hadris-note The partition reference is checked against the logical volume's partition maps; the implementation use bytes are written for UDF 2.00 and later and ignored on read.
-/// @hadris-tests read::allocation_descriptors_of_every_form_read_back
-/// @hadris-fuzz udf_read
+// @hadris-spec ECMA-167:4/14.14.2
+// @hadris-compliance partial
+// @hadris-note The partition reference is checked against the logical volume's partition maps; the implementation use bytes are written for UDF 2.00 and later and ignored on read.
+// @hadris-tests read::allocation_descriptors_of_every_form_read_back
+// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct LongAd {
@@ -382,12 +377,11 @@ pub struct LongAd {
 }
 
 /// Extended allocation descriptor (ECMA-167 4/14.14.3).
-///
-/// @hadris-spec ECMA-167:4/14.14.3
-/// @hadris-compliance partial
-/// @hadris-note Information lengths determine logical data ranges; recorded lengths must match for recorded data. Transformed extents are unsupported.
-/// @hadris-tests read::allocation_descriptors_of_every_form_read_back, read::extended_allocations_use_information_lengths, read::extended_allocations_validate_recorded_lengths, read::extended_allocations_follow_continuations_and_skip_empty_information
-/// @hadris-fuzz udf_read
+// @hadris-spec ECMA-167:4/14.14.3
+// @hadris-compliance partial
+// @hadris-note Information lengths determine logical data ranges; recorded lengths must match for recorded data. Transformed extents are unsupported.
+// @hadris-tests read::allocation_descriptors_of_every_form_read_back, read::extended_allocations_use_information_lengths, read::extended_allocations_validate_recorded_lengths, read::extended_allocations_follow_continuations_and_skip_empty_information
+// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ExtAd {
@@ -427,11 +421,10 @@ macro_rules! ad_methods {
 ad_methods!(ShortAd, LongAd, ExtAd);
 
 /// Entity identifier (ECMA-167 1/7.4, UDF 2.1.5).
-///
-/// @hadris-spec ECMA-167:1/7.4
-/// @hadris-compliance partial
-/// @hadris-note The domain identifier's revision suffix is read; other suffixes are written but not checked.
-/// @hadris-fuzz udf_read
+// @hadris-spec ECMA-167:1/7.4
+// @hadris-compliance partial
+// @hadris-note The domain identifier's revision suffix is read; other suffixes are written but not checked.
+// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct EntityId {
@@ -474,12 +467,11 @@ impl EntityId {
 }
 
 /// Character set specification (ECMA-167 1/7.2.1).
-///
-/// @hadris-spec ECMA-167:1/7.2.1
-/// @hadris-compliance partial
-/// @hadris-note Written as OSTA Compressed Unicode, the only character set UDF allows; the reader does not check it.
-/// @hadris-tests name::tests::cs0_round_trips_latin1_and_utf16
-/// @hadris-fuzz udf_read
+// @hadris-spec ECMA-167:1/7.2.1
+// @hadris-compliance partial
+// @hadris-note Written as OSTA Compressed Unicode, the only character set UDF allows; the reader does not check it.
+// @hadris-tests name::tests::cs0_round_trips_latin1_and_utf16
+// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct CharSpec {
@@ -510,12 +502,11 @@ impl Default for CharSpec {
 }
 
 /// Timestamp (ECMA-167 1/7.3).
-///
-/// @hadris-spec ECMA-167:1/7.3
-/// @hadris-compliance partial
-/// @hadris-note Coordinated and local times with an offset convert to and from `hadris_fs::DateTime`; agreement times and times without an offset read as UTC.
-/// @hadris-tests time::tests::timestamps_round_trip
-/// @hadris-fuzz udf_read
+// @hadris-spec ECMA-167:1/7.3
+// @hadris-compliance partial
+// @hadris-note Coordinated and local times with an offset convert to and from `hadris_fs::DateTime`; agreement times and times without an offset read as UTC.
+// @hadris-tests time::tests::timestamps_round_trip
+// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Timestamp {

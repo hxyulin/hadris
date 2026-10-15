@@ -24,9 +24,9 @@ pub const NX_SUPPORTED_INCOMPAT_MASK: u64 = NX_INCOMPAT_VERSION2 | NX_INCOMPAT_F
 pub const NX_READABLE_INCOMPAT_MASK: u64 = NX_INCOMPAT_VERSION2;
 
 /// Parsed APFS container superblock (`nx_superblock_t`).
-/// @hadris-spec Apple-APFS:nx_superblock_t
-/// @hadris-compliance partial
-/// @hadris-note Parses checkpoint geometry and the software keylocker range; Fusion and other container extensions remain unsupported.
+// @hadris-spec Apple-APFS:nx_superblock_t
+// @hadris-compliance partial
+// @hadris-note Parses checkpoint geometry and the software keylocker range; Fusion and other container extensions remain unsupported.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ContainerSuperblock {

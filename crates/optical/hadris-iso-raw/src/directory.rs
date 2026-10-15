@@ -24,12 +24,11 @@ bitflags::bitflags! {
 }
 
 /// The fixed part of a directory record (ECMA-119 9.1).
-///
-/// @hadris-spec ECMA-119:9.1
-/// @hadris-compliance partial
-/// @hadris-note Fixed fields round-trip, but all identifier, flag, and semantic constraints are not yet validated.
-/// @hadris-tests directory::tests::directory_record_parse_roundtrip
-/// @hadris-fuzz iso_read
+// @hadris-spec ECMA-119:9.1
+// @hadris-compliance partial
+// @hadris-note Fixed fields round-trip, but all identifier, flag, and semantic constraints are not yet validated.
+// @hadris-tests directory::tests::directory_record_parse_roundtrip
+// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct DirectoryRecordHeader {
@@ -69,12 +68,11 @@ impl DirectoryRecordHeader {
 
 /// A whole directory record (ECMA-119 9.1): the header, the file identifier
 /// and the system use area, in a 256-byte buffer.
-///
-/// @hadris-spec ECMA-119:9.1
-/// @hadris-compliance partial
-/// @hadris-tests directory::tests::directory_record_parse_roundtrip, directory::tests::directory_record_rejects_invalid_bounds_and_endian_copy
-/// @hadris-fuzz iso_read
-/// @hadris-note Records are validated for length, padding and redundant fields on read; identifier character sets are not.
+// @hadris-spec ECMA-119:9.1
+// @hadris-compliance partial
+// @hadris-tests directory::tests::directory_record_parse_roundtrip, directory::tests::directory_record_rejects_invalid_bounds_and_endian_copy
+// @hadris-fuzz iso_read
+// @hadris-note Records are validated for length, padding and redundant fields on read; identifier character sets are not.
 #[repr(transparent)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct DirectoryRecord {

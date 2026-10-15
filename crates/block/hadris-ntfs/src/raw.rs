@@ -11,12 +11,11 @@
 //! [`bytemuck::pod_read_unaligned`].
 
 /// The NTFS boot sector, the first 512 bytes of the volume.
-///
-/// @hadris-spec NTFS:Boot-Sector
-/// @hadris-compliance partial
-/// @hadris-tests crafted::open_rejects_bad_boot_sectors, raw::tests::boot_sector_reads_its_fields
-/// @hadris-fuzz ntfs_read
-/// @hadris-note Geometry and locations are validated; the checksum and the backup boot sector are not used.
+// @hadris-spec NTFS:Boot-Sector
+// @hadris-compliance partial
+// @hadris-tests crafted::open_rejects_bad_boot_sectors, raw::tests::boot_sector_reads_its_fields
+// @hadris-fuzz ntfs_read
+// @hadris-note Geometry and locations are validated; the checksum and the backup boot sector are not used.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct BootSector {

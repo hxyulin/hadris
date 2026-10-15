@@ -109,12 +109,11 @@ pub const RECOMMENDED_UPCASE_CHECKSUM: u32 = 0xE619_D30D;
 pub const RECOMMENDED_UPCASE_TABLE: &[u8; 5836] = include_bytes!("upcase.bin");
 
 /// The Main and Backup Boot Sector.
-///
-/// @hadris-spec EXFAT:3.1
-/// @hadris-compliance partial
-/// @hadris-note Every field and the boot checksum are checked at mount except `PartitionOffset` and `DriveSelect`; a valid backup boot region replaces a damaged main one, read-only, and `check` reports any difference.
-/// @hadris-tests exfat_read::mount_rejects_bad_boot_sectors, exfat_format::formats_every_sector_size, exfat_read::damaged_main_boot_regions_mount_from_the_backup
-/// @hadris-fuzz exfat_read
+// @hadris-spec EXFAT:3.1
+// @hadris-compliance partial
+// @hadris-note Every field and the boot checksum are checked at mount except `PartitionOffset` and `DriveSelect`; a valid backup boot region replaces a damaged main one, read-only, and `check` reports any difference.
+// @hadris-tests exfat_read::mount_rejects_bad_boot_sectors, exfat_format::formats_every_sector_size, exfat_read::damaged_main_boot_regions_mount_from_the_backup
+// @hadris-fuzz exfat_read
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct BootSector {
@@ -163,12 +162,11 @@ pub struct BootSector {
 }
 
 /// The File directory entry, the primary entry of a file or directory.
-///
-/// @hadris-spec EXFAT:7.4
-/// @hadris-compliance partial
-/// @hadris-note Attributes and the three timestamps with their 10 ms increments and UTC offsets are read and written; entry sets with benign secondary entries are read and kept.
-/// @hadris-tests exfat_write::times_and_attributes_round_trip, exfat_read::entry_sets_cross_clusters
-/// @hadris-fuzz exfat_read
+// @hadris-spec EXFAT:7.4
+// @hadris-compliance partial
+// @hadris-note Attributes and the three timestamps with their 10 ms increments and UTC offsets are read and written; entry sets with benign secondary entries are read and kept.
+// @hadris-tests exfat_write::times_and_attributes_round_trip, exfat_read::entry_sets_cross_clusters
+// @hadris-fuzz exfat_read
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct FileEntry {
@@ -204,11 +202,10 @@ pub struct FileEntry {
 
 /// The Stream Extension directory entry: the allocation and sizes of a
 /// file or directory.
-///
-/// @hadris-spec EXFAT:7.6
-/// @hadris-compliance full
-/// @hadris-tests exfat_read::valid_data_length_reads_zeros, exfat_write::contiguous_files_grow_into_chains
-/// @hadris-fuzz exfat_read
+// @hadris-spec EXFAT:7.6
+// @hadris-compliance full
+// @hadris-tests exfat_read::valid_data_length_reads_zeros, exfat_write::contiguous_files_grow_into_chains
+// @hadris-fuzz exfat_read
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct StreamEntry {
@@ -235,11 +232,10 @@ pub struct StreamEntry {
 }
 
 /// The File Name directory entry: 15 UTF-16 code units of a name.
-///
-/// @hadris-spec EXFAT:7.7
-/// @hadris-compliance full
-/// @hadris-tests exfat_write::long_names_up_to_255_units, exfat::codec::tests::names_are_checked
-/// @hadris-fuzz exfat_read
+// @hadris-spec EXFAT:7.7
+// @hadris-compliance full
+// @hadris-tests exfat_write::long_names_up_to_255_units, exfat::codec::tests::names_are_checked
+// @hadris-fuzz exfat_read
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct NameEntry {
@@ -252,12 +248,11 @@ pub struct NameEntry {
 }
 
 /// The Allocation Bitmap directory entry of the root directory.
-///
-/// @hadris-spec EXFAT:7.1
-/// @hadris-compliance partial
-/// @hadris-note Bitmaps are read and written through their FAT chains; on TexFAT volumes the bitmap `ActiveFat` selects is read and both are written. TexFAT transactions are not supported.
-/// @hadris-tests exfat_read::fragmented_bitmap_and_upcase_table, exfat_check::bitmap_mismatches_are_found, exfat_write::texfat_keeps_both_fats_and_bitmaps
-/// @hadris-fuzz exfat_read
+// @hadris-spec EXFAT:7.1
+// @hadris-compliance partial
+// @hadris-note Bitmaps are read and written through their FAT chains; on TexFAT volumes the bitmap `ActiveFat` selects is read and both are written. TexFAT transactions are not supported.
+// @hadris-tests exfat_read::fragmented_bitmap_and_upcase_table, exfat_check::bitmap_mismatches_are_found, exfat_write::texfat_keeps_both_fats_and_bitmaps
+// @hadris-fuzz exfat_read
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct BitmapEntry {
@@ -274,11 +269,10 @@ pub struct BitmapEntry {
 }
 
 /// The Up-case Table directory entry of the root directory.
-///
-/// @hadris-spec EXFAT:7.2
-/// @hadris-compliance full
-/// @hadris-tests exfat_read::fragmented_bitmap_and_upcase_table, exfat_check::upcase_checksum_is_checked
-/// @hadris-fuzz exfat_read
+// @hadris-spec EXFAT:7.2
+// @hadris-compliance full
+// @hadris-tests exfat_read::fragmented_bitmap_and_upcase_table, exfat_check::upcase_checksum_is_checked
+// @hadris-fuzz exfat_read
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct UpcaseEntry {
@@ -297,11 +291,10 @@ pub struct UpcaseEntry {
 }
 
 /// The Volume Label directory entry of the root directory.
-///
-/// @hadris-spec EXFAT:7.3
-/// @hadris-compliance full
-/// @hadris-tests exfat_write::labels_are_set_and_removed
-/// @hadris-fuzz exfat_read
+// @hadris-spec EXFAT:7.3
+// @hadris-compliance full
+// @hadris-tests exfat_write::labels_are_set_and_removed
+// @hadris-fuzz exfat_read
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct LabelEntry {
@@ -317,11 +310,10 @@ pub struct LabelEntry {
 
 /// The Volume GUID directory entry of the root directory, a benign
 /// primary entry with no secondary entries.
-///
-/// @hadris-spec EXFAT:7.5
-/// @hadris-compliance full
-/// @hadris-tests exfat_format::volume_guids_derive_from_the_seed_and_follow_the_specification, exfat_format::volume_guids_are_set_replaced_and_removed
-/// @hadris-fuzz exfat_read
+// @hadris-spec EXFAT:7.5
+// @hadris-compliance full
+// @hadris-tests exfat_format::volume_guids_derive_from_the_seed_and_follow_the_specification, exfat_format::volume_guids_are_set_replaced_and_removed
+// @hadris-fuzz exfat_read
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GuidEntry {

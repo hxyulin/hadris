@@ -109,11 +109,10 @@ impl Chs {
 }
 
 /// One 16-byte partition entry of an MBR or EBR.
-///
-/// @hadris-spec MBR:partition-entry
-/// @hadris-compliance unknown
-/// @hadris-tests roundtrip::mbr_layout_roundtrip
-/// @hadris-fuzz part_read
+// @hadris-spec MBR:partition-entry
+// @hadris-compliance unknown
+// @hadris-tests roundtrip::mbr_layout_roundtrip
+// @hadris-fuzz part_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Pod, Zeroable)]
 pub struct RawMbrEntry {
@@ -168,11 +167,10 @@ impl RawMbrEntry {
 }
 
 /// A 512-byte master boot record or extended boot record.
-///
-/// @hadris-spec MBR:layout
-/// @hadris-compliance unknown
-/// @hadris-tests roundtrip::mbr_layout_roundtrip
-/// @hadris-fuzz part_read
+// @hadris-spec MBR:layout
+// @hadris-compliance unknown
+// @hadris-tests roundtrip::mbr_layout_roundtrip
+// @hadris-fuzz part_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Pod, Zeroable)]
 pub struct RawMbr {
@@ -208,11 +206,10 @@ impl RawMbr {
 ///
 /// The CRC covers `header_size` bytes of the block, which may extend past
 /// these fields.
-///
-/// @hadris-spec UEFI:GPT-Header
-/// @hadris-compliance unknown
-/// @hadris-tests read::backup_gpt_replaces_a_corrupt_primary, roundtrip::gpt_layout_roundtrip
-/// @hadris-fuzz part_read
+// @hadris-spec UEFI:GPT-Header
+// @hadris-compliance unknown
+// @hadris-tests read::backup_gpt_replaces_a_corrupt_primary, roundtrip::gpt_layout_roundtrip
+// @hadris-fuzz part_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Pod, Zeroable)]
 pub struct RawGptHeader {
@@ -309,11 +306,10 @@ impl RawGptHeader {
 }
 
 /// The first 128 bytes of a GPT partition entry.
-///
-/// @hadris-spec UEFI:GPT-Entry
-/// @hadris-compliance unknown
-/// @hadris-tests roundtrip::gpt_layout_roundtrip, roundtrip::utf16_names_roundtrip
-/// @hadris-fuzz part_read
+// @hadris-spec UEFI:GPT-Entry
+// @hadris-compliance unknown
+// @hadris-tests roundtrip::gpt_layout_roundtrip, roundtrip::utf16_names_roundtrip
+// @hadris-fuzz part_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Pod, Zeroable)]
 pub struct RawGptEntry {
