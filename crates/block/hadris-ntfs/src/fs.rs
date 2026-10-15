@@ -22,8 +22,6 @@ const CURSOR_END: u64 = 1 << 56;
 const CURSOR_SHIFT: u32 = 16;
 /// Bytes of a UTF-16 attribute name.
 const NAME_BYTES: usize = 510;
-/// Bytes of an index bitmap read at a time.
-const BITMAP_CHUNK: usize = 2048;
 
 /// A node id the caller gave that names nothing valid is an invalid handle,
 /// unless the device failed or the volume is cut short. An id that names a
@@ -1041,13 +1039,14 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// directory's bitmap marks in use. Bitmap bytes that are not stored
     /// read as zeros and are skipped without being read; a bitmap with
     /// fewer bits than `blocks` is malformed once the scan passes its end.
-    async fn next_block(&mut self, rec: &[u8], base: u64, bitmap: Option<Head>, blocks: u64, from: u64) -> Result<Option<u64>, Error<D::Error>> {
+    /// The bitmap is read `chunk.len()` bytes at a time.
+    #[allow(clippy::too_many_arguments)]
+    async fn next_block(&mut self, rec: &[u8], base: u64, bitmap: Option<Head>, blocks: u64, from: u64, chunk: &mut [u8]) -> Result<Option<u64>, Error<D::Error>> {
         if from >= blocks {
             return Ok(None);
         }
         let head = bitmap.ok_or(Detail::Index)?;
         let covered = blocks.min(head.size.saturating_mul(8));
-        let mut chunk = [0u8; BITMAP_CHUNK];
         let mut block = from;
         while block < covered {
             let byte = block / 8;
@@ -1058,7 +1057,7 @@ impl<D: BlockDevice> NtfsFs<D> {
                 block = start.saturating_mul(8);
                 continue;
             }
-            let want = (end - byte).min(BITMAP_CHUNK as u64) as usize;
+            let want = (end - byte).min(chunk.len() as u64) as usize;
             let n = stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_BITMAP, &raw::I30, &head, byte, &mut chunk[..want]).await?;
             if n == 0 {
                 break;
@@ -1225,7 +1224,7 @@ impl<D: BlockDevice> NtfsFs<D> {
             let (buf, header) = if node == 0 {
                 (index.root, 0x10)
             } else {
-                let Some(used) = self.next_block(rec, base, bitmap, blocks, node - 1).await? else {
+                let Some(used) = self.next_block(rec, base, bitmap, blocks, node - 1, &mut block).await? else {
                     break;
                 };
                 node = used + 1;
@@ -1309,7 +1308,7 @@ impl<D: BlockDevice> NtfsFs<D> {
             let (buf, header) = if node == 0 {
                 (index.root, 0x10)
             } else {
-                match self.next_block(rec, base, bitmap, blocks, node - 1).await? {
+                match self.next_block(rec, base, bitmap, blocks, node - 1, &mut block).await? {
                     None => {
                         raw_cursor = CURSOR_END;
                         continue;
