@@ -125,7 +125,7 @@ mod volume_info;
 /// On-disk layouts and I/O-free codecs, shared with `hadris-iso-raw`.
 pub mod raw {
     #[doc(inline)]
-    pub use hadris_iso_raw::raw::*;
+    pub use hadris_iso_raw::*;
 }
 
 #[cfg(feature = "sync")]

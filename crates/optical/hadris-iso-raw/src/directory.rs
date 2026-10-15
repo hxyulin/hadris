@@ -28,7 +28,7 @@ bitflags::bitflags! {
 /// @hadris-spec ECMA-119:9.1
 /// @hadris-compliance partial
 /// @hadris-note Fixed fields round-trip, but all identifier, flag, and semantic constraints are not yet validated.
-/// @hadris-tests raw::directory::tests::directory_record_parse_roundtrip
+/// @hadris-tests directory::tests::directory_record_parse_roundtrip
 /// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
@@ -72,7 +72,7 @@ impl DirectoryRecordHeader {
 ///
 /// @hadris-spec ECMA-119:9.1
 /// @hadris-compliance partial
-/// @hadris-tests raw::directory::tests::directory_record_parse_roundtrip, raw::directory::tests::directory_record_rejects_invalid_bounds_and_endian_copy
+/// @hadris-tests directory::tests::directory_record_parse_roundtrip, directory::tests::directory_record_rejects_invalid_bounds_and_endian_copy
 /// @hadris-fuzz iso_read
 /// @hadris-note Records are validated for length, padding and redundant fields on read; identifier character sets are not.
 #[repr(transparent)]

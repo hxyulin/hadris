@@ -116,7 +116,7 @@ mod volume;
 /// On-disk layouts and I/O-free codecs, shared with `hadris-udf-raw`.
 pub mod raw {
     #[doc(inline)]
-    pub use hadris_udf_raw::raw::*;
+    pub use hadris_udf_raw::*;
 }
 
 #[cfg(feature = "sync")]

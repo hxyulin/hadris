@@ -114,7 +114,7 @@ mod options;
 /// On-disk layouts and I/O-free codecs, shared with `hadris-cpio-raw`.
 pub mod raw {
     #[doc(inline)]
-    pub use hadris_cpio_raw::raw::*;
+    pub use hadris_cpio_raw::*;
 }
 
 #[cfg(feature = "sync")]
