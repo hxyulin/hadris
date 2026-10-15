@@ -7,6 +7,7 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 readme = "README.md"
 description = "Pure Rust ISO 9660 library with allocation-free reading, Joliet, Rock Ridge, El Torito, hybrid boot and sessions"
 keywords = ["iso9660", "joliet", "rock-ridge", "el-torito", "no-std"]

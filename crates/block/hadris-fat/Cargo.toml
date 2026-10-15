@@ -11,6 +11,7 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 
 # docs.rs builds with default features only, which would hide the async
 # modes. Build every mode.

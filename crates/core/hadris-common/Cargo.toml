@@ -6,6 +6,7 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 description = "Endian-aware integer types for the on-disk layouts of the Hadris raw crates"
 readme = "README.md"
 keywords = ["filesystem", "endian"]

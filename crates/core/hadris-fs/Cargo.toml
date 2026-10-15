@@ -6,6 +6,7 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 description = "Shared filesystem vocabulary and the FileSystem trait for the Hadris crates: names, times, metadata, errors, volumes and handles"
 readme = "README.md"
 keywords = ["filesystem", "no-std", "path", "metadata"]

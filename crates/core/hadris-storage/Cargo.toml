@@ -6,6 +6,7 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 description = "Rust block-device geometry, capabilities, and adapters for std and no-std storage"
 readme = "README.md"
 keywords = ["block-device", "storage", "sector", "embedded", "no-std"]

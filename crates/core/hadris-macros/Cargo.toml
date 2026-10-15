@@ -6,6 +6,7 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 description = "Proc macros for dual sync/async code generation in Hadris"
 readme = "README.md"
 keywords = ["macro", "async", "sync", "proc-macro"]
