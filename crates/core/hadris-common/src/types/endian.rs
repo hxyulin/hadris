@@ -1,126 +1,29 @@
-//! Endian types for cross-platform compatibility.
-//!
-//! This module provides a set of types that can be used to read and write data in different endian
-//! formats. The `Endianness` trait provides methods to read and write data in the specified
-//! endianness.
-//!
-//! The number types, [`u16`], [`u32`], and [`u64`], have a counterpart with endianness, which are
-//! [`crate::types::number::U16`], [`crate::types::number::U32`], and [`crate::types::number::U64`]. These types are used to read and write data in the specified
-//! endianness, defined at the type level.
+//! Byte orders for the endian-aware integers in [`crate::types::number`].
 
-/// A trait that represents the endianness of a type.
-///
-/// This trait shouldn`t be implemented directly, but rather through the [`Endian`] trait.
-/// See [`crate::types::number::U16`], [`crate::types::number::U32`], and [`crate::types::number::U64`] for examples.
+/// A byte order, chosen at the type level by [`crate::types::number::U16`],
+/// [`crate::types::number::U32`] and [`crate::types::number::U64`].
 pub trait Endianness: Copy + Sized {
-    /// Whether this byte order is little-endian.
-    fn is_le() -> bool;
-
-    /// Reads a `u16` from the given bytes in the specified endianness.
+    /// Reads a `u16` from the given bytes in this byte order.
     fn get_u16(bytes: [u8; 2]) -> u16;
-    /// Writes a `u16` to the given bytes in the specified endianness.
+    /// Writes a `u16` to the given bytes in this byte order.
     fn set_u16(value: u16, bytes: &mut [u8; 2]);
-    /// Reads a `u32` from the given bytes in the specified endianness.
+    /// Reads a `u32` from the given bytes in this byte order.
     fn get_u32(bytes: [u8; 4]) -> u32;
-    /// Writes a `u32` to the given bytes in the specified endianness.
+    /// Writes a `u32` to the given bytes in this byte order.
     fn set_u32(value: u32, bytes: &mut [u8; 4]);
-    /// Reads a `u64` from the given bytes in the specified endianness.
+    /// Reads a `u64` from the given bytes in this byte order.
     fn get_u64(bytes: [u8; 8]) -> u64;
-    /// Writes a `u64` to the given bytes in the specified endianness.
+    /// Writes a `u64` to the given bytes in this byte order.
     fn set_u64(value: u64, bytes: &mut [u8; 8]);
-
-    /// Reads a `u24` (stored in 3 bytes) as a `u32` in the specified endianness.
-    #[inline]
-    fn get_u24(bytes: [u8; 3]) -> u32 {
-        let mut buf = [0u8; 4];
-        if Self::is_le() {
-            buf[..3].copy_from_slice(&bytes);
-        } else {
-            buf[1..].copy_from_slice(&bytes);
-        }
-        Self::get_u32(buf)
-    }
-
-    /// Writes a `u24` value (as `u32`) to 3 bytes in the specified endianness.
-    #[inline]
-    fn set_u24(value: u32, bytes: &mut [u8; 3]) {
-        let mut buf = [0u8; 4];
-        Self::set_u32(value, &mut buf);
-        if Self::is_le() {
-            bytes.copy_from_slice(&buf[..3]);
-        } else {
-            bytes.copy_from_slice(&buf[1..]);
-        }
-    }
 }
 
-/// A type that represents the native endianness.
-///
-/// This zero-sized-type can be used where a generic type parameter is expected for endianness.
-#[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable, bytemuck::Pod))]
-pub struct NativeEndian;
-
-/// A type that represents the little endianness.
-///
-/// This zero-sized-type can be used where a generic type parameter is expected for endianness.
+/// Little-endian byte order.
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable, bytemuck::Pod))]
 pub struct LittleEndian;
 
-/// A type that represents the big endianness.
-///
-/// This zero-sized-type can be used where a generic type parameter is expected for endianness.
-#[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable, bytemuck::Pod))]
-pub struct BigEndian;
-
-impl Endianness for NativeEndian {
-    #[inline]
-    fn is_le() -> bool {
-        cfg!(target_endian = "little")
-    }
-
-    #[inline]
-    fn get_u16(bytes: [u8; 2]) -> u16 {
-        u16::from_ne_bytes(bytes)
-    }
-
-    #[inline]
-    fn set_u16(value: u16, bytes: &mut [u8; 2]) {
-        bytes.copy_from_slice(&value.to_ne_bytes());
-    }
-
-    #[inline]
-    fn get_u32(bytes: [u8; 4]) -> u32 {
-        u32::from_ne_bytes(bytes)
-    }
-
-    #[inline]
-    fn set_u32(value: u32, bytes: &mut [u8; 4]) {
-        bytes.copy_from_slice(&value.to_ne_bytes());
-    }
-
-    #[inline]
-    fn get_u64(bytes: [u8; 8]) -> u64 {
-        u64::from_ne_bytes(bytes)
-    }
-
-    #[inline]
-    fn set_u64(value: u64, bytes: &mut [u8; 8]) {
-        bytes.copy_from_slice(&value.to_ne_bytes());
-    }
-}
-
 impl Endianness for LittleEndian {
-    #[inline]
-    fn is_le() -> bool {
-        true
-    }
-
     #[inline]
     fn get_u16(bytes: [u8; 2]) -> u16 {
         u16::from_le_bytes(bytes)
@@ -128,7 +31,7 @@ impl Endianness for LittleEndian {
 
     #[inline]
     fn set_u16(value: u16, bytes: &mut [u8; 2]) {
-        bytes.copy_from_slice(&value.to_le_bytes());
+        *bytes = value.to_le_bytes();
     }
 
     #[inline]
@@ -138,7 +41,7 @@ impl Endianness for LittleEndian {
 
     #[inline]
     fn set_u32(value: u32, bytes: &mut [u8; 4]) {
-        bytes.copy_from_slice(&value.to_le_bytes());
+        *bytes = value.to_le_bytes();
     }
 
     #[inline]
@@ -148,107 +51,6 @@ impl Endianness for LittleEndian {
 
     #[inline]
     fn set_u64(value: u64, bytes: &mut [u8; 8]) {
-        bytes.copy_from_slice(&value.to_le_bytes());
-    }
-}
-impl Endianness for BigEndian {
-    #[inline]
-    fn is_le() -> bool {
-        false
-    }
-
-    #[inline]
-    fn get_u16(bytes: [u8; 2]) -> u16 {
-        u16::from_be_bytes(bytes)
-    }
-
-    #[inline]
-    fn set_u16(value: u16, bytes: &mut [u8; 2]) {
-        bytes.copy_from_slice(&value.to_be_bytes());
-    }
-
-    #[inline]
-    fn get_u32(bytes: [u8; 4]) -> u32 {
-        u32::from_be_bytes(bytes)
-    }
-
-    #[inline]
-    fn set_u32(value: u32, bytes: &mut [u8; 4]) {
-        bytes.copy_from_slice(&value.to_be_bytes());
-    }
-
-    #[inline]
-    fn get_u64(bytes: [u8; 8]) -> u64 {
-        u64::from_be_bytes(bytes)
-    }
-
-    #[inline]
-    fn set_u64(value: u64, bytes: &mut [u8; 8]) {
-        bytes.copy_from_slice(&value.to_be_bytes());
-    }
-}
-
-/// A trait that represents a type with endianness.
-///
-/// This trait is used to read and write data in the specified endianness.
-/// It is implemented for all number types, and can be used to read and write data in the specified
-/// endianness.
-///
-/// The `Output` type parameter represents the type that the trait will return when reading or
-/// writing data, usually a primitive integer.
-///
-/// The `LsbType` and `MsbType` type parameters are variants of the type that the trait will return
-/// when reading or writing data.
-pub trait Endian {
-    /// The type that the trait will return when reading or writing data.
-    ///
-    /// This type can be endianness-specific, for example, the `crate::types::number::U16` type is a struct that outputs
-    /// a `u16` value in the specified endianness.
-    type Output;
-
-    /// The Little Endian variant of the type.
-    ///
-    /// This type should return a little-endian variant of the type, for example, the LSB type for
-    /// a `crate::types::number::U16` is a `crate::types::number::U16<LittleEndian>` type.
-    type LsbType: Endian<Output = Self::Output>;
-
-    /// The Big Endian variant of the type.
-    ///
-    /// This type should return a big-endian variant of the type, for example, the MSB type for
-    /// a `crate::types::number::U16` is a `crate::types::number::U16<BigEndian>` type.
-    type MsbType: Endian<Output = Self::Output>;
-
-    /// Creates a new instance of the type with the given value.
-    fn new(value: Self::Output) -> Self;
-    /// Returns the value of the type.
-    fn get(&self) -> Self::Output;
-    /// Sets the value of the type.
-    fn set(&mut self, value: Self::Output);
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_from_le_bytes() {
-        let value = u16::from_le_bytes([0x12, 0x34]);
-        assert_eq!(value, 0x3412);
-
-        let value = u32::from_le_bytes([0x12, 0x34, 0x56, 0x78]);
-        assert_eq!(value, 0x78563412);
-
-        let value = u64::from_le_bytes([0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0]);
-        assert_eq!(value, 0xf0debc9a78563412);
-    }
-
-    #[test]
-    fn test_from_be_bytes() {
-        let value = u16::from_be_bytes([0x12, 0x34]);
-        assert_eq!(value, 0x1234);
-
-        let value = u32::from_be_bytes([0x12, 0x34, 0x56, 0x78]);
-        assert_eq!(value, 0x12345678);
-
-        let value = u64::from_be_bytes([0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0]);
-        assert_eq!(value, 0x123456789abcdef0);
+        *bytes = value.to_le_bytes();
     }
 }

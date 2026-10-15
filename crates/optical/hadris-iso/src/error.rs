@@ -188,4 +188,39 @@ mod tests {
         let foreign = DetailCode::new("another-crate", Detail::ALL[0] as u16);
         assert_eq!(Detail::from_code(foreign), None);
     }
+
+    #[test]
+    fn detail_codes_are_pinned() {
+        let pinned = [
+            (Detail::DescriptorHeader, 1),
+            (Detail::NoPrimaryDescriptor, 2),
+            (Detail::Terminator, 3),
+            (Detail::BlockSize, 4),
+            (Detail::DescriptorFields, 5),
+            (Detail::DirectoryRecord, 6),
+            (Detail::MultiExtent, 7),
+            (Detail::OutsideImage, 8),
+            (Detail::Interleaved, 9),
+            (Detail::SystemUse, 10),
+            (Detail::BootCatalog, 11),
+            (Detail::NoNamespace, 12),
+            (Detail::BootImage, 13),
+            (Detail::BootInfoTable, 14),
+            (Detail::CatalogPath, 15),
+            (Detail::Relocation, 16),
+            (Detail::Identifier, 17),
+            (Detail::ImageTooLarge, 18),
+            (Detail::HybridBoot, 19),
+            (Detail::Content, 20),
+            (Detail::StoredContent, 21),
+            (Detail::OutputBlockSize, 22),
+            (Detail::Session, 23),
+        ];
+        assert_eq!(pinned.len(), Detail::ALL.len());
+        for (detail, number) in pinned {
+            let code = DetailCode::new("hadris-iso", number);
+            assert_eq!(detail.code(), code);
+            assert_eq!(Detail::from_code(code), Some(detail));
+        }
+    }
 }

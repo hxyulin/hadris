@@ -4,7 +4,8 @@
 //! The crate root defines the mode-independent types every Hadris filesystem
 //! speaks: node identity, file types, byte names, timestamps and clocks,
 //! metadata and attribute changes, capabilities, errors, directory entries
-//! and cursors, open and mount options, path policies, FAT code pages, and what checkers
+//! and cursors, open and mount options, path policies, FAT code pages, the
+//! mixed-endian [`Guid`] of GPT and exFAT, and what checkers
 //! report ([`Finding`], [`Severity`], [`CheckReport`]). None of them does
 //! I/O.
 //!
@@ -17,8 +18,9 @@
 //!
 //! [`Tree`], [`Node`] and [`Content`] (`alloc`) are the input of every
 //! image writer, and [`Report`] is what every writer, planner and
-//! `copy_tree` returns. [`host`] (`std` and `sync`) moves trees between host
-//! directories and writers.
+//! `copy_tree` returns. [`host`] (`std`) has the host's mount and build
+//! defaults and, with `sync`, moves trees between host directories and
+//! writers.
 //!
 //! [`Error<E>`] is the error of every filesystem operation, re-exported from
 //! `hadris-io` with [`ErrorKind`], [`Location`], [`DetailCode`] and
@@ -34,13 +36,16 @@
 //! | Feature | Default | Purpose |
 //! |---|---:|---|
 //! | `alloc` | via `std` | [`OwnedName`], [`PathError`], [`Tree`], [`Report`], `copy_tree` and `ContentReader` in each mode, and the async `Volume` with its `read_tree` |
-//! | `std` | Yes | Implies `alloc`; adds [`SystemClock`], the sync `Volume` with its `std::io` handles and `read_tree`, [`host`] with `sync`, and conversions to `std::io::Error` |
+//! | `std` | Yes | Implies `alloc`; adds [`SystemClock`], [`Guid::random`], [`host`], the sync `Volume` with its `std::io` handles and `read_tree`, and conversions to `std::io::Error` |
 //! | `sync` | Yes | The blocking API in `sync` |
 //! | `async` | No | The Send API in `async_`, plus the local API in `local` |
-//! | `async-local` | No | Local asynchronous API without `Send` device or future bounds |
-//! | `contract` | No | The driver contract kit, `contract::check` in each mode, and `ContractViolation` |
+//! | `unstable-contract` | No | The driver contract kit, `contract::check` in each mode, and `ContractViolation` |
 //!
 //! No feature changes what an item does.
+//!
+//! `unstable-contract` is a test kit for driver authors and is outside the
+//! 3.x semver promise: its rules and items may change in any release. Enable
+//! it only in dev-dependencies.
 
 #![no_std]
 #![deny(missing_docs)]
@@ -54,13 +59,14 @@ extern crate std;
 mod caps;
 mod check;
 mod code_page;
-#[cfg(feature = "contract")]
+#[cfg(feature = "unstable-contract")]
 mod contract;
 mod dir;
 mod error;
 mod extent;
 mod fuse;
-#[cfg(all(feature = "std", feature = "sync"))]
+mod guid;
+#[cfg(feature = "std")]
 pub mod host;
 mod meta;
 mod mount;
@@ -77,7 +83,8 @@ mod walk;
 pub use caps::{Capabilities, CaseRule, Charset, Field, FsStats, Stored};
 pub use check::{CheckReport, Finding, Severity};
 pub use code_page::{Ascii, CodePage, Cp437};
-#[cfg(feature = "contract")]
+#[cfg(feature = "unstable-contract")]
+#[doc(hidden)]
 pub use contract::ContractViolation;
 pub use dir::{DirCursor, DirEntry};
 #[cfg(feature = "alloc")]
@@ -85,6 +92,7 @@ pub use error::PathError;
 pub use error::{Detail, DetailCode, Errno, Error, ErrorKind, FsResult, Location, MountError};
 pub use extent::Extent;
 pub use fuse::FuseOnError;
+pub use guid::{Guid, GuidParseError};
 pub use hadris_io::SeekFrom;
 pub use meta::{Attributes, Metadata, Owner, Permissions, SetAttr};
 pub use mount::MountOptions;
@@ -107,7 +115,7 @@ pub use walk::{WalkEntry, WalkFrame};
 #[cfg(feature = "sync")]
 pub mod sync;
 
-/// The asynchronous API, generated from the same source as [`sync`], with
+/// The asynchronous API, generated from the same source as `sync`, with
 /// `Send` futures for generic code on multi-threaded executors.
 ///
 /// Every trait has `Send` (and `Sync` when it has `&self` async methods) as
@@ -117,14 +125,11 @@ pub mod sync;
 #[cfg(feature = "async")]
 #[path = "async.rs"]
 pub mod async_;
-/// Compatibility alias for the asynchronous API.
-#[cfg(feature = "async")]
-pub use async_ as r#async;
 
 /// Asynchronous filesystem APIs whose devices and futures need not be `Send`.
 ///
 /// `Volume` and its handles require `alloc` and pointer-sized atomics.
 /// Lazy `read_tree` content is not included in this initial tier. Device errors
 /// retain the shared `Send + Sync + 'static` error contract.
-#[cfg(feature = "async-local")]
+#[cfg(feature = "async")]
 pub mod local;

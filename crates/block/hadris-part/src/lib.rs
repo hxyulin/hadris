@@ -95,7 +95,6 @@ mod disk;
 mod error;
 #[cfg(feature = "alloc")]
 mod gpt_table;
-mod guid;
 mod hybrid;
 #[cfg(feature = "alloc")]
 mod layout;
@@ -157,7 +156,7 @@ pub use error::{Detail, TableError};
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub use gpt_table::{Gpt, GptEntry};
-pub use guid::{Guid, GuidParseError};
+pub use hadris_fs::{Guid, GuidParseError};
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub use hybrid::Hybrid;
@@ -171,7 +170,3 @@ pub use mbr::{Mbr, MbrEntry};
 pub use mbr_type::MbrType;
 pub use name::PartitionName;
 pub use partition::{GptCopy, Partition, PartitionFlags, PartitionKind, TableKind};
-
-/// Compatibility alias for the unified asynchronous API.
-#[cfg(feature = "async")]
-pub use async_ as r#async;

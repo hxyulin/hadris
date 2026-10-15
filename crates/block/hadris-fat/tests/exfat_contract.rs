@@ -40,16 +40,16 @@ fn sync_through_a_volume() {
 fn async_modes() {
     block_on(async {
         let mut dev = common::device(vec![0u8; 8 << 20], 4096);
-        hadris_fat::exfat::r#async::format(&mut dev, &ExFatOptions::new())
+        hadris_fat::exfat::async_::format(&mut dev, &ExFatOptions::new())
             .await
             .unwrap();
-        let mut fs = hadris_fat::exfat::r#async::ExFatFs::mount(dev, MountOptions::new())
+        let mut fs = hadris_fat::exfat::async_::ExFatFs::mount(dev, MountOptions::new())
             .await
             .unwrap();
-        hadris_fs::r#async::contract::check(&mut fs).await.unwrap();
+        hadris_fs::async_::contract::check(&mut fs).await.unwrap();
         let mut dev = fs.into_inner();
         let mut findings = Vec::new();
-        hadris_fat::exfat::r#async::check(&mut dev, &mut [0u8; 1536], |f| {
+        hadris_fat::exfat::async_::check(&mut dev, &mut [0u8; 1536], |f| {
             findings.push(common::Found::new(f))
         })
         .await
@@ -60,14 +60,14 @@ fn async_modes() {
                 .all(|f| f.detail == hadris_fat::exfat::Detail::Dirty),
             "{findings:?}"
         );
-        let fs = hadris_fat::exfat::r#async::ExFatFs::mount(
+        let fs = hadris_fat::exfat::async_::ExFatFs::mount(
             common::device(blank(8 << 20, 4096), 512),
             MountOptions::new(),
         )
         .await
         .unwrap();
-        let vol = hadris_fs::r#async::Volume::new(fs);
-        hadris_fs::r#async::contract::check(&mut *vol.lock().await.unwrap())
+        let vol = hadris_fs::async_::Volume::new(fs);
+        hadris_fs::async_::contract::check(&mut *vol.lock().await.unwrap())
             .await
             .unwrap();
     });
@@ -92,7 +92,7 @@ fn every_mode_writes_the_same_bytes() {
         dev.into_inner()
     };
     let send = block_on(async {
-        use hadris_fat::exfat::r#async as asynch;
+        use hadris_fat::exfat::async_ as asynch;
         let mut dev = common::device(vec![0u8; 4 << 20], 512);
         asynch::format(&mut dev, &ExFatOptions::new())
             .await
@@ -122,7 +122,7 @@ fn assert_send<T: Send>(_: &T) {}
 
 #[test]
 fn async_futures_are_send() {
-    let mut fs = block_on(hadris_fat::exfat::r#async::ExFatFs::mount(
+    let mut fs = block_on(hadris_fat::exfat::async_::ExFatFs::mount(
         common::device(blank(4 << 20, 4096), 512),
         MountOptions::new(),
     ))
@@ -132,7 +132,7 @@ fn async_futures_are_send() {
     let _ = root;
     let mut dev = fs.into_inner();
     let mut scratch = [0u8; 1536];
-    assert_send(&hadris_fat::exfat::r#async::check(
+    assert_send(&hadris_fat::exfat::async_::check(
         &mut dev,
         &mut scratch,
         |_| {},

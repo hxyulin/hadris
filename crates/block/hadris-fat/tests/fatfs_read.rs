@@ -108,7 +108,7 @@ fn walk(
         } else if entry.file_type() == FileType::File {
             Attributes::ARCHIVE
         } else {
-            Attributes::empty()
+            Attributes::NONE
         };
         assert_eq!(meta.attributes(), expected_attrs, "{context}");
         assert!(meta.modified().is_some(), "{context}");

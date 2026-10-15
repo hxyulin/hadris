@@ -15,8 +15,9 @@ use crate::detect::{
 };
 use hadris_fat_raw::io::BlockBuf;
 
+#[cfg(feature = "unstable-apfs")]
 use super::ApfsContainer;
-#[cfg(feature = "alloc")]
+#[cfg(all(feature = "alloc", feature = "unstable-apfs"))]
 use super::ApfsFs;
 use super::{BlockDevice, IsoFs, UdfFs, exio, rawio};
 #[cfg(feature = "alloc")]
@@ -39,6 +40,7 @@ macro_rules! each {
             AnyFs::ExFat($fs) => $e,
             AnyFs::Iso($fs) => $e,
             AnyFs::Udf($fs) => $e,
+            #[cfg(feature = "unstable-apfs")]
             AnyFs::Apfs($fs) => $e,
         }
     };
@@ -97,7 +99,8 @@ fn damage<T, E>(result: FsResult<T, E>) -> FsResult<Option<hadris_fs::Error<core
 /// Finds what `dev` holds: the ISO 9660 and UDF recognition area from
 /// byte 32768, then the first sector for NTFS, exFAT, FAT, a partition
 /// table, an APFS container or a cpio archive. It reads a few blocks, never writes and does
-/// not allocate.
+/// not allocate. An APFS container's damage is checked only with
+/// `unstable-apfs`; without it, APFS is listed from its signature alone.
 ///
 /// A format whose signature is present is listed with the error its mount
 /// would give when its first structures are damaged, with kind
@@ -131,8 +134,8 @@ pub async fn detect<D: BlockDevice + ?Sized>(dev: &mut D) -> FsResult<Detection,
     } else {
         None
     };
-    if let (Some(_), Some(udf)) = (iso, udf) {
-        found.push(ImageFormat::IsoUdfBridge, udf);
+    if let (Some(_), Some(udf)) = (&iso, &udf) {
+        found.push(ImageFormat::IsoUdfBridge, udf.clone());
     }
     if let Some(iso) = iso {
         found.push(ImageFormat::Iso, iso);
@@ -150,7 +153,10 @@ pub async fn detect<D: BlockDevice + ?Sized>(dev: &mut D) -> FsResult<Detection,
         return Ok(found);
     };
     if &sector[32..36] == b"NXSB" {
+        #[cfg(feature = "unstable-apfs")]
         let apfs_damage = damage(ApfsContainer::open(&mut *dev).await)?;
+        #[cfg(not(feature = "unstable-apfs"))]
+        let apfs_damage = None;
         found.push(ImageFormat::Apfs, apfs_damage);
     } else if signed && &sector[3..11] == b"NTFS    " {
         found.push(ImageFormat::Ntfs, None);
@@ -184,7 +190,8 @@ pub async fn detect<D: BlockDevice + ?Sized>(dev: &mut D) -> FsResult<Detection,
 /// A mounted filesystem of any format [`open`] reaches. It implements
 /// `FileSystem` by delegation; format extras are reached by `match`.
 ///
-/// NTFS is added as a variant once it is stable.
+/// `Apfs` exists only with `unstable-apfs`, and NTFS is added as a variant
+/// once it is stable.
 #[cfg(feature = "alloc")]
 #[derive(Debug)]
 #[non_exhaustive]
@@ -199,7 +206,10 @@ pub enum AnyFs<D> {
     /// A UDF volume, including the UDF side of an ISO 9660 and UDF bridge.
     Udf(UdfFs<D>),
     /// An explicitly selected APFS volume or a container's sole volume.
-    /// Native APFS extensions are a preview and may change in 3.x minors.
+    /// The variant and `ApfsFs`'s native API are a preview outside the
+    /// semver promise.
+    #[cfg(feature = "unstable-apfs")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "unstable-apfs")))]
     Apfs(ApfsFs<D>),
 }
 
@@ -223,6 +233,7 @@ impl<D: BlockDevice> AnyFs<D> {
             Self::ExFat(_) => ImageFormat::ExFat,
             Self::Iso(_) => ImageFormat::Iso,
             Self::Udf(_) => ImageFormat::Udf,
+            #[cfg(feature = "unstable-apfs")]
             Self::Apfs(_) => ImageFormat::Apfs,
         }
     }
@@ -238,6 +249,7 @@ impl<D: BlockDevice> AnyFs<D> {
             Self::ExFat(fs) => fs.extents(node, from, out).await,
             Self::Iso(fs) => fs.extents(node, from, out).await,
             Self::Udf(fs) => fs.extents(node, from, out).await,
+            #[cfg(feature = "unstable-apfs")]
             Self::Apfs(_) => Err(ErrorKind::Unsupported.into()),
         }
     }
@@ -251,7 +263,9 @@ impl<D: BlockDevice> AnyFs<D> {
             Self::Fat(fs) => Ok(fs.volume_serial().map(u64::from)),
             Self::ExFat(fs) => Ok(Some(u64::from(fs.volume_serial()))),
             Self::Udf(fs) => Ok(fs.info().volume_serial()),
-            Self::Iso(_) | Self::Apfs(_) => Err(ErrorKind::Unsupported.into()),
+            Self::Iso(_) => Err(ErrorKind::Unsupported.into()),
+            #[cfg(feature = "unstable-apfs")]
+            Self::Apfs(_) => Err(ErrorKind::Unsupported.into()),
         }
     }
 
@@ -270,7 +284,9 @@ impl<D: BlockDevice> AnyFs<D> {
                 let label = label.map(hadris_fat::exfat::VolumeLabel::new).transpose()?;
                 fs.set_label(label).await
             }
-            Self::Iso(_) | Self::Udf(_) | Self::Apfs(_) => Err(ErrorKind::Unsupported.into()),
+            Self::Iso(_) | Self::Udf(_) => Err(ErrorKind::Unsupported.into()),
+            #[cfg(feature = "unstable-apfs")]
+            Self::Apfs(_) => Err(ErrorKind::Unsupported.into()),
         }
     }
 }
@@ -284,8 +300,10 @@ impl<D: BlockDevice> AnyFs<D> {
 /// no filesystem: a partition table (mount its partitions with
 /// [`open_partition`]), an archive, nothing recognized, or an NTFS volume
 /// (message `"ntfs"`), which [`detect`] lists but `open` does not reach in
-/// 3.0. APFS mounts a container's sole volume; containers with
-/// multiple volumes require explicit selection with `open_apfs` instead.
+/// 3.0. With `unstable-apfs`, APFS mounts a container's sole volume, and
+/// containers with multiple volumes require explicit selection with
+/// `open_apfs` instead; without it, an APFS container fails with message
+/// `"apfs"`.
 /// The [`MountError`] gives `dev` back.
 #[cfg(feature = "alloc")]
 pub async fn open<D: BlockDevice>(mut dev: D, options: MountOptions) -> Result<AnyFs<D>, MountError<D, D::Error>> {
@@ -297,11 +315,17 @@ pub async fn open<D: BlockDevice>(mut dev: D, options: MountOptions) -> Result<A
     let mut other = None;
     for candidate in found.iter() {
         let mounted = match candidate.format() {
-            ImageFormat::Fat(_) => FatFs::mount(dev, options).await.map(AnyFs::Fat),
-            ImageFormat::ExFat => ExFatFs::mount(dev, options).await.map(AnyFs::ExFat),
-            ImageFormat::Iso => IsoFs::mount(dev, options).await.map(AnyFs::Iso),
-            ImageFormat::Udf | ImageFormat::IsoUdfBridge => UdfFs::mount(dev, options).await.map(AnyFs::Udf),
-            ImageFormat::Apfs => ApfsFs::mount(dev, options).await.map(AnyFs::Apfs),
+            ImageFormat::Fat(_) => FatFs::mount(dev, options.clone()).await.map(AnyFs::Fat),
+            ImageFormat::ExFat => ExFatFs::mount(dev, options.clone()).await.map(AnyFs::ExFat),
+            ImageFormat::Iso => IsoFs::mount(dev, options.clone()).await.map(AnyFs::Iso),
+            ImageFormat::Udf | ImageFormat::IsoUdfBridge => UdfFs::mount(dev, options.clone()).await.map(AnyFs::Udf),
+            #[cfg(feature = "unstable-apfs")]
+            ImageFormat::Apfs => ApfsFs::mount(dev, options.clone()).await.map(AnyFs::Apfs),
+            #[cfg(not(feature = "unstable-apfs"))]
+            ImageFormat::Apfs => {
+                other.get_or_insert("apfs");
+                continue;
+            }
             ImageFormat::Ntfs => {
                 other.get_or_insert("ntfs");
                 continue;
@@ -399,7 +423,7 @@ pub async fn open_partition<D: BlockDevice>(
             Err(err) => return Err(MountError::new(err, dev)),
         };
         let window = hadris_storage::Partition::new(dev, offset, len);
-        let err = match open(window, options).await {
+        let err = match open(window, options.clone()).await {
             Ok(fs) => return Ok(fs),
             Err(err) => err,
         };

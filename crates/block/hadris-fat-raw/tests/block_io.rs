@@ -416,7 +416,6 @@ mod asynchronous {
     }
 
     async fn perform_async(
-        local: bool,
         op: Op,
         dev: &mut Device,
         block: &mut BlockBuf,
@@ -424,95 +423,81 @@ mod asynchronous {
         data: &[u8],
         out: &mut [u8],
     ) -> Result<()> {
-        use hadris_fat_raw::io::{r#async as a, local as l};
-        match (local, op) {
-            (false, Op::Read) => a::read_bytes(dev, block, offset, out).await,
-            (false, Op::Write) => a::write_bytes(dev, block, offset, data).await,
-            (false, Op::Zero) => a::write_zeros(dev, block, offset, data.len()).await,
-            (true, Op::Read) => l::read_bytes(dev, block, offset, out).await,
-            (true, Op::Write) => l::write_bytes(dev, block, offset, data).await,
-            (true, Op::Zero) => l::write_zeros(dev, block, offset, data.len()).await,
+        use hadris_fat_raw::io::async_ as a;
+        match op {
+            Op::Read => a::read_bytes(dev, block, offset, out).await,
+            Op::Write => a::write_bytes(dev, block, offset, data).await,
+            Op::Zero => a::write_zeros(dev, block, offset, data.len()).await,
         }
     }
 
     #[test]
-    fn dropped_transfers_preserve_cache_and_can_be_retried_in_both_async_modes() {
-        for local in [false, true] {
-            for size in [3, 7, 512] {
-                for op in [Op::Read, Op::Write, Op::Zero] {
-                    for offset in [1, size as u64] {
-                        let initial = Device::new(size, 0);
-                        let data = vec![42; size * 5 + 1];
-                        let mut expected_dev = initial.clone();
-                        let mut expected_block = BlockBuf::<[u8; 1024]>::new(size).unwrap();
-                        perform(
-                            op,
-                            &mut expected_dev,
-                            &mut expected_block,
-                            offset,
-                            &data,
-                            &mut vec![0; data.len()],
-                        )
-                        .unwrap();
-                        for warm in [false, true] {
-                            for polls in 0..=2 * expected_dev.calls.len() + 1 {
-                                let mut dev = initial.clone();
-                                let mut block = BlockBuf::<[u8; 1024]>::new(size).unwrap();
-                                if warm {
-                                    io::load(&mut dev, &mut block, offset / size as u64).unwrap();
-                                    dev.calls.clear();
-                                }
-                                let mut out = vec![0; data.len()];
-                                let result = run_for(
-                                    perform_async(
-                                        local, op, &mut dev, &mut block, offset, &data, &mut out,
-                                    ),
-                                    polls,
-                                );
-                                assert_cache(&dev, &block);
-                                let skip = usize::from(warm && offset == 1);
-                                assert_eq!(
-                                    dev.calls,
-                                    expected_dev.calls[skip..skip + dev.calls.len()]
-                                );
-                                let mut prefix = initial.bytes.clone();
-                                for call in &dev.calls {
-                                    if let Call::Write(index, len) = *call {
-                                        let start = (index as usize * size).max(offset as usize);
-                                        let end = (index as usize * size + len)
-                                            .min(offset as usize + data.len());
-                                        match op {
-                                            Op::Write => prefix[start..end].copy_from_slice(
-                                                &data[start - offset as usize
-                                                    ..end - offset as usize],
-                                            ),
-                                            Op::Zero => prefix[start..end].fill(0),
-                                            Op::Read => unreachable!(),
-                                        }
+    fn dropped_transfers_preserve_cache_and_can_be_retried_in_async_mode() {
+        for size in [3, 7, 512] {
+            for op in [Op::Read, Op::Write, Op::Zero] {
+                for offset in [1, size as u64] {
+                    let initial = Device::new(size, 0);
+                    let data = vec![42; size * 5 + 1];
+                    let mut expected_dev = initial.clone();
+                    let mut expected_block = BlockBuf::<[u8; 1024]>::new(size).unwrap();
+                    perform(
+                        op,
+                        &mut expected_dev,
+                        &mut expected_block,
+                        offset,
+                        &data,
+                        &mut vec![0; data.len()],
+                    )
+                    .unwrap();
+                    for warm in [false, true] {
+                        for polls in 0..=2 * expected_dev.calls.len() + 1 {
+                            let mut dev = initial.clone();
+                            let mut block = BlockBuf::<[u8; 1024]>::new(size).unwrap();
+                            if warm {
+                                io::load(&mut dev, &mut block, offset / size as u64).unwrap();
+                                dev.calls.clear();
+                            }
+                            let mut out = vec![0; data.len()];
+                            let result = run_for(
+                                perform_async(op, &mut dev, &mut block, offset, &data, &mut out),
+                                polls,
+                            );
+                            assert_cache(&dev, &block);
+                            let skip = usize::from(warm && offset == 1);
+                            assert_eq!(dev.calls, expected_dev.calls[skip..skip + dev.calls.len()]);
+                            let mut prefix = initial.bytes.clone();
+                            for call in &dev.calls {
+                                if let Call::Write(index, len) = *call {
+                                    let start = (index as usize * size).max(offset as usize);
+                                    let end = (index as usize * size + len)
+                                        .min(offset as usize + data.len());
+                                    match op {
+                                        Op::Write => prefix[start..end].copy_from_slice(
+                                            &data[start - offset as usize..end - offset as usize],
+                                        ),
+                                        Op::Zero => prefix[start..end].fill(0),
+                                        Op::Read => unreachable!(),
                                     }
                                 }
-                                assert_eq!(dev.bytes, prefix);
-                                if let Some(result) = result {
-                                    result.unwrap();
-                                }
-                                run_for(
-                                    perform_async(
-                                        local, op, &mut dev, &mut block, offset, &data, &mut out,
-                                    ),
-                                    1000,
-                                )
-                                .unwrap()
-                                .unwrap();
-                                assert_eq!(dev.bytes, expected_dev.bytes);
-                                if matches!(op, Op::Read) {
-                                    assert_eq!(
-                                        out,
-                                        initial.bytes
-                                            [offset as usize..offset as usize + data.len()]
-                                    );
-                                }
-                                assert_cache(&dev, &block);
                             }
+                            assert_eq!(dev.bytes, prefix);
+                            if let Some(result) = result {
+                                result.unwrap();
+                            }
+                            run_for(
+                                perform_async(op, &mut dev, &mut block, offset, &data, &mut out),
+                                1000,
+                            )
+                            .unwrap()
+                            .unwrap();
+                            assert_eq!(dev.bytes, expected_dev.bytes);
+                            if matches!(op, Op::Read) {
+                                assert_eq!(
+                                    out,
+                                    initial.bytes[offset as usize..offset as usize + data.len()]
+                                );
+                            }
+                            assert_cache(&dev, &block);
                         }
                     }
                 }
@@ -521,42 +506,39 @@ mod asynchronous {
     }
 
     #[test]
-    fn failed_transfers_preserve_device_errors_in_both_async_modes() {
-        for local in [false, true] {
-            for op in [Op::Read, Op::Write, Op::Zero] {
-                for cached in [0, 2, 8] {
-                    for offset in [3, 7] {
-                        for failed in 0..7 {
-                            let mut dev = Device::new(7, 0);
-                            let mut block = BlockBuf::<[u8; 17]>::new(7).unwrap();
-                            io::load(&mut dev, &mut block, cached).unwrap();
-                            dev.calls.clear();
-                            dev.fail_at = Some(failed);
-                            let result = run_for(
-                                perform_async(
-                                    local,
-                                    op,
-                                    &mut dev,
-                                    &mut block,
-                                    offset,
-                                    &[42; 27],
-                                    &mut [0; 27],
-                                ),
-                                1000,
-                            )
-                            .unwrap();
-                            assert_cache(&dev, &block);
-                            if let Err(error) = result {
-                                assert_eq!(dev.calls.len(), failed + 1);
-                                assert_eq!(error.device_error().unwrap().raw_os_error(), Some(5));
-                                let index = match dev.calls[failed] {
-                                    Call::Read(index, _) | Call::Write(index, _) => index,
-                                };
-                                assert_eq!(error.location(), Some(Location::Block(index)));
-                            } else {
-                                assert!(dev.calls.len() <= failed);
-                                break;
-                            }
+    fn failed_transfers_preserve_device_errors_in_async_mode() {
+        for op in [Op::Read, Op::Write, Op::Zero] {
+            for cached in [0, 2, 8] {
+                for offset in [3, 7] {
+                    for failed in 0..7 {
+                        let mut dev = Device::new(7, 0);
+                        let mut block = BlockBuf::<[u8; 17]>::new(7).unwrap();
+                        io::load(&mut dev, &mut block, cached).unwrap();
+                        dev.calls.clear();
+                        dev.fail_at = Some(failed);
+                        let result = run_for(
+                            perform_async(
+                                op,
+                                &mut dev,
+                                &mut block,
+                                offset,
+                                &[42; 27],
+                                &mut [0; 27],
+                            ),
+                            1000,
+                        )
+                        .unwrap();
+                        assert_cache(&dev, &block);
+                        if let Err(error) = result {
+                            assert_eq!(dev.calls.len(), failed + 1);
+                            assert_eq!(error.device_error().unwrap().raw_os_error(), Some(5));
+                            let index = match dev.calls[failed] {
+                                Call::Read(index, _) | Call::Write(index, _) => index,
+                            };
+                            assert_eq!(error.location(), Some(Location::Block(index)));
+                        } else {
+                            assert!(dev.calls.len() <= failed);
+                            break;
                         }
                     }
                 }

@@ -15,13 +15,13 @@ use hadris_fs::{
 use crate::error::{Detail, Error};
 use crate::name::{encode_cs0, encode_symlink, write_dstring};
 use crate::options::UdfOptions;
-use crate::raw::{
-    self, CharSpec, EntityId, FileCharacteristics, IcbFlags, ShortAd, Tag, Timestamp, U16Le, U32Le,
-    U64Le, file_type, tag,
-};
 use crate::time::from_datetime;
 use crate::volume::UdfId;
 use crate::volume::permissions_of;
+use hadris_udf_raw::{
+    self as raw, CharSpec, EntityId, FileCharacteristics, IcbFlags, ShortAd, Tag, Timestamp, U16Le,
+    U32Le, U64Le, file_type, tag,
+};
 
 pub(crate) type PlanResult<T> = Result<T, Error<Infallible>>;
 

@@ -9,7 +9,7 @@ use super::storage::BlockDevice;
 use crate::error::{Detail, Error};
 use crate::options::{BootInfo, IsoOptions};
 use crate::plan::{self, Base, InfoTable, Plan, Region};
-use crate::raw::{self, SECTOR_SIZE};
+use hadris_iso_raw::{self as raw, SECTOR_SIZE};
 
 /// Bytes read from a content per request.
 const CHUNK: usize = 64 * 1024;

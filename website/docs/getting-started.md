@@ -85,7 +85,7 @@ versions directly is useful.
 | Host FAT formatter | Add `write` | `fat::sync::format` or `write` |
 | Unknown host image | `std`, `sync`, `detect`; add `part` for partition operations | `host::open` or `sync::detect` |
 | Allocator-equipped FAT kernel | `alloc`, `sync`, `fat` | Bare `FileSystem` driver; sync `Volume` requires `std` |
-| Allocated async FAT | `alloc`, `async`, `fat` | `fat::r#async::FatFs` and async `Volume` |
+| Allocated async FAT | `alloc`, `async`, `fat` | `fat::async_::FatFs` and async `Volume` |
 | Allocation-free FAT firmware | `sync`, `fat` | `fat::embedded::sync::Fat`; 512-byte device blocks |
 | Allocation-free ISO/UDF reader | `sync`, `iso` or `udf` | Bare `FileSystem` driver |
 | Streaming CPIO | `sync`, `cpio`; add `alloc` for writing | `cpio::sync::CpioReader` or `Writer` |

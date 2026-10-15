@@ -83,7 +83,7 @@ impl ErrorType for AsyncPanicky {
     type Error = core::convert::Infallible;
 }
 
-impl hadris_storage::r#async::BlockDevice for AsyncPanicky {
+impl hadris_storage::async_::BlockDevice for AsyncPanicky {
     fn block_size(&self) -> BlockSize {
         self.dev.inner.block_size()
     }
@@ -233,8 +233,8 @@ mod sync {
 
 mod asynchronous {
     use super::*;
-    use hadris_fat::r#async::FatFs;
-    use hadris_fs::r#async::Volume;
+    use hadris_fat::async_::FatFs;
+    use hadris_fs::async_::Volume;
 
     type Vol = Volume<FatFs<AsyncPanicky>>;
 

@@ -1,7 +1,7 @@
 #![cfg(feature = "async")]
 
 use hadris_io::Cursor;
-use hadris_io::r#async::{Read, Seek};
+use hadris_io::async_::{Read, Seek};
 
 fn assert_send<T: Send>(value: T) -> T {
     value

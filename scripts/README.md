@@ -13,7 +13,7 @@ Run commands from the repository root.
 | `firmware-size.py` | Measure firmware flash, driver state and static stack estimates | `python3 scripts/firmware-size.py --check` |
 | `check-semver.sh` | Compare crate APIs with release or branch baselines | `scripts/check-semver.sh` |
 | `test-check-semver.py` | Test baseline selection and semver failure propagation | `python3 scripts/test-check-semver.py` |
-| `check-non-exhaustive.py` | Enforce the extensibility rule for public types | `python3 scripts/check-non-exhaustive.py` |
+| `check-non-exhaustive.py` | Enforce the extensibility rule for public types and reject wholesale raw-crate re-exports | `python3 scripts/check-non-exhaustive.py` |
 
 The feature and target checks have different jobs: host feature compilation
 does not establish that a bare-metal target supports the required atomics.

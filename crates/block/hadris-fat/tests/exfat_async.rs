@@ -6,7 +6,7 @@ mod common;
 #[path = "common/cancel.rs"]
 mod cancel;
 
-use hadris_fat::exfat::r#async::{ExFatFs, check};
+use hadris_fat::exfat::async_::{ExFatFs, check};
 use hadris_fs::ErrorKind;
 use hadris_fs::MountOptions;
 
@@ -107,7 +107,7 @@ fn hinted_append_recovers_when_dropped_at_every_await() {
     }
 }
 
-async fn shrink_op<D: hadris_storage::r#async::BlockDevice>(
+async fn shrink_op<D: hadris_storage::async_::BlockDevice>(
     fs: &mut ExFatFs<D>,
     op: u32,
 ) -> Result<(), ErrorKind> {
@@ -259,7 +259,7 @@ macro_rules! async_allocation {
 }
 bad_cluster_allocations!(sync, bad_clusters_are_not_allocated_sync, sync_allocation);
 bad_cluster_allocations!(
-    r#async,
+    async_,
     bad_clusters_are_not_allocated_async,
     async_allocation
 );

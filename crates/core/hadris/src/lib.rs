@@ -27,23 +27,32 @@
 //!   partition, and with `write`, `format` writes an empty FAT, exFAT or UDF
 //!   volume from a `FormatOptions`. `AnyFs` reaches the format extras
 //!   `extents`, `volume_serial` and `set_label` by `match`.
-//! - `apfs`: the read-only APFS preview, behind `unstable-apfs`.
+//! - `apfs`: the read-only APFS preview, behind `unstable-apfs`. With
+//!   `detect` it also adds `AnyFs::Apfs`, APFS mounting in `open` and
+//!   `open_apfs`.
 //! - `ntfs`: the NTFS preview, behind `unstable-ntfs`.
-//! - `host` (with `std` and `sync`): host files, directories and image
-//!   files for builders and tools, and `host::open` and `host::open_with`
-//!   (with `detect`).
+//! - `host` (with `std`): host files, directories and image files for
+//!   builders and tools; the tree functions need `sync`, and `host::open`
+//!   and `host::open_with` need `sync` and `detect`.
 //!
 //! # Feature flags
 //!
 //! One feature per format (`fat`, `part`, `iso`, `udf`, `cpio`) adds
 //! that crate. `archive` adds `cpio`, and `detect` adds `detect`, `open`,
-//! `open_partition` and `AnyFs` with `fat`, `part`, `iso`, `udf`, `cpio` and
-//! the APFS reader. The platform (`std`, `alloc`), mode (`sync`,
-//! `async`) and `write` features are forwarded to every enabled crate.
-//! `unstable-ntfs` adds the NTFS preview, whose native API may change in
-//! 3.x minors. `unstable-apfs` exposes the native APFS preview API. Containers
-//! with multiple volumes require explicit selection with `open_apfs`. The default set is `std`, `sync`, `write`,
-//! `fat`, `iso`, `cpio` and `detect`. No feature changes what an item does.
+//! `open_partition` and `AnyFs` with `fat`, `part`, `iso`, `udf` and
+//! `cpio`. `detect` lists APFS containers and NTFS volumes from their
+//! signatures but does not mount them. The platform (`std`, `alloc`), mode
+//! (`sync`, `async`) and `write` features are forwarded to every enabled
+//! crate. The default set is `std`, `sync`, `write`, `fat`, `iso`, `cpio`
+//! and `detect`.
+//!
+//! `unstable-ntfs` adds the NTFS preview. `unstable-apfs` adds the
+//! read-only APFS preview and, with `detect`, `AnyFs::Apfs`, APFS damage
+//! checks in `detect`, single-volume APFS mounting in `open` and
+//! `open_apfs` for containers with multiple volumes. Everything an
+//! `unstable-*` feature adds is outside semver and may change in any
+//! release; `hadris-ntfs` and `hadris-apfs` may break in a minor release.
+//! No other feature changes what an item does.
 //!
 //! # Quick start
 //!
@@ -99,22 +108,23 @@ pub use hadris_fs::{DetailCode, Errno, Error, ErrorKind, FsResult, Location, Mou
 /// writers, `file` makes tree content of a host file, `source_date_epoch`
 /// reads the build time, `mount_options` gives the host clock and time
 /// zone, `FileDevice` opens image files and devices, and `StdIo` adapts
-/// `std::io` streams. Errors are `PathError` with the host path set.
-#[cfg(all(feature = "std", feature = "sync"))]
-#[cfg_attr(docsrs, doc(cfg(all(feature = "std", feature = "sync"))))]
+/// `std::io` streams. Errors are `PathError` with the host path set. The
+/// tree functions and `open` need `sync`.
+#[cfg(feature = "std")]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 pub mod host {
-    pub use hadris_fs::host::{
-        OnError, Symlinks, TreeOptions, file, local_utc_offset, mount_options, read_tree,
-        source_date_epoch, write_tree,
-    };
+    #[cfg(feature = "sync")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "sync")))]
+    pub use hadris_fs::host::{OnError, Symlinks, TreeOptions, file, read_tree, write_tree};
+    pub use hadris_fs::host::{local_utc_offset, mount_options, source_date_epoch};
     pub use hadris_io::StdIo;
     pub use hadris_storage::host::FileDevice;
 
     /// Detects the format of the image or device at `path` and mounts it
     /// read-only with [`mount_options`], as
     /// [`sync::open`](crate::sync::open) does.
-    #[cfg(feature = "detect")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "detect")))]
+    #[cfg(all(feature = "detect", feature = "sync"))]
+    #[cfg_attr(docsrs, doc(cfg(all(feature = "detect", feature = "sync"))))]
     pub fn open(
         path: impl AsRef<std::path::Path>,
     ) -> Result<crate::sync::AnyFs<FileDevice>, crate::PathError> {
@@ -131,8 +141,8 @@ pub mod host {
     /// # let _ = fs;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    #[cfg(feature = "detect")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "detect")))]
+    #[cfg(all(feature = "detect", feature = "sync"))]
+    #[cfg_attr(docsrs, doc(cfg(all(feature = "detect", feature = "sync"))))]
     pub fn open_with(
         path: impl AsRef<std::path::Path>,
         options: crate::fs::MountOptions,
@@ -198,8 +208,9 @@ pub mod sync {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
     }
 
-    #[cfg(feature = "alloc")]
+    #[cfg(all(feature = "alloc", feature = "unstable-apfs"))]
     use hadris_apfs::sync::ApfsFs;
+    #[cfg(feature = "unstable-apfs")]
     use hadris_apfs::sync::Container as ApfsContainer;
     #[cfg(feature = "alloc")]
     use hadris_fat::exfat::sync::ExFatFs;
@@ -253,7 +264,7 @@ pub use hadris_fat as fat;
 #[cfg_attr(docsrs, doc(cfg(feature = "part")))]
 pub use hadris_part as part;
 
-/// The NTFS preview. Its native API may change in 3.x minors.
+/// The NTFS preview, outside semver.
 #[cfg(feature = "unstable-ntfs")]
 #[cfg_attr(docsrs, doc(cfg(feature = "unstable-ntfs")))]
 pub use hadris_ntfs as ntfs;
@@ -273,11 +284,7 @@ pub use hadris_udf as udf;
 #[cfg_attr(docsrs, doc(cfg(feature = "cpio")))]
 pub use hadris_cpio as cpio;
 
-/// The read-only APFS preview. Its native API may change in 3.x minors.
+/// The read-only APFS preview, outside semver.
 #[cfg(feature = "unstable-apfs")]
 #[cfg_attr(docsrs, doc(cfg(feature = "unstable-apfs")))]
 pub use hadris_apfs as apfs;
-
-/// Compatibility alias for the asynchronous API.
-#[cfg(all(feature = "detect", feature = "async"))]
-pub use async_ as r#async;

@@ -1,7 +1,7 @@
 # Unified asynchronous devices
 
 The RC2 device API uses one asynchronous implementation for local and Send
-operations. `async_` is the canonical namespace; `r#async` remains an alias.
+operations in the `async_` namespace.
 The `sync` namespace keeps its synchronous contract.
 
 ## Device implementations
@@ -77,19 +77,27 @@ operation state tracks seek and partial transfer progress safely across polls.
 It forwards cancellation to the stream. Growth is controlled by the backend's
 explicit capability.
 
+`async_::Stream` is not the byte-stream contract of the format crates. CPIO
+and lazy tree content read through `hadris_io::async_::{Read, Write, Seek}`
+and their `local` twins, which use `async fn` and return the bare error.
+`Stream` has the block device's shape instead (`Error<Self::Error>`, owned
+`State`, `cancel`) and only backs `StreamDevice`. `ByteView` turns a block
+device into the `hadris_io` traits; nothing turns those traits into a
+`Stream`, so a source that serves both a CPIO reader and a `StreamDevice`
+implements both traits.
+
 With `sync`, `BlockingStream::new(stream)` adapts an existing synchronous
 stream. It blocks the executor during the synchronous call. Use
 `BlockingStream::new_growable(stream)` only when the stream supports extending
 its current length; writable fixed buffers are not growable. Native
 `host::FileDevice` async hooks also perform blocking host I/O during polling.
 
-Older async-trait stream adapters remain in
-`hadris_storage::legacy_async` and `legacy_local`. They are compatibility
-interfaces, not unified devices. There is no automatic generic conversion
-from a borrowed async-trait method to a retained poll operation: that would
-require the adapter to store a future borrowing itself or the caller's buffer.
-Use a poll-native backend, an explicit blocking bridge where appropriate, or
-keep the older stream adapter with code that still uses its legacy contract.
+The older async-trait stream adapters (`hadris_storage::legacy_async` and
+`legacy_local`) were removed before 3.0.0. There is no automatic generic
+conversion from a borrowed async-trait method to a retained poll operation:
+that would require the adapter to store a future borrowing itself or the
+caller's buffer. Use a poll-native backend or an explicit blocking bridge
+where appropriate.
 
 Custom async block-device implementations must replace async method bodies
 with poll hooks and owned state. A backend that completes immediately can use

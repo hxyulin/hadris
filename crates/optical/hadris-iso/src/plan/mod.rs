@@ -27,12 +27,12 @@ use crate::namespace::JolietLevel;
 use crate::options::{
     BootEntry, BootInfo, Hybrid, IsoLevel, IsoOptions, PartitionScheme, Preserve, Relocation,
 };
-use crate::raw::{
-    self, BootRecordVolumeDescriptor, DecDateTime, DirDateTime, IsoStr, PathTableHeader,
+use crate::volume_info::{IsoDate, IsoId};
+use hadris_iso_raw::{
+    self as raw, BootRecordVolumeDescriptor, DecDateTime, DirDateTime, IsoStr, PathTableHeader,
     PrimaryVolumeDescriptor, RootDirectoryRecord, SECTOR_SIZE, SupplementaryVolumeDescriptor,
     U16Both, U32Be, U32Both, U32Le, VolumeDescriptorHeader, VolumeDescriptorSetTerminator,
 };
-use crate::volume_info::{IsoDate, IsoId};
 
 mod directory;
 mod layout;

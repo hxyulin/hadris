@@ -8,6 +8,129 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **All crates (breaking):** `async_` is the only name of the async mode
+  module. The `r#async` aliases of `async_` are removed from `hadris-io`,
+  `hadris-storage`, `hadris-fs`, `hadris`, `hadris-fat` (including
+  `exfat`, `embedded` and `exfat::embedded`), `hadris-fat-raw` (`io` and
+  `exfat::io`), `hadris-part`, `hadris-ntfs`, `hadris-apfs`, `hadris-iso`,
+  `hadris-udf` and `hadris-cpio`. Replace `r#async::` with `async_::`.
+
+- **hadris-storage, hadris-fat-raw (breaking):** The `local` aliases of
+  `async_` are removed; `hadris_storage::local`, `hadris_fat_raw::io::local`
+  and `hadris_fat_raw::exfat::io::local` were the same items as `async_`,
+  which already accepts devices whose futures are not `Send`. `local` now
+  always names a separate contract without `Send` bounds, in `hadris-io`
+  and `hadris-fs` only.
+
+- **hadris-storage (breaking):** The `legacy_async` and `legacy_local`
+  modules are removed. No driver accepted their `BlockDevice` traits;
+  implement the poll-based `async_::BlockDevice` or `async_::Stream`, or
+  bridge a synchronous stream with `BlockingStream`.
+- **Features (breaking):** `hadris-apfs` drops its `read` feature (it was
+  on by default); the readers need only `sync` or `async`, and the
+  umbrella no longer forwards `hadris-apfs/read`. `hadris-iso` drops
+  `cache`: `CacheOptions`, `IsoFs::with_cache` and `IsoFs::clear_cache`
+  need only `alloc`. `hadris-fs` and `hadris-iso` drop `async-local`;
+  `async` already enabled `hadris_fs::local`, and builds on the same
+  targets.
+
+- **hadris-fs (breaking):** The `contract` feature is renamed
+  `unstable-contract`. The driver contract kit (`contract::check`,
+  `contract::check_read_only`, `ContractViolation`) is outside semver and
+  hidden from the rendered docs; enable it in dev-dependencies only.
+
+- **tracing (breaking):** `tracing` no longer implies `std` in any crate,
+  and the `tracing` dependency is built without its default features, so
+  `no_std` builds can trace (the `tracing` crate needs a global allocator
+  there). `std` turns on `tracing/std`. Builds that relied on `tracing` for
+  `std` must enable `std` themselves.
+
+- **Host tier without `sync`:** `hadris_storage::host::FileDevice` needs
+  only `std` and implements `async_::BlockDevice` with `async` alone, so a
+  `std,async` build has a host file device. `hadris_fs::host` needs only
+  `std`; `mount_options`, `local_utc_offset` and `source_date_epoch` no
+  longer need `sync`, while `file`, `read_tree` and `write_tree` still do.
+  `hadris-fs` `sync` and `async` forward to `hadris-storage`.
+
+- **hadris-fs dependencies:** `hadris-storage` is an optional dependency
+  enabled by `std`, so `hadris-fat-raw` and `hadris-iso-raw` without `std`
+  no longer pull in `hadris-storage`.
+- **hadris-io, hadris (breaking):** `Error<E>` is no longer `Copy`; it
+  stays `Clone` when `E` is. A `Copy` impl would have frozen every private
+  field to `Copy` for all of 3.x. `hadris::Candidate` and
+  `hadris::Detection`, which hold an `Error<Infallible>`, are `Clone` but
+  no longer `Copy`. Call `.clone()` where an error was copied.
+
+- **hadris-fs (breaking):** `MountOptions` is no longer `Copy`; it stays
+  `Clone`, so later options can own their values. Clone it to mount more
+  than once with the same options. Its rustdoc now lists which driver
+  honours which option.
+- **hadris-fs, hadris-part, hadris-fat (breaking for hadris-fat's
+  dependencies):** `Guid` and `GuidParseError` move from `hadris-part` to
+  `hadris-fs`, the stable base. `hadris_part::{Guid, GuidParseError}` and
+  `hadris_fat::exfat::Guid` re-export them, so every path and method stays
+  the same; `Guid::random` needs the `std` feature of `hadris-fs`, which
+  `std` of `hadris-part` and `hadris-fat` enables. `hadris-fat` no longer
+  depends on `hadris-part`, so a FAT build no longer compiles the
+  partition crate and a `hadris-part` major release is not a `hadris-fat`
+  one.
+
+- **hadris-fs (breaking):** `Attributes` is a hand-written
+  `#[repr(transparent)]` newtype over `u32` instead of a `bitflags` type,
+  so `bitflags` is no longer part of the `hadris-fs` API. It keeps `NONE`,
+  `READ_ONLY`, `HIDDEN`, `SYSTEM`, `ARCHIVE`, `contains`, `union`,
+  `without`, `is_empty`, `bits`, `from_bits_truncate`, `|`, `|=`, `&` and
+  `&=`, and its `Debug` output still names the flags. The rest of the
+  `bitflags` surface is gone: use `NONE` for `empty()`, and
+  `from_bits_truncate` for `from_bits` and `from_bits_retain`.
+
+- **hadris-common (breaking):** The crate is internal: it keeps a 3.x
+  version but is exempt from semver, so a 3.y minor release may break it
+  and users pin it with `~3.0`. The raw crates' public layout fields use its
+  integers; no stable 3.x crate exposes its types. It keeps only `U16`, `U32`
+  and `U64` with inherent `new`, `get` and `set`, the `Endianness` trait
+  and `LittleEndian`. Removed, all without users: the `zerocopy`
+  re-exports `U16Le` through `I64Be` and the `zerocopy` dependency, `U24`,
+  `BigEndian`, `NativeEndian`, the `Endian` trait, `Endianness::is_le`,
+  `get_u24` and `set_u24`, and `align_up`.
+- **hadris (breaking):** The APFS preview is no longer part of the stable
+  `detect` feature. `AnyFs::Apfs`, APFS mounting in `open`,
+  `open_partition` and `host::open`, and the APFS damage check in `detect`
+  need `unstable-apfs`, and `detect` no longer depends on `hadris-apfs`.
+  Without `unstable-apfs`, `detect` still lists an APFS container as
+  `ImageFormat::Apfs` from its `NXSB` signature, with no damage, and `open`
+  fails on it with `NotRecognized` and message `"apfs"`, as it does for
+  NTFS. Enable `unstable-apfs` to keep mounting APFS through `open`.
+  `AnyFs` is `#[non_exhaustive]`, so the variant returns without a break
+  when APFS is stable.
+
+- **hadris-apfs, hadris-ntfs:** The preview crates keep 3.x version
+  numbers but are outside the 3.x stability promise: a 3.y minor release
+  may break their native API, and patch releases stay compatible. Pin them
+  with `~3.0` to take only compatible updates. Everything the
+  `unstable-ntfs` and `unstable-apfs` features of `hadris` add is outside
+  semver and may change in any `hadris` release.
+- **Raw crate re-exports (breaking):** `hadris-iso`, `hadris-udf` and
+  `hadris-cpio` no longer re-export their whole 0.x raw crate, which made
+  every breaking raw release a breaking change of the 3.x driver.
+  `hadris_iso::raw` keeps only `VolumeDescriptor`, `BootSectionEntry` and
+  the types of their fields and methods (the descriptors,
+  `VolumeDescriptorHeader`, `DescriptorType`, `RootDirectoryRecord`,
+  `DirectoryRecordHeader`, `FileFlags`, `DecDateTime`, `DirDateTime`,
+  `IsoStr`, `U16Both`, `U32Both`, `U16Le`, `U32Le` and `U32Be`).
+  `hadris_udf::raw` and `hadris_cpio::raw` are removed. Depend on
+  `hadris-iso-raw`, `hadris-udf-raw` or `hadris-cpio-raw` for the other
+  layouts and codecs. `hadris-fat` also re-exports `RootLocation` and
+  `ChainError`, which `Geometry::root` and `FatKind::next` return. The items
+  each driver re-exports are frozen for its 3.x series, as
+  `website/docs/stability.md` lists; `scripts/check-non-exhaustive.py`
+  rejects wholesale raw re-exports.
+
+- **hadris-iso-raw, hadris-udf-raw, hadris-cpio-raw (breaking):** Each item
+  has one path, at the crate root. The `raw` module that duplicated every
+  item (`hadris_iso_raw::raw::DirectoryRecord` and
+  `hadris_iso_raw::DirectoryRecord`) is removed.
+
 - **Embedded FAT stale directories:** Using an embedded `Dir` of a removed
   subdirectory fails with `InvalidHandle` instead of reading or writing
   entries in its old cluster, which may since hold file data. Each use of
@@ -267,7 +390,7 @@ Each published package owns its version and may be released independently.
   bytes in raw order, so its text form differs in the first three groups. `format` and `write` now write a Volume GUID derived
   from the seed, or the time without one, so output stays reproducible;
   `ExFatOptions::with_volume_guid` sets it or, with `None`, leaves it out.
-  `hadris_fat::exfat::Guid` is `hadris_part::Guid`.
+  `hadris_fat::exfat::Guid` is `hadris_fs::Guid`.
 
 - **ISO 9660 verification:** Add 13 Kani proofs for byte-order fields, path
   table and directory record layout, directory and descriptor dates, SUSP

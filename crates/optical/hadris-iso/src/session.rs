@@ -20,9 +20,9 @@ use crate::error::{Detail, Error};
 use crate::namespace::Namespace;
 use crate::options::{BootInfo, IsoLevel, IsoOptions, SessionMode};
 use crate::plan::{self, Base, InfoTable, Region};
-use crate::raw::{self, SECTOR_SIZE};
 use crate::volume_info::IsoId;
 use hadris_fs::PathError;
+use hadris_iso_raw::{self as raw, SECTOR_SIZE};
 
 const SECTOR: u64 = SECTOR_SIZE as u64;
 /// The system area, the backup GPT region after the data, and the first

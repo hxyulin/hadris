@@ -202,7 +202,7 @@ pub trait IsoExtras {
     type E;
     fn catalog(&mut self) -> Result<Option<Catalog>, hadris_fs::Error<Self::E>>;
     fn all_extents(&mut self, node: hadris_fs::NodeId) -> Vec<hadris_fs::Extent>;
-    fn record(&mut self, node: hadris_fs::NodeId) -> hadris_iso::raw::DirectoryRecord;
+    fn record(&mut self, node: hadris_fs::NodeId) -> hadris_iso_raw::DirectoryRecord;
 }
 
 impl<D: hadris_storage::sync::BlockDevice> IsoExtras for hadris_iso::sync::IsoFs<D> {
@@ -232,12 +232,12 @@ impl<D: hadris_storage::sync::BlockDevice> IsoExtras for hadris_iso::sync::IsoFs
         }
     }
 
-    fn record(&mut self, node: hadris_fs::NodeId) -> hadris_iso::raw::DirectoryRecord {
+    fn record(&mut self, node: hadris_fs::NodeId) -> hadris_iso_raw::DirectoryRecord {
         let mut out = [hadris_fs::Extent::new(0, 0); 1];
         assert_eq!(self.records(node, &mut out).unwrap(), 1);
         let mut bytes = vec![0u8; out[0].len() as usize];
         self.read_raw(out[0].offset(), &mut bytes).unwrap();
-        hadris_iso::raw::DirectoryRecord::parse(&bytes)
+        hadris_iso_raw::DirectoryRecord::parse(&bytes)
             .unwrap()
             .unwrap()
     }

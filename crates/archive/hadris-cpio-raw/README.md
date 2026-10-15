@@ -9,8 +9,9 @@ The package starts at version 0.1.0 and versions independently of the driver.
 hadris-cpio-raw = "0.1.0"
 ```
 
-Types are available at the crate root. The driver preserves the same types
-under `hadris_cpio::raw` for existing users. Use `hadris-cpio` for
+Every item is at the crate root. `hadris-cpio` builds on this crate but
+does not re-export it, so this crate can change in a 0.x minor release
+without a new major version of `hadris-cpio`. Use `hadris-cpio` for
 streaming archive reading and writing.
 
 The first publication is part of the RC2 release. Until publication, use a

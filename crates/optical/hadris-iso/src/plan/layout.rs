@@ -8,7 +8,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::options::{Hybrid, PartitionScheme};
-use crate::raw::{FileFlags, SECTOR_SIZE};
+use hadris_iso_raw::{FileFlags, SECTOR_SIZE};
 
 struct PlacedFile {
     block: u64,

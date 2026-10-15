@@ -8,15 +8,15 @@ use super::FileSystem;
 use super::storage::BlockDevice;
 use crate::UdfRevision;
 use crate::error::{Detail, Error};
-use crate::raw::{
-    self, AllocationExtentDescriptor, AnchorVolumeDescriptorPointer, EntityId, ExtAd,
-    FileCharacteristics, FileIdentifierDescriptor, FileSetDescriptor, IcbFlags,
-    LogicalVolumeDescriptor, LogicalVolumeIntegrityDescriptor, LongAd, PathComponent, ShortAd, Tag,
-    allocation, extent, tag, vsd,
-};
 use crate::volume::{
     EntityId as Entity, Icb, Identifier, Info, Location, MAX_BLOCK, MAX_PARTITIONS, PartitionInfo,
     VolumeInfo, check_tag,
+};
+use hadris_udf_raw::{
+    self as raw, AllocationExtentDescriptor, AnchorVolumeDescriptorPointer, EntityId, ExtAd,
+    FileCharacteristics, FileIdentifierDescriptor, FileSetDescriptor, IcbFlags,
+    LogicalVolumeDescriptor, LogicalVolumeIntegrityDescriptor, LongAd, PathComponent, ShortAd, Tag,
+    allocation, extent, tag, vsd,
 };
 
 /// Allocation descriptors walked for one file.

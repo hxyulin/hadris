@@ -40,21 +40,21 @@ fn sync_through_a_volume() {
 fn async_modes() {
     let case = CASES[2];
     block_on(async {
-        let mut fs = hadris_fat::r#async::FatFs::mount(
+        let mut fs = hadris_fat::async_::FatFs::mount(
             common::device(case, common::blank(case)),
             MountOptions::new(),
         )
         .await
         .unwrap();
-        hadris_fs::r#async::contract::check(&mut fs).await.unwrap();
-        let fs = hadris_fat::r#async::FatFs::mount(
+        hadris_fs::async_::contract::check(&mut fs).await.unwrap();
+        let fs = hadris_fat::async_::FatFs::mount(
             common::device(case, common::blank(case)),
             MountOptions::new(),
         )
         .await
         .unwrap();
-        let vol = hadris_fs::r#async::Volume::new(fs);
-        hadris_fs::r#async::contract::check(&mut *vol.lock().await.unwrap())
+        let vol = hadris_fs::async_::Volume::new(fs);
+        hadris_fs::async_::contract::check(&mut *vol.lock().await.unwrap())
             .await
             .unwrap();
     });

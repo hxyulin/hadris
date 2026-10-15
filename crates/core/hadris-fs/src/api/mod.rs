@@ -3,7 +3,8 @@ use crate::{
     NodeId, OpenMode, RenameMode, Resolve, SetAttr,
 };
 
-#[cfg(feature = "contract")]
+#[cfg(feature = "unstable-contract")]
+#[doc(hidden)]
 pub mod contract;
 #[cfg(feature = "alloc")]
 mod copy;

@@ -71,7 +71,7 @@ stronger bound; a Send device value alone is insufficient.
 Use `hadris::fs::local::FileSystem` and `local::Volume` for local devices, or
 `hadris::fs::async_::FileSystem` and `async_::Volume` for the stronger Send
 contract. The `async` feature enables both. Device errors remain
-`Send + Sync + 'static` in every mode. `r#async` aliases `async_`.
+`Send + Sync + 'static` in every mode.
 
 CPIO still consumes the existing Send byte-stream contracts. Its local-stream
 migration is separate from the block-device change. See the

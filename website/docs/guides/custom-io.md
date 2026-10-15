@@ -10,9 +10,8 @@ Synchronous streams can implement the `hadris-io` traits and use
 `sync::StreamDevice`. Asynchronous block devices implement the common poll
 contract directly, or use `async_::StreamDevice` with a poll-native
 `async_::Stream`. `BlockingStream` explicitly bridges synchronous streams and
-blocks during each poll. Older async-trait stream adapters remain under
-`legacy_async` and `legacy_local`; embedded-io async streams continue to work
-with CPIO's existing stream contract.
+blocks during each poll. embedded-io async streams continue to work with
+CPIO's existing stream contract.
 
 For a filesystem, [implement a block device](#implement-a-block-device-for-fat)
 directly when the hardware addresses whole blocks.
@@ -277,7 +276,7 @@ Use `hadris_storage::async_::BlockDevice` and supply `State`,
 `poll_read_blocks`, optional `poll_write_blocks`/`poll_flush`, and `cancel`.
 Callers await the provided read/write/flush methods. `SendBlockDevice` is
 automatic when the device and state are Send; the same filesystem type works
-with local devices too. `r#async` remains a compatibility alias.
+with local devices too.
 
 Hooks must release access to caller buffers before returning Pending and
 arrange wakeups when progress becomes possible. `cancel` must be safe when

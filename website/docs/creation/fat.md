@@ -125,7 +125,7 @@ assert_eq!(image.len() as u64, report.size());
 # Ok::<(), hadris::fs::PathError>(())
 ```
 
-The same `format` and `write` exist in `hadris::fat::r#async` when the crate
+The same `format` and `write` exist in `hadris::fat::async_` when the crate
 is built with `async`. `format` needs no allocator. Enable exactly the I/O
 mode your application uses; `std` does not implicitly select `sync`.
 

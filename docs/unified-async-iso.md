@@ -4,10 +4,9 @@ Storage's `async` feature exposes `hadris_storage::async_::BlockDevice` for both
 local and Send devices. Implement its poll hooks and operation-owned
 `State: Default + Unpin` once. `SendBlockDevice` is derived automatically when
 both the device and its state are Send. The [device migration guide](async-devices.md)
-explains backend hooks, cancellation, stream adapters and legacy implementations.
+explains backend hooks, cancellation and stream adapters.
 
-ISO uses one `hadris_iso::async_::IsoFs<D>` type. `r#async` remains an alias;
-storage's `local` namespace also aliases its common `async_` API. Partitions,
+ISO uses one `hadris_iso::async_::IsoFs<D>` type. Partitions,
 caches and read-ahead adapters accept common devices without a `Local` wrapper.
 
 ## Mount and use volumes
@@ -29,14 +28,14 @@ kind of device. A Send filesystem value alone does not guarantee Send I/O
 futures. Local futures may retain `Rc` state across suspension.
 
 Volumes require `alloc` and pointer-sized atomics. The reader also supports
-allocation-free `no_std` configurations. The `async-local` feature selects the
-local contract without enabling Send volume support.
+allocation-free `no_std` configurations. The `async` feature enables both the
+local and the Send contract.
 
 ## Writing and sessions
 
 ISO writers and sessions use the same common device contract and support local
 and Send devices. Enable `alloc` (or `std`) for writers and sessions. Their async APIs are available
-under `async_` with `r#async` aliases; sync APIs retain their existing namespace.
+under `async_`; sync APIs retain their existing namespace.
 Regression tests exercise local writes, appended sessions, rewrites and exports
 while preserving GPT and El Torito data.
 

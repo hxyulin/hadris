@@ -140,9 +140,9 @@ and its validation.
 
 ## ISO reader and writer
 
-Run `cargo bench -p hadris-iso --bench performance --features cache` for
-282 cases covering lookup, listing, repeated metadata operations, single-extent
-file reads and image planning/writing. Without `cache`, it runs 114 cases.
+Run `cargo bench -p hadris-iso --bench performance` for 282 cases covering
+lookup, listing, repeated metadata operations, single-extent file reads and
+image planning/writing, with and without the reader cache.
 `HADRIS_ISO_BENCH_FILTER` filters labels by substring;
 `HADRIS_ISO_BENCH_SAMPLES` sets the number of measured samples (default seven).
 CSV is written to stdout, so it can be redirected to a baseline file.

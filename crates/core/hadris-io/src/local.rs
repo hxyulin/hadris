@@ -9,7 +9,7 @@ macro_rules! local_only {
     ($($item:tt)*) => { $($item)* };
 }
 
-/// Implemented by every type in this mode; `Send` in the `r#async` mode.
+/// Implemented by every type in this mode; `Send` in the `async_` mode.
 pub trait MaybeSend {}
 impl<T: ?Sized> MaybeSend for T {}
 

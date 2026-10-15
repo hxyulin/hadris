@@ -12,7 +12,9 @@ use hadris_fs::{
 use crate::error::{Detail, Error};
 use crate::header;
 use crate::options::{CpioOptions, Format};
-use crate::raw::{self, NewcFields, NewcHeader, OdcFields, OdcHeader, PATH_MAX, TRAILER_NAME};
+use hadris_cpio_raw::{
+    self as raw, NewcFields, NewcHeader, OdcFields, OdcHeader, PATH_MAX, TRAILER_NAME,
+};
 use hadris_fs::ErrorKind;
 
 /// The header fields of one entry, before encoding.

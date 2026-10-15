@@ -1,6 +1,6 @@
 //! The in-memory test driver passes the contract kit in every mode.
 
-#![cfg(all(feature = "contract", feature = "std"))]
+#![cfg(all(feature = "unstable-contract", feature = "std"))]
 
 mod common;
 
@@ -25,13 +25,13 @@ fn async_mode() {
 
     block_on(async {
         let mut fs = common::asynch::MemFs::new();
-        hadris_fs::r#async::contract::check(&mut fs).await.unwrap();
+        hadris_fs::async_::contract::check(&mut fs).await.unwrap();
         assert_eq!(fs.open_nodes(), 1);
-        let vol = hadris_fs::r#async::Volume::new(common::asynch::MemFs::new());
-        hadris_fs::r#async::contract::check(&mut *vol.lock().await.unwrap())
+        let vol = hadris_fs::async_::Volume::new(common::asynch::MemFs::new());
+        hadris_fs::async_::contract::check(&mut *vol.lock().await.unwrap())
             .await
             .unwrap();
-        hadris_fs::r#async::contract::check_read_only(&mut common::asynch::fixture().read_only())
+        hadris_fs::async_::contract::check_read_only(&mut common::asynch::fixture().read_only())
             .await
             .unwrap();
     });

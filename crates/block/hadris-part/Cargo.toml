@@ -17,11 +17,11 @@ default = ["std", "sync"]
 # and `read`, `write` and `create` in each mode.
 alloc = ["hadris-io/alloc", "hadris-fs/alloc", "hadris-storage/alloc"]
 # Implies `alloc`; adds `Guid::random` and `std::io::Error` conversions.
-std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std"]
+std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std", "tracing?/std"]
 sync = ["hadris-io/sync", "hadris-storage/sync"]
 async = ["hadris-io/async", "hadris-storage/async"]
 
-tracing = ["std", "dep:tracing"]
+tracing = ["dep:tracing"]
 
 [package.metadata.docs.rs]
 features = ["std", "sync", "async", "tracing"]

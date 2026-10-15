@@ -1,5 +1,5 @@
-//! Contains utility types commonly used for filesystems.
+//! Endian-aware integers for on-disk layouts.
 
 pub mod endian;
-/// Endian-aware integer types and alignment helpers.
+/// Integers stored in a fixed byte order.
 pub mod number;

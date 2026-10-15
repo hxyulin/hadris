@@ -484,4 +484,15 @@ mod tests {
         let inner = io.get_ref().unwrap().downcast_ref::<PathError>().unwrap();
         assert_eq!(inner.downcast_device::<Ata>(), Some(&Ata::Timeout));
     }
+
+    #[test]
+    fn detail_codes_are_pinned() {
+        let pinned = [(Detail::VolumeFailed, 1)];
+        assert_eq!(pinned.len(), Detail::ALL.len());
+        for (detail, number) in pinned {
+            let code = DetailCode::new("hadris-fs", number);
+            assert_eq!(detail.code(), code);
+            assert_eq!(Detail::from_code(code), Some(detail));
+        }
+    }
 }

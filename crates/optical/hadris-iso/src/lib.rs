@@ -47,7 +47,8 @@
 //! `IsoFs::boot_catalog` reads the El Torito catalog into a caller buffer,
 //! `IsoFs::rock_ridge` returns the Rock Ridge entries of a node, and
 //! `IsoFs::records` and `IsoFs::extents` locate its directory records and
-//! data for `IsoFs::read_raw`. The on-disk layouts are in [`raw`].
+//! data for `IsoFs::read_raw`. [`raw`] holds the on-disk layouts these
+//! methods return; the full set is in the `hadris-iso-raw` crate.
 //!
 //! ## Writing
 //!
@@ -78,10 +79,10 @@
 //! | Feature | Default | Description |
 //! |---|---|---|
 //! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
-//! | `alloc` | via `std` | The writer, sessions and the `Tree` input |
+//! | `alloc` | via `std` | The writer, sessions, the `Tree` input and the bounded reader metadata caches |
 //! | `sync` | Yes | The blocking API in `sync` |
-//! | `cache` | No | Opt-in bounded reader metadata caches; implies `alloc` |
 //! | `async` | No | The common asynchronous API in `async_`; futures are Send for Send devices and operation state |
+//! | `tracing` | No | Operation spans through the `tracing` crate, also without `std` |
 //!
 //! No feature changes what an item does.
 
@@ -102,10 +103,10 @@ extern crate alloc;
 #[cfg(all(feature = "std", not(test)))]
 extern crate std;
 
-#[cfg(feature = "cache")]
+#[cfg(feature = "alloc")]
 mod cache;
-#[cfg(feature = "cache")]
-#[cfg_attr(docsrs, doc(cfg(feature = "cache")))]
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub use cache::CacheOptions;
 
 mod boot;
@@ -122,10 +123,20 @@ mod rock_ridge;
 mod verification;
 mod volume_info;
 
-/// On-disk layouts and I/O-free codecs, shared with `hadris-iso-raw`.
+/// The `hadris-iso-raw` layouts this crate's API returns:
+/// [`VolumeDescriptor`](raw::VolumeDescriptor) from `IsoFs::descriptor`,
+/// [`BootSectionEntry`](raw::BootSectionEntry) from `CatalogEntry::raw`, and
+/// the types of their fields and methods.
+///
+/// The other layouts and codecs are in `hadris-iso-raw`, which versions
+/// apart from this crate; depend on it directly to use them.
 pub mod raw {
-    #[doc(inline)]
-    pub use hadris_iso_raw::raw::*;
+    pub use hadris_iso_raw::{
+        BootRecordVolumeDescriptor, BootSectionEntry, DecDateTime, DescriptorType, DirDateTime,
+        DirectoryRecordHeader, FileFlags, IsoStr, PrimaryVolumeDescriptor, RootDirectoryRecord,
+        SupplementaryVolumeDescriptor, U16Both, U16Le, U32Be, U32Both, U32Le, VolumeDescriptor,
+        VolumeDescriptorHeader, VolumeDescriptorSetTerminator,
+    };
 }
 
 #[cfg(feature = "sync")]
@@ -168,11 +179,6 @@ pub mod sync {
     pub use session::Session;
 }
 
-/// Compatibility alias for [`async_`].
-#[cfg(any(feature = "async", feature = "async-local"))]
-#[cfg_attr(docsrs, doc(cfg(any(feature = "async", feature = "async-local"))))]
-pub use async_ as r#async;
-
 pub use boot::{BootCatalog, CatalogEntries, CatalogEntry, Emulation, Platform};
 pub use error::Detail;
 pub use namespace::{JolietLevel, Namespace, Namespaces};
@@ -192,6 +198,6 @@ pub use volume_info::{IsoDate, IsoId, VolumeInfo};
 extern crate self as hadris_iso;
 
 /// The common async API, with Send guarantees derived from the device and operation state.
-#[cfg(any(feature = "async", feature = "async-local"))]
+#[cfg(feature = "async")]
 #[path = "unified.rs"]
 pub mod async_;

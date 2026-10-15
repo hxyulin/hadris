@@ -1,7 +1,7 @@
 use crate::rock_ridge::LinkKey;
 use alloc::{collections::BTreeMap, vec::Vec};
 
-use crate::raw::{DirectoryRecord, SECTOR_SIZE};
+use hadris_iso_raw::{DirectoryRecord, SECTOR_SIZE};
 
 /// Limits for the optional reader metadata cache.
 ///

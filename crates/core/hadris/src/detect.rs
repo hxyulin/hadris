@@ -32,7 +32,7 @@ pub enum ImageFormat {
 
 /// One format `detect` found, with the error its mount would give when
 /// its signature is present but its first structures are damaged.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Candidate {
     format: ImageFormat,
     damage: Option<Error<Infallible>>,
@@ -60,7 +60,7 @@ const MAX_FOUND: usize = 6;
 /// `IsoUdfBridge`, then `Iso`, then `Udf`, and a hybrid ISO image is `Iso`
 /// then `Gpt` or `Mbr`. Empty when nothing was recognized. It does not
 /// allocate.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Detection {
     found: [Option<Candidate>; MAX_FOUND],
 }
@@ -68,7 +68,7 @@ pub struct Detection {
 impl Detection {
     pub(crate) const fn new() -> Self {
         Self {
-            found: [None; MAX_FOUND],
+            found: [const { None }; MAX_FOUND],
         }
     }
 

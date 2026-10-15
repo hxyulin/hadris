@@ -84,7 +84,7 @@ fn damaged_entries_behind_listed_ids_are_corrupt() {
     let block = ((node.get() - 1) & 0xFFFF_FFFF) as u32;
     let sector = (0..good.len() / 2048)
         .find(|&sector| {
-            hadris_udf::raw::Tag::read(&good[sector * 2048..]).is_some_and(|tag| {
+            hadris_udf_raw::Tag::read(&good[sector * 2048..]).is_some_and(|tag| {
                 tag.is_checksum_valid()
                     && matches!(tag.identifier.get(), 261 | 266)
                     && tag.location.get() == block
@@ -351,7 +351,7 @@ impl hadris_storage::sync::BlockDevice for FailingDevice {
 }
 
 #[cfg(feature = "async")]
-impl hadris_storage::r#async::BlockDevice for FailingDevice {
+impl hadris_storage::async_::BlockDevice for FailingDevice {
     type State = ();
     fn cancel(&mut self, _: &mut ()) {}
     fn block_size(&self) -> BlockSize {
@@ -388,12 +388,15 @@ fn reserve_sequence_preserves_device_failures() {
         } else {
             MountOptions::new()
         };
-        let failed =
-            UdfFs::mount(FailingDevice::new(bytes.clone(), fallback as u64), options).unwrap_err();
+        let failed = UdfFs::mount(
+            FailingDevice::new(bytes.clone(), fallback as u64),
+            options.clone(),
+        )
+        .unwrap_err();
         assert_device_failure(failed.into_error());
         #[cfg(feature = "async")]
         common::block_on(async {
-            let failed = hadris_udf::r#async::UdfFs::mount(
+            let failed = hadris_udf::async_::UdfFs::mount(
                 FailingDevice::new(bytes, fallback as u64),
                 options,
             )
@@ -433,7 +436,7 @@ fn symlink_metadata_preserves_device_failures() {
     common::block_on(async {
         let dev = FailingDevice::new(bytes, u64::MAX);
         let fail = dev.fail.clone();
-        let mut udf = hadris_udf::r#async::UdfFs::mount(dev, MountOptions::new())
+        let mut udf = hadris_udf::async_::UdfFs::mount(dev, MountOptions::new())
             .await
             .unwrap();
         assert_eq!(udf.stat(node).await.unwrap().len(), 6);
@@ -471,7 +474,7 @@ fn malformed_symlinks_fail_stat_and_list_with_damaged_metadata() {
     #[cfg(feature = "async")]
     common::block_on(async {
         let mut udf =
-            hadris_udf::r#async::UdfFs::mount(MemDevice::new(bytes, SECTOR), MountOptions::new())
+            hadris_udf::async_::UdfFs::mount(MemDevice::new(bytes, SECTOR), MountOptions::new())
                 .await
                 .unwrap();
         assert_eq!(udf.stat(node).await.unwrap_err().kind(), ErrorKind::Corrupt);
@@ -508,8 +511,8 @@ fn cached_symlink_reads_preserve_device_failures_and_retry() {
     common::block_on(async {
         let dev = FailingDevice::new(bytes, payload);
         let fail = dev.fail.clone();
-        let mut udf = hadris_udf::r#async::UdfFs::mount(
-            hadris_storage::r#async::Cache::new(dev, 8),
+        let mut udf = hadris_udf::async_::UdfFs::mount(
+            hadris_storage::async_::Cache::new(dev, 8),
             MountOptions::new(),
         )
         .await
@@ -541,7 +544,7 @@ fn malformed_identifier_fields_are_refused() {
         }
         at += (38 + iu + n + 3) & !3;
     }
-    let tag = hadris_udf::raw::Tag::read(&good[at..]).unwrap();
+    let tag = hadris_udf_raw::Tag::read(&good[at..]).unwrap();
     let crc_length = usize::from(tag.crc_length.get());
     let iu = usize::from(u16::from_le_bytes(
         good[at + 36..at + 38].try_into().unwrap(),
@@ -570,7 +573,7 @@ fn malformed_identifier_fields_are_refused() {
             _ => (),
         }
         let location = tag.location.get() + u32::from(field == "tag-location");
-        hadris_udf::raw::Tag::seal(
+        hadris_udf_raw::Tag::seal(
             &mut bad[at..],
             tag.identifier.get(),
             tag.version.get(),
@@ -597,7 +600,7 @@ fn malformed_identifier_fields_are_refused() {
         #[cfg(feature = "async")]
         common::block_on(async {
             let mut fs =
-                hadris_udf::r#async::UdfFs::mount(MemDevice::new(bad, SECTOR), MountOptions::new())
+                hadris_udf::async_::UdfFs::mount(MemDevice::new(bad, SECTOR), MountOptions::new())
                     .await
                     .unwrap();
             let root = fs.root();

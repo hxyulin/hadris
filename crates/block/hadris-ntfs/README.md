@@ -3,7 +3,8 @@
 `hadris-ntfs` is a read-only NTFS reader that needs no allocator. It is a
 preview in Hadris 3.0: it implements the `hadris-fs` `FileSystem` trait,
 whose shape is frozen, and its native methods may still change in 3.x
-minors.
+minors. Depend on it with `hadris-ntfs = "~3.0"` to take only compatible
+updates.
 
 `NtfsFs` opens a volume on any `hadris-storage` block device, in blocking
 and asynchronous forms, so `Volume` and the file handles of `hadris-fs`
@@ -67,8 +68,8 @@ references, so they are stable and hard links share one.
 | `std` | Yes | Implies `alloc`; forwards `std` to `hadris-fs` and `hadris-storage` |
 | `alloc` | via `std` | Forwards `alloc` to `hadris-fs` and `hadris-storage` |
 | `sync` | Yes | The blocking API in `sync` |
-| `async` | No | The unified asynchronous API in `async_` (`r#async` is an alias) |
-| `tracing` | No | Operation spans through the `tracing` crate; implies `std` |
+| `async` | No | The unified asynchronous API in `async_` |
+| `tracing` | No | Operation spans through the `tracing` crate, also without `std` |
 
 Reading needs no allocator in any mode. No feature changes what an item
 does.
@@ -91,8 +92,8 @@ scripts/test-ntfs.sh cargo test -p hadris-ntfs --all-features
 
 ## Tracing
 
-The opt-in `tracing` feature enables `std` and emits operation spans through the
-application’s subscriber. It is disabled by default. See the
+The opt-in `tracing` feature emits operation spans through the application’s
+subscriber, with or without `std`. It is disabled by default. See the
 [tracing guide](../../../docs/tracing.md) for targets, metadata and async behavior.
 
 ## Volume bounds
@@ -104,8 +105,8 @@ and uninitialized file tails retain their zero-fill behavior.
 
 ## Unified asynchronous API
 
-The `async_` namespace is canonical; `r#async` remains an alias. One filesystem
-type accepts both Send and local devices through `hadris_storage::async_::BlockDevice`.
+One filesystem type in `async_` accepts both Send and local devices through
+`hadris_storage::async_::BlockDevice`.
 It implements `hadris_fs::local::FileSystem` for all compatible devices and the
 Send filesystem contract when its device and operation state are Send. The
 `async` feature enables both capabilities; no separate local feature is needed.

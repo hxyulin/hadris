@@ -91,7 +91,7 @@ field is clamped and reported; other values that do not fit a header field
 fail before the entry is written. `CpioOptions::with_format(Format::Odc)` writes
 `odc`, whose device numbers are stored as `major << 8 | minor`.
 
-The header layouts are in `hadris_cpio::raw`.
+The header layouts are in `hadris-cpio-raw`.
 
 ## Feature flags
 
@@ -101,7 +101,7 @@ The header layouts are in `hadris_cpio::raw`.
 | `alloc` | via `std` | The writer, `plan`, `read_tree` and `normalize_path` |
 | `sync` | yes | The blocking API in `sync` |
 | `async` | no | The asynchronous API with `Send` futures in `async_` |
-| `tracing` | no | Operation spans through the `tracing` crate; implies `std` |
+| `tracing` | no | Operation spans through the `tracing` crate, also without `std` |
 
 A bootloader that only reads uses
 `default-features = false, features = ["sync"]`.
@@ -114,8 +114,8 @@ A bootloader that only reads uses
 
 ## Tracing
 
-The opt-in `tracing` feature enables `std` and emits operation spans through the
-application’s subscriber. It is disabled by default. See the
+The opt-in `tracing` feature emits operation spans through the application’s
+subscriber, with or without `std`. It is disabled by default. See the
 [tracing guide](../../../docs/tracing.md) for targets, metadata and async behavior.
 
 The [streaming audit and benchmark](../../../docs/cpio-performance.md) records
@@ -127,14 +127,14 @@ payload for every name, with each name reporting its own data offset.
 ## Standalone codecs
 
 The on-disk layouts and I/O-free codecs live in
-[`hadris-cpio-raw`](../hadris-cpio-raw). Existing `hadris_cpio::raw`
-paths remain available and refer to the same types. The raw crate needs
-neither an allocator nor a sync/async feature.
+[`hadris-cpio-raw`](../hadris-cpio-raw), which has its own 0.x version and
+needs neither an allocator nor a sync/async feature. This crate's API uses
+none of its types and does not re-export it; depend on `hadris-cpio-raw`
+directly to read or write the layouts.
 
 ## Asynchronous byte streams
 
-The canonical asynchronous namespace is `async_`; `r#async` remains a compatibility
-alias. CPIO operates on byte streams through `hadris_io::async_::Read` and
+The asynchronous namespace is `async_`. CPIO operates on byte streams through `hadris_io::async_::Read` and
 `Write`, rather than storage block devices. Its asynchronous streams and futures
 retain their `Send` contract. Local byte streams require a separate stream
 contract migration; enabling local block devices does not change this API.

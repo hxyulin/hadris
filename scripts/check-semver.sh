@@ -20,7 +20,9 @@
 # same change (the next release candidate, or the next major after 3.0.0),
 # and cargo-semver-checks then infers the allowed change from the two
 # versions. A version that was never released may still break, since nothing
-# depends on it; the crate is skipped.
+# depends on it; the crate is skipped. The preview and internal crates
+# (hadris-apfs, hadris-ntfs, hadris-common) are exempt from semver within
+# 3.x: a minor bump may break their API, so it is checked as a major.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
@@ -65,6 +67,8 @@ crates=(
   hadris-udf
   hadris-udf-raw
 )
+
+exempt=" hadris-apfs hadris-common hadris-ntfs "
 
 metadata="$(cargo metadata --no-deps --format-version 1)"
 
@@ -111,6 +115,8 @@ for crate in "${crates[@]}"; do
       continue
     fi
     release_type=minor
+  elif [[ "$exempt" == *" $crate "* && "$(cut -d. -f1-2 <<<"$version")" != "$(cut -d. -f1-2 <<<"$baseline_version")" ]]; then
+    release_type=major
   fi
   echo "$crate $version against $baseline ($baseline_version), release type $release_type"
   groups["$baseline $release_type"]+=" -p $crate"

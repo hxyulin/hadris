@@ -395,17 +395,17 @@ fn async_modes_read_and_write_alike() {
     common::block_on(async {
         let size = hadris_iso::plan(&tree, &options).unwrap().size();
         let mut dev = hadris_storage::MemDevice::new(vec![0u8; size as usize], common::SECTOR);
-        hadris_iso::r#async::write(&mut dev, &tree, &options)
+        hadris_iso::async_::write(&mut dev, &tree, &options)
             .await
             .unwrap();
         assert_eq!(dev.get_ref(), &sync_image);
         let mut dev = hadris_storage::MemDevice::new(vec![0u8; size as usize], common::SECTOR);
-        hadris_iso::r#async::write(&mut dev, &tree, &options)
+        hadris_iso::async_::write(&mut dev, &tree, &options)
             .await
             .unwrap();
         assert_eq!(dev.get_ref(), &sync_image);
 
-        let mut view = hadris_iso::r#async::IsoFs::mount(dev, MountOptions::new())
+        let mut view = hadris_iso::async_::IsoFs::mount(dev, MountOptions::new())
             .await
             .unwrap();
 
@@ -484,7 +484,7 @@ fn supplementary_escape_sequences_are_zero_padded() {
         .unwrap()
     {
         index += 1;
-        if let hadris_iso::raw::VolumeDescriptor::Supplementary(svd) = descriptor {
+        if let hadris_iso_raw::VolumeDescriptor::Supplementary(svd) = descriptor {
             let escapes = svd.escape_sequences;
             let used = if svd.is_enhanced() { 0 } else { 3 };
             assert!(
@@ -950,7 +950,7 @@ fn directories_have_no_length() {
 
 #[test]
 fn path_tables_use_final_directory_identifiers() {
-    use hadris_iso::raw::{DirectoryRecord, FileFlags};
+    use hadris_iso_raw::{DirectoryRecord, FileFlags};
     fn table(bytes: &[u8], start: usize, size: usize, big: bool) -> Vec<(Vec<u8>, u32, u16)> {
         let mut entries = Vec::new();
         let mut pos = start;
@@ -1143,7 +1143,7 @@ relocation_cases!(
 );
 #[cfg(feature = "async")]
 relocation_cases!(
-    r#async,
+    async_,
     relocation_listing_preserves_only_the_logical_tree_async,
     relocation_async
 );
@@ -1355,12 +1355,12 @@ fn async_writes_non_utf8_names_alike() {
     common::block_on(async {
         let size = hadris_iso::plan(&tree, &options).unwrap().size();
         let mut dev = hadris_storage::MemDevice::new(vec![0u8; size as usize], common::SECTOR);
-        let report = hadris_iso::r#async::write(&mut dev, &tree, &options)
+        let report = hadris_iso::async_::write(&mut dev, &tree, &options)
             .await
             .unwrap();
         assert!(report.extents(b"/\xff").is_some());
         assert_eq!(dev.get_ref(), &sync_image);
-        let mut view = hadris_iso::r#async::IsoFs::mount(dev, MountOptions::new())
+        let mut view = hadris_iso::async_::IsoFs::mount(dev, MountOptions::new())
             .await
             .unwrap();
         let root = view.resolve(b"/", Resolve::Lexical).await.unwrap();

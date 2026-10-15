@@ -9,7 +9,7 @@ use common::Paths;
 use common::{image, open, pattern, reseal};
 use hadris_fs::{Content, Node, Tree};
 use hadris_udf::UdfOptions;
-use hadris_udf::raw::{ExtendedFileEntry, FileEntry, Tag, Timestamp, U16Le, U32Le, U64Le, tag};
+use hadris_udf_raw::{ExtendedFileEntry, FileEntry, Tag, Timestamp, U16Le, U32Le, U64Le, tag};
 
 const PARTITION: u64 = 290;
 
@@ -216,7 +216,7 @@ fn identifiers_cross_extent_boundaries() {
         bytes[start as usize * 2048..start as usize * 2048 + len as usize].to_vec();
     let mut pos = 0;
     while pos < identifiers.len() {
-        let fid: hadris_udf::raw::FileIdentifierDescriptor =
+        let fid: hadris_udf_raw::FileIdentifierDescriptor =
             bytemuck::pod_read_unaligned(&identifiers[pos..pos + 38]);
         let block = pos / 2048;
         let location = if block == 0 {
@@ -418,7 +418,7 @@ fn extended_allocations_use_information_lengths() {
         );
         #[cfg(feature = "async")]
         common::block_on(async {
-            let mut udf = hadris_udf::r#async::UdfFs::mount(
+            let mut udf = hadris_udf::async_::UdfFs::mount(
                 hadris_storage::MemDevice::new(bytes, common::SECTOR),
                 hadris_fs::MountOptions::new(),
             )
@@ -468,7 +468,7 @@ fn extended_allocations_validate_recorded_lengths() {
         );
         #[cfg(feature = "async")]
         common::block_on(async {
-            let mut udf = hadris_udf::r#async::UdfFs::mount(
+            let mut udf = hadris_udf::async_::UdfFs::mount(
                 hadris_storage::MemDevice::new(bytes, common::SECTOR),
                 hadris_fs::MountOptions::new(),
             )
@@ -517,7 +517,7 @@ fn extended_allocations_follow_continuations_and_skip_empty_information() {
     );
     #[cfg(feature = "async")]
     common::block_on(async {
-        let mut udf = hadris_udf::r#async::UdfFs::mount(
+        let mut udf = hadris_udf::async_::UdfFs::mount(
             hadris_storage::MemDevice::new(bytes, common::SECTOR),
             hadris_fs::MountOptions::new(),
         )
@@ -537,7 +537,7 @@ fn extended_allocations_follow_continuations_and_skip_empty_information() {
 fn transformed_icbs_reject_reads_and_extents() {
     use hadris_fs::sync::FileSystem;
     use hadris_fs::{ErrorKind, Extent};
-    use hadris_udf::raw::IcbFlags;
+    use hadris_udf_raw::IcbFlags;
 
     let (base, icb, data, _) = volume();
     let mut long = [0u8; 16];
@@ -577,7 +577,7 @@ fn transformed_icbs_reject_reads_and_extents() {
         assert_eq!(extents, [sentinel; 2]);
         #[cfg(feature = "async")]
         common::block_on(async {
-            let mut udf = hadris_udf::r#async::UdfFs::mount(
+            let mut udf = hadris_udf::async_::UdfFs::mount(
                 hadris_storage::MemDevice::new(bytes, common::SECTOR),
                 hadris_fs::MountOptions::new(),
             )
@@ -604,7 +604,7 @@ fn transformed_icbs_reject_reads_and_extents() {
 #[test]
 fn identifier_names_reuse_crc_bytes_across_chunks() {
     use hadris_fs::sync::FileSystem;
-    use hadris_udf::raw::FileIdentifierDescriptor;
+    use hadris_udf_raw::FileIdentifierDescriptor;
 
     let name = "λ".repeat(120);
     let mut tree = Tree::new();
@@ -669,7 +669,7 @@ fn identifier_names_reuse_crc_bytes_across_chunks() {
             assert_eq!(udf.read_to_vec(&format!("/{name}")).unwrap(), b"contents");
             #[cfg(feature = "async")]
             common::block_on(async {
-                let mut udf = hadris_udf::r#async::UdfFs::mount(
+                let mut udf = hadris_udf::async_::UdfFs::mount(
                     hadris_storage::MemDevice::new(bytes.clone(), common::SECTOR),
                     hadris_fs::MountOptions::new(),
                 )
@@ -754,8 +754,8 @@ fn bounded_storage_cache_preserves_udf_reads() {
                     bytes.clone(),
                     hadris_storage::BlockSize::new(block).unwrap(),
                 );
-                let mut udf = hadris_udf::r#async::UdfFs::mount(
-                    hadris_storage::r#async::Cache::new(dev, capacity),
+                let mut udf = hadris_udf::async_::UdfFs::mount(
+                    hadris_storage::async_::Cache::new(dev, capacity),
                     hadris_fs::MountOptions::new(),
                 )
                 .await
@@ -876,7 +876,7 @@ fn resumed_continuations_preserve_backward_and_cross_file_reads() {
             inner: hadris_storage::MemDevice::new(bytes, common::SECTOR),
             pending: pending.clone(),
         };
-        let mut udf = hadris_udf::r#async::UdfFs::mount(dev, hadris_fs::MountOptions::new())
+        let mut udf = hadris_udf::async_::UdfFs::mount(dev, hadris_fs::MountOptions::new())
             .await
             .unwrap();
         let file = udf
@@ -937,7 +937,7 @@ impl hadris_io::ErrorType for PausingDevice {
 }
 
 #[cfg(feature = "async")]
-impl hadris_storage::r#async::BlockDevice for PausingDevice {
+impl hadris_storage::async_::BlockDevice for PausingDevice {
     type State = ();
     fn cancel(&mut self, _: &mut ()) {}
     fn block_size(&self) -> hadris_storage::BlockSize {
@@ -981,7 +981,7 @@ fn embedded_directory_tags_use_the_icb_location() {
     let mut identifiers = bytes[start as usize * 2048..start as usize * 2048 + len].to_vec();
     let mut pos = 0;
     while pos < identifiers.len() {
-        let fid: hadris_udf::raw::FileIdentifierDescriptor =
+        let fid: hadris_udf_raw::FileIdentifierDescriptor =
             bytemuck::pod_read_unaligned(&identifiers[pos..pos + 38]);
         Tag::seal(
             &mut identifiers[pos..pos + fid.total_len()],
@@ -1033,7 +1033,7 @@ fn directory_window_handles_device_sizes_and_directory_switches() {
         }
         #[cfg(feature = "async")]
         common::block_on(async {
-            let mut udf = hadris_udf::r#async::UdfFs::mount(
+            let mut udf = hadris_udf::async_::UdfFs::mount(
                 hadris_storage::MemDevice::new(
                     bytes.clone(),
                     hadris_storage::BlockSize::new(size).unwrap(),
@@ -1074,7 +1074,7 @@ fn cancelled_directory_fill_invalidates_the_previous_sector() {
         use core::task::{Context, Poll, Waker};
 
         let pending = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(u64::MAX));
-        let mut udf = hadris_udf::r#async::UdfFs::mount(
+        let mut udf = hadris_udf::async_::UdfFs::mount(
             PausingDevice {
                 inner: hadris_storage::MemDevice::new(bytes, common::SECTOR),
                 pending: pending.clone(),

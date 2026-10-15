@@ -9,7 +9,7 @@ pub(crate) enum LinkKey {
 
 use hadris_fs::{DateTime, DeviceNumber, ErrorKind, FileType};
 
-use crate::raw::{
+use hadris_iso_raw::{
     ContinuationArea, DecDateTime, DirDateTime, NmFlags, PnEntry, PxEntry, RRIP_IDENTIFIERS,
     SlComponentFlags, TfFlags,
 };
@@ -323,11 +323,11 @@ impl<'a> Scan<'a> {
                 b"NM" if !data.is_empty() => self.alternate_name(data),
                 b"SL" if !data.is_empty() => self.symlink(data),
                 b"CL" if data.len() >= 8 => {
-                    let block: crate::raw::U32Both = bytemuck::pod_read_unaligned(&data[..8]);
+                    let block: hadris_iso_raw::U32Both = bytemuck::pod_read_unaligned(&data[..8]);
                     self.info.child_link = Some(block.get());
                 }
                 b"PL" if data.len() >= 8 => {
-                    let block: crate::raw::U32Both = bytemuck::pod_read_unaligned(&data[..8]);
+                    let block: hadris_iso_raw::U32Both = bytemuck::pod_read_unaligned(&data[..8]);
                     self.info.parent_link = Some(block.get());
                 }
                 b"RE" => self.info.relocated = true,

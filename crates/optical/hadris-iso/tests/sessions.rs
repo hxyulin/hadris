@@ -329,7 +329,7 @@ fn async_sessions_match_sync_ones() {
     sync_session.write(&opts, SessionMode::Append).unwrap();
     let expected = sync_session.into_inner().into_inner();
     common::block_on(async {
-        let mut session = hadris_iso::r#async::Session::open(dev).await.unwrap();
+        let mut session = hadris_iso::async_::Session::open(dev).await.unwrap();
         session
             .tree_mut()
             .insert("x.txt", Node::file(Content::bytes("x")))
@@ -486,7 +486,7 @@ fn async_export_matches_sync() {
     session.export(&mut expected, &opts).unwrap();
     common::block_on(async {
         let mut session =
-            hadris_iso::r#async::Session::open(MemDevice::new(original, common::SECTOR))
+            hadris_iso::async_::Session::open(MemDevice::new(original, common::SECTOR))
                 .await
                 .unwrap();
         session
@@ -848,7 +848,7 @@ fn async_sessions_rewrite_latin1_names_alike() {
     let expected = sync_session.into_inner().into_inner();
     assert_eq!(rr_read(&expected, b"/r\xe9p/na\xefve"), b"new");
     common::block_on(async {
-        let mut session = hadris_iso::r#async::Session::open(dev).await.unwrap();
+        let mut session = hadris_iso::async_::Session::open(dev).await.unwrap();
         session
             .tree_mut()
             .insert(&b"r\xe9p/na\xefve"[..], Node::file(Content::bytes("new")))

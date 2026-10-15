@@ -238,11 +238,11 @@ fn async_modes_write_and_read_the_same_volume() {
     common::block_on(async {
         let size = hadris_udf::plan(&tree, &options).unwrap().size();
         let mut dev = MemDevice::new(vec![0u8; size as usize], SECTOR);
-        hadris_udf::r#async::write(&mut dev, &tree, &options)
+        hadris_udf::async_::write(&mut dev, &tree, &options)
             .await
             .unwrap();
         assert_eq!(dev.get_ref(), &expected);
-        let mut udf = hadris_udf::r#async::UdfFs::mount(dev, MountOptions::new())
+        let mut udf = hadris_udf::async_::UdfFs::mount(dev, MountOptions::new())
             .await
             .map_err(|_| ())
             .unwrap();
@@ -258,11 +258,11 @@ fn async_modes_write_and_read_the_same_volume() {
         assert_eq!(buf, pattern(70_000, 1));
 
         let mut dev = MemDevice::new(vec![0u8; size as usize], SECTOR);
-        hadris_udf::r#async::write(&mut dev, &tree, &options)
+        hadris_udf::async_::write(&mut dev, &tree, &options)
             .await
             .unwrap();
         assert_eq!(dev.get_ref(), &expected);
-        let mut udf = hadris_udf::r#async::UdfFs::mount(dev, MountOptions::new())
+        let mut udf = hadris_udf::async_::UdfFs::mount(dev, MountOptions::new())
             .await
             .map_err(|_| ())
             .unwrap();

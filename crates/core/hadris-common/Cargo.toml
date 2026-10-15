@@ -6,7 +6,7 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Internal types and functions shared by the Hadris crates; not for direct use"
+description = "Endian-aware integer types for the on-disk layouts of the Hadris raw crates"
 readme = "README.md"
 keywords = ["filesystem", "endian"]
 categories = ["no-std", "filesystem"]
@@ -18,7 +18,6 @@ bytemuck = ["dep:bytemuck"]
 
 [dependencies]
 bytemuck = { workspace = true, optional = true, features = ["derive"] }
-zerocopy = { workspace = true }
 
 [dev-dependencies]
 bytemuck = { workspace = true, features = ["derive"] }

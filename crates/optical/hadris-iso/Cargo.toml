@@ -14,7 +14,7 @@ categories = ["filesystem", "embedded", "no-std"]
 exclude = ["/spec"]
 
 [package.metadata.docs.rs]
-features = ["std", "sync", "async", "async-local", "tracing", "cache"]
+features = ["std", "sync", "async", "tracing"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
@@ -22,14 +22,11 @@ default = ["std", "sync"]
 # The writer, sessions, the boot catalog reader and the tree input.
 alloc = ["hadris-io/alloc", "hadris-fs/alloc", "hadris-storage/alloc", "dep:hadris-part", "hadris-part/alloc"]
 # Implies `alloc`; `std::io::Error` conversions and host files as tree content.
-std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std", "hadris-part/std"]
+std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std", "hadris-part/std", "tracing?/std"]
 sync = ["hadris-io/sync", "hadris-fs/sync", "hadris-storage/sync", "hadris-part?/sync"]
-async-local = ["hadris-part?/async", "hadris-io/async", "hadris-storage/async", "hadris-fs/async-local"]
-async = ["hadris-fs/async-local", "hadris-io/async", "hadris-fs/async", "hadris-storage/async", "hadris-part?/async"]
+async = ["hadris-io/async", "hadris-fs/async", "hadris-storage/async", "hadris-part?/async"]
 
-cache = ["alloc"]
-
-tracing = ["std", "dep:tracing", "hadris-part?/tracing"]
+tracing = ["dep:tracing", "hadris-part?/tracing"]
 
 [dependencies]
 hadris-iso-raw = { workspace = true }
@@ -44,7 +41,7 @@ hadris-part = { workspace = true, default-features = false, optional = true }
 
 [dev-dependencies]
 static_assertions = { workspace = true }
-hadris-fs = { workspace = true, features = ["contract"] }
+hadris-fs = { workspace = true, features = ["unstable-contract"] }
 hadris-storage = { workspace = true, features = ["std", "sync"] }
 tempfile.workspace = true
 
@@ -93,7 +90,7 @@ name = "raw_compat"
 
 [[test]]
 name = "unified_async"
-required-features = ["std", "sync", "async", "async-local"]
+required-features = ["std", "sync", "async"]
 
 [[test]]
 name = "unified_write"

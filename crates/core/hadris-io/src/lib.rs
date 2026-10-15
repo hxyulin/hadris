@@ -18,8 +18,7 @@
 //! return it; `hadris-fs` and `hadris` re-export it.
 //!
 //! The traits live in one module per mode: [`sync`], `async_` (futures
-//! that are `Send`) and `local` (futures that need not be `Send`). `r#async`
-//! aliases `async_`. The crate
+//! that are `Send`) and `local` (futures that need not be `Send`). The crate
 //! root holds only the mode-independent items, so
 //! `hadris_io::sync::Read` and `hadris_io::async_::Read` are always named
 //! explicitly.
@@ -84,6 +83,19 @@
 //! let err = Uart.read_exact(&mut [0; 4]).unwrap_err();
 //! assert!(matches!(err, hadris_io::ExactError::Io(UartError::Framing)));
 //! ```
+//!
+//! ## Async byte streams and block devices
+//!
+//! The async `Read`, `Write` and `Seek` traits are the byte-stream contract
+//! of the format crates: cpio archives and lazy tree content read through
+//! them, and they return the implementor's bare error. Block devices use
+//! the poll-based contract of `hadris-storage` instead, whose hooks return
+//! [`Error<E>`](Error), keep per-operation state and can be cancelled.
+//! `hadris-storage` also has a poll-based byte `Stream` with the same
+//! shape, which only backs its `StreamDevice`. Its `ByteView` turns a
+//! block device into these traits; nothing turns these traits into a
+//! `Stream`, since an `async fn` future that borrows its buffer cannot be
+//! kept between polls. A source that serves both implements both.
 
 #![no_std]
 #![deny(missing_docs)]
@@ -337,9 +349,6 @@ pub mod sync;
 #[cfg(feature = "async")]
 #[path = "async.rs"]
 pub mod async_;
-/// Compatibility alias for the asynchronous API.
-#[cfg(feature = "async")]
-pub use async_ as r#async;
 
 /// Asynchronous I/O traits whose futures need not be `Send`, for
 /// single-threaded executors such as embassy.

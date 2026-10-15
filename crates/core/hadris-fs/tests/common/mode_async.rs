@@ -1,7 +1,7 @@
 macro_rules! io_transform {
     ($($item:tt)*) => { $($item)* };
 }
-use hadris_fs::r#async::FileSystem;
+use hadris_fs::async_::FileSystem;
 #[allow(clippy::duplicate_mod)]
 #[path = "mem_fs.rs"]
 mod mem_fs;

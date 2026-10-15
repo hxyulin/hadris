@@ -21,11 +21,11 @@ default = ["std", "sync"]
 # The writers and `plan`; the bridge writer takes `hadris-iso` options.
 alloc = ["hadris-io/alloc", "hadris-fs/alloc", "hadris-storage/alloc", "dep:hadris-iso", "hadris-iso/alloc"]
 # Implies `alloc`; `std::io::Error` conversions and host files as tree content.
-std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std", "hadris-iso/std"]
+std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std", "hadris-iso/std", "tracing?/std"]
 sync = ["hadris-io/sync", "hadris-fs/sync", "hadris-storage/sync", "hadris-iso?/sync"]
-async = ["hadris-fs/async-local", "hadris-io/async", "hadris-fs/async", "hadris-storage/async", "hadris-iso?/async"]
+async = ["hadris-io/async", "hadris-fs/async", "hadris-storage/async", "hadris-iso?/async"]
 
-tracing = ["std", "dep:tracing", "hadris-iso?/tracing"]
+tracing = ["dep:tracing", "hadris-iso?/tracing"]
 
 [dependencies]
 hadris-udf-raw = { workspace = true }
@@ -39,7 +39,7 @@ hadris-macros = { workspace = true }
 hadris-iso = { workspace = true, default-features = false, optional = true }
 
 [dev-dependencies]
-hadris-fs = { workspace = true, features = ["contract"] }
+hadris-fs = { workspace = true, features = ["unstable-contract"] }
 hadris-part = { workspace = true, features = ["std", "sync"] }
 hadris-storage = { workspace = true, features = ["std", "sync"] }
 tempfile.workspace = true
@@ -77,9 +77,6 @@ required-features = ["std", "sync"]
 name = "kernels"
 harness = false
 required-features = ["std", "sync"]
-
-[[test]]
-name = "raw_compat"
 
 [[test]]
 name = "unified_async"

@@ -1,8 +1,7 @@
 //! Device primitives: the reads and writes a FAT driver is made of,
 //! generated for each mode from one source.
 //!
-//! The functions in `sync` and unified `async_` (`r#async` and `local`
-//! are compatibility aliases) are generic over the device only. They borrow the
+//! The functions in `sync` and unified `async_` are generic over the device only. They borrow the
 //! caller's [`BlockBuf`], which caches one device block, and a [`Fat`],
 //! which holds what the driver tracks about the allocation tables between
 //! calls. Sequences whose order matters when they are interrupted live
@@ -541,13 +540,6 @@ pub mod async_ {
         write_fs_info, write_slots,
     };
 }
-
-/// Compatibility alias for the unified asynchronous primitives.
-#[cfg(feature = "async")]
-pub use async_ as r#async;
-/// Compatibility alias for the unified asynchronous primitives.
-#[cfg(feature = "async")]
-pub use async_ as local;
 
 #[cfg(test)]
 mod group_tests {

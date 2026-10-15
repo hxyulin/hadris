@@ -171,7 +171,7 @@ mod asynchronous {
     use core::future::Future;
     use core::pin::pin;
     use core::task::{Context, Poll, Waker};
-    use hadris_fat_raw::io::r#async as aio;
+    use hadris_fat_raw::io::async_ as aio;
 
     impl hadris_storage::async_::BlockDevice for Device {
         type State = bool;

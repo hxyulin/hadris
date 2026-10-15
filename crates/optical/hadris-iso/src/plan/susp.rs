@@ -3,7 +3,7 @@
 
 use alloc::vec::Vec;
 
-use crate::raw::{PnEntry, PxEntry, SECTOR_SIZE, U32Both};
+use hadris_iso_raw::{PnEntry, PxEntry, SECTOR_SIZE, U32Both};
 
 const CE_LEN: usize = 28;
 

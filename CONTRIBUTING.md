@@ -131,7 +131,7 @@ hosted and embedded drivers. Run it with
 measurement boundaries and embedded flash/stack measurements.
 
 The ISO benchmark runs with
-`cargo bench -p hadris-iso --bench performance --features cache`; the same
+`cargo bench -p hadris-iso --bench performance`; the same
 performance guide documents its workloads, cache settings and measurement
 boundaries.
 
@@ -313,11 +313,28 @@ before returning. Summaries are written to `external-tools-accuracy.txt`,
 
 Each package declares its own version in its `Cargo.toml`, and
 `[workspace.dependencies]` holds the requirement every other crate uses.
-Every crate ships 3.0.0 together; after that each crate versions on its own
-(R12 in [`docs/v3-api-design.md`](docs/v3-api-design.md)). A crate bumps its
-major only for its own breaking changes, and the umbrella `hadris` bumps its
-major when a crate it re-exports does. `hadris-fat-raw` versions separately
-from 0.1.0. The examples are `publish = false`.
+Every stable crate ships 3.0.0 together; after that each crate versions on
+its own (R12 in [`docs/v3-api-design.md`](docs/v3-api-design.md)). A crate
+bumps its major only for its own breaking changes, and the umbrella `hadris`
+bumps its major when a stable crate it re-exports does. `hadris-fat-raw`
+versions separately from 0.1.0. The preview crates `hadris-ntfs` and
+`hadris-apfs` keep 3.x versions but are exempt from the semver promise: a
+breaking change to them bumps their minor, never their major, and since the
+umbrella reaches them only through `unstable-*` features, which are outside
+semver, it never bumps `hadris`'s major either. The
+examples are `publish = false`.
+
+The raw crates (`hadris-fat-raw`, `hadris-iso-raw`, `hadris-udf-raw`,
+`hadris-cpio-raw`) stay at 0.x and version on their own; a breaking change
+bumps their 0.x minor. A format crate re-exports only the raw items its own
+public signatures use, never the whole raw crate
+(`scripts/check-non-exhaustive.py` rejects `pub use hadris_<format>_raw::*`).
+Those re-exported items are frozen for the format crate's major: change them
+only additively, and treat any other change as a breaking change of the
+format crate. A format crate keeps its raw dependency on one 0.x line for
+its whole major: moving to the next 0.y changes the identity of the
+re-exported types, so it is a breaking change of the format crate too. [`website/docs/stability.md`](website/docs/stability.md#raw-crates)
+lists them.
 
 To release, bump the versions of the crates being released and of their
 requirements in `[workspace.dependencies]`, and add a dated

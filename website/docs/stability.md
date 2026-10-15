@@ -23,10 +23,31 @@ maps the 2.4 API and the APFS additions in 2.5 to their 3.0 replacements. Report
 
 In 3.0, exFAT is stable as `hadris_fat::exfat::sync::ExFatFs` and
 `hadris_fat::exfat::async_::ExFatFs`, with no feature flag; in 2.x it was
-the `unstable-exfat` preview. The `hadris-ntfs` reader, and the
-`unstable-ntfs` feature of `hadris` that exposes its native API, stay outside
-the stability promise: its `FileSystem` implementation follows the frozen
-trait, but its native methods may change in 3.x minor releases.
+the `unstable-exfat` preview. The driver contract kit behind `hadris-fs`'s
+`unstable-contract` feature is a test aid for format authors and is also
+outside the promise; its rules may change in any release.
+
+## Previews: NTFS and APFS
+
+The `hadris-ntfs` and `hadris-apfs` readers are previews outside the
+stability promise. Their `FileSystem` implementations follow the frozen
+trait, but their native APIs may still change.
+
+- Both crates carry 3.x versions and ship with the 3.0 release, but are
+  exempt from semver: a 3.y minor release may break their API, and patch
+  releases stay compatible. Depend on them with `~`, for example
+  `hadris-apfs = "~3.0"`, to take only compatible updates.
+- In `hadris`, everything the `unstable-ntfs` and `unstable-apfs` features
+  add is outside semver and may change in any release. That covers the
+  `hadris::ntfs` and `hadris::apfs` re-exports, and with `detect`, the
+  `AnyFs::Apfs` variant, APFS mounting in `open`, `open_partition` and
+  `host::open`, and `open_apfs`. Pin `hadris` with `~` or `=` when you
+  enable one.
+- The stable `detect` feature does not depend on either preview crate. It
+  lists NTFS volumes and APFS containers as `ImageFormat::Ntfs` and
+  `ImageFormat::Apfs` from their signatures, and `open` fails on them with
+  `NotRecognized`. `AnyFs` is non-exhaustive, so a variant is added in a
+  3.x minor when a preview becomes stable.
 
 ## Compatibility policy
 
@@ -34,15 +55,44 @@ trait, but its native methods may change in 3.x minor releases.
 - New format support and additive APIs may arrive in minor releases. Traits
   that users implement grow only through methods with default bodies.
 - Correctness and interoperability fixes may arrive in patch releases.
-- APIs behind an `unstable-*` feature can change before they are declared
-  stable. No other feature changes what an item does.
+- APIs behind an `unstable-*` feature are outside semver and can change in
+  any release before they are declared stable. No other feature changes
+  what an item does.
 - On-disk compatibility fixes take priority over preserving incorrect output.
-- Every crate ships 3.0.0 together. After that each crate has its own
+- Every stable crate ships 3.0.0 together. After that each crate has its own
   version and release tag (`hadris-fat-v3.1.0`) and bumps its major only
   for its own breaking changes. The umbrella `hadris` bumps its major when a
-  crate it re-exports does. `hadris-fat-raw` versions independently and is
-  0.2.0 in RC2. The ISO, UDF and CPIO raw crates start at 0.1.0 and also
-  version independently.
+  stable crate it re-exports does; a break in a preview behind an
+  `unstable-*` feature does not bump it. `hadris-common`, whose endian
+  integers the `hadris-fat-raw` layouts use, is an internal crate that,
+  like the NTFS and APFS previews, keeps a 3.x version but breaks only in
+  minor releases; no stable 3.x crate exposes its types.
+
+## Raw crates
+
+The `hadris-<format>-raw` crates (`hadris-fat-raw` 0.2, `hadris-iso-raw`,
+`hadris-udf-raw` and `hadris-cpio-raw` 0.1) hold on-disk layouts and I/O-free
+codecs. They stay at 0.x and version on their own, so any 0.x minor release
+may break them; depend on them directly with a `0.x` requirement.
+
+A format crate never re-exports its raw crate wholesale. It re-exports only
+the raw items its own API takes or returns, and the types their fields and
+methods use. Those items are part of the format crate's 3.x API and are
+frozen: a raw release may add methods or new variants of `#[non_exhaustive]`
+enums to them, but a breaking change to one would need a new major of the
+format crate. A format crate also stays on one 0.x line of its raw crate for
+its whole major, so its re-exported items stay the same types as those of a
+direct dependency on that line. The rest of the raw crate is not covered by
+the format crate's promise.
+
+| Format crate | Raw items it re-exports |
+|--------------|-------------------------|
+| `hadris-fat` | `FatKind`, `Geometry`, `RootLocation`, `ChainError`, `Detail`, `exfat::Geometry`, `exfat::Detail` and the `check` functions |
+| `hadris-iso` | `hadris_iso::raw`: `VolumeDescriptor`, `BootSectionEntry` and the descriptor, directory-record header, date, identifier and integer field types they contain |
+| `hadris-udf` | None |
+| `hadris-cpio` | None |
+
+A CI lint rejects `pub use hadris_<format>_raw::*` in the format crates.
 
 `cargo semver-checks` checks compatibility against each crate's latest 3.x
 release, with feature builds, sync/async contract tests and the non-exhaustive

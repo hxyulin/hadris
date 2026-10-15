@@ -20,7 +20,7 @@ edition = "2021"
 cargo-fuzz = true
 
 [dependencies]
-hadris-apfs = { path = "../crates/block/hadris-apfs", features = ["std", "read", "sync"] }
+hadris-apfs = { path = "../crates/block/hadris-apfs", features = ["std", "sync"] }
 libfuzzer-sys = "0.4"
 hadris-cpio = { path = "../crates/archive/hadris-cpio" }
 hadris-fat = { path = "../crates/block/hadris-fat" }

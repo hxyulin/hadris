@@ -1,9 +1,4 @@
-#![cfg(all(
-    target_os = "macos",
-    feature = "read",
-    feature = "std",
-    feature = "sync"
-))]
+#![cfg(all(target_os = "macos", feature = "std", feature = "sync"))]
 //! Reads APFS images that macOS builds and fills with `hdiutil`: nested and
 //! large directories, files with holes, compressed files, symlinks, hard
 //! links, and case-insensitive and case-sensitive names.

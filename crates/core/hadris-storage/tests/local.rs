@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use hadris_io::{Error, ErrorType};
-use hadris_storage::local::BlockDevice;
+use hadris_storage::async_::BlockDevice;
 use hadris_storage::{BlockIndex, BlockSize, Partition};
 
 fn block_on<F: core::future::Future>(future: F) -> F::Output {
@@ -68,7 +68,7 @@ fn partitions_of_local_devices() {
 #[test]
 fn read_ahead_accepts_non_send_devices() {
     let blocks: Rc<[u8]> = (0..2048u32).map(|i| (i / 512) as u8).collect();
-    let mut dev = hadris_storage::local::ReadAhead::new(Flash { blocks }, 4);
+    let mut dev = hadris_storage::async_::ReadAhead::new(Flash { blocks }, 4);
     let mut buf = [0; 512];
     for block in 0..4 {
         block_on(dev.read_blocks(BlockIndex::new(block), &mut buf)).unwrap();

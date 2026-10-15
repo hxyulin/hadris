@@ -3,7 +3,8 @@
 `hadris-apfs` is an experimental, read-only reader for APFS containers and
 volumes. It supports synchronous and asynchronous I/O and can be used in
 `no_std` environments with an allocator. Its API is outside the Hadris 3.x
-stability promise and may change in a minor release.
+stability promise and may change in a minor release; depend on it with
+`hadris-apfs = "~3.0"` to take only compatible updates.
 
 The crate is suitable for inspecting unencrypted APFS images and, with the
 `encryption` feature, password-encrypted single-key APFS volumes made by macOS. It
@@ -162,16 +163,15 @@ APFS partition first, for example with `hadris-part`.
 |---------|---------|-------------|
 | `std`   | Yes     | Standard library support (enables `alloc`) |
 | `alloc` | Yes     | Heap allocation; required by the B-tree and file readers |
-| `read`  | Yes     | The container readers |
 | `sync`  | Yes     | Synchronous readers in `hadris_apfs::sync` |
 | `async` | No      | Unified asynchronous readers in `hadris_apfs::async_` |
-| `encryption` | No | Password-based software FileVault unlocking; implies `alloc` and `read` |
-| `tracing` | No | Operation spans through the `tracing` crate; implies `std` |
+| `encryption` | No | Password-based software FileVault unlocking; implies `alloc` |
+| `tracing` | No | Operation spans through the `tracing` crate, also without `std` |
 
 ## Tracing
 
-The opt-in `tracing` feature enables `std` and emits operation spans through the
-application’s subscriber. It is disabled by default. See the
+The opt-in `tracing` feature emits operation spans through the application’s
+subscriber, with or without `std`. It is disabled by default. See the
 [tracing guide](../../../docs/tracing.md) for targets, metadata and async behavior.
 
 ## Object mappings
@@ -184,8 +184,8 @@ mappings remain available through the raw mapping inspection APIs.
 
 ## Unified asynchronous API
 
-The `async_` namespace is canonical; `r#async` remains an alias. One filesystem
-type accepts both Send and local devices through `hadris_storage::async_::BlockDevice`.
+One filesystem type in `async_` accepts both Send and local devices through
+`hadris_storage::async_::BlockDevice`.
 It implements `hadris_fs::local::FileSystem` for all compatible devices and the
 Send filesystem contract when its device and operation state are Send. The
 `async` feature enables both capabilities; no separate local feature is needed.

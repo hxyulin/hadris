@@ -273,7 +273,7 @@ macro_rules! driver_test {
     };
 }
 driver_test!(sync, driver_clean_flags_sync, run_sync);
-driver_test!(r#async, driver_clean_flags_async, run_async);
+driver_test!(async_, driver_clean_flags_async, run_async);
 
 fn flag_image(case: common::Case, dirty: bool, active_only: bool) -> Vec<u8> {
     let mut image = common::blank(case);
@@ -432,11 +432,11 @@ macro_rules! raw_test {
     };
 }
 raw_test!(sync, raw_clean_flags_sync, run_sync);
-raw_test!(r#async, raw_clean_flags_async, run_async);
+raw_test!(async_, raw_clean_flags_async, run_async);
 
 #[test]
 fn cancelled_marker_transitions_are_retried() {
-    use hadris_fat_raw::io::{BlockBuf, r#async as io};
+    use hadris_fat_raw::io::{BlockBuf, async_ as io};
     let image = common::blank(common::CASES[1]);
     for clearing in [false, true] {
         let mut completed = false;

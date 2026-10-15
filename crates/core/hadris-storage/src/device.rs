@@ -178,7 +178,7 @@ impl<D> Partition<D> {
 
     /// The device block that holds block `first` of the partition, once the
     /// `len` bytes from there are known to lie within it.
-    #[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
+    #[cfg_attr(not(feature = "sync"), allow(dead_code))]
     pub(crate) fn locate<E>(
         &self,
         block_size: BlockSize,
@@ -272,7 +272,7 @@ pub(crate) fn out_of_range<E>(first: BlockIndex) -> Error<E> {
     .with_location(Location::Block(first.get()))
 }
 
-#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
+#[cfg_attr(not(any(feature = "sync", feature = "std")), allow(dead_code))]
 pub(crate) fn byte_offset<E>(block_size: BlockSize, first: BlockIndex) -> Result<u64, Error<E>> {
     first
         .get()

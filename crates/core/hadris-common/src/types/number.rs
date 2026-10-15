@@ -1,428 +1,92 @@
-use crate::types::endian::{BigEndian, Endian, Endianness, LittleEndian};
+use crate::types::endian::Endianness;
 use core::marker::PhantomData;
-use core::ops::{Add, BitAnd, Not, Sub};
 
-// Re-export zerocopy's endian integer types for consumers that want to migrate
-// away from the custom generic types. These have the same `.get()` / `::new()` API.
-pub use zerocopy::big_endian::{
-    I16 as I16Be, I32 as I32Be, I64 as I64Be, U16 as U16Be, U32 as U32Be, U64 as U64Be,
-};
-pub use zerocopy::little_endian::{
-    I16 as I16Le, I32 as I32Le, I64 as I64Le, U16 as U16Le, U32 as U32Le, U64 as U64Le,
-};
-
-/// A 16-bit unsigned integer with a specified endianness.
-#[repr(transparent)]
-#[derive(Clone, Copy)]
-#[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable, bytemuck::Pod))]
-pub struct U16<E>
-where
-    E: Endianness,
-{
-    bytes: [u8; 2],
-    _marker: PhantomData<E>,
-}
-
-impl<E: Endianness> Endian for U16<E> {
-    type Output = u16;
-    type LsbType = U16<LittleEndian>;
-    type MsbType = U16<BigEndian>;
-
-    fn new(value: u16) -> Self {
-        let mut bytes = [0; 2];
-        E::set_u16(value, &mut bytes);
-        Self {
-            bytes,
-            _marker: PhantomData,
+macro_rules! endian_int {
+    ($($ty:ident, $out:ty, $n:literal, $get:ident, $set:ident, $w:literal, $name:literal;)*) => {$(
+        #[doc = concat!("A ", $name, " unsigned integer stored in byte order `E`.")]
+        #[repr(transparent)]
+        #[derive(Clone, Copy)]
+        #[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable, bytemuck::Pod))]
+        pub struct $ty<E>
+        where
+            E: Endianness,
+        {
+            bytes: [u8; $n],
+            _marker: PhantomData<E>,
         }
-    }
 
-    fn get(&self) -> u16 {
-        E::get_u16(self.bytes)
-    }
-
-    fn set(&mut self, value: u16) {
-        E::set_u16(value, &mut self.bytes);
-    }
-}
-
-impl<E: Endianness> core::fmt::Debug for U16<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("U16").field(&self.get()).finish()
-    }
-}
-
-impl<E: Endianness> core::fmt::Display for U16<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let value = self.get();
-        write!(f, "{value}")
-    }
-}
-
-impl<E: Endianness> core::fmt::LowerHex for U16<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let value = self.get();
-        write!(f, "0x{value:04x}")
-    }
-}
-
-impl<E: Endianness> core::fmt::UpperHex for U16<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let value = self.get();
-        write!(f, "0x{value:04X}")
-    }
-}
-
-/// A 32-bit unsigned integer with a specified endianness.
-#[repr(transparent)]
-#[derive(Clone, Copy)]
-#[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable, bytemuck::Pod))]
-pub struct U32<E>
-where
-    E: Endianness,
-{
-    bytes: [u8; 4],
-    _marker: PhantomData<E>,
-}
-
-impl<E: Endianness> Endian for U32<E> {
-    type Output = u32;
-    type LsbType = U32<LittleEndian>;
-    type MsbType = U32<BigEndian>;
-
-    #[inline]
-    fn new(value: u32) -> Self {
-        let mut bytes = [0; 4];
-        E::set_u32(value, &mut bytes);
-        Self {
-            bytes,
-            _marker: PhantomData,
-        }
-    }
-
-    #[inline]
-    fn get(&self) -> u32 {
-        E::get_u32(self.bytes)
-    }
-
-    #[inline]
-    fn set(&mut self, value: u32) {
-        E::set_u32(value, &mut self.bytes);
-    }
-}
-
-impl<E: Endianness> core::fmt::Debug for U32<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("U32").field(&self.get()).finish()
-    }
-}
-
-impl<E: Endianness> core::fmt::Display for U32<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let value = self.get();
-        write!(f, "{value}")
-    }
-}
-
-impl<E: Endianness> core::fmt::LowerHex for U32<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let value = self.get();
-        write!(f, "0x{value:08x}")
-    }
-}
-
-impl<E: Endianness> core::fmt::UpperHex for U32<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let value = self.get();
-        write!(f, "0x{value:08X}")
-    }
-}
-
-/// A 64-bit unsigned integer with a specified endianness.
-#[repr(transparent)]
-#[derive(Clone, Copy)]
-#[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable, bytemuck::Pod))]
-pub struct U64<E>
-where
-    E: Endianness,
-{
-    bytes: [u8; 8],
-    _marker: PhantomData<E>,
-}
-
-impl<E: Endianness> Endian for U64<E> {
-    type Output = u64;
-    type LsbType = U64<LittleEndian>;
-    type MsbType = U64<BigEndian>;
-
-    #[inline]
-    fn new(value: u64) -> Self {
-        let mut bytes = [0; 8];
-        E::set_u64(value, &mut bytes);
-        Self {
-            bytes,
-            _marker: PhantomData,
-        }
-    }
-
-    #[inline]
-    fn get(&self) -> u64 {
-        E::get_u64(self.bytes)
-    }
-
-    #[inline]
-    fn set(&mut self, value: u64) {
-        E::set_u64(value, &mut self.bytes);
-    }
-}
-
-impl<E: Endianness> core::fmt::Debug for U64<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("U64").field(&self.get()).finish()
-    }
-}
-
-impl<E: Endianness> core::fmt::Display for U64<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let value = self.get();
-        write!(f, "{value}")
-    }
-}
-
-impl<E: Endianness> core::fmt::LowerHex for U64<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let value = self.get();
-        write!(f, "0x{value:016x}")
-    }
-}
-
-impl<E: Endianness> core::fmt::UpperHex for U64<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let value = self.get();
-        write!(f, "0x{value:016X}")
-    }
-}
-
-#[repr(C, packed)]
-#[derive(Clone, Copy)]
-#[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable, bytemuck::Pod))]
-/// An unsigned 24-bit integer stored in byte order `E`.
-pub struct U24<E>
-where
-    E: Endianness,
-{
-    bytes: [u8; 3],
-    _marker: PhantomData<E>,
-}
-
-impl<E: Endianness> U24<E> {
-    /// Largest value representable by an unsigned 24-bit integer.
-    pub const MAX: u32 = 0x00ffffff;
-}
-
-impl<E: Endianness> core::fmt::Debug for U24<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("U24").field(&self.get()).finish()
-    }
-}
-
-impl<E: Endianness> core::fmt::Display for U24<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let value = self.get();
-        write!(f, "0x{value:06x}")
-    }
-}
-
-impl<E: Endianness> core::fmt::LowerHex for U24<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let value = self.get();
-        write!(f, "0x{value:06x}")
-    }
-}
-
-impl<E: Endianness> core::fmt::UpperHex for U24<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let value = self.get();
-        write!(f, "0x{value:06X}")
-    }
-}
-
-impl<E: Endianness> Endian for U24<E> {
-    type Output = u32;
-    type LsbType = U24<LittleEndian>;
-    type MsbType = U24<BigEndian>;
-
-    #[inline]
-    fn new(value: u32) -> Self {
-        assert!(value <= Self::MAX);
-        let mut bytes = [0u8; 3];
-        E::set_u24(value, &mut bytes);
-        Self {
-            bytes,
-            _marker: PhantomData,
-        }
-    }
-
-    #[inline]
-    fn get(&self) -> u32 {
-        E::get_u24(self.bytes)
-    }
-
-    #[inline]
-    fn set(&mut self, value: u32) {
-        assert!(value <= Self::MAX);
-        E::set_u24(value, &mut self.bytes);
-    }
-}
-
-/// Rounds `num` upward to the next multiple of a power-of-two `alignment`.
-pub fn align_up<
-    T: Add<Output = T> + Sub<Output = T> + BitAnd<Output = T> + Not<Output = T> + From<u8> + Copy,
->(
-    num: T,
-    alignment: T,
-) -> T {
-    let temp = alignment.sub(T::from(1u8));
-    (num + temp) & !temp
-}
-
-/// Inherent forms of the [`Endian`] methods, so on-disk layouts that use
-/// these types can be read and built without importing the trait.
-macro_rules! inherent_endian {
-    ($($ty:ident => $out:ty),* $(,)?) => {$(
         impl<E: Endianness> $ty<E> {
             /// Stores `value` in byte order `E`.
             #[inline]
             pub fn new(value: $out) -> Self {
-                <Self as Endian>::new(value)
+                let mut bytes = [0; $n];
+                E::$set(value, &mut bytes);
+                Self {
+                    bytes,
+                    _marker: PhantomData,
+                }
             }
 
             /// The stored value.
             #[inline]
             pub fn get(&self) -> $out {
-                <Self as Endian>::get(self)
+                E::$get(self.bytes)
             }
 
             /// Replaces the stored value.
             #[inline]
             pub fn set(&mut self, value: $out) {
-                <Self as Endian>::set(self, value)
+                E::$set(value, &mut self.bytes);
+            }
+        }
+
+        impl<E: Endianness> core::fmt::Debug for $ty<E> {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.debug_tuple(stringify!($ty)).field(&self.get()).finish()
+            }
+        }
+
+        impl<E: Endianness> core::fmt::Display for $ty<E> {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                write!(f, "{}", self.get())
+            }
+        }
+
+        impl<E: Endianness> core::fmt::LowerHex for $ty<E> {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                write!(f, "0x{:0w$x}", self.get(), w = $w)
+            }
+        }
+
+        impl<E: Endianness> core::fmt::UpperHex for $ty<E> {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                write!(f, "0x{:0w$X}", self.get(), w = $w)
             }
         }
     )*};
 }
 
-inherent_endian!(U16 => u16, U32 => u32, U64 => u64);
+endian_int! {
+    U16, u16, 2, get_u16, set_u16, 4, "16-bit";
+    U32, u32, 4, get_u32, set_u32, 8, "32-bit";
+    U64, u64, 8, get_u64, set_u64, 16, "64-bit";
+}
 
 #[cfg(test)]
 mod tests {
-    //! Tests for the number types.
-    //!
-    //! We can't really test NativeEndian, so there are tests for LittleEndian and BigEndian.
-
     use super::*;
+    use crate::types::endian::LittleEndian;
 
     #[test]
-    fn test_u16_repr() {
-        let value = U16::<LittleEndian>::new(0x1234);
-        assert_eq!(value.bytes, [0x34, 0x12]);
-        let value = U16::<BigEndian>::new(0x1234);
-        assert_eq!(value.bytes, [0x12, 0x34]);
-    }
-
-    #[test]
-    fn test_u24_repr() {
-        let value = U24::<LittleEndian>::new(0x123456);
-        assert_eq!(value.bytes, [0x56, 0x34, 0x12]);
-        let value = U24::<BigEndian>::new(0x123456);
-        assert_eq!(value.bytes, [0x12, 0x34, 0x56]);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_u24_max() {
-        U24::<LittleEndian>::new(0x1000000);
-    }
-
-    #[test]
-    fn test_u32_repr() {
-        let value = U32::<LittleEndian>::new(0x12345678);
-        assert_eq!(value.bytes, [0x78, 0x56, 0x34, 0x12]);
-        let value = U32::<BigEndian>::new(0x12345678);
-        assert_eq!(value.bytes, [0x12, 0x34, 0x56, 0x78]);
-    }
-
-    #[test]
-    fn test_u64_repr() {
-        let value = U64::<LittleEndian>::new(0x123456789abcdef0);
+    fn little_endian_repr() {
+        assert_eq!(U16::<LittleEndian>::new(0x1234).bytes, [0x34, 0x12]);
         assert_eq!(
-            value.bytes,
+            U32::<LittleEndian>::new(0x12345678).bytes,
+            [0x78, 0x56, 0x34, 0x12]
+        );
+        assert_eq!(
+            U64::<LittleEndian>::new(0x123456789abcdef0).bytes,
             [0xf0, 0xde, 0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12]
         );
-        let value = U64::<BigEndian>::new(0x123456789abcdef0);
-        assert_eq!(
-            value.bytes,
-            [0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0]
-        );
-    }
-
-    #[test]
-    fn test_align_up_u8() {
-        let a = 7u8;
-        let aligned = align_up(a, 16);
-        assert_eq!(aligned, 16);
-
-        let a = 17u8;
-        let aligned = align_up(a, 16);
-        assert_eq!(aligned, 32);
-
-        let a = 16u8;
-        let aligned = align_up(a, 16);
-        assert_eq!(aligned, 16);
-    }
-
-    #[test]
-    fn test_align_up_u16() {
-        let a = 7u16;
-        let aligned = align_up(a, 16);
-        assert_eq!(aligned, 16);
-
-        let a = 17u16;
-        let aligned = align_up(a, 16);
-        assert_eq!(aligned, 32);
-
-        let a = 16u16;
-        let aligned = align_up(a, 16);
-        assert_eq!(aligned, 16);
-    }
-
-    #[test]
-    fn test_align_up_u32() {
-        let a = 7u32;
-        let aligned = align_up(a, 16);
-        assert_eq!(aligned, 16);
-
-        let a = 17u32;
-        let aligned = align_up(a, 16);
-        assert_eq!(aligned, 32);
-
-        let a = 16u32;
-        let aligned = align_up(a, 16);
-        assert_eq!(aligned, 16);
-    }
-
-    #[test]
-    fn test_align_up_u64() {
-        let a = 7u64;
-        let aligned = align_up(a, 16);
-        assert_eq!(aligned, 16);
-
-        let a = 17u64;
-        let aligned = align_up(a, 16);
-        assert_eq!(aligned, 32);
-
-        let a = 16u64;
-        let aligned = align_up(a, 16);
-        assert_eq!(aligned, 16);
     }
 }

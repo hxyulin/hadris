@@ -1,4 +1,4 @@
-#![cfg(all(feature = "read", feature = "sync", feature = "alloc"))]
+#![cfg(all(feature = "sync", feature = "alloc"))]
 
 mod common;
 #[path = "common/failing_device.rs"]
@@ -268,7 +268,7 @@ fn object_map_lookup_preserves_full_identifiers_and_deletions() {
         use core::task::{Context, Poll, Waker};
         let mut future = core::pin::pin!(async {
             let dev = hadris_storage::MemDevice::new(image, BlockSize::new(BLOCK as u32).unwrap());
-            let mut container = hadris_apfs::r#async::Container::open(dev).await.unwrap();
+            let mut container = hadris_apfs::async_::Container::open(dev).await.unwrap();
             let superblock = container.superblock().clone();
             let map = container.object_map(&superblock).await.unwrap();
             assert_eq!(
@@ -337,7 +337,7 @@ fn volume_enumeration_resolves_one_live_version_per_checkpoint() {
             let mut future = core::pin::pin!(async {
                 let dev =
                     hadris_storage::MemDevice::new(image, BlockSize::new(BLOCK as u32).unwrap());
-                let mut container = hadris_apfs::r#async::Container::open(dev).await.unwrap();
+                let mut container = hadris_apfs::async_::Container::open(dev).await.unwrap();
                 let superblock = container.superblock().clone();
                 let volumes = container.volume_superblocks(&superblock).await.unwrap();
                 assert_eq!(volumes.len(), usize::from(!deleted));

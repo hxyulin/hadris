@@ -7,9 +7,12 @@ use crate::{ErrorKind, ExactError};
 /// `E` is the device's own error, kept without allocation: a kernel gets its
 /// driver's error back through [`device_error`](Self::device_error), and
 /// failures of the filesystem itself have none. Callers match on
-/// [`kind`](Self::kind). The rest of the context is `Copy` and static: a
-/// message, an optional [`Location`] and an optional [`DetailCode`] that a
-/// format crate's `Detail::of` reads back.
+/// [`kind`](Self::kind). The rest of the context is static: a message, an
+/// optional [`Location`] and an optional [`DetailCode`] that a format crate's
+/// `Detail::of` reads back.
+///
+/// `Error` is `Clone` when `E` is, but never `Copy`, so later 3.x releases
+/// can add owned context without a breaking change.
 ///
 /// `Display` shows the message and the location. A device error is the
 /// [`source`](core::error::Error::source), never part of the message, so a
@@ -34,7 +37,7 @@ use crate::{ErrorKind, ExactError};
 /// let err: Error<AtaError> = ErrorKind::NotFound.into();
 /// assert_eq!((err.kind(), err.device_error()), (ErrorKind::NotFound, None));
 /// ```
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Error<E> {
     message: &'static str,
     domain: &'static str,
@@ -331,7 +334,13 @@ impl fmt::Display for Location {
 ///
 /// Each format crate names one domain and converts its `Detail` enum to and
 /// from these codes, so `Detail::of(&err)` finds its own codes and ignores
-/// another crate's. Codes are stable within a domain.
+/// another crate's. Codes are stable within a domain: a number keeps its
+/// meaning in every version, and each format crate pins its numbers in a
+/// test.
+///
+/// A domain is the name of the crate users read the `Detail` from, such as
+/// `"hadris-iso"`. A crate with a second `Detail` enum appends its module,
+/// as `"hadris-fat::exfat"` does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DetailCode {
     domain: &'static str,
@@ -339,7 +348,7 @@ pub struct DetailCode {
 }
 
 impl DetailCode {
-    /// Code `code` of `domain`, which is the crate name by convention and
+    /// Code `code` of `domain`, which follows the naming rule above and
     /// must not be empty.
     pub const fn new(domain: &'static str, code: u16) -> Self {
         Self { domain, code }
@@ -388,12 +397,13 @@ mod tests {
     impl core::error::Error for Ata {}
 
     #[test]
-    fn context_is_copy_and_ignored_by_equality() {
+    fn context_is_cloned_and_ignored_by_equality() {
         let err = Error::new(ErrorKind::Corrupt, "bad boot sector")
             .with_location(Location::Byte(510))
             .with_detail(DetailCode::new("hadris-fat", 3));
-        let copy: Error<Ata> = err;
+        let copy: Error<Ata> = err.clone();
         assert_eq!(copy, err);
+        assert_eq!(copy.location(), Some(Location::Byte(510)));
         assert_eq!(err, Error::from(ErrorKind::Corrupt));
         assert_eq!(err.detail().and_then(|d| d.code_in("hadris-fat")), Some(3));
         assert_eq!(err.detail().and_then(|d| d.code_in("hadris-iso")), None);

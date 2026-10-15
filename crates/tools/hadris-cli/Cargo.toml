@@ -32,6 +32,7 @@ hadris-fat-raw.workspace = true
 hadris-fs = { workspace = true, features = ["std", "sync"] }
 hadris-io = { workspace = true, features = ["std", "sync"] }
 hadris-iso = { workspace = true, features = ["std", "sync"] }
+hadris-iso-raw.workspace = true
 hadris-storage = { workspace = true, features = ["std", "sync"] }
 hadris-udf = { workspace = true, features = ["std", "sync"] }
 anyhow.workspace = true
@@ -41,7 +42,7 @@ tempfile.workspace = true
 zeroize = { version = "1.8", default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
-hadris-apfs = { workspace = true, features = ["std", "sync", "read"] }
+hadris-apfs = { workspace = true, features = ["std", "sync"] }
 tempfile.workspace = true
 
 [target.'cfg(unix)'.dependencies]

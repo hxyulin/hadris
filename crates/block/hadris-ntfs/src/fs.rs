@@ -1366,7 +1366,7 @@ impl<D: BlockDevice> NtfsFs<D> {
         if let Some(Attr { body: Body::Resident(value), .. }) = fs(record::find_attr(rec, raw::ATTR_STANDARD_INFORMATION, &[]))? {
             if value.len() >= 0x24 {
                 let bits = record::u32_at(value, 0x20);
-                let mut attributes = Attributes::empty();
+                let mut attributes = Attributes::NONE;
                 for (flag, attribute) in [
                     (raw::FILE_ATTRIBUTE_READONLY, Attributes::READ_ONLY),
                     (raw::FILE_ATTRIBUTE_HIDDEN, Attributes::HIDDEN),

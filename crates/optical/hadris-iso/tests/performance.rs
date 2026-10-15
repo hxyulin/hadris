@@ -32,7 +32,7 @@ impl hadris_storage::sync::BlockDevice for Counted {
     }
 }
 #[cfg(feature = "async")]
-impl hadris_storage::r#async::BlockDevice for Counted {
+impl hadris_storage::async_::BlockDevice for Counted {
     type State = ();
     fn cancel(&mut self, _: &mut ()) {}
     fn block_size(&self) -> BlockSize {
@@ -112,7 +112,6 @@ macro_rules! cases {
                     assert_eq!(data, [i as u8; 16]);
                     assert_eq!(fs.stat(alias).await.unwrap().nlink(), 2);
                 }
-                #[cfg(feature = "cache")]
                 for capacity in [1, 512] {
                     let options = hadris_iso::CacheOptions::new()
                         .with_blocks(32)
@@ -162,7 +161,6 @@ macro_rules! cases {
                             .unwrap()
                     );
                 }
-                #[cfg(feature = "cache")]
                 {
                     let mut image =
                         common::image(&linked(), &IsoOptions::new().with_rock_ridge()).into_inner();
@@ -191,7 +189,6 @@ macro_rules! cases {
                             .unwrap()
                     );
                 }
-                #[cfg(feature = "cache")]
                 {
                     let mut tree = Tree::new();
                     tree.insert("a", Node::file(Content::bytes("a"))).unwrap();
@@ -276,7 +273,6 @@ macro_rules! cases {
                     reads.load(Ordering::Relaxed) < 300,
                     "listing should reuse the parsed file record"
                 );
-                #[cfg(feature = "cache")]
                 {
                     let dev = Counted {
                         inner: common::image(&plain, &IsoOptions::new().with_rock_ridge()),
@@ -358,13 +354,13 @@ macro_rules! async_case {
 }
 cases!(sync, lookup_defers_link_identity_sync, sync_case);
 #[cfg(feature = "async")]
-cases!(r#async, lookup_defers_link_identity_async, async_case);
+cases!(async_, lookup_defers_link_identity_async, async_case);
 
-#[cfg(all(feature = "cache", feature = "async"))]
+#[cfg(feature = "async")]
 #[test]
 fn cancelled_cache_miss_is_not_retained() {
     use hadris_fs::{MountOptions, Name};
-    use hadris_storage::r#async::BlockDevice;
+    use hadris_storage::async_::BlockDevice;
     use std::sync::atomic::AtomicBool;
     struct Paused {
         inner: Counted,
@@ -418,7 +414,7 @@ fn cancelled_cache_miss_is_not_retained() {
         paused: paused.clone(),
         failed: failed.clone(),
     };
-    let mut fs = common::block_on(hadris_iso::r#async::IsoFs::mount(dev, MountOptions::new()))
+    let mut fs = common::block_on(hadris_iso::async_::IsoFs::mount(dev, MountOptions::new()))
         .unwrap()
         .with_cache(hadris_iso::CacheOptions::new());
     let node = common::block_on(fs.lookup(fs.root(), Name::new("FILE"))).unwrap();
@@ -455,7 +451,7 @@ fn cancelled_cache_miss_is_not_retained() {
         paused: paused.clone(),
         failed: failed.clone(),
     };
-    let mut fs = common::block_on(hadris_iso::r#async::IsoFs::mount(dev, MountOptions::new()))
+    let mut fs = common::block_on(hadris_iso::async_::IsoFs::mount(dev, MountOptions::new()))
         .unwrap()
         .with_cache(hadris_iso::CacheOptions::new().with_links(8));
     common::block_on(fs.stat(fs.root())).unwrap();

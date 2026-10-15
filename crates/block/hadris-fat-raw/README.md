@@ -6,10 +6,17 @@ codecs for drivers, tools and firmware.
 ## Overview
 
 `hadris-fat-raw` holds what the `hadris-fat` drivers are built on, for
-anyone whose case those drivers do not cover. It has its own version, so the
-low-level API can change without a new major version of `hadris-fat`, and
-`hadris-fat` re-exports only the items its own API uses (`FatKind`,
-`Detail`, `exfat::Detail` and `check`).
+anyone whose case those drivers do not cover. It has its own 0.x version,
+and `hadris-fat` does not re-export it wholesale, so most of the low-level
+API can change without a new major version of `hadris-fat`.
+
+The exception is the items `hadris-fat` re-exports because its own API
+uses them: `FatKind`, `Geometry`, `RootLocation`, `ChainError`, `Detail`,
+`exfat::Geometry`, `exfat::Detail` and the `check` functions of `io` and
+`exfat::io`. These are frozen for `hadris-fat` 3.x, which stays on one 0.x
+line of this crate: a release of this crate may add to them (new methods, and new variants of the
+`#[non_exhaustive]` enums) but makes no breaking change to them, and the
+codes of `Detail` and `exfat::Detail` never change meaning.
 
 The layouts and codecs work on bytes and plain values without I/O or an
 allocator. Optional device primitives are described below:
@@ -39,7 +46,7 @@ The layouts mirror the specifications. They may gain items; the existing
 ones follow the specifications and stay exhaustive.
 
 With a mode feature, `io` adds the FAT device primitives the `FatFs` driver
-is built on, in `io::sync`, `io::r#async` (`Send` futures) and `io::local`, generated
+is built on, in `io::sync` and `io::async_`, generated
 from one source. They are generic over a `hadris-storage` block device and
 borrow a caller-lent `BlockBuf` of one device block, so they still need no
 allocator:
@@ -106,7 +113,7 @@ assert_eq!(entry.lfn_checksum(), lfn_checksum(b"README  TXT"));
 | Feature | Description | Default |
 |---------|-------------|---------|
 | `sync` | The device primitives in `io::sync` | - |
-| `async` | Common poll-device primitives in `io::async_` and `exfat::io::async_`; `r#async` and `local` are aliases, and futures are Send when device and operation state are Send | - |
+| `async` | Common poll-device primitives in `io::async_` and `exfat::io::async_`; futures are Send when device and operation state are Send | - |
 | `defmt` | `defmt::Format` for `FatKind` | - |
 
 ## Documentation

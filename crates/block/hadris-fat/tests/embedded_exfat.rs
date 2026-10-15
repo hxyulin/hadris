@@ -327,7 +327,7 @@ fn refuses_other_block_sizes_and_non_exfat() {
 
 #[test]
 fn async_matches_sync() {
-    use hadris_fat::exfat::embedded::r#async::ExFat as AsyncFat;
+    use hadris_fat::exfat::embedded::async_::ExFat as AsyncFat;
 
     let image = common::build();
     let mut mount_token_0 = MountToken::new();
@@ -373,7 +373,7 @@ fn async_matches_sync() {
     ignore = "resource budgets apply without hosted tracing spans"
 )]
 fn state_and_futures_stay_small() {
-    use hadris_fat::exfat::embedded::r#async::ExFat as AsyncFat;
+    use hadris_fat::exfat::embedded::async_::ExFat as AsyncFat;
 
     assert!(size_of::<ExFat<(), 4>>() < 2048);
     assert!(size_of::<AsyncFat<(), 4>>() < 2048);
@@ -549,7 +549,7 @@ mod cancellation;
 
 #[test]
 fn cancelling_coalesced_reads_preserves_the_file_position() {
-    use hadris_fat::exfat::embedded::r#async::ExFat as AsyncFat;
+    use hadris_fat::exfat::embedded::async_::ExFat as AsyncFat;
     for contiguous in [false, true] {
         let data = common::payload(65_537, 11);
         let mut fs = common::small(4 << 20, 512);

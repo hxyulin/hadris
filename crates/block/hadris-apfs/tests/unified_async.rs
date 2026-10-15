@@ -1,4 +1,4 @@
-#![cfg(all(feature = "async", feature = "alloc", feature = "read"))]
+#![cfg(all(feature = "async", feature = "alloc"))]
 mod common;
 use core::future::Future;
 use core::marker::PhantomData;

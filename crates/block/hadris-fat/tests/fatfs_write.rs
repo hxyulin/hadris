@@ -3144,7 +3144,7 @@ fn the_shared_tier_opens_listed_nodes_and_creates_with_attributes() {
                 .contains(Attributes::HIDDEN)
         );
         assert_eq!(file.write_at(3, b"abc").unwrap(), 3);
-        file.set_attr(&SetAttr::new().with_attributes(Attributes::empty()))
+        file.set_attr(&SetAttr::new().with_attributes(Attributes::NONE))
             .unwrap();
         file.close().unwrap();
         assert_eq!(vol.read("/Nested Dir/made.txt").unwrap(), b"\0\0\0abc");

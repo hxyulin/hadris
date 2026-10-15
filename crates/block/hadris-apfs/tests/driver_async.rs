@@ -1,9 +1,9 @@
-#![cfg(all(feature = "read", feature = "async", feature = "alloc"))]
+#![cfg(all(feature = "async", feature = "alloc"))]
 
 mod common;
 
 use common::*;
-use hadris_apfs::{VolumeSelector, r#async::ApfsFs};
+use hadris_apfs::{VolumeSelector, async_::ApfsFs};
 use hadris_fs::{DirCursor, ErrorKind, FileType, MountOptions, Name, OpenMode};
 use hadris_storage::{BlockSize, MemDevice};
 use std::future::Future;
@@ -42,7 +42,7 @@ fn async_contracts_and_send_futures_match_sync() {
             let mut fs = ApfsFs::mount(device(image), MountOptions::new())
                 .await
                 .unwrap();
-            hadris_fs::r#async::contract::check_read_only(&mut fs)
+            hadris_fs::async_::contract::check_read_only(&mut fs)
                 .await
                 .unwrap();
         }

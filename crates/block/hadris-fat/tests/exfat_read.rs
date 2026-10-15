@@ -127,7 +127,7 @@ fn backup_boot_mounts_the_backup_region() {
     fs.sync().unwrap();
     let image = common::image(fs);
     let backup = MountOptions::new().backup_boot();
-    let mut fs = ExFatFs::mount(common::device(image.clone(), 512), backup).unwrap();
+    let mut fs = ExFatFs::mount(common::device(image.clone(), 512), backup.clone()).unwrap();
     assert!(fs.is_read_only());
     assert_eq!(fs.read_to_vec("/kept.txt").unwrap(), b"backup");
     let mut damaged = image;

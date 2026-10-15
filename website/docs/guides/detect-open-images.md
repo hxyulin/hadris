@@ -76,7 +76,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 `hadris::host::open(path)` detects the image and mounts it read-only with
 the host's clock and time zone; `hadris::host::open_with(path, options)` takes
 the `MountOptions` and opens the file for writing unless they are read-only. On any other device, `hadris::sync::open(dev,
-options)` (or `hadris::r#async::open`) mounts the first filesystem `detect`
+options)` (or `hadris::async_::open`) mounts the first filesystem `detect`
 finds with the caller's `MountOptions`, and returns an `AnyFs`: `Fat`,
 `ExFat`, `Iso` or `Udf`. `AnyFs` implements the `FileSystem` trait, so
 `Volume` and its handles work on it, and a `match` reaches each driver's
@@ -89,7 +89,8 @@ directly to choose an ISO namespace.
 A failed open returns the device in a `MountError`. NTFS volumes, partition
 tables and archives fail with `ErrorKind::NotRecognized` (the messages are
 `"ntfs"`, `"partition table"` and `"archive"`), and so does a device with no
-known format.
+known format. APFS containers do too (`"apfs"`) unless the `unstable-apfs`
+preview feature adds `AnyFs::Apfs`.
 
 ## Open a partition
 

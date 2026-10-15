@@ -15,12 +15,10 @@
 //! The `async` feature enables the common [`async_::BlockDevice`] contract
 //! and the stronger [`async_::SendBlockDevice`] contract in one namespace.
 //! Send capability derives automatically from the device and operation state.
-//! `r#async` and `local` alias `async_`; earlier stream adapters remain available
-//! through `legacy_async` and `legacy_local`.
 //! Mode-independent devices such as [`MemDevice`], [`Partition`] and `Vec<u8>`
 //! also support the synchronous contract.
-//! With `std` and `sync`, `host::FileDevice` is a host image file or disk
-//! device.
+//! With `std`, `host::FileDevice` is a host image file or disk device, with
+//! the block-device contract of each enabled mode.
 
 #![no_std]
 #![allow(async_fn_in_trait)]
@@ -43,24 +41,6 @@ mod poll_cache;
 mod poll_read_ahead;
 mod scratch;
 
-#[cfg(feature = "async")]
-/// Asynchronous adapters whose futures are `Send`, generated from the same
-/// source as `sync`. `BlockDevice` has `Send` as a supertrait here, so
-/// `D: BlockDevice` alone proves a device's futures `Send`.
-#[path = "async.rs"]
-pub mod legacy_async;
-#[cfg(feature = "async")]
-/// Alias for the unified asynchronous device API.
-pub use async_ as r#async;
-#[cfg(feature = "async")]
-/// Asynchronous adapters whose futures need not be `Send`, generated from
-/// the same source as `legacy_async`, for single-threaded executors such as
-/// embassy.
-#[path = "local.rs"]
-pub mod legacy_local;
-#[cfg(feature = "async")]
-/// Alias for the unified asynchronous device API.
-pub use async_ as local;
 #[cfg(feature = "sync")]
 /// Synchronous adapters.
 ///

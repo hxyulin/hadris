@@ -3,7 +3,7 @@
 #[path = "common/fatfs.rs"]
 mod common;
 use common::FsPaths;
-use common::paths::r#async::{FsPaths as _, VolumePaths as _};
+use common::paths::async_::{FsPaths as _, VolumePaths as _};
 use hadris_fs::{Cp437, MountOptions};
 
 use std::sync::Arc;
@@ -13,9 +13,9 @@ use hadris_fs::{DirCursor, ErrorKind, Name, OpenMode, OpenOptions, RenameMode, S
 
 #[test]
 fn async_mode_reads_through_every_tier() {
-    use hadris_fat::r#async::FatFs;
-    use hadris_fs::r#async::Volume;
-    use hadris_io::r#async::Read as _;
+    use hadris_fat::async_::FatFs;
+    use hadris_fs::async_::Volume;
+    use hadris_io::async_::Read as _;
 
     let case = CASES[2];
     block_on(async {
@@ -64,8 +64,8 @@ fn async_mode_reads_through_every_tier() {
     });
 }
 
-fn spawn_read<F: hadris_fs::r#async::FileSystem + Send + 'static>(
-    vol: Arc<hadris_fs::r#async::Volume<F>>,
+fn spawn_read<F: hadris_fs::async_::FileSystem + Send + 'static>(
+    vol: Arc<hadris_fs::async_::Volume<F>>,
     path: &'static str,
 ) -> std::thread::JoinHandle<Vec<u8>> {
     std::thread::spawn(move || block_on(async move { vol.read_to_vec(path).await.unwrap() }))
@@ -73,8 +73,8 @@ fn spawn_read<F: hadris_fs::r#async::FileSystem + Send + 'static>(
 
 #[test]
 fn async_futures_move_to_other_threads() {
-    use hadris_fat::r#async::FatFs;
-    use hadris_fs::r#async::Volume;
+    use hadris_fat::async_::FatFs;
+    use hadris_fs::async_::Volume;
 
     let case = CASES[1];
     let fs = block_on(FatFs::mount(
@@ -105,9 +105,9 @@ fn async_futures_move_to_other_threads() {
 
 #[test]
 fn async_mounts_with_options() {
-    use hadris_fat::r#async::FatFs;
+    use hadris_fat::async_::FatFs;
     use hadris_fs::SystemClock;
-    use hadris_fs::r#async::Volume;
+    use hadris_fs::async_::Volume;
 
     let case = CASES[0];
     let options = MountOptions::new()
@@ -130,7 +130,7 @@ fn async_failed_opens_give_the_device_back() {
     corrupt[11..13].copy_from_slice(&0u16.to_le_bytes());
     for image in [vec![0u8; 64 * 1024], corrupt] {
         block_on(async {
-            let err = hadris_fat::r#async::FatFs::mount(
+            let err = hadris_fat::async_::FatFs::mount(
                 common::device(case, image.clone()),
                 MountOptions::new(),
             )
@@ -139,7 +139,7 @@ fn async_failed_opens_give_the_device_back() {
             assert_eq!(err.kind(), ErrorKind::NotRecognized);
             assert_eq!(err.into_device().into_inner(), image);
 
-            let err = hadris_fat::r#async::FatFs::mount(
+            let err = hadris_fat::async_::FatFs::mount(
                 common::device(case, image.clone()),
                 MountOptions::new(),
             )
@@ -151,7 +151,7 @@ fn async_failed_opens_give_the_device_back() {
 
             let options = hadris_fs::MountOptions::new().read_only();
             let err =
-                hadris_fat::r#async::FatFs::mount(common::device(case, image.clone()), options)
+                hadris_fat::async_::FatFs::mount(common::device(case, image.clone()), options)
                     .await
                     .unwrap_err();
             assert_eq!(err.into_device().into_inner(), image);
@@ -161,9 +161,9 @@ fn async_failed_opens_give_the_device_back() {
 
 #[test]
 fn async_mode_writes() {
-    use hadris_fat::r#async::FatFs;
-    use hadris_fs::r#async::Volume;
-    use hadris_io::r#async::Write as _;
+    use hadris_fat::async_::FatFs;
+    use hadris_fs::async_::Volume;
+    use hadris_io::async_::Write as _;
 
     let case = CASES[0];
     let image = block_on(async {
@@ -241,8 +241,8 @@ fn async_mode_writes() {
 
 #[test]
 fn async_writers_on_other_threads() {
-    use hadris_fat::r#async::FatFs;
-    use hadris_fs::r#async::Volume;
+    use hadris_fat::async_::FatFs;
+    use hadris_fs::async_::Volume;
 
     let case = CASES[2];
     let fs = block_on(FatFs::mount(
@@ -292,7 +292,7 @@ fn async_failed_formats_write_nothing() {
     let mut dev = MemDevice::new(vec![0u8; 4 << 20], BlockSize::new(512).unwrap());
     let options = FatOptions::new().with_kind(FatKind::Fat32);
     block_on(async {
-        let err = hadris_fat::r#async::format(&mut dev, &options)
+        let err = hadris_fat::async_::format(&mut dev, &options)
             .await
             .unwrap_err();
         assert_eq!(err.kind(), ErrorKind::NoSpace);
@@ -322,13 +322,13 @@ fn format_in_the_async_modes() {
         dev.into_inner()
     };
     let image = block_on(async {
-        use hadris_fs::r#async::Volume;
+        use hadris_fs::async_::Volume;
         let mut dev = device();
-        let geometry = hadris_fat::r#async::format(&mut dev, &options())
+        let geometry = hadris_fat::async_::format(&mut dev, &options())
             .await
             .unwrap();
         assert_eq!(geometry.kind(), FatKind::Fat32);
-        let fs = hadris_fat::r#async::FatFs::mount(dev, MountOptions::new())
+        let fs = hadris_fat::async_::FatFs::mount(dev, MountOptions::new())
             .await
             .unwrap();
         let vol = Volume::new(fs);
@@ -337,7 +337,7 @@ fn format_in_the_async_modes() {
         vol.into_inner().await.unwrap().into_inner().into_inner()
     });
     let mut dev = device();
-    block_on(assert_send(hadris_fat::r#async::format(
+    block_on(assert_send(hadris_fat::async_::format(
         &mut dev,
         &options(),
     )))
@@ -368,8 +368,8 @@ fn assert_below<F: core::future::Future>(what: &str, future: F, limit: usize) {
     ignore = "resource budgets apply without hosted tracing spans"
 )]
 fn async_futures_stay_small() {
-    use hadris_fat::r#async::FatFs;
-    use hadris_fat::exfat::r#async::ExFatFs;
+    use hadris_fat::async_::FatFs;
+    use hadris_fat::exfat::async_::ExFatFs;
     use hadris_storage::{BlockSize, MemDevice};
 
     const BLOCK: usize = 4096;
@@ -402,9 +402,9 @@ fn async_futures_stay_small() {
     assert_below("ExFatFs mount", ExFatFs::mount(empty(), options), 3 * BLOCK);
     let mut dev = MemDevice::new(vec![0u8; 4 << 20], BlockSize::new(512).unwrap());
     let options = hadris_fat::exfat::ExFatOptions::new();
-    let formatted = hadris_fat::exfat::r#async::format(&mut dev, &options);
+    let formatted = hadris_fat::exfat::async_::format(&mut dev, &options);
     assert_below("exFAT format", formatted, 2 * BLOCK);
-    block_on(hadris_fat::exfat::r#async::format(&mut dev, &options)).unwrap();
+    block_on(hadris_fat::exfat::async_::format(&mut dev, &options)).unwrap();
     let mut exfat = block_on(ExFatFs::mount(dev, MountOptions::new())).unwrap();
     let root = exfat.root();
     assert_below(
@@ -423,7 +423,7 @@ fn async_futures_stay_small() {
 
 #[test]
 fn async_extras_match_the_sync_mode() {
-    use hadris_fat::r#async::FatFs;
+    use hadris_fat::async_::FatFs;
 
     let case = CASES[2];
     block_on(async {
@@ -463,7 +463,7 @@ mod cancel;
 
 #[test]
 fn dropped_operations_leave_no_lost_clusters_or_unequal_fats() {
-    use hadris_fat::r#async::{FatFs, check};
+    use hadris_fat::async_::{FatFs, check};
     use hadris_fs::MountOptions;
 
     for case in [CASES[0], CASES[2]] {
@@ -504,7 +504,7 @@ fn dropped_operations_leave_no_lost_clusters_or_unequal_fats() {
 
 #[test]
 fn single_cluster_append_recovers_at_every_await() {
-    use hadris_fat::r#async::FatFs;
+    use hadris_fat::async_::FatFs;
     for case in CASES[..3].iter().copied() {
         let blank = common::blank(case);
         let cluster = hadris_fat_raw::parse_boot(blank[..512].try_into().unwrap())
@@ -570,7 +570,7 @@ fn single_cluster_append_recovers_at_every_await() {
 
 #[test]
 fn shrink_recovers_at_every_await() {
-    use hadris_fat::r#async::FatFs;
+    use hadris_fat::async_::FatFs;
     for case in CASES[..3].iter().copied() {
         let blank = common::blank(case);
         let cluster = hadris_fat_raw::parse_boot(blank[..512].try_into().unwrap())
@@ -640,7 +640,7 @@ fn shrink_recovers_at_every_await() {
 
 #[test]
 fn multi_cluster_append_recovers_at_every_await() {
-    use hadris_fat::r#async::FatFs;
+    use hadris_fat::async_::FatFs;
     for (case, clusters) in common::growth_cases() {
         let blank = common::blank(case);
         let geo = hadris_fat_raw::parse_boot(blank[..512].try_into().unwrap()).unwrap();
@@ -727,7 +727,7 @@ fn multi_cluster_append_recovers_at_every_await() {
 
 #[test]
 fn nonempty_rename_recovers_at_every_await_and_keeps_pinned_nodes() {
-    use hadris_fat::r#async::FatFs;
+    use hadris_fat::async_::FatFs;
     const SOURCE: &str = "source file with a long name.txt";
     const TARGET: &str = "destination file with a long name.txt";
     for case in CASES {
@@ -925,7 +925,7 @@ fn nonempty_rename_recovers_at_every_await_and_keeps_pinned_nodes() {
 
 #[test]
 fn cancelled_rename_does_not_publish_stale_entries_beyond_directory_end() {
-    use hadris_fat::r#async::FatFs;
+    use hadris_fat::async_::FatFs;
     const TARGET: &str = "A replacement long name.txt";
     for case in CASES[..3].iter().copied() {
         let mut original = common::formatted(case, hadris_fat::FatOptions::new());
@@ -1026,7 +1026,7 @@ fn cancelled_rename_does_not_publish_stale_entries_beyond_directory_end() {
 
 #[test]
 fn rename_recovery_itself_survives_cancellation_at_every_await() {
-    use hadris_fat::r#async::FatFs;
+    use hadris_fat::async_::FatFs;
     let case = CASES[2];
     let mut original = common::formatted(case, hadris_fat::FatOptions::new());
     let root = original.root();
@@ -1153,7 +1153,7 @@ fn rename_recovery_itself_survives_cancellation_at_every_await() {
 
 #[test]
 fn cancelled_replacement_rollback_cannot_commit_restored_identical_empty_metadata() {
-    use hadris_fat::r#async::FatFs;
+    use hadris_fat::async_::FatFs;
     let case = CASES[0];
     let mut original = common::formatted(case, hadris_fat::FatOptions::new());
     let root = original.root();
@@ -1258,7 +1258,7 @@ fn cancelled_replacement_rollback_cannot_commit_restored_identical_empty_metadat
 
 #[test]
 fn cancelled_nonempty_rename_at_budget_five_does_not_leave_cross_links() {
-    use hadris_fat::r#async::FatFs;
+    use hadris_fat::async_::FatFs;
     let case = CASES[2];
     let mut original = common::formatted(case, hadris_fat::FatOptions::new());
     let file = original

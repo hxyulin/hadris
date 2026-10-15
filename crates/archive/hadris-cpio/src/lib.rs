@@ -68,7 +68,8 @@
 //! file's data starts, and the metadata cpio cannot store.
 //! `read_tree` reads an archive back into a `Tree`.
 //!
-//! The on-disk headers are in [`raw`].
+//! The on-disk headers are in the `hadris-cpio-raw` crate, which versions
+//! apart from this one.
 //!
 //! Reading fails with [`hadris_fs::Error`]; [`Detail::of`] names the
 //! field at fault, and an archive whose first header has no cpio magic
@@ -111,12 +112,6 @@ mod error;
 mod header;
 mod options;
 
-/// On-disk layouts and I/O-free codecs, shared with `hadris-cpio-raw`.
-pub mod raw {
-    #[doc(inline)]
-    pub use hadris_cpio_raw::raw::*;
-}
-
 #[cfg(feature = "sync")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sync")))]
 #[path = ""]
@@ -153,9 +148,6 @@ pub mod sync {
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 #[path = "async.rs"]
 pub mod async_;
-/// Compatibility alias for the asynchronous API.
-#[cfg(feature = "async")]
-pub use async_ as r#async;
 
 /// The path of an archive entry relative to the archive root, as
 /// `read_tree` places it: leading `/` and `./` removed, repeated `/`

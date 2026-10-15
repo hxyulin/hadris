@@ -8,7 +8,7 @@ use crate::build::{self, Data, Fields, Planner, error, plan_tree};
 use crate::error::{Detail, Error, write_failed};
 use crate::header;
 use crate::options::{CpioOptions, Format};
-use crate::raw::{self, TRAILER_NAME};
+use hadris_cpio_raw::{self as raw, TRAILER_NAME};
 
 /// Bytes read from a content per request.
 const CHUNK: usize = 64 * 1024;

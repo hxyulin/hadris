@@ -395,6 +395,7 @@ dependencies = [
  "hadris-fs",
  "hadris-io",
  "hadris-iso",
+ "hadris-iso-raw",
  "hadris-storage",
  "hadris-udf",
  "libc",
@@ -408,7 +409,6 @@ version = "3.0.0-rc.2"
 dependencies = [
  "bytemuck",
  "static_assertions",
- "zerocopy",
 ]
 
 [[package]]
@@ -555,7 +555,6 @@ dependencies = [
  "hadris-fs",
  "hadris-io",
  "hadris-macros",
- "hadris-part",
  "hadris-storage",
  "pretty_assertions",
  "static_assertions",
@@ -1039,26 +1038,6 @@ name = "yansi"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
-
-[[package]]
-name = "zerocopy"
-version = "0.8.62"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86502bf56ac7c77571a32e2647bb2a15894565e981fb2a48d7bde2d91c965a9d"
-dependencies = [
- "zerocopy-derive",
-]
-
-[[package]]
-name = "zerocopy-derive"
-version = "0.8.62"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5457206954b06561e2608c7e19cf58b1926586d999c246eebe4502f7e2039d1a"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.100",
-]
 
 [[package]]
 name = "zeroize"

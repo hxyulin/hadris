@@ -443,32 +443,32 @@ mod asynch {
 
     #[test]
     fn async_mode_detects_and_opens() {
-        use hadris::fs::r#async::FileSystem;
+        use hadris::fs::async_::FileSystem;
         block_on(async {
-            let found = hadris::r#async::detect(&mut device(optical(true, true), 2048))
+            let found = hadris::async_::detect(&mut device(optical(true, true), 2048))
                 .await
                 .unwrap();
             assert_eq!(found.first().unwrap().format(), ImageFormat::IsoUdfBridge);
             assert_eq!(found.iter().count(), 3);
 
-            let mut fs = hadris::r#async::open(
+            let mut fs = hadris::async_::open(
                 device(fat(FatKind::Fat12, 2 << 20), 512),
                 MountOptions::new(),
             )
             .await
             .unwrap();
-            assert!(matches!(fs, hadris::r#async::AnyFs::Fat(_)));
+            assert!(matches!(fs, hadris::async_::AnyFs::Fat(_)));
             let root = fs.root();
             fs.stat(root).await.unwrap();
             fs.unmount().await.unwrap();
 
             let mut dev = device(vec![0u8; 8 << 20], 512);
             let options = hadris::FormatOptions::ExFat(hadris::fat::exfat::ExFatOptions::new());
-            hadris::r#async::format(&mut dev, &options).await.unwrap();
-            let fs = hadris::r#async::open(dev, MountOptions::new())
+            hadris::async_::format(&mut dev, &options).await.unwrap();
+            let fs = hadris::async_::open(dev, MountOptions::new())
                 .await
                 .unwrap();
-            assert!(matches!(fs, hadris::r#async::AnyFs::ExFat(_)));
+            assert!(matches!(fs, hadris::async_::AnyFs::ExFat(_)));
         });
     }
 
@@ -596,14 +596,14 @@ mod asynch {
         }
         let mut dev = device(optical(true, false), 2048);
         assert_eq!(
-            block_on(send(hadris::r#async::detect(&mut dev)))
+            block_on(send(hadris::async_::detect(&mut dev)))
                 .unwrap()
                 .iter()
                 .count(),
             1
         );
-        let opened = block_on(send(hadris::r#async::open(dev, MountOptions::new())));
-        assert!(matches!(opened, Ok(hadris::r#async::AnyFs::Iso(_))));
+        let opened = block_on(send(hadris::async_::open(dev, MountOptions::new())));
+        assert!(matches!(opened, Ok(hadris::async_::AnyFs::Iso(_))));
     }
 }
 
@@ -638,6 +638,7 @@ fn apfs_shared_open_requires_selection_for_multiple_volumes() {
     assert_eq!(get(&mut fs, "/file0.txt"), apfs_fixture::file_contents(0));
 }
 
+#[cfg(feature = "unstable-apfs")]
 #[test]
 fn apfs_damaged_container_remains_recognized() {
     let mut bytes = apfs_fixture::build_image();
@@ -651,20 +652,18 @@ fn apfs_damaged_container_remains_recognized() {
     assert_eq!(formats(bytes, 512), vec![(ImageFormat::Apfs, None)]);
 }
 
+#[cfg(not(feature = "unstable-apfs"))]
 #[test]
-fn apfs_shared_open_works_without_native_preview_feature() {
-    let mut fs = open(
+fn apfs_is_detected_but_not_opened_without_the_preview_feature() {
+    let mut bytes = apfs_fixture::build_image();
+    bytes[36] ^= 1;
+    assert_eq!(formats(bytes, 512), vec![(ImageFormat::Apfs, None)]);
+    let err = open(
         device(apfs_fixture::build_image(), 512),
         MountOptions::new(),
     )
-    .unwrap();
-    assert!(matches!(fs, AnyFs::Apfs(_)));
-    assert_eq!(get(&mut fs, "/file0.txt"), apfs_fixture::file_contents(0));
-    assert!(
-        open(
-            device(apfs_fixture::multi_volume_image(), 512),
-            MountOptions::new()
-        )
-        .is_err()
-    );
+    .unwrap_err();
+    let (err, _) = err.into_parts();
+    assert_eq!(err.kind(), ErrorKind::NotRecognized);
+    assert_eq!(err.message(), "apfs");
 }

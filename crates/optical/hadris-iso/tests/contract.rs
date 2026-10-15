@@ -41,7 +41,7 @@ fn async_modes() {
     let bytes = image(&tree, &options());
     common::block_on(async {
         let dev = hadris_storage::MemDevice::new(bytes.get_ref().as_slice(), common::SECTOR);
-        let mut view = hadris_iso::r#async::IsoFs::mount_namespace(
+        let mut view = hadris_iso::async_::IsoFs::mount_namespace(
             dev,
             MountOptions::new(),
             Namespace::RockRidge,
@@ -49,18 +49,18 @@ fn async_modes() {
         .await
         .map_err(|_| ())
         .unwrap();
-        hadris_fs::r#async::contract::check_read_only(&mut view)
+        hadris_fs::async_::contract::check_read_only(&mut view)
             .await
             .unwrap();
-        let view = hadris_iso::r#async::IsoFs::mount_namespace(
+        let view = hadris_iso::async_::IsoFs::mount_namespace(
             bytes,
             MountOptions::new(),
             Namespace::Joliet,
         )
         .await
         .unwrap();
-        let vol = hadris_fs::r#async::Volume::new(view);
-        hadris_fs::r#async::contract::check_read_only(&mut *vol.lock().await.unwrap())
+        let vol = hadris_fs::async_::Volume::new(view);
+        hadris_fs::async_::contract::check_read_only(&mut *vol.lock().await.unwrap())
             .await
             .unwrap();
     });

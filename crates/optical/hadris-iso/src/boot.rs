@@ -1,4 +1,4 @@
-use crate::raw::{self, BootSectionEntry};
+use hadris_iso_raw::{self as raw, BootSectionEntry};
 
 /// The platform of an El Torito boot entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -4,7 +4,7 @@ use super::io::Read;
 use crate::error::{Detail, Error, read_failed};
 use crate::header::{self, Header};
 use crate::options::{Format, ReaderOptions};
-use crate::raw::{self, PATH_MAX, TRAILER_NAME};
+use hadris_cpio_raw::{self as raw, PATH_MAX, TRAILER_NAME};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum State {
@@ -401,7 +401,7 @@ impl<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeSend> CpioReader<R,
             return Ok(false);
         };
         self.header_offset = self.offset - 1;
-        let mut raw = [0u8; crate::raw::NEWC_HEADER_LEN];
+        let mut raw = [0u8; hadris_cpio_raw::NEWC_HEADER_LEN];
         raw[0] = first;
         self.fill(&mut raw[1..6]).await?;
         let start: [u8; 6] = [raw[0], raw[1], raw[2], raw[3], raw[4], raw[5]];

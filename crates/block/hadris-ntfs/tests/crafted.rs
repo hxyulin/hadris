@@ -69,18 +69,17 @@ fn contract_holds_in_every_mode_and_tier() {
 
     #[cfg(feature = "async")]
     block_on(async {
-        let mut fs =
-            hadris_ntfs::r#async::NtfsFs::mount(device(image.clone()), MountOptions::new())
-                .await
-                .unwrap();
-        hadris_fs::r#async::contract::check_read_only(&mut fs)
+        let mut fs = hadris_ntfs::async_::NtfsFs::mount(device(image.clone()), MountOptions::new())
             .await
             .unwrap();
-        let fs = hadris_ntfs::r#async::NtfsFs::mount(device(image), MountOptions::new())
+        hadris_fs::async_::contract::check_read_only(&mut fs)
             .await
             .unwrap();
-        let vol = hadris_fs::r#async::Volume::new(fs);
-        hadris_fs::r#async::contract::check_read_only(&mut *vol.lock().await.unwrap())
+        let fs = hadris_ntfs::async_::NtfsFs::mount(device(image), MountOptions::new())
+            .await
+            .unwrap();
+        let vol = hadris_fs::async_::Volume::new(fs);
+        hadris_fs::async_::contract::check_read_only(&mut *vol.lock().await.unwrap())
             .await
             .unwrap();
     });
@@ -504,7 +503,7 @@ fn index_blocks_in_use_in_sparse_runs_are_corrupt() {
 #[test]
 fn async_modes_scan_only_the_stored_bitmap() {
     block_on(async {
-        let mut fs = hadris_ntfs::r#async::NtfsFs::mount(
+        let mut fs = hadris_ntfs::async_::NtfsFs::mount(
             device(huge_index_image(HugeBitmap::Uninitialized(1), 0x01)),
             MountOptions::new(),
         )
@@ -606,7 +605,7 @@ fn attribute_lists_join_extension_records() {
     hadris_fs::sync::contract::check_read_only(&mut fs).unwrap();
     #[cfg(feature = "async")]
     block_on(async {
-        let mut fs = hadris_ntfs::r#async::NtfsFs::mount(device(image), MountOptions::new())
+        let mut fs = hadris_ntfs::async_::NtfsFs::mount(device(image), MountOptions::new())
             .await
             .unwrap();
         assert_eq!(read_async(&mut fs, "/BIN.DAT").await, content);
@@ -775,11 +774,11 @@ fn large_streams_read_across_runs() {
 #[test]
 fn async_modes_walk_and_reject_corruption() {
     block_on(async {
-        let mut fs = hadris_ntfs::r#async::NtfsFs::mount(device(base_image()), MountOptions::new())
+        let mut fs = hadris_ntfs::async_::NtfsFs::mount(device(base_image()), MountOptions::new())
             .await
             .unwrap();
         assert_eq!(read_async(&mut fs, "/HELLO.TXT").await, b"hello ntfs");
-        let mut fs = hadris_ntfs::r#async::NtfsFs::mount(
+        let mut fs = hadris_ntfs::async_::NtfsFs::mount(
             device(allocation_image(u32::MAX, &[1], None)),
             MountOptions::new(),
         )
@@ -792,7 +791,7 @@ fn async_modes_walk_and_reject_corruption() {
 }
 
 #[cfg(feature = "async")]
-async fn read_async<F: hadris_fs::r#async::FileSystem>(fs: &mut F, path: &str) -> Vec<u8> {
+async fn read_async<F: hadris_fs::async_::FileSystem>(fs: &mut F, path: &str) -> Vec<u8> {
     let node = fs
         .resolve(path.as_bytes(), hadris_fs::Resolve::Lexical)
         .await
@@ -831,7 +830,7 @@ fn declared_volume_must_fit_the_device() {
         assert_eq!(Detail::of(&open_err(image.clone())), Some(Detail::Geometry));
         #[cfg(feature = "async")]
         block_on(async {
-            let err = hadris_ntfs::r#async::NtfsFs::mount(device(image), MountOptions::new())
+            let err = hadris_ntfs::async_::NtfsFs::mount(device(image), MountOptions::new())
                 .await
                 .unwrap_err();
             assert_eq!(Detail::of(&err.into_error()), Some(Detail::Geometry));
@@ -872,7 +871,7 @@ fn mapping_pairs_cannot_read_the_device_tail_outside_the_volume() {
         }
         #[cfg(feature = "async")]
         block_on(async {
-            let mut fs = hadris_ntfs::r#async::NtfsFs::mount(device(image), MountOptions::new())
+            let mut fs = hadris_ntfs::async_::NtfsFs::mount(device(image), MountOptions::new())
                 .await
                 .unwrap();
             let node = fs.lookup(fs.root(), name("BIN.DAT")).await.unwrap();
@@ -902,7 +901,7 @@ fn initial_mft_record_must_fit_the_declared_volume() {
     );
     #[cfg(feature = "async")]
     block_on(async {
-        let err = hadris_ntfs::r#async::NtfsFs::mount(device(image), MountOptions::new())
+        let err = hadris_ntfs::async_::NtfsFs::mount(device(image), MountOptions::new())
             .await
             .unwrap_err();
         assert_eq!(Detail::of(err.error()), Some(Detail::OutsideVolume));

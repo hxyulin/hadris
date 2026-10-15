@@ -11,15 +11,15 @@ Hadris separates three decisions that many crates combine:
 3. **Capability:** `write` (FAT formatting), and in the umbrella crate one
    feature per format
 
-Stable format crates always compile reading; the APFS preview still has a
-`read` feature. The APIs and Cargo examples below target RC2. Until RC2 is
+Every format crate always compiles reading; none has a `read` feature. The APIs and Cargo examples below target RC2. Until RC2 is
 published, use a workspace checkout as described in
 [getting started](../getting-started.md). See the [async guide](../guides/async-io.md)
 for custom device migration. Choose each dimension
 explicitly when disabling default features. Enabling `std` provides heap
 allocation, but it does not implicitly select `sync` or `async`. A feature
-only adds items: none changes what an existing item does, and only
-`unstable-*` features add APIs outside the stability promise.
+only adds items: none changes what an existing item does, except
+`unstable-apfs`, which makes `detect` and `open` handle APFS for the whole
+build. Only `unstable-*` features add APIs outside the stability promise.
 
 ## Platform features
 
@@ -49,7 +49,7 @@ features = ["alloc", "sync", "async", "write", "fat"]
 ```
 
 Name I/O types through their mode module, `hadris::fat::sync` or
-`hadris::fat::async_`; `r#async` remains a compatibility alias. Block-format
+`hadris::fat::async_`. Block-format
 drivers use one async type for local and Send devices. Implement
 `hadris::storage::async_::BlockDevice` once; `SendBlockDevice` is derived when
 both the device and its operation state are Send. A Send device alone does not
@@ -57,13 +57,15 @@ guarantee Send operation futures.
 
 Use `hadris::fs::local::{FileSystem, Volume}` for local callers and
 `hadris::fs::async_::{FileSystem, Volume}` for generic callers requiring Send
-futures. The `async` feature enables both filesystem tiers. Storage's `local`
-namespace aliases `async_`; byte-stream traits in `hadris-io` still have
-separate local and Send contracts, and CPIO retains its Send stream API.
+futures. The `async` feature enables both filesystem tiers. Storage has no
+`local` namespace; byte-stream traits in `hadris-io` have separate `local`
+and Send `async_` contracts, and CPIO retains its Send stream API.
 Device errors remain `Send + Sync + 'static` in every mode.
 
-The sync and async APIs retain mode-specific differences: `hadris-fs::host`
-uses blocking `std::fs` and is sync-only. A sync `Volume` needs `std`; async
+The sync and async APIs retain mode-specific differences: the tree
+functions of `hadris-fs::host` (`file`, `read_tree`, `write_tree`) use
+blocking `std::fs` and are sync-only, while its mount and build defaults and
+`hadris-storage::host::FileDevice` need only `std`. A sync `Volume` needs `std`; async
 volumes need `alloc` and pointer-sized atomics. Local volumes do not expose
 lazy `read_tree`, whose content sources still require Send and Sync.
 
@@ -79,7 +81,7 @@ lazy `read_tree`, whose content sources still require Send and Sync.
 | `hadris-cpio` | CPIO newc, CRC and odc; old binary read | Yes | Yes | Yes | Yes | Allocation-free (writing needs `alloc`) | Stable |
 | `hadris-ntfs` | NTFS | Yes | No | Yes | Yes | Allocation-free | Preview |
 | `hadris-apfs` | APFS containers and volumes | Yes | No | Yes | Yes | `alloc` | Preview |
-| `hadris` `detect` | Detection of every format above, opening FAT, exFAT, ISO 9660, UDF and single-volume APFS as `AnyFs` | Yes | N/A | Yes | Yes | Allocation-free detection; `open` needs `alloc` | Stable |
+| `hadris` `detect` | Detection of every format above, opening FAT, exFAT, ISO 9660 and UDF as `AnyFs`, and single-volume APFS with `unstable-apfs` | Yes | N/A | Yes | Yes | Allocation-free detection; `open` needs `alloc` | Stable |
 
 "Allocation-free" means the core parser can operate without a global
 allocator. Higher-level conveniences such as owned filenames, collected
@@ -138,8 +140,12 @@ compiled, and `alloc` adds the writer.
 - Select at least one I/O mode for APIs that access storage.
 - Add `alloc` only when the chosen API returns or stores owned data.
 - Use the umbrella with defaults disabled for one dependency and one format; use leaf crates for direct ownership of their versions.
-- Treat `hadris-ntfs` and `unstable-ntfs` as a preview whose native API may
-  change in minor releases.
+- Treat `hadris-ntfs`, `hadris-apfs`, `unstable-ntfs` and `unstable-apfs`
+  as previews outside semver. The crates carry 3.x versions but may break
+  in a minor release; depend on them with `"~3.0"`, and pin `hadris` when
+  enabling an `unstable-*` feature. See [stability](../stability.md).
+- `tracing` adds spans without selecting `std`, so `no_std` builds can trace
+  when they have a global allocator, which the `tracing` crate needs.
 
 The workspace CI checks representative allocation-free, `alloc`, `std`, sync,
 async, and combined-mode tiers for every stable format crate.

@@ -60,8 +60,8 @@ The umbrella always re-exports `hadris::io`, `hadris::storage` and
 `hadris::fs`, and each format at a flat path (`hadris::fat`, `hadris::iso`)
 behind a feature of the same name. The `detect` feature adds
 `hadris::{sync, async_}::{detect, open, AnyFs}`, `format` with `write`, and
-`hadris::host::{open, open_with}` with the FAT, ISO 9660, UDF, CPIO and APFS reader crates: `detect` lists every format a
-device holds, including partition tables, archives and NTFS, and `open`
+`hadris::host::{open, open_with}` with the FAT, ISO 9660, UDF and CPIO crates: `detect` lists every format a
+device holds, including partition tables, archives, NTFS and APFS, and `open`
 mounts the first filesystem as an `AnyFs`, which implements the `hadris-fs`
 `FileSystem` trait and reaches each driver's native API by `match`. Select
 format, platform and I/O features explicitly.
@@ -76,14 +76,16 @@ points for kernels, firmware, and other storage libraries:
 | `hadris-io` | Sync and async byte-stream traits and adapters |
 | `hadris-storage` | Block devices, geometry, slices, and a block cache |
 | `hadris-fs` | Shared vocabulary, the `FileSystem` trait, `MountOptions`, `Volume` and its handles, `copy_tree`, and the writer input tree |
-| `hadris-common` | Internal endian integers for on-disk layouts; not for direct use |
+| `hadris-common` | Internal endian integers for the `hadris-fat-raw` layouts; 3.x but may break in a minor release |
 | `hadris-macros` | Internal dual sync/async code-generation support |
 
 ## Preview APIs
 
-The `hadris-ntfs` crate is outside the stable API promise. It is appropriate
-for evaluation and compatibility testing, but callers should expect changes to
-its native API.
+The `hadris-ntfs` and `hadris-apfs` crates are outside the stable API
+promise: they carry 3.x versions, but a 3.y minor release may break them.
+They are appropriate for evaluation and compatibility testing. Depend on
+them with `"~3.0"` to take only compatible updates. See
+[stability](./stability.md).
 
 The umbrella's `detect` lists NTFS volumes in every build, and `open` refuses
 them with `NotRecognized` until NTFS is stable; its `unstable-ntfs` feature
@@ -104,8 +106,10 @@ async modes over V3 storage devices. It implements `FileSystem`, so generic
 `Volume` file access, walks and extraction work on APFS. Mounting needs `alloc`.
 The native `Container` API exposes container and volume inspection.
 
-The umbrella's `detect` feature recognizes and mounts single-volume APFS
-containers. `unstable-apfs` exposes native inspection and selection; the unified
+The umbrella's `detect` feature lists APFS containers, and `open` fails on
+them with `NotRecognized` (`"apfs"`) unless `unstable-apfs` is enabled.
+`unstable-apfs` adds `AnyFs::Apfs`, single-volume mounting in `open`, and
+native inspection and selection with `open_apfs`; the unified
 CLI provides `hadris apfs` commands. A default mount requires one volume; choose explicitly by index,
 object ID, UUID or name when a container holds several. APFS remains read-only;
 compressed files and snapshot views are unsupported. Optional software

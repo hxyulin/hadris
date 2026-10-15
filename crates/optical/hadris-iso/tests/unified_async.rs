@@ -93,7 +93,7 @@ fn disk() -> (MemDevice<Vec<u8>>, u64) {
 
 fn require_send(_: impl Future + Send) {}
 
-async fn generic_send_read<F: hadris_fs::r#async::FileSystem<DeviceError = Infallible>>(
+async fn generic_send_read<F: hadris_fs::async_::FileSystem<DeviceError = Infallible>>(
     fs: &mut F,
 ) -> Vec<u8> {
     let node = fs.lookup(fs.root(), Name::new("readme.txt")).await.unwrap();
@@ -113,7 +113,7 @@ fn borrowed_send_partition_cache_and_old_path_use_one_reader() {
     let part = Partition::new(&mut disk, 4 * 2048, blocks * 2048);
     let cache = hadris_storage::async_::Cache::new(part, 4);
     let ahead = hadris_storage::async_::ReadAhead::new(cache, 8);
-    let mut fs: hadris_iso::r#async::IsoFs<_> =
+    let mut fs: hadris_iso::async_::IsoFs<_> =
         common::block_on(IsoFs::mount(ahead, MountOptions::new())).unwrap();
     assert_eq!(
         hadris_storage::async_::BlockDevice::disk_offset(fs.device()),
@@ -173,12 +173,12 @@ fn unified_reader_still_works_with_send_volume() {
     let part = Partition::new(&mut disk, 4 * 2048, blocks * 2048);
     common::block_on(async {
         let fs = IsoFs::mount(part, MountOptions::new()).await.unwrap();
-        let vol = hadris_fs::r#async::Volume::new(fs);
+        let vol = hadris_fs::async_::Volume::new(fs);
         let mut file = vol
             .open("/readme.txt", OpenOptions::new().read())
             .await
             .unwrap();
-        use hadris_io::r#async::Read as _;
+        use hadris_io::async_::Read as _;
         let mut bytes = [0; 12];
         require_send(file.read_exact(&mut bytes));
         file.read_exact(&mut bytes).await.unwrap();
@@ -215,7 +215,7 @@ fn send_defaults<D: hadris_storage::async_::SendBlockDevice>(fs: &mut IsoFs<D>) 
 fn defaults_remain_send_and_unambiguous_with_both_filesystem_contracts_imported() {
     use hadris_fs::{ErrorKind, Resolve};
     #[allow(unused_imports)]
-    use hadris_fs::{r#async::FileSystem as _, local::FileSystem as _};
+    use hadris_fs::{async_::FileSystem as _, local::FileSystem as _};
     let image = common::image(
         &common::sample(false, false),
         &IsoOptions::new().with_joliet(),

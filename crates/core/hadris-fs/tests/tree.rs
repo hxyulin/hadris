@@ -160,7 +160,7 @@ fn content_path_reads_a_disk_device() {
 #[test]
 fn lazy_content_is_read_in_its_own_mode() {
     use common::asynch;
-    use hadris_fs::r#async::{
+    use hadris_fs::async_::{
         ContentReader as AsyncReader, Volume as AsyncVolume, read_tree as read_tree_async,
     };
 

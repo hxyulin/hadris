@@ -126,7 +126,7 @@ volumes; `plan_bridge` returns its report.
 | `alloc` | via `std` | The writers, `plan` and `plan_bridge` |
 | `sync` | Yes | The blocking API in `sync` |
 | `async` | No | The common asynchronous API in `async_`; futures are Send for Send devices and operation state |
-| `tracing` | No | Operation spans through the `tracing` crate; implies `std` |
+| `tracing` | No | Operation spans through the `tracing` crate, also without `std` |
 
 No feature changes what an item does.
 
@@ -147,20 +147,20 @@ and 2.60, which require a metadata partition. Writing to a mounted volume
 
 ## Tracing
 
-The opt-in `tracing` feature enables `std` and emits operation spans through the
-application’s subscriber. It is disabled by default. See the
+The opt-in `tracing` feature emits operation spans through the application’s
+subscriber, with or without `std`. It is disabled by default. See the
 [tracing guide](../../../docs/tracing.md) for targets, metadata and async behavior.
 
 ## Standalone codecs
 
 The on-disk layouts and I/O-free codecs live in
-[`hadris-udf-raw`](../hadris-udf-raw). Existing `hadris_udf::raw`
-paths remain available and refer to the same types. The raw crate needs
-neither an allocator nor a sync/async feature.
+[`hadris-udf-raw`](../hadris-udf-raw), which has its own 0.x version and
+needs neither an allocator nor a sync/async feature. This crate's API uses
+none of its types and does not re-export it; depend on `hadris-udf-raw`
+directly to read or write the layouts.
 
 ## Unified asynchronous API
 
-`async_` is the canonical namespace; `r#async` reexports the same items.
 `UdfFs`, `write` and `write_bridge` accept the common
 `hadris_storage::async_::BlockDevice` contract. Local devices, borrowed devices,
 partitions, caches and read-ahead adapters compose directly.

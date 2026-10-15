@@ -632,7 +632,7 @@ jobs:
       - name: Setup miri
         run: cargo +nightly miri setup
       - uses: Swatinem/rust-cache@v2
-      - name: Miri — hadris-common (FixedFilename safety)
+      - name: Miri - hadris-common (endian integers)
         run: cargo +nightly miri test -p hadris-common --lib
       - name: Miri - hadris-fat-raw (LFN UTF-16, surrogate pairs and name decoding)
         run: cargo +nightly miri test -p hadris-fat-raw --lib

@@ -1,6 +1,6 @@
 use hadris_fs::DateTime;
 
-use crate::raw::{DecDateTime, PrimaryVolumeDescriptor};
+use hadris_iso_raw::{DecDateTime, PrimaryVolumeDescriptor};
 
 /// A text identifier of the volume descriptors.
 ///
