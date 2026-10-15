@@ -10,11 +10,12 @@ description = "Shared filesystem vocabulary and the FileSystem trait for the Had
 readme = "README.md"
 keywords = ["filesystem", "no-std", "path", "metadata"]
 categories = ["no-std", "filesystem"]
-include = ["src/**/*", "Cargo.toml", "README.md"]
+include = ["src/**/*", "Cargo.toml", "README.md", "LICENSE-MIT"]
 
 # docs.rs builds with default features only, which would hide the modes.
 [package.metadata.docs.rs]
 features = ["std", "sync", "async"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["std", "sync"]

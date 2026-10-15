@@ -165,6 +165,13 @@ def check_package_readmes() -> list[str]:
     errors = []
     for manifest in sorted((ROOT / "crates").glob("**/Cargo.toml")):
         package = tomllib.loads(manifest.read_text()).get("package", {})
+        if package.get("publish", True) is False:
+            continue
+        license_file = manifest.parent / "LICENSE-MIT"
+        if not license_file.exists() or license_file.read_bytes() != (ROOT / "LICENSE-MIT").read_bytes():
+            errors.append(
+                f"{manifest.relative_to(ROOT)}: package needs LICENSE-MIT, a link to the root license"
+            )
         readme_value = package.get("readme")
         if not isinstance(readme_value, str):
             continue
@@ -172,10 +179,14 @@ def check_package_readmes() -> list[str]:
         if not readme.exists():
             errors.append(f"{manifest.relative_to(ROOT)}: package README does not exist")
             continue
-        if readme == ROOT / "README.md":
+        relative = readme.relative_to(ROOT)
+        if not readme.is_relative_to(manifest.parent.resolve()):
+            errors.append(
+                f"{manifest.relative_to(ROOT)}: package README {relative} is outside the "
+                "crate directory, so its relative links break on crates.io"
+            )
             continue
         contents = readme.read_text()
-        relative = readme.relative_to(ROOT)
         if "## Documentation" not in contents:
             errors.append(f"{relative}: missing Documentation section")
         if "LICENSE-MIT" not in contents:

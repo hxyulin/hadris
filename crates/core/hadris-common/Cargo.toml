@@ -10,7 +10,10 @@ description = "Endian-aware integer types for the on-disk layouts of the Hadris 
 readme = "README.md"
 keywords = ["filesystem", "endian"]
 categories = ["no-std", "filesystem"]
-include = ["src/**/*", "Cargo.toml"]
+include = ["src/**/*", "Cargo.toml", "README.md", "LICENSE-MIT"]
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["bytemuck"]
