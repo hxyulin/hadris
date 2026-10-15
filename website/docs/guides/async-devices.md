@@ -1,8 +1,14 @@
-# Unified asynchronous devices
+---
+title: Implement an asynchronous block device
+---
 
-The device API uses one asynchronous implementation for local and Send
-operations in the `async_` namespace.
-The `sync` namespace keeps its synchronous contract.
+# Implement an asynchronous block device
+
+This page is the reference for the asynchronous block-device contract. The
+device API uses one asynchronous implementation for local and Send
+operations in the `async_` namespace. The `sync` namespace keeps its
+synchronous contract. For using the async drivers, start with
+[asynchronous I/O](./async-io.md).
 
 ## Device implementations
 
@@ -110,5 +116,4 @@ Production tests cover local devices, Send devices with local operation state,
 borrowed Send futures executed on scoped threads, read/write round trips,
 cache invalidation and retry, partial stream transfers, thread-driven wakeups,
 errors and cancellation. ISO sessions and UDF bridge writing are included.
-The temporary source-copy experiment has been replaced by these production
-tests, and CI runs the affected crates on Rust 1.88 and Rust 1.97.1.
+CI runs the affected crates on Rust 1.88 and Rust 1.97.1.

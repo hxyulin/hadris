@@ -454,6 +454,8 @@ All asynchronous drivers accept
 operation state are `Send`; `Rc` devices and states use the same driver types on
 local executors. Hosted drivers implement `hadris_fs::local::FileSystem`, and also
 `hadris_fs::async_::FileSystem` when the device satisfies `SendBlockDevice`.
+See [implement an asynchronous block device](https://hxyulin.github.io/hadris/guides/async-devices)
+for the device contract.
 
 ## Documentation
 

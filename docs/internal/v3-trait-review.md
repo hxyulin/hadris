@@ -4,7 +4,7 @@ Status: done. Sections 1 to 4 are the review as written; section 5 records
 what was decided and changed, and the mount results after the changes.
 The `hadris-fs` traits are frozen from here on.
 
-Step 6 of [the V3 design](v3-api-design.md#6-migration-plan) freezes the
+Step 6 of [the V3 design](../v3-api-design.md#6-migration-plan) freezes the
 `hadris-fs` traits before ISO, UDF, NTFS and exFAT implement them. This review
 tested them against four users:
 

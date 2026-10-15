@@ -19,9 +19,9 @@ successful I/O counts, bytes, flush counts and maximum request sizes.
 RUSTUP_TOOLCHAIN=1.97.1 cargo bench -p hadris-fat --bench performance -- --samples 7 --csv
 ```
 
-[Full CSV](benchmarks/fat-hosted-baseline.csv) includes every FAT kind and both
+[Full CSV](../benchmarks/fat-hosted-baseline.csv) includes every FAT kind and both
 drivers, timing ranges, geometry and write-region attribution.
-[Methodology](performance.md) defines the workload boundaries and checks.
+[Methodology](../performance.md) defines the workload boundaries and checks.
 These are memory-device timings, including counters; they describe driver CPU
 cost and device requests, rather than physical SSD or SD-card latency.
 

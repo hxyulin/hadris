@@ -363,7 +363,7 @@ implements the first three methods; the default `write_blocks` answers kind
 `ReadOnly`, and a device whose `writable()` is false is mounted read-only.
 Asynchronous devices instead implement operation-owned `State` and poll
 hooks; their provided read/write/flush methods remain awaitable. See the
-[async device migration guide](async-devices.md).
+[async device guide](../website/docs/guides/async-devices.md).
 
 | Device | Use |
 |---|---|

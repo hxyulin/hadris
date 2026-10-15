@@ -108,4 +108,4 @@ In addition to the rc.1 testing focus, this candidate especially benefits from:
 Please report bugs and migration problems through the
 [Hadris issue tracker](https://github.com/hxyulin/hadris/issues). Security
 issues should follow the private reporting process in
-[SECURITY.md](../SECURITY.md).
+[SECURITY.md](../../SECURITY.md).

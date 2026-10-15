@@ -11,7 +11,7 @@ member, avoiding a 2,048-bit scan for single-cluster updates.
 
 FAT32 `append-512-end-sync`: device writes fall from 162 to 100, reads from
 131 to 69, and bytes written from 82,944 to 51,200. Median CPU time is 5.50 µs
-versus 6.21 µs in the baseline. [Measurements](benchmarks/fat-hosted-step1.csv).
+versus 6.21 µs in the baseline. [Measurements](../benchmarks/fat-hosted-step1.csv).
 
 Validation: a direct I/O-count regression on FAT12/16/32, failures at every
 append write, cancellation at every append await, hosted write/async/contract
@@ -26,7 +26,7 @@ heap storage for longer names, keeping async future sizes within their
 existing limits.
 
 FAT32 `lookup-128`: median 283.96 µs versus 517.25 µs in the baseline.
-I/O counts are unchanged. [Measurements](benchmarks/fat-hosted-step2.csv).
+I/O counts are unchanged. [Measurements](../benchmarks/fat-hosted-step2.csv).
 Validation covers Unicode and supplementary characters, the 255-unit limit,
 short aliases, case flags, CP437/ASCII escape behavior, existing read/write/
 async/contract tests, async future sizes, targeted Miri and the allocator-only
@@ -44,7 +44,7 @@ With 32 positions, FAT32 reverse 4 KiB reads fall from 2,435 to 320 device
 calls and from 2,249.46 µs to 138.42 µs. Shuffled reads fall from 1,298 to 541
 calls and from 1,127.92 µs to 149.21 µs. Sequential/fragmented reads retain their
 I/O counts and pay extra CPU for index maintenance; enable it for seek-heavy
-workloads. [Measurements](benchmarks/fat-hosted-step3.csv).
+workloads. [Measurements](../benchmarks/fat-hosted-step3.csv).
 
 Validation covers bounded replacement, separate file identities, backward
 reads with byte comparisons on FAT12/16/32, fragmented reads and mutation/slot
@@ -65,7 +65,7 @@ With eight metadata blocks and no chain index, FAT32 unaligned reads fall from
 1,043 to 787 calls. Short-name lookup falls from 1,008 to 129 calls. Median
 CPU time is 44.42 µs for unaligned reads and 256.46 µs for short-name lookup;
 metadata caching reduces I/O but does not remove repeated name scans.
-[Measurements](benchmarks/fat-hosted-step4.csv).
+[Measurements](../benchmarks/fat-hosted-step4.csv).
 
 Validation covers LRU bounds, range invalidation and clock wrap, payload bypass,
 metadata reuse after partial payload reads, failed mirror writes, cancellation,
@@ -92,7 +92,7 @@ improvements also include the bitmap iteration fix in step 1; the batching
 change accounts for the write-count reductions. FAT12's 64 KiB workload
 retains 8,225 writes and measures 305.12 µs versus the baseline's 273.79 µs;
 the series is not a CPU improvement for every workload.
-[Measurements](benchmarks/fat-hosted-step5.csv).
+[Measurements](../benchmarks/fat-hosted-step5.csv).
 
 Validation covers allocation across multiple FAT blocks on FAT12/16/32 with
 one and two FAT copies, FAT32 reserved bits and active-copy selection, invalid
@@ -106,7 +106,7 @@ provide the final series checks.
 
 ## Configuring both caches
 
-The [combined run](benchmarks/fat-hosted-combined.csv) uses 32 chain positions
+The [combined run](../benchmarks/fat-hosted-combined.csv) uses 32 chain positions
 and eight metadata blocks after all five changes. FAT32 reverse and shuffled
 4 KiB reads use 283 and 296 device calls respectively (baseline: 2,435 and
 1,298), with medians of 140.33 µs and 145.38 µs. Short-name lookup uses 129
@@ -137,7 +137,7 @@ The reuse regression retains the same owned buffers across 32 invalidation
 cycles and explicit clearing for 512-byte and 4 KiB blocks. Existing failed
 mirror writes, cancellation, payload bypass, mutation and async resource
 checks also pass, along with the allocator-only sync/async/write tier.
-The [seven-sample run](benchmarks/fat-hosted-step6.csv) uses 32 positions and
+The [seven-sample run](../benchmarks/fat-hosted-step6.csv) uses 32 positions and
 eight blocks. FAT32 4 KiB writes measure 152.88 µs versus 164.92 µs in the
 previous combined run; FAT12 64 KiB writes measure 457.92 µs versus 606.92 µs.
 I/O counts are identical. Short-name create/remove measures 167.75 µs versus
@@ -163,9 +163,9 @@ Median CPU times are:
 | FAT16 | 189.33 µs | 145.04 µs | 2,054 |
 | FAT32 | 199.42 µs | 171.54 µs | 2,066 |
 
-[Before](benchmarks/fat-hosted-small-read-before.csv),
-[after](benchmarks/fat-hosted-small-read-after.csv).
-The [existing-workload run](benchmarks/fat-hosted-step7.csv) retains every
+[Before](../benchmarks/fat-hosted-small-read-before.csv),
+[after](../benchmarks/fat-hosted-small-read-after.csv).
+The [existing-workload run](../benchmarks/fat-hosted-step7.csv) retains every
 I/O count from step 6 and shows mixed CPU changes: FAT32 4 KiB reads are
 41.42 µs versus 41.33 µs, while unaligned reads are 47.67 µs versus 52.54 µs.
 The improvement is primarily for small reads; it is not a universal

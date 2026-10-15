@@ -30,6 +30,7 @@ module.exports = {
         "guides/build-initramfs",
         "guides/modify-fat",
         "guides/async-io",
+        "guides/async-devices",
         "guides/custom-io",
         "guides/no-std",
         "guides/embedded",

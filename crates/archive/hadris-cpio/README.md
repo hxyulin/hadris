@@ -118,7 +118,7 @@ The opt-in `tracing` feature emits operation spans through the application’s
 subscriber, with or without `std`. It is disabled by default. See the
 [tracing guide](../../../docs/tracing.md) for targets, metadata and async behavior.
 
-The [streaming audit and benchmark](../../../docs/cpio-performance.md) records
+The [streaming audit and benchmark](../../../docs/internal/cpio-performance.md) records
 I/O counts, workload boundaries and native `cpio` interoperability checks.
 
 Hard links share one payload in `newc` and checksum `newc`; `odc` stores a
