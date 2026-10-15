@@ -8,6 +8,25 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **All crates (breaking):** `async_` is the only name of the async mode
+  module. The `r#async` aliases of `async_` are removed from `hadris-io`,
+  `hadris-storage`, `hadris-fs`, `hadris`, `hadris-fat` (including
+  `exfat`, `embedded` and `exfat::embedded`), `hadris-fat-raw` (`io` and
+  `exfat::io`), `hadris-part`, `hadris-ntfs`, `hadris-apfs`, `hadris-iso`,
+  `hadris-udf` and `hadris-cpio`. Replace `r#async::` with `async_::`.
+
+- **hadris-storage, hadris-fat-raw (breaking):** The `local` aliases of
+  `async_` are removed; `hadris_storage::local`, `hadris_fat_raw::io::local`
+  and `hadris_fat_raw::exfat::io::local` were the same items as `async_`,
+  which already accepts devices whose futures are not `Send`. `local` now
+  always names a separate contract without `Send` bounds, in `hadris-io`
+  and `hadris-fs` only.
+
+- **hadris-storage (breaking):** The `legacy_async` and `legacy_local`
+  modules are removed. No driver accepted their `BlockDevice` traits;
+  implement the poll-based `async_::BlockDevice` or `async_::Stream`, or
+  bridge a synchronous stream with `BlockingStream`.
+
 - **Embedded FAT stale directories:** Using an embedded `Dir` of a removed
   subdirectory fails with `InvalidHandle` instead of reading or writing
   entries in its old cluster, which may since hold file data. Each use of

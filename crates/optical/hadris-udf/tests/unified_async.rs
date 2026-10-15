@@ -125,7 +125,7 @@ fn send_contract<D: SendBlockDevice>(fs: &mut UdfFs<D>, buf: &mut [u8]) {
     require_send(fs.fsync(fs.root()));
     require_send(fs.sync());
 }
-async fn read_file<F: hadris_fs::r#async::FileSystem<DeviceError = Infallible>>(
+async fn read_file<F: hadris_fs::async_::FileSystem<DeviceError = Infallible>>(
     fs: &mut F,
 ) -> [u8; 12] {
     let node = fs.resolve(b"/hello.txt", Resolve::Follow).await.unwrap();
@@ -138,7 +138,7 @@ async fn read_file<F: hadris_fs::r#async::FileSystem<DeviceError = Infallible>>(
 #[test]
 fn send_reader_writer_and_borrowed_adapters_share_the_canonical_namespace() {
     #[allow(unused_imports)]
-    use hadris_fs::{r#async::FileSystem as _, local::FileSystem as _};
+    use hadris_fs::{async_::FileSystem as _, local::FileSystem as _};
     let tree = tree();
     let options = UdfOptions::new();
     let size = hadris_udf::plan(&tree, &options).unwrap().size() as usize;
@@ -157,7 +157,7 @@ fn send_reader_writer_and_borrowed_adapters_share_the_canonical_namespace() {
     assert_eq!(&disk.get_ref()[..2048], &[0xA5; 2048]);
     assert_eq!(&disk.get_ref()[size + 2048..], &[0xA5; 2048]);
     let part = Partition::new(&mut disk, 2048, size as u64);
-    let mut fs: hadris_udf::r#async::UdfFs<_> = common::block_on(UdfFs::mount(
+    let mut fs: hadris_udf::async_::UdfFs<_> = common::block_on(UdfFs::mount(
         ReadAhead::new(Cache::new(part, 8), 8),
         MountOptions::new(),
     ))

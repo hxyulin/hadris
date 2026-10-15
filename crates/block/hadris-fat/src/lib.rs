@@ -451,7 +451,3 @@ pub use hadris_fat_raw::{Detail, FatKind, Geometry};
 #[cfg(feature = "write")]
 pub use options::FatOptions;
 pub use options::VolumeLabel;
-
-/// Compatibility alias for the asynchronous API.
-#[cfg(feature = "async")]
-pub use async_ as r#async;

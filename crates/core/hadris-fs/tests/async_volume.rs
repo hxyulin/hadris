@@ -9,9 +9,9 @@ use std::sync::Arc;
 
 use common::asynch::{MemFs, fixture};
 use common::block_on;
-use hadris_fs::r#async::{ContentReader, FileSystem, Volume, copy_tree, read_tree};
+use hadris_fs::async_::{ContentReader, FileSystem, Volume, copy_tree, read_tree};
 use hadris_fs::{ErrorKind, FsResult, OpenOptions, Resolve, SetAttr};
-use hadris_io::r#async::Write as _;
+use hadris_io::async_::Write as _;
 
 async fn read<F: FileSystem>(vol: &Volume<F>, path: &str) -> FsResult<Vec<u8>, F::DeviceError> {
     let mut file = vol.open(path, OpenOptions::new().read()).await?;

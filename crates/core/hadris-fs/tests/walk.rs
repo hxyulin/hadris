@@ -124,7 +124,7 @@ mod asynch {
     use super::*;
     use common::asynch::MemFs;
     use common::block_on;
-    use hadris_fs::r#async::{FileSystem, Walk};
+    use hadris_fs::async_::{FileSystem, Walk};
 
     #[test]
     fn lists_depth_first_and_fuses() {

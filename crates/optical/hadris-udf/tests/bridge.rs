@@ -230,14 +230,14 @@ fn reports_devices_and_modes_agree() {
     };
     let run = async {
         let mut dev = MemDevice::new(vec![0u8; expected.len()], BlockSize::new(2048).unwrap());
-        hadris_udf::r#async::write_bridge(&mut dev, &tree, &options.iso, &options.udf)
+        hadris_udf::async_::write_bridge(&mut dev, &tree, &options.iso, &options.udf)
             .await
             .unwrap();
         assert_eq!(dev.get_ref(), &expected);
         let mut dev = MemDevice::new(vec![0u8; expected.len()], BlockSize::new(2048).unwrap());
         let report = hadris_udf::plan_bridge(&tree, &options.iso, &options.udf).unwrap();
         assert_eq!(report.size(), expected.len() as u64);
-        hadris_udf::r#async::write_bridge(&mut dev, &tree, &options.iso, &options.udf)
+        hadris_udf::async_::write_bridge(&mut dev, &tree, &options.iso, &options.udf)
             .await
             .unwrap();
         assert_eq!(dev.get_ref(), &expected);
@@ -418,10 +418,9 @@ fn bridges_write_non_utf8_names() {
 
     let run = async {
         let mut dev = MemDevice::new(vec![0u8; bytes.len()], BlockSize::new(2048).unwrap());
-        let written =
-            hadris_udf::r#async::write_bridge(&mut dev, &tree, &options.iso, &options.udf)
-                .await
-                .unwrap();
+        let written = hadris_udf::async_::write_bridge(&mut dev, &tree, &options.iso, &options.udf)
+            .await
+            .unwrap();
         assert_eq!(written, report);
         assert_eq!(dev.get_ref(), &bytes);
     };

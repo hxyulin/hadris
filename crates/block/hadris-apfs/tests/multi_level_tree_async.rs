@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll, Wake, Waker};
 
 use common::*;
-use hadris_apfs::r#async::Container;
+use hadris_apfs::async_::Container;
 use hadris_storage::{BlockCount, BlockGeometry, BlockSize};
 
 struct ThreadWaker(std::thread::Thread);

@@ -171,7 +171,3 @@ pub use mbr::{Mbr, MbrEntry};
 pub use mbr_type::MbrType;
 pub use name::PartitionName;
 pub use partition::{GptCopy, Partition, PartitionFlags, PartitionKind, TableKind};
-
-/// Compatibility alias for the unified asynchronous API.
-#[cfg(feature = "async")]
-pub use async_ as r#async;

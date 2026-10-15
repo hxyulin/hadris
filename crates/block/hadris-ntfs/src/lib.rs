@@ -64,7 +64,7 @@
 //! | `std` | Yes | Implies `alloc`; forwards `std` to `hadris-fs` and `hadris-storage` |
 //! | `alloc` | via `std` | Forwards `alloc` to `hadris-fs` and `hadris-storage` |
 //! | `sync` | Yes | The blocking API in `sync` |
-//! | `async` | No | The unified asynchronous API in `async_` (`r#async` is an alias) |
+//! | `async` | No | The unified asynchronous API in `async_` |
 //!
 //! No feature changes what an item does.
 
@@ -115,8 +115,5 @@ pub mod sync {
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 #[path = "async.rs"]
 pub mod async_;
-/// Compatibility alias for the asynchronous API.
-#[cfg(feature = "async")]
-pub use async_ as r#async;
 
 pub use error::Detail;

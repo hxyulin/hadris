@@ -403,7 +403,7 @@ macro_rules! async_case {
 }
 regressions!(sync, malformed_records_sync, sync_case);
 #[cfg(feature = "async")]
-regressions!(r#async, malformed_records_async, async_case);
+regressions!(async_, malformed_records_async, async_case);
 
 macro_rules! damaged_regressions {
     ($mode:ident, $name:ident, $run:ident) => {
@@ -499,7 +499,7 @@ macro_rules! damaged_regressions {
 
 damaged_regressions!(sync, damaged_entries_list_sync, sync_case);
 #[cfg(feature = "async")]
-damaged_regressions!(r#async, damaged_entries_list_async, async_case);
+damaged_regressions!(async_, damaged_entries_list_async, async_case);
 
 macro_rules! timestamp_regressions {
     ($mode:ident, $name:ident, $run:ident) => {
@@ -558,4 +558,4 @@ macro_rules! timestamp_regressions {
 
 timestamp_regressions!(sync, partial_timestamps_sync, sync_case);
 #[cfg(feature = "async")]
-timestamp_regressions!(r#async, partial_timestamps_async, async_case);
+timestamp_regressions!(async_, partial_timestamps_async, async_case);

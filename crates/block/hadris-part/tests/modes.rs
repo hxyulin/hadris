@@ -1,4 +1,4 @@
-//! The `sync` and `r#async` modes read, scan, write and open
+//! The `sync` and `async_` modes read, scan, write and open
 //! the same disks the same way.
 
 use core::future::Future;
@@ -86,43 +86,43 @@ fn every_mode_reads_scans_writes_and_opens_alike() {
 
         block_on(async {
             let mut dev = MemDevice::new(vec![0u8; 8192 * 512], B512);
-            let created = hadris_part::r#async::create(&mut dev, &layout)
+            let created = hadris_part::async_::create(&mut dev, &layout)
                 .await
                 .unwrap();
             assert_eq!(created, disk);
             assert_eq!(dev.get_ref(), sync_dev.get_ref());
-            assert_eq!(hadris_part::r#async::read(&mut dev).await.unwrap(), disk);
+            assert_eq!(hadris_part::async_::read(&mut dev).await.unwrap(), disk);
             let mut found = Vec::new();
-            let scanned = hadris_part::r#async::scan(&mut dev, |p| {
+            let scanned = hadris_part::async_::scan(&mut dev, |p| {
                 found.push(p);
                 ControlFlow::Continue(())
             })
             .await
             .unwrap();
             assert_eq!((scanned, found), (kind, listed.clone()));
-            let slice = hadris_part::r#async::open(&mut dev, &listed[0]).unwrap();
+            let slice = hadris_part::async_::open(&mut dev, &listed[0]).unwrap();
             assert_eq!(
-                hadris_storage::r#async::BlockDevice::block_count(&slice),
+                hadris_storage::async_::BlockDevice::block_count(&slice),
                 listed[0].len()
             );
         });
 
         let mut dev = MemDevice::new(vec![0u8; 8192 * 512], B512);
-        let write = assert_send(hadris_part::r#async::write(&mut dev, &disk));
+        let write = assert_send(hadris_part::async_::write(&mut dev, &disk));
         block_on(write).unwrap();
         assert_eq!(dev.get_ref(), sync_dev.get_ref());
-        let read = assert_send(hadris_part::r#async::read(&mut dev));
+        let read = assert_send(hadris_part::async_::read(&mut dev));
         assert_eq!(block_on(read).unwrap(), disk);
         let mut count = 0;
-        let scan = assert_send(hadris_part::r#async::scan(&mut dev, |_| {
+        let scan = assert_send(hadris_part::async_::scan(&mut dev, |_| {
             count += 1;
             ControlFlow::Continue(())
         }));
         assert_eq!(block_on(scan).unwrap(), kind);
         assert_eq!(count, listed.len());
-        let slice = hadris_part::r#async::open(&mut dev, &listed[1]).unwrap();
+        let slice = hadris_part::async_::open(&mut dev, &listed[1]).unwrap();
         assert_eq!(
-            hadris_storage::r#async::BlockDevice::block_count(&slice),
+            hadris_storage::async_::BlockDevice::block_count(&slice),
             listed[1].len()
         );
     }
@@ -139,7 +139,7 @@ fn every_mode_falls_back_to_the_backup_gpt() {
         recovered.partitions().collect::<Vec<_>>(),
         disk.partitions().collect::<Vec<_>>()
     );
-    let from_async = block_on(hadris_part::r#async::read(&mut dev)).unwrap();
+    let from_async = block_on(hadris_part::async_::read(&mut dev)).unwrap();
     assert_eq!(from_async, recovered);
 }
 

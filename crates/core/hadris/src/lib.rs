@@ -277,7 +277,3 @@ pub use hadris_cpio as cpio;
 #[cfg(feature = "unstable-apfs")]
 #[cfg_attr(docsrs, doc(cfg(feature = "unstable-apfs")))]
 pub use hadris_apfs as apfs;
-
-/// Compatibility alias for the asynchronous API.
-#[cfg(all(feature = "detect", feature = "async"))]
-pub use async_ as r#async;

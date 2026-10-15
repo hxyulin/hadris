@@ -117,9 +117,6 @@ pub mod sync;
 #[cfg(feature = "async")]
 #[path = "async.rs"]
 pub mod async_;
-/// Compatibility alias for the asynchronous API.
-#[cfg(feature = "async")]
-pub use async_ as r#async;
 
 /// Asynchronous filesystem APIs whose devices and futures need not be `Send`.
 ///

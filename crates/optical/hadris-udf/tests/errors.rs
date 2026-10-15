@@ -351,7 +351,7 @@ impl hadris_storage::sync::BlockDevice for FailingDevice {
 }
 
 #[cfg(feature = "async")]
-impl hadris_storage::r#async::BlockDevice for FailingDevice {
+impl hadris_storage::async_::BlockDevice for FailingDevice {
     type State = ();
     fn cancel(&mut self, _: &mut ()) {}
     fn block_size(&self) -> BlockSize {
@@ -393,7 +393,7 @@ fn reserve_sequence_preserves_device_failures() {
         assert_device_failure(failed.into_error());
         #[cfg(feature = "async")]
         common::block_on(async {
-            let failed = hadris_udf::r#async::UdfFs::mount(
+            let failed = hadris_udf::async_::UdfFs::mount(
                 FailingDevice::new(bytes, fallback as u64),
                 options,
             )
@@ -433,7 +433,7 @@ fn symlink_metadata_preserves_device_failures() {
     common::block_on(async {
         let dev = FailingDevice::new(bytes, u64::MAX);
         let fail = dev.fail.clone();
-        let mut udf = hadris_udf::r#async::UdfFs::mount(dev, MountOptions::new())
+        let mut udf = hadris_udf::async_::UdfFs::mount(dev, MountOptions::new())
             .await
             .unwrap();
         assert_eq!(udf.stat(node).await.unwrap().len(), 6);
@@ -471,7 +471,7 @@ fn malformed_symlinks_fail_stat_and_list_with_damaged_metadata() {
     #[cfg(feature = "async")]
     common::block_on(async {
         let mut udf =
-            hadris_udf::r#async::UdfFs::mount(MemDevice::new(bytes, SECTOR), MountOptions::new())
+            hadris_udf::async_::UdfFs::mount(MemDevice::new(bytes, SECTOR), MountOptions::new())
                 .await
                 .unwrap();
         assert_eq!(udf.stat(node).await.unwrap_err().kind(), ErrorKind::Corrupt);
@@ -508,8 +508,8 @@ fn cached_symlink_reads_preserve_device_failures_and_retry() {
     common::block_on(async {
         let dev = FailingDevice::new(bytes, payload);
         let fail = dev.fail.clone();
-        let mut udf = hadris_udf::r#async::UdfFs::mount(
-            hadris_storage::r#async::Cache::new(dev, 8),
+        let mut udf = hadris_udf::async_::UdfFs::mount(
+            hadris_storage::async_::Cache::new(dev, 8),
             MountOptions::new(),
         )
         .await
@@ -597,7 +597,7 @@ fn malformed_identifier_fields_are_refused() {
         #[cfg(feature = "async")]
         common::block_on(async {
             let mut fs =
-                hadris_udf::r#async::UdfFs::mount(MemDevice::new(bad, SECTOR), MountOptions::new())
+                hadris_udf::async_::UdfFs::mount(MemDevice::new(bad, SECTOR), MountOptions::new())
                     .await
                     .unwrap();
             let root = fs.root();

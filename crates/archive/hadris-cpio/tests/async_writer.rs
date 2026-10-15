@@ -199,10 +199,3 @@ fn async_odc_hard_links_store_each_payload() {
     }
     assert_ne!(report.extents("a"), report.extents("b"));
 }
-
-#[test]
-fn legacy_async_alias_names_the_same_reader() {
-    let reader: hadris_cpio::r#async::CpioReader<Cursor<'_>> =
-        hadris_cpio::async_::CpioReader::new(Cursor::new(&[][..]));
-    let _ = reader;
-}

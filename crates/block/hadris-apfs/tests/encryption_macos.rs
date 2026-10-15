@@ -254,14 +254,14 @@ mod sync_cases {
 #[cfg(feature = "async")]
 mod async_cases {
     use super::{PASSWORD, device};
-    use hadris_apfs::{VolumeSelector, r#async::ApfsFs};
+    use hadris_apfs::{VolumeSelector, async_::ApfsFs};
     use hadris_fs::{MountOptions, Name, Resolve};
 
     async fn native_encrypted_volume_use_cases() {
         let mut fs = ApfsFs::mount_with_password(device(), MountOptions::new(), PASSWORD, None)
             .await
             .unwrap();
-        hadris_fs::r#async::contract::check_read_only(&mut fs)
+        hadris_fs::async_::contract::check_read_only(&mut fs)
             .await
             .unwrap();
         let root = fs.root();
@@ -516,10 +516,10 @@ mod async_cases {
         type State = ();
         fn cancel(&mut self, _: &mut ()) {}
         fn block_size(&self) -> hadris_storage::BlockSize {
-            hadris_storage::r#async::BlockDevice::block_size(&self.inner)
+            hadris_storage::async_::BlockDevice::block_size(&self.inner)
         }
         fn block_count(&self) -> u64 {
-            hadris_storage::r#async::BlockDevice::block_count(&self.inner)
+            hadris_storage::async_::BlockDevice::block_count(&self.inner)
         }
         fn poll_read_blocks(
             &mut self,
@@ -558,7 +558,7 @@ mod async_cases {
             stop_at: stop_at.clone(),
             reached: reached.clone(),
         };
-        let mut container = block_on(hadris_apfs::r#async::Container::open(gated)).unwrap();
+        let mut container = block_on(hadris_apfs::async_::Container::open(gated)).unwrap();
         let checkpoint = block_on(container.latest_superblock()).unwrap();
         let volume = block_on(container.volume_superblocks(&checkpoint))
             .unwrap()

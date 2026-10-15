@@ -196,7 +196,7 @@ mod cancel;
 #[cfg(feature = "async")]
 #[test]
 fn cancelled_index_walks_resume_correctly() {
-    use hadris_fat::r#async::FatFs;
+    use hadris_fat::async_::FatFs;
     let case = CASES[2];
     let (image, data) = fixture(case, 32768);
     for budget in 0..40 {
@@ -235,7 +235,7 @@ fn cancelled_index_walks_resume_correctly() {
 #[cfg(feature = "async")]
 #[test]
 fn cancelled_growth_discards_cached_positions() {
-    use hadris_fat::r#async::FatFs;
+    use hadris_fat::async_::FatFs;
     let case = CASES[2];
     let (image, data) = fixture(case, 32768);
     for budget in 0..80 {
@@ -480,7 +480,7 @@ fn directory_index_invalidates_mutations_and_preserves_dirty_pins() {
 #[cfg(feature = "async")]
 #[test]
 fn directory_prefix_survives_lookup_cancellation_at_every_await() {
-    use hadris_fat::r#async::FatFs;
+    use hadris_fat::async_::FatFs;
     let case = CASES[2];
     let (image, names) = directory_fixture(case);
     for budget in 0..200 {
@@ -624,7 +624,7 @@ fn directory_prefix_keeps_chain_guard_when_missing_names_encounter_cycles() {
 #[cfg(feature = "async")]
 #[test]
 fn directory_index_discards_names_before_cancelled_rename_writes() {
-    use hadris_fat::r#async::FatFs;
+    use hadris_fat::async_::FatFs;
     let case = CASES[2];
     let mut original = hadris_fat::sync::FatFs::mount(
         common::device(case, common::blank(case)),
@@ -709,7 +709,7 @@ fn directory_index_discards_names_before_cancelled_rename_writes() {
 #[test]
 #[ignore = "pre-existing cancelled rename can leave cross-linked entries; directory indexing is disabled"]
 fn cancelled_nonempty_rename_can_leave_a_cross_link_without_directory_indexing() {
-    use hadris_fat::r#async::FatFs;
+    use hadris_fat::async_::FatFs;
     let case = CASES[2];
     let mut original = hadris_fat::sync::FatFs::mount(
         common::device(case, common::blank(case)),
@@ -833,7 +833,7 @@ fn append_planning_preserves_collisions_holes_and_capacity_fallback() {
 #[cfg(feature = "async")]
 #[test]
 fn append_planning_recovers_cancelled_creation_at_every_await() {
-    use hadris_fat::r#async::FatFs;
+    use hadris_fat::async_::FatFs;
 
     let case = CASES[2];
     let image = common::blank(case);
@@ -1128,7 +1128,7 @@ fn listing_hint_matches_aliases_and_invalidates_mutations() {
 #[cfg(feature = "async")]
 #[test]
 fn listing_hint_survives_cancelled_readdir() {
-    use hadris_fat::r#async::FatFs;
+    use hadris_fat::async_::FatFs;
     let case = CASES[0];
     let (image, names) = directory_fixture(case);
     for budget in 0..100 {

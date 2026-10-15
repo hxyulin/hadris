@@ -627,7 +627,7 @@ impl<D: ErrorType> ErrorType for ByteView<D> {
     type Error = Error<D::Error>;
 }
 
-impl<D: SendBlockDevice> hadris_io::r#async::Read for ByteView<D> {
+impl<D: SendBlockDevice> hadris_io::async_::Read for ByteView<D> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         let n = buf.len().min(self.remaining());
         self.read_at(self.position, &mut buf[..n]).await?;
@@ -636,7 +636,7 @@ impl<D: SendBlockDevice> hadris_io::r#async::Read for ByteView<D> {
     }
 }
 
-impl<D: SendBlockDevice> hadris_io::r#async::Write for ByteView<D> {
+impl<D: SendBlockDevice> hadris_io::async_::Write for ByteView<D> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         let n = buf.len().min(self.remaining());
         self.write_at(self.position, &buf[..n]).await?;
@@ -649,7 +649,7 @@ impl<D: SendBlockDevice> hadris_io::r#async::Write for ByteView<D> {
     }
 }
 
-impl<D: SendBlockDevice> hadris_io::r#async::Seek for ByteView<D> {
+impl<D: SendBlockDevice> hadris_io::async_::Seek for ByteView<D> {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         let position = pos.resolve(self.position, self.len()).ok_or(Error::new(
             ErrorKind::InvalidInput,

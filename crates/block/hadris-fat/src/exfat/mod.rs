@@ -203,7 +203,3 @@ pub mod async_ {
     #[cfg(all(feature = "alloc", feature = "write"))]
     pub use mkfs::write;
 }
-
-/// Compatibility alias for the asynchronous API.
-#[cfg(feature = "async")]
-pub use async_ as r#async;

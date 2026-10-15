@@ -159,7 +159,7 @@ macro_rules! async_case {
 cases!(sync, versions_select_and_list_the_highest_sync, sync_case);
 #[cfg(feature = "async")]
 cases!(
-    r#async,
+    async_,
     versions_select_and_list_the_highest_async,
     async_case
 );

@@ -306,7 +306,7 @@ chain_use_cases!(
 
 #[cfg(feature = "async")]
 chain_use_cases!(
-    r#async,
+    async_,
     async_record_chains_share_validation_and_skip_sector_padding,
     async_case
 );

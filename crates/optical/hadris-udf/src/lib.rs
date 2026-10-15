@@ -153,10 +153,6 @@ pub mod sync {
 #[path = "async.rs"]
 pub mod async_;
 
-/// Compatibility alias for [`async_`].
-#[cfg(feature = "async")]
-pub use async_ as r#async;
-
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub use bridge::plan_bridge;

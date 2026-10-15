@@ -443,32 +443,32 @@ mod asynch {
 
     #[test]
     fn async_mode_detects_and_opens() {
-        use hadris::fs::r#async::FileSystem;
+        use hadris::fs::async_::FileSystem;
         block_on(async {
-            let found = hadris::r#async::detect(&mut device(optical(true, true), 2048))
+            let found = hadris::async_::detect(&mut device(optical(true, true), 2048))
                 .await
                 .unwrap();
             assert_eq!(found.first().unwrap().format(), ImageFormat::IsoUdfBridge);
             assert_eq!(found.iter().count(), 3);
 
-            let mut fs = hadris::r#async::open(
+            let mut fs = hadris::async_::open(
                 device(fat(FatKind::Fat12, 2 << 20), 512),
                 MountOptions::new(),
             )
             .await
             .unwrap();
-            assert!(matches!(fs, hadris::r#async::AnyFs::Fat(_)));
+            assert!(matches!(fs, hadris::async_::AnyFs::Fat(_)));
             let root = fs.root();
             fs.stat(root).await.unwrap();
             fs.unmount().await.unwrap();
 
             let mut dev = device(vec![0u8; 8 << 20], 512);
             let options = hadris::FormatOptions::ExFat(hadris::fat::exfat::ExFatOptions::new());
-            hadris::r#async::format(&mut dev, &options).await.unwrap();
-            let fs = hadris::r#async::open(dev, MountOptions::new())
+            hadris::async_::format(&mut dev, &options).await.unwrap();
+            let fs = hadris::async_::open(dev, MountOptions::new())
                 .await
                 .unwrap();
-            assert!(matches!(fs, hadris::r#async::AnyFs::ExFat(_)));
+            assert!(matches!(fs, hadris::async_::AnyFs::ExFat(_)));
         });
     }
 
@@ -596,14 +596,14 @@ mod asynch {
         }
         let mut dev = device(optical(true, false), 2048);
         assert_eq!(
-            block_on(send(hadris::r#async::detect(&mut dev)))
+            block_on(send(hadris::async_::detect(&mut dev)))
                 .unwrap()
                 .iter()
                 .count(),
             1
         );
-        let opened = block_on(send(hadris::r#async::open(dev, MountOptions::new())));
-        assert!(matches!(opened, Ok(hadris::r#async::AnyFs::Iso(_))));
+        let opened = block_on(send(hadris::async_::open(dev, MountOptions::new())));
+        assert!(matches!(opened, Ok(hadris::async_::AnyFs::Iso(_))));
     }
 }
 

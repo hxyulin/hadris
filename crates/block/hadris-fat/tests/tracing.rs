@@ -136,7 +136,7 @@ fn async_spans_exit_between_polls_and_when_a_pending_future_is_dropped() {
     let capture = Arc::new(Capture::default());
     tracing::subscriber::with_default(capture.clone(), || {
         common::block_on(async {
-            let mut fs = hadris_fat::r#async::FatFs::mount(dev, MountOptions::new())
+            let mut fs = hadris_fat::async_::FatFs::mount(dev, MountOptions::new())
                 .await
                 .unwrap();
             let file = fs
@@ -155,7 +155,7 @@ fn async_spans_exit_between_polls_and_when_a_pending_future_is_dropped() {
             fs.sync().await.unwrap();
             fs.forget(file, 1);
             let mut dev = fs.unmount().await.unwrap();
-            let report = hadris_fat::r#async::check(&mut dev, &mut [0; 16384], |_| {})
+            let report = hadris_fat::async_::check(&mut dev, &mut [0; 16384], |_| {})
                 .await
                 .unwrap();
             assert!(report.is_clean());

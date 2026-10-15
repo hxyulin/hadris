@@ -7,11 +7,11 @@ use core::future::Future;
 use core::pin::pin;
 use core::task::{Context, Poll, Waker};
 
-use hadris_fs::r#async::FileSystem;
+use hadris_fs::async_::FileSystem;
 use hadris_fs::{DirCursor, ErrorKind, Name, RenameMode, SetAttr};
 use hadris_io::Error;
 use hadris_io::ErrorType;
-use hadris_storage::r#async::BlockDevice;
+use hadris_storage::async_::BlockDevice;
 use hadris_storage::{BlockIndex, BlockSize, MemDevice};
 
 /// A memory device whose reads and writes each return `Pending` once

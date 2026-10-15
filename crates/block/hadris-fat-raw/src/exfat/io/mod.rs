@@ -1,7 +1,6 @@
 //! exFAT device primitives, generated for each mode from one source.
 //!
-//! The functions in `sync` and unified `async_` (`r#async` and `local`
-//! are compatibility aliases) borrow the caller's [`BlockBuf`](crate::io::BlockBuf)
+//! The functions in `sync` and unified `async_` borrow the caller's [`BlockBuf`](crate::io::BlockBuf)
 //! and an [`ExFat`], which holds what a driver tracks about the volume
 //! between calls: its flags, its Allocation Bitmaps and the free count. The
 //! up-case table is an [`Upcase`] index the caller owns.
@@ -373,13 +372,6 @@ pub mod async_ {
         set_bit, set_bits, slot_offset, upcase, write_percent_in_use, write_set,
     };
 }
-
-/// Compatibility alias for the unified asynchronous primitives.
-#[cfg(feature = "async")]
-pub use async_ as r#async;
-/// Compatibility alias for the unified asynchronous primitives.
-#[cfg(feature = "async")]
-pub use async_ as local;
 
 #[cfg(test)]
 mod tests {

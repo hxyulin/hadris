@@ -1,7 +1,7 @@
 #![cfg(all(feature = "async", feature = "alloc"))]
 
 use hadris_io::Error;
-use hadris_storage::r#async::{ByteView, Cache, SendBlockDevice};
+use hadris_storage::async_::{ByteView, Cache, SendBlockDevice};
 use hadris_storage::{BlockIndex, BlockSize, MemDevice, Partition};
 
 fn assert_send<T: Send>(value: T) -> T {

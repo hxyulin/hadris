@@ -227,7 +227,7 @@ mod async_modes {
     use super::*;
     #[test]
     fn send_model() {
-        use hadris_storage::r#async::{BlockDevice, ReadAhead};
+        use hadris_storage::async_::{BlockDevice, ReadAhead};
         fn send<F: core::future::Future + Send>(future: F) -> F::Output {
             block_on(future)
         }
@@ -235,7 +235,7 @@ mod async_modes {
     }
     #[test]
     fn local_model() {
-        use hadris_storage::local::{BlockDevice, ReadAhead};
+        use hadris_storage::async_::{BlockDevice, ReadAhead};
         model!(block_on);
     }
 }
@@ -244,7 +244,7 @@ mod async_modes {
 mod cancellation {
     use super::*;
     use hadris_io::{Error, ErrorType};
-    use hadris_storage::r#async::{BlockDevice, ReadAhead};
+    use hadris_storage::async_::{BlockDevice, ReadAhead};
 
     struct Yielding {
         inner: MemDevice<Vec<u8>>,

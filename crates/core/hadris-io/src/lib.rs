@@ -18,8 +18,7 @@
 //! return it; `hadris-fs` and `hadris` re-export it.
 //!
 //! The traits live in one module per mode: [`sync`], `async_` (futures
-//! that are `Send`) and `local` (futures that need not be `Send`). `r#async`
-//! aliases `async_`. The crate
+//! that are `Send`) and `local` (futures that need not be `Send`). The crate
 //! root holds only the mode-independent items, so
 //! `hadris_io::sync::Read` and `hadris_io::async_::Read` are always named
 //! explicitly.
@@ -337,9 +336,6 @@ pub mod sync;
 #[cfg(feature = "async")]
 #[path = "async.rs"]
 pub mod async_;
-/// Compatibility alias for the asynchronous API.
-#[cfg(feature = "async")]
-pub use async_ as r#async;
 
 /// Asynchronous I/O traits whose futures need not be `Send`, for
 /// single-threaded executors such as embassy.

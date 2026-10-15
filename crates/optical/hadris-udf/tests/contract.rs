@@ -31,22 +31,22 @@ fn sync_raw_and_shared_tiers() {
 fn async_modes() {
     let bytes = image(&sample(), &UdfOptions::default());
     common::block_on(async {
-        let mut udf = hadris_udf::r#async::UdfFs::mount(
+        let mut udf = hadris_udf::async_::UdfFs::mount(
             MemDevice::new(bytes.as_slice(), SECTOR),
             MountOptions::new(),
         )
         .await
         .map_err(|_| ())
         .unwrap();
-        hadris_fs::r#async::contract::check_read_only(&mut udf)
+        hadris_fs::async_::contract::check_read_only(&mut udf)
             .await
             .unwrap();
         let udf =
-            hadris_udf::r#async::UdfFs::mount(MemDevice::new(bytes, SECTOR), MountOptions::new())
+            hadris_udf::async_::UdfFs::mount(MemDevice::new(bytes, SECTOR), MountOptions::new())
                 .await
                 .unwrap();
-        let vol = hadris_fs::r#async::Volume::new(udf);
-        hadris_fs::r#async::contract::check_read_only(&mut *vol.lock().await.unwrap())
+        let vol = hadris_fs::async_::Volume::new(udf);
+        hadris_fs::async_::contract::check_read_only(&mut *vol.lock().await.unwrap())
             .await
             .unwrap();
     });

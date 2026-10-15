@@ -57,7 +57,7 @@ impl hadris_storage::sync::BlockDevice for Counted {
     }
 }
 #[cfg(feature = "async")]
-impl hadris_storage::r#async::BlockDevice for Counted {
+impl hadris_storage::async_::BlockDevice for Counted {
     type State = ();
     fn block_size(&self) -> BlockSize {
         hadris_storage::sync::BlockDevice::block_size(self)
@@ -257,7 +257,7 @@ macro_rules! async_case {
 }
 cases!(sync, capacity_boundaries_sync, sync_case);
 #[cfg(feature = "async")]
-cases!(r#async, capacity_boundaries_async, async_case);
+cases!(async_, capacity_boundaries_async, async_case);
 
 #[test]
 fn fixed_root_accounts_for_labels_and_long_names() {

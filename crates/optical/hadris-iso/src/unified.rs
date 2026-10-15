@@ -201,7 +201,7 @@ impl<D: storage::BlockDevice> IsoFs<D> {
 }
 
 #[cfg(feature = "async")]
-impl<D: hadris_storage::async_::SendBlockDevice> hadris_fs::r#async::FileSystem for IsoFs<D> {
+impl<D: hadris_storage::async_::SendBlockDevice> hadris_fs::async_::FileSystem for IsoFs<D> {
     type DeviceError = D::Error;
     fn capabilities(&self) -> Capabilities {
         hadris_fs::local::FileSystem::capabilities(self)

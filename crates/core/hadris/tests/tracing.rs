@@ -186,7 +186,7 @@ impl hadris::storage::async_::BlockDevice for PendingDevice {
 fn async_spans_leave_the_subscriber_between_polls_and_on_cancellation() {
     let capture = Arc::new(Capture::default());
     tracing::subscriber::with_default(capture.clone(), || {
-        let mut future = Box::pin(hadris::iso::r#async::IsoFs::mount(
+        let mut future = Box::pin(hadris::iso::async_::IsoFs::mount(
             PendingDevice,
             MountOptions::new(),
         ));

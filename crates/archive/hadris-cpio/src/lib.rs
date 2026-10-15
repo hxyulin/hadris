@@ -153,9 +153,6 @@ pub mod sync {
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 #[path = "async.rs"]
 pub mod async_;
-/// Compatibility alias for the asynchronous API.
-#[cfg(feature = "async")]
-pub use async_ as r#async;
 
 /// The path of an archive entry relative to the archive root, as
 /// `read_tree` places it: leading `/` and `./` removed, repeated `/`

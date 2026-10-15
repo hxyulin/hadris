@@ -757,7 +757,7 @@ fn fixed_clock() -> DateTime {
 /// The same operations in both modes give the same image.
 #[test]
 fn async_matches_sync() {
-    use hadris_fat::embedded::r#async::Fat as AsyncFat;
+    use hadris_fat::embedded::async_::Fat as AsyncFat;
 
     let case = CASES[2];
     let options = Options::new().with_clock(fixed_clock);
@@ -811,10 +811,10 @@ fn async_matches_sync() {
     ignore = "resource budgets apply without hosted tracing spans"
 )]
 fn state_and_futures_stay_small() {
-    use hadris_fat::embedded::r#async::Fat as AsyncFat;
+    use hadris_fat::embedded::async_::Fat as AsyncFat;
 
     assert!(size_of::<Fat<(), 4>>() < 2048);
-    assert!(size_of::<hadris_fat::embedded::r#async::Fat<(), 4>>() < 2048);
+    assert!(size_of::<hadris_fat::embedded::async_::Fat<(), 4>>() < 2048);
     let case = CASES[0];
     let empty = || MemDevice::new(Vec::new(), BlockSize::new(512).unwrap());
     let mut mount_token_0 = MountToken::new();
@@ -946,7 +946,7 @@ fn check_rename_image(case: Case, image: &[u8], directory: bool, cross: bool, su
 
 mod cancel {
     use super::*;
-    use hadris_fat::embedded::r#async::Fat as AsyncFat;
+    use hadris_fat::embedded::async_::Fat as AsyncFat;
     use hadris_io::{Error, ErrorType};
     use hadris_storage::BlockIndex;
     use hadris_storage::async_::BlockDevice;

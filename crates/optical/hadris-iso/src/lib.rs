@@ -168,11 +168,6 @@ pub mod sync {
     pub use session::Session;
 }
 
-/// Compatibility alias for [`async_`].
-#[cfg(any(feature = "async", feature = "async-local"))]
-#[cfg_attr(docsrs, doc(cfg(any(feature = "async", feature = "async-local"))))]
-pub use async_ as r#async;
-
 pub use boot::{BootCatalog, CatalogEntries, CatalogEntry, Emulation, Platform};
 pub use error::Detail;
 pub use namespace::{JolietLevel, Namespace, Namespaces};

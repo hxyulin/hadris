@@ -613,7 +613,3 @@ pub mod async_ {
 
     const _: () = assert!(core::mem::size_of::<Fat<(), 4>>() < 2048);
 }
-
-/// Compatibility alias for the asynchronous API.
-#[cfg(feature = "async")]
-pub use async_ as r#async;

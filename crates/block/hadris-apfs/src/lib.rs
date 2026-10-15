@@ -78,9 +78,6 @@ pub mod types;
 #[cfg(all(feature = "read", feature = "async"))]
 #[path = "async/mod.rs"]
 pub mod async_;
-/// Compatibility alias for the unified asynchronous API.
-#[cfg(all(feature = "read", feature = "async"))]
-pub use async_ as r#async;
 #[cfg(feature = "read")]
 pub mod read;
 #[cfg(all(feature = "read", feature = "sync"))]

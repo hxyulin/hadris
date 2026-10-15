@@ -237,9 +237,9 @@ mod sync {
 }
 
 #[cfg(feature = "async")]
-mod r#async {
+mod async_ {
     use super::*;
-    use hadris_storage::r#async::{BlockDevice, ByteView, Cache};
+    use hadris_storage::async_::{BlockDevice, ByteView, Cache};
 
     fn block_on<F: core::future::Future>(future: F) -> F::Output {
         let mut context = core::task::Context::from_waker(core::task::Waker::noop());
@@ -323,9 +323,9 @@ mod r#async {
         assert_eq!(buf, [6; BLOCK]);
         let device = block_on(cache.finish()).unwrap();
         assert_eq!(&device.get_ref()[3 * BLOCK..4 * BLOCK], &[6; BLOCK]);
-        let operation = hadris_storage::r#async::CacheOperation::<()>::default();
+        let operation = hadris_storage::async_::CacheOperation::<()>::default();
         assert!(format!("{operation:?}").starts_with("CacheOperation"));
-        let operation = hadris_storage::r#async::ReadAheadOperation::<()>::default();
+        let operation = hadris_storage::async_::ReadAheadOperation::<()>::default();
         assert!(format!("{operation:?}").starts_with("ReadAheadOperation"));
     }
 

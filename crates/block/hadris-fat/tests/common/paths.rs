@@ -176,8 +176,8 @@ pub mod sync {
 }
 
 #[cfg(feature = "async")]
-pub mod r#async {
-    use hadris_fs::r#async::{FileSystem, Volume};
+pub mod async_ {
+    use hadris_fs::async_::{FileSystem, Volume};
     use hadris_fs::{
         ErrorKind, FsResult, Metadata, Name, NodeId, OpenMode, OpenOptions, Resolve, SetAttr,
     };

@@ -4,7 +4,7 @@ macro_rules! send_only {
 }
 
 #[allow(unused_imports)]
-use hadris_io::r#async as io;
+use hadris_io::async_ as io;
 macro_rules! io_transform {
     ($($item:tt)*) => { hadris_macros::send_async! { $($item)* } };
 }
