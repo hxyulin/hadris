@@ -38,12 +38,14 @@
 //! # Feature flags
 //!
 //! One feature per format (`fat`, `part`, `iso`, `udf`, `cpio`) adds
-//! that crate. `archive` adds `cpio`, and `detect` adds `detect`, `open`,
-//! `open_partition` and `AnyFs` with `fat`, `part`, `iso`, `udf` and
+//! that crate. `detect` adds `detect`, `open`, `open_partition`,
+//! `detect_partitions` and `AnyFs` with `fat`, `part`, `iso`, `udf` and
 //! `cpio`. `detect` lists APFS containers and NTFS volumes from their
-//! signatures but does not mount them. The platform (`std`, `alloc`), mode
-//! (`sync`, `async`) and `write` features are forwarded to every enabled
-//! crate. The default set is `std`, `sync`, `write`, `fat`, `iso`, `cpio`
+//! signatures but does not mount them. The platform (`std`, `alloc`) and
+//! mode (`sync`, `async`) features are forwarded to every enabled crate.
+//! `write` reaches only FAT and exFAT: it adds their formatting and, with
+//! `detect`, `format`. `tracing` adds function spans to every enabled
+//! format. The default set is `std`, `sync`, `write`, `fat`, `iso`, `cpio`
 //! and `detect`.
 //!
 //! `unstable-ntfs` adds the NTFS preview. `unstable-apfs` adds the
