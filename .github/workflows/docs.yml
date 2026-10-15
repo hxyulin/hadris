@@ -29,12 +29,13 @@ permissions:
 
 concurrency:
   group: pages-${{ github.event_name == 'pull_request' && github.ref || 'deploy' }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   release:
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       actions: write
     steps:
@@ -47,6 +48,7 @@ jobs:
   check:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
         with:
@@ -77,6 +79,7 @@ jobs:
   build:
     if: github.event_name != 'pull_request' && github.event_name != 'release'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       HADRIS_SITE_URL: ${{ vars.DOCS_DOMAIN && format('https://{0}', vars.DOCS_DOMAIN) || 'https://hxyulin.github.io' }}
       HADRIS_BASE_URL: ${{ vars.DOCS_DOMAIN && '/' || '/hadris/' }}
@@ -91,6 +94,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
       - name: Build the site
         working-directory: website
         env:
@@ -109,12 +114,14 @@ jobs:
           RUSTC_BOOTSTRAP: "1"
         run: cargo doc --workspace --no-deps --all-features
       - name: Assemble the site
+        env:
+          DOCS_DOMAIN: ${{ vars.DOCS_DOMAIN }}
         run: |
           mkdir -p site
           cp -R website/build/. site/
           mkdir -p site/next
           cp -R target/doc site/next/api
-          if [ -n "${{ vars.DOCS_DOMAIN }}" ]; then echo "${{ vars.DOCS_DOMAIN }}" > site/CNAME; fi
+          if [ -n "$DOCS_DOMAIN" ]; then echo "$DOCS_DOMAIN" > site/CNAME; fi
       - uses: actions/upload-pages-artifact@v5
         with:
           path: site
@@ -123,6 +130,7 @@ jobs:
     if: github.event_name != 'pull_request' && github.event_name != 'release'
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       pages: write
       id-token: write
