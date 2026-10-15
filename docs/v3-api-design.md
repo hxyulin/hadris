@@ -1,14 +1,22 @@
 # Hadris V3 API design
 
-Status: accepted design, 2026-09-24. Sections 2 to 5 describe the API
-accepted through the action catalog ([`v3/actions.md`](v3/actions.md)) and
-the API prototype, and are the specification. Sections 4.15 to 4.18 record
+Status: design record, accepted 2026-09-24 and amended through the 3.0
+release candidates; not the API specification. The rules in section 2 (R1 to
+R12), the async model in 4.8 and the feature table in 4.9 are maintained
+against 3.0. Elsewhere sections 2 to 5 describe the API as accepted through
+the action catalog ([`v3/actions.md`](v3/actions.md)) and the API prototype,
+and some details changed later; where this document disagrees with the
+rustdoc, the [migration guide](hadris-3.0.0-migration.md) or the
+[stability page](../website/docs/stability.md), those are authoritative.
+Section 6 is a
+development log and names intermediate APIs that 3.0 does not ship
+(`async-send`, `hadris-block`, `OpenVolume`). Sections 4.15 to 4.18 record
 how those decisions were reached: the layering pass, the review decisions,
 the workspace simplifications and the four prototype passes with the
 post-pass decisions A, B and C. Earlier rounds, the lock-placement prototype
 (`experiments/lock-placement`) and the step 6 trait review
-([`v3-trait-review.md`](v3-trait-review.md)), are recorded in sections 6
-and 7.
+([`v3-trait-review.md`](v3-trait-review.md)), are recorded in sections 6 and
+7.
 
 The RC2 async contract supersedes the earlier mode and device decisions in this
 record. For current implementation guidance, use [async-devices.md](async-devices.md).
@@ -1004,6 +1012,8 @@ and non-`Send` contracts differ:
 | `sync` | Sync API. On by default. |
 | `async` | Async API: `Send` futures in the shared tier, `local` futures in the embedded API and `hadris_fs::local`. There is no separate local-only feature: `async` builds on every target `sync` does, including those without atomic compare-and-swap. |
 | `write` | Kept on `hadris-fat` and forwarded by the umbrella (S4 in 4.17). It only adds items. Other crates gain one in 3.x only if needed, which is additive. |
+| `defmt` | `defmt::Format` for `FatKind` in `hadris-fat-raw` and `hadris-fat`, for firmware logging. |
+| `encryption` | APFS software unlocking in `hadris-apfs`; the umbrella forwards it as `apfs-encryption`. |
 | `tracing` | Spans through the `tracing` crate. Independent of `std`, so `no_std` builds can trace (the `tracing` crate needs `liballoc` there); `std` turns on `tracing/std`. |
 | `unstable-*` | Enables a preview, such as `unstable-ntfs` or `unstable-apfs`, or the driver contract kit, `hadris-fs`'s `unstable-contract`. Outside semver. Never changes stable items, with one exception: `unstable-apfs` adds the `AnyFs::Apfs` variant and changes what the stable `detect` and `open` do with an APFS container (R3). |
 
@@ -1990,7 +2000,7 @@ curated re-exports rather than lockstep 3.x raw versions:
 - The raw crates stay at 0.x and each has one path per item, its crate
   root (R5); the `raw` module inside each raw crate is gone.
 
-## RC2 asynchronous device contract
+## Asynchronous device contract
 
 The [async device migration guide](async-devices.md) records the poll-based
 contract adopted after the V3 prototype. One device implementation supplies
