@@ -31,7 +31,7 @@ desktop tools as well as `no_std` bootloaders, kernels and firmware.
 | `std` | Implies `alloc`; `std::io::Error` conversions and host files as tree content | Yes |
 | `alloc` | The writer, sessions, `BootCatalog` and the `Tree` input | via `std` |
 | `sync` | Blocking API in `hadris_iso::sync` | Yes |
-| `async` | Common and Send asynchronous API in `hadris_iso::async_`, also available in `r#async` | - |
+| `async` | Common and Send asynchronous API in `hadris_iso::async_` | - |
 | `async-local` | The same `async_` API with the local filesystem feature tier | - |
 | `cache` | Bounded metadata caches configured through `CacheOptions`; implies `alloc` | - |
 | `tracing` | Operation spans through the `tracing` crate; implies `std` | - |
@@ -346,8 +346,7 @@ neither an allocator nor a sync/async feature.
 
 ## Unified asynchronous API
 
-`async_` is the canonical namespace; `r#async` is a compatibility alias for
-exactly the same items. Readers, writers and sessions accept
+Readers, writers and sessions accept
 `hadris_storage::async_::BlockDevice`, including local devices, borrowed devices,
 partitions, caches and read-ahead adapters without a mode wrapper.
 

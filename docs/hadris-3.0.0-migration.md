@@ -115,12 +115,12 @@ Sections:
 | `hadris-fixed` | Removed. The fixed-capacity types have no public successor. |
 | `hadris-path` | Removed. Paths are `/`-separated bytes (`impl AsRef<[u8]>`), resolved by `FileSystem::resolve` and `Volume` with `hadris_fs::Resolve`. |
 | `hadris-archive` | Removed. Use `hadris-cpio`, or `hadris::cpio` (was `hadris::archive::cpio`). |
-| `hadris-block` | Removed. Use `hadris::{sync, r#async}::{detect, open, AnyFs}`, `hadris::host::open`, and `hadris_part::sync::open` for partitions. |
+| `hadris-block` | Removed. Use `hadris::{sync, async_}::{detect, open, AnyFs}`, `hadris::host::open`, and `hadris_part::sync::open` for partitions. |
 | `hadris-fat` | `hadris-fat`. On-disk layouts moved to `hadris-fat-raw`. exFAT is stable. |
 | `hadris-part` | `hadris-part`. New `Disk` API on block devices. |
 | `hadris-ntfs` | `hadris-ntfs`, still a preview. `hadris::ntfs` behind the umbrella's `unstable-ntfs` feature. |
-| `hadris-optical` | Removed. Use `hadris::{sync, r#async}::{detect, open, AnyFs}`. |
-| `hadris-cd` | Removed. The ISO 9660 and UDF bridge writer is `hadris_udf::plan_bridge` and `hadris_udf::{sync, r#async}::write_bridge`. |
+| `hadris-optical` | Removed. Use `hadris::{sync, async_}::{detect, open, AnyFs}`. |
+| `hadris-cd` | Removed. The ISO 9660 and UDF bridge writer is `hadris_udf::plan_bridge` and `hadris_udf::{sync, async_}::write_bridge`. |
 | `hadris-iso` | `hadris-iso`. One reader, `IsoFs`; the writer takes a `Tree`. |
 | `hadris-udf` | `hadris-udf`. One reader, `UdfFs`; the writer takes a `Tree`; the bridge writer moved here. |
 | `hadris-cpio` | `hadris-cpio`. Streaming `CpioReader` and `Writer`. |
@@ -163,14 +163,17 @@ back into the build.
 Rules that hold for every V3 crate:
 
 - Reading is always compiled. Stable crates have no `read` feature; the APFS preview still has one.
-- `sync` and `async` select parallel namespaces (`sync`, `r#async`) and may be
+- `sync` and `async` select parallel namespaces (`sync`, `async_`) and may be
   enabled together. `std` implies `alloc` but selects no I/O mode.
 - A feature only adds items. No feature changes what an existing item does;
   V2 features that switched behaviour (`lfn`, `dirty-file-panic`, `crc`,
   `rand`, the `unstable-streaming` variants) are gone.
 - `async` futures are `Send` when the device is. Futures that need not be
-  `Send` exist only in `hadris_io::local`, `hadris_storage::local`,
-  `hadris_fat_raw::{io, exfat::io}::local` and the embedded API.
+  `Send` exist only in `hadris_io::local`, `hadris_fs::local` and the
+  common block-device contract `hadris_storage::async_::BlockDevice`,
+  which every async driver accepts. `local` names a separate contract
+  without `Send` bounds wherever it appears; storage and the format crates
+  have no `local` module.
 - Only `unstable-*` features add APIs outside the stability promise.
 - No crate re-exports a mode at its root. Write `hadris_fat::sync::FatFs`,
   not `hadris_fat::FatFs`.
@@ -304,7 +307,7 @@ pub trait ErrorType {
 ```
 
 - The crate root no longer glob re-exports `sync`. Name the traits by mode:
-  `hadris_io::sync::Read`, `hadris_io::r#async::Read`, `hadris_io::local::Read`.
+  `hadris_io::sync::Read`, `hadris_io::async_::Read`, `hadris_io::local::Read`.
   The root keeps the mode-independent items: `ErrorType`, `ExactError`,
   `Cursor`, `SeekFrom`, `StdIo`, `ToStd`, `FromEmbedded`, `Error`,
   `ErrorKind` and the other error items.
@@ -352,10 +355,10 @@ hooks; their provided read/write/flush methods remain awaitable. See the
 | `hadris_storage::host::FileDevice` (`std`, `sync`) | A host image file (512-byte blocks by default) or disk device (OS-reported logical blocks). `open(path)` is read-only; `new(file)` takes a file you opened, writable if it was opened for writing. `open_with_block_size(path, size)` and `with_block_size(file, size)` specify image geometry explicitly. Also `hadris::host::FileDevice`. `std::fs::File` is no longer a device. |
 | `Vec<u8>` (`alloc`) | In-memory image with 512-byte blocks that grows when written past its end. |
 | `hadris_storage::MemDevice<B>` | `&[u8]` (read-only), `&mut [u8]`, arrays, `Vec<u8>` or `Box<[u8]>` with an explicit `BlockSize`. |
-| `hadris_storage::{sync, async_}::StreamDevice<T>` | The sync adapter accepts `Read + Seek` streams with `StreamWrite`. The RC2 async adapter accepts the poll-native `async_::Stream` contract; use `BlockingStream` for an explicit sync bridge. Earlier async-trait adapters remain in `legacy_async` and `legacy_local`. Replaces `SeekBlockDevice`. |
+| `hadris_storage::{sync, async_}::StreamDevice<T>` | The sync adapter accepts `Read + Seek` streams with `StreamWrite`. The RC2 async adapter accepts the poll-native `async_::Stream` contract; use `BlockingStream` for an explicit sync bridge. Replaces `SeekBlockDevice`. |
 | `hadris_storage::Partition<D>` | A byte window of a device. Replaces `PartitionView`. `hadris_part::sync::open` returns one. |
-| `hadris_storage::{sync, r#async}::Cache<D>` (`alloc`) | Write-back LRU block cache for any device. Replaces the FAT sector cache. |
-| `hadris_storage::{sync, r#async}::ByteView<D>` | Byte-granular reads and writes over a device. |
+| `hadris_storage::{sync, async_}::Cache<D>` (`alloc`) | Write-back LRU block cache for any device. Replaces the FAT sector cache. |
+| `hadris_storage::{sync, async_}::ByteView<D>` | Byte-granular reads and writes over a device. |
 | `&mut D`, `Box<D>` | Borrow or box a device instead of moving it in. |
 
 Replacing a V2 `Read + Seek` stream:
@@ -400,7 +403,7 @@ instead of public fields. Implementing a device for firmware is shown in
 ### The trait and the volume
 
 Every driver implements `hadris_fs::sync::FileSystem` (and the
-`r#async` twin): `FatFs`, `ExFatFs`, `IsoFs`, `UdfFs`, `NtfsFs` and
+`async_` twin): `FatFs`, `ExFatFs`, `IsoFs`, `UdfFs`, `NtfsFs` and
 `hadris::sync::AnyFs`. The trait works on node ids and takes `&mut self`:
 
 | Group | Methods |
@@ -424,7 +427,7 @@ methods named after `std::fs`: `open`, `metadata`, `symlink_metadata`,
 node and format-specific calls and `into_inner()`. `File` has `read`,
 `write`, `seek`, `set_len`, `metadata`, `sync_all` and `close(self)`, and in
 `sync` implements `std::io::{Read, Write, Seek}`. `ReadDir` is an
-`Iterator` in `sync` and has `next_entry()` in `r#async`. The sync `Volume`
+`Iterator` in `sync` and has `next_entry()` in `async_`. The sync `Volume`
 needs `std`; the async one needs `alloc`. `Volume::with_resolve(fs,
 Resolve::Follow)` gives POSIX path semantics; the default is lexical.
 
@@ -587,7 +590,7 @@ Behaviour to check after porting:
 
 ### exFAT
 
-exFAT is stable and needs no feature. `hadris_fat::exfat::{sync, r#async}::ExFatFs`
+exFAT is stable and needs no feature. `hadris_fat::exfat::{sync, async_}::ExFatFs`
 mounts with the same `MountOptions`, and `hadris_fat::exfat` holds
 `ExFatOptions`, `VolumeLabel`, `Geometry` and `Detail`. The V2 preview types
 (`ExFatVolume`, `ExFatDir`, `ExFatFileReader`, `format_exfat`, ...) are
@@ -648,12 +651,12 @@ the default time is 1980-01-01. For reproducible builds pass
 
 | Format | plan | write | Options |
 |---|---|---|---|
-| ISO 9660 | `hadris_iso::plan` | `hadris_iso::{sync, r#async}::write` | `hadris_iso::IsoOptions` |
-| UDF | `hadris_udf::plan` | `hadris_udf::{sync, r#async}::write` | `hadris_udf::UdfOptions` |
-| ISO 9660 and UDF bridge | `hadris_udf::plan_bridge` | `hadris_udf::{sync, r#async}::write_bridge` | `IsoOptions` and `UdfOptions` |
-| cpio | `hadris_cpio::plan` | `hadris_cpio::{sync, r#async}::write` | `hadris_cpio::CpioOptions` |
-| FAT12/16/32 | none | `hadris_fat::{sync, r#async}::write` | `hadris_fat::FatOptions` |
-| exFAT | none | `hadris_fat::exfat::{sync, r#async}::write` | `hadris_fat::exfat::ExFatOptions` |
+| ISO 9660 | `hadris_iso::plan` | `hadris_iso::{sync, async_}::write` | `hadris_iso::IsoOptions` |
+| UDF | `hadris_udf::plan` | `hadris_udf::{sync, async_}::write` | `hadris_udf::UdfOptions` |
+| ISO 9660 and UDF bridge | `hadris_udf::plan_bridge` | `hadris_udf::{sync, async_}::write_bridge` | `IsoOptions` and `UdfOptions` |
+| cpio | `hadris_cpio::plan` | `hadris_cpio::{sync, async_}::write` | `hadris_cpio::CpioOptions` |
+| FAT12/16/32 | none | `hadris_fat::{sync, async_}::write` | `hadris_fat::FatOptions` |
+| exFAT | none | `hadris_fat::exfat::{sync, async_}::write` | `hadris_fat::exfat::ExFatOptions` |
 
 The output of ISO, UDF, bridge and FAT writers is a block device.
 `FileDevice` over a host file and `Vec<u8>` grow as needed; a fixed device is
@@ -889,7 +892,7 @@ let vol = Volume::new(fs);
 - `OpenPolicy` has no successor. A bridge image opens as UDF; mount
   `hadris_iso::sync::IsoFs` directly to read its ISO 9660 side, and use
   `IsoFs::mount_namespace` to pick a namespace.
-- `hadris::r#async::{detect, open, AnyFs}` are the async forms.
+- `hadris::async_::{detect, open, AnyFs}` are the async forms.
 
 More in [Detect and open images](../website/docs/guides/detect-open-images.md).
 
@@ -990,8 +993,8 @@ separate, handle-based API built on `hadris-fat-raw`:
 
 | Type | Does |
 |---|---|
-| `hadris_fat::embedded::{sync, r#async}::Fat<'mount, D, const FILES: usize = 4>` | FAT12/16/32 read and write |
-| `hadris_fat::exfat::embedded::{sync, r#async}::ExFat<'mount, D, const FILES: usize = 4>` | exFAT read only |
+| `hadris_fat::embedded::{sync, async_}::Fat<'mount, D, const FILES: usize = 4>` | FAT12/16/32 read and write |
+| `hadris_fat::exfat::embedded::{sync, async_}::ExFat<'mount, D, const FILES: usize = 4>` | exFAT read only |
 | `hadris_fat::embedded::{MountToken, Dir, File, Entry, Node, Options}` | Shared handles and options (`exfat::embedded` has its own `Dir`, `Entry`, `Node`) |
 
 ```rust
@@ -1010,7 +1013,7 @@ let card = fat.unmount()?;
 
 - The device must have 512-byte blocks. Sync takes
   `hadris_storage::sync::BlockDevice`; async takes
-  `hadris_storage::local::BlockDevice`, whose futures need not be `Send`.
+  `hadris_storage::async_::BlockDevice`, whose futures need not be `Send`.
 - `Options` has `with_clock(fn() -> DateTime)`, `with_utc_offset`,
   `with_code_page`, `read_only` and `with_fold`. Names fold ASCII case by
   default; `with_fold(hadris_fat_raw::fold_unicode)` compares as `FatFs`
@@ -1038,9 +1041,11 @@ RC2 addresses the allocated local-filesystem gap tracked in
 the earlier Send-only shared filesystem tier; the following contract requires
 RC2 or a workspace checkout of `main`.
 
-- `async_` is canonical; `r#async` remains an alias. One block-format driver
-  accepts both local and Send devices through
-  `hadris_storage::async_::BlockDevice`. Its poll hooks use an operation-owned
+- `async_` is the only async namespace. Code written against RC2 replaces
+  `r#async::`, `hadris_storage::local::` and `hadris_fat_raw::io::local::`
+  with `async_::`; the storage `legacy_async` and `legacy_local` modules are
+  removed. One block-format driver accepts both local and Send devices
+  through `hadris_storage::async_::BlockDevice`. Its poll hooks use an operation-owned
   `State: Default + Unpin`.
 - `SendBlockDevice` is automatic when both the device and its operation state
   are Send. Generic callers requiring Send futures must use that stronger
@@ -1071,7 +1076,7 @@ let volume = FatVolume::open(Cursor::new(image)).await?;
 ```rust
 // 3.0 (website/docs/guides/async-io.md)
 let dev = MemDevice::new(image, BlockSize::new(512).unwrap());
-let mut volume = hadris_fat::r#async::FatFs::mount(dev, MountOptions::new()).await?;
+let mut volume = hadris_fat::async_::FatFs::mount(dev, MountOptions::new()).await?;
 ```
 
 More in [Use asynchronous I/O](../website/docs/guides/async-io.md).
@@ -1152,11 +1157,11 @@ prints more.
 ## Symbol tables
 
 Paths are written without the mode module where an item exists in both
-`sync` and `r#async` (V2 had `hadris_x::sync::Foo`, `hadris_x::r#async::Foo`
+`sync` and `async_` (V2 had `hadris_x::sync::Foo`, `hadris_x::r#async::Foo`
 and usually a root re-export `hadris_x::Foo`; the tables list one of them).
 "Removed" means the item has no successor; the reason or the alternative
 follows. In V3, name I/O items through their mode module:
-`hadris_fat::sync::FatFs`, `hadris_iso::r#async::IsoFs`.
+`hadris_fat::sync::FatFs`, `hadris_iso::async_::IsoFs`.
 
 ### hadris
 
@@ -1178,7 +1183,7 @@ follows. In V3, name I/O items through their mode module:
 | `hadris::fixed` | Removed, no successor |
 | (new) | `hadris::io`, `hadris::fs`, `hadris::storage` (always), `hadris::ntfs` (`unstable-ntfs`) |
 | (new) | `hadris::{Error, ErrorKind, FsResult, Location, DetailCode, Errno, MountError, PathError}` |
-| (new) | `hadris::{ImageFormat, Detection, Candidate}`, `hadris::{sync, r#async}::{detect, open, AnyFs}` |
+| (new) | `hadris::{ImageFormat, Detection, Candidate}`, `hadris::{sync, async_}::{detect, open, AnyFs}` |
 | (new) | `hadris::host::{open, FileDevice, StdIo, read_tree, write_tree, file, source_date_epoch, mount_options, local_utc_offset, TreeOptions, Symlinks, OnError}` |
 
 ### hadris-io
@@ -1187,7 +1192,7 @@ follows. In V3, name I/O items through their mode module:
 |---|---|
 | `hadris_io::{Read, Write, Seek}` (root glob of `sync`) | `hadris_io::sync::{Read, Write, Seek}` |
 | `hadris_io::sync::{Read, Write, Seek}` | Same path. Each now has an `ErrorType` supertrait with the implementor's error; `read_exact` and `write_all` return `ExactError<E>` |
-| `hadris_io::r#async::{Read, Write, Seek}` | `hadris_io::r#async::{Read, Write, Seek}` (futures `Send`) or `hadris_io::local::{Read, Write, Seek}` (not `Send`) |
+| `hadris_io::r#async::{Read, Write, Seek}` | `hadris_io::async_::{Read, Write, Seek}` (futures `Send`) or `hadris_io::local::{Read, Write, Seek}` (not `Send`) |
 | `hadris_io::{ReadSeek, ReadWrite, ReadWriteSeek}` and their mode twins | Removed. Write the bounds out: `R: Read + Seek` |
 | `hadris_io::{ReadExt, Parsable, Writable}` and their mode twins | Removed. Read raw layouts from the format crates' `raw` modules |
 | `hadris_io::Borrowed` and mode twins | Removed. `&mut T` implements the traits |
@@ -1202,7 +1207,7 @@ follows. In V3, name I/O items through their mode module:
 | `hadris_io::IoError` | Removed. The bound is `ErrorType::Error: core::error::Error + Send + Sync + 'static` |
 | `hadris_io::{Path, PathBuf}` | Removed. Use `std::path` |
 | `hadris_io::try_io_result_option!` | `hadris_io::try_io_result_option!` |
-| (new) | `ErrorType`, `ExactError`, `StdIo`, `ToStd`, `into_std_error`, `Location`, `DetailCode`, `Errno`, `InvalidSeek`, `{sync, r#async, local}::MaybeSend` |
+| (new) | `ErrorType`, `ExactError`, `StdIo`, `ToStd`, `into_std_error`, `Location`, `DetailCode`, `Errno`, `InvalidSeek`, `{sync, async_, local}::MaybeSend` |
 
 ### hadris-storage
 
@@ -1210,8 +1215,8 @@ follows. In V3, name I/O items through their mode module:
 |---|---|
 | `hadris_storage::BlockDevice`, `hadris_storage::sync::BlockDevice` | `hadris_storage::sync::BlockDevice`; `read_blocks` takes a `BlockIndex` and returns `hadris_io::Error<Self::Error>` |
 | `hadris_storage::BlockDeviceMut`, `hadris_storage::sync::BlockDeviceMut` | Merged into `BlockDevice`: implement `writable`, `write_blocks` and `flush` |
-| `hadris_storage::r#async::{BlockDevice, BlockDeviceMut}` | RC2: `hadris_storage::async_::BlockDevice` with `State` and poll hooks; `SendBlockDevice` when device and state are Send. `r#async` and `local` alias this API. |
-| `hadris_storage::SeekBlockDevice` and mode twins | `hadris_storage::{sync, r#async}::StreamDevice<T>` |
+| `hadris_storage::r#async::{BlockDevice, BlockDeviceMut}` | RC2: `hadris_storage::async_::BlockDevice` with `State` and poll hooks; `SendBlockDevice` when device and state are Send. |
+| `hadris_storage::SeekBlockDevice` and mode twins | `hadris_storage::{sync, async_}::StreamDevice<T>` |
 | `hadris_storage::PartitionView` | `hadris_storage::Partition<D>` over a block device |
 | `hadris_storage::Error` | `hadris_io::Error<D::Error>`; a refused write is kind `ReadOnly`, an out-of-range request `InvalidInput` |
 | `hadris_storage::Result` | `hadris_io::FsResult<T, E>` |
@@ -1221,7 +1226,7 @@ follows. In V3, name I/O items through their mode module:
 | `hadris_storage::BlockGeometry` | `hadris_storage::BlockGeometry`, accessors instead of public fields |
 | `hadris_storage::BlockSize` | `hadris_storage::BlockSize` |
 | (`impl BlockDevice for std::fs::File`, V3 previews only) | `hadris_storage::host::FileDevice` |
-| (new) | `MemDevice`, `MemBuffer`, `ReadOnly`, `{sync, async_}::{Cache, ByteView, StreamDevice}`, `sync::StreamWrite`, `async_::{Stream, BlockingStream, SendBlockDevice}`, `legacy_async::StreamWrite`, `legacy_local::StreamWrite`, `host::{FileDevice, file_len}`, `impl BlockDevice for Vec<u8>` |
+| (new) | `MemDevice`, `MemBuffer`, `ReadOnly`, `{sync, async_}::{Cache, ByteView, StreamDevice}`, `sync::StreamWrite`, `async_::{Stream, BlockingStream, SendBlockDevice}`, `host::{FileDevice, file_len}`, `impl BlockDevice for Vec<u8>` |
 
 ### hadris-common
 
@@ -1246,7 +1251,7 @@ follows. In V3, name I/O items through their mode module:
 ### hadris-macros
 
 Internal in both versions, with no user-facing items. Contributors: the
-generator also produces the `Send` async mode that `r#async` uses in V3.
+generator also produces the `Send` async mode that `async_` uses in V3.
 
 ### hadris-fixed
 
@@ -1280,13 +1285,13 @@ resolution is a value, `hadris_fs::Resolve::{Lexical, Follow, NoFollow}`.
 | V2 path | V3 path or replacement |
 |---|---|
 | `hadris_block::detect::sync::detect(&mut stream, block_size)` | `hadris::sync::detect(&mut dev)` returning `Detection` |
-| `hadris_block::detect::r#async::detect` | `hadris::r#async::detect` |
+| `hadris_block::detect::r#async::detect` | `hadris::async_::detect` |
 | `hadris_block::detect::BlockFormat` | `hadris::ImageFormat` |
 | `hadris_block::detect::FatVariant` | `hadris::ImageFormat::Fat(FatKind)` and `ImageFormat::ExFat` |
 | `hadris_block::detect::PartitionTableKind` | `hadris::ImageFormat::{Mbr, Gpt}` |
 | `hadris_block::detect::detect_sector` | Removed. `detect` reads the device itself |
 | `hadris_block::sync::OpenVolume` | `hadris::sync::open(dev, MountOptions)` returning `hadris::sync::AnyFs` |
-| `hadris_block::r#async::OpenVolume` | `hadris::r#async::open`, `hadris::r#async::AnyFs` |
+| `hadris_block::r#async::OpenVolume` | `hadris::async_::open`, `hadris::async_::AnyFs` |
 | `OpenVolume::open(&mut stream, block_size)` | `hadris::sync::open(dev, options)`; `hadris::host::open(path)` for a host file |
 | `OpenVolume::as_fat`, `OpenVolume::Fat` | `match fs { AnyFs::Fat(fat) => .., AnyFs::ExFat(exfat) => .., _ => .. }` |
 | `hadris_block::partition::{mbr_partition_view, gpt_partition_view}` | `hadris_part::sync::open(dev, &partition)` returning `hadris_storage::Partition` |
@@ -1297,7 +1302,7 @@ resolution is a value, `hadris_fs::Resolve::{Lexical, Follow, NoFollow}`.
 
 | V2 path | V3 path or replacement |
 |---|---|
-| `hadris_fat::FatVolume`, `hadris_fat::fs::FatVolume` (and `sync::`, `r#async::`) | `hadris_fat::sync::FatFs<D>` or `hadris_fat::r#async::FatFs<D>` (`alloc`); wrap in `hadris_fs::sync::Volume` for paths |
+| `hadris_fat::FatVolume`, `hadris_fat::fs::FatVolume` (and `sync::`, `r#async::`) | `hadris_fat::sync::FatFs<D>` or `hadris_fat::async_::FatFs<D>` (`alloc`); wrap in `hadris_fs::sync::Volume` for paths |
 | `hadris_fat::FatVolumeBuilder`, `fs::FatVolumeBuilder` | `hadris_fs::MountOptions` passed to `FatFs::mount` |
 | `FatVolumeBuilder::fat_cache`, `FatVolume::{fat_cache, with_cached_fat, with_fat_cache_locked}` | `hadris_storage::sync::Cache::new(dev, blocks)` around the device |
 | `FatVolumeBuilder::time_provider`, `FatVolume::time_provider` | `MountOptions::with_clock`, `FatFs::clock()` |
@@ -1316,7 +1321,7 @@ resolution is a value, `hadris_fs::Resolve::{Lexical, Follow, NoFollow}`.
 | `FatVolume::{open_path, open_file_path, open_dir_path, open_dir_entry}` | `FileSystem::resolve(path, Resolve)`, `Volume::open`, `Volume::read_dir` |
 | `FatVolume::{flush, sync}` | `FileSystem::sync`; `FatFs::unmount` syncs and returns the device |
 | `FatVolume::fat_type`, `hadris_fat::FatType`, `fat_table::FatType` | `FatFs::info().kind()`, `hadris_fat::FatKind` |
-| `hadris_fat::{Fat, Fat12, Fat16, Fat32}`, `fat_table::*`, `FatVolume::fat` | Removed from `hadris-fat`. FAT entry access is `hadris_fat_raw::io::{sync, r#async}::{get, set, next, walk}` with `hadris_fat_raw::io::Fat` |
+| `hadris_fat::{Fat, Fat12, Fat16, Fat32}`, `fat_table::*`, `FatVolume::fat` | Removed from `hadris-fat`. FAT entry access is `hadris_fat_raw::io::{sync, async_}::{get, set, next, walk}` with `hadris_fat_raw::io::Fat` |
 | `hadris_fat::cache::{FatSectorCache, CachedFat, CacheStats}` | `hadris_storage::sync::Cache` |
 | `hadris_fat::FatDateTime`, `time::FatDateTime` | `hadris_fs::DateTime`; encoding in `hadris_fat_raw::date::{encode, decode}` |
 | `time::{TimeProvider, ChronoTimeProvider, EpochTimeProvider, StaticTimeProvider, DEFAULT_TIME_PROVIDER}` | `hadris_fs::{Clock, SystemClock, NoClock}` via `MountOptions::with_clock`; writers take `with_time(DateTime)` |
@@ -1343,7 +1348,7 @@ resolution is a value, `hadris_fs::Resolve::{Lexical, Follow, NoFollow}`.
 | `hadris_fat::{Read, Write, Seek, SeekFrom, ReadExt, Parsable, Writable, Error, ErrorKind, IoResult}` (io re-exports) | `hadris_io::sync::{Read, Write, Seek}`, `hadris_io::SeekFrom`; the rest removed |
 | `hadris_fat::Error`, `hadris_fat::error::Error`, `hadris_fat::Result` | `hadris_fs::Error<E>`, `FsResult`, `MountError`; causes in `hadris_fat::Detail` |
 | `hadris_fat::sync::*` root glob re-export | Removed. Always write the mode: `hadris_fat::sync::FatFs` |
-| exFAT preview `hadris_fat::exfat::ExFatVolume` | `hadris_fat::exfat::sync::ExFatFs<D>` (and `r#async`) |
+| exFAT preview `hadris_fat::exfat::ExFatVolume` | `hadris_fat::exfat::sync::ExFatFs<D>` (and `async_`) |
 | `exfat::ExFatInfo` | `ExFatFs::info()` returning `hadris_fat::exfat::Geometry` |
 | `exfat::ExFatBootSector` | `hadris_fat_raw::exfat::BootSector` |
 | `exfat::{ExFatDir, ExFatDirIter, ExFatFileEntry}` | `FileSystem::readdir`, `hadris_fs::DirEntry`, `Metadata` |
@@ -1356,7 +1361,7 @@ resolution is a value, `hadris_fs::Resolve::{Lexical, Follow, NoFollow}`.
 | `exfat::{RawFileDirectoryEntry, RawStreamExtensionEntry, RawFileNameEntry}` | `hadris_fat_raw::exfat::{FileEntry, StreamEntry, NameEntry}` |
 | `exfat::FileAttributes` | `hadris_fs::Attributes` |
 | `exfat::Error`, `exfat::Result` | `hadris_fs::Error<E>`, `hadris_fat::exfat::Detail` |
-| (new) | `hadris_fat::{sync, r#async}::{format, write, check}`, `FatOptions`, `Geometry`, `Detail`, `exfat::{ExFatOptions, VolumeLabel, Geometry, Detail}`, `embedded` and `exfat::embedded` |
+| (new) | `hadris_fat::{sync, async_}::{format, write, check}`, `FatOptions`, `Geometry`, `Detail`, `exfat::{ExFatOptions, VolumeLabel, Geometry, Detail}`, `embedded` and `exfat::embedded` |
 
 ### hadris-part
 
@@ -1392,7 +1397,7 @@ resolution is a value, `hadris_fs::Resolve::{Lexical, Follow, NoFollow}`.
 | `hadris_part::validate_partition_alignment`, `geometry::validate_all_partitions_aligned` | Removed |
 | `hadris_part::Error`, `error::Error`, `hadris_part::Result` | `hadris_fs::Error<E>` with `hadris_part::Detail`; `hadris_part::TableError` for edits |
 | `hadris_part::{Le, Read, Write, Seek, SeekFrom, ReadExt, Parsable, Writable, Error, ErrorKind, IoResult}` re-exports | Removed; use `hadris_io` directly |
-| (new) | `Disk`, `DiskLayout`, `PartitionSpec`, `Size`, `Alignment`, `PartitionFlags`, `Partitions`, `Runs`, `Run`, `GptCopy`, `GuidParseError`, `{sync, r#async}::{read, write, create, open, scan}`, `raw` |
+| (new) | `Disk`, `DiskLayout`, `PartitionSpec`, `Size`, `Alignment`, `PartitionFlags`, `Partitions`, `Runs`, `Run`, `GptCopy`, `GuidParseError`, `{sync, async_}::{read, write, create, open, scan}`, `raw` |
 
 ### hadris-ntfs
 
@@ -1416,12 +1421,12 @@ NTFS stays a preview; its native API may change in 3.x minors.
 
 | V2 path | V3 path or replacement |
 |---|---|
-| `hadris_optical::sync::OpenOpticalImage`, `r#async::OpenOpticalImage` | `hadris::sync::open`, `hadris::r#async::open` returning `AnyFs` |
+| `hadris_optical::sync::OpenOpticalImage`, `r#async::OpenOpticalImage` | `hadris::sync::open`, `hadris::async_::open` returning `AnyFs` |
 | `OpenOpticalImage::{as_iso9660, as_iso9660_mut}` | `match fs { AnyFs::Iso(iso) => .., _ => .. }` |
 | `OpenOpticalImage::as_udf` | `AnyFs::Udf(udf)` |
 | `hadris_optical::OpenPolicy` | Removed. A bridge opens as UDF; mount `IsoFs` or `UdfFs` directly to choose, `IsoFs::mount_namespace` for an ISO tree |
 | `hadris_optical::OpticalFormat` | `hadris::ImageFormat::{Iso, Udf, IsoUdfBridge}` |
-| `hadris_optical::detect::sync::detect`, `detect::r#async::detect` | `hadris::sync::detect`, `hadris::r#async::detect` |
+| `hadris_optical::detect::sync::detect`, `detect::r#async::detect` | `hadris::sync::detect`, `hadris::async_::detect` |
 | `hadris_optical::detect::OpticalFormats` | `hadris::Detection` |
 | `hadris_optical::detect::UdfVrs` | Removed; `hadris_udf::VolumeInfo::revision()` after mounting, or `hadris_udf::raw::vsd::{NSR02, NSR03}` for a raw probe |
 | `hadris_optical::{Error, Result}` | `hadris::MountError`, `hadris::Error` |
@@ -1571,7 +1576,7 @@ Writing:
 | `write::{UdfFileExtent, UdfFileInfo, UdfDirInfo}` | `Report::extents(path)`, `Report::files()` |
 | `hadris_udf::{Error, Result}` | `hadris_fs::Error<E>` or `PathError`, with `hadris_udf::Detail` |
 | io re-exports at the root | Removed; use `hadris_io` |
-| (new) | `plan`, `plan_bridge`, `{sync, r#async}::{write, write_bridge}`, `UdfId`, `VolumeInfo`, `EntityId`, `PartitionInfo`, `PartitionKind`, `Detail`, `raw` |
+| (new) | `plan`, `plan_bridge`, `{sync, async_}::{write, write_bridge}`, `UdfId`, `VolumeInfo`, `EntityId`, `PartitionInfo`, `PartitionKind`, `Detail`, `raw` |
 
 ### hadris-cpio
 
@@ -1596,7 +1601,7 @@ Writing:
 | `write::from_fs::FromFsError` | `hadris_fs::PathError` |
 | `hadris_cpio::{Error, Result}`, `error::*` | `hadris_fs::Error<E>` with `hadris_cpio::Detail` |
 | io re-exports at the root | Removed; use `hadris_io` |
-| (new) | `plan`, `{sync, r#async}::{read_tree, write, EntryWriter}`, `ReaderOptions`, `raw` |
+| (new) | `plan`, `{sync, async_}::{read_tree, write, EntryWriter}`, `ReaderOptions`, `raw` |
 
 ## Checklist
 
@@ -1638,7 +1643,7 @@ The optional `tracing` feature enables hosted instrumentation and is off by
 default. FAT cache settings are explicit through `CacheOptions`; ordinary
 mounts stay uncached, while CLI extraction uses `CacheOptions::sequential()`.
 `hadris-storage::ReadAhead` offers an independent, bounded read-ahead budget in
-sync, Send async, and local async modes. CLI extraction accepts
+`sync` and `async_`. CLI extraction accepts
 `--read-ahead-blocks` for FAT and exFAT; it defaults to zero.
 
 APFS password unlocking is opt-in with `hadris-apfs/encryption` or the umbrella's
@@ -1649,7 +1654,7 @@ volumes, not internal Apple-silicon hardware FileVault. See the
 ## APFS added in V2 2.5
 
 APFS arrived after the V2 2.4 API mapped above. V3 now has a read-only
-`hadris_apfs::{sync, r#async}::ApfsFs` driver implementing `FileSystem`, so
+`hadris_apfs::{sync, async_}::ApfsFs` driver implementing `FileSystem`, so
 `Volume` paths, handles, walks and extraction can use APFS generically.
 `Container` remains available for container and volume inspection.
 

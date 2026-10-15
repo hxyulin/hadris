@@ -32,7 +32,7 @@ FAT and exFAT formatters align their layout to it.
 
 | Type | Purpose |
 |---|---|
-| `BlockDevice` | Whole-block reads, optional writes and flush, in `sync` and unified `async_` (`r#async` and `local` are aliases). `&mut D` and `Box<D>` implement it too |
+| `BlockDevice` | Whole-block reads, optional writes and flush, in `sync` and unified `async_`. `&mut D` and `Box<D>` implement it too |
 | `Vec<u8>` | With `alloc`, an in-memory image with 512-byte blocks that grows when written past its end. Device error `Infallible` |
 | `MemDevice` | A fixed-size block device over `&[u8]` (read-only), `&mut [u8]`, `[u8; N]`, `Vec<u8>` or `Box<[u8]>`, with any block size. Device error `Infallible`; requests past the end fail with kind `InvalidInput` |
 | `Partition` | A byte window of another device, such as an MBR or GPT partition. Its offset and length are multiples of the device block size. Requests past its end never reach the device, and `disk_offset` reports its start |
@@ -139,7 +139,7 @@ Reads never speculate outside the device or partition. If an expanded read
 fails, the adapter retries the original request. `get_mut()` and `clear()`
 invalidate retained data; callers must clear after changes through external
 handles. Like any read cache, it cannot detect external modifications itself.
-The same adapter is available in `sync`, `r#async`, and `local`.
+The same adapter is available in `sync` and `async_`.
 
 ## Hardware adapters
 
@@ -170,8 +170,7 @@ rewritable disk solely by implementing whole-block reads.
 unboxed futures. `SendBlockDevice` is implemented automatically when the device
 and its state are Send. Generic code requiring Send futures should use that
 marker, while filesystem algorithms can use the common device contract.
-`r#async` and `local` are aliases of `async_`; adapters accept local devices
-without a wrapper. See the [ISO guide](../../../docs/unified-async-iso.md) for
+`async_` adapters accept local devices without a wrapper. See the [ISO guide](../../../docs/unified-async-iso.md) for
 reader, writer and session usage.
 
 Poll hooks receive the same request and state until completion. Before returning,
@@ -187,10 +186,8 @@ use the same contract. Cancellation of a cache flush preserves dirty blocks for
 retry; completed partial writes are not rolled back. `host::FileDevice` implements
 the contract through synchronous OS I/O and therefore blocks the polling thread.
 
-The old RPITIT async stream adapters remain explicitly available through
-`legacy_async` and `legacy_local`; arbitrary borrowed async stream futures cannot
-be safely converted to resumable poll operations. New backends should implement
-the poll contract directly. The unified `StreamDevice` accepts the poll-native
+Arbitrary borrowed async stream futures cannot be safely converted to
+resumable poll operations, so backends implement the poll contract directly. The unified `StreamDevice` accepts the poll-native
 `Stream` trait, whose state and cancellation follow the device contract.
 `BlockingStream::new` keeps a fixed size; use `new_growable` only for a stream
 known to support extension. Reconstruct a `StreamDevice` after changing its

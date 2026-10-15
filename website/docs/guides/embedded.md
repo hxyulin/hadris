@@ -7,7 +7,7 @@ title: FAT and exFAT on a microcontroller
 Firmware without an allocator uses the embedded API of `hadris-fat`:
 `hadris::fat::embedded::sync::Fat` reads and writes FAT12, FAT16 and FAT32,
 and `hadris::fat::exfat::embedded::sync::ExFat` reads exFAT. Both have an
-`async_` twin (`r#async` is an alias) for single-threaded executors such as Embassy. They are
+`async_` twin for single-threaded executors such as Embassy. They are
 built on the `hadris-fat-raw` device primitives rather than on `FatFs`,
 keep one 512-byte block buffer and a fixed number of file slots, and need
 neither `std` nor `alloc`.
@@ -27,7 +27,7 @@ already formatted. Use `async` in place of `sync` for the async API.
 The embedded API takes a device whose blocks are 512 bytes. Sync firmware
 implements `hadris::storage::sync::BlockDevice`; async firmware implements
 `hadris::storage::async_::BlockDevice` with poll hooks and owned operation
-state. Its futures need not be `Send`; the `local` path remains an alias.
+state. Its futures need not be `Send`.
 [Adapt a custom device](./custom-io.md) shows the trait. An SD card driver
 maps `read_blocks` and `write_blocks` onto its block commands.
 

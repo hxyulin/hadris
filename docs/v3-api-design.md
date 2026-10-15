@@ -197,7 +197,7 @@ spec". The crate root never glob re-exports them.
 Crate roots re-export a curated list, and the root never changes meaning with
 features. Today `hadris_iso::read::IsoImage` silently means the sync one.
 `pub use sync::*` at the root goes away. Users write
-`hadris_iso::sync::IsoFs` or `hadris_iso::r#async::IsoFs`.
+`hadris_iso::sync::IsoFs` or `hadris_iso::async_::IsoFs`.
 
 ### R6. No panics on disk data or user input
 
@@ -339,7 +339,7 @@ firmware generics on the shared type. Section 4.15 records the change.
 
 **Traits.** `Read` and `Write` follow the embedded-io shape: each reports its
 own error through an associated type. Sync and async come from one source
-file, so they cannot drift. Each trait exists in `sync`, `r#async` (futures
+file, so they cannot drift. Each trait exists in `sync`, `async_` (futures
 are `Send`) and `local` (futures need not be `Send`, for single-threaded
 executors such as embassy).
 
@@ -427,7 +427,7 @@ pub trait BlockDevice: ErrorType {
 This sketch records the RC1 contract. RC2 keeps the sync form but replaces the
 async device contract with operation-owned state and poll hooks.
 `async_::BlockDevice` has no Send bound; `SendBlockDevice` is derived when the
-device and its state are Send. `r#async` and `local` alias the common storage API.
+device and its state are Send. Storage has no `local` module.
 
 - One trait with defaulted writes, not separate read and write device traits. A read-only device must still mount (IO-RO-01), and in 3.x `UdfFs<D: BlockDevice>` gains writes with no new bound (NF-STABLE-02).
 - `read_blocks`, `write_blocks` and `flush` return the crate-wide `Error<E>` (4.6), not a separate `WriteError<E>` (post-pass decision B, S5; [Q11](#7-open-questions) for reads). A device that refuses a write returns kind `ReadOnly`; a device failure is `Error::device(e, message)`. `flush` returns `Error<E>` too, because a write-back device writes there.
@@ -526,7 +526,7 @@ The constructors a driver needs (`Error::new`, `Error::device`,
 third-party and test adapters build these values too.
 
 **The trait.** One node trait on `&mut self`, generated for `sync` and
-`r#async`. The sync form, with `R<T>` standing for
+`async_`. The sync form, with `R<T>` standing for
 `FsResult<T, Self::DeviceError>`:
 
 ```rust
@@ -903,7 +903,7 @@ let report = iso::sync::write(&mut out, &tree, &opts)?;  // plans again first
 report.size(); report.warnings(); report.extents("install.wim");
 ```
 
-- `fmt::plan(&tree, &opts) -> Result<Report, PathError>` is a free function outside `sync` and `r#async`, since planning does no I/O. It returns exactly the report `write` returns. `write` plans again first, so an option error never touches the device.
+- `fmt::plan(&tree, &opts) -> Result<Report, PathError>` is a free function outside `sync` and `async_`, since planning does no I/O. It returns exactly the report `write` returns. `write` plans again first, so an option error never touches the device.
 - `Report` has `size`, `warnings` (each a `Warning` with a non-exhaustive `WarningKind`: `Renamed`, `Truncated`, `Deduplicated`, `Relocated`, `Dropped(Field)`, `Skipped`, `Boot`, plus the path and the name stored), and `extents(path)`, several for a multi-extent file. It implements `Display`.
 - FAT and exFAT write a tree through format plus `copy_tree` and report the same way (`fat::sync::write`, `exfat::sync::write`).
 - Writers take a fixed `with_time(DateTime)` and no clock. Volume ids and GUIDs derive from the time plus the tree unless `with_seed` is given, so output is reproducible by default (BUILD-REPRO-01, NF-DET-01).
@@ -934,14 +934,26 @@ Rejected:
 
 Keep the `strip_async!` code generation and use it everywhere:
 
-- `hadris-io` generates sync and local byte-stream traits from the Send source. RC2 storage uses concrete poll-operation futures; its earlier generated async contracts remain in `legacy_async` and `legacy_local`.
+- `hadris-io` generates sync and local byte-stream traits from the Send source. RC2 storage uses concrete poll-operation futures; its earlier generated async contracts (`legacy_async`, `legacy_local`) were removed before 3.0.0.
 - Mode-independent types (raw layouts, names, options, metadata, errors, trees, `NodeId`, `plan`) are defined once, outside the generated modules.
-- Only types that do I/O live in `sync` and `async_`; `r#async` is a compatibility alias.
+- Only types that do I/O live in `sync` and `async_`. `async_` is the only name of the async mode; the `r#async` aliases were removed before 3.0.0.
 - Send filesystem and byte-stream traits use `impl Future<Output = T> + Send`; the generator produces sync and local variants. Block-format algorithms use the common poll-device contract, with conditional forwarding to the stronger Send filesystem trait.
 - One async block-format driver supports local and Send devices. Its operation futures are Send when both the device and its state are Send. `hadris-fs::local` supplies local traits and handles; `hadris-fs::async_` supplies the stronger Send tier. The `async` feature enables both. CPIO still uses the Send byte-stream contract, and lazy tree content retains its Send requirements. [Q2](#7-open-questions) records the earlier mode decisions.
 - Every crate exposes the same public items in both modes. R11 requires review and tests for mode parity, with these intended differences: `Iterator` versus `next_entry`, the `std::io` impls, and the sync-only `host` module.
 - Sync stays generated rather than wrapping async code in `block_on`: that was measured at 40 to 49% more code and 70% more worst-case stack on thumbv7em (4.15).
 - `hadris-macros` gains span-preserving errors so contributors see the right line.
+
+Each mode module name means one thing in every crate. `async_` is the only
+async namespace (there is no `r#async` alias), and `local` always names a
+separate contract without `Send` bounds, so it exists only where the `Send`
+and non-`Send` contracts differ:
+
+| Crate | `sync` | `async_` | `local` |
+|---|---|---|---|
+| `hadris-io` | Blocking byte-stream traits | Byte-stream traits with `Send` supertraits and `Send` futures (`async`) | The same traits without the `Send` bound, for single-threaded executors (`async`) |
+| `hadris-storage` | Blocking `BlockDevice` and adapters | One poll-based `BlockDevice` for local and Send devices; `SendBlockDevice` when the device and its state are Send (`async`) | None |
+| `hadris-fs` | Blocking `FileSystem` and `Volume` | `FileSystem` and `Volume` with `Send` bounds and futures (`async`) | `FileSystem` and `Volume` without `Send` bounds (`async-local`, implied by `async`) |
+| Format crates and `hadris-fat-raw` | Blocking driver or primitives | One driver or set of primitives for local and Send devices; filesystem drivers implement the `hadris-fs` `local` contract and, when Send, the `async_` one (`async`) | None |
 
 ### 4.9 Feature flags
 
@@ -982,8 +994,8 @@ different content gives different ids. `FatOptions::with_serial` and
 
 | V2 crate | V3 |
 |---|---|
-| `hadris-io` | Kept. `ErrorType`, `Read`, `Write`, `Seek`, `ExactError`, `FromEmbedded`, `StdIo`, in `sync`, `r#async` and `local`. |
-| `hadris-storage` | Kept and adopted by every filesystem. `BlockDevice` in `sync`, `r#async` and `local`, `Partition`, `Vec<u8>`, `StreamDevice`, `MemDevice`, `Cache`, `ByteView`. |
+| `hadris-io` | Kept. `ErrorType`, `Read`, `Write`, `Seek`, `ExactError`, `FromEmbedded`, `StdIo`, in `sync`, `async_` and `local`. |
+| `hadris-storage` | Kept and adopted by every filesystem. `BlockDevice` in `sync`, `async_` and `local`, `Partition`, `Vec<u8>`, `StreamDevice`, `MemDevice`, `Cache`, `ByteView`. |
 | `hadris-fs` | New. Vocabulary, `Error<E>`, `PathError`, `MountOptions`, `FileSystem`, `Volume` and its handles, `Walk`, `Tree`, `Content`, `Report`, `copy_tree`, `read_tree`, `Finding`, `Severity`, `CheckReport`. |
 | `hadris-fs-contract` | New, 0.x, outside 3.0 semver. The driver test kit (4.3). |
 | `hadris-<fmt>-raw` | New, one per format, each with its own version: I/O-free codecs and `raw::io` primitives (4.15). `hadris-fat-raw` covers FAT and exFAT. |
@@ -992,7 +1004,7 @@ different content gives different ids. `FatOptions::with_serial` and
 | `hadris-path` | Merged into `hadris-fs`. |
 | `hadris-macros` | Kept, internal. |
 | `hadris-archive` | Removed. The umbrella re-exports `hadris-cpio` directly. |
-| `hadris-cd` | Removed (S3). The bridge writer is `hadris_udf::plan_bridge` and `hadris_udf::{sync, r#async}::write_bridge`. |
+| `hadris-cd` | Removed (S3). The bridge writer is `hadris_udf::plan_bridge` and `hadris_udf::{sync, async_}::write_bridge`. |
 | `hadris-block`, `hadris-optical` | Removed (S2). `detect`, `open` and `AnyFs` move into the umbrella. |
 | CLI crates | Replaced by one `hadris` binary with subcommands (S1), in the `hadris-cli` package (Q15). |
 | `hadris-vfs` | New, `std` only, can ship in 3.x. Type erasure, a mount table for composing volumes, and a `fuser` adapter (prototyped in `experiments/fuse-prototype`). The sync `FileSystem` is dyn-compatible, so the sync form needs no second trait: an erasing wrapper boxes the device error, and one `Vec<Box<dyn FileSystem<..> + Send>>` holds FAT and ISO volumes with different device errors. The async form needs an object-safe trait with boxed futures, since the async trait is not dyn-compatible. Lost: the typed device error (boxed, error path only) and format extras. |
@@ -1160,8 +1172,7 @@ firmware uses the embedded API, and a `no_std` kernel holds the driver under
 its own lock. Drivers without allocation needs (ISO, UDF, NTFS readers) keep
 working without `alloc` at this tier.
 
-**Modes.** The shared tier ships `sync` and `async_`, with `r#async` as an
-alias. RC2 block drivers support local and Send devices through one type;
+**Modes.** The shared tier ships `sync` and `async_`. RC2 block drivers support local and Send devices through one type;
 Send futures require both the device and its state to be Send. Filesystem
 traits and volumes still distinguish the local and Send guarantees. Sync stays
 generated from the async source by macro: a measurement on 2026-09-24 of
@@ -1180,8 +1191,8 @@ the planned `host::Error` and `AnyError`. The path methods named after
 `std::fs` live on the shared `Volume`. The FAT code page defaults to `Cp437`
 in every tier.
 
-**Embedded.** `hadris_fat::embedded::{sync, r#async}` and
-`hadris_fat::exfat::embedded::{sync, r#async}` are separate, handle-based
+**Embedded.** `hadris_fat::embedded::{sync, async_}` and
+`hadris_fat::exfat::embedded::{sync, async_}` are separate, handle-based
 APIs built only on the raw layer:
 
 ```rust
@@ -1262,7 +1273,7 @@ updated to the API prototype (4.18):
 | S5 storage errors | `WriteError`, `StorageError` and `OutOfRange` become one storage error type, and that type is the crate-wide `Error<E>`. `BlockDevice::write_blocks` and `flush` return `Error<E>`: a device that refuses writes returns kind `ReadOnly`, any other failure `Error::device`. The `WriteError` in 4.2 is superseded. |
 | `impl_fs_driver!` | Dropped. `FileSystem`'s write methods default to `ReadOnly`, which removes the macro's job. The redesign brings it back only for duplication it can name. |
 | S6 path helpers | Path methods exist only on the shared `Volume`, as inherent methods named after `std::fs`; the bare-driver tier keeps node-level calls. `DriverExt` and `PathExt` are removed, with no extension trait in their place. |
-| Async naming | RC2 uses `async_`, with `r#async` as an alias. Block drivers support local devices and Send futures when the device and state are Send. Storage aliases `local` to the common API; `hadris-io` and `hadris-fs` retain distinct local and Send traits. Features are `sync` and `async`; `async-send` is removed. |
+| Async naming | `async_` is the only async namespace; the `r#async` aliases, the storage `local` alias and `legacy_async`/`legacy_local` were removed before 3.0.0. Block drivers support local devices and Send futures when the device and state are Send. `local` exists only in `hadris-io` and `hadris-fs`, as distinct non-Send traits (4.8). Features are `sync` and `async`; `async-send` is removed. |
 | S4 `write` | Kept (2026-10-01): removing a feature after 3.0 is a break, and it only adds items. It stays on `hadris-fat` and the umbrella. |
 
 ### 4.18 Action catalog and API prototype
@@ -1305,7 +1316,7 @@ Pass 3 (per-format extras), accepted on 2026-09-24:
 
 Pass 4 (embedded), accepted on 2026-09-24:
 
-- Firmware gets separate modules, `hadris_fat::embedded` and `hadris_fat::exfat::embedded`, each with `sync` and `r#async`. They are built on the raw layer, not on `FatFs`, and need no allocator. The async variant takes a new `local::BlockDevice` whose futures are not `Send`.
+- Firmware gets separate modules, `hadris_fat::embedded` and `hadris_fat::exfat::embedded`, each with `sync` and `async_`. They are built on the raw layer, not on `FatFs`, and need no allocator. The async variant takes a new `local::BlockDevice` whose futures are not `Send`.
 - `Fat<'mount, D, const FILES: usize = 4>` and `ExFat<'mount, D, const FILES: usize = 4>` are separate types, so FAT-only firmware does not link the exFAT reader. Embedded exFAT is read-only in 3.0; 3.x writes arrive through a new entry point, and `mount` stays read-only in every version.
 - Device blocks are 512 bytes; other sizes are refused with `Unsupported`. FAT sectors of 512 to 4096 bytes are read in 512-byte pieces through one 512-byte cache in the struct.
 - `File<'mount>` is a slot index consumed by `close`, with a generation and exact mount identity. `mount(dev, &mut MountToken)` and `mount_with(dev, &mut MountToken, options)` reserve a caller-owned, non-zero-sized token. The volume and its files retain references to it; files from another token fail with `InvalidHandle`, and Rust prevents token reuse while an old file can still be used. This needs no allocator, global counter or atomics. A dropped `File` keeps its slot until `unmount`; `sync` and `unmount` still publish its size. `Dir` is `Copy` and holds no slot. Names are passed per call, with `create_dir_all(dir, path)` as the one path method; `list` takes a callback and lends each `Entry`, whose UTF-16 name lives on the call's stack. `Entry::node()` with `open_node` opens a listed file by its entry position, valid until the directory changes; the `Node<'mount>` carries the mount identity and a tag of the entry's short name, creation time and type, so a node of another mount or a slot that now holds an entry differing in those fails with `InvalidHandle` (a recreated `~N` alias under a clock that does not move is not detected).
@@ -1329,7 +1340,7 @@ this section covers what each crate adds.
 **Crates and modules.** `hadris-fat-raw` holds the I/O-free codecs and the
 `raw::io` primitives for FAT12/16/32 and exFAT (4.15). `hadris-fat` has the
 shared drivers, the format extras and the embedded API. exFAT is the
-`hadris_fat::exfat` module with its own `sync`, `r#async` and
+`hadris_fat::exfat` module with its own `sync`, `async_` and
 `embedded`, because its names (`ExFatOptions`, `Detail`, `Geometry`) differ
 from FAT's and R5 keeps them out of the crate root.
 
@@ -1356,9 +1367,9 @@ let report = fat::sync::check(&mut dev, &mut scratch, |f| eprintln!("{f}"))?;
 - The FAT sector cache is gone as a separate thing. Users wrap the device in `Cache<D>`. `FatSectorCache`, `CachedFat`, `with_cached_fat` and `fat_cache` are removed (#27).
 - `expect("Fixed root info required ...")` sites return `ErrorKind::Corrupt`. exFAT internals (`allocate_cluster`, `sync_bitmap`, `parse_entry_set`) become private; the pieces tools need are in `raw`.
 
-**Embedded API.** `hadris_fat::embedded::{sync, r#async}::Fat<D, const
+**Embedded API.** `hadris_fat::embedded::{sync, async_}::Fat<D, const
 FILES: usize = 4>` reads and writes FAT12/16/32, and
-`hadris_fat::exfat::embedded::{sync, r#async}::ExFat<D, const FILES: usize =
+`hadris_fat::exfat::embedded::{sync, async_}::ExFat<D, const FILES: usize =
 4>` reads exFAT (4.15). Both are built on `hadris-fat-raw`, not on `FatFs`,
 and need no allocator. Sync takes `sync::BlockDevice`, async takes
 `local::BlockDevice`. `Options` (`new`, `read_only`, `with_clock(fn() ->
@@ -1467,8 +1478,8 @@ shapes and can be 3.x.
 - `UdfFs<D>` implements `FileSystem`: path lookup, `read` at an offset, and metadata with times, permissions and owners. It needs no allocator. Node ids are ICB locations.
 - `UdfFs::mount` is read-only in every version, and the write half answers `ReadOnly`. UDF on random-access media is a real read-write filesystem, so 3.x adds `UdfFs::mount_writable` and overrides the write methods for Type 1 partitions, with no second modifier API. A read-write default on `mount` was rejected: an existing mount would start writing the integrity descriptor after a minor upgrade (NF-STABLE-02).
 - Extras: `info()` returns `udf::VolumeInfo` (`revision`, `block_size`, `partitions`, `implementation`, `domain`, `id(UdfId)`, `recorded`, `integrity_recorded`, `volume_serial`), with `EntityId`, `PartitionInfo` and `PartitionKind`; `was_dirty`; `extents`, `records` and `read_raw`. UDF ids decode CS0 to `&str`.
-- The writer takes the shared `Tree` and `UdfOptions` (`with_revision(UdfRevision)`, `with_id(UdfId, &str)`, `with_time`, `with_seed`) and returns the shared `Report`: `udf::plan` and `udf::{sync, r#async}::write`. `UdfRevision` has 2.50 and 2.60 variants that the plan refuses, so 3.x support turns an error into success without a new variant. `SimpleFile`, `SimpleDir` and `UdfReport` are removed.
-- **Bridge writer.** The ISO 9660 and UDF bridge moves here from `hadris-cd`: `udf::plan_bridge(&tree, &IsoOptions, &UdfOptions)` and `udf::{sync, r#async}::write_bridge(dev, &tree, &IsoOptions, &UdfOptions)`. It takes the two format options directly, not a `CdOptions` holding both, and points the UDF volume at the extents of the ISO `Report` instead of reopening the output.
+- The writer takes the shared `Tree` and `UdfOptions` (`with_revision(UdfRevision)`, `with_id(UdfId, &str)`, `with_time`, `with_seed`) and returns the shared `Report`: `udf::plan` and `udf::{sync, async_}::write`. `UdfRevision` has 2.50 and 2.60 variants that the plan refuses, so 3.x support turns an error into success without a new variant. `SimpleFile`, `SimpleDir` and `UdfReport` are removed.
+- **Bridge writer.** The ISO 9660 and UDF bridge moves here from `hadris-cd`: `udf::plan_bridge(&tree, &IsoOptions, &UdfOptions)` and `udf::{sync, async_}::write_bridge(dev, &tree, &IsoOptions, &UdfOptions)`. It takes the two format options directly, not a `CdOptions` holding both, and points the UDF volume at the extents of the ISO `Report` instead of reopening the output.
 - The UDF serial is set at build time (`UdfId::VolumeSet` or the seed); there is no serial change on a mounted UDF volume in 3.0.
 - Low-level descriptor writers (`write_lvid(location, close: bool)`, `write_fids`) become `pub(crate)` or move to the raw crate with enums instead of bools.
 - No trait bounds on the `UdfFs` struct definition. `write` no longer needs `std`. The dead `modify.rs` is deleted.
@@ -1478,7 +1489,7 @@ shapes and can be 3.x.
 ### 5.4 `hadris-cd`
 
 Removed (S3). Its one job, the ISO 9660 and UDF bridge image, is
-`hadris_udf::plan_bridge` and `hadris_udf::{sync, r#async}::write_bridge`
+`hadris_udf::plan_bridge` and `hadris_udf::{sync, async_}::write_bridge`
 (5.3). Metadata, symlinks and streaming inputs come from the shared `Tree`,
 and the layout comes from the ISO `Report`, so `CdOptions`, `LayoutManager`
 and the reopen-the-output step have no successor. `detect` reports a bridge
@@ -1565,7 +1576,7 @@ let (out, report) = writer.finish()?;
 - `skip_entry_data_owned`, `next_entry_alloc` and similar twins are removed.
 - Sizes are `u64` at the API boundary, with `LimitExceeded` when a newc field overflows.
 - The streaming writer (`alloc`): `append(path, &Node)` for known content, `append_file(path, &SetAttr, len) -> EntryWriter` for data produced while writing, and `finish() -> (W, Report)`, which returns the sink so segments can be concatenated (BUILD-CPIO-CAT-01). The tree writer is `cpio::sync::write(&mut sink, &tree, &opts)` like every other writer, writing at the sink's end; `cpio::plan` returns its report. `write_tree(&Tree)` goes.
-- `cpio::{sync, r#async}::read_tree(&mut reader)` builds a `Tree` from a stream, applying `relative_path` and failing on `..`. It replaces `Tree::from_cpio`.
+- `cpio::{sync, async_}::read_tree(&mut reader)` builds a `Tree` from a stream, applying `relative_path` and failing on `..`. It replaces `Tree::from_cpio`.
 - `CpioOptions` (`with_format`, `with_time`) uses `Format::{Newc, Crc, Odc, Binary}` instead of `crc(bool)`. Odc read and write are new; `Binary` is read-only and refused by the writers.
 - `check(source, scratch, on_finding)` validates a stream with `cpio::Detail` codes (CHECK-CPIO-01).
 - Hard links follow GNU cpio: data on the last link, metadata copied from the target.
@@ -1585,7 +1596,7 @@ Removed (S2). Detection and opening move into the umbrella crate (5.9):
 ### 5.9 `hadris` (umbrella)
 
 - Re-exports `hadris-io`, `hadris-storage` and `hadris-fs`, and each format crate at a flat path behind a feature of its name (`hadris::fat`, `hadris::iso`, `hadris::udf`, `hadris::cpio`, `hadris::part`; `hadris::ntfs` behind `unstable-ntfs`).
-- `hadris::{sync, r#async}::{detect, open, AnyFs}` (5.8), and with `write`, `format(dev, &FormatOptions)` for an empty FAT, exFAT or UDF volume.
+- `hadris::{sync, async_}::{detect, open, AnyFs}` (5.8), and with `write`, `format(dev, &FormatOptions)` for an empty FAT, exFAT or UDF volume.
 - `hadris::host` (`std`, sync only, 4.15): `open(path)` detects and mounts read-only as `AnyFs<FileDevice>` with `host::mount_options()`; `open_with(path, options)` mounts with the caller's options, writable unless they are read-only; `FileDevice` (`open`, `new`, `get_ref`, `get_mut`, `into_inner`); `read_tree`, `write_tree`, `TreeOptions`, `Symlinks`, `OnError`; `file` and `source_date_epoch` for builders; `mount_options()` and `local_utc_offset()`, the host defaults of post-pass decision C; and `StdIo`. Its errors are `PathError` with the host path set.
 - The umbrella has no binary. The `hadris` binary is its own package, `hadris-cli` (`cargo install hadris-cli`, Q15), so library users never compile clap and CLI changes do not move the umbrella's version. It replaces the five CLI crates, with subcommands `fat`, `iso`, `udf`, `cpio` and `detect` and one set of flags, overwrite rules and output handling (S1); `extract` takes `-p/--path` in every format. The 2.x binary names are not installed.
 
@@ -1786,7 +1797,7 @@ opt-in tiers but dropped the `&self` twin trait and the lock kinds: one
 `FileSystem` trait on `&mut self` and `Volume<F>` with a fixed lock per mode
 (4.3, 4.4).
 
-**Q2. `Send` futures.** Resolved: the shared tier's `r#async` mode has `Send`
+**Q2. `Send` futures.** Resolved: the shared tier's `async_` mode has `Send`
 futures whenever the device is `Send`, and non-`Send` async is the `local`
 device traits plus the embedded API (4.8, 4.17). History: `async fn` in
 traits does not let a generic caller require `Send` futures, so tokio code
@@ -1806,7 +1817,7 @@ automatically imply that its future is `Send`"). E2 tried every option:
 Step 4 added `async_send` as a third mode. The layering pass (Q9) then
 dropped the non-`Send` async mode from the shared tier: its users are
 firmware on single-threaded executors, which now have the embedded API. So
-the `Send` form became the only shared async mode, named `r#async`, and the
+the `Send` form became the only shared async mode, named `r#async` (now `async_`), and the
 non-`Send` form survives only where firmware needs it (`local`). When return
 type notation is stable, nothing changes for users: the async trait is
 already `Send`.
@@ -1923,6 +1934,6 @@ user:
 The [async device migration guide](async-devices.md) records the poll-based
 contract adopted after the V3 prototype. One device implementation supplies
 local operations and conditional Send futures through owned operation state.
-`async_` is canonical and `r#async` is its compatibility alias; the historical
+`async_` is the only async namespace; the historical
 mode decisions above describe earlier development stages. CPIO byte-stream
 contracts and lazy content-source requirements remain separate.

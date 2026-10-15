@@ -160,7 +160,6 @@ neither an allocator nor a sync/async feature.
 
 ## Unified asynchronous API
 
-`async_` is the canonical namespace; `r#async` reexports the same items.
 `UdfFs`, `write` and `write_bridge` accept the common
 `hadris_storage::async_::BlockDevice` contract. Local devices, borrowed devices,
 partitions, caches and read-ahead adapters compose directly.

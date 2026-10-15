@@ -48,9 +48,9 @@ fn main() -> Result<()> {
 
 `part::sync::open` returns a `hadris_storage` `Partition` of the disk: block 0 of
 the partition is the partition's first block, and requests past its end fail
-before they reach the disk. `part::r#async::open` does the same for async
+before they reach the disk. `part::async_::open` does the same for async
 devices, and the table is
-read with `part::r#async::read` there.
+read with `part::async_::read` there.
 
 Do not seek to the partition offset and then pass the unrestricted disk handle
 to a filesystem parser. Filesystem offsets are relative to its start, and an

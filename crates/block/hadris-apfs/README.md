@@ -184,8 +184,8 @@ mappings remain available through the raw mapping inspection APIs.
 
 ## Unified asynchronous API
 
-The `async_` namespace is canonical; `r#async` remains an alias. One filesystem
-type accepts both Send and local devices through `hadris_storage::async_::BlockDevice`.
+One filesystem type in `async_` accepts both Send and local devices through
+`hadris_storage::async_::BlockDevice`.
 It implements `hadris_fs::local::FileSystem` for all compatible devices and the
 Send filesystem contract when its device and operation state are Send. The
 `async` feature enables both capabilities; no separate local feature is needed.

@@ -30,8 +30,7 @@ implementor's own error through `ErrorType`. It supplies explicit adapters:
 `StdIo` for `std::io` types, `ToStd` for the other direction, and
 `FromEmbedded` for `embedded-io` devices. Firmware and kernels implement the
 same traits for their own device handles. `async_` guarantees Send futures;
-`local` provides separate stream traits without that bound. `r#async` aliases
-`async_`. These byte-stream contracts are distinct from the unified block API.
+`local` provides separate stream traits without that bound. These byte-stream contracts are distinct from the unified block API.
 
 The CPIO reader and writer work on these streams directly, so they run over
 pipes.
@@ -57,7 +56,7 @@ writable read-only.
 The format crates validate their own sector and filesystem geometry on top of
 the device's block size. Async drivers accept the common
 `async_::BlockDevice` contract. Their operation futures are Send when both the
-device and its owned state are Send; `local` and `r#async` alias this storage API.
+device and its owned state are Send.
 
 ## Partition boundaries
 

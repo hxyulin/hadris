@@ -49,7 +49,7 @@ features = ["alloc", "sync", "async", "write", "fat"]
 ```
 
 Name I/O types through their mode module, `hadris::fat::sync` or
-`hadris::fat::async_`; `r#async` remains a compatibility alias. Block-format
+`hadris::fat::async_`. Block-format
 drivers use one async type for local and Send devices. Implement
 `hadris::storage::async_::BlockDevice` once; `SendBlockDevice` is derived when
 both the device and its operation state are Send. A Send device alone does not
@@ -57,9 +57,9 @@ guarantee Send operation futures.
 
 Use `hadris::fs::local::{FileSystem, Volume}` for local callers and
 `hadris::fs::async_::{FileSystem, Volume}` for generic callers requiring Send
-futures. The `async` feature enables both filesystem tiers. Storage's `local`
-namespace aliases `async_`; byte-stream traits in `hadris-io` still have
-separate local and Send contracts, and CPIO retains its Send stream API.
+futures. The `async` feature enables both filesystem tiers. Storage has no
+`local` namespace; byte-stream traits in `hadris-io` have separate `local`
+and Send `async_` contracts, and CPIO retains its Send stream API.
 Device errors remain `Send + Sync + 'static` in every mode.
 
 The sync and async APIs retain mode-specific differences: `hadris-fs::host`

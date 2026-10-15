@@ -55,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Reading needs no allocator, and the same API exists in `hadris::iso::r#async`. `IsoFs::info` returns the volume
+Reading needs no allocator, and the same API exists in `hadris::iso::async_`. `IsoFs::info` returns the volume
 descriptor's identifiers and dates, `IsoFs::rock_ridge` a node's Rock Ridge
 entries, `IsoFs::records` and `IsoFs::extents` where its directory records and
 data lie (read them with `IsoFs::read_raw`), and `hadris::iso::raw` the on-disk

@@ -39,7 +39,7 @@ The layouts mirror the specifications. They may gain items; the existing
 ones follow the specifications and stay exhaustive.
 
 With a mode feature, `io` adds the FAT device primitives the `FatFs` driver
-is built on, in `io::sync`, `io::r#async` (`Send` futures) and `io::local`, generated
+is built on, in `io::sync` and `io::async_`, generated
 from one source. They are generic over a `hadris-storage` block device and
 borrow a caller-lent `BlockBuf` of one device block, so they still need no
 allocator:
@@ -106,7 +106,7 @@ assert_eq!(entry.lfn_checksum(), lfn_checksum(b"README  TXT"));
 | Feature | Description | Default |
 |---------|-------------|---------|
 | `sync` | The device primitives in `io::sync` | - |
-| `async` | Common poll-device primitives in `io::async_` and `exfat::io::async_`; `r#async` and `local` are aliases, and futures are Send when device and operation state are Send | - |
+| `async` | Common poll-device primitives in `io::async_` and `exfat::io::async_`; futures are Send when device and operation state are Send | - |
 | `defmt` | `defmt::Format` for `FatKind` | - |
 
 ## Documentation

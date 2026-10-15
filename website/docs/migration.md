@@ -58,7 +58,7 @@ Dropping a handle cannot report a flush or metadata error to the caller.
 
 | V2 use case | V3 tier |
 |---|---|
-| FAT without `std`, with an allocator | `fat::sync::FatFs` or its `r#async` twin, with `alloc` |
+| FAT without `std`, with an allocator | `fat::sync::FatFs` or its `async_` twin, with `alloc` |
 | FAT without an allocator | `fat::embedded`, with `MountToken` and fixed file slots |
 | exFAT without an allocator | Read-only `fat::exfat::embedded` |
 | ISO/UDF without an allocator | Shared read-only drivers; image writers and convenience APIs may need `alloc` |
@@ -93,6 +93,6 @@ Apply the guidance above when migrating from V2. Applications already using
 RC1 must also migrate custom asynchronous devices to the RC2 poll contract.
 
 The unified device contract uses operation-owned state and poll hooks. Format
-callers use `async_` as the canonical namespace; `r#async` remains an alias.
+callers use the `async_` namespace.
 See the [device migration guide](https://github.com/hxyulin/hadris/blob/main/docs/async-devices.md)
 for local and Send drivers, stream adapters, cancellation and custom devices.

@@ -440,8 +440,8 @@ use does not grow with directory size. Layouts vary by target.
 
 ## Asynchronous byte streams
 
-The canonical asynchronous namespace is `async_`; `r#async` remains a compatibility
-alias in the FAT, exFAT and embedded APIs. All asynchronous drivers accept
+The FAT, exFAT and embedded APIs name their asynchronous namespace `async_`.
+All asynchronous drivers accept
 `hadris_storage::async_::BlockDevice`. Futures are `Send` when the device and its
 operation state are `Send`; `Rc` devices and states use the same driver types on
 local executors. Hosted drivers implement `hadris_fs::local::FileSystem`, and also

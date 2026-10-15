@@ -133,8 +133,7 @@ neither an allocator nor a sync/async feature.
 
 ## Asynchronous byte streams
 
-The canonical asynchronous namespace is `async_`; `r#async` remains a compatibility
-alias. CPIO operates on byte streams through `hadris_io::async_::Read` and
+The asynchronous namespace is `async_`. CPIO operates on byte streams through `hadris_io::async_::Read` and
 `Write`, rather than storage block devices. Its asynchronous streams and futures
 retain their `Send` contract. Local byte streams require a separate stream
 contract migration; enabling local block devices does not change this API.

@@ -143,8 +143,7 @@ application’s subscriber. It is disabled by default. See the
 
 ## Asynchronous byte streams
 
-The canonical asynchronous namespace is `async_`; `r#async` remains a compatibility
-alias. The async functions accept the common
+The asynchronous namespace is `async_`. Its functions accept the common
 `hadris_storage::async_::BlockDevice` contract, including borrowed and `Rc`
 devices. Futures are `Send` when the device, its operation state and any callback
 are `Send`. `open` preserves this capability in the returned partition device.

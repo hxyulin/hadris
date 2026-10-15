@@ -39,7 +39,7 @@ from one source:
   and `sync` are durable. The write half defaults to
   `ErrorKind::ReadOnly`. The trait docs hold the full contract and the
   rules for adding methods after 3.0
-- `Volume<F>` (`std` in `sync`, `alloc` in `r#async`), which owns a
+- `Volume<F>` (`std` in `sync`, `alloc` in `async_`), which owns a
   filesystem behind a lock and shares it between threads and tasks, with
   paths and `File` and `ReadDir` handles named after `std::fs`
 - `ContentReader` (`alloc`), which reads a `Content` in that mode; lazy
@@ -83,7 +83,7 @@ pinning it by a lookup of its name, and `OpenOptions::with_attr` gives a
 created file its initial attributes. `File` has `read_at`, `write_at` and
 `set_attr`.
 
-`r#async` has the same API with `Send` futures, so generic code over
+`async_` has the same API with `Send` futures, so generic code over
 `F: FileSystem + 'static` can spawn on multi-threaded executors.
 
 A panic while a `Volume` holds its filesystem, in the driver, the device or
@@ -128,7 +128,7 @@ assert!(OpenOptions::new().write().create().append().validate().is_ok());
 | `alloc` | via `std` | `OwnedName`, `PathError`, `Tree`, `Report`, `copy_tree` and `ContentReader` in each mode, async volumes with pointer-sized atomics, lazy `read_tree` in the Send tier, and `Box` forwarding |
 | `std` | Yes | Implies `alloc`; adds `SystemClock`, the sync `Volume` with its `std::io` handles and `read_tree`, `host` with `sync`, and conversions to `std::io::Error` |
 | `sync` | Yes | The blocking API in `sync` |
-| `async` | No | Both the Send contract and handles in `async_` (`r#async` is an alias) and the local contract and handles in `local` |
+| `async` | No | Both the Send contract and handles in `async_` and the local contract and handles in `local` |
 | `async-local` | No | The filesystem contract and handles with potentially non-Send futures in `local` |
 | `contract` | No | The driver contract kit: `contract::check` in each mode, for testing a format against the `FileSystem` contract |
 
@@ -137,7 +137,7 @@ assert!(OpenOptions::new().write().create().append().validate().is_ok());
 Enable `async-local` for the `local` filesystem contract, whose futures need
 not implement `Send`. Enable `alloc` for `local::Volume` and its handles;
 these also require pointer-sized atomics. The `async` feature enables this
-local tier as well as the stronger Send contract in `async_` (`r#async` is an alias).
+local tier as well as the stronger Send contract in `async_`.
 
 ISO supports both contracts with one reader type. See the
 [unified ISO async guide](../../../docs/unified-async-iso.md) for device
