@@ -15,6 +15,9 @@ Each published package owns its version and may be released independently.
   are not whole blocks, unaligned partitions, `ByteView` byte ranges past
   the end of the device and writes to a read-only `MemDevice`.
 
+- **hadris-io:** The `hadris-macros` proc-macro is built only with the
+  `sync` or `async` feature, and the unused `bytemuck` dependency is gone.
+
 ### Fixed
 
 - **hadris-storage:** The sync `Partition` rejects a request past the end
