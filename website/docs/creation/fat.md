@@ -96,7 +96,7 @@ fn populate<D: BlockDevice>(vol: &Volume<FatFs<D>>) -> Result<(), Box<dyn std::e
     let mut file = vol.open("/DOCS/A long file name.txt", create)?;
     file.write_all(b"long names are always on")?;
     file.close()?;
-    vol.lock().sync()?;
+    vol.lock()?.sync()?;
     Ok(())
 }
 ```

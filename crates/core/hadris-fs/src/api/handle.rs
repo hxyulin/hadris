@@ -43,7 +43,8 @@ impl<F: FileSystem> File<F> {
         if !self.options.is_read() {
             return Err(ErrorKind::InvalidInput.into());
         }
-        let n = self.vol.lock().await.read(self.node, self.pos, buf).await?;
+        let (vol, node, pos) = (&self.vol, self.node, self.pos);
+        let n = watched!(vol, { vol.enter().await?.read(node, pos, buf).await })?;
         self.pos += n as u64;
         Ok(n)
     }
@@ -55,13 +56,16 @@ impl<F: FileSystem> File<F> {
         if !self.options.is_write() {
             return Err(ErrorKind::InvalidInput.into());
         }
-        let mut fs = self.vol.lock().await;
-        if self.options.is_append() {
-            self.pos = fs.stat(self.node).await?.len();
-        }
-        let n = fs.write(self.node, self.pos, buf).await?;
-        self.pos += n as u64;
-        Ok(n)
+        let (vol, node, append, pos) = (&self.vol, self.node, self.options.is_append(), &mut self.pos);
+        watched!(vol, {
+            let mut fs = vol.enter().await?;
+            if append {
+                *pos = fs.stat(node).await?.len();
+            }
+            let n = fs.write(node, *pos, buf).await?;
+            *pos += n as u64;
+            Ok(n)
+        })
     }
 
     /// Reads at `offset` without moving the position, as `pread`.
@@ -69,7 +73,7 @@ impl<F: FileSystem> File<F> {
         if !self.options.is_read() {
             return Err(ErrorKind::InvalidInput.into());
         }
-        self.vol.lock().await.read(self.node, offset, buf).await
+        watched!(self.vol, { self.vol.enter().await?.read(self.node, offset, buf).await })
     }
 
     /// Writes at `offset` without moving the position, as `pwrite`, also in
@@ -79,14 +83,14 @@ impl<F: FileSystem> File<F> {
         if !self.options.is_write() {
             return Err(ErrorKind::InvalidInput.into());
         }
-        self.vol.lock().await.write(self.node, offset, buf).await
+        watched!(self.vol, { self.vol.enter().await?.write(self.node, offset, buf).await })
     }
 
     /// Changes the file's times, permissions, owner or attributes. It needs
     /// no write access, as `fchmod` does not, but a read-only mount refuses
     /// it.
     pub async fn set_attr(&self, changes: &SetAttr) -> FsResult<(), F::DeviceError> {
-        self.vol.lock().await.setattr(self.node, changes).await
+        watched!(self.vol, { self.vol.enter().await?.setattr(self.node, changes).await })
     }
 
     /// Moves the position and returns it.
@@ -104,29 +108,33 @@ impl<F: FileSystem> File<F> {
         if !self.options.is_write() {
             return Err(ErrorKind::InvalidInput.into());
         }
-        self.vol.lock().await.truncate(self.node, len).await
+        let (vol, node) = (&self.vol, self.node);
+        watched!(vol, { vol.enter().await?.truncate(node, len).await })
     }
 
     /// The file's metadata.
     pub async fn metadata(&self) -> FsResult<Metadata, F::DeviceError> {
-        self.vol.lock().await.stat(self.node).await
+        watched!(self.vol, { self.vol.enter().await?.stat(self.node).await })
     }
 
     /// Makes the file durable, as `fsync` does.
     pub async fn sync_all(&self) -> FsResult<(), F::DeviceError> {
-        self.vol.lock().await.fsync(self.node).await
+        watched!(self.vol, { self.vol.enter().await?.fsync(self.node).await })
     }
 
     /// Closes the file, publishing its size and times. It does not flush the
     /// device; call [`sync_all`](Self::sync_all) first for durability.
     pub async fn close(mut self) -> FsResult<(), F::DeviceError> {
-        let mut fs = self.vol.lock().await;
-        let mut node = self.vol.hold_file(self.node);
-        self.open = false;
-        let closed = fs.close(self.node).await;
-        node.closed();
-        node.forget(&mut *fs);
-        closed
+        let (vol, node, open) = (&self.vol, self.node, &mut self.open);
+        watched!(vol, {
+            let mut fs = vol.enter().await?;
+            let mut held = vol.hold_file(node);
+            *open = false;
+            let closed = fs.close(node).await;
+            held.closed();
+            held.forget(&mut *fs);
+            closed
+        })
     }
 }
 
@@ -201,7 +209,13 @@ impl<F: FileSystem> ReadDir<F> {
         if self.done {
             return None;
         }
-        let next = self.vol.lock().await.readdir(self.dir, self.cursor).await;
+        let (vol, dir, cursor) = (&self.vol, self.dir, self.cursor);
+        let next = watched!(vol, {
+            match vol.enter().await {
+                Ok(mut fs) => fs.readdir(dir, cursor).await,
+                Err(err) => Err(err),
+            }
+        });
         match next {
             Ok(Some(entry)) => {
                 self.cursor = entry.next_cursor();
@@ -326,7 +340,13 @@ impl<F: FileSystem> WalkDir<F> {
 
     /// The next entry, or `None` at the end or after an error.
     pub async fn next_entry(&mut self) -> Option<FsResult<WalkDirEntry, F::DeviceError>> {
-        let next = self.walk.next(&mut *self.vol.lock().await).await;
+        let (vol, walk) = (&self.vol, &mut self.walk);
+        let next = watched!(vol, {
+            match vol.enter().await {
+                Ok(mut fs) => walk.next(&mut *fs).await,
+                Err(err) => Err(err),
+            }
+        });
         let found = match next {
             Ok(Some(found)) => found,
             Ok(None) => return None,

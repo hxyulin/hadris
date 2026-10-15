@@ -222,16 +222,84 @@ fn unidentified_images_and_bad_checksums_have_distinct_errors() {
         panic!("an empty image mounted");
     };
     assert_eq!(error.kind(), ErrorKind::NotRecognized);
-    let mut image = build_image();
+    for mut image in [
+        build_image(),
+        checkpoint_image(&[(21, 4, None, false), (22, 6, None, false)]),
+    ] {
+        image[500] ^= 1;
+        let Err(error) = ApfsFs::mount(device(image), MountOptions::new()) else {
+            panic!("a corrupt container mounted");
+        };
+        assert_eq!(error.kind(), ErrorKind::Corrupt);
+        assert_eq!(
+            hadris_apfs::Detail::of(error.error()),
+            Some(hadris_apfs::Detail::Checksum)
+        );
+    }
+}
+
+#[test]
+fn a_bad_block_zero_checksum_mounts_from_a_valid_checkpoint() {
+    let mut image = checkpoint_image(&[(21, 4, None, true), (22, 6, None, false)]);
     image[500] ^= 1;
-    let Err(error) = ApfsFs::mount(device(image), MountOptions::new()) else {
-        panic!("a corrupt container mounted");
+    image[72] ^= 1;
+    let mut container = hadris_apfs::sync::Container::open(device(image.clone())).unwrap();
+    let latest = container.latest_superblock().unwrap();
+    assert_eq!(latest.object.transaction_identifier, 4);
+    assert_eq!(container.superblock(), &latest);
+    let mut fs = mount(image);
+    hadris_fs::sync::contract::check_read_only(&mut fs).unwrap();
+    assert_eq!(fs.checkpoint().object.transaction_identifier, 4);
+}
+
+#[test]
+fn block_zero_geometry_is_checked_without_its_checksum() {
+    let mut image = checkpoint_image(&[(21, 4, None, true)]);
+    image[112..120].copy_from_slice(&(IMAGE_BLOCKS as u64 - 1).to_le_bytes());
+    let checksum = hadris_apfs::types::checksum::fletcher64(&image[..BLOCK]).unwrap();
+    image[..8].copy_from_slice(&checksum.to_le_bytes());
+    let Err(error) = hadris_apfs::sync::Container::open(device(image)) else {
+        panic!("a descriptor area outside the container opened");
     };
     assert_eq!(error.kind(), ErrorKind::Corrupt);
-    assert_eq!(
-        hadris_apfs::Detail::of(error.error()),
-        Some(hadris_apfs::Detail::Checksum)
-    );
+}
+
+fn corrupt_newest_checkpoint_image(map: bool) -> Vec<u8> {
+    use hadris_apfs::types::checksum::fletcher64;
+    let mut image = checkpoint_image(&[(21, 4, None, true)]);
+    let mut newest = image[..BLOCK].to_vec();
+    newest[16..24].copy_from_slice(&6_u64.to_le_bytes());
+    newest[136..140].copy_from_slice(&1_u32.to_le_bytes());
+    newest[140..144].copy_from_slice(&2_u32.to_le_bytes());
+    if !map {
+        newest[160..168].copy_from_slice(&19_u64.to_le_bytes());
+    }
+    let checksum = fletcher64(&newest).unwrap();
+    newest[..8].copy_from_slice(&checksum.to_le_bytes());
+    image[23 * BLOCK..24 * BLOCK].copy_from_slice(&newest);
+    let mut checkpoint_map = vec![0_u8; BLOCK];
+    checkpoint_map[8..16].copy_from_slice(&22_u64.to_le_bytes());
+    checkpoint_map[16..24].copy_from_slice(&6_u64.to_le_bytes());
+    checkpoint_map[24..28].copy_from_slice(&(0x4000_000c_u32).to_le_bytes());
+    checkpoint_map[32..36].copy_from_slice(&1_u32.to_le_bytes());
+    let checksum = fletcher64(&checkpoint_map).unwrap();
+    checkpoint_map[..8].copy_from_slice(&checksum.to_le_bytes());
+    if map {
+        checkpoint_map[100] ^= 1;
+    }
+    image[22 * BLOCK..23 * BLOCK].copy_from_slice(&checkpoint_map);
+    image
+}
+
+#[test]
+fn an_unverifiable_newest_checkpoint_falls_back_to_an_older_one() {
+    for map in [true, false] {
+        let image = corrupt_newest_checkpoint_image(map);
+        assert_eq!(latest_xid(image.clone()), 4, "map corrupt: {map}");
+        let mut fs = mount(image);
+        hadris_fs::sync::contract::check_read_only(&mut fs).unwrap();
+        assert_eq!(fs.checkpoint().object.transaction_identifier, 4);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -344,26 +412,99 @@ fn backend_payloads_survive_mount_and_read_failures_and_mutations_never_touch_st
     assert_eq!(error.device_error(), Some(&DeviceFailure(73)));
 }
 
-#[test]
-fn mount_refuses_dangling_entries_wrong_types_duplicate_names_and_outside_extents() {
-    for case in ["dangling", "type", "duplicate", "extent"] {
-        let image = invalid_directory_image(case);
-        let Err(error) = ApfsFs::mount(device(image.clone()), MountOptions::new()) else {
-            panic!("malformed {case} mounted");
-        };
-        assert_eq!(error.kind(), ErrorKind::Corrupt, "{case}");
-        assert_eq!(error.into_device().into_inner(), image);
+fn listing(fs: &mut ApfsFs<MemDevice<Vec<u8>>>) -> Vec<(Vec<u8>, NodeId, FileType)> {
+    let root = fs.root();
+    let mut cursor = DirCursor::START;
+    let mut entries = Vec::new();
+    while let Some(entry) = fs.readdir(root, cursor).unwrap() {
+        cursor = entry.next_cursor();
+        entries.push((
+            entry.name().as_bytes().to_vec(),
+            entry.node(),
+            entry.metadata().file_type(),
+        ));
+    }
+    entries
+}
+
+fn check_intact_files(fs: &mut ApfsFs<MemDevice<Vec<u8>>>, listed: &[(Vec<u8>, NodeId, FileType)]) {
+    for index in 2..FILE_COUNT {
+        let name = file_name(index);
+        assert!(listed.iter().any(|(listed, ..)| listed == name.as_bytes()));
+        let node = fs.lookup(fs.root(), Name::new(&name)).unwrap();
+        let mut buf = vec![0; BLOCK];
+        let n = fs.read(node, 0, &mut buf).unwrap();
+        assert_eq!(&buf[..n], file_contents(index));
     }
 }
 
 #[test]
-fn invalid_utf8_directory_names_are_corrupt_and_return_the_device() {
-    let image = invalid_directory_image("utf8");
-    let Err(error) = ApfsFs::mount(device(image.clone()), MountOptions::new()) else {
-        panic!("invalid UTF-8 directory name mounted");
-    };
-    assert_eq!(error.kind(), ErrorKind::Corrupt);
-    assert_eq!(error.into_device().into_inner(), image);
+fn damaged_records_mount_and_fail_only_their_own_node() {
+    for (case, listed_type) in [
+        ("dangling", FileType::File),
+        ("type", FileType::Dir),
+        ("extent", FileType::File),
+        ("mode", FileType::File),
+        ("inode", FileType::File),
+    ] {
+        let mut fs = mount(invalid_directory_image(case));
+        let listed = listing(&mut fs);
+        check_intact_files(&mut fs, &listed);
+        let (_, node, kind) = listed
+            .iter()
+            .find(|(name, ..)| name == b"file0.txt")
+            .unwrap_or_else(|| panic!("{case}: damaged entry not listed"));
+        assert_eq!(*kind, listed_type, "{case}");
+        assert_eq!(fs.lookup(fs.root(), Name::new("file0.txt")).unwrap(), *node);
+        assert_eq!(
+            fs.stat(*node).unwrap_err().kind(),
+            ErrorKind::Corrupt,
+            "{case}"
+        );
+        assert_eq!(
+            fs.read(*node, 0, &mut [0; 8]).unwrap_err().kind(),
+            ErrorKind::Corrupt,
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn symlinks_with_stream_targets_list_and_fail_readlink() {
+    let mut fs = mount(invalid_directory_image("symlink_stream"));
+    let listed = listing(&mut fs);
+    check_intact_files(&mut fs, &listed);
+    let (_, node, kind) = listed.iter().find(|(name, ..)| name == b"link").unwrap();
+    assert_eq!(*kind, FileType::Symlink);
+    assert_eq!(fs.stat(*node).unwrap_err().kind(), ErrorKind::Unsupported);
+    assert_eq!(
+        fs.readlink(*node, &mut [0; 64]).unwrap_err().kind(),
+        ErrorKind::Unsupported
+    );
+}
+
+#[test]
+fn names_are_not_folded_rejected_by_length_or_required_to_be_utf8() {
+    let mut fs = mount(invalid_directory_image("duplicate"));
+    let listed = listing(&mut fs);
+    check_intact_files(&mut fs, &listed);
+    for name in ["file0.txt", "FILE0.TXT"] {
+        assert!(listed.iter().any(|(listed, ..)| listed == name.as_bytes()));
+        let node = fs.lookup(fs.root(), Name::new(name)).unwrap();
+        assert_eq!(fs.stat(node).unwrap().len(), file_contents(0).len() as u64);
+    }
+
+    let long = LONG_NAME.repeat(300);
+    for (case, name) in [("utf8", &b"\xffile0.txt"[..]), ("long", long.as_bytes())] {
+        let mut fs = mount(invalid_directory_image(case));
+        let listed = listing(&mut fs);
+        check_intact_files(&mut fs, &listed);
+        let (_, node, _) = listed.iter().find(|(listed, ..)| listed == name).unwrap();
+        assert_eq!(fs.lookup(fs.root(), Name::new(name)).unwrap(), *node);
+        let mut buf = [0; 64];
+        let n = fs.read(*node, 0, &mut buf).unwrap();
+        assert_eq!(&buf[..n], file_contents(0));
+    }
 }
 
 fn checkpoint_image(copies: &[(usize, u64, Option<u8>, bool)]) -> Vec<u8> {
@@ -424,4 +565,70 @@ fn mount_takes_the_newest_valid_checkpoint_in_the_whole_descriptor_area() {
 
     let image = checkpoint_image(&[(23, 2, None, false), (22, 6, Some(0xAA), true)]);
     assert_eq!(latest_xid(image), 1);
+}
+
+fn reseal(image: &mut [u8], block: usize, offset: usize, value: u64) {
+    let block = &mut image[block * BLOCK..(block + 1) * BLOCK];
+    block[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
+    let checksum = hadris_apfs::types::checksum::fletcher64(block).unwrap();
+    block[..8].copy_from_slice(&checksum.to_le_bytes());
+}
+
+fn read_all_files(fs: &mut ApfsFs<MemDevice<Vec<u8>>>) {
+    let root = fs.root();
+    for index in 0..FILE_COUNT {
+        let node = fs.lookup(root, Name::new(&file_name(index))).unwrap();
+        let mut buf = vec![0; BLOCK];
+        let n = fs.read(node, 0, &mut buf).unwrap();
+        assert_eq!(&buf[..n], file_contents(index));
+    }
+}
+
+#[test]
+fn directory_keys_follow_the_volume_name_features() {
+    let mut fs = mount(build_image_variant(Variant::PlainKeys));
+    hadris_fs::sync::contract::check_read_only(&mut fs).unwrap();
+    read_all_files(&mut fs);
+    for flags in [1, 8, 9] {
+        let mut image = build_image();
+        set_volume_incompatible_features(&mut image, flags);
+        read_all_files(&mut mount(image));
+    }
+}
+
+#[test]
+fn sealed_volumes_read_extents_from_the_file_extent_tree() {
+    let mut fs = mount(build_image_variant(Variant::SealedFext));
+    hadris_fs::sync::contract::check_read_only(&mut fs).unwrap();
+    read_all_files(&mut fs);
+}
+
+#[test]
+fn unreadable_incompatible_features_refuse_the_mount() {
+    for (block, offset, flags) in [
+        (0, 64, 0x1),
+        (0, 64, 0x100),
+        (0, 64, 0x200),
+        (3, 56, DEFAULT_VOLUME_INCOMPAT | 0x10),
+        (3, 56, DEFAULT_VOLUME_INCOMPAT | 0x40),
+        (3, 56, DEFAULT_VOLUME_INCOMPAT | 0x80),
+        (3, 56, DEFAULT_VOLUME_INCOMPAT | (1 << 63)),
+    ] {
+        let mut image = build_image();
+        reseal(&mut image, block, offset, flags);
+        let Err(error) = ApfsFs::mount(device(image.clone()), MountOptions::new()) else {
+            panic!("incompatible feature {flags:#x} mounted");
+        };
+        assert_eq!(error.kind(), ErrorKind::Unsupported, "{flags:#x}");
+        assert_eq!(
+            hadris_apfs::Detail::of(error.error()),
+            Some(hadris_apfs::Detail::Feature)
+        );
+        assert_eq!(error.into_device().into_inner(), image);
+    }
+    for (block, offset, flags) in [(0, 64, 0x2), (3, 56, DEFAULT_VOLUME_INCOMPAT | 0x2 | 0x4)] {
+        let mut image = build_image();
+        reseal(&mut image, block, offset, flags);
+        read_all_files(&mut mount(image));
+    }
 }

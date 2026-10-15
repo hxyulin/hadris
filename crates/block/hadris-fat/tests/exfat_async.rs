@@ -107,6 +107,64 @@ fn hinted_append_recovers_when_dropped_at_every_await() {
     }
 }
 
+async fn shrink_op<D: hadris_storage::r#async::BlockDevice>(
+    fs: &mut ExFatFs<D>,
+    op: u32,
+) -> Result<(), ErrorKind> {
+    use hadris_fs::{Name, RenameMode};
+    let root = fs.root();
+    let result = match op {
+        0 => fs.unlink(root, Name::new("victim.bin")).await,
+        1 => {
+            fs.rename(
+                root,
+                Name::new("source.bin"),
+                root,
+                Name::new("target.bin"),
+                RenameMode::Replace,
+            )
+            .await
+        }
+        _ => {
+            let (text, len) =
+                [("victim.bin", 513), ("victim.bin", 0), ("chained.bin", 513)][op as usize - 2];
+            let node = fs.lookup(root, Name::new(text)).await.unwrap();
+            let result = fs.truncate(node, len).await;
+            fs.forget(node, 1);
+            result
+        }
+    };
+    result.map_err(|err| err.kind())
+}
+
+/// Unlinking or replacing a contiguous file, and shrinking a contiguous or
+/// chained one, dropped at any await, leave no lost or cross-linked
+/// clusters once the next operation has recovered.
+#[test]
+fn contiguous_frees_and_shrinks_recover_when_dropped_at_every_await() {
+    let image = common::shrink_image();
+    for op in 0..common::SHRINK_OPS {
+        let mut completed = false;
+        for polls in 0..200 {
+            let what = format!("op {op} polls {polls}");
+            let dev = cancel::YieldDev(common::device(image.clone(), 512));
+            let mut fs = common::block_on(ExFatFs::mount(dev, MountOptions::new())).unwrap();
+            let result = cancel::run_for(shrink_op(&mut fs, op), polls);
+            common::block_on(fs.sync()).unwrap();
+            let after = fs.into_inner().0.into_inner();
+            if let Some(result) = &result {
+                assert_eq!(result, &Ok(()), "{what}");
+            }
+            common::check_shrink_op(&after, op, result.is_some(), &what);
+            if result.is_some() {
+                completed = true;
+                break;
+            }
+        }
+        assert!(completed, "op {op} never completed");
+    }
+}
+
 fn bad_cluster_image() -> (Vec<u8>, Vec<u32>) {
     let mut image = common::image(common::small(8 << 20, 512));
     let geo = common::Geometry::of(&image);

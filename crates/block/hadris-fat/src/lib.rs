@@ -43,7 +43,7 @@
 //! )?;
 //! backup.write_all(&config)?;
 //! backup.close()?;
-//! vol.lock().sync()?;
+//! vol.lock()?.sync()?;
 //! # Ok(())
 //! # }
 //! # #[cfg(not(all(feature = "sync", feature = "std")))]
@@ -227,17 +227,17 @@ extern crate self as hadris_fat;
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-#[cfg(feature = "alloc")]
+#[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
 mod cache;
 #[cfg(any(feature = "sync", feature = "async"))]
 mod names;
 mod options;
-#[cfg(feature = "alloc")]
+#[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
 mod table;
-#[cfg(feature = "alloc")]
+#[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
 pub use cache::CacheOptions;
 
-#[cfg(feature = "alloc")]
+#[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
 macro_rules! filesystem_impl_for {
     ($driver:ident, $device:path, $trait:path) => {
         io_transform! {
@@ -346,7 +346,7 @@ macro_rules! filesystem_impl_for {
         }
     };
 }
-#[cfg(feature = "alloc")]
+#[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
 macro_rules! filesystem_impl {
     ($driver:ident) => {
         filesystem_impl_for!($driver, BlockDevice, FileSystem);

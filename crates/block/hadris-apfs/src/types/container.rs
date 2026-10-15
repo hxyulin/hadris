@@ -12,6 +12,16 @@ pub const CONTAINER_MINIMUM_BLOCK_SIZE_BYTES: u32 = 4096;
 pub const CONTAINER_MAXIMUM_BLOCK_SIZE_BYTES: u32 = 65536;
 /// Maximum volume OID slots in the container superblock.
 pub const CONTAINER_MAX_FILE_SYSTEMS: usize = 100;
+/// Container incompatible feature: the prototype APFS format of macOS 10.12.
+pub const NX_INCOMPAT_VERSION1: u64 = 0x1;
+/// Container incompatible feature: the APFS format of macOS 10.13 and later.
+pub const NX_INCOMPAT_VERSION2: u64 = 0x2;
+/// Container incompatible feature: a Fusion container with a tier-2 device.
+pub const NX_INCOMPAT_FUSION: u64 = 0x100;
+/// Container incompatible features the APFS specification defines.
+pub const NX_SUPPORTED_INCOMPAT_MASK: u64 = NX_INCOMPAT_VERSION2 | NX_INCOMPAT_FUSION;
+/// Container incompatible features this reader can mount.
+pub const NX_READABLE_INCOMPAT_MASK: u64 = NX_INCOMPAT_VERSION2;
 
 /// Parsed APFS container superblock (`nx_superblock_t`).
 /// @hadris-spec Apple-APFS:nx_superblock_t
@@ -118,6 +128,24 @@ impl ContainerSuperblock {
             keylocker_start: le_u64(data, 1296)?,
             keylocker_blocks: le_u64(data, 1304)?,
         })
+    }
+
+    /// Fails with [`crate::ApfsError::Unsupported`] when an incompatible
+    /// feature outside [`NX_READABLE_INCOMPAT_MASK`] is set: version 1,
+    /// Fusion, or a bit the specification does not define.
+    pub const fn check_incompatible_features(&self) -> crate::Result<()> {
+        let unreadable = self.incompatible_features & !NX_READABLE_INCOMPAT_MASK;
+        if unreadable == 0 {
+            Ok(())
+        } else if unreadable & NX_INCOMPAT_FUSION != 0 {
+            Err(crate::ApfsError::Unsupported("APFS Fusion containers"))
+        } else if unreadable & NX_INCOMPAT_VERSION1 != 0 {
+            Err(crate::ApfsError::Unsupported("APFS version 1 containers"))
+        } else {
+            Err(crate::ApfsError::Unsupported(
+                "unknown APFS container incompatible feature",
+            ))
+        }
     }
 
     /// Returns non-zero volume object identifiers.

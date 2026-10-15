@@ -8,6 +8,160 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+- **Embedded FAT stale directories:** Using an embedded `Dir` of a removed
+  subdirectory fails with `InvalidHandle` instead of reading or writing
+  entries in its old cluster, which may since hold file data. Each use of
+  a subdirectory checks that its first sector begins with its own `.`
+  entry, and `remove_dir`, `remove_dir_all` and a rename that replaces a
+  directory delete that entry before freeing the clusters. A `Dir` whose
+  cluster has become the first cluster of a new directory still names
+  that directory.
+
+- **`hadris-fat` features without a mode:** `--no-default-features` with
+  `alloc`, `std` or `alloc,write` and neither `sync` nor `async` builds
+  again. `CacheOptions`, like `FatFs`, needs `alloc` and a mode. CI checks
+  these tiers.
+
+- **FAT reserved sectors:** A FAT12, FAT16 or FAT32 boot sector with a
+  reserved sector count of 0, whose first FAT would overlap the boot
+  sector, no longer mounts: `parse_boot`, `FatFs::mount`, the embedded
+  `Fat::mount` and `check` fail with `Corrupt` and `Detail::BootSector`, as
+  Linux rejects it. Setting the label or serial of a FAT32 volume no longer
+  writes sector 6 as a backup boot sector unless it lies within the
+  reserved sectors; a copy there would be FAT data.
+
+- **hadris-fat (FAT, embedded FAT):** A `truncate` or `set_len` that shrinks
+  a file to a non-zero length records the clusters past the new size before
+  it writes the size. A failed or interrupted size write that still reached
+  the disk previously left those clusters chained past the size, lost until
+  `fsck`. The next writing operation or `sync` now frees them when the entry
+  records the new size, and leaves the file whole when it does not.
+
+- **hadris-fat (exFAT):** Clusters of a contiguous (`NoFatChain`) allocation
+  that `unlink`, `rmdir`, a replacing `rename` or `truncate` frees are
+  recorded as pending before the entry set changes, as chained ones were,
+  so a failed write or a dropped future no longer leaves them allocated
+  with nothing naming them. The next writing operation or `sync` frees them
+  unless the entry set still names them. A shrink to a non-zero length,
+  chained or contiguous, frees the clusters past the new size only once the
+  entry set records it; a size write that landed but failed, or a set
+  written across two device blocks and interrupted between them, previously
+  left them allocated past the size.
+
+- **hadris-fat (exFAT):** `ExFatFs` node ids carry a hash of the entry set's
+  creation time, type, name length and `NameHash` in their low bits, as
+  `FatFs` ids carry one of the short entry, and the slot above as many of
+  them as the volume needs. An unpinned id whose slot now holds another
+  set, such as one created after the old one was removed, fails with
+  `InvalidHandle` instead of naming the new set, and so does one that
+  points into the clusters of a directory removed during the mount unless
+  the tree still reaches a set there. Ids are opaque, so callers see only
+  different values; ids from `readdir` still match `lookup` and survive
+  writes and renames of other entries.
+
+- **ISO 9660 Rock Ridge continuation bounds:** The continuation areas of one
+  record are limited to 4 MiB in total, so a crafted `CE` length (up to
+  4 GiB) fails with `Corrupt` and `Detail::SystemUse` before it is read,
+  instead of every listing and `stat` reading it. The limit on chained
+  areas rises from 16 to 256: images with 17 to 31 areas, which Linux and
+  libisofs read, and Hadris's own images with symlink targets over about
+  32 KiB were reported as damaged.
+
+- **ISO 9660 damaged Rock Ridge entries:** One record with a malformed Rock
+  Ridge area no longer makes its directory unlistable or its siblings
+  unfindable. In the Rock Ridge tree `readdir` lists it under its ISO 9660
+  identifier with no permissions and length 0, `lookup` finds it by that
+  name, and `stat`, `open` and `readlink` on it fail with `Corrupt`, as the
+  UDF reader does for a damaged file entry. Hard-link resolution skips such
+  records. Symlinks whose targets are longer than 4096 bytes are listed and
+  `stat`ed with their full length instead of failing with `LimitExceeded`;
+  `readlink` reads them into a large enough buffer.
+
+- **NTFS sparse directory indexes:** `NtfsFs::lookup` and `readdir` no
+  longer take ~2^40 steps on a directory whose `$INDEX_ALLOCATION` declares
+  a huge, sparse allocation. They find index blocks in use by reading the
+  `$I30` bitmap a chunk at a time, skipping zero bytes eight blocks at a
+  time and skipping the bitmap's sparse and uninitialized parts without
+  reading them, as those read as zeros. Results and cursors are unchanged:
+  a bit set for an index block in a sparse run still fails with `Corrupt`,
+  as does a bitmap with fewer bits than the allocation has blocks.
+
+- **APFS per-node damage:** One unusable record no longer fails an APFS
+  mount or a whole `readdir`. A directory entry whose inode is missing,
+  malformed, duplicated, of an unknown mode or of another type than the entry
+  records, a directory whose inode names another parent, a file whose extents
+  overlap, overflow or leave the container, and a symlink whose target is
+  stored in a data stream are listed with the type the directory record holds;
+  `stat`, `open`, `read` and `readlink` on that node return the error
+  (`Corrupt`, or `Unsupported` for stream targets). Unparsable directory and
+  extended-attribute records are skipped. The case-folding duplicate-name
+  check, which did not use Apple's folding, is removed. Directory names are
+  kept as their on-disk bytes: names that are not UTF-8 are listed and looked
+  up by those bytes, and the 255-byte limit is replaced by the key's
+  name-length field (`Capabilities::max_name_bytes` reports 1022 for hashed
+  keys). Symlink targets are returned as bytes without UTF-8 validation.
+  `DirectoryEntryRecord::name` is now `&[u8]`, with `name_str` for UTF-8;
+  `OwnedDirectoryEntryRecord` keeps a `String` name and still rejects names
+  that are not UTF-8.
+
+- **APFS incompatible features and directory keys:** Mounting now checks the
+  checkpoint's and the selected volume's incompatible features against
+  `NX_READABLE_INCOMPAT_MASK` and `APFS_READABLE_INCOMPAT_MASK`. The container
+  feature `NX_INCOMPAT_VERSION2` and the volume features `CASE_INSENSITIVE`,
+  `NORMALIZATION_INSENSITIVE`, `DATALESS_SNAPS`, `ENC_ROLLED` and
+  `SEALED_VOLUME` are accepted; version 1 and Fusion containers, volumes with
+  `INCOMPLETE_RESTORE` or the reserved `0x40` bit, and undefined bits fail with
+  `Unsupported` and `Detail::Feature`. All `NX_INCOMPAT_*` and
+  `APFS_INCOMPAT_*` constants from the specification are defined, with
+  `check_incompatible_features` on both superblocks. Directory records on
+  volumes that are neither case- nor normalization-insensitive are read with
+  the plain `j_drec_key_t` layout instead of the hashed one:
+  `DirectoryEntryRecord::parse`, `OwnedDirectoryEntryRecord::parse`,
+  `parse_directory_entries` and `parse_owned_directory_entries` take a
+  `DirectoryKeyLayout`, chosen by `VolumeSuperblock::directory_key_layout`.
+  Sealed volumes read file extents from the file extent tree
+  (`VolumeSuperblock::fext_tree_oid`, `Container::sealed_file_extents`,
+  `FileExtentRecord::parse_fext`), so their files no longer read as zeros.
+
+- **APFS checkpoint selection:** `Container::open` reads block zero's
+  geometry and checkpoint descriptor area, requiring the `NXSB` magic and
+  in-bounds geometry but no longer its checksum, so a single damaged block
+  zero no longer fails a mount when valid checkpoints exist.
+  `Container::latest_superblock` (and mounting) now uses the newest
+  descriptor-area superblock whose checksum, checkpoint map blocks, object
+  map and object-map root node verify, falling back to older checkpoints and
+  then to block zero when its checksum is valid. Device errors are returned
+  immediately; when nothing verifies, the error is `Corrupt` with
+  `Detail::Checksum` (or the newest candidate's error). Without `alloc`,
+  `Container::open` still requires block zero's checksum. Refs #295.
+
+- **A panic fails the `Volume`:** a panic during a call on a sync or async
+  `Volume`, in the driver, the device or code holding its `lock()` guard,
+  used to be ignored, leaving later calls to run on a driver left
+  mid-change. The volume now fails for good: every later path and handle
+  call returns kind `Io` with the new `hadris_fs::Detail::VolumeFailed`,
+  calls queued by dropped handles are discarded, `lock()` now returns a
+  `FsResult` and fails with `VolumeFailed` too instead of panicking, and the
+  new `Volume::is_failed` tells. `into_inner` still gives the filesystem
+  back. The async volume detects the panic without `std` too.
+
+- **`PathError` keeps its paths in `std::io::Error`:** converting a
+  `PathError` whose source is an `std::io::Error` now wraps it instead of
+  returning the source, so host failures propagated with `?` keep the tree
+  and host paths in `Display` and in the payload. `raw_os_error()` of the
+  converted error is now `None`; downcast `get_ref()` to `PathError` and use
+  the new `PathError::raw_os_error()`.
+
+- **`std::io::Error` conversion keeps the context:** `Error<E>` (and
+  `MountError`) converted to `std::io::Error` no longer drops the kind,
+  message, location and detail when a device error is present. The device
+  `io::Error` comes back as itself only when the `Error<E>` adds nothing to
+  it; otherwise the result has the mapped kind (`Io` takes the device
+  error's kind), the `Error<E>` as its payload and the device error as its
+  `source()`. `raw_os_error()` of such a converted error is now `None`; read
+  the code from `source()` downcast to `std::io::Error`, or from
+  `device_error()` before converting.
+
 - **CLI directory loops:** `iso tree`, `iso verify --strict`, `udf tree`,
   `udf verify` and `udf compare` stop at a directory that leads back to one
   on its own path, as in a damaged image, and report

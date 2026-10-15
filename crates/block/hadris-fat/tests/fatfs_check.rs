@@ -264,7 +264,7 @@ fn fixture(kind: FatKind, size: u64) -> Vec<u8> {
         options,
     );
     let vol = Volume::new(fs);
-    let cluster = vol.lock().statfs().unwrap().block_size() as usize;
+    let cluster = vol.lock().unwrap().statfs().unwrap().block_size() as usize;
     vol.write_file("/A.BIN", &common::payload(3 * cluster - 10, 1))
         .unwrap();
     vol.write_file("/B.BIN", &common::payload(2 * cluster, 2))
@@ -276,7 +276,7 @@ fn fixture(kind: FatKind, size: u64) -> Vec<u8> {
     vol.write_file("/SUB/D.BIN", &common::payload(cluster + 1, 4))
         .unwrap();
     vol.write_file("/SUB/DEEP/E.BIN", b"deep").unwrap();
-    vol.lock().sync().unwrap();
+    vol.lock().unwrap().sync().unwrap();
     vol.into_inner().unwrap().into_inner().into_inner()
 }
 
@@ -739,7 +739,7 @@ fn deep_trees_are_walked_without_a_stack() {
                 .unwrap();
         }
     }
-    vol.lock().sync().unwrap();
+    vol.lock().unwrap().sync().unwrap();
     let image = vol.into_inner().unwrap().into_inner().into_inner();
     let (report, found) = findings_with(&image, 512);
     assert_eq!(found, []);
@@ -933,7 +933,7 @@ fn overlong_long_name_runs_fall_back_to_the_short_name() {
         let vol = Volume::new(fs);
         vol.write_file("/P", b"").unwrap();
         vol.write_file(&format!("/{long}"), b"data").unwrap();
-        vol.lock().sync().unwrap();
+        vol.lock().unwrap().sync().unwrap();
         let clean = vol.into_inner().unwrap().into_inner().into_inner();
         let short = *b"XXXXXX~1   ";
         let sum = short
@@ -1035,7 +1035,7 @@ fn findings_name_the_path_of_their_entry() {
             .unwrap();
         dirs.push(path.clone());
     }
-    vol.lock().sync().unwrap();
+    vol.lock().unwrap().sync().unwrap();
     let mut image = vol.into_inner().unwrap().into_inner().into_inner();
     let short = |at: usize| image[at + 11] & 0x3F != 0x0F && image[at] != 0xE5;
     let files: Vec<usize> = (0..image.len())

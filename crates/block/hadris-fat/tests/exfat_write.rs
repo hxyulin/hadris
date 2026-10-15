@@ -1080,7 +1080,7 @@ fn sync_writes_the_other_nodes_past_a_damaged_entry_set() {
         fs.write(node, 0, &[7u8; 100]).unwrap();
         fs.write(node, 100, &[7u8; 4900]).unwrap();
     }
-    let damaged = nodes[0].get() as usize * 32;
+    let damaged = common::entry_offset(&fs, nodes[0]) as usize;
     image.borrow_mut()[damaged + 32 + 4] ^= 0xFF;
     assert_eq!(fs.sync().unwrap_err().kind(), ErrorKind::Corrupt);
     assert_eq!(fs.open_nodes(), 1 + nodes.len());
@@ -1318,6 +1318,178 @@ fn unpinned_ids_write_through() {
     let _ = le32;
 }
 
+/// The id `readdir` reports for `text` in `dir`.
+fn listed_id(fs: &mut Fs, dir: NodeId, text: &str) -> NodeId {
+    let mut cursor = DirCursor::START;
+    while let Some(entry) = fs.readdir(dir, cursor).unwrap() {
+        cursor = entry.next_cursor();
+        if entry.name().as_bytes() == text.as_bytes() {
+            return entry.node();
+        }
+    }
+    panic!("{text} is not listed");
+}
+
+#[test]
+fn an_unpinned_id_whose_slot_holds_a_new_set_is_refused() {
+    let mut fs = common::small(4 << 20, 4096);
+    let root = fs.root();
+    let first = create(&mut fs, root, "first.txt", FileType::File);
+    fs.forget(first, 1);
+    let old = listed_id(&mut fs, root, "first.txt");
+    assert!(fs.stat(old).is_ok());
+    fs.unlink(root, name("first.txt")).unwrap();
+    let second = create(&mut fs, root, "second.txt", FileType::File);
+    fs.forget(second, 1);
+    let new = listed_id(&mut fs, root, "second.txt");
+    assert_eq!(
+        common::entry_offset(&fs, new),
+        common::entry_offset(&fs, old),
+        "second.txt takes the slot of first.txt"
+    );
+    assert_ne!(new, old);
+    for result in [fs.stat(old).map(|_| ()), fs.truncate(old, 0)] {
+        assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidHandle);
+    }
+    assert!(fs.stat(new).is_ok());
+    assert_eq!(fs.open_nodes(), 1);
+}
+
+#[test]
+fn an_unpinned_id_into_a_removed_directory_now_holding_file_data_is_refused() {
+    let mut fs = common::small(4 << 20, 4096);
+    let root = fs.root();
+    let dir = create(&mut fs, root, "dir", FileType::Dir);
+    let child = common::write(&mut fs, dir, "child.txt", b"child");
+    fs.forget(child, 1);
+    let stale = listed_id(&mut fs, dir, "child.txt");
+    assert_eq!(fs.stat(stale).unwrap().len(), 5);
+    let cluster = common::chain(&mut fs, dir)[0];
+    let geo = *fs.info();
+    let at = geo.heap_start() + (cluster as u64 - 2) * geo.cluster_size();
+    let mut copy = vec![0u8; geo.cluster_size() as usize];
+    fs.read_raw(at, &mut copy).unwrap();
+    fs.unlink(dir, name("child.txt")).unwrap();
+    fs.forget(dir, 1);
+    fs.rmdir(root, name("dir")).unwrap();
+    let free = fs.statfs().unwrap().free_blocks() as usize;
+    let data = common::write(&mut fs, root, "data.bin", &copy.repeat(free));
+    assert!(
+        common::chain(&mut fs, data).contains(&cluster),
+        "data.bin takes dir's cluster"
+    );
+    fs.forget(data, 1);
+    for result in [fs.stat(stale).map(|_| ()), fs.truncate(stale, 0)] {
+        assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidHandle);
+    }
+
+    assert_eq!(fs.open_nodes(), 1);
+}
+
+#[test]
+fn listed_ids_in_a_reused_directory_cluster_stay_valid() {
+    let mut fs = common::small(4 << 20, 4096);
+    let root = fs.root();
+    let free = fs.statfs().unwrap().free_blocks() as usize;
+    let filler = common::write(&mut fs, root, "filler", &vec![0; (free - 1) * 4096]);
+    fs.forget(filler, 1);
+    let gone = create(&mut fs, root, "gone", FileType::Dir);
+    let cluster = common::chain(&mut fs, gone);
+    fs.forget(gone, 1);
+    fs.rmdir(root, name("gone")).unwrap();
+    let again = create(&mut fs, root, "again", FileType::Dir);
+    assert_eq!(common::chain(&mut fs, again), cluster);
+    let inner = create(&mut fs, again, "inner.txt", FileType::File);
+    fs.forget(inner, 1);
+    fs.forget(again, 1);
+    let again = listed_id(&mut fs, root, "again");
+    let inner = listed_id(&mut fs, again, "inner.txt");
+    assert_eq!(fs.stat(inner).unwrap().file_type(), FileType::File);
+    let looked_up = fs.lookup(again, name("inner.txt")).unwrap();
+    assert_eq!(looked_up, inner);
+    fs.forget(looked_up, 1);
+    assert_eq!(fs.open_nodes(), 1);
+}
+
+#[test]
+fn listed_ids_stay_valid_across_writes_and_renames() {
+    let mut fs = common::small(4 << 20, 4096);
+    let root = fs.root();
+    let dir = create(&mut fs, root, "dir", FileType::Dir);
+    for (parent, text) in [(root, "a.txt"), (root, "b.txt"), (dir, "c.txt")] {
+        let node = common::write(&mut fs, parent, text, b"abc");
+        fs.forget(node, 1);
+    }
+    fs.forget(dir, 1);
+    let dir = listed_id(&mut fs, root, "dir");
+    let a = listed_id(&mut fs, root, "a.txt");
+    let b = listed_id(&mut fs, root, "b.txt");
+    let c = listed_id(&mut fs, dir, "c.txt");
+    assert_eq!(fs.open_nodes(), 1);
+    fs.write(a, 3, b"def").unwrap();
+    fs.truncate(c, 1).unwrap();
+    fs.setattr(b, &SetAttr::new().with_attributes(Attributes::HIDDEN))
+        .unwrap();
+    fs.rename(
+        root,
+        name("b.txt"),
+        root,
+        name("B.TXT"),
+        RenameMode::Replace,
+    )
+    .unwrap();
+    let moved = create(&mut fs, root, "moved.txt", FileType::File);
+    fs.rename(
+        root,
+        name("moved.txt"),
+        dir,
+        name("moved.txt"),
+        RenameMode::Replace,
+    )
+    .unwrap();
+    fs.forget(moved, 1);
+    assert_eq!(listed_id(&mut fs, root, "a.txt"), a);
+    assert_eq!(listed_id(&mut fs, root, "B.TXT"), b);
+    assert_eq!(listed_id(&mut fs, dir, "c.txt"), c);
+    assert_eq!(fs.stat(a).unwrap().len(), 6);
+    assert!(
+        fs.stat(b)
+            .unwrap()
+            .attributes()
+            .contains(Attributes::HIDDEN)
+    );
+    assert_eq!(fs.stat(c).unwrap().len(), 1);
+    for (parent, text, id) in [(root, "a.txt", a), (root, "b.txt", b), (dir, "c.txt", c)] {
+        let found = fs.lookup(parent, name(text)).unwrap();
+        assert_eq!(found, id, "{text}");
+        fs.forget(found, 1);
+    }
+
+    let pinned = create(&mut fs, root, "same", FileType::File);
+    fs.rename(
+        root,
+        name("same"),
+        root,
+        name("elsewhere"),
+        RenameMode::Replace,
+    )
+    .unwrap();
+    let again = create(&mut fs, root, "same", FileType::File);
+    assert_eq!(
+        common::entry_offset(&fs, again),
+        common::entry_offset(&fs, pinned),
+        "the new set takes the slot the pinned node left"
+    );
+    assert_ne!(again, pinned);
+    fs.forget(again, 1);
+    let listed = listed_id(&mut fs, root, "same");
+    assert_eq!(listed, again);
+    assert!(fs.stat(listed).is_ok());
+    assert_eq!(listed_id(&mut fs, root, "elsewhere"), pinned);
+    fs.forget(pinned, 1);
+    assert_eq!(fs.open_nodes(), 1);
+}
+
 /// Creates empty files in the root until one's File entry is the last slot
 /// of a 512-byte block, writes `data` to it and unpins it. Returns its id
 /// and the offset of its File entry.
@@ -1327,7 +1499,7 @@ fn file_at_block_end(fs: &mut ExFatFs<Scripted>, data: &[u8]) -> (NodeId, u64) {
         let node = fs
             .create(root, name(&format!("file {i}")), &SetAttr::new())
             .unwrap();
-        let at = node.get() * 32;
+        let at = common::entry_offset(fs, node);
         if at % 512 == 480 {
             assert_eq!(fs.write(node, 0, data).unwrap(), data.len());
             fs.close(node).unwrap();
@@ -1542,7 +1714,7 @@ fn a_directory_grow_whose_size_write_fails_is_cut_back() {
         fs.forget(node, 1);
     }
     assert_eq!(common::chain(&mut fs, dir).len(), 1);
-    script.borrow_mut().fail_at = Some(dir.get() * 32);
+    script.borrow_mut().fail_at = Some(common::entry_offset(&fs, dir));
     let err = fs.create(dir, name("f42"), &SetAttr::new()).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Io);
     assert_eq!(script.borrow().fail_at, None, "the size write failed");
@@ -2024,4 +2196,109 @@ fn contiguous_runs_are_freed_and_linked_a_device_block_at_a_time() {
         fs.forget(node, 1);
     });
     assert!(linked <= 8, "append wrote {linked} times");
+}
+
+/// A device whose write number `fail` fails once, after reaching the
+/// medium when `land` is set, as a write whose outcome is unknown.
+struct FailAt {
+    inner: Device,
+    fail: std::rc::Rc<std::cell::Cell<Option<usize>>>,
+    land: bool,
+}
+
+impl hadris_io::ErrorType for FailAt {
+    type Error = core::convert::Infallible;
+}
+
+impl BlockDevice for FailAt {
+    fn block_size(&self) -> BlockSize {
+        self.inner.block_size()
+    }
+
+    fn block_count(&self) -> u64 {
+        self.inner.block_count()
+    }
+
+    fn writable(&self) -> bool {
+        self.inner.writable()
+    }
+
+    fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>> {
+        self.inner.read_blocks(first, buf)
+    }
+
+    fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<(), Error<Self::Error>> {
+        match self.fail.get() {
+            Some(0) => {
+                self.fail.set(None);
+                if self.land {
+                    self.inner.write_blocks(first, buf)?;
+                }
+                Err(Error::new(ErrorKind::Io, "injected write failure"))
+            }
+            Some(left) => {
+                self.fail.set(Some(left - 1));
+                self.inner.write_blocks(first, buf)
+            }
+            None => self.inner.write_blocks(first, buf),
+        }
+    }
+}
+
+/// Unlinking or replacing a contiguous file, and shrinking a contiguous or
+/// chained one, with a write that fails at any step, landed or not, leave
+/// no lost or cross-linked clusters once `sync` has recovered.
+#[test]
+fn contiguous_frees_and_shrinks_recover_from_a_failed_write_at_every_step() {
+    let image = common::shrink_image();
+    for op in 0..common::SHRINK_OPS {
+        for land in [false, true] {
+            let mut completed = false;
+            for writes in 0..40 {
+                let what = format!("op {op} land {land} write {writes}");
+                let fail = std::rc::Rc::new(std::cell::Cell::new(None));
+                let dev = FailAt {
+                    inner: common::device(image.clone(), 512),
+                    fail: fail.clone(),
+                    land,
+                };
+                let mut fs = ExFatFs::mount(dev, MountOptions::new()).unwrap();
+                let root = fs.root();
+                let node = match op {
+                    2 | 3 => Some(fs.lookup(root, name("victim.bin")).unwrap()),
+                    4 => Some(fs.lookup(root, name("chained.bin")).unwrap()),
+                    _ => None,
+                };
+                fail.set(Some(writes));
+                let result = match (op, node) {
+                    (0, _) => fs.unlink(root, name("victim.bin")),
+                    (1, _) => fs.rename(
+                        root,
+                        name("source.bin"),
+                        root,
+                        name("target.bin"),
+                        RenameMode::Replace,
+                    ),
+                    (3, Some(node)) => fs.truncate(node, 0),
+                    (_, Some(node)) => fs.truncate(node, 513),
+                    _ => unreachable!(),
+                };
+                fail.set(None);
+                if let Err(err) = &result {
+                    assert_eq!(err.kind(), ErrorKind::Io, "{what}");
+                }
+                fs.sync().unwrap();
+                if let Some(node) = node {
+                    fs.forget(node, 1);
+                }
+                let after = fs.into_inner().inner.into_inner();
+                common::check_shrink_op(&after, op, result.is_ok(), &what);
+                if result.is_ok() {
+                    completed = true;
+                    break;
+                }
+            }
+            assert!(completed, "op {op} land {land} never completed");
+        }
+    }
 }

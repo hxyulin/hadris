@@ -52,14 +52,37 @@ generic file access, VFS operations and volume selection shape this API.
   selection; wrong credentials retain the device and report `InvalidInput`
   with `Detail::Credentials`.
 - Container superblocks, the checkpoint descriptor ring and checkpoint maps.
+  Block zero supplies the geometry and descriptor area; its checksum is not
+  required. `latest_superblock` and mounting use the newest descriptor-area
+  superblock whose checksum, checkpoint map and object map verify, falling
+  back to older checkpoints, then to a verified block zero.
 - Container and volume object maps, resolved at the volume's transaction.
 - Physical and virtual B-trees, including sealed volumes with hashed index
-  entries and nodes stored without object headers.
+  entries, nodes stored without object headers and file extents kept in the
+  file extent tree.
+- Incompatible features: mounting accepts the container feature
+  `NX_INCOMPAT_VERSION2` and the volume features `CASE_INSENSITIVE`,
+  `NORMALIZATION_INSENSITIVE`, `DATALESS_SNAPS`, `ENC_ROLLED` and
+  `SEALED_VOLUME`. Version 1 and Fusion containers, volumes with
+  `INCOMPLETE_RESTORE` or the reserved `0x40` bit, and any bit the
+  specification does not define fail with `ErrorKind::Unsupported` and
+  `Detail::Feature`. Directory keys use the hashed layout
+  (`j_drec_hashed_key_t`) on case- or normalization-insensitive volumes and
+  the plain layout (`j_drec_key_t`) otherwise.
 - Directory listing and path lookup, case-insensitive on volumes formatted
   that way. Path lookup handles `.` and `..`, clamps parent traversal at the
   volume root, and requires directories for intermediate components and trailing
   slashes. Symlinks are returned without following them.
 - Inode metadata: mode, owner, BSD flags, timestamps and data-stream size.
+- Directory names as stored, including names that are not UTF-8 and names
+  longer than 255 bytes, up to the key's name-length field (1022 bytes for
+  hashed keys). Listings of names longer than `DirEntry::MAX_NAME` fail with
+  `NameTooLong` at that entry.
+- Damage confined to one node: a directory entry whose inode is missing,
+  malformed, of an unknown mode or of another type than the entry records,
+  whose extents overlap or leave the container, or whose symlink target is
+  stored in a data stream, is listed with the entry's type only. `stat`,
+  `read`, `open` and `readlink` on that node return the error.
 - File data from extents, with sparse extents and uncovered ranges read as
   zeros.
 - Symlink targets and hard links.

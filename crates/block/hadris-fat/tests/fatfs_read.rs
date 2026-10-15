@@ -852,3 +852,86 @@ fn sixty_four_k_clusters_mount_read_and_write() {
     .unwrap();
     assert_eq!(fs.read_to_vec("/big.bin").unwrap(), data);
 }
+
+#[test]
+fn zero_reserved_sectors_do_not_mount() {
+    let device = |image| MemDevice::new(image, BlockSize::new(512).unwrap());
+    let mut image = fat16_layout(4_084);
+    image[14..16].copy_from_slice(&0u16.to_le_bytes());
+    for options in [MountOptions::new(), MountOptions::new().read_only()] {
+        let err = FatFs::mount(device(image.clone()), options).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Corrupt);
+        assert_eq!(
+            hadris_fat::Detail::of(err.error()),
+            Some(hadris_fat::Detail::BootSector)
+        );
+        assert_eq!(err.into_device().into_inner(), image);
+    }
+    let backup = MountOptions::new().backup_boot();
+    let err = FatFs::mount(device(image.clone()), backup).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Corrupt);
+    let mut token = hadris_fat::embedded::MountToken::new();
+    let err =
+        hadris_fat::embedded::sync::Fat::<'_, Device>::mount(device(image.clone()), &mut token)
+            .err()
+            .unwrap();
+    assert_eq!(err.kind(), ErrorKind::Corrupt);
+    let mut scratch = vec![0u8; 4096];
+    let err = hadris_fat::sync::check(&mut device(image), &mut scratch, |_| {}).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Corrupt);
+}
+
+/// A FAT32 volume of 512-byte sectors and 1000 one-sector clusters with
+/// two reserved sectors, so that sector 6, where the backup boot sector
+/// usually is, lies in its FAT and holds a copy of the boot sector.
+fn fat32_backup_in_fat() -> Vec<u8> {
+    let (reserved, fat_sectors, clusters) = (2usize, 8usize, 1000usize);
+    let total = reserved + fat_sectors + clusters;
+    let mut image = vec![0u8; total * 512];
+    image[0..3].copy_from_slice(&[0xEB, 0x58, 0x90]);
+    image[11..13].copy_from_slice(&512u16.to_le_bytes());
+    image[13] = 1;
+    image[14..16].copy_from_slice(&(reserved as u16).to_le_bytes());
+    image[16] = 1;
+    image[21] = 0xF8;
+    image[32..36].copy_from_slice(&(total as u32).to_le_bytes());
+    image[36..40].copy_from_slice(&(fat_sectors as u32).to_le_bytes());
+    image[44..48].copy_from_slice(&2u32.to_le_bytes());
+    image[48..50].copy_from_slice(&1u16.to_le_bytes());
+    image[50..52].copy_from_slice(&6u16.to_le_bytes());
+    image[66] = 0x29;
+    image[67..71].copy_from_slice(&0x1111_1111u32.to_le_bytes());
+    image[510..512].copy_from_slice(&[0x55, 0xAA]);
+    let boot = image[..512].to_vec();
+    image[6 * 512..7 * 512].copy_from_slice(&boot);
+    let fat = reserved * 512;
+    for (index, entry) in [0x0FFF_FFF8u32, 0x0FFF_FFFF, 0x0FFF_FFFF]
+        .into_iter()
+        .enumerate()
+    {
+        image[fat + index * 4..fat + index * 4 + 4].copy_from_slice(&entry.to_le_bytes());
+    }
+    image
+}
+
+#[test]
+fn backup_boot_sector_outside_the_reserved_sectors_is_not_written() {
+    let device = |image| MemDevice::new(image, BlockSize::new(512).unwrap());
+    let image = fat32_backup_in_fat();
+    let in_fat = image[6 * 512..7 * 512].to_vec();
+    let mut fs = FatFs::mount(device(image.clone()), MountOptions::new()).unwrap();
+    assert_eq!(fs.info().kind(), FatKind::Fat32);
+    fs.set_volume_serial(0x2222_2222).unwrap();
+    let written = fs.unmount().unwrap().into_inner();
+    assert_eq!(&written[67..71], &0x2222_2222u32.to_le_bytes());
+    assert_eq!(&written[6 * 512..7 * 512], &in_fat[..]);
+
+    let mut token = hadris_fat::embedded::MountToken::new();
+    let mut fat = hadris_fat::embedded::sync::Fat::<'_, Device>::mount(device(image), &mut token)
+        .ok()
+        .unwrap();
+    fat.set_volume_serial(0x3333_3333).unwrap();
+    let written = fat.unmount().unwrap().into_inner();
+    assert_eq!(&written[67..71], &0x3333_3333u32.to_le_bytes());
+    assert_eq!(&written[6 * 512..7 * 512], &in_fat[..]);
+}

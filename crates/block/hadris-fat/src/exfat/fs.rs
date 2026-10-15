@@ -30,12 +30,17 @@ const fn node_id(raw: u64) -> NodeId {
 
 const ROOT: NodeId = node_id(1);
 /// A node id holds the slot of its File entry, the entry's byte offset
-/// divided by 32, in its low `SLOT_BITS` bits, and a tier above, as in
-/// `FatFs`. An exFAT heap ends below `2^58` bytes, so slots stay below
-/// `2^53`.
-const SLOT_BITS: u32 = 53;
-const SLOT_MASK: u64 = (1 << SLOT_BITS) - 1;
-const MAX_TIER: u64 = (1 << (63 - SLOT_BITS)) - 1;
+/// divided by 32, above its low tag bits, as in `FatFs`. Those hold the
+/// entry set's [`set_tag`], counted up past ids pinned nodes that moved
+/// away from the slot still hold, so a listing and a lookup of one set
+/// agree on its id, and an unpinned id whose slot now holds a set with
+/// another tag is refused. A mount takes as many tag bits as its slots
+/// leave below bit 63, at most [`MAX_TAG_BITS`]: an exFAT heap ends below
+/// `2^58` bytes, so slots stay below `2^53` and at least 10 bits remain.
+const MAX_TAG_BITS: u32 = 32;
+/// Directory clusters freed during a mount that are remembered one by one;
+/// past this many runs any cluster may have been one.
+const MAX_FREED_DIRS: usize = 64;
 /// The id of the table slot `create` reserves before it writes anything.
 const RESERVED: NodeId = match NodeId::new(1 << 63) {
     Some(id) => id,
@@ -181,6 +186,10 @@ impl Set {
         le64(&self.raw[1], 8)
     }
 
+    fn tag(&self) -> u32 {
+        set_tag(&self.raw[0], &self.raw[1])
+    }
+
     fn alloc(&self) -> Alloc {
         Alloc {
             first: self.first(),
@@ -222,6 +231,39 @@ impl Set {
                 (alloc, le64(entry, 24))
             })
     }
+}
+
+/// A 32-bit FNV-1a hash of the parts of an entry set that stay fixed while
+/// it lives in its slot: the creation time, whether it is a directory, and
+/// the length and `NameHash` of its name, which a rename that changes only
+/// the case keeps. Node ids carry it, so an id whose slot now holds another
+/// set, or bytes that only look like one, is refused. With a clock that
+/// does not move, such as the default `NoClock`, a new set that takes the
+/// slot of a removed one with the same name gets the same tag.
+fn set_tag(primary: &RawEntry, stream: &RawEntry) -> u32 {
+    let dir = le16(primary, 4) & raw::ATTR_DIRECTORY != 0;
+    let fixed = [
+        primary[8],
+        primary[9],
+        primary[10],
+        primary[11],
+        primary[20],
+        primary[22],
+        dir as u8,
+        stream[3],
+        stream[4],
+        stream[5],
+    ];
+    fixed.iter().fold(0x811c_9dc5, |hash: u32, &byte| {
+        (hash ^ byte as u32).wrapping_mul(0x0100_0193)
+    })
+}
+
+/// The low bits of a node id that hold the tag on a volume whose cluster
+/// heap ends at byte `end`.
+fn tag_bits(end: u64) -> u32 {
+    let slots = u64::BITS - (end / ENTRY_SIZE as u64).leading_zeros();
+    63u32.saturating_sub(slots).min(MAX_TAG_BITS)
 }
 
 /// Whether the entries form a File entry set with a Stream Extension, the
@@ -309,17 +351,34 @@ enum Owner {
     Entry(u64),
     /// The entry set at this byte offset, of a node being removed.
     Removed(u64),
+    /// A shrink to `len` bytes that the entry set at `entry` may not record
+    /// yet: once it records `len`, recovery cuts the chain at `tail`, or
+    /// frees the run when `tail` is 0, and leaves the file whole otherwise.
+    Cut { entry: u64, len: u64, tail: u32 },
 }
 
 /// Clusters an unfinished operation holds: allocated but not yet linked,
 /// or unlinked but not yet freed. The next writing operation frees them
-/// unless `owner` links `head` on disk.
+/// unless `owner` links `head`, or the first cluster of `run`, on disk.
 #[derive(Debug, Clone, Copy)]
 struct Pending {
     /// The chain, and one more chain, allocated or being freed, that the
     /// chain does not reach: a single cluster, or one that leads into it.
     held: Held,
     owner: Owner,
+    /// Clusters of a contiguous (`NoFatChain`) allocation being freed.
+    run: Run,
+}
+
+/// The `count` clusters from `first`.
+#[derive(Debug, Clone, Copy)]
+struct Run {
+    first: u32,
+    count: u32,
+}
+
+impl Run {
+    const NONE: Self = Self { first: 0, count: 0 };
 }
 
 impl Pending {
@@ -327,6 +386,15 @@ impl Pending {
         Self {
             held: Held::new(head, 0),
             owner,
+            run: Run::NONE,
+        }
+    }
+
+    const fn run(first: u32, count: u32, owner: Owner) -> Self {
+        Self {
+            held: Held::NONE,
+            owner,
+            run: Run { first, count },
         }
     }
 }
@@ -506,7 +574,13 @@ fn entry_name(name: &Name, invalid: ErrorKind) -> Result<&str, ErrorKind> {
 /// identified by the location of their File entry; `lookup`, `create` and
 /// `parent` pin the node they return, `forget` unpins it, and a pinned node
 /// keeps its id across `rename`. Ids from `readdir` are not pinned
-/// and stay valid until that directory changes.
+/// and stay valid until that directory changes. An unpinned id carries a
+/// hash of its entry set's creation time, type and name hash, so one whose
+/// slot now holds another set, or that points into the clusters of a
+/// directory removed during the mount without naming an entry set the tree
+/// still reaches, fails with [`ErrorKind::InvalidHandle`]. A set that takes
+/// the slot of a removed one with the same name and creation time, as with
+/// a clock that does not move, is not told apart.
 ///
 /// Names are UTF-16, up to 255 code units, and compare through the
 /// volume's up-case table, so lookups ignore case as the volume defines
@@ -560,8 +634,10 @@ fn entry_name(name: &Name, invalid: ErrorKind) -> Result<&str, ErrorKind> {
 /// so a process that stops in between can leave the node under both names.
 ///
 /// The driver remembers what an unfinished operation leaves: clusters
-/// allocated but not yet linked or unlinked but not yet freed, and an entry
-/// set it was writing. The next `create`, `mkdir`, `unlink`, `rmdir`,
+/// allocated but not yet linked or unlinked but not yet freed, chained or
+/// contiguous (`NoFatChain`), and an entry set it was writing. Clusters a
+/// shrinking `truncate` gives up are freed only once the entry set records
+/// the new size; while it still records the old one the file keeps them. The next `create`, `mkdir`, `unlink`, `rmdir`,
 /// `rename`, `write`, `truncate`, `setattr`, `set_label` or `sync` frees the clusters
 /// unless the interrupted write linked them, removes a new set that did
 /// not land whole or a moved set whose old set was not yet being removed,
@@ -592,6 +668,13 @@ pub struct ExFatFs<D> {
     moved: bool,
     /// A known `(index, cluster)` of the root directory's chain.
     root_hint: ChainPos,
+    /// The low bits of a node id that hold its tag.
+    tag_bits: u32,
+    /// Runs of clusters of directories removed during the mount, which an
+    /// id decoded from its slot may still point into.
+    freed_dirs: alloc::vec::Vec<Run>,
+    /// More directory clusters were freed than `freed_dirs` holds.
+    freed_any: bool,
 }
 
 impl<D> fmt::Debug for ExFatFs<D> {
@@ -652,6 +735,8 @@ impl<D: BlockDevice> ExFatFs<D> {
             Err(error) => return Err(MountError::new(error, dev)),
         };
         let upcase_valid = upcase.is_valid();
+        let geometry = vol.geometry();
+        let heap_end = geometry.heap_start().saturating_add(u64::from(geometry.cluster_count()).saturating_mul(geometry.cluster_size()));
         Ok(Self {
             dev,
             vol,
@@ -665,6 +750,9 @@ impl<D: BlockDevice> ExFatFs<D> {
             zone: options.utc_offset(),
             moved: false,
             root_hint: ChainPos::NONE,
+            tag_bits: tag_bits(heap_end),
+            freed_dirs: alloc::vec::Vec::new(),
+            freed_any: false,
         })
     }
 
@@ -996,8 +1084,8 @@ impl<D: BlockDevice> ExFatFs<D> {
         self.nodes.insert(RESERVED, placeholder).map_err(|_| ErrorKind::LimitExceeded)?;
         let created = self.create_set(start, dir_entry, &units, hash, &plan, is_dir, attrs).await;
         self.nodes.remove(RESERVED);
-        let node = created?;
-        let id = self.free_id(node.entry).ok_or(ErrorKind::LimitExceeded)?;
+        let (node, tag) = created?;
+        let id = self.free_id(node.entry, tag).ok_or(ErrorKind::LimitExceeded)?;
         self.nodes.insert(id, node).map_err(|_| ErrorKind::LimitExceeded)?;
         Ok(id)
     }
@@ -1030,8 +1118,11 @@ impl<D: BlockDevice> ExFatFs<D> {
             return Err(ErrorKind::DirectoryNotEmpty.into());
         }
         self.check_set_allocs(&found.set, &state).await?;
-        if state.first != 0 && !state.contiguous {
-            self.pending = Some(Pending::chain(state.first, Owner::Removed(found.set.offset)));
+        if state.dir {
+            self.note_freed_dir(&state).await?;
+        }
+        if let Some(held) = self.held_alloc(&state, Owner::Removed(found.set.offset))? {
+            self.pending = Some(held);
         }
         self.clear_set(&found.set).await?;
         if let Some(id) = pinned {
@@ -1196,10 +1287,19 @@ impl<D: BlockDevice> ExFatFs<D> {
     }
 
     async fn finish_pending(&mut self) -> FsResult<(), D::Error> {
-        let Some(pending) = self.pending else {
+        let Some(mut pending) = self.pending else {
             return Ok(());
         };
-        let (head, extra) = (pending.held.head(), pending.held.extra());
+        if let Owner::Cut { entry, len, tail } = pending.owner {
+            if !self.shrunk(entry, len).await? {
+                self.pending = None;
+                return Ok(());
+            }
+            pending.owner = if tail == 0 { Owner::None } else { Owner::Tail(tail) };
+        }
+        let run = pending.run.count != 0;
+        let head = if run { pending.run.first } else { pending.held.head() };
+        let extra = pending.held.extra();
         let mut owned = head != 0 && self.links(pending.owner, head).await?;
         if let Owner::Tail(tail) = pending.owner
             && owned
@@ -1223,22 +1323,51 @@ impl<D: BlockDevice> ExFatFs<D> {
                 owner: Owner::None,
                 ..pending
             });
-            if extra != 0 {
-                self.reclaim(extra, head).await?;
-            }
-            if head != 0 {
-                self.reclaim(head, 0).await?;
+            if run {
+                self.free_run(head, pending.run.count).await?;
+            } else {
+                if extra != 0 {
+                    self.reclaim(extra, head).await?;
+                }
+                if head != 0 {
+                    self.reclaim(head, 0).await?;
+                }
             }
         }
         self.pending = None;
         Ok(())
     }
 
+    /// Whether the entry set at `offset` records the `DataLength` an
+    /// interrupted shrink wrote, as it does once that write landed. A
+    /// pinned node there then takes the sizes, as the shrink would have
+    /// given it.
+    async fn shrunk(&mut self, offset: u64, len: u64) -> FsResult<bool, D::Error> {
+        let mut set = Set::new();
+        match self.set_at(offset, &mut set).await {
+            Ok(()) => {}
+            Err(err) if err.kind() == ErrorKind::Corrupt => return Ok(false),
+            Err(err) => return Err(err),
+        }
+        if set.data_len() != len {
+            return Ok(false);
+        }
+        if let Some(id) = self.pinned_at(offset) {
+            self.clean(id);
+            if let Some(node) = self.nodes.get_mut(id) {
+                node.len = len;
+                node.valid = set.valid_len().min(len);
+                node.hint = ChainPos::NONE;
+            }
+        }
+        Ok(true)
+    }
+
     /// Whether `owner` links the chain at `head` on disk.
     async fn links(&mut self, owner: Owner, head: u32) -> FsResult<bool, D::Error> {
         Ok(match owner {
             Owner::None => false,
-            Owner::Cluster(prev) | Owner::Tail(prev) => {
+            Owner::Cluster(prev) | Owner::Tail(prev) | Owner::Cut { tail: prev, .. } => {
                 self.vol.geometry().is_cluster(prev) && self.fat_entry(prev).await? == head
             }
             Owner::Entry(offset) | Owner::Removed(offset) => {
@@ -1291,6 +1420,7 @@ impl<D: BlockDevice> ExFatFs<D> {
             self.pending = Some(Pending {
                 held: Held::new(next.unwrap_or(keep), cluster),
                 owner: Owner::None,
+                run: Run::NONE,
             });
             self.set_bit(cluster, ClusterState::Free).await?;
             match next {
@@ -1514,10 +1644,7 @@ impl<D: BlockDevice> ExFatFs<D> {
         }
         let mut set = Set::new();
         self.unpinned(id, &mut set).await?;
-        match self.pinned_at(set.offset) {
-            Some(pinned) => Ok((Some(pinned), *self.nodes.get(pinned).ok_or(ErrorKind::Corrupt)?)),
-            None => Ok((None, Node::from_set(&set, UNKNOWN_PARENT))),
-        }
+        Ok((None, Node::from_set(&set, UNKNOWN_PARENT)))
     }
 
     async fn node(&mut self, id: NodeId) -> FsResult<Node, D::Error> {
@@ -1562,27 +1689,96 @@ impl<D: BlockDevice> ExFatFs<D> {
         self.vol.geometry().cluster_offset(cluster).ok_or(ErrorKind::Corrupt)
     }
 
+    fn tag_mask(&self) -> u64 {
+        (1 << self.tag_bits) - 1
+    }
+
+    /// The lowest id of the slot at `offset`.
+    fn slot_base(&self, offset: u64) -> u64 {
+        (offset / ENTRY_SIZE as u64) << self.tag_bits
+    }
+
     /// The pinned node whose File entry is at `offset`. Unless a pinned
-    /// node has moved, that is the tier-0 id of the slot, found by key.
+    /// node has moved, its id is among the ids of the slot.
     fn pinned_at(&self, offset: u64) -> Option<NodeId> {
         if !self.moved {
-            let id = node_id(offset / ENTRY_SIZE as u64);
-            return self.nodes.get(id).is_some_and(|node| node.entry == offset).then_some(id);
+            let base = self.slot_base(offset);
+            return self
+                .nodes
+                .find_in(node_id(base), node_id(base | self.tag_mask()), |_, node| node.entry == offset);
         }
         self.nodes.find(|_, node| node.entry == offset)
     }
 
-    fn free_id(&self, offset: u64) -> Option<NodeId> {
-        let slot = offset / ENTRY_SIZE as u64;
-        (0..=MAX_TIER)
-            .map(|tier| node_id(tier << SLOT_BITS | slot))
+    /// The first id for a set with `tag` at `offset` that no node in the
+    /// table holds, from the one its tag names. `None` only when every id
+    /// of the slot is taken.
+    fn free_id(&self, offset: u64, tag: u32) -> Option<NodeId> {
+        let (base, mask) = (self.slot_base(offset), self.tag_mask());
+        let tag = u64::from(tag) & mask;
+        (0..=mask)
+            .map(|step| node_id(base | (tag + step) & mask))
             .find(|&id| self.nodes.get(id).is_none())
     }
 
-    fn id_at(&self, offset: u64) -> NodeId {
-        self.pinned_at(offset)
-            .or_else(|| self.free_id(offset))
-            .unwrap_or(node_id(offset / ENTRY_SIZE as u64))
+    /// The id of `set` without pinning it: its pinned id, else the id a
+    /// lookup would pin.
+    fn id_at(&self, set: &Set) -> NodeId {
+        self.pinned_at(set.offset)
+            .or_else(|| self.free_id(set.offset, set.tag()))
+            .unwrap_or(RESERVED)
+    }
+
+    /// Remembers the clusters of the directory `node` before it is removed,
+    /// so that ids of sets it held are checked against the tree once the
+    /// clusters may hold something else.
+    async fn note_freed_dir(&mut self, node: &Node) -> FsResult<(), D::Error> {
+        let size = self.vol.geometry().cluster_size();
+        let count = u32::try_from(node.len.div_ceil(size)).unwrap_or(u32::MAX);
+        if node.first == 0 || count == 0 {
+            return Ok(());
+        }
+        if node.contiguous {
+            self.note_freed_run(Run { first: node.first, count });
+            return Ok(());
+        }
+        let mut run = Run { first: node.first, count: 1 };
+        let mut at = node.first;
+        for _ in 1..count.min(self.vol.geometry().cluster_count()) {
+            let next = match self.next_cluster(at).await {
+                Ok(Some(next)) => next,
+                Ok(None) => break,
+                Err(err) if err.kind() == ErrorKind::Corrupt => break,
+                Err(err) => return Err(err),
+            };
+            if next == at.wrapping_add(1) {
+                run.count += 1;
+            } else {
+                self.note_freed_run(run);
+                run = Run { first: next, count: 1 };
+            }
+            at = next;
+        }
+        self.note_freed_run(run);
+        Ok(())
+    }
+
+    fn note_freed_run(&mut self, run: Run) {
+        if self.freed_any {
+            return;
+        }
+        if self.freed_dirs.len() == MAX_FREED_DIRS {
+            self.freed_dirs = alloc::vec::Vec::new();
+            self.freed_any = true;
+            return;
+        }
+        self.freed_dirs.push(run);
+    }
+
+    /// Whether `cluster` may have belonged to a directory removed during the
+    /// mount.
+    fn freed_dir(&self, cluster: u32) -> bool {
+        self.freed_any || self.freed_dirs.iter().any(|run| cluster.wrapping_sub(run.first) < run.count)
     }
 
     /// Pins the node whose entry set is `set`, found in the directory whose
@@ -1597,7 +1793,7 @@ impl<D: BlockDevice> ExFatFs<D> {
             }
             return Ok(id);
         }
-        let id = self.free_id(set.offset).ok_or(ErrorKind::LimitExceeded)?;
+        let id = self.free_id(set.offset, set.tag()).ok_or(ErrorKind::LimitExceeded)?;
         self.nodes
             .insert(id, Node::from_set(set, parent))
             .map_err(|_| ErrorKind::LimitExceeded)?;
@@ -1611,14 +1807,34 @@ impl<D: BlockDevice> ExFatFs<D> {
         if raw_id == ROOT.get() || raw_id >= RESERVED.get() {
             return Err(ErrorKind::InvalidHandle.into());
         }
-        let offset = (raw_id & SLOT_MASK) * ENTRY_SIZE as u64;
-        if self.vol.geometry().cluster_of(offset).is_none() {
+        let offset = (raw_id >> self.tag_bits) * ENTRY_SIZE as u64;
+        let Some(cluster) = self.vol.geometry().cluster_of(offset) else {
+            return Err(ErrorKind::InvalidHandle.into());
+        };
+        match self.set_at(offset, set).await {
+            Err(err) if err.kind() == ErrorKind::Corrupt => return Err(ErrorKind::InvalidHandle.into()),
+            other => other?,
+        }
+        if self.pinned_at(offset).is_some() || self.free_id(offset, set.tag()) != Some(id) {
             return Err(ErrorKind::InvalidHandle.into());
         }
-        match self.set_at(offset, set).await {
-            Err(err) if err.kind() == ErrorKind::Corrupt => Err(ErrorKind::InvalidHandle.into()),
-            other => other,
+        if self.freed_dir(cluster) && !self.reachable(offset).await? {
+            return Err(ErrorKind::InvalidHandle.into());
         }
+        Ok(())
+    }
+
+    /// Whether the tree reaches the entry set at `offset`. The async search
+    /// is boxed so that the futures of every node lookup do not hold it.
+    async fn reachable(&mut self, offset: u64) -> FsResult<bool, D::Error> {
+        let target = Target::ParentOf(offset);
+        sync_only! {
+            let found = self.search(target).await?;
+        }
+        async_only! {
+            let found = alloc::boxed::Box::pin(self.search(target)).await?;
+        }
+        Ok(found.is_some())
     }
 
     /// Reads the entry set whose File entry is at `offset` into `set`.
@@ -2157,7 +2373,7 @@ impl<D: BlockDevice> ExFatFs<D> {
         plan: &Plan,
         is_dir: bool,
         attrs: &SetAttr,
-    ) -> FsResult<Node, D::Error> {
+    ) -> FsResult<(Node, u32), D::Error> {
         let now = self.now();
         let mut primary = [0u8; ENTRY_SIZE];
         let attributes = if is_dir { raw::ATTR_DIRECTORY } else { raw::ATTR_ARCHIVE };
@@ -2188,19 +2404,20 @@ impl<D: BlockDevice> ExFatFs<D> {
         match inserted {
             Ok(entry) => {
                 self.pending = None;
-                Ok(Node {
-                entry,
-                parent: dir_entry,
-                first: alloc.first,
-                len,
-                valid: len,
-                contiguous: false,
-                dir: is_dir,
-                hint: ChainPos::NONE,
-                dirty: false,
-                opens: 0,
-                unlinked: false,
-                })
+                let node = Node {
+                    entry,
+                    parent: dir_entry,
+                    first: alloc.first,
+                    len,
+                    valid: len,
+                    contiguous: false,
+                    dir: is_dir,
+                    hint: ChainPos::NONE,
+                    dirty: false,
+                    opens: 0,
+                    unlinked: false,
+                };
+                Ok((node, set_tag(&set[0], &set[1])))
             }
             Err(err) => {
                 let _ = self.recover().await;
@@ -2329,11 +2546,13 @@ impl<D: BlockDevice> ExFatFs<D> {
             return Err(ErrorKind::DirectoryNotEmpty.into());
         }
         self.check_set_allocs(&target.set, &target_node).await?;
+        if target_node.dir {
+            self.note_freed_dir(&target_node).await?;
+        }
         let needed = 2 + name.entries() as u32 + src.set.extras().len() as u32;
         let plan = self.plan(to, None, needed, Some(&target.set)).await?;
         let (to, plan) = self.grow_first(to, to_entry, &plan).await?;
-        let held = (target_node.first != 0 && !target_node.contiguous)
-            .then(|| Pending::chain(target_node.first, Owner::Removed(target.set.offset)));
+        let held = self.held_alloc(&target_node, Owner::Removed(target.set.offset))?;
         self.pending = held;
         let placed = match self.clear_set(&target.set).await {
             Ok(()) => self.place_moved(&src.set, src_node, src_id, to, to_entry, &plan, name, hash).await,
@@ -2465,7 +2684,11 @@ impl<D: BlockDevice> ExFatFs<D> {
     async fn free_chain(&mut self, first: u32) -> FsResult<(), D::Error> {
         let held = self.pending.map_or(Held::NONE, |pending| pending.held);
         self.writable()?;
-        let pending = self.pending.insert(Pending { held, owner: Owner::None });
+        let pending = self.pending.insert(Pending {
+            held,
+            owner: Owner::None,
+            run: Run::NONE,
+        });
         let result = exio::free_chain(&mut self.dev, &mut self.block, &mut self.vol, &mut pending.held, first).await;
         self.note_refusal(&result);
         result?;
@@ -2490,7 +2713,25 @@ impl<D: BlockDevice> ExFatFs<D> {
             return Ok(());
         }
         let tail = self.run_tail(alloc.first, len)?;
-        self.free_run(alloc.first, tail - alloc.first + 1).await
+        self.free_run(alloc.first, tail - alloc.first + 1).await?;
+        self.pending = None;
+        Ok(())
+    }
+
+    /// What freeing the allocation of `node` holds until it is freed,
+    /// linked through `owner`.
+    fn held_alloc(&self, node: &Node, owner: Owner) -> Result<Option<Pending>, ErrorKind> {
+        if node.first == 0 {
+            return Ok(None);
+        }
+        if !node.contiguous {
+            return Ok(Some(Pending::chain(node.first, owner)));
+        }
+        if node.len == 0 {
+            return Ok(None);
+        }
+        let tail = self.run_tail(node.first, node.len)?;
+        Ok(Some(Pending::run(node.first, tail - node.first + 1, owner)))
     }
 
     /// Frees the allocations of the benign secondary entries of `set`,
@@ -2762,7 +3003,7 @@ impl<D: BlockDevice> ExFatFs<D> {
         let mut name: NameBuf = NameBuf::new();
         name.fill(|buf| names::utf16_to_utf8(set.name_units(), buf).ok_or(NameError::TooLong))
             .map_err(|_| ErrorKind::Corrupt)?;
-        let node = self.id_at(set.offset);
+        let node = self.id_at(&set);
         let state = match self.pinned_at(set.offset).and_then(|id| self.nodes.get(id)) {
             Some(state) => *state,
             None => Node::from_set(&set, dir_entry),
@@ -2979,21 +3220,35 @@ impl<D: BlockDevice> ExFatFs<D> {
         let keep = len.div_ceil(cluster_size) as u32;
         let had = state.len.div_ceil(cluster_size) as u32;
         let alloc = if keep == 0 { Alloc { first: 0, contiguous: false } } else { state.alloc() };
-        if keep == 0 && state.first != 0 && !state.contiguous {
-            self.pending = Some(Pending::chain(state.first, Owner::Entry(state.entry)));
+        let shrinks = state.first != 0 && keep != had;
+        let mut tail = None;
+        if shrinks && keep == 0 {
+            self.pending = self.held_alloc(&state, Owner::Entry(state.entry))?;
+        } else if shrinks && state.contiguous {
+            let cut = Owner::Cut { entry: state.entry, len, tail: 0 };
+            self.pending = Some(Pending::run(state.first + keep, had - keep, cut));
+        } else if shrinks {
+            let last = self.locate_cluster(state.alloc(), ChainPos::NONE, keep - 1).await?.cluster();
+            if let Some(next) = self.next_cluster(last).await? {
+                tail = Some((last, next));
+                let cut = Owner::Cut { entry: state.entry, len, tail: last };
+                self.pending = Some(Pending::chain(next, cut));
+            }
         }
         self.store(id, &state, alloc, len, state.valid.min(len), ChainPos::NONE).await?;
-        if state.first == 0 || keep == had {
+        if !shrinks {
             return Ok(());
         }
         if keep == 0 {
             return self.free_alloc(state.alloc(), state.len).await;
         }
         if state.contiguous {
-            return self.free_run(state.first + keep, had - keep).await;
+            self.pending = Some(Pending::run(state.first + keep, had - keep, Owner::None));
+            self.free_run(state.first + keep, had - keep).await?;
+            self.pending = None;
+            return Ok(());
         }
-        let last = self.locate_cluster(state.alloc(), ChainPos::NONE, keep - 1).await?.cluster();
-        if let Some(next) = self.next_cluster(last).await? {
+        if let Some((last, next)) = tail {
             self.pending = Some(Pending::chain(next, Owner::Tail(last)));
             self.set_fat(last, raw::FAT_END).await?;
             self.free_chain(next).await?;

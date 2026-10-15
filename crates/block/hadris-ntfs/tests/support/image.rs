@@ -451,3 +451,104 @@ pub fn fragmented_mft_image() -> Vec<u8> {
     put(&mut image, raw::RECORD_MFT, &file_record(FILE, &base));
     image
 }
+
+/// Index blocks of the directory `huge_index_image` builds.
+pub const HUGE_BLOCKS: u64 = (1 << 40) - 1;
+/// The cluster that holds the stored bitmap bytes of `huge_index_image`.
+pub const BITMAP_LCN: usize = 180;
+/// Bytes of the bitmap of `huge_index_image`.
+pub const HUGE_BITMAP: u64 = HUGE_BLOCKS.div_ceil(8);
+
+/// How `huge_index_image` stores its bitmap.
+#[derive(Debug, Clone, Copy)]
+pub enum HugeBitmap {
+    /// Only the first `initialized` bytes are initialized.
+    Uninitialized(u64),
+    /// Initialized throughout, with all but the first cluster sparse.
+    Sparse,
+    /// As `Sparse`, in two extents in extension records 22 and 23 that an
+    /// `$ATTRIBUTE_LIST` names.
+    Listed,
+}
+
+/// `allocation_image`, with `SUBDIR` declaring `HUGE_BLOCKS` index blocks
+/// of which only the first two are stored, the rest in one sparse run,
+/// and a bitmap whose first byte, in the only stored cluster, is `first`.
+pub fn huge_index_image(bitmap: HugeBitmap, first: u8) -> Vec<u8> {
+    let mut image = allocation_image(1024, &[0x03], None);
+    let size = HUGE_BLOCKS * REC as u64;
+    let clusters = size / SECTOR as u64;
+    let mut runs = vec![0x21, 0x04, INDX_LCN as u8, 0, 0x06];
+    runs.extend_from_slice(&(clusters - 4).to_le_bytes()[..6]);
+    runs.push(0);
+    let allocation = non_resident(
+        raw::ATTR_INDEX_ALLOCATION,
+        &raw::I30,
+        clusters - 1,
+        size,
+        size,
+        &runs,
+    );
+    let bitmap_clusters = HUGE_BITMAP / SECTOR as u64;
+    let mut bitmap_runs = vec![0x21, 0x01, BITMAP_LCN as u8, 0, 0x04];
+    bitmap_runs.extend_from_slice(&(bitmap_clusters - 1).to_le_bytes()[..4]);
+    bitmap_runs.push(0);
+    let named_dir = named(5, "SUBDIR", true);
+    let root = index_root(&last_entry(), 1024);
+    let flat = |initialized| {
+        non_resident(
+            raw::ATTR_BITMAP,
+            &raw::I30,
+            bitmap_clusters - 1,
+            HUGE_BITMAP,
+            initialized,
+            &bitmap_runs,
+        )
+    };
+    let sub = match bitmap {
+        HugeBitmap::Uninitialized(initialized) => {
+            vec![named_dir, root, allocation, flat(initialized)]
+        }
+        HugeBitmap::Sparse => vec![named_dir, root, allocation, flat(HUGE_BITMAP)],
+        HugeBitmap::Listed => {
+            let head = non_resident(
+                raw::ATTR_BITMAP,
+                &raw::I30,
+                0,
+                HUGE_BITMAP,
+                HUGE_BITMAP,
+                &[0x21, 0x01, BITMAP_LCN as u8, 0, 0],
+            );
+            let mut tail_runs = vec![0x04];
+            tail_runs.extend_from_slice(&(bitmap_clusters - 1).to_le_bytes()[..4]);
+            tail_runs.push(0);
+            let tail = starting_at(
+                non_resident(
+                    raw::ATTR_BITMAP,
+                    &raw::I30,
+                    bitmap_clusters - 1,
+                    0,
+                    0,
+                    &tail_runs,
+                ),
+                1,
+            );
+            put(&mut image, 22, &file_record(FILE, &[head]));
+            put(&mut image, 23, &file_record(FILE, &[tail]));
+            let mut list = list_entry(raw::ATTR_FILE_NAME, &[], 0, 17, 0);
+            list.extend(list_entry(raw::ATTR_INDEX_ROOT, &raw::I30, 0, 17, 1));
+            list.extend(list_entry(raw::ATTR_INDEX_ALLOCATION, &raw::I30, 0, 17, 2));
+            list.extend(list_entry(raw::ATTR_BITMAP, &raw::I30, 0, 22, 0));
+            list.extend(list_entry(raw::ATTR_BITMAP, &raw::I30, 1, 23, 0));
+            vec![
+                resident(raw::ATTR_ATTRIBUTE_LIST, &[], &list),
+                with_id(named_dir, 0),
+                with_id(root, 1),
+                with_id(allocation, 2),
+            ]
+        }
+    };
+    put(&mut image, 17, &file_record(DIR, &sub));
+    image[BITMAP_LCN * SECTOR] = first;
+    image
+}

@@ -250,18 +250,55 @@ impl<E: core::error::Error + 'static> core::error::Error for Error<E> {
     }
 }
 
-/// A device error that is a `std::io::Error` comes back as itself, so
-/// `raw_os_error()` survives. Any other device error becomes the source of an
-/// error with kind `Other`. Without a device error the kind maps across and
-/// the payload is the error without its device, an `Error<Infallible>`.
+/// Converts to `std::io::Error`, keeping every part of the context.
+///
+/// The device error comes back as itself only when it is a `std::io::Error`
+/// and the error adds nothing to it: no message, location or detail, and a
+/// kind that is [`ErrorKind::Io`] or maps to the device error's kind. Only
+/// then does `raw_os_error()` of the result return the OS error code.
+///
+/// Otherwise the result has the mapped kind and the error itself as its
+/// payload: `get_ref()` downcasts to `Error<E>`, or to
+/// `Error<Infallible>` when there is no device error, and `source()` of the
+/// result is the device error. Kind [`ErrorKind::Io`] takes the kind of a
+/// `std::io::Error` device error, and `Other` for any other device error.
+///
+/// ```rust
+/// use hadris_io::{Error, Location};
+///
+/// let os = std::io::Error::from_raw_os_error(5);
+/// let err = Error::device(os, "reading a block failed").with_location(Location::Block(3));
+/// let io: std::io::Error = err.into();
+/// assert_eq!(format!("{io}"), "reading a block failed at block 3");
+/// assert_eq!(io.raw_os_error(), None);
+/// let device = std::error::Error::source(&io)
+///     .and_then(|source| source.downcast_ref::<std::io::Error>());
+/// assert_eq!(device.and_then(std::io::Error::raw_os_error), Some(5));
+///
+/// let io: std::io::Error = Error::device(std::io::Error::from_raw_os_error(5), "").into();
+/// assert_eq!(io.raw_os_error(), Some(5));
+/// ```
 #[cfg(feature = "std")]
 impl<E: core::error::Error + Send + Sync + 'static> From<Error<E>> for std::io::Error {
-    fn from(err: Error<E>) -> Self {
-        let context = err.without_device::<core::convert::Infallible>();
-        match err.device {
-            Some(device) => crate::into_std_error(device),
-            None => std::io::Error::new(err.kind.into(), context),
+    fn from(mut err: Error<E>) -> Self {
+        let Some(device) = err.device.as_mut() else {
+            let context = err.without_device::<core::convert::Infallible>();
+            return std::io::Error::new(err.kind.into(), context);
+        };
+        let any: &mut dyn core::any::Any = device;
+        let io = any.downcast_mut::<std::io::Error>();
+        let kind = match (&io, err.kind) {
+            (Some(io), ErrorKind::Io) => io.kind(),
+            (_, kind) => kind.into(),
+        };
+        let bare = err.message.is_empty() && err.place == Place::None && err.domain.is_empty();
+        if let Some(io) = io
+            && bare
+            && io.kind() == kind
+        {
+            return core::mem::replace(io, std::io::ErrorKind::Other.into());
         }
+        std::io::Error::new(kind, err)
     }
 }
 
@@ -413,10 +450,54 @@ mod tests {
 
     #[cfg(feature = "std")]
     #[test]
-    fn std_errors_come_back_unchanged() {
-        let err = Error::device(std::io::Error::from_raw_os_error(30), "write failed");
+    fn bare_std_errors_come_back_unchanged() {
+        let err = Error::device(std::io::Error::from_raw_os_error(30), "");
         let io: std::io::Error = err.into();
         assert_eq!(io.raw_os_error(), Some(30));
+
+        let os = std::io::Error::new(std::io::ErrorKind::NotFound, "gone");
+        let err = Error::device(os, "").with_kind(ErrorKind::NotFound);
+        let io: std::io::Error = err.into();
+        assert_eq!(io.kind(), std::io::ErrorKind::NotFound);
+        assert_eq!(format!("{io}"), "gone");
+
+        let err = Error::device(std::io::Error::from_raw_os_error(30), "");
+        let io: std::io::Error = err.with_kind(ErrorKind::ReadOnly).into();
+        assert_eq!(io.raw_os_error(), Some(30));
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn std_conversion_keeps_the_context() {
+        fn device_of(io: &std::io::Error) -> Option<i32> {
+            std::error::Error::source(io)?
+                .downcast_ref::<std::io::Error>()?
+                .raw_os_error()
+        }
+
+        let os = || std::io::Error::from_raw_os_error(30);
+        let err = Error::device(os(), "write failed").with_location(Location::Block(4));
+        let io: std::io::Error = err.into();
+        assert_eq!(io.raw_os_error(), None);
+        assert_eq!(io.kind(), os().kind());
+        assert_eq!(format!("{io}"), "write failed at block 4");
+        assert_eq!(device_of(&io), Some(30));
+        let back = io.get_ref().unwrap();
+        let back = back.downcast_ref::<Error<std::io::Error>>().unwrap();
+        assert_eq!(back.location(), Some(Location::Block(4)));
+
+        let err = Error::device(os(), "").with_detail(DetailCode::new("hadris-fat", 2));
+        let io: std::io::Error = err.into();
+        assert_eq!(device_of(&io), Some(30));
+        let back = io.get_ref().unwrap();
+        let back = back.downcast_ref::<Error<std::io::Error>>().unwrap();
+        assert_eq!(back.detail(), Some(DetailCode::new("hadris-fat", 2)));
+
+        let err = Error::device(std::io::Error::from_raw_os_error(5), "");
+        let io: std::io::Error = err.with_kind(ErrorKind::ReadOnly).into();
+        assert_eq!(io.kind(), std::io::ErrorKind::ReadOnlyFilesystem);
+        assert_eq!(io.raw_os_error(), None);
+        assert_eq!(device_of(&io), Some(5));
 
         let err = Error::<Ata>::new(ErrorKind::NotFound, "no such entry")
             .with_detail(DetailCode::new("hadris-iso", 1));
@@ -428,8 +509,13 @@ mod tests {
             .unwrap();
         assert_eq!(back.detail(), Some(DetailCode::new("hadris-iso", 1)));
 
-        let io: std::io::Error = Error::device(Ata::Timeout, "m").into();
+        let err = Error::device(Ata::Timeout, "m").with_location(Location::Cluster(2));
+        let io: std::io::Error = err.into();
         assert_eq!(io.kind(), std::io::ErrorKind::Other);
-        assert!(io.into_inner().unwrap().downcast::<Ata>().is_ok());
+        assert_eq!(format!("{io}"), "m at cluster 2");
+        let source = std::error::Error::source(&io).unwrap();
+        assert_eq!(source.downcast_ref::<Ata>(), Some(&Ata::Timeout));
+        let back = io.into_inner().unwrap().downcast::<Error<Ata>>().unwrap();
+        assert_eq!(back.device_error(), Some(&Ata::Timeout));
     }
 }

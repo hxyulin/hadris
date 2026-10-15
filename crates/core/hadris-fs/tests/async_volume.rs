@@ -75,19 +75,19 @@ fn volumes_copy_through_trees() {
 fn a_dropped_file_is_closed_by_the_next_call() {
     block_on(async {
         let vol = Volume::new(fixture());
-        let before = vol.lock().await.closes();
+        let before = vol.lock().await.unwrap().closes();
         let mut file = vol
             .open("/log", OpenOptions::new().write().create())
             .await
             .unwrap();
         file.write_all(b"entry").await.unwrap();
         drop(file);
-        assert_eq!(vol.lock().await.closes(), before + 1);
+        assert_eq!(vol.lock().await.unwrap().closes(), before + 1);
         let mut files = Vec::new();
         for _ in 0..40 {
             files.push(vol.open("/a.txt", OpenOptions::new().read()).await.unwrap());
         }
-        let guard = vol.lock().await;
+        let guard = vol.lock().await.unwrap();
         drop(files);
         drop(guard);
         let fs = vol.into_inner().await.unwrap();
@@ -108,7 +108,7 @@ fn a_dropped_close_still_closes_the_file() {
     block_on(async {
         let vol = Volume::new(fixture());
         let file = vol.open("/a.txt", OpenOptions::new().read()).await.unwrap();
-        let guard = vol.lock().await;
+        let guard = vol.lock().await.unwrap();
         cancel(file.close());
         drop(guard);
         vol.remove_file("/a.txt").await.unwrap();
@@ -122,7 +122,7 @@ fn a_close_dropped_while_the_driver_closes_still_closes_the_file() {
     block_on(async {
         let vol = Volume::new(fixture());
         let file = vol.open("/a.txt", OpenOptions::new().read()).await.unwrap();
-        vol.lock().await.stall_in(0);
+        vol.lock().await.unwrap().stall_in(0);
         cancel(file.close());
         vol.remove_file("/a.txt").await.unwrap();
         let fs = vol.into_inner().await.unwrap();
@@ -135,12 +135,12 @@ fn an_open_dropped_while_closing_after_a_failed_truncate_leaves_no_open() {
     block_on(async {
         let vol = Volume::new(fixture());
         for calls in 0.. {
-            let mut fs = vol.lock().await;
+            let mut fs = vol.lock().await.unwrap();
             fs.stall_in(calls);
             fs.fail_truncate();
             drop(fs);
             let pending = poll_once(vol.open("/a.txt", OpenOptions::new().write().truncate()));
-            let mut fs = vol.lock().await;
+            let mut fs = vol.lock().await.unwrap();
             assert_eq!(fs.open_files(), 0, "stalled at call {calls}");
             fs.stall_in(u32::MAX);
             drop(fs);
@@ -158,21 +158,21 @@ fn an_open_dropped_while_closing_after_a_failed_truncate_leaves_no_open() {
 fn dropped_path_calls_leave_no_pins() {
     block_on(async {
         let vol = Volume::new(fixture());
-        vol.lock().await.stall_next();
+        vol.lock().await.unwrap().stall_next();
         cancel(vol.metadata("/etc/conf"));
-        vol.lock().await.stall_next();
+        vol.lock().await.unwrap().stall_next();
         cancel(vol.read_dir("/etc"));
-        vol.lock().await.stall_next();
+        vol.lock().await.unwrap().stall_next();
         cancel(vol.remove_file("/etc/conf"));
-        vol.lock().await.stall_next();
+        vol.lock().await.unwrap().stall_next();
         cancel(vol.set_attr("/a.txt", &SetAttr::new()));
-        vol.lock().await.stall_next();
+        vol.lock().await.unwrap().stall_next();
         cancel(vol.create_dir_all("/x/y"));
-        vol.lock().await.stall_next();
+        vol.lock().await.unwrap().stall_next();
         cancel(vol.open("/a.txt", OpenOptions::new().write().truncate()));
         vol.remove_file("/a.txt").await.unwrap();
-        assert_eq!(vol.lock().await.open_nodes(), 1);
-        vol.lock().await.stall_next();
+        assert_eq!(vol.lock().await.unwrap().open_nodes(), 1);
+        vol.lock().await.unwrap().stall_next();
         cancel(vol.remove_dir_all("/etc"));
         let fs = vol.into_inner().await.unwrap();
         assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));
@@ -219,9 +219,9 @@ fn dropped_tree_reads_leave_no_pins() {
     block_on(async {
         let vol = Volume::new(fixture());
         for calls in 0.. {
-            vol.lock().await.stall_in(calls);
+            vol.lock().await.unwrap().stall_in(calls);
             let pending = poll_once(read_tree(&vol, "/"));
-            let fs = vol.lock().await;
+            let fs = vol.lock().await.unwrap();
             assert_eq!(
                 (fs.open_nodes(), fs.open_files()),
                 (1, 0),
@@ -234,12 +234,12 @@ fn dropped_tree_reads_leave_no_pins() {
         }
         let tree = read_tree(&vol, "/").await.unwrap();
         let content = tree.get("/etc/conf").unwrap().content().unwrap();
-        vol.lock().await.stall_in(1);
+        vol.lock().await.unwrap().stall_in(1);
         assert!(poll_once(async {
             let mut reader = ContentReader::open(content).await.unwrap();
             reader.read_at(0, &mut [0u8; 4]).await.unwrap();
         }));
-        assert_eq!(vol.lock().await.open_files(), 0);
+        assert_eq!(vol.lock().await.unwrap().open_files(), 0);
         drop(tree);
         let fs = vol.into_inner().await.ok().unwrap();
         assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));
@@ -276,7 +276,7 @@ fn futures_are_send() {
         let mut file = vol.open("/a.txt", OpenOptions::new().read()).await.unwrap();
         let mut buf = [0u8; 4];
         file.read(&mut buf).await.unwrap();
-        let mut guard = vol.lock().await;
+        let mut guard = vol.lock().await.unwrap();
         let root = guard.root();
         guard.stat(root).await.unwrap();
         buf
@@ -375,7 +375,7 @@ fn helpers_handles_and_walks() {
 fn dropped_helpers_leave_no_pins_or_opens() {
     block_on(async {
         let vol = Volume::new(fixture());
-        let root = vol.lock().await.root();
+        let root = vol.lock().await.unwrap().root();
         let mut listing = vol.read_dir("/").await.unwrap();
         let mut a = None;
         while let Some(entry) = listing.next_entry().await {
@@ -408,9 +408,9 @@ fn dropped_helpers_leave_no_pins_or_opens() {
         ];
         for (name, call) in calls {
             for stall in 0.. {
-                vol.lock().await.stall_in(stall);
+                vol.lock().await.unwrap().stall_in(stall);
                 let pending = call();
-                let mut fs = vol.lock().await;
+                let mut fs = vol.lock().await.unwrap();
                 assert_eq!(
                     (fs.open_nodes(), fs.open_files()),
                     (1, 0),
@@ -429,11 +429,11 @@ fn dropped_helpers_leave_no_pins_or_opens() {
             .open("/a.txt", OpenOptions::new().read().write())
             .await
             .unwrap();
-        vol.lock().await.stall_in(0);
+        vol.lock().await.unwrap().stall_in(0);
         cancel(file.read_at(0, &mut [0u8; 4]));
-        vol.lock().await.stall_in(0);
+        vol.lock().await.unwrap().stall_in(0);
         cancel(file.write_at(0, b"x"));
-        vol.lock().await.stall_next();
+        vol.lock().await.unwrap().stall_next();
         cancel(file.set_attr(&SetAttr::new()));
         file.close().await.unwrap();
         let fs = vol.into_inner().await.unwrap();
@@ -456,7 +456,7 @@ fn a_dropped_walk_step_loses_no_entry() {
         assert_eq!(all.len(), 8);
         for stall in 0.. {
             let mut walk = vol.walk("/").await.unwrap();
-            vol.lock().await.stall_in(stall);
+            vol.lock().await.unwrap().stall_in(stall);
             let mut paths = Vec::new();
             let mut dropped = false;
             loop {
@@ -467,7 +467,7 @@ fn a_dropped_walk_step_loses_no_entry() {
                 }
             }
             assert_eq!(paths, all, "stalled at call {stall}");
-            vol.lock().await.stall_in(u32::MAX);
+            vol.lock().await.unwrap().stall_in(u32::MAX);
             if !dropped {
                 break;
             }

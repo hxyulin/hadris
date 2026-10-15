@@ -2,6 +2,75 @@ use core::fmt;
 
 pub use hadris_io::{DetailCode, Errno, Error, ErrorKind, FsResult, Location};
 
+const DOMAIN: &str = "hadris-fs";
+
+/// What exactly went wrong in `hadris-fs` itself, beyond the [`ErrorKind`].
+///
+/// Read it back from an [`Error`] with [`Detail::of`].
+///
+/// ```rust
+/// use hadris_fs::{Detail, Error, ErrorKind};
+///
+/// let err: Error<()> = Detail::VolumeFailed.error();
+/// assert_eq!(err.kind(), ErrorKind::Io);
+/// assert_eq!(Detail::of(&err), Some(Detail::VolumeFailed));
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Detail {
+    /// A call on a `Volume` panicked while it held the filesystem, so the
+    /// driver may be left mid-change. Every later call on the volume fails
+    /// with this detail and kind [`ErrorKind::Io`].
+    VolumeFailed = 1,
+}
+
+impl Detail {
+    const ALL: [Self; 1] = [Self::VolumeFailed];
+
+    const fn description(self) -> &'static str {
+        match self {
+            Self::VolumeFailed => "volume failed after a panic during a call on it",
+        }
+    }
+
+    /// The detail `hadris-fs` recorded on `err`, if any.
+    pub fn of<E>(err: &Error<E>) -> Option<Self> {
+        err.detail().and_then(Self::from_code)
+    }
+
+    /// The detail `code` stands for, when it is one of this crate's codes.
+    pub fn from_code(code: DetailCode) -> Option<Self> {
+        let code = code.code_in(DOMAIN)?;
+        Self::ALL.into_iter().find(|detail| *detail as u16 == code)
+    }
+
+    /// The code this detail is recorded with, in the `hadris-fs` domain.
+    /// Codes never change meaning.
+    pub const fn code(self) -> DetailCode {
+        DetailCode::new(DOMAIN, self as u16)
+    }
+
+    /// The error `hadris-fs` reports for this detail.
+    pub fn error<E>(self) -> Error<E> {
+        let kind = match self {
+            Self::VolumeFailed => ErrorKind::Io,
+        };
+        Error::new(kind, self.description()).with_detail(self.code())
+    }
+}
+
+impl From<Detail> for DetailCode {
+    fn from(detail: Detail) -> Self {
+        detail.code()
+    }
+}
+
+impl fmt::Display for Detail {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.description())
+    }
+}
+
 impl<E> From<crate::NameError> for Error<E> {
     fn from(err: crate::NameError) -> Self {
         Error::new(err.kind(), err.description())
@@ -168,7 +237,7 @@ impl PathError {
     /// The error with `kind` instead of its kind, keeping the rest.
     #[cfg(all(feature = "std", feature = "sync"))]
     pub(crate) fn with_kind(mut self, kind: ErrorKind) -> Self {
-        self.context = Error::new(kind, self.context.message());
+        self.context = self.context.with_kind(kind);
         self
     }
 
@@ -211,6 +280,14 @@ impl PathError {
     /// The device or source error, if it has type `E`.
     pub fn downcast_device<E: core::error::Error + 'static>(&self) -> Option<&E> {
         self.source.as_deref()?.downcast_ref()
+    }
+
+    /// The OS error code of a source error that is an `std::io::Error`, as
+    /// `std::io::Error::raw_os_error` gives it.
+    #[cfg(feature = "std")]
+    #[must_use]
+    pub fn raw_os_error(&self) -> Option<i32> {
+        self.downcast_device::<std::io::Error>()?.raw_os_error()
     }
 }
 
@@ -266,23 +343,33 @@ impl core::error::Error for PathError {
     }
 }
 
-/// A source error that is an `std::io::Error` comes back as itself;
-/// otherwise the `PathError` is the payload.
+/// Converts to `std::io::Error` with the `PathError` as the payload, so the
+/// paths and the rest of the context survive.
+///
+/// The kind is the mapped [`ErrorKind`], and for [`ErrorKind::Io`] the kind
+/// of a source error that is an `std::io::Error`. `get_ref()` downcasts to
+/// the `PathError`, and `source()` of the result is the source error.
+/// `raw_os_error()` of the result is `None`; read the OS error code with
+/// [`PathError::raw_os_error`] on the payload.
+///
+/// ```rust
+/// use hadris_fs::{Error, PathError};
+///
+/// let os = std::io::Error::from_raw_os_error(5);
+/// let err = PathError::from(Error::device(os, "reading failed")).with_path("/a");
+/// let io: std::io::Error = err.into();
+/// assert_eq!(io.to_string(), "reading failed: /a");
+/// let err = io.get_ref().and_then(|e| e.downcast_ref::<PathError>()).unwrap();
+/// assert_eq!(err.raw_os_error(), Some(5));
+/// ```
 #[cfg(feature = "std")]
 impl From<PathError> for std::io::Error {
-    fn from(mut err: PathError) -> Self {
-        match err
-            .source
-            .take()
-            .map(|source| source.downcast::<std::io::Error>())
-        {
-            Some(Ok(io)) => *io,
-            Some(Err(other)) => {
-                err.source = Some(other);
-                std::io::Error::new(err.kind().into(), err)
-            }
-            None => std::io::Error::new(err.kind().into(), err),
-        }
+    fn from(err: PathError) -> Self {
+        let kind = match (err.downcast_device::<std::io::Error>(), err.kind()) {
+            (Some(io), ErrorKind::Io) => io.kind(),
+            (_, kind) => kind.into(),
+        };
+        std::io::Error::new(kind, err)
     }
 }
 
@@ -302,6 +389,16 @@ mod tests {
     }
 
     impl core::error::Error for Ata {}
+
+    #[test]
+    fn details_round_trip() {
+        for detail in Detail::ALL {
+            let err: Error<Ata> = detail.error();
+            assert_eq!(Detail::of(&err), Some(detail));
+        }
+        let foreign = DetailCode::new("hadris-fat", Detail::VolumeFailed as u16);
+        assert_eq!(Detail::from_code(foreign), None);
+    }
 
     #[test]
     fn value_errors_convert_to_their_kind() {
@@ -346,14 +443,36 @@ mod tests {
 
     #[cfg(feature = "std")]
     #[test]
-    fn path_errors_give_std_errors_back() {
-        let err = PathError::from(Error::device(std::io::Error::from_raw_os_error(30), "m"));
+    fn std_conversion_keeps_the_paths() {
+        let os = std::io::Error::from_raw_os_error(13);
+        let err = PathError::from(Error::device(os, "opening failed"))
+            .with_host_path("/tmp/x")
+            .with_path("/a");
+        assert_eq!(err.raw_os_error(), Some(13));
         let io: std::io::Error = err.into();
-        assert_eq!(io.raw_os_error(), Some(30));
+        assert_eq!(io.kind(), std::io::Error::from_raw_os_error(13).kind());
+        assert_eq!(io.raw_os_error(), None);
+        assert_eq!(alloc::format!("{io}"), "opening failed: /a");
+        let source = std::error::Error::source(&io).unwrap();
+        let source = source.downcast_ref::<std::io::Error>().unwrap();
+        assert_eq!(source.raw_os_error(), Some(13));
+        let inner = io.get_ref().unwrap().downcast_ref::<PathError>().unwrap();
+        assert_eq!(inner.path(), Some(&b"/a"[..]));
+        assert_eq!(inner.host_path(), Some(std::path::Path::new("/tmp/x")));
+        assert_eq!(inner.raw_os_error(), Some(13));
+
+        let os = std::io::Error::from(std::io::ErrorKind::NotFound);
+        let err = Error::device(os, "m").with_kind(ErrorKind::NotFound);
+        let err = PathError::from(err.with_location(Location::Block(2)));
+        let io: std::io::Error = err.into();
+        assert_eq!(io.kind(), std::io::ErrorKind::NotFound);
+        let inner = io.get_ref().unwrap().downcast_ref::<PathError>().unwrap();
+        assert_eq!(inner.location(), Some(Location::Block(2)));
 
         let err = PathError::from(ErrorKind::ReadOnly).with_host_path("/tmp/x");
         assert_eq!(err.host_path(), Some(std::path::Path::new("/tmp/x")));
         assert_eq!(alloc::format!("{err}"), "read-only: /tmp/x");
+        assert_eq!(err.raw_os_error(), None);
         let io: std::io::Error = err.into();
         assert_eq!(io.kind(), std::io::ErrorKind::ReadOnlyFilesystem);
         let inner = io.get_ref().unwrap().downcast_ref::<PathError>().unwrap();

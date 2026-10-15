@@ -32,7 +32,7 @@ fn sync_through_a_volume() {
     )
     .unwrap();
     let vol = hadris_fs::sync::Volume::new(fs);
-    hadris_fs::sync::contract::check(&mut *vol.lock()).unwrap();
+    hadris_fs::sync::contract::check(&mut *vol.lock().unwrap()).unwrap();
     assert_eq!(vol.into_inner().unwrap().open_nodes(), 1);
 }
 
@@ -54,7 +54,7 @@ fn async_modes() {
         .await
         .unwrap();
         let vol = hadris_fs::r#async::Volume::new(fs);
-        hadris_fs::r#async::contract::check(&mut *vol.lock().await)
+        hadris_fs::r#async::contract::check(&mut *vol.lock().await.unwrap())
             .await
             .unwrap();
     });

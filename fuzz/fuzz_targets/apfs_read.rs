@@ -87,12 +87,13 @@ fn drive(data: &[u8]) {
         let Ok(tree) = container.filesystem_root_owned_entries(volume) else {
             continue;
         };
+        let layout = volume.directory_key_layout();
         let mut stack = vec![(INODE_ROOT_DIRECTORY, 0u32)];
         while let Some((dir, depth)) = stack.pop() {
             if depth > 32 {
                 continue;
             }
-            for entry in parse_owned_directory_entries(tree.iter().cloned(), dir) {
+            for entry in parse_owned_directory_entries(tree.iter().cloned(), dir, layout) {
                 if budget == 0 || bytes == 0 {
                     return;
                 }

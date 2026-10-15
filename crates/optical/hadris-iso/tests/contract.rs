@@ -31,7 +31,7 @@ fn sync_raw_and_shared_tiers() {
     }
     let view = IsoFs::mount_namespace(iso, MountOptions::new(), Namespace::Preferred).unwrap();
     let vol = hadris_fs::sync::Volume::new(view);
-    hadris_fs::sync::contract::check_read_only(&mut *vol.lock()).unwrap();
+    hadris_fs::sync::contract::check_read_only(&mut *vol.lock().unwrap()).unwrap();
 }
 
 #[cfg(feature = "async")]
@@ -60,7 +60,7 @@ fn async_modes() {
         .await
         .unwrap();
         let vol = hadris_fs::r#async::Volume::new(view);
-        hadris_fs::r#async::contract::check_read_only(&mut *vol.lock().await)
+        hadris_fs::r#async::contract::check_read_only(&mut *vol.lock().await.unwrap())
             .await
             .unwrap();
     });

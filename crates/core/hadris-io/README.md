@@ -237,8 +237,19 @@ assert_eq!(err.to_string(), "reading a block failed at block 12");
 assert_eq!(ErrorKind::ReadOnly.errno().linux(), 30);
 
 let io: std::io::Error = err.into();
-assert_eq!(io.raw_os_error(), Some(5));
+assert_eq!(io.to_string(), "reading a block failed at block 12");
+let device = std::error::Error::source(&io)
+    .and_then(|source| source.downcast_ref::<std::io::Error>());
+assert_eq!(device.and_then(std::io::Error::raw_os_error), Some(5));
 ```
+
+`Error<E>` converts to `std::io::Error` without losing context. The device
+error comes back as itself, with its `raw_os_error()`, only when it is an
+`std::io::Error` and the Hadris error adds nothing to it: no message,
+location or detail, and kind `Io` or one that maps to the device error's
+kind. Otherwise the result has the mapped kind, `Display` shows the Hadris
+message and location, `get_ref()` downcasts to the `Error<E>`, and
+`source()` is the device error, which holds the OS error code.
 
 ## Documentation
 

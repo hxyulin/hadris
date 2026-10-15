@@ -18,7 +18,22 @@ use crate::volume_info::VolumeInfo;
 /// The largest device block the reader buffers.
 pub(crate) const MAX_DEVICE_BLOCK: usize = 4096;
 /// Continuation areas followed for one record.
-const MAX_CONTINUATIONS: usize = 16;
+///
+/// Linux isofs follows at most 31, and libisofs writes at most 31 unless
+/// xorriso `-max_ce_entries` raises it; hadris writes one block-sized area
+/// per 2 KiB of entries. 256 areas hold 512 KiB of entries, eight times
+/// what Linux reads, while a cycle of areas costs at most 256 reads.
+const MAX_CONTINUATIONS: usize = 256;
+/// The continuation area bytes, summed over all areas, read for one
+/// record.
+///
+/// Linux isofs keeps each area inside one block, so it reads at most 31
+/// blocks (62 KiB) per record, and libisofs rejects any single area over
+/// 1 MiB as damaged. 4 MiB in total is four times the largest area
+/// libisofs accepts and 64 times what Linux reads, so no image those read
+/// is refused, while a crafted length (up to 4 GiB per area) cannot make
+/// each listing or `stat` read the whole image.
+const MAX_CONTINUATION_BYTES: u64 = 4 << 20;
 /// Records of one multi-extent file.
 const MAX_EXTENTS: usize = 1 << 16;
 
@@ -245,6 +260,9 @@ struct Listed {
     len: usize,
     rr: Option<RockRidgeInfo>,
     version: Option<u16>,
+    /// The Rock Ridge area is malformed, so the entry is listed under its
+    /// ISO 9660 identifier.
+    damaged: bool,
 }
 
 /// A node id no record can have (zero, odd, or past both the volume and
@@ -426,6 +444,7 @@ impl View {
         scan.next = None;
         scan.feed(record.system_use(), usize::from(skip));
         let mut area = [0u8; SECTOR_SIZE];
+        let mut budget = MAX_CONTINUATION_BYTES;
         for count in 0..=MAX_CONTINUATIONS {
             if scan.malformed {
                 return Err(Detail::SystemUse.corrupt());
@@ -438,9 +457,10 @@ impl View {
             }
             let len = u64::from(ce.length.get());
             let offset = u64::from(ce.block.get()) * self.bs() + u64::from(ce.offset.get());
-            if len == 0 || u64::from(ce.offset.get()) >= self.bs() || offset.checked_add(len).is_none_or(|end| end > self.len) {
+            if len == 0 || len > budget || u64::from(ce.offset.get()) >= self.bs() || offset.checked_add(len).is_none_or(|end| end > self.len) {
                 return Err(Detail::SystemUse.corrupt());
             }
+            budget -= len;
             let mut left = len;
             let mut at = offset;
             let mut held = 0;
@@ -579,7 +599,11 @@ impl View {
                     continue;
                 }
                 let mut scan = Scan::new();
-                self.scan(dev, &record, skip, &mut scan).await?;
+                match self.scan(dev, &record, skip, &mut scan).await {
+                    Err(err) if err.kind() == ErrorKind::Io => return Err(err),
+                    Err(_) => continue,
+                    Ok(()) => {}
+                }
                 let info = scan.info;
                 if info.links().unwrap_or(1) <= 1 || info.is_relocated() || info.child_link().is_some() {
                     continue;
@@ -632,12 +656,25 @@ impl View {
         if let Some(skip) = self.rock_ridge() {
             let mut name = [0u8; DirEntry::MAX_NAME];
             let mut scan = Scan::new().with_name(&mut name);
-            self.scan(dev, record, skip, &mut scan).await?;
+            match self.scan(dev, record, skip, &mut scan).await {
+                Err(err) if err.kind() == ErrorKind::Io => return Err(err),
+                Err(_) => {
+                    let len = crate::name::sanitize(crate::name::strip_version(record.name()), out)
+                        .ok_or(Error::from(ErrorKind::NameTooLong))?;
+                    let version = crate::name::version(record.name(), false);
+                    return Ok(Some(Listed { len, rr: None, version, damaged: true }));
+                }
+                Ok(()) => {}
+            }
             if scan.info.is_relocated() {
                 return Ok(None);
             }
-            if header.is_directory() && !scan.info.is_logical_directory() && self.relocation_only(dev, record).await? {
-                return Ok(None);
+            if header.is_directory() && !scan.info.is_logical_directory() {
+                match self.relocation_only(dev, record).await {
+                    Ok(true) => return Ok(None),
+                    Err(err) if err.kind() == ErrorKind::Io => return Err(err),
+                    _ => {}
+                }
             }
             let (name, version) = match scan.name() {
                 Ok(Some(bytes)) => (bytes, None),
@@ -645,14 +682,14 @@ impl View {
             };
             let len = crate::name::sanitize(name, out)
             .ok_or(Error::from(ErrorKind::NameTooLong))?;
-            return Ok(Some(Listed { len, rr: Some(scan.info), version }));
+            return Ok(Some(Listed { len, rr: Some(scan.info), version, damaged: false }));
         }
         let len = match self.namespace {
             Namespace::Joliet => crate::name::decode_ucs2(record.name(), out),
             _ => crate::name::sanitize(crate::name::strip_version(record.name()), out),
         }
         .ok_or(Error::from(ErrorKind::NameTooLong))?;
-        Ok(Some(Listed { len, rr: None, version: crate::name::version(record.name(), self.namespace == Namespace::Joliet) }))
+        Ok(Some(Listed { len, rr: None, version: crate::name::version(record.name(), self.namespace == Namespace::Joliet), damaged: false }))
     }
 
     async fn listed_id<D: BlockDevice>(
@@ -833,7 +870,10 @@ impl View {
                     if latest.is_some_and(|(latest, _)| latest.offset != found.offset) { continue; }
                 }
                 let node = self.listed_id(dev, &found, listed.rr).await?;
-                let meta = if node.get() == found.offset {
+                let meta = if listed.damaged {
+                    let file_type = if found.record.header().is_directory() { FileType::Dir } else { FileType::File };
+                    Metadata::new(file_type, Permissions::new(0))
+                } else if node.get() == found.offset {
                     self.record_metadata(dev, node, &found.record, listed.rr).await?
                 } else {
                     self.stat(dev, node).await?
@@ -886,11 +926,10 @@ impl View {
             nlink = u64::from(rr.links().unwrap_or(1));
             device = rr.device();
             if rr.is_symlink() {
-                let mut target = [0u8; 4096];
-                let mut scan = Scan::new().with_link(&mut target);
+                let mut scan = Scan::new().with_link(&mut []);
                 self.scan(dev, record, self.rock_ridge().unwrap_or(0), &mut scan).await?;
                 file_type = FileType::Symlink;
-                len = scan.link_len()? as u64;
+                len = scan.link_total() as u64;
             }
         }
         let mut meta = Metadata::new(file_type, permissions).with_len(len).with_nlink(nlink);
@@ -1367,6 +1406,14 @@ impl<D: BlockDevice> FileSystem for IsoFs<D> {
     }
 
     /// The cursor is the byte offset of the next record in the directory.
+    /// In the Rock Ridge tree, an entry whose system use area or
+    /// continuation areas are malformed is still listed, under its ISO 9660
+    /// identifier, with the type its record gives, no permissions and
+    /// length 0, so the rest of the directory stays readable and
+    /// `lookup` finds it by that name; `stat`, `open` and `readlink` on a
+    /// file listed this way fail with [`ErrorKind::Corrupt`]. A damaged
+    /// directory record ends the listing with that error, since the next
+    /// one cannot be found.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all, fields(dir = ?dir)))]
     async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
         self.view.readdir(&mut self.dev, dir, from).await

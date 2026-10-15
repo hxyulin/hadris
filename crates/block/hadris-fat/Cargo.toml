@@ -66,6 +66,10 @@ name = "fatfs_async"
 required-features = ["std", "sync", "async", "write"]
 
 [[test]]
+name = "volume_panic"
+required-features = ["std", "sync", "async", "write"]
+
+[[test]]
 name = "fatfs_write"
 required-features = ["std", "sync", "write"]
 

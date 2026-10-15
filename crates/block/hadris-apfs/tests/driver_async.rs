@@ -113,27 +113,41 @@ fn async_multi_volume_mount_and_failure_recovery() {
 }
 
 #[test]
-fn async_mount_refuses_malformed_directory_and_extent_metadata() {
+fn async_damaged_records_list_and_fail_only_their_own_node() {
     block_on(require_send(async {
-        for case in ["dangling", "type", "duplicate", "extent"] {
-            let image = invalid_directory_image(case);
-            let Err(error) = ApfsFs::mount(device(image.clone()), MountOptions::new()).await else {
-                panic!("malformed {case} mounted");
-            };
-            assert_eq!(error.kind(), ErrorKind::Corrupt, "{case}");
-            assert_eq!(error.into_device().into_inner(), image);
+        for case in [
+            "dangling",
+            "type",
+            "extent",
+            "mode",
+            "inode",
+            "symlink_stream",
+            "duplicate",
+            "utf8",
+            "long",
+        ] {
+            let mut fs = ApfsFs::mount(device(invalid_directory_image(case)), MountOptions::new())
+                .await
+                .unwrap();
+            let root = fs.root();
+            let mut cursor = DirCursor::START;
+            let mut nodes = Vec::new();
+            while let Some(entry) = fs.readdir(root, cursor).await.unwrap() {
+                cursor = entry.next_cursor();
+                nodes.push(entry.node());
+            }
+            let damaged = matches!(case, "dangling" | "type" | "extent" | "mode" | "inode");
+            for index in 2..FILE_COUNT {
+                let node = fs.lookup(root, Name::new(&file_name(index))).await.unwrap();
+                assert!(nodes.contains(&node), "{case}");
+                let mut buf = [0; 64];
+                let n = fs.read(node, 0, &mut buf).await.unwrap();
+                assert_eq!(&buf[..n], file_contents(index));
+            }
+            if damaged {
+                let node = fs.lookup(root, Name::new("file0.txt")).await.unwrap();
+                assert_eq!(fs.stat(node).await.unwrap_err().kind(), ErrorKind::Corrupt);
+            }
         }
-    }));
-}
-
-#[test]
-fn async_invalid_utf8_directory_names_are_corrupt_and_return_the_device() {
-    block_on(require_send(async {
-        let image = invalid_directory_image("utf8");
-        let Err(error) = ApfsFs::mount(device(image.clone()), MountOptions::new()).await else {
-            panic!("invalid UTF-8 directory name mounted");
-        };
-        assert_eq!(error.kind(), ErrorKind::Corrupt);
-        assert_eq!(error.into_device().into_inner(), image);
     }));
 }

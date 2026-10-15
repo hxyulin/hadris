@@ -233,6 +233,15 @@ macro_rules! cases {
                             .await
                             .unwrap_err()
                             .kind(),
+                        ErrorKind::NotFound
+                    );
+                    let damaged = indexed
+                        .lookup(indexed.root(), Name::new("B"))
+                        .await
+                        .unwrap();
+                    assert_eq!(damaged, b);
+                    assert_eq!(
+                        indexed.stat(damaged).await.unwrap_err().kind(),
                         ErrorKind::Corrupt
                     );
                     assert_eq!(

@@ -163,8 +163,23 @@ impl Options {
 }
 
 /// A directory: the root or a subdirectory by its first cluster. `Copy`
-/// and holds no slot; it stays valid while the directory exists. Use it only
-/// with its originating mount; directory locators do not check mount identity.
+/// and holds no slot; it stays valid while the directory exists, including
+/// across a rename. Use it only with its originating mount; directory
+/// locators do not check mount identity.
+///
+/// Each use of a subdirectory reads its first sector, which most operations
+/// read next anyway, and fails with [`ErrorKind::InvalidHandle`] unless
+/// the sector begins with the directory's own `.` entry. Removing a
+/// directory through this driver, or replacing it by a rename, deletes
+/// that entry before its clusters are freed, so a `Dir` of a removed
+/// directory fails instead of writing into a cluster that is free or holds
+/// a file. One case is not detected: when the cluster becomes the first
+/// cluster of a new directory, the stale `Dir` names that directory. A
+/// directory another driver removed keeps its `.` entry until the
+/// cluster is overwritten, and a directory whose `.` entry is damaged
+/// fails as a stale one does.
+///
+/// [`ErrorKind::InvalidHandle`]: hadris_fs::ErrorKind::InvalidHandle
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Dir {
     /// First cluster, 0 for the root.
@@ -475,6 +490,10 @@ pub(crate) enum Owner {
     /// The first cluster of the short entry at this offset, of an empty
     /// file being given its first clusters: cleared and freed.
     First(u64),
+    /// The FAT entry of `tail` after a shrink to `size` bytes that the short
+    /// entry at `entry` may not record yet: the chain is cut there and freed
+    /// once the entry records `size`, and kept otherwise.
+    Cut { entry: u64, size: u32, tail: u32 },
 }
 
 /// Clusters an unfinished operation holds.

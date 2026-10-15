@@ -2,7 +2,8 @@ use alloc::vec::Vec;
 use hadris_fat_raw::io::ChainPos;
 use hadris_fs::NodeId;
 
-/// Bounds for optional node-driver caches, available with `alloc`.
+/// Bounds for optional node-driver caches, available with `alloc` and a mode
+/// (`sync` or `async`), like `FatFs`.
 ///
 /// `FatFs::mount` starts with caching disabled. `FatFs::with_cache` configures
 /// a lazily populated index; no FAT or file data is read during configuration.

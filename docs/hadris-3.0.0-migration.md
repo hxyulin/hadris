@@ -239,7 +239,7 @@ with `std::io`-like kinds. V3 has one error type for every crate.
 | `NotRecognized` | `ErrorKind` variant | The bytes are not this format at all. `Corrupt` now means "this format, but damaged". |
 | `Location` | same | `Byte(u64)`, `Block(u64)`, `Cluster(u64)`, `NameByte(u32)`. |
 | `DetailCode` | same | A `u16` code within a crate's domain. Read it back with the crate's `Detail::of(&err)`. |
-| `Detail` | `hadris_fat::Detail`, `hadris_fat::exfat::Detail`, `hadris_iso::Detail`, `hadris_udf::Detail`, `hadris_cpio::Detail`, `hadris_part::Detail`, `hadris_ntfs::Detail` | `#[non_exhaustive]` numbered codes naming the structure at fault. `Detail::of(&err) -> Option<Detail>`, `Detail::from_code(code)`, `Detail::code()`. Replaces the variants of the V2 error enums. |
+| `Detail` | `hadris_fs::Detail`, `hadris_fat::Detail`, `hadris_fat::exfat::Detail`, `hadris_iso::Detail`, `hadris_udf::Detail`, `hadris_cpio::Detail`, `hadris_part::Detail`, `hadris_ntfs::Detail` | `#[non_exhaustive]` numbered codes naming the structure at fault. `Detail::of(&err) -> Option<Detail>`, `Detail::from_code(code)`, `Detail::code()`. Replaces the variants of the V2 error enums. |
 | `Errno` | same | `ErrorKind::errno()` returns one symbolic errno per kind; `Errno::linux()` gives the number. `Unsupported` is `EOPNOTSUPP`, `Corrupt` is `EUCLEAN`, `InvalidHandle` is `ESTALE`. |
 | `MountError<D, E>` | `hadris_fs`, `hadris` | Returned by `mount`, `unmount` and `hadris::sync::open`: the `Error<E>` and the device given back (`into_device`, `into_parts`, `into_error`). `?` converts it to `Error<E>`, `PathError` or `std::io::Error`. |
 | `PathError` | `hadris_fs`, `hadris` (`alloc`) | Kind, message, location, detail, the path within the tree or volume, the host path with `std`, and the device error boxed as its `source()`. Returned by writers, `Tree` edits, `copy_tree`, `read_tree` and the `host` module. Takes `?` from any `Error<E>` or `MountError`. Unrelated to the V2 `hadris_path::PathError`. |
@@ -247,12 +247,24 @@ with `std::io`-like kinds. V3 has one error type for every crate.
 
 Converting:
 
-- With `std`, `Error<E>` converts to `std::io::Error` with `?`. A device error
-  that is already an `io::Error` comes back as itself, so `raw_os_error()`
-  survives. `hadris_io::into_std_error` converts any device error.
+- With `std`, `Error<E>` converts to `std::io::Error` with `?`, keeping the
+  message, location and detail. A device error that is an `io::Error` comes
+  back as itself only when the `Error<E>` adds nothing to it (no message,
+  location or detail, and kind `Io` or one that maps to the device error's
+  kind). Otherwise `raw_os_error()` of the result is `None`: the `Error<E>`
+  is the payload (`get_ref()` downcasts to it) and the device `io::Error`
+  is its `source()`, so read the OS error code with
+  `std::error::Error::source(&io).and_then(|e| e.downcast_ref::<std::io::Error>())`,
+  or from `err.device_error()` before converting.
+  `hadris_io::into_std_error` converts a bare device error and returns an
+  `io::Error` as itself.
 - Generic code names the device error through the trait:
   `fn f<F: FileSystem>(fs: &mut F) -> FsResult<(), F::DeviceError>`.
-- Code that mixes devices returns `PathError`.
+- Code that mixes devices returns `PathError`. With `std` it converts to
+  `std::io::Error` with the `PathError` as the payload, keeping the tree
+  and host paths, so `raw_os_error()` of the result is `None`. Downcast
+  `get_ref()` to `PathError` and call `PathError::raw_os_error()` for the
+  OS error code.
 
 Before and after:
 
@@ -416,6 +428,12 @@ node and format-specific calls and `into_inner()`. `File` has `read`,
 needs `std`; the async one needs `alloc`. `Volume::with_resolve(fs,
 Resolve::Follow)` gives POSIX path semantics; the default is lexical.
 
+A panic during a call on a `Volume`, in the driver or the device, fails it
+for good instead of being ignored: every later call returns kind `Io` with
+`hadris_fs::Detail::VolumeFailed`, `lock()` included, and `is_failed()` tells.
+`into_inner()` still gives the filesystem and its device back, but the
+driver may be left mid-change, so check the image before trusting it.
+
 `Walk::new(dir)` (`alloc`) or `Walk::with_stack(dir, &mut frames)` lists a
 tree depth first on the bare driver.
 
@@ -504,7 +522,7 @@ let vol = Volume::new(FatFs::mount(device, MountOptions::new().with_clock(&Syste
 let mut file = vol.open("/hello.txt", OpenOptions::new().write().create().truncate())?;
 file.write_all(b"Hello from Hadris\n")?;
 file.close()?;
-vol.lock().sync()?;
+vol.lock()?.sync()?;
 ```
 
 The bare driver without a `Volume`:
@@ -534,7 +552,7 @@ Common V2 calls:
 | `delete` | `vol.remove_file`, `vol.remove_dir`, `vol.remove_dir_all`; `fs.unlink`, `fs.rmdir` |
 | `rename` | `vol.rename(from, to)` (replaces an existing target); `fs.rename(.., RenameMode)` |
 | `truncate`, `set_times`, `set_attributes` | `File::set_len`, `vol.set_attr(path, &SetAttr)`; `fs.truncate`, `fs.setattr` |
-| `flush()`, `sync()` | `fs.sync()` or `vol.lock().sync()`; `File::sync_all()` for one file |
+| `flush()`, `sync()` | `fs.sync()` or `vol.lock()?.sync()`; `File::sync_all()` for one file |
 | `into_inner()` | `unmount()` (syncs) or `into_inner()`; on a volume, `vol.into_inner()` first |
 | `volume_info()`, `fat_type()`, `read_root_label()` | `fs.info()` (`Geometry`: `kind()`, `volume_serial()`, `cluster_size()`), `fs.label(&mut buf)` |
 | `set_root_label` | `fs.set_label(Some(VolumeLabel::new("DATA")?))` |

@@ -14,7 +14,7 @@ fn sync_mode() {
     contract::check(&mut fs).unwrap();
     assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));
     let vol = Volume::new(MemFs::new());
-    contract::check(&mut *vol.lock()).unwrap();
+    contract::check(&mut *vol.lock().unwrap()).unwrap();
     contract::check(&mut Box::new(MemFs::new())).unwrap();
 }
 
@@ -28,7 +28,7 @@ fn async_mode() {
         hadris_fs::r#async::contract::check(&mut fs).await.unwrap();
         assert_eq!(fs.open_nodes(), 1);
         let vol = hadris_fs::r#async::Volume::new(common::asynch::MemFs::new());
-        hadris_fs::r#async::contract::check(&mut *vol.lock().await)
+        hadris_fs::r#async::contract::check(&mut *vol.lock().await.unwrap())
             .await
             .unwrap();
         hadris_fs::r#async::contract::check_read_only(&mut common::asynch::fixture().read_only())

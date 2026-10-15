@@ -58,7 +58,7 @@ fn fat(path: &Path) -> Result<()> {
         .map_err(|err| err.into_error())?;
     let vol = Volume::new(fs);
     edit(&vol)?;
-    vol.lock()
+    vol.lock()?
         .set_label(Some(hadris::fat::VolumeLabel::new("AFTER")?))?;
     let fs = vol.into_inner().ok().context("a handle is still open")?;
     let mut dev = fs.unmount().map_err(|err| err.into_error())?;
@@ -85,7 +85,7 @@ fn exfat(path: &Path) -> Result<()> {
         .map_err(|err| err.into_error())?;
     let vol = Volume::new(fs);
     edit(&vol)?;
-    vol.lock()
+    vol.lock()?
         .set_label(Some(exfat::VolumeLabel::new("After")?))?;
     let fs = vol.into_inner().ok().context("a handle is still open")?;
     let mut dev = fs.unmount().map_err(|err| err.into_error())?;
@@ -122,7 +122,7 @@ where
     F: FileSystem,
     F::DeviceError: std::error::Error + Send + Sync + 'static,
 {
-    let before = vol.lock().statfs()?;
+    let before = vol.lock()?.statfs()?;
 
     vol.create_dir_all("/docs/drafts")?;
     let mut file = vol.open(
@@ -143,12 +143,12 @@ where
     let mut scratch = vol.open("/scratch.tmp", OpenOptions::new().write().create())?;
     scratch.write_all(&vec![0x5A; 256 << 10])?;
     scratch.close()?;
-    ensure!(vol.lock().statfs()?.free_blocks() < before.free_blocks());
+    ensure!(vol.lock()?.statfs()?.free_blocks() < before.free_blocks());
     vol.remove_file("/scratch.tmp")?;
     let gone = vol.metadata("/scratch.tmp").unwrap_err();
     ensure!(gone.kind() == ErrorKind::NotFound);
 
-    vol.lock().sync()?;
+    vol.lock()?.sync()?;
     Ok(())
 }
 
@@ -158,7 +158,7 @@ where
     F::DeviceError: std::error::Error + Send + Sync + 'static,
 {
     let mut buf = [0u8; 64];
-    ensure!(vol.lock().label(&mut buf)? == Some(label));
+    ensure!(vol.lock()?.label(&mut buf)? == Some(label));
 
     let names: Vec<String> = vol
         .read_dir("/docs")?

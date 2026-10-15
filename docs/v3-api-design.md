@@ -689,6 +689,17 @@ and no extension trait in their place (S6). `Volume` does not implement
 `FileSystem`: path `open` and `rename` would share names with the node
 methods on one type.
 
+**Panics.** A panic while the volume holds its filesystem may leave the
+driver mid-change, so the volume fails for good: every later path and handle
+call returns `Io` with `hadris_fs::Detail::VolumeFailed` without reaching the
+driver, queued calls of dropped handles are discarded, `lock()` returns
+`VolumeFailed` too and
+`is_failed()` tells. `into_inner()` still returns the filesystem. The sync
+volume detects the panic by the poisoning of its `std::sync::Mutex`; the
+async one marks itself failed when a poll of one of its calls unwinds, which
+needs no `std`, and with `std` when a `VolumeGuard` is dropped while
+unwinding.
+
 **Trees in and out.** `copy_tree(&Tree, &mut F, dir)` copies a tree into any
 mounted filesystem, and `read_tree(&Volume<F>, path)` turns a mounted subtree
 into a `Tree` whose file content is read lazily (4.7). The host side is
@@ -711,7 +722,7 @@ pub struct Volume<F> { .. }                  // Arc inside; Clone shares the vol
 impl<F: FileSystem> Volume<F> {
     pub fn new(fs: F) -> Self;                             // paths resolve lexically
     pub fn with_resolve(fs: F, resolve: Resolve) -> Self;
-    pub fn lock(&self) -> VolumeGuard<'_, F>;              // Deref and DerefMut to F
+    pub fn lock(&self) -> FsResult<VolumeGuard<'_, F>, F::DeviceError>; // guard derefs to F
     pub fn into_inner(self) -> Result<F, Self>;            // Err while clones or handles exist
     // path methods (4.3)
 }
@@ -719,7 +730,7 @@ impl<F: FileSystem> Volume<F> {
 
 - `Volume<F>` has no lock type parameter. The sync `Volume` uses the std mutex and needs `std`; the async one uses a portable async mutex and needs only `alloc`. Stored types never name a lock.
 - The lock is held for one call. A path resolves under one lock hold, so a path costs one lock, not one per component.
-- `vol.lock()` returns a guard to the driver for node calls and format-specific calls. Dropping a `File` or `ReadDir` of the volume while holding the guard queues its close and does not deadlock; with `alloc` the queue grows, so it has no fixed limit. Calling a path method on the same volume while holding the guard deadlocks, as with any mutex; `lock()` documents it.
+- `vol.lock()` returns a guard to the driver, or `VolumeFailed` on a failed volume, for node calls and format-specific calls. Dropping a `File` or `ReadDir` of the volume while holding the guard queues its close and does not deadlock; with `alloc` the queue grows, so it has no fixed limit. Calling a path method on the same volume while holding the guard deadlocks, as with any mutex; `lock()` documents it.
 - Clones are cheap and share the volume, so a handle or a clone can move to another thread or task. The `async_::Volume` tier guarantees Send futures when the driver satisfies its Send filesystem trait; for block drivers both the device and its state must be Send. Local volumes remain on their executor.
 - Operations on one volume serialize, as they do in V2.
 
@@ -819,7 +830,7 @@ impl<E: ..> From<Error<E>> for std::io::Error { .. }          // std
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ErrorKind {
-    Io,                  // the device failed; device_error() is Some
+    Io,                  // the device failed (device_error() is Some), or a Volume failed after a panic
     NotRecognized,       // the bytes are not this format at all
     Corrupt,             // this format, but it violates the specification
     NotFound,
@@ -845,10 +856,10 @@ pub enum ErrorKind {
 - `ErrorKind::errno()` returns a symbolic `Errno` (one per kind); `Errno::linux()` gives the number. `Unsupported` is `EOPNOTSUPP`, never `ENOSYS`; `NotRecognized` and `InvalidInput` are `EINVAL`, `Corrupt` is `EUCLEAN` (Linux `EFSCORRUPTED`), `LimitExceeded` is `EOVERFLOW` and `InvalidHandle` is `ESTALE`. One kind maps to one errno, so FAT chmod refusals give `EOPNOTSUPP` where Linux vfat gives `EPERM`. `Errno::darwin()` for macFUSE is additive.
 - An error either shows its source's text in `Display` or returns it from `source()`, never both, so `anyhow`'s `{:#}` prints each message once.
 - **Kernels** keep their own error without `alloc`. The errno mapping is `err.kind().errno()`, or a `match` on `(err.kind(), err.device_error())`. Filesystem failures have no device error.
-- **std users** use `?` into `std::io::Error` or `Box<dyn Error>`. A device error that is already an `io::Error` comes back as itself, found by a downcast that does not allocate, so `raw_os_error()` survives. Any other device error becomes the source of an `io::Error` with kind `Other` and can be downcast back out. Filesystem failures map their kind (`NotFound` to `NotFound`, `ReadOnly` to `ReadOnlyFilesystem`, and so on).
+- **std users** use `?` into `std::io::Error` or `Box<dyn Error>`, and the conversion never drops context. A device error that is an `io::Error` comes back as itself, so `raw_os_error()` survives, only when the `Error<E>` adds nothing to it: no message, location or detail, and kind `Io` or one that maps to the device error's kind. Otherwise the result has the mapped kind and the `Error<E>` (`Error<Infallible>` without a device error) as its payload: `Display` shows the Hadris message and location, `get_ref()` downcasts back, and `source()` is the device error, which holds the OS error code. Kinds map across (`NotFound` to `NotFound`, `ReadOnly` to `ReadOnlyFilesystem`, and so on); `Io` takes the kind of an `io::Error` device error and is `Other` otherwise. `into_std_error(e)` converts a bare device error and returns an `io::Error` as itself.
 - **Drivers that take the device by value** fail to mount with `MountError<D, E>`, which gives the device back. `?` still converts it to `Error<E>`, `PathError` or `io::Error`, dropping the device.
 - **Generic code** names the device error through the trait: `fn install<F: FileSystem>(fs: &mut F) -> FsResult<(), F::DeviceError>`.
-- **Code that needs paths or mixes devices** returns `PathError` (`alloc`): kind, message, the tree path, and with `std` the host path, with any device error boxed as its `source()`. Writers, tree edits, `copy_tree`, `read_tree` and the host module return it, and it takes `?` from any `Error<E>` or `MountError<D, E>` (NF-ERR-04).
+- **Code that needs paths or mixes devices** returns `PathError` (`alloc`): kind, message, the tree path, and with `std` the host path, with any device error boxed as its `source()`. Writers, tree edits, `copy_tree`, `read_tree` and the host module return it, and it takes `?` from any `Error<E>` or `MountError<D, E>` (NF-ERR-04). With `std` it converts to `io::Error` with itself as the payload, so the paths survive; `PathError::raw_os_error()` reads the OS error code of an `io::Error` source.
 - No `String` payloads without `alloc`. No foreign types (`bytemuck::PodCastError`, `PathBuf`) in the public API outside `host`.
 - Module-level `Error` and `Result` aliases (`write::Error`, `modify::Error`) are removed.
 

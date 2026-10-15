@@ -292,9 +292,16 @@ fn is_fat32(bpb: &RawBpb) -> bool {
     bpb.root_entry_count == [0, 0] && bpb.sectors_per_fat_16 == [0, 0]
 }
 
-fn check_fat_count(bpb: &RawBpb) -> Result<(), BootError> {
+/// Checks the FAT count and that the reserved sectors hold the boot
+/// sector, so that the first FAT does not overlap it.
+fn check_counts(bpb: &RawBpb) -> Result<(), BootError> {
     if bpb.fat_count != 1 && bpb.fat_count != 2 {
         return Err(BootError::Corrupt("BPB fat_count must be 1 or 2"));
+    }
+    if bpb.reserved_sector_count.get() == 0 {
+        return Err(BootError::Corrupt(
+            "BPB reserved_sector_count must not be zero",
+        ));
     }
     Ok(())
 }
@@ -305,7 +312,7 @@ fn check_ext16(bpb: &RawBpb, ext: &RawBpbExt16) -> Result<(), BootError> {
     if signature != BOOT_SIGNATURE {
         return Err(BootError::Signature(signature));
     }
-    check_fat_count(bpb)
+    check_counts(bpb)
 }
 
 /// Checks the FAT32 extended boot record.
@@ -317,7 +324,7 @@ fn check_ext32(bpb: &RawBpb, ext: &RawBpbExt32) -> Result<(), BootError> {
     if ext.version != [0, 0] {
         return Err(BootError::Corrupt("unsupported FAT32 filesystem version"));
     }
-    check_fat_count(bpb)
+    check_counts(bpb)
 }
 
 /// Checks the three FSInfo signatures.
@@ -651,6 +658,35 @@ mod tests {
             Err(BootError::Corrupt(_))
         ));
         assert_eq!(check_ext16(&bpb(512, 1, 1, 2, 224, 9, 2880), &ext), Ok(()));
+    }
+
+    #[test]
+    fn reserved_sectors_must_hold_the_boot_sector() {
+        let mut sector = [0; BOOT_SECTOR_LEN];
+        let mut ext: RawBpbExt16 = bytemuck::Zeroable::zeroed();
+        ext.signature_word = BOOT_SIGNATURE.to_le_bytes();
+        sector[..BPB_LEN].copy_from_slice(bytemuck::bytes_of(&bpb(512, 1, 0, 2, 224, 9, 2880)));
+        sector[BPB_LEN..].copy_from_slice(bytemuck::bytes_of(&ext));
+        assert!(matches!(parse_boot(&sector), Err(BootError::Corrupt(_))));
+
+        let mut ext: RawBpbExt32 = bytemuck::Zeroable::zeroed();
+        ext.sectors_per_fat_32.set(16);
+        ext.root_cluster.set(2);
+        ext.signature_word.set(BOOT_SIGNATURE);
+        ext.fs_info_sector.set(1);
+        sector[..BPB_LEN].copy_from_slice(bytemuck::bytes_of(&bpb(512, 1, 0, 2, 0, 0, 2048)));
+        sector[BPB_LEN..].copy_from_slice(bytemuck::bytes_of(&ext));
+        assert!(matches!(parse_boot(&sector), Err(BootError::Corrupt(_))));
+
+        sector[..BPB_LEN].copy_from_slice(bytemuck::bytes_of(&bpb(512, 1, 1, 2, 0, 0, 2048)));
+        let geo = parse_boot(&sector).unwrap();
+        assert_eq!((geo.fat_start(), geo.fs_info_sector()), (512, None));
+        for info in [0, 0xFFFF] {
+            ext.fs_info_sector.set(info);
+            sector[..BPB_LEN].copy_from_slice(bytemuck::bytes_of(&bpb(512, 1, 32, 2, 0, 0, 2048)));
+            sector[BPB_LEN..].copy_from_slice(bytemuck::bytes_of(&ext));
+            assert_eq!(parse_boot(&sector).unwrap().fs_info_sector(), None);
+        }
     }
 
     #[test]

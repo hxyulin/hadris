@@ -241,7 +241,7 @@ fn handles_dropped_under_the_lock_are_queued() {
         );
     }
     let dir = vol.read_dir("/etc").unwrap();
-    let guard = vol.lock();
+    let guard = vol.lock().unwrap();
     assert_eq!(guard.open_files(), 40);
     drop(files);
     drop(dir);
@@ -253,19 +253,19 @@ fn handles_dropped_under_the_lock_are_queued() {
 #[test]
 fn dropping_a_written_file_closes_it() {
     let vol = Volume::new(fixture());
-    let before = vol.lock().closes();
+    let before = vol.lock().unwrap().closes();
     let mut file = vol
         .open("/log", OpenOptions::new().write().create())
         .unwrap();
     file.write_all(b"entry").unwrap();
     drop(file);
-    assert_eq!(vol.lock().closes(), before + 1);
+    assert_eq!(vol.lock().unwrap().closes(), before + 1);
     let file = vol.open("/log", OpenOptions::new().write()).unwrap();
-    let guard = vol.lock();
+    let guard = vol.lock().unwrap();
     drop(file);
     assert_eq!(guard.closes(), before + 1);
     drop(guard);
-    assert_eq!(vol.lock().closes(), before + 2);
+    assert_eq!(vol.lock().unwrap().closes(), before + 2);
     assert_eq!(open_nodes(vol), 1);
 }
 
@@ -336,7 +336,7 @@ fn walk_yields_paths_depth_first() {
     walk.skip_dir();
     let next = walk.next().unwrap().unwrap();
     assert_eq!(next.path(), b"/link");
-    assert_eq!(next.dir(), vol.lock().root());
+    assert_eq!(next.dir(), vol.lock().unwrap().root());
     drop(walk);
 
     let deep = vol.walk("/etc").unwrap().next().unwrap().unwrap();
@@ -451,7 +451,7 @@ fn open_node_opens_a_listed_entry() {
     assert_eq!(read(&vol, "/etc/conf").unwrap(), b"via walk");
 
     let read_only = Volume::new(fixture().read_only());
-    let root = read_only.lock().root();
+    let root = read_only.lock().unwrap().root();
     let a = read_only
         .read_dir("/")
         .unwrap()

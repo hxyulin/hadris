@@ -105,6 +105,16 @@ pub fn chain<D: hadris_storage::sync::BlockDevice>(fs: &mut ExFatFs<D>, node: No
     }
 }
 
+/// The byte offset of the File entry of `node`, decoded from its id as
+/// `ExFatFs` encodes it: the slot above as many tag bits as the slots of
+/// the volume leave below bit 63, at most 32.
+pub fn entry_offset<D: hadris_storage::sync::BlockDevice>(fs: &ExFatFs<D>, node: NodeId) -> u64 {
+    let geo = fs.info();
+    let end = geo.heap_start() + geo.cluster_count() as u64 * geo.cluster_size();
+    let tag_bits = (63 - (64 - (end / 32).leading_zeros())).min(32);
+    (node.get() >> tag_bits) * 32
+}
+
 /// The names in the directory at `path`, in directory order.
 pub fn names(fs: &mut Fs, path: &str) -> Vec<String> {
     let dir = fs.resolve_path(path).unwrap();
@@ -171,6 +181,87 @@ pub fn clean(fs: &mut Fs, what: &str) {
     let (_, found) = check_dev(&mut dev, 4096);
     assert_eq!(found, [], "{what}");
     *fs = ExFatFs::mount(dev, MountOptions::new()).unwrap();
+}
+
+/// The files of [`shrink_image`], with their contents.
+pub fn shrink_files() -> [(&'static str, Vec<u8>); 4] {
+    [
+        ("victim.bin", payload(6 * 512, 1)),
+        ("target.bin", payload(5 * 512, 2)),
+        ("source.bin", payload(3 * 512, 3)),
+        ("chained.bin", payload(6 * 512, 4)),
+    ]
+}
+
+/// A volume with 512-byte clusters holding [`shrink_files`], `victim.bin`
+/// and `target.bin` as contiguous (`NoFatChain`) allocations.
+pub fn shrink_image() -> Vec<u8> {
+    let mut fs = small(4 << 20, 512);
+    let root = fs.root();
+    for (text, data) in shrink_files() {
+        let node = write(&mut fs, root, text, &data);
+        fs.forget(node, 1);
+    }
+    fs.sync().unwrap();
+    let mut image = image(fs);
+    let geo = Geometry::of(&image);
+    for text in ["victim.bin", "target.bin"] {
+        let set = geo.set(&image, geo.root, text);
+        geo.unchain(&mut image, &set);
+    }
+    image
+}
+
+/// The operations [`check_shrink_op`] checks on [`shrink_image`]: unlink a
+/// contiguous file, replace one by rename, shrink one to a non-zero length
+/// and to 0, and shrink a chained file to a non-zero length.
+pub const SHRINK_OPS: u32 = 5;
+
+/// Asserts that `image`, after operation `op` on [`shrink_image`] that
+/// `finished` or not, followed by recovery, checks clean and holds each
+/// file either as it was or as the operation left it.
+pub fn check_shrink_op(image: &[u8], op: u32, finished: bool, what: &str) {
+    let (_, found) = check_dev(&mut device(image.to_vec(), 512), 8192);
+    assert_eq!(found, [], "{what}");
+    let [victim, target, source, chained] = shrink_files().map(|(_, data)| data);
+    let mut fs = mount(image);
+    let present = |fs: &mut Fs, path: &str| fs.exists(path).unwrap();
+    let shrunk = |data: Vec<u8>, len: usize| {
+        if finished {
+            assert_eq!(data.len(), len, "{what}");
+        }
+        assert!(data.len() == len || data.len() == victim.len(), "{what}");
+        data
+    };
+    match op {
+        0 => {
+            assert!(!finished || !present(&mut fs, "/victim.bin"), "{what}");
+            if present(&mut fs, "/victim.bin") {
+                assert_eq!(read(&mut fs, "/victim.bin"), victim, "{what}");
+            }
+        }
+        1 => {
+            if !present(&mut fs, "/target.bin") {
+                assert!(!finished, "{what}");
+                assert_eq!(read(&mut fs, "/source.bin"), source, "{what}");
+                return;
+            }
+            let now = read(&mut fs, "/target.bin");
+            assert!(now == target || now == source, "{what}");
+            if finished || !present(&mut fs, "/source.bin") {
+                assert_eq!(now, source, "{what}");
+            }
+        }
+        2 | 3 => {
+            let len = if op == 2 { 513 } else { 0 };
+            let data = shrunk(read(&mut fs, "/victim.bin"), len);
+            assert_eq!(data, victim[..data.len()], "{what}");
+        }
+        _ => {
+            let data = shrunk(read(&mut fs, "/chained.bin"), 513);
+            assert_eq!(data, chained[..data.len()], "{what}");
+        }
+    }
 }
 
 /// Formats a volume and fills it: nested directories, long and Unicode

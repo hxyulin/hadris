@@ -86,6 +86,12 @@ created file its initial attributes. `File` has `read_at`, `write_at` and
 `r#async` has the same API with `Send` futures, so generic code over
 `F: FileSystem + 'static` can spawn on multi-threaded executors.
 
+A panic while a `Volume` holds its filesystem, in the driver, the device or
+code holding the `lock()` guard, fails the volume for good: every later call
+returns kind `Io` with `hadris_fs::Detail::VolumeFailed`, `lock()` included,
+`is_failed()` tells, and `into_inner()` still gives the filesystem back,
+whose state may be inconsistent.
+
 ## Write failures
 
 Filesystem mutations are not transactions. Invalid arguments and known

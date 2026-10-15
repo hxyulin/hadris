@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     file.write_all(b"Hello from Hadris\n")?;
     file.close()?;
 
-    vol.lock().sync()?;
+    vol.lock()?.sync()?;
     Ok(())
 }
 ```

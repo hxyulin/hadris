@@ -18,11 +18,15 @@ fn record(name: &[u8], area: &[u8], block: u32, len: u32, directory: bool) -> Di
 }
 
 fn image(area: &[u8], size: u32) -> (Vec<u8>, NodeId) {
-    let mut bytes = vec![0; 96 * 2048];
+    image_of(area, size, 96)
+}
+
+fn image_of(area: &[u8], size: u32, blocks: u32) -> (Vec<u8>, NodeId) {
+    let mut bytes = vec![0; blocks as usize * 2048];
     let root = record(&[0], &[], 20, size, true);
     let pvd = &mut bytes[16 * 2048..17 * 2048];
     pvd[..7].copy_from_slice(b"\x01CD001\x01");
-    pvd[80..88].copy_from_slice(bytemuck::bytes_of(&U32Both::new(96)));
+    pvd[80..88].copy_from_slice(bytemuck::bytes_of(&U32Both::new(blocks)));
     for at in [120, 124] {
         pvd[at..at + 4].copy_from_slice(bytemuck::bytes_of(&U16Both::new(1)));
     }
@@ -55,8 +59,77 @@ fn ce(block: u32, offset: u32, len: u32) -> Vec<u8> {
     out
 }
 
+fn px(mode: u32, links: u32, serial: u32) -> Vec<u8> {
+    let mut out = b"PX\x2c\x01".to_vec();
+    for value in [mode, links, 0, 0, serial] {
+        out.extend_from_slice(bytemuck::bytes_of(&U32Both::new(value)));
+    }
+    out
+}
+
+fn nm(name: &[u8]) -> Vec<u8> {
+    let mut out = vec![b'N', b'M', 5 + name.len() as u8, 1, 0];
+    out.extend_from_slice(name);
+    out
+}
+
+/// A Rock Ridge root holding `entries` (identifier, system use, data
+/// length), each with `hello` as data, and a path table.
+fn files(entries: &[(&[u8], Vec<u8>, u32)]) -> (Vec<u8>, Vec<NodeId>) {
+    let (mut bytes, first) = image(&[], 2048);
+    let pvd = 16 * 2048;
+    bytes[pvd + 132..pvd + 140].copy_from_slice(bytemuck::bytes_of(&U32Both::new(10)));
+    bytes[pvd + 140..pvd + 144].copy_from_slice(&19u32.to_le_bytes());
+    bytes[19 * 2048..19 * 2048 + 10].copy_from_slice(b"\x01\x00\x14\x00\x00\x00\x01\x00\x00\x00");
+    let mut at = first.get() as usize;
+    bytes[at..20 * 2048 + 2048].fill(0);
+    let mut nodes = Vec::new();
+    for (index, (name, area, len)) in entries.iter().enumerate() {
+        let block = 90 + index as u32;
+        let file = record(name, area, block, *len, false);
+        bytes[at..at + file.len()].copy_from_slice(file.as_bytes());
+        bytes[block as usize * 2048..block as usize * 2048 + 5].copy_from_slice(b"hello");
+        nodes.push(NodeId::new(at as u64).unwrap());
+        at += file.len();
+    }
+    (bytes, nodes)
+}
+
+/// A symlink record whose target, 30 components of 200 bytes, is split
+/// over `SL` entries in block-sized continuation areas, and the target.
+fn long_symlink() -> (Vec<u8>, NodeId, Vec<u8>) {
+    let components: Vec<Vec<u8>> = (0..30).map(|i| vec![b'a' + i as u8 % 26; 200]).collect();
+    let mut areas: Vec<Vec<u8>> = Vec::new();
+    for (index, component) in components.iter().enumerate() {
+        let last = index + 1 == components.len();
+        let mut entry = vec![b'S', b'L', 207, 1, u8::from(!last), 0, 200];
+        entry.extend_from_slice(component);
+        if index % 9 == 0 {
+            areas.push(Vec::new());
+        }
+        areas.last_mut().unwrap().extend(entry);
+    }
+    let count = areas.len();
+    let len = |index: usize, areas: &[Vec<u8>]| {
+        areas[index].len() as u32 + if index + 1 < count { 28 } else { 0 }
+    };
+    let mut su = nm(b"link");
+    su.extend(px(0o120_777, 1, 0));
+    su.extend(ce(30, 0, len(0, &areas)));
+    let (mut bytes, nodes) = files(&[(b"LINK;1", su, 0)]);
+    for index in 0..count {
+        let mut area = areas[index].clone();
+        if index + 1 < count {
+            area.extend(ce(31 + index as u32, 0, len(index + 1, &areas)));
+        }
+        let at = (30 + index) * 2048;
+        bytes[at..at + area.len()].copy_from_slice(&area);
+    }
+    (bytes, nodes[0], components.join(&b'/'))
+}
+
 fn chain(count: usize, cycle: bool) -> (Vec<u8>, NodeId) {
-    let (mut bytes, node) = image(&ce(30, 0, 28), 2048);
+    let (mut bytes, node) = image_of(&ce(30, 0, 28), 2048, 96.max(31 + count as u32));
     for i in 0..count {
         let area = if i + 1 < count || cycle {
             ce(if cycle { 30 } else { 31 + i as u32 }, 0, 28)
@@ -105,8 +178,9 @@ macro_rules! regressions {
                 }
                 for (count, cycle, valid) in [
                     (1, false, true),
-                    (16, false, true),
-                    (17, false, false),
+                    (31, false, true),
+                    (256, false, true),
+                    (257, false, false),
                     (1, true, false),
                 ] {
                     let (bytes, node) = chain(count, cycle);
@@ -169,6 +243,53 @@ macro_rules! regressions {
                     .unwrap()
                     .unwrap();
                 assert_eq!(entry.name().as_bytes(), b"continued");
+
+                let mut area = Vec::new();
+                while area.len() < 1 << 20 {
+                    let mut unknown = vec![0; 255];
+                    unknown[..4].copy_from_slice(b"ZZ\xff\x7f");
+                    area.extend(unknown);
+                }
+                area.extend(nm(b"big"));
+                let (mut bytes, node) = image_of(&ce(30, 8, area.len() as u32), 2048, 600);
+                bytes[30 * 2048 + 8..30 * 2048 + 8 + area.len()].copy_from_slice(&area);
+                let mut fs =
+                    IsoFs::mount(MemDevice::new(bytes, common::SECTOR), MountOptions::new())
+                        .await
+                        .unwrap();
+                fs.stat(node).await.unwrap();
+                let entry = fs
+                    .readdir(fs.root(), DirCursor::START)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(entry.name().as_bytes(), b"big");
+
+                let blocks = 2600u32;
+                for len in [(4 << 20) + 1, (blocks - 30) * 2048] {
+                    let (bytes, node) = image_of(&ce(30, 0, len), 2048, blocks);
+                    let mut fs =
+                        IsoFs::mount(MemDevice::new(bytes, common::SECTOR), MountOptions::new())
+                            .await
+                            .unwrap();
+                    let err = fs.stat(node).await.unwrap_err();
+                    assert_eq!(err.kind(), ErrorKind::Corrupt, "{len}");
+                    assert_eq!(Detail::of(&err), Some(Detail::SystemUse));
+                }
+                let (bytes, node) = image_of(&ce(30, 0, 4 << 20), 2048, blocks);
+                let mut fs =
+                    IsoFs::mount(MemDevice::new(bytes, common::SECTOR), MountOptions::new())
+                        .await
+                        .unwrap();
+                fs.stat(node).await.unwrap();
+                let (mut bytes, node) = image_of(&ce(30, 0, 3 << 20), 2048, 3600);
+                bytes[30 * 2048..30 * 2048 + 28].copy_from_slice(&ce(2000, 0, 3 << 20));
+                let mut fs =
+                    IsoFs::mount(MemDevice::new(bytes, common::SECTOR), MountOptions::new())
+                        .await
+                        .unwrap();
+                let err = fs.stat(node).await.unwrap_err();
+                assert_eq!(Detail::of(&err), Some(Detail::SystemUse));
 
                 let mut area = ce(33, 0, 13);
                 for _ in 0..8 {
@@ -283,6 +404,102 @@ macro_rules! async_case {
 regressions!(sync, malformed_records_sync, sync_case);
 #[cfg(feature = "async")]
 regressions!(r#async, malformed_records_async, async_case);
+
+macro_rules! damaged_regressions {
+    ($mode:ident, $name:ident, $run:ident) => {
+        #[test]
+        fn $name() {
+            $run!(async {
+                #[allow(unused_imports)]
+                use hadris_fs::$mode::FileSystem;
+                use hadris_fs::{DirCursor, ErrorKind, FileType, Metadata, MountOptions, Name};
+                use hadris_fs::{OpenMode, Permissions};
+                use hadris_iso::Detail;
+                use hadris_iso::$mode::IsoFs;
+                use hadris_storage::MemDevice;
+
+                for bad in [b"PX\x04\x01".to_vec(), ce(u32::MAX, 0, 4), ce(30, 0, 0)] {
+                    let mut good = nm(b"good");
+                    good.extend(px(0o100_644, 2, 7));
+                    let (bytes, nodes) =
+                        files(&[(b"FILE;1", bad.clone(), 5), (b"GOOD;1", good, 5)]);
+                    let mut fs =
+                        IsoFs::mount(MemDevice::new(bytes, common::SECTOR), MountOptions::new())
+                            .await
+                            .unwrap();
+                    let first = fs
+                        .readdir(fs.root(), DirCursor::START)
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(first.name().as_bytes(), b"FILE", "{bad:?}");
+                    assert_eq!(first.node(), nodes[0]);
+                    assert_eq!(
+                        first.metadata(),
+                        &Metadata::new(FileType::File, Permissions::new(0))
+                    );
+                    let err = fs.stat(first.node()).await.unwrap_err();
+                    assert_eq!(err.kind(), ErrorKind::Corrupt);
+                    assert_eq!(Detail::of(&err), Some(Detail::SystemUse));
+                    let err = fs.open(first.node(), OpenMode::Read).await.unwrap_err();
+                    assert_eq!(err.kind(), ErrorKind::Corrupt);
+                    let mut buf = [0u8; 64];
+                    let err = fs.readlink(first.node(), &mut buf).await.unwrap_err();
+                    assert_eq!(err.kind(), ErrorKind::Corrupt);
+
+                    let second = fs
+                        .readdir(fs.root(), first.next_cursor())
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(second.name().as_bytes(), b"good");
+                    assert_eq!(second.node(), nodes[1]);
+                    assert_eq!(second.metadata().permissions(), Permissions::new(0o100_644));
+                    assert_eq!(second.metadata().nlink(), 2);
+                    assert!(
+                        fs.readdir(fs.root(), second.next_cursor())
+                            .await
+                            .unwrap()
+                            .is_none()
+                    );
+                    let node = fs.lookup(fs.root(), Name::new(b"good")).await.unwrap();
+                    assert_eq!(node, nodes[1]);
+                    fs.open(node, OpenMode::Read).await.unwrap();
+                    assert_eq!(fs.read(node, 0, &mut buf).await.unwrap(), 5);
+                    assert_eq!(&buf[..5], b"hello");
+                    assert_eq!(fs.stat(node).await.unwrap().len(), 5);
+                    let node = fs.lookup(fs.root(), Name::new(b"FILE")).await.unwrap();
+                    assert_eq!(node, nodes[0]);
+                }
+
+                let (bytes, node, target) = long_symlink();
+                assert!(target.len() > 6000);
+                let mut fs =
+                    IsoFs::mount(MemDevice::new(bytes, common::SECTOR), MountOptions::new())
+                        .await
+                        .unwrap();
+                let entry = fs
+                    .readdir(fs.root(), DirCursor::START)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(entry.name().as_bytes(), b"link");
+                assert_eq!(entry.file_type(), FileType::Symlink);
+                assert_eq!(entry.metadata().len(), target.len() as u64);
+                assert_eq!(fs.stat(node).await.unwrap().len(), target.len() as u64);
+                let mut buf = vec![0u8; 8192];
+                assert_eq!(fs.readlink(node, &mut buf).await.unwrap(), &target[..]);
+                let mut short = vec![0u8; target.len() - 1];
+                let err = fs.readlink(node, &mut short).await.unwrap_err();
+                assert_eq!(err.kind(), ErrorKind::LimitExceeded);
+            });
+        }
+    };
+}
+
+damaged_regressions!(sync, damaged_entries_list_sync, sync_case);
+#[cfg(feature = "async")]
+damaged_regressions!(r#async, damaged_entries_list_async, async_case);
 
 macro_rules! timestamp_regressions {
     ($mode:ident, $name:ident, $run:ident) => {

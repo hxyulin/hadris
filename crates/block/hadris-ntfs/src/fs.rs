@@ -144,6 +144,39 @@ struct Found {
     name_len: usize,
 }
 
+/// The first byte range within `[offset, limit)` that `runs`, mapping an
+/// extent from byte `start`, store outside sparse runs. Runs that end
+/// before `limit` are malformed, as reading the bytes past them fails.
+fn stored_in_runs(
+    runs: &[u8],
+    cluster: u64,
+    start: u64,
+    offset: u64,
+    limit: u64,
+) -> Result<Option<(u64, u64)>, Detail> {
+    let mut at = start;
+    for run in Runs::new(runs) {
+        if at >= limit {
+            return Ok(None);
+        }
+        let run = run?;
+        let end = run
+            .len
+            .checked_mul(cluster)
+            .and_then(|bytes| at.checked_add(bytes))
+            .ok_or(Detail::DataRun)?;
+        let (from, to) = (at.max(offset), end.min(limit));
+        if run.lcn.is_some() && from < to {
+            return Ok(Some((from, to)));
+        }
+        at = end;
+    }
+    if at < limit {
+        return Err(Detail::DataRun);
+    }
+    Ok(None)
+}
+
 io_transform! {
 
 /// Reads `buf.len()` bytes from byte `offset` of `dev`, which holds `len`
@@ -573,6 +606,81 @@ async fn stream_read<D: BlockDevice>(
     }
 }
 
+/// The first byte range within `[offset, end)` of a value `stream_head`
+/// found that is stored on disk: below its initialized size and outside
+/// sparse runs. The bytes between such ranges read as zeros.
+#[allow(clippy::too_many_arguments)]
+async fn stored_range<D: BlockDevice>(
+    dev: &mut D,
+    info: &Info,
+    rec: &[u8],
+    base: u64,
+    kind: u32,
+    name: &[u8],
+    head: &Head,
+    offset: u64,
+    end: u64,
+) -> Result<Option<(u64, u64)>, Error<D::Error>> {
+    if head.flags & raw::ATTR_FLAG_COMPRESSED != 0 {
+        return Err(Detail::Compressed.into());
+    }
+    if head.flags & raw::ATTR_FLAG_ENCRYPTED != 0 {
+        return Err(Detail::Encrypted.into());
+    }
+    let limit = head.initialized.min(end);
+    if offset >= limit {
+        return Ok(None);
+    }
+    let cluster = info.geo.cluster_size;
+    match head.place {
+        Place::Resident(..) => Ok(Some((offset, limit))),
+        Place::Base => {
+            let attr = record::find_instance(rec, kind, name, 0)?.ok_or(Detail::Attribute)?;
+            let Body::NonResident(nr) = attr.body else {
+                return Err(Detail::Attribute.into());
+            };
+            Ok(stored_in_runs(nr.runs, cluster, 0, offset, limit)?)
+        }
+        Place::Listed => {
+            let mut pos = 0;
+            let mut found_name = [0u8; NAME_BYTES];
+            let mut ext = [0u8; MAX_RECORD];
+            let mut pending: Option<(Found, u64)> = None;
+            loop {
+                let next = loop {
+                    match next_attr(dev, info, rec, base, kind, &mut pos, &mut found_name).await? {
+                        Some(found) if &found_name[..found.name_len] == name => {
+                            let start = found.start_vcn.checked_mul(cluster).ok_or(Detail::DataRun)?;
+                            break Some((found, start));
+                        }
+                        Some(_) => {}
+                        None => break None,
+                    }
+                };
+                if let Some((current, start)) = pending {
+                    let stop = next.map_or(u64::MAX, |(_, stop)| stop);
+                    if stop <= start {
+                        return Err(Detail::AttributeList.into());
+                    }
+                    if stop > offset {
+                        let attr = load(dev, info, rec, &mut ext, kind, &current).await?;
+                        let Body::NonResident(nr) = attr.body else {
+                            return Err(Detail::AttributeList.into());
+                        };
+                        if let Some(range) = stored_in_runs(nr.runs, cluster, start, offset, limit.min(stop))? {
+                            return Ok(Some(range));
+                        }
+                    }
+                }
+                match next {
+                    Some(next) if next.1 < limit => pending = Some(next),
+                    _ => return Ok(None),
+                }
+            }
+        }
+    }
+}
+
 /// Reads `buf.len()` bytes from byte `offset` of a non-resident value whose
 /// extents an `$ATTRIBUTE_LIST` names, reading only the extension records
 /// of the extents the range touches.
@@ -927,15 +1035,49 @@ impl<D: BlockDevice> NtfsFs<D> {
         })
     }
 
-    /// Whether index block `block` is in use, from the directory's bitmap.
-    async fn block_in_use(&mut self, rec: &[u8], base: u64, bitmap: Option<Head>, block: u64) -> Result<bool, Error<D::Error>> {
+    /// The first index block at or after `from`, below `blocks`, that the
+    /// directory's bitmap marks in use. Bitmap bytes that are not stored
+    /// read as zeros and are skipped without being read; a bitmap with
+    /// fewer bits than `blocks` is malformed once the scan passes its end.
+    /// The bitmap is read `chunk.len()` bytes at a time.
+    #[allow(clippy::too_many_arguments)]
+    async fn next_block(&mut self, rec: &[u8], base: u64, bitmap: Option<Head>, blocks: u64, from: u64, chunk: &mut [u8]) -> Result<Option<u64>, Error<D::Error>> {
+        if from >= blocks {
+            return Ok(None);
+        }
         let head = bitmap.ok_or(Detail::Index)?;
-        let mut byte = [0u8];
-        let n = stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_BITMAP, &raw::I30, &head, block / 8, &mut byte).await?;
-        if n == 0 {
+        let covered = blocks.min(head.size.saturating_mul(8));
+        let mut block = from;
+        while block < covered {
+            let byte = block / 8;
+            let Some((start, end)) = stored_range(&mut self.dev, &self.info, rec, base, raw::ATTR_BITMAP, &raw::I30, &head, byte, covered.div_ceil(8)).await? else {
+                break;
+            };
+            if start > byte {
+                block = start.saturating_mul(8);
+                continue;
+            }
+            let want = (end - byte).min(chunk.len() as u64) as usize;
+            let n = stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_BITMAP, &raw::I30, &head, byte, &mut chunk[..want]).await?;
+            if n == 0 {
+                break;
+            }
+            for (i, &bits) in chunk[..n].iter().enumerate() {
+                let set = if i == 0 { bits & 0xFF << (block % 8) } else { bits };
+                if set != 0 {
+                    let found = (byte + i as u64) * 8 + u64::from(set.trailing_zeros());
+                    if found < covered {
+                        return Ok(Some(found));
+                    }
+                    break;
+                }
+            }
+            block = (byte + n as u64) * 8;
+        }
+        if blocks > covered {
             return Err(Detail::Index.into());
         }
-        Ok(byte[0] & 1 << (block % 8) != 0)
+        Ok(None)
     }
 
     /// Reads index block `block` into `buf` and checks it.
@@ -1055,7 +1197,7 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// @hadris-compliance partial
     /// @hadris-tests crafted::names_fold_case_through_upcase, read::large_directory_lists_every_entry
     /// @hadris-fuzz ntfs_read
-    /// @hadris-note Walks every index node instead of descending the B-tree by key.
+    /// @hadris-note Walks the index root and every index block the bitmap marks in use instead of descending the B-tree by key.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(dir = ?dir)))]
     /// Performs the [`FileSystem::lookup`] operation.
     pub async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
@@ -1082,11 +1224,11 @@ impl<D: BlockDevice> NtfsFs<D> {
             let (buf, header) = if node == 0 {
                 (index.root, 0x10)
             } else {
-                if !self.block_in_use(rec, base, bitmap, node - 1).await? {
-                    node += 1;
-                    continue;
-                }
-                self.index_block(rec, base, allocation, index.block_size, node - 1, &mut block).await?;
+                let Some(used) = self.next_block(rec, base, bitmap, blocks, node - 1, &mut block).await? else {
+                    break;
+                };
+                node = used + 1;
+                self.index_block(rec, base, allocation, index.block_size, used, &mut block).await?;
                 (&block[..index.block_size], 0x18)
             };
             let area = fs(record::index_node(buf, header))?;
@@ -1166,9 +1308,16 @@ impl<D: BlockDevice> NtfsFs<D> {
             let (buf, header) = if node == 0 {
                 (index.root, 0x10)
             } else {
-                if !self.block_in_use(rec, base, bitmap, node - 1).await? {
-                    raw_cursor = (node + 1) << CURSOR_SHIFT;
-                    continue;
+                match self.next_block(rec, base, bitmap, blocks, node - 1, &mut block).await? {
+                    None => {
+                        raw_cursor = CURSOR_END;
+                        continue;
+                    }
+                    Some(used) if used != node - 1 => {
+                        raw_cursor = (used + 1) << CURSOR_SHIFT;
+                        continue;
+                    }
+                    Some(_) => {}
                 }
                 self.index_block(rec, base, allocation, index.block_size, node - 1, &mut block).await?;
                 (&block[..index.block_size], 0x18)

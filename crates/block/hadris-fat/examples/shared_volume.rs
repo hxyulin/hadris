@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     })
     .join()
     .expect("volume worker panicked")?;
-    volume.lock().sync()?;
+    volume.lock()?.sync()?;
 
     println!("mounted {kind:?}, wrote /hello.txt");
     Ok(())
