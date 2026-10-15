@@ -8,18 +8,25 @@
 
 # Shared foundation
 /crates/core/hadris-io/ @hxyulin
+/crates/core/hadris-fs/ @hxyulin
 /crates/core/hadris-common/ @hxyulin
 /crates/core/hadris-storage/ @hxyulin
 /crates/core/hadris-macros/ @hxyulin
 
 # Format libraries
 /crates/optical/hadris-iso/ @hxyulin
+/crates/optical/hadris-iso-raw/ @hxyulin
 /crates/block/hadris-fat/ @hxyulin
 /crates/block/hadris-fat-raw/ @hxyulin
 /crates/optical/hadris-udf/ @hxyulin
+/crates/optical/hadris-udf-raw/ @hxyulin
 /crates/archive/hadris-cpio/ @hxyulin
+/crates/archive/hadris-cpio-raw/ @hxyulin
 /crates/block/hadris-part/ @hxyulin
+/crates/block/hadris-ntfs/ @hxyulin
+/crates/block/hadris-apfs/ @hxyulin
 
 # Meta-crate / general CLI
 /crates/core/hadris/ @hxyulin
 /crates/tools/hadris-cli/ @hxyulin
+/examples/ @hxyulin
