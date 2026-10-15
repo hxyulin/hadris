@@ -5,9 +5,8 @@ intended to be the final planned V2 minor release, without ruling out future
 correctness or security fixes. The stable V2 APIs remain compatible. exFAT,
 streaming, NTFS, and APFS retain their existing experimental status.
 
-The release has not been tagged or published. The latest published V2 release
-is 2.4.0. See [the changelog](../../CHANGELOG.md#250---2026-10-03) for all changes
-since that release, including the experimental APFS reader already on `main`.
+See [the changelog](../../CHANGELOG.md#250---2026-10-03) for all changes
+since 2.4.0, including the experimental APFS reader.
 
 ## V3 backport review
 

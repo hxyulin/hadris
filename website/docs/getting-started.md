@@ -10,8 +10,8 @@ only the formats and I/O mode the application needs.
 
 ## Get the release candidate
 
-These pages target `3.0.0-rc.2`; the latest published release candidate is
-`3.0.0-rc.1`. Select the release candidate explicitly:
+These pages target `3.0.0-rc.2`, the current release candidate. Select it
+explicitly:
 
 ```toml
 [dependencies.hadris]
