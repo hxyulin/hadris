@@ -208,18 +208,54 @@ fn child_entry(first_key: Vec<u8>, stored_oid: u64, hashed: bool) -> Entry {
     (first_key, value)
 }
 
+/// An index entry of a physical tree: a child's first key and its block.
+fn index_entry(first_key: Vec<u8>, child_block: u64) -> Entry {
+    (first_key, child_block.to_le_bytes().to_vec())
+}
+
 pub fn build_image() -> Vec<u8> {
     build_image_variant(Variant::Plain)
 }
 
+/// The filesystem records of files `range`: their root directory entries,
+/// inodes and (unless the variant keeps them in the file extent tree) extents.
+fn file_records(variant: Variant, range: std::ops::Range<u64>) -> Vec<Entry> {
+    let hashed = variant != Variant::PlainKeys;
+    let mut records = Vec::new();
+    for index in range {
+        records.push(drec_entry_bytes(
+            2,
+            file_name(index).as_bytes(),
+            16 + index,
+            hashed,
+        ));
+        let size = if variant == Variant::HugeFile && index == 0 {
+            u64::MAX
+        } else {
+            file_contents(index).len() as u64
+        };
+        records.push(inode_entry(16 + index, 100 + index, 0o100644, size));
+        if variant != Variant::SealedFext {
+            records.push(extent_entry(100 + index, BLOCK as u64, 10 + index));
+        }
+    }
+    records
+}
+
 pub fn build_image_variant(variant: Variant) -> Vec<u8> {
+    let mut records = vec![inode_entry(2, 2, 0o040755, 0)];
+    records.extend(file_records(variant, 0..FILE_COUNT));
+    build_image_records(variant, records)
+}
+
+/// Builds the image with `records` as the filesystem tree's contents.
+fn build_image_records(variant: Variant, mut records: Vec<Entry>) -> Vec<u8> {
     let sealed = matches!(variant, Variant::Sealed | Variant::SealedFext);
     let node_flags = match variant {
         Variant::Sealed | Variant::SealedFext => 8,
         Variant::Encrypted => 4,
         _ => 0,
     };
-    let hashed = variant != Variant::PlainKeys;
     let volume_incompat = match variant {
         Variant::PlainKeys => 0,
         Variant::SealedFext => DEFAULT_VOLUME_INCOMPAT | 0x20,
@@ -295,41 +331,22 @@ pub fn build_image_variant(variant: Variant) -> Vec<u8> {
     );
 
     let private = |index: u64| 100 + index;
-    let inode = |index: u64| 16 + index;
-    let leaf_records = |range: std::ops::Range<u64>| {
-        let mut entries = Vec::new();
-        for index in range.clone() {
-            entries.push(drec_entry_bytes(
-                2,
-                file_name(index).as_bytes(),
-                inode(index),
-                hashed,
-            ));
-        }
-        for index in range {
-            let size = if variant == Variant::HugeFile && index == 0 {
-                u64::MAX
-            } else {
-                file_contents(index).len() as u64
-            };
-            entries.push(inode_entry(inode(index), private(index), 0o100644, size));
-            if variant != Variant::SealedFext {
-                entries.push(extent_entry(private(index), BLOCK as u64, 10 + index));
-            }
-        }
-        entries
-    };
-    let mut first = vec![inode_entry(2, 2, 0o040755, 0)];
-    first.extend(leaf_records(0..2));
-    write(7, btree_node(1028, false, true, 0, None, 0, sealed, &first));
-    write(
-        8,
-        btree_node(1029, false, true, 0, None, 0, sealed, &leaf_records(2..4)),
-    );
-    write(
-        9,
-        btree_node(1030, false, true, 0, None, 0, sealed, &leaf_records(4..6)),
-    );
+    // The tree holds the records in key order: by object id, then record
+    // type (records sharing both keep their order). The leaves split that
+    // sequence and each index entry carries its child's first key, as APFS
+    // requires for keyed lookups.
+    records.sort_by_key(|(key, _)| {
+        let raw = u64::from_le_bytes(key[..8].try_into().unwrap());
+        (raw & 0x0fff_ffff_ffff_ffff, raw >> 60)
+    });
+    let leaves: Vec<&[Entry]> = records.chunks(records.len().div_ceil(3)).collect();
+    assert_eq!(leaves.len(), 3);
+    for (leaf, (block, oid)) in leaves.iter().zip([(7, 1028), (8, 1029), (9, 1030)]) {
+        write(
+            block,
+            btree_node(oid, false, true, 0, None, 0, sealed, leaf),
+        );
+    }
     write(
         6,
         btree_node(
@@ -341,9 +358,9 @@ pub fn build_image_variant(variant: Variant) -> Vec<u8> {
             tree_flags,
             sealed,
             &[
-                child_entry(fs_key(2, 3), 1028 - rebase, sealed),
+                child_entry(leaves[0][0].0.clone(), 1028 - rebase, sealed),
                 child_entry(
-                    drec_entry(2, &file_name(2), 0).0,
+                    leaves[1][0].0.clone(),
                     if variant == Variant::Revisit {
                         1028
                     } else {
@@ -351,7 +368,7 @@ pub fn build_image_variant(variant: Variant) -> Vec<u8> {
                     } - rebase,
                     sealed,
                 ),
-                child_entry(drec_entry(2, &file_name(4), 0).0, 1030 - rebase, sealed),
+                child_entry(leaves[2][0].0.clone(), 1030 - rebase, sealed),
             ],
         ),
     );
@@ -415,6 +432,19 @@ pub fn holey_extents(index: u64) -> Vec<hadris_apfs::types::FileExtentRecord> {
     vec![extent(0, 0), extent(2 * BLOCK as u64, 10 + index)]
 }
 
+/// An extent of `blocks` whole blocks starting at physical block `start`,
+/// built as [`holey_extents`] builds its records.
+#[allow(dead_code)]
+pub fn block_extent(
+    logical_address: u64,
+    blocks: u64,
+    start: u64,
+) -> hadris_apfs::types::FileExtentRecord {
+    let (mut key, value) = extent_entry(0, blocks * BLOCK as u64, start);
+    put(&mut key, 8, &logical_address.to_le_bytes());
+    hadris_apfs::types::FileExtentRecord::parse(&key, &value).unwrap()
+}
+
 /// What [`holey_extents`] read as, for a file of `2 * BLOCK + len` bytes.
 #[allow(dead_code)]
 pub fn holey_contents(index: u64) -> Vec<u8> {
@@ -425,7 +455,6 @@ pub fn holey_contents(index: u64) -> Vec<u8> {
 
 #[allow(dead_code)]
 pub fn use_case_image() -> Vec<u8> {
-    let mut image = build_image();
     let mut linked = inode_entry(16, 100, 0o100644, file_contents(0).len() as u64);
     put(&mut linked.1, 56, &2_i32.to_le_bytes());
     put(
@@ -463,7 +492,7 @@ pub fn use_case_image() -> Vec<u8> {
     value.extend_from_slice(target);
     let mut sparse = extent_entry(107, BLOCK as u64, 10);
     put(&mut sparse.0, 8, &(2 * BLOCK as u64).to_le_bytes());
-    let entries = vec![
+    let mut entries = vec![
         inode_entry(2, 2, 0o040755, 0),
         drec_entry(2, "alias.txt", 16),
         drec_entry(2, "file0.txt", 16),
@@ -485,9 +514,8 @@ pub fn use_case_image() -> Vec<u8> {
         extent_entry(107, BLOCK as u64, 0),
         sparse,
     ];
-    let block = btree_node(1028, false, true, 0, None, 0, false, &entries);
-    image[7 * BLOCK..8 * BLOCK].copy_from_slice(&block);
-    image
+    entries.extend(file_records(Variant::Plain, 2..FILE_COUNT));
+    build_image_records(Variant::Plain, entries)
 }
 
 #[allow(dead_code)]
@@ -534,7 +562,7 @@ pub const LONG_NAME: &str = "\u{e9}";
 /// Files 2 to 5 stay intact.
 #[allow(dead_code)]
 pub fn invalid_directory_image(case: &str) -> Vec<u8> {
-    let mut image = build_image();
+    // Files 2 to 5 are added below; file 0 is damaged, file 1 absent.
     let mut records = vec![
         inode_entry(2, 2, 0o040755, 0),
         drec_entry(2, "file0.txt", if case == "dangling" { 99 } else { 16 }),
@@ -556,6 +584,12 @@ pub fn invalid_directory_image(case: &str) -> Vec<u8> {
         "duplicate" => records.push(drec_entry(2, "FILE0.TXT", 16)),
         "mode" => put(&mut records[2].1, 80, &0o644_u16.to_le_bytes()),
         "inode" => records[2].1.truncate(40),
+        // File 0's inode keeps its field table but loses the data its only
+        // extended field declares.
+        "dstream" => {
+            let value = &mut records[2].1;
+            value.truncate(value.len() - 38);
+        }
         "long" => records[1] = drec_entry(2, &LONG_NAME.repeat(300), 16),
         "symlink_stream" => {
             let mut link = drec_entry(2, "link", 22);
@@ -574,23 +608,42 @@ pub fn invalid_directory_image(case: &str) -> Vec<u8> {
         }
         _ => panic!("unknown malformed directory case"),
     }
-    let block = btree_node(1028, false, true, 0, None, 0, false, &records);
-    image[7 * BLOCK..8 * BLOCK].copy_from_slice(&block);
+    records.extend(file_records(Variant::Plain, 2..FILE_COUNT));
+    let mut image = build_image_records(Variant::Plain, records);
     if case == "duplicate" {
         set_volume_incompatible_features(&mut image, 1);
     }
     image
 }
 
+/// An image whose container object map has an index root in block 2 naming
+/// two or three leaves in blocks 20 to 22, so a lookup must descend a level.
 #[allow(dead_code)]
 pub fn object_map_versions_image(entries: &[(u64, u64, u64, u32)], xid: u64) -> Vec<u8> {
     let mut image = build_image();
-    let entries: Vec<_> = entries
+    let mut entries: Vec<Entry> = entries
         .iter()
         .map(|&(oid, xid, address, flags)| omap_entry(oid, xid, address, flags))
         .collect();
-    let node = btree_node(2, true, true, 0, Some((16, 16)), 0x10, false, &entries);
-    image[2 * BLOCK..3 * BLOCK].copy_from_slice(&node);
+    entries.sort_by_key(|(key, _)| {
+        (
+            u64::from_le_bytes(key[..8].try_into().unwrap()),
+            u64::from_le_bytes(key[8..16].try_into().unwrap()),
+        )
+    });
+    let leaves: Vec<&[Entry]> = entries.chunks(entries.len().div_ceil(3)).collect();
+    assert!(
+        (2..=3).contains(&leaves.len()),
+        "the object map needs an index level"
+    );
+    let mut index = Vec::new();
+    for (leaf, block) in leaves.iter().zip([20_u64, 21, 22]) {
+        let node = btree_node(block, false, true, 0, None, 0, false, leaf);
+        image[block as usize * BLOCK..(block as usize + 1) * BLOCK].copy_from_slice(&node);
+        index.push(index_entry(leaf[0].0.clone(), block));
+    }
+    let root = btree_node(2, true, false, 1, Some((16, 16)), 0x10, false, &index);
+    image[2 * BLOCK..3 * BLOCK].copy_from_slice(&root);
     let mut superblock = image[..BLOCK].to_vec();
     put(&mut superblock, 16, &xid.to_le_bytes());
     image[..BLOCK].copy_from_slice(&seal(superblock));

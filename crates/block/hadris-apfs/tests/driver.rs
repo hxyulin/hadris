@@ -444,6 +444,7 @@ fn damaged_records_mount_and_fail_only_their_own_node() {
         ("extent", FileType::File),
         ("mode", FileType::File),
         ("inode", FileType::File),
+        ("dstream", FileType::File),
     ] {
         let mut fs = mount(invalid_directory_image(case));
         let listed = listing(&mut fs);
@@ -503,6 +504,83 @@ fn names_are_not_folded_rejected_by_length_or_required_to_be_utf8() {
         let n = fs.read(*node, 0, &mut buf).unwrap();
         assert_eq!(&buf[..n], file_contents(0));
     }
+}
+
+#[test]
+fn canonically_equivalent_names_resolve_on_a_normalization_insensitive_volume() {
+    let mut fs = mount(invalid_directory_image("long"));
+    let composed = LONG_NAME.repeat(300);
+    // The fixture's volume is normalization insensitive, so the same name
+    // spelled with a combining accent names the same entry.
+    let decomposed = "e\u{301}".repeat(300);
+    assert_ne!(composed, decomposed);
+    let node = fs.lookup(fs.root(), Name::new(&composed)).unwrap();
+    assert_eq!(fs.lookup(fs.root(), Name::new(&decomposed)).unwrap(), node);
+}
+
+#[test]
+fn case_insensitive_volumes_also_ignore_normalization() {
+    // A default macOS volume sets only the case-insensitive bit.
+    let mut image = invalid_directory_image("long");
+    set_volume_incompatible_features(&mut image, 1);
+    let mut fs = mount(image);
+    let composed = LONG_NAME.repeat(300);
+    let decomposed = "e\u{301}".repeat(300);
+    let node = fs.lookup(fs.root(), Name::new(&composed)).unwrap();
+    assert_eq!(fs.lookup(fs.root(), Name::new(&decomposed)).unwrap(), node);
+}
+
+#[test]
+fn listing_a_directory_does_not_fill_the_node_limit() {
+    let mut fs = ApfsFs::mount(
+        device(build_image()),
+        MountOptions::new().with_node_limit(2),
+    )
+    .unwrap();
+    let root = fs.root();
+    let mut cursor = DirCursor::START;
+    let mut listed = 0;
+    while let Some(entry) = fs.readdir(root, cursor).unwrap() {
+        cursor = entry.next_cursor();
+        assert_eq!(entry.metadata().len(), file_contents(listed).len() as u64);
+        listed += 1;
+    }
+    assert_eq!(listed, FILE_COUNT);
+    // The listing held nothing, so the limit still has room for a lookup.
+    assert_eq!(
+        fs.lookup(root, Name::new("file0.txt")).unwrap(),
+        NodeId::new(16).unwrap()
+    );
+}
+
+#[test]
+fn node_limit_caps_the_nodes_held() {
+    let mut fs = ApfsFs::mount(
+        device(build_image()),
+        MountOptions::new().with_node_limit(2),
+    )
+    .unwrap();
+    // The root and one file fit; the next node does not.
+    assert_eq!(
+        fs.lookup(fs.root(), Name::new("file0.txt")).unwrap(),
+        NodeId::new(16).unwrap()
+    );
+    assert_eq!(
+        fs.lookup(fs.root(), Name::new("file1.txt"))
+            .unwrap_err()
+            .kind(),
+        ErrorKind::LimitExceeded
+    );
+    assert_eq!(
+        fs.stat(NodeId::new(16).unwrap()).unwrap().len(),
+        file_contents(0).len() as u64
+    );
+    // Forgetting a node frees the room its records held.
+    fs.forget(NodeId::new(16).unwrap(), 1);
+    assert_eq!(
+        fs.lookup(fs.root(), Name::new("file1.txt")).unwrap(),
+        NodeId::new(17).unwrap()
+    );
 }
 
 fn checkpoint_image(copies: &[(usize, u64, Option<u8>, bool)]) -> Vec<u8> {

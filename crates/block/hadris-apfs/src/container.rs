@@ -7,7 +7,7 @@ use crate::types::container::ContainerSuperblock;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::types::container::{CheckpointMapBlock, CheckpointMapping};
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::types::filesystem::{SYMLINK_XATTR_NAME, XATTR_DATA_EMBEDDED, names_match, stream_size};
+use crate::types::filesystem::{SYMLINK_XATTR_NAME, XATTR_DATA_EMBEDDED, stream_size};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::types::object_map::{
     BTREE_HASHED, BTREE_PHYSICAL, OMAP_VAL_DELETED, OMAP_VAL_ENCRYPTED, OMAP_VAL_NOHEADER, ObjectMapBlock,
@@ -30,6 +30,10 @@ pub struct Container<D> {
     device_block_size: u32,
     #[cfg(feature = "alloc")]
     zero_error: Option<crate::ApfsError>,
+    /// The filesystem trees of the volume queried last, so that keyed
+    /// queries do not reload its object map and tree roots.
+    #[cfg(feature = "alloc")]
+    trees: Option<VolumeTrees>,
     #[cfg(feature = "encryption")]
     unlocked: Option<UnlockedVolume>,
 }
@@ -39,6 +43,92 @@ pub struct Container<D> {
 struct UnlockedVolume {
     uuid: [u8; 16],
     key: crate::crypto::VolumeKey,
+}
+
+/// A B-tree root, read once and kept for keyed descents.
+#[cfg(feature = "alloc")]
+#[derive(Debug)]
+struct BTreeRoot {
+    node: OwnedBTreeNode,
+    block: u64,
+    oid: u64,
+    info: crate::types::BTreeInfo,
+}
+
+/// The resolved trees of one volume at one transaction.
+#[cfg(feature = "alloc")]
+#[derive(Debug)]
+struct VolumeTrees {
+    volume_id: [u8; 16],
+    xid: u64,
+    map: ObjectMapTree,
+    fs: BTreeRoot,
+    /// The sealed volume's file extent tree (physical, keyed by data stream).
+    fext: Option<BTreeRoot>,
+}
+
+/// An object-map tree root, read once and queried by key.
+#[cfg(feature = "alloc")]
+#[derive(Debug)]
+struct ObjectMapTree {
+    root: BTreeRoot,
+    /// Only mappings at or below this transaction identifier are used.
+    max_xid: u64,
+}
+
+/// Orders an object-map key (`omap_key_t`) by `oid`, treating a key of `oid`
+/// whose transaction identifier is at or below `max_xid` as inside the wanted
+/// range. Entries of one object identifier are contiguous and sorted by
+/// transaction identifier, so the keys that compare `Equal` are exactly the
+/// mappings a lookup may use.
+#[cfg(feature = "alloc")]
+fn omap_key_order(key: &[u8], oid: u64, max_xid: u64) -> crate::Result<core::cmp::Ordering> {
+    let key_oid = crate::types::le_u64(key, 0)?;
+    if key_oid != oid {
+        return Ok(key_oid.cmp(&oid));
+    }
+    if crate::types::le_u64(key, 8)? > max_xid {
+        return Ok(core::cmp::Ordering::Greater);
+    }
+    Ok(core::cmp::Ordering::Equal)
+}
+
+/// Returns the indices of the index-node children that can hold entries
+/// `order` reports as `Equal`. An entry's child spans from its key to the next
+/// entry's key, so a child is entered unless it ends before the wanted range
+/// or starts after it.
+#[cfg(feature = "alloc")]
+fn range_children<F>(entries: &[OwnedEntry], order: &F) -> crate::Result<alloc::vec::Vec<usize>>
+where
+    F: Fn(&[u8]) -> crate::Result<core::cmp::Ordering>,
+{
+    use core::cmp::Ordering;
+    let mut children = alloc::vec::Vec::new();
+    for (i, entry) in entries.iter().enumerate() {
+        if order(&entry.key)? == Ordering::Greater {
+            break;
+        }
+        if let Some(next) = entries.get(i + 1)
+            && order(&next.key)? == Ordering::Less
+        {
+            continue;
+        }
+        children.push(i);
+    }
+    Ok(children)
+}
+
+/// Orders a filesystem-tree key by its `(object id, record type)` prefix.
+#[cfg(feature = "alloc")]
+fn fs_key_order(key: &[u8], id: u64, record_type: u8) -> crate::Result<core::cmp::Ordering> {
+    let key = FileSystemKey::parse(key)?;
+    Ok((key.id, key.record_type).cmp(&(id, record_type)))
+}
+
+/// Orders a file-extent-tree key (`fext_tree_key_t`) by its data stream id.
+#[cfg(feature = "alloc")]
+fn fext_key_order(key: &[u8], id: u64) -> crate::Result<core::cmp::Ordering> {
+    Ok(crate::types::le_u64(key, 0)?.cmp(&id))
 }
 
 impl<D> Container<D>
@@ -62,6 +152,8 @@ where
                 Ok(Self { device, info, device_block_size,
                     #[cfg(feature = "alloc")]
                     zero_error,
+                    #[cfg(feature = "alloc")]
+                    trees: None,
                     #[cfg(feature = "encryption")]
                     unlocked: None,
                 })
@@ -241,7 +333,21 @@ where
         if buffer.len() != self.info.superblock.block_size as usize {
             return Err(crate::ApfsError::InvalidValue("APFS block buffer length").into());
         }
-        if block >= self.info.superblock.block_count {
+        self.read_apfs_blocks(block, buffer).await
+    }
+
+    /// Reads consecutive APFS container blocks starting at `block` into
+    /// `buffer`, which holds a whole number of APFS blocks.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(block = block, bytes = buffer.len())))]
+    pub async fn read_apfs_blocks(&mut self, block: u64, buffer: &mut [u8]) -> hadris_fs::FsResult<(), D::Error> {
+        let block_size = self.info.superblock.block_size as usize;
+        if buffer.is_empty() || buffer.len() % block_size != 0 {
+            return Err(crate::ApfsError::InvalidValue("APFS block buffer length").into());
+        }
+        let blocks = buffer.len() as u64 / block_size as u64;
+        if block >= self.info.superblock.block_count
+            || block.checked_add(blocks).is_none_or(|end| end > self.info.superblock.block_count)
+        {
             return Err(crate::ApfsError::InvalidValue("APFS block outside container").into());
         }
         let device_block = block
@@ -252,7 +358,6 @@ where
         self.device
             .read_blocks(BlockIndex::new(device_block), buffer)
             .await
-
     }
 
     /// Reads an APFS container block into an owned buffer.
@@ -522,10 +627,14 @@ where
         superblock: &ContainerSuperblock,
     ) -> hadris_fs::FsResult<alloc::vec::Vec<VolumeSuperblock>, D::Error> {
         let mut volumes = alloc::vec::Vec::new();
-        let values = self.volume_object_map_values(superblock).await?;
-        let map = VirtualObjectMap::new(&values, superblock.object.transaction_identifier);
+        let object_map = self.object_map(superblock).await?;
+        let map = self
+            .object_map_tree_root(object_map, superblock.object.transaction_identifier)
+            .await?;
         for &oid in superblock.volume_oids.iter().filter(|&&oid| oid != 0) {
-            let Some(value) = map.resolve(oid) else { continue; };
+            let Some(value) = self.object_map_resolve(&map, oid).await? else {
+                continue;
+            };
             let data = self.read_apfs_block_vec(value.address).await?;
             verify_object(&data)?;
             volumes.push(VolumeSuperblock::parse(&data)?);
@@ -550,16 +659,10 @@ where
         oid: u64,
         max_transaction_id: u64,
     ) -> hadris_fs::FsResult<Option<ObjectMapValue>, D::Error> {
-        Ok(self
-            .object_map_values_for(object_map)
-            .await?
-            .into_iter()
-            .filter(|(key, _)| {
-                key.oid == oid && key.xid <= max_transaction_id
-            })
-            .max_by_key(|(key, _)| key.xid)
-            .map(|(_, value)| value)
-            .filter(|value| value.flags & OMAP_VAL_DELETED == 0))
+        let map = self
+            .object_map_tree_root(object_map, max_transaction_id)
+            .await?;
+        self.object_map_resolve(&map, oid).await
     }
 
     /// Resolves a virtual object identifier through a volume object map,
@@ -660,6 +763,94 @@ where
         Ok(values)
     }
 
+    /// Reads the object-map tree rooted at `object_map`, bounded to `max_xid`.
+    #[cfg(feature = "alloc")]
+    async fn object_map_tree_root(
+        &mut self,
+        object_map: ObjectMapBlock,
+        max_xid: u64,
+    ) -> hadris_fs::FsResult<ObjectMapTree, D::Error> {
+        let node = self.read_btree_node(object_map.tree_oid).await?;
+        Ok(ObjectMapTree {
+            root: BTreeRoot {
+                info: node.tree_info()?,
+                node,
+                block: object_map.tree_oid,
+                // An object-map tree's child links are physical addresses, so
+                // no key is rebased against the root's object identifier.
+                oid: 0,
+            },
+            max_xid,
+        })
+    }
+
+    /// Resolves one object identifier through `map` by key, taking the newest
+    /// mapping at or below the map's transaction identifier. A deleted mapping
+    /// resolves to `None` without falling back to an older version.
+    #[cfg(feature = "alloc")]
+    async fn object_map_resolve(
+        &mut self,
+        map: &ObjectMapTree,
+        oid: u64,
+    ) -> hadris_fs::FsResult<Option<ObjectMapValue>, D::Error> {
+        let entries = self.object_map_oid_entries(map, oid).await?;
+        let mut newest: Option<(u64, ObjectMapValue)> = None;
+        for entry in entries {
+            let xid = crate::types::le_u64(&entry.key, 8)?;
+            if newest.is_none_or(|(best, _)| xid >= best) {
+                newest = Some((xid, ObjectMapValue::parse(&entry.value)?));
+            }
+        }
+        Ok(newest
+            .map(|(_, value)| value)
+            .filter(|value| value.flags & OMAP_VAL_DELETED == 0))
+    }
+
+    /// Collects, in key order, the object-map entries of `oid` whose
+    /// transaction identifier is at or below `map.max_xid`.
+    ///
+    /// An object-map tree stores physical child addresses, so this descent
+    /// never resolves a child through an object map. The keyed descent of a
+    /// virtual tree does, which is why the two do not call each other.
+    #[cfg(feature = "alloc")]
+    async fn object_map_oid_entries(
+        &mut self,
+        map: &ObjectMapTree,
+        oid: u64,
+    ) -> hadris_fs::FsResult<alloc::vec::Vec<OwnedEntry>, D::Error> {
+        use core::cmp::Ordering;
+        let order = |key: &[u8]| omap_key_order(key, oid, map.max_xid);
+        let mut found = alloc::vec::Vec::new();
+        let mut visited = alloc::collections::BTreeSet::new();
+        visited.insert(map.root.block);
+        let mut stack = alloc::vec![map.root.node.clone()];
+        while let Some(node) = stack.pop() {
+            let entries = node.owned_entries(Some(map.root.info))?;
+            if node.is_leaf()? {
+                for entry in entries {
+                    if order(&entry.key)? == Ordering::Equal {
+                        found.push(entry);
+                    }
+                }
+                continue;
+            }
+            let children = range_children(&entries, &order)?;
+            // Pushed in reverse so the leftmost child is read first.
+            for index in children.into_iter().rev() {
+                let child_block = crate::types::le_u64(&entries[index].value, 0)?;
+                if !visited.insert(child_block) {
+                    return Err(crate::ApfsError::InvalidValue("B-tree node revisited").into());
+                }
+                let child = self.read_btree_node(child_block).await?;
+                if node.node()?.level.checked_sub(1) != Some(child.node()?.level) {
+                    return Err(crate::ApfsError::InvalidValue("B-tree child level").into());
+                }
+                stack.push(child);
+            }
+        }
+        Ok(found)
+    }
+
     /// Walks a B-tree whose child links are physical block addresses and
     /// returns owned leaf entries in traversal order.
     #[cfg(any(feature = "alloc", feature = "std"))]
@@ -677,7 +868,7 @@ where
         root_physical_block: u64,
         root_flags: u32,
         root_oid: u64,
-        virtual_map: Option<&VirtualObjectMap>,
+        virtual_map: Option<&ObjectMapTree>,
         volume: Option<&VolumeSuperblock>,
     ) -> hadris_fs::FsResult<alloc::vec::Vec<OwnedEntry>, D::Error> {
         let root = match volume {
@@ -685,7 +876,6 @@ where
             None => self.read_btree_node_with_flags(root_physical_block, root_flags).await?,
         };
         let info = root.tree_info()?;
-        let virtual_children = info.fixed.flags & BTREE_PHYSICAL == 0;
         let mut leaves = alloc::vec::Vec::new();
         let mut visited = alloc::collections::BTreeSet::new();
         visited.insert(root_physical_block);
@@ -697,38 +887,211 @@ where
                 leaves.extend(entries);
             } else {
                 for entry in entries.into_iter().rev() {
-                    let mut child_oid = crate::types::le_u64(&entry.value, 0)?;
-                    if virtual_children && info.fixed.flags & BTREE_HASHED != 0 {
-                        child_oid = root_oid
-                            .checked_add(child_oid)
-                            .ok_or(crate::ApfsError::AddressOverflow)?;
-                    }
-                    let (child_block, child_flags) = match virtual_map {
-                        Some(map) if virtual_children => {
-                            let mapping =
-                                map.resolve(child_oid)
-                                    .ok_or(crate::ApfsError::InvalidValue(
-                                        "B-tree child object not in object map",
-                                    ))?;
-                            (mapping.address, mapping.flags)
-                        }
-                        _ => (child_oid, 0),
-                    };
-                    if !visited.insert(child_block) {
-                        return Err(crate::ApfsError::InvalidValue("B-tree node revisited").into());
-                    }
-                    let child = match volume {
-                        Some(volume) => self.read_volume_btree_node_with_flags(volume, child_block, child_flags).await?,
-                        None => self.read_btree_node_with_flags(child_block, child_flags).await?,
-                    };
-                    if node.node()?.level.checked_sub(1) != Some(child.node()?.level) {
-                        return Err(crate::ApfsError::InvalidValue("B-tree child level").into());
-                    }
+                    let child = self
+                        .btree_child(&node, &entry.value, info, root_oid, virtual_map, volume, &mut visited)
+                        .await?;
                     stack.push(child);
                 }
             }
         }
         Ok(leaves)
+    }
+
+    /// Reads the child an index entry's value points at, resolving virtual
+    /// children through `virtual_map`, and checks it sits one level below
+    /// `parent` and has not been visited before.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[allow(clippy::too_many_arguments)]
+    async fn btree_child(
+        &mut self,
+        parent: &OwnedBTreeNode,
+        value: &[u8],
+        info: crate::types::BTreeInfo,
+        root_oid: u64,
+        virtual_map: Option<&ObjectMapTree>,
+        volume: Option<&VolumeSuperblock>,
+        visited: &mut alloc::collections::BTreeSet<u64>,
+    ) -> hadris_fs::FsResult<OwnedBTreeNode, D::Error> {
+        let virtual_children = info.fixed.flags & BTREE_PHYSICAL == 0;
+        let mut child_oid = crate::types::le_u64(value, 0)?;
+        if virtual_children && info.fixed.flags & BTREE_HASHED != 0 {
+            child_oid = root_oid
+                .checked_add(child_oid)
+                .ok_or(crate::ApfsError::AddressOverflow)?;
+        }
+        let (child_block, child_flags) = match virtual_map {
+            Some(map) if virtual_children => {
+                let mapping = self.object_map_resolve(map, child_oid).await?.ok_or(
+                    crate::ApfsError::InvalidValue("B-tree child object not in object map"),
+                )?;
+                (mapping.address, mapping.flags)
+            }
+            _ => (child_oid, 0),
+        };
+        if !visited.insert(child_block) {
+            return Err(crate::ApfsError::InvalidValue("B-tree node revisited").into());
+        }
+        let child = match volume {
+            Some(volume) => self.read_volume_btree_node_with_flags(volume, child_block, child_flags).await?,
+            None => self.read_btree_node_with_flags(child_block, child_flags).await?,
+        };
+        if parent.node()?.level.checked_sub(1) != Some(child.node()?.level) {
+            return Err(crate::ApfsError::InvalidValue("B-tree child level").into());
+        }
+        Ok(child)
+    }
+
+    /// Collects, in key order, the leaf entries whose key `order` reports as
+    /// `Equal`; `order` places a key relative to the wanted (contiguous) key
+    /// range. An index entry's child spans from its key to the next entry's
+    /// key, so the descent enters only the children that can hold the range
+    /// and reads the paths to it rather than the whole tree.
+    #[cfg(feature = "alloc")]
+    async fn btree_range<F>(
+        &mut self,
+        root: &BTreeRoot,
+        virtual_map: Option<&ObjectMapTree>,
+        volume: Option<&VolumeSuperblock>,
+        order: F,
+    ) -> hadris_fs::FsResult<alloc::vec::Vec<OwnedEntry>, D::Error>
+    where
+        F: Fn(&[u8]) -> crate::Result<core::cmp::Ordering>,
+    {
+        use core::cmp::Ordering;
+        let mut found = alloc::vec::Vec::new();
+        let mut visited = alloc::collections::BTreeSet::new();
+        visited.insert(root.block);
+        let mut stack = alloc::vec![root.node.clone()];
+        while let Some(node) = stack.pop() {
+            let entries = node.owned_entries(Some(root.info))?;
+            if node.is_leaf()? {
+                for entry in entries {
+                    if order(&entry.key)? == Ordering::Equal {
+                        found.push(entry);
+                    }
+                }
+                continue;
+            }
+            let children = range_children(&entries, &order)?;
+            // Pushed in reverse so the leftmost child is read first.
+            for index in children.into_iter().rev() {
+                let child = self
+                    .btree_child(
+                        &node,
+                        &entries[index].value,
+                        root.info,
+                        root.oid,
+                        virtual_map,
+                        volume,
+                        &mut visited,
+                    )
+                    .await?;
+                stack.push(child);
+            }
+        }
+        Ok(found)
+    }
+
+    /// Takes the volume's resolved trees out of the cache, loading them when
+    /// the cache holds another volume or transaction. Callers put them back.
+    #[cfg(feature = "alloc")]
+    async fn take_volume_trees(
+        &mut self,
+        volume: &VolumeSuperblock,
+    ) -> hadris_fs::FsResult<VolumeTrees, D::Error> {
+        #[cfg(feature = "encryption")]
+        if self.unlocked.is_some() {
+            self.check_unlocked_volume(volume)?;
+        }
+        let xid = volume.object.transaction_identifier;
+        if let Some(trees) = self.trees.take()
+            && trees.volume_id == volume.volume_id
+            && trees.xid == xid
+        {
+            return Ok(trees);
+        }
+        let object_map = self.object_map_at(volume.object_map_oid).await?;
+        let map = self
+            .object_map_tree_root(object_map, volume.object.transaction_identifier)
+            .await?;
+        let root = self
+            .object_map_resolve(&map, volume.root_tree_oid)
+            .await?
+            .ok_or(crate::ApfsError::InvalidValue(
+                "volume root tree object not found",
+            ))?;
+        let node = self
+            .read_volume_btree_node_with_flags(volume, root.address, root.flags)
+            .await?;
+        let fs = BTreeRoot {
+            info: node.tree_info()?,
+            node,
+            block: root.address,
+            oid: volume.root_tree_oid,
+        };
+        Ok(VolumeTrees {
+            volume_id: volume.volume_id,
+            xid,
+            map,
+            fs,
+            // The file extent tree root is read only when a stream needs it.
+            fext: None,
+        })
+    }
+
+    /// Returns, in key order, the filesystem-tree records of one object and
+    /// record type (e.g. a directory's entries, or a data stream's extents),
+    /// descending the tree by key. The volume's object map and tree root are
+    /// loaded on first use and kept for later queries on the same volume.
+    #[cfg(feature = "alloc")]
+    pub async fn filesystem_records(
+        &mut self,
+        volume: &VolumeSuperblock,
+        id: u64,
+        record_type: u8,
+    ) -> hadris_fs::FsResult<alloc::vec::Vec<OwnedEntry>, D::Error> {
+        let trees = self.take_volume_trees(volume).await?;
+        let found = self
+            .btree_range(&trees.fs, Some(&trees.map), Some(volume), |key| {
+                fs_key_order(key, id, record_type)
+            })
+            .await;
+        self.trees = Some(trees);
+        found
+    }
+
+    /// Returns a sealed volume's file extent tree records for one data
+    /// stream, or none when the volume has no such tree. The tree root is read
+    /// on first use.
+    #[cfg(feature = "alloc")]
+    pub(crate) async fn sealed_stream_extents(
+        &mut self,
+        volume: &VolumeSuperblock,
+        id: u64,
+    ) -> hadris_fs::FsResult<alloc::vec::Vec<FileExtentRecord>, D::Error> {
+        if !volume.is_sealed() || volume.fext_tree_oid == 0 {
+            return Ok(alloc::vec::Vec::new());
+        }
+        let mut trees = self.take_volume_trees(volume).await?;
+        if trees.fext.is_none() {
+            let node = self.read_btree_node_with_flags(volume.fext_tree_oid, 0).await?;
+            trees.fext = Some(BTreeRoot {
+                info: node.tree_info()?,
+                node,
+                block: volume.fext_tree_oid,
+                oid: 0,
+            });
+        }
+        let found = match trees.fext.as_ref() {
+            Some(fext) => self.btree_range(fext, None, None, |key| fext_key_order(key, id)).await,
+            None => Ok(alloc::vec::Vec::new()),
+        };
+        self.trees = Some(trees);
+        let mut extents = alloc::vec::Vec::new();
+        for entry in found? {
+            extents.push(FileExtentRecord::parse_fext(&entry.key, &entry.value)?);
+        }
+        Ok(extents)
     }
 
     /// Loads a volume's object map, bounded to the volume's transaction identifier.
@@ -755,13 +1118,16 @@ where
         if self.unlocked.is_some() {
             self.check_unlocked_volume(volume)?;
         }
+        let object_map = self.object_map_at(volume.object_map_oid).await?;
+        let map = self
+            .object_map_tree_root(object_map, volume.object.transaction_identifier)
+            .await?;
         let root = self
-            .resolve_volume_object(volume, volume.root_tree_oid)
+            .object_map_resolve(&map, volume.root_tree_oid)
             .await?
             .ok_or(crate::ApfsError::InvalidValue(
                 "volume root tree object not found",
             ))?;
-        let map = self.volume_object_map(volume).await?;
         self.walk_btree(root.address, root.flags, volume.root_tree_oid, Some(&map), Some(volume))
             .await
     }
@@ -775,11 +1141,11 @@ where
     ) -> hadris_fs::FsResult<alloc::vec::Vec<OwnedDirectoryEntryRecord>, D::Error> {
         let mut records = alloc::vec::Vec::new();
         let layout = volume.directory_key_layout();
-        for entry in self.filesystem_root_owned_entries(volume).await? {
-            let key = FileSystemKey::parse(&entry.key)?;
-            if key.id == directory_id && key.record_type == crate::types::filesystem::FS_TYPE_DIRECTORY_RECORD {
-                records.push(OwnedDirectoryEntryRecord::parse(&entry.key, &entry.value, layout)?);
-            }
+        let entries = self
+            .filesystem_records(volume, directory_id, crate::types::filesystem::FS_TYPE_DIRECTORY_RECORD)
+            .await?;
+        for entry in entries {
+            records.push(OwnedDirectoryEntryRecord::parse(&entry.key, &entry.value, layout)?);
         }
         Ok(records)
     }
@@ -792,12 +1158,12 @@ where
         directory_id: u64,
         name: &str,
     ) -> hadris_fs::FsResult<Option<OwnedDirectoryEntryRecord>, D::Error> {
-        let case_insensitive = volume.is_case_insensitive();
+        let comparison = volume.name_comparison();
         Ok(self
             .directory_owned_entries(volume, directory_id)
             .await?
             .into_iter()
-            .find(|entry| names_match(&entry.name, name, case_insensitive)))
+            .find(|entry| comparison.matches(&entry.name, name)))
     }
 
     /// Resolves a slash-separated path from the volume root directory.
@@ -879,13 +1245,13 @@ where
         volume: &VolumeSuperblock,
         inode: u64,
     ) -> hadris_fs::FsResult<Option<InodeRecord>, D::Error> {
-        for entry in self.filesystem_root_owned_entries(volume).await? {
-            let key = FileSystemKey::parse(&entry.key)?;
-            if key.id == inode && key.record_type == crate::types::filesystem::FS_TYPE_INODE {
-                return Ok(Some(InodeRecord::parse(&entry.key, &entry.value)?));
-            }
+        let entries = self
+            .filesystem_records(volume, inode, crate::types::filesystem::FS_TYPE_INODE)
+            .await?;
+        match entries.first() {
+            Some(entry) => Ok(Some(InodeRecord::parse(&entry.key, &entry.value)?)),
+            None => Ok(None),
         }
-        Ok(None)
     }
 
     /// Finds file extents for an inode/private data-stream identifier in the
@@ -897,13 +1263,13 @@ where
         id: u64,
     ) -> hadris_fs::FsResult<alloc::vec::Vec<FileExtentRecord>, D::Error> {
         let mut extents = alloc::vec::Vec::new();
-        for entry in self.filesystem_root_owned_entries(volume).await? {
-            let key = FileSystemKey::parse(&entry.key)?;
-            if key.id == id && key.record_type == crate::types::filesystem::FS_TYPE_FILE_EXTENT {
-                extents.push(FileExtentRecord::parse(&entry.key, &entry.value)?);
-            }
+        let entries = self
+            .filesystem_records(volume, id, crate::types::filesystem::FS_TYPE_FILE_EXTENT)
+            .await?;
+        for entry in entries {
+            extents.push(FileExtentRecord::parse(&entry.key, &entry.value)?);
         }
-        extents.extend(self.sealed_file_extents(volume).await?.into_iter().filter(|extent| extent.id == id));
+        extents.extend(self.sealed_stream_extents(volume, id).await?);
         extents.sort_by_key(|extent| extent.logical_address);
         Ok(extents)
     }
@@ -969,9 +1335,11 @@ where
     }
 
     /// Reads unencrypted file data at `offset` from extents returned by
-    /// [`Self::file_extents`] for a file of `size` bytes. Sparse extents and
-    /// ranges no extent covers read as zeros. Returns the bytes read, which
-    /// is zero at or past `size`. Encrypted extents require the volume-scoped
+    /// [`Self::file_extents`] for a file of `size` bytes. The extents are
+    /// sorted by logical address and do not overlap, and only those that cover
+    /// `offset` are read. Sparse extents and ranges no extent covers read as
+    /// zeros. Returns the bytes read, which is zero at or past `size`.
+    /// Encrypted extents require the volume-scoped
     /// [`Self::read_volume_extents_at`] API, even when a volume is unlocked.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub async fn read_extents_at(
@@ -987,7 +1355,8 @@ where
     /// Reads extents belonging to `volume`, including software-encrypted data.
     ///
     /// Encrypted extents require that exact volume to be unlocked. Extents must
-    /// be obtained from this volume's filesystem tree. Holes and EOF behave as
+    /// be obtained from this volume's filesystem tree, sorted by logical
+    /// address, and must not overlap. Holes and EOF behave as
     /// in [`Self::read_extents_at`]. The caller's buffer is unchanged on a
     /// credential or extent preflight failure.
     #[cfg(any(feature = "alloc", feature = "std"))]
@@ -1027,58 +1396,158 @@ where
         if offset >= size || buf.is_empty() {
             return Ok(0);
         }
+        self.check_extents(extents, volume_scoped)?;
+        self.read_checked_extents_at(extents, size, offset, buf).await
+    }
+
+    /// Checks the extents a read is about to use: their logical range must not
+    /// overflow, an encrypted one needs this volume's key, and a stored one
+    /// must lie inside the container.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    fn check_extents(
+        &self,
+        extents: &[FileExtentRecord],
+        volume_scoped: bool,
+    ) -> hadris_fs::FsResult<(), D::Error> {
+        let block_size = u64::from(self.info.superblock.block_size);
         for extent in extents {
             extent.logical_address.checked_add(extent.length).ok_or(crate::ApfsError::AddressOverflow)?;
             if extent.cryptography_id != 0 && (!volume_scoped || !self.has_volume_key()) {
                 return Err(crate::ApfsError::Unsupported("encrypted file extents").into());
             }
             if extent.cryptography_id != 0 {
-                extent.cryptography_id.checked_add(extent.length.div_ceil(u64::from(self.info.superblock.block_size)))
+                extent.cryptography_id.checked_add(extent.length.div_ceil(block_size))
                     .and_then(|end| end.checked_mul(u64::from(self.info.superblock.block_size / 512)))
                     .ok_or(crate::ApfsError::AddressOverflow)?;
             }
             if extent.physical_block != 0 {
-                let blocks = extent.length.div_ceil(u64::from(self.info.superblock.block_size));
+                let blocks = extent.length.div_ceil(block_size);
                 if extent.physical_block.checked_add(blocks).is_none_or(|end| end > self.info.superblock.block_count) {
                     return Err(crate::ApfsError::InvalidValue("file extent outside container").into());
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Reads `offset` of a `size`-byte stream from extents the caller checked
+    /// with [`Self::check_extents`], sorted by logical address and without
+    /// overlaps. Only the extents that overlap the range are read, whole
+    /// blocks at a time. Sparse extents and uncovered ranges read as zeros,
+    /// and the returned count is zero at or past `size`.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub(crate) async fn read_checked_extents_at(
+        &mut self,
+        extents: &[FileExtentRecord],
+        size: u64,
+        offset: u64,
+        buf: &mut [u8],
+    ) -> hadris_fs::FsResult<usize, D::Error> {
+        if offset >= size || buf.is_empty() {
+            return Ok(0);
+        }
         let end = size.min(offset.saturating_add(buf.len() as u64));
         let want = (end - offset) as usize;
         buf[..want].fill(0);
-        let block_size = u64::from(self.info.superblock.block_size);
-        let mut block = alloc::vec![0_u8; block_size as usize];
-        for extent in extents {
-            let extent_end = extent.logical_address.checked_add(extent.length)
-                .ok_or(crate::ApfsError::AddressOverflow)?;
-            let mut pos = extent.logical_address.max(offset);
-            let stop = extent_end.min(end);
-            if extent.physical_block == 0 {
+        let first = extents.partition_point(|extent| {
+            extent.logical_address.saturating_add(extent.length) <= offset
+        });
+        let mut scratch = alloc::vec::Vec::new();
+        for extent in &extents[first..] {
+            if extent.logical_address >= end {
+                break;
+            }
+            let pos = extent.logical_address.max(offset);
+            let stop = extent.logical_address.saturating_add(extent.length).min(end);
+            if extent.physical_block == 0 || pos >= stop {
                 continue;
             }
-            while pos < stop {
-                let relative = pos - extent.logical_address;
-                let physical = extent
-                    .physical_block
-                    .checked_add(relative / block_size)
-                    .ok_or(crate::ApfsError::AddressOverflow)?;
-                self.read_apfs_block(physical, &mut block).await?;
-                #[cfg(feature = "encryption")]
-                if extent.cryptography_id != 0 {
-                    let tweak = extent.cryptography_id.checked_add(relative / block_size)
-                        .and_then(|block| block.checked_mul(block_size / 512))
-                        .ok_or(crate::ApfsError::AddressOverflow)?;
-                    self.unlocked.as_ref().ok_or(hadris_fs::ErrorKind::InvalidInput)?.key.decrypt(&mut block, tweak)?;
-                }
-                let within = (relative % block_size) as usize;
-                let n = (block_size - within as u64).min(stop - pos) as usize;
-                let out = (pos - offset) as usize;
-                buf[out..out + n].copy_from_slice(&block[within..within + n]);
-                pos += n as u64;
+            if extent.cryptography_id != 0 && !self.has_volume_key() {
+                return Err(crate::ApfsError::Unsupported("encrypted file extents").into());
             }
+            #[cfg(feature = "encryption")]
+            if extent.cryptography_id != 0 {
+                self.read_encrypted_extent_range(extent, pos, stop, offset, buf).await?;
+                continue;
+            }
+            self.read_extent_range(extent, pos, stop, offset, buf, &mut scratch).await?;
         }
         Ok(want)
+    }
+
+    /// Reads `[pos, stop)` of one unencrypted extent, whole blocks at a time
+    /// and straight into `buf` when the range starts block-aligned. `scratch`
+    /// holds partial blocks and is allocated on first use.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    async fn read_extent_range(
+        &mut self,
+        extent: &FileExtentRecord,
+        pos: u64,
+        stop: u64,
+        offset: u64,
+        buf: &mut [u8],
+        scratch: &mut alloc::vec::Vec<u8>,
+    ) -> hadris_fs::FsResult<(), D::Error> {
+        let block_size = u64::from(self.info.superblock.block_size);
+        let mut pos = pos;
+        while pos < stop {
+            let relative = pos - extent.logical_address;
+            let physical = extent
+                .physical_block
+                .checked_add(relative / block_size)
+                .ok_or(crate::ApfsError::AddressOverflow)?;
+            let within = (relative % block_size) as usize;
+            let out = (pos - offset) as usize;
+            let blocks = (stop - pos) / block_size;
+            if within == 0 && blocks != 0 {
+                let len = (blocks * block_size) as usize;
+                self.read_apfs_blocks(physical, &mut buf[out..out + len]).await?;
+                pos += len as u64;
+                continue;
+            }
+            if scratch.len() as u64 != block_size {
+                scratch.resize(block_size as usize, 0);
+            }
+            self.read_apfs_block(physical, scratch).await?;
+            let n = (block_size - within as u64).min(stop - pos) as usize;
+            buf[out..out + n].copy_from_slice(&scratch[within..within + n]);
+            pos += n as u64;
+        }
+        Ok(())
+    }
+
+    /// Reads `[pos, stop)` of one encrypted extent, decrypting each block with
+    /// the tweak its position implies.
+    #[cfg(all(any(feature = "alloc", feature = "std"), feature = "encryption"))]
+    async fn read_encrypted_extent_range(
+        &mut self,
+        extent: &FileExtentRecord,
+        pos: u64,
+        stop: u64,
+        offset: u64,
+        buf: &mut [u8],
+    ) -> hadris_fs::FsResult<(), D::Error> {
+        let block_size = u64::from(self.info.superblock.block_size);
+        let mut block = alloc::vec![0_u8; block_size as usize];
+        let mut pos = pos;
+        while pos < stop {
+            let relative = pos - extent.logical_address;
+            let physical = extent
+                .physical_block
+                .checked_add(relative / block_size)
+                .ok_or(crate::ApfsError::AddressOverflow)?;
+            self.read_apfs_block(physical, &mut block).await?;
+            let tweak = extent.cryptography_id.checked_add(relative / block_size)
+                .and_then(|block| block.checked_mul(block_size / 512))
+                .ok_or(crate::ApfsError::AddressOverflow)?;
+            self.unlocked.as_ref().ok_or(hadris_fs::ErrorKind::InvalidInput)?.key.decrypt(&mut block, tweak)?;
+            let within = (relative % block_size) as usize;
+            let n = (block_size - within as u64).min(stop - pos) as usize;
+            let out = (pos - offset) as usize;
+            buf[out..out + n].copy_from_slice(&block[within..within + n]);
+            pos += n as u64;
+        }
+        Ok(())
     }
 
     /// Returns a symlink's target from its `com.apple.fs.symlink` attribute,
@@ -1089,11 +1558,10 @@ where
         volume: &VolumeSuperblock,
         inode: u64,
     ) -> hadris_fs::FsResult<Option<alloc::string::String>, D::Error> {
-        for entry in self.filesystem_root_owned_entries(volume).await? {
-            let key = FileSystemKey::parse(&entry.key)?;
-            if key.id != inode || key.record_type != crate::types::filesystem::FS_TYPE_XATTR {
-                continue;
-            }
+        let entries = self
+            .filesystem_records(volume, inode, crate::types::filesystem::FS_TYPE_XATTR)
+            .await?;
+        for entry in entries {
             let xattr = XattrRecord::parse(&entry.key, &entry.value)?;
             if xattr.id != inode || xattr.name != SYMLINK_XATTR_NAME {
                 continue;

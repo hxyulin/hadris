@@ -1,6 +1,8 @@
 //! APFS volume superblock parsing.
 
 use crate::types::filesystem::DirectoryKeyLayout;
+#[cfg(any(feature = "alloc", feature = "std"))]
+use crate::types::filesystem::NameComparison;
 use crate::types::object::{ObjectHeader, ObjectType};
 use crate::types::{le_u32, le_u64, take};
 
@@ -135,6 +137,24 @@ impl VolumeSuperblock {
     /// Returns whether the volume compares file names case-insensitively.
     pub const fn is_case_insensitive(&self) -> bool {
         self.incompatible_features & APFS_INCOMPAT_CASE_INSENSITIVE != 0
+    }
+
+    /// Returns whether the volume compares file names
+    /// normalization-insensitively. A case-insensitive volume always does,
+    /// whether or not the normalization bit is also set.
+    pub const fn is_normalization_insensitive(&self) -> bool {
+        self.incompatible_features
+            & (APFS_INCOMPAT_CASE_INSENSITIVE | APFS_INCOMPAT_NORMALIZATION_INSENSITIVE)
+            != 0
+    }
+
+    /// Returns how the volume compares directory entry names.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub const fn name_comparison(&self) -> NameComparison {
+        NameComparison::new(
+            self.is_case_insensitive(),
+            self.is_normalization_insensitive(),
+        )
     }
 
     /// Returns whether the volume is sealed.

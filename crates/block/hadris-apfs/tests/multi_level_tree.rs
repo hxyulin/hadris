@@ -85,7 +85,7 @@ fn a_child_named_twice_is_rejected() {
     let volumes = container.volume_superblocks(&superblock).unwrap();
     assert_eq!(
         container
-            .root_directory_owned_entries(&volumes[0])
+            .filesystem_root_owned_entries(&volumes[0])
             .unwrap_err()
             .kind(),
         hadris_io::ErrorKind::Corrupt
@@ -117,6 +117,34 @@ fn holes_read_as_zeros() {
             .unwrap(),
         0
     );
+}
+
+#[test]
+fn extents_spanning_blocks_read_at_any_offset() {
+    let image = build_image();
+    let mut container = open(&image);
+    // One extent holding two whole data blocks of the fixture.
+    let extents = [block_extent(0, 2, 10)];
+    let size = 2 * BLOCK as u64;
+    let mut buf = vec![0_u8; 2 * BLOCK];
+    let n = container
+        .read_extents_at(&extents, size, 0, &mut buf)
+        .unwrap();
+    assert_eq!(n, 2 * BLOCK);
+    assert_eq!(&buf[..file_contents(0).len()], file_contents(0));
+    assert_eq!(
+        &buf[BLOCK..BLOCK + file_contents(1).len()],
+        file_contents(1)
+    );
+
+    // A range straddling the block boundary reads both blocks. Each block is
+    // zero-padded past the file contents it holds.
+    let mut buf = [0xff_u8; 8];
+    let n = container
+        .read_extents_at(&extents, size, BLOCK as u64 - 4, &mut buf)
+        .unwrap();
+    assert_eq!(n, 8);
+    assert_eq!(&buf, &[0, 0, 0, 0, b'c', b'o', b'n', b't']);
 }
 
 #[test]
