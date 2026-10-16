@@ -344,7 +344,6 @@ where
         self.device
             .read_blocks(BlockIndex::new(device_block), buffer)
             .await
-
     }
 
     /// Reads an APFS container block into an owned buffer.
@@ -1016,23 +1015,13 @@ where
             block: root.address,
             oid: volume.root_tree_oid,
         };
-        let fext = if volume.is_sealed() && volume.fext_tree_oid != 0 {
-            let node = self.read_btree_node_with_flags(volume.fext_tree_oid, 0).await?;
-            Some(BTreeRoot {
-                info: node.tree_info()?,
-                node,
-                block: volume.fext_tree_oid,
-                oid: 0,
-            })
-        } else {
-            None
-        };
         Ok(VolumeTrees {
             volume_id: volume.volume_id,
             xid,
             map,
             fs,
-            fext,
+            // The file extent tree root is read only when a stream needs it.
+            fext: None,
         })
     }
 
@@ -1058,15 +1047,28 @@ where
     }
 
     /// Returns a sealed volume's file extent tree records for one data
-    /// stream, or none when the volume has no such tree.
+    /// stream, or none when the volume has no such tree. The tree root is read
+    /// on first use.
     #[cfg(feature = "alloc")]
-    async fn sealed_stream_extents(
+    pub(crate) async fn sealed_stream_extents(
         &mut self,
         volume: &VolumeSuperblock,
         id: u64,
     ) -> hadris_fs::FsResult<alloc::vec::Vec<FileExtentRecord>, D::Error> {
-        let trees = self.take_volume_trees(volume).await?;
-        let found = match &trees.fext {
+        if !volume.is_sealed() || volume.fext_tree_oid == 0 {
+            return Ok(alloc::vec::Vec::new());
+        }
+        let mut trees = self.take_volume_trees(volume).await?;
+        if trees.fext.is_none() {
+            let node = self.read_btree_node_with_flags(volume.fext_tree_oid, 0).await?;
+            trees.fext = Some(BTreeRoot {
+                info: node.tree_info()?,
+                node,
+                block: volume.fext_tree_oid,
+                oid: 0,
+            });
+        }
+        let found = match trees.fext.as_ref() {
             Some(fext) => self.btree_range(fext, None, None, |key| fext_key_order(key, id)).await,
             None => Ok(alloc::vec::Vec::new()),
         };

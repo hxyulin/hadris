@@ -2,11 +2,11 @@ use super::Container;
 use super::FileSystem;
 use super::storage::BlockDevice;
 use crate::types::filesystem::{
-    self, DirectoryEntryRecord, FileExtentRecord, FileSystemKey, XattrRecord, stream_size,
+    self, DirectoryEntryRecord, FileExtentRecord, XattrRecord, stream_size,
 };
 use crate::types::{ContainerSuperblock, InodeRecord, VolumeSuperblock};
 use crate::{Detail, VolumeSelector};
-use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use hadris_fs::{
     Capabilities, CaseRule, Charset, DateTime, DirCursor, DirEntry, Error, ErrorKind, Field,
@@ -67,7 +67,14 @@ fn selection_error<E>(kind: ErrorKind, message: &'static str) -> Error<E> {
     Error::new(kind, message).with_detail(Detail::VolumeSelection.code())
 }
 
-/// One indexed directory record; `name` holds the on-disk bytes.
+/// Whether an error reports a resource failure rather than a record that
+/// cannot be used. Such an error reaches the caller instead of being reported
+/// as a damaged node.
+fn is_resource(kind: ErrorKind) -> bool {
+    matches!(kind, ErrorKind::Io | ErrorKind::LimitExceeded)
+}
+
+/// One directory record; `name` holds the on-disk bytes.
 #[derive(Debug)]
 struct Entry {
     file_id: u64,
@@ -75,187 +82,122 @@ struct Entry {
     name: Vec<u8>,
 }
 
-/// Metadata indexed at mount. Records that cannot be used damage only the
-/// nodes they describe: such a node stays listed and fails `stat`, `read`
-/// and `readlink` with the reason in `damaged`.
+/// The reason a directory entry cannot describe the inode it names, or
+/// `None`: the type the entry records must agree with the inode's mode, and a
+/// directory's own parent must be the directory the entry appears in.
+fn entry_damage(parent: u64, flags: u16, inode: &InodeRecord) -> Option<&'static str> {
+    let Ok(kind) = file_type::<()>(inode) else {
+        return None;
+    };
+    let recorded = flags & filesystem::DREC_TYPE_MASK;
+    if recorded != 0 && recorded != entry_type(kind) {
+        return Some("APFS directory entry type disagrees with inode");
+    }
+    if kind.is_dir() && (inode.parent_id != parent || inode.id == parent) {
+        return Some("APFS directory parent disagrees with inode");
+    }
+    None
+}
+
+/// Node records read on demand and kept for the nodes in use.
+///
+/// A record that cannot be used damages only the node it describes: such a
+/// node stays listed and fails `stat`, `read`, `open` and `readlink` with the
+/// reason in `damaged`. `limit` caps how many nodes may be held at once; an
+/// operation that needs one more fails with `LimitExceeded`.
 #[derive(Debug, Default)]
-struct Index {
+struct Nodes {
+    limit: Option<usize>,
     inodes: BTreeMap<u64, InodeRecord>,
     damaged: BTreeMap<u64, &'static str>,
     directories: BTreeMap<u64, Vec<Entry>>,
     extents: BTreeMap<u64, Vec<FileExtentRecord>>,
-    symlinks: BTreeMap<u64, (u16, Vec<u8>)>,
+    symlinks: BTreeMap<u64, Option<(u16, Vec<u8>)>>,
 }
 
-impl Index {
-    fn parse<E>(
-        entries: Vec<crate::types::OwnedEntry>,
-        sealed_extents: Vec<FileExtentRecord>,
-        layout: filesystem::DirectoryKeyLayout,
-        limit: Option<usize>,
-    ) -> FsResult<Self, E> {
-        let mut index = Self::default();
-        let mut damaged_streams = BTreeSet::new();
-        let mut extents = sealed_extents;
-        for entry in entries {
-            let key = FileSystemKey::parse(&entry.key)?;
-            match key.record_type {
-                filesystem::FS_TYPE_INODE => {
-                    match InodeRecord::parse(&entry.key, &entry.value) {
-                        Ok(inode) => {
-                            if index.inodes.insert(inode.id, inode).is_some() {
-                                index.damaged.insert(inode.id, "duplicate APFS inode");
-                            }
-                        }
-                        Err(_) => {
-                            index.damaged.insert(key.id, "malformed APFS inode record");
-                        }
-                    }
-                    if limit.is_some_and(|limit| index.inodes.len() > limit) {
-                        return Err(ErrorKind::LimitExceeded.into());
-                    }
-                }
-                filesystem::FS_TYPE_DIRECTORY_RECORD => {
-                    let Ok(record) = DirectoryEntryRecord::parse(&entry.key, &entry.value, layout)
-                    else {
-                        continue;
-                    };
-                    if Name::new(record.name).check().is_err() {
-                        continue;
-                    }
-                    index
-                        .directories
-                        .entry(record.parent_id)
-                        .or_default()
-                        .push(Entry {
-                            file_id: record.file_id,
-                            flags: record.flags,
-                            name: record.name.to_vec(),
-                        });
-                }
-                filesystem::FS_TYPE_FILE_EXTENT => {
-                    match FileExtentRecord::parse(&entry.key, &entry.value) {
-                        Ok(extent) => extents.push(extent),
-                        Err(_) => {
-                            damaged_streams.insert(key.id);
-                        }
-                    }
-                }
-                filesystem::FS_TYPE_XATTR => {
-                    let Ok(xattr) = XattrRecord::parse(&entry.key, &entry.value) else {
-                        continue;
-                    };
-                    if xattr.name == filesystem::SYMLINK_XATTR_NAME
-                        && index
-                            .symlinks
-                            .insert(xattr.id, (xattr.flags, xattr.data.to_vec()))
-                            .is_some()
-                    {
-                        index
-                            .damaged
-                            .insert(xattr.id, "duplicate APFS symlink target");
-                    }
-                }
-                _ => {}
-            }
-        }
-        for extent in extents {
-            if extent.logical_address.checked_add(extent.length).is_none() {
-                damaged_streams.insert(extent.id);
-            } else {
-                index.extents.entry(extent.id).or_default().push(extent);
-            }
-        }
-        for (&id, extents) in &mut index.extents {
-            extents.sort_by_key(|extent| extent.logical_address);
-            let mut end = 0;
-            for extent in extents {
-                if extent.logical_address < end {
-                    damaged_streams.insert(id);
-                }
-                end = extent.logical_address + extent.length;
-            }
-        }
-        index.damage_streams(&damaged_streams, "damaged APFS file extents");
-        Ok(index)
-    }
-
-    fn damage_streams(&mut self, streams: &BTreeSet<u64>, reason: &'static str) {
-        if streams.is_empty() {
-            return;
-        }
-        for inode in self.inodes.values() {
-            if streams.contains(&inode.private_id) {
-                self.damaged.entry(inode.id).or_insert(reason);
-            }
+impl Nodes {
+    fn new(limit: Option<usize>) -> Self {
+        Self {
+            limit,
+            ..Self::default()
         }
     }
 
-    fn validate(&mut self, block_size: u32, block_count: u64) {
-        let mut damaged = Vec::new();
-        for (&parent, entries) in &self.directories {
-            for entry in entries {
-                let Some(inode) = self.inodes.get(&entry.file_id) else {
-                    damaged.push((entry.file_id, "APFS directory entry inode missing"));
-                    continue;
-                };
-                let Ok(kind) = file_type::<()>(inode) else {
-                    continue;
-                };
-                let recorded = entry.flags & filesystem::DREC_TYPE_MASK;
-                if recorded != 0 && recorded != entry_type(kind) {
-                    damaged.push((
-                        entry.file_id,
-                        "APFS directory entry type disagrees with inode",
-                    ));
-                } else if kind.is_dir() && (inode.parent_id != parent || inode.id == parent) {
-                    damaged.push((entry.file_id, "APFS directory parent disagrees with inode"));
-                }
-            }
-        }
-        for (id, reason) in damaged {
-            self.damaged.entry(id).or_insert(reason);
-        }
-        let outside: BTreeSet<u64> = self
-            .extents
-            .iter()
-            .filter(|(_, extents)| {
-                extents.iter().any(|extent| {
-                    extent.physical_block != 0
-                        && extent
-                            .physical_block
-                            .checked_add(extent.length.div_ceil(u64::from(block_size)))
-                            .is_none_or(|end| end > block_count)
-                })
-            })
-            .map(|(&id, _)| id)
-            .collect();
-        self.damage_streams(&outside, "APFS file extent outside container");
+    /// Records why a node cannot be used.
+    fn record(&mut self, node: u64, reason: &'static str) {
+        self.damaged.insert(node, reason);
     }
 
+    /// Records why a node cannot be used and returns the error to report.
+    fn damage<E>(&mut self, node: u64, reason: &'static str) -> Error<E> {
+        self.record(node, reason);
+        Error::new(ErrorKind::Corrupt, reason)
+    }
+
+    /// Fails with `LimitExceeded` when reading a node's records would hold
+    /// more nodes than `limit` allows.
+    fn reserve<E>(&self, node: u64) -> FsResult<(), E> {
+        if self.inodes.contains_key(&node) || self.damaged.contains_key(&node) {
+            return Ok(());
+        }
+        match self.limit {
+            Some(limit) if self.inodes.len() + self.damaged.len() >= limit => {
+                Err(ErrorKind::LimitExceeded.into())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Drops everything held for `node`.
+    fn release(&mut self, node: u64) {
+        if let Some(inode) = self.inodes.remove(&node) {
+            self.extents.remove(&inode.private_id);
+        }
+        self.directories.remove(&node);
+        self.extents.remove(&node);
+        self.symlinks.remove(&node);
+        self.damaged.remove(&node);
+    }
+
+    fn entries(&self, dir: u64) -> &[Entry] {
+        self.directories.get(&dir).map_or(&[], Vec::as_slice)
+    }
+
+    fn extents(&self, stream: u64) -> &[FileExtentRecord] {
+        self.extents.get(&stream).map_or(&[], Vec::as_slice)
+    }
+
+    /// Returns a symlink target recorded for `inode`.
     fn target<E>(&self, inode: u64) -> FsResult<&[u8], E> {
-        let (flags, data) = self
-            .symlinks
-            .get(&inode)
-            .ok_or_else(|| Error::new(ErrorKind::Corrupt, "APFS symlink target missing"))?;
-        if flags & filesystem::XATTR_DATA_EMBEDDED == 0 {
-            return Err(
-                crate::ApfsError::Unsupported("symlink target stored in a data stream").into(),
-            );
-        }
-        let target = data.strip_suffix(&[0]).unwrap_or(data);
-        if target.contains(&0) {
-            return Err(Error::new(
-                ErrorKind::Corrupt,
-                "APFS symlink target contains NUL",
-            ));
-        }
-        Ok(target)
+        symlink_target(self.symlinks.get(&inode).and_then(Option::as_ref))
     }
+}
 
-    fn extents(&self, id: u64) -> &[FileExtentRecord] {
-        self.extents.get(&id).map_or(&[], Vec::as_slice)
+/// The target a symlink's attribute holds.
+fn symlink_target<E>(attribute: Option<&(u16, Vec<u8>)>) -> FsResult<&[u8], E> {
+    let (flags, data) =
+        attribute.ok_or_else(|| Error::new(ErrorKind::Corrupt, "APFS symlink target missing"))?;
+    if flags & filesystem::XATTR_DATA_EMBEDDED == 0 {
+        return Err(crate::ApfsError::Unsupported("symlink target stored in a data stream").into());
     }
+    let target = data.strip_suffix(&[0]).unwrap_or(data);
+    if target.contains(&0) {
+        return Err(Error::new(
+            ErrorKind::Corrupt,
+            "APFS symlink target contains NUL",
+        ));
+    }
+    Ok(target)
+}
+
+/// A file's size and the bytes its extents allocate.
+fn extent_sizes<E>(inode: &InodeRecord, extents: &[FileExtentRecord]) -> FsResult<(u64, u64), E> {
+    let allocated = extents
+        .iter()
+        .filter(|extent| extent.physical_block != 0)
+        .try_fold(0u64, |total, extent| total.checked_add(extent.length))
+        .ok_or(ErrorKind::Corrupt)?;
+    Ok((stream_size(inode, extents), allocated))
 }
 
 io_transform! {
@@ -263,10 +205,13 @@ io_transform! {
 /// Read-only APFS volume driver implementing the shared filesystem contract.
 ///
 /// Node identifiers are stable APFS inode identifiers. The driver owns one
-/// container and selects one volume from its newest checkpoint. It allocates
-/// metadata once at mount, but reads file data with one APFS block of scratch
-/// space regardless of file length. Compression, encryption and snapshots
-/// remain unsupported.
+/// container and selects one volume from its newest checkpoint. It reads a
+/// node's records when an operation first needs them and keeps them for the
+/// nodes in use, so mounting a large volume does not read the whole
+/// filesystem tree. File data is read with one APFS block of scratch space
+/// regardless of file length. `MountOptions::with_node_limit` caps how many
+/// nodes may be held; an operation that needs one more fails with
+/// `LimitExceeded`. Compression, encryption and snapshots remain unsupported.
 ///
 /// A record that cannot be used damages only its node: the entry is listed
 /// with the type its directory record holds, and `stat`, `open`, `read` and
@@ -278,7 +223,7 @@ pub struct ApfsFs<D> {
     container: Container<D>,
     checkpoint: ContainerSuperblock,
     volume: VolumeSuperblock,
-    index: Index,
+    nodes: Nodes,
 }
 
 impl<D: BlockDevice> ApfsFs<D> {
@@ -349,18 +294,28 @@ impl<D: BlockDevice> ApfsFs<D> {
         credentials: Option<(&[u8], Option<[u8; 16]>)>,
     ) -> Result<Self, MountError<D, D::Error>> {
         let mut container = Container::try_open(device).await?;
-        match Self::select_volume(&mut container, selector, options.node_limit(), credentials).await {
-            Ok((checkpoint, volume, index)) => Ok(Self { container, checkpoint, volume, index }),
-            Err(error) => Err(MountError::new(error, container.into_inner())),
+        let selected = match Self::select_volume(&mut container, selector, credentials).await {
+            Ok(selected) => selected,
+            Err(error) => return Err(MountError::new(error, container.into_inner())),
+        };
+        let (checkpoint, volume) = selected;
+        let mut fs = Self {
+            container,
+            checkpoint,
+            volume,
+            nodes: Nodes::new(options.node_limit()),
+        };
+        match fs.check_root().await {
+            Ok(()) => Ok(fs),
+            Err(error) => Err(MountError::new(error, fs.container.into_inner())),
         }
     }
 
     async fn select_volume(
         container: &mut Container<D>,
         selector: Option<VolumeSelector<'_>>,
-        limit: Option<usize>,
         credentials: Option<(&[u8], Option<[u8; 16]>)>,
-    ) -> FsResult<(ContainerSuperblock, VolumeSuperblock, Index), D::Error> {
+    ) -> FsResult<(ContainerSuperblock, VolumeSuperblock), D::Error> {
         let checkpoint = container.latest_superblock().await?;
         checkpoint.check_incompatible_features()?;
         let volumes = container.volume_superblocks(&checkpoint).await?;
@@ -399,19 +354,24 @@ impl<D: BlockDevice> ApfsFs<D> {
                 return Err(ErrorKind::Unsupported.into());
             }
         }
-        let entries = container.filesystem_root_owned_entries(&volume).await?;
-        let sealed_extents = container.sealed_file_extents(&volume).await?;
-        let mut index = Index::parse(entries, sealed_extents, volume.directory_key_layout(), limit)?;
-        index.validate(checkpoint.block_size, checkpoint.block_count);
-        if let Some(reason) = index.damaged.get(&crate::types::filesystem::INODE_ROOT_DIRECTORY) {
-            return Err(Error::new(ErrorKind::Corrupt, reason));
-        }
-        let root = index.inodes.get(&crate::types::filesystem::INODE_ROOT_DIRECTORY)
-            .ok_or_else(|| Error::new(ErrorKind::Corrupt, "APFS root inode missing"))?;
-        if !file_type::<D::Error>(root)?.is_dir() {
+        Ok((checkpoint, volume))
+    }
+
+    /// Reads the root inode and the directory entries that name it, so that a
+    /// volume whose root cannot be read fails at mount.
+    async fn check_root(&mut self) -> FsResult<(), D::Error> {
+        let root = self.root();
+        let inode = match self.inode(root).await {
+            Ok(inode) => inode,
+            Err(error) if error.kind() == ErrorKind::InvalidHandle => {
+                return Err(Error::new(ErrorKind::Corrupt, "APFS root inode missing"));
+            }
+            Err(error) => return Err(error),
+        };
+        if !file_type::<D::Error>(&inode)?.is_dir() {
             return Err(Error::new(ErrorKind::Corrupt, "APFS root is not a directory"));
         }
-        Ok((checkpoint, volume, index))
+        Ok(())
     }
 
     /// The selected volume superblock, including its UUID, name and slot.
@@ -450,11 +410,165 @@ impl<D: BlockDevice> ApfsFs<D> {
         Ok(self.container.into_inner())
     }
 
+    /// Returns a node's inode record, reading it and the directory entries
+    /// that name it on first use. A record that cannot be used damages the
+    /// node, which fails here from then on.
     async fn inode(&mut self, node: NodeId) -> FsResult<InodeRecord, D::Error> {
-        if let Some(reason) = self.index.damaged.get(&node.get()) {
+        let id = node.get();
+        if let Some(reason) = self.nodes.damaged.get(&id) {
             return Err(Error::new(ErrorKind::Corrupt, reason));
         }
-        self.index.inodes.get(&node.get()).copied().ok_or_else(|| ErrorKind::InvalidHandle.into())
+        if let Some(inode) = self.nodes.inodes.get(&id) {
+            return Ok(*inode);
+        }
+        self.nodes.reserve(id)?;
+        let inode = self.read_inode(id).await?;
+        if let Some(reason) = self.entry_damage(inode.parent_id, id, &inode).await? {
+            return Err(self.nodes.damage(id, reason));
+        }
+        self.nodes.inodes.insert(id, inode);
+        Ok(inode)
+    }
+
+    /// The reason a directory entry in `parent` cannot describe `inode`, as
+    /// the mount reported for every record at once; see [`entry_damage`].
+    async fn entry_damage(
+        &mut self,
+        parent: u64,
+        id: u64,
+        inode: &InodeRecord,
+    ) -> FsResult<Option<&'static str>, D::Error> {
+        Ok(self
+            .directory_entries(parent)
+            .await?
+            .iter()
+            .filter(|entry| entry.file_id == id)
+            .find_map(|entry| entry_damage(parent, entry.flags, inode)))
+    }
+
+    /// Reads a directory's entries in key order on first use, skipping records
+    /// that do not parse and names the entry type cannot carry.
+    async fn directory_entries(&mut self, dir: u64) -> FsResult<&[Entry], D::Error> {
+        if !self.nodes.directories.contains_key(&dir) {
+            self.nodes.reserve(dir)?;
+            let layout = self.volume.directory_key_layout();
+            let mut entries = alloc::vec::Vec::new();
+            for entry in self
+                .container
+                .filesystem_records(&self.volume, dir, filesystem::FS_TYPE_DIRECTORY_RECORD)
+                .await?
+            {
+                let Ok(record) = DirectoryEntryRecord::parse(&entry.key, &entry.value, layout)
+                else {
+                    continue;
+                };
+                if Name::new(record.name).check().is_err() {
+                    continue;
+                }
+                entries.push(Entry {
+                    file_id: record.file_id,
+                    flags: record.flags,
+                    name: record.name.to_vec(),
+                });
+            }
+            self.nodes.directories.insert(dir, entries);
+        }
+        Ok(self.nodes.entries(dir))
+    }
+
+    /// Reads a data stream's extents and checks them, as the mount did for
+    /// every stream at once. A stream that fails damages the node the
+    /// extents belong to.
+    async fn read_extents(&mut self, inode: &InodeRecord) -> FsResult<alloc::vec::Vec<FileExtentRecord>, D::Error> {
+        let stream = inode.private_id;
+        let mut extents = alloc::vec::Vec::new();
+        let mut reason = None;
+        for entry in self
+            .container
+            .filesystem_records(&self.volume, stream, filesystem::FS_TYPE_FILE_EXTENT)
+            .await?
+        {
+            match FileExtentRecord::parse(&entry.key, &entry.value) {
+                Ok(extent) => extents.push(extent),
+                Err(_) => reason = Some("damaged APFS file extents"),
+            }
+        }
+        extents.extend(self.container.sealed_stream_extents(&self.volume, stream).await?);
+        extents.sort_by_key(|extent| extent.logical_address);
+        let block_size = u64::from(self.checkpoint.block_size);
+        let mut end = 0;
+        for extent in &extents {
+            let Some(extent_end) = extent.logical_address.checked_add(extent.length) else {
+                reason = Some("damaged APFS file extents");
+                continue;
+            };
+            if extent.logical_address < end {
+                reason = Some("damaged APFS file extents");
+            }
+            end = extent_end;
+            if extent.physical_block != 0
+                && extent
+                    .physical_block
+                    .checked_add(extent.length.div_ceil(block_size))
+                    .is_none_or(|end| end > self.checkpoint.block_count)
+            {
+                reason = Some("APFS file extent outside container");
+            }
+        }
+        if let Some(reason) = reason {
+            return Err(self.nodes.damage(inode.id, reason));
+        }
+        Ok(extents)
+    }
+
+    /// Reads a data stream's extents on first use and holds them for the node.
+    async fn load_extents(&mut self, inode: &InodeRecord) -> FsResult<(), D::Error> {
+        if self.nodes.extents.contains_key(&inode.private_id) {
+            return Ok(());
+        }
+        let extents = self.read_extents(inode).await?;
+        self.nodes.extents.insert(inode.private_id, extents);
+        Ok(())
+    }
+
+    /// Reads a symlink's target attribute. A duplicated target damages the
+    /// node.
+    async fn read_symlink(&mut self, inode: u64) -> FsResult<Option<(u16, Vec<u8>)>, D::Error> {
+        let mut target: Option<(u16, Vec<u8>)> = None;
+        let mut duplicate = false;
+        for entry in self
+            .container
+            .filesystem_records(&self.volume, inode, filesystem::FS_TYPE_XATTR)
+            .await?
+        {
+            let Ok(xattr) = XattrRecord::parse(&entry.key, &entry.value) else {
+                continue;
+            };
+            if xattr.name != filesystem::SYMLINK_XATTR_NAME {
+                continue;
+            }
+            if target.is_some() {
+                duplicate = true;
+                continue;
+            }
+            target = Some((xattr.flags, xattr.data.to_vec()));
+        }
+        if duplicate {
+            return Err(self.nodes.damage(inode, "duplicate APFS symlink target"));
+        }
+        Ok(target)
+    }
+
+    /// Reads a symlink's target attribute on first use and holds it for the
+    /// node.
+    async fn load_symlink(&mut self, inode: u64) -> FsResult<(), D::Error> {
+        if self.nodes.symlinks.contains_key(&inode) {
+            return Ok(());
+        }
+        self.nodes.reserve(inode)?;
+        let target = self.read_symlink(inode).await?;
+        self.nodes.symlinks.insert(inode, target);
+        Ok(())
     }
 
     async fn directory(&mut self, node: NodeId) -> FsResult<InodeRecord, D::Error> {
@@ -465,7 +579,41 @@ impl<D: BlockDevice> ApfsFs<D> {
         Ok(inode)
     }
 
-    async fn metadata(&mut self, inode: &InodeRecord) -> FsResult<Metadata, D::Error> {
+    /// Reads a node's inode record without holding it. A record that cannot
+    /// be used damages the node.
+    async fn read_inode(&mut self, id: u64) -> FsResult<InodeRecord, D::Error> {
+        let records = self
+            .container
+            .filesystem_records(&self.volume, id, filesystem::FS_TYPE_INODE)
+            .await?;
+        match records.len() {
+            0 => Err(ErrorKind::InvalidHandle.into()),
+            1 => InodeRecord::parse(&records[0].key, &records[0].value)
+                .map_err(|_| self.nodes.damage(id, "malformed APFS inode record")),
+            _ => Err(self.nodes.damage(id, "duplicate APFS inode")),
+        }
+    }
+
+    /// The metadata of a child a listing reports. A node already held uses
+    /// its records; any other is read and dropped, so listing a directory
+    /// neither fills the node limit nor keeps every child's records.
+    async fn listed_metadata(&mut self, dir: u64, id: u64, flags: u16) -> FsResult<Metadata, D::Error> {
+        let node = NodeId::new(id).ok_or(ErrorKind::Corrupt)?;
+        let held = self.nodes.inodes.contains_key(&id) || self.nodes.damaged.contains_key(&id);
+        let inode = if held {
+            self.inode(node).await?
+        } else {
+            self.read_inode(id).await?
+        };
+        if let Some(reason) = entry_damage(dir, flags, &inode) {
+            return Err(self.nodes.damage(id, reason));
+        }
+        self.metadata(&inode, held).await
+    }
+
+    /// Builds a node's metadata. With `keep`, the extents or symlink target
+    /// it reads stay held for the node; without, they are dropped.
+    async fn metadata(&mut self, inode: &InodeRecord, keep: bool) -> FsResult<Metadata, D::Error> {
         let kind = file_type::<D::Error>(inode)?;
         let mut metadata = Metadata::new(kind, Permissions::new(u32::from(inode.mode & 0o7777)))
             .with_owner(Owner::new(inode.owner, inode.group))
@@ -475,14 +623,23 @@ impl<D: BlockDevice> ApfsFs<D> {
             .with_accessed(timestamp::<D::Error>(inode.access_time_ns)?)
             .with_nlink(if kind.is_dir() { 1 } else { u64::try_from(inode.link_or_child_count).map_err(|_| ErrorKind::Corrupt)?.max(1) });
         if kind.is_file() {
-            let extents = self.index.extents(inode.private_id);
-            let allocated = extents.iter().filter(|extent| extent.physical_block != 0)
-                .try_fold(0u64, |total, extent| total.checked_add(extent.length))
-                .ok_or(ErrorKind::Corrupt)?;
-            metadata = metadata.with_len(stream_size(inode, extents)).with_allocated(allocated);
+            let (len, allocated) = if keep {
+                self.load_extents(inode).await?;
+                extent_sizes(inode, self.nodes.extents(inode.private_id))?
+            } else {
+                let extents = self.read_extents(inode).await?;
+                extent_sizes(inode, &extents)?
+            };
+            metadata = metadata.with_len(len).with_allocated(allocated);
         } else if kind.is_symlink() {
-            let target = self.index.target::<D::Error>(inode.id)?;
-            metadata = metadata.with_len(target.len() as u64);
+            let len = if keep {
+                self.load_symlink(inode.id).await?;
+                self.nodes.target::<D::Error>(inode.id)?.len()
+            } else {
+                let attribute = self.read_symlink(inode.id).await?;
+                symlink_target::<D::Error>(attribute.as_ref())?.len()
+            };
+            metadata = metadata.with_len(len as u64);
         }
         Ok(metadata)
     }
@@ -540,25 +697,46 @@ impl<D: BlockDevice> ApfsFs<D> {
     pub async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
         name.check()?;
         self.directory(dir).await?;
-        let entries = self.index.directories.get(&dir.get()).ok_or(ErrorKind::NotFound)?;
         let comparison = self.volume.name_comparison();
-        let entry = entries
-            .iter()
-            .find(|entry| entry.name == name.as_bytes())
-            .or_else(|| {
-                let wanted = name.to_str().ok()?;
-                entries.iter().find(|entry| {
-                    core::str::from_utf8(&entry.name)
-                        .is_ok_and(|stored| comparison.matches(stored, wanted))
+        let found = {
+            let entries = self.directory_entries(dir.get()).await?;
+            entries
+                .iter()
+                .find(|entry| entry.name == name.as_bytes())
+                .or_else(|| {
+                    let wanted = name.to_str().ok()?;
+                    entries.iter().find(|entry| {
+                        core::str::from_utf8(&entry.name)
+                            .is_ok_and(|stored| comparison.matches(stored, wanted))
+                    })
                 })
-            })
-            .ok_or(ErrorKind::NotFound)?;
-        NodeId::new(entry.file_id).ok_or_else(|| ErrorKind::Corrupt.into())
+                .map(|entry| (entry.file_id, entry.flags))
+        };
+        let (file_id, flags) = found.ok_or(ErrorKind::NotFound)?;
+        let node = NodeId::new(file_id).ok_or(ErrorKind::Corrupt)?;
+        // Reading the node records the damage its entry implies, so that a
+        // later `stat` fails for it without reading the directory again.
+        match self.inode(node).await {
+            Ok(inode) => {
+                if let Some(reason) = entry_damage(dir.get(), flags, &inode) {
+                    self.nodes.record(file_id, reason);
+                }
+            }
+            Err(error) if error.kind() == ErrorKind::InvalidHandle => {
+                self.nodes.record(file_id, "APFS directory entry inode missing");
+            }
+            Err(error) if is_resource(error.kind()) => return Err(error),
+            Err(_) => {}
+        }
+        Ok(node)
     }
 
-    /// Performs the [`FileSystem::forget`] operation.
+    /// Performs the [`FileSystem::forget`] operation. The node's records are
+    /// dropped, so they stop counting against
+    /// [`MountOptions::with_node_limit`].
     pub fn forget(&mut self, node: NodeId, count: u64) {
-        let _ = (node, count);
+        let _ = count;
+        self.nodes.release(node.get());
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(dir = ?dir)))]
@@ -575,7 +753,7 @@ impl<D: BlockDevice> ApfsFs<D> {
     /// Performs the [`FileSystem::stat`] operation.
     pub async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
         let inode = self.inode(node).await?;
-        self.metadata(&inode).await
+        self.metadata(&inode, true).await
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(dir = ?dir)))]
@@ -583,22 +761,21 @@ impl<D: BlockDevice> ApfsFs<D> {
     pub async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
         self.directory(dir).await?;
         if from.into_raw() > DirCursor::MAX_RAW { return Err(ErrorKind::InvalidInput.into()); }
-        let Some(entries) = self.index.directories.get(&dir.get()) else { return Ok(None); };
         let index = usize::try_from(from.into_raw()).map_err(|_| ErrorKind::InvalidInput)?;
-        let Some(entry) = entries.get(index) else {
+        let found = {
+            let entries = self.directory_entries(dir.get()).await?;
+            entries.get(index).map(|entry| (entry.file_id, entry.flags, entry.name.clone()))
+        };
+        let Some((file_id, flags, name)) = found else {
             return Ok(None);
         };
         let next = from.into_raw().checked_add(1).filter(|value| *value <= DirCursor::MAX_RAW)
             .ok_or(ErrorKind::LimitExceeded)?;
-        let node = NodeId::new(entry.file_id).ok_or(ErrorKind::Corrupt)?;
-        let (name, flags) = (entry.name.clone(), entry.flags);
-        let metadata = match self.inode(node).await {
-            Ok(inode) => self.metadata(&inode).await,
-            Err(error) => Err(error),
-        };
+        let node = NodeId::new(file_id).ok_or(ErrorKind::Corrupt)?;
+        let metadata = self.listed_metadata(dir.get(), file_id, flags).await;
         let metadata = match metadata {
             Ok(metadata) => metadata,
-            Err(error) if error.kind() == ErrorKind::Io => return Err(error),
+            Err(error) if is_resource(error.kind()) => return Err(error),
             Err(_) => damaged(flags),
         };
         DirEntry::new(Name::new(&name), node, metadata, DirCursor::from_raw(next))
@@ -614,7 +791,8 @@ impl<D: BlockDevice> ApfsFs<D> {
     pub async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
         let inode = self.inode(node).await?;
         if !file_type::<D::Error>(&inode)?.is_symlink() { return Err(ErrorKind::InvalidInput.into()); }
-        let target = self.index.target::<D::Error>(node.get())?;
+        self.load_symlink(node.get()).await?;
+        let target = self.nodes.target::<D::Error>(node.get())?;
         let output = buf.get_mut(..target.len()).ok_or(ErrorKind::LimitExceeded)?;
         output.copy_from_slice(target);
         Ok(output)
@@ -655,7 +833,8 @@ impl<D: BlockDevice> ApfsFs<D> {
             _ => return Err(ErrorKind::Unsupported.into()),
         }
         if inode.is_compressed() { return Err(crate::ApfsError::Unsupported("compressed file data").into()); }
-        let extents = self.index.extents(inode.private_id);
+        self.load_extents(&inode).await?;
+        let extents = self.nodes.extents(inode.private_id);
         self.container.read_volume_extents_at(&self.volume, extents, stream_size(&inode, extents), offset, buf).await
     }
 }

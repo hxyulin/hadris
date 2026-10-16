@@ -16,8 +16,10 @@
 //! With `alloc`, each mode also exposes `ApfsFs`, a read-only
 //! shared filesystem driver. Mounting without a selector requires
 //! exactly one volume; [`VolumeSelector`] identifies an explicit volume by
-//! UUID, object identifier, container slot or exact name. Metadata is validated
-//! and indexed once during mount. Inode identifiers remain stable across
+//! UUID, object identifier, container slot or exact name. A node's records are
+//! read when an operation first needs them and kept for the nodes in use, so
+//! mounting does not read the whole filesystem tree; `MountOptions::with_node_limit`
+//! caps how many nodes are held. Inode identifiers remain stable across
 //! lookups, directory cursors are reusable, and data reads use bounded block
 //! scratch space for sparse and arbitrarily large files. Generic `Volume`
 //! handles follow symbolic links and expose hard-linked inodes consistently.

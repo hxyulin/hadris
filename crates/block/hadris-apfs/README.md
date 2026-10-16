@@ -106,9 +106,12 @@ generic file access, VFS operations and volume selection shape this API.
   differs only where the two disagree may not match.
 - Snapshots, Fusion tier-2 devices, extended attributes other than symlink
   targets, and named data streams are not exposed.
-- Native container path lookup walks the filesystem tree. The mounted driver
-  builds an in-memory index, so mounting a large volume needs memory proportional
-  to the indexed records.
+- Native container path lookup walks the filesystem tree; a keyed query reads
+  only the nodes whose key range can hold the records it wants. The mounted
+  driver reads a node's records when an operation first needs them and keeps
+  them for the nodes in use, so mounting a large volume no longer reads the
+  whole filesystem tree. `MountOptions::with_node_limit` caps how many nodes
+  are held; an operation that needs one more fails with `LimitExceeded`.
 
 Do not rely on this crate alone for recovery or forensic conclusions from
 damaged, adversarial, compressed or encrypted volumes.
