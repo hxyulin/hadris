@@ -212,7 +212,7 @@ impl InodeRecord {
             group: crate::types::le_u32(value, 76)?,
             mode: u16::from_le_bytes(crate::types::take(value, 80)?),
             uncompressed_size: le_u64(value, 84)?,
-            data_stream_size: parse_inode_data_stream_size(value),
+            data_stream_size: parse_inode_data_stream_size(value)?,
         })
     }
 
@@ -231,29 +231,47 @@ const INODE_EXT_TYPE_DATA_STREAM: u8 = 8;
 /// Fixed-size prefix of `j_inode_val_t` before the extended-fields blob.
 const INODE_FIXED_VALUE_SIZE: usize = 92;
 
-/// Parses the `size` field of an inode's `j_dstream_t` extended field, if present.
-fn parse_inode_data_stream_size(value: &[u8]) -> Option<u64> {
-    let blob = value.get(INODE_FIXED_VALUE_SIZE..)?;
-    let count = u16::from_le_bytes(blob.get(0..2)?.try_into().ok()?) as usize;
-    let fields = blob.get(4..)?;
+/// Parses the `size` field of an inode's `j_dstream_t` extended field, if
+/// the inode records one. Returns `None` when the inode has no extended
+/// fields, and fails when the field table or the data a field points at is
+/// truncated, so a damaged inode is reported rather than sized by its
+/// extents.
+fn parse_inode_data_stream_size(value: &[u8]) -> crate::Result<Option<u64>> {
+    let Some(blob) = value
+        .get(INODE_FIXED_VALUE_SIZE..)
+        .filter(|blob| !blob.is_empty())
+    else {
+        return Ok(None);
+    };
+    let count = usize::from(u16::from_le_bytes(crate::types::take(blob, 0)?));
+    let fields = blob.get(4..).ok_or(crate::ApfsError::InputTooSmall)?;
     let mut field_offset = 0usize;
-    let mut data_offset = count.checked_mul(4)?;
+    let mut data_offset = count
+        .checked_mul(4)
+        .ok_or(crate::ApfsError::AddressOverflow)?;
     for _ in 0..count {
-        let entry = fields.get(field_offset..field_offset + 4)?;
+        let entry = fields
+            .get(field_offset..field_offset + 4)
+            .ok_or(crate::ApfsError::InputTooSmall)?;
         let field_type = entry[0];
-        let size_bytes = u16::from_le_bytes(entry[2..4].try_into().ok()?) as usize;
+        let size_bytes = usize::from(u16::from_le_bytes([entry[2], entry[3]]));
         field_offset += 4;
-        let data = fields.get(data_offset..data_offset.checked_add(size_bytes)?)?;
+        let end = data_offset
+            .checked_add(size_bytes)
+            .ok_or(crate::ApfsError::AddressOverflow)?;
+        let data = fields
+            .get(data_offset..end)
+            .ok_or(crate::ApfsError::InputTooSmall)?;
         if field_type == INODE_EXT_TYPE_DATA_STREAM {
-            return le_u64(data, 0).ok();
+            return Ok(Some(le_u64(data, 0)?));
         }
-        data_offset += size_bytes;
+        data_offset = end;
         let remainder = size_bytes % 8;
         if remainder != 0 {
             data_offset += 8 - remainder;
         }
     }
-    None
+    Ok(None)
 }
 
 /// Parsed file extent record.
@@ -638,5 +656,62 @@ mod tests {
         assert_eq!(stream_size(&inode, &extents), 100);
         inode.data_stream_size = Some(5000);
         assert_eq!(stream_size(&inode, &extents), 5000);
+    }
+
+    fn inode_key(id: u64) -> alloc::vec::Vec<u8> {
+        (id | (u64::from(FS_TYPE_INODE) << 60))
+            .to_le_bytes()
+            .to_vec()
+    }
+
+    /// An inode value whose one extended field is a `j_dstream_t` declaring
+    /// `size_bytes` bytes and holding `data`.
+    fn inode_value(size_bytes: u16, data: &[u8]) -> alloc::vec::Vec<u8> {
+        let mut value = alloc::vec![0_u8; INODE_FIXED_VALUE_SIZE];
+        value.extend_from_slice(&1_u16.to_le_bytes());
+        value.extend_from_slice(&0_u16.to_le_bytes());
+        value.push(INODE_EXT_TYPE_DATA_STREAM);
+        value.push(0);
+        value.extend_from_slice(&size_bytes.to_le_bytes());
+        value.extend_from_slice(data);
+        value
+    }
+
+    #[test]
+    fn malformed_inode_extended_fields_are_rejected() {
+        let key = inode_key(16);
+        let mut data = alloc::vec![0_u8; 40];
+        data[..8].copy_from_slice(&4242_u64.to_le_bytes());
+        assert_eq!(
+            InodeRecord::parse(&key, &inode_value(40, &data))
+                .unwrap()
+                .data_stream_size,
+            Some(4242)
+        );
+
+        // A field whose declared data runs past the record is corrupt, not
+        // an inode without a data stream.
+        assert_eq!(
+            InodeRecord::parse(&key, &inode_value(40, &data[..2])).unwrap_err(),
+            crate::ApfsError::InputTooSmall
+        );
+        // A data-stream field too short for `j_dstream_t` holds no size.
+        assert_eq!(
+            InodeRecord::parse(&key, &inode_value(4, &data[..8])).unwrap_err(),
+            crate::ApfsError::InputTooSmall
+        );
+        // A blob without room for its field table is corrupt too.
+        let mut header_only = alloc::vec![0_u8; INODE_FIXED_VALUE_SIZE];
+        header_only.extend_from_slice(&1_u16.to_le_bytes());
+        assert_eq!(
+            InodeRecord::parse(&key, &header_only).unwrap_err(),
+            crate::ApfsError::InputTooSmall
+        );
+        // An inode with no extended fields records no size.
+        let bare = alloc::vec![0_u8; INODE_FIXED_VALUE_SIZE];
+        assert_eq!(
+            InodeRecord::parse(&key, &bare).unwrap().data_stream_size,
+            None
+        );
     }
 }

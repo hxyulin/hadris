@@ -119,6 +119,7 @@ fn async_damaged_records_list_and_fail_only_their_own_node() {
             "extent",
             "mode",
             "inode",
+            "dstream",
             "symlink_stream",
             "duplicate",
             "utf8",
@@ -134,7 +135,10 @@ fn async_damaged_records_list_and_fail_only_their_own_node() {
                 cursor = entry.next_cursor();
                 nodes.push(entry.node());
             }
-            let damaged = matches!(case, "dangling" | "type" | "extent" | "mode" | "inode");
+            let damaged = matches!(
+                case,
+                "dangling" | "type" | "extent" | "mode" | "inode" | "dstream"
+            );
             for index in 2..FILE_COUNT {
                 let node = fs.lookup(root, Name::new(&file_name(index))).await.unwrap();
                 assert!(nodes.contains(&node), "{case}");

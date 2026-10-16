@@ -566,6 +566,12 @@ pub fn invalid_directory_image(case: &str) -> Vec<u8> {
         "duplicate" => records.push(drec_entry(2, "FILE0.TXT", 16)),
         "mode" => put(&mut records[2].1, 80, &0o644_u16.to_le_bytes()),
         "inode" => records[2].1.truncate(40),
+        // File 0's inode keeps its field table but loses the data its only
+        // extended field declares.
+        "dstream" => {
+            let value = &mut records[2].1;
+            value.truncate(value.len() - 38);
+        }
         "long" => records[1] = drec_entry(2, &LONG_NAME.repeat(300), 16),
         "symlink_stream" => {
             let mut link = drec_entry(2, "link", 22);

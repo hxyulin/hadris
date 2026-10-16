@@ -444,6 +444,7 @@ fn damaged_records_mount_and_fail_only_their_own_node() {
         ("extent", FileType::File),
         ("mode", FileType::File),
         ("inode", FileType::File),
+        ("dstream", FileType::File),
     ] {
         let mut fs = mount(invalid_directory_image(case));
         let listed = listing(&mut fs);
