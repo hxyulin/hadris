@@ -85,7 +85,7 @@ fn a_child_named_twice_is_rejected() {
     let volumes = container.volume_superblocks(&superblock).unwrap();
     assert_eq!(
         container
-            .root_directory_owned_entries(&volumes[0])
+            .filesystem_root_owned_entries(&volumes[0])
             .unwrap_err()
             .kind(),
         hadris_io::ErrorKind::Corrupt

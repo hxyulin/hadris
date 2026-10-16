@@ -30,6 +30,10 @@ pub struct Container<D> {
     device_block_size: u32,
     #[cfg(feature = "alloc")]
     zero_error: Option<crate::ApfsError>,
+    /// The filesystem trees of the volume queried last, so that keyed
+    /// queries do not reload its object map and tree roots.
+    #[cfg(feature = "alloc")]
+    trees: Option<VolumeTrees>,
     #[cfg(feature = "encryption")]
     unlocked: Option<UnlockedVolume>,
 }
@@ -39,6 +43,41 @@ pub struct Container<D> {
 struct UnlockedVolume {
     uuid: [u8; 16],
     key: crate::crypto::VolumeKey,
+}
+
+/// A B-tree root, read once and kept for keyed descents.
+#[cfg(feature = "alloc")]
+#[derive(Debug)]
+struct BTreeRoot {
+    node: OwnedBTreeNode,
+    block: u64,
+    oid: u64,
+    info: crate::types::BTreeInfo,
+}
+
+/// The resolved trees of one volume at one transaction.
+#[cfg(feature = "alloc")]
+#[derive(Debug)]
+struct VolumeTrees {
+    volume_id: [u8; 16],
+    xid: u64,
+    map: VirtualObjectMap,
+    fs: BTreeRoot,
+    /// The sealed volume's file extent tree (physical, keyed by data stream).
+    fext: Option<BTreeRoot>,
+}
+
+/// Orders a filesystem-tree key by its `(object id, record type)` prefix.
+#[cfg(feature = "alloc")]
+fn fs_key_order(key: &[u8], id: u64, record_type: u8) -> crate::Result<core::cmp::Ordering> {
+    let key = FileSystemKey::parse(key)?;
+    Ok((key.id, key.record_type).cmp(&(id, record_type)))
+}
+
+/// Orders a file-extent-tree key (`fext_tree_key_t`) by its data stream id.
+#[cfg(feature = "alloc")]
+fn fext_key_order(key: &[u8], id: u64) -> crate::Result<core::cmp::Ordering> {
+    Ok(crate::types::le_u64(key, 0)?.cmp(&id))
 }
 
 impl<D> Container<D>
@@ -62,6 +101,8 @@ where
                 Ok(Self { device, info, device_block_size,
                     #[cfg(feature = "alloc")]
                     zero_error,
+                    #[cfg(feature = "alloc")]
+                    trees: None,
                     #[cfg(feature = "encryption")]
                     unlocked: None,
                 })
@@ -685,7 +726,6 @@ where
             None => self.read_btree_node_with_flags(root_physical_block, root_flags).await?,
         };
         let info = root.tree_info()?;
-        let virtual_children = info.fixed.flags & BTREE_PHYSICAL == 0;
         let mut leaves = alloc::vec::Vec::new();
         let mut visited = alloc::collections::BTreeSet::new();
         visited.insert(root_physical_block);
@@ -697,38 +737,203 @@ where
                 leaves.extend(entries);
             } else {
                 for entry in entries.into_iter().rev() {
-                    let mut child_oid = crate::types::le_u64(&entry.value, 0)?;
-                    if virtual_children && info.fixed.flags & BTREE_HASHED != 0 {
-                        child_oid = root_oid
-                            .checked_add(child_oid)
-                            .ok_or(crate::ApfsError::AddressOverflow)?;
-                    }
-                    let (child_block, child_flags) = match virtual_map {
-                        Some(map) if virtual_children => {
-                            let mapping =
-                                map.resolve(child_oid)
-                                    .ok_or(crate::ApfsError::InvalidValue(
-                                        "B-tree child object not in object map",
-                                    ))?;
-                            (mapping.address, mapping.flags)
-                        }
-                        _ => (child_oid, 0),
-                    };
-                    if !visited.insert(child_block) {
-                        return Err(crate::ApfsError::InvalidValue("B-tree node revisited").into());
-                    }
-                    let child = match volume {
-                        Some(volume) => self.read_volume_btree_node_with_flags(volume, child_block, child_flags).await?,
-                        None => self.read_btree_node_with_flags(child_block, child_flags).await?,
-                    };
-                    if node.node()?.level.checked_sub(1) != Some(child.node()?.level) {
-                        return Err(crate::ApfsError::InvalidValue("B-tree child level").into());
-                    }
+                    let child = self
+                        .btree_child(&node, &entry.value, info, root_oid, virtual_map, volume, &mut visited)
+                        .await?;
                     stack.push(child);
                 }
             }
         }
         Ok(leaves)
+    }
+
+    /// Reads the child an index entry's value points at, resolving virtual
+    /// children through `virtual_map`, and checks it sits one level below
+    /// `parent` and has not been visited before.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[allow(clippy::too_many_arguments)]
+    async fn btree_child(
+        &mut self,
+        parent: &OwnedBTreeNode,
+        value: &[u8],
+        info: crate::types::BTreeInfo,
+        root_oid: u64,
+        virtual_map: Option<&VirtualObjectMap>,
+        volume: Option<&VolumeSuperblock>,
+        visited: &mut alloc::collections::BTreeSet<u64>,
+    ) -> hadris_fs::FsResult<OwnedBTreeNode, D::Error> {
+        let virtual_children = info.fixed.flags & BTREE_PHYSICAL == 0;
+        let mut child_oid = crate::types::le_u64(value, 0)?;
+        if virtual_children && info.fixed.flags & BTREE_HASHED != 0 {
+            child_oid = root_oid
+                .checked_add(child_oid)
+                .ok_or(crate::ApfsError::AddressOverflow)?;
+        }
+        let (child_block, child_flags) = match virtual_map {
+            Some(map) if virtual_children => {
+                let mapping = map.resolve(child_oid).ok_or(crate::ApfsError::InvalidValue(
+                    "B-tree child object not in object map",
+                ))?;
+                (mapping.address, mapping.flags)
+            }
+            _ => (child_oid, 0),
+        };
+        if !visited.insert(child_block) {
+            return Err(crate::ApfsError::InvalidValue("B-tree node revisited").into());
+        }
+        let child = match volume {
+            Some(volume) => self.read_volume_btree_node_with_flags(volume, child_block, child_flags).await?,
+            None => self.read_btree_node_with_flags(child_block, child_flags).await?,
+        };
+        if parent.node()?.level.checked_sub(1) != Some(child.node()?.level) {
+            return Err(crate::ApfsError::InvalidValue("B-tree child level").into());
+        }
+        Ok(child)
+    }
+
+    /// Collects, in key order, the leaf entries whose key `order` reports as
+    /// `Equal`; `order` places a key relative to the wanted (contiguous) key
+    /// range. An index entry's child spans from its key to the next entry's
+    /// key, so the descent enters only the children that can hold the range
+    /// and reads the paths to it rather than the whole tree.
+    #[cfg(feature = "alloc")]
+    async fn btree_range<F>(
+        &mut self,
+        root: &BTreeRoot,
+        virtual_map: Option<&VirtualObjectMap>,
+        volume: Option<&VolumeSuperblock>,
+        order: F,
+    ) -> hadris_fs::FsResult<alloc::vec::Vec<OwnedEntry>, D::Error>
+    where
+        F: Fn(&[u8]) -> crate::Result<core::cmp::Ordering>,
+    {
+        use core::cmp::Ordering;
+        let mut found = alloc::vec::Vec::new();
+        let mut visited = alloc::collections::BTreeSet::new();
+        visited.insert(root.block);
+        let mut stack = alloc::vec![root.node.clone()];
+        while let Some(node) = stack.pop() {
+            let entries = node.owned_entries(Some(root.info))?;
+            if node.is_leaf()? {
+                for entry in entries {
+                    if order(&entry.key)? == Ordering::Equal {
+                        found.push(entry);
+                    }
+                }
+                continue;
+            }
+            let mut children = alloc::vec::Vec::new();
+            for (i, entry) in entries.iter().enumerate() {
+                if order(&entry.key)? == Ordering::Greater {
+                    break;
+                }
+                if let Some(next) = entries.get(i + 1)
+                    && order(&next.key)? == Ordering::Less
+                {
+                    continue;
+                }
+                children.push(i);
+            }
+            // Pushed in reverse so the leftmost child is read first.
+            for i in children.into_iter().rev() {
+                let child = self
+                    .btree_child(&node, &entries[i].value, root.info, root.oid, virtual_map, volume, &mut visited)
+                    .await?;
+                stack.push(child);
+            }
+        }
+        Ok(found)
+    }
+
+    /// Takes the volume's resolved trees out of the cache, loading them when
+    /// the cache holds another volume or transaction. Callers put them back.
+    #[cfg(feature = "alloc")]
+    async fn take_volume_trees(
+        &mut self,
+        volume: &VolumeSuperblock,
+    ) -> hadris_fs::FsResult<VolumeTrees, D::Error> {
+        #[cfg(feature = "encryption")]
+        if self.unlocked.is_some() {
+            self.check_unlocked_volume(volume)?;
+        }
+        let xid = volume.object.transaction_identifier;
+        if let Some(trees) = self.trees.take()
+            && trees.volume_id == volume.volume_id
+            && trees.xid == xid
+        {
+            return Ok(trees);
+        }
+        let map = self.volume_object_map(volume).await?;
+        let root = map.resolve(volume.root_tree_oid).ok_or(crate::ApfsError::InvalidValue(
+            "volume root tree object not found",
+        ))?;
+        let node = self.read_volume_btree_node_with_flags(volume, root.address, root.flags).await?;
+        let fs = BTreeRoot {
+            info: node.tree_info()?,
+            node,
+            block: root.address,
+            oid: volume.root_tree_oid,
+        };
+        let fext = if volume.is_sealed() && volume.fext_tree_oid != 0 {
+            let node = self.read_btree_node_with_flags(volume.fext_tree_oid, 0).await?;
+            Some(BTreeRoot {
+                info: node.tree_info()?,
+                node,
+                block: volume.fext_tree_oid,
+                oid: 0,
+            })
+        } else {
+            None
+        };
+        Ok(VolumeTrees {
+            volume_id: volume.volume_id,
+            xid,
+            map,
+            fs,
+            fext,
+        })
+    }
+
+    /// Returns, in key order, the filesystem-tree records of one object and
+    /// record type (e.g. a directory's entries, or a data stream's extents),
+    /// descending the tree by key. The volume's object map and tree root are
+    /// loaded on first use and kept for later queries on the same volume.
+    #[cfg(feature = "alloc")]
+    pub async fn filesystem_records(
+        &mut self,
+        volume: &VolumeSuperblock,
+        id: u64,
+        record_type: u8,
+    ) -> hadris_fs::FsResult<alloc::vec::Vec<OwnedEntry>, D::Error> {
+        let trees = self.take_volume_trees(volume).await?;
+        let found = self
+            .btree_range(&trees.fs, Some(&trees.map), Some(volume), |key| {
+                fs_key_order(key, id, record_type)
+            })
+            .await;
+        self.trees = Some(trees);
+        found
+    }
+
+    /// Returns a sealed volume's file extent tree records for one data
+    /// stream, or none when the volume has no such tree.
+    #[cfg(feature = "alloc")]
+    async fn sealed_stream_extents(
+        &mut self,
+        volume: &VolumeSuperblock,
+        id: u64,
+    ) -> hadris_fs::FsResult<alloc::vec::Vec<FileExtentRecord>, D::Error> {
+        let trees = self.take_volume_trees(volume).await?;
+        let found = match &trees.fext {
+            Some(fext) => self.btree_range(fext, None, None, |key| fext_key_order(key, id)).await,
+            None => Ok(alloc::vec::Vec::new()),
+        };
+        self.trees = Some(trees);
+        let mut extents = alloc::vec::Vec::new();
+        for entry in found? {
+            extents.push(FileExtentRecord::parse_fext(&entry.key, &entry.value)?);
+        }
+        Ok(extents)
     }
 
     /// Loads a volume's object map, bounded to the volume's transaction identifier.
@@ -775,11 +980,11 @@ where
     ) -> hadris_fs::FsResult<alloc::vec::Vec<OwnedDirectoryEntryRecord>, D::Error> {
         let mut records = alloc::vec::Vec::new();
         let layout = volume.directory_key_layout();
-        for entry in self.filesystem_root_owned_entries(volume).await? {
-            let key = FileSystemKey::parse(&entry.key)?;
-            if key.id == directory_id && key.record_type == crate::types::filesystem::FS_TYPE_DIRECTORY_RECORD {
-                records.push(OwnedDirectoryEntryRecord::parse(&entry.key, &entry.value, layout)?);
-            }
+        let entries = self
+            .filesystem_records(volume, directory_id, crate::types::filesystem::FS_TYPE_DIRECTORY_RECORD)
+            .await?;
+        for entry in entries {
+            records.push(OwnedDirectoryEntryRecord::parse(&entry.key, &entry.value, layout)?);
         }
         Ok(records)
     }
@@ -879,13 +1084,13 @@ where
         volume: &VolumeSuperblock,
         inode: u64,
     ) -> hadris_fs::FsResult<Option<InodeRecord>, D::Error> {
-        for entry in self.filesystem_root_owned_entries(volume).await? {
-            let key = FileSystemKey::parse(&entry.key)?;
-            if key.id == inode && key.record_type == crate::types::filesystem::FS_TYPE_INODE {
-                return Ok(Some(InodeRecord::parse(&entry.key, &entry.value)?));
-            }
+        let entries = self
+            .filesystem_records(volume, inode, crate::types::filesystem::FS_TYPE_INODE)
+            .await?;
+        match entries.first() {
+            Some(entry) => Ok(Some(InodeRecord::parse(&entry.key, &entry.value)?)),
+            None => Ok(None),
         }
-        Ok(None)
     }
 
     /// Finds file extents for an inode/private data-stream identifier in the
@@ -897,13 +1102,13 @@ where
         id: u64,
     ) -> hadris_fs::FsResult<alloc::vec::Vec<FileExtentRecord>, D::Error> {
         let mut extents = alloc::vec::Vec::new();
-        for entry in self.filesystem_root_owned_entries(volume).await? {
-            let key = FileSystemKey::parse(&entry.key)?;
-            if key.id == id && key.record_type == crate::types::filesystem::FS_TYPE_FILE_EXTENT {
-                extents.push(FileExtentRecord::parse(&entry.key, &entry.value)?);
-            }
+        let entries = self
+            .filesystem_records(volume, id, crate::types::filesystem::FS_TYPE_FILE_EXTENT)
+            .await?;
+        for entry in entries {
+            extents.push(FileExtentRecord::parse(&entry.key, &entry.value)?);
         }
-        extents.extend(self.sealed_file_extents(volume).await?.into_iter().filter(|extent| extent.id == id));
+        extents.extend(self.sealed_stream_extents(volume, id).await?);
         extents.sort_by_key(|extent| extent.logical_address);
         Ok(extents)
     }
@@ -1089,11 +1294,10 @@ where
         volume: &VolumeSuperblock,
         inode: u64,
     ) -> hadris_fs::FsResult<Option<alloc::string::String>, D::Error> {
-        for entry in self.filesystem_root_owned_entries(volume).await? {
-            let key = FileSystemKey::parse(&entry.key)?;
-            if key.id != inode || key.record_type != crate::types::filesystem::FS_TYPE_XATTR {
-                continue;
-            }
+        let entries = self
+            .filesystem_records(volume, inode, crate::types::filesystem::FS_TYPE_XATTR)
+            .await?;
+        for entry in entries {
             let xattr = XattrRecord::parse(&entry.key, &entry.value)?;
             if xattr.id != inode || xattr.name != SYMLINK_XATTR_NAME {
                 continue;

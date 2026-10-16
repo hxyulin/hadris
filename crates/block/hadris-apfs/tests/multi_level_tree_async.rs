@@ -168,7 +168,7 @@ fn a_child_named_twice_is_rejected() {
         let volumes = container.volume_superblocks(&superblock).await.unwrap();
         assert_eq!(
             container
-                .root_directory_owned_entries(&volumes[0])
+                .filesystem_root_owned_entries(&volumes[0])
                 .await
                 .unwrap_err()
                 .kind(),
