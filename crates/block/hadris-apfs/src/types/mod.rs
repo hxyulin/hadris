@@ -17,12 +17,12 @@ pub use common::{ObjectId, PhysicalAddress, TransactionId, Uuid};
 pub use container::{
     CONTAINER_SUPERBLOCK_MAGIC, CheckpointMapBlock, CheckpointMapping, ContainerSuperblock,
 };
-#[cfg(any(feature = "alloc", feature = "std"))]
-pub use filesystem::OwnedDirectoryEntryRecord;
 pub use filesystem::{
     DirectoryEntryRecord, DirectoryKeyLayout, FileExtentRecord, FileSystemKey, InodeRecord,
     XattrRecord,
 };
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub use filesystem::{NameComparison, OwnedDirectoryEntryRecord};
 pub use object::{ObjectHeader, ObjectType};
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use object_map::VirtualObjectMap;

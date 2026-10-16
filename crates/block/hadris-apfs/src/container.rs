@@ -7,7 +7,7 @@ use crate::types::container::ContainerSuperblock;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::types::container::{CheckpointMapBlock, CheckpointMapping};
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::types::filesystem::{SYMLINK_XATTR_NAME, XATTR_DATA_EMBEDDED, names_match, stream_size};
+use crate::types::filesystem::{SYMLINK_XATTR_NAME, XATTR_DATA_EMBEDDED, stream_size};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::types::object_map::{
     BTREE_HASHED, BTREE_PHYSICAL, OMAP_VAL_DELETED, OMAP_VAL_ENCRYPTED, OMAP_VAL_NOHEADER, ObjectMapBlock,
@@ -997,12 +997,12 @@ where
         directory_id: u64,
         name: &str,
     ) -> hadris_fs::FsResult<Option<OwnedDirectoryEntryRecord>, D::Error> {
-        let case_insensitive = volume.is_case_insensitive();
+        let comparison = volume.name_comparison();
         Ok(self
             .directory_owned_entries(volume, directory_id)
             .await?
             .into_iter()
-            .find(|entry| names_match(&entry.name, name, case_insensitive)))
+            .find(|entry| comparison.matches(&entry.name, name)))
     }
 
     /// Resolves a slash-separated path from the volume root directory.

@@ -505,6 +505,18 @@ fn names_are_not_folded_rejected_by_length_or_required_to_be_utf8() {
     }
 }
 
+#[test]
+fn canonically_equivalent_names_resolve_on_a_normalization_insensitive_volume() {
+    let mut fs = mount(invalid_directory_image("long"));
+    let composed = LONG_NAME.repeat(300);
+    // The fixture's volume is normalization insensitive, so the same name
+    // spelled with a combining accent names the same entry.
+    let decomposed = "e\u{301}".repeat(300);
+    assert_ne!(composed, decomposed);
+    let node = fs.lookup(fs.root(), Name::new(&composed)).unwrap();
+    assert_eq!(fs.lookup(fs.root(), Name::new(&decomposed)).unwrap(), node);
+}
+
 fn checkpoint_image(copies: &[(usize, u64, Option<u8>, bool)]) -> Vec<u8> {
     use hadris_apfs::types::checksum::fletcher64;
     let mut image = build_image();

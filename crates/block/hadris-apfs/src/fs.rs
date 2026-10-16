@@ -541,12 +541,16 @@ impl<D: BlockDevice> ApfsFs<D> {
         name.check()?;
         self.directory(dir).await?;
         let entries = self.index.directories.get(&dir.get()).ok_or(ErrorKind::NotFound)?;
-        let case_insensitive = self.volume.is_case_insensitive();
-        let entry = entries.iter().find(|entry| entry.name == name.as_bytes())
+        let comparison = self.volume.name_comparison();
+        let entry = entries
+            .iter()
+            .find(|entry| entry.name == name.as_bytes())
             .or_else(|| {
-                let query = name.to_str().ok()?;
-                entries.iter().find(|entry| core::str::from_utf8(&entry.name)
-                    .is_ok_and(|stored| filesystem::names_match(stored, query, case_insensitive)))
+                let wanted = name.to_str().ok()?;
+                entries.iter().find(|entry| {
+                    core::str::from_utf8(&entry.name)
+                        .is_ok_and(|stored| comparison.matches(stored, wanted))
+                })
             })
             .ok_or(ErrorKind::NotFound)?;
         NodeId::new(entry.file_id).ok_or_else(|| ErrorKind::Corrupt.into())
