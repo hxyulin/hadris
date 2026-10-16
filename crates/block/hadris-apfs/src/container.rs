@@ -333,7 +333,21 @@ where
         if buffer.len() != self.info.superblock.block_size as usize {
             return Err(crate::ApfsError::InvalidValue("APFS block buffer length").into());
         }
-        if block >= self.info.superblock.block_count {
+        self.read_apfs_blocks(block, buffer).await
+    }
+
+    /// Reads consecutive APFS container blocks starting at `block` into
+    /// `buffer`, which holds a whole number of APFS blocks.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(block = block, bytes = buffer.len())))]
+    pub async fn read_apfs_blocks(&mut self, block: u64, buffer: &mut [u8]) -> hadris_fs::FsResult<(), D::Error> {
+        let block_size = self.info.superblock.block_size as usize;
+        if buffer.is_empty() || buffer.len() % block_size != 0 {
+            return Err(crate::ApfsError::InvalidValue("APFS block buffer length").into());
+        }
+        let blocks = buffer.len() as u64 / block_size as u64;
+        if block >= self.info.superblock.block_count
+            || block.checked_add(blocks).is_none_or(|end| end > self.info.superblock.block_count)
+        {
             return Err(crate::ApfsError::InvalidValue("APFS block outside container").into());
         }
         let device_block = block
@@ -1321,9 +1335,11 @@ where
     }
 
     /// Reads unencrypted file data at `offset` from extents returned by
-    /// [`Self::file_extents`] for a file of `size` bytes. Sparse extents and
-    /// ranges no extent covers read as zeros. Returns the bytes read, which
-    /// is zero at or past `size`. Encrypted extents require the volume-scoped
+    /// [`Self::file_extents`] for a file of `size` bytes. The extents are
+    /// sorted by logical address and do not overlap, and only those that cover
+    /// `offset` are read. Sparse extents and ranges no extent covers read as
+    /// zeros. Returns the bytes read, which is zero at or past `size`.
+    /// Encrypted extents require the volume-scoped
     /// [`Self::read_volume_extents_at`] API, even when a volume is unlocked.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub async fn read_extents_at(
@@ -1339,7 +1355,8 @@ where
     /// Reads extents belonging to `volume`, including software-encrypted data.
     ///
     /// Encrypted extents require that exact volume to be unlocked. Extents must
-    /// be obtained from this volume's filesystem tree. Holes and EOF behave as
+    /// be obtained from this volume's filesystem tree, sorted by logical
+    /// address, and must not overlap. Holes and EOF behave as
     /// in [`Self::read_extents_at`]. The caller's buffer is unchanged on a
     /// credential or extent preflight failure.
     #[cfg(any(feature = "alloc", feature = "std"))]
@@ -1379,58 +1396,158 @@ where
         if offset >= size || buf.is_empty() {
             return Ok(0);
         }
+        self.check_extents(extents, volume_scoped)?;
+        self.read_checked_extents_at(extents, size, offset, buf).await
+    }
+
+    /// Checks the extents a read is about to use: their logical range must not
+    /// overflow, an encrypted one needs this volume's key, and a stored one
+    /// must lie inside the container.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    fn check_extents(
+        &self,
+        extents: &[FileExtentRecord],
+        volume_scoped: bool,
+    ) -> hadris_fs::FsResult<(), D::Error> {
+        let block_size = u64::from(self.info.superblock.block_size);
         for extent in extents {
             extent.logical_address.checked_add(extent.length).ok_or(crate::ApfsError::AddressOverflow)?;
             if extent.cryptography_id != 0 && (!volume_scoped || !self.has_volume_key()) {
                 return Err(crate::ApfsError::Unsupported("encrypted file extents").into());
             }
             if extent.cryptography_id != 0 {
-                extent.cryptography_id.checked_add(extent.length.div_ceil(u64::from(self.info.superblock.block_size)))
+                extent.cryptography_id.checked_add(extent.length.div_ceil(block_size))
                     .and_then(|end| end.checked_mul(u64::from(self.info.superblock.block_size / 512)))
                     .ok_or(crate::ApfsError::AddressOverflow)?;
             }
             if extent.physical_block != 0 {
-                let blocks = extent.length.div_ceil(u64::from(self.info.superblock.block_size));
+                let blocks = extent.length.div_ceil(block_size);
                 if extent.physical_block.checked_add(blocks).is_none_or(|end| end > self.info.superblock.block_count) {
                     return Err(crate::ApfsError::InvalidValue("file extent outside container").into());
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Reads `offset` of a `size`-byte stream from extents the caller checked
+    /// with [`Self::check_extents`], sorted by logical address and without
+    /// overlaps. Only the extents that overlap the range are read, whole
+    /// blocks at a time. Sparse extents and uncovered ranges read as zeros,
+    /// and the returned count is zero at or past `size`.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub(crate) async fn read_checked_extents_at(
+        &mut self,
+        extents: &[FileExtentRecord],
+        size: u64,
+        offset: u64,
+        buf: &mut [u8],
+    ) -> hadris_fs::FsResult<usize, D::Error> {
+        if offset >= size || buf.is_empty() {
+            return Ok(0);
+        }
         let end = size.min(offset.saturating_add(buf.len() as u64));
         let want = (end - offset) as usize;
         buf[..want].fill(0);
-        let block_size = u64::from(self.info.superblock.block_size);
-        let mut block = alloc::vec![0_u8; block_size as usize];
-        for extent in extents {
-            let extent_end = extent.logical_address.checked_add(extent.length)
-                .ok_or(crate::ApfsError::AddressOverflow)?;
-            let mut pos = extent.logical_address.max(offset);
-            let stop = extent_end.min(end);
-            if extent.physical_block == 0 {
+        let first = extents.partition_point(|extent| {
+            extent.logical_address.saturating_add(extent.length) <= offset
+        });
+        let mut scratch = alloc::vec::Vec::new();
+        for extent in &extents[first..] {
+            if extent.logical_address >= end {
+                break;
+            }
+            let pos = extent.logical_address.max(offset);
+            let stop = extent.logical_address.saturating_add(extent.length).min(end);
+            if extent.physical_block == 0 || pos >= stop {
                 continue;
             }
-            while pos < stop {
-                let relative = pos - extent.logical_address;
-                let physical = extent
-                    .physical_block
-                    .checked_add(relative / block_size)
-                    .ok_or(crate::ApfsError::AddressOverflow)?;
-                self.read_apfs_block(physical, &mut block).await?;
-                #[cfg(feature = "encryption")]
-                if extent.cryptography_id != 0 {
-                    let tweak = extent.cryptography_id.checked_add(relative / block_size)
-                        .and_then(|block| block.checked_mul(block_size / 512))
-                        .ok_or(crate::ApfsError::AddressOverflow)?;
-                    self.unlocked.as_ref().ok_or(hadris_fs::ErrorKind::InvalidInput)?.key.decrypt(&mut block, tweak)?;
-                }
-                let within = (relative % block_size) as usize;
-                let n = (block_size - within as u64).min(stop - pos) as usize;
-                let out = (pos - offset) as usize;
-                buf[out..out + n].copy_from_slice(&block[within..within + n]);
-                pos += n as u64;
+            if extent.cryptography_id != 0 && !self.has_volume_key() {
+                return Err(crate::ApfsError::Unsupported("encrypted file extents").into());
             }
+            #[cfg(feature = "encryption")]
+            if extent.cryptography_id != 0 {
+                self.read_encrypted_extent_range(extent, pos, stop, offset, buf).await?;
+                continue;
+            }
+            self.read_extent_range(extent, pos, stop, offset, buf, &mut scratch).await?;
         }
         Ok(want)
+    }
+
+    /// Reads `[pos, stop)` of one unencrypted extent, whole blocks at a time
+    /// and straight into `buf` when the range starts block-aligned. `scratch`
+    /// holds partial blocks and is allocated on first use.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    async fn read_extent_range(
+        &mut self,
+        extent: &FileExtentRecord,
+        pos: u64,
+        stop: u64,
+        offset: u64,
+        buf: &mut [u8],
+        scratch: &mut alloc::vec::Vec<u8>,
+    ) -> hadris_fs::FsResult<(), D::Error> {
+        let block_size = u64::from(self.info.superblock.block_size);
+        let mut pos = pos;
+        while pos < stop {
+            let relative = pos - extent.logical_address;
+            let physical = extent
+                .physical_block
+                .checked_add(relative / block_size)
+                .ok_or(crate::ApfsError::AddressOverflow)?;
+            let within = (relative % block_size) as usize;
+            let out = (pos - offset) as usize;
+            let blocks = (stop - pos) / block_size;
+            if within == 0 && blocks != 0 {
+                let len = (blocks * block_size) as usize;
+                self.read_apfs_blocks(physical, &mut buf[out..out + len]).await?;
+                pos += len as u64;
+                continue;
+            }
+            if scratch.len() as u64 != block_size {
+                scratch.resize(block_size as usize, 0);
+            }
+            self.read_apfs_block(physical, scratch).await?;
+            let n = (block_size - within as u64).min(stop - pos) as usize;
+            buf[out..out + n].copy_from_slice(&scratch[within..within + n]);
+            pos += n as u64;
+        }
+        Ok(())
+    }
+
+    /// Reads `[pos, stop)` of one encrypted extent, decrypting each block with
+    /// the tweak its position implies.
+    #[cfg(all(any(feature = "alloc", feature = "std"), feature = "encryption"))]
+    async fn read_encrypted_extent_range(
+        &mut self,
+        extent: &FileExtentRecord,
+        pos: u64,
+        stop: u64,
+        offset: u64,
+        buf: &mut [u8],
+    ) -> hadris_fs::FsResult<(), D::Error> {
+        let block_size = u64::from(self.info.superblock.block_size);
+        let mut block = alloc::vec![0_u8; block_size as usize];
+        let mut pos = pos;
+        while pos < stop {
+            let relative = pos - extent.logical_address;
+            let physical = extent
+                .physical_block
+                .checked_add(relative / block_size)
+                .ok_or(crate::ApfsError::AddressOverflow)?;
+            self.read_apfs_block(physical, &mut block).await?;
+            let tweak = extent.cryptography_id.checked_add(relative / block_size)
+                .and_then(|block| block.checked_mul(block_size / 512))
+                .ok_or(crate::ApfsError::AddressOverflow)?;
+            self.unlocked.as_ref().ok_or(hadris_fs::ErrorKind::InvalidInput)?.key.decrypt(&mut block, tweak)?;
+            let within = (relative % block_size) as usize;
+            let n = (block_size - within as u64).min(stop - pos) as usize;
+            let out = (pos - offset) as usize;
+            buf[out..out + n].copy_from_slice(&block[within..within + n]);
+            pos += n as u64;
+        }
+        Ok(())
     }
 
     /// Returns a symlink's target from its `com.apple.fs.symlink` attribute,

@@ -154,6 +154,41 @@ fn holes_read_as_zeros() {
 }
 
 #[test]
+fn extents_spanning_blocks_read_at_any_offset() {
+    let image = build_image();
+    let extents = [block_extent(0, 2, 10)];
+    block_on(async {
+        let geometry = BlockGeometry::new(
+            BlockSize::new(BLOCK as u32).unwrap(),
+            BlockCount::new(IMAGE_BLOCKS as u64),
+        );
+        let device =
+            hadris_storage::MemDevice::new(image.as_slice(), geometry.logical_block_size());
+        let mut container = Container::open(device).await.unwrap();
+        let size = 2 * BLOCK as u64;
+        let mut buf = vec![0_u8; 2 * BLOCK];
+        let n = container
+            .read_extents_at(&extents, size, 0, &mut buf)
+            .await
+            .unwrap();
+        assert_eq!(n, 2 * BLOCK);
+        assert_eq!(&buf[..file_contents(0).len()], file_contents(0));
+        assert_eq!(
+            &buf[BLOCK..BLOCK + file_contents(1).len()],
+            file_contents(1)
+        );
+
+        let mut buf = [0xff_u8; 8];
+        let n = container
+            .read_extents_at(&extents, size, BLOCK as u64 - 4, &mut buf)
+            .await
+            .unwrap();
+        assert_eq!(n, 8);
+        assert_eq!(&buf, &[0, 0, 0, 0, b'c', b'o', b'n', b't']);
+    });
+}
+
+#[test]
 fn a_child_named_twice_is_rejected() {
     let image = build_image_variant(Variant::Revisit);
     block_on(async {

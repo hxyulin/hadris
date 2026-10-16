@@ -835,7 +835,10 @@ impl<D: BlockDevice> ApfsFs<D> {
         if inode.is_compressed() { return Err(crate::ApfsError::Unsupported("compressed file data").into()); }
         self.load_extents(&inode).await?;
         let extents = self.nodes.extents(inode.private_id);
-        self.container.read_volume_extents_at(&self.volume, extents, stream_size(&inode, extents), offset, buf).await
+        // `load_extents` checked these extents, so only the range is read.
+        self.container
+            .read_checked_extents_at(extents, stream_size(&inode, extents), offset, buf)
+            .await
     }
 }
 hadris_fs::__forward_filesystem! {

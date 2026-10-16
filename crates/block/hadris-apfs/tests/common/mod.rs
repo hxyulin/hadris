@@ -432,6 +432,19 @@ pub fn holey_extents(index: u64) -> Vec<hadris_apfs::types::FileExtentRecord> {
     vec![extent(0, 0), extent(2 * BLOCK as u64, 10 + index)]
 }
 
+/// An extent of `blocks` whole blocks starting at physical block `start`,
+/// built as [`holey_extents`] builds its records.
+#[allow(dead_code)]
+pub fn block_extent(
+    logical_address: u64,
+    blocks: u64,
+    start: u64,
+) -> hadris_apfs::types::FileExtentRecord {
+    let (mut key, value) = extent_entry(0, blocks * BLOCK as u64, start);
+    put(&mut key, 8, &logical_address.to_le_bytes());
+    hadris_apfs::types::FileExtentRecord::parse(&key, &value).unwrap()
+}
+
 /// What [`holey_extents`] read as, for a file of `2 * BLOCK + len` bytes.
 #[allow(dead_code)]
 pub fn holey_contents(index: u64) -> Vec<u8> {
