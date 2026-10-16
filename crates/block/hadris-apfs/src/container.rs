@@ -61,10 +61,61 @@ struct BTreeRoot {
 struct VolumeTrees {
     volume_id: [u8; 16],
     xid: u64,
-    map: VirtualObjectMap,
+    map: ObjectMapTree,
     fs: BTreeRoot,
     /// The sealed volume's file extent tree (physical, keyed by data stream).
     fext: Option<BTreeRoot>,
+}
+
+/// An object-map tree root, read once and queried by key.
+#[cfg(feature = "alloc")]
+#[derive(Debug)]
+struct ObjectMapTree {
+    root: BTreeRoot,
+    /// Only mappings at or below this transaction identifier are used.
+    max_xid: u64,
+}
+
+/// Orders an object-map key (`omap_key_t`) by `oid`, treating a key of `oid`
+/// whose transaction identifier is at or below `max_xid` as inside the wanted
+/// range. Entries of one object identifier are contiguous and sorted by
+/// transaction identifier, so the keys that compare `Equal` are exactly the
+/// mappings a lookup may use.
+#[cfg(feature = "alloc")]
+fn omap_key_order(key: &[u8], oid: u64, max_xid: u64) -> crate::Result<core::cmp::Ordering> {
+    let key_oid = crate::types::le_u64(key, 0)?;
+    if key_oid != oid {
+        return Ok(key_oid.cmp(&oid));
+    }
+    if crate::types::le_u64(key, 8)? > max_xid {
+        return Ok(core::cmp::Ordering::Greater);
+    }
+    Ok(core::cmp::Ordering::Equal)
+}
+
+/// Returns the indices of the index-node children that can hold entries
+/// `order` reports as `Equal`. An entry's child spans from its key to the next
+/// entry's key, so a child is entered unless it ends before the wanted range
+/// or starts after it.
+#[cfg(feature = "alloc")]
+fn range_children<F>(entries: &[OwnedEntry], order: &F) -> crate::Result<alloc::vec::Vec<usize>>
+where
+    F: Fn(&[u8]) -> crate::Result<core::cmp::Ordering>,
+{
+    use core::cmp::Ordering;
+    let mut children = alloc::vec::Vec::new();
+    for (i, entry) in entries.iter().enumerate() {
+        if order(&entry.key)? == Ordering::Greater {
+            break;
+        }
+        if let Some(next) = entries.get(i + 1)
+            && order(&next.key)? == Ordering::Less
+        {
+            continue;
+        }
+        children.push(i);
+    }
+    Ok(children)
 }
 
 /// Orders a filesystem-tree key by its `(object id, record type)` prefix.
@@ -563,10 +614,14 @@ where
         superblock: &ContainerSuperblock,
     ) -> hadris_fs::FsResult<alloc::vec::Vec<VolumeSuperblock>, D::Error> {
         let mut volumes = alloc::vec::Vec::new();
-        let values = self.volume_object_map_values(superblock).await?;
-        let map = VirtualObjectMap::new(&values, superblock.object.transaction_identifier);
+        let object_map = self.object_map(superblock).await?;
+        let map = self
+            .object_map_tree_root(object_map, superblock.object.transaction_identifier)
+            .await?;
         for &oid in superblock.volume_oids.iter().filter(|&&oid| oid != 0) {
-            let Some(value) = map.resolve(oid) else { continue; };
+            let Some(value) = self.object_map_resolve(&map, oid).await? else {
+                continue;
+            };
             let data = self.read_apfs_block_vec(value.address).await?;
             verify_object(&data)?;
             volumes.push(VolumeSuperblock::parse(&data)?);
@@ -591,16 +646,10 @@ where
         oid: u64,
         max_transaction_id: u64,
     ) -> hadris_fs::FsResult<Option<ObjectMapValue>, D::Error> {
-        Ok(self
-            .object_map_values_for(object_map)
-            .await?
-            .into_iter()
-            .filter(|(key, _)| {
-                key.oid == oid && key.xid <= max_transaction_id
-            })
-            .max_by_key(|(key, _)| key.xid)
-            .map(|(_, value)| value)
-            .filter(|value| value.flags & OMAP_VAL_DELETED == 0))
+        let map = self
+            .object_map_tree_root(object_map, max_transaction_id)
+            .await?;
+        self.object_map_resolve(&map, oid).await
     }
 
     /// Resolves a virtual object identifier through a volume object map,
@@ -701,6 +750,94 @@ where
         Ok(values)
     }
 
+    /// Reads the object-map tree rooted at `object_map`, bounded to `max_xid`.
+    #[cfg(feature = "alloc")]
+    async fn object_map_tree_root(
+        &mut self,
+        object_map: ObjectMapBlock,
+        max_xid: u64,
+    ) -> hadris_fs::FsResult<ObjectMapTree, D::Error> {
+        let node = self.read_btree_node(object_map.tree_oid).await?;
+        Ok(ObjectMapTree {
+            root: BTreeRoot {
+                info: node.tree_info()?,
+                node,
+                block: object_map.tree_oid,
+                // An object-map tree's child links are physical addresses, so
+                // no key is rebased against the root's object identifier.
+                oid: 0,
+            },
+            max_xid,
+        })
+    }
+
+    /// Resolves one object identifier through `map` by key, taking the newest
+    /// mapping at or below the map's transaction identifier. A deleted mapping
+    /// resolves to `None` without falling back to an older version.
+    #[cfg(feature = "alloc")]
+    async fn object_map_resolve(
+        &mut self,
+        map: &ObjectMapTree,
+        oid: u64,
+    ) -> hadris_fs::FsResult<Option<ObjectMapValue>, D::Error> {
+        let entries = self.object_map_oid_entries(map, oid).await?;
+        let mut newest: Option<(u64, ObjectMapValue)> = None;
+        for entry in entries {
+            let xid = crate::types::le_u64(&entry.key, 8)?;
+            if newest.is_none_or(|(best, _)| xid >= best) {
+                newest = Some((xid, ObjectMapValue::parse(&entry.value)?));
+            }
+        }
+        Ok(newest
+            .map(|(_, value)| value)
+            .filter(|value| value.flags & OMAP_VAL_DELETED == 0))
+    }
+
+    /// Collects, in key order, the object-map entries of `oid` whose
+    /// transaction identifier is at or below `map.max_xid`.
+    ///
+    /// An object-map tree stores physical child addresses, so this descent
+    /// never resolves a child through an object map. The keyed descent of a
+    /// virtual tree does, which is why the two do not call each other.
+    #[cfg(feature = "alloc")]
+    async fn object_map_oid_entries(
+        &mut self,
+        map: &ObjectMapTree,
+        oid: u64,
+    ) -> hadris_fs::FsResult<alloc::vec::Vec<OwnedEntry>, D::Error> {
+        use core::cmp::Ordering;
+        let order = |key: &[u8]| omap_key_order(key, oid, map.max_xid);
+        let mut found = alloc::vec::Vec::new();
+        let mut visited = alloc::collections::BTreeSet::new();
+        visited.insert(map.root.block);
+        let mut stack = alloc::vec![map.root.node.clone()];
+        while let Some(node) = stack.pop() {
+            let entries = node.owned_entries(Some(map.root.info))?;
+            if node.is_leaf()? {
+                for entry in entries {
+                    if order(&entry.key)? == Ordering::Equal {
+                        found.push(entry);
+                    }
+                }
+                continue;
+            }
+            let children = range_children(&entries, &order)?;
+            // Pushed in reverse so the leftmost child is read first.
+            for index in children.into_iter().rev() {
+                let child_block = crate::types::le_u64(&entries[index].value, 0)?;
+                if !visited.insert(child_block) {
+                    return Err(crate::ApfsError::InvalidValue("B-tree node revisited").into());
+                }
+                let child = self.read_btree_node(child_block).await?;
+                if node.node()?.level.checked_sub(1) != Some(child.node()?.level) {
+                    return Err(crate::ApfsError::InvalidValue("B-tree child level").into());
+                }
+                stack.push(child);
+            }
+        }
+        Ok(found)
+    }
+
     /// Walks a B-tree whose child links are physical block addresses and
     /// returns owned leaf entries in traversal order.
     #[cfg(any(feature = "alloc", feature = "std"))]
@@ -718,7 +855,7 @@ where
         root_physical_block: u64,
         root_flags: u32,
         root_oid: u64,
-        virtual_map: Option<&VirtualObjectMap>,
+        virtual_map: Option<&ObjectMapTree>,
         volume: Option<&VolumeSuperblock>,
     ) -> hadris_fs::FsResult<alloc::vec::Vec<OwnedEntry>, D::Error> {
         let root = match volume {
@@ -758,7 +895,7 @@ where
         value: &[u8],
         info: crate::types::BTreeInfo,
         root_oid: u64,
-        virtual_map: Option<&VirtualObjectMap>,
+        virtual_map: Option<&ObjectMapTree>,
         volume: Option<&VolumeSuperblock>,
         visited: &mut alloc::collections::BTreeSet<u64>,
     ) -> hadris_fs::FsResult<OwnedBTreeNode, D::Error> {
@@ -771,9 +908,9 @@ where
         }
         let (child_block, child_flags) = match virtual_map {
             Some(map) if virtual_children => {
-                let mapping = map.resolve(child_oid).ok_or(crate::ApfsError::InvalidValue(
-                    "B-tree child object not in object map",
-                ))?;
+                let mapping = self.object_map_resolve(map, child_oid).await?.ok_or(
+                    crate::ApfsError::InvalidValue("B-tree child object not in object map"),
+                )?;
                 (mapping.address, mapping.flags)
             }
             _ => (child_oid, 0),
@@ -800,7 +937,7 @@ where
     async fn btree_range<F>(
         &mut self,
         root: &BTreeRoot,
-        virtual_map: Option<&VirtualObjectMap>,
+        virtual_map: Option<&ObjectMapTree>,
         volume: Option<&VolumeSuperblock>,
         order: F,
     ) -> hadris_fs::FsResult<alloc::vec::Vec<OwnedEntry>, D::Error>
@@ -822,22 +959,19 @@ where
                 }
                 continue;
             }
-            let mut children = alloc::vec::Vec::new();
-            for (i, entry) in entries.iter().enumerate() {
-                if order(&entry.key)? == Ordering::Greater {
-                    break;
-                }
-                if let Some(next) = entries.get(i + 1)
-                    && order(&next.key)? == Ordering::Less
-                {
-                    continue;
-                }
-                children.push(i);
-            }
+            let children = range_children(&entries, &order)?;
             // Pushed in reverse so the leftmost child is read first.
-            for i in children.into_iter().rev() {
+            for index in children.into_iter().rev() {
                 let child = self
-                    .btree_child(&node, &entries[i].value, root.info, root.oid, virtual_map, volume, &mut visited)
+                    .btree_child(
+                        &node,
+                        &entries[index].value,
+                        root.info,
+                        root.oid,
+                        virtual_map,
+                        volume,
+                        &mut visited,
+                    )
                     .await?;
                 stack.push(child);
             }
@@ -863,11 +997,19 @@ where
         {
             return Ok(trees);
         }
-        let map = self.volume_object_map(volume).await?;
-        let root = map.resolve(volume.root_tree_oid).ok_or(crate::ApfsError::InvalidValue(
-            "volume root tree object not found",
-        ))?;
-        let node = self.read_volume_btree_node_with_flags(volume, root.address, root.flags).await?;
+        let object_map = self.object_map_at(volume.object_map_oid).await?;
+        let map = self
+            .object_map_tree_root(object_map, volume.object.transaction_identifier)
+            .await?;
+        let root = self
+            .object_map_resolve(&map, volume.root_tree_oid)
+            .await?
+            .ok_or(crate::ApfsError::InvalidValue(
+                "volume root tree object not found",
+            ))?;
+        let node = self
+            .read_volume_btree_node_with_flags(volume, root.address, root.flags)
+            .await?;
         let fs = BTreeRoot {
             info: node.tree_info()?,
             node,
@@ -960,13 +1102,16 @@ where
         if self.unlocked.is_some() {
             self.check_unlocked_volume(volume)?;
         }
+        let object_map = self.object_map_at(volume.object_map_oid).await?;
+        let map = self
+            .object_map_tree_root(object_map, volume.object.transaction_identifier)
+            .await?;
         let root = self
-            .resolve_volume_object(volume, volume.root_tree_oid)
+            .object_map_resolve(&map, volume.root_tree_oid)
             .await?
             .ok_or(crate::ApfsError::InvalidValue(
                 "volume root tree object not found",
             ))?;
-        let map = self.volume_object_map(volume).await?;
         self.walk_btree(root.address, root.flags, volume.root_tree_oid, Some(&map), Some(volume))
             .await
     }

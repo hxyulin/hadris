@@ -208,6 +208,11 @@ fn child_entry(first_key: Vec<u8>, stored_oid: u64, hashed: bool) -> Entry {
     (first_key, value)
 }
 
+/// An index entry of a physical tree: a child's first key and its block.
+fn index_entry(first_key: Vec<u8>, child_block: u64) -> Entry {
+    (first_key, child_block.to_le_bytes().to_vec())
+}
+
 pub fn build_image() -> Vec<u8> {
     build_image_variant(Variant::Plain)
 }
@@ -598,15 +603,34 @@ pub fn invalid_directory_image(case: &str) -> Vec<u8> {
     image
 }
 
+/// An image whose container object map has an index root in block 2 naming
+/// two or three leaves in blocks 20 to 22, so a lookup must descend a level.
 #[allow(dead_code)]
 pub fn object_map_versions_image(entries: &[(u64, u64, u64, u32)], xid: u64) -> Vec<u8> {
     let mut image = build_image();
-    let entries: Vec<_> = entries
+    let mut entries: Vec<Entry> = entries
         .iter()
         .map(|&(oid, xid, address, flags)| omap_entry(oid, xid, address, flags))
         .collect();
-    let node = btree_node(2, true, true, 0, Some((16, 16)), 0x10, false, &entries);
-    image[2 * BLOCK..3 * BLOCK].copy_from_slice(&node);
+    entries.sort_by_key(|(key, _)| {
+        (
+            u64::from_le_bytes(key[..8].try_into().unwrap()),
+            u64::from_le_bytes(key[8..16].try_into().unwrap()),
+        )
+    });
+    let leaves: Vec<&[Entry]> = entries.chunks(entries.len().div_ceil(3)).collect();
+    assert!(
+        (2..=3).contains(&leaves.len()),
+        "the object map needs an index level"
+    );
+    let mut index = Vec::new();
+    for (leaf, block) in leaves.iter().zip([20_u64, 21, 22]) {
+        let node = btree_node(block, false, true, 0, None, 0, false, leaf);
+        image[block as usize * BLOCK..(block as usize + 1) * BLOCK].copy_from_slice(&node);
+        index.push(index_entry(leaf[0].0.clone(), block));
+    }
+    let root = btree_node(2, true, false, 1, Some((16, 16)), 0x10, false, &index);
+    image[2 * BLOCK..3 * BLOCK].copy_from_slice(&root);
     let mut superblock = image[..BLOCK].to_vec();
     put(&mut superblock, 16, &xid.to_le_bytes());
     image[..BLOCK].copy_from_slice(&seal(superblock));
