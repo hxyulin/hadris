@@ -8,7 +8,37 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Added
+
+- **hadris-apfs:** `Container::filesystem_records(volume, id, record_type)`
+  returns one object's records of one type in key order, descending the
+  filesystem tree by key instead of walking every leaf.
+  `Container::read_apfs_blocks` reads consecutive container blocks in one
+  call, and `NameComparison`, `VolumeSuperblock::name_comparison` and
+  `VolumeSuperblock::is_normalization_insensitive` expose how a volume
+  compares directory entry names.
+
 ### Changed
+
+- **hadris-apfs:** Directory, inode, extent and size queries descend the
+  filesystem tree by key, and object-map lookups (`object_map_lookup`,
+  `volume_superblocks`, `resolve_volume_object`) descend the object map the
+  same way, so they read only the nodes whose key range can hold the records
+  they want. Mounting no longer walks and indexes the whole filesystem tree:
+  `ApfsFs` reads a node's inode, directory entries, extents and symlink
+  target when an operation first needs them and keeps them for the nodes in
+  use. `MountOptions::with_node_limit` therefore caps how many nodes are held
+  and an operation that needs one more fails with `LimitExceeded`, while
+  `forget` drops a node's records. Because a record is checked when its node
+  is read, damage that the mount found while indexing now surfaces through
+  `stat`, `read`, `open` and `readlink` instead of at mount, and a damaged
+  entry is still listed with the type its directory record holds. File reads
+  check their stream's extents once, read only the range asked for and read
+  whole runs per device call; `read_extents_at` and
+  `read_volume_extents_at` now document that the extents they are given are
+  sorted by logical address and do not overlap. Listing a directory reads
+  each child's inode and extents without holding them, so a listing neither
+  fills the node limit nor keeps every listed child's records.
 
 - **hadris-storage:** The async adapters report the same error messages and
   locations as the sync ones for out-of-range block requests, buffers that
@@ -19,6 +49,25 @@ Each published package owns its version and may be released independently.
   `sync` or `async` feature, and the unused `bytemuck` dependency is gone.
 
 ### Fixed
+
+- **hadris-apfs:** Name comparison folds case and canonical decomposition as
+  the volume's flags ask, following the default case algorithms of the
+  Unicode Standard. A name spelled with a combining accent finds the entry
+  stored in precomposed form on a volume that sets
+  `APFS_INCOMPAT_CASE_INSENSITIVE` or `APFS_INCOMPAT_NORMALIZATION_INSENSITIVE`
+  (a case-insensitive volume is always normalization-insensitive), and case
+  folding matches
+  Unicode's for the Greek final sigma, the sharp s and other characters,
+  where lowercasing alone did not. Apple's own tables are not published, so
+  names that differ only where the tables disagree may still not match. The
+  comparison builds on `icu_casemap` and `icu_normalizer`, both without
+  `std`, enabled by the `alloc` feature.
+
+- **hadris-apfs:** An inode whose `INO_EXT_TYPE_DSTREAM` field is truncated,
+  or too short to hold a `j_dstream_t`, is now reported as damaged instead of
+  recording no size. Such a file was sized from its extents and read
+  successfully with the wrong length; `stat`, `read`, `open` and `readlink`
+  on it fail with `Corrupt`.
 
 - **hadris-storage:** The sync `Partition` rejects a request past the end
   of the device (its `block_count` for reads, `max_block_count` for
