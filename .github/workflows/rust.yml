@@ -613,6 +613,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y xorriso genisoimage udftools p7zip-full libarchive-tools
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install pycdlib
+        run: python3 -m pip install pycdlib==1.14.0
       - name: Run ISO peer performance smoke check
         env:
           HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"

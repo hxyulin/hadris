@@ -34,6 +34,9 @@ const INTEGRITY: u32 = RESERVE_SEQUENCE + SEQUENCE_BLOCKS;
 const PARTITION_START: u32 = INTEGRITY + 1;
 /// The blocks after the partition: the trailing anchor and 256 more.
 const TAIL: u64 = 257;
+/// The partition blocks of the File Set Descriptor and its Terminating
+/// Descriptor.
+const FILE_SET_BLOCKS: u32 = 2;
 /// The largest extent a short allocation descriptor holds, in whole
 /// blocks so that every extent but the last stays block aligned.
 const MAX_AD: u64 = (1 << 30) - SECTOR as u64;
@@ -470,7 +473,7 @@ impl Planner<'_> {
         put(&mut buf, 212, &(SECTOR as u32).to_le_bytes());
         self.domain(&mut buf[216..248]);
         let fsd = raw::LongAd {
-            length: U32Le::new(SECTOR as u32),
+            length: U32Le::new(FILE_SET_BLOCKS * SECTOR as u32),
             ..Default::default()
         };
         put(&mut buf, 248, bytemuck::bytes_of(&fsd));
@@ -834,7 +837,7 @@ pub(crate) fn lay_out(
         measured,
         now,
         version: if opts.revision().is_nsr03() { 3 } else { 2 },
-        next: 1,
+        next: u64::from(FILE_SET_BLOCKS),
         unique: 16,
         dirs: Vec::new(),
         nodes: Vec::new(),
@@ -908,9 +911,11 @@ pub(crate) fn lay_out(
         data: planner.integrity(partition_len),
     });
     let root_icb = planner.dirs[0].icb;
+    let mut file_set = planner.file_set(root_icb);
+    file_set.extend(planner.terminating(1));
     regions.push(Region::Bytes {
         block: u64::from(PARTITION_START),
-        data: planner.file_set(root_icb),
+        data: file_set,
     });
 
     let base = u64::from(PARTITION_START);
@@ -1105,5 +1110,50 @@ mod tests {
         let ids: Vec<_> = seen.keys().copied().collect();
         assert_eq!(ids, [1, 2, 4, 5, 6, 7, 8, 9, 256, 261]);
         assert_eq!(seen[&tag::FILE_ENTRY], 176 + 100 * 8);
+    }
+
+    #[test]
+    fn file_set_sequence_ends_with_a_terminating_descriptor() {
+        let mut tree = Tree::new();
+        tree.insert("a.txt", Node::file(Content::bytes("a")))
+            .unwrap();
+        for bridge in [None, Some(3)] {
+            let plan = lay_out(
+                &tree,
+                &UdfOptions::default(),
+                &BTreeMap::new(),
+                false,
+                bridge,
+            )
+            .unwrap();
+            let bytes_at = |block: u32| {
+                plan.regions.iter().find_map(|region| match region {
+                    Region::Bytes { block: at, data } if *at == u64::from(block) => {
+                        Some(data.clone())
+                    }
+                    _ => None,
+                })
+            };
+            let sequence = bytes_at(MAIN_SEQUENCE).unwrap();
+            let lvd = &sequence[3 * SECTOR..4 * SECTOR];
+            assert_eq!(field(lvd, 248), FILE_SET_BLOCKS as usize * SECTOR);
+            assert_eq!(field(lvd, 252), 0);
+
+            let file_set = bytes_at(PARTITION_START).unwrap();
+            assert_eq!(file_set.len(), FILE_SET_BLOCKS as usize * SECTOR);
+            let fsd = Tag::read(&file_set).unwrap();
+            assert_eq!(fsd.identifier.get(), tag::FILE_SET);
+            let terminator = &file_set[SECTOR..];
+            let td = Tag::read(terminator).unwrap();
+            assert_eq!(td.identifier.get(), tag::TERMINATING);
+            assert_eq!(td.location.get(), 1);
+            assert!(td.is_checksum_valid());
+            assert!(td.is_crc_valid(&terminator[16..]));
+            assert_eq!(
+                field(&file_set, 404),
+                FILE_SET_BLOCKS as usize,
+                "the root follows the terminator"
+            );
+        }
     }
 }

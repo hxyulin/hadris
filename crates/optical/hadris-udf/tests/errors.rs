@@ -37,7 +37,7 @@ fn malformed_volumes_are_refused() {
     assert_eq!(open_err(bad), ErrorKind::Corrupt);
 
     let mut bad = good.clone();
-    bad[291 * 2048 + 60] ^= 1;
+    bad[292 * 2048 + 60] ^= 1;
     assert_eq!(open_err(bad), ErrorKind::Corrupt);
 
     let mut bad = good.clone();
@@ -59,7 +59,7 @@ fn malformed_volumes_are_refused() {
     }
 
     let mut bad = good.clone();
-    let root_fids = 292 * 2048;
+    let root_fids = 293 * 2048;
     let name = bad[root_fids..root_fids + 2048]
         .windows(9)
         .position(|w| w == b"\x08readme.t")
@@ -533,7 +533,7 @@ fn cached_symlink_reads_preserve_device_failures_and_retry() {
 #[test]
 fn malformed_identifier_fields_are_refused() {
     let good = good();
-    let mut at = 292 * 2048;
+    let mut at = 293 * 2048;
     loop {
         let iu = usize::from(u16::from_le_bytes(
             good[at + 36..at + 38].try_into().unwrap(),

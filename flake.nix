@@ -23,7 +23,7 @@
             pkgs.gptfdisk
             pkgs.libarchive
             pkgs.mtools
-            pkgs.python3
+            (pkgs.python3.withPackages (ps: [ ps.pycdlib ]))
             pkgs.prek
             pkgs.qemu
             pkgs.xorriso
