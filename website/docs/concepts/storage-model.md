@@ -29,8 +29,9 @@ Applications can use only the pieces they need.
 implementor's own error through `ErrorType`. It supplies explicit adapters:
 `StdIo` for `std::io` types, `ToStd` for the other direction, and
 `FromEmbedded` for `embedded-io` devices. Firmware and kernels implement the
-same traits for their own device handles. `async_` guarantees Send futures;
-`local` provides separate stream traits without that bound. These byte-stream contracts are distinct from the unified block API.
+same traits for their own device handles. The `async_` traits add no `Send`
+bound; a future is `Send` when the concrete stream is. These byte-stream
+contracts are distinct from the unified block API.
 
 The CPIO reader and writer work on these streams directly, so they run over
 pipes.

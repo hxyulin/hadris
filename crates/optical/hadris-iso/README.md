@@ -355,10 +355,10 @@ partitions, caches and read-ahead adapters without a mode wrapper.
 
 A device and its operation state that implement `Send` automatically satisfy
 `SendBlockDevice`. Reader operations, writers and sessions then produce Send
-futures. `IsoFs` implements `hadris_fs::local::FileSystem` for all common devices
-and the Send filesystem contract for `SendBlockDevice` devices.
-The `async` feature enables both capabilities; neither requires an allocator
-for reading. The `alloc` feature enables writers and sessions.
+futures. `IsoFs` implements `hadris_fs::async_::FileSystem` for all common
+devices and `hadris_fs::async_::SendFileSystem` for `SendBlockDevice` devices.
+Neither requires an allocator for reading. The `write` feature enables writers
+and sessions.
 
 ## Documentation
 

@@ -116,7 +116,7 @@ fn data_len<E>(len: u64) -> Result<usize, Error<E>> {
 
 io_transform! {
 
-async fn read_data<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeSend>(entry: &mut Entry<'_, R, B>) -> Result<Vec<u8>, Error<R::Error>> {
+async fn read_data<R: Read, B: AsRef<[u8]> + AsMut<[u8]>>(entry: &mut Entry<'_, R, B>) -> Result<Vec<u8>, Error<R::Error>> {
     let len = data_len(entry.remaining())?;
     let mut data = Vec::new();
     let mut chunk = alloc::vec![0u8; CHUNK.min(len)];
@@ -143,7 +143,7 @@ async fn read_data<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeSend>
 /// attributes of the last name that carries data, as GNU cpio writes them.
 /// Errors carry the entry name.
 #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all))]
-pub async fn read_tree<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeSend>(reader: &mut CpioReader<R, B>) -> Result<Tree, PathError> {
+pub async fn read_tree<R: Read, B: AsRef<[u8]> + AsMut<[u8]>>(reader: &mut CpioReader<R, B>) -> Result<Tree, PathError> {
     let mut tree = Tree::new();
     let mut groups = Groups::default();
     loop {

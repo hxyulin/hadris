@@ -12,7 +12,7 @@ macro_rules! io_transform {
 
 use hadris_fat_raw::io::async_ as rawio;
 #[cfg(feature = "alloc")]
-use hadris_fs::local as fsapi;
+use hadris_fs::async_ as fsapi;
 use hadris_storage::async_ as storage;
 
 #[path = "dirs.rs"]

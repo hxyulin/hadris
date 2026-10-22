@@ -35,22 +35,20 @@ preloading filesystem metadata or file contents.
 
 FAT/exFAT (including embedded), ISO, UDF, NTFS and APFS use the common device
 contract. Partition tables and umbrella detection/opening do too. The same
-concrete filesystem type implements `hadris_fs::local::FileSystem` for common
-devices and the stronger `hadris_fs::async_::FileSystem` for Send devices.
-The `async` feature enables both filesystem contracts.
+concrete filesystem type implements `hadris_fs::async_::FileSystem` for every
+device and `hadris_fs::async_::SendFileSystem` for Send devices.
 
-Use `hadris_fs::local::Volume` for a local device and
-`hadris_fs::async_::Volume` when the stronger contract is needed. Local volumes
-still require allocation and pointer-sized atomics. The allocation-free
-filesystem drivers and embedded FAT APIs remain usable without either.
-Enabling the `async` feature does not make a local device Send.
+Use `hadris_fs::async_::Volume` for any device; its futures are `Send` when
+the concrete device and its operation state are. Code generic over the
+filesystem that spawns work uses `hadris_fs::async_::SendVolume`, a `Volume`
+over `Sendable::new(fs)`. Volumes require allocation and pointer-sized atomics.
+The allocation-free filesystem drivers and embedded FAT APIs remain usable
+without either.
 
 CPIO adopts the namespace convention but consumes byte streams through
-`hadris_io`, rather than block devices. Its existing stream contracts remain
-Send. Unifying local and Send CPIO streams requires a separate byte-stream
-contract migration. Lazy tree-content sources also retain their existing
-Send requirements; local output devices work with the supported content
-sources, but the device change does not remove those source requirements.
+`hadris_io`, rather than block devices; those traits accept non-`Send`
+streams. Lazy tree-content sources stay `Send`: async `read_tree` takes a
+`SendVolume`. Non-`Send` output devices work with every content source.
 
 ## Polling and cancellation
 
@@ -85,7 +83,7 @@ explicit capability.
 
 `async_::Stream` is not the byte-stream contract of the format crates. CPIO
 and lazy tree content read through `hadris_io::async_::{Read, Write, Seek}`
-and their `local` twins, which use `async fn` and return the bare error.
+which use `async fn` and return the bare error.
 `Stream` has the block device's shape instead (`Error<Self::Error>`, owned
 `State`, `cancel`) and only backs `StreamDevice`. `ByteView` turns a block
 device into the `hadris_io` traits; nothing turns those traits into a

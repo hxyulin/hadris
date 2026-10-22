@@ -261,7 +261,7 @@ only when the future is dropped does not protect caller buffers between polls.
 Successful block operations transfer the whole requested buffer. A failed write
 may already have transferred earlier blocks and does not promise rollback.
 
-`async_::BlockDevice` (also available as `local::BlockDevice`) allows non-Send
+`async_::BlockDevice` allows non-Send
 devices and futures for single-threaded executors. Its error still implements `core::error::Error + Send + Sync + 'static`,
 as it does in the other modes.
 

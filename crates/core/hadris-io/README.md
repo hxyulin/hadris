@@ -29,7 +29,7 @@ feature) passes an `embedded-io` error through unchanged.
 |---------|-------------|---------|
 | `std` | `StdIo`, `ToStd` and conversions to `std::io::Error`; implies `alloc` | Yes |
 | `sync` | Synchronous traits in `hadris_io::sync` | Yes |
-| `async` | Asynchronous traits with `Send` futures in `hadris_io::async_`, and in `hadris_io::local` for executors whose futures are not `Send` | No |
+| `async` | Asynchronous traits in `hadris_io::async_`; futures are `Send` whenever the concrete stream is | No |
 | `alloc` | `Box<T>` implements the traits and `Vec<u8>` implements `Write` | via `std` |
 | `embedded-io` | `FromEmbedded`, the `embedded-io` traits on `StdIo`, and `SeekFrom` conversions | No |
 

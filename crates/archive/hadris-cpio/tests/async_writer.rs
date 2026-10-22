@@ -38,13 +38,13 @@ impl hadris_io::ErrorType for Sink {
 }
 
 impl hadris_io::async_::Write for Sink {
-    fn write(&mut self, bytes: &[u8]) -> impl Future<Output = Result<usize, Infallible>> + Send {
+    fn write(&mut self, bytes: &[u8]) -> impl Future<Output = Result<usize, Infallible>> {
         let n = bytes.len().min(7);
         self.0.extend_from_slice(&bytes[..n]);
         core::future::ready(Ok(n))
     }
 
-    fn flush(&mut self) -> impl Future<Output = Result<(), Infallible>> + Send {
+    fn flush(&mut self) -> impl Future<Output = Result<(), Infallible>> {
         core::future::ready(Ok(()))
     }
 }

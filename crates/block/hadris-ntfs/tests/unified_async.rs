@@ -92,7 +92,7 @@ async fn read_image<D: BlockDevice>(device: D) -> Vec<u8> {
     let mut fs = hadris_ntfs::async_::NtfsFs::mount(device, hadris_fs::MountOptions::new())
         .await
         .unwrap();
-    fn local_contract(_: &impl hadris_fs::local::FileSystem) {}
+    fn local_contract(_: &impl hadris_fs::async_::FileSystem) {}
     local_contract(&fs);
     let root = fs.root();
     let file = fs
@@ -138,9 +138,9 @@ fn borrowed_send_future_runs_on_a_scoped_thread() {
 #[test]
 fn default_methods_are_unambiguous_and_send_with_both_traits_in_scope() {
     fn check<D: SendBlockDevice>(fs: &mut hadris_ntfs::async_::NtfsFs<D>) {
-        use hadris_fs::{Name, RenameMode, Resolve, SetAttr};
         #[allow(unused_imports)]
-        use hadris_fs::{async_::FileSystem as _, local::FileSystem as _};
+        use hadris_fs::async_::{FileSystem as _, SendFileSystem as _};
+        use hadris_fs::{Name, RenameMode, Resolve, SetAttr};
         fn require_send(_: impl Future + Send) {}
         let root = hadris_ntfs::async_::NtfsFs::root(fs);
         let attrs = SetAttr::new();

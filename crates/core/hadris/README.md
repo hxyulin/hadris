@@ -33,7 +33,7 @@ mode an application needs.
 | `std` | Yes | Implies `alloc`; host files, `host`, `std::io` conversions |
 | `alloc` | via `std` | Allocating drivers and `open` |
 | `sync` | Yes | The blocking API in each `sync` module |
-| `async` | No | The runtime-neutral API in each `async_` module, plus the `local` tiers |
+| `async` | No | The runtime-neutral API in each `async_` module |
 | `write` | Yes | The writers of every enabled format (FAT and exFAT formatting, ISO 9660, UDF with the bridge, cpio), and `format` with `detect` |
 | `fat`, `part`, `iso`, `udf`, `cpio` | `fat`, `iso`, `cpio` | One format crate each |
 | `detect` | Yes | `detect`, `open`, `open_partition`, `detect_partitions` and `AnyFs`; enables `fat`, `part`, `iso`, `udf` and `cpio` |

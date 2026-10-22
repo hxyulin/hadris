@@ -178,12 +178,11 @@ Rules that hold for every V3 crate:
 - A feature only adds items. No feature changes what an existing item does;
   V2 features that switched behaviour (`lfn`, `dirty-file-panic`, `crc`,
   `rand`, the `unstable-streaming` variants) are gone.
-- `async` futures are `Send` when the device is. Futures that need not be
-  `Send` exist only in `hadris_io::local`, `hadris_fs::local` and the
-  common block-device contract `hadris_storage::async_::BlockDevice`,
-  which every async driver accepts. `local` names a separate contract
-  without `Send` bounds wherever it appears; storage and the format crates
-  have no `local` module.
+- `async` futures are `Send` when the device is. The `async_` traits add no
+  `Send` bound, so non-`Send` devices and streams work on single-threaded
+  executors; code generic over the filesystem that needs `Send` futures
+  bounds on `hadris_fs::async_::SendFileSystem` instead. There is no `local`
+  module in any crate.
 - Only `unstable-*` features add APIs outside the stability promise, and
   everything they add may change in any release. The preview crates
   `hadris-ntfs` and `hadris-apfs` carry 3.x versions but may break in a
@@ -196,8 +195,8 @@ Per crate:
 | Crate | V2 features | V3 features | Removed, and what to do |
 |---|---|---|---|
 | `hadris` | `std`, `alloc`, `sync`, `async`, `read`, `write`, `block`, `optical`, `archive`, `path`, `fixed`, `storage`, `fat`, `part`, `iso`, `udf`, `cd`, `cpio` (default `std`, `sync`, `read`, `write`, `fixed`, `path`, `iso`, `fat`, `cpio`) | `std`, `alloc`, `sync`, `async`, `write`, `fat`, `part`, `iso`, `udf`, `cpio`, `detect`, `unstable-ntfs`, `unstable-apfs`, `apfs-encryption`, `tracing` (default `std`, `sync`, `write`, `fat`, `iso`, `cpio`, `detect`) | `read`: drop it. `archive`: use `cpio`. `block`, `optical`: use `detect` (adds `fat`, `part`, `iso`, `udf`, `cpio`). `cd`: use `udf`. `storage`: `hadris::storage` is always there. `path`, `fixed`: the crates are gone. `write` forwards the writers of every enabled format. |
-| `hadris-io` | `std`, `alloc`, `sync`, `async` | `std`, `alloc`, `sync`, `async`, `embedded-io` | `embedded-io` is now optional and gates `FromEmbedded` and the `embedded-io` conversions. `async` also enables `local`. |
-| `hadris-storage` | `std`, `alloc`, `sync`, `async` | `std`, `alloc`, `sync`, `async` | None. `async_::BlockDevice` serves local and Send devices; there is no `local` module. |
+| `hadris-io` | `std`, `alloc`, `sync`, `async` | `std`, `alloc`, `sync`, `async`, `embedded-io` | `embedded-io` is now optional and gates `FromEmbedded` and the `embedded-io` conversions. |
+| `hadris-storage` | `std`, `alloc`, `sync`, `async` | `std`, `alloc`, `sync`, `async` | None. `async_::BlockDevice` serves non-`Send` and `Send` devices. |
 | `hadris-common` | `std`, `alloc`, `sync`, `async`, `bytemuck`, `optical` | `bytemuck` | The crate is internal and may break in a minor release; depend on it with `"~3.0"` only to name `hadris-fat-raw` field types. |
 | `hadris-fs` | (new) | `std`, `alloc`, `sync`, `async`, `unstable-contract` (default `std`, `sync`) | `unstable-contract` adds the driver test kit `contract::check`, outside semver; enable it in dev-dependencies only. |
 | `hadris-fat` | `read`, `write`, `lfn`, `std`, `sync`, `async`, `alloc`, `cache`, `tool`, `unstable-exfat`, `defmt`, `dirty-file-panic` (default `read`, `write`, `lfn`, `std`, `sync`) | `std`, `sync`, `async`, `alloc`, `write`, `defmt`, `tracing` (default `std`, `sync`, `write`) | `read`, `lfn`: always on. `cache`: use `FatFs::with_cache(CacheOptions)` for bounded metadata/lookup caches, or wrap the device in `hadris_storage::sync::Cache` for write-back block caching. `tool`: use `check` (always compiled) and `FatFs::extents`. `unstable-exfat`: exFAT is in every build. `dirty-file-panic`: gone. `write` now adds only `format`; it no longer implies `alloc` or `read`. `FatFs`, `ExFatFs` and the tree writer `write` need `alloc`. `defmt` now derives only on `FatKind`. |
@@ -322,7 +321,7 @@ pub trait ErrorType {
 ```
 
 - The crate root no longer glob re-exports `sync`. Name the traits by mode:
-  `hadris_io::sync::Read`, `hadris_io::async_::Read`, `hadris_io::local::Read`.
+  `hadris_io::sync::Read`, `hadris_io::async_::Read`.
   The root keeps the mode-independent items: `ErrorType`, `ExactError`,
   `Cursor`, `SeekFrom`, `StdIo`, `ToStd`, `FromEmbedded`, `Error`,
   `ErrorKind` and the other error items.
@@ -1059,26 +1058,27 @@ primitives in `io` and `exfat::io`, and the checkers `io::sync::check` and
 
 ## Async
 
-- `async_` is the only async namespace: there is no `r#async::`,
-  `hadris_storage::local::` or `hadris_fat_raw::io::local::`, and no storage
-  `legacy_async` or `legacy_local` module. One block-format driver accepts both local and Send devices
+- `async_` is the only async namespace: there is no `r#async::` and no
+  `local::` module in any crate, and no storage `legacy_async` or
+  `legacy_local` module. One block-format driver accepts both non-`Send` and `Send` devices
   through `hadris_storage::async_::BlockDevice`. Its poll hooks use an operation-owned
   `State: Default + Unpin`.
 - `SendBlockDevice` is automatic when both the device and its operation state
   are Send. Generic callers requiring Send futures must use that stronger
-  bound; a Send device with non-Send state remains a local device.
+  bound; a Send device with non-Send state is not a `SendBlockDevice`.
 - FAT/exFAT, ISO, UDF, NTFS and APFS implement
-  `hadris_fs::local::FileSystem` for local devices and
-  `hadris_fs::async_::FileSystem` for Send devices. The `async` feature enables
-  both contracts. Use `hadris_fs::local::Volume` for local paths and handles;
-  it needs allocation and pointer-sized atomics. Allocation-free drivers and
-  embedded FAT APIs remain available without those requirements.
-- CPIO byte streams and lazy tree-content sources retain their existing Send
-  requirements. The block-device migration does not relax those contracts.
+  `hadris_fs::async_::FileSystem` for every device and
+  `hadris_fs::async_::SendFileSystem` for Send devices. `async_::Volume`
+  serves both; the futures of a concrete volume over a Send device are
+  `Send`. Generic code that spawns work uses `async_::SendVolume`, a `Volume`
+  over `Sendable::new(fs)`. Volumes need allocation and pointer-sized atomics.
+  Allocation-free drivers and embedded FAT APIs remain available without
+  those requirements.
+- Async `read_tree` takes a `SendVolume`, so lazy tree content stays `Send`.
+  CPIO byte streams need not be `Send`.
 - Device errors must be `core::error::Error + Send + Sync + 'static` in
-  every mode, including `local` and the embedded API. Map non-`Send`
-  errors to an owned error type that meets these bounds; selecting `local`
-  does not relax the error contract.
+  every mode, including non-`Send` devices and the embedded API. Map
+  non-`Send` errors to an owned error type that meets these bounds.
 - The async `ReadDir` has `next_entry().await` instead of `Iterator`.
 - The async `Volume` needs `alloc`; the sync one needs `std`.
 - `hadris_fs::host::{mount_options, local_utc_offset, source_date_epoch}`
@@ -1212,7 +1212,7 @@ follows. In V3, name I/O items through their mode module:
 |---|---|
 | `hadris_io::{Read, Write, Seek}` (root glob of `sync`) | `hadris_io::sync::{Read, Write, Seek}` |
 | `hadris_io::sync::{Read, Write, Seek}` | Same path. Each now has an `ErrorType` supertrait with the implementor's error; `read_exact` and `write_all` return `ExactError<E>` |
-| `hadris_io::r#async::{Read, Write, Seek}` | `hadris_io::async_::{Read, Write, Seek}` (futures `Send`) or `hadris_io::local::{Read, Write, Seek}` (not `Send`) |
+| `hadris_io::r#async::{Read, Write, Seek}` | `hadris_io::async_::{Read, Write, Seek}` (futures `Send` when the stream is) |
 | `hadris_io::{ReadSeek, ReadWrite, ReadWriteSeek}` and their mode twins | Removed. Write the bounds out: `R: Read + Seek` |
 | `hadris_io::{ReadExt, Parsable, Writable}` and their mode twins | Removed. Read raw layouts with the `hadris-<format>-raw` crates |
 | `hadris_io::Borrowed` and mode twins | Removed. `&mut T` implements the traits |
@@ -1227,7 +1227,7 @@ follows. In V3, name I/O items through their mode module:
 | `hadris_io::IoError` | Removed. The bound is `ErrorType::Error: core::error::Error + Send + Sync + 'static` |
 | `hadris_io::{Path, PathBuf}` | Removed. Use `std::path` |
 | `hadris_io::try_io_result_option!` | `hadris_io::try_io_result_option!` |
-| (new) | `ErrorType`, `ExactError`, `StdIo`, `ToStd`, `into_std_error`, `Location`, `DetailCode`, `Errno`, `InvalidSeek`, `{sync, async_, local}::MaybeSend` |
+| (new) | `ErrorType`, `ExactError`, `StdIo`, `ToStd`, `into_std_error`, `Location`, `DetailCode`, `Errno`, `InvalidSeek` |
 
 ### hadris-storage
 

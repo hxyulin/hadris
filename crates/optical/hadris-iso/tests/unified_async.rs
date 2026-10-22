@@ -67,7 +67,7 @@ fn canonical_local_device_mounts_without_an_adapter() {
     };
     common::block_on(async {
         let mut fs = IsoFs::mount(device, MountOptions::new()).await.unwrap();
-        hadris_fs::local::contract::check_read_only(&mut fs)
+        hadris_fs::async_::contract::check_read_only(&mut fs)
             .await
             .unwrap();
         let node = fs.lookup(fs.root(), Name::new("readme.txt")).await.unwrap();
@@ -149,15 +149,15 @@ fn borrowed_local_partition_cache_and_volume_use_the_same_reader() {
     let ahead = hadris_storage::async_::ReadAhead::new(cache, 8);
     common::block_on(async {
         let mut fs = IsoFs::mount(ahead, MountOptions::new()).await.unwrap();
-        hadris_fs::local::contract::check_read_only(&mut fs)
+        hadris_fs::async_::contract::check_read_only(&mut fs)
             .await
             .unwrap();
-        let vol = hadris_fs::local::Volume::new(fs);
+        let vol = hadris_fs::async_::Volume::new(fs);
         let mut file = vol
             .open("/readme.txt", OpenOptions::new().read())
             .await
             .unwrap();
-        use hadris_io::local::Read as _;
+        use hadris_io::async_::Read as _;
         let mut bytes = [0; 12];
         file.read_exact(&mut bytes).await.unwrap();
         assert_eq!(&bytes, b"hello world\n");
@@ -187,6 +187,28 @@ fn unified_reader_still_works_with_send_volume() {
     });
 }
 
+#[allow(dead_code)]
+fn generic_send_volume<F: hadris_fs::async_::SendFileSystem + 'static>(
+    vol: &hadris_fs::async_::SendVolume<F>,
+) {
+    require_send(vol.open("/readme.txt", OpenOptions::new().read()));
+    require_send(hadris_fs::async_::read_tree(vol, "/"));
+}
+
+#[test]
+fn send_volume_over_a_send_device_reads() {
+    let image = common::image(
+        &common::sample(false, false),
+        &IsoOptions::new().with_joliet(),
+    );
+    common::block_on(async {
+        let fs = IsoFs::mount(image, MountOptions::new()).await.unwrap();
+        let vol = hadris_fs::async_::SendVolume::new(hadris_fs::async_::Sendable::new(fs));
+        let tree = hadris_fs::async_::read_tree(&vol, "/").await.unwrap();
+        assert!(tree.get("readme.txt").is_some());
+    });
+}
+
 fn send_defaults<D: hadris_storage::async_::SendBlockDevice>(fs: &mut IsoFs<D>) {
     use hadris_fs::{RenameMode, Resolve, SetAttr};
     let root = fs.root();
@@ -213,9 +235,9 @@ fn send_defaults<D: hadris_storage::async_::SendBlockDevice>(fs: &mut IsoFs<D>) 
 
 #[test]
 fn defaults_remain_send_and_unambiguous_with_both_filesystem_contracts_imported() {
-    use hadris_fs::{ErrorKind, Resolve};
     #[allow(unused_imports)]
-    use hadris_fs::{async_::FileSystem as _, local::FileSystem as _};
+    use hadris_fs::async_::{FileSystem as _, SendFileSystem as _};
+    use hadris_fs::{ErrorKind, Resolve};
     let image = common::image(
         &common::sample(false, false),
         &IsoOptions::new().with_joliet(),

@@ -388,40 +388,12 @@ use hadris_io::SeekFrom;
 
 byte_view!(keep_async);
 
-impl<D: SendBlockDevice> hadris_io::async_::Read for ByteView<D> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        let n = buf.len().min(self.remaining());
-        self.read_at(self.position, &mut buf[..n]).await?;
-        self.position += n as u64;
-        Ok(n)
-    }
-}
-
-impl<D: SendBlockDevice> hadris_io::async_::Write for ByteView<D> {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        let n = buf.len().min(self.remaining());
-        self.write_at(self.position, &buf[..n]).await?;
-        self.position += n as u64;
-        Ok(n)
-    }
-
-    async fn flush(&mut self) -> Result<(), Self::Error> {
-        self.inner.flush().await
-    }
-}
-
-impl<D: SendBlockDevice> hadris_io::async_::Seek for ByteView<D> {
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
-        self.seek_to(pos)
-    }
-}
-
 #[cfg(feature = "alloc")]
 pub use crate::poll_cache::{Cache, CacheOperation};
 #[cfg(feature = "alloc")]
 pub use crate::poll_read_ahead::{ReadAhead, ReadAheadOperation};
 
-impl<D: BlockDevice> hadris_io::local::Read for ByteView<D> {
+impl<D: BlockDevice> hadris_io::async_::Read for ByteView<D> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         let n = buf.len().min(self.remaining());
         self.read_at(self.position, &mut buf[..n]).await?;
@@ -430,7 +402,7 @@ impl<D: BlockDevice> hadris_io::local::Read for ByteView<D> {
     }
 }
 
-impl<D: BlockDevice> hadris_io::local::Write for ByteView<D> {
+impl<D: BlockDevice> hadris_io::async_::Write for ByteView<D> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         let n = buf.len().min(self.remaining());
         self.write_at(self.position, &buf[..n]).await?;
@@ -443,7 +415,7 @@ impl<D: BlockDevice> hadris_io::local::Write for ByteView<D> {
     }
 }
 
-impl<D: BlockDevice> hadris_io::local::Seek for ByteView<D> {
+impl<D: BlockDevice> hadris_io::async_::Seek for ByteView<D> {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         self.seek_to(pos)
     }

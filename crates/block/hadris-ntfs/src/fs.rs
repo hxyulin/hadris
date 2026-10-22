@@ -1555,7 +1555,7 @@ hadris_fs::__forward_filesystem! {
 
 send_filesystem! {
 hadris_fs::__forward_filesystem! {
-    async fn NtfsFs<D: hadris_storage::async_::SendBlockDevice> as hadris_fs::async_::FileSystem { read }
+    async fn NtfsFs<D: hadris_storage::async_::SendBlockDevice> as hadris_fs::async_::SendFileSystem { read resolve write }
 }
 }
 

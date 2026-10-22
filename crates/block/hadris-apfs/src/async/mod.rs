@@ -7,7 +7,7 @@ macro_rules! io_transform {
 }
 
 #[cfg(feature = "alloc")]
-use hadris_fs::local::FileSystem;
+use hadris_fs::async_::FileSystem;
 use hadris_storage::async_ as storage;
 
 #[path = "../container.rs"]

@@ -97,6 +97,15 @@ impl<F: FileSystem> VolumeContent<F> {
     }
 }
 
+/// A filesystem whose files `read_tree` turns into content read lazily.
+trait Lazy: FileSystem + Sized + 'static {
+    fn lazy(content: VolumeContent<Self>, len: u64) -> Content;
+}
+
+}
+
+sync_only! {
+io_transform! {
 /// Turns the file or directory at `path` on `vol` into a [`Tree`] whose file
 /// content is read lazily through a clone of the volume, so converting a
 /// large volume needs no memory for file data.
@@ -116,8 +125,42 @@ impl<F: FileSystem> VolumeContent<F> {
 /// [`ErrorKind::Corrupt`], and a tree more than 1024 directories deep with
 /// [`ErrorKind::LimitExceeded`].
 pub async fn read_tree<F: FileSystem + Send + 'static>(vol: &Volume<F>, path: impl AsRef<[u8]>) -> Result<Tree, PathError> {
+    read_tree_of(vol, path.as_ref()).await
+}
+}
+}
+
+async_only! {
+/// Turns the file or directory at `path` on `vol` into a [`Tree`] whose file
+/// content is read lazily through a clone of the volume, so converting a
+/// large volume needs no memory for file data.
+///
+/// For a directory the tree's root takes the directory's attributes and
+/// holds its contents; a file becomes the only node of the tree, under the
+/// name its directory lists it by, which on a case-insensitive volume may
+/// differ from the spelling in `path` (one scan of the directory). Symlinks, device nodes, FIFOs and sockets are kept, and a file
+/// listed again under the same node id becomes a hard link. Attributes are
+/// what the volume reports. `path` resolves lexically.
+///
+/// Each file keeps its node pinned until the last clone of its content is
+/// dropped, and the tree holds a clone of the volume, so
+/// [`Volume::into_inner`] fails while the tree lives. The content is read
+/// only by writers of this mode. Errors carry the path on the volume; a
+/// directory that leads back to one on its own path fails with
+/// [`ErrorKind::Corrupt`], and a tree more than 1024 directories deep with
+/// [`ErrorKind::LimitExceeded`].
+///
+/// The volume is a [`SendVolume`](crate::async_::SendVolume), so the
+/// content futures writers await are `Send`.
+pub async fn read_tree<F: crate::async_::SendFileSystem + 'static>(vol: &crate::async_::SendVolume<F>, path: impl AsRef<[u8]>) -> Result<Tree, PathError> {
+    read_tree_of(vol, path.as_ref()).await
+}
+}
+
+io_transform! {
+
+async fn read_tree_of<F: Lazy>(vol: &Volume<F>, path: &[u8]) -> Result<Tree, PathError> {
     watched!(vol, {
-        let path = path.as_ref();
         let mut fs = vol.enter().await?;
         let top = vol.hold(fs.resolve(path, Resolve::Lexical).await.map_err(|err| PathError::from(err).with_path(path))?);
         let mut tree = Tree::new();
@@ -185,7 +228,7 @@ async fn stored_name<F: FileSystem>(
 /// special files, from the listing. Files, whose content keeps a pin, and
 /// symlinks, whose target is read, are looked up and stated, so one whose
 /// metadata a driver could only list as damaged fails the walk.
-async fn walk<F: FileSystem + Send + 'static>(
+async fn walk<F: Lazy>(
     fs: &mut F,
     vol: &Volume<F>,
     tree: &mut Tree,
@@ -248,7 +291,7 @@ async fn walk<F: FileSystem + Send + 'static>(
 /// The tree node for the pinned non-directory `node`. A file's content
 /// keeps the pin and releases it when dropped; for anything else the pin is
 /// forgotten here.
-async fn node_of<F: FileSystem + Send + 'static>(
+async fn node_of<F: Lazy>(
     fs: &mut F,
     vol: &Volume<F>,
     node: Held<'_>,
@@ -258,7 +301,7 @@ async fn node_of<F: FileSystem + Send + 'static>(
     let made = match meta.file_type() {
         FileType::File => {
             let content = VolumeContent { vol: vol.clone(), node: node.keep() };
-            return Ok(Node::file(lazy(content, meta.len())).with_attrs(attrs));
+            return Ok(Node::file(F::lazy(content, meta.len())).with_attrs(attrs));
         }
         FileType::Symlink => match link_buffer(meta.len()) {
             Ok(mut target) => match fs.readlink(node.node(), &mut target).await {
@@ -282,19 +325,25 @@ sync_only! {
         }
     }
 
-    fn lazy<F: FileSystem + Send + 'static>(content: VolumeContent<F>, len: u64) -> Content {
-        Content::sync_source(Arc::new(content), len)
+    impl<F: FileSystem + Send + 'static> Lazy for F {
+        fn lazy(content: VolumeContent<F>, len: u64) -> Content {
+            Content::sync_source(Arc::new(content), len)
+        }
     }
 }
 
 async_only! {
-    impl<F: FileSystem + 'static> crate::tree::AsyncSource for VolumeContent<F> {
+    impl<F: crate::async_::SendFileSystem + 'static> crate::tree::AsyncSource
+        for VolumeContent<crate::async_::Sendable<F>>
+    {
         fn read_at<'a>(&'a self, offset: u64, buf: &'a mut [u8]) -> crate::tree::ReadFuture<'a> {
             alloc::boxed::Box::pin(self.read(offset, buf))
         }
     }
 
-    fn lazy<F: FileSystem + 'static>(content: VolumeContent<F>, len: u64) -> Content {
-        Content::async_source(Arc::new(content), len)
+    impl<F: crate::async_::SendFileSystem + 'static> Lazy for crate::async_::Sendable<F> {
+        fn lazy(content: VolumeContent<Self>, len: u64) -> Content {
+            Content::async_source(Arc::new(content), len)
+        }
     }
 }

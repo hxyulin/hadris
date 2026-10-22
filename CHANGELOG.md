@@ -25,9 +25,27 @@ Each published package owns its version and may be released independently.
 - **hadris:** `write` now enables the ISO 9660, UDF (with the bridge) and
   cpio writers of the enabled formats as well as FAT formatting.
 - **hadris-fs:** `FuseOnError` is removed.
+- **hadris-io, hadris-fs:** The `local` modules are merged into `async_`.
+  `hadris_io::async_::{Read, Write, Seek}` and `hadris_fs::async_::FileSystem`
+  no longer have `Send` supertraits or return `Send` futures, so they serve
+  non-`Send` devices and streams, and there is one `async_::Volume`, `File`,
+  `ReadDir` and `WalkDir`. The futures of a concrete filesystem or stream are
+  still `Send` whenever its device is, so `Volume<IsoFs<D>>` over a `Send`
+  device can be spawned as before. Code generic over the filesystem that
+  needs `Send` futures bounds on the new `hadris_fs::async_::SendFileSystem`,
+  which every format implements for `SendBlockDevice` devices, and shares it
+  through `SendVolume<F>`, a `Volume` over `Sendable::new(fs)`. Async `read_tree`
+  takes a `SendVolume`. `MaybeSend` is removed. Replace `hadris_fs::local::`
+  and `hadris_io::local::` with `async_::`.
 
 ### Added
 
+- **hadris-fs:** `async_::SendFileSystem`, `async_::Sendable` and
+  `async_::SendVolume`. Every format's `SendFileSystem` impl forwards every
+  method, including writes and `resolve`, where the old `Send` tier of ISO,
+  UDF, NTFS and APFS forwarded only reads.
+- **hadris-io:** `FromEmbedded` implements the `async_` traits over
+  `embedded-io-async`.
 - **hadris-apfs:** `Container::filesystem_records(volume, id, record_type)`
   returns one object's records of one type in key order, descending the
   filesystem tree by key instead of walking every leaf.

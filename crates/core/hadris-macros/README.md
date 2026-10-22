@@ -6,13 +6,11 @@ Filesystem and partition crates write I/O code **once** with `async fn` / `.awai
 then compile it once per mode:
 
 - under a `sync` module via [`strip_async!`](https://docs.rs/hadris-macros/3.0.0-rc.2) (async keywords removed)
-- under an `async_` module, either unchanged or via `send_async!`, whose
-  trait methods return `Send` futures
-- byte-stream and filesystem traits also have an unmodified `local` form
-  for executors whose futures are not `Send`
+- under an `async_` module, unchanged
+- once more via `send_async!`, whose trait methods return `Send` futures,
+  for `hadris_fs::async_::SendFileSystem`
 
-`send_async!` is used where the shared source declares traits: the
-`hadris-io` byte-stream traits and the `hadris-fs` filesystem trait. Block
+`send_async!` is used only for the `hadris-fs` filesystem trait. Block
 storage uses handwritten poll-operation futures in one `async_` namespace,
 so block-format drivers such as `hadris-part` and `hadris-fat` pass their
 async items through unchanged. They use the common device contract and

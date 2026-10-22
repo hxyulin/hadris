@@ -66,13 +66,14 @@ stronger bound; a Send device value alone is insufficient. See
 [implement an asynchronous block device](./async-devices.md) for the full
 contract.
 
-Use `hadris::fs::local::FileSystem` and `local::Volume` for local devices, or
-`hadris::fs::async_::FileSystem` and `async_::Volume` for the stronger Send
-contract. The `async` feature enables both. Device errors remain
-`Send + Sync + 'static` in every mode.
+Use `hadris::fs::async_::FileSystem` and `async_::Volume` for every device;
+their futures are `Send` when the concrete device is. Generic code that
+spawns work bounds on `hadris::fs::async_::SendFileSystem` and uses
+`async_::SendVolume`. Device errors remain `Send + Sync + 'static` in every
+mode.
 
-CPIO still consumes the existing Send byte-stream contracts. Its local-stream
-migration is separate from the block-device change. See the
+CPIO consumes the `hadris_io::async_` byte-stream traits, which accept
+non-`Send` streams. See the
 [custom device guide](./custom-io.md) for poll-native stream adapters and
 explicit blocking compatibility.
 

@@ -105,11 +105,11 @@ and uninitialized file tails retain their zero-fill behavior.
 
 ## Unified asynchronous API
 
-One filesystem type in `async_` accepts both Send and local devices through
-`hadris_storage::async_::BlockDevice`.
-It implements `hadris_fs::local::FileSystem` for all compatible devices and the
-Send filesystem contract when its device and operation state are Send. The
-`async` feature enables both capabilities; no separate local feature is needed.
+One filesystem type in `async_` accepts both `Send` and non-`Send` devices
+through `hadris_storage::async_::BlockDevice`. It implements
+`hadris_fs::async_::FileSystem` for every compatible device, and
+`hadris_fs::async_::SendFileSystem` when the device and its operation state
+are `Send`.
 
 ## Documentation
 

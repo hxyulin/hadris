@@ -1058,7 +1058,7 @@ fn tree_shape(tree: &Tree) -> std::collections::BTreeMap<Vec<u8>, (FileType, u64
 }
 
 macro_rules! relocation_cases {
-    ($mode:ident, $test:ident, $run:ident) => {
+    ($mode:ident, $test:ident, $run:ident, $volume:ident) => {
         #[test]
         fn $test() {
             $run!(async {
@@ -1120,7 +1120,7 @@ macro_rules! relocation_cases {
                         assert_eq!(fs.read(leaf, 0, &mut data).await.unwrap(), 4);
                         assert_eq!(&data, b"deep");
                         fs.close(leaf).await.unwrap();
-                        let volume = hadris_fs::$mode::Volume::new(fs);
+                        let volume = $volume(fs);
                         let extracted = hadris_fs::$mode::read_tree(&volume, "/").await.unwrap();
                         assert_eq!(tree_shape(&extracted), tree_shape(&tree));
                     }
@@ -1136,16 +1136,25 @@ macro_rules! relocation_async {
         common::block_on($body)
     };
 }
+fn sync_volume<F: hadris_fs::sync::FileSystem>(fs: F) -> hadris_fs::sync::Volume<F> {
+    hadris_fs::sync::Volume::new(fs)
+}
+#[cfg(feature = "async")]
+fn async_volume<F: hadris_fs::async_::SendFileSystem>(fs: F) -> hadris_fs::async_::SendVolume<F> {
+    hadris_fs::async_::SendVolume::new(hadris_fs::async_::Sendable::new(fs))
+}
 relocation_cases!(
     sync,
     relocation_listing_preserves_only_the_logical_tree_sync,
-    relocation_sync
+    relocation_sync,
+    sync_volume
 );
 #[cfg(feature = "async")]
 relocation_cases!(
     async_,
     relocation_listing_preserves_only_the_logical_tree_async,
-    relocation_async
+    relocation_async,
+    async_volume
 );
 
 #[test]

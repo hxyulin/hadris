@@ -4,12 +4,12 @@ macro_rules! io_transform {
 }
 
 #[cfg(feature = "write")]
-use hadris_fs::local as fs;
+use hadris_fs::async_ as fs;
 #[cfg(feature = "bridge")]
 use hadris_iso::async_ as iso;
 use hadris_storage::async_ as storage;
 
-use hadris_fs::local::FileSystem;
+use hadris_fs::async_::FileSystem;
 
 #[path = "read.rs"]
 mod read;
@@ -28,5 +28,5 @@ hadris_fs::__forward_filesystem! {
 
 hadris_fs::__forward_filesystem! {
     #[cfg(feature = "async")]
-    send UdfFs<D: hadris_storage::async_::SendBlockDevice> as hadris_fs::async_::FileSystem { read }
+    send UdfFs<D: hadris_storage::async_::SendBlockDevice> as hadris_fs::async_::SendFileSystem { read resolve write }
 }

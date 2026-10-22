@@ -5,10 +5,11 @@
 /// (the methods whose defaults refuse writes, with `fsync` and `sync`).
 ///
 /// - `shims Type<D: Bound> { groups }`: inherent methods delegating to
-///   `local::FileSystem`, so calls stay unambiguous with both async traits
-///   in scope.
-/// - `send Type<D: Bound> as Trait { groups }`: an impl of the `Send` trait
-///   returning the futures of `local::FileSystem`.
+///   `async_::FileSystem`, so calls stay unambiguous with both
+///   `async_::FileSystem` and `async_::SendFileSystem` in scope.
+/// - `send Type<D: Bound> as Trait { groups }`, or `send Type as Trait` for
+///   a type without a device parameter: an impl of
+///   `async_::SendFileSystem` returning the futures of `async_::FileSystem`.
 /// - `async fn Type<D: Bound> as Trait { groups }`, or `fn` in blocking
 ///   code: an impl of `Trait` forwarding to the inherent methods.
 #[doc(hidden)]
@@ -16,14 +17,21 @@
 macro_rules! __forward_filesystem {
     (shims $ty:ident<D: $bound:path> { $($group:ident)* }) => {
         impl<D: $bound> $ty<D> {
-            $($crate::__forward_filesystem! { @local [pub] [] $group })*
+            $($crate::__forward_filesystem! { @native [pub] [] $group })*
         }
     };
     ($(#[$attr:meta])* send $ty:ident<D: $bound:path> as $trait:path { $($group:ident)* }) => {
         $(#[$attr])*
         impl<D: $bound> $trait for $ty<D> {
             type DeviceError = D::Error;
-            $($crate::__forward_filesystem! { @local [] [+ core::marker::Send] $group })*
+            $($crate::__forward_filesystem! { @native [] [+ core::marker::Send] $group })*
+        }
+    };
+    ($(#[$attr:meta])* send $ty:ident as $trait:path { $($group:ident)* }) => {
+        $(#[$attr])*
+        impl $trait for $ty {
+            type DeviceError = <Self as $crate::async_::FileSystem>::DeviceError;
+            $($crate::__forward_filesystem! { @native [] [+ core::marker::Send] $group })*
         }
     };
     (async fn $ty:ident<D: $bound:path> as $trait:path { $($group:ident)* }) => {
@@ -38,211 +46,211 @@ macro_rules! __forward_filesystem {
             $($crate::__forward_filesystem! { @inherent [] [] $group })*
         }
     };
-    (@local [$($pub:tt)?] [$($send:tt)*] read) => {
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::capabilities`]."] $pub)?
+    (@native [$($pub:tt)?] [$($send:tt)*] read) => {
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::capabilities`]."] $pub)?
         fn capabilities(&self) -> $crate::Capabilities {
-            $crate::local::FileSystem::capabilities(self)
+            $crate::async_::FileSystem::capabilities(self)
         }
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::root`]."] $pub)?
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::root`]."] $pub)?
         fn root(&self) -> $crate::NodeId {
-            $crate::local::FileSystem::root(self)
+            $crate::async_::FileSystem::root(self)
         }
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::statfs`]."] $pub)?
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::statfs`]."] $pub)?
         fn statfs(
             &mut self,
         ) -> impl core::future::Future<
-            Output = $crate::FsResult<$crate::FsStats, D::Error>,
+            Output = $crate::FsResult<$crate::FsStats, <Self as $crate::async_::FileSystem>::DeviceError>,
         > $($send)* {
-            $crate::local::FileSystem::statfs(self)
+            $crate::async_::FileSystem::statfs(self)
         }
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::label`]."] $pub)?
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::label`]."] $pub)?
         fn label<'b>(
             &mut self,
             buf: &'b mut [u8],
         ) -> impl core::future::Future<
-            Output = $crate::FsResult<Option<&'b str>, D::Error>,
+            Output = $crate::FsResult<Option<&'b str>, <Self as $crate::async_::FileSystem>::DeviceError>,
         > $($send)* {
-            $crate::local::FileSystem::label(self, buf)
+            $crate::async_::FileSystem::label(self, buf)
         }
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::lookup`]."] $pub)?
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::lookup`]."] $pub)?
         fn lookup(
             &mut self,
             dir: $crate::NodeId,
             name: &$crate::Name,
         ) -> impl core::future::Future<
-            Output = $crate::FsResult<$crate::NodeId, D::Error>,
+            Output = $crate::FsResult<$crate::NodeId, <Self as $crate::async_::FileSystem>::DeviceError>,
         > $($send)* {
-            $crate::local::FileSystem::lookup(self, dir, name)
+            $crate::async_::FileSystem::lookup(self, dir, name)
         }
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::forget`]."] $pub)?
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::forget`]."] $pub)?
         fn forget(&mut self, node: $crate::NodeId, count: u64) {
-            $crate::local::FileSystem::forget(self, node, count)
+            $crate::async_::FileSystem::forget(self, node, count)
         }
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::parent`]."] $pub)?
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::parent`]."] $pub)?
         fn parent(
             &mut self,
             dir: $crate::NodeId,
         ) -> impl core::future::Future<
-            Output = $crate::FsResult<$crate::NodeId, D::Error>,
+            Output = $crate::FsResult<$crate::NodeId, <Self as $crate::async_::FileSystem>::DeviceError>,
         > $($send)* {
-            $crate::local::FileSystem::parent(self, dir)
+            $crate::async_::FileSystem::parent(self, dir)
         }
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::stat`]."] $pub)?
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::stat`]."] $pub)?
         fn stat(
             &mut self,
             node: $crate::NodeId,
         ) -> impl core::future::Future<
-            Output = $crate::FsResult<$crate::Metadata, D::Error>,
+            Output = $crate::FsResult<$crate::Metadata, <Self as $crate::async_::FileSystem>::DeviceError>,
         > $($send)* {
-            $crate::local::FileSystem::stat(self, node)
+            $crate::async_::FileSystem::stat(self, node)
         }
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::readdir`]."] $pub)?
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::readdir`]."] $pub)?
         fn readdir(
             &mut self,
             dir: $crate::NodeId,
             from: $crate::DirCursor,
         ) -> impl core::future::Future<
-            Output = $crate::FsResult<Option<$crate::DirEntry>, D::Error>,
+            Output = $crate::FsResult<Option<$crate::DirEntry>, <Self as $crate::async_::FileSystem>::DeviceError>,
         > $($send)* {
-            $crate::local::FileSystem::readdir(self, dir, from)
+            $crate::async_::FileSystem::readdir(self, dir, from)
         }
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::readlink`]."] $pub)?
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::readlink`]."] $pub)?
         fn readlink<'b>(
             &mut self,
             node: $crate::NodeId,
             buf: &'b mut [u8],
         ) -> impl core::future::Future<
-            Output = $crate::FsResult<&'b [u8], D::Error>,
+            Output = $crate::FsResult<&'b [u8], <Self as $crate::async_::FileSystem>::DeviceError>,
         > $($send)* {
-            $crate::local::FileSystem::readlink(self, node, buf)
+            $crate::async_::FileSystem::readlink(self, node, buf)
         }
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::open`]."] $pub)?
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::open`]."] $pub)?
         fn open(
             &mut self,
             node: $crate::NodeId,
             mode: $crate::OpenMode,
         ) -> impl core::future::Future<
-            Output = $crate::FsResult<(), D::Error>,
+            Output = $crate::FsResult<(), <Self as $crate::async_::FileSystem>::DeviceError>,
         > $($send)* {
-            $crate::local::FileSystem::open(self, node, mode)
+            $crate::async_::FileSystem::open(self, node, mode)
         }
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::close`]."] $pub)?
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::close`]."] $pub)?
         fn close(
             &mut self,
             node: $crate::NodeId,
         ) -> impl core::future::Future<
-            Output = $crate::FsResult<(), D::Error>,
+            Output = $crate::FsResult<(), <Self as $crate::async_::FileSystem>::DeviceError>,
         > $($send)* {
-            $crate::local::FileSystem::close(self, node)
+            $crate::async_::FileSystem::close(self, node)
         }
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::read`]."] $pub)?
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::read`]."] $pub)?
         fn read(
             &mut self,
             node: $crate::NodeId,
             offset: u64,
             buf: &mut [u8],
         ) -> impl core::future::Future<
-            Output = $crate::FsResult<usize, D::Error>,
+            Output = $crate::FsResult<usize, <Self as $crate::async_::FileSystem>::DeviceError>,
         > $($send)* {
-            $crate::local::FileSystem::read(self, node, offset, buf)
+            $crate::async_::FileSystem::read(self, node, offset, buf)
         }
     };
-    (@local [$($pub:tt)?] [$($send:tt)*] resolve) => {
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::resolve`]."] $pub)?
+    (@native [$($pub:tt)?] [$($send:tt)*] resolve) => {
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::resolve`]."] $pub)?
         fn resolve(
             &mut self,
             path: &[u8],
             how: $crate::Resolve,
         ) -> impl core::future::Future<
-            Output = $crate::FsResult<$crate::NodeId, D::Error>,
+            Output = $crate::FsResult<$crate::NodeId, <Self as $crate::async_::FileSystem>::DeviceError>,
         > $($send)* {
-            $crate::local::FileSystem::resolve(self, path, how)
+            $crate::async_::FileSystem::resolve(self, path, how)
         }
     };
-    (@local [$($pub:tt)?] [$($send:tt)*] write) => {
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::setattr`]."] $pub)?
+    (@native [$($pub:tt)?] [$($send:tt)*] write) => {
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::setattr`]."] $pub)?
         fn setattr(
             &mut self,
             node: $crate::NodeId,
             changes: &$crate::SetAttr,
         ) -> impl core::future::Future<
-            Output = $crate::FsResult<(), D::Error>,
+            Output = $crate::FsResult<(), <Self as $crate::async_::FileSystem>::DeviceError>,
         > $($send)* {
-            $crate::local::FileSystem::setattr(self, node, changes)
+            $crate::async_::FileSystem::setattr(self, node, changes)
         }
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::write`]."] $pub)?
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::write`]."] $pub)?
         fn write(
             &mut self,
             node: $crate::NodeId,
             offset: u64,
             buf: &[u8],
         ) -> impl core::future::Future<
-            Output = $crate::FsResult<usize, D::Error>,
+            Output = $crate::FsResult<usize, <Self as $crate::async_::FileSystem>::DeviceError>,
         > $($send)* {
-            $crate::local::FileSystem::write(self, node, offset, buf)
+            $crate::async_::FileSystem::write(self, node, offset, buf)
         }
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::truncate`]."] $pub)?
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::truncate`]."] $pub)?
         fn truncate(
             &mut self,
             node: $crate::NodeId,
             len: u64,
         ) -> impl core::future::Future<
-            Output = $crate::FsResult<(), D::Error>,
+            Output = $crate::FsResult<(), <Self as $crate::async_::FileSystem>::DeviceError>,
         > $($send)* {
-            $crate::local::FileSystem::truncate(self, node, len)
+            $crate::async_::FileSystem::truncate(self, node, len)
         }
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::fsync`]."] $pub)?
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::fsync`]."] $pub)?
         fn fsync(
             &mut self,
             node: $crate::NodeId,
         ) -> impl core::future::Future<
-            Output = $crate::FsResult<(), D::Error>,
+            Output = $crate::FsResult<(), <Self as $crate::async_::FileSystem>::DeviceError>,
         > $($send)* {
-            $crate::local::FileSystem::fsync(self, node)
+            $crate::async_::FileSystem::fsync(self, node)
         }
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::create`]."] $pub)?
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::create`]."] $pub)?
         fn create(
             &mut self,
             dir: $crate::NodeId,
             name: &$crate::Name,
             attrs: &$crate::SetAttr,
         ) -> impl core::future::Future<
-            Output = $crate::FsResult<$crate::NodeId, D::Error>,
+            Output = $crate::FsResult<$crate::NodeId, <Self as $crate::async_::FileSystem>::DeviceError>,
         > $($send)* {
-            $crate::local::FileSystem::create(self, dir, name, attrs)
+            $crate::async_::FileSystem::create(self, dir, name, attrs)
         }
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::mkdir`]."] $pub)?
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::mkdir`]."] $pub)?
         fn mkdir(
             &mut self,
             dir: $crate::NodeId,
             name: &$crate::Name,
             attrs: &$crate::SetAttr,
         ) -> impl core::future::Future<
-            Output = $crate::FsResult<$crate::NodeId, D::Error>,
+            Output = $crate::FsResult<$crate::NodeId, <Self as $crate::async_::FileSystem>::DeviceError>,
         > $($send)* {
-            $crate::local::FileSystem::mkdir(self, dir, name, attrs)
+            $crate::async_::FileSystem::mkdir(self, dir, name, attrs)
         }
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::unlink`]."] $pub)?
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::unlink`]."] $pub)?
         fn unlink(
             &mut self,
             dir: $crate::NodeId,
             name: &$crate::Name,
         ) -> impl core::future::Future<
-            Output = $crate::FsResult<(), D::Error>,
+            Output = $crate::FsResult<(), <Self as $crate::async_::FileSystem>::DeviceError>,
         > $($send)* {
-            $crate::local::FileSystem::unlink(self, dir, name)
+            $crate::async_::FileSystem::unlink(self, dir, name)
         }
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::rmdir`]."] $pub)?
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::rmdir`]."] $pub)?
         fn rmdir(
             &mut self,
             dir: $crate::NodeId,
             name: &$crate::Name,
         ) -> impl core::future::Future<
-            Output = $crate::FsResult<(), D::Error>,
+            Output = $crate::FsResult<(), <Self as $crate::async_::FileSystem>::DeviceError>,
         > $($send)* {
-            $crate::local::FileSystem::rmdir(self, dir, name)
+            $crate::async_::FileSystem::rmdir(self, dir, name)
         }
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::rename`]."] $pub)?
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::rename`]."] $pub)?
         fn rename(
             &mut self,
             from_dir: $crate::NodeId,
@@ -251,17 +259,17 @@ macro_rules! __forward_filesystem {
             to: &$crate::Name,
             mode: $crate::RenameMode,
         ) -> impl core::future::Future<
-            Output = $crate::FsResult<(), D::Error>,
+            Output = $crate::FsResult<(), <Self as $crate::async_::FileSystem>::DeviceError>,
         > $($send)* {
-            $crate::local::FileSystem::rename(self, from_dir, from, to_dir, to, mode)
+            $crate::async_::FileSystem::rename(self, from_dir, from, to_dir, to, mode)
         }
-        $(#[doc = "Delegates to [`hadris_fs::local::FileSystem::sync`]."] $pub)?
+        $(#[doc = "Delegates to [`hadris_fs::async_::FileSystem::sync`]."] $pub)?
         fn sync(
             &mut self,
         ) -> impl core::future::Future<
-            Output = $crate::FsResult<(), D::Error>,
+            Output = $crate::FsResult<(), <Self as $crate::async_::FileSystem>::DeviceError>,
         > $($send)* {
-            $crate::local::FileSystem::sync(self)
+            $crate::async_::FileSystem::sync(self)
         }
     };
     (@inherent [$($async:tt)?] [$($await:tt)*] read) => {

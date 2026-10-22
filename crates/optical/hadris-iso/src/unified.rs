@@ -10,7 +10,7 @@ macro_rules! io_transform {
     ($($item:tt)*) => { $($item)* };
 }
 
-use hadris_fs::local::FileSystem;
+use hadris_fs::async_::FileSystem;
 use hadris_storage::async_ as storage;
 
 #[allow(clippy::duplicate_mod)]
@@ -24,11 +24,11 @@ hadris_fs::__forward_filesystem! {
 
 hadris_fs::__forward_filesystem! {
     #[cfg(feature = "async")]
-    send IsoFs<D: hadris_storage::async_::SendBlockDevice> as hadris_fs::async_::FileSystem { read }
+    send IsoFs<D: hadris_storage::async_::SendBlockDevice> as hadris_fs::async_::SendFileSystem { read resolve write }
 }
 
 #[cfg(feature = "write")]
-use hadris_fs::local as fs;
+use hadris_fs::async_ as fs;
 #[cfg(feature = "write")]
 use hadris_part::async_ as part;
 #[cfg(feature = "write")]

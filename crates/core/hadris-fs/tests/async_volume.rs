@@ -9,7 +9,9 @@ use std::sync::Arc;
 
 use common::asynch::{MemFs, fixture};
 use common::block_on;
-use hadris_fs::async_::{ContentReader, FileSystem, Volume, copy_tree, read_tree};
+use hadris_fs::async_::{
+    ContentReader, FileSystem, SendVolume, Sendable, Volume, copy_tree, read_tree,
+};
 use hadris_fs::{ErrorKind, FsResult, OpenOptions, Resolve, SetAttr};
 use hadris_io::async_::Write as _;
 
@@ -57,7 +59,7 @@ fn volumes_copy_through_trees() {
         let mut src = MemFs::new();
         src.add("/", "etc", hadris_fs::FileType::Dir, b"");
         src.add("/etc", "conf", hadris_fs::FileType::File, b"key=value");
-        let vol = Volume::new(src);
+        let vol = SendVolume::new(Sendable::new(src));
         let tree = read_tree(&vol, "/etc").await.unwrap();
         let mut dst = MemFs::new();
         let root = dst.root();
@@ -217,7 +219,7 @@ fn dropped_resolves_leave_no_pins() {
 #[test]
 fn dropped_tree_reads_leave_no_pins() {
     block_on(async {
-        let vol = Volume::new(fixture());
+        let vol = SendVolume::new(Sendable::new(fixture()));
         for calls in 0.. {
             vol.lock().await.unwrap().stall_in(calls);
             let pending = poll_once(read_tree(&vol, "/"));
@@ -246,10 +248,10 @@ fn dropped_tree_reads_leave_no_pins() {
     });
 }
 
-/// Generic over the filesystem, with no `Send` bounds: the mode's
-/// supertraits prove them.
-fn spawn_read<F: FileSystem + 'static>(
-    vol: Volume<F>,
+/// Generic over the filesystem: `SendFileSystem` proves its futures
+/// `Send`.
+fn spawn_read<F: hadris_fs::async_::SendFileSystem + 'static>(
+    vol: SendVolume<F>,
     path: &'static str,
 ) -> std::thread::JoinHandle<FsResult<Vec<u8>, F::DeviceError>> {
     std::thread::spawn(move || block_on(async move { read(&vol, path).await }))
@@ -257,7 +259,7 @@ fn spawn_read<F: FileSystem + 'static>(
 
 #[test]
 fn generic_code_spawns_across_threads() {
-    let vol = Volume::new(fixture());
+    let vol = SendVolume::new(Sendable::new(fixture()));
     let a = spawn_read(vol.clone(), "/a.txt");
     let b = spawn_read(vol.clone(), "/etc/conf");
     assert_eq!(a.join().unwrap().unwrap(), b"root a");

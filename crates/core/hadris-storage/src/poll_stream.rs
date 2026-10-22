@@ -12,7 +12,7 @@ use hadris_io::{Error, ErrorKind, ErrorType, SeekFrom};
 /// This trait only backs [`StreamDevice`]. The byte-stream contract of the
 /// format crates, which cpio and lazy tree content read through, is
 /// [`hadris_io::async_::Read`], [`Write`](hadris_io::async_::Write) and
-/// [`Seek`](hadris_io::async_::Seek) (and their `local` twins). Those
+/// [`Seek`](hadris_io::async_::Seek). Those
 /// traits use `async fn` and return the bare `Self::Error`; this one has
 /// poll hooks that return [`Error`], a per-operation
 /// [`State`](Self::State) and [`cancel`](Self::cancel), the shape of
