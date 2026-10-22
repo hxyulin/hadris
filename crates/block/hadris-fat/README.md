@@ -152,9 +152,8 @@ opened with `open`) fails with `ErrorKind::Busy`; a node that is only pinned is
 removed and its id answers `ErrorKind::NotFound` until its last `forget`. A
 device that refuses a write makes the volume read-only. A pending dirty-marker
 update prevents `sync` and `unmount` from succeeding on that volume.
-Writes are ordered so that an interrupted operation, or a dropped `async`
-future, leaves a volume that `fsck` repairs: at worst lost clusters, a
-chain longer than its file, or a renamed node under both names.
+While the same driver stays mounted, an interrupted operation or a dropped
+`async` future is finished or rolled back by the next writing call or `sync`.
 
 FAT and exFAT flush dependencies before publishing directory entries or
 file sizes, linking earlier FAT blocks to newly allocated runs, and freeing
