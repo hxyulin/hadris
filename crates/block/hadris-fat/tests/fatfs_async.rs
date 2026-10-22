@@ -1306,3 +1306,22 @@ fn cancelled_nonempty_rename_at_budget_five_does_not_leave_cross_links() {
         .into_inner();
     common::assert_checks_clean(case, &image, "cancelled nonempty rename budget five");
 }
+
+#[test]
+fn invalid_sector_sizes_leave_device_unchanged() {
+    use hadris_storage::{BlockSize, MemDevice};
+    for sector in [0, 1, 511, 768, 8192, u32::MAX] {
+        let original = vec![0xa5; 2 * 1024 * 1024];
+        let mut dev = MemDevice::new(original.clone(), BlockSize::new(512).unwrap());
+        assert_eq!(
+            block_on(hadris_fat::async_::format(
+                &mut dev,
+                &hadris_fat::FatOptions::new().with_sector_size(sector)
+            ))
+            .unwrap_err()
+            .kind(),
+            ErrorKind::InvalidInput
+        );
+        assert_eq!(dev.into_inner(), original);
+    }
+}

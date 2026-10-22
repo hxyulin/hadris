@@ -175,3 +175,72 @@ fn rock_ridge_names_with_semicolons_are_literal() {
     assert_eq!(fs.read_to_vec("/notes;2").unwrap(), b"literal");
     assert!(!fs.exists("/notes").unwrap());
 }
+
+macro_rules! enhanced_cases {
+    ($mode:ident, $test:ident, $run:ident) => {
+        #[test]
+        fn $test() {
+            $run!(async {
+                #[allow(unused_imports)]
+                use hadris_fs::$mode::FileSystem;
+                use hadris_fs::{DirCursor, ErrorKind, MountOptions, Name};
+                let mut tree = Tree::new();
+                for (name, data) in [("report;1", "first"), ("report;2", "second")] {
+                    tree.insert(name, Node::file(Content::bytes(data))).unwrap();
+                }
+                for name in ["dir;1", "dir;2"] {
+                    tree.insert(name, Node::dir()).unwrap();
+                }
+                let image = common::image(&tree, &IsoOptions::new().with_iso1999());
+                let mut fs = hadris_iso::$mode::IsoFs::mount_namespace(
+                    image,
+                    MountOptions::new(),
+                    Namespace::Enhanced,
+                )
+                .await
+                .unwrap();
+                let root = fs.root();
+                let mut names = Vec::new();
+                let mut cursor = DirCursor::START;
+                while let Some(entry) = fs.readdir(root, cursor).await.unwrap() {
+                    names.push(entry.name().as_bytes().to_vec());
+                    cursor = entry.next_cursor();
+                }
+                names.sort();
+                assert_eq!(
+                    names,
+                    [
+                        b"dir;1".to_vec(),
+                        b"dir;2".to_vec(),
+                        b"report;1".to_vec(),
+                        b"report;2".to_vec()
+                    ]
+                );
+                for (name, expected) in [
+                    ("report;1", b"first".as_slice()),
+                    ("report;2", b"second".as_slice()),
+                ] {
+                    let node = fs.lookup(root, Name::new(name)).await.unwrap();
+                    let mut data = [0; 8];
+                    let len = fs.read(node, 0, &mut data).await.unwrap();
+                    assert_eq!(&data[..len], expected);
+                    fs.forget(node, 1);
+                }
+                for name in ["dir;1", "dir;2"] {
+                    let node = fs.lookup(root, Name::new(name)).await.unwrap();
+                    assert!(fs.stat(node).await.unwrap().file_type().is_dir());
+                    fs.forget(node, 1);
+                }
+                for name in ["report", "dir", "report;3"] {
+                    assert_eq!(
+                        fs.lookup(root, Name::new(name)).await.unwrap_err().kind(),
+                        ErrorKind::NotFound
+                    );
+                }
+            });
+        }
+    };
+}
+enhanced_cases!(sync, enhanced_names_are_literal_sync, sync_case);
+#[cfg(feature = "async")]
+enhanced_cases!(async_, enhanced_names_are_literal_async, async_case);
