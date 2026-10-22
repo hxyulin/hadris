@@ -553,8 +553,8 @@ io_transform! {
 /// defers is the size and modification time in the directory entry of a
 /// pinned file: `write` and growing `truncate` keep them in the node table,
 /// so every handle on the node sees one size, and `close`, `fsync` or
-/// `sync` writes them. `close` does not flush the device; `fsync` and
-/// `sync` do. Until then the node stays in the table under a pin of the
+/// `sync` writes them. `close` does not make its final metadata write
+/// durable; `fsync` and `sync` do. Until then the node stays in the table under a pin of the
 /// driver's own, even after the last `forget`, and counts towards
 /// [`open_nodes`](Self::open_nodes) and the table's capacity. Writes through
 /// an unpinned id, shrinking `truncate`, and a file's first cluster are
@@ -569,13 +569,20 @@ io_transform! {
 ///
 /// # Crash and cancellation safety
 ///
-/// Dependency barriers flush allocations and data before publishing
-/// directory entries or sizes, and removed references before freeing
+/// With the default [`hadris_fs::Durability::Ordered`], dependency barriers
+/// flush allocations and data before publishing directory entries or sizes,
+/// and removed references before freeing
 /// clusters. They require a device that honors `BlockDevice::flush`.
 /// Multi-block updates are not atomic, and recovery state does not survive
 /// a reset: torn writes and interrupted renames can require external repair.
 /// While the same driver remains alive, it recovers cancelled futures and
-/// failed operations on the next writing operation or `sync`:
+/// failed operations on the next writing operation or `sync`.
+///
+/// [`hadris_fs::Durability::Buffered`] skips dependency barriers; a crash
+/// before or during synchronization can corrupt the filesystem. Explicit
+/// synchronization, dirty-marker ordering and ownership checks are retained.
+///
+/// Recovery follows these steps:
 ///
 /// - Clusters are marked in the FAT before anything points to them, and
 ///   freed only after their references are removed. The driver remembers the clusters an
@@ -675,7 +682,7 @@ impl<D: BlockDevice> FatFs<D> {
         };
         let backup = options.is_backup_boot();
         let fat = match Self::read_volume(&mut dev, &mut block, backup).await {
-            Ok(fat) => fat,
+            Ok(fat) => fat.with_durability(options.durability()),
             Err(error) => return Err(MountError::new(error, dev.inner)),
         };
         let read_only = read_only || (backup && fat.geometry().kind() == FatKind::Fat32);
@@ -1494,7 +1501,7 @@ impl<D: BlockDevice> FatFs<D> {
     }
 
     async fn put_bytes(&mut self, offset: u64, data: &[u8]) -> FsResult<(), D::Error> {
-        if !data.is_empty() {
+        if !data.is_empty() && self.fat.durability() == hadris_fs::Durability::Ordered {
             self.flush_device().await?;
         }
         self.append_index = None;
@@ -1544,7 +1551,9 @@ impl<D: BlockDevice> FatFs<D> {
         size: u32,
         hint: ChainPos,
     ) -> FsResult<(), D::Error> {
-        self.flush_device().await?;
+        if self.fat.durability() == hadris_fs::Durability::Ordered {
+            self.flush_device().await?;
+        }
         let next = Node { first, size, hint, ..*state };
         let mut entry = self.read_short(state.entry).await?;
         self.touch(&mut entry, &next);

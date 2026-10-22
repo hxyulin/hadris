@@ -2,13 +2,32 @@ use core::fmt;
 
 use crate::{Clock, CodePage, Cp437, DateTimeError, NoClock};
 
+/// Persistence ordering for writable FAT and exFAT mounts.
+///
+/// Both policies honor explicit synchronization and retain dirty-marker
+/// ordering and allocation ownership checks. Neither makes multi-block
+/// operations atomic after power loss.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Durability {
+    /// Flush dependencies before publishing metadata or freeing allocations.
+    #[default]
+    Ordered,
+    /// Skip dependency barriers to reduce flush latency. A crash before or
+    /// during synchronization can corrupt the filesystem, not just lose
+    /// recent writes. Suitable for disposable images published only after
+    /// successful synchronization.
+    Buffered,
+}
+
 /// How a filesystem is mounted. One type serves every format, and each
 /// format ignores what does not apply to it.
 ///
 /// `MountOptions::new()` mounts read-write where the format and device
 /// allow, stamps times from [`NoClock`], reads timestamps without a zone as
 /// UTC, reads FAT short names in [`Cp437`], and does not cap the node
-/// table. The defaults are the same on every target.
+/// table. FAT/exFAT use [`Durability::Ordered`]. The defaults are the same
+/// on every target.
 ///
 /// Which options each driver honours:
 ///
@@ -20,6 +39,7 @@ use crate::{Clock, CodePage, Cp437, DateTimeError, NoClock};
 /// | [`with_code_page`](Self::with_code_page) | yes | no | no | no | no | no |
 /// | [`with_node_limit`](Self::with_node_limit) | yes | yes | no | no | no | yes |
 /// | [`backup_boot`](Self::backup_boot) | yes | yes | no | yes | no | no |
+/// | [`with_durability`](Self::with_durability) | yes | yes | no | no | no | no |
 ///
 /// A driver ignores an option it does not honour; it never fails because
 /// of one. `MountOptions` is `Clone` but not `Copy`, so later 3.x releases
@@ -45,6 +65,7 @@ pub struct MountOptions {
     code_page: &'static dyn CodePage,
     node_limit: Option<usize>,
     backup_boot: bool,
+    durability: Durability,
 }
 
 impl MountOptions {
@@ -57,6 +78,7 @@ impl MountOptions {
             code_page: &Cp437,
             node_limit: None,
             backup_boot: false,
+            durability: Durability::Ordered,
         }
     }
 
@@ -67,6 +89,20 @@ impl MountOptions {
     pub const fn read_only(mut self) -> Self {
         self.read_only = true;
         self
+    }
+
+    /// Selects persistence ordering for FAT and exFAT. Defaults to
+    /// [`Durability::Ordered`]. Explicit `fsync`, `sync` and unmount still
+    /// flush in [`Durability::Buffered`]; crashes during buffered writes
+    /// or synchronization can leave filesystem corruption.
+    pub const fn with_durability(mut self, durability: Durability) -> Self {
+        self.durability = durability;
+        self
+    }
+
+    /// The persistence ordering policy.
+    pub const fn durability(&self) -> Durability {
+        self.durability
     }
 
     /// Stamps new and changed nodes with the time from `clock`. FAT and
@@ -157,6 +193,7 @@ impl fmt::Debug for MountOptions {
             .field("utc_offset", &self.utc_offset)
             .field("node_limit", &self.node_limit)
             .field("backup_boot", &self.backup_boot)
+            .field("durability", &self.durability)
             .finish_non_exhaustive()
     }
 }
@@ -173,16 +210,19 @@ mod tests {
         assert_eq!(options.utc_offset(), None);
         assert_eq!(options.node_limit(), None);
         assert!(!options.is_backup_boot());
+        assert_eq!(options.durability(), Durability::Ordered);
         assert_eq!(options.clock().now(), NoClock::TIME);
         assert_eq!(options.code_page().decode(0x82), '\u{E9}');
         let options = options
             .with_code_page(&Ascii)
             .with_node_limit(2)
+            .with_durability(Durability::Buffered)
             .backup_boot()
             .with_utc_offset(-300)
             .unwrap();
         assert_eq!(options.code_page().decode(0x82), '\u{F782}');
         assert_eq!(options.node_limit(), Some(2));
+        assert_eq!(options.durability(), Durability::Buffered);
         assert!(options.is_backup_boot());
         assert_eq!(options.utc_offset(), Some(-300));
         assert!(MountOptions::new().with_utc_offset(i16::MAX).is_err());

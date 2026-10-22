@@ -48,6 +48,14 @@ Each published package owns its version and may be released independently.
   UDF, NTFS and APFS forwarded only reads.
 - **hadris-io:** `FromEmbedded` implements the `async_` traits over
   `embedded-io-async`.
+- **hadris-fs, hadris-fat, hadris-fat-raw:** `Durability::{Ordered, Buffered}`
+  and `MountOptions::with_durability` select FAT/exFAT persistence ordering
+  at runtime; embedded FAT exposes the same setter on `embedded::Options`,
+  and raw `Fat`/`ExFat` states have matching builders. Ordered remains the
+  default. Buffered skips dependency barriers while retaining explicit
+  synchronization, dirty-marker ordering and ownership validation. A crash
+  before or during buffered synchronization can corrupt the filesystem.
+
 - **hadris-apfs:** `Container::filesystem_records(volume, id, record_type)`
   returns one object's records of one type in key order, descending the
   filesystem tree by key instead of walking every leaf.

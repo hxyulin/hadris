@@ -283,10 +283,20 @@ fn allocated_contiguous_overlap_is_rejected_even_after_cancelled_validation() {
     let set = geo.set(&image, geo.root, "a");
     image[set[1] + 24..set[1] + 32].copy_from_slice(&(6 * 512u64).to_le_bytes());
     geo.reseal(&mut image, &set);
-    for operation in 0..5 {
+    for (operation, durability) in (0..5).flat_map(|operation| {
+        [
+            hadris_fs::Durability::Ordered,
+            hadris_fs::Durability::Buffered,
+        ]
+        .map(move |durability| (operation, durability))
+    }) {
         for polls in [0, 1, 10] {
             let dev = cancel::YieldDev(common::device(image.clone(), 512));
-            let mut fs = common::block_on(ExFatFs::mount(dev, MountOptions::new())).unwrap();
+            let mut fs = common::block_on(ExFatFs::mount(
+                dev,
+                MountOptions::new().with_durability(durability),
+            ))
+            .unwrap();
             let root = fs.root();
             let node = common::block_on(fs.lookup(root, Name::new("a"))).unwrap();
             assert!(cancel::run_for(fs.truncate(node, 0), polls).is_none());

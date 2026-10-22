@@ -21,13 +21,19 @@ codes of `Detail` and `exfat::Detail` never change meaning.
 The layouts and codecs work on bytes and plain values without I/O or an
 allocator. Optional device primitives are described below:
 
-The device primitives flush before FAT links and allocation releases and
+By default, the device primitives flush before FAT links and allocation releases and
 before publishing a FAT short entry or each block of an exFAT entry set.
 exFAT allocation FAT writes are flushed before bitmap publication. Callers
 that publish FAT file sizes directly must flush their data and allocations
 first, and must remove references before freeing clusters. These barriers
 require a correct `BlockDevice::flush` implementation and add I/O latency;
 they do not provide atomic multi-block updates or persistent recovery.
+Before writing, `Fat::with_durability` and `ExFat::with_durability` can
+select `hadris_fs::Durability::Buffered` to skip dependency barriers. This
+retains dirty-marker ordering and explicit synchronization. Power loss
+before or during synchronization can leave corruption. Callers publishing
+FAT metadata directly must apply the selected policy themselves; raw
+ownership validation remains the caller's responsibility in either mode.
 
 - **Layouts** of the boot sector, BPB, FSInfo sector and directory entries,
   with their constants

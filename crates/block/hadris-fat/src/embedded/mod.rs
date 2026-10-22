@@ -58,7 +58,9 @@ use hadris_fs::{
 /// `Options::new()` mounts read-write, stamps entries with
 /// 1980-01-01T00:00:00 (`hadris_fs::NoClock::TIME`), reads and writes
 /// times as UTC, decodes short names in CP437 and folds ASCII letters
-/// only when it compares names.
+/// only when it compares names. FAT uses [`hadris_fs::Durability::Ordered`]
+/// unless `with_durability` selects buffered writes; the exFAT reader is
+/// always read-only.
 #[derive(Clone, Copy)]
 pub struct Options {
     clock: fn() -> DateTime,
@@ -66,6 +68,7 @@ pub struct Options {
     utc_offset: Option<i16>,
     code_page: &'static dyn CodePage,
     read_only: bool,
+    durability: hadris_fs::Durability,
 }
 
 impl core::fmt::Debug for Options {
@@ -73,6 +76,7 @@ impl core::fmt::Debug for Options {
         f.debug_struct("Options")
             .field("utc_offset", &self.utc_offset)
             .field("read_only", &self.read_only)
+            .field("durability", &self.durability)
             .finish_non_exhaustive()
     }
 }
@@ -96,6 +100,7 @@ impl Options {
             utc_offset: None,
             code_page: &Cp437,
             read_only: false,
+            durability: hadris_fs::Durability::Ordered,
         }
     }
 
@@ -103,6 +108,20 @@ impl Options {
     pub const fn read_only(mut self) -> Self {
         self.read_only = true;
         self
+    }
+
+    /// Selects FAT persistence ordering, [`Ordered`](hadris_fs::Durability::Ordered)
+    /// by default. Buffered writes can corrupt the volume after a crash;
+    /// explicit `flush`, `sync` and unmount still flush. The embedded exFAT
+    /// reader ignores this option because it never writes.
+    pub const fn with_durability(mut self, durability: hadris_fs::Durability) -> Self {
+        self.durability = durability;
+        self
+    }
+
+    /// The persistence ordering policy.
+    pub const fn durability(&self) -> hadris_fs::Durability {
+        self.durability
     }
 
     /// Stamps new and changed entries with the time `clock` returns.

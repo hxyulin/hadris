@@ -4,7 +4,7 @@ mod exfat;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
-use hadris_fs::{MountOptions, Name};
+use hadris_fs::{Durability, MountOptions, Name};
 use hadris_io::{Error, ErrorType};
 use hadris_storage::sync::BlockDevice;
 use hadris_storage::{BlockIndex, BlockSize};
@@ -98,6 +98,8 @@ struct State {
     layout: Layout,
     checks: usize,
     fail_flush: bool,
+    enforce_order: bool,
+    flushes: usize,
 }
 
 struct Buffered(Arc<Mutex<State>>);
@@ -130,7 +132,9 @@ impl BlockDevice for Buffered {
             // This sector may persist while every other unflushed write is lost.
             let mut crash = state.durable.clone();
             crash[start..start + 512].copy_from_slice(block);
-            state.layout.check(&crash);
+            if state.enforce_order {
+                state.layout.check(&crash);
+            }
             state.checks += 1;
         }
         state.visible[at..at + buf.len()].copy_from_slice(buf);
@@ -146,6 +150,7 @@ impl BlockDevice for Buffered {
         }
         state.layout.check(&state.visible);
         state.durable = state.visible.clone();
+        state.flushes += 1;
         Ok(())
     }
 }
@@ -253,6 +258,8 @@ fn fixture(kind: usize) -> (Buffered, Arc<Mutex<State>>) {
         layout,
         checks: 0,
         fail_flush: false,
+        enforce_order: true,
+        flushes: 0,
     }));
     (Buffered(state.clone()), state)
 }
@@ -428,6 +435,174 @@ fn a_failed_barrier_stops_dependent_metadata_writes() {
                 &mut hadris_fat::sync::FatFs::mount(dev, MountOptions::new()).unwrap(),
                 &state,
             );
+        }
+    }
+}
+
+fn explicit_syncs(
+    fs: &mut impl hadris_fs::sync::FileSystem<DeviceError = std::io::Error>,
+    state: &Arc<Mutex<State>>,
+) -> usize {
+    let node = fs.lookup(fs.root(), Name::new("ORDER.BIN")).unwrap();
+    fs.write(node, 0, &[0x5a; 1536]).unwrap();
+    fs.close(node).unwrap();
+    let flushes = state.lock().unwrap().flushes;
+    fs.fsync(node).unwrap();
+    {
+        let state = state.lock().unwrap();
+        assert_eq!(state.visible, state.durable);
+    }
+    fs.truncate(node, 512).unwrap();
+    state.lock().unwrap().fail_flush = true;
+    assert_eq!(fs.sync().unwrap_err().kind(), hadris_fs::ErrorKind::Io);
+    fs.sync().unwrap();
+    {
+        let state = state.lock().unwrap();
+        assert_eq!(state.visible, state.durable);
+    }
+    fs.truncate(node, 0).unwrap();
+    flushes
+}
+
+#[test]
+fn buffered_reduces_barriers_but_preserves_explicit_sync_and_unmount() {
+    for kind in 0..4 {
+        let mut counts = Vec::new();
+        for durability in [Durability::Ordered, Durability::Buffered] {
+            let (dev, state) = fixture(kind);
+            state.lock().unwrap().enforce_order = durability == Durability::Ordered;
+            let options = MountOptions::new().with_durability(durability);
+            if kind == 3 {
+                let mut fs = hadris_fat::exfat::sync::ExFatFs::mount(dev, options).unwrap();
+                counts.push(explicit_syncs(&mut fs, &state));
+                fs.unmount().unwrap();
+            } else {
+                let mut fs = hadris_fat::sync::FatFs::mount(dev, options).unwrap();
+                counts.push(explicit_syncs(&mut fs, &state));
+                fs.unmount().unwrap();
+            }
+            let state = state.lock().unwrap();
+            assert_eq!(state.visible, state.durable);
+        }
+        assert!(counts[1] < counts[0], "{kind}: {counts:?}");
+        assert_eq!(
+            counts[1],
+            usize::from(kind != 0),
+            "only dirty-marker flushes remain"
+        );
+    }
+}
+
+async fn explicit_syncs_async(
+    fs: &mut impl hadris_fs::async_::FileSystem<DeviceError = std::io::Error>,
+    state: &Arc<Mutex<State>>,
+) {
+    let node = fs.lookup(fs.root(), Name::new("ORDER.BIN")).await.unwrap();
+    fs.write(node, 0, &[0x5a; 1536]).await.unwrap();
+    fs.close(node).await.unwrap();
+    assert_eq!(state.lock().unwrap().flushes, 1);
+    fs.fsync(node).await.unwrap();
+    {
+        let state = state.lock().unwrap();
+        assert_eq!(state.visible, state.durable);
+    }
+    fs.truncate(node, 512).await.unwrap();
+    state.lock().unwrap().fail_flush = true;
+    assert_eq!(
+        fs.sync().await.unwrap_err().kind(),
+        hadris_fs::ErrorKind::Io
+    );
+    fs.sync().await.unwrap();
+    {
+        let state = state.lock().unwrap();
+        assert_eq!(state.visible, state.durable);
+    }
+    fs.truncate(node, 0).await.unwrap();
+}
+
+#[test]
+fn buffered_async_honors_pending_and_failed_explicit_flushes() {
+    exfat::block_on(async {
+        for kind in [1, 3] {
+            let (dev, state) = fixture(kind);
+            state.lock().unwrap().enforce_order = false;
+            let options = MountOptions::new().with_durability(Durability::Buffered);
+            if kind == 3 {
+                let mut fs = hadris_fat::exfat::async_::ExFatFs::mount(dev, options)
+                    .await
+                    .unwrap();
+                explicit_syncs_async(&mut fs, &state).await;
+                fs.unmount().await.unwrap();
+            } else {
+                let mut fs = hadris_fat::async_::FatFs::mount(dev, options)
+                    .await
+                    .unwrap();
+                explicit_syncs_async(&mut fs, &state).await;
+                fs.unmount().await.unwrap();
+            }
+            let state = state.lock().unwrap();
+            assert_eq!(state.visible, state.durable);
+        }
+    });
+}
+
+#[test]
+fn buffered_embedded_preserves_explicit_flush_and_unmount() {
+    use hadris_fat::embedded::{MountToken, Options, sync::Fat};
+    use hadris_fs::OpenOptions;
+    let (dev, state) = fixture(1);
+    state.lock().unwrap().enforce_order = false;
+    let mut token = MountToken::new();
+    let mut fs: Fat<'_, _, 4> = Fat::mount_with(
+        dev,
+        &mut token,
+        Options::new().with_durability(Durability::Buffered),
+    )
+    .unwrap();
+    let file = fs
+        .open(fs.root(), "ORDER.BIN", OpenOptions::new().write())
+        .unwrap();
+    fs.write(&file, &[0x5a; 1536]).unwrap();
+    assert_eq!(state.lock().unwrap().flushes, 1);
+    fs.flush(&file).unwrap();
+    {
+        let state = state.lock().unwrap();
+        assert_eq!(state.visible, state.durable);
+    }
+    fs.set_len(&file, 0).unwrap();
+    fs.unmount().unwrap();
+    let state = state.lock().unwrap();
+    assert_eq!(state.visible, state.durable);
+}
+
+#[test]
+fn durability_policy_does_not_write_on_read_only_mounts() {
+    fn reject_write(fs: &mut impl hadris_fs::sync::FileSystem<DeviceError = std::io::Error>) {
+        assert_eq!(
+            fs.create(fs.root(), Name::new("NEW"), &hadris_fs::SetAttr::new())
+                .unwrap_err()
+                .kind(),
+            hadris_fs::ErrorKind::ReadOnly
+        );
+        fs.sync().unwrap();
+    }
+    for durability in [Durability::Ordered, Durability::Buffered] {
+        for kind in [1, 3] {
+            let (dev, state) = fixture(kind);
+            let options = MountOptions::new().read_only().with_durability(durability);
+            if kind == 3 {
+                let mut fs = hadris_fat::exfat::sync::ExFatFs::mount(dev, options).unwrap();
+                reject_write(&mut fs);
+                fs.unmount().unwrap();
+            } else {
+                let mut fs = hadris_fat::sync::FatFs::mount(dev, options).unwrap();
+                reject_write(&mut fs);
+                fs.unmount().unwrap();
+            }
+            let state = state.lock().unwrap();
+            assert_eq!(state.flushes, 0);
+            assert_eq!(state.checks, 0);
+            assert_eq!(state.visible, state.durable);
         }
     }
 }

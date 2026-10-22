@@ -108,6 +108,7 @@ pub struct Fat {
     dirty: Dirty,
     was_dirty: bool,
     keep_dirty: bool,
+    durability: hadris_fs::Durability,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,12 +137,25 @@ impl Fat {
             dirty: Dirty::Clean,
             was_dirty: false,
             keep_dirty: false,
+            durability: hadris_fs::Durability::Ordered,
         }
     }
 
     /// The volume's geometry.
     pub const fn geometry(&self) -> &Geometry {
         &self.geo
+    }
+
+    /// Selects dependency barriers before writing. Explicit synchronization
+    /// and dirty-marker barriers are retained in both policies.
+    pub const fn with_durability(mut self, durability: hadris_fs::Durability) -> Self {
+        self.durability = durability;
+        self
+    }
+
+    /// The persistence ordering policy, [`Ordered`](hadris_fs::Durability::Ordered) by default.
+    pub const fn durability(&self) -> hadris_fs::Durability {
+        self.durability
     }
 
     /// Whether the FAT16/32 clean bit was clear when `read_fat` read it.

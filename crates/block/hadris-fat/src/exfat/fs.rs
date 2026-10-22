@@ -634,11 +634,15 @@ fn build_set(
 ///
 /// # Crash and cancellation safety
 ///
-/// Dependency barriers flush allocations and data before publishing entries
+/// With the default [`hadris_fs::Durability::Ordered`], dependency barriers
+/// flush allocations and data before publishing entries
 /// and sizes, and removed references before freeing clusters. Entry-set
 /// blocks are separated by flushes. These require a device that honors
 /// `BlockDevice::flush`; a block write is not assumed power-fail atomic.
 /// They do not make multi-block updates or renames atomic after a restart.
+/// [`hadris_fs::Durability::Buffered`] skips these dependency barriers but
+/// retains ownership validation, dirty-marker ordering and explicit sync.
+/// A crash before or during buffered synchronization can corrupt the volume.
 ///
 /// Clusters are marked in the FAT and the bitmap before an entry set names
 /// them, and freed only after the entry set is gone, so an interrupted
@@ -758,7 +762,7 @@ impl<D: BlockDevice> ExFatFs<D> {
         let backup = region == BootRegion::Backup;
         let mut upcase = Upcase::new();
         let vol = match exio::read_volume(&mut dev, &mut block, geo, &mut upcase).await {
-            Ok(vol) => vol,
+            Ok(vol) => vol.with_durability(options.durability()),
             Err(error) => return Err(MountError::new(error, dev)),
         };
         let upcase_valid = upcase.is_valid();
