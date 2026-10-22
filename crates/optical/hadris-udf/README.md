@@ -25,7 +25,7 @@ DVD-Video, Blu-ray and many large removable drives.
 ```toml
 [dependencies]
 hadris-udf = "3.0.0-rc.2"
-hadris-fs = { version = "3.0.0-rc.2", features = ["std", "sync"] }
+hadris-fs = { version = "3.0.0-rc.3", features = ["std", "sync"] }
 ```
 
 ```rust,no_run

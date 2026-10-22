@@ -48,8 +48,9 @@ by default. In the umbrella it forwards to each enabled format crate:
 | `hadris-cpio` | The streaming `Writer`, `plan` and `write`; implies `alloc` |
 
 `alloc` on its own only means the target has a heap: it enables bounded
-caches and owned results, never a writer. A read-only build with
-`default-features = false` and no `write` leaves every writer out. Runtime
+caches and owned results without the feature-gated image writers. Using
+`default-features = false` without `write` excludes those image writers;
+ordinary FAT and exFAT file mutation remains available. Runtime
 policies such as read-only mounts, caches, read-ahead, code pages and case
 folding are values passed at runtime, never features. The
 [principles and features](https://github.com/hxyulin/hadris/blob/main/docs/v3-api-design.md#features)

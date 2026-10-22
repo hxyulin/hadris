@@ -153,7 +153,7 @@ futures writers await are `Send`. See the
 ## Documentation
 
 - [Crate overview](https://hxyulin.github.io/hadris/crates)
-- [API reference](https://docs.rs/hadris-fs/3.0.0-rc.2)
+- [API reference](https://docs.rs/hadris-fs/3.0.0-rc.3)
 
 ## License
 

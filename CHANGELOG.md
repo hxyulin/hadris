@@ -24,7 +24,8 @@ Each published package owns its version and may be released independently.
   bridge writer.
 - **hadris:** `write` now enables the ISO 9660, UDF (with the bridge) and
   cpio writers of the enabled formats as well as FAT formatting.
-- **hadris-fs:** `FuseOnError` is removed.
+- **hadris-fs:** `FuseOnError` is removed; the crate advances to
+  `3.0.0-rc.3` for this intentional API break.
 - **hadris-io, hadris-fs:** The `local` modules are merged into `async_`.
   `hadris_io::async_::{Read, Write, Seek}` and `hadris_fs::async_::FileSystem`
   no longer have `Send` supertraits or return `Send` futures, so they serve
@@ -36,7 +37,8 @@ Each published package owns its version and may be released independently.
   which every format implements for `SendBlockDevice` devices, and shares it
   through `SendVolume<F>`, a `Volume` over `Sendable::new(fs)`. Async `read_tree`
   takes a `SendVolume`. `MaybeSend` is removed. Replace `hadris_fs::local::`
-  and `hadris_io::local::` with `async_::`.
+  and `hadris_io::local::` with `async_::`. `hadris-io` advances to
+  `3.0.0-rc.3` for these intentional API removals.
 
 ### Added
 

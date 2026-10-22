@@ -38,8 +38,8 @@ libc = "0.2"
 
 # Internal crates
 hadris-macros = { version = "3.0.0-rc.2", path = "crates/core/hadris-macros" }
-hadris-io = { version = "3.0.0-rc.2", path = "crates/core/hadris-io", default-features = false }
-hadris-fs = { version = "3.0.0-rc.2", path = "crates/core/hadris-fs", default-features = false }
+hadris-io = { version = "3.0.0-rc.3", path = "crates/core/hadris-io", default-features = false }
+hadris-fs = { version = "3.0.0-rc.3", path = "crates/core/hadris-fs", default-features = false }
 hadris-common = { version = "~3.0.0-rc.2", path = "crates/core/hadris-common", default-features = false }
 hadris-storage = { version = "3.0.0-rc.2", path = "crates/core/hadris-storage", default-features = false }
 hadris-fat = { version = "3.0.0-rc.2", path = "crates/block/hadris-fat", default-features = false }

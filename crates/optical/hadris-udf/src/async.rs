@@ -18,8 +18,10 @@ pub use read::UdfFs;
 #[path = "write.rs"]
 mod write;
 #[cfg(feature = "write")]
+#[cfg_attr(docsrs, doc(cfg(feature = "write")))]
 pub use write::write;
 #[cfg(feature = "bridge")]
+#[cfg_attr(docsrs, doc(cfg(feature = "bridge")))]
 pub use write::write_bridge;
 
 hadris_fs::__forward_filesystem! {
