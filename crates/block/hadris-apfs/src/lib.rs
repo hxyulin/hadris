@@ -66,7 +66,7 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;

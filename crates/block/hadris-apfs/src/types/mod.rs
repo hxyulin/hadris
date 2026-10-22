@@ -11,7 +11,7 @@ pub mod space_manager;
 pub mod volume;
 
 pub use btree::{BTreeInfo, BTreeInfoFixed, BTreeNode, FixedEntry};
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 pub use btree::{OwnedBTreeNode, OwnedEntry};
 pub use common::{ObjectId, PhysicalAddress, TransactionId, Uuid};
 pub use container::{
@@ -21,13 +21,13 @@ pub use filesystem::{
     DirectoryEntryRecord, DirectoryKeyLayout, FileExtentRecord, FileSystemKey, InodeRecord,
     XattrRecord,
 };
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 pub use filesystem::{NameComparison, OwnedDirectoryEntryRecord};
 pub use object::{ObjectHeader, ObjectType};
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 pub use object_map::VirtualObjectMap;
 pub use object_map::{ObjectMapBlock, ObjectMapKey, ObjectMapValue};
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 pub use space_manager::{ChunkInfo, parse_chunk_info_block};
 pub use space_manager::{SpaceManagerDevice, SpaceManagerSummary};
 pub use volume::{VOLUME_MAGIC, VolumeSuperblock};

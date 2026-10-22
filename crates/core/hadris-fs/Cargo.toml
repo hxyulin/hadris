@@ -20,10 +20,10 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["std", "sync"]
-alloc = ["hadris-io/alloc", "hadris-storage?/alloc", "dep:async-lock", "dep:spin"]
+alloc = ["hadris-io/alloc", "hadris-storage?/alloc", "dep:spin"]
 std = ["alloc", "hadris-io/std", "dep:hadris-storage", "hadris-storage/std", "async-lock?/std", "dep:libc"]
 sync = ["hadris-io/sync", "hadris-storage?/sync", "dep:hadris-macros"]
-async = ["hadris-io/async", "hadris-storage?/async", "dep:hadris-macros"]
+async = ["hadris-io/async", "hadris-storage?/async", "dep:hadris-macros", "dep:async-lock"]
 # The driver contract kit, outside semver: `contract::check` in each enabled mode.
 unstable-contract = []
 
@@ -32,11 +32,12 @@ bitflags = { workspace = true }
 hadris-io = { workspace = true, default-features = false }
 hadris-storage = { workspace = true, default-features = false, optional = true }
 hadris-macros = { workspace = true, optional = true }
-async-lock = { version = "3", default-features = false, optional = true }
 
 # `spin` guards the queue of calls dropped handles leave for a `Volume`, which
-# needs atomic compare-and-swap like the `Arc` it lives in.
+# needs atomic compare-and-swap like the `Arc` it lives in. `async-lock`
+# serializes the asynchronous `Volume`.
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
+async-lock = { version = "3", default-features = false, optional = true }
 spin = { version = "0.12", default-features = false, features = ["mutex", "spin_mutex"], optional = true }
 
 # `host::local_utc_offset` reads the host's zone with `localtime_r`.

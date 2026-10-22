@@ -1,7 +1,7 @@
 //! APFS volume superblock parsing.
 
 use crate::types::filesystem::DirectoryKeyLayout;
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 use crate::types::filesystem::NameComparison;
 use crate::types::object::{ObjectHeader, ObjectType};
 use crate::types::{le_u32, le_u64, take};
@@ -149,7 +149,7 @@ impl VolumeSuperblock {
     }
 
     /// Returns how the volume compares directory entry names.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub const fn name_comparison(&self) -> NameComparison {
         NameComparison::new(
             self.is_case_insensitive(),

@@ -29,10 +29,10 @@ const DEVICE_FREE_COUNT_OFFSET: usize = 24;
 const DEVICE_ADDRESS_OFFSET_OFFSET: usize = 32;
 
 /// Size in bytes of one `chunk_info_t` entry.
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 const CHUNK_INFO_SIZE: usize = 32;
 /// Size in bytes of the `chunk_info_block_t` header before its entry array.
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 const CHUNK_INFO_BLOCK_HEADER_SIZE: usize = 40;
 
 /// Block usage summary for one space manager device slot.
@@ -89,7 +89,7 @@ impl SpaceManagerSummary {
     /// Returns the physical block addresses of the main device's
     /// `chunk_info_block_t` blocks, when they're stored inline (no
     /// `chunk_info_address_block_t` indirection layer).
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub fn main_device_chunk_info_block_addresses(
         &self,
         data: &[u8],
@@ -108,7 +108,7 @@ fn parse_device(data: &[u8], base: usize) -> crate::Result<SpaceManagerDevice> {
     })
 }
 
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 fn chunk_info_block_addresses(
     data: &[u8],
     device: SpaceManagerDevice,
@@ -137,7 +137,7 @@ fn chunk_info_block_addresses(
 }
 
 /// One parsed `chunk_info_t` entry describing a range of blocks.
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ChunkInfo {
@@ -152,7 +152,7 @@ pub struct ChunkInfo {
     pub bitmap_address: u64,
 }
 
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 impl ChunkInfo {
     const SIZE: usize = CHUNK_INFO_SIZE;
 
@@ -167,7 +167,7 @@ impl ChunkInfo {
 }
 
 /// Parses the `chunk_info_t` array out of a `chunk_info_block_t` block.
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 pub fn parse_chunk_info_block(data: &[u8]) -> crate::Result<alloc::vec::Vec<ChunkInfo>> {
     let object = ObjectHeader::parse(data)?;
     if object.kind() != ObjectType::SpaceManagerChunkInformationBlock as u16 {
@@ -200,7 +200,7 @@ pub fn parse_chunk_info_block(data: &[u8]) -> crate::Result<alloc::vec::Vec<Chun
     Ok(entries)
 }
 
-#[cfg(all(test, any(feature = "alloc", feature = "std")))]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
 

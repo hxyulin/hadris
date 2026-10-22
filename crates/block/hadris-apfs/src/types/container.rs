@@ -200,13 +200,13 @@ pub struct CheckpointMapBlock {
     /// Checkpoint map flags.
     pub flags: u32,
     /// Checkpoint mappings in this block.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub mappings: alloc::vec::Vec<CheckpointMapping>,
 }
 
 impl CheckpointMapBlock {
     /// Parses a checkpoint map block from an APFS object block.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub fn parse(data: &[u8]) -> crate::Result<Self> {
         let object = ObjectHeader::parse(data)?;
         if object.kind() != ObjectType::CheckpointMap as u16 {
@@ -248,7 +248,7 @@ impl CheckpointMapBlock {
     }
 }
 
-#[cfg(all(test, any(feature = "alloc", feature = "std")))]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
 
