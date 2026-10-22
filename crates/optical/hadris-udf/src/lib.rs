@@ -13,7 +13,7 @@
 //! locations and need no node table. Reading needs no allocator.
 //!
 //! ```rust
-//! # #[cfg(all(feature = "sync", feature = "std"))]
+//! # #[cfg(all(feature = "sync", feature = "std", feature = "write"))]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use std::io::Read;
 //!
@@ -38,7 +38,7 @@
 //! assert_eq!(text, "hello");
 //! # Ok(())
 //! # }
-//! # #[cfg(not(all(feature = "sync", feature = "std")))]
+//! # #[cfg(not(all(feature = "sync", feature = "std", feature = "write")))]
 //! # fn main() {}
 //! ```
 //!
@@ -54,7 +54,7 @@
 //!
 //! ## Writing
 //!
-//! `write` (in each mode, with `alloc`) lays out a `hadris_fs::Tree` as a
+//! `write` (in each mode, with the `write` feature) lays out a `hadris_fs::Tree` as a
 //! UDF volume on a block device, as [`UdfOptions`] says, and returns a
 //! `hadris_fs::Report` of its size, where each file went, and what it could
 //! not store. [`plan`] returns the same report without I/O, so the device
@@ -62,10 +62,10 @@
 //! clock, and dates the volume with [`UdfOptions::with_time`], 1980-01-01
 //! by default.
 //!
-//! `write_bridge` writes an ISO 9660 and UDF bridge image, as DVD-Video
-//! uses: both file systems point at the same file data. It takes the
-//! `hadris_iso::IsoOptions` of the ISO 9660 half, and [`plan_bridge`]
-//! returns its report without I/O.
+//! `write_bridge` (with the `bridge` feature) writes an ISO 9660 and UDF
+//! bridge image, as DVD-Video uses: both file systems point at the same
+//! file data. It takes the `hadris_iso::IsoOptions` of the ISO 9660 half,
+//! and `plan_bridge` returns its report without I/O.
 //!
 //! Reading fails with [`hadris_fs::Error`]; [`Detail::of`] names the
 //! structure or option at fault, and a device without a UDF recognition
@@ -79,7 +79,9 @@
 //! | Feature | Default | Description |
 //! |---|---|---|
 //! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
-//! | `alloc` | via `std` | The writers, `plan` and `plan_bridge` |
+//! | `alloc` | via `std` | Heap allocation; implied by `write` |
+//! | `write` | Yes | Implies `alloc`; the writer, [`plan`] and [`UdfOptions`] |
+//! | `bridge` | No | Implies `write`; `write_bridge` and `plan_bridge`, through `hadris-iso` |
 //! | `sync` | Yes | The blocking API in `sync` |
 //! | `async` | No | The common asynchronous API in `async_`; futures are Send for Send devices and operation state |
 //!
@@ -92,7 +94,7 @@
 #![allow(clippy::duplicate_mod)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(
-    not(all(feature = "alloc", any(feature = "sync", feature = "async"))),
+    not(all(feature = "write", any(feature = "sync", feature = "async"))),
     allow(dead_code)
 )]
 
@@ -102,13 +104,13 @@ extern crate alloc;
 #[cfg(any(feature = "std", test))]
 extern crate std;
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "bridge")]
 mod bridge;
 mod error;
 mod name;
-#[cfg(feature = "alloc")]
+#[cfg(feature = "write")]
 mod options;
-#[cfg(feature = "alloc")]
+#[cfg(feature = "write")]
 mod plan;
 mod revision;
 mod time;
@@ -124,9 +126,9 @@ pub mod sync {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
     }
 
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "write")]
     use hadris_fs::sync as fs;
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "bridge")]
     use hadris_iso::sync as iso;
     use hadris_storage::sync as storage;
 
@@ -135,11 +137,15 @@ pub mod sync {
     #[path = "read.rs"]
     mod read;
     pub use read::UdfFs;
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "write")]
     #[path = "write.rs"]
     mod write;
-    #[cfg(feature = "alloc")]
-    pub use write::{write, write_bridge};
+    #[cfg(feature = "write")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "write")))]
+    pub use write::write;
+    #[cfg(feature = "bridge")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "bridge")))]
+    pub use write::write_bridge;
 }
 
 /// The common asynchronous API with Send guarantees derived from the device and operation state.
@@ -148,15 +154,15 @@ pub mod sync {
 #[path = "async.rs"]
 pub mod async_;
 
-#[cfg(feature = "alloc")]
-#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+#[cfg(feature = "bridge")]
+#[cfg_attr(docsrs, doc(cfg(feature = "bridge")))]
 pub use bridge::plan_bridge;
 pub use error::Detail;
-#[cfg(feature = "alloc")]
-#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+#[cfg(feature = "write")]
+#[cfg_attr(docsrs, doc(cfg(feature = "write")))]
 pub use options::UdfOptions;
-#[cfg(feature = "alloc")]
-#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+#[cfg(feature = "write")]
+#[cfg_attr(docsrs, doc(cfg(feature = "write")))]
 pub use plan::plan;
 pub use revision::UdfRevision;
 pub use volume::{EntityId, PartitionInfo, PartitionKind, UdfId, VolumeInfo};
@@ -164,7 +170,7 @@ pub use volume::{EntityId, PartitionInfo, PartitionKind, UdfId, VolumeInfo};
 #[cfg(test)]
 extern crate self as hadris_udf;
 
-#[cfg(all(test, feature = "std", feature = "sync"))]
+#[cfg(all(test, feature = "std", feature = "sync", feature = "write"))]
 mod tests {
     use hadris_fs::{Content, ErrorKind, MountOptions, Node, Tree};
     use hadris_storage::{BlockSize, MemDevice};
@@ -200,6 +206,6 @@ mod tests {
 }
 
 /// Compiles the README's Rust examples as doctests.
-#[cfg(all(doctest, feature = "std", feature = "sync"))]
+#[cfg(all(doctest, feature = "std", feature = "sync", feature = "write"))]
 #[doc = include_str!("../README.md")]
 struct ReadmeDoctests;

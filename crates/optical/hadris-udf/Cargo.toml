@@ -14,15 +14,18 @@ keywords = ["udf", "disk-image", "optical-disc", "filesystem", "no-std"]
 categories = ["filesystem", "embedded", "no-std"]
 
 [package.metadata.docs.rs]
-features = ["std", "sync", "async", "tracing"]
+features = ["std", "sync", "async", "bridge", "tracing"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["std", "sync"]
-# The writers and `plan`; the bridge writer takes `hadris-iso` options.
-alloc = ["hadris-io/alloc", "hadris-fs/alloc", "hadris-storage/alloc", "dep:hadris-iso", "hadris-iso/alloc"]
+default = ["std", "sync", "write"]
+alloc = ["hadris-io/alloc", "hadris-fs/alloc", "hadris-storage/alloc"]
 # Implies `alloc`; `std::io::Error` conversions and host files as tree content.
-std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std", "hadris-iso/std", "tracing?/std"]
+std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std", "hadris-iso?/std", "tracing?/std"]
+# Implies `alloc`; the writer, `plan` and `UdfOptions`.
+write = ["alloc"]
+# Implies `write`; the ISO 9660 and UDF bridge writer, through `hadris-iso`.
+bridge = ["write", "dep:hadris-iso", "hadris-iso/write"]
 sync = ["hadris-io/sync", "hadris-fs/sync", "hadris-storage/sync", "hadris-iso?/sync"]
 async = ["hadris-io/async", "hadris-fs/async", "hadris-storage/async", "hadris-iso?/async"]
 
@@ -46,38 +49,38 @@ tempfile.workspace = true
 
 [[test]]
 name = "roundtrip"
-required-features = ["std", "sync"]
+required-features = ["std", "sync", "write"]
 
 [[test]]
 name = "contract"
-required-features = ["std", "sync"]
+required-features = ["std", "sync", "write"]
 
 [[test]]
 name = "errors"
-required-features = ["std", "sync"]
+required-features = ["std", "sync", "write"]
 
 [[test]]
 name = "read"
-required-features = ["std", "sync"]
+required-features = ["std", "sync", "write"]
 
 [[test]]
 name = "interop"
-required-features = ["std", "sync"]
+required-features = ["std", "sync", "bridge"]
 
 [[test]]
 name = "bridge"
-required-features = ["std", "sync", "async"]
+required-features = ["std", "sync", "async", "bridge"]
 
 [[bench]]
 name = "performance"
 harness = false
-required-features = ["std", "sync"]
+required-features = ["std", "sync", "write"]
 
 [[bench]]
 name = "kernels"
 harness = false
-required-features = ["std", "sync"]
+required-features = ["std", "sync", "write"]
 
 [[test]]
 name = "unified_async"
-required-features = ["std", "sync", "async"]
+required-features = ["std", "sync", "async", "bridge"]

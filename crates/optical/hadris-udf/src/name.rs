@@ -60,10 +60,10 @@ pub(crate) fn decode_dstring(field: &[u8], out: &mut [u8]) -> usize {
     decode_cs0(&body[..len], out).unwrap_or(0)
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "write")]
 pub(crate) use encode::*;
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "write")]
 mod encode {
     use alloc::vec::Vec;
 

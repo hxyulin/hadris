@@ -15,7 +15,7 @@
 //! allocator.
 //!
 //! ```rust
-//! # #[cfg(all(feature = "sync", feature = "std"))]
+//! # #[cfg(all(feature = "sync", feature = "std", feature = "write"))]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use hadris_cpio::sync::{CpioReader, write};
 //! use hadris_cpio::CpioOptions;
@@ -44,7 +44,7 @@
 //! assert_eq!(names, ["etc", "etc/hostname"]);
 //! # Ok(())
 //! # }
-//! # #[cfg(not(all(feature = "sync", feature = "std")))]
+//! # #[cfg(not(all(feature = "sync", feature = "std", feature = "write")))]
 //! # fn main() {}
 //! ```
 //!
@@ -55,7 +55,7 @@
 //!
 //! ## Writing
 //!
-//! `Writer` (with `alloc`) streams entries to a `Write` stream in `newc`,
+//! `Writer` (with the `write` feature) streams entries to a `Write` stream in `newc`,
 //! `newc` with checksums or `odc` ([`Format`]): `append` writes one
 //! `hadris_fs::Node` (file, directory, symlink, device node, FIFO or
 //! socket), `append_hard_links` a hard link group, and `append_file` a file
@@ -83,7 +83,8 @@
 //! | Feature | Default | Description |
 //! |---|---|---|
 //! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
-//! | `alloc` | via `std` | The writer, `plan`, `read_tree` and `normalize_path` |
+//! | `alloc` | via `std` | `read_tree` and `normalize_path` |
+//! | `write` | Yes | Implies `alloc`; the writer and [`plan`] |
 //! | `sync` | Yes | The blocking API in `sync` |
 //! | `async` | No | The asynchronous API with `Send` futures in `async_` |
 //!
@@ -96,7 +97,7 @@
 #![allow(clippy::duplicate_mod)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(
-    not(all(feature = "alloc", any(feature = "sync", feature = "async"))),
+    not(all(feature = "write", any(feature = "sync", feature = "async"))),
     allow(dead_code)
 )]
 
@@ -106,7 +107,7 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "write")]
 mod build;
 mod error;
 mod header;
@@ -123,17 +124,17 @@ pub mod sync {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
     }
 
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "write")]
     use hadris_fs::sync as fs;
     use hadris_io::sync as io;
 
     #[path = "read.rs"]
     mod read;
     pub use read::{CpioReader, Entry};
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "write")]
     #[path = "write.rs"]
     mod write;
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "write")]
     pub use write::{EntryWriter, Writer, write};
     #[cfg(feature = "alloc")]
     #[path = "read_tree.rs"]
@@ -195,13 +196,13 @@ pub fn normalize_path(name: &[u8]) -> Option<alloc::borrow::Cow<'_, [u8]>> {
     Some(Cow::Owned(normalized))
 }
 
-#[cfg(feature = "alloc")]
-#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+#[cfg(feature = "write")]
+#[cfg_attr(docsrs, doc(cfg(feature = "write")))]
 pub use build::plan;
 pub use error::Detail;
 pub use options::{CpioOptions, Format, ReaderOptions};
 
 /// Compiles the README's Rust examples as doctests.
-#[cfg(all(doctest, feature = "std", feature = "sync"))]
+#[cfg(all(doctest, feature = "std", feature = "sync", feature = "write"))]
 #[doc = include_str!("../README.md")]
 struct ReadmeDoctests;

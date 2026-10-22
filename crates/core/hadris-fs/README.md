@@ -13,7 +13,6 @@ The vocabulary is mode-independent and performs no I/O:
 - `Error<E>`, the error of every device and filesystem operation, re-exported from `hadris-io`: a kind, a static message, an optional `Location` and `DetailCode`, and the device's own error `E` without allocation; and `PathError` (`alloc`), which erases `E` and names the tree or host path that failed, for writers and code that mixes devices
 - `DirCursor` and `DirEntry` for resumable directory reads; an entry holds its name inline
 - `OpenMode`, `OpenOptions`, `RenameMode` and `Resolve`
-- `FuseOnError`, an iterator adapter that ends after the first `Err`
 - `Guid` and `GuidParseError`, the mixed-endian GUID of GPT and exFAT, which `hadris-part` and `hadris-fat` re-export; `Guid::random` needs `std`
 - `MountOptions`, one mount configuration for every format: read-only,
   the `Clock`, the UTC offset of zoneless timestamps, the FAT `CodePage`

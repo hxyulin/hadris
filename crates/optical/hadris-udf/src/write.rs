@@ -2,11 +2,13 @@ use alloc::vec;
 use core::convert::Infallible;
 
 use hadris_fs::{ErrorKind, PathError, Report, Tree};
+#[cfg(feature = "bridge")]
 use hadris_iso::IsoOptions;
 use hadris_storage::BlockIndex;
 
 use super::fs::ContentReader;
 use super::storage::BlockDevice;
+#[cfg(feature = "bridge")]
 use crate::bridge;
 use crate::error::{Detail, Error};
 use crate::options::UdfOptions;
@@ -88,6 +90,7 @@ pub async fn write<D: BlockDevice>(mut out: D, tree: &Tree, opts: &UdfOptions) -
 /// Fails before writing anything as [`plan_bridge`](crate::plan_bridge)
 /// does, and like [`write()`] for the device. Errors of either writer keep
 /// their kind, detail code and path.
+#[cfg(feature = "bridge")]
 #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all))]
 pub async fn write_bridge<D: BlockDevice>(mut out: D, tree: &Tree, iso: &IsoOptions, udf: &UdfOptions) -> Result<Report, PathError> {
     check_block_size(&out)?;

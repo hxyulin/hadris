@@ -12,8 +12,11 @@ images use newc.
 [dependencies.hadris]
 version = "3.0.0-rc.2"
 default-features = false
-features = ["std", "sync", "cpio"]
+features = ["std", "sync", "write", "cpio"]
 ```
+
+The reader is always compiled; the writer is behind the `write` feature, which
+is on by default.
 
 ## Stream archive entries
 

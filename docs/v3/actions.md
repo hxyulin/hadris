@@ -36,7 +36,7 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 | IO-RO-01 | Open on a read-only device (no Write) and get a read-only filesystem. Opening a file for writing fails at open time with ReadOnly, before any truncation | core | Y | Y | Y | Y | Y | all | 3.0: read-only media, forensics write blockers |
 | IO-RO-02 | A write refused by the device mid-operation leaves the volume consistent and turns the mount read-only | core | Y | Y | - | - | - | emb, ker | 3.0: SD cards lock themselves; the volume refuses further writes until remount, like errors=remount-ro (decided 2026-09-24) |
 | IO-STREAM-01 | Read an archive from a non-seekable stream (pipe, stdin, decompressor output) | builder | - | - | N (needs seek) | N | Y | host, bld, insp | 3.0 for cpio: zcat initrd piped into a tool is the main use |
-| IO-STREAM-02 | Write an image to a non-seekable sink (stdout, compressor, network) | builder | N | N | Y two-pass | Y standalone | Y | bld, host | 3.0 for cpio; ISO and UDF 3.x: design 5.2 plans `write_stream` |
+| IO-STREAM-02 | Write an image to a non-seekable sink (stdout, compressor, network) | builder | N | N | Y two-pass | Y standalone | Y | bld, host | 3.0 for cpio; ISO and UDF 3.x: a planned `write_stream` |
 | IO-GROW-01 | Write an image to a growable target (in-memory `Vec`, host file) with no presizing | builder | Y (the size comes from the options) | Y (same) | Y | Y | Y | bld, host | 3.0: integrate-28, every test and in-memory builder needs it |
 | IO-SPARSE-01 | Leave long zero runs as holes when writing an image to a host file | builder | Y | Y | Y | Y | N | bld, host | 3.x: disk use only; output bytes do not change |
 | IO-DETECT-01 | Detect the format of an unknown device: FAT12/16/32, exFAT, ISO, UDF, ISO+UDF bridge, cpio (each variant), partition table, NTFS. Tell "not this format" apart from "this format but damaged" | extra | Y | Y | Y | Y | Y (magic) | insp, host, ker | 3.0: open-anything tools and CLI errors depend on it (dx-10, inspect-6) |
@@ -74,10 +74,10 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 | VOL-SERIAL-02 | Change the serial of an existing volume (fatlabel -i, tune.exfat -I) | extra | Y | Y | - | B (Y with rw) | - | host, bld | 3.0 for F/X: decided 2026-09-24; cheap, fatlabel -i and tune.exfat -I parity. U 3.x (UDF writes are 3.x; the serial is set at build time) |
 | VOL-SERIAL-03 | Build UDF images with a unique volume set identifier, derived from the clock or a caller seed, reproducible under a fixed clock | builder | - | - | - | Y | - | bld | 3.0: every Hadris UDF image has the same blkid UUID today (dx-23) |
 | VOL-STAT-01 | statfs: total, free and used blocks and the block size. FAT12/16 count free by scanning; FAT32 checks the FSInfo hint before trusting it; UDF uses the LVID free space table | core | Y | Y | Y (free = 0) | Y | N | all | 3.0 |
-| VOL-STAT-02 | statfs extras: blocks available to the caller, free file slots (FAT12/16 fixed root entries), file count | core | Y | Y | Y | Y | - | ker | 3.x: FUSE bavail and ffree; design 4.14 |
+| VOL-STAT-02 | statfs extras: blocks available to the caller, free file slots (FAT12/16 fixed root entries), file count | core | Y | Y | Y | Y | - | ker | 3.x: FUSE bavail and ffree; planned additions |
 | VOL-INFO-01 | Read the volume geometry: FAT type, sector size, cluster size, reserved sectors, FAT count and size, root location, cluster count, active FAT; ISO block size and volume space size; UDF revision, block size, partitions | extra | Y | Y | Y | Y | - | insp, host, bld | 3.0: server-14, CLI `info` needs it |
 | VOL-INFO-02 | Read the descriptive identifiers and dates: ISO system, volume set, publisher, preparer, application ids, copyright/abstract/bibliographic file ids, creation/modification/expiration/effective dates; UDF implementation and domain ids, recording times; FAT OEM name | extra | Y (OEM) | N | Y | Y | - | insp | 3.0 for ISO and UDF (decided 2026-09-24); FAT OEM name 3.x, an additive getter (2026-10-01) |
-| VOL-CAPS-01 | Query capabilities before acting: writable, symlinks, hard links, case sensitivity, maximum name length in UTF-8 bytes (FUSE namemax) and charset, which metadata fields are stored, time resolution per field | core | Y | Y | Y | Y | Y | ker, host | 3.0, including which metadata fields and timestamps are stored (needed by the META-TIME-02 rule); per-field time resolution 3.x (4.14); cpio 3.x with the read-only cpio driver (decision 4) |
+| VOL-CAPS-01 | Query capabilities before acting: writable, symlinks, hard links, case sensitivity, maximum name length in UTF-8 bytes (FUSE namemax) and charset, which metadata fields are stored, time resolution per field | core | Y | Y | Y | Y | Y | ker, host | 3.0, including which metadata fields and timestamps are stored (needed by the META-TIME-02 rule); per-field time resolution 3.x (planned additions); cpio 3.x with the read-only cpio driver (decision 4) |
 | VOL-RESIZE-01 | Grow a FAT or exFAT filesystem in place after its partition grew (extend the FAT, bitmap and cluster count) | extra | Y | Y | N | N | - | bld, host | no: large work, one request (decided 2026-09-24) |
 | VOL-RESIZE-02 | Shrink a FAT or exFAT filesystem | extra | Y | Y | N | N | - | host | no: needs relocation, risky, rare |
 | VOL-CONVERT-01 | Convert FAT16 to FAT32 in place | extra | Y | - | - | - | - | host | no: niche and risky; reformat plus copy covers it |
@@ -91,7 +91,7 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 | DIR-LOOKUP-01 | Look up a name in a directory using the format's rules: FAT and exFAT case-insensitive and case-preserving: the shared tier folds full Unicode, and shared-tier exFAT compares through the volume's up-case table and name hash; the embedded API folds ASCII by default, with Unicode folding as a one-line opt-in; ISO primary matches without `;1` and without case; RR, Joliet, UDF and cpio match exactly. An ISO mount uses RR, then Joliet, then the primary names, unless the mount options choose | core | Y | Y | Y | Y | Y (path in archive) | all | 3.0; cpio 3.x (random access needs the 3.x read-only driver, decision 4) |
 | DIR-LOOKUP-02 | Look up by the 8.3 alias of a long-named file (`PROGRA~1`) | core | Y | N | - | - | - | ker, host | 3.0: Windows and Linux both allow it; old configs use it |
 | DIR-LOOKUP-03 | Look up an ISO name with several versions (`A.TXT;1`, `A.TXT;2`) and get the highest; an explicit `;N` selects that version; a listing shows only the highest version, without `;N`; look up `README` against the stored `README.;1` | core | - | - | Y | - | - | insp, ker | 3.0: ECMA-119 7.5 |
-| DIR-LOOKUP-04 | Lookup that also returns the name as stored on disk (case canonicalization) | core | Y | Y | Y | - | - | ker, host | 3.x: design 4.14 |
+| DIR-LOOKUP-04 | Lookup that also returns the name as stored on disk (case canonicalization) | core | Y | Y | Y | - | - | ker, host | 3.x: planned additions |
 | DIR-LOOKUP-05 | Match cpio paths with and without a leading `/` or `./` (GNU cpio writes `./x`) | extra | - | - | - | - | Y | host, insp | 3.0: dx-110 |
 | DIR-LIST-01 | List a directory with name, type and NodeId per entry, no allocation, through a `Copy` cursor that can be stored and resumed (FUSE readdir offset). `.` and `..` are never returned | core | Y | Y | Y | Y | Y (derived from paths) | all | 3.0; cpio 3.x (random access needs the 3.x read-only driver, decision 4) |
 | DIR-LIST-02 | List with the metadata already stored in the directory entry, with no lookup per entry (readdirplus, `ls -l`) | core | Y | Y | Y | Y (needs FE read) | Y | ker, host, insp | 3.0: decision D9; 5000-entry `metadata(path)` took 5.96 s (inspect-4) |
@@ -118,7 +118,7 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 | FILE-READ-03 | Read data the format marks unwritten and get zeros: exFAT bytes past ValidDataLength, UDF unrecorded or unallocated extents, RR SF sparse files | core | - | Y | Y (SF) | Y | - | all | 3.0 for X and U; RR SF 3.x |
 | FILE-READ-04 | Read file data embedded in the UDF ICB (small files) and files described by long and extended allocation descriptors with continuation extents | core | - | - | - | Y | - | all | 3.0 |
 | FILE-READ-05 | Read an exFAT NoFatChain (contiguous) file written by Windows or macOS | core | - | Y | - | - | - | all | 3.0 |
-| FILE-READ-06 | Read a zisofs-compressed file (RR ZF) transparently | core | - | - | Y | - | - | insp, host | 3.x: design 5.2 feature work; rare outside some live CDs |
+| FILE-READ-06 | Read a zisofs-compressed file (RR ZF) transparently | core | - | - | Y | - | - | insp, host | 3.x: planned additions; rare outside some live CDs |
 | FILE-READ-07 | Read ISO interleaved files (file unit size, gap) and files that span volumes of a multi-volume set | extra | - | - | Y | - | - | insp | no: obsolete. They must fail with a clear Unsupported, never return garbage |
 | FILE-READ-08 | Read CD-ROM XA Mode 2 Form 2 files (Video CD) | extra | - | - | Y | - | - | insp | no: needs 2336/2352-byte sectors (IO-RAW2352-01) |
 | FILE-WRITE-01 | Write at an offset inside a file, overwriting data in place | core | Y | Y | - | Y (rw) | - | all | 3.0 |
@@ -133,13 +133,13 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 | FILE-CREATE-01 | Create an empty file. Invalid names are refused with a detail naming the bad character. Short alias generated (`~1` to `~4`, then hash tails) with the NT lowercase flags where possible | core | Y | Y | B | Y (rw) B | B | all | 3.0; the detail naming the bad character is 3.x, since error context is additive (2026-10-01) |
 | FILE-CREATE-02 | Create a file exclusively (create_new): AlreadyExists if any name matches, including case-only and short-alias matches | core | Y | Y | - | Y (rw) | - | all | 3.0 |
 | FILE-UNLINK-01 | Remove a file and free its clusters; unlink of a directory gives IsADirectory; exFAT also frees clusters owned by vendor allocation entries | core | Y | Y | B | Y (rw) | - | all | 3.0 |
-| FILE-UNLINK-02 | Remove the last name of a file that is still open: the name goes away, open handles keep reading and writing, space is freed on the last close (POSIX orphan) | core | Y | Y | - | Y (rw) | - | ker | 3.x: design Q3; FUSE `rm` of an open file and atomic saves fail today with Busy (integrate-15) |
+| FILE-UNLINK-02 | Remove the last name of a file that is still open: the name goes away, open handles keep reading and writing, space is freed on the last close (POSIX orphan) | core | Y | Y | - | Y (rw) | - | ker | 3.x: orphan tracking is a planned addition; FUSE `rm` of an open file and atomic saves fail today with Busy (integrate-15) |
 | FILE-RENAME-01 | Rename inside a directory, including a case-only rename (`readme` to `README`) on a case-insensitive volume and a rename that changes the number of LFN slots | core | Y | Y | B | Y (rw) | - | all | 3.0 for F and X; renaming in the ISO builder (a `Tree` move) is 3.x, additive (2026-10-01) |
 | FILE-RENAME-02 | Rename across directories keeping the NodeId | core | Y | Y | - | Y (rw) | - | all | 3.0 |
 | FILE-RENAME-03 | Rename over an existing file, replacing it (file over file, directory over empty directory) as atomically as the format allows | core | Y | Y | - | Y (rw) | - | all | 3.0: atomic save |
 | FILE-RENAME-04 | Move a directory to another parent and rewrite its `..` entry; moving a directory into its own subtree gives InvalidInput | core | Y | Y | - | Y (rw) | - | all | 3.0 |
 | FILE-RENAME-05 | Rename with NoReplace: AlreadyExists if the target exists | core | Y | Y | - | Y (rw) | - | ker | 3.0 |
-| FILE-RENAME-06 | Atomically swap two names (RENAME_EXCHANGE) | core | Y | Y | - | Y (rw) | - | ker | 3.x: design 4.14 |
+| FILE-RENAME-06 | Atomically swap two names (RENAME_EXCHANGE) | core | Y | Y | - | Y (rw) | - | ker | 3.x: planned additions |
 | FILE-SYNC-01 | Make one file durable (fsync): data, size, times and the FAT chain on disk, then a device flush | core | Y | Y | - | Y (rw) | - | all | 3.0 |
 | FILE-CLOSE-01 | Close a handle with a Result, publishing size and times; dropping a written handle publishes its size best effort, so a power cut keeps the data (sync: in Drop; async: Drop cannot await, so the next call on the volume publishes it; embedded: a dropped handle keeps its slot until unmount, and the next sync or unmount publishes its size) | core | Y | Y | Y | Y | - | emb, all | 3.0: embedded-8 (2205 of 2250 bytes lost) |
 | FILE-SEEK-01 | Seek from start, end or current position, including past the end; the next write fills the gap | core | Y | Y | Y | Y | N (stream) | all | 3.0 |
@@ -170,7 +170,7 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 | META-NAME-02 | FAT 8.3 names: decode through an OEM code page (CP437 by default in every tier, embedded included; others possible), keep names with high bytes distinct, set NT lowercase flags when the long name is only a case change | core | Y | - | - | - | - | all | 3.0: ASCII and CP437 built in, plus a public code page trait so users add their own (decided 2026-09-24) |
 | META-NAME-03 | Read the 8.3 alias of a long-named file | extra | Y | N | Y (primary name vs RR/Joliet name) | - | - | insp, host | 3.x: mdir-style listings, and seeing the ISO primary name under an RR view |
 | META-NAME-04 | Set a chosen 8.3 alias for a new file | extra | Y | - | - | - | - | bld | no: Windows cannot either; generated aliases are enough |
-| META-RAW-01 | Locate the on-disk record of a node (block, byte offset, length) for the FAT entry and LFN slots, exFAT entry set, ISO directory record, UDF FE/EFE, cpio header, and read its bytes | extra | Y | Y | Y | Y | Y | insp | 3.0 through driver methods (`records`, `read_raw`) for F, X, I and U (decided 2026-09-24); cpio `records` and `read_raw` 3.x (`Entry::offset` and `data_offset` exist) (2026-10-01); the ISO and UDF raw decoders are 3.x (design 4.15) |
+| META-RAW-01 | Locate the on-disk record of a node (block, byte offset, length) for the FAT entry and LFN slots, exFAT entry set, ISO directory record, UDF FE/EFE, cpio header, and read its bytes | extra | Y | Y | Y | Y | Y | insp | 3.0 through driver methods (`records`, `read_raw`) for F, X, I and U (decided 2026-09-24); cpio `records` and `read_raw` 3.x (`Entry::offset` and `data_offset` exist) (2026-10-01); the ISO and UDF raw decoders are 3.x (planned additions) |
 
 ### 1.6 LINK: symlinks, hard links, special files
 
@@ -181,15 +181,15 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 | LINK-SYMLINK-03 | Resolve a path following symlinks (POSIX), with a loop limit giving an ELOOP-like error; the default resolver is lexical | core | - | - | Y | Y | Y | ker, host | 3.0 for I and U; cpio 3.x with the read-only cpio driver (decision 4) |
 | LINK-SYMLINK-04 | Resolve a path without following the last component (lstat, O_NOFOLLOW) | core | - | - | Y | Y | Y | ker, host | 3.0 for I and U: std::fs `symlink_metadata` parity and extraction need it (decided 2026-09-24); cpio 3.x with the read-only cpio driver (decision 4) |
 | LINK-HARD-01 | Read hard links: names that share one node, with nlink and the data readable through every name (cpio newc stores data only on the last name) | core | N | N | Y (RR) | Y | Y | insp, bld | 3.0 |
-| LINK-HARD-02 | Create a hard link on a mounted volume | core | N | N | - | Y (rw) | - | ker | 3.x: design 4.14 `link` |
+| LINK-HARD-02 | Create a hard link on a mounted volume | core | N | N | - | Y (rw) | - | ker | 3.x: planned `link` |
 | LINK-SPECIAL-01 | Read the type of char and block devices, FIFOs and sockets (RR PX and PN, UDF file type, cpio mode) | core | N | N | Y | Y | Y | ker, insp | 3.0 |
-| LINK-SPECIAL-02 | Create a device node, FIFO or socket on a mounted volume (mknod) | core | N | N | - | Y (rw) | - | ker | 3.x: design 4.14 `mknod` |
+| LINK-SPECIAL-02 | Create a device node, FIFO or socket on a mounted volume (mknod) | core | N | N | - | Y (rw) | - | ker | 3.x: planned `mknod` |
 
 ### 1.7 XATTR: extended attributes, named streams, ACLs
 
 | ID | Action (edge case that matters) | Class | F | X | I | U | C | Users | Want |
 |---|---|---|---|---|---|---|---|---|---|
-| XATTR-LIST-01 | List and read extended attributes: RR AAIP `AL` entries (xorriso --xattr), UDF extended attributes (implementation-use and application-use EAs) | core | N | N | Y | Y | N | insp, host | 3.x: design 4.14 lists it as additive; few users |
+| XATTR-LIST-01 | List and read extended attributes: RR AAIP `AL` entries (xorriso --xattr), UDF extended attributes (implementation-use and application-use EAs) | core | N | N | Y | Y | N | insp, host | 3.x: listed under planned additions; few users |
 | XATTR-SET-01 | Set and remove extended attributes on a mounted volume | core | N | N | - | Y (rw) | N | host | no: no writable Hadris format stores them except UDF, and UDF write is 3.x |
 | XATTR-STREAM-01 | List and read named streams (UDF 2.00+ stream directory, macOS resource forks) | extra | N | N | N | Y | N | insp | 3.x: forensics on Mac-authored UDF; reads only |
 | XATTR-ACL-01 | Read POSIX ACLs (AAIP) and UDF permission EAs beyond mode bits | extra | N | N | Y | Y | N | insp | no: niche; the mode bits are enough for every listed user |
@@ -210,11 +210,11 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 | BOOT-HYB-02 | Write a GPT in the system area (protective or hybrid MBR, backup GPT at the end, ESP pointing at the El Torito EFI image) | builder | - | - | Y | - | - | bld | 3.0 |
 | BOOT-HYB-03 | Append partitions after the ISO data (xorriso -append_partition, typically a FAT ESP image) and list them in the MBR or GPT | builder | - | - | Y | - | - | bld | 3.0: common Linux distro layout; osdev-6 shows remastering such images fails today |
 | BOOT-HYB-04 | Write an Apple Partition Map in the system area (Mac booting of hybrid images) | builder | - | - | Y | - | - | bld | 3.x: old Macs only; additive if the hybrid layout options stay non_exhaustive |
-| BOOT-HYB-05 | Read the system area of an ISO: MBR, GPT, APM and the bootstrap bytes | extra | - | - | Y | - | - | insp, bld | 3.x: `iso::SystemArea` (design 5.2); `IsoFs::read_raw` reads the bytes in 3.0 (2026-10-01) |
+| BOOT-HYB-05 | Read the system area of an ISO: MBR, GPT, APM and the bootstrap bytes | extra | - | - | Y | - | - | insp, bld | 3.x: `iso::SystemArea` (planned additions); `IsoFs::read_raw` reads the bytes in 3.0 (2026-10-01) |
 | BOOT-HYB-06 | Write MIPS, SPARC, HPPA or Alpha boot blocks | builder | - | - | Y | - | - | bld | no: dead platforms |
 | BOOT-VBR-01 | Install boot code into a FAT or exFAT volume boot record while keeping the BPB (syslinux-style), with exFAT boot checksum recomputed | extra | Y | Y | - | - | - | bld | 3.x: osdev feature idea (S); additive option |
 | BOOT-VBR-02 | Write a payload into the FAT reserved sectors or exFAT extended boot sectors (stage 2 loader) | extra | Y | Y | - | - | - | bld | 3.x: osdev feature idea; additive |
-| BOOT-VBR-03 | Read the raw boot sector and boot code of a volume | extra | Y | Y | Y (system area) | - | - | insp | 3.0 through the driver's `read_raw`; the ISO raw decoders are 3.x (design 4.15) |
+| BOOT-VBR-03 | Read the raw boot sector and boot code of a volume | extra | Y | Y | Y (system area) | - | - | insp | 3.0 through the driver's `read_raw`; the ISO raw decoders are 3.x (planned additions) |
 | BOOT-UDF-01 | Write or read the UDF boot descriptor | extra | - | - | - | Y | - | bld | no: no known firmware uses it |
 
 ### 1.9 BUILD: image construction
@@ -233,15 +233,15 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 | BUILD-ISO-NAME-02 | Relaxed primary naming (lowercase kept, version omitted, deeper than 8 levels, long names) as in mkisofs -relaxed options | builder | - | - | Y | - | - | bld | 3.x: legacy readers only; RR or Joliet is the real answer |
 | BUILD-ISO-1999-01 | ISO 9660:1999 enhanced volume descriptor tree (207-byte names) | builder | - | - | Y | - | - | bld | 3.0 (already written) |
 | BUILD-ISO-JOLIET-01 | Joliet with UCS-2 names up to 64 characters, forbidden characters (`* / : ; ? \`) mapped, a warning for every truncation and case-only collision | builder | - | - | Y | - | - | bld | 3.0: integrate-14 |
-| BUILD-ISO-JOLIET-02 | Joliet names beyond the BMP (UTF-16 surrogates) and names up to 103 characters (joliet-long) | builder | - | - | Y | - | - | bld | 3.x: design 5.2 feature work |
+| BUILD-ISO-JOLIET-02 | Joliet names beyond the BMP (UTF-16 surrogates) and names up to 103 characters (joliet-long) | builder | - | - | Y | - | - | bld | 3.x: planned additions |
 | BUILD-ISO-RR-01 | Rock Ridge with SP, ER, PX (with serial), TF, NM, SL, PN, CE, on every record of a multi-extent file | builder | - | - | Y | - | - | bld | 3.0: A6 (bsdtar fails on >4 GiB files today) |
 | BUILD-ISO-RR-02 | Relocate directories deeper than 8 levels with CL, PL, RE (or refuse), and hide the relocation directory from the RR view and from extraction | builder | - | - | Y | - | - | bld | 3.0: dx-102, dx-103 |
 | BUILD-ISO-ORDER-01 | Control file placement: sort weights (mkisofs -sort) and per-file data alignment | builder | - | - | Y | - | - | bld | 3.x: optical seek time and boot images that need alignment; additive |
 | BUILD-ISO-BIG-01 | Write a file over 4 GiB as a multi-extent file at level 3; at levels 1 and 2 fail with an error naming the file and level (not ImageTooLarge) | builder | - | - | Y | - | - | bld | 3.0: integrate-7; naming the file and level in the refusal 3.x, since error context is additive (2026-10-01) |
-| BUILD-ISO-ZISOFS-01 | Write zisofs-compressed files (RR ZF) | builder | - | - | Y | - | - | bld | 3.x: design 5.2; only Linux reads it |
+| BUILD-ISO-ZISOFS-01 | Write zisofs-compressed files (RR ZF) | builder | - | - | Y | - | - | bld | 3.x: planned additions; only Linux reads it |
 | BUILD-ISO-DEDUP-01 | Store identical file contents once (shared extents without being hard links) | builder | - | - | Y | Y | N | bld | no: small savings; hard links already share |
 | BUILD-ISO-PAD-01 | Padding and volume size: tail padding of at least 300 KiB (150 blocks), as mkisofs, so small images read in every tool, and a PVD volume space size that covers the whole image including a UDF bridge tail | builder | - | - | Y | Y | - | bld | 3.0: A9, dx-127 |
-| BUILD-ISO-IDS-01 | Set every descriptor identifier and date (system, volume, volume set, publisher, preparer, application, copyright, abstract, bibliographic, expiration, effective) with length checks | builder | - | - | Y | Y | - | bld | 3.0 with length checks; identifiers are stored as given, as xorriso and genisoimage do (design R7); charset warnings and the further UDF ids 3.x (2026-10-01) |
+| BUILD-ISO-IDS-01 | Set every descriptor identifier and date (system, volume, volume set, publisher, preparer, application, copyright, abstract, bibliographic, expiration, effective) with length checks | builder | - | - | Y | Y | - | bld | 3.0 with length checks; identifiers are stored as given, as xorriso and genisoimage do (decided 2026-09-25); charset warnings and the further UDF ids 3.x (2026-10-01) |
 | BUILD-BRIDGE-01 | Write an ISO and UDF bridge image in which both trees share the file data | builder | - | - | Y | Y | - | bld | 3.0: decision S3 (`hadris_udf::write_bridge`) |
 | BUILD-UDF-REV-01 | Choose the UDF revision: 1.02, 1.50, 2.00, 2.01 written as specified; 2.50 and 2.60 (metadata partition) refused until supported | builder | - | - | - | Y | - | bld | 3.0 for up to 2.01; 2.50+ 3.x |
 | BUILD-UDF-BS-01 | Write UDF with 512 or 4096-byte blocks for hard disks and USB media | builder | - | - | - | Y | - | bld, host | 3.x: optical images use 2048; disk UDF is rare |
@@ -266,7 +266,7 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 |---|---|---|---|---|---|---|---|---|---|
 | SESSION-READ-01 | Read the newest session of a multi-session image, including files whose data sits in earlier sessions. In an image file (no TOC), append updates the descriptors at block 16, as growisofs does on overwritable media, so the newest session is found there | builder | - | - | Y | Y (VAT) | Y (segments) | insp, bld | 3.0 for ISO |
 | SESSION-READ-02 | Open a chosen earlier session by its start block (mount -o session=, xorriso -load sbsector). Listing sessions by scanning is not offered | builder | - | - | Y | - | - | insp | 3.x; scanning `no` (decided 2026-09-24) |
-| SESSION-APPEND-01 | Append a new ISO session that adds, removes and replaces files, reuses the previous extents, and writes new descriptors after the old volume (growisofs -M) | builder | - | - | Y | - | - | bld | 3.0: design 5.2 |
+| SESSION-APPEND-01 | Append a new ISO session that adds, removes and replaces files, reuses the previous extents, and writes new descriptors after the old volume (growisofs -M) | builder | - | - | Y | - | - | bld | 3.0: `Session` with `SessionMode::Append` |
 | SESSION-REWRITE-01 | Rewrite an image in place with a changed tree, keeping the hybrid boot data and appended partitions and updating the backup GPT | builder | - | - | Y | - | - | bld | 3.0 |
 | SESSION-BOOT-01 | Remaster boot setup: replace a boot image or change entries, with the catalog, load sizes and boot info tables rebuilt; the existing El Torito setup can be read back as options | builder | - | - | Y | - | - | bld | 3.0 for replacing a boot image (A10, osdev-4, osdev-5); reading the setup back 3.x through a new method, since `Session::options` leaves El Torito out (2026-10-01) |
 | SESSION-UDF-01 | Append a UDF session on write-once media (VAT) | builder | - | - | - | Y | - | bld | no: packet-writing media are obsolete |
@@ -281,9 +281,9 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 | CHECK-FSCK-02 | Findings name their location as a path, print with Display, and cross-links come as runs with the other owner named | extra | Y | Y | Y | Y | Y | insp, host | 3.0 for Display and path on F and X (inspect-13, dx-117); I and C 3.x with CHECK-ISO-01 and CHECK-CPIO-01 (2026-10-01); U 3.x with CHECK-UDF-01; owner coalescing 3.x (inspect-14) |
 | CHECK-FSCK-03 | Check with bounded memory and no allocator (caller bitmap window, several passes) | extra | Y | Y | - | - | - | emb | 3.0 |
 | CHECK-FSCK-04 | Check a volume that will not mount (damaged boot sector, bad root) and explain why | extra | Y | Y | Y | Y | - | insp | 3.0 for F and X: check runs on the raw I/O layer without mounting, and the error detail explains why mount fails (decided 2026-09-24); I 3.x with CHECK-ISO-01 (2026-10-01); U 3.x with CHECK-UDF-01 |
-| CHECK-REPAIR-01 | Repair: free or recover lost chains (FSCK0000.REC), cut cross-links, fix sizes, copy the good FAT over the others, fix FSInfo and PercentInUse, fix set checksums, clear dirty; fsck.fat -a and fsck.exfat -y parity | extra | Y | Y | - | - | - | host, emb | 3.x: design 5.1; large and risky |
+| CHECK-REPAIR-01 | Repair: free or recover lost chains (FSCK0000.REC), cut cross-links, fix sizes, copy the good FAT over the others, fix FSInfo and PercentInUse, fix set checksums, clear dirty; fsck.fat -a and fsck.exfat -y parity | extra | Y | Y | - | - | - | host, emb | 3.x: planned additions; large and risky |
 | CHECK-REPAIR-02 | Restore the boot sector from the backup (FAT32 sector 6, exFAT backup region) | extra | Y | Y | - | Y (reserve VDS) | - | host | 3.x: goes with repair |
-| CHECK-ISO-01 | Verify an ISO: descriptors, both-endian fields, path tables against directories, extents inside the volume, SUSP and RR structure, catalog checksum and entries, load sizes, truncation | extra | - | - | Y | - | - | bld, insp | 3.x as a library call (design 5.2); `hadris iso verify` covers it in the CLI (2026-10-01) |
+| CHECK-ISO-01 | Verify an ISO: descriptors, both-endian fields, path tables against directories, extents inside the volume, SUSP and RR structure, catalog checksum and entries, load sizes, truncation | extra | - | - | Y | - | - | bld, insp | 3.x as a library call (planned additions); `hadris iso verify` covers it in the CLI (2026-10-01) |
 | CHECK-UDF-01 | Verify a UDF volume: descriptor tag checksums and CRCs, both anchors, main and reserve VDS agree, LVID counts, space bitmap against allocated extents, unique ids | extra | - | - | - | Y | - | bld, insp | 3.x: udfinfo covers most CI needs |
 | CHECK-CPIO-01 | Verify a cpio archive: crc checksums, header fields, padding, trailer, names (no absolute or `..` paths) | extra | - | - | - | - | Y | bld, insp | 3.x, additive; the reader already refuses bad checksums, padding and a missing trailer (dx-130) (2026-10-01) |
 | CHECK-COMPARE-01 | Compare an image's contents with its source tree or host directory, and ISO against UDF in a bridge image | extra | Y | Y | Y | Y | Y | bld | 3.x: CLI level |
@@ -310,7 +310,7 @@ A mounted filesystem, whether in a kernel VFS, FUSE or 9P, uses a small, closed 
 
 `lookup, stat, setattr, readdir, create, mkdir, unlink, rmdir, rename, link, symlink, readlink, open, read, write, truncate, sync, statfs, xattr`
 
-(plus mknod and the forget bookkeeping). Every `core` row above is one of these, or a precondition of one: capabilities, parent, device recovery. The `FsDriver` node API in design 4.3 already covers the set, and 4.14 lists the missing pieces (link, mknod kinds, exchange, xattr, forget_n, generation, allocated, device) as additive.
+(plus mknod and the forget bookkeeping). Every `core` row above is one of these, or a precondition of one: capabilities, parent, device recovery. The `FileSystem` node trait covers the set; the missing pieces (link, symlink, mknod, exchange, xattr) are additive and listed under [planned additions](../v3-api-design.md#planned-additions).
 
 The formats split in two:
 
@@ -330,13 +330,13 @@ Each constraint gets its own conformance or CI check. Numbers come from the embe
 | ID | Constraint | Want |
 |---|---|---|
 | NF-NOALLOC-01 | FAT12/16/32 read and write on a device with no global allocator (embedded API) | 3.0 |
-| NF-NOALLOC-02 | exFAT read with no allocator; exFAT write with no allocator | read 3.0, write 3.x (design 4.15) |
+| NF-NOALLOC-02 | exFAT read with no allocator; exFAT write with no allocator | read 3.0, write 3.x (planned additions) |
 | NF-NOALLOC-03 | ISO and UDF read with no allocator (lookup, readdir, read, readlink, El Torito catalog read) | 3.0 |
 | NF-NOALLOC-04 | cpio streaming read with no allocator | 3.0 |
 | NF-NOALLOC-05 | cpio newc write with no allocator (fixed-size headers, caller content) | 3.x |
 | NF-NOSTD-01 | Every format crate builds `no_std`; std only adds host adapters, host paths and SystemClock | 3.0 |
 | NF-TARGET-01 | Builds for thumbv6m-none-eabi and riscv32imc-unknown-none-elf (no compare-and-swap) and thumbv7em-none-eabihf, checked in CI | 3.0 |
-| NF-STACK-01 | Embedded API with 4 file slots, device excluded: mount under 2 KB of stack and under 2 KB of RAM on every NF-TARGET-01 target (design 4.15 target). Reference: embedded-sdmmc main frame 1208 B | 3.0 |
+| NF-STACK-01 | Embedded API with 4 file slots, device excluded: mount under 2 KB of stack and under 2 KB of RAM on every NF-TARGET-01 target (embedded footprint target). Reference: embedded-sdmmc main frame 1208 B | 3.0 |
 | NF-STACK-02 | No single frame over 1 KB in the embedded API's name, rename and create paths | 3.0 |
 | NF-STACK-03 | Shared-tier sync stack on thumbv7em does not grow; async stays within about 1.7× of sync (measured: 26 KB sync vs 45 KB block_on async) | 3.0: keep sync macro-generated |
 | NF-FLASH-01 | Embedded FAT read/write binary, FAT only (the exFAT reader is measured separately), within about 1.5× of embedded-sdmmc (13852 B text): target under 20 KB text on thumbv7em, opt-level s, LTO. CI fails only past a 44 KB growth ceiling | Tracked goal, not a 3.0 requirement (Q16) |
@@ -364,7 +364,7 @@ Each constraint gets its own conformance or CI check. Numbers come from the embe
 | NF-INTEROP-02 | Images written by the native tools read correctly (mkfs.fat and mtools, mkfs.exfat, Windows, xorriso and genisoimage, mkudffs, GNU cpio and the kernel's gen_init_cpio) | 3.0 |
 | NF-DET-01 | With a fixed clock and the same input, output is byte-identical across runs, hosts and modes | 3.0 |
 | NF-STABLE-02 | UDF read-write mount (VOL-MOUNT-05, VOL-FORMAT-06, LINK-HARD-02, FILE-UNLINK-02 on UDF) can be added in 3.x purely additively: the 3.0 UDF type and the mounted-filesystem API need no signature change. UDF writes come through a new entry point (for example `mount_writable`) and `mount` stays read-only in every version. The 3.0 code shows it: `impl<D: BlockDevice> FileSystem for UdfFs<D>` already has the full device bound, so read-write mounts only override defaulted trait methods | 3.0 |
-| NF-STABLE-01 | Public API follows design section 2 (R1 to R11): non_exhaustive enums, private fields, no cfg on public shapes, features strictly additive and never switching behaviour | 3.0 |
+| NF-STABLE-01 | Public API follows the [stability rules](../v3-api-design.md#stability-rules) (R1 to R12): non_exhaustive enums, private fields, no cfg on public shapes, features strictly additive and never switching behaviour | 3.0 |
 
 ---
 

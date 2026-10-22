@@ -35,8 +35,9 @@ local and the Send contract.
 ## Writing and sessions
 
 ISO writers and sessions use the same common device contract and support local
-and Send devices. Enable `alloc` (or `std`) for writers and sessions. Their async APIs are available
-under `async_`; sync APIs retain their existing namespace.
+and Send devices. They need the `write` feature, which is on by default.
+Their async APIs are available under `async_`; sync APIs retain their
+existing namespace.
 Regression tests exercise local writes, appended sessions, rewrites and exports
 while preserving GPT and El Torito data.
 

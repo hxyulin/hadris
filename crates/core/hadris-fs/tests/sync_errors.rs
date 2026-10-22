@@ -1,5 +1,5 @@
-//! Device errors survive without allocation (S12), std users get
-//! `io::Error` (S11), and read-only mounts refuse writes up front (S16).
+//! Device errors survive without allocation, std users get `io::Error`,
+//! and read-only mounts refuse writes up front.
 
 #![cfg(all(feature = "sync", feature = "std"))]
 

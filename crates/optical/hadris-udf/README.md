@@ -16,7 +16,8 @@ DVD-Video, Blu-ray and many large removable drives.
 - **Write** standalone volumes from a `hadris_fs::Tree`, reproducibly,
   with a report of where each file went
 - **Bridge** images that share their file data between ISO 9660 and UDF, as
-  DVD-Video uses: `plan_bridge` and `write_bridge`
+  DVD-Video uses: `plan_bridge` and `write_bridge`, with the `bridge`
+  feature
 - The same API in `sync`, `async_`
 
 ## Reading
@@ -114,7 +115,7 @@ reproducible: the writer reads no clock, and `with_time` dates the volume,
 1980-01-01 by default. `plan` returns the report without I/O, to size a
 device first.
 
-`write_bridge` writes an ISO 9660 image, then a UDF volume over the same
+With the `bridge` feature, `write_bridge` writes an ISO 9660 image, then a UDF volume over the same
 file data, from one tree and the `IsoOptions` and `UdfOptions` of the two
 volumes; `plan_bridge` returns its report.
 
@@ -123,7 +124,9 @@ volumes; `plan_bridge` returns its report.
 | Feature | Default | Description |
 |---------|---------|-------------|
 | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
-| `alloc` | via `std` | The writers, `plan` and `plan_bridge` |
+| `alloc` | via `std` | Heap allocation; implied by `write` |
+| `write` | Yes | Implies `alloc`; the writer, `plan` and `UdfOptions` |
+| `bridge` | No | Implies `write`; `write_bridge` and `plan_bridge`, through `hadris-iso` |
 | `sync` | Yes | The blocking API in `sync` |
 | `async` | No | The common asynchronous API in `async_`; futures are Send for Send devices and operation state |
 | `tracing` | No | Operation spans through the `tracing` crate, also without `std` |

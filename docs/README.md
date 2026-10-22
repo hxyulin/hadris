@@ -25,11 +25,12 @@ references, evidence and records that the site links to.
 - [FAT verification](fat-verification.md) and [ISO verification](iso-verification.md):
   the Kani proofs
 
-## Design records
+## Principles
 
-- [V3 API design](v3-api-design.md) and the [V3 action catalog](v3/actions.md).
-  These record how 3.0 was designed; the rustdoc and the migration guide
-  describe what ships.
+- [Principles and features](v3-api-design.md): the binding API rules, the
+  layer and tier model, and the feature table for every crate.
+- [V3 action catalog](v3/actions.md): every action per format, with its
+  stable ID and target release.
 
 ## History and internal notes
 

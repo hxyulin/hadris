@@ -31,10 +31,10 @@ mode an application needs.
 | Feature | Default | Adds |
 |---|---:|---|
 | `std` | Yes | Implies `alloc`; host files, `host`, `std::io` conversions |
-| `alloc` | via `std` | Allocating drivers, writers and `open` |
+| `alloc` | via `std` | Allocating drivers and `open` |
 | `sync` | Yes | The blocking API in each `sync` module |
 | `async` | No | The runtime-neutral API in each `async_` module, plus the `local` tiers |
-| `write` | Yes | FAT and exFAT formatting, and `format` with `detect` |
+| `write` | Yes | The writers of every enabled format (FAT and exFAT formatting, ISO 9660, UDF with the bridge, cpio), and `format` with `detect` |
 | `fat`, `part`, `iso`, `udf`, `cpio` | `fat`, `iso`, `cpio` | One format crate each |
 | `detect` | Yes | `detect`, `open`, `open_partition`, `detect_partitions` and `AnyFs`; enables `fat`, `part`, `iso`, `udf` and `cpio` |
 | `tracing` | No | Function spans in every enabled format |
@@ -43,7 +43,7 @@ mode an application needs.
 | `apfs-encryption` | No | APFS software unlocking; implies `unstable-apfs` |
 
 The platform (`std`, `alloc`) and mode (`sync`, `async`) features are
-forwarded to every enabled crate; `write` reaches only FAT and exFAT.
+forwarded to every enabled crate, and so is `write`.
 Everything an `unstable-*` feature adds is outside semver. The previews
 `hadris-ntfs` and `hadris-apfs` keep 3.x versions but may break in a minor
 release; depend on them directly with `~3.0`.

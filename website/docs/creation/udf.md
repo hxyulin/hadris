@@ -13,8 +13,13 @@ title: Create UDF filesystems
 [dependencies.hadris]
 version = "3.0.0-rc.2"
 default-features = false
-features = ["std", "sync", "udf", "iso"]
+features = ["std", "sync", "write", "udf", "iso"]
 ```
+
+The UDF writer is behind the `write` feature, which is on by default. In the
+umbrella, `write` also enables `hadris-udf`'s `bridge` feature, which adds
+`plan_bridge` and `write_bridge`; a direct `hadris-udf` dependency enables
+`bridge` itself.
 
 ## Create a volume
 

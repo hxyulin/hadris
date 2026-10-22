@@ -13,7 +13,7 @@ desktop tools as well as `no_std` bootloaders, kernels and firmware.
   enhanced tree. `IsoFs` is a `hadris-fs` `FileSystem`, so `Volume`, its
   handles and `read_tree` work on it.
 - **No allocator needed to read.** Mounts, lookups, listings and file reads
-  use fixed buffers; only the boot catalog listing needs `alloc`.
+  use fixed buffers.
 - **A writer driven by a shared tree.** `write` lays out a
   `hadris_fs::Tree` as `IsoOptions` says and returns a `hadris_fs::Report`
   of the image size, where each file went and what could not be stored.
@@ -29,7 +29,8 @@ desktop tools as well as `no_std` bootloaders, kernels and firmware.
 | Feature | Description | Default |
 |---------|-------------|---------|
 | `std` | Implies `alloc`; `std::io::Error` conversions and host files as tree content | Yes |
-| `alloc` | The writer, sessions, `BootCatalog`, the `Tree` input and the bounded metadata caches of `CacheOptions` | via `std` |
+| `alloc` | The bounded metadata caches of `CacheOptions` | via `std` |
+| `write` | Implies `alloc`; the writer, `plan`, `Session` and `IsoOptions` | Yes |
 | `sync` | Blocking API in `hadris_iso::sync` | Yes |
 | `async` | Common and Send asynchronous API in `hadris_iso::async_` | - |
 | `tracing` | Operation spans through the `tracing` crate, also without `std` | - |

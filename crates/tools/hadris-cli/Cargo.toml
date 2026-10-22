@@ -27,15 +27,15 @@ doc = false
 
 [dependencies]
 hadris = { workspace = true, features = ["std", "sync", "detect", "part", "apfs-encryption"] }
-hadris-cpio = { workspace = true, features = ["std", "sync"] }
+hadris-cpio = { workspace = true, features = ["std", "sync", "write"] }
 hadris-fat = { workspace = true, features = ["std", "sync", "write"] }
 hadris-fat-raw.workspace = true
 hadris-fs = { workspace = true, features = ["std", "sync"] }
 hadris-io = { workspace = true, features = ["std", "sync"] }
-hadris-iso = { workspace = true, features = ["std", "sync"] }
+hadris-iso = { workspace = true, features = ["std", "sync", "write"] }
 hadris-iso-raw.workspace = true
 hadris-storage = { workspace = true, features = ["std", "sync"] }
-hadris-udf = { workspace = true, features = ["std", "sync"] }
+hadris-udf = { workspace = true, features = ["std", "sync", "bridge"] }
 anyhow.workspace = true
 bytemuck.workspace = true
 clap.workspace = true
