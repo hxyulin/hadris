@@ -71,10 +71,11 @@ generic file access, VFS operations and volume selection shape this API.
   `Detail::Feature`. Directory keys use the hashed layout
   (`j_drec_hashed_key_t`) on case- or normalization-insensitive volumes and
   the plain layout (`j_drec_key_t`) otherwise.
-- Directory listing and path lookup, case-insensitive on volumes formatted
-  that way. Path lookup handles `.` and `..`, clamps parent traversal at the
-  volume root, and requires directories for intermediate components and trailing
-  slashes. Symlinks are returned without following them.
+- Directory listing and path lookup, folded by case and canonical
+  decomposition on volumes formatted that way. Path lookup handles `.` and
+  `..`, clamps parent traversal at the volume root, and requires directories
+  for intermediate components and trailing slashes. Symlinks are returned
+  without following them.
 - Inode metadata: mode, owner, BSD flags, timestamps and data-stream size.
 - Directory names as stored, including names that are not UTF-8 and names
   longer than 255 bytes, up to the key's name-length field (1022 bytes for
@@ -100,13 +101,17 @@ generic file access, VFS operations and volume selection shape this API.
   Secure Enclave/hardware encryption, per-file keys and encryption rolling are
   not qualified. Keybags are capped at 1 MiB and 256 records, and the entire
   password-record search is capped at 1,000,000 PBKDF2 iterations.
-- Case-insensitive lookup folds case but not Unicode normalization, so a name
-  must use the same normalization form as the one stored on disk.
+- Name comparison uses the Unicode default case folding and canonical
+  decomposition rather than Apple's unpublished tables, so a name that
+  differs only where the two disagree may not match.
 - Snapshots, Fusion tier-2 devices, extended attributes other than symlink
   targets, and named data streams are not exposed.
-- Native container path lookup walks the filesystem tree. The mounted driver
-  builds an in-memory index, so mounting a large volume needs memory proportional
-  to the indexed records.
+- Native container path lookup walks the filesystem tree; a keyed query reads
+  only the nodes whose key range can hold the records it wants. The mounted
+  driver reads a node's records when an operation first needs them and keeps
+  them for the nodes in use, so mounting a large volume no longer reads the
+  whole filesystem tree. `MountOptions::with_node_limit` caps how many nodes
+  are held; an operation that needs one more fails with `LimitExceeded`.
 
 Do not rely on this crate alone for recovery or forensic conclusions from
 damaged, adversarial, compressed or encrypted volumes.

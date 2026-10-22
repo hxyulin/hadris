@@ -1,6 +1,12 @@
 //! APFS filesystem-tree record parsing.
 
 use crate::types::le_u64;
+#[cfg(any(feature = "alloc", feature = "std"))]
+use alloc::borrow::Cow;
+#[cfg(any(feature = "alloc", feature = "std"))]
+use icu_casemap::CaseMapperBorrowed;
+#[cfg(any(feature = "alloc", feature = "std"))]
+use icu_normalizer::DecomposingNormalizerBorrowed;
 
 /// Root directory inode number.
 pub const INODE_ROOT_DIRECTORY: u64 = 2;
@@ -206,7 +212,7 @@ impl InodeRecord {
             group: crate::types::le_u32(value, 76)?,
             mode: u16::from_le_bytes(crate::types::take(value, 80)?),
             uncompressed_size: le_u64(value, 84)?,
-            data_stream_size: parse_inode_data_stream_size(value),
+            data_stream_size: parse_inode_data_stream_size(value)?,
         })
     }
 
@@ -225,29 +231,47 @@ const INODE_EXT_TYPE_DATA_STREAM: u8 = 8;
 /// Fixed-size prefix of `j_inode_val_t` before the extended-fields blob.
 const INODE_FIXED_VALUE_SIZE: usize = 92;
 
-/// Parses the `size` field of an inode's `j_dstream_t` extended field, if present.
-fn parse_inode_data_stream_size(value: &[u8]) -> Option<u64> {
-    let blob = value.get(INODE_FIXED_VALUE_SIZE..)?;
-    let count = u16::from_le_bytes(blob.get(0..2)?.try_into().ok()?) as usize;
-    let fields = blob.get(4..)?;
+/// Parses the `size` field of an inode's `j_dstream_t` extended field, if
+/// the inode records one. Returns `None` when the inode has no extended
+/// fields, and fails when the field table or the data a field points at is
+/// truncated, so a damaged inode is reported rather than sized by its
+/// extents.
+fn parse_inode_data_stream_size(value: &[u8]) -> crate::Result<Option<u64>> {
+    let Some(blob) = value
+        .get(INODE_FIXED_VALUE_SIZE..)
+        .filter(|blob| !blob.is_empty())
+    else {
+        return Ok(None);
+    };
+    let count = usize::from(u16::from_le_bytes(crate::types::take(blob, 0)?));
+    let fields = blob.get(4..).ok_or(crate::ApfsError::InputTooSmall)?;
     let mut field_offset = 0usize;
-    let mut data_offset = count.checked_mul(4)?;
+    let mut data_offset = count
+        .checked_mul(4)
+        .ok_or(crate::ApfsError::AddressOverflow)?;
     for _ in 0..count {
-        let entry = fields.get(field_offset..field_offset + 4)?;
+        let entry = fields
+            .get(field_offset..field_offset + 4)
+            .ok_or(crate::ApfsError::InputTooSmall)?;
         let field_type = entry[0];
-        let size_bytes = u16::from_le_bytes(entry[2..4].try_into().ok()?) as usize;
+        let size_bytes = usize::from(u16::from_le_bytes([entry[2], entry[3]]));
         field_offset += 4;
-        let data = fields.get(data_offset..data_offset.checked_add(size_bytes)?)?;
+        let end = data_offset
+            .checked_add(size_bytes)
+            .ok_or(crate::ApfsError::AddressOverflow)?;
+        let data = fields
+            .get(data_offset..end)
+            .ok_or(crate::ApfsError::InputTooSmall)?;
         if field_type == INODE_EXT_TYPE_DATA_STREAM {
-            return le_u64(data, 0).ok();
+            return Ok(Some(le_u64(data, 0)?));
         }
-        data_offset += size_bytes;
+        data_offset = end;
         let remainder = size_bytes % 8;
         if remainder != 0 {
             data_offset += 8 - remainder;
         }
     }
-    None
+    Ok(None)
 }
 
 /// Parsed file extent record.
@@ -371,18 +395,76 @@ impl<'a> XattrRecord<'a> {
     }
 }
 
-/// Compares a stored directory entry name with a looked-up name the way the
-/// volume does: with Unicode case folding when `case_insensitive` is set.
-/// Differences in Unicode normalization are not folded.
-pub fn names_match(stored: &str, wanted: &str, case_insensitive: bool) -> bool {
-    if case_insensitive {
-        stored
-            .chars()
-            .flat_map(char::to_lowercase)
-            .eq(wanted.chars().flat_map(char::to_lowercase))
-    } else {
-        stored == wanted
+/// How a volume compares directory entry names, from its
+/// `APFS_INCOMPAT_CASE_INSENSITIVE` and
+/// `APFS_INCOMPAT_NORMALIZATION_INSENSITIVE` flags; see
+/// [`crate::types::VolumeSuperblock::name_comparison`].
+///
+/// Comparison uses the Unicode default case folding and canonical
+/// decomposition of Unicode Standard section 3.13, "Default Case
+/// Algorithms". Apple's own tables differ from the standard for a few
+/// ranges, so names that differ only there may still not match.
+#[cfg(any(feature = "alloc", feature = "std"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NameComparison {
+    case_insensitive: bool,
+    normalization_insensitive: bool,
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+impl NameComparison {
+    /// Comparison for a volume whose incompatible features set
+    /// `case_insensitive` and `normalization_insensitive`.
+    pub const fn new(case_insensitive: bool, normalization_insensitive: bool) -> Self {
+        Self {
+            case_insensitive,
+            normalization_insensitive,
+        }
     }
+
+    /// Returns whether `stored` names the same object as `wanted`.
+    pub fn matches(self, stored: &str, wanted: &str) -> bool {
+        if stored == wanted || (!self.case_insensitive && !self.normalization_insensitive) {
+            return stored == wanted;
+        }
+        self.canonical(stored) == self.canonical(wanted)
+    }
+
+    /// Returns `text` in the form this volume compares names in. Text that
+    /// already has that form is borrowed, so a comparison that needs no
+    /// folding or decomposition allocates nothing.
+    fn canonical(self, text: &str) -> Cow<'_, str> {
+        match (self.case_insensitive, self.normalization_insensitive) {
+            (false, false) => Cow::Borrowed(text),
+            (false, true) => decompose(text),
+            (true, false) => fold(text),
+            (true, true) => {
+                // Unicode canonical caseless matching decomposes, folds and
+                // decomposes again, because folding can expose new
+                // decompositions. The chain owns its result, as the folded
+                // form does not outlive this call.
+                let decomposed = decompose(text);
+                let folded = fold(&decomposed);
+                Cow::Owned(
+                    DecomposingNormalizerBorrowed::new_nfd()
+                        .normalize_iter(folded.chars())
+                        .collect(),
+                )
+            }
+        }
+    }
+}
+
+/// Returns `text` with Unicode default case folding applied.
+#[cfg(any(feature = "alloc", feature = "std"))]
+fn fold(text: &str) -> Cow<'_, str> {
+    CaseMapperBorrowed::new().fold_string(text)
+}
+
+/// Returns `text` in Unicode Normalization Form D (canonical decomposition).
+#[cfg(any(feature = "alloc", feature = "std"))]
+fn decompose(text: &str) -> Cow<'_, str> {
+    DecomposingNormalizerBorrowed::new_nfd().normalize(text)
 }
 
 /// Parses directory entries stored in `layout` from filesystem-tree leaf entries.
@@ -518,10 +600,29 @@ mod tests {
 
     #[test]
     fn names_fold_case_only_on_case_insensitive_volumes() {
-        assert!(names_match("Café.TXT", "café.txt", true));
-        assert!(!names_match("Café.TXT", "café.txt", false));
-        assert!(names_match("Café.TXT", "Café.TXT", false));
-        assert!(!names_match("a.txt", "b.txt", true));
+        let insensitive = NameComparison::new(true, false);
+        let sensitive = NameComparison::new(false, false);
+        assert!(insensitive.matches("Café.TXT", "café.txt"));
+        assert!(!sensitive.matches("Café.TXT", "café.txt"));
+        assert!(sensitive.matches("Café.TXT", "Café.TXT"));
+        assert!(!insensitive.matches("a.txt", "b.txt"));
+        // Full case folding, not lowercasing: both Greek sigmas and the
+        // sharp s fold onto one name.
+        assert!(insensitive.matches("\u{3a3}.txt", "\u{3c2}.txt"));
+        assert!(insensitive.matches("stra\u{df}e.txt", "STRASSE.TXT"));
+    }
+
+    #[test]
+    fn names_decompose_only_on_normalization_insensitive_volumes() {
+        let insensitive = NameComparison::new(false, true);
+        let sensitive = NameComparison::new(false, false);
+        assert!(insensitive.matches("caf\u{e9}.txt", "cafe\u{301}.txt"));
+        assert!(!sensitive.matches("caf\u{e9}.txt", "cafe\u{301}.txt"));
+        assert!(!insensitive.matches("caf\u{e9}.txt", "caf\u{e8}.txt"));
+        // Canonical caseless matching decomposes before folding as well.
+        let both = NameComparison::new(true, true);
+        assert!(both.matches("CAF\u{c9}.TXT", "cafe\u{301}.txt"));
+        assert!(both.matches("CAFE\u{301}.txt", "caf\u{e9}.txt"));
     }
 
     #[test]
@@ -555,5 +656,62 @@ mod tests {
         assert_eq!(stream_size(&inode, &extents), 100);
         inode.data_stream_size = Some(5000);
         assert_eq!(stream_size(&inode, &extents), 5000);
+    }
+
+    fn inode_key(id: u64) -> alloc::vec::Vec<u8> {
+        (id | (u64::from(FS_TYPE_INODE) << 60))
+            .to_le_bytes()
+            .to_vec()
+    }
+
+    /// An inode value whose one extended field is a `j_dstream_t` declaring
+    /// `size_bytes` bytes and holding `data`.
+    fn inode_value(size_bytes: u16, data: &[u8]) -> alloc::vec::Vec<u8> {
+        let mut value = alloc::vec![0_u8; INODE_FIXED_VALUE_SIZE];
+        value.extend_from_slice(&1_u16.to_le_bytes());
+        value.extend_from_slice(&0_u16.to_le_bytes());
+        value.push(INODE_EXT_TYPE_DATA_STREAM);
+        value.push(0);
+        value.extend_from_slice(&size_bytes.to_le_bytes());
+        value.extend_from_slice(data);
+        value
+    }
+
+    #[test]
+    fn malformed_inode_extended_fields_are_rejected() {
+        let key = inode_key(16);
+        let mut data = alloc::vec![0_u8; 40];
+        data[..8].copy_from_slice(&4242_u64.to_le_bytes());
+        assert_eq!(
+            InodeRecord::parse(&key, &inode_value(40, &data))
+                .unwrap()
+                .data_stream_size,
+            Some(4242)
+        );
+
+        // A field whose declared data runs past the record is corrupt, not
+        // an inode without a data stream.
+        assert_eq!(
+            InodeRecord::parse(&key, &inode_value(40, &data[..2])).unwrap_err(),
+            crate::ApfsError::InputTooSmall
+        );
+        // A data-stream field too short for `j_dstream_t` holds no size.
+        assert_eq!(
+            InodeRecord::parse(&key, &inode_value(4, &data[..8])).unwrap_err(),
+            crate::ApfsError::InputTooSmall
+        );
+        // A blob without room for its field table is corrupt too.
+        let mut header_only = alloc::vec![0_u8; INODE_FIXED_VALUE_SIZE];
+        header_only.extend_from_slice(&1_u16.to_le_bytes());
+        assert_eq!(
+            InodeRecord::parse(&key, &header_only).unwrap_err(),
+            crate::ApfsError::InputTooSmall
+        );
+        // An inode with no extended fields records no size.
+        let bare = alloc::vec![0_u8; INODE_FIXED_VALUE_SIZE];
+        assert_eq!(
+            InodeRecord::parse(&key, &bare).unwrap().data_stream_size,
+            None
+        );
     }
 }
