@@ -215,6 +215,7 @@ pub struct ExFat {
     free: Option<u32>,
     next_free: u32,
     changed: bool,
+    durability: hadris_fs::Durability,
 }
 
 impl ExFat {
@@ -238,12 +239,25 @@ impl ExFat {
             free: None,
             next_free: FIRST_CLUSTER,
             changed: false,
+            durability: hadris_fs::Durability::Ordered,
         }
     }
 
     /// The volume's geometry.
     pub const fn geometry(&self) -> &Geometry {
         &self.geo
+    }
+
+    /// Selects dependency barriers before writing. Explicit synchronization
+    /// and dirty-marker barriers are retained in both policies.
+    pub const fn with_durability(mut self, durability: hadris_fs::Durability) -> Self {
+        self.durability = durability;
+        self
+    }
+
+    /// The persistence ordering policy, [`Ordered`](hadris_fs::Durability::Ordered) by default.
+    pub const fn durability(&self) -> hadris_fs::Durability {
+        self.durability
     }
 
     /// Records a serial written to both boot regions.

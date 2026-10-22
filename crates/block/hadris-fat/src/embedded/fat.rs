@@ -201,7 +201,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
             Err(error) => return Err(MountError::new(error, dev)),
         };
         let fat = match rawio::read_fat(&mut dev, &mut block, geo).await {
-            Ok(fat) => fat,
+            Ok(fat) => fat.with_durability(options.durability()),
             Err(error) => return Err(MountError::new(error, dev)),
         };
         let was_dirty = fat.was_dirty();
@@ -1764,7 +1764,9 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     async fn put(&mut self, offset: u64, data: &[u8]) -> FsResult<(), D::Error> {
         if !data.is_empty() {
             self.begin_write().await?;
-            self.flush_device().await?;
+            if self.fat.durability() == hadris_fs::Durability::Ordered {
+                self.flush_device().await?;
+            }
         }
         let result = rawio::write_bytes(&mut self.dev, &mut self.block, offset, data).await;
         self.note(result)

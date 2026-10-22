@@ -379,8 +379,18 @@ fn first_cluster(image: &[u8], geo: &Geometry, text: &str) -> u32 {
 }
 
 fn reject_overlapping_mutations(image: &[u8]) {
-    for operation in 0..7 {
-        let mut fs = common::mount(image);
+    for (operation, durability) in (0..7).flat_map(|operation| {
+        [
+            hadris_fs::Durability::Ordered,
+            hadris_fs::Durability::Buffered,
+        ]
+        .map(move |durability| (operation, durability))
+    }) {
+        let mut fs = ExFatFs::mount(
+            common::device(image.to_vec(), 512),
+            MountOptions::new().with_durability(durability),
+        )
+        .unwrap();
         let root = fs.root();
         let before = free(&mut fs);
         let node = fs.resolve_path("/a").unwrap();
