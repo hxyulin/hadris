@@ -312,6 +312,25 @@ structure, as Windows writes it; exfatprogs 1.2 shows the same bytes in raw
 order, so its text form differs. The conformance suite in `tests/` qualifies it against
 exfatprogs, macOS `newfs_exfat`/`fsck_exfat` and the macOS kernel driver.
 
+Before the first mutation, `ExFatFs` validates exclusive ownership of reachable
+allocations, including directory chains, system files and vendor secondary
+allocations. A forged `NoFatChain` length overlapping allocated neighbors is
+rejected with `Corrupt` before any write, including truncation, unlink, replacing
+rename, overwrite and growth. Invalid allocation records, claims of free clusters,
+cycles and trees deeper than 64 directories also prevent mutation. Reads remain
+available. Lost clusters alone do not prevent writes.
+
+Validation reuses the raw checker's bounded walk and windowed bitmap. Temporary
+heap scratch is between 1536 bytes and 65 KiB, released after validation; the async
+mode also boxes the checker future for the duration of the check. For `C`
+volume clusters, it walks the reachable tree `ceil(C / 524288)` times at the
+maximum scratch size, plus one scan of the allocation bitmap; small volumes use
+one pass and less memory. Each walk limits repeated claims to twice the volume's
+cluster count. Success or corruption is cached for the mount, so later deletes do
+not repeat the scan and legitimate dirty nodes and pending recovery remain usable.
+I/O errors and cancelled validation can be retried. The device must not change
+externally while mounted. This check does not add crash or power-loss guarantees.
+
 ### For Bootloaders and Embedded Systems
 
 ```toml

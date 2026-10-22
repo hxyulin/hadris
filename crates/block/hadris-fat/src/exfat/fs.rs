@@ -675,6 +675,7 @@ pub struct ExFatFs<D> {
     /// An entry set an interrupted operation was writing.
     pending_set: Option<SetPending>,
     read_only: bool,
+    allocations_checked: Option<bool>,
     clock: &'static dyn Clock,
     /// The UTC offset new timestamps record, and old ones without an
     /// offset are read in; `None` for UTC.
@@ -717,6 +718,16 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// as it is when the up-case table does not match its `TableChecksum`
     /// or maps the first 128 code points wrongly; [`check`](super::check)
     /// reports both.
+    ///
+    /// Before the first mutation, the driver checks exclusive ownership of
+    /// reachable allocations, including system files and vendor allocations.
+    /// Cross-links, claims of free clusters, malformed allocations and trees
+    /// deeper than 64 directories fail with [`ErrorKind::Corrupt`] before
+    /// writes. The result is cached for this mount; the device must not be
+    /// changed externally while mounted. The check uses at most 65 KiB of
+    /// temporary heap scratch, walking the tree once per 524288 clusters and
+    /// scanning the allocation bitmap. Later mutations retain the validated
+    /// ownership invariant without rescanning dirty nodes or pending recovery.
     ///
     /// On a TexFAT volume with two FATs the FAT and Allocation Bitmap that
     /// `ActiveFat` selects are read, and every change is written to both
@@ -762,6 +773,7 @@ impl<D: BlockDevice> ExFatFs<D> {
             pending: None,
             pending_set: None,
             read_only: read_only || backup || !upcase_valid,
+            allocations_checked: None,
             clock: options.clock(),
             zone: options.utc_offset(),
             moved: false,
@@ -1170,8 +1182,31 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// operation left.
     async fn prepare(&mut self) -> FsResult<(), D::Error> {
         self.writable()?;
+        self.check_ownership().await?;
         self.nodes.remove(RESERVED);
         self.recover().await
+    }
+
+    async fn check_ownership(&mut self) -> FsResult<(), D::Error> {
+        if let Some(valid) = self.allocations_checked {
+            return if valid { Ok(()) } else { Err(ErrorKind::Corrupt.into()) };
+        }
+        let bytes = (self.vol.geometry().cluster_count() as usize).div_ceil(8).clamp(512, 65536) + 1024;
+        let mut scratch = alloc::vec::Vec::new();
+        scratch.try_reserve_exact(bytes).map_err(|_| ErrorKind::LimitExceeded)?;
+        scratch.resize(bytes, 0);
+        sync_only! {
+            let result = exio::check_allocations(&mut self.dev, self.vol, &self.upcase, &mut scratch).await;
+        }
+        async_only! {
+            let result = alloc::boxed::Box::pin(exio::check_allocations(&mut self.dev, self.vol, &self.upcase, &mut scratch)).await;
+        }
+        match &result {
+            Ok(()) => self.allocations_checked = Some(true),
+            Err(error) if error.kind() == ErrorKind::Corrupt => self.allocations_checked = Some(false),
+            _ => {}
+        }
+        result
     }
 
     /// Finishes an entry set write and frees the clusters an interrupted
@@ -1476,6 +1511,7 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// write.
     async fn begin_write(&mut self) -> FsResult<(), D::Error> {
         self.writable()?;
+        self.check_ownership().await?;
         let result = exio::begin_write(&mut self.dev, &mut self.block, &mut self.vol).await;
         self.note_refusal(&result);
         result
@@ -3149,7 +3185,8 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// them. A changed size sets the archive attribute. A contiguous
     /// allocation that runs past the cluster heap, or that the bitmap does
     /// not mark used throughout, fails with [`ErrorKind::Corrupt`] before
-    /// anything is written.
+    /// anything is written. The first mutation also validates exclusive
+    /// allocation ownership, as described by [`Self::mount`].
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat", level = "trace", skip_all, fields(node = ?node, len = len)))]
     pub async fn truncate(&mut self, node: NodeId, len: u64) -> FsResult<(), D::Error> {
         self.prepare().await?;

@@ -340,7 +340,7 @@ pub mod sync {
     #[path = "volume.rs"]
     mod volume;
 
-    pub use check::check;
+    pub use check::{check, check_allocations};
 
     pub use volume::{
         allocate, allocate_run, begin_write, bit, bitmap_bytes, clear_dirty, clear_set, count_free,
@@ -366,7 +366,7 @@ pub mod async_ {
     #[path = "volume.rs"]
     mod volume;
 
-    pub use check::check;
+    pub use check::{check, check_allocations};
 
     pub use volume::{
         allocate, allocate_run, begin_write, bit, bitmap_bytes, clear_dirty, clear_set, count_free,
