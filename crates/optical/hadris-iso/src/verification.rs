@@ -63,7 +63,7 @@ fn file_identifier_version_matches_specification() {
     }
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "write")]
 #[kani::proof]
 fn primary_name_characters_are_d_characters() {
     use crate::options::NameCase;

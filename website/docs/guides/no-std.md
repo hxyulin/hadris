@@ -21,10 +21,10 @@ FAT and exFAT `format` and `check` run on an unmounted device without an
 allocator, and the ISO 9660, UDF and NTFS readers and the CPIO reader need
 no allocator either.
 
-Add `alloc` for the FAT and exFAT drivers, for the image writers (ISO 9660,
-UDF, the ISO/UDF bridge, CPIO, FAT and exFAT), which take a
-`hadris::fs::Tree`, and for owned names, `copy_tree`, `read_tree` and the
-async `Volume`.
+Add `alloc` for the FAT and exFAT drivers, owned names, `copy_tree`,
+`read_tree` and the async `Volume`. Add `write` for the image writers
+(ISO 9660, UDF, the ISO/UDF bridge, CPIO, FAT and exFAT), which take a
+`hadris::fs::Tree`; it implies `alloc` in the ISO, UDF and CPIO crates.
 `std` implies `alloc` but does not select `sync` or `async`.
 
 All storage I/O flows through `hadris-storage` block devices (every
@@ -45,7 +45,8 @@ without an allocator, use `hadris::fat::embedded`, not `FatFs`.
 | FAT read and write or exFAT read without an allocator (the embedded API) | `sync` or `async` |
 | FAT or exFAT shared drivers (`FatFs`, `ExFatFs`) | Add `alloc` |
 | FAT or exFAT formatting | Add `write`; no allocator required |
-| Image writers, owned names or buffers | Add `alloc` |
+| Image writers | Add `write` and `alloc` (ISO, UDF and CPIO `write` imply `alloc`) |
+| Owned names or buffers | Add `alloc` |
 | Several I/O modes | Enable each; the APIs live in separate namespaces |
 
 See the complete [feature and capability matrix](../concepts/features.md).

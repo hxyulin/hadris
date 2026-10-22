@@ -79,6 +79,7 @@ pub(crate) struct Plan {
     /// The block after the last one the writer allocates in the partition
     /// for its structures and the data it writes. In a bridge volume the
     /// ISO 9660 directories and files go at or after it.
+    #[cfg_attr(not(feature = "bridge"), allow(dead_code))]
     pub(crate) allocated_end: u64,
     pub(crate) fill_gaps: bool,
     pub(crate) report: Report,

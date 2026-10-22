@@ -3,9 +3,9 @@ macro_rules! io_transform {
     ($($item:tt)*) => { $($item)* };
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "write")]
 use hadris_fs::local as fs;
-#[cfg(feature = "alloc")]
+#[cfg(feature = "bridge")]
 use hadris_iso::async_ as iso;
 use hadris_storage::async_ as storage;
 
@@ -14,11 +14,15 @@ use hadris_fs::local::FileSystem;
 #[path = "read.rs"]
 mod read;
 pub use read::UdfFs;
-#[cfg(feature = "alloc")]
+#[cfg(feature = "write")]
 #[path = "write.rs"]
 mod write;
-#[cfg(feature = "alloc")]
-pub use write::{write, write_bridge};
+#[cfg(feature = "write")]
+#[cfg_attr(docsrs, doc(cfg(feature = "write")))]
+pub use write::write;
+#[cfg(feature = "bridge")]
+#[cfg_attr(docsrs, doc(cfg(feature = "bridge")))]
+pub use write::write_bridge;
 
 hadris_fs::__forward_filesystem! {
     shims UdfFs<D: storage::BlockDevice> { read resolve write }

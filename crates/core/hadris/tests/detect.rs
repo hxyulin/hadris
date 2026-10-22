@@ -1,6 +1,5 @@
 //! `detect` lists every format a device holds with the damage a mount
-//! would report, and `open` mounts the first filesystem as an `AnyFs`
-//! (5.8, D4, D5, Q12).
+//! would report, and `open` mounts the first filesystem as an `AnyFs`.
 
 use hadris::cpio::Format;
 use hadris::fat::FatKind;

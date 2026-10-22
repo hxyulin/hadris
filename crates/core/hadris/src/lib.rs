@@ -18,7 +18,7 @@
 //!   `PathError`, which adds the path that failed.
 //! - `fat`, `part`, `iso`, `udf`, `cpio`: one format crate each. The ISO
 //!   9660 and UDF bridge writer is `udf::plan_bridge` and
-//!   `udf::sync::write_bridge`.
+//!   `udf::sync::write_bridge` (with `write`).
 //! - `sync::detect` and `async_::detect` (with `detect`): every format a
 //!   device holds, as `ImageFormat`s in a `Detection`, each with the
 //!   damage a mount would report. With `alloc`, `open` mounts the first
@@ -43,8 +43,9 @@
 //! `cpio`. `detect` lists APFS containers and NTFS volumes from their
 //! signatures but does not mount them. The platform (`std`, `alloc`) and
 //! mode (`sync`, `async`) features are forwarded to every enabled crate.
-//! `write` reaches only FAT and exFAT: it adds their formatting and, with
-//! `detect`, `format`. `tracing` adds function spans to every enabled
+//! `write` adds the writers of every enabled format: FAT and exFAT
+//! formatting, the ISO 9660, UDF (with the bridge) and cpio writers, and
+//! with `detect`, `format`. `tracing` adds function spans to every enabled
 //! format. The default set is `std`, `sync`, `write`, `fat`, `iso`, `cpio`
 //! and `detect`.
 //!

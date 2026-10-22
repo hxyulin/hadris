@@ -28,7 +28,7 @@ timeouts fail the run.
 
 The inventory lists both crates with their Cargo features. `hadris-iso-raw`
 harnesses build with no features; `hadris-iso` harnesses build with
-`--no-default-features --features alloc,sync`, an existing CI feature tier,
+`--no-default-features --features write,sync`, an existing CI feature tier,
 because the name conversion they check needs the writer's planner. Normal
 Rust builds exclude the harnesses with `cfg(kani)`; neither crate gains a
 verifier dependency.

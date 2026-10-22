@@ -1205,7 +1205,7 @@ impl<D: BlockDevice> IsoFs<D> {
     }
 
     /// The primary volume descriptor.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "write")]
     pub(crate) async fn primary_descriptor(&mut self) -> Result<raw::PrimaryVolumeDescriptor, Error<D::Error>> {
         let mut index = 0;
         while let Some(descriptor) = self.descriptor(index).await? {
@@ -1218,7 +1218,7 @@ impl<D: BlockDevice> IsoFs<D> {
     }
 
     /// The logical block of the boot catalog, when there is a boot record.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "write")]
     pub(crate) fn catalog_block(&self) -> Option<u32> {
         self.view.info.boot_catalog
     }

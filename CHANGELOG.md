@@ -8,6 +8,25 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Breaking
+
+- **hadris-iso, hadris-udf, hadris-cpio:** The writers moved from `alloc`
+  to a new default `write` feature, so `alloc` now only means a heap. In
+  hadris-iso, `write` adds `plan`, `{sync, async_}::{write, Session}` and
+  `IsoOptions` with its option types, and only it pulls in `hadris-part`.
+  In hadris-udf, `write` adds `plan`, `{sync, async_}::write` and
+  `UdfOptions`, and a new `bridge` feature (off by default) adds
+  `plan_bridge` and `write_bridge`. Only `bridge` pulls in `hadris-iso`.
+  In hadris-cpio, `write` adds `plan` and `{sync, async_}::{write, Writer,
+  EntryWriter}`, while `read_tree` and `normalize_path` stay on `alloc`.
+  A reader built with `alloc` no longer compiles any writer. Builds with
+  `default-features = false` that write add `write`, or `bridge` for the
+  bridge writer.
+- **hadris:** `write` now enables the ISO 9660, UDF (with the bridge) and
+  cpio writers of the enabled formats as well as FAT formatting.
+- **hadris-fs:** `FuseOnError` is removed; the crate advances to
+  `3.0.0-rc.3` for this intentional API break.
+
 ### Added
 
 - **hadris-apfs:** `Container::filesystem_records(volume, id, record_type)`

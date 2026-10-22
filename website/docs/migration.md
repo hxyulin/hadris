@@ -61,7 +61,7 @@ Dropping a handle cannot report a flush or metadata error to the caller.
 | FAT without `std`, with an allocator | `fat::sync::FatFs` or its `async_` twin, with `alloc` |
 | FAT without an allocator | `fat::embedded`, with `MountToken` and fixed file slots |
 | exFAT without an allocator | Read-only `fat::exfat::embedded` |
-| ISO/UDF without an allocator | Shared read-only drivers; image writers and convenience APIs may need `alloc` |
+| ISO/UDF without an allocator | Shared read-only drivers; image writers need `write`, which implies `alloc` |
 | Non-`Send` asynchronous firmware | The common `storage::async_::BlockDevice` and `fs::local::FileSystem`; `fs::local::Volume` with allocation and pointer-sized atomics |
 
 Device errors still require `core::error::Error + Send + Sync + 'static` in

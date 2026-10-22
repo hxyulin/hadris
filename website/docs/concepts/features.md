@@ -8,7 +8,7 @@ Hadris separates three decisions that many crates combine:
 
 1. **Platform support:** allocation-free, `alloc`, or `std`
 2. **I/O mode:** `sync`, `async`, or both
-3. **Capability:** `write` (FAT formatting), and in the umbrella crate one
+3. **Capability:** `write` (creating images), and in the umbrella crate one
    feature per format
 
 Every format crate always compiles reading; none has a `read` feature. See
@@ -34,6 +34,27 @@ and need `alloc`; `std` adds host files as tree content. The FAT and exFAT
 drivers, `FatFs` and `ExFatFs`, need `alloc` for their node table. `format`,
 which returns the new volume's geometry, and `check` run on an unmounted
 device without an allocator.
+
+## The `write` feature
+
+`write` means "can create images" in every crate that has it, and it is on
+by default. In the umbrella it forwards to each enabled format crate:
+
+| Crate | `write` adds |
+|---|---|
+| `hadris-fat` | `format` for FAT and exFAT, and with `alloc` the tree writer `write` |
+| `hadris-iso` | `IsoOptions` and the other writer options, `plan`, `write` and `Session`; implies `alloc` |
+| `hadris-udf` | `UdfOptions`, `plan` and `write`; implies `alloc`. The bridge writer (`plan_bridge`, `write_bridge`) is the separate `bridge` feature, which the umbrella's `write` enables |
+| `hadris-cpio` | The streaming `Writer`, `plan` and `write`; implies `alloc` |
+
+`alloc` on its own only means the target has a heap: it enables bounded
+caches and owned results without the feature-gated image writers. Using
+`default-features = false` without `write` excludes those image writers;
+ordinary FAT and exFAT file mutation remains available. Runtime
+policies such as read-only mounts, caches, read-ahead, code pages and case
+folding are values passed at runtime, never features. The
+[principles and features](https://github.com/hxyulin/hadris/blob/main/docs/v3-api-design.md#features)
+document has the full per-crate feature table.
 
 ## I/O modes
 
@@ -75,9 +96,9 @@ lazy `read_tree`, whose content sources still require Send and Sync.
 | `hadris-fat` | FAT12/16/32 | Yes | Yes | Yes | Yes | `alloc` (checking is allocation-free) | Stable |
 | `hadris-fat` `exfat` | exFAT, including TexFAT volumes with two FATs | Yes | Yes | Yes | Yes | `alloc` (checking is allocation-free) | Stable |
 | `hadris-part` | MBR (with logical partitions), GPT, hybrid MBR | Yes | Yes | Yes | Yes | Allocation-free (`scan`, `open`) | Stable |
-| `hadris-iso` | ISO 9660, Joliet, Rock Ridge, El Torito | Yes | Yes | Yes | Yes | Allocation-free (writing and sessions need `alloc`) | Stable |
-| `hadris-udf` | UDF 1.02 to 2.01, type 1 partitions; ISO 9660 and UDF bridge images | Yes | Yes | Yes | Yes | Allocation-free (writing needs `alloc`) | Stable |
-| `hadris-cpio` | CPIO newc, CRC and odc; old binary read | Yes | Yes | Yes | Yes | Allocation-free (writing needs `alloc`) | Stable |
+| `hadris-iso` | ISO 9660, Joliet, Rock Ridge, El Torito | Yes | Yes | Yes | Yes | Allocation-free (writing and sessions need `write`) | Stable |
+| `hadris-udf` | UDF 1.02 to 2.01, type 1 partitions; ISO 9660 and UDF bridge images | Yes | Yes | Yes | Yes | Allocation-free (writing needs `write`, bridge images `bridge`) | Stable |
+| `hadris-cpio` | CPIO newc, CRC and odc; old binary read | Yes | Yes | Yes | Yes | Allocation-free (writing needs `write`) | Stable |
 | `hadris-ntfs` | NTFS | Yes | No | Yes | Yes | Allocation-free | Preview |
 | `hadris-apfs` | APFS containers and volumes | Yes | No | Yes | Yes | `alloc` | Preview |
 | `hadris` `detect` | Detection of every format above, opening FAT, exFAT, ISO 9660 and UDF as `AnyFs`, and single-volume APFS with `unstable-apfs` | Yes | N/A | Yes | Yes | Allocation-free detection; `open` needs `alloc` | Stable |
@@ -98,7 +119,7 @@ features = ["alloc", "sync", "fat"]
 ```
 
 `hadris-fat` has no `read` feature: with `alloc`, reading and writing are
-always available, and `write` adds only the formatter.
+always available, and `write` adds only `format` and the tree writer.
 
 ### Kernel with an allocator and async I/O
 
@@ -127,17 +148,18 @@ from wrapping the device in `hadris::storage::sync::Cache`.
 [dependencies.hadris]
 version = "3.0.0-rc.2"
 default-features = false
-features = ["alloc", "sync", "cpio"]
+features = ["alloc", "sync", "write", "cpio"]
 ```
 
-`hadris-cpio` has no `read` or `write` feature: the reader is always
-compiled, and `alloc` adds the writer.
+`hadris-cpio` has no `read` feature: the reader is always compiled, and
+`write` adds the writer.
 
 ## Feature selection rules
 
 - Select exactly the formats and capabilities the application uses.
 - Select at least one I/O mode for APIs that access storage.
 - Add `alloc` only when the chosen API returns or stores owned data.
+- Add `write` when the application creates images or formats volumes.
 - Use the umbrella with defaults disabled for one dependency and one format; use leaf crates for direct ownership of their versions.
 - Treat `hadris-ntfs`, `hadris-apfs`, `unstable-ntfs` and `unstable-apfs`
   as previews outside semver. The crates carry 3.x versions but may break

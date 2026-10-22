@@ -87,10 +87,12 @@ versions directly is useful.
 | Allocated async FAT | `alloc`, `async`, `fat` | `fat::async_::FatFs` and async `Volume` |
 | Allocation-free FAT firmware | `sync`, `fat` | `fat::embedded::sync::Fat`; 512-byte device blocks |
 | Allocation-free ISO/UDF reader | `sync`, `iso` or `udf` | Bare `FileSystem` driver |
-| Streaming CPIO | `sync`, `cpio`; add `alloc` for writing | `cpio::sync::CpioReader` or `Writer` |
+| Streaming CPIO | `sync`, `cpio`; add `write` for writing | `cpio::sync::CpioReader` or `Writer` |
 
-`std` implies `alloc`, but neither selects an I/O mode. `write` adds FAT and
-exFAT formatting; ordinary file mutation is already available in their drivers.
+`std` implies `alloc`, but neither selects an I/O mode. `write`, on by
+default, adds image creation: FAT and exFAT formatting and every image writer
+(ISO 9660, UDF, the ISO/UDF bridge and CPIO). Ordinary file mutation is
+already available in the FAT and exFAT drivers without it.
 Reading is always compiled; no format crate has a `read` feature.
 
 Use `Volume` for paths and handles, and the bare `FileSystem` trait for node

@@ -63,5 +63,5 @@ layouts those methods return. The other layouts, such as directory records and
 SUSP entries, are in the `hadris-iso-raw` crate.
 
 Use `hadris::sync::detect` and `hadris::sync::open` when an application must
-detect and open ISO-only, UDF-only, or bridge images. Use `hadris::udf::sync::write_bridge` to author a
-shared ISO/UDF bridge image.
+detect and open ISO-only, UDF-only, or bridge images. Use `hadris::udf::sync::write_bridge`, with the `udf` and `write` features, to
+author a shared ISO/UDF bridge image.

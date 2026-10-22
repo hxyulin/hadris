@@ -8,7 +8,7 @@ title: Build a CPIO initramfs
 [dependencies.hadris]
 version = "3.0.0-rc.2"
 default-features = false
-features = ["std", "sync", "cpio"]
+features = ["std", "sync", "write", "cpio"]
 ```
 
 ```rust,no_run

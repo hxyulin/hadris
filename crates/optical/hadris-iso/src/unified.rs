@@ -27,17 +27,19 @@ hadris_fs::__forward_filesystem! {
     send IsoFs<D: hadris_storage::async_::SendBlockDevice> as hadris_fs::async_::FileSystem { read }
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "write")]
 use hadris_fs::local as fs;
-#[cfg(feature = "alloc")]
+#[cfg(feature = "write")]
 use hadris_part::async_ as part;
-#[cfg(feature = "alloc")]
+#[cfg(feature = "write")]
 #[path = "write.rs"]
 mod write;
-#[cfg(feature = "alloc")]
+#[cfg(feature = "write")]
+#[cfg_attr(docsrs, doc(cfg(feature = "write")))]
 pub use write::write;
-#[cfg(feature = "alloc")]
+#[cfg(feature = "write")]
 #[path = "session.rs"]
 mod session;
-#[cfg(feature = "alloc")]
+#[cfg(feature = "write")]
+#[cfg_attr(docsrs, doc(cfg(feature = "write")))]
 pub use session::Session;

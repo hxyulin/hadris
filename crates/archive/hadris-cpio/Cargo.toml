@@ -14,17 +14,19 @@ categories = ["filesystem", "encoding", "no-std"]
 readme = "README.md"
 
 [package.metadata.docs.rs]
-features = ["std", "sync", "async", "tracing"]
+features = ["std", "sync", "async", "write", "tracing"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["std", "sync"]
-# The writer and the `Tree` input.
+default = ["std", "sync", "write"]
+# `read_tree` and `normalize_path`.
 alloc = ["hadris-io/alloc", "hadris-fs/alloc"]
 # Implies `alloc`; `std::io::Error` conversions and host files as tree content.
 std = ["alloc", "hadris-io/std", "hadris-fs/std", "tracing?/std"]
 sync = ["hadris-io/sync", "hadris-fs/sync"]
 async = ["hadris-io/async", "hadris-fs/async"]
+# Implies `alloc`; the writer and `plan`.
+write = ["alloc"]
 
 tracing = ["dep:tracing"]
 
@@ -42,17 +44,17 @@ tempfile.workspace = true
 
 [[test]]
 name = "roundtrip"
-required-features = ["std", "sync"]
+required-features = ["std", "sync", "write"]
 
 [[test]]
 name = "async_writer"
-required-features = ["std", "sync", "async"]
+required-features = ["std", "sync", "async", "write"]
 
 [[bench]]
 name = "performance"
 harness = false
-required-features = ["std", "sync"]
+required-features = ["std", "sync", "write"]
 
 [[test]]
 name = "interop"
-required-features = ["std", "sync"]
+required-features = ["std", "sync", "write"]

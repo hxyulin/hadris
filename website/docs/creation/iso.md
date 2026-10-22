@@ -16,11 +16,11 @@ block device, in the sync and `Send` async APIs.
 [dependencies.hadris]
 version = "3.0.0-rc.2"
 default-features = false
-features = ["std", "sync", "iso"]
+features = ["std", "sync", "write", "iso"]
 ```
 
-The default features (`std`, `sync`) include the writer. Without `std`,
-`alloc` is enough.
+The writer, `plan` and `Session` are behind the `write` feature, which is on
+by default and implies `alloc`. Without `std`, enable `write` together with the required `sync` or `async` I/O mode.
 
 ## Create a basic image
 

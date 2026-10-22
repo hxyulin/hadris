@@ -98,7 +98,8 @@ The header layouts are in `hadris-cpio-raw`.
 | Feature | Default | Description |
 |---|---|---|
 | `std` | yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
-| `alloc` | via `std` | The writer, `plan`, `read_tree` and `normalize_path` |
+| `alloc` | via `std` | `read_tree` and `normalize_path` |
+| `write` | yes | Implies `alloc`; the writer and `plan` |
 | `sync` | yes | The blocking API in `sync` |
 | `async` | no | The asynchronous API with `Send` futures in `async_` |
 | `tracing` | no | Operation spans through the `tracing` crate, also without `std` |

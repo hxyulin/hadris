@@ -386,8 +386,18 @@
     },
     {
       "crate": "hadris-iso",
+      "tier": "write-sync",
+      "features": "write,sync"
+    },
+    {
+      "crate": "hadris-iso",
+      "tier": "write-async",
+      "features": "write,async"
+    },
+    {
+      "crate": "hadris-iso",
       "tier": "all-capabilities",
-      "features": "std,alloc,sync,async"
+      "features": "std,alloc,sync,async,write"
     },
     {
       "crate": "hadris-udf",
@@ -421,8 +431,18 @@
     },
     {
       "crate": "hadris-udf",
+      "tier": "write-sync",
+      "features": "write,sync"
+    },
+    {
+      "crate": "hadris-udf",
+      "tier": "write-async",
+      "features": "write,async"
+    },
+    {
+      "crate": "hadris-udf",
       "tier": "all-capabilities",
-      "features": "std,alloc,sync,async"
+      "features": "std,alloc,sync,async,bridge"
     },
     {
       "crate": "hadris-iso",
@@ -473,8 +493,18 @@
     },
     {
       "crate": "hadris-cpio",
+      "tier": "write-sync",
+      "features": "write,sync"
+    },
+    {
+      "crate": "hadris-cpio",
+      "tier": "write-async",
+      "features": "write,async"
+    },
+    {
+      "crate": "hadris-cpio",
       "tier": "all-capabilities",
-      "features": "std,alloc,sync,async"
+      "features": "std,alloc,sync,async,write"
     },
     {
       "crate": "hadris-cpio",
@@ -527,6 +557,11 @@
       "crate": "hadris",
       "tier": "hosted-async-optical",
       "features": "std,async,iso,udf"
+    },
+    {
+      "crate": "hadris",
+      "tier": "leaf-writers",
+      "features": "std,sync,write,iso,udf,cpio"
     },
     {
       "crate": "hadris",

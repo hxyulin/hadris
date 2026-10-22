@@ -8,4 +8,4 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-hadris = { workspace = true, features = ["std", "sync", "cpio"] }
+hadris = { workspace = true, features = ["std", "sync", "write", "cpio"] }

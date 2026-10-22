@@ -66,7 +66,6 @@ mod dir;
 mod error;
 mod extent;
 mod forward;
-mod fuse;
 mod guid;
 #[cfg(feature = "std")]
 pub mod host;
@@ -93,7 +92,6 @@ pub use dir::{DirCursor, DirEntry};
 pub use error::PathError;
 pub use error::{Detail, DetailCode, Errno, Error, ErrorKind, FsResult, Location, MountError};
 pub use extent::Extent;
-pub use fuse::FuseOnError;
 pub use guid::{Guid, GuidParseError};
 pub use hadris_io::SeekFrom;
 pub use meta::{Attributes, Metadata, Owner, Permissions, SetAttr};

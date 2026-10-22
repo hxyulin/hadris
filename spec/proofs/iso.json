@@ -19,7 +19,7 @@
     "hadris-iso": {
       "path": "crates/optical/hadris-iso",
       "features": [
-        "alloc",
+        "write",
         "sync"
       ]
     }

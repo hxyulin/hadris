@@ -14,7 +14,7 @@
 //! handles work on it. Reading needs no allocator.
 //!
 //! ```rust
-//! # #[cfg(all(feature = "sync", feature = "std"))]
+//! # #[cfg(all(feature = "sync", feature = "std", feature = "write"))]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use std::io::Read;
 //!
@@ -39,7 +39,7 @@
 //! assert_eq!(text, "set timeout=3");
 //! # Ok(())
 //! # }
-//! # #[cfg(not(all(feature = "sync", feature = "std")))]
+//! # #[cfg(not(all(feature = "sync", feature = "std", feature = "write")))]
 //! # fn main() {}
 //! ```
 //!
@@ -52,7 +52,7 @@
 //!
 //! ## Writing
 //!
-//! `write` (in each mode, with `alloc`) lays out a `hadris_fs::Tree` as an
+//! `write` (in each mode, with the `write` feature) lays out a `hadris_fs::Tree` as an
 //! image on a block device, as [`IsoOptions`] says, and returns a
 //! `hadris_fs::Report` of its size, where each file went, and what it could
 //! not store. [`plan`] returns the same report without I/O, so the device
@@ -62,7 +62,7 @@
 //!
 //! ## Sessions
 //!
-//! `Session` (in each mode, with `alloc`) reads an existing image into a
+//! `Session` (in each mode, with the `write` feature) reads an existing image into a
 //! tree whose files point back at their extents, and writes it back after
 //! changes: as a new session after the old one ([`SessionMode::Append`]),
 //! or rebuilt in place ([`SessionMode::Rewrite`]).
@@ -79,7 +79,8 @@
 //! | Feature | Default | Description |
 //! |---|---|---|
 //! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
-//! | `alloc` | via `std` | The writer, sessions, the `Tree` input and the bounded reader metadata caches |
+//! | `alloc` | via `std` | The bounded reader metadata caches and `CacheOptions` |
+//! | `write` | Yes | Implies `alloc`; the writer, [`plan`], `Session` and [`IsoOptions`] |
 //! | `sync` | Yes | The blocking API in `sync` |
 //! | `async` | No | The common asynchronous API in `async_`; futures are Send for Send devices and operation state |
 //! | `tracing` | No | Operation spans through the `tracing` crate, also without `std` |
@@ -93,7 +94,7 @@
 #![allow(clippy::duplicate_mod)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(
-    not(all(feature = "alloc", any(feature = "sync", feature = "async"))),
+    not(all(feature = "write", any(feature = "sync", feature = "async"))),
     allow(dead_code)
 )]
 
@@ -114,9 +115,9 @@ mod error;
 mod info;
 mod name;
 mod namespace;
-#[cfg(feature = "alloc")]
+#[cfg(feature = "write")]
 mod options;
-#[cfg(feature = "alloc")]
+#[cfg(feature = "write")]
 mod plan;
 mod rock_ridge;
 #[cfg(kani)]
@@ -149,9 +150,9 @@ pub mod sync {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
     }
 
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "write")]
     use hadris_fs::sync as fs;
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "write")]
     use hadris_part::sync as part;
     use hadris_storage::sync as storage;
 
@@ -167,29 +168,31 @@ pub mod sync {
     #[path = "image.rs"]
     mod image;
     pub use image::IsoFs;
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "write")]
     #[path = "write.rs"]
     mod write;
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "write")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "write")))]
     pub use write::write;
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "write")]
     #[path = "session.rs"]
     mod session;
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "write")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "write")))]
     pub use session::Session;
 }
 
 pub use boot::{BootCatalog, CatalogEntries, CatalogEntry, Emulation, Platform};
 pub use error::Detail;
 pub use namespace::{JolietLevel, Namespace, Namespaces};
-#[cfg(feature = "alloc")]
-#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+#[cfg(feature = "write")]
+#[cfg_attr(docsrs, doc(cfg(feature = "write")))]
 pub use options::{
     AppendedPartition, BootEntry, BootInfo, ElTorito, Hybrid, IsoLevel, IsoOptions, NameCase,
     Preserve, Relocation, SessionMode,
 };
-#[cfg(feature = "alloc")]
-#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+#[cfg(feature = "write")]
+#[cfg_attr(docsrs, doc(cfg(feature = "write")))]
 pub use plan::plan;
 pub use rock_ridge::RockRidgeInfo;
 pub use volume_info::{IsoDate, IsoId, VolumeInfo};
@@ -203,6 +206,6 @@ extern crate self as hadris_iso;
 pub mod async_;
 
 /// Compiles the README's Rust examples as doctests.
-#[cfg(all(doctest, feature = "std", feature = "sync"))]
+#[cfg(all(doctest, feature = "std", feature = "sync", feature = "write"))]
 #[doc = include_str!("../README.md")]
 struct ReadmeDoctests;

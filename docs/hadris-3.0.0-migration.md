@@ -66,8 +66,8 @@ Choose the next section according to the application:
 | Kernel or bootloader with an allocator | `alloc`, `sync` or `async`, and the format feature | Implement `BlockDevice`; use the bare `FileSystem` driver |
 | Allocation-free ISO/UDF reader | `sync` or `async`, and `iso` or `udf` | Supply a device; resolve and read nodes directly |
 | Allocation-free FAT firmware | `sync` or `async`, and `fat` | Use `fat::embedded` with a 512-byte device and `MountToken` |
-| Image builder | `alloc`, a mode, and format features; `write` for FAT formatting | Build a `Tree`, then call the format's writer |
-| CPIO on a pipe | `sync` or `async`, and `cpio`; `alloc` for writing | Keep byte streams; use `CpioReader` or `Writer` |
+| Image builder | `write`, a mode, and format features (`hadris` includes the UDF bridge through `write`; direct `hadris-udf` users enable `bridge`) | Build a `Tree`, then call the format's writer |
+| CPIO on a pipe | `sync` or `async`, and `cpio`; `write` for writing | Keep byte streams; use `CpioReader` or `Writer` |
 
 Versioning:
 
@@ -92,8 +92,8 @@ Versioning:
 - The MSRV is unchanged: Rust 1.88.0 (`rust-version` in the workspace
   `Cargo.toml`).
 
-The design behind these changes is in [the V3 API design](v3-api-design.md).
-Its development log names intermediate APIs that 3.0 does not ship; use the
+The principles behind these changes are in
+[principles and features](v3-api-design.md); use the
 [symbol tables](#symbol-tables) below for renames and removals.
 
 Sections:
@@ -154,7 +154,7 @@ is available through separate dependencies:
 ```toml
 [dependencies]
 hadris-fat = { version = "3.0.0-rc.2" }
-hadris-fs = { version = "3.0.0-rc.2" }
+hadris-fs = { version = "3.0.0-rc.3" }
 hadris-storage = { version = "3.0.0-rc.2" }
 ```
 
@@ -195,7 +195,7 @@ Per crate:
 
 | Crate | V2 features | V3 features | Removed, and what to do |
 |---|---|---|---|
-| `hadris` | `std`, `alloc`, `sync`, `async`, `read`, `write`, `block`, `optical`, `archive`, `path`, `fixed`, `storage`, `fat`, `part`, `iso`, `udf`, `cd`, `cpio` (default `std`, `sync`, `read`, `write`, `fixed`, `path`, `iso`, `fat`, `cpio`) | `std`, `alloc`, `sync`, `async`, `write`, `fat`, `part`, `iso`, `udf`, `cpio`, `detect`, `unstable-ntfs`, `unstable-apfs`, `apfs-encryption`, `tracing` (default `std`, `sync`, `write`, `fat`, `iso`, `cpio`, `detect`) | `read`: drop it. `archive`: use `cpio`. `block`, `optical`: use `detect` (adds `fat`, `part`, `iso`, `udf`, `cpio`). `cd`: use `udf`. `storage`: `hadris::storage` is always there. `path`, `fixed`: the crates are gone. `write` now only forwards FAT formatting. |
+| `hadris` | `std`, `alloc`, `sync`, `async`, `read`, `write`, `block`, `optical`, `archive`, `path`, `fixed`, `storage`, `fat`, `part`, `iso`, `udf`, `cd`, `cpio` (default `std`, `sync`, `read`, `write`, `fixed`, `path`, `iso`, `fat`, `cpio`) | `std`, `alloc`, `sync`, `async`, `write`, `fat`, `part`, `iso`, `udf`, `cpio`, `detect`, `unstable-ntfs`, `unstable-apfs`, `apfs-encryption`, `tracing` (default `std`, `sync`, `write`, `fat`, `iso`, `cpio`, `detect`) | `read`: drop it. `archive`: use `cpio`. `block`, `optical`: use `detect` (adds `fat`, `part`, `iso`, `udf`, `cpio`). `cd`: use `udf`. `storage`: `hadris::storage` is always there. `path`, `fixed`: the crates are gone. `write` forwards the writers of every enabled format. |
 | `hadris-io` | `std`, `alloc`, `sync`, `async` | `std`, `alloc`, `sync`, `async`, `embedded-io` | `embedded-io` is now optional and gates `FromEmbedded` and the `embedded-io` conversions. `async` also enables `local`. |
 | `hadris-storage` | `std`, `alloc`, `sync`, `async` | `std`, `alloc`, `sync`, `async` | None. `async_::BlockDevice` serves local and Send devices; there is no `local` module. |
 | `hadris-common` | `std`, `alloc`, `sync`, `async`, `bytemuck`, `optical` | `bytemuck` | The crate is internal and may break in a minor release; depend on it with `"~3.0"` only to name `hadris-fat-raw` field types. |
@@ -206,9 +206,9 @@ Per crate:
 | `hadris-part` | `std`, `sync`, `async`, `alloc`, `read`, `write`, `crc`, `rand` | `std`, `alloc`, `sync`, `async`, `tracing` | `read`, `write`: always on. `crc`: CRCs are always computed and checked. `rand`: pass GUIDs yourself or call `Guid::random()` (`std`). `Disk`, the tables and `DiskLayout` need `alloc`; `scan` and `open` do not. |
 | `hadris-ntfs` | `read`, `std`, `sync`, `async`, `alloc` | `std`, `alloc`, `sync`, `async`, `tracing` | `read`: reading needs no allocator now. |
 | `hadris-apfs` (2.5) | `std`, `alloc`, `read`, `sync`, `async` (default `std`, `read`, `sync`) | `std`, `alloc`, `sync`, `async`, `encryption`, `tracing` (default `std`, `sync`) | `read`: drop it, reading is always compiled. `encryption` adds software unlocking. The umbrella's `apfs-encryption` forwards it. |
-| `hadris-iso` | `read`, `alloc`, `std`, `sync`, `async`, `write`, `joliet`, `unstable-streaming` (default `std`, `write`, `sync`) | `std`, `alloc`, `sync`, `async`, `tracing` (default `std`, `sync`) | `read`: gone, reading needs no allocator. `IsoFs::with_cache(CacheOptions)` needs only `alloc`. `write`, `joliet`: the writer, sessions and boot catalog reader need `alloc`. `unstable-streaming`: `hadris_fs::host::file` content is read while the image is written. |
-| `hadris-udf` | `read`, `alloc`, `std`, `write`, `sync`, `async`, `unstable-streaming` | `std`, `alloc`, `sync`, `async`, `tracing` | `read`, `write`: the writer needs `alloc` and no longer needs `std`. `unstable-streaming`: as for ISO. |
-| `hadris-cpio` | `read`, `alloc`, `std`, `write`, `sync`, `async` | `std`, `alloc`, `sync`, `async`, `tracing` | `read`: the reader is always compiled and needs no allocator. `write`: the writer needs `alloc`. |
+| `hadris-iso` | `read`, `alloc`, `std`, `sync`, `async`, `write`, `joliet`, `unstable-streaming` (default `std`, `write`, `sync`) | `std`, `alloc`, `sync`, `async`, `write`, `tracing` (default `std`, `sync`, `write`) | `read`: gone, reading needs no allocator. `IsoFs::with_cache(CacheOptions)` needs only `alloc`. `write`: the writer and sessions; implies `alloc`. `joliet`: gone, Joliet is always read and written. `unstable-streaming`: `hadris_fs::host::file` content is read while the image is written. |
+| `hadris-udf` | `read`, `alloc`, `std`, `write`, `sync`, `async`, `unstable-streaming` | `std`, `alloc`, `sync`, `async`, `write`, `bridge`, `tracing` (default `std`, `sync`, `write`) | `read`: gone. `write`: the writer; implies `alloc` and no longer needs `std`. `bridge`: the ISO 9660 and UDF bridge writer that replaces `hadris-cd`. `unstable-streaming`: as for ISO. |
+| `hadris-cpio` | `read`, `alloc`, `std`, `write`, `sync`, `async` | `std`, `alloc`, `sync`, `async`, `write`, `tracing` (default `std`, `sync`, `write`) | `read`: the reader is always compiled and needs no allocator. `write`: the writer; implies `alloc`. |
 | `hadris-block`, `hadris-optical`, `hadris-cd`, `hadris-archive` | various | crate removed | See [Crate map](#crate-map). |
 
 Common configurations, from [the features page](../website/docs/concepts/features.md).
@@ -762,7 +762,8 @@ let report = hadris_udf::sync::write(target, &tree, &UdfOptions::default())?;
 separately; an identifier too long for its field fails with
 `Detail::Identifier` instead of being cut.
 
-The `hadris-cd` writer is replaced by the bridge writer in `hadris-udf`:
+The `hadris-cd` writer is replaced by the bridge writer in `hadris-udf`,
+behind its `bridge` feature:
 
 ```rust
 // 2.4 (crates/optical/hadris-cd/README.md at tag v2.4.0)
@@ -966,7 +967,7 @@ let AnyFs::Fat(fat) = opened else { anyhow::bail!("not FAT") };
 Creating a disk:
 
 ```rust
-// 3.0 (docs/v3-api-design.md, 5.6)
+// 3.0 (hadris-part)
 let layout = DiskLayout::gpt(disk_guid)
     .with_alignment(Alignment::MiB1)
     .partition(PartitionSpec::new(gpt::types::EFI_SYSTEM, Size::MiB(100)).with_name("EFI"))
