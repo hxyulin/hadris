@@ -67,6 +67,10 @@ impl<'a> Held<'a> {
         self.node.take().expect("released pin")
     }
 
+    pub(super) fn mark_open(&mut self) {
+        self.open = true;
+    }
+
     /// Records that the guarded open was closed, so a drop queues no close.
     pub(super) fn closed(&mut self) {
         self.open = false;
@@ -669,7 +673,7 @@ async fn open_held<F: FileSystem + ?Sized>(
         node.forget(fs);
         return Err(err);
     }
-    node.open = true;
+    node.mark_open();
     if options.is_truncate() && !options.is_create_new() {
         let emptied = match fs.stat(node.node()).await {
             Ok(meta) if meta.len() > 0 => fs.truncate(node.node(), 0).await,
@@ -799,8 +803,11 @@ async fn create_dir_all<F: FileSystem + ?Sized>(
 ) -> FsResult<(), F::DeviceError> {
     let mut current = Held::new(pending, fs.root());
     let mut rest = components(path);
+    let mut prefix = Vec::new();
     let mut result = Ok(());
     while let Some(component) = rest.next() {
+        prefix.push(b'/');
+        prefix.extend_from_slice(component);
         if component == b"." {
             continue;
         }
@@ -816,6 +823,11 @@ async fn create_dir_all<F: FileSystem + ?Sized>(
             match fs.lookup(current.node(), name).await {
                 Err(err) if err.kind() == ErrorKind::NotFound => {
                     fs.mkdir(current.node(), name, &SetAttr::new()).await
+                }
+                Ok(node) if how != Resolve::Lexical => {
+                    fs.forget(node, 1);
+                    let policy = if rest.clone().next().is_some() || path.ends_with(b"/") { Resolve::Follow } else { how };
+                    fs.resolve(&prefix, policy).await
                 }
                 other => other,
             }

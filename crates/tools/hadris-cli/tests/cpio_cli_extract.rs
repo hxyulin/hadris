@@ -289,3 +289,72 @@ fn cat_reads_a_hard_link_whose_data_came_first() {
         assert_eq!(output.stdout, b"late");
     }
 }
+
+#[test]
+fn selected_hard_link_retains_earlier_unselected_data() {
+    for data_first in [true, false] {
+        let dir = tempfile::tempdir().unwrap();
+        let entries = if data_first {
+            [link("outside", 3, b"payload"), link("selected", 3, b"")]
+        } else {
+            [link("selected", 3, b""), link("outside", 3, b"payload")]
+        };
+        let out = extract(dir.path(), &newc(&entries), &["--path", "selected"]);
+        assert!(out.status.success(), "{out:?}");
+        assert_eq!(
+            std::fs::read(dir.path().join("out/selected")).unwrap(),
+            b"payload"
+        );
+        assert!(!dir.path().join("out/outside").exists());
+    }
+}
+
+#[test]
+fn selected_hard_link_spools_stdin_and_resets_at_trailers() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let dir = tempfile::tempdir().unwrap();
+    let mut archive = newc(&[
+        link("outside", 7, b"payload"),
+        link("selected/a", 7, b""),
+        link("selected/b", 7, b""),
+    ]);
+    archive.extend(newc(&[link("selected/c", 7, b"")]));
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_hadris"))
+        .args(["cpio", "extract", "-", "--path", "selected", "-o"])
+        .arg(dir.path().join("out"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(&archive).unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let out = dir.path().join("out/selected");
+    assert_eq!(std::fs::read(out.join("a")).unwrap(), b"payload");
+    assert_eq!(
+        std::fs::metadata(out.join("a")).unwrap().ino(),
+        std::fs::metadata(out.join("b")).unwrap().ino()
+    );
+    assert_eq!(std::fs::read(out.join("c")).unwrap(), b"");
+}
+
+#[test]
+fn selected_hard_link_retains_latest_data_after_names_are_replaced() {
+    let dir = tempfile::tempdir().unwrap();
+    let archive = newc(&[
+        link("outside", 4, b"old"),
+        link("selected/a", 4, b""),
+        link("selected/b", 4, b"new"),
+        entry("selected/a", 0o100644, b"replacement"),
+        entry("selected/b", 0o100644, b"replacement"),
+        link("selected/c", 4, b""),
+    ]);
+    let out = extract(dir.path(), &archive, &["--path", "selected"]);
+    assert!(out.status.success(), "{out:?}");
+    assert_eq!(
+        std::fs::read(dir.path().join("out/selected/c")).unwrap(),
+        b"new"
+    );
+}

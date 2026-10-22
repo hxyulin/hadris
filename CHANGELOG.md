@@ -10,6 +10,12 @@ Each published package owns its version and may be released independently.
 
 ### Breaking
 
+- **hadris-fs:** Async `copy_tree` now takes `&Volume<F>` rather than
+  `&mut F` and requires pointer-sized atomics, so cancelled copies queue
+  their file closes and pin releases for the next volume operation.
+  Async FAT/exFAT tree writers consequently require pointer-sized atomics;
+  sync tree writers and raw formatting retain their existing target support.
+
 - **hadris-iso, hadris-udf, hadris-cpio:** The writers moved from `alloc`
   to a new default `write` feature, so `alloc` now only means a heap. In
   hadris-iso, `write` adds `plan`, `{sync, async_}::{write, Session}` and
@@ -90,6 +96,12 @@ Each published package owns its version and may be released independently.
   `sync` or `async` feature, and the unused `bytemuck` dependency is gone.
 
 ### Fixed
+
+- **hadris-cli:** Selected cpio hard links retain data from earlier
+  unselected entries, including stdin archives.
+- **hadris-fs:** Host tree extraction finalizes directory permissions and
+  times after deferred symlinks; `create_dir_all` follows the configured
+  symlink resolution policy.
 
 - **hadris-apfs:** Name comparison folds case and canonical decomposition as
   the volume's flags ask, following the default case algorithms of the

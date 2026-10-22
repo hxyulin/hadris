@@ -385,3 +385,39 @@ fn write_tree_refuses_names_that_leave_the_directory() {
 fn source_date_epoch_is_read_from_the_environment() {
     assert!(host::source_date_epoch().is_ok());
 }
+
+#[cfg(unix)]
+#[test]
+fn host_finalizes_directories_after_symlinks() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = Scratch::new("symlink-finalization");
+    let time = DateTime::from_unix_seconds(1_600_000_000).unwrap();
+    let mut tree = Tree::new();
+    tree.insert(
+        "dir",
+        Node::dir().with_attrs(
+            SetAttr::new()
+                .with_permissions(Permissions::new(0o555))
+                .with_modified(time),
+        ),
+    )
+    .unwrap();
+    tree.insert("dir/link", Node::symlink("target")).unwrap();
+    host::write_tree(&scratch.0, &tree).unwrap();
+    let dir = scratch.0.join("dir");
+    let meta = std::fs::metadata(&dir).unwrap();
+    assert_eq!(meta.permissions().mode() & 0o777, 0o555);
+    assert_eq!(
+        meta.modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+        1_600_000_000
+    );
+    assert_eq!(
+        std::fs::read_link(dir.join("link")).unwrap(),
+        PathBuf::from("target")
+    );
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+}

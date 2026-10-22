@@ -35,7 +35,7 @@
 //!
 //! | Feature | Default | Purpose |
 //! |---|---:|---|
-//! | `alloc` | via `std` | [`OwnedName`], [`PathError`], [`Tree`], [`Report`], `copy_tree` and `ContentReader` in each mode, and the async `Volume` with its `read_tree` |
+//! | `alloc` | via `std` | [`OwnedName`], [`PathError`], [`Tree`], [`Report`], sync `copy_tree`, `ContentReader` in each mode, and async `Volume`, `copy_tree` and `read_tree` with pointer-sized atomics |
 //! | `std` | Yes | Implies `alloc`; adds [`SystemClock`], [`Guid::random`], [`host`], the sync `Volume` with its `std::io` handles and `read_tree`, and conversions to `std::io::Error` |
 //! | `sync` | Yes | The blocking API in `sync` |
 //! | `async` | No | The asynchronous API in `async_` |

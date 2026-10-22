@@ -159,10 +159,15 @@ reader, not random access.
 
 | Tier | Entry point | Needs | Gives |
 |---|---|---|---|
-| Bare `FileSystem` | `FatFs::mount(dev, options)` | `alloc` for `FatFs`, `ExFatFs`; nothing for `IsoFs`, `UdfFs`, `NtfsFs` | Node API on `&mut self`, no lock; format extras, `Walk`, `copy_tree` |
-| `Volume` | `Volume::new(fs)` | sync: `std`; async: `alloc` | Path methods named after `std::fs`, `File` and `ReadDir` handles, cheap clones across threads and tasks |
+| Bare `FileSystem` | `FatFs::mount(dev, options)` | `alloc` for `FatFs`, `ExFatFs`; nothing for `IsoFs`, `UdfFs`, `NtfsFs` | Node API on `&mut self`, no lock; format extras, `Walk`, sync `copy_tree` |
+| `Volume` | `Volume::new(fs)` | sync: `std`; async: `alloc` and pointer-sized atomics | Async `copy_tree`; path methods named after `std::fs`, `File` and `ReadDir` handles, cheap clones across threads and tasks |
 | Embedded | `Fat::mount_with(dev, &mut token, options)` | nothing | FAT and exFAT handle API on the raw layer: fixed slots, 512-byte blocks, ASCII folding by default |
 | Host | `host::open(path)`, `host::mount_options()` | `std` | Host files as devices, host trees, the host clock and UTC offset |
+
+Async `copy_tree` uses `&Volume<F>` to defer cancellation cleanup; the sync
+variant takes a bare mutable filesystem. Async copying requires pointer-sized
+atomics, like `Volume`. Dropped copies leave partial contents and queue closes
+and pin releases for the next volume operation.
 
 Drivers own their device, take `&mut self` and hold no lock. `Volume<F>` adds
 exactly one lock, held for one call. Each tier adds only its own cost.

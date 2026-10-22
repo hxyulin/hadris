@@ -749,6 +749,7 @@ pub fn write_tree(dir: impl AsRef<Path>, tree: &Tree) -> Result<Report, PathErro
         symlinks: Vec::new(),
         buf: alloc::vec![0u8; 64 * 1024],
     };
+    let mut directories = Vec::new();
     let root = tree.root();
     type Frame<'t> = (
         Vec<(&'t crate::Name, TreeEntry<'t>)>,
@@ -767,9 +768,7 @@ pub fn write_tree(dir: impl AsRef<Path>, tree: &Tree) -> Result<Report, PathErro
     while let Some((children, next, host_dir, prefix, _)) = stack.last_mut() {
         let Some(&(name, entry)) = children.get(*next) else {
             if let Some((_, _, host, path, Some(attrs))) = stack.pop() {
-                writer
-                    .finish_dir(&attrs, &host)
-                    .map_err(|err| err.with_path(&path))?;
+                directories.push((attrs, host, path));
             }
             continue;
         };
@@ -830,6 +829,11 @@ pub fn write_tree(dir: impl AsRef<Path>, tree: &Tree) -> Result<Report, PathErro
         }
     }
     writer.symlinks()?;
+    for (attrs, host, path) in directories {
+        writer
+            .finish_dir(&attrs, &host)
+            .map_err(|err| err.with_path(&path))?;
+    }
     for (field, count) in [Field::Created, Field::Owner, Field::Attributes]
         .into_iter()
         .zip(writer.dropped)

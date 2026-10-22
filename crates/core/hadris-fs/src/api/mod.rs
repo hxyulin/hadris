@@ -7,15 +7,15 @@ use crate::{
 #[doc(hidden)]
 pub mod contract;
 #[cfg(feature = "alloc")]
-mod copy;
+sync_only! { mod copy; pub use copy::copy_tree; }
+#[cfg(all(feature = "alloc", target_has_atomic = "ptr"))]
+async_only! { #[path = "copy_async.rs"] mod copy; pub use copy::copy_tree; }
 mod filesystem;
 mod paths;
 #[cfg(feature = "alloc")]
 mod tree;
 mod walk;
 
-#[cfg(feature = "alloc")]
-pub use copy::copy_tree;
 pub use filesystem::FileSystem;
 #[cfg(feature = "alloc")]
 pub use tree::ContentReader;
