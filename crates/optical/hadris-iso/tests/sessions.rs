@@ -952,3 +952,111 @@ fn independent_files_sharing_extents_keep_their_identity() {
     assert_eq!(report.extents("file"), report.extents("independent"));
     check_identity_tree(Session::open(session.into_inner()).unwrap().tree());
 }
+
+fn catalog_tree() -> hadris_fs::Tree {
+    let mut tree = hadris_fs::Tree::new();
+    tree.insert("BOOT.IMG", Node::file(Content::bytes(vec![0x90; 2048])))
+        .unwrap();
+    tree
+}
+
+fn boot_options(count: usize) -> IsoOptions {
+    let mut boot = ElTorito::new();
+    for _ in 0..count {
+        boot = boot.with_entry(BootEntry::bios("BOOT.IMG"));
+    }
+    IsoOptions::new().with_el_torito(boot)
+}
+
+fn check_boot_entries(dev: MemDevice<Vec<u8>>, count: usize, block: u32, value: u8, len: usize) {
+    let mut iso = IsoFs::mount(dev, MountOptions::new()).unwrap();
+    let mut bytes = vec![0; 64 * 1024];
+    let catalog = iso.boot_catalog(&mut bytes).unwrap().unwrap();
+    let entries: Vec<_> = catalog.entries().collect();
+    assert_eq!(entries.len(), count);
+    for entry in entries {
+        assert_eq!(entry.load_block(), block);
+        assert_eq!(usize::from(entry.sector_count()), len.div_ceil(512));
+    }
+    assert_eq!(iso.read_to_vec("/BOOT.IMG").unwrap(), vec![value; len]);
+}
+
+#[test]
+fn new_and_large_catalogs_follow_successive_boot_image_replacements() {
+    for mode in [SessionMode::Append, SessionMode::Rewrite] {
+        for count in [1, 260] {
+            let initial = if count == 1 {
+                IsoOptions::new()
+            } else {
+                boot_options(count)
+            };
+            let mut session =
+                Session::open(grown(grown(grown(image(&catalog_tree(), &initial))))).unwrap();
+            if count == 1 {
+                session.write(&boot_options(count), mode).unwrap();
+            }
+            let mut block = 0;
+            for (value, len) in [(0xA5, 4096), (0x5A, 1536)] {
+                session
+                    .tree_mut()
+                    .replace("BOOT.IMG", Node::file(Content::bytes(vec![value; len])))
+                    .unwrap();
+                let report = session.write(&session.options(), mode).unwrap();
+                block = (report.extents("BOOT.IMG").unwrap()[0].offset() / 2048) as u32;
+            }
+            check_boot_entries(session.into_inner(), count, block, 0x5A, 1536);
+        }
+    }
+}
+
+#[cfg(feature = "async")]
+#[test]
+fn async_new_and_large_catalogs_follow_successive_boot_image_replacements() {
+    common::block_on(async {
+        for mode in [SessionMode::Append, SessionMode::Rewrite] {
+            for count in [1, 260] {
+                let initial = if count == 1 {
+                    IsoOptions::new()
+                } else {
+                    boot_options(count)
+                };
+                let mut session = hadris_iso::async_::Session::open(grown(grown(grown(image(
+                    &catalog_tree(),
+                    &initial,
+                )))))
+                .await
+                .unwrap();
+                if count == 1 {
+                    session.write(&boot_options(count), mode).await.unwrap();
+                }
+                let mut block = 0;
+                for (value, len) in [(0xA5, 4096), (0x5A, 1536)] {
+                    session
+                        .tree_mut()
+                        .replace("BOOT.IMG", Node::file(Content::bytes(vec![value; len])))
+                        .unwrap();
+                    let report = session.write(&session.options(), mode).await.unwrap();
+                    block = (report.extents("BOOT.IMG").unwrap()[0].offset() / 2048) as u32;
+                }
+                check_boot_entries(session.into_inner(), count, block, 0x5A, 1536);
+            }
+        }
+    });
+}
+
+#[test]
+fn sessions_reject_catalogs_beyond_the_parser_limit() {
+    let dev = image(&catalog_tree(), &boot_options(600));
+    let err = Session::open(dev).unwrap_err();
+    assert_eq!(err.kind(), hadris_fs::ErrorKind::Corrupt);
+}
+
+#[cfg(feature = "async")]
+#[test]
+fn async_sessions_reject_catalogs_beyond_the_parser_limit() {
+    let dev = image(&catalog_tree(), &boot_options(600));
+    common::block_on(async {
+        let err = hadris_iso::async_::Session::open(dev).await.unwrap_err();
+        assert_eq!(err.kind(), hadris_fs::ErrorKind::Corrupt);
+    });
+}

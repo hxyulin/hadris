@@ -97,6 +97,10 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-iso:** Sessions retain newly written El Torito catalogs across
+  successive writes and update every boot entry in catalogs larger than 16 KiB.
+  Malformed catalogs beyond the reader limit now fail instead of being truncated.
+
 - **hadris-iso:** Editing sessions preserve hard links for empty files,
   symlinks and special nodes, and accept long Rock Ridge symlink targets
   supported by the reader and writer.

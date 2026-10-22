@@ -28,8 +28,6 @@ const SECTOR: u64 = SECTOR_SIZE as u64;
 /// The system area, the backup GPT region after the data, and the first
 /// sectors of partitions that kept their size.
 type Tables512 = (Vec<u8>, Option<Vec<u8>>, Vec<u64>);
-/// Sectors of a kept boot catalog read to patch its entries.
-const CATALOG_SECTORS: u64 = 8;
 /// The deepest directory a session reads, as `hadris_fs` tree walks allow.
 const MAX_DEPTH: usize = 1024;
 
@@ -462,7 +460,7 @@ impl<D: BlockDevice> Session<D> {
     /// gets one too, with the 40 reserved bytes when the old table had them
     /// zeroed; an image shorter than 64 bytes then fails with
     /// [`Detail::BootInfoTable`]. With El Torito in `opts`, a new catalog is
-    /// written.
+    /// written and kept by subsequent writes without El Torito in `opts`.
     ///
     /// New data goes after the old volume and after every partition of
     /// the image's partition table, so partitions appended after the ISO
@@ -602,16 +600,9 @@ impl<D: BlockDevice> Session<D> {
         }
         emit(&mut self.dev, &self.tree, &plan).await?;
         self.volume_blocks = plan.total_blocks;
-        if keep_catalog.is_none() {
-            self.catalog = None;
-            self.boot.clear();
-        }
-        for boot in &mut self.boot {
-            if let Some(extent) = span(&plan.report, &boot.path) {
-                boot.len = extent.len();
-            }
-        }
         self.store_new_files(&plan.report, &contents)?;
+        self.catalog = plan.catalog;
+        self.map_boot_images().await?;
         Ok(plan.report)
     }
 
@@ -739,9 +730,27 @@ impl<D: BlockDevice> Session<D> {
     async fn read_catalog(&mut self, block: u32) -> Result<Vec<u8>, Error<D::Error>> {
         let len = self.dev.block_count().saturating_mul(u64::from(self.dev.block_size().get()));
         let offset = u64::from(block) * SECTOR;
-        let size = (CATALOG_SECTORS * SECTOR).min(len.saturating_sub(offset));
-        let mut bytes = vec![0u8; size as usize];
-        super::image::read_bytes(&mut self.dev, len, offset, &mut bytes).await?;
+        use crate::boot::{CatalogParser, Step};
+
+        let mut parser = CatalogParser::new();
+        let mut bytes = Vec::new();
+        let mut end = 0;
+        while !parser.is_done() {
+            if end / 32 > CatalogParser::MAX_ENTRIES + 1 {
+                return Err(Detail::BootCatalog.corrupt());
+            }
+            if end == bytes.len() {
+                let start = bytes.len();
+                bytes.resize(start + SECTOR_SIZE, 0);
+                super::image::read_bytes(&mut self.dev, len, offset + start as u64, &mut bytes[start..]).await?;
+            }
+            let mut chunk = [0u8; 32];
+            chunk.copy_from_slice(&bytes[end..end + 32]);
+            match parser.feed(&chunk).map_err(|()| Detail::BootCatalog.corrupt())? {
+                Step::Done => break,
+                Step::Entry(_) | Step::More => end += 32,
+            }
+        }
         Ok(bytes)
     }
 
@@ -1030,33 +1039,18 @@ fn info_table_of(head: &[u8; 64], rba: u32, len: u64) -> BootInfo {
 /// The byte offset and load block of each boot entry in the El Torito
 /// catalog `bytes`: the default entry and the entries of each section.
 fn catalog_entries(bytes: &[u8]) -> Vec<(usize, u32)> {
-    let rba = |at: usize| {
-        u32::from_le_bytes([bytes[at + 8], bytes[at + 9], bytes[at + 10], bytes[at + 11]])
-    };
+    use crate::boot::{CatalogParser, Step};
+
+    let mut parser = CatalogParser::new();
     let mut out = Vec::new();
-    if bytes.len() < 64 || bytes[0] != 1 {
-        return out;
-    }
-    out.push((32, rba(32)));
-    let mut pos = 64;
-    while let Some(&kind) = bytes.get(pos) {
-        if kind != raw::HEADER_MORE && kind != raw::HEADER_FINAL || pos + 32 > bytes.len() {
+    for (index, chunk) in bytes.chunks_exact(32).enumerate() {
+        if parser.is_done() {
             break;
         }
-        let count = u16::from_le_bytes([bytes[pos + 2], bytes[pos + 3]]);
-        pos += 32;
-        for _ in 0..count {
-            if pos + 32 > bytes.len() {
-                return out;
-            }
-            out.push((pos, rba(pos)));
-            pos += 32;
-            while bytes.get(pos) == Some(&0x44) {
-                pos += 32;
-            }
-        }
-        if kind == raw::HEADER_FINAL {
-            break;
+        match parser.feed(chunk.try_into().unwrap()) {
+            Ok(Step::Entry(entry)) => out.push((index * 32, entry.load_block())),
+            Ok(Step::More) => {}
+            Ok(Step::Done) | Err(()) => break,
         }
     }
     out
