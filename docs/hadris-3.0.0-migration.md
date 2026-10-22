@@ -66,7 +66,7 @@ Choose the next section according to the application:
 | Kernel or bootloader with an allocator | `alloc`, `sync` or `async`, and the format feature | Implement `BlockDevice`; use the bare `FileSystem` driver |
 | Allocation-free ISO/UDF reader | `sync` or `async`, and `iso` or `udf` | Supply a device; resolve and read nodes directly |
 | Allocation-free FAT firmware | `sync` or `async`, and `fat` | Use `fat::embedded` with a 512-byte device and `MountToken` |
-| Image builder | `write`, a mode, and format features (`bridge` for the hadris-udf bridge writer) | Build a `Tree`, then call the format's writer |
+| Image builder | `write`, a mode, and format features (`hadris` includes the UDF bridge through `write`; direct `hadris-udf` users enable `bridge`) | Build a `Tree`, then call the format's writer |
 | CPIO on a pipe | `sync` or `async`, and `cpio`; `write` for writing | Keep byte streams; use `CpioReader` or `Writer` |
 
 Versioning:
@@ -154,7 +154,7 @@ is available through separate dependencies:
 ```toml
 [dependencies]
 hadris-fat = { version = "3.0.0-rc.2" }
-hadris-fs = { version = "3.0.0-rc.2" }
+hadris-fs = { version = "3.0.0-rc.3" }
 hadris-storage = { version = "3.0.0-rc.2" }
 ```
 

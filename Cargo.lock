@@ -581,7 +581,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-fs"
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 dependencies = [
  "async-lock",
  "bitflags 2.13.2",

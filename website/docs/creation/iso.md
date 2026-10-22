@@ -20,7 +20,7 @@ features = ["std", "sync", "write", "iso"]
 ```
 
 The writer, `plan` and `Session` are behind the `write` feature, which is on
-by default and implies `alloc`. Without `std`, `write` alone is enough.
+by default and implies `alloc`. Without `std`, enable `write` together with the required `sync` or `async` I/O mode.
 
 ## Create a basic image
 

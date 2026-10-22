@@ -14,6 +14,7 @@ pub use read::{CpioReader, Entry};
 #[path = "write.rs"]
 mod write;
 #[cfg(feature = "write")]
+#[cfg_attr(docsrs, doc(cfg(feature = "write")))]
 pub use write::{EntryWriter, Writer, write};
 #[cfg(feature = "alloc")]
 #[path = "read_tree.rs"]

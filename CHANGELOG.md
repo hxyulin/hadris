@@ -24,7 +24,8 @@ Each published package owns its version and may be released independently.
   bridge writer.
 - **hadris:** `write` now enables the ISO 9660, UDF (with the bridge) and
   cpio writers of the enabled formats as well as FAT formatting.
-- **hadris-fs:** `FuseOnError` is removed.
+- **hadris-fs:** `FuseOnError` is removed; the crate advances to
+  `3.0.0-rc.3` for this intentional API break.
 
 ### Added
 
