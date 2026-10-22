@@ -99,14 +99,14 @@ pub const OMAP_VAL_DELETED: u32 = 1;
 
 /// In-memory snapshot of an object map, resolving virtual object identifiers
 /// to the newest mapping that does not exceed a transaction identifier.
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct VirtualObjectMap {
     entries: alloc::collections::BTreeMap<u64, (u64, ObjectMapValue)>,
 }
 
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 impl VirtualObjectMap {
     /// Builds a map from object-map leaf entries, ignoring mappings newer than `max_xid`.
     pub fn new(values: &[(ObjectMapKey, ObjectMapValue)], max_xid: u64) -> Self {

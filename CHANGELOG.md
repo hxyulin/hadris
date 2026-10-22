@@ -20,6 +20,9 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fs:** `async-lock` is now only a dependency of `async` builds on
+  targets with pointer-sized atomics, so sync-only `alloc` builds no longer
+  compile it or `event-listener`.
 - **hadris-apfs:** Directory, inode, extent and size queries descend the
   filesystem tree by key, and object-map lookups (`object_map_lookup`,
   `volume_superblocks`, `resolve_volume_object`) descend the object map the

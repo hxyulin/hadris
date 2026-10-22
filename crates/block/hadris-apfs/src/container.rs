@@ -4,16 +4,16 @@ io_transform! {
 use crate::read::ContainerInfo;
 use crate::types::checksum::verify_object;
 use crate::types::container::ContainerSuperblock;
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 use crate::types::container::{CheckpointMapBlock, CheckpointMapping};
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 use crate::types::filesystem::{SYMLINK_XATTR_NAME, XATTR_DATA_EMBEDDED, stream_size};
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 use crate::types::object_map::{
     BTREE_HASHED, BTREE_PHYSICAL, OMAP_VAL_DELETED, OMAP_VAL_ENCRYPTED, OMAP_VAL_NOHEADER, ObjectMapBlock,
     VirtualObjectMap,
 };
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 use crate::types::{
     FileExtentRecord, FileSystemKey, InodeRecord, ObjectMapKey, ObjectMapValue, OwnedBTreeNode,
     OwnedDirectoryEntryRecord, OwnedEntry, VolumeSuperblock, XattrRecord,
@@ -361,7 +361,7 @@ where
     }
 
     /// Reads an APFS container block into an owned buffer.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn read_apfs_block_vec(&mut self, block: u64) -> hadris_fs::FsResult<alloc::vec::Vec<u8>, D::Error> {
         let mut buffer = alloc::vec![0_u8; self.info.superblock.block_size as usize];
         self.read_apfs_block(block, &mut buffer).await?;
@@ -371,7 +371,7 @@ where
     /// Scans every block of the checkpoint descriptor area for valid
     /// container superblocks, newest first. Blocks whose header, checksum or
     /// fields do not parse are skipped, as the mount procedure requires.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn superblocks_sorted(
         &mut self,
     ) -> hadris_fs::FsResult<alloc::vec::Vec<ContainerSuperblock>, D::Error> {
@@ -427,7 +427,7 @@ where
     /// its block size and fit the device. Device errors are returned
     /// immediately. When no candidate verifies, the newest candidate's error,
     /// or block zero's checksum error, is returned.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn latest_superblock(&mut self) -> hadris_fs::FsResult<ContainerSuperblock, D::Error> {
         let zero = self.info.superblock.clone();
         let device_blocks = self.device.block_count() / u64::from(zero.block_size / self.device_block_size);
@@ -467,7 +467,7 @@ where
         }))
     }
 
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     async fn verify_checkpoint(&mut self, checkpoint: &ContainerSuperblock) -> hadris_fs::FsResult<(), D::Error> {
         let previous = core::mem::replace(&mut self.info.superblock.block_count, checkpoint.block_count);
         let mut result = self.checkpoint_map_blocks(checkpoint).await.map(drop);
@@ -479,7 +479,7 @@ where
     }
 
     /// Reads checkpoint map blocks referenced by a superblock.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn checkpoint_map_blocks(
         &mut self,
         superblock: &ContainerSuperblock,
@@ -528,7 +528,7 @@ where
     }
 
     /// Returns flattened checkpoint mappings for a superblock.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn checkpoint_mappings(
         &mut self,
         superblock: &ContainerSuperblock,
@@ -541,7 +541,7 @@ where
     }
 
     /// Finds the checkpoint mapping for an ephemeral object identifier.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn find_ephemeral_object_mapping(
         &mut self,
         superblock: &ContainerSuperblock,
@@ -555,7 +555,7 @@ where
     }
 
     /// Reads the container object map block referenced by a superblock.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn object_map(
         &mut self,
         superblock: &ContainerSuperblock,
@@ -584,7 +584,7 @@ where
     }
 
     /// Reads the owned root node of the container object-map B-tree.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn object_map_owned_root_node(
         &mut self,
         superblock: &ContainerSuperblock,
@@ -595,7 +595,7 @@ where
     }
 
     /// Walks the object-map B-tree and returns parsed leaf values.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn object_map_values(
         &mut self,
         superblock: &ContainerSuperblock,
@@ -605,7 +605,7 @@ where
     }
 
     /// Resolves volume OIDs by walking the object-map B-tree.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn volume_object_map_values(
         &mut self,
         superblock: &ContainerSuperblock,
@@ -621,7 +621,7 @@ where
     }
 
     /// Reads each live volume superblock as of the container superblock's transaction.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn volume_superblocks(
         &mut self,
         superblock: &ContainerSuperblock,
@@ -651,7 +651,7 @@ where
     /// snapshots), and resolving unconditionally to the newest one can return
     /// an object from a later filesystem state than the one being read.
     /// Deleted mappings return `None` without falling back to older versions.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn object_map_lookup(
         &mut self,
@@ -667,7 +667,7 @@ where
 
     /// Resolves a virtual object identifier through a volume object map,
     /// bounded to the volume superblock's own transaction identifier.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn resolve_volume_object(
         &mut self,
         volume: &VolumeSuperblock,
@@ -679,7 +679,7 @@ where
     }
 
     /// Reads an object map block at a physical APFS block address.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn object_map_at(&mut self, physical_block: u64) -> hadris_fs::FsResult<ObjectMapBlock, D::Error> {
         let data = self.read_apfs_block_vec(physical_block).await?;
         verify_object(&data)?;
@@ -687,7 +687,7 @@ where
     }
 
     /// Reads the container's space manager summary (free/used block counts).
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn space_manager_summary(
         &mut self,
         superblock: &ContainerSuperblock,
@@ -699,7 +699,7 @@ where
     /// Reads the raw bytes of the container's space manager block, resolving
     /// the ephemeral object mapping when the OID isn't a direct physical
     /// block address.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     async fn space_manager_block_data(
         &mut self,
         superblock: &ContainerSuperblock,
@@ -729,7 +729,7 @@ where
     /// parsed `chunk_info_t` entries. Only supports the common case where
     /// chunk info addresses are stored inline (no `chunk_info_address_block_t`
     /// indirection).
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn space_manager_chunk_infos(
         &mut self,
         superblock: &ContainerSuperblock,
@@ -746,7 +746,7 @@ where
         Ok(entries)
     }
 
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     async fn object_map_values_for(
         &mut self,
         object_map: ObjectMapBlock,
@@ -853,7 +853,7 @@ where
 
     /// Walks a B-tree whose child links are physical block addresses and
     /// returns owned leaf entries in traversal order.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn btree_leaf_entries(
         &mut self,
@@ -862,7 +862,7 @@ where
         self.walk_btree(root_physical_block, 0, 0, None, None).await
     }
 
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     async fn walk_btree(
         &mut self,
         root_physical_block: u64,
@@ -900,7 +900,7 @@ where
     /// Reads the child an index entry's value points at, resolving virtual
     /// children through `virtual_map`, and checks it sits one level below
     /// `parent` and has not been visited before.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     #[allow(clippy::too_many_arguments)]
     async fn btree_child(
         &mut self,
@@ -1095,7 +1095,7 @@ where
     }
 
     /// Loads a volume's object map, bounded to the volume's transaction identifier.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn volume_object_map(
         &mut self,
         volume: &VolumeSuperblock,
@@ -1109,7 +1109,7 @@ where
     }
 
     /// Returns owned raw key/value entries from the volume filesystem root tree.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn filesystem_root_owned_entries(
         &mut self,
         volume: &VolumeSuperblock,
@@ -1133,7 +1133,7 @@ where
     }
 
     /// Lists owned entries for a directory inode.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn directory_owned_entries(
         &mut self,
         volume: &VolumeSuperblock,
@@ -1151,7 +1151,7 @@ where
     }
 
     /// Finds an owned entry by name in a directory inode.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn directory_owned_entry(
         &mut self,
         volume: &VolumeSuperblock,
@@ -1171,7 +1171,7 @@ where
     /// directory for intermediate components and trailing slashes.
     /// The volume root is returned with name `/` and inode 2.
     /// Symlinks are returned as entries rather than followed.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn resolve_path(
         &mut self,
@@ -1218,7 +1218,7 @@ where
     }
 
     /// Lists owned entries in a volume's root directory when the filesystem root tree is a leaf/root node.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn root_directory_owned_entries(
         &mut self,
         volume: &VolumeSuperblock,
@@ -1228,7 +1228,7 @@ where
     }
 
     /// Finds an owned root-directory entry by name.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn root_directory_owned_entry(
         &mut self,
         volume: &VolumeSuperblock,
@@ -1239,7 +1239,7 @@ where
     }
 
     /// Finds an inode record by inode identifier in the root filesystem tree.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn inode_record(
         &mut self,
         volume: &VolumeSuperblock,
@@ -1256,7 +1256,7 @@ where
 
     /// Finds file extents for an inode/private data-stream identifier in the
     /// root filesystem tree and, on sealed volumes, the file extent tree.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn file_extents(
         &mut self,
         volume: &VolumeSuperblock,
@@ -1276,7 +1276,7 @@ where
 
     /// Returns every extent in a sealed volume's file extent tree, or none
     /// when the volume is not sealed or has no such tree.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn sealed_file_extents(
         &mut self,
         volume: &VolumeSuperblock,
@@ -1292,7 +1292,7 @@ where
     }
 
     /// Returns the effective file size; see [`stream_size`].
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn file_size(&mut self, volume: &VolumeSuperblock, inode: u64) -> hadris_fs::FsResult<u64, D::Error> {
         let inode = self
             .inode_record(volume, inode)
@@ -1306,7 +1306,7 @@ where
     /// one buffer, or fails if that much memory cannot be reserved. Holes read
     /// as zeros. Use [`Self::read_extents_at`] to stream large files. Compressed files
     /// return [`hadris_fs::ErrorKind::Unsupported`].
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn read_file(
         &mut self,
@@ -1341,7 +1341,7 @@ where
     /// zeros. Returns the bytes read, which is zero at or past `size`.
     /// Encrypted extents require the volume-scoped
     /// [`Self::read_volume_extents_at`] API, even when a volume is unlocked.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn read_extents_at(
         &mut self,
         extents: &[FileExtentRecord],
@@ -1359,7 +1359,7 @@ where
     /// address, and must not overlap. Holes and EOF behave as
     /// in [`Self::read_extents_at`]. The caller's buffer is unchanged on a
     /// credential or extent preflight failure.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(offset = offset, bytes = buf.len())))]
     pub async fn read_volume_extents_at(
         &mut self,
@@ -1384,7 +1384,7 @@ where
         self.read_extents_inner(extents, size, offset, buf, true).await
     }
 
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     async fn read_extents_inner(
         &mut self,
         extents: &[FileExtentRecord],
@@ -1403,7 +1403,7 @@ where
     /// Checks the extents a read is about to use: their logical range must not
     /// overflow, an encrypted one needs this volume's key, and a stored one
     /// must lie inside the container.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     fn check_extents(
         &self,
         extents: &[FileExtentRecord],
@@ -1435,7 +1435,7 @@ where
     /// overlaps. Only the extents that overlap the range are read, whole
     /// blocks at a time. Sparse extents and uncovered ranges read as zeros,
     /// and the returned count is zero at or past `size`.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub(crate) async fn read_checked_extents_at(
         &mut self,
         extents: &[FileExtentRecord],
@@ -1478,7 +1478,7 @@ where
     /// Reads `[pos, stop)` of one unencrypted extent, whole blocks at a time
     /// and straight into `buf` when the range starts block-aligned. `scratch`
     /// holds partial blocks and is allocated on first use.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     async fn read_extent_range(
         &mut self,
         extent: &FileExtentRecord,
@@ -1518,7 +1518,7 @@ where
 
     /// Reads `[pos, stop)` of one encrypted extent, decrypting each block with
     /// the tweak its position implies.
-    #[cfg(all(any(feature = "alloc", feature = "std"), feature = "encryption"))]
+    #[cfg(all(feature = "alloc", feature = "encryption"))]
     async fn read_encrypted_extent_range(
         &mut self,
         extent: &FileExtentRecord,
@@ -1552,7 +1552,7 @@ where
 
     /// Returns a symlink's target from its `com.apple.fs.symlink` attribute,
     /// or `None` when the inode has no such attribute.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn symlink_target(
         &mut self,
         volume: &VolumeSuperblock,
@@ -1580,7 +1580,7 @@ where
     }
 
     /// Reads an owned B-tree node at a physical APFS block address.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn read_btree_node(&mut self, physical_block: u64) -> hadris_fs::FsResult<OwnedBTreeNode, D::Error> {
         let data = self.read_apfs_block_vec(physical_block).await?;
         verify_object(&data)?;
@@ -1590,7 +1590,7 @@ where
     /// Reads an owned B-tree node using the flags of the object-map entry that
     /// located it. Encrypted nodes are rejected; nodes mapped without an object
     /// header skip the checksum and object-type checks.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn read_btree_node_with_flags(
         &mut self,
         physical_block: u64,
@@ -1605,7 +1605,7 @@ where
     /// Reads a mapped B-tree node belonging to an explicitly identified volume.
     /// Encrypted nodes require that volume's key; mappings must come from its
     /// object map. Checksums and structural validation follow decryption.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub async fn read_volume_btree_node_with_flags(
         &mut self,
         volume: &VolumeSuperblock,
@@ -1627,7 +1627,7 @@ where
         self.read_scoped_btree_node(physical_block, omap_flags).await
     }
 
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     async fn read_scoped_btree_node(
         &mut self,
         physical_block: u64,
@@ -1652,7 +1652,7 @@ where
         Self::parse_btree_data(data, omap_flags)
     }
 
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     fn parse_btree_data(data: alloc::vec::Vec<u8>, omap_flags: u32) -> hadris_fs::FsResult<OwnedBTreeNode, D::Error> {
         if omap_flags & OMAP_VAL_NOHEADER != 0 {
             return Ok(OwnedBTreeNode::parse_headerless(data)?);
@@ -1661,7 +1661,7 @@ where
         Ok(OwnedBTreeNode::parse(data)?)
     }
 
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     fn has_volume_key(&self) -> bool {
         #[cfg(feature = "encryption")]
         { self.unlocked.is_some() }

@@ -65,7 +65,7 @@ pub struct FixedEntry<'a> {
 }
 
 /// Owned B-tree key/value entry independent of the backing block lifetime.
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct OwnedEntry {
@@ -76,7 +76,7 @@ pub struct OwnedEntry {
 }
 
 /// Owned B-tree node block.
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct OwnedBTreeNode {
@@ -84,7 +84,7 @@ pub struct OwnedBTreeNode {
     headerless: bool,
 }
 
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 impl OwnedBTreeNode {
     /// Creates an owned node from a full APFS block and validates it parses as a B-tree node.
     pub fn parse(data: alloc::vec::Vec<u8>) -> crate::Result<Self> {
@@ -238,7 +238,7 @@ impl<'a> BTreeNode<'a> {
     }
 
     /// Iterates fixed-size entries using the supplied root tree info.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub fn fixed_entries(&self, info: BTreeInfo) -> crate::Result<alloc::vec::Vec<FixedEntry<'a>>> {
         if !self.has_fixed_kv() || info.fixed.key_size == 0 || info.fixed.value_size == 0 {
             return Err(crate::ApfsError::InvalidValue(
@@ -301,7 +301,7 @@ impl<'a> BTreeNode<'a> {
     }
 
     /// Iterates variable-size entries from this node.
-    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg(feature = "alloc")]
     pub fn variable_entries(&self) -> crate::Result<alloc::vec::Vec<FixedEntry<'a>>> {
         let toc_start = self.table_offset as usize;
         let toc_end = toc_start
@@ -353,7 +353,7 @@ impl<'a> BTreeNode<'a> {
     }
 }
 
-#[cfg(all(test, any(feature = "alloc", feature = "std")))]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
 

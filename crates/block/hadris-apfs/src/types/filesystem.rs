@@ -1,11 +1,11 @@
 //! APFS filesystem-tree record parsing.
 
 use crate::types::le_u64;
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 use alloc::borrow::Cow;
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 use icu_casemap::CaseMapperBorrowed;
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 use icu_normalizer::DecomposingNormalizerBorrowed;
 
 /// Root directory inode number.
@@ -121,7 +121,7 @@ impl<'a> DirectoryEntryRecord<'a> {
 }
 
 /// Owned parsed directory entry record.
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct OwnedDirectoryEntryRecord {
@@ -135,7 +135,7 @@ pub struct OwnedDirectoryEntryRecord {
     pub name: alloc::string::String,
 }
 
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 impl OwnedDirectoryEntryRecord {
     /// Parses a directory entry key/value pair stored in `layout` into an
     /// owned record. Names that are not UTF-8 fail with
@@ -404,14 +404,14 @@ impl<'a> XattrRecord<'a> {
 /// decomposition of Unicode Standard section 3.13, "Default Case
 /// Algorithms". Apple's own tables differ from the standard for a few
 /// ranges, so names that differ only there may still not match.
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NameComparison {
     case_insensitive: bool,
     normalization_insensitive: bool,
 }
 
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 impl NameComparison {
     /// Comparison for a volume whose incompatible features set
     /// `case_insensitive` and `normalization_insensitive`.
@@ -456,19 +456,19 @@ impl NameComparison {
 }
 
 /// Returns `text` with Unicode default case folding applied.
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 fn fold(text: &str) -> Cow<'_, str> {
     CaseMapperBorrowed::new().fold_string(text)
 }
 
 /// Returns `text` in Unicode Normalization Form D (canonical decomposition).
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 fn decompose(text: &str) -> Cow<'_, str> {
     DecomposingNormalizerBorrowed::new_nfd().normalize(text)
 }
 
 /// Parses directory entries stored in `layout` from filesystem-tree leaf entries.
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 pub fn parse_directory_entries<'a>(
     entries: impl IntoIterator<Item = crate::types::FixedEntry<'a>>,
     parent_id: u64,
@@ -483,7 +483,7 @@ pub fn parse_directory_entries<'a>(
 
 /// Parses owned directory entries stored in `layout` from filesystem-tree
 /// leaf entries.
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "alloc")]
 pub fn parse_owned_directory_entries(
     entries: impl IntoIterator<Item = crate::types::OwnedEntry>,
     parent_id: u64,
@@ -496,7 +496,7 @@ pub fn parse_owned_directory_entries(
         .collect()
 }
 
-#[cfg(all(test, any(feature = "alloc", feature = "std")))]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
 
