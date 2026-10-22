@@ -155,6 +155,7 @@ impl Region {
 /// The layout of an image.
 #[derive(Debug)]
 pub(crate) struct Plan {
+    pub(crate) catalog: Option<u32>,
     pub(crate) regions: Vec<Region>,
     /// The block after the ISO data, where a backup GPT region starts.
     pub(crate) end_blocks: u64,

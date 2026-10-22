@@ -154,6 +154,7 @@ impl Planner<'_> {
         regions.sort_by_key(Region::block);
         let report = self.report(total);
         Ok(Plan {
+            catalog: catalog_block,
             regions,
             end_blocks: end,
             total_blocks: total,
