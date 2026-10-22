@@ -140,7 +140,8 @@ device.
 Writes go to the device at once, except the size and modification time of
 a pinned file, which stay in the node table so every handle sees one size
 until `close`, `fsync` or `sync` writes them; closing a `File` handle
-calls `close`, which flushes preceding data before publishing metadata but
+calls `close`, which in the default Ordered mode flushes preceding data
+before publishing metadata but
 does not flush that final metadata write. `File::sync_all` calls `fsync`,
 which makes both durable. `sync` also writes the FAT32 FSInfo free count and
 flushes the device. Both hosted and embedded FAT16/32 drivers clear and
@@ -160,10 +161,29 @@ FAT and exFAT flush dependencies before publishing directory entries or
 file sizes, linking earlier FAT blocks to newly allocated runs, and freeing
 clusters after removing their references. exFAT also flushes between blocks
 of a directory entry set, publishing its primary entry last and removing it
-first. These barriers apply in sync and async modes, including embedded FAT,
+first. These barriers apply by default in sync and async modes, including
+embedded FAT,
 and add flush latency to metadata operations. A failed barrier stops the
 dependent write; a cancelled or failed exFAT dirty-marker flush is retried.
 Devices and intervening caches must honor `BlockDevice::flush`.
+
+For disposable images built in bulk, opt into `Durability::Buffered`:
+
+```rust
+use hadris_fs::{Durability, MountOptions};
+
+let options = MountOptions::new().with_durability(Durability::Buffered);
+assert_eq!(options.durability(), Durability::Buffered);
+```
+
+Pass these options to `FatFs::mount` or `ExFatFs::mount`. Embedded FAT has
+the same setter on `hadris_fat::embedded::Options`, passed to `Fat::mount_with`.
+The default is `Durability::Ordered`. Buffered mode skips dependency barriers,
+but retains dirty-marker ordering, allocation ownership validation, and all
+explicit `fsync`, `sync`, embedded file `flush`, and unmount flushes. It does
+not disable device flushes. A crash before or during synchronization can
+leave filesystem corruption, not merely lose recent writes. Publish a buffered
+image only after successful synchronization; `close` alone is not sufficient.
 
 These are persistence ordering guarantees, not atomic multi-block updates.
 Logical and physical block sizes do not promise power-fail atomicity.
