@@ -235,7 +235,8 @@ bad option gives `ErrorKind::InvalidInput` before anything is written.
 With `alloc`, `write(dev, &tree, &options)` formats and copies a
 `hadris_fs::Tree` into the volume with `copy_tree`, giving nodes without
 times the options' time, and returns a `hadris_fs::Report` with the volume
-size and what FAT could not store.
+size and what FAT could not store. The async tree writer requires pointer-sized
+atomics for the volume that tracks cancellation cleanup; raw `format` does not.
 
 ### Checking
 

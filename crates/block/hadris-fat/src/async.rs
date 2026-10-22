@@ -32,5 +32,5 @@ pub use rawio::check;
 pub(crate) mod mkfs;
 #[cfg(feature = "write")]
 pub use mkfs::format;
-#[cfg(all(feature = "alloc", feature = "write"))]
+#[cfg(all(feature = "alloc", feature = "write", target_has_atomic = "ptr"))]
 pub use mkfs::write;
