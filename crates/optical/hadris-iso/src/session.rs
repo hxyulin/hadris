@@ -942,7 +942,7 @@ async fn read_session<D: BlockDevice>(iso: &mut IsoFs<D>) -> Result<(Tree, IsoOp
     let rock_ridge = view.namespace() == Namespace::RockRidge;
     let meta = view.stat(root).await?;
     tree.replace("", Node::dir().with_attrs(set_attr(&meta, rock_ridge))).map_err(tree_error)?;
-    let mut links: BTreeMap<u64, Vec<u8>> = BTreeMap::new();
+    let mut links: BTreeMap<NodeId, Vec<u8>> = BTreeMap::new();
     let mut pending: Vec<(NodeId, Vec<u8>, usize)> = vec![(root, Vec::new(), 0)];
     let mut visited = BTreeSet::from([root]);
     while let Some((dir, prefix, depth)) = pending.pop() {
@@ -954,6 +954,12 @@ async fn read_session<D: BlockDevice>(iso: &mut IsoFs<D>) -> Result<(Tree, IsoOp
             path.extend_from_slice(entry.name().as_bytes());
             let node = entry.node();
             let meta = *entry.metadata();
+            if meta.file_type() != FileType::Dir {
+                if let Some(target) = links.get(&node) {
+                    tree.link(target, &path).map_err(tree_error)?;
+                    continue;
+                }
+            }
             let attrs = set_attr(&meta, rock_ridge);
             let new = match meta.file_type() {
                 FileType::Dir => {
@@ -975,21 +981,18 @@ async fn read_session<D: BlockDevice>(iso: &mut IsoFs<D>) -> Result<(Tree, IsoOp
                         true
                     })
                     .await?;
-                    let first = extents.first().map(Extent::offset).filter(|_| meta.len() > 0);
-                    if let Some(target) = first.and_then(|first| links.get(&first).filter(|_| meta.nlink() > 1)) {
-                        tree.link(target, &path).map_err(tree_error)?;
-                        continue;
-                    }
-                    if let Some(first) = first {
-                        links.insert(first, path.clone());
-                    }
                     Node::file(match meta.len() {
                         0 => Content::empty(),
                         _ => Content::stored(extents).map_err(tree_error)?,
                     })
                 }
                 FileType::Symlink => {
-                    let mut target = vec![0u8; 4096];
+                    let len = usize::try_from(meta.len())
+                        .map_err(|_| Detail::DirectoryRecord.error(ErrorKind::LimitExceeded))?;
+                    let mut target = Vec::new();
+                    target.try_reserve_exact(len)
+                        .map_err(|_| Detail::DirectoryRecord.error(ErrorKind::LimitExceeded))?;
+                    target.resize(len, 0);
                     let len = view.readlink(node, &mut target).await?.len();
                     Node::symlink(&target[..len])
                 }
@@ -1005,6 +1008,9 @@ async fn read_session<D: BlockDevice>(iso: &mut IsoFs<D>) -> Result<(Tree, IsoOp
                 _ => continue,
             };
             tree.insert(&path, new.with_attrs(attrs)).map_err(tree_error)?;
+            if meta.file_type() != FileType::Dir {
+                links.insert(node, path);
+            }
         }
     }
     Ok((tree, options))

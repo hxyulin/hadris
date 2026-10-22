@@ -194,6 +194,14 @@ Each published package owns its version and may be released independently.
   temporary scratch, and caches the result across dirty nodes and recovery.
 - **hadris-fat-raw:** Add sync/async `exfat::io::check_allocations`, reusing the
   checker's windowed ownership walk without changing the device.
+- **hadris-iso:** Editing sessions preserve hard links for empty files,
+  symlinks and special nodes, and accept long Rock Ridge symlink targets
+  supported by the reader and writer.
+
+- **hadris-fat:** Reject invalid formatter sector sizes before arithmetic, including
+  zero, without modifying the device.
+- **hadris-iso:** Preserve literal semicolon names in ISO 9660:1999 enhanced
+  trees during listing and lookup instead of interpreting them as versions.
 - **hadris-cli:** Selected cpio hard links retain data from earlier
   unselected entries, including stdin archives.
 - **hadris-fs:** Host tree extraction finalizes directory permissions and

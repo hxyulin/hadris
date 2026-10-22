@@ -857,3 +857,98 @@ fn async_sessions_rewrite_latin1_names_alike() {
         assert_eq!(session.into_inner().into_inner(), expected);
     });
 }
+
+fn identity_tree() -> hadris_fs::Tree {
+    use hadris_fs::FileType;
+
+    let mut tree = hadris_fs::Tree::new();
+    let target = (0..220)
+        .map(|i| format!("{i:0200}"))
+        .collect::<Vec<_>>()
+        .join("/");
+    for (name, node) in [
+        ("empty", Node::file(Content::empty())),
+        ("file", Node::file(Content::bytes("shared"))),
+        ("symlink", Node::symlink(target)),
+        (
+            "device",
+            Node::special(
+                FileType::CharDevice,
+                Some(hadris_fs::DeviceNumber::new(1, 3)),
+            ),
+        ),
+    ] {
+        tree.insert(name, node).unwrap();
+        tree.link(name, format!("{name}-alias")).unwrap();
+    }
+    tree.insert("independent", Node::file(Content::bytes("shared")))
+        .unwrap();
+    tree.insert("independent-empty", Node::file(Content::empty()))
+        .unwrap();
+    tree
+}
+
+fn check_identity_tree(tree: &hadris_fs::Tree) {
+    let expected = identity_tree();
+    for name in ["empty", "file", "symlink", "device"] {
+        let entry = tree.entry(name).unwrap_or_else(|| panic!("missing {name}"));
+        assert_eq!(
+            entry.id(),
+            tree.entry(format!("{name}-alias")).unwrap().id(),
+            "{name}"
+        );
+        assert_eq!(entry.links(), 2, "{name}");
+        let actual = tree.get(name).unwrap();
+        let expected = expected.get(name).unwrap();
+        assert_eq!(actual.file_type(), expected.file_type(), "{name}");
+        assert_eq!(actual.target(), expected.target(), "{name}");
+        assert_eq!(actual.device(), expected.device(), "{name}");
+    }
+    for (a, b) in [("file", "independent"), ("empty", "independent-empty")] {
+        assert_ne!(tree.entry(a).unwrap().id(), tree.entry(b).unwrap().id());
+    }
+}
+
+#[test]
+fn sessions_preserve_long_symlinks_and_node_identity() {
+    let opts = IsoOptions::new().with_rock_ridge();
+    let mut session = Session::open(image(&identity_tree(), &opts)).unwrap();
+    check_identity_tree(session.tree());
+    let mut out = MemDevice::new(vec![0; 1 << 20], common::SECTOR);
+    session.export(&mut out, &opts).unwrap();
+    check_identity_tree(Session::open(out).unwrap().tree());
+}
+
+#[cfg(feature = "async")]
+#[test]
+fn async_sessions_preserve_long_symlinks_and_node_identity() {
+    let opts = IsoOptions::new().with_rock_ridge();
+    let dev = image(&identity_tree(), &opts);
+    common::block_on(async {
+        let mut session = hadris_iso::async_::Session::open(dev).await.unwrap();
+        check_identity_tree(session.tree());
+        let mut out = MemDevice::new(vec![0; 1 << 20], common::SECTOR);
+        session.export(&mut out, &opts).await.unwrap();
+        check_identity_tree(hadris_iso::async_::Session::open(out).await.unwrap().tree());
+    });
+}
+
+#[test]
+fn independent_files_sharing_extents_keep_their_identity() {
+    let opts = IsoOptions::new().with_rock_ridge();
+    let mut session = Session::open(grown(image(&identity_tree(), &opts))).unwrap();
+    let content = session
+        .tree()
+        .get("file")
+        .unwrap()
+        .content()
+        .unwrap()
+        .clone();
+    session
+        .tree_mut()
+        .replace("independent", Node::file(content))
+        .unwrap();
+    let report = session.write(&opts, SessionMode::Rewrite).unwrap();
+    assert_eq!(report.extents("file"), report.extents("independent"));
+    check_identity_tree(Session::open(session.into_inner()).unwrap().tree());
+}

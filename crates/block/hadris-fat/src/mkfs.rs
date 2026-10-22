@@ -104,13 +104,16 @@ pub(crate) fn prepare<D: BlockDevice>(
         512 | 1024 | 2048 | 4096 => block_size as u32,
         _ => 512,
     });
+    if !matches!(sector_size, 512 | 1024 | 2048 | 4096) {
+        return Err(ErrorKind::InvalidInput);
+    }
     let bytes = volume_bytes(
         options.size,
         block_size as u64,
         dev.block_count(),
         dev.max_block_count(),
     )?;
-    let mut request = Request::new(sector_size, bytes / sector_size.max(1) as u64)
+    let mut request = Request::new(sector_size, bytes / sector_size as u64)
         .with_fat_count(options.fat_count)
         .with_root_entries(options.root_entries);
     if let Some(kind) = options.kind {

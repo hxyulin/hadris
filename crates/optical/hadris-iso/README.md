@@ -91,8 +91,11 @@ hadris_fs::host::write_tree("out", &tree)?;
 ```
 
 In the primary and enhanced trees, `lookup` tries the exact name first and
-then ignores ASCII case, and version suffixes (`;1`) are not part of listed
-names. `IsoFs::info` returns the primary volume descriptor's block size,
+then ignores ASCII case. The primary and Joliet trees hide version suffixes
+(`;1`) in listings and select the highest version for an unversioned lookup.
+Enhanced tree file and directory names retain literal semicolons and digits;
+ISO 9660:1999 has no version suffixes. `IsoFs::info` returns the primary volume
+descriptor's block size,
 volume size, identifiers (`IsoId`) and dates (`IsoDate`);
 `IsoFs::rock_ridge` the Rock Ridge entries of a node; `IsoFs::records` where
 its directory records lie and `IsoFs::extents` where its data lies, both
