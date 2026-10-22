@@ -120,7 +120,7 @@ RNG; `Guid::random` exists only with `std`.
 ## Layers and crates
 
 ```
-hadris-io          byte streams: Read, Write, Seek in sync, async_ and local;
+hadris-io          byte streams: Read, Write, Seek in sync and async_;
                    Error<E>, ErrorKind, Location, DetailCode
 hadris-storage     BlockDevice and its adapters: Partition, Cache, ReadAhead,
                    ByteView, MemDevice, StreamDevice, host::FileDevice
@@ -170,10 +170,12 @@ exactly one lock, held for one call. Each tier adds only its own cost.
 Each mode module name means one thing in every crate:
 
 - `sync`: blocking API. Default on.
-- `async_`: futures with `Send` bounds where the device and its operation
-  state are `Send`. Block drivers use one type for local and `Send` devices.
-- `local`: only in `hadris-io` and `hadris-fs`, the same contracts without
-  `Send` bounds, for single-threaded executors.
+- `async_`: the same contracts with `async fn` and no `Send` bounds, so
+  non-`Send` devices work on single-threaded executors. A concrete type's
+  futures are `Send` when its device and operation state are. Code generic
+  over the filesystem that needs `Send` futures bounds on
+  `SendFileSystem`, generated from the same trait source, and shares it
+  through `SendVolume`; async `read_tree` takes one.
 
 Intended mode differences: `ReadDir` is an `Iterator` in sync and has
 `next_entry` in async; sync handles implement `std::io` with `std`; the host

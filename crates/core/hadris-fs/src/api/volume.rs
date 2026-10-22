@@ -338,13 +338,10 @@ impl<F: FileSystem> Volume<F> {
         Held::new(&self.shared.pending, node)
     }
 
-    send_only! {
     /// Guards an open of `node`, whose pin its caller keeps, while a call on
     /// this volume awaits.
     pub(super) fn hold_open(&self, node: NodeId) -> Held<'_> {
         Held { pending: &self.shared.pending, node: Some(node), open: true, pinned: false }
-    }
-
     }
 
     /// Guards both the open and the pin of `node` while a call on this

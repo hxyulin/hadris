@@ -70,17 +70,17 @@ features = ["alloc", "sync", "async", "write", "fat"]
 
 Name I/O types through their mode module, `hadris::fat::sync` or
 `hadris::fat::async_`. Block-format
-drivers use one async type for local and Send devices. Implement
+drivers use one async type for non-`Send` and `Send` devices. Implement
 `hadris::storage::async_::BlockDevice` once; `SendBlockDevice` is derived when
 both the device and its operation state are Send. A Send device alone does not
 guarantee Send operation futures.
 
-Use `hadris::fs::local::{FileSystem, Volume}` for local callers and
-`hadris::fs::async_::{FileSystem, Volume}` for generic callers requiring Send
-futures. The `async` feature enables both filesystem tiers. Storage has no
-`local` namespace; byte-stream traits in `hadris-io` have separate `local`
-and Send `async_` contracts, and CPIO retains its Send stream API.
-Device errors remain `Send + Sync + 'static` in every mode.
+`hadris::fs::async_::{FileSystem, Volume}` serve every device; the futures
+of a concrete volume over a Send device are `Send`. Code generic over the
+filesystem that needs Send futures bounds on `hadris::fs::async_::SendFileSystem`
+and shares it through `SendVolume`. The `hadris-io` byte-stream traits add no
+`Send` bound either, so CPIO accepts non-`Send` streams. Device errors remain
+`Send + Sync + 'static` in every mode.
 
 The sync and async APIs retain mode-specific differences: the tree
 functions of `hadris-fs::host` (`file`, `read_tree`, `write_tree`) use

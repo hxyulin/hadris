@@ -531,7 +531,7 @@ mod asynch {
     }
 
     async fn check_local<D: hadris::storage::async_::BlockDevice>(mut dev: D, format: ImageFormat) {
-        use hadris::fs::local::FileSystem as LocalFs;
+        use hadris::fs::async_::FileSystem as LocalFs;
         let found = hadris::async_::detect(&mut dev).await.unwrap();
         assert_eq!(found.first().unwrap().format(), format);
         let mut fs = hadris::async_::open(dev, MountOptions::new())

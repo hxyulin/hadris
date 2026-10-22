@@ -251,7 +251,7 @@ macro_rules! filesystem_impl {
         }
         async_only! {
             hadris_fs::__forward_filesystem! {
-                async fn $driver<D: hadris_storage::async_::SendBlockDevice> as hadris_fs::async_::FileSystem { read write }
+                async fn $driver<D: hadris_storage::async_::SendBlockDevice> as hadris_fs::async_::SendFileSystem { read resolve write }
             }
         }
     };

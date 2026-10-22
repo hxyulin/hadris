@@ -161,10 +161,10 @@ fn content_path_reads_a_disk_device() {
 fn lazy_content_is_read_in_its_own_mode() {
     use common::asynch;
     use hadris_fs::async_::{
-        ContentReader as AsyncReader, Volume as AsyncVolume, read_tree as read_tree_async,
+        ContentReader as AsyncReader, SendVolume, Sendable, read_tree as read_tree_async,
     };
 
-    let vol = AsyncVolume::new(asynch::fixture());
+    let vol = SendVolume::new(Sendable::new(asynch::fixture()));
     let tree = common::block_on(read_tree_async(&vol, "/")).unwrap();
     let content = tree.get("etc/conf").unwrap().content().unwrap();
     let mut buf = [0u8; 16];

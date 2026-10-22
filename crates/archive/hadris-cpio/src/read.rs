@@ -274,7 +274,7 @@ async fn fill<R: Read>(reader: &mut R, offset: &mut u64, buf: &mut [u8]) -> Resu
     Ok(())
 }
 
-impl<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeSend> CpioReader<R, B> {
+impl<R: Read, B: AsRef<[u8]> + AsMut<[u8]>> CpioReader<R, B> {
     /// The next entry, or `None` after a trailer or at the end of the
     /// input.
     ///
@@ -472,7 +472,7 @@ impl<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeSend> CpioReader<R,
     }
 }
 
-impl<R: Read, B: AsRef<[u8]> + AsMut<[u8]> + super::io::MaybeSend> Read for Entry<'_, R, B> {
+impl<R: Read, B: AsRef<[u8]> + AsMut<[u8]>> Read for Entry<'_, R, B> {
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all, fields(bytes = buf.len())))]
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         let result = self.reader.read_data(buf).await;

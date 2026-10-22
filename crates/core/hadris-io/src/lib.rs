@@ -17,8 +17,7 @@
 //! device failed. It lives here, in the lowest crate, so block devices can
 //! return it; `hadris-fs` and `hadris` re-export it.
 //!
-//! The traits live in one module per mode: [`sync`], `async_` (futures
-//! that are `Send`) and `local` (futures that need not be `Send`). The crate
+//! The traits live in one module per mode: [`sync`] and `async_`. The crate
 //! root holds only the mode-independent items, so
 //! `hadris_io::sync::Read` and `hadris_io::async_::Read` are always named
 //! explicitly.
@@ -29,7 +28,7 @@
 //! |---------|---------|-------------|
 //! | `std`   | yes     | [`StdIo`], [`ToStd`] and conversions to `std::io::Error` (implies `alloc`) |
 //! | `sync`  | yes     | Synchronous traits in [`sync`] |
-//! | `async` | no      | Asynchronous traits with `Send` futures in `async_`, and without the `Send` bound in `local` |
+//! | `async` | no      | Asynchronous traits in `async_` |
 //! | `alloc` | via `std` | `Box<T>` implements the traits and `Vec<u8>` implements `Write` |
 //! | `embedded-io` | no | `FromEmbedded`, the `embedded-io` traits on [`StdIo`] and [`SeekFrom`] conversions |
 //!
@@ -339,25 +338,15 @@ impl ErrorType for Cursor<'_> {
 #[cfg(feature = "sync")]
 pub mod sync;
 
-/// Asynchronous I/O traits whose futures are `Send`, for generic code on
-/// multi-threaded executors.
+/// Asynchronous I/O traits, generated from the same source as [`sync`].
 ///
-/// Generated from the same source as [`sync`]. Every trait has `Send` as a
-/// supertrait, so `R: Read` alone proves that `R`'s futures are `Send`.
-/// Implementations are written with `async fn`. `FromEmbedded` has no impls
-/// here: `embedded-io-async` futures are not `Send`; it implements the
-/// [`local`] traits.
+/// The traits add no `Send` bound, so they serve single-threaded executors
+/// such as embassy as well as multi-threaded ones: a future is `Send`
+/// whenever the concrete reader or writer and its buffers are.
+/// Implementations are written with `async fn`.
 #[cfg(feature = "async")]
 #[path = "async.rs"]
 pub mod async_;
-
-/// Asynchronous I/O traits whose futures need not be `Send`, for
-/// single-threaded executors such as embassy.
-///
-/// Generated from the same source as `async_`, with the same items plus
-/// impls for types that are not `Send`.
-#[cfg(feature = "async")]
-pub mod local;
 
 #[cfg(all(test, feature = "sync"))]
 mod tests {

@@ -4,7 +4,7 @@ macro_rules! io_transform {
     ($($item:tt)*) => { $($item)* };
 }
 
-use hadris_fs::local::FileSystem;
+use hadris_fs::async_::FileSystem;
 use hadris_storage::async_ as storage;
 
 #[path = "fs.rs"]

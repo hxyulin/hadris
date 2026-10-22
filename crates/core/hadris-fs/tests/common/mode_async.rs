@@ -7,6 +7,10 @@ use hadris_fs::async_::FileSystem;
 mod mem_fs;
 pub use mem_fs::MemFs;
 
+hadris_fs::__forward_filesystem! {
+    send MemFs as hadris_fs::async_::SendFileSystem { read resolve write }
+}
+
 pub fn fixture() -> MemFs {
     super::fixture(MemFs::new, MemFs::add)
 }

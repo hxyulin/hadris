@@ -20,7 +20,7 @@ directly when the hardware addresses whole blocks.
 
 ```toml
 [dependencies]
-hadris-io = { version = "3.0.0-rc.2", default-features = false, features = ["sync"] }
+hadris-io = { version = "3.0.0-rc.3", default-features = false, features = ["sync"] }
 ```
 
 `hadris_io::sync::Read`, `Write` and `Seek` report the implementor's own error
@@ -102,7 +102,7 @@ through unchanged.
 ```toml
 [dependencies]
 embedded-io = "0.7"
-hadris-io = { version = "3.0.0-rc.2", default-features = false, features = ["sync", "embedded-io"] }
+hadris-io = { version = "3.0.0-rc.3", default-features = false, features = ["sync", "embedded-io"] }
 ```
 
 ```rust,no_run
@@ -261,7 +261,7 @@ only when the future is dropped does not protect caller buffers between polls.
 Successful block operations transfer the whole requested buffer. A failed write
 may already have transferred earlier blocks and does not promise rollback.
 
-`async_::BlockDevice` (also available as `local::BlockDevice`) allows non-Send
+`async_::BlockDevice` allows non-Send
 devices and futures for single-threaded executors. Its error still implements `core::error::Error + Send + Sync + 'static`,
 as it does in the other modes.
 

@@ -138,7 +138,7 @@ async fn read_file<F: hadris_fs::async_::FileSystem<DeviceError = Infallible>>(
 #[test]
 fn send_reader_writer_and_borrowed_adapters_share_the_canonical_namespace() {
     #[allow(unused_imports)]
-    use hadris_fs::{async_::FileSystem as _, local::FileSystem as _};
+    use hadris_fs::async_::{FileSystem as _, SendFileSystem as _};
     let tree = tree();
     let options = UdfOptions::new();
     let size = hadris_udf::plan(&tree, &options).unwrap().size() as usize;
@@ -207,9 +207,9 @@ fn local_writers_and_bridge_match_send_images_and_local_volume_reads_symlinks() 
         }
         assert_eq!(device.inner.get_ref(), send.get_ref());
         let fs = common::block_on(UdfFs::mount(&mut device, MountOptions::new())).unwrap();
-        let volume = hadris_fs::local::Volume::with_resolve(fs, Resolve::Follow);
+        let volume = hadris_fs::async_::Volume::with_resolve(fs, Resolve::Follow);
         common::block_on(async {
-            use hadris_io::local::Read as _;
+            use hadris_io::async_::Read as _;
             let mut file = volume
                 .open("/link", hadris_fs::OpenOptions::new().read())
                 .await

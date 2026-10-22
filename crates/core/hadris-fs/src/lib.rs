@@ -9,9 +9,9 @@
 //! report ([`Finding`], [`Severity`], [`CheckReport`]). None of them does
 //! I/O.
 //!
-//! The mode modules (`sync`, `async_`, `local`) hold what does: the `FileSystem`
+//! The mode modules (`sync`, `async_`) hold what does: the `FileSystem`
 //! trait every format implements, on node ids and `&mut self`; `Volume`,
-//! which shares a filesystem between threads and tasks (or local tasks) with paths and
+//! which shares a filesystem between threads and tasks with paths and
 //! `File` and `ReadDir` handles named after `std::fs`; `copy_tree`, which
 //! writes a [`Tree`] into any filesystem; and `read_tree`, which reads a
 //! mounted volume into one.
@@ -38,7 +38,7 @@
 //! | `alloc` | via `std` | [`OwnedName`], [`PathError`], [`Tree`], [`Report`], `copy_tree` and `ContentReader` in each mode, and the async `Volume` with its `read_tree` |
 //! | `std` | Yes | Implies `alloc`; adds [`SystemClock`], [`Guid::random`], [`host`], the sync `Volume` with its `std::io` handles and `read_tree`, and conversions to `std::io::Error` |
 //! | `sync` | Yes | The blocking API in `sync` |
-//! | `async` | No | The Send API in `async_`, plus the local API in `local` |
+//! | `async` | No | The asynchronous API in `async_` |
 //! | `unstable-contract` | No | The driver contract kit, `contract::check` in each mode, and `ContractViolation` |
 //!
 //! No feature changes what an item does.
@@ -115,24 +115,17 @@ pub use walk::{WalkEntry, WalkFrame};
 #[cfg(feature = "sync")]
 pub mod sync;
 
-/// The asynchronous API, generated from the same source as `sync`, with
-/// `Send` futures for generic code on multi-threaded executors.
+/// The asynchronous API, generated from the same source as `sync`.
 ///
-/// Every trait has `Send` (and `Sync` when it has `&self` async methods) as
-/// a supertrait, so `F: FileSystem + 'static` alone lets a generic function
-/// spawn work over `F`. Implementations are written with `async fn`. The
+/// The traits add no `Send` bound, so devices and filesystems that are not
+/// `Send` work on single-threaded executors, and the futures of a concrete
+/// filesystem over a `Send` device are `Send` for multi-threaded ones.
+/// Generic code that spawns work bounds on `SendFileSystem` and shares it
+/// through `SendVolume`. Implementations are written with `async fn`. The
 /// `Volume` needs `alloc`.
 #[cfg(feature = "async")]
 #[path = "async.rs"]
 pub mod async_;
-
-/// Asynchronous filesystem APIs whose devices and futures need not be `Send`.
-///
-/// `Volume` and its handles require `alloc` and pointer-sized atomics.
-/// Lazy `read_tree` content is not included in this initial tier. Device errors
-/// retain the shared `Send + Sync + 'static` error contract.
-#[cfg(feature = "async")]
-pub mod local;
 
 /// Compiles the README's Rust examples as doctests.
 #[cfg(all(doctest, feature = "std", feature = "sync"))]

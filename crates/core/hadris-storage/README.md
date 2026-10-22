@@ -11,7 +11,7 @@ the device failed, kind `ReadOnly` when it refuses a write, and a kind with
 the block it concerns when an adapter refuses a request itself, such as one
 past the end of a `Partition`. Adapters keep the error type of the device
 underneath. Errors must be `core::error::Error + Send + Sync + 'static` in
-every mode. `local` permits non-`Send` devices and futures, not non-`Send` errors.
+every mode. Asynchronous devices and futures may be non-`Send`; errors may not.
 
 A synchronous read-only device implements `block_size`, `block_count` and
 `read_blocks`. Async devices implement `State`, `poll_read_blocks` and `cancel`

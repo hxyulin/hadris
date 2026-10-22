@@ -56,7 +56,6 @@ impl Read for &[u8] {
     }
 }
 
-local_only! {
 #[cfg(feature = "embedded-io")]
 impl<T: super::base::Read> Read for crate::FromEmbedded<T>
 where
@@ -65,7 +64,6 @@ where
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         super::base::Read::read(&mut self.0, buf).await
     }
-}
 }
 
 /// A byte sink.
@@ -132,7 +130,6 @@ impl Write for alloc::vec::Vec<u8> {
     }
 }
 
-local_only! {
 #[cfg(feature = "embedded-io")]
 impl<T: super::base::Write> Write for crate::FromEmbedded<T>
 where
@@ -145,7 +142,6 @@ where
     async fn flush(&mut self) -> Result<(), Self::Error> {
         super::base::Write::flush(&mut self.0).await
     }
-}
 }
 
 /// A seekable stream.
@@ -188,7 +184,6 @@ impl<T: Seek + ?Sized> Seek for alloc::boxed::Box<T> {
     }
 }
 
-local_only! {
 #[cfg(feature = "embedded-io")]
 impl<T: super::base::Seek> Seek for crate::FromEmbedded<T>
 where
@@ -197,7 +192,6 @@ where
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         super::base::Seek::seek(&mut self.0, pos.into()).await
     }
-}
 }
 
 impl Read for crate::Cursor<'_> {

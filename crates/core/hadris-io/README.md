@@ -29,7 +29,7 @@ feature) passes an `embedded-io` error through unchanged.
 |---------|-------------|---------|
 | `std` | `StdIo`, `ToStd` and conversions to `std::io::Error`; implies `alloc` | Yes |
 | `sync` | Synchronous traits in `hadris_io::sync` | Yes |
-| `async` | Asynchronous traits with `Send` futures in `hadris_io::async_`, and in `hadris_io::local` for executors whose futures are not `Send` | No |
+| `async` | Asynchronous traits in `hadris_io::async_`; futures are `Send` whenever the concrete stream is | No |
 | `alloc` | `Box<T>` implements the traits and `Vec<u8>` implements `Write` | via `std` |
 | `embedded-io` | `FromEmbedded`, the `embedded-io` traits on `StdIo`, and `SeekFrom` conversions | No |
 
@@ -43,14 +43,14 @@ the crate root holds only mode-independent items.
 
 ```toml
 [dependencies]
-hadris-io = "3.0.0-rc.2"
+hadris-io = "3.0.0-rc.3"
 ```
 
 ### No-std
 
 ```toml
 [dependencies]
-hadris-io = { version = "3.0.0-rc.2", default-features = false, features = ["sync"] }
+hadris-io = { version = "3.0.0-rc.3", default-features = false, features = ["sync"] }
 ```
 
 ## Quick Start
@@ -256,7 +256,7 @@ message and location, `get_ref()` downcasts to the `Error<E>`, and
 - [Storage and I/O model](https://hxyulin.github.io/hadris/concepts/storage-model)
 - [Adapt a custom device](https://hxyulin.github.io/hadris/guides/custom-io)
 - [Use asynchronous I/O](https://hxyulin.github.io/hadris/guides/async-io)
-- [API reference](https://docs.rs/hadris-io/3.0.0-rc.2)
+- [API reference](https://docs.rs/hadris-io/3.0.0-rc.3)
 
 ## License
 

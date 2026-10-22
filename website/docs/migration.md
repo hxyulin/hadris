@@ -62,10 +62,10 @@ Dropping a handle cannot report a flush or metadata error to the caller.
 | FAT without an allocator | `fat::embedded`, with `MountToken` and fixed file slots |
 | exFAT without an allocator | Read-only `fat::exfat::embedded` |
 | ISO/UDF without an allocator | Shared read-only drivers; image writers need `write`, which implies `alloc` |
-| Non-`Send` asynchronous firmware | The common `storage::async_::BlockDevice` and `fs::local::FileSystem`; `fs::local::Volume` with allocation and pointer-sized atomics |
+| Non-`Send` asynchronous firmware | The common `storage::async_::BlockDevice` and `fs::async_::FileSystem`; `fs::async_::Volume` with allocation and pointer-sized atomics |
 
 Device errors still require `core::error::Error + Send + Sync + 'static` in
-every mode. `local` relaxes device and future bounds, not error bounds.
+every mode. Non-`Send` devices and futures are allowed; non-`Send` errors are not.
 
 Mutations are not transactions. A device error or cancelled future can leave
 partial changes. Confirm the [documented durability limits](https://github.com/hxyulin/hadris/blob/main/KNOWN_ISSUES.md)

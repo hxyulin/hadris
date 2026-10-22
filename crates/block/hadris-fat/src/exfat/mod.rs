@@ -162,7 +162,7 @@ pub mod async_ {
     use hadris_storage::async_ as storage;
 
     #[cfg(feature = "alloc")]
-    use hadris_fs::local as fsapi;
+    use hadris_fs::async_ as fsapi;
 
     #[cfg(feature = "alloc")]
     #[path = "fs.rs"]

@@ -148,11 +148,14 @@ mod asynch {
         });
     }
 
-    /// Generic over the filesystem, with no `Send` bounds: the mode's
-    /// supertraits prove them.
-    fn count<F: FileSystem + 'static>(mut fs: F) -> std::thread::JoinHandle<usize> {
+    /// Generic over the filesystem: `SendFileSystem` proves its futures
+    /// `Send`.
+    fn count<F: hadris_fs::async_::SendFileSystem + 'static>(
+        fs: F,
+    ) -> std::thread::JoinHandle<usize> {
         std::thread::spawn(move || {
             block_on(async move {
+                let mut fs = hadris_fs::async_::Sendable::new(fs);
                 let mut walk = Walk::new(fs.root());
                 let mut n = 0;
                 while walk.next(&mut fs).await.unwrap().is_some() {

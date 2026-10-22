@@ -16,7 +16,7 @@ use hadris_fat::exfat::async_::ExFatFs;
 use hadris_fat_raw::exfat::io::async_ as exio;
 use hadris_fat_raw::io::async_ as rawio;
 #[cfg(feature = "alloc")]
-use hadris_fs::local::FileSystem;
+use hadris_fs::async_::FileSystem;
 use hadris_iso::async_::IsoFs;
 use hadris_storage::async_::BlockDevice;
 use hadris_udf::async_::UdfFs;

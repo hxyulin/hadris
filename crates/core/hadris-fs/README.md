@@ -127,26 +127,28 @@ assert!(OpenOptions::new().write().create().append().validate().is_ok());
 
 | Feature | Default | Purpose |
 |---|---:|---|
-| `alloc` | via `std` | `OwnedName`, `PathError`, `Tree`, `Report`, `copy_tree` and `ContentReader` in each mode, async volumes with pointer-sized atomics, lazy `read_tree` in the Send tier, and `Box` forwarding |
+| `alloc` | via `std` | `OwnedName`, `PathError`, `Tree`, `Report`, `copy_tree` and `ContentReader` in each mode, async volumes and lazy `read_tree` with pointer-sized atomics, and `Box` forwarding |
 | `std` | Yes | Implies `alloc`; adds `SystemClock`, `Guid::random`, `host` (its tree functions also need `sync`), the sync `Volume` with its `std::io` handles and `read_tree`, and conversions to `std::io::Error` |
 | `sync` | Yes | The blocking API in `sync` |
-| `async` | No | Both the Send contract and handles in `async_` and the local contract and handles in `local` |
+| `async` | No | The asynchronous API in `async_` |
 | `unstable-contract` | No | The driver contract kit: `contract::check` in each mode, for testing a format against the `FileSystem` contract. Outside semver; enable it in dev-dependencies only |
 
 Without `std`, `hadris-fs` does not depend on `hadris-storage`, so the raw
 crates that use its vocabulary stay free of the I/O stack.
 
-## Local asynchronous access
+## `Send` and non-`Send` asynchronous access
 
-The `async` feature enables the `local` filesystem contract, whose futures
-need not implement `Send`, as well as the stronger Send contract in `async_`.
-Enable `alloc` for `local::Volume` and its handles; these also require
-pointer-sized atomics.
+`async_::FileSystem` adds no `Send` bound, so filesystems over devices that
+are not `Send` work on single-threaded executors. The futures of a concrete
+filesystem over a `Send` device are `Send`, so `Volume<IsoFs<D>>` can be
+spawned on a multi-threaded executor as it is.
 
-ISO supports both contracts with one reader type. See the
-[unified ISO async guide](../../../docs/unified-async-iso.md) for device
-adaptation and generic Send callers. Local volumes do not expose lazy
-`read_tree` content, whose shared `Content` contract requires `Send + Sync`.
+Code that is generic over the filesystem cannot prove that, so it bounds on
+`async_::SendFileSystem`, which every format implements for its `Send`
+devices, and shares it through `async_::SendVolume`, a `Volume` over
+`Sendable::new(fs)`. Lazy `read_tree` takes a `SendVolume`, so the content
+futures writers await are `Send`. See the
+[unified ISO async guide](../../../docs/unified-async-iso.md).
 
 ## Documentation
 

@@ -25,7 +25,7 @@ async fn read_header<R: Read + Seek>(mut reader: R) -> [u8; 2] {
 }
 
 #[test]
-fn generic_futures_are_send() {
+fn concrete_futures_are_send() {
     let data = [1u8, 2, 3, 4];
     let header = block_on(assert_send(read_header(Cursor::new(&data))));
     assert_eq!(header, [2, 3]);
