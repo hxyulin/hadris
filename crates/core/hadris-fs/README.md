@@ -127,7 +127,7 @@ assert!(OpenOptions::new().write().create().append().validate().is_ok());
 
 | Feature | Default | Purpose |
 |---|---:|---|
-| `alloc` | via `std` | `OwnedName`, `PathError`, `Tree`, `Report`, `copy_tree` and `ContentReader` in each mode, async volumes and lazy `read_tree` with pointer-sized atomics, and `Box` forwarding |
+| `alloc` | via `std` | `OwnedName`, `PathError`, `Tree`, `Report`, `ContentReader` in each mode, sync `copy_tree`, async `copy_tree`, volumes and lazy `read_tree` with pointer-sized atomics, and `Box` forwarding |
 | `std` | Yes | Implies `alloc`; adds `SystemClock`, `Guid::random`, `host` (its tree functions also need `sync`), the sync `Volume` with its `std::io` handles and `read_tree`, and conversions to `std::io::Error` |
 | `sync` | Yes | The blocking API in `sync` |
 | `async` | No | The asynchronous API in `async_` |
@@ -149,6 +149,12 @@ devices, and shares it through `async_::SendVolume`, a `Volume` over
 `Sendable::new(fs)`. Lazy `read_tree` takes a `SendVolume`, so the content
 futures writers await are `Send`. See the
 [unified ISO async guide](../../../docs/unified-async-iso.md).
+
+Async `copy_tree` takes `&Volume<F>` instead of `&mut F`; wrap the target
+with `Volume::new(fs)` and recover it with `into_inner().await` when done.
+It needs pointer-sized atomics, like async volumes. If its future is dropped,
+the next volume operation closes files and releases pins acquired by the copy.
+Partial copied contents may remain. The sync signature is unchanged.
 
 ## Documentation
 

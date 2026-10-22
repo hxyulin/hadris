@@ -726,3 +726,19 @@ fn formats_a_partition_slice() {
     assert_eq!(u32::from_le_bytes(part[28..32].try_into().unwrap()), 2048);
     exercise(part, 512, FatKind::Fat12, "partition");
 }
+
+#[test]
+fn invalid_sector_sizes_leave_device_unchanged() {
+    use hadris_storage::{BlockSize, MemDevice};
+    for sector in [0, 1, 511, 768, 8192, u32::MAX] {
+        let original = vec![0xa5; 2 * 1024 * 1024];
+        let mut dev = MemDevice::new(original.clone(), BlockSize::new(512).unwrap());
+        assert_eq!(
+            format(&mut dev, &FatOptions::new().with_sector_size(sector))
+                .unwrap_err()
+                .kind(),
+            ErrorKind::InvalidInput
+        );
+        assert_eq!(dev.into_inner(), original);
+    }
+}

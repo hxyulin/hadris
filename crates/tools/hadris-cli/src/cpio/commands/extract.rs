@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
-use std::io::Write;
+use std::io::{Seek, Write};
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -140,6 +140,7 @@ fn relink(data: &Path, name: &Path, created: &HashSet<PathBuf>) -> Result<()> {
 struct Group {
     names: Vec<PathBuf>,
     linked: bool,
+    data: Option<File>,
 }
 
 /// The hard link groups, with the group each name belongs to, so a later
@@ -207,6 +208,11 @@ impl Extractor {
     fn write_file(&mut self, entry: &mut Entry<'_, Input>, dest: &Path) -> Result<()> {
         let mut file = create_file(dest)?;
         self.created.insert(dest.to_path_buf());
+        let mut retained = if entry.nlink() > 1 && entry.len() > 0 {
+            Some(tempfile::tempfile().context("Failed to retain hard link data")?)
+        } else {
+            None
+        };
         loop {
             let read = entry
                 .read(&mut self.buf)
@@ -214,8 +220,22 @@ impl Extractor {
             if read == 0 {
                 break;
             }
+            if let Some(data) = &mut retained {
+                data.write_all(&self.buf[..read])?;
+            }
             file.write_all(&self.buf[..read])
                 .with_context(|| format!("Failed to write file: {}", dest.display()))?;
+        }
+        if let Some(data) = retained {
+            self.links.groups.entry(link_key(entry)).or_default().data = Some(data);
+        }
+        if entry.nlink() > 1 && entry.len() == 0 {
+            let group = self.links.groups.entry(link_key(entry)).or_default();
+            if let Some(data) = &mut group.data {
+                data.rewind()?;
+                std::io::copy(data, &mut file)?;
+                group.linked = true;
+            }
         }
         set_mode(&file, entry.mode() & self.mask);
         Ok(())
@@ -253,6 +273,17 @@ impl Extractor {
             .get(&key)
             .and_then(|group| group.names.first().cloned())
         else {
+            let mut data = tempfile::tempfile().context("Failed to retain hard link data")?;
+            loop {
+                let n = entry
+                    .read(&mut self.buf)
+                    .context("Failed to read file data")?;
+                if n == 0 {
+                    break;
+                }
+                data.write_all(&self.buf[..n])?;
+            }
+            self.links.groups.entry(key).or_default().data = Some(data);
             return Ok(());
         };
         ours(&first, &self.created)?;

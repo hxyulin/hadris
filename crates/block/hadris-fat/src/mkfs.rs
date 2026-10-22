@@ -104,13 +104,16 @@ pub(crate) fn prepare<D: BlockDevice>(
         512 | 1024 | 2048 | 4096 => block_size as u32,
         _ => 512,
     });
+    if !matches!(sector_size, 512 | 1024 | 2048 | 4096) {
+        return Err(ErrorKind::InvalidInput);
+    }
     let bytes = volume_bytes(
         options.size,
         block_size as u64,
         dev.block_count(),
         dev.max_block_count(),
     )?;
-    let mut request = Request::new(sector_size, bytes / sector_size.max(1) as u64)
+    let mut request = Request::new(sector_size, bytes / sector_size as u64)
         .with_fat_count(options.fat_count)
         .with_root_entries(options.root_entries);
     if let Some(kind) = options.kind {
@@ -210,7 +213,18 @@ pub(crate) async fn grow<D: BlockDevice>(
 
 }
 
-#[cfg(feature = "alloc")]
+sync_only! {
+    macro_rules! alloc_tree {
+        ($($item:item)*) => { $(#[cfg(feature = "alloc")] $item)* };
+    }
+}
+async_only! {
+    macro_rules! alloc_tree {
+        ($($item:item)*) => { $(#[cfg(all(feature = "alloc", target_has_atomic = "ptr"))] $item)* };
+    }
+}
+
+alloc_tree! {
 mod tree {
     use alloc::collections::BTreeMap;
     use alloc::vec;
@@ -405,6 +419,8 @@ mod tree {
     /// this check; changed sources or later I/O failures can still leave a
     /// partially formatted or copied volume.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all))]
+    ///
+    /// The async mode requires pointer-sized atomics for cancellation cleanup.
     pub async fn write<D: BlockDevice>(mut out: D, tree: &Tree, options: &FatOptions) -> Result<Report, PathError> {
         let options = options.with_seed(tree_seed(options.time, options.seed, tree));
         let tree = stamped(tree, options.time)?;
@@ -417,9 +433,14 @@ mod tree {
             max_dir_entries: u64::from(hadris_fat_raw::MAX_DIR_ENTRIES), max_file: u64::from(u32::MAX),
         }, |name| crate::names::NewName::new(name, MountOptions::new().code_page(), hadris_fat_raw::fold_unicode).map(|name| name.slots()))?;
         let (_, volume) = format_prepared(&mut out, &options, prepared).await?;
-        let mut fs = FatFs::mount(out, MountOptions::new()).await?.with_append_planning();
+        let fs = FatFs::mount(out, MountOptions::new()).await?.with_append_planning();
         let root = fs.root();
-        let mut report = copy_tree(&tree, &mut fs, root).await?;
+        sync_only! { let mut fs = fs; let mut report = copy_tree(&tree, &mut fs, root).await?; }
+        async_only! {
+            let target_volume = hadris_fs::async_::Volume::new(fs);
+            let mut report = copy_tree(&tree, &target_volume, root).await?;
+            let fs = target_volume.into_inner().await.map_err(|_| PathError::new(hadris_fs::ErrorKind::Busy, "copy volume is still shared"))?;
+        }
         fs.unmount().await?;
         report.set_size(volume);
         Ok(report)
@@ -428,7 +449,7 @@ mod tree {
     }
 }
 
-#[cfg(feature = "alloc")]
-pub use tree::write;
-#[cfg(feature = "alloc")]
-pub(crate) use tree::{Capacity, check_capacity, stamped, tree_seed};
+}
+
+alloc_tree! { pub use tree::write; }
+alloc_tree! { pub(crate) use tree::{Capacity, check_capacity, stamped, tree_seed}; }

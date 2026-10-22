@@ -61,9 +61,11 @@ fn volumes_copy_through_trees() {
         src.add("/etc", "conf", hadris_fs::FileType::File, b"key=value");
         let vol = SendVolume::new(Sendable::new(src));
         let tree = read_tree(&vol, "/etc").await.unwrap();
-        let mut dst = MemFs::new();
+        let dst = MemFs::new();
         let root = dst.root();
-        copy_tree(&tree, &mut dst, root).await.unwrap();
+        let dst = Volume::new(dst);
+        copy_tree(&tree, &dst, root).await.unwrap();
+        let dst = dst.into_inner().await.ok().unwrap();
         assert_eq!(dst.contents("/conf").unwrap(), b"key=value");
         let err = read_tree(&vol, "/nope").await.unwrap_err();
         assert_eq!(err.kind(), ErrorKind::NotFound);
@@ -286,9 +288,9 @@ fn futures_are_send() {
     assert_eq!(&block_on(assert_send(task)), b"root");
     let src = Arc::new(hadris_fs::Tree::new());
     let copy = async move {
-        let mut fs = MemFs::new();
+        let fs = MemFs::new();
         let root = fs.root();
-        copy_tree(&src, &mut fs, root).await
+        copy_tree(&src, &Volume::new(fs), root).await
     };
     block_on(assert_send(copy)).unwrap();
 }
@@ -476,5 +478,30 @@ fn a_dropped_walk_step_loses_no_entry() {
         }
         let fs = vol.into_inner().await.unwrap();
         assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));
+    });
+}
+
+#[test]
+fn cancelled_tree_copy_releases_files_and_directory_pins() {
+    block_on(async {
+        let mut tree = hadris_fs::Tree::new();
+        tree.insert(
+            "a/b/file",
+            hadris_fs::Node::file(hadris_fs::Content::bytes(b"payload")),
+        )
+        .unwrap();
+        for calls in 0..32 {
+            let vol = Volume::new(MemFs::new());
+            let root = vol.lock().await.unwrap().root();
+            vol.lock().await.unwrap().stall_in(calls);
+            let pending = poll_once(copy_tree(&tree, &vol, root));
+            let mut fs = vol.lock().await.unwrap();
+            assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0), "stall {calls}");
+            fs.stall_in(u32::MAX);
+            drop(fs);
+            if !pending {
+                break;
+            }
+        }
     });
 }
