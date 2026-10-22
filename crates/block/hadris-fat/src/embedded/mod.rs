@@ -37,9 +37,12 @@
 //! nothing does, long names go before their short entry, and FAT copies
 //! are written active copy first. The driver records the clusters an
 //! unfinished operation holds and the long-name slots it was writing, so a
-//! power cut, or a dropped `async` future, leaves at worst lost clusters,
-//! and the next writing call or `sync` on the same `Fat` frees them and
-//! clears the slots. A file's size is written to its entry by `flush`,
+//! dropped `async` future is recovered by the next writing call or `sync`
+//! on the same `Fat`. Dependency barriers flush allocations and data before
+//! publishing references, and references before freeing clusters. They do
+//! not make multi-block updates atomic: after power loss, interrupted
+//! renames or torn writes can require external repair. The recovery state
+//! does not survive a reset. A file's size is written to its entry by `flush`,
 //! `close`, `sync` and `unmount`; until then an interruption leaves the
 //! size the entry last recorded.
 

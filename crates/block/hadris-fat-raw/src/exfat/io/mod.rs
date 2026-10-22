@@ -191,8 +191,10 @@ pub enum ClusterState {
 enum Dirty {
     /// Clear on disk.
     Clean,
+    Marking,
     /// Set by a write since mounting or the last `clear_dirty`.
     Marked,
+    Clearing,
     /// Set at mount, and left for a checker to clear.
     Inherited,
 }

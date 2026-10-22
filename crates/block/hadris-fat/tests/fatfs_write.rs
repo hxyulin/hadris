@@ -1542,6 +1542,7 @@ impl BlockDevice for Faulty {
 struct Flushes {
     inner: Device,
     flushes: usize,
+    last_was_flush: bool,
 }
 
 impl hadris_io::ErrorType for Flushes {
@@ -1566,21 +1567,24 @@ impl BlockDevice for Flushes {
     }
 
     fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<(), Error<Self::Error>> {
+        self.last_was_flush = false;
         self.inner.write_blocks(first, buf)
     }
 
     fn flush(&mut self) -> Result<(), Error<Self::Error>> {
         self.flushes += 1;
+        self.last_was_flush = true;
         Ok(())
     }
 }
 
 #[test]
-fn close_writes_the_entry_without_a_flush() {
+fn close_orders_data_before_the_entry_without_flushing_the_entry() {
     let case = CASES[1];
     let dev = Flushes {
         inner: common::device(case, common::blank(case)),
         flushes: 0,
+        last_was_flush: false,
     };
     let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
     let root = fs.root();
@@ -1590,7 +1594,11 @@ fn close_writes_the_entry_without_a_flush() {
     fs.forget(node, 1);
     assert_eq!(fs.open_nodes(), 1, "a published node is clean");
     let dev = fs.into_inner();
-    assert_eq!(dev.flushes, 1, "only the first dirty marker is flushed");
+    assert!(
+        dev.flushes > 1,
+        "data is flushed before publishing its size"
+    );
+    assert!(!dev.last_was_flush, "close does not make the entry durable");
     let image = dev.inner.into_inner();
     let mut fresh = open(case, image.clone());
     assert_eq!(fresh.read_to_vec("/log.txt").unwrap(), b"published");
@@ -1599,6 +1607,7 @@ fn close_writes_the_entry_without_a_flush() {
         Flushes {
             inner: common::device(case, image),
             flushes: 0,
+            last_was_flush: false,
         },
         MountOptions::new(),
     )

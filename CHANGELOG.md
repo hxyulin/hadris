@@ -50,6 +50,14 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-fat, hadris-fat-raw:** FAT/exFAT flush dependencies before
+  publishing directory entries and file sizes, linking new allocation runs,
+  and releasing clusters. exFAT entry-set blocks have durability barriers,
+  and interrupted dirty-marker flushes are retried. This adds flush latency
+  to metadata operations; `close` may flush preceding data but still needs
+  `fsync` or `sync` to make its metadata durable. Multi-block updates remain
+  non-atomic after power loss, and persistent recovery is not implemented.
+
 - **hadris-apfs:** Name comparison folds case and canonical decomposition as
   the volume's flags ask, following the default case algorithms of the
   Unicode Standard. A name spelled with a combining accent finds the entry

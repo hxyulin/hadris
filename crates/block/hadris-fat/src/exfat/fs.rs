@@ -634,12 +634,17 @@ fn build_set(
 ///
 /// # Crash and cancellation safety
 ///
+/// Dependency barriers flush allocations and data before publishing entries
+/// and sizes, and removed references before freeing clusters. Entry-set
+/// blocks are separated by flushes. These require a device that honors
+/// `BlockDevice::flush`; a block write is not assumed power-fail atomic.
+/// They do not make multi-block updates or renames atomic after a restart.
+///
 /// Clusters are marked in the FAT and the bitmap before an entry set names
 /// them, and freed only after the entry set is gone, so an interrupted
 /// operation never leaves an allocation that another entry can take. The
-/// entries of a set that lie in one device block are written with one
-/// device write, so a set that does not cross a block boundary is written
-/// or cleared whole. Across a boundary a new set is written secondary
+/// entries of a set that lie in one device block are submitted with one
+/// device write, which may still tear on power loss. Across a boundary a new set is written secondary
 /// entries first and its File entry last, and a removed set loses its File
 /// entry first. `rename` writes the new set before it removes the old one,
 /// so a process that stops in between can leave the node under both names.
@@ -1042,7 +1047,7 @@ impl<D: BlockDevice> ExFatFs<D> {
     }
 
     /// Writes the node's pending sizes and modification time to its entry
-    /// set, without flushing the device.
+    /// set, without making the final metadata write durable.
     async fn publish_node(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         if node != ROOT {
             let (id, _) = self.any_node(node).await?;
@@ -2998,7 +3003,8 @@ impl<D: BlockDevice> ExFatFs<D> {
     }
 
     /// Ends one `open` and writes the node's pending sizes and modification
-    /// time to its entry set, without flushing the device.
+    /// time to its entry set. Preceding data is flushed first; use `fsync`
+    /// or `sync` to make the final metadata write durable.
     pub async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         self.nodes.close(node);
         self.publish_node(node).await

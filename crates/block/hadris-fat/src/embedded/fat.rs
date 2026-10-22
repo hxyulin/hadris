@@ -500,7 +500,8 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     }
 
     /// Closes the file: writes its size and modification time to its
-    /// entry, without flushing the device, and frees its slot. When the
+    /// entry, flushing preceding data but not the final metadata write,
+    /// and frees its slot. When the
     /// write fails the slot stays taken until a `sync` writes it.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all))]
     pub async fn close(&mut self, file: File<'_>) -> FsResult<(), D::Error> {
@@ -1763,6 +1764,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     async fn put(&mut self, offset: u64, data: &[u8]) -> FsResult<(), D::Error> {
         if !data.is_empty() {
             self.begin_write().await?;
+            self.flush_device().await?;
         }
         let result = rawio::write_bytes(&mut self.dev, &mut self.block, offset, data).await;
         self.note(result)

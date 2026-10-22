@@ -569,14 +569,16 @@ io_transform! {
 ///
 /// # Crash and cancellation safety
 ///
-/// Each operation orders its writes so that stopping between any two of
-/// them leaves a volume that `fsck` repairs without losing data that was on
-/// it before. The same holds when an `async` future is dropped before it
-/// completes, and the driver's own state stays consistent with the disk:
+/// Dependency barriers flush allocations and data before publishing
+/// directory entries or sizes, and removed references before freeing
+/// clusters. They require a device that honors `BlockDevice::flush`.
+/// Multi-block updates are not atomic, and recovery state does not survive
+/// a reset: torn writes and interrupted renames can require external repair.
+/// While the same driver remains alive, it recovers cancelled futures and
+/// failed operations on the next writing operation or `sync`:
 ///
 /// - Clusters are marked in the FAT before anything points to them, and
-///   freed only after nothing does, so an interruption never leaves a
-///   cross-linked or dangling chain. The driver remembers the clusters an
+///   freed only after their references are removed. The driver remembers the clusters an
 ///   unfinished operation holds, allocated but not yet linked or unlinked
 ///   but not yet freed, and the next writing operation or `sync` frees
 ///   them unless the interrupted write did link them. Lost clusters remain
@@ -1467,11 +1469,6 @@ impl<D: BlockDevice> FatFs<D> {
         }
     }
 
-    async fn put(&mut self, offset: u64, data: Option<&[u8]>, len: usize) -> FsResult<(), D::Error> {
-        self.append_index = None;
-        self.put_data(offset, data, len).await
-    }
-
     async fn put_data(&mut self, offset: u64, data: Option<&[u8]>, len: usize) -> FsResult<(), D::Error> {
         if len > 0 {
             self.begin_write().await?;
@@ -1497,7 +1494,11 @@ impl<D: BlockDevice> FatFs<D> {
     }
 
     async fn put_bytes(&mut self, offset: u64, data: &[u8]) -> FsResult<(), D::Error> {
-        self.put(offset, Some(data), data.len()).await
+        if !data.is_empty() {
+            self.flush_device().await?;
+        }
+        self.append_index = None;
+        self.put_data(offset, Some(data), data.len()).await
     }
 
     async fn flush_device(&mut self) -> FsResult<(), D::Error> {
@@ -1543,6 +1544,7 @@ impl<D: BlockDevice> FatFs<D> {
         size: u32,
         hint: ChainPos,
     ) -> FsResult<(), D::Error> {
+        self.flush_device().await?;
         let next = Node { first, size, hint, ..*state };
         let mut entry = self.read_short(state.entry).await?;
         self.touch(&mut entry, &next);
@@ -2717,7 +2719,8 @@ impl<D: BlockDevice> FatFs<D> {
     }
 
     /// Ends one `open` and writes the node's pending size and modification
-    /// time to its directory entry, without flushing the device.
+    /// time to its directory entry. Preceding data is flushed first, but
+    /// the directory entry itself is not made durable; use `fsync` or `sync`.
     pub async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         self.nodes.close(node);
         self.publish_node(node).await

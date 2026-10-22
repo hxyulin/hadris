@@ -297,6 +297,7 @@ async fn put_entry<D: BlockDevice>(
     value: u32,
 ) -> FsResult<(), D::Error> {
     begin_write(dev, block, fat).await?;
+    dev.flush().await?;
     let kind = fat.geo.kind();
     let len = kind.entry_len();
     let copy = fat.geo.active_fat() ^ step;
@@ -711,6 +712,7 @@ async fn patch<D: BlockDevice>(
     tail: Option<u32>,
 ) -> FsResult<(), D::Error> {
     begin_write(dev, block, fat).await?;
+    dev.flush().await?;
     let kind = fat.geo.kind();
     let len = kind.entry_len();
     let size = block.size as u64;
@@ -864,6 +866,9 @@ pub async fn write_slots<D: BlockDevice>(
 ) -> FsResult<(), D::Error> {
     *written = 0;
     while *written < count {
+        if *written + 1 == count {
+            dev.flush().await?;
+        }
         let at = slot_offset(dev, block, fat, walk, first + *written)
             .await?
             .ok_or(ErrorKind::Corrupt)?;

@@ -485,10 +485,11 @@ pub async fn next<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, geo: &Geome
 /// flag reaches the medium before what it covers. Every writing primitive
 /// here calls it before it writes.
 pub async fn begin_write<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &mut ExFat) -> FsResult<(), D::Error> {
-    if vol.dirty == Dirty::Clean {
+    if matches!(vol.dirty, Dirty::Clean | Dirty::Marking | Dirty::Clearing) {
+        vol.dirty = Dirty::Marking;
         write_flags(dev, block, vol, (vol.flags | raw::VOLUME_DIRTY) & !raw::VOLUME_CLEAR_TO_ZERO).await?;
-        vol.dirty = Dirty::Marked;
         dev.flush().await?;
+        vol.dirty = Dirty::Marked;
     }
     Ok(())
 }
@@ -503,8 +504,9 @@ async fn write_flags<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &mu
 /// device first so what the flag covered reaches the medium before it. The
 /// caller flushes again for the cleared flag.
 pub async fn clear_dirty<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &mut ExFat) -> FsResult<(), D::Error> {
-    if vol.dirty == Dirty::Marked {
+    if matches!(vol.dirty, Dirty::Marking | Dirty::Marked | Dirty::Clearing) {
         dev.flush().await?;
+        vol.dirty = Dirty::Clearing;
         write_flags(dev, block, vol, vol.flags & !raw::VOLUME_DIRTY).await?;
         vol.dirty = Dirty::Clean;
     }
@@ -527,6 +529,7 @@ pub async fn write_percent_in_use<D: BlockDevice>(dev: &mut D, block: &mut Block
 /// active first on a TexFAT volume.
 pub async fn set<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &mut ExFat, cluster: u32, value: u32) -> FsResult<(), D::Error> {
     check_cluster(&vol.geo, cluster)?;
+    dev.flush().await?;
     if let Some(mirror) = vol.geo.mirror_fat() {
         begin_write(dev, block, vol).await?;
         write_bytes(dev, block, mirror + cluster as u64 * 4, &value.to_le_bytes()).await?;
@@ -618,6 +621,7 @@ pub async fn set_bit<D: BlockDevice>(
     if was == used {
         return Ok(());
     }
+    dev.flush().await?;
     byte[0] ^= bit;
     if let Some(mirror) = vol.mirror {
         let cluster = locate(dev, block, &vol.geo, mirror, ChainPos::NONE, index >> (vol.geo.cluster_shift() + 3)).await?.cluster();
@@ -652,6 +656,7 @@ pub async fn set_bits<D: BlockDevice>(
     }
     let end = check_cluster(&vol.geo, first)?.checked_add(count).ok_or(ErrorKind::Corrupt)?;
     check_cluster(&vol.geo, end - 1)?;
+    dev.flush().await?;
     let mut cluster = first;
     while cluster < end {
         let place = bit_place(dev, block, vol, cluster).await?;
@@ -835,6 +840,7 @@ pub async fn allocate_run<D: BlockDevice>(
     if let Some(held) = held {
         held.set_head(head);
     }
+    dev.flush().await?;
     mark_chain(dev, block, vol, None, head, count, ClusterState::Used).await?;
     let tail = at(last);
     vol.next_free = if tail == vol.geo.max_cluster() { raw::FIRST_CLUSTER } else { tail + 1 };
@@ -886,6 +892,7 @@ pub async fn free_chain<D: BlockDevice>(
     first: u32,
 ) -> FsResult<(), D::Error> {
     let cluster = check_cluster(&vol.geo, first)?;
+    dev.flush().await?;
     mark_chain(dev, block, vol, Some(held), cluster, vol.geo.cluster_count(), ClusterState::Free).await?;
     *held = Held::NONE;
     Ok(())
@@ -1010,6 +1017,7 @@ async fn patch_fat<D: BlockDevice>(
     next: u32,
 ) -> FsResult<(), D::Error> {
     begin_write(dev, block, vol).await?;
+    dev.flush().await?;
     let size = block.block_size() as u64;
     for base in [vol.geo.mirror_fat(), Some(vol.geo.fat_start())].into_iter().flatten() {
         let index = (base + group.lowest() as u64 * 4) / size;
@@ -1093,6 +1101,7 @@ async fn put_entries<D: BlockDevice>(
             }
         };
         begin_write(dev, block, vol).await?;
+        dev.flush().await?;
         write_bytes(dev, block, at[from], entries[from..to].as_flattened()).await?;
         done += to - from;
     }
