@@ -1,6 +1,7 @@
 //! Volumes read and written against external tools: `mkudffs` and
-//! `udfinfo` (udftools) and 7-Zip. A test whose tool is missing prints a
-//! note and passes, unless `HADRIS_REQUIRE_EXTERNAL_TOOLS` is set.
+//! `udfinfo` (udftools), 7-Zip, and pycdlib for bridge images. A test whose
+//! tool is missing prints a note and passes, unless
+//! `HADRIS_REQUIRE_EXTERNAL_TOOLS` is set.
 
 mod common;
 
@@ -9,8 +10,10 @@ use std::path::Path;
 use std::process::Command;
 
 use common::Paths;
-use common::{image, pattern};
+use common::{SECTOR, image, pattern};
 use hadris_fs::{Content, Node, Tree};
+use hadris_iso::{IsoLevel, IsoOptions};
+use hadris_storage::MemDevice;
 use hadris_udf::sync::UdfFs;
 use hadris_udf::{UdfId, UdfOptions, UdfRevision};
 
@@ -150,5 +153,66 @@ fn mkudffs_volumes_read_back() {
         assert_eq!(udf.info().revision().to_string(), revision);
         let listed = udf.names("/").unwrap();
         assert!(listed.len() <= 1, "{revision}/{block}: {listed:?}");
+    }
+}
+
+/// Opens each image with pycdlib, failing on any warning it logs, and
+/// prints `/readme.txt` read through the UDF namespace.
+const PYCDLIB: &str = r#"
+import logging, sys
+import pycdlib
+
+class Fail(logging.Handler):
+    def emit(self, record):
+        sys.exit("pycdlib: " + record.getMessage())
+
+logging.getLogger("pycdlib").addHandler(Fail(logging.WARNING))
+iso = pycdlib.PyCdlib()
+iso.open(sys.argv[1])
+assert iso.has_udf()
+out = __import__("io").BytesIO()
+iso.get_file_from_iso_fp(out, udf_path="/readme.txt")
+sys.stdout.write(out.getvalue().decode())
+iso.close()
+"#;
+
+#[test]
+fn pycdlib_reads_hadris_bridges() {
+    let has_pycdlib = Command::new("python3")
+        .args(["-I", "-c", "import pycdlib"])
+        .output()
+        .is_ok_and(|out| out.status.success());
+    if !has_pycdlib {
+        assert!(
+            std::env::var_os("HADRIS_REQUIRE_EXTERNAL_TOOLS").is_none(),
+            "pycdlib is required but missing"
+        );
+        eprintln!("skipping: pycdlib not installed");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    for revision in [UdfRevision::V1_02, UdfRevision::V2_01] {
+        let iso = IsoOptions::default()
+            .with_level(IsoLevel::L3)
+            .with_joliet()
+            .with_rock_ridge();
+        let udf = UdfOptions::default().with_revision(revision);
+        let report = hadris_udf::plan_bridge(&tree(), &iso, &udf).unwrap();
+        let mut dev = MemDevice::new(vec![0u8; report.size() as usize], SECTOR);
+        hadris_udf::sync::write_bridge(&mut dev, &tree(), &iso, &udf).unwrap();
+        let path = dir.path().join(format!("bridge-{revision}.iso"));
+        std::fs::write(&path, dev.into_inner()).unwrap();
+
+        let out = Command::new("python3")
+            .args(["-I", "-c", PYCDLIB])
+            .arg(&path)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{revision}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(out.stdout, b"hello", "{revision}");
     }
 }

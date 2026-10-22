@@ -333,9 +333,10 @@ fn anchors_sequences_and_directories_follow_udf() {
     );
     assert_eq!(tag(290), 256, "one file set descriptor");
     assert_ne!(tag(290 + 16), 256);
+    assert_eq!(tag(291), 8, "the file set sequence is terminated");
 
-    let root_fids = 292 * 2048;
-    assert_eq!(tag(292), 257);
+    let root_fids = 293 * 2048;
+    assert_eq!(tag(293), 257);
     let characteristics = bytes[root_fids + 18];
     assert_eq!(
         characteristics & 0x0A,
@@ -343,7 +344,7 @@ fn anchors_sequences_and_directories_follow_udf() {
         "the parent identifier comes first"
     );
     let icb = u32::from_le_bytes(bytes[root_fids + 24..root_fids + 28].try_into().unwrap());
-    assert_eq!(icb, 1, "the root is its own parent");
+    assert_eq!(icb, 2, "the root is its own parent");
 }
 
 /// The volume set identifier of the primary volume descriptor.

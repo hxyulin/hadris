@@ -78,6 +78,13 @@ Each published package owns its version and may be released independently.
   cause, such as the OS error when an image cannot be opened, as
   `hadris fat` and `hadris cpio` already did.
 
+- **hadris-udf:** The standalone and bridge writers end the file set
+  descriptor sequence with a Terminating Descriptor in the block after the
+  File Set Descriptor, and the logical volume descriptor's file set extent
+  covers both. pycdlib logged `Missing UDF File Set Terminator` for bridge
+  images. The root directory and everything after it move one block later
+  in the partition.
+
 ## [3.0.0-rc.2] - 2026-10-15
 
 The second release candidate of the 3.0 API. All 3.x packages, including
