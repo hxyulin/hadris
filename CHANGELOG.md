@@ -91,6 +91,23 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-fat, hadris-fat-raw:** FAT/exFAT flush dependencies before
+  publishing directory entries and file sizes, linking new allocation runs,
+  and releasing clusters. exFAT entry-set blocks have durability barriers,
+  and interrupted dirty-marker flushes are retried. This adds flush latency
+  to metadata operations; `close` may flush preceding data but still needs
+  `fsync` or `sync` to make its metadata durable. Multi-block updates remain
+  non-atomic after power loss, and persistent recovery is not implemented.
+
+- **hadris-fat:** Validate exFAT allocation ownership before the first mutation
+  of a mount. Corrupt `NoFatChain` lengths that overlap fully allocated neighbors
+  now fail with `Corrupt` before truncation, unlink, replacing rename or writes
+  can free or overwrite another owner's clusters. Validation includes nested
+  directories, FAT chains, system files and vendor allocations, uses bounded
+  temporary scratch, and caches the result across dirty nodes and recovery.
+- **hadris-fat-raw:** Add sync/async `exfat::io::check_allocations`, reusing the
+  checker's windowed ownership walk without changing the device.
+
 - **hadris-apfs:** Name comparison folds case and canonical decomposition as
   the volume's flags ask, following the default case algorithms of the
   Unicode Standard. A name spelled with a combining accent finds the entry

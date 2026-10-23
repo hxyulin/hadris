@@ -273,6 +273,17 @@ fn deep_trees_are_reported() {
     let image = common::image(fs);
     let found = kinds(&image);
     assert!(found.contains(&Detail::TooDeep), "{found:?}");
+    let mut fs = common::mount(&image);
+    let err = fs
+        .create(
+            fs.root(),
+            hadris_fs::Name::new("new"),
+            &hadris_fs::SetAttr::new(),
+        )
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Corrupt);
+    fs.sync().unwrap();
+    assert_eq!(common::image(fs), image);
 }
 
 /// Points the stream entry of `set` at the allocation of `target`'s.
@@ -322,4 +333,49 @@ fn branching_cross_linked_directories_end_the_walk() {
         1,
         "{found:?}"
     );
+}
+
+#[test]
+fn allocation_validation_checks_later_windows_and_free_claims() {
+    use hadris_fat_raw::exfat::io::{Upcase, sync as rawio};
+    use hadris_fat_raw::io::BlockBuf;
+    let mut fs = common::small(8 << 20, 512);
+    let root = fs.root();
+    for (text, len) in [("padding", 4096 * 512), ("a", 1500), ("b", 1500)] {
+        let node = common::write(&mut fs, root, text, &common::payload(len, 1));
+        fs.forget(node, 1);
+    }
+    fs.sync().unwrap();
+    let mut image = common::image(fs);
+    let geo = Geometry::of(&image);
+    let a = geo.set(&image, geo.root, "a");
+    let b = geo.set(&image, geo.root, "b");
+    geo.unchain(&mut image, &a);
+    geo.unchain(&mut image, &b);
+    let first = le32(&image, a[1] + 20);
+    assert!(first > 4098);
+    assert_eq!(le32(&image, b[1] + 20), first + 3);
+    for damage in 0..3 {
+        let mut image = image.clone();
+        if damage == 1 {
+            image[a[1] + 24..a[1] + 32].copy_from_slice(&(6 * 512u64).to_le_bytes());
+            geo.reseal(&mut image, &a);
+        } else if damage == 2 {
+            geo.set_bit(&mut image, first + 1, false);
+        }
+        for bytes in [1536, 8192] {
+            let mut dev = common::device(image.clone(), 512);
+            let mut block = BlockBuf::<[u8; 512]>::new(512).unwrap();
+            let (geo, _) = rawio::read_boot(&mut dev, &mut block).unwrap();
+            let mut upcase = Upcase::new();
+            let vol = rawio::read_volume(&mut dev, &mut block, geo, &mut upcase).unwrap();
+            let result = rawio::check_allocations(&mut dev, vol, &upcase, &mut vec![0; bytes]);
+            if damage == 0 {
+                result.unwrap();
+            } else {
+                assert_eq!(result.unwrap_err().kind(), ErrorKind::Corrupt);
+            }
+            assert_eq!(dev.into_inner(), image);
+        }
+    }
 }

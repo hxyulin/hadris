@@ -58,6 +58,10 @@ hadris-fs = { workspace = true, features = ["unstable-contract"] }
 tempfile = "3"
 
 [[test]]
+name = "durability"
+required-features = ["std", "sync", "async", "write"]
+
+[[test]]
 name = "fatfs_read"
 required-features = ["std", "sync", "write"]
 

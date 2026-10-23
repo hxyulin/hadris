@@ -180,35 +180,61 @@ pub async fn check<D: BlockDevice, F: FnMut(&Finding<'_>)>(
     let (geo, region) = read_boot(dev, &mut block).await?;
     let mut upcase = Upcase::new();
     let vol = read_volume(dev, &mut block, geo, &mut upcase).await?;
-    let (path, bits) = scratch.split_at_mut(PATH_LEN);
-    let mut checker = Checker {
-        dev,
-        block,
-        vol,
-        upcase,
-        path,
-        dir_len: 0,
-        name_len: 0,
-        hidden: 0,
-        bits,
-        lo: raw::FIRST_CLUSTER,
-        hi: raw::FIRST_CLUSTER,
-        first_pass: true,
-        findings: 0,
-        passes: 0,
-        used: 0,
-        claimed: 0,
-        exhausted: false,
-        sink: on_finding,
-        lost: (0, 0),
-        free_in_use: (0, 0),
-        seen: [false; 4],
-    };
+    let mut checker = Checker::new(dev, block, vol, upcase, scratch, on_finding);
     checker.check(region).await?;
     Ok(CheckReport::new(checker.findings, checker.passes))
 }
 
-impl<D: BlockDevice, F: FnMut(&Finding<'_>)> Checker<'_, D, F> {
+/// Validates exclusive ownership of all reachable allocations before a mounted
+/// driver starts mutating them. Uses the checker's bounded directory walk and
+/// windowed claim bitmap, including system files and benign secondary allocations.
+/// Lost clusters and unrelated metadata findings do not prevent writes.
+///
+/// `scratch` must contain at least 1536 bytes; the first 1024 hold paths and
+/// the rest track clusters. Each window walks the tree once and scans its
+/// allocation bitmap. Cycles, incomplete walks (including depth above 64),
+/// malformed allocation records, cross-links and claims of free clusters fail
+/// with `Corrupt`. Does not change the device or the caller's volume state.
+/// The caller must exclude external device changes and preserve exclusive
+/// ownership in all subsequent mutations before caching a successful result.
+pub async fn check_allocations<D: BlockDevice>(
+    dev: &mut D,
+    vol: ExFat,
+    upcase: &Upcase,
+    scratch: &mut [u8],
+) -> FsResult<(), D::Error> {
+    if scratch.len() < PATH_LEN + MIN_BITMAP {
+        return Err(ErrorKind::LimitExceeded.into());
+    }
+    let block = BlockBuf::<[u8; MAX_BLOCK]>::new(dev.block_size().get() as usize)
+        .ok_or(ErrorKind::Unsupported)?;
+    let mut corrupt = false;
+    let mut checker = Checker::new(dev, block, vol, upcase.clone(), scratch, |finding: &Finding<'_>| {
+        if matches!(Detail::from_code(finding.detail()), Some(
+            Detail::CrossLink | Detail::Bitmap | Detail::InvalidCluster |
+            Detail::BrokenChain | Detail::CyclicChain | Detail::BadCluster |
+            Detail::EntrySet | Detail::DirectorySize | Detail::RootEntry |
+            Detail::TooDeep | Detail::LimitExceeded | Detail::SizeMismatch
+        )) {
+            corrupt = true;
+        }
+    });
+    checker.allocations().await?;
+    if corrupt { Err(ErrorKind::Corrupt.into()) } else { Ok(()) }
+}
+
+impl<'a, D: BlockDevice, F: FnMut(&Finding<'_>)> Checker<'a, D, F> {
+    fn new(dev: &'a mut D, block: BlockBuf<[u8; MAX_BLOCK]>, vol: ExFat, upcase: Upcase, scratch: &'a mut [u8], sink: F) -> Self {
+        let (path, bits) = scratch.split_at_mut(PATH_LEN);
+        Self {
+            dev, block, vol, upcase, path, dir_len: 0, name_len: 0, hidden: 0, bits,
+            lo: raw::FIRST_CLUSTER, hi: raw::FIRST_CLUSTER, first_pass: true,
+            findings: 0, passes: 0, used: 0, claimed: 0, exhausted: false, sink,
+            lost: (0, 0), free_in_use: (0, 0), seen: [false; 4],
+        }
+    }
+
+
     fn report(&mut self, finding: Finding<'static>, scope: Scope) {
         self.findings += 1;
         let end = match scope {
@@ -232,6 +258,22 @@ impl<D: BlockDevice, F: FnMut(&Finding<'_>)> Checker<'_, D, F> {
 
     async fn check(&mut self, region: BootRegion) -> FsResult<(), D::Error> {
         self.boot(region).await?;
+        self.allocations().await?;
+        let mut recorded = [0u8; 1];
+        self.read(PERCENT_AT, &mut recorded).await?;
+        let recorded = recorded[0];
+        let count = self.vol.geometry().cluster_count() as u64;
+        let used = self.used as u64;
+        let floor = (used * 100 / count) as u8;
+        let ceil = (used * 100).div_ceil(count) as u8;
+        if recorded != 0xFF && recorded != floor && recorded != ceil {
+            let finding = found(Detail::PercentInUse).with_severity(Severity::Notice);
+            self.report(finding.with_location(Location::Byte(PERCENT_AT)), Scope::Volume);
+        }
+        Ok(())
+    }
+
+    async fn allocations(&mut self) -> FsResult<(), D::Error> {
         let max = self.vol.geometry().max_cluster();
         let window = (self.bits.len() as u64 * 8).min(1 << 31) as u32;
         let mut lo = raw::FIRST_CLUSTER;
@@ -251,17 +293,6 @@ impl<D: BlockDevice, F: FnMut(&Finding<'_>)> Checker<'_, D, F> {
         }
         self.flush_lost();
         self.flush_free_in_use();
-        let mut recorded = [0u8; 1];
-        self.read(PERCENT_AT, &mut recorded).await?;
-        let recorded = recorded[0];
-        let count = self.vol.geometry().cluster_count() as u64;
-        let used = self.used as u64;
-        let floor = (used * 100 / count) as u8;
-        let ceil = (used * 100).div_ceil(count) as u8;
-        if recorded != 0xFF && recorded != floor && recorded != ceil {
-            let finding = found(Detail::PercentInUse).with_severity(Severity::Notice);
-            self.report(finding.with_location(Location::Byte(PERCENT_AT)), Scope::Volume);
-        }
         Ok(())
     }
 
@@ -424,6 +455,9 @@ impl<D: BlockDevice, F: FnMut(&Finding<'_>)> Checker<'_, D, F> {
         let short = said(Detail::SizeMismatch, "allocation is shorter than its data length needs")
             .with_location(Location::Byte(entry));
         if contiguous {
+            if needed == 0 {
+                self.once(found(Detail::SizeMismatch).with_location(Location::Byte(entry)), Scope::Entry);
+            }
             let room = (self.vol.geometry().max_cluster() - first + 1) as u64;
             if needed > room {
                 self.once(short, Scope::Entry);
@@ -673,6 +707,9 @@ impl<D: BlockDevice, F: FnMut(&Finding<'_>)> Checker<'_, D, F> {
             }
         } else if valid > len {
             self.once(found(Detail::ValidDataLength).with_location(here), Scope::Entry);
+        }
+        if stream[1] & raw::ALLOCATION_POSSIBLE == 0 && (le32(&stream, 20) != 0 || len != 0) {
+            self.once(found(Detail::EntrySet).with_location(here), Scope::Entry);
         }
         let mut child = None;
         if stream[1] & raw::ALLOCATION_POSSIBLE != 0 {

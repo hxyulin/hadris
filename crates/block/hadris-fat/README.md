@@ -140,8 +140,9 @@ device.
 Writes go to the device at once, except the size and modification time of
 a pinned file, which stay in the node table so every handle sees one size
 until `close`, `fsync` or `sync` writes them; closing a `File` handle
-calls `close`, which does not flush the device, and `File::sync_all` calls
-`fsync`, which does. `sync` also writes the FAT32 FSInfo free count and
+calls `close`, which flushes preceding data before publishing metadata but
+does not flush that final metadata write. `File::sync_all` calls `fsync`,
+which makes both durable. `sync` also writes the FAT32 FSInfo free count and
 flushes the device. Both hosted and embedded FAT16/32 drivers clear and
 flush the clean bit before changing the volume, then restore it after a
 successful `sync` or `unmount`. Volumes already dirty at mount, or whose
@@ -151,9 +152,24 @@ opened with `open`) fails with `ErrorKind::Busy`; a node that is only pinned is
 removed and its id answers `ErrorKind::NotFound` until its last `forget`. A
 device that refuses a write makes the volume read-only. A pending dirty-marker
 update prevents `sync` and `unmount` from succeeding on that volume.
-Writes are ordered so that an interrupted operation, or a dropped `async`
-future, leaves a volume that `fsck` repairs: at worst lost clusters, a
-chain longer than its file, or a renamed node under both names.
+While the same driver stays mounted, an interrupted operation or a dropped
+`async` future is finished or rolled back by the next writing call or `sync`.
+
+FAT and exFAT flush dependencies before publishing directory entries or
+file sizes, linking earlier FAT blocks to newly allocated runs, and freeing
+clusters after removing their references. exFAT also flushes between blocks
+of a directory entry set, publishing its primary entry last and removing it
+first. These barriers apply in sync and async modes, including embedded FAT,
+and add flush latency to metadata operations. A failed barrier stops the
+dependent write; a cancelled or failed exFAT dirty-marker flush is retried.
+Devices and intervening caches must honor `BlockDevice::flush`.
+
+These are persistence ordering guarantees, not atomic multi-block updates.
+Logical and physical block sizes do not promise power-fail atomicity.
+Torn writes, interrupted renames, exFAT entry-set updates and TexFAT mirrors
+can still require external repair after a reset. Recovery held in memory
+works only while the same mounted driver survives; successful `fsync`,
+`sync` or `unmount` remains the durability boundary.
 
 ### Formatting with `FatFs`
 
@@ -295,6 +311,25 @@ structure, as Windows writes it; exfatprogs 1.2 shows the same bytes in raw
 order, so its text form differs. The conformance suite in `tests/` qualifies it against
 exfatprogs, macOS `newfs_exfat`/`fsck_exfat` and the macOS kernel driver.
 
+Before the first mutation, `ExFatFs` validates exclusive ownership of reachable
+allocations, including directory chains, system files and vendor secondary
+allocations. A forged `NoFatChain` length overlapping allocated neighbors is
+rejected with `Corrupt` before any write, including truncation, unlink, replacing
+rename, overwrite and growth. Invalid allocation records, claims of free clusters,
+cycles and trees deeper than 64 directories also prevent mutation. Reads remain
+available. Lost clusters alone do not prevent writes.
+
+Validation reuses the raw checker's bounded walk and windowed bitmap. Temporary
+heap scratch is between 1536 bytes and 65 KiB, released after validation; the async
+mode also boxes the checker future for the duration of the check. For `C`
+volume clusters, it walks the reachable tree `ceil(C / 524288)` times at the
+maximum scratch size, plus one scan of the allocation bitmap; small volumes use
+one pass and less memory. Each walk limits repeated claims to twice the volume's
+cluster count. Success or corruption is cached for the mount, so later deletes do
+not repeat the scan and legitimate dirty nodes and pending recovery remain usable.
+I/O errors and cancelled validation can be retried. The device must not change
+externally while mounted. This check does not add crash or power-loss guarantees.
+
 ### For Bootloaders and Embedded Systems
 
 ```toml
@@ -330,9 +365,10 @@ fat.close(log)?;
 let sd_card = fat.unmount()?;
 ```
 
-Writes follow the same crash ordering as `FatFs`. A power cut, or a
-dropped async future, leaves at worst lost clusters, and the next writing
-call or `sync` on the same `Fat` frees them.
+Writes follow the same ordering and use the same durability barriers as
+`FatFs`. A dropped async future is recovered by the next writing call or
+`sync` on the same `Fat`. This recovery state does not survive power loss;
+after a reset, interrupted operations can require external repair.
 
 The guide [Use FAT and exFAT on a microcontroller](https://hxyulin.github.io/hadris/guides/embedded)
 has the measured flash and stack on `thumbv6m`, `thumbv7em` and `riscv32imc`.

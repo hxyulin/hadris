@@ -263,3 +263,54 @@ bad_cluster_allocations!(
     bad_clusters_are_not_allocated_async,
     async_allocation
 );
+
+#[test]
+fn allocated_contiguous_overlap_is_rejected_even_after_cancelled_validation() {
+    use hadris_fs::{Name, RenameMode};
+    let mut fs = common::small(8 << 20, 512);
+    let root = fs.root();
+    for text in ["c", "a", "b"] {
+        let node = common::write(&mut fs, root, text, &common::payload(1500, 2));
+        fs.forget(node, 1);
+    }
+    fs.sync().unwrap();
+    let mut image = common::image(fs);
+    let geo = common::Geometry::of(&image);
+    for text in ["a", "b"] {
+        let set = geo.set(&image, geo.root, text);
+        geo.unchain(&mut image, &set);
+    }
+    let set = geo.set(&image, geo.root, "a");
+    image[set[1] + 24..set[1] + 32].copy_from_slice(&(6 * 512u64).to_le_bytes());
+    geo.reseal(&mut image, &set);
+    for operation in 0..5 {
+        for polls in [0, 1, 10] {
+            let dev = cancel::YieldDev(common::device(image.clone(), 512));
+            let mut fs = common::block_on(ExFatFs::mount(dev, MountOptions::new())).unwrap();
+            let root = fs.root();
+            let node = common::block_on(fs.lookup(root, Name::new("a"))).unwrap();
+            assert!(cancel::run_for(fs.truncate(node, 0), polls).is_none());
+            let result = common::block_on(async {
+                match operation {
+                    0 => fs.truncate(node, 0).await,
+                    1 => fs.unlink(root, Name::new("a")).await,
+                    2 => {
+                        fs.rename(
+                            root,
+                            Name::new("c"),
+                            root,
+                            Name::new("a"),
+                            RenameMode::Replace,
+                        )
+                        .await
+                    }
+                    3 => fs.write(node, 0, b"overwrite").await.map(|_| ()),
+                    _ => fs.write(node, 6 * 512, b"grow").await.map(|_| ()),
+                }
+            });
+            assert_eq!(result.unwrap_err().kind(), ErrorKind::Corrupt);
+            common::block_on(fs.sync()).unwrap();
+            assert_eq!(fs.into_inner().0.into_inner(), image);
+        }
+    }
+}

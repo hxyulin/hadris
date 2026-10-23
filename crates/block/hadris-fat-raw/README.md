@@ -21,6 +21,14 @@ codes of `Detail` and `exfat::Detail` never change meaning.
 The layouts and codecs work on bytes and plain values without I/O or an
 allocator. Optional device primitives are described below:
 
+The device primitives flush before FAT links and allocation releases and
+before publishing a FAT short entry or each block of an exFAT entry set.
+exFAT allocation FAT writes are flushed before bitmap publication. Callers
+that publish FAT file sizes directly must flush their data and allocations
+first, and must remove references before freeing clusters. These barriers
+require a correct `BlockDevice::flush` implementation and add I/O latency;
+they do not provide atomic multi-block updates or persistent recovery.
+
 - **Layouts** of the boot sector, BPB, FSInfo sector and directory entries,
   with their constants
 - **Boot sectors**: `parse_boot` checks one and returns its `Geometry`,

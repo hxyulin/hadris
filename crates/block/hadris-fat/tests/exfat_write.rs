@@ -378,47 +378,142 @@ fn first_cluster(image: &[u8], geo: &Geometry, text: &str) -> u32 {
     le32(image, geo.set(image, geo.root, text)[1] + 20)
 }
 
+fn reject_overlapping_mutations(image: &[u8]) {
+    for operation in 0..7 {
+        let mut fs = common::mount(image);
+        let root = fs.root();
+        let before = free(&mut fs);
+        let node = fs.resolve_path("/a").unwrap();
+        let len = fs.stat(node).unwrap().len();
+        let result = match operation {
+            0 => fs.truncate(node, 0),
+            1 => fs.truncate(node, 1),
+            2 => fs.truncate(node, len + 1),
+            3 => fs.write(node, 0, b"overwrite").map(|_| ()),
+            4 => fs.write(node, len, b"grow").map(|_| ()),
+            5 => fs.unlink(root, name("a")),
+            _ => fs.rename(root, name("c"), root, name("a"), RenameMode::Replace),
+        };
+        assert_eq!(
+            result.unwrap_err().kind(),
+            ErrorKind::Corrupt,
+            "operation {operation}"
+        );
+        assert_eq!(fs.stat(node).unwrap().len(), len);
+        fs.forget(node, 1);
+        assert_eq!(free(&mut fs), before);
+        fs.sync().unwrap();
+        assert_eq!(common::image(fs), image, "operation {operation}");
+    }
+}
+
+fn forge_run(image: &mut [u8], geo: &Geometry, first: u32, clusters: u64) {
+    let set = geo.set(image, geo.root, "a");
+    image[set[1] + 1] |= 3;
+    image[set[1] + 20..set[1] + 24].copy_from_slice(&first.to_le_bytes());
+    image[set[1] + 24..set[1] + 32].copy_from_slice(&(clusters * geo.cluster as u64).to_le_bytes());
+    geo.reseal(image, &set);
+}
+
 #[test]
 fn contiguous_runs_over_other_files_are_not_freed() {
-    let (mut image, geo) = adjacent_contiguous();
-    let a = first_cluster(&image, &geo, "a");
-    let b = first_cluster(&image, &geo, "b");
-    assert_eq!(b, a + 3);
-    assert!(!geo.used(&image, b + 3));
-    let set = geo.set(&image, geo.root, "a");
-    let len = 8 * geo.cluster as u64;
-    image[set[1] + 24..set[1] + 32].copy_from_slice(&len.to_le_bytes());
-    geo.reseal(&mut image, &set);
+    for clusters in [6, 8] {
+        let (mut image, geo) = adjacent_contiguous();
+        let a = first_cluster(&image, &geo, "a");
+        let b = first_cluster(&image, &geo, "b");
+        assert_eq!(b, a + 3);
+        assert!((a..b + 3).all(|cluster| geo.used(&image, cluster)));
+        assert!(!geo.used(&image, b + 3));
+        forge_run(&mut image, &geo, a, clusters);
+        reject_overlapping_mutations(&image);
+        let mut fs = common::mount(&image);
+        assert_eq!(fs.read_to_vec("/b").unwrap(), common::payload(1500, 2));
+        assert_eq!(fs.read_to_vec("/c").unwrap(), common::payload(1500, 3));
+    }
+}
+
+#[test]
+fn contiguous_overlap_checks_nested_and_chained_owners() {
+    for nested in [false, true] {
+        let (image, geo) = adjacent_contiguous();
+        let mut fs = common::mount(&image);
+        if nested {
+            let root = fs.root();
+            let dir = common::mkdir(&mut fs, root, "nested");
+            fs.rename(fs.root(), name("b"), dir, name("b"), RenameMode::NoReplace)
+                .unwrap();
+            fs.forget(dir, 1);
+        }
+        fs.sync().unwrap();
+        let mut image = common::image(fs);
+        let parent = if nested {
+            first_cluster(&image, &geo, "nested")
+        } else {
+            geo.root
+        };
+        let b = geo.set(&image, parent, "b");
+        let first = le32(&image, b[1] + 20);
+        image[b[1] + 1] &= !2;
+        for cluster in first..first + 3 {
+            let at = geo.fat + cluster as usize * 4;
+            let next = if cluster == first + 2 {
+                u32::MAX
+            } else {
+                cluster + 1
+            };
+            image[at..at + 4].copy_from_slice(&next.to_le_bytes());
+        }
+        geo.reseal(&mut image, &b);
+        let a = first_cluster(&image, &geo, "a");
+        forge_run(&mut image, &geo, a, 6);
+        reject_overlapping_mutations(&image);
+        let mut fs = common::mount(&image);
+        let path = if nested { "/nested/b" } else { "/b" };
+        assert_eq!(fs.read_to_vec(path).unwrap(), common::payload(1500, 2));
+    }
+}
+
+#[test]
+fn contiguous_overlap_checks_vendor_owners() {
+    for contiguous in [false, true] {
+        let mut fs = common::small(8 << 20, 512);
+        let root = fs.root();
+        for (text, len) in [("a", 1500), ("c", 0), ("b", 1500)] {
+            let node = common::write(&mut fs, root, text, &common::payload(len, 2));
+            fs.forget(node, 1);
+        }
+        fs.sync().unwrap();
+        let mut image = common::image(fs);
+        let geo = Geometry::of(&image);
+        let a = first_cluster(&image, &geo, "a");
+        assert_eq!(first_cluster(&image, &geo, "b"), a + 3);
+        vendor_allocation(&mut image, &geo, "c", "b", contiguous);
+        forge_run(&mut image, &geo, a, 6);
+        reject_overlapping_mutations(&image);
+    }
+}
+
+#[test]
+fn contiguous_overlap_checks_system_and_directory_owners() {
+    let (image, geo) = adjacent_contiguous();
     let mut fs = common::mount(&image);
     let root = fs.root();
-    let before = free(&mut fs);
-    let node = fs.resolve_path("/a").unwrap();
-    for len in [1, 0, len + 1] {
-        assert_eq!(
-            fs.truncate(node, len).unwrap_err().kind(),
-            ErrorKind::Corrupt
-        );
-    }
-    fs.forget(node, 1);
-    assert_eq!(
-        fs.unlink(root, name("a")).unwrap_err().kind(),
-        ErrorKind::Corrupt
-    );
-    assert_eq!(
-        fs.rename(root, name("c"), root, name("a"), RenameMode::Replace)
-            .unwrap_err()
-            .kind(),
-        ErrorKind::Corrupt
-    );
-    assert_eq!(free(&mut fs), before);
-    assert_eq!(fs.read_to_vec("/b").unwrap(), common::payload(1500, 2));
+    let dir = common::mkdir(&mut fs, root, "nested");
+    fs.forget(dir, 1);
     fs.sync().unwrap();
-    let after = common::image(fs);
-    assert_eq!(after, image);
-    assert!((a..b + 3).all(|cluster| geo.used(&after, cluster)));
-    let mut fs = common::mount(&after);
-    assert_eq!(fs.read_to_vec("/b").unwrap(), common::payload(1500, 2));
-    assert_eq!(fs.read_to_vec("/c").unwrap(), common::payload(1500, 3));
+    let image = common::image(fs);
+    let bitmap = geo.root_entries(&image, 0x81)[0];
+    let upcase = geo.root_entries(&image, 0x82)[0];
+    for first in [
+        geo.root,
+        le32(&image, bitmap + 20),
+        le32(&image, upcase + 20),
+        first_cluster(&image, &geo, "nested"),
+    ] {
+        let mut image = image.clone();
+        forge_run(&mut image, &geo, first, 1);
+        reject_overlapping_mutations(&image);
+    }
 }
 
 #[test]
@@ -2301,4 +2396,68 @@ fn contiguous_frees_and_shrinks_recover_from_a_failed_write_at_every_step() {
             assert!(completed, "op {op} land {land} never completed");
         }
     }
+}
+
+#[test]
+fn cached_ownership_accepts_dirty_growing_neighbors() {
+    let (image, _) = adjacent_contiguous();
+    let mut fs = common::mount(&image);
+    let root = fs.root();
+    let b = fs.lookup(root, name("b")).unwrap();
+    common::append(&mut fs, b, 1500, &common::payload(1500, 4));
+    fs.unlink(root, name("a")).unwrap();
+    let mut expected = common::payload(1500, 2);
+    expected.extend(common::payload(1500, 4));
+    assert_eq!(read_all(&mut fs, b), expected);
+    fs.unlink(root, name("b")).unwrap();
+    fs.forget(b, 1);
+    fs.sync().unwrap();
+    clean(&mut fs, "dirty neighbor removed");
+}
+
+#[test]
+fn ownership_validation_rejects_cycles_and_missing_allocation_flags() {
+    let (image, geo) = adjacent_contiguous();
+    for cycle in [false, true] {
+        let mut image = image.clone();
+        let b = geo.set(&image, geo.root, "b");
+        if cycle {
+            image[b[1] + 1] &= !2;
+            let first = le32(&image, b[1] + 20);
+            let at = geo.fat + first as usize * 4;
+            image[at..at + 4].copy_from_slice(&first.to_le_bytes());
+        } else {
+            image[b[1] + 1] &= !1;
+        }
+        geo.reseal(&mut image, &b);
+        reject_overlapping_mutations(&image);
+    }
+}
+
+#[test]
+fn overlapping_vendor_allocation_is_not_freed() {
+    let mut fs = common::small(8 << 20, 512);
+    let root = fs.root();
+    for (text, len) in [("a", 0), ("blob", 1500), ("b", 1500), ("c", 1500)] {
+        let node = common::write(&mut fs, root, text, &common::payload(len, 2));
+        fs.forget(node, 1);
+    }
+    fs.sync().unwrap();
+    let mut image = common::image(fs);
+    let geo = Geometry::of(&image);
+    vendor_allocation(&mut image, &geo, "a", "blob", true);
+    let a = geo.set(&image, geo.root, "a");
+    let first = le32(&image, a[3] + 20);
+    assert_eq!(first_cluster(&image, &geo, "b"), first + 3);
+    image[a[3] + 24..a[3] + 32].copy_from_slice(&(6 * 512u64).to_le_bytes());
+    geo.reseal(&mut image, &a);
+    reject_overlapping_mutations(&image);
+}
+
+#[test]
+fn zero_length_contiguous_claim_cannot_link_another_files_cluster() {
+    let (mut image, geo) = adjacent_contiguous();
+    let b = first_cluster(&image, &geo, "b");
+    forge_run(&mut image, &geo, b, 0);
+    reject_overlapping_mutations(&image);
 }

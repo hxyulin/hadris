@@ -605,6 +605,7 @@ fn hosted_append_uses_a_guarded_tail_hint_without_rescanning() {
     let node = fs
         .lookup(fs.root(), hadris_fs::Name::new("hint.bin"))
         .unwrap();
+    fs.truncate(node, 1 << 20).unwrap();
     fs.read(node, (1 << 20) - 1, &mut [0]).unwrap();
     counts.set(IoCounts::default());
     fs.write(node, 1 << 20, &[0x55; 512]).unwrap();
