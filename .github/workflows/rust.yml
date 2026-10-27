@@ -704,6 +704,64 @@ jobs:
       - name: Run clippy on conformance suite
         run: cargo clippy --manifest-path tests/Cargo.toml --all-targets -- -D warnings -A clippy::manual_is_multiple_of -A clippy::collapsible_if -A clippy::unnecessary_sort_by -A clippy::byte_char_slices
 
+  clippy-platforms:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    name: "Clippy (${{ matrix.target }})"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: ubuntu-latest
+            target: x86_64-unknown-freebsd
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.97.1
+          components: clippy
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: clippy-${{ matrix.target }}
+      - name: Lint platform-specific code
+        run: cargo clippy --workspace --all-targets --all-features --target ${{ matrix.target }} -- -D warnings -A clippy::manual_is_multiple_of -A clippy::collapsible_if -A clippy::unnecessary_sort_by -A clippy::byte_char_slices
+
+  clippy-features:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    name: "Clippy features (${{ matrix.group }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [core, block, optical, archive, facades]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.97.1
+          components: clippy
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: clippy-features-${{ matrix.group }}
+      - name: Lint each library feature tier independently
+        run: python3 scripts/check-features.py ${{ matrix.group }} --clippy
+
   miri:
     needs: changes
     if: needs.changes.outputs.rust == 'true'

@@ -90,6 +90,17 @@ remains the library MSRV. Feature tiers are checked independently from
 RUSTUP_TOOLCHAIN=1.88.0 RUSTFLAGS="-D warnings" python3 scripts/check-features.py all
 ```
 
+Clippy also checks each library tier independently on Linux, using Rust 1.97.1:
+
+```bash
+RUSTUP_TOOLCHAIN=1.97.1 python3 scripts/check-features.py all --clippy
+```
+
+The workspace Clippy jobs cover Linux, macOS, Windows and the FreeBSD target.
+FreeBSD uses cross-compilation on Linux; these lint jobs do not execute target
+binaries. Feature-tier linting excludes tests and examples to avoid their
+development dependencies enabling features in the library being checked.
+
 ### CI coverage
 
 FAT/exFAT and ISO 9660 formal proofs run in the separate daily and manually

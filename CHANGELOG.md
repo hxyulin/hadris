@@ -113,6 +113,9 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **CI:** Clippy checks the workspace for macOS, Windows and FreeBSD as well
+  as Linux. Every library feature tier is linted independently, including
+  no-std configurations.
 - **Workspace:** Clippy checks unsafe safety comments and the `# Safety`,
   `# Errors` and `# Panics` documentation sections in every workspace member.
   Public fallible APIs document their failure conditions and partial effects.
