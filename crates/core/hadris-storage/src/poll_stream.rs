@@ -1,5 +1,5 @@
 use crate::async_::BlockDevice;
-use crate::{BlockIndex, BlockSize};
+use crate::{BlockIndex, BlockSize, StreamDeviceError};
 use core::task::{Context, Poll};
 use hadris_io::{Error, ErrorKind, ErrorType, SeekFrom};
 
@@ -181,13 +181,28 @@ impl<T> StreamDevice<T> {
 }
 impl<T: Stream> StreamDevice<T> {
     /// Determines the readable size by seeking to the stream's end.
-    pub async fn new(mut inner: T, size: BlockSize) -> Result<Self, Error<T::Error>> {
-        let len = SeekOperation {
+    ///
+    /// Trailing bytes that do not fill a block are not addressable.
+    /// Cancelling construction drops the stream after cancelling the seek.
+    ///
+    /// # Errors
+    ///
+    /// Returns the seek error and the stream if its length cannot be measured.
+    /// The stream's position may have changed before failure.
+    pub async fn new(
+        mut inner: T,
+        size: BlockSize,
+    ) -> Result<Self, StreamDeviceError<T, T::Error>> {
+        let result = SeekOperation {
             stream: &mut inner,
             state: T::State::default(),
             pending: false,
         }
-        .await?;
+        .await;
+        let len = match result {
+            Ok(len) => len,
+            Err(error) => return Err(StreamDeviceError::new(error, inner)),
+        };
         Ok(Self::with_block_count(
             inner,
             size,

@@ -25,7 +25,14 @@ macro_rules! watched {
 #[allow(clippy::duplicate_mod)]
 #[path = "api/mod.rs"]
 mod api;
-pub use api::*;
+#[cfg(feature = "unstable-contract")]
+#[doc(hidden)]
+pub use api::contract;
+#[cfg(feature = "alloc")]
+pub use api::{ContentReader, copy_tree};
+#[cfg(feature = "std")]
+pub use api::{File, ReadDir, Volume, VolumeGuard, WalkDir, WalkDirEntry, read_tree};
+pub use api::{FileSystem, Walk};
 
 /// The lock of a sync `Volume`: `std::sync::Mutex`, which a panic while
 /// it is held poisons. A poisoned lock hands out no guard, so the volume

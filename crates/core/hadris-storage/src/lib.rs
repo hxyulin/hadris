@@ -36,6 +36,7 @@ mod byte_view;
 #[cfg(feature = "alloc")]
 mod cache;
 mod device;
+mod error;
 mod geometry;
 #[cfg(feature = "std")]
 pub mod host;
@@ -66,6 +67,7 @@ mod scratch;
 pub mod sync;
 
 pub use device::{MemBuffer, MemDevice, Partition, ReadOnly};
+pub use error::StreamDeviceError;
 pub use geometry::{BlockCount, BlockGeometry, BlockIndex, BlockRange, BlockSize};
 
 /// Common async device operations and explicit Send guarantees.

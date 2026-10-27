@@ -1,5 +1,5 @@
-use super::*;
-use crate::{WalkEntry, WalkFrame};
+use super::filesystem::FileSystem;
+use crate::{DirCursor, ErrorKind, FileType, FsResult, NodeId, WalkEntry, WalkFrame};
 
 /// The deepest level `Walk::new` reaches.
 #[cfg(feature = "alloc")]

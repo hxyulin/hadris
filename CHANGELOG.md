@@ -10,6 +10,12 @@ Each published package owns its version and may be released independently.
 
 ### Breaking
 
+- **hadris-storage:** `sync::StreamDevice::{new, new_growable}` and
+  `async_::StreamDevice::new` return `StreamDeviceError<T, T::Error>` on
+  failure, retaining the stream instead of dropping it. Use `into_parts()`
+  to recover the error and stream, or `into_error()` to discard the stream
+  and propagate `hadris_io::Error<T::Error>`. The crate advances to
+  `3.0.0-rc.3` for this API change.
 - **hadris-iso, hadris-udf, hadris-cpio:** The writers moved from `alloc`
   to a new default `write` feature, so `alloc` now only means a heap. In
   hadris-iso, `write` adds `plan`, `{sync, async_}::{write, Session}` and
@@ -42,6 +48,10 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-fs:** `Name::is_empty()` and `Debug` for `VolumeGuard` without
+  requiring the filesystem to implement `Debug`.
+- **hadris-storage:** `Debug` for async `Operation` without requiring the
+  device or its operation state to implement `Debug`.
 - **hadris-fs:** `async_::SendFileSystem`, `async_::Sendable` and
   `async_::SendVolume`. Every format's `SendFileSystem` impl forwards every
   method, including writes and `resolve`, where the old `Send` tier of ISO,

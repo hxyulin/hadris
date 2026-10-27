@@ -13,13 +13,21 @@ pub struct ReadAhead<D> {
     inner: D,
     windows: crate::read_ahead::Windows,
 }
+#[derive(Debug, Default, PartialEq, Eq)]
+enum Phase {
+    #[default]
+    Idle,
+    Fetching,
+    Bypass,
+}
+
 /// Progress of a read-ahead request.
 #[derive(Debug, Default)]
 #[non_exhaustive]
 pub struct ReadAheadOperation<S> {
     child: S,
     pending: bool,
-    phase: u8,
+    phase: Phase,
     slot: usize,
     fetched: usize,
 }
@@ -88,23 +96,23 @@ impl<D: BlockDevice> BlockDevice for ReadAhead<D> {
             return Poll::Ready(Err(error));
         }
         let size = self.block_size().get() as usize;
-        if state.phase == 0 {
+        if state.phase == Phase::Idle {
             let block_count = self.block_count();
             match self
                 .windows
                 .plan(self.block_size(), block_count, first, buf)
             {
                 Plan::Hit => return Poll::Ready(Ok(())),
-                Plan::Bypass => state.phase = 2,
+                Plan::Bypass => state.phase = Phase::Bypass,
                 Plan::Fetch { slot, fetched } => {
                     state.slot = slot;
                     state.fetched = fetched;
-                    state.phase = 1;
+                    state.phase = Phase::Fetching;
                 }
             }
         }
         state.pending = true;
-        let result = if state.phase == 1 {
+        let result = if state.phase == Phase::Fetching {
             let target = self.windows.target(state.slot, state.fetched);
             self.inner
                 .poll_read_blocks(&mut state.child, cx, first, target)
@@ -114,14 +122,16 @@ impl<D: BlockDevice> BlockDevice for ReadAhead<D> {
         };
         state.pending = result.is_pending();
         match result {
-            Poll::Ready(Ok(())) if state.phase == 1 => {
+            Poll::Ready(Ok(())) if state.phase == Phase::Fetching => {
                 self.windows
                     .fill(state.slot, state.fetched, first.get(), buf);
                 Poll::Ready(Ok(()))
             }
-            Poll::Ready(Err(_)) if state.phase == 1 && state.fetched * size != buf.len() => {
+            Poll::Ready(Err(_))
+                if state.phase == Phase::Fetching && state.fetched * size != buf.len() =>
+            {
                 state.child = Default::default();
-                state.phase = 2;
+                state.phase = Phase::Bypass;
                 self.poll_read_blocks(state, cx, first, buf)
             }
             other => other,

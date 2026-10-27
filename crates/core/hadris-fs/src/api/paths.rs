@@ -1,4 +1,5 @@
-use super::*;
+use super::filesystem::FileSystem;
+use crate::{ErrorKind, FileType, FsResult, Name, NodeId, Resolve};
 
 /// Links `Follow` and `NoFollow` follow before failing with
 /// [`ErrorKind::Symlink`].

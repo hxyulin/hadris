@@ -101,6 +101,10 @@ impl Name {
 
     /// Checks that the name can name a directory entry: it is not empty,
     /// `.` or `..`, and holds no `/` or NUL byte.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`NameError`] identifying the invalid component or byte.
     pub const fn check(&self) -> Result<(), NameError> {
         validate(&self.0)
     }
@@ -111,14 +115,22 @@ impl Name {
     }
 
     /// Returns the name as UTF-8 text.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Utf8Error`] if the name contains invalid UTF-8.
     pub const fn to_str(&self) -> Result<&str, Utf8Error> {
         core::str::from_utf8(&self.0)
     }
 
     /// Returns the length in bytes.
-    #[allow(clippy::len_without_is_empty)]
     pub const fn len(&self) -> usize {
         self.0.len()
+    }
+
+    /// Returns whether the name contains no bytes.
+    pub const fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 
@@ -191,6 +203,10 @@ impl<const N: usize> NameBuf<N> {
     }
 
     /// Creates a buffer holding `name`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `name` is invalid or exceeds the capacity `N`.
     pub fn from_name(name: &Name) -> Result<Self, NameError> {
         let mut buf = Self::new();
         buf.set(name)?;
@@ -199,6 +215,10 @@ impl<const N: usize> NameBuf<N> {
 
     /// Checks `name` and replaces the contents. On error the buffer is
     /// unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `name` is invalid or exceeds the capacity `N`.
     pub fn set(&mut self, name: &Name) -> Result<(), NameError> {
         name.check()?;
         let bytes = name.as_bytes();
@@ -329,6 +349,12 @@ mod owned {
 
     impl OwnedName {
         /// Validates `bytes` and takes ownership of them.
+        ///
+        /// # Errors
+        ///
+        /// Returns the [`NameError`] for invalid bytes, dropping the input.
+        /// To retain the bytes on validation failure, call [`Name::check`]
+        /// on a borrowed [`Name`] before transferring ownership.
         pub fn new(bytes: Vec<u8>) -> Result<Self, NameError> {
             validate(&bytes)?;
             Ok(Self(bytes.into_boxed_slice()))

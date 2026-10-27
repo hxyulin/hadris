@@ -11,8 +11,13 @@
 //! # }
 //! ```
 
-use super::*;
-use crate::ContractViolation;
+use super::filesystem::FileSystem;
+use crate::{
+    ContractViolation, DirCursor, ErrorKind, FsResult, Name, NodeId, OpenMode, RenameMode, SetAttr,
+};
+async_only! {
+    use crate::{Capabilities, DirEntry, FsStats, Metadata, Resolve};
+}
 
 type Outcome<T> = Result<T, ContractViolation>;
 

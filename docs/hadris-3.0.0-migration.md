@@ -155,7 +155,7 @@ is available through separate dependencies:
 [dependencies]
 hadris-fat = { version = "3.0.0-rc.2" }
 hadris-fs = { version = "3.0.0-rc.3" }
-hadris-storage = { version = "3.0.0-rc.2" }
+hadris-storage = { version = "3.0.0-rc.3" }
 ```
 
 The paths correspond directly: `hadris::fat` is `hadris_fat`, `hadris::fs` is
@@ -392,6 +392,13 @@ let fs = hadris_fat::sync::FatFs::mount(image, hadris_fs::MountOptions::new().re
 
 Bytes in memory: `MemDevice::new(bytes, BlockSize::new(512).unwrap())`. Any
 other stream: `StreamDevice::new(StdIo::new(stream), BlockSize::new(512).unwrap())?`.
+
+From storage RC3, fallible `StreamDevice` constructors in both modes return
+`StreamDeviceError<T, T::Error>`. Call `into_parts()` on the failure to
+recover `(error, stream)`; the stream may have changed position before the
+seek failed. Converting the failure into `hadris_io::Error<T::Error>` or
+`std::io::Error` drops the stream and preserves the error context. Callers
+that previously returned the bare stream error must handle this wrapper.
 
 A GPT image copied from a 4Kn disk retains 4096-byte logical blocks. Open it
 with `FileDevice::open_with_block_size(path, BlockSize::new(4096).unwrap())`;

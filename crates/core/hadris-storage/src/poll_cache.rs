@@ -3,9 +3,17 @@ use crate::{BlockIndex, BlockSize};
 use core::task::{Context, Poll};
 use hadris_io::{Error, ErrorKind, ErrorType};
 
-/// The phase of a write that goes straight to the device once the dirty
-/// blocks it covers are written back.
-const PASS_THROUGH: u8 = 4;
+#[derive(Debug, Default, PartialEq, Eq)]
+enum Phase {
+    #[default]
+    Idle,
+    Evicting,
+    Reading,
+    Installing,
+    PassThrough,
+    WritingBack,
+    Flushing,
+}
 
 /// A write-back LRU cache. Dropping it discards unflushed writes. Before a
 /// write goes straight to the device, the dirty blocks it covers are written
@@ -24,7 +32,7 @@ pub struct CacheOperation<S> {
     pending: bool,
     done: usize,
     loaded_end: usize,
-    phase: u8,
+    phase: Phase,
     slot: usize,
     start: u64,
     len: usize,
@@ -65,6 +73,11 @@ impl<D: BlockDevice> Cache<D> {
     }
     /// Flushes the cache and returns its device. On failure the cache comes
     /// back with the error, still holding the blocks it could not write.
+    ///
+    /// # Errors
+    ///
+    /// Returns the cache and the flush error, preserving blocks that could
+    /// not be written. Completed writes are not rolled back.
     #[allow(clippy::result_large_err)]
     pub async fn finish(mut self) -> Result<D, (Self, Error<D::Error>)> {
         match self.flush().await {
@@ -78,12 +91,12 @@ impl<D: BlockDevice> Cache<D> {
         cx: &mut Context<'_>,
         index: u64,
     ) -> Poll<Result<usize, Error<D::Error>>> {
-        if state.phase != 1 {
+        if state.phase != Phase::Evicting {
             if let Some(slot) = self.cache.lookup(index) {
                 return Poll::Ready(Ok(slot));
             }
             state.slot = self.cache.victim().unwrap_or_else(|| self.cache.grow());
-            state.phase = 1;
+            state.phase = Phase::Evicting;
         }
         if let Some(evicted) = self.cache.dirty_index(state.slot) {
             state.pending = true;
@@ -105,7 +118,7 @@ impl<D: BlockDevice> Cache<D> {
         }
         self.cache.forget(state.slot);
         self.cache.assign(state.slot, index);
-        state.phase = 0;
+        state.phase = Phase::Idle;
         Poll::Ready(Ok(state.slot))
     }
 }
@@ -159,7 +172,7 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
         }
         while state.done < count {
             let index = first.get() + state.done as u64;
-            if state.phase == 0 {
+            if state.phase == Phase::Idle {
                 if let Some(slot) = self.cache.lookup(index) {
                     buf[state.done * size..(state.done + 1) * size]
                         .copy_from_slice(self.cache.data(slot));
@@ -167,9 +180,9 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
                     continue;
                 }
                 state.loaded_end = self.cache.uncached_end(first.get(), state.done, count);
-                state.phase = 2;
+                state.phase = Phase::Reading;
             }
-            if state.phase == 2 {
+            if state.phase == Phase::Reading {
                 state.pending = true;
                 let result = self.inner.poll_read_blocks(
                     &mut state.child,
@@ -183,14 +196,14 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
                     Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
                     Poll::Ready(Ok(())) => {
                         state.child = Default::default();
-                        state.phase = 3;
+                        state.phase = Phase::Installing;
                     }
                 }
             }
             let slot = match self.slot(state, cx, index) {
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(Err(e)) if e.kind() == ErrorKind::ReadOnly => {
-                    state.phase = 0;
+                    state.phase = Phase::Idle;
                     state.child = Default::default();
                     state.done += 1;
                     continue;
@@ -203,7 +216,7 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
                 .copy_from_slice(&buf[state.done * size..(state.done + 1) * size]);
             state.done += 1;
             if state.done < state.loaded_end {
-                state.phase = 3;
+                state.phase = Phase::Installing;
             }
         }
         Poll::Ready(Ok(()))
@@ -230,7 +243,7 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
         )
         .is_ok();
         if !self.written || !in_range || count >= self.cache.capacity() {
-            if state.phase != PASS_THROUGH {
+            if state.phase != Phase::PassThrough {
                 loop {
                     let Some(index) = self.cache.dirty_in(first.get(), count).next() else {
                         break;
@@ -254,7 +267,7 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
                     }
                 }
                 self.cache.invalidate(first.get(), count);
-                state.phase = PASS_THROUGH;
+                state.phase = Phase::PassThrough;
             }
             state.pending = true;
             let result = self
@@ -287,18 +300,18 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), Error<Self::Error>>> {
         loop {
-            if state.phase == 0 {
+            if state.phase == Phase::Idle {
                 if let Some(start) = self.cache.first_dirty() {
                     state.start = start;
                     state.len = self.cache.dirty_run(start);
                     self.cache.gather(start, state.len);
-                    state.phase = 1;
+                    state.phase = Phase::WritingBack;
                 } else {
-                    state.phase = 2;
+                    state.phase = Phase::Flushing;
                 }
             }
             state.pending = true;
-            let result = if state.phase == 1 {
+            let result = if state.phase == Phase::WritingBack {
                 self.inner.poll_write_blocks(
                     &mut state.child,
                     cx,
@@ -313,12 +326,12 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
                 Poll::Ready(Ok(())) => {
-                    if state.phase == 2 {
+                    if state.phase == Phase::Flushing {
                         return Poll::Ready(Ok(()));
                     }
                     self.cache.clean_range(state.start, state.len);
                     state.child = Default::default();
-                    state.phase = 0;
+                    state.phase = Phase::Idle;
                 }
             }
         }

@@ -1,4 +1,4 @@
-use super::*;
+use crate::ErrorKind;
 use crate::PathError;
 #[cfg(feature = "async")]
 use crate::tree::AsyncSource;

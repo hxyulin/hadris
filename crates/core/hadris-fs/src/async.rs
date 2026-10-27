@@ -1,3 +1,8 @@
+use crate::{
+    Capabilities, DirCursor, DirEntry, FsResult, FsStats, Metadata, Name, NodeId, OpenMode,
+    RenameMode, Resolve, SetAttr,
+};
+
 #[allow(unused_imports)]
 use hadris_io::async_ as io;
 macro_rules! io_transform {
@@ -25,7 +30,14 @@ macro_rules! watched {
 #[allow(clippy::duplicate_mod)]
 #[path = "api/mod.rs"]
 mod api;
-pub use api::*;
+#[cfg(feature = "unstable-contract")]
+#[doc(hidden)]
+pub use api::contract;
+#[cfg(feature = "alloc")]
+pub use api::{ContentReader, copy_tree};
+#[cfg(all(feature = "alloc", target_has_atomic = "ptr"))]
+pub use api::{File, ReadDir, Volume, VolumeGuard, WalkDir, WalkDirEntry, read_tree};
+pub use api::{FileSystem, Walk};
 
 #[cfg(all(feature = "alloc", target_has_atomic = "ptr"))]
 #[allow(clippy::duplicate_mod)]
@@ -41,15 +53,9 @@ mod send {
         ($($item:tt)*) => { hadris_macros::send_async! { $($item)* } };
     }
 
-    use crate::{
-        Capabilities, DirCursor, DirEntry, ErrorKind, FileType, FsResult, FsStats, Metadata, Name,
-        NodeId, OpenMode, RenameMode, Resolve, SetAttr,
-    };
-
     #[allow(clippy::duplicate_mod)]
     #[path = "api/filesystem.rs"]
     pub(super) mod filesystem;
-    use filesystem::FileSystem;
     #[allow(clippy::duplicate_mod, dead_code)]
     #[path = "api/paths.rs"]
     mod paths;
@@ -99,148 +105,118 @@ impl<F> core::ops::DerefMut for Sendable<F> {
 impl<F: SendFileSystem> FileSystem for Sendable<F> {
     type DeviceError = F::DeviceError;
 
-    fn capabilities(&self) -> crate::Capabilities {
+    fn capabilities(&self) -> Capabilities {
         self.0.capabilities()
     }
-    fn root(&self) -> crate::NodeId {
+    fn root(&self) -> NodeId {
         self.0.root()
     }
-    async fn statfs(&mut self) -> crate::FsResult<crate::FsStats, Self::DeviceError> {
+    async fn statfs(&mut self) -> FsResult<FsStats, Self::DeviceError> {
         self.0.statfs().await
     }
     async fn label<'b>(
         &mut self,
         buf: &'b mut [u8],
-    ) -> crate::FsResult<Option<&'b str>, Self::DeviceError> {
+    ) -> FsResult<Option<&'b str>, Self::DeviceError> {
         self.0.label(buf).await
     }
-    async fn lookup(
-        &mut self,
-        dir: crate::NodeId,
-        name: &crate::Name,
-    ) -> crate::FsResult<crate::NodeId, Self::DeviceError> {
+    async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, Self::DeviceError> {
         self.0.lookup(dir, name).await
     }
-    fn forget(&mut self, node: crate::NodeId, count: u64) {
+    fn forget(&mut self, node: NodeId, count: u64) {
         self.0.forget(node, count)
     }
-    async fn parent(
-        &mut self,
-        dir: crate::NodeId,
-    ) -> crate::FsResult<crate::NodeId, Self::DeviceError> {
+    async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, Self::DeviceError> {
         self.0.parent(dir).await
     }
-    async fn resolve(
-        &mut self,
-        path: &[u8],
-        how: crate::Resolve,
-    ) -> crate::FsResult<crate::NodeId, Self::DeviceError> {
+    async fn resolve(&mut self, path: &[u8], how: Resolve) -> FsResult<NodeId, Self::DeviceError> {
         self.0.resolve(path, how).await
     }
-    async fn stat(
-        &mut self,
-        node: crate::NodeId,
-    ) -> crate::FsResult<crate::Metadata, Self::DeviceError> {
+    async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, Self::DeviceError> {
         self.0.stat(node).await
     }
     async fn readdir(
         &mut self,
-        dir: crate::NodeId,
-        from: crate::DirCursor,
-    ) -> crate::FsResult<Option<crate::DirEntry>, Self::DeviceError> {
+        dir: NodeId,
+        from: DirCursor,
+    ) -> FsResult<Option<DirEntry>, Self::DeviceError> {
         self.0.readdir(dir, from).await
     }
     async fn readlink<'b>(
         &mut self,
-        node: crate::NodeId,
+        node: NodeId,
         buf: &'b mut [u8],
-    ) -> crate::FsResult<&'b [u8], Self::DeviceError> {
+    ) -> FsResult<&'b [u8], Self::DeviceError> {
         self.0.readlink(node, buf).await
     }
-    async fn open(
-        &mut self,
-        node: crate::NodeId,
-        mode: crate::OpenMode,
-    ) -> crate::FsResult<(), Self::DeviceError> {
+    async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), Self::DeviceError> {
         self.0.open(node, mode).await
     }
-    async fn close(&mut self, node: crate::NodeId) -> crate::FsResult<(), Self::DeviceError> {
+    async fn close(&mut self, node: NodeId) -> FsResult<(), Self::DeviceError> {
         self.0.close(node).await
     }
     async fn read(
         &mut self,
-        node: crate::NodeId,
+        node: NodeId,
         offset: u64,
         buf: &mut [u8],
-    ) -> crate::FsResult<usize, Self::DeviceError> {
+    ) -> FsResult<usize, Self::DeviceError> {
         self.0.read(node, offset, buf).await
     }
     async fn setattr(
         &mut self,
-        node: crate::NodeId,
-        changes: &crate::SetAttr,
-    ) -> crate::FsResult<(), Self::DeviceError> {
+        node: NodeId,
+        changes: &SetAttr,
+    ) -> FsResult<(), Self::DeviceError> {
         self.0.setattr(node, changes).await
     }
     async fn write(
         &mut self,
-        node: crate::NodeId,
+        node: NodeId,
         offset: u64,
         buf: &[u8],
-    ) -> crate::FsResult<usize, Self::DeviceError> {
+    ) -> FsResult<usize, Self::DeviceError> {
         self.0.write(node, offset, buf).await
     }
-    async fn truncate(
-        &mut self,
-        node: crate::NodeId,
-        len: u64,
-    ) -> crate::FsResult<(), Self::DeviceError> {
+    async fn truncate(&mut self, node: NodeId, len: u64) -> FsResult<(), Self::DeviceError> {
         self.0.truncate(node, len).await
     }
-    async fn fsync(&mut self, node: crate::NodeId) -> crate::FsResult<(), Self::DeviceError> {
+    async fn fsync(&mut self, node: NodeId) -> FsResult<(), Self::DeviceError> {
         self.0.fsync(node).await
     }
     async fn create(
         &mut self,
-        dir: crate::NodeId,
-        name: &crate::Name,
-        attrs: &crate::SetAttr,
-    ) -> crate::FsResult<crate::NodeId, Self::DeviceError> {
+        dir: NodeId,
+        name: &Name,
+        attrs: &SetAttr,
+    ) -> FsResult<NodeId, Self::DeviceError> {
         self.0.create(dir, name, attrs).await
     }
     async fn mkdir(
         &mut self,
-        dir: crate::NodeId,
-        name: &crate::Name,
-        attrs: &crate::SetAttr,
-    ) -> crate::FsResult<crate::NodeId, Self::DeviceError> {
+        dir: NodeId,
+        name: &Name,
+        attrs: &SetAttr,
+    ) -> FsResult<NodeId, Self::DeviceError> {
         self.0.mkdir(dir, name, attrs).await
     }
-    async fn unlink(
-        &mut self,
-        dir: crate::NodeId,
-        name: &crate::Name,
-    ) -> crate::FsResult<(), Self::DeviceError> {
+    async fn unlink(&mut self, dir: NodeId, name: &Name) -> FsResult<(), Self::DeviceError> {
         self.0.unlink(dir, name).await
     }
-    async fn rmdir(
-        &mut self,
-        dir: crate::NodeId,
-        name: &crate::Name,
-    ) -> crate::FsResult<(), Self::DeviceError> {
+    async fn rmdir(&mut self, dir: NodeId, name: &Name) -> FsResult<(), Self::DeviceError> {
         self.0.rmdir(dir, name).await
     }
     async fn rename(
         &mut self,
-        from_dir: crate::NodeId,
-        from: &crate::Name,
-        to_dir: crate::NodeId,
-        to: &crate::Name,
-        mode: crate::RenameMode,
-    ) -> crate::FsResult<(), Self::DeviceError> {
+        from_dir: NodeId,
+        from: &Name,
+        to_dir: NodeId,
+        to: &Name,
+        mode: RenameMode,
+    ) -> FsResult<(), Self::DeviceError> {
         self.0.rename(from_dir, from, to_dir, to, mode).await
     }
-    async fn sync(&mut self) -> crate::FsResult<(), Self::DeviceError> {
+    async fn sync(&mut self) -> FsResult<(), Self::DeviceError> {
         self.0.sync().await
     }
 }

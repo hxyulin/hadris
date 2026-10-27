@@ -7,7 +7,9 @@ macro_rules! io_transform {
 #[allow(clippy::duplicate_mod)]
 #[path = "api.rs"]
 mod api;
-pub use api::*;
+pub use api::{BlockDevice, ByteView, StreamDevice, StreamWrite};
+#[cfg(feature = "alloc")]
+pub use api::{Cache, ReadAhead};
 
 #[cfg(all(test, feature = "std"))]
 mod device_tests {

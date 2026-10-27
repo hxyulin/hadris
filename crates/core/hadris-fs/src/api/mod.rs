@@ -1,8 +1,3 @@
-use crate::{
-    Capabilities, DirCursor, DirEntry, ErrorKind, FileType, FsResult, FsStats, Metadata, Name,
-    NodeId, OpenMode, RenameMode, Resolve, SetAttr,
-};
-
 #[cfg(feature = "unstable-contract")]
 #[doc(hidden)]
 pub mod contract;

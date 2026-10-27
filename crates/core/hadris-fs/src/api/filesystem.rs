@@ -1,4 +1,8 @@
-use super::*;
+use super::paths;
+use crate::{
+    Capabilities, DirCursor, DirEntry, ErrorKind, FsResult, FsStats, Metadata, Name, NodeId,
+    OpenMode, RenameMode, Resolve, SetAttr,
+};
 
 io_transform! {
 
@@ -81,14 +85,30 @@ pub trait FileSystem {
     fn root(&self) -> NodeId;
 
     /// Space usage.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if space usage cannot be read from the filesystem.
     async fn statfs(&mut self) -> FsResult<FsStats, Self::DeviceError>;
 
     /// Writes the volume label into `buf` as UTF-8 and returns it, or `None`
     /// when the volume has none. 384 bytes hold every format's label;
     /// [`ErrorKind::LimitExceeded`] if `buf` is too small.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::LimitExceeded`] if `buf` is too small, or an
+    /// error if the volume label cannot be read.
     async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, Self::DeviceError>;
 
     /// Finds `name` in `dir` and pins the result.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] for an invalid name,
+    /// [`ErrorKind::NotADirectory`] if `dir` is not a directory, or
+    /// [`ErrorKind::NotFound`] if the name does not exist. Filesystem and
+    /// device failures are propagated.
     async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, Self::DeviceError>;
 
     /// Drops `count` pins of `node`. Never fails, never blocks and does no
@@ -96,38 +116,87 @@ pub trait FileSystem {
     fn forget(&mut self, node: NodeId, count: u64);
 
     /// The directory containing `dir`, pinned. The root is its own parent.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `dir` is missing, is not a directory, or its
+    /// parent cannot be read.
     async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, Self::DeviceError>;
 
     /// Resolves `path` from the root with the policy `how` and pins the
     /// result. The default composes `lookup`, `stat`, `parent` and
     /// `readlink`; a driver overrides it only to resolve faster.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a component is invalid or missing, traversal
+    /// fails, or the resolution policy rejects a symbolic link. Pins
+    /// acquired during resolution are released on failure.
     async fn resolve(&mut self, path: &[u8], how: Resolve) -> FsResult<NodeId, Self::DeviceError> {
         paths::resolve(self, path, how).await
     }
 
     /// Metadata of a pinned node, or of an entry just listed by `readdir`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the node is missing or its metadata cannot be read.
     async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, Self::DeviceError>;
 
     /// The entry of `dir` at or after `from`, or `None` at the end.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `dir` is missing, is not a directory, or its
+    /// entries cannot be read.
     async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, Self::DeviceError>;
 
     /// Writes a symlink's target to the start of `buf` and returns that part.
     /// [`ErrorKind::LimitExceeded`] if `buf` is too small, and
     /// [`ErrorKind::InvalidInput`] if `node` is not a symlink.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] for a node that is not a symlink,
+    /// [`ErrorKind::LimitExceeded`] if `buf` is too small, or an error if
+    /// the target cannot be read.
     async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], Self::DeviceError>;
 
     /// Opens a pinned file for `mode`. The caller keeps its pin while the
     /// file is open.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::IsADirectory`] for a directory,
+    /// [`ErrorKind::Symlink`] for a symlink, or [`ErrorKind::ReadOnly`]
+    /// for write access on a read-only mount. Missing nodes and filesystem
+    /// or device failures also return errors.
     async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), Self::DeviceError>;
 
     /// Ends one `open` and publishes the node's size and times, without
     /// flushing the device.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the pending size or timestamps cannot be published.
+    /// An error does not guarantee that the open remains available for retry.
     async fn close(&mut self, node: NodeId) -> FsResult<(), Self::DeviceError>;
 
     /// Reads from an open file at `offset`. Returns 0 at or past the end.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the node is unavailable or reading fails.
+    /// An error may leave `buf` partly modified.
     async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, Self::DeviceError>;
 
     /// Changes times, permissions, owner or attributes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::ReadOnly`] on a read-only mount or
+    /// [`ErrorKind::Unsupported`] when a requested field cannot be stored.
+    /// Invalid values and filesystem or device failures also return errors.
     async fn setattr(&mut self, node: NodeId, changes: &SetAttr) -> FsResult<(), Self::DeviceError> {
         let _ = (node, changes);
         Err(ErrorKind::ReadOnly.into())
@@ -138,12 +207,22 @@ pub trait FileSystem {
     /// `Ok(n)` reports bytes written; a short write is allowed. On `Err`,
     /// data or metadata may already have changed and progress is unknown.
     /// Retrying the whole request is not guaranteed to be safe.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::ReadOnly`] on a read-only mount, or an error
+    /// if the offset, capacity, filesystem state, or device prevents writing.
     async fn write(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, Self::DeviceError> {
         let _ = (node, offset, buf);
         Err(ErrorKind::ReadOnly.into())
     }
 
     /// Truncates or extends a file.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::ReadOnly`] on a read-only mount, or an error
+    /// if the new length cannot be represented or stored.
     async fn truncate(&mut self, node: NodeId, len: u64) -> FsResult<(), Self::DeviceError> {
         let _ = (node, len);
         Err(ErrorKind::ReadOnly.into())
@@ -151,18 +230,35 @@ pub trait FileSystem {
 
     /// Makes one node durable: writes its pending data and metadata, then
     /// flushes the device. The default has nothing to write and succeeds.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if pending changes cannot be written or the device
+    /// cannot be flushed. The default implementation succeeds.
     async fn fsync(&mut self, node: NodeId) -> FsResult<(), Self::DeviceError> {
         let _ = node;
         Ok(())
     }
 
     /// Creates the empty file `name` in `dir` with `attrs` and pins it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::ReadOnly`] on a read-only mount,
+    /// [`ErrorKind::InvalidInput`] for an invalid name, or
+    /// [`ErrorKind::AlreadyExists`] when the name or an alias exists.
+    /// An invalid parent, exhausted capacity, and I/O failures also return errors.
     async fn create(&mut self, dir: NodeId, name: &Name, attrs: &SetAttr) -> FsResult<NodeId, Self::DeviceError> {
         let _ = (dir, name, attrs);
         Err(ErrorKind::ReadOnly.into())
     }
 
     /// Creates the empty directory `name` in `dir` with `attrs` and pins it.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same name, parent, capacity, and read-only errors as
+    /// [`create`](Self::create), and propagates filesystem and device failures.
     async fn mkdir(&mut self, dir: NodeId, name: &Name, attrs: &SetAttr) -> FsResult<NodeId, Self::DeviceError> {
         let _ = (dir, name, attrs);
         Err(ErrorKind::ReadOnly.into())
@@ -171,6 +267,13 @@ pub trait FileSystem {
     /// Removes `name` from `dir`. A directory fails with
     /// [`ErrorKind::IsADirectory`], the last name of an open node with
     /// [`ErrorKind::Busy`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::ReadOnly`] on a read-only mount,
+    /// [`ErrorKind::IsADirectory`] for a directory, or [`ErrorKind::Busy`]
+    /// for the last name of an open node. Invalid or missing names and
+    /// filesystem or device failures also return errors.
     async fn unlink(&mut self, dir: NodeId, name: &Name) -> FsResult<(), Self::DeviceError> {
         let _ = (dir, name);
         Err(ErrorKind::ReadOnly.into())
@@ -179,6 +282,13 @@ pub trait FileSystem {
     /// Removes the empty directory `name` from `dir`. Anything but a
     /// directory fails with [`ErrorKind::NotADirectory`], a directory with
     /// entries with [`ErrorKind::DirectoryNotEmpty`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::ReadOnly`] on a read-only mount,
+    /// [`ErrorKind::NotADirectory`] for a non-directory, or
+    /// [`ErrorKind::DirectoryNotEmpty`] for a directory with entries.
+    /// Invalid or missing names and filesystem or device failures also return errors.
     async fn rmdir(&mut self, dir: NodeId, name: &Name) -> FsResult<(), Self::DeviceError> {
         let _ = (dir, name);
         Err(ErrorKind::ReadOnly.into())
@@ -187,6 +297,12 @@ pub trait FileSystem {
     /// Moves `from` in `from_dir` to `to` in `to_dir`. The moved node keeps
     /// its id. Replacing an existing `to` removes it as `unlink` or `rmdir`
     /// would, so an open target fails with [`ErrorKind::Busy`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::ReadOnly`] on a read-only mount or an error if
+    /// the names, parents, replacement policy, or directory relationship
+    /// prevent the move. Filesystem and device failures may leave partial changes.
     async fn rename(
         &mut self,
         from_dir: NodeId,
@@ -201,6 +317,11 @@ pub trait FileSystem {
 
     /// Writes every piece of cached metadata and flushes the device. The
     /// default has nothing to write and succeeds.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if pending metadata cannot be written or the device
+    /// cannot be flushed. The default implementation succeeds.
     async fn sync(&mut self) -> FsResult<(), Self::DeviceError> {
         Ok(())
     }
