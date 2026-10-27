@@ -84,3 +84,6 @@ required-features = ["std", "sync", "write"]
 [[test]]
 name = "unified_async"
 required-features = ["std", "sync", "async", "bridge"]
+
+[lints]
+workspace = true

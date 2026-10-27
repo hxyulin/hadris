@@ -42,6 +42,11 @@ pub struct FileSystemKey {
 
 impl FileSystemKey {
     /// Parses a filesystem key header.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ApfsError::InputTooSmall`] if the eight-byte key header is
+    /// truncated.
     pub fn parse(data: &[u8]) -> crate::Result<Self> {
         let raw = le_u64(data, 0)?;
         Ok(Self {
@@ -80,6 +85,12 @@ pub struct DirectoryEntryRecord<'a> {
 
 impl<'a> DirectoryEntryRecord<'a> {
     /// Parses a directory entry key/value pair stored in `layout`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the key has the wrong record type, its declared name lies
+    /// outside the key, or the value is truncated. Name bytes are not checked for
+    /// UTF-8 here.
     pub fn parse(
         key: &'a [u8],
         value: &'a [u8],
@@ -111,6 +122,10 @@ impl<'a> DirectoryEntryRecord<'a> {
     }
 
     /// Returns the name as UTF-8.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ApfsError::InvalidValue`] if the stored name is not UTF-8.
     pub fn name_str(&self) -> crate::Result<&'a str> {
         core::str::from_utf8(self.name)
             .map_err(|_| crate::ApfsError::InvalidValue("directory name UTF-8"))
@@ -142,6 +157,11 @@ impl OwnedDirectoryEntryRecord {
     /// Parses a directory entry key/value pair stored in `layout` into an
     /// owned record. Names that are not UTF-8 fail with
     /// [`crate::ApfsError::InvalidValue`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the key or value is truncated, the key has the wrong
+    /// record type, or the name is not UTF-8.
     pub fn parse(key: &[u8], value: &[u8], layout: DirectoryKeyLayout) -> crate::Result<Self> {
         let entry = DirectoryEntryRecord::parse(key, value, layout)?;
         Ok(Self {
@@ -195,6 +215,11 @@ pub struct InodeRecord {
 
 impl InodeRecord {
     /// Parses an inode key/value pair.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for the wrong key type, truncated inode fields or
+    /// extended-field data, or overflowing extended-field offsets.
     pub fn parse(key: &[u8], value: &[u8]) -> crate::Result<Self> {
         let header = FileSystemKey::parse(key)?;
         if header.record_type != FS_TYPE_INODE {
@@ -296,6 +321,11 @@ pub struct FileExtentRecord {
 
 impl FileExtentRecord {
     /// Parses a file extent key/value pair.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the key has the wrong record type or the extent key/value
+    /// fields are truncated.
     pub fn parse(key: &[u8], value: &[u8]) -> crate::Result<Self> {
         let header = FileSystemKey::parse(key)?;
         if header.record_type != FS_TYPE_FILE_EXTENT {
@@ -316,6 +346,11 @@ impl FileExtentRecord {
 impl FileExtentRecord {
     /// Parses a sealed volume's file extent tree entry (`fext_tree_key_t`
     /// and `fext_tree_val_t`). Such extents are never encrypted.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ApfsError::InputTooSmall`] if the sealed extent key or value
+    /// is truncated.
     pub fn parse_fext(key: &[u8], value: &[u8]) -> crate::Result<Self> {
         let length_and_flags = le_u64(value, 0)?;
         Ok(Self {
@@ -366,6 +401,11 @@ pub struct XattrRecord<'a> {
 
 impl<'a> XattrRecord<'a> {
     /// Parses an extended attribute key/value pair.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the key has the wrong record type, the name is not UTF-8,
+    /// or the name or embedded value extends beyond the supplied bytes.
     pub fn parse(key: &'a [u8], value: &'a [u8]) -> crate::Result<Self> {
         let header = FileSystemKey::parse(key)?;
         if header.record_type != FS_TYPE_XATTR {

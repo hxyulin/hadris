@@ -230,6 +230,10 @@ impl Fat {
     }
 
     /// `cluster`, or [`ErrorKind::Corrupt`] when it is not a data cluster.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::Corrupt`] if `cluster` is outside the data-cluster range.
     pub const fn check_cluster(&self, cluster: u32) -> Result<u32, ErrorKind> {
         if self.is_cluster(cluster) {
             Ok(cluster)
@@ -239,6 +243,10 @@ impl Fat {
     }
 
     /// Byte offset of a data cluster; [`ErrorKind::Corrupt`] for any other.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::Corrupt`] if `cluster` is outside the data-cluster range.
     pub const fn cluster_at(&self, cluster: u32) -> Result<u64, ErrorKind> {
         match self.geo.cluster_offset(cluster) {
             Some(at) => Ok(at),

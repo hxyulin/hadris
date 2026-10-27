@@ -2803,7 +2803,7 @@ fn a_shrink_whose_fat_write_fails_is_cut_back_by_the_next_write() {
     fs.close(node).unwrap();
     let chain = common::chain(&mut fs, node);
     assert_eq!(chain.len(), 3);
-    let at = geo.fat_copy(geo.active_fat()) + case.kind.entry_offset(chain[1] as u64);
+    let at = geo.fat_copy(geo.active_fat()) + case.kind.entry_offset(chain[1]);
     script.borrow_mut().fail_at = Some(at);
     let len = size as u64 + 100;
     assert_eq!(fs.truncate(node, len).unwrap_err().kind(), ErrorKind::Io);

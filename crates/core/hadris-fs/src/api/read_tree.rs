@@ -126,6 +126,13 @@ io_transform! {
 /// directory that leads back to one on its own path fails with
 /// [`ErrorKind::Corrupt`], and a tree more than 1024 directories deep with
 /// [`ErrorKind::LimitExceeded`].
+///
+/// # Errors
+///
+/// Returns path resolution, metadata, directory-reading and node-opening
+/// errors with the volume path. Directory cycles return [`ErrorKind::Corrupt`],
+/// and depth above 1024 returns [`ErrorKind::LimitExceeded`]. Lazy file
+/// content failures occur later when the returned content is read.
 pub async fn read_tree<F: FileSystem + Send + 'static>(vol: &Volume<F>, path: impl AsRef<[u8]>) -> Result<Tree, PathError> {
     read_tree_of(vol, path.as_ref()).await
 }
@@ -154,6 +161,13 @@ async_only! {
 ///
 /// The volume is a [`SendVolume`](crate::async_::SendVolume), so the
 /// content futures writers await are `Send`.
+///
+/// # Errors
+///
+/// Returns path resolution, metadata, directory-reading and node-opening
+/// errors with the volume path. Directory cycles return [`ErrorKind::Corrupt`],
+/// and depth above 1024 returns [`ErrorKind::LimitExceeded`]. Lazy file
+/// content failures occur later when the returned content is read.
 pub async fn read_tree<F: crate::async_::SendFileSystem + 'static>(vol: &crate::async_::SendVolume<F>, path: impl AsRef<[u8]>) -> Result<Tree, PathError> {
     read_tree_of(vol, path.as_ref()).await
 }

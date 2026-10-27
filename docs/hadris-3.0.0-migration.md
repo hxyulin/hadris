@@ -1692,6 +1692,10 @@ volumes, not internal Apple-silicon hardware FileVault. See the
 
 ## Upgrading from a 3.0 release candidate
 
+Raw FAT 0.2 takes a `u32` cluster number in `FatKind::entry_offset`, matching
+the disk format. The returned byte offset remains `u64`. Callers holding
+cluster numbers in `u64` must validate them with `u32::try_from` first.
+
 FAT RC3 replaces `CacheOptions::with_directory_hint(bool)` with
 `with_directory_hint()` to enable the hint and `without_directory_hint()`
 to disable it. Other cache bounds keep their values.

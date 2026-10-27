@@ -527,6 +527,13 @@ python3 scripts/check-compliance-catalog.py
 
 ## Docs
 
+Workspace members inherit Clippy checks for unsafe safety comments and the
+`# Safety`, `# Errors` and `# Panics` rustdoc sections from the root
+`Cargo.toml`. Explain the conditions and partial effects of each operation.
+These checks run with the normal Clippy command and fail CI under `-D warnings`.
+Clippy does not find every possible panic, so review indexing and arithmetic
+on caller-controlled values as well.
+
 ```bash
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
 cargo test --workspace --all-features --doc

@@ -166,7 +166,7 @@ fn cached_positions_preserve_corrupt_chain_detection() {
             common::chain(&mut fs, file)
         };
         for copy in 0..geo.fat_count() {
-            let at = (geo.fat_copy(copy) + case.kind.entry_offset(chain[8] as u64)) as usize;
+            let at = (geo.fat_copy(copy) + case.kind.entry_offset(chain[8])) as usize;
             case.kind.encode(
                 chain[8] as u64,
                 chain[4],
@@ -323,12 +323,8 @@ fn metadata_cache_recovers_after_a_failed_mirror_write() {
         let file = fs.lookup(fs.root(), Name::new("DATA.BIN")).unwrap();
         let mut buf = [0; 4096];
         fs.read(file, 28672, &mut buf).unwrap();
-        script.borrow_mut().fail_at = Some(
-            geo.fat_copy(1)
-                + case
-                    .kind
-                    .entry_offset(common::chain(&mut fs, file)[0] as u64),
-        );
+        script.borrow_mut().fail_at =
+            Some(geo.fat_copy(1) + case.kind.entry_offset(common::chain(&mut fs, file)[0]));
         assert_eq!(
             fs.write(file, data.len() as u64, &[9]).unwrap_err().kind(),
             ErrorKind::Io
@@ -579,13 +575,13 @@ fn directory_prefix_keeps_chain_guard_when_missing_names_encounter_cycles() {
                 slot[0] = 0xe5;
             }
         }
-        let at = (geo.fat_copy(0) + case.kind.entry_offset(cluster as u64)) as usize;
+        let at = (geo.fat_copy(0) + case.kind.entry_offset(cluster)) as usize;
         let next = case
             .kind
             .decode(cluster as u64, &image[at..at + case.kind.entry_len()]);
         if case.kind.is_end_of_chain(next) {
             for copy in 0..geo.fat_count() {
-                let at = (geo.fat_copy(copy) + case.kind.entry_offset(cluster as u64)) as usize;
+                let at = (geo.fat_copy(copy) + case.kind.entry_offset(cluster)) as usize;
                 case.kind.encode(
                     cluster as u64,
                     first,

@@ -731,8 +731,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Miri - hadris-common (endian integers)
         run: cargo miri test -p hadris-common --lib
-      - name: Miri - hadris-fat-raw (LFN UTF-16, surrogate pairs and name decoding)
-        run: cargo miri test -p hadris-fat-raw --lib
+      - name: Miri - hadris-fat-raw (layouts, LFN UTF-16 and name decoding)
+        run: |
+          cargo miri test -p hadris-fat-raw --lib
+          cargo miri test -p hadris-fat-raw --test layout_bytes
       - name: Miri - hadris-iso (on-disk layouts, name and Rock Ridge decoding)
         run: |
           cargo miri test -p hadris-iso-raw --lib

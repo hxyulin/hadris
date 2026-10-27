@@ -10,6 +10,9 @@ Each published package owns its version and may be released independently.
 
 ### Breaking
 
+- **hadris-fat-raw, hadris-fat:** `FatKind::entry_offset` accepts a `u32` cluster
+  number, matching the on-disk width, and still returns a `u64` byte offset.
+  Every accepted input now fits without arithmetic overflow.
 - **hadris-iso-raw:** `DirectoryRecord::parse` returns
   `ParseDirectoryRecordError` instead of `()`, distinguishing malformed
   record fields without changing which bytes are accepted. The raw crate
@@ -109,6 +112,9 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **Workspace:** Clippy checks unsafe safety comments and the `# Safety`,
+  `# Errors` and `# Panics` documentation sections in every workspace member.
+  Public fallible APIs document their failure conditions and partial effects.
 - **hadris-fat, hadris-part, hadris-iso, hadris-udf, hadris-cpio,
   hadris-ntfs, hadris-apfs:** Public APIs document failure, partial-output,
   and ownership contracts. Discarding consuming option and cache builders
@@ -150,6 +156,8 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-apfs:** The root inode identifier is checked at compile time,
+  removing a runtime `unwrap` from `ApfsFs::root`.
 - **hadris-fat-raw:** FAT layout sizing rejects zero dimensions and FAT
   copies that exceed the available sectors without panicking or reporting
   an invalid layout.

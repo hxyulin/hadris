@@ -51,8 +51,7 @@ impl Layout {
             let (at, next) = match self {
                 Self::Fat(geo, _) => {
                     assert!((2..=geo.max_cluster()).contains(&cluster));
-                    let entry =
-                        (geo.fat_start() + geo.kind().entry_offset(cluster as u64)) as usize;
+                    let entry = (geo.fat_start() + geo.kind().entry_offset(cluster)) as usize;
                     let next = geo.kind().decode(
                         cluster as u64,
                         &image[entry..entry + geo.kind().entry_len()],

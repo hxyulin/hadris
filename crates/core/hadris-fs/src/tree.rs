@@ -79,10 +79,13 @@ impl Content {
     /// fail with [`ErrorKind::Unsupported`] on such content; use the ISO
     /// session's `export` operation to copy its extents to another device.
     ///
-    /// Returns [`ErrorKind::InvalidInput`] if an extent's device end or the
-    /// combined length exceeds `u64::MAX`, and [`ErrorKind::Unsupported`]
-    /// for unwritten extents. The caller must ensure the ranges contain the
-    /// intended bytes on the source device; this constructor performs no I/O.
+    /// The caller must ensure the ranges contain the intended bytes on the
+    /// source device; this constructor performs no I/O.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] if a device end or combined length
+    /// overflows `u64`, or [`ErrorKind::Unsupported`] for an unwritten extent.
     pub fn stored(extents: impl Into<Vec<Extent>>) -> Result<Self, PathError> {
         let extents = extents.into();
         let mut len = 0u64;
@@ -525,11 +528,12 @@ impl Tree {
     /// Adds `node` at `path`, creating missing parent directories with no
     /// attributes set.
     ///
-    /// Fails with [`ErrorKind::AlreadyExists`] when the path exists, with
-    /// [`ErrorKind::NotADirectory`] when a parent is not a directory, and
-    /// with [`ErrorKind::InvalidInput`] for the root, a bad path or a
-    /// special node that is not a device with a number or a FIFO or socket
-    /// without one. A failed insert changes nothing.
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::AlreadyExists`] for an existing path,
+    /// [`ErrorKind::NotADirectory`] for a non-directory parent, or
+    /// [`ErrorKind::InvalidInput`] for the root, an invalid path or an invalid
+    /// special node. The tree remains unchanged on failure.
     pub fn insert(&mut self, path: impl AsRef<[u8]>, node: Node) -> Result<(), PathError> {
         let path = path.as_ref();
         node.check().map_err(|kind| {
@@ -553,9 +557,13 @@ impl Tree {
     /// `link(2)` does. Every name shares the node, its content and its
     /// attributes. Missing parents of `new` are created.
     ///
-    /// Fails with [`ErrorKind::NotFound`] when `existing` does not exist,
-    /// [`ErrorKind::IsADirectory`] when it is a directory, and
-    /// [`ErrorKind::AlreadyExists`] when `new` exists.
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] for a missing target,
+    /// [`ErrorKind::IsADirectory`] for a directory target,
+    /// [`ErrorKind::AlreadyExists`] for an existing new name, or
+    /// [`ErrorKind::NotADirectory`] for a non-directory parent. Invalid paths
+    /// return [`ErrorKind::InvalidInput`].
     pub fn link(
         &mut self,
         existing: impl AsRef<[u8]>,
@@ -585,8 +593,11 @@ impl Tree {
     /// Removes the name `path`, with everything below it for a directory.
     /// The node goes with its last name.
     ///
-    /// Fails with [`ErrorKind::NotFound`] when `path` does not exist and
-    /// with [`ErrorKind::InvalidInput`] for the root.
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] for a missing name,
+    /// [`ErrorKind::NotADirectory`] for a non-directory parent, or
+    /// [`ErrorKind::InvalidInput`] for the root or an invalid path.
     pub fn remove(&mut self, path: impl AsRef<[u8]>) -> Result<(), PathError> {
         let path = path.as_ref();
         let parts = components(path)?;
@@ -631,11 +642,16 @@ impl Tree {
     /// target.
     ///
     /// A directory replaced by a directory keeps its children and takes the
-    /// new attributes; this is how the root gets attributes. A directory
-    /// with children replaced by anything else fails with
-    /// [`ErrorKind::DirectoryNotEmpty`]. Other names of a hard link keep the
-    /// old node. Fails with [`ErrorKind::NotFound`] when `path` does not
-    /// exist.
+    /// new attributes; this is how the root gets attributes. Other names of
+    /// a hard link keep the old node.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] for a missing path,
+    /// [`ErrorKind::NotADirectory`] for a non-directory parent, or
+    /// [`ErrorKind::DirectoryNotEmpty`] when replacing a nonempty directory
+    /// with a non-directory. Invalid paths, special nodes or a non-directory
+    /// replacement for the root return [`ErrorKind::InvalidInput`].
     pub fn replace(&mut self, path: impl AsRef<[u8]>, node: Node) -> Result<(), PathError> {
         let path = path.as_ref();
         node.check().map_err(|kind| {

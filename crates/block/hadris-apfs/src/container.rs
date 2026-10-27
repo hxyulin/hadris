@@ -383,6 +383,11 @@ where
     }
 
     /// Reads an APFS container block into an owned buffer.
+    ///
+    /// # Errors
+    ///
+    /// Propagates the range, address, and device errors from
+    /// [`Self::read_apfs_block`].
     #[cfg(feature = "alloc")]
     pub async fn read_apfs_block_vec(&mut self, block: u64) -> FsResult<alloc::vec::Vec<u8>, D::Error> {
         let mut buffer = alloc::vec![0_u8; self.info.superblock.block_size as usize];
@@ -393,6 +398,12 @@ where
     /// Scans every block of the checkpoint descriptor area for valid
     /// container superblocks, newest first. Blocks whose header, checksum or
     /// fields do not parse are skipped, as the mount procedure requires.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unsupported B-tree descriptor area or invalid ring
+    /// bounds. Device read errors propagate; malformed candidate superblocks are
+    /// skipped.
     #[cfg(feature = "alloc")]
     pub async fn superblocks_sorted(
         &mut self,
@@ -449,6 +460,12 @@ where
     /// its block size and fit the device. Device errors are returned
     /// immediately. When no candidate verifies, the newest candidate's error,
     /// or block zero's checksum error, is returned.
+    ///
+    /// # Errors
+    ///
+    /// Returns device errors immediately. If no checkpoint verifies, returns the
+    /// newest candidate's validation error, or block zero's checksum error when no
+    /// candidate exists.
     #[cfg(feature = "alloc")]
     pub async fn latest_superblock(&mut self) -> FsResult<ContainerSuperblock, D::Error> {
         let zero = self.info.superblock.clone();
@@ -501,6 +518,12 @@ where
     }
 
     /// Reads checkpoint map blocks referenced by a superblock.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unsupported descriptor-area layout, invalid ring
+    /// bounds, overflowing addresses, or malformed checkpoint map blocks. Device and
+    /// checksum errors propagate.
     #[cfg(feature = "alloc")]
     pub async fn checkpoint_map_blocks(
         &mut self,
@@ -550,6 +573,11 @@ where
     }
 
     /// Returns flattened checkpoint mappings for a superblock.
+    ///
+    /// # Errors
+    ///
+    /// Propagates descriptor-ring, checksum, parsing, and device errors from
+    /// [`Self::checkpoint_map_blocks`].
     #[cfg(feature = "alloc")]
     pub async fn checkpoint_mappings(
         &mut self,
@@ -563,6 +591,11 @@ where
     }
 
     /// Finds the checkpoint mapping for an ephemeral object identifier.
+    ///
+    /// # Errors
+    ///
+    /// Propagates checkpoint-map read and validation errors. A missing object mapping
+    /// returns `Ok(None)`.
     #[cfg(feature = "alloc")]
     pub async fn find_ephemeral_object_mapping(
         &mut self,
@@ -577,6 +610,12 @@ where
     }
 
     /// Reads the container object map block referenced by a superblock.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if neither the direct address nor its checkpoint mapping
+    /// yields a readable, checksummed object-map block. Checkpoint-map read and
+    /// validation errors also propagate.
     #[cfg(feature = "alloc")]
     pub async fn object_map(
         &mut self,
@@ -606,6 +645,11 @@ where
     }
 
     /// Reads the owned root node of the container object-map B-tree.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the object map or its root node cannot be read, fails its
+    /// checksum check, or has an invalid B-tree layout.
     #[cfg(feature = "alloc")]
     pub async fn object_map_owned_root_node(
         &mut self,
@@ -617,6 +661,12 @@ where
     }
 
     /// Walks the object-map B-tree and returns parsed leaf values.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for unreadable or malformed object-map nodes and entries,
+    /// overflowing addresses, or inconsistent child links. Device and checksum errors
+    /// propagate.
     #[cfg(feature = "alloc")]
     pub async fn object_map_values(
         &mut self,
@@ -627,6 +677,11 @@ where
     }
 
     /// Resolves volume OIDs by walking the object-map B-tree.
+    ///
+    /// # Errors
+    ///
+    /// Propagates object-map traversal, record parsing, checksum, and device errors
+    /// from [`Self::object_map_values`].
     #[cfg(feature = "alloc")]
     pub async fn volume_object_map_values(
         &mut self,
@@ -643,6 +698,11 @@ where
     }
 
     /// Reads each live volume superblock as of the container superblock's transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if an object map, mapped volume block, or volume superblock
+    /// cannot be read or validated. Device and checksum errors propagate.
     #[cfg(feature = "alloc")]
     pub async fn volume_superblocks(
         &mut self,
@@ -673,6 +733,12 @@ where
     /// snapshots), and resolving unconditionally to the newest one can return
     /// an object from a later filesystem state than the one being read.
     /// Deleted mappings return `None` without falling back to older versions.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for unreadable or malformed object-map nodes, invalid child
+    /// links, or overflowing addresses. Device and checksum errors propagate; a
+    /// missing or deleted mapping returns `Ok(None)`.
     #[cfg(feature = "alloc")]
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn object_map_lookup(
@@ -689,6 +755,12 @@ where
 
     /// Resolves a virtual object identifier through a volume object map,
     /// bounded to the volume superblock's own transaction identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the volume object map cannot be read or traversed. Device,
+    /// checksum, and B-tree validation errors propagate; a missing mapping returns
+    /// `Ok(None)`.
     #[cfg(feature = "alloc")]
     pub async fn resolve_volume_object(
         &mut self,
@@ -701,6 +773,11 @@ where
     }
 
     /// Reads an object map block at a physical APFS block address.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the physical block is outside the container, its checksum
+    /// fails, or its bytes do not parse as an object map. Device errors propagate.
     #[cfg(feature = "alloc")]
     pub async fn object_map_at(&mut self, physical_block: u64) -> FsResult<ObjectMapBlock, D::Error> {
         let data = self.read_apfs_block_vec(physical_block).await?;
@@ -709,6 +786,12 @@ where
     }
 
     /// Reads the container's space manager summary (free/used block counts).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the space-manager block or its checkpoint mapping cannot
+    /// be read, its checksum fails, or the summary is truncated or has the wrong
+    /// object type.
     #[cfg(feature = "alloc")]
     pub async fn space_manager_summary(
         &mut self,
@@ -751,6 +834,12 @@ where
     /// parsed `chunk_info_t` entries. Only supports the common case where
     /// chunk info addresses are stored inline (no `chunk_info_address_block_t`
     /// indirection).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for unsupported address-block indirection, truncated address
+    /// arrays or chunk records, or invalid object types. Device, address, and
+    /// checksum errors propagate.
     #[cfg(feature = "alloc")]
     pub async fn space_manager_chunk_infos(
         &mut self,
@@ -875,6 +964,12 @@ where
 
     /// Walks a B-tree whose child links are physical block addresses and
     /// returns owned leaf entries in traversal order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for unreadable or malformed nodes, cyclic or inconsistent
+    /// child links, or unsupported node flags. Device, address, and checksum errors
+    /// propagate.
     #[cfg(feature = "alloc")]
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn btree_leaf_entries(
@@ -1065,6 +1160,12 @@ where
     /// record type (e.g. a directory's entries, or a data stream's extents),
     /// descending the tree by key. The volume's object map and tree root are
     /// loaded on first use and kept for later queries on the same volume.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the volume object map or filesystem tree cannot be read or
+    /// validated, child links are inconsistent, or encryption cannot be handled.
+    /// Device and checksum errors propagate.
     #[cfg(feature = "alloc")]
     pub async fn filesystem_records(
         &mut self,
@@ -1117,6 +1218,11 @@ where
     }
 
     /// Loads a volume's object map, bounded to the volume's transaction identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the volume object-map block or its leaf entries cannot be
+    /// read or parsed. Device, checksum, and B-tree traversal errors propagate.
     #[cfg(feature = "alloc")]
     pub async fn volume_object_map(
         &mut self,
@@ -1131,6 +1237,12 @@ where
     }
 
     /// Returns owned raw key/value entries from the volume filesystem root tree.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for missing root mappings, malformed or cyclic trees, or
+    /// unavailable encryption keys. An unlocked key for another volume is rejected.
+    /// Device and checksum errors propagate.
     #[cfg(feature = "alloc")]
     pub async fn filesystem_root_owned_entries(
         &mut self,
@@ -1155,6 +1267,11 @@ where
     }
 
     /// Lists owned entries for a directory inode.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for malformed directory records or names that are not UTF-8.
+    /// Filesystem-tree traversal, checksum, encryption, and device errors propagate.
     #[cfg(feature = "alloc")]
     pub async fn directory_owned_entries(
         &mut self,
@@ -1173,6 +1290,12 @@ where
     }
 
     /// Finds an owned entry by name in a directory inode.
+    ///
+    /// # Errors
+    ///
+    /// Propagates directory-record parsing, UTF-8, tree traversal, encryption, and
+    /// device errors from [`Self::directory_owned_entries`]. A missing name returns
+    /// `Ok(None)`.
     #[cfg(feature = "alloc")]
     pub async fn directory_owned_entry(
         &mut self,
@@ -1193,6 +1316,12 @@ where
     /// directory for intermediate components and trailing slashes.
     /// The volume root is returned with name `/` and inode 2.
     /// Symlinks are returned as entries rather than followed.
+    ///
+    /// # Errors
+    ///
+    /// Propagates directory-record parsing and tree read errors while resolving
+    /// components. Missing names and non-directory intermediate components return
+    /// `Ok(None)`.
     #[cfg(feature = "alloc")]
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn resolve_path(
@@ -1240,6 +1369,11 @@ where
     }
 
     /// Lists owned entries in a volume's root directory when the filesystem root tree is a leaf/root node.
+    ///
+    /// # Errors
+    ///
+    /// Propagates directory-record parsing, UTF-8, tree traversal, encryption, and
+    /// device errors from [`Self::directory_owned_entries`].
     #[cfg(feature = "alloc")]
     pub async fn root_directory_owned_entries(
         &mut self,
@@ -1250,6 +1384,11 @@ where
     }
 
     /// Finds an owned root-directory entry by name.
+    ///
+    /// # Errors
+    ///
+    /// Propagates directory-record parsing and tree read errors from
+    /// [`Self::directory_owned_entry`]. A missing name returns `Ok(None)`.
     #[cfg(feature = "alloc")]
     pub async fn root_directory_owned_entry(
         &mut self,
@@ -1261,6 +1400,12 @@ where
     }
 
     /// Finds an inode record by inode identifier in the root filesystem tree.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if an inode key, value, or extended-field table is malformed.
+    /// Filesystem-tree read and validation errors propagate; a missing inode returns
+    /// `Ok(None)`.
     #[cfg(feature = "alloc")]
     pub async fn inode_record(
         &mut self,
@@ -1278,6 +1423,12 @@ where
 
     /// Finds file extents for an inode/private data-stream identifier in the
     /// root filesystem tree and, on sealed volumes, the file extent tree.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for malformed extent records or unreadable filesystem and
+    /// sealed-volume extent trees. Device, checksum, encryption, and B-tree
+    /// validation errors propagate.
     #[cfg(feature = "alloc")]
     pub async fn file_extents(
         &mut self,
@@ -1298,6 +1449,12 @@ where
 
     /// Returns every extent in a sealed volume's file extent tree, or none
     /// when the volume is not sealed or has no such tree.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the sealed extent tree cannot be read or contains
+    /// malformed extent records. Device, checksum, and B-tree validation errors
+    /// propagate.
     #[cfg(feature = "alloc")]
     pub async fn sealed_file_extents(
         &mut self,
@@ -1314,6 +1471,12 @@ where
     }
 
     /// Returns the effective file size; see [`filesystem::stream_size`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the inode is missing or its inode and extent records
+    /// cannot be read or validated. Device, checksum, and encryption errors
+    /// propagate.
     #[cfg(feature = "alloc")]
     pub async fn file_size(&mut self, volume: &VolumeSuperblock, inode: u64) -> FsResult<u64, D::Error> {
         let inode = self
@@ -1592,6 +1755,12 @@ where
 
     /// Returns a symlink's target from its `com.apple.fs.symlink` attribute,
     /// or `None` when the inode has no such attribute.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the matching attribute is stored in a separate data stream
+    /// or its target is not UTF-8. Attribute parsing and filesystem-tree read errors
+    /// propagate.
     #[cfg(feature = "alloc")]
     pub async fn symlink_target(
         &mut self,
@@ -1620,6 +1789,11 @@ where
     }
 
     /// Reads an owned B-tree node at a physical APFS block address.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the block is outside the container, its checksum fails, or
+    /// its bytes do not parse as a B-tree node. Device errors propagate.
     #[cfg(feature = "alloc")]
     pub async fn read_btree_node(&mut self, physical_block: u64) -> FsResult<OwnedBTreeNode, D::Error> {
         let data = self.read_apfs_block_vec(physical_block).await?;
@@ -1630,6 +1804,12 @@ where
     /// Reads an owned B-tree node using the flags of the object-map entry that
     /// located it. Encrypted nodes are rejected; nodes mapped without an object
     /// header skip the checksum and object-type checks.
+    ///
+    /// # Errors
+    ///
+    /// Returns an unsupported-feature error for encrypted mappings. Block-read,
+    /// checksum, and node-parsing errors propagate; headerless mappings skip the
+    /// checksum and object-type checks.
     #[cfg(feature = "alloc")]
     pub async fn read_btree_node_with_flags(
         &mut self,
@@ -1645,6 +1825,12 @@ where
     /// Reads a mapped B-tree node belonging to an explicitly identified volume.
     /// Encrypted nodes require that volume's key; mappings must come from its
     /// object map. Checksums and structural validation follow decryption.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if encrypted data has no usable volume key, or if the
+    /// unlocked key belongs to another volume. Decryption, address, device, checksum,
+    /// and node-parsing errors propagate.
     #[cfg(feature = "alloc")]
     pub async fn read_volume_btree_node_with_flags(
         &mut self,

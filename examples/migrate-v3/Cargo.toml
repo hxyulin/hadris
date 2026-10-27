@@ -8,3 +8,6 @@ license.workspace = true
 
 [dependencies]
 hadris = { workspace = true, features = ["std", "sync", "write", "fat", "iso"] }
+
+[lints]
+workspace = true

@@ -58,3 +58,6 @@ required-features = ["std", "sync", "write"]
 [[test]]
 name = "interop"
 required-features = ["std", "sync", "write"]
+
+[lints]
+workspace = true

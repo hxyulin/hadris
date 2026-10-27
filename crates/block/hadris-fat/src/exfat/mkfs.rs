@@ -434,6 +434,12 @@ mod tree {
     /// `NoSpace` without changing the destination. Content is not opened during
     /// this check; changed sources or later I/O failures can still leave a
     /// partially formatted or copied volume.
+    ///
+    /// # Errors
+    ///
+    /// Returns option, name, content-mode or advertised-capacity errors before formatting.
+    /// Later formatting, source-read, copy or unmount failures carry the failing tree path
+    /// when available and may leave a partial volume.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat", level = "trace", skip_all))]
     pub async fn write<D: BlockDevice>(mut out: D, tree: &Tree, options: &ExFatOptions) -> Result<Report, PathError> {
         let options = options.with_seed(tree_seed(options.time, options.seed, tree));

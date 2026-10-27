@@ -2598,6 +2598,11 @@ impl<D: BlockDevice> FatFs<D> {
     /// sector when it is valid, and otherwise from one scan of the FAT,
     /// which is then kept. The FSInfo count is a hint: allocation scans the
     /// FAT regardless, and one that finds it wrong drops it.
+    ///
+    /// # Errors
+    ///
+    /// Returns allocation-metadata corruption or device read errors while obtaining an
+    /// uncached free count.
     pub async fn statfs(&mut self) -> FsResult<FsStats, D::Error> {
         let free = match self.fat.free_clusters() {
             Some(free) => free,
@@ -2611,6 +2616,11 @@ impl<D: BlockDevice> FatFs<D> {
     /// `None` when it has none. The copy in the boot sector is not read.
     /// Bytes above `0x7F` are decoded through the mount's code page, as in
     /// short names.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::LimitExceeded`] when `buf` cannot hold the decoded label, or
+    /// root-directory corruption and device read errors.
     pub async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
         let Some((_, entry)) = self.find_label().await? else {
             return Ok(None);
@@ -2625,6 +2635,12 @@ impl<D: BlockDevice> FatFs<D> {
 
     /// Finds `name` in `dir` and pins the result. Case is ignored, and the
     /// short name of an entry with a long name matches too.
+    ///
+    /// # Errors
+    ///
+    /// Returns name-validation errors, [`ErrorKind::NotADirectory`] for a file parent,
+    /// [`ErrorKind::NotFound`] for a missing name, or node-capacity, corrupt-directory and
+    /// device errors.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all, fields(dir = ?dir)))]
     pub async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
         name.check()?;
@@ -2651,6 +2667,11 @@ impl<D: BlockDevice> FatFs<D> {
     ///
     /// Found through `..` entries: the parent's first cluster, then the
     /// grandparent, which is scanned for the parent's entry.
+    ///
+    /// # Errors
+    ///
+    /// Returns invalid-node, non-directory, node-capacity, corrupt-directory or device read
+    /// errors while finding the parent.
     pub async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
         if dir == ROOT {
             return Ok(ROOT);
@@ -2682,6 +2703,11 @@ impl<D: BlockDevice> FatFs<D> {
     /// with [`ErrorKind::InvalidHandle`]; one that differs only in its long
     /// name, as a file recreated under the same `~N` alias with a clock that
     /// does not move, is not detected.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidHandle`] for a stale id, [`ErrorKind::NotFound`] for a
+    /// removed node, or corruption and device read errors.
     pub async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
         if node == ROOT {
             return Ok(Metadata::new(FileType::Dir, permissions(true, false)));
@@ -2694,6 +2720,11 @@ impl<D: BlockDevice> FatFs<D> {
     /// volume label and deleted entries are skipped. The raw cursor is the
     /// index of a directory slot. A directory whose cluster chain loops
     /// fails with [`ErrorKind::Corrupt`] once the walk comes back around.
+    ///
+    /// # Errors
+    ///
+    /// Returns invalid-directory, corrupt-entry or corrupt-chain errors, or device read
+    /// errors. Cursors beyond the directory return `None`.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all, fields(dir = ?dir)))]
     pub async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
         let mut listed = self.listed_entry.take();
@@ -2746,6 +2777,11 @@ impl<D: BlockDevice> FatFs<D> {
 
     /// FAT has no symlinks: fails with [`ErrorKind::InvalidInput`] for any
     /// node that exists.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] because this format has no symbolic links, or an
+    /// error validating the supplied node.
     pub async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
         let _ = buf;
         if node != ROOT {
@@ -2760,6 +2796,12 @@ impl<D: BlockDevice> FatFs<D> {
     /// for [`OpenMode::Write`] on a read-only volume,
     /// [`ErrorKind::InvalidHandle`] for an id that is not pinned, and
     /// [`ErrorKind::NotFound`] for a removed node.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::IsADirectory`] for a directory, [`ErrorKind::ReadOnly`] for
+    /// refused write access, [`ErrorKind::InvalidHandle`] for an unpinned id, or
+    /// [`ErrorKind::NotFound`] for a removed node.
     pub async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
         Ok(self.nodes.open(node, mode, self.read_only)?)
     }
@@ -2767,6 +2809,11 @@ impl<D: BlockDevice> FatFs<D> {
     /// Ends one `open` and writes the node's pending size and modification
     /// time to its directory entry. Preceding data is flushed first, but
     /// the directory entry itself is not made durable; use `fsync` or `sync`.
+    ///
+    /// # Errors
+    ///
+    /// Returns corruption or device errors publishing pending file metadata. The open count
+    /// is decremented before publication, so failure does not retain an open for retry.
     pub async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         self.nodes.close(node);
         self.publish_node(node).await
@@ -2775,6 +2822,12 @@ impl<D: BlockDevice> FatFs<D> {
     /// Reads from a file at `offset`. Returns 0 at or past the end. A chain
     /// that ends before the file's size or loops fails with
     /// [`ErrorKind::Corrupt`].
+    ///
+    /// # Errors
+    ///
+    /// Returns invalid-node or directory errors, [`ErrorKind::Corrupt`] for an invalid,
+    /// short or cyclic allocation chain, or device read errors. `buf` may be partly changed
+    /// on failure.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all, fields(node = ?node, offset = offset, bytes = buf.len())))]
     pub async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         if node == ROOT {
@@ -2818,6 +2871,12 @@ impl<D: BlockDevice> FatFs<D> {
     /// [`ErrorKind::Unsupported`], as does any change to the root, which has
     /// no entry.
     /// A pending size is written too.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::ReadOnly`] for refused writes, [`ErrorKind::Unsupported`] for
+    /// fields this format cannot store, or invalid-node, corruption and device errors.
+    /// Pending metadata may already be published on failure.
     pub async fn setattr(&mut self, node: NodeId, changes: &SetAttr) -> FsResult<(), D::Error> {
         self.prepare().await?;
         if changes.owner().is_some() {
@@ -2874,6 +2933,13 @@ impl<D: BlockDevice> FatFs<D> {
     /// The new size of a pinned file is written by `close`,
     /// `fsync` or `sync`, with the modification time and the archive
     /// attribute.
+    ///
+    /// # Errors
+    ///
+    /// Returns read-only, invalid-node or directory errors, [`ErrorKind::FileTooLarge`] for
+    /// an unrepresentable end position, [`ErrorKind::NoSpace`] for exhausted allocation
+    /// space, or corruption and device errors. Failure can leave partial data or metadata
+    /// changes without reporting progress.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all, fields(node = ?node, offset = offset, bytes = buf.len())))]
     pub async fn write(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, D::Error> {
         self.prepare().await?;
@@ -2919,6 +2985,12 @@ impl<D: BlockDevice> FatFs<D> {
     /// past it. A changed size sets the archive attribute; the same size
     /// changes nothing. A length past 4 GiB - 1 fails with
     /// [`ErrorKind::FileTooLarge`].
+    ///
+    /// # Errors
+    ///
+    /// Returns read-only, invalid-node or directory errors, allocation-capacity errors, or
+    /// corruption and device errors. A failure may follow a partial resize. Returns
+    /// [`ErrorKind::FileTooLarge`] above the FAT file-size limit.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all, fields(node = ?node, len = len)))]
     pub async fn truncate(&mut self, node: NodeId, len: u64) -> FsResult<(), D::Error> {
         self.prepare().await?;
@@ -2977,6 +3049,11 @@ impl<D: BlockDevice> FatFs<D> {
 
     /// Writes the node's pending size and modification time, then flushes
     /// the device.
+    ///
+    /// # Errors
+    ///
+    /// Returns corruption or device errors publishing pending file metadata or flushing the
+    /// device. Earlier successful writes remain applied.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all, fields(node = ?node)))]
     pub async fn fsync(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         self.publish_node(node).await?;
@@ -2994,6 +3071,12 @@ impl<D: BlockDevice> FatFs<D> {
     /// dot or space, refused rather than stripped so a created name is the
     /// name listed), and [`ErrorKind::NoSpace`] when a FAT12/16 root
     /// directory is full or a directory would pass 65536 entries.
+    ///
+    /// # Errors
+    ///
+    /// Returns invalid-name or invalid-parent errors, [`ErrorKind::AlreadyExists`] for a
+    /// matching name, capacity or read-only errors, or corruption and device errors. A
+    /// failure may follow allocation or partial entry writes.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all, fields(dir = ?dir)))]
     pub async fn create(&mut self, dir: NodeId, name: &Name, attrs: &SetAttr) -> FsResult<NodeId, D::Error> {
         self.create_node(dir, name, false, attrs).await
@@ -3001,6 +3084,11 @@ impl<D: BlockDevice> FatFs<D> {
 
     /// Creates the empty directory `name` in `dir` and pins it, as `create`
     /// does for a file.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same name, parent, collision, capacity, read-only and device errors as
+    /// [`create`](Self::create). Directory allocation may have begun before failure.
     pub async fn mkdir(&mut self, dir: NodeId, name: &Name, attrs: &SetAttr) -> FsResult<NodeId, D::Error> {
         self.create_node(dir, name, true, attrs).await
     }
@@ -3010,6 +3098,13 @@ impl<D: BlockDevice> FatFs<D> {
     /// [`ErrorKind::Busy`] while the node is open. A node that is pinned but
     /// not open is removed; its id then answers [`ErrorKind::NotFound`]
     /// until its last `forget`.
+    ///
+    /// # Errors
+    ///
+    /// Returns invalid-name or invalid-parent errors, [`ErrorKind::NotFound`] for a missing
+    /// name, [`ErrorKind::IsADirectory`] for a directory, [`ErrorKind::Busy`] for an open
+    /// file, or read-only, corruption and device errors. A failure may follow entry
+    /// deletion or partial reclamation.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all, fields(dir = ?dir)))]
     pub async fn unlink(&mut self, dir: NodeId, name: &Name) -> FsResult<(), D::Error> {
         self.remove_entry(dir, name, false).await
@@ -3018,6 +3113,12 @@ impl<D: BlockDevice> FatFs<D> {
     /// Removes the empty directory `name` from `dir`, as `unlink` does a
     /// file. Fails with [`ErrorKind::NotADirectory`] for anything else and
     /// [`ErrorKind::DirectoryNotEmpty`] for a directory with entries.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotADirectory`] for a file, [`ErrorKind::DirectoryNotEmpty`]
+    /// for a nonempty directory, or the name, parent, lookup, read-only, corruption and
+    /// device errors of [`unlink`](Self::unlink). Earlier writes are not rolled back.
     pub async fn rmdir(&mut self, dir: NodeId, name: &Name) -> FsResult<(), D::Error> {
         self.remove_entry(dir, name, true).await
     }
@@ -3041,6 +3142,12 @@ impl<D: BlockDevice> FatFs<D> {
     /// an interrupted rename: it restores an unpublished replacement target,
     /// or finishes removing the source after the destination is published.
     /// This recovery state is held in memory, not a persistent journal.
+    ///
+    /// # Errors
+    ///
+    /// Returns the replacement and ancestry errors described above, or invalid-name,
+    /// missing-entry, invalid-parent, capacity, read-only, corruption and device errors. An
+    /// I/O failure may leave partial directory changes.
     pub async fn rename(
         &mut self,
         from_dir: NodeId,
@@ -3120,6 +3227,12 @@ impl<D: BlockDevice> FatFs<D> {
     /// also prevents a successful sync or unmount. `sync` fails with
     /// [`ErrorKind::ReadOnly`] when a refused write left pending sizes, or
     /// what an interrupted operation left, unwritten, and succeeds otherwise.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::ReadOnly`] for unwritable pending changes,
+    /// [`ErrorKind::Corrupt`] when pending metadata or interrupted operations cannot be
+    /// recovered, or device read, write and flush errors. Completed writes remain applied.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all))]
     pub async fn sync(&mut self) -> FsResult<(), D::Error> {
         if self.read_only {
@@ -3150,6 +3263,11 @@ impl<D: BlockDevice> FatFs<D> {
 
 
     /// Resolves a path relative to the filesystem root.
+    ///
+    /// # Errors
+    ///
+    /// Returns invalid-component, missing-entry, non-directory or policy errors from
+    /// [`FileSystem::resolve`], and propagates filesystem and device errors.
     pub async fn resolve(&mut self, path: &[u8], how: hadris_fs::Resolve) -> FsResult<NodeId, D::Error> {
         FileSystem::resolve(self, path, how).await
     }

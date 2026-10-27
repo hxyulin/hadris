@@ -78,3 +78,6 @@ required-features = ["std", "sync"]
 [[test]]
 name = "encryption_macos"
 required-features = ["encryption", "std"]
+
+[lints]
+workspace = true

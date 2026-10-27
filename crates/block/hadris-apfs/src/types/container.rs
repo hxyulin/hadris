@@ -78,6 +78,11 @@ pub struct ContainerSuperblock {
 
 impl ContainerSuperblock {
     /// Parses a container superblock from bytes beginning at an APFS object.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the superblock is truncated, has the wrong object type or
+    /// magic, or declares a block size outside the supported range.
     pub fn parse(data: &[u8]) -> crate::Result<Self> {
         let object = ObjectHeader::parse(data)?;
         if object.kind() != ObjectType::ContainerSuperblock as u16 {
@@ -133,6 +138,11 @@ impl ContainerSuperblock {
     /// Fails with [`crate::ApfsError::Unsupported`] when an incompatible
     /// feature outside [`NX_READABLE_INCOMPAT_MASK`] is set: version 1,
     /// Fusion, or a bit the specification does not define.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ApfsError::Unsupported`] for Fusion, version 1, or unknown
+    /// incompatible feature bits.
     pub const fn check_incompatible_features(&self) -> crate::Result<()> {
         let unreadable = self.incompatible_features & !NX_READABLE_INCOMPAT_MASK;
         if unreadable == 0 {
@@ -174,6 +184,11 @@ pub struct CheckpointMapping {
 
 impl CheckpointMapping {
     /// Parses a mapping from bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ApfsError::InputTooSmall`] if the checkpoint mapping is
+    /// truncated.
     pub fn parse(data: &[u8]) -> crate::Result<Self> {
         Ok(Self {
             object_type: le_u32(data, 0)?,
@@ -206,6 +221,11 @@ pub struct CheckpointMapBlock {
 
 impl CheckpointMapBlock {
     /// Parses a checkpoint map block from an APFS object block.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the block has the wrong object type, its declared mapping
+    /// array is truncated, or an offset overflows.
     #[cfg(feature = "alloc")]
     pub fn parse(data: &[u8]) -> crate::Result<Self> {
         let object = ObjectHeader::parse(data)?;

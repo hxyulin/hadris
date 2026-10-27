@@ -63,7 +63,11 @@ impl FatKind {
     }
 
     /// Byte offset of `cluster`'s entry within one FAT copy.
-    pub const fn entry_offset(self, cluster: u64) -> u64 {
+    ///
+    /// Cluster numbers use the on-disk 32-bit width; all resulting byte offsets
+    /// fit in `u64`, including reserved and out-of-range cluster numbers.
+    pub const fn entry_offset(self, cluster: u32) -> u64 {
+        let cluster = cluster as u64;
         match self {
             Self::Fat12 => cluster * 3 / 2,
             Self::Fat16 => cluster * 2,
@@ -168,6 +172,11 @@ impl FatKind {
 
     /// Interprets a stored entry as the link to the next cluster: `None` at
     /// the end of the chain.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ChainError::Bad`] for a bad-cluster marker, or
+    /// [`ChainError::OutOfBounds`] for a free, reserved or out-of-range link.
     pub const fn next(self, stored: u32, max_cluster: u32) -> Result<Option<u32>, ChainError> {
         let value = stored & self.mask();
         if self.is_end_of_chain(value) {
@@ -187,16 +196,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn entry_offsets_cover_the_entire_cluster_number_width() {
+        for (kind, last_offset) in [
+            (FatKind::Fat12, 6_442_450_942),
+            (FatKind::Fat16, 8_589_934_590),
+            (FatKind::Fat32, 17_179_869_180),
+        ] {
+            assert_eq!(kind.entry_offset(0), 0, "{kind:?}");
+            assert_eq!(kind.entry_offset(u32::MAX), last_offset, "{kind:?}");
+        }
+    }
+
+    #[test]
     fn fat12_packs_two_entries_in_three_bytes() {
         let mut fat = [0u8; 8];
         let kind = FatKind::Fat12;
         for (cluster, value) in [(2u64, 0xABCu32), (3, 0x123), (4, 0xFFF)] {
-            let at = kind.entry_offset(cluster) as usize;
+            let at = kind.entry_offset(cluster as u32) as usize;
             kind.encode(cluster, value, &mut fat[at..at + 2]);
         }
         assert_eq!(fat[3..6], [0xBC, 0x3A, 0x12]);
         for (cluster, value) in [(2u64, 0xABCu32), (3, 0x123), (4, 0xFFF)] {
-            let at = kind.entry_offset(cluster) as usize;
+            let at = kind.entry_offset(cluster as u32) as usize;
             assert_eq!(kind.decode(cluster, &fat[at..at + 2]), value);
         }
     }

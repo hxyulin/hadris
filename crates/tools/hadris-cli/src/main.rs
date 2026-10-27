@@ -71,6 +71,8 @@ fn main() {
 
 #[cfg(unix)]
 fn reset_sigpipe() {
+    // SAFETY: SIGPIPE is a valid signal and SIG_DFL is the default disposition,
+    // not a Rust callback. This runs during startup before the CLI starts work.
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }

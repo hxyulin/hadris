@@ -229,6 +229,11 @@ impl<const N: usize> NameBuf<N> {
     }
 
     /// Validates `bytes` and replaces the contents. On error the buffer is unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Returns the name validation error or [`NameError::TooLong`] when
+    /// `bytes` exceeds `N`. The previous contents remain unchanged.
     pub fn set_bytes(&mut self, bytes: &[u8]) -> Result<(), NameError> {
         self.set(Name::new(bytes))
     }
@@ -256,6 +261,12 @@ impl<const N: usize> NameBuf<N> {
     /// assert_eq!(name.as_bytes(), b"longname.txt");
     /// # Ok::<(), NameError>(())
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Propagates errors from `write`, returns [`NameError::TooLong`] for a
+    /// count above `N`, or returns the name validation error for the filled
+    /// bytes. Every error leaves the buffer empty.
     pub fn fill(
         &mut self,
         write: impl FnOnce(&mut [u8]) -> Result<usize, NameError>,

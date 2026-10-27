@@ -55,3 +55,6 @@ required-features = ["std", "sync"]
 [[test]]
 name = "read"
 required-features = ["std", "sync"]
+
+[lints]
+workspace = true

@@ -208,6 +208,10 @@ impl<const N: usize> IsoStr<N> {
 
     /// The trimmed field as UTF-8. Disk bytes need not be UTF-8, so this can
     /// fail.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`core::str::Utf8Error`] when the trimmed field is not valid UTF-8.
     pub fn as_str(&self) -> Result<&str, core::str::Utf8Error> {
         core::str::from_utf8(self.trimmed())
     }

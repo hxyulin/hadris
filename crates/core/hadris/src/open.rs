@@ -108,6 +108,12 @@ fn damage<T, E>(result: FsResult<T, E>) -> FsResult<Option<hadris_fs::Error<core
 /// damaged volume never reads as a foreign one. Devices whose blocks are larger than
 /// 4096 bytes give an empty [`Detection`]. Fails only with the device's
 /// errors.
+///
+/// # Errors
+///
+/// Propagates device errors encountered while probing. Recognized format
+/// damage is recorded in the returned [`Detection`] instead of failing
+/// the call.
 pub async fn detect<D: BlockDevice + ?Sized>(dev: &mut D) -> FsResult<Detection, D::Error> {
     let mut found = Detection::new();
     let block = dev.block_size().get() as usize;
@@ -218,6 +224,11 @@ pub enum AnyFs<D> {
 #[cfg(feature = "alloc")]
 impl<D: BlockDevice> AnyFs<D> {
     /// Syncs the volume and gives the device back.
+    ///
+    /// # Errors
+    ///
+    /// Returns the underlying driver's synchronization error with the device.
+    /// Earlier writes may already be durable; read-only formats always succeed.
     pub async fn unmount(self) -> Result<D, MountError<D, D::Error>> {
         each!(self, fs => fs.unmount().await)
     }
@@ -245,6 +256,11 @@ impl<D: BlockDevice> AnyFs<D> {
     /// on, and returns how many it filled. Call again from the end of the
     /// last run for more; 0 means there are none. Fails with
     /// [`ErrorKind::Unsupported`] on APFS.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::Unsupported`] for APFS, or the selected driver's
+    /// node validation, extent decoding and device errors.
     pub async fn extents(&mut self, node: NodeId, from: u64, out: &mut [Extent]) -> FsResult<usize, D::Error> {
         match self {
             Self::Fat(fs) => fs.extents(node, from, out).await,
@@ -260,6 +276,10 @@ impl<D: BlockDevice> AnyFs<D> {
     /// UDF the serial the volume set identifier starts with. `None` when the
     /// volume records none. Fails with [`ErrorKind::Unsupported`] on ISO
     /// 9660 and APFS, which have no serial number.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::Unsupported`] for ISO 9660 and APFS.
     pub fn volume_serial(&self) -> FsResult<Option<u64>, D::Error> {
         match self {
             Self::Fat(fs) => Ok(fs.volume_serial().map(u64::from)),
@@ -276,6 +296,12 @@ impl<D: BlockDevice> AnyFs<D> {
     /// when `label` does not fit it, with [`ErrorKind::ReadOnly`] on a
     /// read-only mount, and with [`ErrorKind::Unsupported`] on ISO 9660,
     /// UDF and APFS.
+    ///
+    /// # Errors
+    ///
+    /// Returns label validation errors, [`ErrorKind::ReadOnly`] on a read-only
+    /// mount, or [`ErrorKind::Unsupported`] for ISO 9660, UDF and APFS.
+    /// Filesystem and device errors propagate; a failure may leave partial writes.
     pub async fn set_label(&mut self, label: Option<&str>) -> FsResult<(), D::Error> {
         match self {
             Self::Fat(fs) => {
@@ -307,6 +333,14 @@ impl<D: BlockDevice> AnyFs<D> {
 /// `open_apfs` instead; without it, an APFS container fails with message
 /// `"apfs"`.
 /// The [`MountError`] gives `dev` back.
+///
+/// # Errors
+///
+/// Returns device errors, [`ErrorKind::NotRecognized`] when no supported
+/// filesystem is found, or the first recognized filesystem's mount error
+/// when none mounts. A damaged recognized signature reports
+/// [`ErrorKind::Corrupt`] instead of `NotRecognized`. The device is returned
+/// in [`MountError`], including when an APFS volume requires explicit selection.
 #[cfg(feature = "alloc")]
 pub async fn open<D: BlockDevice>(mut dev: D, options: MountOptions) -> Result<AnyFs<D>, MountError<D, D::Error>> {
     let found = match detect(&mut dev).await {
@@ -367,6 +401,12 @@ pub async fn open<D: BlockDevice>(mut dev: D, options: MountOptions) -> Result<A
 /// Fails as `hadris_part`'s `read` does: with [`ErrorKind::NotRecognized`]
 /// when `dev` has no partition table, [`ErrorKind::Corrupt`] when the
 /// table is invalid, and with the device's errors.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::NotRecognized`] without a partition table,
+/// [`ErrorKind::Corrupt`] for invalid table data, or device errors from
+/// reading the table and probing reachable partitions.
 #[cfg(feature = "alloc")]
 pub async fn detect_partitions<D: BlockDevice>(dev: &mut D) -> FsResult<Vec<(Partition, Detection)>, D::Error> {
     let disk = part_read(&mut *dev).await?;
@@ -394,6 +434,14 @@ pub async fn detect_partitions<D: BlockDevice>(dev: &mut D) -> FsResult<Vec<(Par
 /// holds one, with the [`ErrorKind::InvalidInput`] of the first partition
 /// that does not fit, as on a truncated image, and otherwise with
 /// [`ErrorKind::NotRecognized`]. The [`MountError`] gives `dev` back.
+///
+/// # Errors
+///
+/// Returns partition-table errors, [`ErrorKind::NotFound`] for an unmatched
+/// selection, or mount errors from [`open`]. For [`Select::First`], the
+/// first mount failure takes precedence over an out-of-range partition;
+/// otherwise no filesystem returns [`ErrorKind::NotRecognized`].
+/// The original device is returned in [`MountError`].
 #[cfg(feature = "alloc")]
 pub async fn open_partition<D: BlockDevice>(
     mut dev: D,
@@ -449,6 +497,11 @@ pub async fn open_partition<D: BlockDevice>(
 ///
 /// Use this for containers with multiple volumes; [`open`] never chooses
 /// an arbitrary volume. Mount errors return ownership of the device.
+///
+/// # Errors
+///
+/// Returns the selection, validation, encryption and device errors of
+/// [`ApfsFs::mount_volume`], retaining the original device in [`MountError`].
 #[cfg(all(feature = "alloc", feature = "unstable-apfs"))]
 pub async fn open_apfs<D: BlockDevice>(
     dev: D,
@@ -462,6 +515,12 @@ pub async fn open_apfs<D: BlockDevice>(
 /// that [`open`] mounts it: FAT and exFAT with `hadris_fat`'s `format`, and
 /// UDF with its tree writer and an empty tree. Call the format's own
 /// function for its result, such as the FAT geometry.
+///
+/// # Errors
+///
+/// Returns the selected formatter's option, geometry, capacity or device
+/// errors. Invalid options are rejected before writing; I/O failures may
+/// leave a partially formatted device.
 #[cfg(all(feature = "alloc", feature = "write"))]
 pub async fn format<D: BlockDevice>(dev: &mut D, options: &crate::FormatOptions) -> Result<(), crate::PathError> {
     match options {

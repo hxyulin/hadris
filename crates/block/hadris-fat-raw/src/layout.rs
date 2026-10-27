@@ -560,17 +560,17 @@ pub fn encode_fs_info(free: u32, next: u32) -> [u8; 512] {
 pub fn reserved_fat_entries(kind: FatKind, media: u8) -> ([u8; 12], usize) {
     let mask = kind.mask();
     let mut entries = [0u8; 12];
-    let mut values = [(0u64, (mask & !0xFF) | media as u32), (1, mask), (2, 0)];
+    let mut values = [(0u32, (mask & !0xFF) | media as u32), (1, mask), (2, 0)];
     let mut count = 2;
     if kind == FatKind::Fat32 {
-        values[2] = (ROOT_CLUSTER as u64, kind.end_of_chain());
+        values[2] = (ROOT_CLUSTER, kind.end_of_chain());
         count = 3;
     }
     for &(cluster, value) in &values[..count] {
         let at = kind.entry_offset(cluster) as usize;
-        kind.encode(cluster, value, &mut entries[at..]);
+        kind.encode(cluster as u64, value, &mut entries[at..]);
     }
-    let len = kind.entry_offset(count as u64 - 1) as usize + kind.entry_len();
+    let len = kind.entry_offset(count as u32 - 1) as usize + kind.entry_len();
     (entries, len)
 }
 
@@ -784,8 +784,7 @@ mod tests {
         assert_eq!(geometry.max_cluster(), layout.clusters + 1);
         assert_eq!(geometry.cluster_size(), layout.cluster_size());
         assert!(
-            layout.kind.entry_offset(geometry.max_cluster() as u64)
-                + layout.kind.entry_len() as u64
+            layout.kind.entry_offset(geometry.max_cluster()) + layout.kind.entry_len() as u64
                 <= geometry.fat_size()
         );
     }

@@ -48,9 +48,6 @@ hadris-fs = { workspace = true, features = ["unstable-contract"] }
 hadris-storage = { workspace = true, features = ["std", "sync"] }
 tempfile.workspace = true
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
-
 [[test]]
 name = "roundtrip"
 required-features = ["std", "sync", "write"]
@@ -98,3 +95,6 @@ required-features = ["std", "sync", "async", "write"]
 [[test]]
 name = "unified_write"
 required-features = ["std", "sync", "async", "write"]
+
+[lints]
+workspace = true

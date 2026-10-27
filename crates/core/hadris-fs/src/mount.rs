@@ -115,6 +115,10 @@ impl MountOptions {
     /// Reads and writes timestamps stored without a zone, such as FAT's,
     /// as local time `minutes` east of UTC. Fails when `minutes` is beyond
     /// a day. FAT and exFAT only.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DateTimeError::InvalidOffset`] outside −1439..=1439 minutes.
     pub const fn with_utc_offset(mut self, minutes: i16) -> Result<Self, DateTimeError> {
         match NoClock::TIME.with_utc_offset_minutes(Some(minutes)) {
             Ok(_) => {

@@ -105,6 +105,11 @@ pub struct CivilDate {
 
 impl CivilDate {
     /// Creates a date. Year 0 is 1 BCE. Months and days start at 1.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DateTimeError::InvalidCivil`] if the month or day is invalid
+    /// for the given year.
     pub const fn new(year: i32, month: u8, day: u8) -> Result<Self, DateTimeError> {
         if month < 1 || month > 12 || day < 1 || day > days_in_month(year as i64, month) {
             return Err(DateTimeError::InvalidCivil);
@@ -145,6 +150,11 @@ impl CivilTime {
     };
 
     /// Creates a time. Leap seconds are not representable.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DateTimeError::InvalidCivil`] if the hour exceeds 23 or the
+    /// minute or second exceeds 59.
     pub const fn new(hour: u8, minute: u8, second: u8) -> Result<Self, DateTimeError> {
         if hour > 23 || minute > 59 || second > 59 {
             return Err(DateTimeError::InvalidCivil);
@@ -215,6 +225,11 @@ impl DateTime {
     };
 
     /// Creates an instant from seconds and nanoseconds since the Unix epoch.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DateTimeError::InvalidNanoseconds`] for a billion or more
+    /// nanoseconds, or [`DateTimeError::OutOfRange`] outside the supported years.
     pub const fn new(seconds: i64, nanoseconds: u32) -> Result<Self, DateTimeError> {
         if nanoseconds >= NANOS_PER_SEC {
             return Err(DateTimeError::InvalidNanoseconds);
@@ -230,6 +245,10 @@ impl DateTime {
     }
 
     /// Creates an instant from whole seconds since the Unix epoch.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DateTimeError::OutOfRange`] outside [`Self::MIN`]..=[`Self::MAX`].
     pub const fn from_unix_seconds(seconds: i64) -> Result<Self, DateTimeError> {
         Self::new(seconds, 0)
     }
@@ -238,6 +257,12 @@ impl DateTime {
     ///
     /// The civil fields are local time in `offset_minutes` east of UTC, or UTC
     /// when the offset is `None`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DateTimeError::InvalidOffset`] outside ±23:59, or
+    /// [`DateTimeError::OutOfRange`] when the resulting UTC instant falls
+    /// outside [`Self::MIN`]..=[`Self::MAX`].
     pub const fn from_civil(
         date: CivilDate,
         time: CivilTime,
@@ -307,6 +332,11 @@ impl DateTime {
     }
 
     /// Replaces the sub-second nanoseconds.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DateTimeError::InvalidNanoseconds`] for a billion or more
+    /// nanoseconds.
     pub const fn with_nanoseconds(self, nanoseconds: u32) -> Result<Self, DateTimeError> {
         if nanoseconds >= NANOS_PER_SEC {
             return Err(DateTimeError::InvalidNanoseconds);
@@ -318,6 +348,11 @@ impl DateTime {
     }
 
     /// Replaces the recorded UTC offset. The instant does not change.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DateTimeError::InvalidOffset`] when the offset is outside
+    /// −1439..=1439 minutes.
     pub const fn with_utc_offset_minutes(
         self,
         offset_minutes: Option<i16>,

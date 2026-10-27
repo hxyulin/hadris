@@ -95,6 +95,11 @@ pub mod sync {
 
     /// Mounts a FAT volume. The result lands in the caller's frame, so
     /// this function's stack is what mounting takes.
+    ///
+    /// # Errors
+    ///
+    /// Returns the FAT mounting error and original device if recognition,
+    /// validation or device access fails, or logical blocks are not 512 bytes.
     #[inline(never)]
     pub fn mount_fat<D: BlockDevice>(
         dev: D,
@@ -172,6 +177,11 @@ pub mod sync {
     }
 
     /// Mounts an exFAT volume, as `mount_fat` does.
+    ///
+    /// # Errors
+    ///
+    /// Returns the exFAT mounting error and original device if recognition,
+    /// validation or device access fails, or logical blocks are not 512 bytes.
     #[inline(never)]
     pub fn mount_exfat<D: BlockDevice>(
         dev: D,
@@ -219,6 +229,11 @@ pub mod local {
     use hadris_storage::async_::BlockDevice;
 
     /// Mounts a FAT volume.
+    ///
+    /// # Errors
+    ///
+    /// Returns the FAT mounting error and original device if recognition,
+    /// validation or device access fails, or logical blocks are not 512 bytes.
     #[inline(never)]
     pub async fn mount_fat<D: BlockDevice>(
         dev: D,

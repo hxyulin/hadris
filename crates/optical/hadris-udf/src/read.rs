@@ -1017,6 +1017,10 @@ impl<D: BlockDevice> UdfFs<D> {
 
     /// Gives the device back. The volume is read-only, so there is nothing
     /// to sync and this never fails.
+    ///
+    /// # Errors
+    ///
+    /// This read-only unmount always succeeds and performs no I/O.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all))]
     pub async fn unmount(self) -> Result<D, MountError<D, D::Error>> {
         Ok(self.dev)

@@ -31,6 +31,11 @@ pub struct ObjectMapBlock {
 
 impl ObjectMapBlock {
     /// Parses an object map block from bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the object-map block is truncated or has the wrong object
+    /// type.
     pub fn parse(data: &[u8]) -> crate::Result<Self> {
         let object = ObjectHeader::parse(data)?;
         if object.kind() != ObjectType::ObjectMap as u16 {
@@ -75,6 +80,11 @@ pub struct ObjectMapValue {
 
 impl ObjectMapValue {
     /// Parses an object map value from bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ApfsError::InputTooSmall`] if the 16-byte object-map value is
+    /// truncated.
     pub fn parse(data: &[u8]) -> crate::Result<Self> {
         Ok(Self {
             flags: le_u32(data, 0)?,

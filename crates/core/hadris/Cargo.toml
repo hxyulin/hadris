@@ -70,3 +70,6 @@ required-features = ["tracing", "sync", "async", "iso", "udf", "cpio", "part", "
 [dev-dependencies]
 tracing.workspace = true
 hadris-apfs = { workspace = true, features = ["std", "sync"] }
+
+[lints]
+workspace = true

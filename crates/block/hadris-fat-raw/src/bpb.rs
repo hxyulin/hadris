@@ -81,9 +81,11 @@ pub struct RawBpb {
     pub total_sectors_32: [u8; 4],
 }
 
-// Safety: RawBpb is a C-repr struct with no padding issues for its fields
+// SAFETY: The `repr(C)` fields all have alignment one, so every byte belongs to a field.
 unsafe impl bytemuck::NoUninit for RawBpb {}
+// SAFETY: All fields are byte arrays or integer wrappers that admit zero.
 unsafe impl bytemuck::Zeroable for RawBpb {}
+// SAFETY: Every field admits all bit patterns; the layout has no padding or pointers.
 unsafe impl bytemuck::AnyBitPattern for RawBpb {}
 
 #[repr(C)]
@@ -196,9 +198,11 @@ pub struct RawBpbExt32 {
     pub signature_word: U16<LittleEndian>,
 }
 
-// Safety: RawBpbExt32 is a C-repr struct with no padding issues
+// SAFETY: The `repr(C)` fields all have alignment one, so every byte belongs to a field.
 unsafe impl bytemuck::NoUninit for RawBpbExt32 {}
+// SAFETY: All fields are byte arrays or integer wrappers that admit zero.
 unsafe impl bytemuck::Zeroable for RawBpbExt32 {}
+// SAFETY: Every field admits all bit patterns; the layout has no padding or pointers.
 unsafe impl bytemuck::AnyBitPattern for RawBpbExt32 {}
 
 /// BPB_ExtFlags
@@ -249,7 +253,9 @@ pub struct RawFsInfo {
     pub trail_signature: U32<LittleEndian>,
 }
 
-// Safety: RawFsInfo is a C-repr packed struct
+// SAFETY: The `repr(C, packed)` layout has no padding, so every byte belongs to a field.
 unsafe impl bytemuck::NoUninit for RawFsInfo {}
+// SAFETY: All fields are byte arrays or integer wrappers that admit zero.
 unsafe impl bytemuck::Zeroable for RawFsInfo {}
+// SAFETY: Every field admits all bit patterns; the layout has no padding or pointers.
 unsafe impl bytemuck::AnyBitPattern for RawFsInfo {}

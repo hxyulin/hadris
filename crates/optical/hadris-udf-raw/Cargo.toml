@@ -21,3 +21,6 @@ default = []
 [dependencies]
 bitflags = { workspace = true }
 bytemuck = { workspace = true, features = ["derive", "min_const_generics"] }
+
+[lints]
+workspace = true

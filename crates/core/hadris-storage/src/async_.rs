@@ -97,6 +97,10 @@ enum Request<'a> {
 }
 
 /// Concrete future whose auto traits follow the device and operation state.
+///
+/// # Panics
+///
+/// Polling this future after it completes panics.
 #[non_exhaustive]
 pub struct Operation<'a, D: BlockDevice + ?Sized> {
     device: &'a mut D,

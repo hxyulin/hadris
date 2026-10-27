@@ -54,3 +54,13 @@ hadris-cpio = { version = "3.0.0-rc.3", path = "crates/archive/hadris-cpio", def
 hadris = { version = "3.0.0-rc.3", path = "crates/core/hadris", default-features = false }
 hadris-ntfs = { version = "~3.0.0-rc.2", path = "crates/block/hadris-ntfs", default-features = false }
 hadris-apfs = { version = "~3.0.0-rc.3", path = "crates/block/hadris-apfs", default-features = false }
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+unsafe_op_in_unsafe_fn = "warn"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "warn"
+missing_safety_doc = "warn"
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
