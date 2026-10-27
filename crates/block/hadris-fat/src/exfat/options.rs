@@ -1,4 +1,5 @@
 use core::fmt;
+use core::str::FromStr;
 
 use hadris_fs::ErrorKind;
 #[cfg(feature = "write")]
@@ -7,9 +8,19 @@ use hadris_fs::{DateTime, NoClock};
 #[cfg(feature = "write")]
 use super::Guid;
 
-use hadris_fat_raw::exfat::{MAX_LABEL_UNITS, valid_unit};
+use hadris_fat_raw::exfat::{self as raw, MAX_LABEL_UNITS};
 
 /// An exFAT volume label: 1 to 11 UTF-16 code units, stored as given.
+///
+/// [`FromStr`] and [`TryFrom<&str>`] apply the same validation as [`new`](Self::new).
+///
+/// ```rust
+/// use hadris_fat::exfat::VolumeLabel;
+///
+/// let label: VolumeLabel = "Data".parse()?;
+/// assert_eq!(label.as_utf16(), &[0x44, 0x61, 0x74, 0x61]);
+/// # Ok::<(), hadris_fs::ErrorKind>(())
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VolumeLabel {
     units: [u16; MAX_LABEL_UNITS],
@@ -17,7 +28,11 @@ pub struct VolumeLabel {
 }
 
 impl VolumeLabel {
-    /// Checks `text`. Fails with `ErrorKind::InvalidInput` when it is empty
+    /// Checks `text` and preserves its characters and case.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] when it is empty
     /// or holds a control character or one of `"*/:<>?\|`, which exFAT
     /// forbids in labels as in file names, and with
     /// `ErrorKind::NameTooLong` above 11 UTF-16 code units.
@@ -30,7 +45,7 @@ impl VolumeLabel {
             len: 0,
         };
         for unit in text.encode_utf16() {
-            if !valid_unit(unit) {
+            if !raw::valid_unit(unit) {
                 return Err(ErrorKind::InvalidInput);
             }
             if label.len as usize == MAX_LABEL_UNITS {
@@ -62,6 +77,14 @@ impl TryFrom<&str> for VolumeLabel {
 
     /// Checks `text` as [`VolumeLabel::new`] does.
     fn try_from(text: &str) -> Result<Self, ErrorKind> {
+        Self::new(text)
+    }
+}
+
+impl FromStr for VolumeLabel {
+    type Err = ErrorKind;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
         Self::new(text)
     }
 }
@@ -126,6 +149,7 @@ impl fmt::Debug for VolumeLabel {
 #[cfg(feature = "write")]
 #[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
 #[derive(Debug, Clone, Copy)]
+#[must_use]
 pub struct ExFatOptions {
     pub(crate) size: Option<u64>,
     pub(crate) label: Option<VolumeLabel>,
@@ -299,5 +323,19 @@ mod tests {
             Some(ErrorKind::NameTooLong)
         );
         assert!(VolumeLabel::new("abcdefghijk").is_ok());
+    }
+
+    #[test]
+    fn exfat_labels_parse_without_losing_case_or_supplementary_characters() {
+        let text = "Data\u{1d11e}";
+        let label: VolumeLabel = text.parse().unwrap();
+        assert_eq!(label, VolumeLabel::new(text).unwrap());
+        assert_eq!(std::format!("{label}"), text);
+        assert_eq!(label.as_utf16().len(), 6);
+        assert_eq!("".parse::<VolumeLabel>(), Err(ErrorKind::InvalidInput));
+        assert_eq!(
+            "\u{1d11e}".repeat(6).parse::<VolumeLabel>(),
+            Err(ErrorKind::NameTooLong)
+        );
     }
 }

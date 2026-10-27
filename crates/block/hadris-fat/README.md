@@ -354,7 +354,7 @@ externally while mounted. This check does not add crash or power-loss guarantees
 
 ```toml
 [dependencies]
-hadris-fat = { version = "3.0.0-rc.2", default-features = false, features = ["sync"] }
+hadris-fat = { version = "3.0.0-rc.3", default-features = false, features = ["sync"] }
 ```
 
 Without `alloc` this gives the embedded API, `check` and the raw layer;
@@ -407,7 +407,7 @@ with `Unsupported`.
 
 ```toml
 [dependencies]
-hadris-fat = "3.0.0-rc.2"  # Uses default features
+hadris-fat = "3.0.0-rc.3"  # Uses default features
 ```
 
 ## FAT Variant Support
@@ -484,7 +484,7 @@ let repeated_lookups = CacheOptions::new()
 let fragmented_reads = CacheOptions::new()
     .with_blocks(0)
     .with_chain_positions(64);
-let disabled = CacheOptions::sequential().with_directory_hint(false);
+let disabled = CacheOptions::sequential().without_directory_hint();
 ```
 
 Pass the selected options to `FatFs::with_cache` before wrapping the driver in
@@ -519,7 +519,7 @@ for the device contract.
 - [Read a FAT image](https://hxyulin.github.io/hadris/guides/read-fat-image)
 - [Modify FAT safely](https://hxyulin.github.io/hadris/guides/modify-fat)
 - [Create FAT filesystems](https://hxyulin.github.io/hadris/creation/fat)
-- [API reference](https://docs.rs/hadris-fat/3.0.0-rc.2)
+- [API reference](https://docs.rs/hadris-fat/3.0.0-rc.3)
 
 ## License
 

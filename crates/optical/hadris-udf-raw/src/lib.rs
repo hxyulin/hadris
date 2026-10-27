@@ -193,6 +193,18 @@ macro_rules! le_int {
                 fmt::Debug::fmt(&self.get(), f)
             }
         }
+
+        impl From<$int> for $name {
+            fn from(value: $int) -> Self {
+                Self::new(value)
+            }
+        }
+
+        impl From<$name> for $int {
+            fn from(value: $name) -> Self {
+                value.get()
+            }
+        }
     };
 }
 
@@ -287,7 +299,8 @@ impl Tag {
     }
 
     /// Writes a tag at the start of `descriptor`, with a CRC over the
-    /// `crc_length` bytes after it, as many as `descriptor` holds, and the
+    /// `crc_length` bytes after it, limited to `u16::MAX` and as many as
+    /// `descriptor` holds, and the
     /// checksum. Does nothing when `descriptor` is shorter than a tag.
     pub fn seal(
         descriptor: &mut [u8],
@@ -446,7 +459,7 @@ impl EntityId {
     /// The domain of UDF volumes.
     pub const OSTA_DOMAIN: &'static [u8] = b"*OSTA UDF Compliant";
 
-    /// An identifier with an empty suffix.
+    /// An identifier with an empty suffix, truncating input beyond 23 bytes.
     pub fn new(identifier: &[u8]) -> Self {
         let mut id = Self::default();
         let len = identifier.len().min(23);

@@ -142,6 +142,12 @@ async fn read_data<R: Read, B: AsRef<[u8]> + AsMut<[u8]>>(entry: &mut Entry<'_, 
 /// and have a link count above 1 become hard links, with the data and
 /// attributes of the last name that carries data, as GNU cpio writes them.
 /// Errors carry the entry name.
+///
+/// # Errors
+///
+/// Returns archive-read and tree-insertion errors, including invalid paths,
+/// unsupported entry types, and conflicting tree paths. A failed read may
+/// leave `reader` part-way through the archive; the partial tree is discarded.
 #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all))]
 pub async fn read_tree<R: Read, B: AsRef<[u8]> + AsMut<[u8]>>(reader: &mut CpioReader<R, B>) -> Result<Tree, PathError> {
     let mut tree = Tree::new();
@@ -179,7 +185,7 @@ pub async fn read_tree<R: Read, B: AsRef<[u8]> + AsMut<[u8]>>(reader: &mut CpioR
         }
         let dev: DeviceNumber = entry.dev();
         let key = (dev.major(), dev.minor(), entry.ino());
-        groups.add(&mut tree, key, &path, node, entry.len() > 0).map_err(with_path)?;
+        groups.add(&mut tree, key, &path, node, !entry.is_empty()).map_err(with_path)?;
     }
     Ok(tree)
 }

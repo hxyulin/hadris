@@ -412,7 +412,8 @@ set directory entries to 256 while leaving the other bounds at zero.
 
 The driver now offers `CacheOptions::sequential()`: one lazily allocated
 listed-entry hint, with the directory-prefix, block and chain caches disabled.
-`with_directory_hint(bool)` is independent of those bounds. Direct mounts
+`with_directory_hint()` and `without_directory_hint()` control the hint
+independently of those bounds. Direct mounts
 remain uncached. FAT CLI extraction selects the sequential preset by default
 and exposes explicit bounds plus `--no-directory-hint` and `--no-cache`.
 The hint reuses the existing name/alias matcher, retains one parsed short entry

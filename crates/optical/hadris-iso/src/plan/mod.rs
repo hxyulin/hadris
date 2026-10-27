@@ -21,7 +21,7 @@ use hadris_part::{
 };
 use hadris_storage::BlockSize;
 
-use crate::boot::Platform;
+use crate::boot::{Emulation, Platform};
 use crate::error::{Detail, Error};
 use crate::namespace::JolietLevel;
 use crate::options::{
@@ -386,7 +386,11 @@ fn join(parent: &[u8], name: &[u8]) -> Vec<u8> {
 ///
 /// Size an output device with [`Report::size`]; the image includes the
 /// 150 zero blocks after the data that xorriso and `mkisofs -pad` write,
-/// and any backup GPT. Fails as `write` does before it writes anything:
+/// and any backup GPT.
+///
+/// # Errors
+///
+/// Fails as `write` does before it writes anything:
 /// [`ErrorKind::InvalidInput`] for a missing boot image, a diskette image
 /// of the wrong size, a load size of zero, an identifier that does not
 /// fit, a relocation clash or a tree too deep without Rock Ridge;
@@ -620,15 +624,15 @@ impl Planner<'_> {
                 (None, None) => return Err(invalid(Detail::BootImage)),
             };
             let floppy = match entry.emulation() {
-                crate::Emulation::Floppy12 => Some(1_228_800),
-                crate::Emulation::Floppy144 => Some(1_474_560),
-                crate::Emulation::Floppy288 => Some(2_949_120),
+                Emulation::Floppy12 => Some(1_228_800),
+                Emulation::Floppy144 => Some(1_474_560),
+                Emulation::Floppy288 => Some(2_949_120),
                 _ => None,
             };
             if len == 0 || floppy.is_some_and(|size| size != len) || entry.load_size() == Some(0) {
                 return Err(invalid(Detail::BootImage));
             }
-            if entry.emulation() == crate::Emulation::NoEmulation
+            if entry.emulation() == Emulation::NoEmulation
                 && let Some(load) = entry.load_size()
                 && u64::from(load) > len.div_ceil(512)
             {
@@ -1160,7 +1164,7 @@ impl Planner<'_> {
         for (index, entry) in entries.iter().enumerate() {
             let (block, len) = self.entry_image(entry)?;
             let load = entry.load_size().unwrap_or_else(|| {
-                if entry.emulation() != crate::Emulation::NoEmulation {
+                if entry.emulation() != Emulation::NoEmulation {
                     1
                 } else {
                     u16::try_from(len.div_ceil(512)).unwrap_or(u16::MAX)

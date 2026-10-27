@@ -605,7 +605,7 @@ fn directory_prefix_keeps_chain_guard_when_missing_names_encounter_cycles() {
         .with_cache(
             CacheOptions::new()
                 .with_directory_entries(capacity)
-                .with_directory_hint(true),
+                .with_directory_hint(),
         );
         fs.readdir(fs.root(), hadris_fs::DirCursor::START).unwrap();
         fs.lookup(fs.root(), Name::new(&names[0])).unwrap();
@@ -649,7 +649,7 @@ fn directory_index_discards_names_before_cancelled_rename_writes() {
         .with_cache(
             CacheOptions::new()
                 .with_directory_entries(8)
-                .with_directory_hint(true),
+                .with_directory_hint(),
         );
         let root = fs.root();
         cancel::run_for(fs.lookup(root, Name::new("OLD.TXT")), usize::MAX)
@@ -964,7 +964,7 @@ fn append_planning_preserves_high_byte_aliases_that_decode_as_ascii() {
         .with_cache(
             CacheOptions::new()
                 .with_directory_entries(64)
-                .with_directory_hint(true),
+                .with_directory_hint(),
         );
         let root = fs.root();
         let entry = fs
@@ -999,9 +999,14 @@ fn listing_hint_eliminates_repeated_directory_reads() {
                 counts: &counts,
                 written_blocks: None,
             };
+            let options = if enabled {
+                CacheOptions::sequential().with_directory_hint()
+            } else {
+                CacheOptions::sequential().without_directory_hint()
+            };
             let mut fs = FatFs::mount(dev, MountOptions::new().read_only())
                 .unwrap()
-                .with_cache(CacheOptions::sequential().with_directory_hint(enabled));
+                .with_cache(options);
             let root = fs.root();
             let mut cursor = hadris_fs::DirCursor::START;
             let mut reads = 0;

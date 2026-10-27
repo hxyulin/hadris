@@ -153,7 +153,7 @@ is available through separate dependencies:
 
 ```toml
 [dependencies]
-hadris-fat = { version = "3.0.0-rc.2" }
+hadris-fat = { version = "3.0.0-rc.3" }
 hadris-fs = { version = "3.0.0-rc.3" }
 hadris-storage = { version = "3.0.0-rc.3" }
 ```
@@ -1691,6 +1691,10 @@ volumes, not internal Apple-silicon hardware FileVault. See the
 [encryption scope](apfs-encryption.md).
 
 ## Upgrading from a 3.0 release candidate
+
+FAT RC3 replaces `CacheOptions::with_directory_hint(bool)` with
+`with_directory_hint()` to enable the hint and `without_directory_hint()`
+to disable it. Other cache bounds keep their values.
 
 This guide maps V2 to 3.0. Changes between 3.0 release candidates, including
 renamed and removed features, are listed per release under Breaking in the

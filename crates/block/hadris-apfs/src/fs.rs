@@ -1,9 +1,6 @@
-use super::Container;
-use super::FileSystem;
 use super::storage::BlockDevice;
-use crate::types::filesystem::{
-    self, DirectoryEntryRecord, FileExtentRecord, XattrRecord, stream_size,
-};
+use super::{Container, FileSystem};
+use crate::types::filesystem::{self, DirectoryEntryRecord, FileExtentRecord, XattrRecord};
 use crate::types::{ContainerSuperblock, InodeRecord, VolumeSuperblock};
 use crate::{Detail, VolumeSelector};
 use alloc::collections::BTreeMap;
@@ -197,7 +194,7 @@ fn extent_sizes<E>(inode: &InodeRecord, extents: &[FileExtentRecord]) -> FsResul
         .filter(|extent| extent.physical_block != 0)
         .try_fold(0u64, |total, extent| total.checked_add(extent.length))
         .ok_or(ErrorKind::Corrupt)?;
-    Ok((stream_size(inode, extents), allocated))
+    Ok((filesystem::stream_size(inode, extents), allocated))
 }
 
 io_transform! {
@@ -236,6 +233,13 @@ impl<D: BlockDevice> ApfsFs<D> {
     /// [`ContainerSuperblock::check_incompatible_features`] and
     /// [`VolumeSuperblock::check_incompatible_features`].
     /// Mount failures return the device for inspection or retry.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] for an empty container or
+    /// [`ErrorKind::InvalidInput`] for ambiguous selection. Unsupported
+    /// features, damaged metadata, node limits, and device failures also
+    /// return errors. The device is retained in [`MountError`].
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn mount(device: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
         Self::mount_selected(device, options, None, None).await
@@ -244,6 +248,13 @@ impl<D: BlockDevice> ApfsFs<D> {
     /// Mounts exactly one volume selected by index, object identifier, UUID or
     /// exact name. Missing selectors fail with `NotFound`; duplicate matches
     /// fail with `InvalidInput`. Names are case sensitive for selection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] if the selector matches no volume,
+    /// or [`ErrorKind::InvalidInput`] if it matches more than one. Other
+    /// mount failures are as documented on [`mount`](Self::mount), and
+    /// retain the device in [`MountError`].
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn mount_volume(
         device: D,
@@ -260,6 +271,14 @@ impl<D: BlockDevice> ApfsFs<D> {
     /// [`Detail::Credentials`], preserving
     /// the device. Passwords are borrowed only during mounting. See
     /// [`Container::unlock_volume`] for supported encryption and resource limits.
+    ///
+    /// # Errors
+    ///
+    /// Returns the selection and mount errors documented on
+    /// [`mount`](Self::mount). Credential failures return
+    /// [`ErrorKind::InvalidInput`] with [`Detail::Credentials`]; unsupported
+    /// encryption returns [`ErrorKind::Unsupported`]. All failures retain
+    /// the device in [`MountError`].
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn mount_with_password(
@@ -275,6 +294,13 @@ impl<D: BlockDevice> ApfsFs<D> {
     ///
     /// Volume selection is independent of the optional crypto-user UUID.
     /// Credentials and limits behave as in [`Self::mount_with_password`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the selection errors documented on
+    /// [`mount_volume`](Self::mount_volume), and the credential and mount
+    /// errors documented on [`mount_with_password`](Self::mount_with_password).
+    /// All failures retain the device in [`MountError`].
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn mount_volume_with_password(
@@ -837,7 +863,7 @@ impl<D: BlockDevice> ApfsFs<D> {
         let extents = self.nodes.extents(inode.private_id);
         // `load_extents` checked these extents, so only the range is read.
         self.container
-            .read_checked_extents_at(extents, stream_size(&inode, extents), offset, buf)
+            .read_checked_extents_at(extents, filesystem::stream_size(&inode, extents), offset, buf)
             .await
     }
 }

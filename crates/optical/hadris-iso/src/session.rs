@@ -5,8 +5,8 @@ use alloc::vec::Vec;
 use core::convert::Infallible;
 
 use hadris_fs::{
-    Content, DirCursor, ErrorKind, Extent, FileType, MountError, Node, NodeId, Report, SetAttr,
-    Tree, Warning, WarningKind,
+    Content, DeviceNumber, DirCursor, ErrorKind, Extent, FileType, Location, Metadata, MountError,
+    MountOptions, Node, NodeId, PathError, Report, SetAttr, Tree, TreeEntry, Warning, WarningKind,
 };
 use hadris_io::ErrorType;
 use hadris_part::{Disk, Gpt, GptEntry, Hybrid, HybridMbr, PartitionKind, PartitionTable};
@@ -16,12 +16,12 @@ use super::FileSystem;
 use super::image::IsoFs;
 use super::storage::BlockDevice;
 use super::write::{check_block_size, check_contents, check_output, emit};
+use crate::boot::Emulation;
 use crate::error::{Detail, Error};
 use crate::namespace::Namespace;
 use crate::options::{BootInfo, IsoLevel, IsoOptions, SessionMode};
 use crate::plan::{self, Base, InfoTable, Region};
 use crate::volume_info::IsoId;
-use hadris_fs::PathError;
 use hadris_iso_raw::{self as raw, SECTOR_SIZE};
 
 const SECTOR: u64 = SECTOR_SIZE as u64;
@@ -40,7 +40,7 @@ fn text<const N: usize>(field: &raw::IsoStr<N>) -> Option<String> {
 
 /// The attributes a tree node keeps of `meta`. Permissions are kept only
 /// when Rock Ridge stored them.
-fn set_attr(meta: &hadris_fs::Metadata, rock_ridge: bool) -> SetAttr {
+fn set_attr(meta: &Metadata, rock_ridge: bool) -> SetAttr {
     let mut attrs = SetAttr::new();
     if let Some(time) = meta.created() {
         attrs = attrs.with_created(time);
@@ -102,7 +102,7 @@ fn covers(fixed: &[(u64, u64)], offset: u64, len: u64) -> bool {
 }
 
 /// A tree error while reading an image: the image holds what no tree can.
-fn tree_error<E>(_: hadris_fs::PathError) -> Error<E> {
+fn tree_error<E>(_: PathError) -> Error<E> {
     Error::new(
         ErrorKind::Corrupt,
         "the image's directories do not form a tree",
@@ -110,7 +110,7 @@ fn tree_error<E>(_: hadris_fs::PathError) -> Error<E> {
 }
 
 /// Every file of `tree` with its path, depth first.
-fn files(tree: &Tree) -> Vec<(Vec<u8>, hadris_fs::TreeEntry<'_>)> {
+fn files(tree: &Tree) -> Vec<(Vec<u8>, TreeEntry<'_>)> {
     let mut out = Vec::new();
     let mut pending = vec![(Vec::new(), tree.root())];
     while let Some((prefix, dir)) = pending.pop() {
@@ -163,10 +163,10 @@ impl<D: BlockDevice> BlockDevice for Sectors<'_, D> {
         self.len / 512
     }
 
-    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), hadris_fs::Error<Self::Error>> {
+    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>> {
         let past_end = || {
-            hadris_fs::Error::new(ErrorKind::InvalidInput, "block request past the end of the device")
-                .with_location(hadris_fs::Location::Block(first.get()))
+            Error::new(ErrorKind::InvalidInput, "block request past the end of the device")
+                .with_location(Location::Block(first.get()))
         };
         let offset = first.get().checked_mul(512).ok_or_else(past_end)?;
         if offset.saturating_add(buf.len() as u64) > self.len {
@@ -215,14 +215,14 @@ impl<D: BlockDevice> BlockDevice for Sectors<'_, D> {
         cx: &mut core::task::Context<'_>,
         first: BlockIndex,
         buf: &mut [u8],
-    ) -> core::task::Poll<Result<(), hadris_fs::Error<Self::Error>>> {
+    ) -> core::task::Poll<Result<(), Error<Self::Error>>> {
         use core::task::Poll;
         let past_end = || {
-            hadris_fs::Error::new(
+            Error::new(
                 ErrorKind::InvalidInput,
                 "block request past the end of the device",
             )
-            .with_location(hadris_fs::Location::Block(first.get()))
+            .with_location(Location::Block(first.get()))
         };
         let Some(offset) = first.get().checked_mul(512) else {
             return Poll::Ready(Err(past_end()));
@@ -337,16 +337,21 @@ impl<D: BlockDevice> Session<D> {
     /// Reads the image on `dev` into a tree.
     ///
     /// Reads the newest descriptor set, at logical sector 16, and walks the
-    /// most capable tree. Fails like `IsoFs::mount`, and with
+    /// most capable tree.
+    ///
+    /// # Errors
+    ///
+    /// Returns the device in [`MountError`] on failure. Fails like
+    /// [`IsoFs::mount`], and with
     /// [`ErrorKind::Unsupported`] for logical blocks other than 2048 bytes.
     /// A directory listed twice, as in a cycle, fails with
     /// [`ErrorKind::Corrupt`] and one more than 1024 levels deep with
     /// [`ErrorKind::LimitExceeded`], both with [`Detail::DirectoryRecord`].
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
     pub async fn open(dev: D) -> Result<Self, MountError<D, D::Error>> {
-        let mut iso = IsoFs::mount(dev, hadris_fs::MountOptions::new().read_only()).await?;
+        let mut iso = IsoFs::mount(dev, MountOptions::new().read_only()).await?;
         if iso.info().block_size() != SECTOR_SIZE as u32 {
-            let err: hadris_fs::Error<D::Error> = ErrorKind::Unsupported.into();
+            let err: Error<D::Error> = ErrorKind::Unsupported.into();
             return Err(MountError::new(err, iso.into_inner()));
         }
         match read_session(&mut iso).await {
@@ -408,9 +413,12 @@ impl<D: BlockDevice> Session<D> {
     /// automatically. [`options`](Self::options) preserves volume identifiers
     /// and namespaces but omits boot configuration.
     ///
-    /// Validation and output capacity checks run before writing. Source or
-    /// output I/O failures may leave an incomplete output image. File read
-    /// errors carry the path in [`PathError::path`].
+    /// # Errors
+    ///
+    /// Returns planning, output-capacity, and content-mode errors before
+    /// writing. Source-read, output-write, and flush failures can leave a
+    /// partial output image. File read errors carry [`PathError::path`].
+    /// An owned `out` is dropped on return; pass `&mut output` to retain it.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
     pub async fn export<O: BlockDevice>(&mut self, mut out: O, opts: &IsoOptions) -> Result<Report, PathError> {
         check_block_size(&out)?;
@@ -482,6 +490,12 @@ impl<D: BlockDevice> Session<D> {
     ///
     /// Afterwards the tree's new files point at their new extents, so the
     /// session can be written again.
+    ///
+    /// # Errors
+    ///
+    /// Returns planning, content, boot-catalog, partition-table, or device
+    /// errors. Preflight errors leave the image unchanged; an I/O failure
+    /// after writing starts can leave an incomplete session without rollback.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
     pub async fn write(&mut self, opts: &IsoOptions, mode: SessionMode) -> Result<Report, PathError> {
         check_block_size(&self.dev)?;
@@ -761,7 +775,7 @@ impl<D: BlockDevice> Session<D> {
                 continue;
             }
             bytes[at + 8..at + 12].copy_from_slice(&rba.to_le_bytes());
-            if bytes[at + 1] & 0x0F == crate::Emulation::NoEmulation.media_type() {
+            if bytes[at + 1] & 0x0F == Emulation::NoEmulation.media_type() {
                 let old = u16::from_le_bytes([bytes[at + 6], bytes[at + 7]]);
                 let sectors = |len: u64| u16::try_from(len.div_ceil(512)).unwrap_or(u16::MAX);
                 let load = if old >= sectors(boot.len) {
@@ -984,7 +998,7 @@ async fn read_session<D: BlockDevice>(iso: &mut IsoFs<D>) -> Result<(Tree, IsoOp
                         .rock_ridge(node)
                         .await?
                         .and_then(|rr| rr.device())
-                        .unwrap_or(hadris_fs::DeviceNumber::new(0, 0));
+                        .unwrap_or(DeviceNumber::new(0, 0));
                     Node::special(kind, Some(number))
                 }
                 kind @ (FileType::Fifo | FileType::Socket) => Node::special(kind, None),

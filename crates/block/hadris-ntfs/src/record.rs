@@ -278,6 +278,8 @@ impl<'a> Iterator for Attrs<'a> {
     }
 }
 
+impl core::iter::FusedIterator for Attrs<'_> {}
+
 /// Finds the first attribute of `kind` whose name is `name` (UTF-16LE,
 /// empty for unnamed).
 pub(crate) fn find_attr<'a>(
@@ -467,6 +469,8 @@ impl Iterator for Runs<'_> {
         }
     }
 }
+
+impl core::iter::FusedIterator for Runs<'_> {}
 
 /// A parsed `$FILE_NAME` value, borrowed from its buffer.
 #[derive(Debug, Clone, Copy)]
@@ -763,6 +767,30 @@ mod tests {
         assert!(iter.next().unwrap().is_ok());
         assert_eq!(iter.next().unwrap().err(), Some(Detail::Attribute));
         assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn fallible_decoders_fuse_after_malformed_entries() {
+        fn error_once<T>(
+            mut entries: impl core::iter::FusedIterator<Item = Result<T, Detail>>,
+            expected: Detail,
+        ) {
+            match entries.next() {
+                Some(Err(error)) => assert_eq!(error, expected),
+                _ => panic!("decoder must report the malformed first entry"),
+            }
+            for _ in 0..3 {
+                assert!(entries.next().is_none(), "decoder resumed after its error");
+            }
+        }
+
+        let mut attrs = resident_data();
+        attrs[4..8].copy_from_slice(&0u32.to_le_bytes());
+        attrs.extend(resident_data());
+        attrs.extend(raw::ATTR_END.to_le_bytes());
+        let record = record_with(&attrs, (0x30 + attrs.len()) as u32);
+        error_once(Attrs::new(&record).unwrap(), Detail::Attribute);
+        error_once(Runs::new(&[0x11, 0, 1, 0x11, 1, 1, 0]), Detail::DataRun);
     }
 
     fn file_name_value(name: &str) -> Vec<u8> {

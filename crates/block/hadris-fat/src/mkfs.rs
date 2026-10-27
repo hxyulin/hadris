@@ -162,6 +162,8 @@ io_transform! {
 /// its label entry. The data region is left as it is, except that a
 /// growable device is grown to the volume's end. The device is flushed.
 ///
+/// # Errors
+///
 /// Fails with [`ErrorKind::InvalidInput`] when an option is out of range,
 /// with [`ErrorKind::NoSpace`] when the device is too small for the size,
 /// any layout or the variant asked for, with [`ErrorKind::LimitExceeded`]

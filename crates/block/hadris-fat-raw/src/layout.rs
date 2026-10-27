@@ -1,6 +1,8 @@
 //! Volume layout for formatting: FAT variant, cluster size and FAT size
 //! from the volume size.
 
+use core::fmt;
+
 use hadris_common::types::endian::LittleEndian;
 use hadris_common::types::number::{U16, U32};
 
@@ -28,8 +30,21 @@ pub enum LayoutError {
     Invalid(&'static str),
 }
 
+impl fmt::Display for LayoutError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TooSmall => f.write_str("volume is too small for the FAT variant"),
+            Self::TooLarge => f.write_str("volume is too large for the FAT variant"),
+            Self::Invalid(option) => write!(f, "invalid {option}"),
+        }
+    }
+}
+
+impl core::error::Error for LayoutError {}
+
 /// What the caller asks for. Fields left unset are chosen by [`plan`].
 #[derive(Debug, Clone, Copy)]
+#[must_use]
 pub struct Request {
     kind: Option<FatKind>,
     sector_size: u32,
@@ -222,6 +237,9 @@ pub fn default_cluster_sectors(kind: FatKind, bytes: u64) -> u32 {
 /// Sectors per FAT and cluster count when `available` sectors hold the FATs
 /// and the data region: the smallest FAT that covers every cluster left
 /// beside it.
+///
+/// Returns `None` when a cluster size, FAT count, or sector size is zero,
+/// or the required FATs cannot fit in `available` sectors.
 pub fn fat_sectors(
     kind: FatKind,
     available: u32,
@@ -229,9 +247,12 @@ pub fn fat_sectors(
     fat_count: u32,
     sector_size: u32,
 ) -> Option<(u32, u32)> {
+    if cluster_sectors == 0 || fat_count == 0 || sector_size == 0 {
+        return None;
+    }
     let mut fat = 1u32;
     loop {
-        let data = available.saturating_sub(fat_count * fat);
+        let data = available.checked_sub(fat_count.checked_mul(fat)?)?;
         let clusters = data / cluster_sectors;
         let entries = clusters as u64 + 2;
         let bytes = match kind {
@@ -254,6 +275,12 @@ pub fn fat_sectors(
 /// given, so the cluster count fits the variant. A chosen cluster size
 /// starts from [`default_cluster_sectors`] and doubles or halves until it
 /// fits.
+///
+/// # Errors
+///
+/// Returns [`LayoutError::Invalid`] for unsupported option values, or
+/// [`LayoutError::TooSmall`] or [`LayoutError::TooLarge`] when the volume
+/// cannot hold a layout of the requested FAT variant.
 pub fn plan(request: &Request) -> Result<Layout, LayoutError> {
     let sector_size = request.sector_size;
     if !matches!(sector_size, 512 | 1024 | 2048 | 4096) {
@@ -575,6 +602,58 @@ mod tests {
         assert_eq!(layout.clusters, 2847);
         assert_eq!(layout.root_sectors(), 14);
         assert_eq!(layout.data_start(), 33 * 512);
+    }
+
+    #[test]
+    fn rejects_zero_fat_dimensions() {
+        for (cluster_sectors, fat_count, sector_size) in [(0, 2, 512), (1, 0, 512), (1, 2, 0)] {
+            assert_eq!(
+                fat_sectors(
+                    FatKind::Fat16,
+                    8192,
+                    cluster_sectors,
+                    fat_count,
+                    sector_size
+                ),
+                None,
+                "cluster sectors {cluster_sectors}, FAT count {fat_count}, sector size {sector_size}"
+            );
+        }
+    }
+
+    #[test]
+    fn fat_dimensions_fit_even_at_integer_limits() {
+        for kind in [FatKind::Fat12, FatKind::Fat16, FatKind::Fat32] {
+            for available in [0, 1, u32::MAX] {
+                for cluster_sectors in [1, 128, u32::MAX] {
+                    for fat_count in [1, 2, u32::MAX] {
+                        for sector_size in [1, 512, u32::MAX] {
+                            if let Some((fat, clusters)) = fat_sectors(
+                                kind,
+                                available,
+                                cluster_sectors,
+                                fat_count,
+                                sector_size,
+                            ) {
+                                let fat_space = u64::from(fat) * u64::from(fat_count);
+                                assert!(fat_space <= u64::from(available));
+                                assert!(
+                                    u64::from(clusters) * u64::from(cluster_sectors)
+                                        <= u64::from(available) - fat_space
+                                );
+                                let entries = u64::from(clusters) + 2;
+                                let bytes = match kind {
+                                    FatKind::Fat12 => (entries * 3).div_ceil(2),
+                                    FatKind::Fat16 => entries * 2,
+                                    FatKind::Fat32 => entries * 4,
+                                };
+                                assert!(bytes <= u64::from(fat) * u64::from(sector_size));
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

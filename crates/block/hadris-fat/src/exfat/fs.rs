@@ -737,6 +737,8 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// `ActiveFat` selects are read, and every change is written to both
     /// FATs and both bitmaps.
     ///
+    /// # Errors
+    ///
     /// Fails with [`ErrorKind::NotRecognized`] when the first sector does not
     /// name exFAT, and with [`ErrorKind::Corrupt`] when neither boot region
     /// holds a valid exFAT boot sector and checksum, the boot sector describes a
@@ -796,6 +798,11 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// read-only because the device refused a write fails with
     /// [`ErrorKind::ReadOnly`] while it still holds pending sizes, or what an
     /// interrupted operation left, that can no longer be written.
+    ///
+    /// # Errors
+    ///
+    /// Returns the sync error and the device if pending changes cannot be
+    /// written or the device cannot be flushed.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat", level = "trace", skip_all))]
     pub async fn unmount(mut self) -> Result<D, MountError<D, D::Error>> {
         let synced = FileSystem::sync(&mut self).await;
@@ -855,6 +862,10 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// Has the next [`sync`](Self::sync) clear a `VolumeDirty` set at
     /// mount, as `fsck.exfat` does. Call it after `check` found the volume
     /// clean. Fails with [`ErrorKind::ReadOnly`] on a read-only mount.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::ReadOnly`] when the volume cannot accept writes.
     pub fn mark_clean(&mut self) -> FsResult<(), D::Error> {
         self.writable()?;
         self.vol.mark_clean();
@@ -869,6 +880,11 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// last run for more; 0 means there are none. An empty file has none.
     /// Fails with [`ErrorKind::Corrupt`] when the allocation leaves the
     /// heap or a chain is longer than the volume.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the node is missing, its allocation is corrupt,
+    /// or reading the allocation metadata fails. `out` may be partly filled.
     pub async fn extents(&mut self, node: NodeId, from: u64, out: &mut [FileExtent]) -> FsResult<usize, D::Error> {
         let (alloc, len, valid) = if node == ROOT {
             (self.root_start().alloc, u64::MAX, u64::MAX)
@@ -925,6 +941,11 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// of entries that follow one another on the device. The root, which
     /// has no entry set, has none. Returns how many it filled; fails with
     /// [`ErrorKind::LimitExceeded`] when `out` is too short.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::LimitExceeded`] if `out` is too short.
+    /// Propagates missing-node, corrupt-record, and device errors.
     pub async fn records(&mut self, node: NodeId, out: &mut [FileExtent]) -> FsResult<usize, D::Error> {
         if node == ROOT {
             return Ok(0);
@@ -947,12 +968,22 @@ impl<D: BlockDevice> ExFatFs<D> {
 
     /// Reads `buf.len()` bytes of the device at byte `offset`, through the
     /// driver's block buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the requested byte range is outside the device
+    /// or a device read fails. `buf` may be partly modified.
     pub async fn read_raw(&mut self, offset: u64, buf: &mut [u8]) -> FsResult<(), D::Error> {
         self.get_bytes(offset, buf).await
     }
 
     /// Writes `serial` to both boot regions, the backup first, and
     /// recomputes each region's boot checksum, which covers it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the volume is read-only or a boot-sector read
+    /// or write fails. A device error may leave the boot copies inconsistent.
     pub async fn set_volume_serial(&mut self, serial: u32) -> FsResult<(), D::Error> {
         self.prepare().await?;
         let sector = self.vol.geometry().sector_size();
@@ -986,6 +1017,12 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// Sets the volume label, or empties it with `None`. The root
     /// directory's Volume Label entry is rewritten, or created in a free
     /// slot of the root directory, which grows when it has none.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the volume is read-only, no directory space can
+    /// be allocated, or updating the label fails. A device error may leave
+    /// partial changes; call [`sync`](Self::sync) for durability.
     pub async fn set_label(&mut self, label: Option<VolumeLabel>) -> FsResult<(), D::Error> {
         self.prepare().await?;
         let mut entry = [0u8; ENTRY_SIZE];
@@ -1017,6 +1054,12 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// [`volume_guid`](Self::volume_guid) reads it. Fails with
     /// [`ErrorKind::InvalidInput`] for the null GUID, which the
     /// specification reserves.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] for the null GUID, or an error
+    /// if the volume is read-only, directory space is exhausted, or reading
+    /// or writing the entry fails. Failure may leave partial changes.
     pub async fn set_volume_guid(&mut self, guid: Option<Guid>) -> FsResult<(), D::Error> {
         if guid.is_some_and(Guid::is_nil) {
             return Err(ErrorKind::InvalidInput.into());
@@ -2909,6 +2952,11 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// [`Guid::to_bytes`] uses. exfatprogs 1.2 `tune.exfat -u` prints the
     /// same bytes in raw order, so its text differs from [`Guid`]'s
     /// `Display` in the first three groups.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the root directory or Volume GUID entry is
+    /// corrupt or cannot be read.
     pub async fn volume_guid(&mut self) -> FsResult<Option<Guid>, D::Error> {
         Ok(self.find_root_entry(raw::ENTRY_GUID).await?.and_then(|(_, entry)| entry_guid(&entry)))
     }

@@ -86,7 +86,7 @@
 //! | `alloc` | via `std` | `read_tree` and `normalize_path` |
 //! | `write` | Yes | Implies `alloc`; the writer and [`plan`] |
 //! | `sync` | Yes | The blocking API in `sync` |
-//! | `async` | No | The asynchronous API with `Send` futures in `async_` |
+//! | `async` | No | The asynchronous API in `async_`; futures derive `Send` from their operation state |
 //!
 //! No feature changes what an item does.
 
@@ -144,8 +144,10 @@ pub mod sync {
     pub use read_tree::read_tree;
 }
 
-/// The asynchronous API with `Send` futures, for generic code on
-/// multi-threaded executors, generated from the same source as `sync`.
+/// The asynchronous API, generated from the same source as `sync`.
+///
+/// Streams and name buffers may be non-`Send`. Operation futures are `Send`
+/// when their stream, buffer, and retained operation state are `Send`.
 #[cfg(feature = "async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 #[path = "async.rs"]

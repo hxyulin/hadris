@@ -8,10 +8,7 @@ use super::FileSystem;
 use super::storage::BlockDevice;
 use crate::error::{Detail, Error};
 use crate::raw;
-use crate::record::{
-    self, Attr, Body, FileName, MAX_LIST_ENTRY, MAX_RECORD, RecordHeader, Runs, reference_record,
-    reference_sequence,
-};
+use crate::record::{self, Attr, Body, FileName, MAX_LIST_ENTRY, MAX_RECORD, RecordHeader, Runs};
 use crate::volume::{
     DirIndex, Extents, Geometry, Info, MAX_BLOCK, MftExtents, PAGE, Upcase, UpcaseExtents,
 };
@@ -76,7 +73,8 @@ enum Match {
 /// Whether a directory listing leaves an entry out: DOS aliases of long
 /// names, and the metadata files, as other NTFS drivers do.
 fn hidden(reference: u64, name: &FileName<'_>) -> bool {
-    name.namespace == raw::FILE_NAME_DOS || reference_record(reference) < raw::RECORD_FIRST_USER
+    name.namespace == raw::FILE_NAME_DOS
+        || record::reference_record(reference) < raw::RECORD_FIRST_USER
 }
 
 /// Where an attribute's value is.
@@ -407,8 +405,8 @@ async fn read_reference<D: BlockDevice>(
     reference: u64,
     buf: &mut [u8],
 ) -> Result<RecordHeader, Error<D::Error>> {
-    let header = read_record(dev, info, reference_record(reference), buf).await?;
-    let sequence = reference_sequence(reference);
+    let header = read_record(dev, info, record::reference_record(reference), buf).await?;
+    let sequence = record::reference_sequence(reference);
     if sequence != 0 && sequence != header.sequence {
         return Err(Detail::StaleReference.into());
     }
@@ -468,7 +466,7 @@ async fn next_attr<D: BlockDevice>(
             continue;
         }
         name[..entry.name.len()].copy_from_slice(entry.name);
-        let record = (reference_record(entry.reference) != base).then_some(entry.reference);
+        let record = (record::reference_record(entry.reference) != base).then_some(entry.reference);
         return Ok(Some(Found {
             start_vcn: entry.start_vcn,
             record,
@@ -876,7 +874,10 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// boot sector, so [`MountOptions::backup_boot`] and the other options
     /// do not apply.
     ///
-    /// Fails with [`ErrorKind::Corrupt`] when the boot sector, `$MFT`, the
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotRecognized`] if the device has no NTFS boot
+    /// sector. Fails with [`ErrorKind::Corrupt`] when the boot sector, `$MFT`, the
     /// root directory or `$UpCase` are invalid, and with
     /// [`ErrorKind::Unsupported`] for device blocks or records above 4096
     /// bytes, or a `$MFT` in more than 32 extents. The device comes back in
@@ -897,6 +898,10 @@ impl<D: BlockDevice> NtfsFs<D> {
 
     /// Gives the device back. The volume is read-only, so there is nothing
     /// to sync and this never fails.
+    ///
+    /// # Errors
+    ///
+    /// This read-only driver always returns `Ok` without accessing the device.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all))]
     pub async fn unmount(self) -> Result<D, MountError<D, D::Error>> {
         Ok(self.dev)
@@ -979,8 +984,8 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// other failure is an invalid handle.
     async fn node_record(&mut self, node: NodeId, buf: &mut [u8]) -> FsResult<RecordHeader, D::Error> {
         let raw_id = node.get();
-        let sequence = reference_sequence(raw_id);
-        match read_record(&mut self.dev, &self.info, reference_record(raw_id), buf).await {
+        let sequence = record::reference_sequence(raw_id);
+        match read_record(&mut self.dev, &self.info, record::reference_record(raw_id), buf).await {
             Ok(header) if sequence != 0 && sequence != header.sequence => Err(ErrorKind::InvalidHandle.into()),
             Ok(header) => Ok(header),
             Err(err) if sequence != 0 && record::names_record(buf, sequence) => Err(err),
@@ -1108,12 +1113,18 @@ impl<D: BlockDevice> NtfsFs<D> {
     // @hadris-tests crafted::named_streams_are_listed_and_read, read::named_streams_read_back
     // @hadris-fuzz ntfs_read
     // @hadris-note Lists and reads named `$DATA` attributes; other attribute types are not exposed as streams.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the node or its attribute list is invalid or a
+    /// record cannot be read. Earlier calls to `visit` are not rolled back
+    /// when a later stream fails to decode.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node)))]
     pub async fn streams(&mut self, node: NodeId, mut visit: impl FnMut(&str, u64)) -> FsResult<(), D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         self.node_record(node, &mut rec).await?;
         let rec = &rec[..self.info.geo.mft_record_size];
-        let base = reference_record(node.get());
+        let base = record::reference_record(node.get());
         let mut pos = 0;
         let mut found_name = [0u8; NAME_BYTES];
         let mut ext = [0u8; MAX_RECORD];
@@ -1132,8 +1143,16 @@ impl<D: BlockDevice> NtfsFs<D> {
     }
 
     /// Reads from the named data stream `stream` of a node at `offset`.
-    /// Stream names compare case-insensitively. [`ErrorKind::NotFound`]
-    /// when the node has no such stream.
+    /// Stream names compare case-insensitively. Returns zero at or past the
+    /// end of the stream. Use [`read`](Self::read) for the unnamed stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] if the named stream is absent,
+    /// [`ErrorKind::Unsupported`] for compressed or encrypted content, or
+    /// an error for invalid node references, malformed mapping pairs, or
+    /// device failures.
+    /// Failure may leave `buf` partly modified.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node, offset = offset, bytes = buf.len())))]
     pub async fn read_stream_at(
         &mut self,
@@ -1145,7 +1164,7 @@ impl<D: BlockDevice> NtfsFs<D> {
         let mut rec = [0u8; MAX_RECORD];
         self.node_record(node, &mut rec).await?;
         let rec = &rec[..self.info.geo.mft_record_size];
-        let base = reference_record(node.get());
+        let base = record::reference_record(node.get());
         let mut pos = 0;
         let mut found_name = [0u8; NAME_BYTES];
         while let Some(found) = next_attr(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &mut pos, &mut found_name).await? {
@@ -1171,13 +1190,11 @@ impl<D: BlockDevice> NtfsFs<D> {
 
     /// Read-only, with hard links; names are UTF-16 and compared as Win32
     /// does.
-    /// Performs the [`FileSystem::capabilities`] operation.
     pub fn capabilities(&self) -> Capabilities {
         self.info.capabilities()
     }
 
     /// The root directory, MFT record 5.
-    /// Performs the [`FileSystem::root`] operation.
     pub fn root(&self) -> NodeId {
         self.info.root()
     }
@@ -1195,8 +1212,13 @@ impl<D: BlockDevice> NtfsFs<D> {
     // @hadris-tests crafted::names_fold_case_through_upcase, read::large_directory_lists_every_entry
     // @hadris-fuzz ntfs_read
     // @hadris-note Walks the index root and every index block the bitmap marks in use instead of descending the B-tree by key.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] for an invalid name,
+    /// [`ErrorKind::NotFound`] when no name matches, or an error if the
+    /// directory index or a required case-folding page cannot be read.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(dir = ?dir)))]
-    /// Performs the [`FileSystem::lookup`] operation.
     pub async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
         name.check()?;
         let Ok(query) = name.to_str() else {
@@ -1205,7 +1227,7 @@ impl<D: BlockDevice> NtfsFs<D> {
         let mut rec = [0u8; MAX_RECORD];
         self.dir_record(dir, &mut rec).await?;
         let rec = &rec[..self.info.geo.mft_record_size];
-        let base = reference_record(dir.get());
+        let base = record::reference_record(dir.get());
         let mut ext = [0u8; MAX_RECORD];
         let Index {
             root: index,
@@ -1265,7 +1287,7 @@ impl<D: BlockDevice> NtfsFs<D> {
             }
         }
         match best {
-            Some((_, reference)) if reference_record(reference) == raw::RECORD_ROOT => Ok(self.root()),
+            Some((_, reference)) if record::reference_record(reference) == raw::RECORD_ROOT => Ok(self.root()),
             Some((_, reference)) => Ok(NodeId::new(reference).ok_or(Detail::Index)?),
             None => Err(ErrorKind::NotFound.into()),
         }
@@ -1276,13 +1298,18 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// it. An entry whose record cannot be read is listed with only the type
     /// its index entry records, and `stat` of it fails with the record's
     /// error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid directory or cursor, malformed index
+    /// entries, or failed device reads. A listed entry may still have damaged
+    /// metadata; call [`stat`](Self::stat) to inspect its record.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(dir = ?dir)))]
-    /// Performs the [`FileSystem::readdir`] operation.
     pub async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         self.dir_record(dir, &mut rec).await?;
         let rec = &rec[..self.info.geo.mft_record_size];
-        let base = reference_record(dir.get());
+        let base = record::reference_record(dir.get());
         let mut ext = [0u8; MAX_RECORD];
         let Index {
             root: index,
@@ -1351,13 +1378,17 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// Metadata of a node: type, size, the four times and the DOS
     /// attributes of `$STANDARD_INFORMATION`, and the number of names that
     /// are not DOS aliases. A directory's size is 0.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the node reference is stale, its record or
+    /// attributes are malformed, or the record cannot be read.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node)))]
-    /// Performs the [`FileSystem::stat`] operation.
     pub async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         let header = self.node_record(node, &mut rec).await?;
         let rec = &rec[..self.info.geo.mft_record_size];
-        let base = reference_record(node.get());
+        let base = record::reference_record(node.get());
         let file_type = if header.is_dir() { FileType::Dir } else { FileType::File };
         let mut meta = Metadata::new(file_type, permissions(file_type, Attributes::NONE));
         if let Some(Attr { body: Body::Resident(value), .. }) = fs(record::find_attr(rec, raw::ATTR_STANDARD_INFORMATION, &[]))? {
@@ -1420,15 +1451,21 @@ impl<D: BlockDevice> NtfsFs<D> {
     // @hadris-tests read::files_read_back, crafted::streams_past_the_volume_fail, crafted::attribute_lists_join_extension_records
     // @hadris-fuzz ntfs_read
     // @hadris-note Reads resident, non-resident, sparse and partly initialized streams, also across extension records; compressed and encrypted streams, and WOF and deduplication reparse points, are unsupported.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::IsADirectory`] for a directory,
+    /// [`ErrorKind::Unsupported`] for content stored in an unsupported form,
+    /// or an error for a stale node, malformed allocation, or device failure.
+    /// Failure may leave `buf` partly modified.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node, offset = offset, bytes = buf.len())))]
-    /// Performs the [`FileSystem::read`] operation.
     pub async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         if self.node_record(node, &mut rec).await?.is_dir() {
             return Err(ErrorKind::IsADirectory.into());
         }
         let rec = &rec[..self.info.geo.mft_record_size];
-        let base = reference_record(node.get());
+        let base = record::reference_record(node.get());
         let head = stream_head(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &[])
             .await?
             .ok_or(Error::<D::Error>::from(Detail::Attribute))?;
@@ -1445,8 +1482,12 @@ impl<D: BlockDevice> NtfsFs<D> {
 
     /// The volume's clusters and the free ones, counted from `$Bitmap`
     /// once and then kept.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the volume allocation bitmap is missing, malformed,
+    /// or cannot be read.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all))]
-    /// Performs the [`FileSystem::statfs`] operation.
     pub async fn statfs(&mut self) -> FsResult<FsStats, D::Error> {
         let total = self.info.geo.total_clusters;
         let free = match self.info.free_clusters {
@@ -1462,19 +1503,22 @@ impl<D: BlockDevice> NtfsFs<D> {
     }
 
     /// Does nothing: NTFS node ids are stable.
-    /// Performs the [`FileSystem::forget`] operation.
     pub fn forget(&mut self, node: NodeId, count: u64) {
         let _ = (node, count);
     }
 
     /// The directory containing `dir`, from its `$FILE_NAME`. The root is
     /// its own parent.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the directory or its parent reference is invalid
+    /// or the required records cannot be read.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(dir = ?dir)))]
-    /// Performs the [`FileSystem::parent`] operation.
     pub async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         self.dir_record(dir, &mut rec).await?;
-        let base = reference_record(dir.get());
+        let base = record::reference_record(dir.get());
         if base == raw::RECORD_ROOT {
             return Ok(self.root());
         }
@@ -1490,7 +1534,7 @@ impl<D: BlockDevice> NtfsFs<D> {
             return Err(Error::<D::Error>::from(Detail::FileName));
         };
         let parent = fs(record::file_name(value))?.parent;
-        if reference_record(parent) == raw::RECORD_ROOT {
+        if record::reference_record(parent) == raw::RECORD_ROOT {
             return Ok(self.root());
         }
         Ok(NodeId::new(parent).ok_or(Detail::FileName)?)
@@ -1498,7 +1542,11 @@ impl<D: BlockDevice> NtfsFs<D> {
 
     /// The `$VOLUME_NAME` of `$Volume`, or `None` when it is missing or
     /// empty.
-    /// Performs the [`FileSystem::label`] operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::LimitExceeded`] if `buf` cannot hold the label.
+    /// Malformed volume metadata and failed device reads also return errors.
     pub async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         read_record(&mut self.dev, &self.info, raw::RECORD_VOLUME, &mut rec).await?;
@@ -1518,8 +1566,13 @@ impl<D: BlockDevice> NtfsFs<D> {
 
     /// Opens a file for reading. Directories fail with
     /// [`ErrorKind::IsADirectory`], writing with [`ErrorKind::ReadOnly`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::ReadOnly`] for write access,
+    /// [`ErrorKind::IsADirectory`] for a directory, or an error if the
+    /// node reference or its metadata is invalid.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node)))]
-    /// Performs the [`FileSystem::open`] operation.
     pub async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         if self.node_record(node, &mut rec).await?.is_dir() {
@@ -1531,8 +1584,12 @@ impl<D: BlockDevice> NtfsFs<D> {
         Ok(())
     }
 
+    /// Closes a file without keeping open state or accessing the device.
+    ///
+    /// # Errors
+    ///
+    /// This read-only implementation always succeeds.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node)))]
-    /// Performs the [`FileSystem::close`] operation.
     pub async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         let _ = node;
         Ok(())
@@ -1540,8 +1597,13 @@ impl<D: BlockDevice> NtfsFs<D> {
 
     /// NTFS here has no symlinks: every node fails with
     /// [`ErrorKind::InvalidInput`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] for every valid node because this
+    /// reader does not interpret reparse points as symbolic links. Invalid
+    /// node references and failed device reads retain their own errors.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node, bytes = buf.len())))]
-    /// Performs the [`FileSystem::readlink`] operation.
     pub async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         self.node_record(node, &mut rec).await?;

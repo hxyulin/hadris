@@ -10,7 +10,7 @@ use hadris_iso::IsoOptions;
 
 use crate::error::Detail;
 use crate::options::UdfOptions;
-use crate::plan::{Plan, SECTOR, lay_out, measure};
+use crate::plan::{self, Plan, SECTOR};
 
 /// Blocks the UDF volume keeps after the last file, before its trailing
 /// anchor, as 2.x did.
@@ -87,10 +87,10 @@ pub(crate) fn plan_both(
 ) -> Result<BridgePlan, PathError> {
     let descriptors = iso_descriptors(iso);
     let bridge = udf.clone().with_min_blocks(0);
-    let first = lay_out(
+    let first = plan::lay_out(
         tree,
         &bridge,
-        &measure(tree, true, false)?,
+        &plan::measure(tree, true, false)?,
         false,
         Some(descriptors),
     )?;
@@ -109,8 +109,8 @@ pub(crate) fn plan_both(
     let iso = iso.with_min_image_blocks(total);
     let iso_report = hadris_iso::plan(tree, &iso)?;
     let stored = stored(tree, &iso_report)?;
-    let contents = measure(&stored, true, true)?;
-    let udf = lay_out(
+    let contents = plan::measure(&stored, true, true)?;
+    let udf = plan::lay_out(
         &stored,
         &bridge.with_min_blocks(total),
         &contents,
@@ -159,7 +159,14 @@ impl BridgePlan {
 /// metadata, sizes the UDF volume itself and raises
 /// [`IsoOptions::with_min_image_blocks`] to the whole image. The report has the image size,
 /// the warnings of the ISO 9660 writer then those of the UDF writer, and
-/// the extents of each file. Fails as either `plan` does.
+/// the extents of each file.
+///
+/// # Errors
+///
+/// Propagates validation and size-limit errors from either format's planner.
+/// Stored content must use whole, aligned blocks after the UDF metadata;
+/// invalid extents return [`Detail::StoredContent`] with kind
+/// [`ErrorKind::InvalidInput`](hadris_fs::ErrorKind::InvalidInput).
 #[cfg_attr(
     feature = "tracing",
     tracing::instrument(target = "hadris::udf", level = "trace", skip_all)

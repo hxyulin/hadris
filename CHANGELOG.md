@@ -10,6 +10,10 @@ Each published package owns its version and may be released independently.
 
 ### Breaking
 
+- **hadris-fat:** `CacheOptions::with_directory_hint(bool)` becomes
+  `with_directory_hint()` to enable the hint and `without_directory_hint()`
+  to disable it. Other cache bounds are unchanged. The crate advances to
+  `3.0.0-rc.3` for this API change.
 - **hadris-storage:** `sync::StreamDevice::{new, new_growable}` and
   `async_::StreamDevice::new` return `StreamDeviceError<T, T::Error>` on
   failure, retaining the stream instead of dropping it. Use `into_parts()`
@@ -48,6 +52,17 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-fat:** FAT and exFAT volume labels implement `FromStr`; FAT
+  volume labels also implement `Display`.
+- **hadris-fat-raw:** `LayoutError` implements `Display` and
+  `core::error::Error`.
+- **hadris-part:** `PartitionName` implements `FromStr`; `MbrType`
+  implements `LowerHex` and `UpperHex`, including numeric formatting flags.
+- **hadris-udf, hadris-udf-raw:** `UdfRevision` and little-endian integer
+  fields support standard conversions to and from their integer values.
+- **hadris-cpio:** `Entry::is_empty()` reports whether an entry stores no data.
+- **hadris-apfs:** `Detail::from_code` and conversion into `DetailCode`
+  match the detail-code APIs of the other format crates.
 - **hadris-fs:** `Name::is_empty()` and `Debug` for `VolumeGuard` without
   requiring the filesystem to implement `Debug`.
 - **hadris-storage:** `Debug` for async `Operation` without requiring the
@@ -76,6 +91,14 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fat, hadris-part, hadris-iso, hadris-udf, hadris-cpio,
+  hadris-ntfs, hadris-apfs:** Public APIs document failure, partial-output,
+  and ownership contracts. Discarding consuming option and cache builders
+  now warns where the configuration would otherwise be lost.
+- **hadris-cpio:** Async documentation now describes support for non-`Send`
+  streams and caller-provided name storage.
+- **hadris-ntfs:** Attribute and mapping-pair decoders implement
+  `FusedIterator`, matching their existing behavior after an error.
 - **hadris-fs:** `async-lock` is now only a dependency of `async` builds on
   targets with pointer-sized atomics, so sync-only `alloc` builds no longer
   compile it or `event-listener`.
@@ -109,6 +132,16 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-fat-raw:** FAT layout sizing rejects zero dimensions and FAT
+  copies that exceed the available sectors without panicking or reporting
+  an invalid layout.
+- **hadris-cpio-raw:** `OdcHeader::max` saturates at `u64::MAX` for octal
+  widths above 21 digits instead of overflowing its shift.
+- **hadris-udf:** Writers reject unsupported raw revisions before touching
+  the output, with `Detail::Revision`. Supported revisions remain 1.02,
+  1.50, 2.00, and 2.01; the existing 2.50+ error detail is unchanged.
+- **hadris-apfs:** `ApfsError` implements `core::error::Error` without
+  requiring `std`.
 - **hadris-fat, hadris-fat-raw:** FAT/exFAT flush dependencies before
   publishing directory entries and file sizes, linking new allocation runs,
   and releasing clusters. exFAT entry-set blocks have durability barriers,

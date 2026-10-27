@@ -41,7 +41,7 @@ Examples include `hadris-fat`, `hadris-part`, `hadris-iso`, `hadris-udf`, and
 
 ```toml
 [dependencies]
-hadris-fat = { version = "3.0.0-rc.2" }
+hadris-fat = { version = "3.0.0-rc.3" }
 ```
 
 ## The umbrella crate

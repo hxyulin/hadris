@@ -5,6 +5,8 @@ use core::fmt;
 /// Every byte is a valid code; the associated constants name the common
 /// ones. [`Display`](fmt::Display) prints the name of a known code and
 /// `0xNN` otherwise.
+/// [`LowerHex`](fmt::LowerHex) and [`UpperHex`](fmt::UpperHex) format the
+/// numeric code, including unknown codes, with the usual width and prefix flags.
 ///
 /// ```rust
 /// use hadris_part::MbrType;
@@ -12,6 +14,7 @@ use core::fmt;
 /// assert_eq!(MbrType::new(0x83), MbrType::LINUX);
 /// assert!(MbrType::EXTENDED_LBA.is_extended());
 /// assert_eq!(MbrType::new(0x42).to_string(), "0x42");
+/// assert_eq!(format!("{:#04x}", MbrType::LINUX), "0x83");
 /// ```
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub struct MbrType(u8);
@@ -141,5 +144,34 @@ impl fmt::Display for MbrType {
 impl fmt::Debug for MbrType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "MbrType(0x{:02X})", self.0)
+    }
+}
+
+impl fmt::LowerHex for MbrType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::LowerHex::fmt(&self.0, f)
+    }
+}
+
+impl fmt::UpperHex for MbrType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::UpperHex::fmt(&self.0, f)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate alloc;
+
+    use super::MbrType;
+    use alloc::format;
+
+    #[test]
+    fn hexadecimal_formats_preserve_numeric_flags() {
+        for code in [0, 0x83, 0xab, 0xff] {
+            let kind = MbrType::new(code);
+            assert_eq!(format!("{kind:#04x}"), format!("{code:#04x}"));
+            assert_eq!(format!("{kind:04X}"), format!("{code:04X}"));
+        }
     }
 }

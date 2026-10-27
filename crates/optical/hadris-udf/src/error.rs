@@ -64,6 +64,8 @@ pub enum Detail {
     StoredContent = 18,
     /// The output device's block size does not divide 2048.
     OutputBlockSize = 19,
+    /// A revision other than 1.02, 1.50, 2.00 or 2.01 was requested for writing.
+    Revision = 20,
 }
 
 impl Detail {
@@ -88,6 +90,7 @@ impl Detail {
             Self::Content => "a file changed after it was measured",
             Self::StoredContent => "stored content does not fit the volume",
             Self::OutputBlockSize => "output block size does not divide 2048",
+            Self::Revision => "unsupported UDF revision",
         }
     }
 }
@@ -99,7 +102,7 @@ impl fmt::Display for Detail {
 }
 
 impl Detail {
-    const ALL: [Self; 19] = [
+    const ALL: [Self; 20] = [
         Self::RecognitionSequence,
         Self::Anchor,
         Self::DescriptorSequence,
@@ -119,6 +122,7 @@ impl Detail {
         Self::Content,
         Self::StoredContent,
         Self::OutputBlockSize,
+        Self::Revision,
     ];
 
     /// The detail a UDF operation recorded on `err`, if any.
@@ -193,6 +197,7 @@ mod tests {
             (Detail::Content, 17),
             (Detail::StoredContent, 18),
             (Detail::OutputBlockSize, 19),
+            (Detail::Revision, 20),
         ];
         assert_eq!(pinned.len(), Detail::ALL.len());
         for (detail, number) in pinned {

@@ -60,12 +60,16 @@ io_transform! {
 /// device is flushed. Its block size must divide 2048
 /// ([`Detail::OutputBlockSize`]).
 ///
+/// # Errors
+///
 /// Fails before writing anything as [`plan`](crate::plan) does, with
 /// [`ErrorKind::NoSpace`] when the device cannot hold [`Report::size`] (a
 /// device that grows on write, such as a host file, needs no sizing), and
 /// with [`ErrorKind::Unsupported`] naming the file whose content this mode
 /// cannot read. An error from a file's content carries the file's path
 /// ([`PathError::path`]).
+/// Errors after writing starts may leave a partial image. Pass `&mut out`
+/// to keep access to the device on failure; taking it by value drops it.
 #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all))]
 pub async fn write<D: BlockDevice>(mut out: D, tree: &Tree, opts: &UdfOptions) -> Result<Report, PathError> {
     check_block_size(&out)?;
@@ -87,9 +91,13 @@ pub async fn write<D: BlockDevice>(mut out: D, tree: &Tree, opts: &UdfOptions) -
 /// pointing at the ISO 9660 file extents. Nothing is read back from the
 /// device.
 ///
+/// # Errors
+///
 /// Fails before writing anything as [`plan_bridge`](crate::plan_bridge)
 /// does, and like [`write()`] for the device. Errors of either writer keep
 /// their kind, detail code and path.
+/// Errors after writing starts may leave a partial image. Pass `&mut out`
+/// to keep access to the device on failure; taking it by value drops it.
 #[cfg(feature = "bridge")]
 #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all))]
 pub async fn write_bridge<D: BlockDevice>(mut out: D, tree: &Tree, iso: &IsoOptions, udf: &UdfOptions) -> Result<Report, PathError> {

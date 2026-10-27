@@ -164,6 +164,7 @@ impl BootEntry {
     }
 
     /// Sets the platform.
+    #[must_use]
     pub fn with_platform(self, platform: Platform) -> Self {
         Self { platform, ..self }
     }
@@ -172,6 +173,7 @@ impl BootEntry {
     /// hard-disk emulation it must already hold the disk. A diskette image
     /// must be exactly the diskette's size, or writing fails with
     /// [`Detail::BootImage`](crate::Detail::BootImage).
+    #[must_use]
     pub fn with_emulation(self, emulation: Emulation) -> Self {
         Self { emulation, ..self }
     }
@@ -181,6 +183,7 @@ impl BootEntry {
     /// fails with [`Detail::BootImage`](crate::Detail::BootImage); a load
     /// size past the end of a no-emulation image is written as given and
     /// reported as a warning.
+    #[must_use]
     pub fn with_load_size(self, sectors: u16) -> Self {
         Self {
             load_size: Some(sectors),
@@ -189,6 +192,7 @@ impl BootEntry {
     }
 
     /// Sets the real-mode load segment; 0 means 0x7C0.
+    #[must_use]
     pub fn with_load_segment(self, segment: u16) -> Self {
         Self {
             load_segment: segment,
@@ -197,6 +201,7 @@ impl BootEntry {
     }
 
     /// Writes a boot information table into the image.
+    #[must_use]
     pub fn with_boot_info(self, info: BootInfo) -> Self {
         Self { info, ..self }
     }
@@ -264,6 +269,7 @@ impl ElTorito {
 
     /// Adds an entry: the first is the default entry, each further one
     /// gets a section of its own.
+    #[must_use]
     pub fn with_entry(mut self, entry: BootEntry) -> Self {
         self.entries.push(entry);
         self
@@ -272,6 +278,7 @@ impl ElTorito {
     /// Makes the catalog visible as a file at tree path `path`, whose
     /// parent directory must exist. Without it the catalog is written after
     /// the other data and no directory lists it.
+    #[must_use]
     pub fn with_catalog_path(self, path: &str) -> Self {
         Self {
             catalog: Some(String::from(path)),
@@ -376,6 +383,7 @@ impl Hybrid {
     /// of the MBR get that image's block address in 512-byte sectors, as
     /// isohybrid boot code such as syslinux `isohdpfx.bin` reads it and as
     /// `xorriso -isohybrid-mbr` writes it.
+    #[must_use]
     pub fn with_bootstrap(self, code: &[u8]) -> Self {
         Self {
             bootstrap: Some(code.to_vec()),
@@ -385,6 +393,7 @@ impl Hybrid {
 
     /// Sets the MBR flags of the ISO partition, such as
     /// [`PartitionFlags::BOOTABLE`].
+    #[must_use]
     pub fn with_flags(self, flags: PartitionFlags) -> Self {
         Self { flags, ..self }
     }
@@ -392,6 +401,7 @@ impl Hybrid {
     /// Adds a partition after the files. Only a GPT lists it; an `mbr`
     /// table fails the plan with
     /// [`Detail::HybridBoot`](crate::Detail::HybridBoot).
+    #[must_use]
     pub fn with_appended(mut self, partition: AppendedPartition) -> Self {
         self.appended.push(partition);
         self
@@ -488,28 +498,33 @@ impl IsoOptions {
     /// genisoimage do, in UCS-2 for Joliet; one longer than its field fails
     /// the plan with [`Detail::Identifier`](crate::Detail::Identifier).
     /// An empty identifier leaves the field blank.
+    #[must_use]
     pub fn with_id(mut self, id: IsoId, value: &str) -> Self {
         self.ids[id.index()] = Some(String::from(value));
         self
     }
 
     /// Sets a descriptor date.
+    #[must_use]
     pub fn with_date(mut self, date: IsoDate, time: DateTime) -> Self {
         self.dates[date.index()] = Some(time);
         self
     }
 
     /// Sets the interchange level of the primary tree.
+    #[must_use]
     pub fn with_level(self, level: IsoLevel) -> Self {
         Self { level, ..self }
     }
 
     /// Sets how primary names treat lowercase.
+    #[must_use]
     pub fn with_name_case(self, name_case: NameCase) -> Self {
         Self { name_case, ..self }
     }
 
     /// Adds a Joliet tree with UCS-2 names of up to 64 characters.
+    #[must_use]
     pub fn with_joliet(self) -> Self {
         Self {
             joliet: true,
@@ -519,6 +534,7 @@ impl IsoOptions {
 
     /// Adds Rock Ridge to the primary tree. Without it, symlinks and device
     /// nodes are left out and reported, and deep trees fail.
+    #[must_use]
     pub fn with_rock_ridge(self) -> Self {
         Self {
             rock_ridge: true,
@@ -527,18 +543,21 @@ impl IsoOptions {
     }
 
     /// Sets where Rock Ridge puts deep directories; `rr_moved` by default.
+    #[must_use]
     pub fn with_relocation(self, relocation: Relocation) -> Self {
         Self { relocation, ..self }
     }
 
     /// Sets which metadata Rock Ridge copies from the tree; all of it by
     /// default.
+    #[must_use]
     pub fn with_preserve(self, preserve: Preserve) -> Self {
         Self { preserve, ..self }
     }
 
     /// Adds an ISO 9660:1999 tree with names of up to 207 bytes that keep
     /// their case.
+    #[must_use]
     pub fn with_iso1999(self) -> Self {
         Self {
             iso1999: true,
@@ -547,6 +566,7 @@ impl IsoOptions {
     }
 
     /// Makes the image bootable from optical media.
+    #[must_use]
     pub fn with_el_torito(self, el_torito: ElTorito) -> Self {
         Self {
             el_torito: Some(el_torito),
@@ -555,6 +575,7 @@ impl IsoOptions {
     }
 
     /// Adds a partition table, so the image boots from disks too.
+    #[must_use]
     pub fn with_hybrid(self, hybrid: Hybrid) -> Self {
         Self {
             hybrid: Some(hybrid),
@@ -565,6 +586,7 @@ impl IsoOptions {
     /// Places directories and files at or after logical block `blocks`,
     /// leaving room for another format's structures after the descriptors,
     /// as the ISO 9660 and UDF bridge writer does.
+    #[must_use]
     pub fn with_min_blocks(self, blocks: u64) -> Self {
         Self {
             min_blocks: blocks,
@@ -576,6 +598,7 @@ impl IsoOptions {
     /// and UDF bridge writer does to cover its UDF structures after the
     /// ISO 9660 data. The volume space size and the hybrid partitions cover
     /// the padding, and a backup GPT stays in the last blocks.
+    #[must_use]
     pub fn with_min_image_blocks(self, blocks: u64) -> Self {
         Self {
             min_image_blocks: blocks,
@@ -585,6 +608,7 @@ impl IsoOptions {
 
     /// Sets the time that dates the volume and the entries without times,
     /// such as `SOURCE_DATE_EPOCH`. The writer reads no clock.
+    #[must_use]
     pub fn with_time(self, time: DateTime) -> Self {
         Self { time, ..self }
     }
@@ -593,6 +617,7 @@ impl IsoOptions {
     /// tree's paths, sizes and times. Without one they derive from the time
     /// and the tree, so the same inputs give the same image and different
     /// trees different GUIDs.
+    #[must_use]
     pub fn with_seed(self, seed: u64) -> Self {
         Self {
             seed: Some(seed),

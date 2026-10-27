@@ -20,6 +20,7 @@ use crate::volume::UdfId;
 /// assert_eq!(options.id(UdfId::Volume), Some("MOVIES"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "pass the options to plan or write to apply them"]
 pub struct UdfOptions {
     ids: [Option<String>; 4],
     revision: UdfRevision,
@@ -56,12 +57,14 @@ impl UdfOptions {
         self
     }
 
-    /// Sets the UDF revision the volume records: 1.02 to 2.01. 2.00 and
+    /// Sets the UDF revision the volume records: 1.02, 1.50, 2.00 or 2.01. 2.00 and
     /// later write ECMA-167 3rd edition structures (NSR03, descriptor
     /// version 3). 2.50 and later require a metadata partition (UDF 2.50
     /// 2.2.10), which the writer does not write, so `plan` and `write` fail
     /// with [`ErrorKind::Unsupported`](hadris_fs::ErrorKind::Unsupported)
     /// and [`Detail::PartitionMap`](crate::Detail::PartitionMap).
+    /// Other revisions fail with the same kind and
+    /// [`Detail::Revision`](crate::Detail::Revision).
     pub fn with_revision(self, revision: UdfRevision) -> Self {
         Self { revision, ..self }
     }

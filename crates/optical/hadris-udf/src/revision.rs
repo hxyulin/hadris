@@ -1,6 +1,9 @@
 use core::fmt;
 
 /// A UDF revision, as the domain identifier records it: `0x0102` for 1.02.
+///
+/// Conversions from and into `u16` preserve the raw value. Values not supported
+/// by the writer can still describe revisions read from an existing volume.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct UdfRevision(u16);
 
@@ -50,6 +53,18 @@ impl UdfRevision {
 impl fmt::Display for UdfRevision {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}.{:02x}", self.major(), self.minor())
+    }
+}
+
+impl From<u16> for UdfRevision {
+    fn from(value: u16) -> Self {
+        Self::from_raw(value)
+    }
+}
+
+impl From<UdfRevision> for u16 {
+    fn from(revision: UdfRevision) -> Self {
+        revision.to_raw()
     }
 }
 

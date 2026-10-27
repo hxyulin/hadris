@@ -35,6 +35,7 @@ const CHUNK: usize = 64 * 1024;
 /// # #[cfg(not(all(feature = "sync", feature = "std")))]
 /// # fn main() {}
 /// ```
+#[must_use = "call finish to write the trailer and flush the archive"]
 pub struct Writer<W> {
     out: W,
     planner: Planner,
@@ -97,6 +98,9 @@ fn check_data(data: &Data<'_>, path: &[u8]) -> Result<(), PathError> {
 /// A file entry being written by [`Writer::append_file`]. It implements
 /// `Write`; [`finish`](Self::finish) ends the entry once exactly the
 /// announced length was written.
+/// Dropping it without finishing leaves its parent writer unable to append
+/// more entries or finish the archive.
+#[must_use = "call finish after writing the announced length"]
 pub struct EntryWriter<'w, W> {
     writer: &'w mut Writer<W>,
     path: Vec<u8>,
@@ -136,6 +140,12 @@ io_transform! {
 /// one inode. In `newc` and checksum `newc`, only the last name carries the
 /// data; in `odc`, every name carries it. Report offsets count from the first byte this call
 /// writes. `out` is flushed, not closed.
+///
+/// # Errors
+///
+/// Returns planning and content-mode errors before writing any bytes.
+/// Content-read, stream-write, or flush failures can leave an incomplete
+/// archive. An owned `out` is dropped on return; pass `&mut output` to retain it.
 #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all))]
 pub async fn write<W: Write>(out: W, tree: &Tree, options: &CpioOptions) -> Result<Report, PathError> {
     let (entries, report) = plan_tree(tree, options)?;
@@ -234,10 +244,13 @@ impl<W: Write> Writer<W> {
     /// clamped to the nearest one it does. Other times, sub-second parts and
     /// attributes are dropped. Both are reported.
     ///
+    /// # Errors
+    ///
     /// Fails before writing anything of the entry, as [`plan`](crate::plan)
     /// does, and with [`ErrorKind::InvalidInput`] for an empty symlink
     /// target, and [`ErrorKind::Unsupported`] for content this mode cannot
     /// read.
+    /// After emission starts, content and stream errors can leave a partial entry.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all, fields(node = ?node)))]
     pub async fn append(&mut self, path: impl AsRef<[u8]>, node: &Node) -> Result<(), PathError> {
         let path = path.as_ref();
@@ -259,9 +272,12 @@ impl<W: Write> Writer<W> {
     /// that extent. In `odc`, every name carries data and reports its own
     /// extent. Every name carries the node's attributes.
     ///
+    /// # Errors
+    ///
     /// Fails like [`append`](Self::append) before writing anything, and
     /// with [`ErrorKind::InvalidInput`] when `paths` is empty or `node` is
-    /// not a file.
+    /// not a file. A later content or stream failure may leave earlier names
+    /// written and the current entry incomplete.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all, fields(node = ?node)))]
     pub async fn append_hard_links<P: AsRef<[u8]>>(&mut self, paths: &[P], node: &Node) -> Result<(), PathError> {
         self.check_idle()?;
@@ -303,9 +319,14 @@ impl<W: Write> Writer<W> {
     ///
     /// The header is written now. Write exactly `len` bytes, then call
     /// [`EntryWriter::finish`]; until then every other call on this writer
-    /// fails with [`ErrorKind::InvalidInput`]. Fails like
+    /// fails with [`ErrorKind::InvalidInput`].
+    ///
+    /// # Errors
+    ///
+    /// Fails like
     /// [`append`](Self::append), and with [`ErrorKind::Unsupported`] for
     /// [`Format::Crc`], whose header holds a checksum of the data.
+    /// A stream failure can leave the header partly written.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all, fields(len = len)))]
     pub async fn append_file(&mut self, path: impl AsRef<[u8]>, attrs: &SetAttr, len: u64) -> Result<EntryWriter<'_, W>, PathError> {
         let path = path.as_ref();
@@ -335,6 +356,13 @@ impl<W: Write> Writer<W> {
     /// Writes the trailer, flushes, and returns the stream with the report:
     /// the bytes written with the trailer, what cpio dropped, and where each
     /// file's data starts, counted from the first byte this writer wrote.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] if a streaming entry was not
+    /// finished, or propagates trailer-write and flush errors. An owned
+    /// stream is dropped on failure; construct the writer with `&mut output`
+    /// to retain the stream for inspection.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all))]
     pub async fn finish(mut self) -> Result<(W, Report), PathError> {
         self.check_idle()?;
@@ -345,9 +373,15 @@ impl<W: Write> Writer<W> {
 }
 
 impl<W: Write> EntryWriter<'_, W> {
-    /// Ends the entry with its padding. Fails with
+    /// Ends the entry with its padding.
+    ///
+    /// # Errors
+    ///
+    /// Fails with
     /// [`ErrorKind::InvalidInput`] naming the entry when fewer bytes than
     /// its length were written.
+    /// Also propagates padding-write errors. On failure the parent writer
+    /// cannot append further entries or finish the archive.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all))]
     pub async fn finish(self) -> Result<(), PathError> {
         if self.remaining != 0 {

@@ -240,8 +240,13 @@ impl OdcHeader {
     }
 
     /// The largest value an `odc` field of `digits` octal digits holds.
+    /// Saturates at [`u64::MAX`] when the field is wider than 64 bits.
     pub const fn max(digits: u32) -> u64 {
-        (1u64 << (3 * digits)) - 1
+        if digits > u64::BITS / 3 {
+            u64::MAX
+        } else {
+            (1u64 << (3 * digits)) - 1
+        }
     }
 }
 
@@ -377,6 +382,21 @@ mod tests {
         assert_eq!(bad.fields(), None);
         bad.0[..6].copy_from_slice(b"070703");
         assert_eq!(bad.fields(), None);
+    }
+
+    #[test]
+    fn octal_field_limits_saturate_at_the_integer_boundary() {
+        for (digits, expected) in [
+            (0, 0),
+            (1, 7),
+            (6, 262_143),
+            (11, 8_589_934_591),
+            (21, 9_223_372_036_854_775_807),
+            (22, u64::MAX),
+            (u32::MAX, u64::MAX),
+        ] {
+            assert_eq!(OdcHeader::max(digits), expected, "{digits} octal digits");
+        }
     }
 
     #[test]

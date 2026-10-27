@@ -12,8 +12,8 @@ the shared `hadris_fs::Tree` input of the other Hadris writers.
 - Regular files, directories, symlinks, hard links (format-specific GNU cpio layouts), device
   nodes, FIFOs and sockets.
 - Works on pipes: the reader and writer need only `Read` and `Write`.
-- The same API blocking (`sync`) and asynchronous with `Send` futures
-  (`async_`).
+- The same API blocking (`sync`) and asynchronous (`async_`), including
+  non-`Send` streams on single-threaded executors.
 - `no_std`; the reader needs no allocator.
 
 ## Reading an archive
@@ -101,7 +101,7 @@ The header layouts are in `hadris-cpio-raw`.
 | `alloc` | via `std` | `read_tree` and `normalize_path` |
 | `write` | yes | Implies `alloc`; the writer and `plan` |
 | `sync` | yes | The blocking API in `sync` |
-| `async` | no | The asynchronous API with `Send` futures in `async_` |
+| `async` | no | The asynchronous API in `async_`; futures derive `Send` from their operation state |
 | `tracing` | no | Operation spans through the `tracing` crate, also without `std` |
 
 A bootloader that only reads uses
@@ -135,10 +135,10 @@ directly to read or write the layouts.
 
 ## Asynchronous byte streams
 
-The asynchronous namespace is `async_`. CPIO operates on byte streams through `hadris_io::async_::Read` and
-`Write`, rather than storage block devices. Its asynchronous streams and futures
-retain their `Send` contract. Local byte streams require a separate stream
-contract migration; enabling local block devices does not change this API.
+The asynchronous namespace is `async_`. CPIO uses byte streams through
+`hadris_io::async_::Read` and `Write`. Streams and caller-provided name buffers
+may be non-`Send` for single-threaded executors. A concrete operation's future
+is `Send` when the stream, buffer, and retained operation state are `Send`.
 
 ## Documentation
 

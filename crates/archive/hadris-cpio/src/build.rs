@@ -5,8 +5,8 @@ use alloc::vec::Vec;
 use core::convert::Infallible;
 
 use hadris_fs::{
-    Content, DateTime, DeviceNumber, Extent, Field, FileType, Node, PathError, Report, SetAttr,
-    Tree, Warning, WarningKind,
+    Content, DateTime, DeviceNumber, ErrorKind, Extent, Field, FileType, Node, PathError, Report,
+    SetAttr, Tree, Warning, WarningKind,
 };
 
 use crate::error::{Detail, Error};
@@ -15,7 +15,6 @@ use crate::options::{CpioOptions, Format};
 use hadris_cpio_raw::{
     self as raw, NewcFields, NewcHeader, OdcFields, OdcHeader, PATH_MAX, TRAILER_NAME,
 };
-use hadris_fs::ErrorKind;
 
 /// The header fields of one entry, before encoding.
 #[derive(Debug, Clone, Copy)]
@@ -406,6 +405,8 @@ pub(crate) fn plan_tree<'t>(
 /// report `write` returns: the archive size with its trailer, what cpio
 /// drops, and where each file's data starts, counted from the start of the
 /// archive.
+///
+/// # Errors
 ///
 /// Fails as `write` does before it writes anything: a name that is empty,
 /// holds a NUL or is the trailer's name fails with

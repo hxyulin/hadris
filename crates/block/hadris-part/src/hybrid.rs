@@ -27,6 +27,7 @@ pub(crate) struct Mirror {
 /// assert_eq!(config.mirrored_count(), 1);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[must_use]
 pub struct HybridMbr {
     protective_slot: usize,
     mirrors: [Option<Mirror>; 3],
@@ -51,7 +52,9 @@ impl HybridMbr {
     /// Mirrors GPT partition `gpt_index` with MBR type `kind`. Only
     /// [`PartitionFlags::BOOTABLE`] can be stored.
     ///
-    /// Fails with [`ErrorKind::LimitExceeded`] after three mirrors.
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::LimitExceeded`] after three mirrors.
     pub fn add_mirrored(
         &mut self,
         gpt_index: usize,
@@ -113,12 +116,14 @@ mod table {
         /// Builds the hybrid MBR for `gpt` from `config`.
         ///
         /// The protective entry covers the blocks from 1 up to the first
-        /// mirrored partition, or the whole disk without mirrors. Fails with
-        /// [`ErrorKind::InvalidInput`] when the protective slot is past 3, a
-        /// mirror names an unused GPT slot or an empty, protective or extended
-        /// type, or stores a flag other than `BOOTABLE`, and with
-        /// [`ErrorKind::LimitExceeded`] when a mirrored partition ends past
-        /// block `u32::MAX`.
+        /// mirrored partition, or the whole disk without mirrors.
+        ///
+        /// # Errors
+        ///
+        /// Returns [`ErrorKind::InvalidInput`] for an invalid protective slot,
+        /// missing partition, invalid mirror type, or unsupported flags.
+        /// Returns [`ErrorKind::LimitExceeded`] when a mirror exceeds MBR
+        /// addressing limits. The consumed GPT is dropped on failure.
         pub fn new(gpt: Gpt, config: &HybridMbr) -> Result<Self, TableError> {
             let protective = config.protective_slot();
             if protective > 3 {

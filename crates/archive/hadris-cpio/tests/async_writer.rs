@@ -49,6 +49,78 @@ impl hadris_io::async_::Write for Sink {
     }
 }
 
+#[test]
+fn non_send_streams_and_name_buffers_round_trip() {
+    use hadris_cpio::ReaderOptions;
+    use std::rc::Rc;
+
+    struct Local<T> {
+        inner: T,
+        _not_send: Rc<()>,
+    }
+
+    impl<T> Local<T> {
+        fn new(inner: T) -> Self {
+            Self {
+                inner,
+                _not_send: Rc::new(()),
+            }
+        }
+    }
+
+    impl<T: hadris_io::ErrorType> hadris_io::ErrorType for Local<T> {
+        type Error = T::Error;
+    }
+
+    impl<T: hadris_io::async_::Read> hadris_io::async_::Read for Local<T> {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            self.inner.read(buf).await
+        }
+    }
+
+    impl<T: hadris_io::async_::Write> hadris_io::async_::Write for Local<T> {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            self.inner.write(buf).await
+        }
+
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            self.inner.flush().await
+        }
+    }
+
+    impl<T: AsRef<[u8]>> AsRef<[u8]> for Local<T> {
+        fn as_ref(&self) -> &[u8] {
+            self.inner.as_ref()
+        }
+    }
+
+    impl<T: AsMut<[u8]>> AsMut<[u8]> for Local<T> {
+        fn as_mut(&mut self) -> &mut [u8] {
+            self.inner.as_mut()
+        }
+    }
+
+    let mut out = Local::new(Sink::default());
+    block_on(hadris_cpio::async_::write(
+        &mut out,
+        &tree(),
+        &CpioOptions::new(),
+    ))
+    .unwrap();
+    let mut reader = hadris_cpio::async_::CpioReader::with_buffer(
+        Local::new(Cursor::new(&out.inner.0)),
+        Local::new([0u8; 4096]),
+        ReaderOptions::new(),
+    );
+    let read = block_on(hadris_cpio::async_::read_tree(&mut reader)).unwrap();
+    assert_eq!(read.entry("linuxrc").unwrap().links(), 2);
+    assert_eq!(read.get("bin/sh").unwrap().target(), Some(&b"busybox"[..]));
+    assert_eq!(
+        read.get("linuxrc").unwrap().content().unwrap().as_bytes(),
+        Some(&[1u8; 5000][..]),
+    );
+}
+
 fn tree() -> Tree {
     let mut tree = Tree::new();
     tree.insert("bin/busybox", Node::file(Content::bytes(vec![1u8; 5000])))

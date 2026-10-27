@@ -1,5 +1,7 @@
 use core::fmt;
 
+use hadris_fs::{DetailCode, Error, ErrorKind};
+
 const DOMAIN: &str = "hadris-apfs";
 
 /// APFS operation error.
@@ -51,8 +53,7 @@ impl fmt::Display for ApfsError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for ApfsError {}
+impl core::error::Error for ApfsError {}
 
 /// APFS error detail recorded on shared filesystem errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -86,20 +87,30 @@ impl Detail {
     ];
 
     /// Returns the stable APFS detail code.
-    pub const fn code(self) -> hadris_fs::DetailCode {
-        hadris_fs::DetailCode::new(DOMAIN, self as u16)
+    pub const fn code(self) -> DetailCode {
+        DetailCode::new(DOMAIN, self as u16)
     }
 
     /// Reads an APFS detail from a shared error.
-    pub fn of<E>(error: &hadris_fs::Error<E>) -> Option<Self> {
-        let code = error.detail()?.code_in(DOMAIN)?;
+    pub fn of<E>(error: &Error<E>) -> Option<Self> {
+        error.detail().and_then(Self::from_code)
+    }
+
+    /// Reads an APFS detail code, ignoring unknown codes and other domains.
+    pub fn from_code(code: DetailCode) -> Option<Self> {
+        let code = code.code_in(DOMAIN)?;
         Self::ALL.into_iter().find(|detail| *detail as u16 == code)
     }
 }
 
-impl<E> From<ApfsError> for hadris_fs::Error<E> {
+impl From<Detail> for DetailCode {
+    fn from(detail: Detail) -> Self {
+        detail.code()
+    }
+}
+
+impl<E> From<ApfsError> for Error<E> {
     fn from(error: ApfsError) -> Self {
-        use hadris_fs::ErrorKind;
         let (kind, message, detail) = match error {
             ApfsError::InputTooSmall => (
                 ErrorKind::Corrupt,
@@ -127,7 +138,12 @@ impl<E> From<ApfsError> for hadris_fs::Error<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hadris_fs::{DetailCode, Error, ErrorKind};
+
+    #[test]
+    fn parser_errors_implement_core_error_in_every_feature_tier() {
+        fn assert_error<T: core::error::Error + Send + Sync + 'static>() {}
+        assert_error::<ApfsError>();
+    }
 
     #[test]
     fn detail_codes_are_pinned() {
@@ -144,8 +160,12 @@ mod tests {
         for (detail, number) in pinned {
             let code = DetailCode::new("hadris-apfs", number);
             assert_eq!(detail.code(), code);
+            assert_eq!(Detail::from_code(code), Some(detail));
+            assert_eq!(DetailCode::from(detail), code);
             let err: Error<()> = Error::new(ErrorKind::Corrupt, "").with_detail(code);
             assert_eq!(Detail::of(&err), Some(detail));
         }
+        assert_eq!(Detail::from_code(DetailCode::new("other-crate", 1)), None);
+        assert_eq!(Detail::from_code(DetailCode::new(DOMAIN, u16::MAX)), None);
     }
 }

@@ -286,6 +286,8 @@ io_transform! {
 /// as it is, except that a growable device is grown to the volume's end.
 /// The boot sector is written last, and the device is flushed.
 ///
+/// # Errors
+///
 /// Fails with [`ErrorKind::InvalidInput`] when an option is out of range,
 /// with [`ErrorKind::NoSpace`] when the device is smaller than the size or
 /// than 1 MiB, or too small for the clusters asked for, with

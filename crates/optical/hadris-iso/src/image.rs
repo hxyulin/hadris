@@ -1,12 +1,14 @@
 use hadris_fs::{
-    Capabilities, CaseRule, Charset, DirCursor, DirEntry, ErrorKind, Field, FileType, FsResult,
-    FsStats, Metadata, MountError, MountOptions, Name, NodeId, OpenMode, Owner, Permissions,
-    Stored,
+    Capabilities, CaseRule, Charset, DirCursor, DirEntry, ErrorKind, Extent, Field, FileType,
+    FsResult, FsStats, Metadata, MountError, MountOptions, Name, NodeId, OpenMode, Owner,
+    Permissions, Stored,
 };
 use hadris_storage::BlockIndex;
 
 use super::FileSystem;
 use super::storage::BlockDevice;
+#[cfg(feature = "alloc")]
+use crate::CacheOptions;
 use crate::boot::{BootCatalog, CatalogEntry, Emulation};
 use crate::error::{Detail, Error};
 use crate::info::{DescriptorScan, Info, Root};
@@ -268,7 +270,7 @@ struct Listed {
 /// A node id no record can have (zero, odd, or past both the volume and
 /// the device) is an invalid handle. Any other id is read as a record, so a
 /// damaged record, or one past the end of a truncated image, is corrupt.
-fn handle<E>(err: Error<E>, node: NodeId, view: &View) -> hadris_fs::Error<E> {
+fn handle<E>(err: Error<E>, node: NodeId, view: &View) -> Error<E> {
     let volume_end = u64::from(view.info.volume_blocks) * u64::from(view.info.block_size);
     let id = node.get();
     if err.kind() == ErrorKind::Io || (id != 0 && id % 2 == 0 && id < volume_end.max(view.len)) {
@@ -1093,6 +1095,8 @@ impl<D: BlockDevice> IsoFs<D> {
     /// [`MountOptions::backup_boot`] changes nothing, and the mount is
     /// read-only whatever `options` say.
     ///
+    /// # Errors
+    ///
     /// Fails with [`ErrorKind::NotRecognized`] when the first volume
     /// descriptor is not ISO 9660, with [`ErrorKind::Corrupt`] when the
     /// descriptor set is invalid, and with [`ErrorKind::Unsupported`] for
@@ -1105,10 +1109,14 @@ impl<D: BlockDevice> IsoFs<D> {
     }
 
     /// Mounts the image on `dev` as [`mount`](Self::mount) does, reading
-    /// the tree `namespace` names. Fails with [`ErrorKind::NotFound`] and
+    /// the tree `namespace` names.
+    ///
+    /// # Errors
+    ///
+    /// Returns the mount errors of [`mount`](Self::mount), or [`ErrorKind::NotFound`] and
     /// [`Detail::NoNamespace`] when the image has no such tree, and for
     /// [`Namespace::RockRidge`] with the error of a malformed Rock Ridge
-    /// area on the root directory.
+    /// area on the root directory. The [`MountError`] retains `dev`.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
     pub async fn mount_namespace(
         mut dev: D,
@@ -1140,7 +1148,8 @@ impl<D: BlockDevice> IsoFs<D> {
     /// The image must remain unchanged while cached data is retained.
     #[cfg(feature = "alloc")]
     #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-    pub fn with_cache(mut self, options: crate::CacheOptions) -> Self {
+    #[must_use]
+    pub fn with_cache(mut self, options: CacheOptions) -> Self {
         self.view.cache = Some(crate::cache::ReaderCache::new(options));
         self
     }
@@ -1187,6 +1196,11 @@ impl<D: BlockDevice> IsoFs<D> {
     }
 
     /// Reads `buf.len()` bytes from byte `offset` of the image.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] if the range exceeds the device.
+    /// Propagates device read errors; `buf` may be partly modified on failure.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all, fields(offset = offset, bytes = buf.len())))]
     pub async fn read_raw(&mut self, offset: u64, buf: &mut [u8]) -> Result<(), Error<D::Error>> {
         read_bytes(&mut self.dev, self.view.len, offset, buf).await
@@ -1194,6 +1208,11 @@ impl<D: BlockDevice> IsoFs<D> {
 
     /// The volume descriptor `index` places after the first one, at logical
     /// sector 16, or `None` past the set terminator.
+    ///
+    /// # Errors
+    ///
+    /// Propagates errors from [`read_raw`](Self::read_raw).
+    /// Descriptors are decoded as stored; this does not revalidate their contents.
     pub async fn descriptor(&mut self, index: u32) -> Result<Option<raw::VolumeDescriptor>, Error<D::Error>> {
         if index >= self.view.info.descriptors {
             return Ok(None);
@@ -1227,6 +1246,8 @@ impl<D: BlockDevice> IsoFs<D> {
     /// returns `None` without a boot record. Its entries are parsed as
     /// they are iterated; [`boot_image`](Self::boot_image) locates each
     /// entry's image.
+    ///
+    /// # Errors
     ///
     /// Fails with [`ErrorKind::LimitExceeded`] when the catalog does not
     /// fit in `buf` (2048 bytes hold 63 entries), and with
@@ -1270,7 +1291,7 @@ impl<D: BlockDevice> IsoFs<D> {
     /// the size of the emulated diskette, or the 512-byte sectors the entry
     /// loads for no emulation and hard disk emulation. Read it with
     /// [`read_raw`](Self::read_raw).
-    pub fn boot_image(&self, entry: &CatalogEntry) -> hadris_fs::Extent {
+    pub fn boot_image(&self, entry: &CatalogEntry) -> Extent {
         let start = u64::from(entry.load_block()) * u64::from(self.view.info.block_size);
         let len = match entry.emulation() {
             Some(Emulation::Floppy12) => 1_228_800,
@@ -1278,11 +1299,16 @@ impl<D: BlockDevice> IsoFs<D> {
             Some(Emulation::Floppy288) => 2_949_120,
             _ => u64::from(entry.sector_count()) * 512,
         };
-        hadris_fs::Extent::new(start, len)
+        Extent::new(start, len)
     }
 
     /// The Rock Ridge entries of a node in the primary tree, or `None` when
     /// the image has no Rock Ridge or the mount reads another tree.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the node cannot be read or its Rock Ridge entries
+    /// are corrupt or exceed the supported continuation limits.
     pub async fn rock_ridge(&mut self, node: NodeId) -> Result<Option<RockRidgeInfo>, Error<D::Error>> {
         self.view.rock_ridge_info(&mut self.dev, node).await
     }
@@ -1294,8 +1320,14 @@ impl<D: BlockDevice> IsoFs<D> {
     /// directory record; a directory has the one extent of its records.
     /// Each call reads the records from the first, so a larger `out`
     /// takes fewer reads.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the node or its extent chain is invalid, unreadable,
+    /// or exceeds the supported continuation limits. Entries already written to
+    /// `out` remain there on failure; no completed count is returned.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all, fields(node = ?node)))]
-    pub async fn extents(&mut self, node: NodeId, from: u64, out: &mut [hadris_fs::Extent]) -> Result<usize, Error<D::Error>> {
+    pub async fn extents(&mut self, node: NodeId, from: u64, out: &mut [Extent]) -> Result<usize, Error<D::Error>> {
         let mut count = 0;
         self.walk_extents(node, &mut |extent| {
             if extent.file_offset() + extent.len() <= from || extent.is_empty() {
@@ -1317,7 +1349,7 @@ impl<D: BlockDevice> IsoFs<D> {
     pub(crate) async fn walk_extents(
         &mut self,
         node: NodeId,
-        each: &mut impl FnMut(hadris_fs::Extent) -> bool,
+        each: &mut impl FnMut(Extent) -> bool,
     ) -> Result<(), Error<D::Error>> {
         let record = self.view.record_at(&mut self.dev, node.get()).await?;
         let mut chain = RecordChain::new(node.get(), record);
@@ -1325,7 +1357,7 @@ impl<D: BlockDevice> IsoFs<D> {
         while let Some(found) = chain.next(&mut self.view, &mut self.dev).await? {
             let start = self.view.extent_start(&found.record).ok_or(Detail::DirectoryRecord.corrupt())?;
             let len = u64::from(found.record.header().data_len.get());
-            if !each(hadris_fs::Extent::new(start, len).with_file_offset(file)) {
+            if !each(Extent::new(start, len).with_file_offset(file)) {
                 return Ok(());
             }
             file += len;
@@ -1339,14 +1371,20 @@ impl<D: BlockDevice> IsoFs<D> {
     /// Returns how many it filled; fails with [`ErrorKind::LimitExceeded`]
     /// when `out` is too short, and [`ErrorKind::Corrupt`] when continuation
     /// records have different file identifiers.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::LimitExceeded`] if `out` is too short, or an error
+    /// if a record is unreadable or the continuation chain is corrupt. Entries
+    /// already written to `out` remain there on failure.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all, fields(node = ?node)))]
-    pub async fn records(&mut self, node: NodeId, out: &mut [hadris_fs::Extent]) -> Result<usize, Error<D::Error>> {
+    pub async fn records(&mut self, node: NodeId, out: &mut [Extent]) -> Result<usize, Error<D::Error>> {
         let record = self.view.record_at(&mut self.dev, node.get()).await?;
         let mut chain = RecordChain::new(node.get(), record);
         let mut count = 0;
         while let Some(found) = chain.next(&mut self.view, &mut self.dev).await? {
             let len = u64::from(found.record.header().len);
-            *out.get_mut(count).ok_or(ErrorKind::LimitExceeded)? = hadris_fs::Extent::new(found.offset, len);
+            *out.get_mut(count).ok_or(ErrorKind::LimitExceeded)? = Extent::new(found.offset, len);
             count += 1;
         }
         Ok(count)

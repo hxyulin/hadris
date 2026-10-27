@@ -1,3 +1,6 @@
+use core::fmt;
+use core::str::FromStr;
+
 use hadris_fs::ErrorKind;
 #[cfg(feature = "write")]
 use hadris_fs::{DateTime, NoClock};
@@ -6,11 +9,26 @@ use hadris_fs::{DateTime, NoClock};
 use crate::FatKind;
 
 /// A volume label: up to 11 ASCII characters, stored in uppercase.
+///
+/// [`FromStr`] and [`TryFrom<&str>`] apply the same validation as [`new`](Self::new).
+/// [`Display`](fmt::Display) prints the uppercase label without padding.
+///
+/// ```rust
+/// use hadris_fat::VolumeLabel;
+///
+/// let label: VolumeLabel = "boot disk".parse()?;
+/// assert_eq!(label.as_str(), "BOOT DISK");
+/// # Ok::<(), hadris_fs::ErrorKind>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VolumeLabel([u8; 11]);
 
 impl VolumeLabel {
-    /// Checks and uppercases `text`. Fails with `ErrorKind::InvalidInput`
+    /// Checks and uppercases `text`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`]
     /// when it is empty, starts with a space, or holds a character that is
     /// not ASCII, a control character or one of `"*+,./:;<=>?[\]|`, and with
     /// `ErrorKind::NameTooLong` when it is longer than 11 bytes.
@@ -50,6 +68,20 @@ impl TryFrom<&str> for VolumeLabel {
     /// Checks `text` as [`VolumeLabel::new`] does.
     fn try_from(text: &str) -> Result<Self, ErrorKind> {
         Self::new(text)
+    }
+}
+
+impl FromStr for VolumeLabel {
+    type Err = ErrorKind;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        Self::new(text)
+    }
+}
+
+impl fmt::Display for VolumeLabel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -93,6 +125,7 @@ impl TryFrom<&str> for VolumeLabel {
 #[cfg(feature = "write")]
 #[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
 #[derive(Debug, Clone, Copy)]
+#[must_use]
 pub struct FatOptions {
     pub(crate) kind: Option<FatKind>,
     pub(crate) size: Option<u64>,
@@ -272,5 +305,27 @@ pub(crate) fn serial(time: DateTime, seed: Option<u64>) -> u32 {
             let seconds = time.unix_seconds() as u64;
             (seconds as u32) ^ ((seconds >> 32) as u32) ^ time.nanoseconds().rotate_left(16)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::VolumeLabel;
+    use hadris_fs::ErrorKind;
+
+    #[test]
+    fn fat_labels_parse_with_the_same_normalization_as_construction() {
+        let label: VolumeLabel = "boot disk".parse().unwrap();
+        assert_eq!(label, VolumeLabel::new("boot disk").unwrap());
+        assert_eq!(std::format!("{label}"), "BOOT DISK");
+        assert_eq!(label.as_bytes(), b"BOOT DISK  ");
+        assert_eq!(
+            "boot/disk".parse::<VolumeLabel>(),
+            Err(ErrorKind::InvalidInput)
+        );
+        assert_eq!(
+            "abcdefghijkl".parse::<VolumeLabel>(),
+            Err(ErrorKind::NameTooLong)
+        );
     }
 }

@@ -665,6 +665,8 @@ impl<D: BlockDevice> FatFs<D> {
     /// fails with [`ErrorKind::Corrupt`] when that is not valid; FAT12 and
     /// FAT16 have no backup and mount from the boot sector as usual.
     ///
+    /// # Errors
+    ///
     /// Fails with [`ErrorKind::NotRecognized`] when the first sector has no
     /// FAT BIOS parameter block (its sector and cluster sizes are not ones
     /// FAT allows), with [`ErrorKind::Corrupt`] when the boot sector is not a
@@ -799,6 +801,11 @@ impl<D: BlockDevice> FatFs<D> {
     /// read-only because the device refused a write fails with
     /// [`ErrorKind::ReadOnly`] while it still holds pending sizes, or what an
     /// interrupted operation left, that can no longer be written.
+    ///
+    /// # Errors
+    ///
+    /// Returns the sync error and the device if pending changes cannot be
+    /// written or the device cannot be flushed.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all))]
     pub async fn unmount(mut self) -> Result<D, MountError<D, D::Error>> {
         let synced = FileSystem::sync(&mut self).await;
@@ -892,6 +899,10 @@ impl<D: BlockDevice> FatFs<D> {
     /// `fsck.fat -a` clears the dirty bit. Call it after `check` found the
     /// volume clean; corruption found later keeps the volume dirty again.
     /// Fails with [`ErrorKind::ReadOnly`] on a read-only mount.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::ReadOnly`] when the volume cannot accept writes.
     pub fn mark_clean(&mut self) -> FsResult<(), D::Error> {
         self.writable()?;
         self.fat.mark_clean();
@@ -906,6 +917,11 @@ impl<D: BlockDevice> FatFs<D> {
     /// none, and the FAT12/16 root directory is one run, its fixed region.
     /// Fails with [`ErrorKind::Corrupt`] when the chain leaves the data
     /// clusters or is longer than the volume.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the node is missing, its allocation is corrupt,
+    /// or reading the allocation metadata fails. `out` may be partly filled.
     pub async fn extents(&mut self, node: NodeId, from: u64, out: &mut [Extent]) -> FsResult<usize, D::Error> {
         let (first, len) = if node == ROOT {
             match self.fat.geometry().root() {
@@ -963,6 +979,11 @@ impl<D: BlockDevice> FatFs<D> {
     /// entry. Long-name entries are not included, and the root, which has
     /// no entry, has none. Returns how many it filled; fails with
     /// [`ErrorKind::LimitExceeded`] when `out` is empty and there is one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::LimitExceeded`] if `out` is too short.
+    /// Propagates missing-node, corrupt-record, and device errors.
     pub async fn records(&mut self, node: NodeId, out: &mut [Extent]) -> FsResult<usize, D::Error> {
         if node == ROOT {
             return Ok(0);
@@ -975,6 +996,11 @@ impl<D: BlockDevice> FatFs<D> {
 
     /// Reads `buf.len()` bytes of the device at byte `offset`, through the
     /// driver's block buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the requested byte range is outside the device
+    /// or a device read fails. `buf` may be partly modified.
     pub async fn read_raw(&mut self, offset: u64, buf: &mut [u8]) -> FsResult<(), D::Error> {
         read_bytes(&mut self.dev.inner, &mut self.block, offset, buf).await
     }
@@ -985,6 +1011,12 @@ impl<D: BlockDevice> FatFs<D> {
     /// boot sector, and on FAT32 in the backup boot sector, is set, to
     /// `NO NAME` when removed. A boot sector without an extended boot
     /// signature of `0x29` has no copy.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the volume is read-only, no directory space can
+    /// be allocated, or updating the label fails. A device error may leave
+    /// partial changes; call [`sync`](Self::sync) for durability.
     pub async fn set_label(&mut self, label: Option<VolumeLabel>) -> FsResult<(), D::Error> {
         self.prepare().await?;
         let found = self.find_label().await?;
@@ -1020,6 +1052,11 @@ impl<D: BlockDevice> FatFs<D> {
     /// Writes `serial` to the boot sector, and on FAT32 to the backup boot
     /// sector. Fails with [`ErrorKind::Unsupported`] when the boot sector
     /// has no extended boot signature, and so no serial field.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the volume is read-only or a boot-sector read
+    /// or write fails. A device error may leave the boot copies inconsistent.
     pub async fn set_volume_serial(&mut self, serial: u32) -> FsResult<(), D::Error> {
         self.prepare().await?;
         if self.fat.geometry().volume_serial().is_none() {

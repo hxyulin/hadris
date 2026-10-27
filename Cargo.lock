@@ -553,7 +553,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-fat"
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 dependencies = [
  "bytemuck",
  "hadris-common",
