@@ -140,12 +140,10 @@ impl Options {
     }
 
     /// Reads and writes timestamps as local time `minutes` east of UTC.
-    /// Fails when `minutes` is beyond a day.
     ///
     /// # Errors
     ///
-    /// Returns [`DateTimeError`] when `minutes` is outside the supported UTC-offset range
-    /// of minus one day through plus one day.
+    /// Returns [`DateTimeError`] when `minutes` is outside `-1439..=1439`.
     pub const fn with_utc_offset(mut self, minutes: i16) -> Result<Self, DateTimeError> {
         match NoClock::TIME.with_utc_offset_minutes(Some(minutes)) {
             Ok(_) => {

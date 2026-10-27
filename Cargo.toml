@@ -43,7 +43,7 @@ hadris-fs = { version = "3.0.0-rc.3", path = "crates/core/hadris-fs", default-fe
 hadris-common = { version = "~3.0.0-rc.2", path = "crates/core/hadris-common", default-features = false }
 hadris-storage = { version = "3.0.0-rc.3", path = "crates/core/hadris-storage", default-features = false }
 hadris-fat = { version = "3.0.0-rc.3", path = "crates/block/hadris-fat", default-features = false }
-hadris-fat-raw = { version = "0.2.0", path = "crates/block/hadris-fat-raw", default-features = false }
+hadris-fat-raw = { version = "0.3.0", path = "crates/block/hadris-fat-raw", default-features = false }
 hadris-part = { version = "3.0.0-rc.2", path = "crates/block/hadris-part", default-features = false }
 hadris-iso-raw = { version = "0.2.0", path = "crates/optical/hadris-iso-raw", default-features = false }
 hadris-iso = { version = "3.0.0-rc.3", path = "crates/optical/hadris-iso", default-features = false }

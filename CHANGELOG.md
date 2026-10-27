@@ -12,7 +12,8 @@ Each published package owns its version and may be released independently.
 
 - **hadris-fat-raw, hadris-fat:** `FatKind::entry_offset` accepts a `u32` cluster
   number, matching the on-disk width, and still returns a `u64` byte offset.
-  Every accepted input now fits without arithmetic overflow.
+  Every accepted input now fits without arithmetic overflow. The raw crate
+  advances to `0.3.0`; `hadris-fat` RC3 uses this new raw dependency line.
 - **hadris-iso-raw:** `DirectoryRecord::parse` returns
   `ParseDirectoryRecordError` instead of `()`, distinguishing malformed
   record fields without changing which bytes are accepted. The raw crate
