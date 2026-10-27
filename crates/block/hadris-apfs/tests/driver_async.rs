@@ -34,6 +34,19 @@ fn require_send<T: Send>(value: T) -> T {
 }
 
 #[test]
+fn container_open_failure_returns_the_original_device() {
+    block_on(require_send(async {
+        let image = vec![0xa5; BLOCK * 2];
+        let failure = hadris_apfs::async_::Container::open(device(image.clone()))
+            .await
+            .unwrap_err();
+        let (error, device) = failure.into_parts();
+        assert_eq!(error.kind(), ErrorKind::NotRecognized);
+        assert_eq!(device.into_inner(), image);
+    }));
+}
+
+#[test]
 fn async_contracts_and_send_futures_match_sync() {
     block_on(require_send(async {
         for image in [build_image(), build_image_variant(Variant::Sealed)] {

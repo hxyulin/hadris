@@ -19,7 +19,7 @@ are optional. Turn off the umbrella defaults to select only the required formats
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 default-features = false
 features = ["std", "sync", "fat"]
 ```
@@ -78,8 +78,8 @@ Versioning:
 - The previews `hadris-ntfs` and `hadris-apfs` and the internal
   `hadris-common` carry 3.x versions but are exempt from semver: a 3.y minor
   release may break them, so depend on them with `"~3.0"`.
-- The raw crates `hadris-fat-raw` (0.2.0), `hadris-iso-raw`,
-  `hadris-udf-raw` and `hadris-cpio-raw` (0.1.0) are new, stay at 0.x and
+- The raw crates `hadris-fat-raw`, `hadris-iso-raw` and `hadris-cpio-raw`
+  (0.2.0), and `hadris-udf-raw` (0.1.0), stay at 0.x and
   version separately. Every item is at the raw crate's root. They are never
   re-exported whole: `hadris-fat` re-exports only `FatKind`, `Geometry`,
   `RootLocation`, `ChainError`, `Detail`, `exfat::Detail`,
@@ -145,7 +145,7 @@ New crates:
 |---|---|
 | `hadris-fs` | Shared vocabulary (`NodeId`, `Name`, `Metadata`, `DateTime`, `MountOptions`), the `FileSystem` trait, `Volume` with `File` and `ReadDir`, `Walk`, `Tree`, `Node`, `Content`, `Report`, `copy_tree`, `read_tree`, `Finding`, `CheckReport`, the `host` module, and re-exports of the `hadris-io` error items. |
 | `hadris-fat-raw` | FAT12/16/32 and exFAT on-disk layouts, I/O-free codecs, device primitives (`io`, `exfat::io`) and the allocation-free checkers. Version 0.2.0. |
-| `hadris-iso-raw`, `hadris-udf-raw`, `hadris-cpio-raw` | ISO 9660, UDF and cpio on-disk layouts and I/O-free codecs, at each crate's root. Version 0.1.0. |
+| `hadris-iso-raw`, `hadris-udf-raw`, `hadris-cpio-raw` | ISO 9660, UDF and cpio on-disk layouts and I/O-free codecs, at each crate's root. ISO and cpio are at 0.2.0; UDF is at 0.1.0. |
 | `hadris-cli` | The single `hadris` binary. Install it from crates.io as shown in [Command-line tools](#command-line-tools). |
 
 For applications that deliberately use individual format crates, the same API
@@ -217,7 +217,7 @@ Allocation-free ISO reader, for a bootloader:
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 default-features = false
 features = ["sync", "iso"]
 ```
@@ -226,7 +226,7 @@ FAT or exFAT driver without `std`, with an allocator:
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 default-features = false
 features = ["alloc", "sync", "fat"]
 ```
@@ -235,7 +235,7 @@ Firmware without an allocator, using the embedded FAT/exFAT API:
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 default-features = false
 features = ["sync", "write", "fat"]
 ```
@@ -1696,6 +1696,25 @@ FAT RC3 replaces `CacheOptions::with_directory_hint(bool)` with
 `with_directory_hint()` to enable the hint and `without_directory_hint()`
 to disable it. Other cache bounds keep their values.
 
+Raw ISO 0.2 replaces the unit error from `DirectoryRecord::parse` with
+`ParseDirectoryRecordError`. Replace `Err(())` matches with a named variant
+or `Err(_)` when the distinction does not matter. Moving ISO to this raw
+version also advances `hadris-iso` to RC3 because its re-exported layouts
+come from the new raw dependency line.
+
+CPIO RC3 returns `FinishError<W>` from `Writer::finish`. On failure,
+`into_parts()` returns `(PathError, output)` for inspection. Converting the
+failure into `PathError` or `std::io::Error` discards the output. Recovery
+does not make a partial trailer safe to retry; borrowing `&mut output` also
+retains access if an async finish is cancelled. Raw CPIO 0.2 replaces
+`NewcHeader::new(crc, fields)` with `NewcHeader::new(fields)` for newc or
+`NewcHeader::new_crc(fields)` for checksum newc.
+
+APFS RC3 folds `Container::try_open` into `Container::open`, which returns
+the device in `MountError` on failure. Replace `NameComparison::new`'s two
+booleans with `hadris_fs::CaseRule` and `NormalizationRule` from
+`hadris_apfs::types`.
+
 This guide maps V2 to 3.0. Changes between 3.0 release candidates, including
 renamed and removed features, are listed per release under Breaking in the
 [changelog](../CHANGELOG.md).
@@ -1712,7 +1731,7 @@ APFS arrived after the V2 2.4 API mapped above. V3 now has a read-only
 | Native path lookup followed by a complete-file allocation | `Volume<ApfsFs<_>>` and file handles, or `FileSystem::lookup`, `stat` and `read` at an offset |
 | Choose the first returned volume implicitly | `ApfsFs::mount` for a single volume, or `mount_volume` with `VolumeSelector::{Index,ObjectId,Uuid,Name}` |
 | I/O returned as `ApfsError::Io(ErrorKind)` | `Error<D::Error>` preserving the backend payload; `Detail::of` identifies APFS failures |
-| Device consumed on a failed open | `Container::try_open` and driver mounts return `MountError` with the device |
+| Device consumed on a failed open | `Container::open` and driver mounts return `MountError` with the device |
 | `root_leaf_volume_object_map_values` | `volume_object_map_values`, traversing all object-map leaves |
 | Standalone APFS inspection tool | Unified `hadris apfs info`, `ls`, `stat`, `cat` and `extract`; there is no separate `hadris-apfs-cli` |
 

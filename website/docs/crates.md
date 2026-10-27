@@ -51,7 +51,7 @@ open unknown images, or benefits from a single dependency declaration.
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 default-features = false
 features = ["std", "sync", "detect", "part"]
 ```

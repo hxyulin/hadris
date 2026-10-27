@@ -154,7 +154,7 @@ pub async fn detect<D: BlockDevice + ?Sized>(dev: &mut D) -> FsResult<Detection,
     };
     if &sector[32..36] == b"NXSB" {
         #[cfg(feature = "unstable-apfs")]
-        let apfs_damage = damage(ApfsContainer::open(&mut *dev).await)?;
+        let apfs_damage = damage(ApfsContainer::open(&mut *dev).await.map_err(MountError::into_error))?;
         #[cfg(not(feature = "unstable-apfs"))]
         let apfs_damage = None;
         found.push(ImageFormat::Apfs, apfs_damage);

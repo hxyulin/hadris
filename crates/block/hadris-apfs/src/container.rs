@@ -143,21 +143,10 @@ where
     ///
     /// Returns [`ErrorKind::NotRecognized`] when block zero has no APFS magic,
     /// or an error for unsupported geometry, invalid container bounds, or a
-    /// device failure. On failure the device is dropped; use
-    /// [`try_open`](Self::try_open) to recover an owned device.
+    /// device failure. The device is retained in [`MountError`] for inspection
+    /// or retry; converting that error into [`Error`] drops the device.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
-    pub async fn open(device: D) -> FsResult<Self, D::Error> {
-        Self::try_open(device).await.map_err(MountError::into_error)
-    }
-
-    /// Opens a container, returning ownership of the device on failure.
-    ///
-    /// # Errors
-    ///
-    /// Returns the same errors as [`open`](Self::open), retaining the device
-    /// in [`MountError`] for inspection or retry.
-    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
-    pub async fn try_open(mut device: D) -> core::result::Result<Self, MountError<D, D::Error>> {
+    pub async fn open(mut device: D) -> core::result::Result<Self, MountError<D, D::Error>> {
         match Self::read_info(&mut device).await {
             Ok((info, zero_error)) => {
                 let device_block_size = device.block_size().get();

@@ -6,6 +6,7 @@ use hadris_storage::BlockIndex;
 
 use super::FileSystem;
 use super::storage::BlockDevice;
+use crate::VolumeInfo;
 use crate::error::{Detail, Error};
 use crate::raw;
 use crate::record::{self, Attr, Body, FileName, MAX_LIST_ENTRY, MAX_RECORD, RecordHeader, Runs};
@@ -907,7 +908,14 @@ impl<D: BlockDevice> NtfsFs<D> {
         Ok(self.dev)
     }
 
-    /// The volume serial number.
+    /// Returns a snapshot of the mounted volume's geometry and serial number.
+    ///
+    /// This does no I/O and the result does not borrow the filesystem.
+    pub const fn info(&self) -> VolumeInfo {
+        VolumeInfo::new(self.info.geo)
+    }
+
+    /// The volume serial number, also available through [`info`](Self::info).
     pub fn volume_serial(&self) -> u64 {
         self.info.geo.serial
     }

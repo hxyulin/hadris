@@ -4,6 +4,8 @@ use crate::types::le_u64;
 #[cfg(feature = "alloc")]
 use alloc::borrow::Cow;
 #[cfg(feature = "alloc")]
+use hadris_fs::CaseRule;
+#[cfg(feature = "alloc")]
 use icu_casemap::CaseMapperBorrowed;
 #[cfg(feature = "alloc")]
 use icu_normalizer::DecomposingNormalizerBorrowed;
@@ -395,6 +397,18 @@ impl<'a> XattrRecord<'a> {
     }
 }
 
+/// Whether canonically equivalent Unicode spellings name the same entry.
+#[cfg(feature = "alloc")]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum NormalizationRule {
+    /// Canonically equivalent spellings remain distinct.
+    #[default]
+    Sensitive,
+    /// Canonically equivalent spellings match after canonical decomposition.
+    Insensitive,
+}
+
 /// How a volume compares directory entry names, from its
 /// `APFS_INCOMPAT_CASE_INSENSITIVE` and
 /// `APFS_INCOMPAT_NORMALIZATION_INSENSITIVE` flags; see
@@ -404,6 +418,19 @@ impl<'a> XattrRecord<'a> {
 /// decomposition of Unicode Standard section 3.13, "Default Case
 /// Algorithms". Apple's own tables differ from the standard for a few
 /// ranges, so names that differ only there may still not match.
+///
+/// # Examples
+///
+/// ```
+/// use hadris_apfs::types::{NameComparison, NormalizationRule};
+/// use hadris_fs::CaseRule;
+///
+/// let comparison = NameComparison::new(
+///     CaseRule::InsensitivePreserving,
+///     NormalizationRule::Insensitive,
+/// );
+/// assert!(comparison.matches("CAFÉ.txt", "cafe\u{301}.TXT"));
+/// ```
 #[cfg(feature = "alloc")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NameComparison {
@@ -413,12 +440,20 @@ pub struct NameComparison {
 
 #[cfg(feature = "alloc")]
 impl NameComparison {
-    /// Comparison for a volume whose incompatible features set
-    /// `case_insensitive` and `normalization_insensitive`.
-    pub const fn new(case_insensitive: bool, normalization_insensitive: bool) -> Self {
+    /// Compares names with independent case and normalization policies.
+    ///
+    /// Both insensitive [`CaseRule`] variants apply Unicode default case
+    /// folding. Case preservation does not affect matching. Normalization is
+    /// applied only when requested by `normalization`; use
+    /// [`VolumeSuperblock::name_comparison`](crate::types::VolumeSuperblock::name_comparison)
+    /// to derive both policies from an APFS volume's flags.
+    pub const fn new(case: CaseRule, normalization: NormalizationRule) -> Self {
         Self {
-            case_insensitive,
-            normalization_insensitive,
+            case_insensitive: matches!(
+                case,
+                CaseRule::Insensitive | CaseRule::InsensitivePreserving
+            ),
+            normalization_insensitive: matches!(normalization, NormalizationRule::Insensitive),
         }
     }
 
@@ -600,8 +635,11 @@ mod tests {
 
     #[test]
     fn names_fold_case_only_on_case_insensitive_volumes() {
-        let insensitive = NameComparison::new(true, false);
-        let sensitive = NameComparison::new(false, false);
+        let insensitive = NameComparison::new(
+            CaseRule::InsensitivePreserving,
+            NormalizationRule::Sensitive,
+        );
+        let sensitive = NameComparison::new(CaseRule::Sensitive, NormalizationRule::Sensitive);
         assert!(insensitive.matches("Café.TXT", "café.txt"));
         assert!(!sensitive.matches("Café.TXT", "café.txt"));
         assert!(sensitive.matches("Café.TXT", "Café.TXT"));
@@ -614,15 +652,41 @@ mod tests {
 
     #[test]
     fn names_decompose_only_on_normalization_insensitive_volumes() {
-        let insensitive = NameComparison::new(false, true);
-        let sensitive = NameComparison::new(false, false);
+        let insensitive = NameComparison::new(CaseRule::Sensitive, NormalizationRule::Insensitive);
+        let sensitive = NameComparison::new(CaseRule::Sensitive, NormalizationRule::Sensitive);
         assert!(insensitive.matches("caf\u{e9}.txt", "cafe\u{301}.txt"));
         assert!(!sensitive.matches("caf\u{e9}.txt", "cafe\u{301}.txt"));
         assert!(!insensitive.matches("caf\u{e9}.txt", "caf\u{e8}.txt"));
         // Canonical caseless matching decomposes before folding as well.
-        let both = NameComparison::new(true, true);
+        let both = NameComparison::new(
+            CaseRule::InsensitivePreserving,
+            NormalizationRule::Insensitive,
+        );
         assert!(both.matches("CAF\u{c9}.TXT", "cafe\u{301}.txt"));
         assert!(both.matches("CAFE\u{301}.txt", "caf\u{e9}.txt"));
+    }
+
+    #[test]
+    fn name_comparison_keeps_case_and_normalization_independent() {
+        for case in [
+            CaseRule::Sensitive,
+            CaseRule::Insensitive,
+            CaseRule::InsensitivePreserving,
+        ] {
+            for normalization in [NormalizationRule::Sensitive, NormalizationRule::Insensitive] {
+                let comparison = NameComparison::new(case, normalization);
+                let folds_case = case != CaseRule::Sensitive;
+                let normalizes = normalization == NormalizationRule::Insensitive;
+                assert_eq!(comparison.matches("README", "readme"), folds_case);
+                assert_eq!(comparison.matches("café", "cafe\u{301}"), normalizes);
+                assert_eq!(
+                    comparison.matches("CAFÉ", "cafe\u{301}"),
+                    folds_case && normalizes
+                );
+                assert!(comparison.matches("same", "same"));
+                assert!(!comparison.matches("different", "other"));
+            }
+        }
     }
 
     #[test]

@@ -319,7 +319,7 @@ impl<D: BlockDevice> ApfsFs<D> {
         selector: Option<VolumeSelector<'_>>,
         credentials: Option<(&[u8], Option<[u8; 16]>)>,
     ) -> Result<Self, MountError<D, D::Error>> {
-        let mut container = Container::try_open(device).await?;
+        let mut container = Container::open(device).await?;
         let selected = match Self::select_volume(&mut container, selector, credentials).await {
             Ok(selected) => selected,
             Err(error) => return Err(MountError::new(error, container.into_inner())),

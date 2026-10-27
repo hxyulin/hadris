@@ -10,6 +10,10 @@ updates.
 and asynchronous forms, so `Volume` and the file handles of `hadris-fs`
 work on it.
 
+`NtfsFs::info()` returns an owned `VolumeInfo` snapshot of the boot-sector
+geometry and serial number without device I/O. Both modes return the same
+type. The existing geometry getters remain available.
+
 ```rust,no_run
 use std::io::Read;
 

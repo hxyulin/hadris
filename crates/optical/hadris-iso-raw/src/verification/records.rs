@@ -44,7 +44,7 @@ fn directory_record_parse_matches_specification() {
         && (identifier % 2 == 1 || (33 + identifier < len && bytes[33 + identifier] == 0));
     match result {
         Ok(None) => assert_eq!(len, 0),
-        Err(()) => assert!(len != 0 && !valid),
+        Err(_) => assert!(len != 0 && !valid),
         Ok(Some(record)) => {
             assert!(valid);
             assert_eq!(record.len(), len);

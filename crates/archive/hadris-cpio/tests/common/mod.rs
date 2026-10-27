@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+pub mod failing_output;
+
 use hadris_cpio::sync::{CpioReader, write};
 use hadris_cpio::{CpioOptions, Format, ReaderOptions};
 use hadris_cpio_raw::{NewcFields, NewcHeader};
@@ -74,7 +76,12 @@ pub fn newc_entry(name: &[u8], mode: u32, data: &[u8], crc: Option<u32>) -> Vec<
         check: crc.unwrap_or(0),
         ..NewcFields::default()
     };
-    let mut out = NewcHeader::new(crc.is_some(), &fields).0.to_vec();
+    let header = if crc.is_some() {
+        NewcHeader::new_crc(&fields)
+    } else {
+        NewcHeader::new(&fields)
+    };
+    let mut out = header.0.to_vec();
     out.extend_from_slice(name);
     out.push(0);
     while out.len() % 4 != 0 {

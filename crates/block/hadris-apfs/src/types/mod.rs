@@ -22,7 +22,7 @@ pub use filesystem::{
     XattrRecord,
 };
 #[cfg(feature = "alloc")]
-pub use filesystem::{NameComparison, OwnedDirectoryEntryRecord};
+pub use filesystem::{NameComparison, NormalizationRule, OwnedDirectoryEntryRecord};
 pub use object::{ObjectHeader, ObjectType};
 #[cfg(feature = "alloc")]
 pub use object_map::VirtualObjectMap;

@@ -63,7 +63,7 @@ from one source. They may be enabled together.
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 default-features = false
 features = ["alloc", "sync", "async", "write", "fat"]
 ```
@@ -113,7 +113,7 @@ directory trees, or image construction may still require `alloc`.
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 default-features = false
 features = ["alloc", "sync", "fat"]
 ```
@@ -125,7 +125,7 @@ always available, and `write` adds only `format` and the tree writer.
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 default-features = false
 features = ["alloc", "async", "iso"]
 ```
@@ -134,7 +134,7 @@ features = ["alloc", "async", "iso"]
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 default-features = false
 features = ["std", "sync", "write", "fat"]
 ```
@@ -146,7 +146,7 @@ from wrapping the device in `hadris::storage::sync::Cache`.
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 default-features = false
 features = ["alloc", "sync", "write", "cpio"]
 ```

@@ -58,24 +58,26 @@ pub(crate) fn encode<E>(
     let small = |value: u64| u32::try_from(value).map_err(|_| limit());
     match format {
         Format::Newc | Format::Crc => {
-            let header = NewcHeader::new(
-                format == Format::Crc,
-                &NewcFields {
-                    ino: small(fields.ino)?,
-                    mode: fields.mode,
-                    uid: fields.uid,
-                    gid: fields.gid,
-                    nlink: small(fields.nlink)?,
-                    mtime: small(fields.mtime)?,
-                    filesize: small(fields.len)?,
-                    devmajor: 0,
-                    devminor: 0,
-                    rdevmajor: fields.rdev.major(),
-                    rdevminor: fields.rdev.minor(),
-                    namesize: small(namesize as u64)?,
-                    check: fields.check,
-                },
-            );
+            let fields = NewcFields {
+                ino: small(fields.ino)?,
+                mode: fields.mode,
+                uid: fields.uid,
+                gid: fields.gid,
+                nlink: small(fields.nlink)?,
+                mtime: small(fields.mtime)?,
+                filesize: small(fields.len)?,
+                devmajor: 0,
+                devminor: 0,
+                rdevmajor: fields.rdev.major(),
+                rdevminor: fields.rdev.minor(),
+                namesize: small(namesize as u64)?,
+                check: fields.check,
+            };
+            let header = if format == Format::Crc {
+                NewcHeader::new_crc(&fields)
+            } else {
+                NewcHeader::new(&fields)
+            };
             out.copy_from_slice(&header.0);
             Ok(raw::NEWC_HEADER_LEN)
         }

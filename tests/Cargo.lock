@@ -181,7 +181,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-iso"
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 dependencies = [
  "bitflags",
  "bytemuck",
@@ -196,7 +196,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-iso-raw"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bitflags",
  "bytemuck",

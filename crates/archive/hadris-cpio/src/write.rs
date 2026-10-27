@@ -5,7 +5,7 @@ use hadris_fs::{ErrorKind, FileType, Node, PathError, Report, SetAttr, Tree};
 use super::fs::ContentReader;
 use super::io::Write;
 use crate::build::{self, Data, Fields, Planner, error, plan_tree};
-use crate::error::{Detail, Error, write_failed};
+use crate::error::{Detail, Error, FinishError, write_failed};
 use crate::header;
 use crate::options::{CpioOptions, Format};
 use hadris_cpio_raw::{self as raw, TRAILER_NAME};
@@ -346,7 +346,8 @@ impl<W: Write> Writer<W> {
     }
 
     async fn write_trailer(&mut self) -> Result<(), PathError> {
-        self.header(TRAILER_NAME, &Fields::TRAILER).await?;
+        self.header(TRAILER_NAME, &Fields::TRAILER).await
+            .map_err(|error| error.with_path(TRAILER_NAME))?;
         self.out
             .flush()
             .await
@@ -357,18 +358,31 @@ impl<W: Write> Writer<W> {
     /// the bytes written with the trailer, what cpio dropped, and where each
     /// file's data starts, counted from the first byte this writer wrote.
     ///
+    /// On failure, [`FinishError`] retains the output for inspection. It does
+    /// not retain a retryable writer: part or all of the trailer may have
+    /// been emitted before failure, so retrying can corrupt the archive.
+    ///
+    /// In async mode, dropping the finish future drops the owned output.
+    /// Cancellation does not return a [`FinishError`] or undo emitted bytes.
+    /// Construct the writer with `&mut output` to retain access on cancellation.
+    ///
     /// # Errors
     ///
     /// Returns [`ErrorKind::InvalidInput`] if a streaming entry was not
-    /// finished, or propagates trailer-write and flush errors. An owned
-    /// stream is dropped on failure; construct the writer with `&mut output`
-    /// to retain the stream for inspection.
+    /// finished, or returns the trailer-write or flush failure with the
+    /// output. Trailer-write errors identify [`TRAILER_NAME`]; flush errors
+    /// concern the archive as a whole.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all))]
-    pub async fn finish(mut self) -> Result<(W, Report), PathError> {
-        self.check_idle()?;
-        self.planner.trailer()?;
-        self.write_trailer().await?;
-        Ok((self.out, self.planner.finish()))
+    pub async fn finish(mut self) -> Result<(W, Report), FinishError<W>> {
+        let planned = self.check_idle().and_then(|()| self.planner.trailer());
+        let finished = match planned {
+            Ok(()) => self.write_trailer().await,
+            Err(error) => Err(error),
+        };
+        match finished {
+            Ok(()) => Ok((self.out, self.planner.finish())),
+            Err(error) => Err(FinishError::new(error, self.out)),
+        }
     }
 }
 

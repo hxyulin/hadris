@@ -1,6 +1,6 @@
 [package]
 name = "hadris-iso-raw"
-version = "0.1.0"
+version = "0.2.0"
 description = "ISO on-disk layouts and I/O-free codecs"
 readme = "README.md"
 keywords = ["iso", "no-std", "parser"]

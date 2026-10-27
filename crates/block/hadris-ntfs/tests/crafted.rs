@@ -58,6 +58,30 @@ fn crafted_image_mounts_and_walks() {
 }
 
 #[test]
+fn volume_info_is_an_owned_snapshot_in_both_modes() {
+    let fs = open(base_image());
+    let info = fs.info();
+    assert_eq!(info.volume_serial(), 0x1122_3344_5566_7788);
+    assert_eq!(info.sector_size(), 512);
+    assert_eq!(info.cluster_size(), 512);
+    assert_eq!(info.mft_record_size(), 1024);
+    assert_eq!(info.index_record_size(), 1024);
+    assert_eq!(info.total_sectors(), 512);
+    let _device = fs.unmount().unwrap();
+    assert_eq!(info.volume_serial(), 0x1122_3344_5566_7788);
+
+    #[cfg(feature = "async")]
+    {
+        let fs = block_on(hadris_ntfs::async_::NtfsFs::mount(
+            device(base_image()),
+            MountOptions::new(),
+        ))
+        .unwrap();
+        assert_eq!(fs.info(), info);
+    }
+}
+
+#[test]
 fn contract_holds_in_every_mode_and_tier() {
     let image = base_image();
     let mut fs = open(image.clone());

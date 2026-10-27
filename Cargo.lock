@@ -350,7 +350,7 @@ dependencies = [
 
 [[package]]
 name = "hadris"
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 dependencies = [
  "hadris-apfs",
  "hadris-cpio",
@@ -369,7 +369,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-apfs"
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 dependencies = [
  "aes",
  "aes-kw",
@@ -419,7 +419,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-cpio"
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 dependencies = [
  "hadris-cpio-raw",
  "hadris-fs",
@@ -431,7 +431,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-cpio-raw"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "hadris-example-apfs-inspect"
@@ -603,7 +603,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-iso"
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
@@ -620,7 +620,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-iso-raw"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bitflags 2.13.2",
  "bytemuck",

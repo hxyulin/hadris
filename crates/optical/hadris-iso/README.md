@@ -105,7 +105,7 @@ these methods return; the rest are in `hadris-iso-raw`.
 
 ```toml
 [dependencies]
-hadris-iso = { version = "3.0.0-rc.2", default-features = false, features = ["sync"] }
+hadris-iso = { version = "3.0.0-rc.3", default-features = false, features = ["sync"] }
 ```
 
 `IsoFs::mount` takes any `BlockDevice` whose blocks are at most 4096
@@ -365,7 +365,7 @@ and sessions.
 - [Read ISO images](https://hxyulin.github.io/hadris/guides/read-iso)
 - [Create ISO images](https://hxyulin.github.io/hadris/creation/iso)
 - [Validate generated images](https://hxyulin.github.io/hadris/guides/validate-images)
-- [API reference](https://docs.rs/hadris-iso/3.0.0-rc.2)
+- [API reference](https://docs.rs/hadris-iso/3.0.0-rc.3)
 
 ## License
 

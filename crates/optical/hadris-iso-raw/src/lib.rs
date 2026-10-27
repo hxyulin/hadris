@@ -33,7 +33,10 @@ pub use descriptor::{
     SupplementaryVolumeDescriptor, VolumeDescriptor, VolumeDescriptorHeader,
     VolumeDescriptorSetTerminator,
 };
-pub use directory::{DirectoryRecord, DirectoryRecordHeader, FileFlags, RootDirectoryRecord};
+pub use directory::{
+    DirectoryRecord, DirectoryRecordHeader, FileFlags, ParseDirectoryRecordError,
+    RootDirectoryRecord,
+};
 pub use path_table::PathTableHeader;
 pub use susp::{
     ContinuationArea, NmFlags, PnEntry, PxEntry, RRIP_IDENTIFIERS, SlComponentFlags, SuspEntries,

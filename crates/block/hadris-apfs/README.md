@@ -16,6 +16,10 @@ Mounting needs an allocator, but not `std`. `Container` retains native container
 checkpoint, object-map and space-manager inspection. I/O errors retain the
 backend's error through `hadris_fs::Error<D::Error>`.
 
+`Container::open` returns an owned device on failure through `MountError` in
+both modes. Use `into_parts()` to inspect the error and recover the device,
+or `into_error()` to discard the device and propagate the I/O failure.
+
 A default mount requires exactly one volume. Select another with
 `ApfsFs::mount_volume(device, options, VolumeSelector::Index(index))`, or select
 by APFS object ID, UUID or name. Failed mounts return the device through
@@ -47,6 +51,12 @@ The [V3 use cases](../../../docs/apfs-v3-use-cases.md) explain how inspection,
 generic file access, VFS operations and volume selection shape this API.
 
 ## Supported scope
+
+`VolumeSuperblock::name_comparison()` derives the volume's name policies.
+For comparisons chosen by the caller, `NameComparison::new` takes
+`hadris_fs::CaseRule` and `NormalizationRule` as independent axes. Case
+folding alone does not enable normalization; a volume whose APFS case bit
+is set still enables both, as the on-disk rules require.
 
 - Optional software encryption: container and volume keybags, password-based
   PBKDF2-HMAC-SHA256, AES key unwrap and AES-XTS metadata/file reads on
@@ -198,7 +208,7 @@ are `Send`.
 
 ## Documentation
 
-- [Library API](https://docs.rs/hadris-apfs/3.0.0-rc.2)
+- [Library API](https://docs.rs/hadris-apfs/3.0.0-rc.3)
 - [Unified CLI (`hadris apfs`)](../../tools/hadris-cli/README.md)
 
 ## License

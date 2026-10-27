@@ -10,6 +10,21 @@ Each published package owns its version and may be released independently.
 
 ### Breaking
 
+- **hadris-iso-raw:** `DirectoryRecord::parse` returns
+  `ParseDirectoryRecordError` instead of `()`, distinguishing malformed
+  record fields without changing which bytes are accepted. The raw crate
+  advances to `0.2.0`; `hadris-iso` advances to `3.0.0-rc.3` for the new
+  raw dependency line and re-exported layout identities.
+- **hadris-cpio, hadris-cpio-raw:** `Writer::finish` returns
+  `FinishError<W>`, retaining the owned output and original `PathError` on
+  failure. `NewcHeader::new` no longer takes a boolean; use `new(&fields)`
+  for newc and `new_crc(&fields)` for checksum newc. The crates advance to
+  `3.0.0-rc.3` and `0.2.0`, respectively.
+- **hadris-apfs:** `Container::open` returns `MountError` with the device
+  on failure, replacing `try_open`. `NameComparison::new` takes `CaseRule`
+  and `NormalizationRule` instead of booleans. The preview advances to
+  `3.0.0-rc.3`.
+- **hadris:** Advances to `3.0.0-rc.3` for the re-exported format APIs.
 - **hadris-fat:** `CacheOptions::with_directory_hint(bool)` becomes
   `with_directory_hint()` to enable the hint and `without_directory_hint()`
   to disable it. Other cache bounds are unchanged. The crate advances to
@@ -52,6 +67,9 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-ntfs:** `NtfsFs::info()` returns an owned `VolumeInfo` snapshot
+  of the boot-sector geometry and serial number without I/O. Existing
+  geometry getters remain available.
 - **hadris-fat:** FAT and exFAT volume labels implement `FromStr`; FAT
   volume labels also implement `Display`.
 - **hadris-fat-raw:** `LayoutError` implements `Display` and

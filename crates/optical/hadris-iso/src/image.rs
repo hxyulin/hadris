@@ -401,7 +401,7 @@ impl View {
                     return Ok(Some(Found { offset, record }));
                 }
                 Ok(None) => *pos = (*pos / bs + 1).saturating_mul(bs),
-                Err(()) => return Err(Detail::DirectoryRecord.corrupt()),
+                Err(_) => return Err(Detail::DirectoryRecord.corrupt()),
             }
         }
         Ok(None)

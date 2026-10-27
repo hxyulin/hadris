@@ -203,6 +203,8 @@ pub fn normalize_path(name: &[u8]) -> Option<alloc::borrow::Cow<'_, [u8]>> {
 #[cfg_attr(docsrs, doc(cfg(feature = "write")))]
 pub use build::plan;
 pub use error::Detail;
+#[cfg(feature = "write")]
+pub use error::FinishError;
 pub use options::{CpioOptions, Format, ReaderOptions};
 
 /// Compiles the README's Rust examples as doctests.
