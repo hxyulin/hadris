@@ -962,13 +962,13 @@ pub async fn read_slot<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, offset
 ///
 /// A long name goes before its short entry, so an interruption leaves at
 /// worst long-name slots without their short entry, which readers skip.
-#[allow(clippy::too_many_arguments)]
 ///
 /// # Errors
 ///
 /// Returns [`ErrorKind::Corrupt`] if a requested slot lies past the directory end or its
 /// chain is invalid, or a device read, write or flush error. `written` counts completed
 /// slots; a failed slot may also be partly written.
+#[expect(clippy::too_many_arguments, reason = "the slot writer borrows device, cache, traversal and recovery state separately")]
 pub async fn write_slots<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,

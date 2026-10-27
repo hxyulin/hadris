@@ -2812,8 +2812,10 @@ impl<D: BlockDevice> FatFs<D> {
     ///
     /// # Errors
     ///
-    /// Returns corruption or device errors publishing pending file metadata. The open count
-    /// is decremented before publication, so failure does not retain an open for retry.
+    /// Returns [`ErrorKind::InvalidHandle`] for a stale id, [`ErrorKind::NotFound`]
+    /// for a removed node, or corruption or device errors publishing pending metadata.
+    /// The open count is decremented before publication, so failure does not retain
+    /// an open for retry.
     pub async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         self.nodes.close(node);
         self.publish_node(node).await
