@@ -54,6 +54,24 @@ fn paths_handles_and_policies() {
 }
 
 #[test]
+fn copies_reject_trees_read_lazily_from_the_target() {
+    block_on(async {
+        let mut src = MemFs::new();
+        src.add("/", "etc", hadris_fs::FileType::Dir, b"");
+        src.add("/etc", "conf", hadris_fs::FileType::File, b"key=value");
+        let root = src.root();
+        let vol = SendVolume::new(Sendable::new(src));
+        let tree = read_tree(&vol, "/etc").await.unwrap();
+        let err = copy_tree(&tree, &vol, root).await.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Unsupported);
+        assert_eq!(err.path(), Some(&b"/conf"[..]));
+        drop(tree);
+        let src = vol.into_inner().await.ok().unwrap();
+        assert_eq!(src.contents("/etc/conf").unwrap(), b"key=value");
+    });
+}
+
+#[test]
 fn volumes_copy_through_trees() {
     block_on(async {
         let mut src = MemFs::new();

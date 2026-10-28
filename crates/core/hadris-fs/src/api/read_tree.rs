@@ -355,6 +355,10 @@ async_only! {
         fn read_at<'a>(&'a self, offset: u64, buf: &'a mut [u8]) -> crate::tree::ReadFuture<'a> {
             alloc::boxed::Box::pin(self.read(offset, buf))
         }
+
+        fn origin(&self) -> *const () {
+            self.vol.origin()
+        }
     }
 
     impl<F: crate::async_::SendFileSystem + 'static> Lazy for crate::async_::Sendable<F> {

@@ -137,8 +137,9 @@ fn relink(data: &Path, name: &Path, created: &HashSet<PathBuf>) -> Result<()> {
 /// The extracted names of a hard link group, in archive order. Once
 /// `linked`, they are all names of the file holding the group's data;
 /// before, each is an empty file waiting for it. `data` is a closed
-/// temporary copy of the group's data, so open descriptors do not grow
-/// with the number of groups.
+/// temporary copy of the group's data, kept only while no extracted name
+/// holds it, so open descriptors and temporary storage do not grow with
+/// the number of linked groups.
 #[derive(Default)]
 struct Group {
     names: Vec<PathBuf>,
@@ -161,15 +162,25 @@ struct Links {
 }
 
 impl Links {
-    fn release(&mut self, path: &Path) {
+    /// Takes `path` out of its group before it is replaced, copying the
+    /// group's data first when `path` is the last name holding it.
+    fn release(&mut self, path: &Path, created: &HashSet<PathBuf>) -> Result<()> {
         if let Some(key) = self.owners.remove(path)
             && let Some(group) = self.groups.get_mut(&key)
         {
             group.names.retain(|name| name != path);
             if group.names.is_empty() {
+                if group.linked {
+                    ours(path, created)?;
+                    let mut source = File::open(path).context("Failed to retain hard link data")?;
+                    let mut data = retain()?;
+                    std::io::copy(&mut source, &mut data)?;
+                    group.data = Some(data.into_temp_path());
+                }
                 group.linked = false;
             }
         }
+        Ok(())
     }
 }
 
@@ -216,11 +227,6 @@ impl Extractor {
     fn write_file(&mut self, entry: &mut Entry<'_, Input>, dest: &Path) -> Result<()> {
         let mut file = create_file(dest)?;
         self.created.insert(dest.to_path_buf());
-        let mut retained = if entry.nlink() > 1 && !entry.is_empty() {
-            Some(retain()?)
-        } else {
-            None
-        };
         loop {
             let read = entry
                 .read(&mut self.buf)
@@ -228,21 +234,14 @@ impl Extractor {
             if read == 0 {
                 break;
             }
-            if let Some(data) = &mut retained {
-                data.write_all(&self.buf[..read])?;
-            }
             file.write_all(&self.buf[..read])
                 .with_context(|| format!("Failed to write file: {}", dest.display()))?;
         }
-        if let Some(data) = retained {
-            self.links.groups.entry(link_key(entry)).or_default().data =
-                Some(data.into_temp_path());
-        }
         if entry.nlink() > 1 && entry.is_empty() {
             let group = self.links.groups.entry(link_key(entry)).or_default();
-            if let Some(data) = &group.data {
+            if let Some(data) = group.data.take() {
                 let mut data =
-                    File::open(data).context("Failed to read retained hard link data")?;
+                    File::open(&data).context("Failed to read retained hard link data")?;
                 std::io::copy(&mut data, &mut file)?;
                 group.linked = true;
             }
@@ -267,6 +266,7 @@ impl Extractor {
             }
         }
         group.linked = true;
+        group.data = None;
         Ok(())
     }
 
@@ -433,7 +433,7 @@ pub fn extract(
         if let Some(parent) = dest.parent() {
             make_dirs(&x.output, parent, &mut x.made)?;
         }
-        x.links.release(&dest);
+        x.links.release(&dest, &x.created)?;
         replace(&dest, &x.created)?;
         match file_type {
             FileType::Dir => {

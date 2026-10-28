@@ -341,7 +341,7 @@ fn selected_hard_link_spools_stdin_and_resets_at_trailers() {
 }
 
 #[test]
-fn hard_link_groups_do_not_hold_descriptors_open() {
+fn extracted_hard_link_groups_need_no_retained_copies() {
     let dir = tempfile::tempdir().unwrap();
     let names: Vec<String> = (0..200).map(|i| format!("file{i}")).collect();
     let entries: Vec<_> = names
@@ -358,6 +358,7 @@ fn hard_link_groups_do_not_hold_descriptors_open() {
         .args(["cpio", "extract", "-o"])
         .arg(dir.path().join("out"))
         .arg(&path)
+        .env("TMPDIR", dir.path().join("missing"))
         .output()
         .unwrap();
     assert!(out.status.success(), "{out:?}");

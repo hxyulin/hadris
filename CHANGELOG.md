@@ -44,6 +44,9 @@ Each published package owns its version and may be released independently.
   their file closes and pin releases for the next volume operation.
   Async FAT/exFAT tree writers consequently require pointer-sized atomics;
   sync tree writers and raw formatting retain their existing target support.
+  Copying a tree that `read_tree` read from the destination volume itself
+  returns `Unsupported` before writing, instead of waiting forever on the
+  volume.
 - **hadris-iso, hadris-udf, hadris-cpio:** The writers moved from `alloc`
   to a new default `write` feature, so `alloc` now only means a heap. In
   hadris-iso, `write` adds `plan`, `{sync, async_}::{write, Session}` and
@@ -209,9 +212,10 @@ Each published package owns its version and may be released independently.
 - **hadris-iso:** Preserve literal semicolon names in ISO 9660:1999 enhanced
   trees during listing and lookup instead of interpreting them as versions.
 - **hadris-cli:** Selected cpio hard links retain data from earlier
-  unselected entries, including stdin archives. Retained data is kept in
-  closed temporary files, so archives with many hard link groups no longer
-  exhaust file descriptors.
+  unselected entries, including stdin archives. Data is retained in closed
+  temporary files only while no extracted name holds it, so archives with
+  many hard link groups no longer exhaust file descriptors or temporary
+  storage.
 - **hadris-fs:** Host tree extraction finalizes directory permissions and
   times after deferred symlinks; `create_dir_all` follows the configured
   symlink resolution policy.

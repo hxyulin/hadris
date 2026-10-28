@@ -164,6 +164,15 @@ pub struct VolumeGuard<'a, F: FileSystem> {
     failed: &'a AtomicBool,
 }
 
+async_only! {
+    impl<F> Volume<F> {
+        /// The address that identifies this volume and its clones.
+        pub(crate) fn origin(&self) -> *const () {
+            Arc::as_ptr(&self.shared).cast()
+        }
+    }
+}
+
 impl<F> Clone for Volume<F> {
     fn clone(&self) -> Self {
         Self { shared: Arc::clone(&self.shared) }
