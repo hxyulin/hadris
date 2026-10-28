@@ -59,8 +59,13 @@ fn copies_reject_trees_read_lazily_from_the_target() {
         let mut src = MemFs::new();
         src.add("/", "etc", hadris_fs::FileType::Dir, b"");
         src.add("/etc", "conf", hadris_fs::FileType::File, b"key=value");
+        src.add("/", "empty", hadris_fs::FileType::Dir, b"");
+        src.add("/empty", "none", hadris_fs::FileType::File, b"");
         let root = src.root();
         let vol = SendVolume::new(Sendable::new(src));
+        let empty = read_tree(&vol, "/empty").await.unwrap();
+        copy_tree(&empty, &vol, root).await.unwrap();
+        drop(empty);
         let tree = read_tree(&vol, "/etc").await.unwrap();
         let err = copy_tree(&tree, &vol, root).await.unwrap_err();
         assert_eq!(err.kind(), ErrorKind::Unsupported);
@@ -68,6 +73,7 @@ fn copies_reject_trees_read_lazily_from_the_target() {
         drop(tree);
         let src = vol.into_inner().await.ok().unwrap();
         assert_eq!(src.contents("/etc/conf").unwrap(), b"key=value");
+        assert_eq!(src.contents("/none").unwrap(), b"");
     });
 }
 

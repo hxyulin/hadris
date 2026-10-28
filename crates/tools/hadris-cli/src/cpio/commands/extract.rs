@@ -174,7 +174,8 @@ impl Links {
                     ours(path, created)?;
                     let mut source = File::open(path).context("Failed to retain hard link data")?;
                     let mut data = retain()?;
-                    std::io::copy(&mut source, &mut data)?;
+                    std::io::copy(&mut source, &mut data)
+                        .context("Failed to retain hard link data")?;
                     group.data = Some(data.into_temp_path());
                 }
                 group.linked = false;
@@ -242,7 +243,8 @@ impl Extractor {
             if let Some(data) = group.data.take() {
                 let mut data =
                     File::open(&data).context("Failed to read retained hard link data")?;
-                std::io::copy(&mut data, &mut file)?;
+                std::io::copy(&mut data, &mut file)
+                    .with_context(|| format!("Failed to write file: {}", dest.display()))?;
                 group.linked = true;
             }
         }

@@ -1,6 +1,5 @@
 include!("copy_shared.rs");
 use super::volume::{Held, Volume};
-use crate::Content;
 
 /// A directory being copied: its children in the tree, the next one to
 /// copy, the target directory (pinned unless it is the top) and the times
@@ -14,20 +13,28 @@ struct Frame<'t, 'v> {
     times: Option<SetAttr>,
 }
 
-/// The tree path of the first file whose lazy content reads through
-/// `volume`, which a copy holding the volume would wait on forever.
+/// The tree path of the first nonempty file whose lazy content reads
+/// through `volume`, which a copy holding the volume would wait on forever.
 fn reads_through<F>(tree: &Tree, volume: &Volume<F>) -> Option<Vec<u8>> {
     let origin = volume.origin();
+    let join = |path: &[u8], name: &Name| {
+        let mut path = path.to_vec();
+        path.push(b'/');
+        path.extend_from_slice(name.as_bytes());
+        path
+    };
     let mut stack = alloc::vec![(tree.root(), Vec::new())];
     while let Some((entry, path)) = stack.pop() {
         for (name, child) in entry.children() {
-            let mut path = path.clone();
-            path.push(b'/');
-            path.extend_from_slice(name.as_bytes());
-            if child.node().content().and_then(Content::origin) == Some(origin) {
-                return Some(path);
+            if child.node().file_type() == FileType::Dir {
+                stack.push((child, join(&path, name)));
+            } else if child
+                .node()
+                .content()
+                .is_some_and(|content| !content.is_empty() && content.origin() == Some(origin))
+            {
+                return Some(join(&path, name));
             }
-            stack.push((child, path));
         }
     }
     None
@@ -183,9 +190,9 @@ async fn walk<'t, 'v, F: FileSystem>(
 /// [`ErrorKind::Unsupported`] for unreadable content in this mode, or
 /// filesystem and content-source errors with the tree path. Earlier
 /// creations and writes remain on failure and are not flushed. A tree
-/// whose content `read_tree` reads lazily from `volume` itself returns
-/// [`ErrorKind::Unsupported`] with the first such path before anything is
-/// written.
+/// whose nonempty content `read_tree` reads lazily from `volume` itself
+/// returns [`ErrorKind::Unsupported`] with the first such path before
+/// anything is written.
 pub async fn copy_tree<F: FileSystem>(tree: &Tree, volume: &Volume<F>, dir: NodeId) -> Result<Report, PathError> {
     if let Some(path) = reads_through(tree, volume) {
         return Err(PathError::from(ErrorKind::Unsupported).with_path(&path));
