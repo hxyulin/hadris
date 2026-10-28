@@ -1929,7 +1929,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     async fn put(&mut self, offset: u64, data: &[u8]) -> FsResult<(), D::Error> {
         if !data.is_empty() {
             self.begin_write().await?;
-            if self.fat.durability() == hadris_fs::Durability::Ordered {
+            if self.fat.durability() != hadris_fs::Durability::Buffered {
                 self.flush_device().await?;
             }
         }

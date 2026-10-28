@@ -20,7 +20,7 @@ fn good() -> Vec<u8> {
 #[test]
 fn unsupported_revisions_are_rejected_before_writing() {
     let tree = Tree::new();
-    for raw in [0, 0x0101, 0x0103, 0x01ff, 0x0202, 0x0240] {
+    for raw in [0, 0x0101, 0x0103, 0x01ff, 0x0202, 0x0240, 0x0251, 0x0300] {
         let options = UdfOptions::new().with_revision(UdfRevision::from_raw(raw));
         let error = hadris_udf::plan(&tree, &options).unwrap_err();
         assert_eq!(error.kind(), ErrorKind::Unsupported, "revision {raw:#06x}");

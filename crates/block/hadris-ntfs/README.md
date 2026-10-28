@@ -118,7 +118,7 @@ are `Send`.
 ## Documentation
 
 - [Specification coverage](../../../docs/spec-coverage.md#hadris-ntfs)
-- [API reference](https://docs.rs/hadris-ntfs/3.0.0-rc.2)
+- [API reference](https://docs.rs/hadris-ntfs/3.0.0-rc.3)
 
 ## License
 

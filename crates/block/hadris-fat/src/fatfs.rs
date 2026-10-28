@@ -1538,7 +1538,7 @@ impl<D: BlockDevice> FatFs<D> {
     }
 
     async fn put_bytes(&mut self, offset: u64, data: &[u8]) -> FsResult<(), D::Error> {
-        if !data.is_empty() && self.fat.durability() == hadris_fs::Durability::Ordered {
+        if !data.is_empty() && self.fat.durability() != hadris_fs::Durability::Buffered {
             self.flush_device().await?;
         }
         self.append_index = None;
@@ -1588,7 +1588,7 @@ impl<D: BlockDevice> FatFs<D> {
         size: u32,
         hint: ChainPos,
     ) -> FsResult<(), D::Error> {
-        if self.fat.durability() == hadris_fs::Durability::Ordered {
+        if self.fat.durability() != hadris_fs::Durability::Buffered {
             self.flush_device().await?;
         }
         let next = Node { first, size, hint, ..*state };

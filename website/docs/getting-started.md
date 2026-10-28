@@ -27,14 +27,14 @@ Git dependency pinned to a reviewed `rev`.
 Install the command-line tool with cargo-binstall:
 
 ```sh
-cargo binstall hadris-cli --version 3.0.0-rc.2
+cargo binstall hadris-cli --version 3.0.0-rc.3
 hadris --help
 ```
 
 Or compile it with Rust 1.88 or newer:
 
 ```sh
-cargo install hadris-cli --version 3.0.0-rc.2 --locked
+cargo install hadris-cli --version 3.0.0-rc.3 --locked
 hadris --help
 ```
 

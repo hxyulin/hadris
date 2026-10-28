@@ -582,7 +582,7 @@ pub async fn write_percent_in_use<D: BlockDevice>(dev: &mut D, block: &mut Block
 /// fails.
 pub async fn set<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &mut ExFat, cluster: u32, value: u32) -> FsResult<(), D::Error> {
     check_cluster(&vol.geo, cluster)?;
-    if vol.durability() == hadris_fs::Durability::Ordered {
+    if vol.durability() != hadris_fs::Durability::Buffered {
         dev.flush().await?;
     }
     if let Some(mirror) = vol.geo.mirror_fat() {
@@ -697,7 +697,7 @@ pub async fn set_bit<D: BlockDevice>(
     if was == used {
         return Ok(());
     }
-    if vol.durability() == hadris_fs::Durability::Ordered {
+    if vol.durability() != hadris_fs::Durability::Buffered {
         dev.flush().await?;
     }
     byte[0] ^= bit;
@@ -739,7 +739,7 @@ pub async fn set_bits<D: BlockDevice>(
     }
     let end = check_cluster(&vol.geo, first)?.checked_add(count).ok_or(ErrorKind::Corrupt)?;
     check_cluster(&vol.geo, end - 1)?;
-    if vol.durability() == hadris_fs::Durability::Ordered {
+    if vol.durability() != hadris_fs::Durability::Buffered {
         dev.flush().await?;
     }
     let mut cluster = first;
@@ -947,7 +947,7 @@ pub async fn allocate_run<D: BlockDevice>(
     if let Some(held) = held {
         held.set_head(head);
     }
-    if vol.durability() == hadris_fs::Durability::Ordered {
+    if vol.durability() != hadris_fs::Durability::Buffered {
         dev.flush().await?;
     }
     mark_chain(dev, block, vol, None, head, count, ClusterState::Used).await?;
@@ -1007,7 +1007,7 @@ pub async fn free_chain<D: BlockDevice>(
     first: u32,
 ) -> FsResult<(), D::Error> {
     let cluster = check_cluster(&vol.geo, first)?;
-    if vol.durability() == hadris_fs::Durability::Ordered {
+    if vol.durability() != hadris_fs::Durability::Buffered {
         dev.flush().await?;
     }
     mark_chain(dev, block, vol, Some(held), cluster, vol.geo.cluster_count(), ClusterState::Free).await?;
@@ -1134,7 +1134,7 @@ async fn patch_fat<D: BlockDevice>(
     next: u32,
 ) -> FsResult<(), D::Error> {
     begin_write(dev, block, vol).await?;
-    if vol.durability() == hadris_fs::Durability::Ordered {
+    if vol.durability() != hadris_fs::Durability::Buffered {
         dev.flush().await?;
     }
     let size = block.block_size() as u64;
@@ -1230,7 +1230,7 @@ async fn put_entries<D: BlockDevice>(
             }
         };
         begin_write(dev, block, vol).await?;
-        if vol.durability() == hadris_fs::Durability::Ordered {
+        if vol.durability() != hadris_fs::Durability::Buffered {
             dev.flush().await?;
         }
         write_bytes(dev, block, at[from], entries[from..to].as_flattened()).await?;

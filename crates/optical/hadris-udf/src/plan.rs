@@ -831,7 +831,7 @@ pub(crate) fn lay_out(
     measured: bool,
     bridge: Option<u32>,
 ) -> PlanResult<Plan> {
-    if opts.revision() >= UdfRevision::V2_50 {
+    if matches!(opts.revision(), UdfRevision::V2_50 | UdfRevision::V2_60) {
         return Err(Detail::PartitionMap.error(ErrorKind::Unsupported));
     }
     if !matches!(

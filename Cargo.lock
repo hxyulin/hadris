@@ -389,7 +389,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-cli"
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -636,7 +636,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-ntfs"
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 dependencies = [
  "bytemuck",
  "hadris-fs",
@@ -649,7 +649,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-part"
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
@@ -672,7 +672,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-udf"
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 dependencies = [
  "bytemuck",
  "hadris-fs",
@@ -688,7 +688,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-udf-raw"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bitflags 2.13.2",
  "bytemuck",

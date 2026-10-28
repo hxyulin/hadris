@@ -169,7 +169,8 @@ Each published package owns its version and may be released independently.
   widths above 21 digits instead of overflowing its shift.
 - **hadris-udf:** Writers reject unsupported raw revisions before touching
   the output, with `Detail::Revision`. Supported revisions remain 1.02,
-  1.50, 2.00, and 2.01; the existing 2.50+ error detail is unchanged.
+  1.50, 2.00, and 2.01; 2.50 and 2.60 keep `Detail::PartitionMap`, and
+  other revisions at or above 2.50 report `Detail::Revision`.
 - **hadris-apfs:** `ApfsError` implements `core::error::Error` without
   requiring `std`.
 - **hadris-fat, hadris-fat-raw:** FAT/exFAT flush dependencies before
@@ -223,6 +224,12 @@ Each published package owns its version and may be released independently.
   covers both. pycdlib logged `Missing UDF File Set Terminator` for bridge
   images. The root directory and everything after it move one block later
   in the partition.
+
+### Security
+
+- **hadris-cli:** The lockfile uses `ctutils` 0.4.4, fixing
+  RUSTSEC-2026-0385 (non-constant-time mask generation) in the APFS
+  key-derivation dependencies for `cargo install --locked` builds.
 
 ## [3.0.0-rc.2] - 2026-10-15
 

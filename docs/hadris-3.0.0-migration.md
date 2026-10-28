@@ -79,7 +79,7 @@ Versioning:
   `hadris-common` carry 3.x versions but are exempt from semver: a 3.y minor
   release may break them, so depend on them with `"~3.0"`.
 - The raw crates `hadris-fat-raw` (0.3.0), `hadris-iso-raw` and
-  `hadris-cpio-raw` (0.2.0), and `hadris-udf-raw` (0.1.0), stay at 0.x and
+  `hadris-cpio-raw` (0.2.0), and `hadris-udf-raw` (0.1.1), stay at 0.x and
   version separately. Every item is at the raw crate's root. They are never
   re-exported whole: `hadris-fat` re-exports only `FatKind`, `Geometry`,
   `RootLocation`, `ChainError`, `Detail`, `exfat::Detail`,
@@ -1115,7 +1115,7 @@ The five CLI packages are replaced by one binary, `hadris`, in the
 
 ```bash
 cargo uninstall hadris-fat-cli hadris-iso-cli hadris-udf-cli hadris-cpio-cli hadris-cd-cli
-cargo install hadris-cli --version 3.0.0-rc.2 --locked
+cargo install hadris-cli --version 3.0.0-rc.3 --locked
 ```
 
 The 2.x binaries (`hadris-fat`, `fatutil`, `hadris-iso`, `hadris-iso-cli`,
@@ -1674,7 +1674,7 @@ Writing:
     `close` not flushing the device.
 13. Replace CLI invocations with `hadris <format> <command>` (see
     [Command-line tools](#command-line-tools)) and install
-    `cargo install hadris-cli --version 3.0.0-rc.2 --locked`.
+    `cargo install hadris-cli --version 3.0.0-rc.3 --locked`.
 
 ## Additions after the initial V3 migration
 

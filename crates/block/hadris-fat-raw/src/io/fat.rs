@@ -343,7 +343,7 @@ async fn put_entry<D: BlockDevice>(
     value: u32,
 ) -> FsResult<(), D::Error> {
     begin_write(dev, block, fat).await?;
-    if fat.durability() == hadris_fs::Durability::Ordered {
+    if fat.durability() != hadris_fs::Durability::Buffered {
         dev.flush().await?;
     }
     let kind = fat.geo.kind();
@@ -799,7 +799,7 @@ async fn patch<D: BlockDevice>(
     tail: Option<u32>,
 ) -> FsResult<(), D::Error> {
     begin_write(dev, block, fat).await?;
-    if fat.durability() == hadris_fs::Durability::Ordered {
+    if fat.durability() != hadris_fs::Durability::Buffered {
         dev.flush().await?;
     }
     let kind = fat.geo.kind();
@@ -981,7 +981,7 @@ pub async fn write_slots<D: BlockDevice>(
 ) -> FsResult<(), D::Error> {
     *written = 0;
     while *written < count {
-        if *written + 1 == count && fat.durability() == hadris_fs::Durability::Ordered {
+        if *written + 1 == count && fat.durability() != hadris_fs::Durability::Buffered {
             dev.flush().await?;
         }
         let at = slot_offset(dev, block, fat, walk, first + *written)

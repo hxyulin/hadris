@@ -59,7 +59,7 @@ impl UdfOptions {
 
     /// Sets the UDF revision the volume records: 1.02, 1.50, 2.00 or 2.01. 2.00 and
     /// later write ECMA-167 3rd edition structures (NSR03, descriptor
-    /// version 3). 2.50 and later require a metadata partition (UDF 2.50
+    /// version 3). 2.50 and 2.60 require a metadata partition (UDF 2.50
     /// 2.2.10), which the writer does not write, so `plan` and `write` fail
     /// with [`ErrorKind::Unsupported`](hadris_fs::ErrorKind::Unsupported)
     /// and [`Detail::PartitionMap`](crate::Detail::PartitionMap).
