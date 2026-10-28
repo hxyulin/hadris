@@ -16,7 +16,11 @@ The vocabulary is mode-independent and performs no I/O:
 - `Guid` and `GuidParseError`, the mixed-endian GUID of GPT and exFAT, which `hadris-part` and `hadris-fat` re-export; `Guid::random` needs `std`
 - `MountOptions`, one mount configuration for every format: read-only,
   the `Clock`, the UTC offset of zoneless timestamps, the FAT `CodePage`
-  (`Cp437` by default, or `Ascii`), a node cap and backup boot structures.
+  (`Cp437` by default, or `Ascii`), a node cap, backup boot structures and
+  FAT/exFAT `Durability`. `Ordered` is the default; opt-in `Buffered`
+  reduces dependency flushes while retaining explicit synchronization and
+  ownership checks. Power loss before or during buffered synchronization
+  can leave filesystem corruption.
   Each driver ignores the options it does not apply; the rustdoc lists
   which driver honours which
 - `Tree`, `Node` and `Content` (`alloc`): the input of every image

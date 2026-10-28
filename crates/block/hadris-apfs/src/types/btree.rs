@@ -38,6 +38,11 @@ impl BTreeInfo {
     pub const SIZE: usize = 40;
 
     /// Parses B-tree info from bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ApfsError::InputTooSmall`] if the B-tree info trailer is
+    /// truncated.
     pub fn parse(data: &[u8]) -> crate::Result<Self> {
         Ok(Self {
             fixed: BTreeInfoFixed {
@@ -87,6 +92,11 @@ pub struct OwnedBTreeNode {
 #[cfg(feature = "alloc")]
 impl OwnedBTreeNode {
     /// Creates an owned node from a full APFS block and validates it parses as a B-tree node.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the block has the wrong object type or a truncated B-tree
+    /// header. The input buffer is dropped on failure.
     pub fn parse(data: alloc::vec::Vec<u8>) -> crate::Result<Self> {
         BTreeNode::parse(&data)?;
         Ok(Self {
@@ -97,6 +107,11 @@ impl OwnedBTreeNode {
 
     /// Creates an owned node whose object header is absent (`OMAP_VAL_NOHEADER`).
     /// The first 32 bytes are not interpreted and no object type is required.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ApfsError::InputTooSmall`] if the headerless node is
+    /// truncated. The input buffer is dropped on failure.
     pub fn parse_headerless(data: alloc::vec::Vec<u8>) -> crate::Result<Self> {
         BTreeNode::parse_headerless(&data)?;
         Ok(Self {
@@ -106,6 +121,11 @@ impl OwnedBTreeNode {
     }
 
     /// Borrows the parsed B-tree node header and backing bytes.
+    ///
+    /// # Errors
+    ///
+    /// Propagates B-tree header parsing errors. Nodes created by the validating
+    /// constructors retain unchanged bytes, so they remain parseable.
     pub fn node(&self) -> crate::Result<BTreeNode<'_>> {
         if self.headerless {
             BTreeNode::parse_headerless(&self.data)
@@ -120,21 +140,40 @@ impl OwnedBTreeNode {
     }
 
     /// Returns whether this node is a root node.
+    ///
+    /// # Errors
+    ///
+    /// Propagates B-tree header parsing errors from [`Self::node`].
     pub fn is_root(&self) -> crate::Result<bool> {
         Ok(self.node()?.is_root())
     }
 
     /// Returns whether this node is a leaf node.
+    ///
+    /// # Errors
+    ///
+    /// Propagates B-tree header parsing errors from [`Self::node`].
     pub fn is_leaf(&self) -> crate::Result<bool> {
         Ok(self.node()?.is_leaf())
     }
 
     /// Parses the root-node B-tree info trailer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the node is not a root or the B-tree info trailer is
+    /// truncated. Header parsing errors propagate.
     pub fn tree_info(&self) -> crate::Result<BTreeInfo> {
         self.node()?.tree_info()
     }
 
     /// Returns owned entries from this node.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for missing fixed-size root information, invalid key or value
+    /// sizes, truncated tables or records, or overflowing offsets. Node-header
+    /// parsing errors propagate.
     pub fn owned_entries(
         &self,
         root_info: Option<BTreeInfo>,
@@ -181,12 +220,22 @@ pub struct BTreeNode<'a> {
 
 impl<'a> BTreeNode<'a> {
     /// Parses a B-tree node from a full APFS block.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the block has the wrong object type or a truncated B-tree
+    /// header.
     pub fn parse(block: &'a [u8]) -> crate::Result<Self> {
         Self::parse_with(block, true)
     }
 
     /// Parses a B-tree node stored without an object header
     /// (`OMAP_VAL_NOHEADER`), as used by sealed volumes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ApfsError::InputTooSmall`] if the headerless B-tree header is
+    /// truncated.
     pub fn parse_headerless(block: &'a [u8]) -> crate::Result<Self> {
         Self::parse_with(block, false)
     }
@@ -225,6 +274,11 @@ impl<'a> BTreeNode<'a> {
     }
 
     /// Parses the root-node B-tree info trailer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ApfsError::InvalidValue`] for a non-root node, or
+    /// [`crate::ApfsError::InputTooSmall`] for a truncated info trailer.
     pub fn tree_info(&self) -> crate::Result<BTreeInfo> {
         if !self.is_root() {
             return Err(crate::ApfsError::InvalidValue("B-tree info on non-root"));
@@ -238,6 +292,11 @@ impl<'a> BTreeNode<'a> {
     }
 
     /// Iterates fixed-size entries using the supplied root tree info.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the node or supplied info does not describe fixed-size
+    /// entries, a table or record is truncated, or an offset overflows.
     #[cfg(feature = "alloc")]
     pub fn fixed_entries(&self, info: BTreeInfo) -> crate::Result<alloc::vec::Vec<FixedEntry<'a>>> {
         if !self.has_fixed_kv() || info.fixed.key_size == 0 || info.fixed.value_size == 0 {
@@ -301,6 +360,11 @@ impl<'a> BTreeNode<'a> {
     }
 
     /// Iterates variable-size entries from this node.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the table or a key/value record lies outside the node, or
+    /// an offset overflows.
     #[cfg(feature = "alloc")]
     pub fn variable_entries(&self) -> crate::Result<alloc::vec::Vec<FixedEntry<'a>>> {
         let toc_start = self.table_offset as usize;

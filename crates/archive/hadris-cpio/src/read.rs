@@ -80,8 +80,8 @@ impl<R, B> CpioReader<R, B> {
     /// Uses caller-provided name storage, including space for the terminating NUL.
     ///
     /// `B` must expose the same storage through `AsRef<[u8]>` and `AsMut<[u8]>`.
-    /// Reading requires both traits, plus `Send` in async mode. Reading the
-    /// `TRAILER!!!` marker requires at least 11 bytes of storage.
+    /// Reading requires both traits; async mode also accepts non-`Send` buffers.
+    /// Reading the `TRAILER!!!` marker requires at least 11 bytes of storage.
     pub fn with_buffer(reader: R, buf: B, options: ReaderOptions) -> Self {
         Self {
             reader,
@@ -100,7 +100,9 @@ impl<R, B> CpioReader<R, B> {
         }
     }
 
-    /// Bytes consumed from the stream so far, including a peeked segment byte.
+    /// Bytes accounted for by completed reads, including a peeked segment byte.
+    ///
+    /// A failed or cancelled read may consume input without advancing this count.
     pub fn offset(&self) -> u64 {
         self.offset
     }
@@ -151,6 +153,10 @@ impl<R, B: AsRef<[u8]>> Entry<'_, R, B> {
     }
 
     /// The name as UTF-8.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`core::str::Utf8Error`] if the archive name is not valid UTF-8.
     pub fn path_str(&self) -> Result<&str, core::str::Utf8Error> {
         core::str::from_utf8(self.path())
     }
@@ -222,9 +228,13 @@ impl<R, B: AsRef<[u8]>> Entry<'_, R, B> {
     /// The length of the data. In `newc` and checksum `newc`, GNU cpio and
     /// Hadris write data for only one hard-link name; `odc` repeats it for
     /// every name.
-    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> u64 {
         self.header().len
+    }
+
+    /// Whether this entry stores no data, independently of how much has been read.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// The device holding the file on the system that wrote the archive.
@@ -278,7 +288,9 @@ impl<R: Read, B: AsRef<[u8]> + AsMut<[u8]>> CpioReader<R, B> {
     /// The next entry, or `None` after a trailer or at the end of the
     /// input.
     ///
-    /// Fails with [`ErrorKind::Corrupt`](hadris_fs::ErrorKind::Corrupt) for a malformed header, name,
+    /// # Errors
+    ///
+    /// Fails with [`ErrorKind::Corrupt`] for a malformed header, name,
     /// padding or checksum, or an archive cut off inside an entry, and with
     /// [`Detail::Trailer`] when a trailer is required and missing. Names whose
     /// encoded size (including NUL) exceeds the buffer return `LimitExceeded`.
@@ -304,6 +316,12 @@ impl<R: Read, B: AsRef<[u8]> + AsMut<[u8]>> CpioReader<R, B> {
     /// the next header is valid; `next_entry` validates it. Returns `false` at EOF.
     /// Calling this before reaching a trailer or EOF returns `InvalidInput`.
     /// After a successful call, read that segment before calling this again.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] if the current segment has not ended.
+    /// Propagates stream errors while skipping padding; after a stream error,
+    /// subsequent calls return `false`.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::cpio", level = "trace", skip_all))]
     pub async fn next_segment(&mut self) -> Result<bool, Error<R::Error>> {
         if self.state == State::Done {

@@ -1,6 +1,6 @@
 [package]
 name = "hadris-cpio-raw"
-version = "0.1.0"
+version = "0.2.0"
 description = "CPIO on-disk layouts and I/O-free codecs"
 readme = "README.md"
 keywords = ["cpio", "no-std", "parser"]
@@ -17,3 +17,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []
+
+[lints]
+workspace = true

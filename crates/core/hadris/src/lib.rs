@@ -126,6 +126,11 @@ pub mod host {
     /// Detects the format of the image or device at `path` and mounts it
     /// read-only with [`mount_options`], as
     /// [`sync::open`](crate::sync::open) does.
+    ///
+    /// # Errors
+    ///
+    /// Returns host opening or geometry errors, or detection and mounting
+    /// errors from [`sync::open`](crate::sync::open), with the host path.
     #[cfg(all(feature = "detect", feature = "sync"))]
     #[cfg_attr(docsrs, doc(cfg(all(feature = "detect", feature = "sync"))))]
     pub fn open(
@@ -144,6 +149,12 @@ pub mod host {
     /// # let _ = fs;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns host opening or geometry errors, or detection and mounting
+    /// errors from [`sync::open`](crate::sync::open), with the host path.
+    /// A missing path returns [`crate::ErrorKind::NotFound`].
     #[cfg(all(feature = "detect", feature = "sync"))]
     #[cfg_attr(docsrs, doc(cfg(all(feature = "detect", feature = "sync"))))]
     pub fn open_with(

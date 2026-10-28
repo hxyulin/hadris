@@ -2,6 +2,7 @@
 //! Operation futures derive Send from their device and operation state.
 use crate::device::check_blocks;
 use crate::{BlockIndex, BlockSize, MemBuffer, MemDevice, Partition};
+use core::fmt;
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
@@ -96,6 +97,10 @@ enum Request<'a> {
 }
 
 /// Concrete future whose auto traits follow the device and operation state.
+///
+/// # Panics
+///
+/// Polling this future after it completes panics.
 #[non_exhaustive]
 pub struct Operation<'a, D: BlockDevice + ?Sized> {
     device: &'a mut D,
@@ -104,6 +109,22 @@ pub struct Operation<'a, D: BlockDevice + ?Sized> {
     checked: bool,
     pending: bool,
     done: bool,
+}
+
+impl<D: BlockDevice + ?Sized> fmt::Debug for Operation<'_, D> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let request = match &self.request {
+            Request::Read(..) => "read",
+            Request::Write(..) => "write",
+            Request::Flush => "flush",
+        };
+        f.debug_struct("Operation")
+            .field("request", &request)
+            .field("checked", &self.checked)
+            .field("pending", &self.pending)
+            .field("done", &self.done)
+            .finish_non_exhaustive()
+    }
 }
 impl<'a, D: BlockDevice + ?Sized> Operation<'a, D> {
     fn new(device: &'a mut D, request: Request<'a>) -> Self {

@@ -30,8 +30,8 @@ pub fn cat(archive: PathBuf, path: &str) -> Result<()> {
         let is_file = entry.file_type() == FileType::File;
         let group = (segment, link_key(entry));
         let named = normalize(entry.path()) == want;
-        let data_link = is_file && entry.len() > 0 && entry.nlink() > 1;
-        let follows = !named && is_file && entry.len() > 0 && link == Some(group);
+        let data_link = is_file && !entry.is_empty() && entry.nlink() > 1;
+        let follows = !named && is_file && !entry.is_empty() && link == Some(group);
         if !named && !follows && !data_link {
             return Ok(());
         }
@@ -45,7 +45,7 @@ pub fn cat(archive: PathBuf, path: &str) -> Result<()> {
         if named {
             link = None;
             found = Some(place);
-            if is_file && entry.len() == 0 && entry.nlink() > 1 {
+            if is_file && entry.is_empty() && entry.nlink() > 1 {
                 link = Some(group);
                 if let Some(&data) = with_data.get(&group) {
                     found = Some(data);

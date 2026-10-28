@@ -199,7 +199,10 @@ fn an_unfinished_entry_blocks_the_writer() {
         writer.append("x", &Node::dir()).unwrap_err().kind(),
         ErrorKind::InvalidInput
     );
-    assert_eq!(writer.finish().unwrap_err().kind(), ErrorKind::InvalidInput);
+    assert_eq!(
+        writer.finish().unwrap_err().error().kind(),
+        ErrorKind::InvalidInput
+    );
 
     let mut crc = Writer::new(
         StdIo::new(Vec::new()),
@@ -1146,4 +1149,76 @@ fn odc_hard_links_store_each_payload_and_report_its_own_extent() {
         }
         assert!(offsets.windows(2).all(|pair| pair[0] < pair[1]));
     }
+}
+
+#[test]
+fn finish_returns_owned_output_after_an_unfinished_entry() {
+    use common::failing_output::Output;
+    use std::sync::atomic::Ordering;
+
+    let output = Output::new(None, false);
+    let drops = output.drops.clone();
+    let mut writer = Writer::new(output, &CpioOptions::new());
+    {
+        let mut entry = writer.append_file("short", &SetAttr::new(), 3).unwrap();
+        entry.write_all(b"ab").unwrap();
+    }
+    let failure = writer
+        .finish()
+        .err()
+        .expect("unfinished entry must prevent finishing");
+    assert_eq!(failure.error().kind(), ErrorKind::InvalidInput);
+    assert_eq!(drops.load(Ordering::SeqCst), 0);
+    let output = failure.into_output();
+    assert!(output.bytes.ends_with(b"ab"));
+    assert_eq!(output.flushes, 0);
+    drop(output);
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn finish_retains_partial_trailer_output_and_write_cause() {
+    use common::failing_output::{Fault, Output, assert_cause};
+    use std::sync::atomic::Ordering;
+
+    let output = Output::new(Some(13), false);
+    let drops = output.drops.clone();
+    let failure = Writer::new(output, &CpioOptions::new())
+        .finish()
+        .err()
+        .expect("the trailer write must fail");
+    assert_cause(&failure, Fault::Write, Some(hadris_cpio_raw::TRAILER_NAME));
+    assert_eq!(failure.output().bytes, trailer()[..13]);
+    assert_eq!(drops.load(Ordering::SeqCst), 0);
+    let (error, output) = failure.into_parts();
+    assert_eq!(error.downcast_device::<Fault>(), Some(&Fault::Write));
+    assert_eq!(output.bytes.len(), 13);
+    assert_eq!(output.flushes, 0);
+    drop(output);
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn finish_retains_complete_trailer_output_after_flush_failure() {
+    use common::failing_output::{Fault, Output, assert_cause};
+    use std::sync::atomic::Ordering;
+
+    let output = Output::new(None, true);
+    let drops = output.drops.clone();
+    let failure = Writer::new(output, &CpioOptions::new())
+        .finish()
+        .err()
+        .expect("flushing the archive must fail");
+    assert_cause(&failure, Fault::Flush, None);
+    assert_eq!(
+        failure.output().bytes.len(),
+        (hadris_cpio_raw::NEWC_HEADER_LEN + hadris_cpio_raw::TRAILER_NAME.len() + 1)
+            .next_multiple_of(4)
+    );
+    assert!(read_all(&failure.output().bytes).unwrap().is_empty());
+    assert_eq!(failure.output().flushes, 1);
+    assert_eq!(drops.load(Ordering::SeqCst), 0);
+    let error: hadris_fs::PathError = failure.into();
+    assert_eq!(error.downcast_device::<Fault>(), Some(&Fault::Flush));
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
 }

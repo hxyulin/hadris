@@ -12,12 +12,12 @@ use hadris_fs::{
     WarningKind,
 };
 
+use crate::UdfRevision;
 use crate::error::{Detail, Error};
-use crate::name::{encode_cs0, encode_symlink, write_dstring};
+use crate::name;
 use crate::options::UdfOptions;
-use crate::time::from_datetime;
-use crate::volume::UdfId;
-use crate::volume::permissions_of;
+use crate::time;
+use crate::volume::{self, UdfId};
 use hadris_udf_raw::{
     self as raw, CharSpec, EntityId, FileCharacteristics, IcbFlags, ShortAd, Tag, Timestamp, U16Le,
     U32Le, U64Le, file_type, tag,
@@ -150,13 +150,13 @@ fn encode_name(
     warnings: &mut Vec<Warning>,
 ) -> Vec<u8> {
     if let Ok(text) = core::str::from_utf8(name.as_bytes()) {
-        return encode_cs0(text);
+        return name::encode_cs0(text);
     }
     let base = String::from_utf8_lossy(name.as_bytes()).into_owned();
     let mut text = base.clone();
     let mut suffix = 0u32;
     let encoded = loop {
-        let encoded = encode_cs0(&text);
+        let encoded = name::encode_cs0(&text);
         if taken.insert(encoded.clone()) {
             break encoded;
         }
@@ -223,13 +223,13 @@ impl<'a> Planner<'a> {
         let mut taken: BTreeSet<Vec<u8>> = node
             .children()
             .filter_map(|(name, _)| core::str::from_utf8(name.as_bytes()).ok())
-            .map(encode_cs0)
+            .map(name::encode_cs0)
             .collect();
         for (name, child) in node.children() {
             let child_path = join(path, name);
             let symlink = match child.node().file_type() {
                 FileType::Dir | FileType::File => None,
-                FileType::Symlink => match child.node().target().and_then(encode_symlink) {
+                FileType::Symlink => match child.node().target().and_then(name::encode_symlink) {
                     Some(bytes) => Some(bytes),
                     None => {
                         self.warn(
@@ -404,7 +404,7 @@ impl Planner<'_> {
     }
 
     fn id(&self, id: UdfId, field: &mut [u8]) {
-        write_dstring(field, &self.ids[id as usize]);
+        name::write_dstring(field, &self.ids[id as usize]);
     }
 
     fn anchor(&self, location: u32) -> Vec<u8> {
@@ -557,7 +557,7 @@ impl Planner<'_> {
 
     fn timestamp(&self, time: Option<hadris_fs::DateTime>) -> PlanResult<Timestamp> {
         match time {
-            Some(time) => from_datetime(time).ok_or(Detail::Timestamp.invalid()),
+            Some(time) => time::from_datetime(time).ok_or(Detail::Timestamp.invalid()),
             None => Ok(self.now),
         }
     }
@@ -577,7 +577,7 @@ impl Planner<'_> {
             return Err(ErrorKind::FileTooLarge.into());
         }
         let (permissions, flags) = match meta.permissions() {
-            Some(mode) => permissions_of(mode.bits()),
+            Some(mode) => volume::permissions_of(mode.bits()),
             None => (0x7FFF, IcbFlags::empty()),
         };
         let fe = raw::FileEntry {
@@ -768,12 +768,17 @@ pub(crate) fn measure(
 /// and what the volume cannot store as the tree asks.
 ///
 /// Size an output device with [`Report::size`]; the volume includes the
-/// trailing anchor and the 256 blocks after it. Fails as `write` does
-/// before it writes anything: [`ErrorKind::InvalidInput`] for a volume
+/// trailing anchor and the 256 blocks after it.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::InvalidInput`] for a volume
 /// identifier over 126 bytes or a time outside the years 1 to 9999,
 /// [`ErrorKind::NameTooLong`] for a name over 254 bytes of OSTA Compressed
 /// Unicode, [`ErrorKind::FileTooLarge`] for a file of more than 234 GiB,
 /// and [`ErrorKind::Unsupported`] for content stored on another image.
+/// Unsupported revisions also return [`ErrorKind::Unsupported`]; revisions
+/// 2.50 and later need a metadata partition the writer does not support.
 #[cfg_attr(
     feature = "tracing",
     tracing::instrument(target = "hadris::udf", level = "trace", skip_all)
@@ -808,7 +813,7 @@ fn identifiers(tree: &Tree, opts: &UdfOptions) -> PlanResult<[String; 4]> {
         (UdfId::LogicalVolume, 128),
         (UdfId::FileSet, 32),
     ] {
-        if write_dstring(&mut field[..len], &ids[id as usize]) {
+        if name::write_dstring(&mut field[..len], &ids[id as usize]) {
             return Err(Detail::Identifier.invalid());
         }
     }
@@ -826,11 +831,17 @@ pub(crate) fn lay_out(
     measured: bool,
     bridge: Option<u32>,
 ) -> PlanResult<Plan> {
-    if opts.revision() >= crate::UdfRevision::V2_50 {
+    if matches!(opts.revision(), UdfRevision::V2_50 | UdfRevision::V2_60) {
         return Err(Detail::PartitionMap.error(ErrorKind::Unsupported));
     }
+    if !matches!(
+        opts.revision(),
+        UdfRevision::V1_02 | UdfRevision::V1_50 | UdfRevision::V2_00 | UdfRevision::V2_01
+    ) {
+        return Err(Detail::Revision.error(ErrorKind::Unsupported));
+    }
     let ids = identifiers(tree, opts)?;
-    let now = from_datetime(opts.time()).ok_or(Detail::Timestamp.invalid())?;
+    let now = time::from_datetime(opts.time()).ok_or(Detail::Timestamp.invalid())?;
     let mut planner = Planner {
         opts,
         ids,

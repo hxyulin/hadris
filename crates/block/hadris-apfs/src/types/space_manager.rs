@@ -70,6 +70,12 @@ pub struct SpaceManagerSummary {
 
 impl SpaceManagerSummary {
     /// Parses a space manager summary from a full APFS block.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the object type is not a space manager or its main-device
+    /// summary is truncated. An absent or truncated tier-2 summary is treated as
+    /// missing.
     pub fn parse(data: &[u8]) -> crate::Result<Self> {
         let object = ObjectHeader::parse(data)?;
         if object.kind() != ObjectType::SpaceManager as u16 {
@@ -89,6 +95,11 @@ impl SpaceManagerSummary {
     /// Returns the physical block addresses of the main device's
     /// `chunk_info_block_t` blocks, when they're stored inline (no
     /// `chunk_info_address_block_t` indirection layer).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if address-block indirection is required or the declared
+    /// inline address array extends beyond `data`.
     #[cfg(feature = "alloc")]
     pub fn main_device_chunk_info_block_addresses(
         &self,
@@ -167,6 +178,11 @@ impl ChunkInfo {
 }
 
 /// Parses the `chunk_info_t` array out of a `chunk_info_block_t` block.
+///
+/// # Errors
+///
+/// Returns an error if the block has the wrong object type or its declared chunk-info
+/// array is truncated.
 #[cfg(feature = "alloc")]
 pub fn parse_chunk_info_block(data: &[u8]) -> crate::Result<alloc::vec::Vec<ChunkInfo>> {
     let object = ObjectHeader::parse(data)?;

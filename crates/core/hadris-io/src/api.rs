@@ -11,9 +11,22 @@ io_transform! {
 pub trait Read: ErrorType {
     /// Reads up to `buf.len()` bytes. Returns 0 only at the end of input or
     /// for an empty `buf`.
+    /// The returned count never exceeds `buf.len()`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the source's error if reading fails. An error does not report
+    /// how much input was consumed or how much of `buf` was changed.
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error>;
 
     /// Fills `buf`.
+    ///
+    /// On failure, the source may have advanced and `buf` may be partly filled.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExactError::UnexpectedEof`] if input ends before filling
+    /// `buf`, or [`ExactError::Io`] if the source fails.
     async fn read_exact(&mut self, mut buf: &mut [u8]) -> Result<(), ExactError<Self::Error>> {
         while !buf.is_empty() {
             match self.read(buf).await.map_err(ExactError::Io)? {
@@ -71,13 +84,33 @@ where
 /// Implemented for `&mut T` and, with `alloc`, `Box<T>` and `Vec<u8>`,
 /// which appends as `std` and `embedded-io` do.
 pub trait Write: ErrorType {
-    /// Writes up to `buf.len()` bytes. Returns 0 only for an empty `buf`.
+    /// Writes up to `buf.len()` bytes.
+    ///
+    /// The returned count never exceeds `buf.len()`. A zero count means the
+    /// buffer is empty or the sink cannot accept more bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns the sink's error if writing fails. Some bytes may already have
+    /// been written; an error does not report progress or promise rollback.
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error>;
 
     /// Flushes buffered output.
+    ///
+    /// # Errors
+    ///
+    /// Returns the sink's error if buffered output cannot be flushed.
     async fn flush(&mut self) -> Result<(), Self::Error>;
 
     /// Writes all of `buf`.
+    ///
+    /// Does not flush the sink. Failure may leave a prefix written; retrying
+    /// the entire buffer can repeat bytes already accepted by the sink.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExactError::WriteZero`] if the sink accepts no bytes before
+    /// completion, or [`ExactError::Io`] if the sink fails.
     async fn write_all(&mut self, mut buf: &[u8]) -> Result<(), ExactError<Self::Error>> {
         while !buf.is_empty() {
             match self.write(buf).await.map_err(ExactError::Io)? {
@@ -149,14 +182,26 @@ where
 /// Implemented for `&mut T` and, with `alloc`, `Box<T>`.
 pub trait Seek: ErrorType {
     /// Moves to `pos` and returns the new position from the start.
+    ///
+    /// # Errors
+    ///
+    /// Returns the stream's error if the position is invalid or seeking fails.
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error>;
 
     /// Returns the current position.
+    ///
+    /// # Errors
+    ///
+    /// Propagates errors from [`seek`](Self::seek).
     async fn stream_position(&mut self) -> Result<u64, Self::Error> {
         self.seek(SeekFrom::Current(0)).await
     }
 
     /// Moves to the start.
+    ///
+    /// # Errors
+    ///
+    /// Propagates errors from [`seek`](Self::seek).
     async fn rewind(&mut self) -> Result<(), Self::Error> {
         self.seek(SeekFrom::Start(0)).await?;
         Ok(())

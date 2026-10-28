@@ -214,6 +214,11 @@ impl Geometry {
 /// The variant follows from the cluster count, except that a volume with a
 /// FAT32 layout and fewer than 65525 clusters is FAT32, as Linux and macOS
 /// read it. The volume's size is not compared with a device.
+///
+/// # Errors
+///
+/// Returns `BootError::NotFat` for invalid BIOS parameter block dimensions, or another
+/// `BootError` for an invalid signature or inconsistent FAT layout.
 pub fn parse_boot(sector: &[u8; BOOT_SECTOR_LEN]) -> Result<Geometry, BootError> {
     let bpb: RawBpb = bytemuck::pod_read_unaligned(&sector[..BPB_LEN]);
     check_bpb(&bpb).map_err(|err| match err {
@@ -253,7 +258,7 @@ pub fn parse_boot(sector: &[u8; BOOT_SECTOR_LEN]) -> Result<Geometry, BootError>
         ));
     }
     let kind = geo.kind;
-    if kind.entry_offset(geo.max_cluster as u64) + kind.entry_len() as u64 > geo.fat_size {
+    if kind.entry_offset(geo.max_cluster) + kind.entry_len() as u64 > geo.fat_size {
         return Err(BootError::Corrupt("FAT is too small for the cluster count"));
     }
     Ok(geo)
@@ -328,6 +333,11 @@ fn check_ext32(bpb: &RawBpb, ext: &RawBpbExt32) -> Result<(), BootError> {
 }
 
 /// Checks the three FSInfo signatures.
+///
+/// # Errors
+///
+/// Returns `BootError::FsInfoSignature` with the field, expected value and stored value of
+/// the first incorrect signature.
 pub fn check_fs_info(info: &RawFsInfo) -> Result<(), BootError> {
     let signatures = [
         (

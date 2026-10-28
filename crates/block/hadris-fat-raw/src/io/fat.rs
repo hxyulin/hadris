@@ -23,8 +23,8 @@ fn same_fat_block(fat: &Fat, size: u64, a: u32, b: u32) -> bool {
     let kind = geo.kind();
     (0..geo.copies()).all(|step| {
         let base = geo.fat_copy(geo.active_fat() ^ step);
-        let a = base + kind.entry_offset(a as u64);
-        let b = base + kind.entry_offset(b as u64);
+        let a = base + kind.entry_offset(a);
+        let b = base + kind.entry_offset(b);
         a / size == b / size
             && (a + kind.entry_len() as u64 - 1) / size == a / size
             && (b + kind.entry_len() as u64 - 1) / size == b / size
@@ -36,7 +36,7 @@ fn same_fat_block(fat: &Fat, size: u64, a: u32, b: u32) -> bool {
 fn block_base(fat: &Fat, size: u64, cluster: u32) -> u32 {
     let geo = &fat.geo;
     let base = geo.fat_copy(geo.active_fat());
-    let at = base + geo.kind().entry_offset(cluster as u64);
+    let at = base + geo.kind().entry_offset(cluster);
     let start = (at / size * size).saturating_sub(base);
     (start / geo.kind().entry_len() as u64) as u32
 }
@@ -54,11 +54,14 @@ io_transform! {
 /// Reads and checks the boot sector, and checks that the volume fits the
 /// device.
 ///
-/// Fails with [`ErrorKind::InvalidInput`] when `block` is not sized to the
+/// # Errors
+///
+/// Returns [`ErrorKind::InvalidInput`] when `block` is not sized to the
 /// device's blocks, with [`ErrorKind::NotRecognized`] when the first sector
 /// has no FAT BIOS parameter block, and with [`ErrorKind::Corrupt`] when
 /// the boot sector is not a valid FAT12, FAT16 or FAT32 boot sector or
-/// describes a volume larger than the device.
+/// describes a volume larger than the device. Propagates device errors
+/// reading the boot sector.
 pub async fn read_geometry<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf) -> FsResult<Geometry, D::Error> {
     if block.size as u64 != dev.block_size().get() as u64 {
         return Err(ErrorKind::InvalidInput.into());
@@ -77,11 +80,14 @@ pub async fn read_geometry<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf) ->
 /// 4096 bytes, and checks that the volume fits the device, for mounting a
 /// volume whose boot sector is damaged.
 ///
-/// Fails with [`ErrorKind::InvalidInput`] when `block` is not sized to the
+/// # Errors
+///
+/// Returns [`ErrorKind::InvalidInput`] when `block` is not sized to the
 /// device's blocks, with [`ErrorKind::Corrupt`] and
 /// [`Detail::BackupBootSector`] when there is no valid FAT32 backup boot
 /// sector, and with [`ErrorKind::Corrupt`] when it describes a volume
-/// larger than the device.
+/// larger than the device. Propagates device errors reading the backup
+/// boot sector.
 pub async fn read_backup_geometry<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf) -> FsResult<Geometry, D::Error> {
     if block.size as u64 != dev.block_size().get() as u64 {
         return Err(ErrorKind::InvalidInput.into());
@@ -101,6 +107,11 @@ pub async fn read_backup_geometry<D: BlockDevice>(dev: &mut D, block: &mut Block
 /// and allocation hint of its FAT32 FSInfo sector when that is valid. The
 /// free count of a volume left dirty is not trusted and is recounted when
 /// needed.
+///
+/// # Errors
+///
+/// Propagates errors reading the clean bit or FAT32 FSInfo sector. Invalid FSInfo
+/// signatures discard its hints rather than failing the mount.
 pub async fn read_fat<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, geo: Geometry) -> FsResult<Fat, D::Error> {
     let mut fat = Fat::new(geo);
     let kind = geo.kind();
@@ -136,6 +147,11 @@ pub async fn read_fat<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, geo: Ge
 /// Clears and flushes the FAT16/32 clean bit before the first write after
 /// mounting or `clear_dirty`. Retries interrupted marker writes and flushes.
 /// FAT12 and a volume already dirty at mount need no marker write.
+///
+/// # Errors
+///
+/// Propagates errors reading, writing or flushing the clean bit. An interrupted marker
+/// update remains recorded in `fat` for a later retry.
 pub async fn begin_write<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &mut Fat) -> FsResult<(), D::Error> {
     if fat.geo.kind().clean_bit() == 0 || matches!(fat.dirty, Dirty::Marked | Dirty::Preserve) {
         return Ok(());
@@ -151,6 +167,11 @@ pub async fn begin_write<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat:
 /// Call after recovering pending allocations and FAT mirrors.
 /// Dirty-at-mount volumes and corruption retained with `preserve_dirty` are
 /// left dirty. Interrupted clearing is retried or re-marked by `begin_write`.
+///
+/// # Errors
+///
+/// Propagates device flush errors and errors updating the clean bit. The marker may already
+/// have changed when a later flush fails.
 pub async fn clear_dirty<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &mut Fat) -> FsResult<(), D::Error> {
     dev.flush().await?;
     if fat.keep_dirty {
@@ -190,11 +211,16 @@ async fn write_clean_bit<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat:
 
 /// The stored entry of data cluster `cluster` in the active FAT copy.
 /// Other clusters fail with [`ErrorKind::Corrupt`].
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] for a non-data cluster, or propagates device errors
+/// reading its FAT entry.
 pub async fn get<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &Fat, cluster: u32) -> FsResult<u32, D::Error> {
     fat.check_cluster(cluster)?;
     let kind = fat.geo.kind();
     let mut bytes = [0u8; 4];
-    let at = fat.geo.fat_copy(fat.geo.active_fat()) + kind.entry_offset(cluster as u64);
+    let at = fat.geo.fat_copy(fat.geo.active_fat()) + kind.entry_offset(cluster);
     read_bytes(dev, block, at, &mut bytes[..kind.entry_len()]).await?;
     Ok(kind.decode(cluster as u64, &bytes))
 }
@@ -202,6 +228,11 @@ pub async fn get<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &Fat, c
 /// The stored entry of data cluster `cluster` in FAT copy `copy`. Fails
 /// with [`ErrorKind::InvalidInput`] for a copy the volume does not have and
 /// with [`ErrorKind::Corrupt`] for a cluster that is not a data cluster.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::InvalidInput`] for a nonexistent FAT copy, [`ErrorKind::Corrupt`]
+/// for a non-data cluster, or a device read error.
 pub async fn get_copy<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -215,7 +246,7 @@ pub async fn get_copy<D: BlockDevice>(
     fat.check_cluster(cluster)?;
     let kind = fat.geo.kind();
     let mut bytes = [0u8; 4];
-    let at = fat.geo.fat_copy(copy) + kind.entry_offset(cluster as u64);
+    let at = fat.geo.fat_copy(copy) + kind.entry_offset(cluster);
     read_bytes(dev, block, at, &mut bytes[..kind.entry_len()]).await?;
     Ok(kind.decode(cluster as u64, &bytes))
 }
@@ -223,6 +254,11 @@ pub async fn get_copy<D: BlockDevice>(
 /// The cluster after `cluster` in its chain, `None` at the end. A link to
 /// a free, reserved or bad cluster, or out of range, fails with
 /// [`ErrorKind::Corrupt`].
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] for an invalid cluster, a bad-cluster marker, or a link
+/// to a free, reserved or out-of-range cluster. Propagates device read errors.
 pub async fn next<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &Fat, cluster: u32) -> FsResult<Option<u32>, D::Error> {
     let stored = get(dev, block, fat, cluster).await?;
     match fat.geo.kind().next(stored, fat.geo.max_cluster()) {
@@ -238,6 +274,11 @@ pub async fn next<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &Fat, 
 /// Until every copy has it, the entry is recorded as
 /// [`unmirrored`](Fat::unmirrored), and the next `set` or [`mirror`]
 /// copies it. Entries an earlier `set` left unmirrored are copied first.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] for an invalid cluster, or a device read, write or flush
+/// error. FAT copies may differ on failure; unfinished updates remain recorded in `fat`.
 pub async fn set<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &mut Fat, cluster: u32, value: u32) -> FsResult<(), D::Error> {
     fat.check_cluster(cluster)?;
     let copies = fat.geo.copies();
@@ -258,6 +299,11 @@ pub async fn set<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &mut Fa
 /// `free_chain` left [`unmirrored`](Fat::unmirrored) to the other copies,
 /// where they differ. An interrupted active FAT12 entry spanning two device
 /// blocks is completed first, so recovery never follows a partial link.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] for invalid recorded clusters, or a device read, write or
+/// flush error. Unfinished repairs remain recorded in `fat`.
 pub async fn mirror<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &mut Fat) -> FsResult<(), D::Error> {
     if let Some((cluster, value, _)) = fat.split {
         put_entry(dev, block, fat, 0, cluster, value).await?;
@@ -272,7 +318,7 @@ pub async fn mirror<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &mut
             let value = get(dev, block, fat, cluster).await? & kind.mask();
             for step in 1..count {
                 let copy = fat.geo.active_fat() ^ step;
-                let at = fat.geo.fat_copy(copy) + kind.entry_offset(cluster as u64);
+                let at = fat.geo.fat_copy(copy) + kind.entry_offset(cluster);
                 let mut bytes = [0u8; 4];
                 read_bytes(dev, block, at, &mut bytes[..kind.entry_len()]).await?;
                 if kind.decode(cluster as u64, &bytes) & kind.mask() != value {
@@ -297,11 +343,13 @@ async fn put_entry<D: BlockDevice>(
     value: u32,
 ) -> FsResult<(), D::Error> {
     begin_write(dev, block, fat).await?;
-    dev.flush().await?;
+    if fat.durability() != hadris_fs::Durability::Buffered {
+        dev.flush().await?;
+    }
     let kind = fat.geo.kind();
     let len = kind.entry_len();
     let copy = fat.geo.active_fat() ^ step;
-    let at = fat.geo.fat_copy(copy) + kind.entry_offset(cluster as u64);
+    let at = fat.geo.fat_copy(copy) + kind.entry_offset(cluster);
     let mut bytes = [0u8; 4];
     read_bytes(dev, block, at, &mut bytes[..len]).await?;
     let split = step == 0 && at % block.size as u64 + len as u64 > block.size as u64;
@@ -331,6 +379,11 @@ async fn put_entry<D: BlockDevice>(
 /// when that is a known position at or before `want`. Returns the position
 /// reached, short of `want` when the chain ends first. A chain that loops
 /// fails with [`ErrorKind::Corrupt`].
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] for an invalid starting cluster, broken link or cyclic
+/// chain, or a device read error.
 pub async fn walk<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -358,6 +411,11 @@ pub async fn walk<D: BlockDevice>(
 /// that follow it on disk and in its chain, up to `max` bytes, so they can
 /// take one device call. Returns the length and leaves `at` at the run's
 /// last cluster.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] for invalid links or a cyclic chain, or a device read
+/// error. `at` may have advanced before failure.
 pub async fn run<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -389,6 +447,11 @@ pub async fn run<D: BlockDevice>(
 ///
 /// With `held`, the cluster is recorded there before it is marked: as the
 /// head when there is none, else as the extra cluster.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::NoSpace`] if no free cluster is available, or a FAT read, write or
+/// flush error. With `held`, a cluster taken before failure remains recorded for recovery.
 pub async fn allocate<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -420,6 +483,12 @@ pub async fn allocate<D: BlockDevice>(
 /// the held cluster, then free that cluster. No data bytes are initialized.
 /// A nonempty `held` or a tail that already links another cluster fails
 /// with [`ErrorKind::InvalidInput`] before changing the volume.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::InvalidInput`] for nonempty `held` or a tail that does not end its
+/// chain, [`ErrorKind::NoSpace`] if allocation fails, or a FAT/device error. Partial
+/// allocation or linking is recorded in `held` and `fat` as described above.
 pub async fn allocate_after<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -480,6 +549,12 @@ async fn find_free<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &mut 
 /// written is recorded there before it is written: `head` is the part of the chain already linked, and
 /// `extra` a cluster taken but not yet linked to it. On failure the
 /// clusters stay allocated, for the caller to free from `held`.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::NoSpace`] when fewer than `count` free clusters are available, or a
+/// FAT/device error. Allocated clusters may remain after failure; `held`, when supplied,
+/// records what must be reclaimed.
 pub async fn allocate_run<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -499,6 +574,12 @@ pub async fn allocate_run<D: BlockDevice>(
 /// failure or cancellation requires mirroring, detaching `tail` if it links
 /// either `held.head()` or `held.extra()`, then reclaiming the extra chain and
 /// head (stopping at already-free clusters). No file data is initialized.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::InvalidInput`] for zero `count`, nonempty `held`, or a tail that
+/// does not end its chain; otherwise returns allocation, corrupt-chain or device errors.
+/// Partial changes require the recovery described above.
 pub async fn allocate_run_after<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -643,6 +724,12 @@ async fn allocate_run_inner<D: BlockDevice>(
 /// [`ErrorKind::Corrupt`], with what is left of it in `held`. On FAT16 and
 /// FAT32 the entries of consecutive clusters of the chain that share a
 /// device block of every FAT copy are freed with one write per copy.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] for an invalid, broken or cyclic chain, or a device read,
+/// write or flush error. Clusters already freed stay free, and `held` records the
+/// remainder.
 pub async fn free_chain<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -712,7 +799,9 @@ async fn patch<D: BlockDevice>(
     tail: Option<u32>,
 ) -> FsResult<(), D::Error> {
     begin_write(dev, block, fat).await?;
-    dev.flush().await?;
+    if fat.durability() != hadris_fs::Durability::Buffered {
+        dev.flush().await?;
+    }
     let kind = fat.geo.kind();
     let len = kind.entry_len();
     let size = block.size as u64;
@@ -730,13 +819,13 @@ async fn patch<D: BlockDevice>(
     }
     for step in 0..copies {
         let base = fat.geo.fat_copy(fat.geo.active_fat() ^ step);
-        let index = (base + kind.entry_offset(group.lowest() as u64)) / size;
+        let index = (base + kind.entry_offset(group.lowest())) / size;
         load(dev, block, index).await?;
         let data = block.contents_mut();
         let mut value = chain.unwrap_or(0);
         let (mut taken, mut freed) = (0, 0);
         for cluster in group.descending() {
-            let at = (base + kind.entry_offset(cluster as u64) - index * size) as usize;
+            let at = (base + kind.entry_offset(cluster) - index * size) as usize;
             let Some(entry) = data.get_mut(at..at + len) else {
                 return Err(ErrorKind::Corrupt.into());
             };
@@ -752,7 +841,7 @@ async fn patch<D: BlockDevice>(
             }
         }
         if let Some(tail) = tail {
-            let at = (base + kind.entry_offset(tail as u64) - index * size) as usize;
+            let at = (base + kind.entry_offset(tail) - index * size) as usize;
             let Some(entry) = data.get_mut(at..at + len) else {
                 return Err(ErrorKind::Corrupt.into());
             };
@@ -769,6 +858,11 @@ async fn patch<D: BlockDevice>(
 
 /// Counts the free clusters with one scan of the FAT and keeps the count
 /// in `fat`.
+///
+/// # Errors
+///
+/// Propagates errors reading FAT entries. The cached free count is replaced only after the
+/// scan completes.
 pub async fn count_free<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &mut Fat) -> FsResult<u32, D::Error> {
     let mask = fat.geo.kind().mask();
     let mut free = 0;
@@ -784,6 +878,11 @@ pub async fn count_free<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: 
 
 /// Writes the free count and allocation hint to the FAT32 FSInfo sector
 /// when they changed since it was read or last written.
+///
+/// # Errors
+///
+/// Propagates errors marking the volume dirty or writing FSInfo. A failed update keeps
+/// FSInfo dirty for a later retry.
 pub async fn write_fs_info<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &mut Fat) -> FsResult<(), D::Error> {
     if fat.info_dirty
         && let Some(at) = fat.fs_info
@@ -802,6 +901,11 @@ pub async fn write_fs_info<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fa
 /// its end. The walk keeps its position in the directory's chain, so the
 /// slots of one cluster cost no FAT reads and later clusters are reached
 /// from it.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] for invalid directory-chain links or a cycle, or a device
+/// read error. A slot past the directory end returns `None`.
 pub async fn slot_offset<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -833,6 +937,11 @@ pub async fn slot_offset<D: BlockDevice>(
 /// Parses the slot at byte `offset` in place in `block`. Slots are aligned
 /// to 32 bytes; an unaligned offset whose slot crosses a device block
 /// fails with [`ErrorKind::InvalidInput`].
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::InvalidInput`] if the slot crosses a block boundary, or propagates
+/// the device error loading its block.
 pub async fn read_slot<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, offset: u64) -> FsResult<Slot, D::Error> {
     let size = block.size as u64;
     load(dev, block, offset / size).await?;
@@ -853,7 +962,13 @@ pub async fn read_slot<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, offset
 ///
 /// A long name goes before its short entry, so an interruption leaves at
 /// worst long-name slots without their short entry, which readers skip.
-#[allow(clippy::too_many_arguments)]
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] if a requested slot lies past the directory end or its
+/// chain is invalid, or a device read, write or flush error. `written` counts completed
+/// slots; a failed slot may also be partly written.
+#[expect(clippy::too_many_arguments, reason = "the slot writer borrows device, cache, traversal and recovery state separately")]
 pub async fn write_slots<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -866,7 +981,7 @@ pub async fn write_slots<D: BlockDevice>(
 ) -> FsResult<(), D::Error> {
     *written = 0;
     while *written < count {
-        if *written + 1 == count {
+        if *written + 1 == count && fat.durability() != hadris_fs::Durability::Buffered {
             dev.flush().await?;
         }
         let at = slot_offset(dev, block, fat, walk, first + *written)
@@ -879,6 +994,11 @@ pub async fn write_slots<D: BlockDevice>(
 }
 
 /// Marks slots `from..to` of the directory at `dir` deleted.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] if a requested slot is outside the directory or its chain
+/// is invalid, or a device read or write error. Earlier slots remain deleted on failure.
 pub async fn clear_slots<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -903,6 +1023,12 @@ pub async fn clear_slots<D: BlockDevice>(
 /// its label entry. The data region is left as it is. The boot sector goes
 /// last, so an interrupted format leaves a device that does not mount. The
 /// device is not flushed.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::InvalidInput`] for boot fields incompatible with `layout`,
+/// [`ErrorKind::LimitExceeded`] if the metadata region cannot fit `usize`, or a device read
+/// or write error. Failure can leave a partially formatted volume.
 pub async fn mkfs<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,

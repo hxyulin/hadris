@@ -25,3 +25,6 @@ bytemuck = { workspace = true, optional = true, features = ["derive"] }
 
 [dev-dependencies]
 bytemuck = { workspace = true, features = ["derive"] }
+
+[lints]
+workspace = true

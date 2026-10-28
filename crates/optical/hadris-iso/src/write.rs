@@ -22,12 +22,16 @@ io_transform! {
 /// Blocks are written once each, in ascending order, then the device is
 /// flushed. Its block size must divide 2048 ([`Detail::OutputBlockSize`]).
 ///
+/// # Errors
+///
 /// Fails before writing anything as [`plan`](crate::plan) does, with
 /// [`ErrorKind::NoSpace`] when the device cannot hold [`Report::size`]
 /// (a device that grows on write, such as a host file, needs no sizing),
 /// and with [`ErrorKind::Unsupported`] naming the file whose content this
 /// mode cannot read. An error from a file's content carries the file's path
-/// ([`PathError::path`]).
+/// ([`PathError::path`]). Once writing starts, content, device, or flush errors
+/// can leave a partially written image. An owned output device is dropped on
+/// return; pass `&mut device` to retain it after success or failure.
 #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
 pub async fn write<D: BlockDevice>(mut out: D, tree: &Tree, opts: &IsoOptions) -> Result<Report, PathError> {
     check_block_size(&out)?;

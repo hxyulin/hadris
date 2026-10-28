@@ -130,7 +130,7 @@ fn classifies_repeated_and_multiblock_writes_using_the_final_root_chain() {
     for copy in 0..geo.fat_count() {
         for (cluster, value) in [(2, 3), (3, FatKind::Fat32.end_of_chain())] {
             let at = (geo.fat_copy(copy) + FatKind::Fat32.entry_offset(cluster)) as usize;
-            FatKind::Fat32.encode(cluster, value, &mut image[at..at + 4]);
+            FatKind::Fat32.encode(cluster as u64, value, &mut image[at..at + 4]);
         }
     }
     let writes = WriteBreakdown::classify(&image, &written_blocks);

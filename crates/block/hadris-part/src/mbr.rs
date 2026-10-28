@@ -22,6 +22,7 @@ use crate::{MbrType, Partition, PartitionFlags};
 /// assert_eq!(entry.start(), 2048);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
 pub struct MbrEntry {
     kind: MbrType,
     start: u64,
@@ -105,7 +106,9 @@ pub struct Mbr {
 impl Mbr {
     /// An empty table for a disk of `block_count` blocks.
     ///
-    /// Fails with [`ErrorKind::Unsupported`] unless the block size is a
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::Unsupported`] unless the block size is a
     /// power of two of at least 512 bytes.
     pub fn new(block_count: u64, block_size: BlockSize) -> Result<Self, TableError> {
         check_block_size(block_size)?;
@@ -201,10 +204,17 @@ impl Mbr {
     /// Adds a primary partition in the first free slot and returns its index.
     ///
     /// An extended type ([`MbrType::is_extended`]) makes it the extended
-    /// partition; a table has at most one. Fails with
-    /// [`ErrorKind::LimitExceeded`] when all four slots are used. A primary
+    /// partition; a table has at most one. A primary
     /// partition may start at block 0, as an isohybrid image's does; it then
     /// covers the MBR.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::LimitExceeded`] if all primary slots are used or
+    /// the block range cannot fit in MBR fields. Returns
+    /// [`ErrorKind::InvalidInput`] for an empty type, zero length, invalid
+    /// flags, an overlap, an out-of-bounds range, or a second extended
+    /// partition. The table is unchanged on failure.
     pub fn add(&mut self, entry: MbrEntry) -> Result<usize, TableError> {
         let slot = self
             .primary
@@ -224,6 +234,13 @@ impl Mbr {
     /// partition, so that block must be free. Indices of logical partitions
     /// after it move up by one. Fails with [`ErrorKind::LimitExceeded`]
     /// when the table already holds 256 logical partitions.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] for a missing extended partition,
+    /// an invalid entry, or a range that leaves no room for its boot record.
+    /// Returns [`ErrorKind::LimitExceeded`] if the range cannot fit in MBR
+    /// fields. The table is unchanged on failure.
     pub fn add_logical(&mut self, entry: MbrEntry) -> Result<usize, TableError> {
         let kind = entry.kind;
         if kind.is_empty() || kind.is_extended() || kind.is_protective() {
@@ -254,6 +271,12 @@ impl Mbr {
     ///
     /// The extended partition can go only once it holds no logical
     /// partitions. Removing a logical partition renumbers the ones after it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] for an unused or missing slot, or
+    /// [`ErrorKind::InvalidInput`] when removing an extended partition that
+    /// still contains logical partitions. The table is unchanged on failure.
     pub fn remove(&mut self, index: usize) -> Result<(), TableError> {
         if index < FIRST_LOGICAL {
             let entry = &self.primary[index];
@@ -282,6 +305,12 @@ impl Mbr {
 
     /// Changes the length of partition `index` to `len` blocks, keeping its
     /// first block.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] for an unused or missing slot, or an
+    /// error if the new range does not fit, overlaps another partition, or
+    /// leaves no room for an extended boot record. The table is unchanged.
     pub fn resize(&mut self, index: usize, len: u64) -> Result<(), TableError> {
         self.edit(index, |entry| entry.len = len)
     }
@@ -290,6 +319,12 @@ impl Mbr {
     ///
     /// The extended partition keeps an extended type, and no other partition
     /// can take one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] for an unused or missing slot, or
+    /// [`ErrorKind::InvalidInput`] for an empty type or a change between
+    /// extended and non-extended types. The table is unchanged on failure.
     pub fn set_kind(&mut self, index: usize, kind: MbrType) -> Result<(), TableError> {
         let current = self.entry(index).ok_or(no_such(index))?;
         let was_extended =
@@ -301,6 +336,11 @@ impl Mbr {
     }
 
     /// Replaces the flags of partition `index`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] for an unused or missing slot, or
+    /// [`ErrorKind::InvalidInput`] for flags MBR cannot store. The table is unchanged.
     pub fn set_flags(&mut self, index: usize, flags: PartitionFlags) -> Result<(), TableError> {
         self.edit(index, |entry| entry.flags = flags)
     }

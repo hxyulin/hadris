@@ -162,6 +162,8 @@ io_transform! {
 /// its label entry. The data region is left as it is, except that a
 /// growable device is grown to the volume's end. The device is flushed.
 ///
+/// # Errors
+///
 /// Fails with [`ErrorKind::InvalidInput`] when an option is out of range,
 /// with [`ErrorKind::NoSpace`] when the device is too small for the size,
 /// any layout or the variant asked for, with [`ErrorKind::LimitExceeded`]
@@ -404,6 +406,12 @@ mod tree {
     /// `NoSpace` without changing the destination. Content is not opened during
     /// this check; changed sources or later I/O failures can still leave a
     /// partially formatted or copied volume.
+    ///
+    /// # Errors
+    ///
+    /// Returns option, name, content-mode or advertised-capacity errors before formatting.
+    /// Later formatting, source-read, copy or unmount failures carry the failing tree path
+    /// when available and may leave a partial volume.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat", level = "trace", skip_all))]
     pub async fn write<D: BlockDevice>(mut out: D, tree: &Tree, options: &FatOptions) -> Result<Report, PathError> {
         let options = options.with_seed(tree_seed(options.time, options.seed, tree));

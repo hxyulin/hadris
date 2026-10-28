@@ -6,7 +6,7 @@ enabled format driver, with detection and opening of unknown images.
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 default-features = false
 features = ["std", "sync", "fat"]
 ```
@@ -57,7 +57,7 @@ managed separately.
 
 - [Hadris documentation](https://hxyulin.github.io/hadris/)
 - [Choosing a crate](https://hxyulin.github.io/hadris/crates)
-- [API reference](https://docs.rs/hadris/3.0.0-rc.2)
+- [API reference](https://docs.rs/hadris/3.0.0-rc.3)
 - [Project README](../../../README.md) and [changelog](../../../CHANGELOG.md)
 - [Migration guide from 2.x](../../../docs/hadris-3.0.0-migration.md)
 

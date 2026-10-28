@@ -1,5 +1,5 @@
-use super::*;
-use crate::{WalkEntry, WalkFrame};
+use super::filesystem::FileSystem;
+use crate::{DirCursor, ErrorKind, FileType, FsResult, NodeId, WalkEntry, WalkFrame};
 
 /// The deepest level `Walk::new` reaches.
 #[cfg(feature = "alloc")]
@@ -109,6 +109,12 @@ impl<'s> Walk<'s> {
     }
 
     /// The next entry, or `None` when the walk is done.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::LimitExceeded`] when the frame storage is exhausted,
+    /// [`ErrorKind::Corrupt`] for a directory cycle or invalid traversal state,
+    /// or errors from [`FileSystem::readdir`]. The walk ends after an error.
     pub async fn next<F: FileSystem + ?Sized>(&mut self, fs: &mut F) -> FsResult<Option<WalkEntry>, F::DeviceError> {
         if self.done {
             return Ok(None);

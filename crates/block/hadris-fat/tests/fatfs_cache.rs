@@ -166,7 +166,7 @@ fn cached_positions_preserve_corrupt_chain_detection() {
             common::chain(&mut fs, file)
         };
         for copy in 0..geo.fat_count() {
-            let at = (geo.fat_copy(copy) + case.kind.entry_offset(chain[8] as u64)) as usize;
+            let at = (geo.fat_copy(copy) + case.kind.entry_offset(chain[8])) as usize;
             case.kind.encode(
                 chain[8] as u64,
                 chain[4],
@@ -323,12 +323,8 @@ fn metadata_cache_recovers_after_a_failed_mirror_write() {
         let file = fs.lookup(fs.root(), Name::new("DATA.BIN")).unwrap();
         let mut buf = [0; 4096];
         fs.read(file, 28672, &mut buf).unwrap();
-        script.borrow_mut().fail_at = Some(
-            geo.fat_copy(1)
-                + case
-                    .kind
-                    .entry_offset(common::chain(&mut fs, file)[0] as u64),
-        );
+        script.borrow_mut().fail_at =
+            Some(geo.fat_copy(1) + case.kind.entry_offset(common::chain(&mut fs, file)[0]));
         assert_eq!(
             fs.write(file, data.len() as u64, &[9]).unwrap_err().kind(),
             ErrorKind::Io
@@ -579,13 +575,13 @@ fn directory_prefix_keeps_chain_guard_when_missing_names_encounter_cycles() {
                 slot[0] = 0xe5;
             }
         }
-        let at = (geo.fat_copy(0) + case.kind.entry_offset(cluster as u64)) as usize;
+        let at = (geo.fat_copy(0) + case.kind.entry_offset(cluster)) as usize;
         let next = case
             .kind
             .decode(cluster as u64, &image[at..at + case.kind.entry_len()]);
         if case.kind.is_end_of_chain(next) {
             for copy in 0..geo.fat_count() {
-                let at = (geo.fat_copy(copy) + case.kind.entry_offset(cluster as u64)) as usize;
+                let at = (geo.fat_copy(copy) + case.kind.entry_offset(cluster)) as usize;
                 case.kind.encode(
                     cluster as u64,
                     first,
@@ -605,7 +601,7 @@ fn directory_prefix_keeps_chain_guard_when_missing_names_encounter_cycles() {
         .with_cache(
             CacheOptions::new()
                 .with_directory_entries(capacity)
-                .with_directory_hint(true),
+                .with_directory_hint(),
         );
         fs.readdir(fs.root(), hadris_fs::DirCursor::START).unwrap();
         fs.lookup(fs.root(), Name::new(&names[0])).unwrap();
@@ -649,7 +645,7 @@ fn directory_index_discards_names_before_cancelled_rename_writes() {
         .with_cache(
             CacheOptions::new()
                 .with_directory_entries(8)
-                .with_directory_hint(true),
+                .with_directory_hint(),
         );
         let root = fs.root();
         cancel::run_for(fs.lookup(root, Name::new("OLD.TXT")), usize::MAX)
@@ -964,7 +960,7 @@ fn append_planning_preserves_high_byte_aliases_that_decode_as_ascii() {
         .with_cache(
             CacheOptions::new()
                 .with_directory_entries(64)
-                .with_directory_hint(true),
+                .with_directory_hint(),
         );
         let root = fs.root();
         let entry = fs
@@ -999,9 +995,14 @@ fn listing_hint_eliminates_repeated_directory_reads() {
                 counts: &counts,
                 written_blocks: None,
             };
+            let options = if enabled {
+                CacheOptions::sequential().with_directory_hint()
+            } else {
+                CacheOptions::sequential().without_directory_hint()
+            };
             let mut fs = FatFs::mount(dev, MountOptions::new().read_only())
                 .unwrap()
-                .with_cache(CacheOptions::sequential().with_directory_hint(enabled));
+                .with_cache(options);
             let root = fs.root();
             let mut cursor = hadris_fs::DirCursor::START;
             let mut reads = 0;

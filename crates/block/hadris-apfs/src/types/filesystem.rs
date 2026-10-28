@@ -4,6 +4,8 @@ use crate::types::le_u64;
 #[cfg(feature = "alloc")]
 use alloc::borrow::Cow;
 #[cfg(feature = "alloc")]
+use hadris_fs::CaseRule;
+#[cfg(feature = "alloc")]
 use icu_casemap::CaseMapperBorrowed;
 #[cfg(feature = "alloc")]
 use icu_normalizer::DecomposingNormalizerBorrowed;
@@ -40,6 +42,11 @@ pub struct FileSystemKey {
 
 impl FileSystemKey {
     /// Parses a filesystem key header.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ApfsError::InputTooSmall`] if the eight-byte key header is
+    /// truncated.
     pub fn parse(data: &[u8]) -> crate::Result<Self> {
         let raw = le_u64(data, 0)?;
         Ok(Self {
@@ -78,6 +85,12 @@ pub struct DirectoryEntryRecord<'a> {
 
 impl<'a> DirectoryEntryRecord<'a> {
     /// Parses a directory entry key/value pair stored in `layout`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the key has the wrong record type, its declared name lies
+    /// outside the key, or the value is truncated. Name bytes are not checked for
+    /// UTF-8 here.
     pub fn parse(
         key: &'a [u8],
         value: &'a [u8],
@@ -109,6 +122,10 @@ impl<'a> DirectoryEntryRecord<'a> {
     }
 
     /// Returns the name as UTF-8.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ApfsError::InvalidValue`] if the stored name is not UTF-8.
     pub fn name_str(&self) -> crate::Result<&'a str> {
         core::str::from_utf8(self.name)
             .map_err(|_| crate::ApfsError::InvalidValue("directory name UTF-8"))
@@ -140,6 +157,11 @@ impl OwnedDirectoryEntryRecord {
     /// Parses a directory entry key/value pair stored in `layout` into an
     /// owned record. Names that are not UTF-8 fail with
     /// [`crate::ApfsError::InvalidValue`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the key or value is truncated, the key has the wrong
+    /// record type, or the name is not UTF-8.
     pub fn parse(key: &[u8], value: &[u8], layout: DirectoryKeyLayout) -> crate::Result<Self> {
         let entry = DirectoryEntryRecord::parse(key, value, layout)?;
         Ok(Self {
@@ -193,6 +215,11 @@ pub struct InodeRecord {
 
 impl InodeRecord {
     /// Parses an inode key/value pair.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for the wrong key type, truncated inode fields or
+    /// extended-field data, or overflowing extended-field offsets.
     pub fn parse(key: &[u8], value: &[u8]) -> crate::Result<Self> {
         let header = FileSystemKey::parse(key)?;
         if header.record_type != FS_TYPE_INODE {
@@ -294,6 +321,11 @@ pub struct FileExtentRecord {
 
 impl FileExtentRecord {
     /// Parses a file extent key/value pair.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the key has the wrong record type or the extent key/value
+    /// fields are truncated.
     pub fn parse(key: &[u8], value: &[u8]) -> crate::Result<Self> {
         let header = FileSystemKey::parse(key)?;
         if header.record_type != FS_TYPE_FILE_EXTENT {
@@ -314,6 +346,11 @@ impl FileExtentRecord {
 impl FileExtentRecord {
     /// Parses a sealed volume's file extent tree entry (`fext_tree_key_t`
     /// and `fext_tree_val_t`). Such extents are never encrypted.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ApfsError::InputTooSmall`] if the sealed extent key or value
+    /// is truncated.
     pub fn parse_fext(key: &[u8], value: &[u8]) -> crate::Result<Self> {
         let length_and_flags = le_u64(value, 0)?;
         Ok(Self {
@@ -364,6 +401,11 @@ pub struct XattrRecord<'a> {
 
 impl<'a> XattrRecord<'a> {
     /// Parses an extended attribute key/value pair.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the key has the wrong record type, the name is not UTF-8,
+    /// or the name or embedded value extends beyond the supplied bytes.
     pub fn parse(key: &'a [u8], value: &'a [u8]) -> crate::Result<Self> {
         let header = FileSystemKey::parse(key)?;
         if header.record_type != FS_TYPE_XATTR {
@@ -395,6 +437,18 @@ impl<'a> XattrRecord<'a> {
     }
 }
 
+/// Whether canonically equivalent Unicode spellings name the same entry.
+#[cfg(feature = "alloc")]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum NormalizationRule {
+    /// Canonically equivalent spellings remain distinct.
+    #[default]
+    Sensitive,
+    /// Canonically equivalent spellings match after canonical decomposition.
+    Insensitive,
+}
+
 /// How a volume compares directory entry names, from its
 /// `APFS_INCOMPAT_CASE_INSENSITIVE` and
 /// `APFS_INCOMPAT_NORMALIZATION_INSENSITIVE` flags; see
@@ -404,6 +458,19 @@ impl<'a> XattrRecord<'a> {
 /// decomposition of Unicode Standard section 3.13, "Default Case
 /// Algorithms". Apple's own tables differ from the standard for a few
 /// ranges, so names that differ only there may still not match.
+///
+/// # Examples
+///
+/// ```
+/// use hadris_apfs::types::{NameComparison, NormalizationRule};
+/// use hadris_fs::CaseRule;
+///
+/// let comparison = NameComparison::new(
+///     CaseRule::InsensitivePreserving,
+///     NormalizationRule::Insensitive,
+/// );
+/// assert!(comparison.matches("CAFÉ.txt", "cafe\u{301}.TXT"));
+/// ```
 #[cfg(feature = "alloc")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NameComparison {
@@ -413,12 +480,20 @@ pub struct NameComparison {
 
 #[cfg(feature = "alloc")]
 impl NameComparison {
-    /// Comparison for a volume whose incompatible features set
-    /// `case_insensitive` and `normalization_insensitive`.
-    pub const fn new(case_insensitive: bool, normalization_insensitive: bool) -> Self {
+    /// Compares names with independent case and normalization policies.
+    ///
+    /// Both insensitive [`CaseRule`] variants apply Unicode default case
+    /// folding. Case preservation does not affect matching. Normalization is
+    /// applied only when requested by `normalization`; use
+    /// [`VolumeSuperblock::name_comparison`](crate::types::VolumeSuperblock::name_comparison)
+    /// to derive both policies from an APFS volume's flags.
+    pub const fn new(case: CaseRule, normalization: NormalizationRule) -> Self {
         Self {
-            case_insensitive,
-            normalization_insensitive,
+            case_insensitive: matches!(
+                case,
+                CaseRule::Insensitive | CaseRule::InsensitivePreserving
+            ),
+            normalization_insensitive: matches!(normalization, NormalizationRule::Insensitive),
         }
     }
 
@@ -600,8 +675,11 @@ mod tests {
 
     #[test]
     fn names_fold_case_only_on_case_insensitive_volumes() {
-        let insensitive = NameComparison::new(true, false);
-        let sensitive = NameComparison::new(false, false);
+        let insensitive = NameComparison::new(
+            CaseRule::InsensitivePreserving,
+            NormalizationRule::Sensitive,
+        );
+        let sensitive = NameComparison::new(CaseRule::Sensitive, NormalizationRule::Sensitive);
         assert!(insensitive.matches("Café.TXT", "café.txt"));
         assert!(!sensitive.matches("Café.TXT", "café.txt"));
         assert!(sensitive.matches("Café.TXT", "Café.TXT"));
@@ -614,15 +692,41 @@ mod tests {
 
     #[test]
     fn names_decompose_only_on_normalization_insensitive_volumes() {
-        let insensitive = NameComparison::new(false, true);
-        let sensitive = NameComparison::new(false, false);
+        let insensitive = NameComparison::new(CaseRule::Sensitive, NormalizationRule::Insensitive);
+        let sensitive = NameComparison::new(CaseRule::Sensitive, NormalizationRule::Sensitive);
         assert!(insensitive.matches("caf\u{e9}.txt", "cafe\u{301}.txt"));
         assert!(!sensitive.matches("caf\u{e9}.txt", "cafe\u{301}.txt"));
         assert!(!insensitive.matches("caf\u{e9}.txt", "caf\u{e8}.txt"));
         // Canonical caseless matching decomposes before folding as well.
-        let both = NameComparison::new(true, true);
+        let both = NameComparison::new(
+            CaseRule::InsensitivePreserving,
+            NormalizationRule::Insensitive,
+        );
         assert!(both.matches("CAF\u{c9}.TXT", "cafe\u{301}.txt"));
         assert!(both.matches("CAFE\u{301}.txt", "caf\u{e9}.txt"));
+    }
+
+    #[test]
+    fn name_comparison_keeps_case_and_normalization_independent() {
+        for case in [
+            CaseRule::Sensitive,
+            CaseRule::Insensitive,
+            CaseRule::InsensitivePreserving,
+        ] {
+            for normalization in [NormalizationRule::Sensitive, NormalizationRule::Insensitive] {
+                let comparison = NameComparison::new(case, normalization);
+                let folds_case = case != CaseRule::Sensitive;
+                let normalizes = normalization == NormalizationRule::Insensitive;
+                assert_eq!(comparison.matches("README", "readme"), folds_case);
+                assert_eq!(comparison.matches("café", "cafe\u{301}"), normalizes);
+                assert_eq!(
+                    comparison.matches("CAFÉ", "cafe\u{301}"),
+                    folds_case && normalizes
+                );
+                assert!(comparison.matches("same", "same"));
+                assert!(!comparison.matches("different", "other"));
+            }
+        }
     }
 
     #[test]

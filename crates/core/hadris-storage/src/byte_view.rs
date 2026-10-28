@@ -68,8 +68,13 @@ impl<D: BlockDevice> ByteView<D> {
 
     /// Fills `buf` from byte `offset`.
     ///
-    /// A range past the end of the device fails with
-    /// [`ErrorKind::InvalidInput`](hadris_io::ErrorKind::InvalidInput).
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`](hadris_io::ErrorKind::InvalidInput)
+    /// for a range past the device's end, or propagates device read errors.
+    /// Without `alloc`, a partial access to a block larger than 4096 bytes
+    /// returns [`ErrorKind::Unsupported`](hadris_io::ErrorKind::Unsupported).
+    /// Failure may leave `buf` partly modified.
     pub async fn read_at(
         &mut self,
         offset: u64,
@@ -107,8 +112,14 @@ impl<D: BlockDevice> ByteView<D> {
 
     /// Writes all of `buf` at byte `offset`.
     ///
-    /// A range past the end of the device fails with
-    /// [`ErrorKind::InvalidInput`](hadris_io::ErrorKind::InvalidInput).
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`](hadris_io::ErrorKind::InvalidInput)
+    /// for a range past the device's end, or propagates device read and write
+    /// errors. Partial-block writes need read access to preserve other bytes.
+    /// Without `alloc`, a partial access to a block larger than 4096 bytes
+    /// returns [`ErrorKind::Unsupported`](hadris_io::ErrorKind::Unsupported).
+    /// Failure may leave part of the request written; rollback is not guaranteed.
     pub async fn write_at(
         &mut self,
         offset: u64,

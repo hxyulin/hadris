@@ -54,6 +54,7 @@ impl CpioOptions {
     }
 
     /// Sets the header format.
+    #[must_use]
     pub const fn with_format(mut self, format: Format) -> Self {
         self.format = format;
         self
@@ -61,6 +62,7 @@ impl CpioOptions {
 
     /// Sets the modification time of entries whose attributes set none,
     /// such as `SOURCE_DATE_EPOCH`. The writer reads no clock.
+    #[must_use]
     pub const fn with_time(mut self, time: DateTime) -> Self {
         self.time = Some(time);
         self
@@ -95,6 +97,7 @@ impl ReaderOptions {
     /// Requires a `TRAILER!!!` entry: an archive that ends without one fails
     /// with [`ErrorKind::Corrupt`](hadris_fs::ErrorKind::Corrupt) and
     /// [`Detail::Trailer`](crate::Detail::Trailer).
+    #[must_use]
     pub const fn with_strict_trailer(self) -> Self {
         Self {
             strict_trailer: true,

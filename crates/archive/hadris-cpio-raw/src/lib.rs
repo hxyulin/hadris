@@ -92,10 +92,19 @@ pub struct NewcFields {
 pub struct NewcHeader(pub [u8; NEWC_HEADER_LEN]);
 
 impl NewcHeader {
-    /// Builds a header. `crc` selects the `070702` magic.
-    pub fn new(crc: bool, fields: &NewcFields) -> Self {
+    /// Builds a `070701` header from `fields` without changing their values.
+    pub fn new(fields: &NewcFields) -> Self {
+        Self::with_magic(NEWC_MAGIC, fields)
+    }
+
+    /// Builds a checksum `070702` header, using `fields.check` as supplied.
+    pub fn new_crc(fields: &NewcFields) -> Self {
+        Self::with_magic(NEWC_CRC_MAGIC, fields)
+    }
+
+    fn with_magic(magic: &[u8; 6], fields: &NewcFields) -> Self {
         let mut data = [0u8; NEWC_HEADER_LEN];
-        data[..6].copy_from_slice(if crc { NEWC_CRC_MAGIC } else { NEWC_MAGIC });
+        data[..6].copy_from_slice(magic);
         let values = [
             fields.ino,
             fields.mode,
@@ -240,8 +249,13 @@ impl OdcHeader {
     }
 
     /// The largest value an `odc` field of `digits` octal digits holds.
+    /// Saturates at [`u64::MAX`] when the field is wider than 64 bits.
     pub const fn max(digits: u32) -> u64 {
-        (1u64 << (3 * digits)) - 1
+        if digits > u64::BITS / 3 {
+            u64::MAX
+        } else {
+            (1u64 << (3 * digits)) - 1
+        }
     }
 }
 
@@ -365,7 +379,7 @@ mod tests {
             check: 0xABCD,
             ..NewcFields::default()
         };
-        let header = NewcHeader::new(true, &fields);
+        let header = NewcHeader::new_crc(&fields);
         assert!(header.is_crc());
         assert_eq!(&header.0[6..14], b"12345678");
         assert_eq!(header.fields(), Some(fields));
@@ -377,6 +391,39 @@ mod tests {
         assert_eq!(bad.fields(), None);
         bad.0[..6].copy_from_slice(b"070703");
         assert_eq!(bad.fields(), None);
+    }
+
+    #[test]
+    fn newc_constructors_select_magic_without_changing_fields() {
+        let fields = NewcFields {
+            namesize: 6,
+            check: 0x1234,
+            ..NewcFields::default()
+        };
+        let newc = NewcHeader::new(&fields);
+        let crc = NewcHeader::new_crc(&fields);
+        assert_eq!(&newc.0[..6], NEWC_MAGIC);
+        assert_eq!(&crc.0[..6], NEWC_CRC_MAGIC);
+        assert_eq!(&newc.0[6..], &crc.0[6..]);
+        assert_eq!(newc.fields(), Some(fields));
+        assert_eq!(crc.fields(), Some(fields));
+        assert!(!newc.is_crc());
+        assert!(crc.is_crc());
+    }
+
+    #[test]
+    fn octal_field_limits_saturate_at_the_integer_boundary() {
+        for (digits, expected) in [
+            (0, 0),
+            (1, 7),
+            (6, 262_143),
+            (11, 8_589_934_591),
+            (21, 9_223_372_036_854_775_807),
+            (22, u64::MAX),
+            (u32::MAX, u64::MAX),
+        ] {
+            assert_eq!(OdcHeader::max(digits), expected, "{digits} octal digits");
+        }
     }
 
     #[test]

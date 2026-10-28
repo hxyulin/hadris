@@ -201,6 +201,13 @@ io_transform! {
 /// Fails with [`ErrorKind::LimitExceeded`] when `scratch` is shorter than
 /// 1536 bytes and with [`ErrorKind::Unsupported`] for device blocks above
 /// 4096 bytes. Device errors end the check.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::LimitExceeded`] for fewer than 1536 scratch bytes,
+/// [`ErrorKind::Unsupported`] for device blocks above 4096 bytes, or a boot-sector error
+/// when neither boot copy is usable. Device errors stop the check; previously reported
+/// findings remain delivered.
 pub async fn check<D: BlockDevice, F: FnMut(&Finding<'_>)>(
     dev: &mut D,
     scratch: &mut [u8],
@@ -407,7 +414,7 @@ impl<D: BlockDevice, F: FnMut(&Finding<'_>)> Checker<'_, D, F> {
     /// The stored entry of `cluster` in FAT copy `copy`.
     async fn entry(&mut self, copy: u8, cluster: u32) -> FsResult<u32, D::Error> {
         let kind = self.fat.geometry().kind();
-        let at = self.fat.geometry().fat_copy(copy) + kind.entry_offset(cluster as u64);
+        let at = self.fat.geometry().fat_copy(copy) + kind.entry_offset(cluster);
         let mut bytes = [0u8; 4];
         self.read(at, &mut bytes[..kind.entry_len()]).await?;
         Ok(kind.decode(cluster as u64, &bytes))
@@ -421,7 +428,7 @@ impl<D: BlockDevice, F: FnMut(&Finding<'_>)> Checker<'_, D, F> {
         }
         let kind = geo.kind();
         let bits = kind.entry_bits();
-        let len = kind.entry_offset(geo.max_cluster() as u64) + kind.entry_len() as u64;
+        let len = kind.entry_offset(geo.max_cluster()) + kind.entry_len() as u64;
         let active = geo.active_fat();
         for copy in (0..geo.fat_count()).filter(|&copy| copy != active) {
             let (mut first, mut differ, mut next) = (0, false, 0u64);

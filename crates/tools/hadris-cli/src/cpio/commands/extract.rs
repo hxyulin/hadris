@@ -243,7 +243,7 @@ impl Extractor {
     /// Hard link data whose own name is outside the selection still fills
     /// the selected names of its group.
     fn unselected(&mut self, entry: &mut Entry<'_, Input>) -> Result<()> {
-        if entry.file_type() != FileType::File || entry.nlink() < 2 || entry.len() == 0 {
+        if entry.file_type() != FileType::File || entry.nlink() < 2 || entry.is_empty() {
             return Ok(());
         }
         let key = link_key(entry);
@@ -266,7 +266,7 @@ impl Extractor {
             return self.write_file(entry, dest);
         }
         let key = link_key(entry);
-        if entry.len() > 0 {
+        if !entry.is_empty() {
             self.fill_group(entry, key, dest)?;
         } else {
             let group = self.links.groups.entry(key).or_default();

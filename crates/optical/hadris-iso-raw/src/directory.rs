@@ -66,11 +66,44 @@ impl DirectoryRecordHeader {
     }
 }
 
+/// Why a directory record cannot be decoded from the supplied bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum ParseDirectoryRecordError {
+    /// The length byte or part of the declared record is missing.
+    Truncated,
+    /// The declared record length is too short or is odd.
+    InvalidLength,
+    /// The file identifier is empty or extends beyond the record.
+    InvalidIdentifier,
+    /// Reserved file flag bits are set.
+    ReservedFlags,
+    /// A redundant little-endian and big-endian field pair disagrees.
+    InconsistentByteOrder,
+    /// The padding after an even-length identifier is missing or is not zero.
+    InvalidPadding,
+}
+
+impl fmt::Display for ParseDirectoryRecordError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Truncated => "directory record is truncated",
+            Self::InvalidLength => "directory record length is invalid",
+            Self::InvalidIdentifier => "directory record identifier is invalid",
+            Self::ReservedFlags => "directory record has reserved flags",
+            Self::InconsistentByteOrder => "directory record byte-order copies disagree",
+            Self::InvalidPadding => "directory record identifier padding is invalid",
+        })
+    }
+}
+
+impl core::error::Error for ParseDirectoryRecordError {}
+
 /// A whole directory record (ECMA-119 9.1): the header, the file identifier
 /// and the system use area, in a 256-byte buffer.
 // @hadris-spec ECMA-119:9.1
 // @hadris-compliance partial
-// @hadris-tests directory::tests::directory_record_parse_roundtrip, directory::tests::directory_record_rejects_invalid_bounds_and_endian_copy
+// @hadris-tests directory::tests::directory_record_parse_roundtrip, directory::tests::directory_record_rejects_invalid_bounds_and_endian_copy, directory::tests::directory_record_errors_identify_the_failed_validation
 // @hadris-fuzz iso_read
 // @hadris-note Records are validated for length, padding and redundant fields on read; identifier character sets are not.
 #[repr(transparent)]
@@ -91,39 +124,57 @@ impl DirectoryRecord {
 
     /// Parses the record at the start of `bytes`, which must hold it whole.
     ///
-    /// Returns `None` for a zero length byte (padding at the end of a
-    /// sector) and `Err(())` for a record that breaks ECMA-119: too short,
-    /// odd, longer than `bytes`, an identifier past the end or without its
-    /// padding byte, reserved flags set, or redundant fields that disagree.
-    #[allow(clippy::result_unit_err)]
-    pub fn parse(bytes: &[u8]) -> Result<Option<Self>, ()> {
+    /// Returns `None` for a zero length byte, which pads the end of a sector.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use hadris_iso_raw::{DirectoryRecord, ParseDirectoryRecordError};
+    ///
+    /// assert!(matches!(DirectoryRecord::parse(&[]), Err(ParseDirectoryRecordError::Truncated)));
+    /// assert!(DirectoryRecord::parse(&[0])?.is_none());
+    /// # Ok::<(), ParseDirectoryRecordError>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseDirectoryRecordError`] for a truncated record, an
+    /// invalid record or identifier length, invalid identifier padding,
+    /// reserved flags, or inconsistent redundant byte-order fields.
+    pub fn parse(bytes: &[u8]) -> Result<Option<Self>, ParseDirectoryRecordError> {
         let Some(&len) = bytes.first() else {
-            return Err(());
+            return Err(ParseDirectoryRecordError::Truncated);
         };
         if len == 0 {
             return Ok(None);
         }
         let len = usize::from(len);
-        if len < Self::HEADER_LEN + 1 || len % 2 != 0 || len > bytes.len() {
-            return Err(());
+        if len < Self::HEADER_LEN + 1 || len % 2 != 0 {
+            return Err(ParseDirectoryRecordError::InvalidLength);
+        }
+        if len > bytes.len() {
+            return Err(ParseDirectoryRecordError::Truncated);
         }
         let mut record = Self::default();
         record.data[..len].copy_from_slice(&bytes[..len]);
         let header = *record.header();
         let name_len = usize::from(header.file_identifier_len);
-        if name_len == 0
-            || Self::HEADER_LEN + name_len > len
-            || header.flags & FileFlags::RESERVED.bits() != 0
-            || !header.extent.is_consistent()
+        if name_len == 0 || Self::HEADER_LEN + name_len > len {
+            return Err(ParseDirectoryRecordError::InvalidIdentifier);
+        }
+        if header.flags & FileFlags::RESERVED.bits() != 0 {
+            return Err(ParseDirectoryRecordError::ReservedFlags);
+        }
+        if !header.extent.is_consistent()
             || !header.data_len.is_consistent()
             || !header.volume_sequence_number.is_consistent()
         {
-            return Err(());
+            return Err(ParseDirectoryRecordError::InconsistentByteOrder);
         }
         if name_len % 2 == 0 {
             let padding = Self::HEADER_LEN + name_len;
             if padding >= len || record.data[padding] != 0 {
-                return Err(());
+                return Err(ParseDirectoryRecordError::InvalidPadding);
             }
         }
         Ok(Some(record))
@@ -306,5 +357,63 @@ mod tests {
         bytes[35] = 7;
         assert!(DirectoryRecord::parse(&bytes).is_err());
         assert!(DirectoryRecord::new(&[b'A'; 250], &[0; 10]).is_none());
+    }
+
+    #[test]
+    fn directory_record_errors_identify_the_failed_validation() {
+        assert_eq!(
+            DirectoryRecord::parse(&[]).err(),
+            Some(ParseDirectoryRecordError::Truncated),
+        );
+        assert_eq!(
+            DirectoryRecord::parse(&dot(0)[..20]).err(),
+            Some(ParseDirectoryRecordError::Truncated),
+        );
+
+        for len in [1, 32, 35] {
+            let mut bytes = dot(0);
+            bytes[0] = len;
+            assert_eq!(
+                DirectoryRecord::parse(&bytes).err(),
+                Some(ParseDirectoryRecordError::InvalidLength),
+                "record length {len}",
+            );
+        }
+
+        for name_len in [0, 2, 255] {
+            let mut bytes = dot(0);
+            bytes[32] = name_len;
+            assert_eq!(
+                DirectoryRecord::parse(&bytes).err(),
+                Some(ParseDirectoryRecordError::InvalidIdentifier),
+                "identifier length {name_len}",
+            );
+        }
+
+        let mut flagged = dot(0);
+        flagged[25] |= FileFlags::RESERVED.bits();
+        assert_eq!(
+            DirectoryRecord::parse(&flagged).err(),
+            Some(ParseDirectoryRecordError::ReservedFlags),
+        );
+
+        for offset in [9, 17, 31] {
+            let mut bytes = dot(0);
+            bytes[offset] ^= 1;
+            assert_eq!(
+                DirectoryRecord::parse(&bytes).err(),
+                Some(ParseDirectoryRecordError::InconsistentByteOrder),
+                "redundant field at byte {offset}",
+            );
+        }
+
+        let record = DirectoryRecord::new(b"AB", &[]).unwrap();
+        let mut bytes = [0; 36];
+        bytes.copy_from_slice(record.as_bytes());
+        bytes[35] = 1;
+        assert_eq!(
+            DirectoryRecord::parse(&bytes).err(),
+            Some(ParseDirectoryRecordError::InvalidPadding),
+        );
     }
 }

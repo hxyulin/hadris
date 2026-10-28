@@ -217,7 +217,9 @@ fn extended_range(record: &RawMbr) -> Option<(u64, u64)> {
 /// and [`write`](write()) repairs it. Logical partitions are read from the chain of
 /// extended boot records.
 ///
-/// Fails with [`ErrorKind::NotRecognized`] when block 0 has no boot signature,
+/// # Errors
+///
+/// Returns [`ErrorKind::NotRecognized`] when block 0 has no boot signature,
 /// [`ErrorKind::Corrupt`] when the MBR, the EBR chain or both GPT copies
 /// are invalid, [`ErrorKind::Unsupported`] unless the block size is a power
 /// of two of at least 512 bytes, and [`ErrorKind::Io`] when the device fails.
@@ -271,8 +273,13 @@ pub async fn read<D: BlockDevice>(dev: &mut D) -> Result<Disk, Error<D::Error>> 
 /// until it breaks, and returns the kind of table.
 ///
 /// It validates as [`read`] does, including both GPT CRCs and the fallback
-/// to the backup GPT, and lists partitions in the same order. Blocks larger
-/// than 4096 bytes fail with [`ErrorKind::Unsupported`].
+/// to the backup GPT, and lists partitions in the same order.
+///
+/// # Errors
+///
+/// Returns the validation and device errors described by [`read`].
+/// Returns [`ErrorKind::Unsupported`] for blocks larger than 4096 bytes.
+/// The callback may have received partitions before a later error.
 #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::part", level = "trace", skip_all))]
 pub async fn scan<D: BlockDevice>(
     dev: &mut D,
@@ -322,13 +329,18 @@ pub async fn scan<D: BlockDevice>(
 /// lists, block 0 last.
 ///
 /// A GPT gets both copies with fresh CRCs, which repairs a damaged copy.
-/// Fails with [`ErrorKind::InvalidInput`] when the block sizes differ,
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::InvalidInput`] when the block sizes differ,
 /// [`ErrorKind::NoSpace`] when the disk has more blocks than the device or
 /// a GPT copy would not fit beside the usable area (as on a truncated
 /// image), [`ErrorKind::LimitExceeded`] when an MBR holds a logical
 /// partition no extended boot record can express (only a table read from a
 /// corrupt image can), and [`ErrorKind::ReadOnly`] when the device refuses
 /// writes.
+/// Device errors propagate. I/O failures may leave part of the table written;
+/// rollback is not guaranteed.
 #[cfg(feature = "alloc")]
 #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::part", level = "trace", skip_all))]
 pub async fn write<D: BlockDevice>(dev: &mut D, disk: &Disk) -> Result<(), Error<D::Error>> {
@@ -378,6 +390,11 @@ pub async fn write<D: BlockDevice>(dev: &mut D, disk: &Disk) -> Result<(), Error
 /// # #[cfg(not(feature = "sync"))]
 /// # fn main() {}
 /// ```
+///
+/// # Errors
+///
+/// Returns layout validation errors before writing. Write or flush
+/// failures may leave a partially written table; see [`write()`].
 #[cfg(feature = "alloc")]
 #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::part", level = "trace", skip_all))]
 pub async fn create<D: BlockDevice>(
@@ -393,10 +410,13 @@ pub async fn create<D: BlockDevice>(
 
 /// A block device of `partition` on `dev`, the disk it was read from.
 ///
-/// `dev` can be owned or `&mut`. Fails with [`ErrorKind::InvalidInput`]
-/// when the block size is not the partition's or the partition does not
-/// fit on `dev`; an owned device is dropped then, so pass `&mut dev` to
-/// keep it.
+/// `dev` can be owned or `&mut`. An owned device is dropped on failure;
+/// pass `&mut dev` to retain it.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::InvalidInput`] if block sizes differ, byte offsets
+/// overflow, or the partition lies beyond the readable end of the device.
 pub fn open<D: BlockDevice>(
     dev: D,
     partition: &Partition,

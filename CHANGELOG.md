@@ -10,6 +10,35 @@ Each published package owns its version and may be released independently.
 
 ### Breaking
 
+- **hadris-fat-raw, hadris-fat:** `FatKind::entry_offset` accepts a `u32` cluster
+  number, matching the on-disk width, and still returns a `u64` byte offset.
+  Every accepted input now fits without arithmetic overflow. The raw crate
+  advances to `0.3.0`; `hadris-fat` RC3 uses this new raw dependency line.
+- **hadris-iso-raw:** `DirectoryRecord::parse` returns
+  `ParseDirectoryRecordError` instead of `()`, distinguishing malformed
+  record fields without changing which bytes are accepted. The raw crate
+  advances to `0.2.0`; `hadris-iso` advances to `3.0.0-rc.3` for the new
+  raw dependency line and re-exported layout identities.
+- **hadris-cpio, hadris-cpio-raw:** `Writer::finish` returns
+  `FinishError<W>`, retaining the owned output and original `PathError` on
+  failure. `NewcHeader::new` no longer takes a boolean; use `new(&fields)`
+  for newc and `new_crc(&fields)` for checksum newc. The crates advance to
+  `3.0.0-rc.3` and `0.2.0`, respectively.
+- **hadris-apfs:** `Container::open` returns `MountError` with the device
+  on failure, replacing `try_open`. `NameComparison::new` takes `CaseRule`
+  and `NormalizationRule` instead of booleans. The preview advances to
+  `3.0.0-rc.3`.
+- **hadris:** Advances to `3.0.0-rc.3` for the re-exported format APIs.
+- **hadris-fat:** `CacheOptions::with_directory_hint(bool)` becomes
+  `with_directory_hint()` to enable the hint and `without_directory_hint()`
+  to disable it. Other cache bounds are unchanged. The crate advances to
+  `3.0.0-rc.3` for this API change.
+- **hadris-storage:** `sync::StreamDevice::{new, new_growable}` and
+  `async_::StreamDevice::new` return `StreamDeviceError<T, T::Error>` on
+  failure, retaining the stream instead of dropping it. Use `into_parts()`
+  to recover the error and stream, or `into_error()` to discard the stream
+  and propagate `hadris_io::Error<T::Error>`. The crate advances to
+  `3.0.0-rc.3` for this API change.
 - **hadris-iso, hadris-udf, hadris-cpio:** The writers moved from `alloc`
   to a new default `write` feature, so `alloc` now only means a heap. In
   hadris-iso, `write` adds `plan`, `{sync, async_}::{write, Session}` and
@@ -42,12 +71,38 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-ntfs:** `NtfsFs::info()` returns an owned `VolumeInfo` snapshot
+  of the boot-sector geometry and serial number without I/O. Existing
+  geometry getters remain available.
+- **hadris-fat:** FAT and exFAT volume labels implement `FromStr`; FAT
+  volume labels also implement `Display`.
+- **hadris-fat-raw:** `LayoutError` implements `Display` and
+  `core::error::Error`.
+- **hadris-part:** `PartitionName` implements `FromStr`; `MbrType`
+  implements `LowerHex` and `UpperHex`, including numeric formatting flags.
+- **hadris-udf, hadris-udf-raw:** `UdfRevision` and little-endian integer
+  fields support standard conversions to and from their integer values.
+- **hadris-cpio:** `Entry::is_empty()` reports whether an entry stores no data.
+- **hadris-apfs:** `Detail::from_code` and conversion into `DetailCode`
+  match the detail-code APIs of the other format crates.
+- **hadris-fs:** `Name::is_empty()` and `Debug` for `VolumeGuard` without
+  requiring the filesystem to implement `Debug`.
+- **hadris-storage:** `Debug` for async `Operation` without requiring the
+  device or its operation state to implement `Debug`.
 - **hadris-fs:** `async_::SendFileSystem`, `async_::Sendable` and
   `async_::SendVolume`. Every format's `SendFileSystem` impl forwards every
   method, including writes and `resolve`, where the old `Send` tier of ISO,
   UDF, NTFS and APFS forwarded only reads.
 - **hadris-io:** `FromEmbedded` implements the `async_` traits over
   `embedded-io-async`.
+- **hadris-fs, hadris-fat, hadris-fat-raw:** `Durability::{Ordered, Buffered}`
+  and `MountOptions::with_durability` select FAT/exFAT persistence ordering
+  at runtime; embedded FAT exposes the same setter on `embedded::Options`,
+  and raw `Fat`/`ExFat` states have matching builders. Ordered remains the
+  default. Buffered skips dependency barriers while retaining explicit
+  synchronization, dirty-marker ordering and ownership validation. A crash
+  before or during buffered synchronization can corrupt the filesystem.
+
 - **hadris-apfs:** `Container::filesystem_records(volume, id, record_type)`
   returns one object's records of one type in key order, descending the
   filesystem tree by key instead of walking every leaf.
@@ -58,6 +113,20 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **CI:** Clippy checks the workspace for macOS, Windows and FreeBSD as well
+  as Linux. Every library feature tier is linted independently, including
+  no-std configurations.
+- **Workspace:** Clippy checks unsafe safety comments and the `# Safety`,
+  `# Errors` and `# Panics` documentation sections in every workspace member.
+  Public fallible APIs document their failure conditions and partial effects.
+- **hadris-fat, hadris-part, hadris-iso, hadris-udf, hadris-cpio,
+  hadris-ntfs, hadris-apfs:** Public APIs document failure, partial-output,
+  and ownership contracts. Discarding consuming option and cache builders
+  now warns where the configuration would otherwise be lost.
+- **hadris-cpio:** Async documentation now describes support for non-`Send`
+  streams and caller-provided name storage.
+- **hadris-ntfs:** Attribute and mapping-pair decoders implement
+  `FusedIterator`, matching their existing behavior after an error.
 - **hadris-fs:** `async-lock` is now only a dependency of `async` builds on
   targets with pointer-sized atomics, so sync-only `alloc` builds no longer
   compile it or `event-listener`.
@@ -91,6 +160,19 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-apfs:** The root inode identifier is checked at compile time,
+  removing a runtime `unwrap` from `ApfsFs::root`.
+- **hadris-fat-raw:** FAT layout sizing rejects zero dimensions and FAT
+  copies that exceed the available sectors without panicking or reporting
+  an invalid layout.
+- **hadris-cpio-raw:** `OdcHeader::max` saturates at `u64::MAX` for octal
+  widths above 21 digits instead of overflowing its shift.
+- **hadris-udf:** Writers reject unsupported raw revisions before touching
+  the output, with `Detail::Revision`. Supported revisions remain 1.02,
+  1.50, 2.00, and 2.01; 2.50 and 2.60 keep `Detail::PartitionMap`, and
+  other revisions at or above 2.50 report `Detail::Revision`.
+- **hadris-apfs:** `ApfsError` implements `core::error::Error` without
+  requiring `std`.
 - **hadris-fat, hadris-fat-raw:** FAT/exFAT flush dependencies before
   publishing directory entries and file sizes, linking new allocation runs,
   and releasing clusters. exFAT entry-set blocks have durability barriers,
@@ -142,6 +224,12 @@ Each published package owns its version and may be released independently.
   covers both. pycdlib logged `Missing UDF File Set Terminator` for bridge
   images. The root directory and everything after it move one block later
   in the partition.
+
+### Security
+
+- **hadris-cli:** The lockfile uses `ctutils` 0.4.4, fixing
+  RUSTSEC-2026-0385 (non-constant-time mask generation) in the APFS
+  key-derivation dependencies for `cargo install --locked` builds.
 
 ## [3.0.0-rc.2] - 2026-10-15
 

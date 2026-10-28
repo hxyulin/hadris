@@ -14,6 +14,11 @@ pub struct ContainerInfo {
 
 impl ContainerInfo {
     /// Returns the APFS block geometry described by the container superblock.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ApfsError::InvalidValue`](crate::ApfsError::InvalidValue)
+    /// if the superblock records a zero block size.
     pub fn geometry(&self) -> crate::Result<BlockGeometry> {
         let block_size = BlockSize::new(self.superblock.block_size)
             .ok_or(crate::ApfsError::InvalidValue("container block size"))?;

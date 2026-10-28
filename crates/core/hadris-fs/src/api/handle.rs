@@ -1,7 +1,10 @@
 use super::super::io;
+use super::filesystem::FileSystem;
 use super::volume::Volume;
-use super::*;
-use crate::{Error, OpenOptions};
+use super::walk::Walk;
+use crate::{
+    DirCursor, DirEntry, Error, ErrorKind, FsResult, Metadata, NodeId, OpenOptions, SetAttr,
+};
 use alloc::vec::Vec;
 use hadris_io::SeekFrom;
 
@@ -39,6 +42,11 @@ impl<F: FileSystem> File<F> {
     }
 
     /// Reads at the position and advances it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] if reading was not enabled.
+    /// Propagates filesystem and device errors; `buf` may be partly modified.
     pub async fn read(&mut self, buf: &mut [u8]) -> FsResult<usize, F::DeviceError> {
         if !self.options.is_read() {
             return Err(ErrorKind::InvalidInput.into());
@@ -52,6 +60,11 @@ impl<F: FileSystem> File<F> {
     /// Writes at the position, or at the end in append mode, and advances
     /// it by the successful byte count. An error may leave partial changes
     /// without reporting progress; see [`FileSystem::write`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] if writing was not enabled.
+    /// Propagates metadata, filesystem, and device errors.
     pub async fn write(&mut self, buf: &[u8]) -> FsResult<usize, F::DeviceError> {
         if !self.options.is_write() {
             return Err(ErrorKind::InvalidInput.into());
@@ -69,6 +82,11 @@ impl<F: FileSystem> File<F> {
     }
 
     /// Reads at `offset` without moving the position, as `pread`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] if reading was not enabled.
+    /// Propagates filesystem and device errors; `buf` may be partly modified.
     pub async fn read_at(&self, offset: u64, buf: &mut [u8]) -> FsResult<usize, F::DeviceError> {
         if !self.options.is_read() {
             return Err(ErrorKind::InvalidInput.into());
@@ -79,6 +97,11 @@ impl<F: FileSystem> File<F> {
     /// Writes at `offset` without moving the position, as `pwrite`, also in
     /// append mode. Returns the successful byte count; see
     /// [`FileSystem::write`] for errors.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] if writing was not enabled.
+    /// Propagates filesystem and device errors; progress on failure is unknown.
     pub async fn write_at(&self, offset: u64, buf: &[u8]) -> FsResult<usize, F::DeviceError> {
         if !self.options.is_write() {
             return Err(ErrorKind::InvalidInput.into());
@@ -89,11 +112,21 @@ impl<F: FileSystem> File<F> {
     /// Changes the file's times, permissions, owner or attributes. It needs
     /// no write access, as `fchmod` does not, but a read-only mount refuses
     /// it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the mount is read-only, the requested attributes
+    /// cannot be stored, or the filesystem or device fails.
     pub async fn set_attr(&self, changes: &SetAttr) -> FsResult<(), F::DeviceError> {
         watched!(self.vol, { self.vol.enter().await?.setattr(self.node, changes).await })
     }
 
     /// Moves the position and returns it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] if the position is negative or
+    /// overflows `u64`. Seeking relative to the end also propagates metadata errors.
     pub async fn seek(&mut self, pos: SeekFrom) -> FsResult<u64, F::DeviceError> {
         let len = match pos {
             SeekFrom::End(_) => self.metadata().await?.len(),
@@ -104,6 +137,11 @@ impl<F: FileSystem> File<F> {
     }
 
     /// Truncates or extends the file.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] if writing was not enabled.
+    /// Propagates errors from [`FileSystem::truncate`].
     pub async fn set_len(&mut self, len: u64) -> FsResult<(), F::DeviceError> {
         if !self.options.is_write() {
             return Err(ErrorKind::InvalidInput.into());
@@ -113,17 +151,30 @@ impl<F: FileSystem> File<F> {
     }
 
     /// The file's metadata.
+    ///
+    /// # Errors
+    ///
+    /// Propagates errors from [`FileSystem::stat`].
     pub async fn metadata(&self) -> FsResult<Metadata, F::DeviceError> {
         watched!(self.vol, { self.vol.enter().await?.stat(self.node).await })
     }
 
     /// Makes the file durable, as `fsync` does.
+    ///
+    /// # Errors
+    ///
+    /// Propagates errors from [`FileSystem::fsync`].
     pub async fn sync_all(&self) -> FsResult<(), F::DeviceError> {
         watched!(self.vol, { self.vol.enter().await?.fsync(self.node).await })
     }
 
     /// Closes the file, publishing its size and times. It does not flush the
     /// device; call [`sync_all`](Self::sync_all) first for durability.
+    ///
+    /// # Errors
+    ///
+    /// Propagates errors from [`FileSystem::close`] or from entering a
+    /// failed volume. The handle is consumed even when closing fails.
     pub async fn close(mut self) -> FsResult<(), F::DeviceError> {
         let (vol, node, open) = (&self.vol, self.node, &mut self.open);
         watched!(vol, {
@@ -200,11 +251,21 @@ impl<F: FileSystem> ReadDir<F> {
 
     /// Opens the file `entry`, listed by this `ReadDir`, as
     /// [`Volume::open_node`] does.
+    ///
+    /// # Errors
+    ///
+    /// Returns the validation, lookup, and open errors documented on
+    /// [`Volume::open_node`].
     pub async fn open(&self, entry: &DirEntry, options: OpenOptions) -> FsResult<File<F>, F::DeviceError> {
         self.vol.open_node(self.dir, entry, options).await
     }
 
     /// The next entry, or `None` at the end or after an error.
+    ///
+    /// # Errors
+    ///
+    /// The returned entry is an error if reading the directory or entering
+    /// the volume fails. After that error, subsequent calls return `None`.
     pub async fn next_entry(&mut self) -> Option<FsResult<DirEntry, F::DeviceError>> {
         if self.done {
             return None;

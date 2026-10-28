@@ -1,5 +1,6 @@
 use crate::rock_ridge::LinkKey;
-use alloc::{collections::BTreeMap, vec::Vec};
+use alloc::collections::BTreeMap;
+use alloc::vec::Vec;
 
 use hadris_iso_raw::{DirectoryRecord, SECTOR_SIZE};
 
@@ -23,11 +24,13 @@ impl CacheOptions {
         }
     }
     /// Sets the number of logical metadata sectors; zero disables sector caching.
+    #[must_use]
     pub const fn with_blocks(mut self, capacity: usize) -> Self {
         self.blocks = capacity;
         self
     }
     /// Sets the number of parsed records; zero disables record caching.
+    #[must_use]
     pub const fn with_records(mut self, capacity: usize) -> Self {
         self.records = capacity;
         self
@@ -36,6 +39,7 @@ impl CacheOptions {
     ///
     /// Zero (the default) disables indexing. Each record can contribute a
     /// serial and an extent key. Keys beyond the bound use the ordinary scan.
+    #[must_use]
     pub const fn with_links(mut self, capacity: usize) -> Self {
         self.links = capacity;
         self

@@ -177,11 +177,20 @@ impl<D, const FILES: usize> core::fmt::Debug for Fat<'_, D, FILES> {
 impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// Mounts the volume on `dev` with [`Options::new`], reserving `owner`
     /// until the volume and all its files are no longer used.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same unsupported-device, invalid-volume and device read errors as
+    /// [`mount_with`](Self::mount_with). The [`MountError`] returns ownership of `dev`.
     pub async fn mount(dev: D, owner: &'mount mut MountToken) -> Result<Self, MountError<D, D::Error>> {
         Self::mount_with(dev, owner, Options::new()).await
     }
 
     /// Mounts the volume on `dev`.
+    ///
+    /// `FILES` must not exceed 255; larger capacities fail to compile.
+    ///
+    /// # Errors
     ///
     /// Fails with [`ErrorKind::Unsupported`] when the device's blocks are
     /// not 512 bytes, with [`ErrorKind::NotRecognized`] when the first
@@ -189,6 +198,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// [`ErrorKind::Corrupt`] when the boot sector is not a valid FAT12,
     /// FAT16 or FAT32 boot sector or describes a volume larger than the
     /// device. The [`MountError`] gives `dev` back.
+    /// Device errors reading the boot sector, clean bit or FSInfo propagate.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all))]
     pub async fn mount_with(mut dev: D, owner: &'mount mut MountToken, options: Options) -> Result<Self, MountError<D, D::Error>> {
         const { assert!(FILES <= u8::MAX as usize, "at most 255 file slots") };
@@ -201,7 +211,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
             Err(error) => return Err(MountError::new(error, dev)),
         };
         let fat = match rawio::read_fat(&mut dev, &mut block, geo).await {
-            Ok(fat) => fat,
+            Ok(fat) => fat.with_durability(options.durability()),
             Err(error) => return Err(MountError::new(error, dev)),
         };
         let was_dirty = fat.was_dirty();
@@ -228,6 +238,12 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// read-only because the device refused a write fails with
     /// [`ErrorKind::ReadOnly`] while it still holds file sizes, or what an
     /// interrupted operation left, that can no longer be written.
+    ///
+    /// # Errors
+    ///
+    /// Returns the error from [`sync`](Self::sync), including unwritable pending changes,
+    /// with the device in [`MountError`]. The consumed driver no longer retains pending
+    /// recovery state.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all))]
     pub async fn unmount(mut self) -> Result<D, MountError<D, D::Error>> {
         match self.sync().await {
@@ -268,6 +284,10 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// `fsck.fat -a` clears the dirty bit. Call it after `check` found the
     /// volume clean; corruption found later keeps the volume dirty again.
     /// Fails with [`ErrorKind::ReadOnly`] on a read-only mount.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::ReadOnly`] when the mount or device refuses writes.
     pub fn mark_clean(&mut self) -> FsResult<(), D::Error> {
         self.writable()?;
         self.fat.mark_clean();
@@ -282,6 +302,12 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// Opens the subdirectory `name` of `parent`. `.` is `parent` and `..`
     /// its parent. Fails with [`ErrorKind::NotFound`] or
     /// [`ErrorKind::NotADirectory`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] for an invalid name, [`ErrorKind::NotFound`] for
+    /// a missing entry, [`ErrorKind::NotADirectory`] for a file, or a corrupt-
+    /// directory/device error.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all))]
     pub async fn open_dir(&mut self, parent: Dir, name: &str) -> FsResult<Dir, D::Error> {
         let start = self.start(parent).await?;
@@ -303,6 +329,11 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// calling `each` with every entry but `.` and `..` until it returns
     /// `ControlFlow::Break`. Continue a listing from the
     /// [`next_cursor`](Entry::next_cursor) of the last entry seen.
+    ///
+    /// # Errors
+    ///
+    /// Returns a corrupt-directory or device read error while following the directory chain
+    /// or reading its slots. Entries delivered to `each` before failure remain delivered.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all))]
     pub async fn list(
         &mut self,
@@ -344,6 +375,14 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// [`ErrorKind::IsADirectory`] for a directory,
     /// [`ErrorKind::InvalidInput`] for contradictory options, and as
     /// `create_dir` does for a name FAT cannot hold.
+    ///
+    /// # Errors
+    ///
+    /// Returns the option, name, slot-limit and file-type errors described above,
+    /// [`ErrorKind::NotFound`] for a missing file without creation, or
+    /// [`ErrorKind::AlreadyExists`] with `create_new`. Write access can fail with
+    /// [`ErrorKind::ReadOnly`]; creation and truncation propagate allocation and device
+    /// errors and may leave changes.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all))]
     pub async fn open(&mut self, dir: Dir, name: &str, options: OpenOptions) -> FsResult<File<'mount>, D::Error> {
         options.validate().map_err(ErrorKind::from)?;
@@ -371,6 +410,13 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// another mount, or whose slot now holds an entry with another short
     /// name, creation time or type, with [`ErrorKind::InvalidHandle`].
     /// `create_new` fails with [`ErrorKind::AlreadyExists`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the stale-node and `create_new` errors described above, invalid-option or
+    /// exhausted-slot errors, or directory/device errors. Write access can fail with
+    /// [`ErrorKind::ReadOnly`]; truncation may have changed the file before a later
+    /// failure.
     pub async fn open_node(&mut self, node: Node<'_>, options: OpenOptions) -> FsResult<File<'mount>, D::Error> {
         options.validate().map_err(ErrorKind::from)?;
         if options.is_create_new() {
@@ -394,6 +440,12 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// Reads from the file's position and advances it. Returns 0 at the
     /// end. Fails with [`ErrorKind::InvalidInput`] when the file was not
     /// opened for reading.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidHandle`] for a stale or foreign file,
+    /// [`ErrorKind::InvalidInput`] if reading was not enabled, or corrupt-chain/device
+    /// errors. `buf` may be partly filled on failure.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all, fields(bytes = buf.len())))]
     pub async fn read(&mut self, file: &File<'_>, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         let index = self.slot(file)?;
@@ -437,6 +489,13 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// [`ErrorKind::FileTooLarge`], and a full volume with
     /// [`ErrorKind::NoSpace`]. The new size reaches the directory entry at
     /// `flush`, `close`, `sync` or `unmount`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidHandle`] for a stale or foreign file,
+    /// [`ErrorKind::InvalidInput`] without write access, or read-only, file-size, capacity,
+    /// corrupt-chain or device errors. Failure can leave partial data or allocation changes
+    /// without reporting progress.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all, fields(bytes = buf.len())))]
     pub async fn write(&mut self, file: &File<'_>, buf: &[u8]) -> FsResult<usize, D::Error> {
         let index = self.slot(file)?;
@@ -461,6 +520,12 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// Moves the file's position and returns it. A position before the
     /// start fails with [`ErrorKind::InvalidInput`], one past the 4 GiB - 1
     /// limit with [`ErrorKind::FileTooLarge`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidHandle`] for a stale or foreign file,
+    /// [`ErrorKind::InvalidInput`] for a negative or overflowing position, or
+    /// [`ErrorKind::FileTooLarge`] past the FAT file-size limit.
     pub fn seek(&mut self, file: &File<'_>, pos: SeekFrom) -> FsResult<u64, D::Error> {
         let index = self.slot(file)?;
         let state = self.files[index];
@@ -477,6 +542,12 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// past it. Fails with [`ErrorKind::InvalidInput`] when the file was
     /// not opened for writing and [`ErrorKind::FileTooLarge`] past
     /// 4 GiB - 1.
+    ///
+    /// # Errors
+    ///
+    /// Returns invalid-handle or write-access errors, [`ErrorKind::FileTooLarge`] past the
+    /// FAT limit, or read-only, allocation, corrupt-chain or device errors. A failure can
+    /// follow a partial resize.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all, fields(len = len)))]
     pub async fn set_len(&mut self, file: &File<'_>, len: u64) -> FsResult<(), D::Error> {
         let index = self.slot(file)?;
@@ -492,6 +563,11 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
 
     /// Writes the file's size and modification time to its entry and
     /// flushes the device.
+    ///
+    /// # Errors
+    ///
+    /// Returns invalid-handle errors or errors publishing the directory entry and flushing
+    /// the device. Earlier data or metadata writes are not rolled back.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all))]
     pub async fn flush(&mut self, file: &File<'_>) -> FsResult<(), D::Error> {
         let index = self.slot(file)?;
@@ -503,6 +579,12 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// entry, flushing preceding data but not the final metadata write,
     /// and frees its slot. When the
     /// write fails the slot stays taken until a `sync` writes it.
+    ///
+    /// # Errors
+    ///
+    /// Returns invalid-handle errors or errors publishing the directory entry. The file
+    /// handle is consumed on failure; its slot remains pending until synchronization
+    /// succeeds.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all))]
     pub async fn close(&mut self, file: File<'_>) -> FsResult<(), D::Error> {
         let index = self.slot(&file)?;
@@ -520,6 +602,12 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// characters, `"*/:<>?\|`, or a trailing dot or space),
     /// [`ErrorKind::NameTooLong`] past 255 UTF-16 units, and
     /// [`ErrorKind::NoSpace`] when a FAT12/16 root directory is full.
+    ///
+    /// # Errors
+    ///
+    /// Returns the name, collision and capacity errors described above, or read-only,
+    /// corrupt-directory and device errors. Allocation or entry writes may have started
+    /// before failure.
     pub async fn create_dir(&mut self, dir: Dir, name: &str) -> FsResult<Dir, D::Error> {
         self.prepare().await?;
         let start = self.start(dir).await?;
@@ -532,6 +620,12 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// relative to `dir`, and returns the last. Empty and `.` components
     /// are skipped; `..` fails with [`ErrorKind::InvalidInput`], and a file
     /// on the way with [`ErrorKind::NotADirectory`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] for a `..` component,
+    /// [`ErrorKind::NotADirectory`] for a file in the path, or errors from creating a
+    /// missing directory. Earlier directories remain created on failure.
     pub async fn create_dir_all(&mut self, dir: Dir, path: &str) -> FsResult<Dir, D::Error> {
         let mut current = dir;
         for part in path.split('/').filter(|part| !part.is_empty() && *part != ".") {
@@ -552,6 +646,10 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
 
     /// The metadata of `name` in `dir`. An open file's size is the one its
     /// slots hold.
+    ///
+    /// # Errors
+    ///
+    /// Returns invalid-name, missing-entry, corrupt-directory or device read errors.
     pub async fn metadata(&mut self, dir: Dir, name: &str) -> FsResult<Metadata, D::Error> {
         let start = self.start(dir).await?;
         let found = self.lookup(start, name).await?;
@@ -564,6 +662,12 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// Changes the attributes, times and read-only permission of `name` in
     /// `dir`. Permissions other than those FAT reports and an owner fail
     /// with [`ErrorKind::Unsupported`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::ReadOnly`] when writes are refused, [`ErrorKind::Unsupported`]
+    /// for an owner or unsupported permissions, or invalid-name, missing-entry, corruption
+    /// or device errors. Pending file metadata may already be published on failure.
     pub async fn set_attr(&mut self, dir: Dir, name: &str, changes: &SetAttr) -> FsResult<(), D::Error> {
         self.prepare().await?;
         if changes.owner().is_some() {
@@ -601,6 +705,12 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// Removes the file `name` from `dir` and frees its clusters. Fails
     /// with [`ErrorKind::IsADirectory`] for a directory and
     /// [`ErrorKind::Busy`] while the file is open.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::IsADirectory`] for a directory, [`ErrorKind::Busy`] for an open
+    /// file, or invalid-name, missing-entry, read-only, corruption or device errors.
+    /// Failure may follow entry deletion or partial cluster reclamation.
     pub async fn remove_file(&mut self, dir: Dir, name: &str) -> FsResult<(), D::Error> {
         self.prepare().await?;
         let start = self.start(dir).await?;
@@ -614,6 +724,12 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// Removes the empty directory `name` from `dir`. Fails with
     /// [`ErrorKind::NotADirectory`] for a file and
     /// [`ErrorKind::DirectoryNotEmpty`] for a directory with entries.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotADirectory`] for a file, [`ErrorKind::DirectoryNotEmpty`]
+    /// for a nonempty directory, or invalid-name, missing-entry, read-only, corruption or
+    /// device errors. Earlier writes are not rolled back.
     pub async fn remove_dir(&mut self, dir: Dir, name: &str) -> FsResult<(), D::Error> {
         self.prepare().await?;
         let start = self.start(dir).await?;
@@ -634,6 +750,12 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// [`ErrorKind::LimitExceeded`] past 1024 levels and with
     /// [`ErrorKind::Busy`] at an open file, having removed what it reached
     /// before.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::LimitExceeded`] past the depth limit, [`ErrorKind::Busy`] for
+    /// an open file, [`ErrorKind::NotADirectory`] for a file, or name, lookup, read-only,
+    /// corruption or device errors. Earlier removals remain applied.
     pub async fn remove_dir_all(&mut self, dir: Dir, name: &str) -> FsResult<(), D::Error> {
         self.prepare().await?;
         let start = self.start(dir).await?;
@@ -689,6 +811,12 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// While this driver remains alive, the next mutation or `sync` completes
     /// a published move, removing the target, or rolls back an incomplete
     /// destination after interruption.
+    ///
+    /// # Errors
+    ///
+    /// Returns the replacement, name, ancestry and capacity errors described above, or
+    /// missing-entry, read-only, corrupt-directory and device errors. An interrupted move
+    /// retains recovery state for the next mutation or synchronization.
     pub async fn rename(&mut self, from_dir: Dir, from: &str, to_dir: Dir, to: &str) -> FsResult<(), D::Error> {
         self.prepare().await?;
         let from_start = self.start(from_dir).await?;
@@ -787,6 +915,11 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// The volume label from the label entry of the root directory, or
     /// `None` when it has none, decoded through the code page into `buf`.
     /// Fails with [`ErrorKind::LimitExceeded`] when `buf` is too short.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::LimitExceeded`] when `buf` cannot hold the decoded label, or
+    /// corrupt-directory/device read errors.
     pub async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
         let Some((_, entry)) = self.find_label().await? else {
             return Ok(None);
@@ -806,6 +939,11 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// deleted, then the copy in the boot sector, and on FAT32 in the backup
     /// boot sector, is set, to `NO NAME` when removed. A boot sector without
     /// an extended boot signature of `0x29` has no copy.
+    ///
+    /// # Errors
+    ///
+    /// Returns read-only, directory-capacity, corruption or device errors while changing
+    /// the root entry or boot copies. A failure can leave the label copies inconsistent.
     pub async fn set_label(&mut self, label: Option<VolumeLabel>) -> FsResult<(), D::Error> {
         self.prepare().await?;
         match (self.find_label().await?, label) {
@@ -839,6 +977,11 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// Writes `serial` to the boot sector, and on FAT32 to the backup boot
     /// sector. Fails with [`ErrorKind::Unsupported`] when the boot sector
     /// has no extended boot signature, and so no serial field.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::Unsupported`] without a serial field, or read-only and device
+    /// errors writing the boot copies. An earlier copy may already contain the new serial.
     pub async fn set_volume_serial(&mut self, serial: u32) -> FsResult<(), D::Error> {
         self.prepare().await?;
         if self.fat.geometry().volume_serial().is_none() {
@@ -850,6 +993,11 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     }
 
     /// The metadata of an open file, with the size its slot holds.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidHandle`] for a stale or foreign file, or device errors
+    /// reading its directory entry.
     pub async fn stat(&mut self, file: &File<'_>) -> FsResult<Metadata, D::Error> {
         let state = self.files[self.slot(file)?];
         let entry = self.read_short(state.entry).await?;
@@ -863,6 +1011,12 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// ends with the file. Call again from the end of the last run for
     /// more; 0 means there are none. Fails with [`ErrorKind::Corrupt`] when
     /// the chain leaves the data clusters or is longer than the volume.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidHandle`] for a stale or foreign file,
+    /// [`ErrorKind::Corrupt`] for invalid or cyclic chains, or device read errors. Earlier
+    /// entries in `out` may already be filled.
     pub async fn extents(&mut self, file: &File<'_>, from: u64, out: &mut [Extent]) -> FsResult<usize, D::Error> {
         let state = self.files[self.slot(file)?];
         let len = state.size as u64;
@@ -903,6 +1057,11 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
 
     /// Total and free clusters. The free count comes from FSInfo or one
     /// scan of the FAT, and is kept from then on.
+    ///
+    /// # Errors
+    ///
+    /// Propagates device read errors scanning the allocation table when the free count is
+    /// unknown.
     pub async fn stats(&mut self) -> FsResult<FsStats, D::Error> {
         let free = match self.fat.free_clusters() {
             Some(free) => free,
@@ -925,6 +1084,12 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     /// also prevents a successful sync or unmount. `sync` fails with
     /// [`ErrorKind::ReadOnly`] when a refused write left file sizes, or
     /// what an interrupted operation left, unwritten, and succeeds otherwise.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::ReadOnly`] for pending changes on an unwritable mount, or
+    /// corruption and device errors recovering interrupted operations, publishing files,
+    /// updating FSInfo or flushing markers. Completed writes are not rolled back.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::fat::embedded", level = "trace", skip_all))]
     pub async fn sync(&mut self) -> FsResult<(), D::Error> {
         if self.read_only {
@@ -1764,7 +1929,9 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     async fn put(&mut self, offset: u64, data: &[u8]) -> FsResult<(), D::Error> {
         if !data.is_empty() {
             self.begin_write().await?;
-            self.flush_device().await?;
+            if self.fat.durability() != hadris_fs::Durability::Buffered {
+                self.flush_device().await?;
+            }
         }
         let result = rawio::write_bytes(&mut self.dev, &mut self.block, offset, data).await;
         self.note(result)

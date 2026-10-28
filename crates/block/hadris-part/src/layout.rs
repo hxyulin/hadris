@@ -73,6 +73,7 @@ impl Alignment {
 /// The kind is a GPT type GUID for GPT and hybrid layouts and an
 /// [`MbrType`] for MBR layouts.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use]
 pub struct PartitionSpec {
     kind: PartitionKind,
     size: Size,
@@ -162,6 +163,7 @@ enum Scheme {
 /// assert_eq!(root.end(), (1 << 21) - 33);
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use]
 pub struct DiskLayout {
     scheme: Scheme,
     alignment: Alignment,
@@ -208,7 +210,9 @@ impl DiskLayout {
     /// Places the partitions on a disk of `block_count` blocks of
     /// `block_size` bytes.
     ///
-    /// Fails with [`ErrorKind::NoSpace`] when they do not fit,
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NoSpace`] when they do not fit,
     /// [`ErrorKind::InvalidInput`] for a kind of the wrong table, a flag the
     /// table cannot store, an overlap from an explicit start, a zero size or
     /// a `Remaining` size before the last partition, and with the errors of

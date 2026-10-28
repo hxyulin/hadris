@@ -79,8 +79,12 @@ pub(super) fn run() {
     let cache_options = hadris_fat::CacheOptions::new()
         .with_blocks(blocks)
         .with_chain_positions(positions)
-        .with_directory_entries(directory_entries)
-        .with_directory_hint(directory_hint);
+        .with_directory_entries(directory_entries);
+    let cache_options = if directory_hint {
+        cache_options.with_directory_hint()
+    } else {
+        cache_options
+    };
     let workspace = Workspace::new("performance", "profile").unwrap();
     let source = workspace.path.join("source");
     write_host_tree(&source, &fixture.entries).unwrap();

@@ -1,6 +1,6 @@
 [package]
 name = "hadris-cli"
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 description = "The hadris command: create, inspect, extract and check FAT, exFAT, ISO 9660, UDF, APFS and cpio images"
 readme = "README.md"
 keywords = ["filesystem", "disk-image", "iso9660", "fat32", "cli"]
@@ -48,3 +48,6 @@ tempfile.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+
+[lints]
+workspace = true

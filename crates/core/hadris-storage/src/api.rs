@@ -1,6 +1,6 @@
 use super::{Read, Seek, Write};
 use crate::device::{byte_offset, check_blocks};
-use crate::{BlockIndex, BlockSize, MemBuffer, MemDevice, Partition, ReadOnly};
+use crate::{BlockIndex, BlockSize, MemBuffer, MemDevice, Partition, ReadOnly, StreamDeviceError};
 use core::convert::Infallible;
 use hadris_io::{Error, ErrorKind, ErrorType, SeekFrom};
 
@@ -76,11 +76,23 @@ pub trait BlockDevice: ErrorType {
     }
 
     /// Reads whole blocks starting at `first`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a buffer that is not a whole number of blocks,
+    /// a range past the readable end, or a device failure. The buffer may
+    /// be partly modified on failure.
     async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>>;
 
     /// Writes whole blocks starting at `first`.
     ///
     /// A device that refuses writes returns [`ErrorKind::ReadOnly`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::ReadOnly`] if writes are refused, or an error for
+    /// an invalid buffer length, an out-of-range request, or a device failure.
+    /// An error may follow a partial write.
     async fn write_blocks(
         &mut self,
         first: BlockIndex,
@@ -94,6 +106,11 @@ pub trait BlockDevice: ErrorType {
     ///
     /// A write-back device writes here, so it can report
     /// [`ErrorKind::ReadOnly`] too.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if pending writes or a durability barrier fail.
+    /// The default implementation succeeds without accessing storage.
     async fn flush(&mut self) -> Result<(), Error<Self::Error>> {
         Ok(())
     }
@@ -268,9 +285,18 @@ pub trait StreamWrite: ErrorType + sealed::Sealed {
     fn stream_writable(&self) -> bool;
 
     /// Writes all of `buf`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::ReadOnly`] for a read-only stream. Other streams
+    /// propagate write failures, including a zero write before completion.
     async fn stream_write_all(&mut self, buf: &[u8]) -> Result<(), Error<Self::Error>>;
 
     /// Flushes the stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying stream cannot flush its output.
     async fn stream_flush(&mut self) -> Result<(), Error<Self::Error>>;
 }
 
@@ -323,8 +349,18 @@ impl<T: Seek> StreamDevice<T> {
     /// Wraps `inner`, measuring its length by seeking to the end.
     ///
     /// Trailing bytes that do not fill a block are not addressable.
-    pub async fn new(mut inner: T, block_size: BlockSize) -> Result<Self, T::Error> {
-        let len = inner.seek(SeekFrom::End(0)).await?;
+    ///
+    /// # Errors
+    ///
+    /// Returns the seek error and the stream if its length cannot be measured.
+    /// The stream's position may have changed before failure.
+    pub async fn new(mut inner: T, block_size: BlockSize) -> Result<Self, StreamDeviceError<T, T::Error>> {
+        let len = match inner.seek(SeekFrom::End(0)).await {
+            Ok(len) => len,
+            Err(error) => return Err(StreamDeviceError::new(
+                Error::device(error, "measuring the stream failed"), inner,
+            )),
+        };
         let block_count = len / u64::from(block_size.get());
         Ok(Self { inner, block_size, block_count, grows: false })
     }
@@ -333,7 +369,11 @@ impl<T: Seek> StreamDevice<T> {
     /// [`new`](Self::new) does. When the stream accepts writes,
     /// `max_block_count` is unbounded and a write past the end grows the
     /// device.
-    pub async fn new_growable(inner: T, block_size: BlockSize) -> Result<Self, T::Error> {
+    ///
+    /// # Errors
+    ///
+    /// Returns the seek error and the stream as [`new`](Self::new) does.
+    pub async fn new_growable(inner: T, block_size: BlockSize) -> Result<Self, StreamDeviceError<T, T::Error>> {
         let mut device = Self::new(inner, block_size).await?;
         device.grows = true;
         Ok(device)
@@ -357,6 +397,7 @@ impl<T> StreamDevice<T> {
     }
 
     /// Mutably borrows the stream.
+    /// Reconstruct the device if the stream's length changes.
     pub fn get_mut(&mut self) -> &mut T {
         &mut self.inner
     }
@@ -622,6 +663,11 @@ impl<D: BlockDevice> Cache<D> {
     /// Flushes every dirty block and returns the underlying device. On
     /// failure the cache comes back with the error, still holding the blocks
     /// it could not write, so the caller can retry or recover them.
+    ///
+    /// # Errors
+    ///
+    /// Returns the cache and the flush error, preserving blocks that could
+    /// not be written. Completed writes are not rolled back.
     #[allow(clippy::result_large_err)]
     pub async fn finish(mut self) -> Result<D, (Self, Error<D::Error>)> {
         match self.flush().await {

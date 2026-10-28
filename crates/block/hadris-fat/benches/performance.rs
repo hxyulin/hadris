@@ -558,7 +558,7 @@ fn fragment(image: &mut [u8]) {
     let mut cluster = first;
     loop {
         chain.push(cluster);
-        let at = (geo.fat_copy(geo.active_fat()) + kind.entry_offset(cluster as u64)) as usize;
+        let at = (geo.fat_copy(geo.active_fat()) + kind.entry_offset(cluster)) as usize;
         match kind
             .next(
                 kind.decode(cluster as u64, &image[at..at + kind.entry_len()]),
@@ -585,7 +585,7 @@ fn fragment(image: &mut [u8]) {
         image[target..target + bytes].copy_from_slice(&original[source..source + bytes]);
         let next = order.get(i + 1).copied().unwrap_or(kind.end_of_chain());
         for copy in 0..geo.fat_count() {
-            let at = (geo.fat_copy(copy) + kind.entry_offset(cluster as u64)) as usize;
+            let at = (geo.fat_copy(copy) + kind.entry_offset(cluster)) as usize;
             kind.encode(cluster as u64, next, &mut image[at..at + kind.entry_len()]);
         }
     }

@@ -12,7 +12,7 @@ block range.
 [dependencies]
 anyhow = "1"
 [dependencies.hadris]
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 default-features = false
 features = ["std", "sync", "detect", "part"]
 ```

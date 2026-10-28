@@ -111,11 +111,14 @@ async fn boot_region<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, base: u6
 /// Reads the boot region, or the backup boot region when the main one is
 /// damaged, and checks that the volume fits the device.
 ///
-/// Fails with [`ErrorKind::InvalidInput`] when `block` is not sized to the
+/// # Errors
+///
+/// Returns [`ErrorKind::InvalidInput`] when `block` is not sized to the
 /// device's blocks, with [`ErrorKind::NotRecognized`] when the first sector
 /// does not name exFAT, and with [`ErrorKind::Corrupt`] when neither boot
 /// region holds a valid boot sector and checksum or the boot sector
-/// describes a volume larger than the device.
+/// describes a volume larger than the device. Propagates device read
+/// errors while checking either boot copy.
 pub async fn read_boot<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf) -> FsResult<(Geometry, BootRegion), D::Error> {
     boot_from(dev, block, true).await
 }
@@ -124,8 +127,11 @@ pub async fn read_boot<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf) -> FsR
 /// the volume fits the device, for mounting a volume whose main boot region
 /// is damaged or suspect.
 ///
-/// Fails as [`read_boot`] does, with [`ErrorKind::Corrupt`] when the backup
-/// region holds no valid boot sector and checksum.
+/// # Errors
+///
+/// Returns the buffer, recognition and device read errors of [`read_boot`],
+/// or [`ErrorKind::Corrupt`] when the backup region has no valid boot sector
+/// and checksum.
 pub async fn read_backup_boot<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf) -> FsResult<Geometry, D::Error> {
     Ok(boot_from(dev, block, false).await?.0)
 }
@@ -176,6 +182,12 @@ async fn boot_from<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, main: bool
 ///
 /// Fails with [`ErrorKind::Corrupt`] when the root directory lacks either
 /// entry, or a chain does not hold the structure it names.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] for missing or invalid bitmap/up-case metadata, broken
+/// chains, or an up-case checksum mismatch. Propagates device read errors; `upcase` may be
+/// partly initialized on failure.
 pub async fn read_volume<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -345,6 +357,11 @@ async fn index_upcase<D: BlockDevice>(
 
 /// Up-cases one code unit through the volume's table, decoding its page
 /// from the device when it is not cached.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] if the up-case table chain is invalid or shorter than
+/// recorded, or a device read error while decoding an uncached page.
 pub async fn upcase<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -424,6 +441,11 @@ async fn locate<D: BlockDevice>(
 /// Byte offset of slot `slot` of the directory `walk` reads, or `None`
 /// past its end. A chain that loops, or is shorter than a contiguous
 /// directory claims, fails with [`ErrorKind::Corrupt`].
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] for an invalid directory allocation or cyclic chain, or a
+/// device read error. Slots past the recorded end return `None`.
 pub async fn slot_offset<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -459,6 +481,10 @@ pub async fn slot_offset<D: BlockDevice>(
 /// The stored FAT entry of `cluster`, which may be one of the reserved
 /// entries 0 and 1. A cluster past the last fails with
 /// [`ErrorKind::Corrupt`].
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] for a cluster beyond the heap, or a device read error.
 pub async fn get<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, geo: &Geometry, cluster: u32) -> FsResult<u32, D::Error> {
     if cluster > geo.max_cluster() {
         return Err(ErrorKind::Corrupt.into());
@@ -468,6 +494,11 @@ pub async fn get<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, geo: &Geomet
 
 /// The cluster after `cluster` in its chain, `None` at the end. Any other
 /// link fails with [`ErrorKind::Corrupt`].
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] for an out-of-range cluster, bad-cluster marker, or
+/// invalid FAT link. Propagates device read errors.
 pub async fn next<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, geo: &Geometry, cluster: u32) -> FsResult<Option<u32>, D::Error> {
     if cluster > geo.max_cluster() {
         return Err(ErrorKind::Corrupt.into());
@@ -484,6 +515,11 @@ pub async fn next<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, geo: &Geome
 /// mounting or after [`clear_dirty`], unless it was set at mount, so the
 /// flag reaches the medium before what it covers. Every writing primitive
 /// here calls it before it writes.
+///
+/// # Errors
+///
+/// Propagates device read, write or flush errors setting the dirty flag. The interrupted
+/// marker state is retained for retry.
 pub async fn begin_write<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &mut ExFat) -> FsResult<(), D::Error> {
     if matches!(vol.dirty, Dirty::Clean | Dirty::Marking | Dirty::Clearing) {
         vol.dirty = Dirty::Marking;
@@ -503,6 +539,11 @@ async fn write_flags<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &mu
 /// Clears `VolumeDirty` when a write since mounting set it, flushing the
 /// device first so what the flag covered reaches the medium before it. The
 /// caller flushes again for the cleared flag.
+///
+/// # Errors
+///
+/// Propagates device read, write or flush errors clearing the dirty flag. Earlier writes or
+/// the flag update may already have reached the device.
 pub async fn clear_dirty<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &mut ExFat) -> FsResult<(), D::Error> {
     if matches!(vol.dirty, Dirty::Marking | Dirty::Marked | Dirty::Clearing) {
         dev.flush().await?;
@@ -515,6 +556,12 @@ pub async fn clear_dirty<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol:
 
 /// Writes `PercentInUse` from the free count, counting it first when it
 /// is not known.
+///
+/// # Errors
+///
+/// Returns bitmap-chain errors while counting free clusters, or device read, write or flush
+/// errors updating the usage byte. The allocation-change flag remains set until the update
+/// succeeds.
 pub async fn write_percent_in_use<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &mut ExFat) -> FsResult<(), D::Error> {
     let free = count_free(dev, block, vol).await?;
     let used = (vol.geo.cluster_count() - free) as u64;
@@ -527,9 +574,17 @@ pub async fn write_percent_in_use<D: BlockDevice>(dev: &mut D, block: &mut Block
 
 /// Stores `value` as the FAT entry of `cluster`, in the FAT that is not
 /// active first on a TexFAT volume.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] for an invalid cluster, or a device read, write or flush
+/// error. On TexFAT, the inactive FAT may already be updated when writing the active FAT
+/// fails.
 pub async fn set<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &mut ExFat, cluster: u32, value: u32) -> FsResult<(), D::Error> {
     check_cluster(&vol.geo, cluster)?;
-    dev.flush().await?;
+    if vol.durability() != hadris_fs::Durability::Buffered {
+        dev.flush().await?;
+    }
     if let Some(mirror) = vol.geo.mirror_fat() {
         begin_write(dev, block, vol).await?;
         write_bytes(dev, block, mirror + cluster as u64 * 4, &value.to_le_bytes()).await?;
@@ -547,6 +602,11 @@ async fn bitmap_offset<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &
 
 /// Reads bytes of the active bitmap from byte `pos`, at most to the end of
 /// a cluster, and returns how many it read.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] for an invalid or short bitmap chain, or a device read
+/// error. `out` may be partly modified on failure.
 pub async fn bitmap_bytes<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -562,6 +622,11 @@ pub async fn bitmap_bytes<D: BlockDevice>(
 }
 
 /// Whether the active bitmap marks `cluster` used.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] for an invalid heap cluster or bitmap chain, or a device
+/// read error.
 pub async fn bit<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &mut ExFat, cluster: u32) -> FsResult<bool, D::Error> {
     let index = check_cluster(&vol.geo, cluster)? - raw::FIRST_CLUSTER;
     let mut byte = [0u8; 1];
@@ -572,6 +637,11 @@ pub async fn bit<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &mut Ex
 /// Whether the active bitmap marks every one of the `count` clusters from
 /// `first` used, read a chunk of bitmap bytes at a time. A range outside the
 /// cluster heap fails with [`ErrorKind::Corrupt`].
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] for a range outside the heap or an invalid bitmap chain,
+/// or a device read error.
 pub async fn run_used<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -604,6 +674,12 @@ pub async fn run_used<D: BlockDevice>(
 /// Sets the bitmap bit of `cluster` to `state`, in the bitmap of the FAT
 /// that is not active first on a TexFAT volume. A bit already in that
 /// state is not written.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] for an invalid cluster or bitmap chain, or a device read,
+/// write or flush error. A mirror bitmap may already be updated when the active bitmap
+/// write fails.
 pub async fn set_bit<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -621,7 +697,9 @@ pub async fn set_bit<D: BlockDevice>(
     if was == used {
         return Ok(());
     }
-    dev.flush().await?;
+    if vol.durability() != hadris_fs::Durability::Buffered {
+        dev.flush().await?;
+    }
     byte[0] ^= bit;
     if let Some(mirror) = vol.mirror {
         let cluster = locate(dev, block, &vol.geo, mirror, ChainPos::NONE, index >> (vol.geo.cluster_shift() + 3)).await?.cluster();
@@ -643,6 +721,11 @@ pub async fn set_bit<D: BlockDevice>(
 /// [`set_bit`] does for one, with one write per device block of each bitmap
 /// for the bits that share it. A range outside the cluster heap fails with
 /// [`ErrorKind::Corrupt`] before anything is written.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] for a range outside the heap or invalid bitmap metadata,
+/// or a device read, write or flush error. Earlier groups remain changed on failure.
 pub async fn set_bits<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -656,7 +739,9 @@ pub async fn set_bits<D: BlockDevice>(
     }
     let end = check_cluster(&vol.geo, first)?.checked_add(count).ok_or(ErrorKind::Corrupt)?;
     check_cluster(&vol.geo, end - 1)?;
-    dev.flush().await?;
+    if vol.durability() != hadris_fs::Durability::Buffered {
+        dev.flush().await?;
+    }
     let mut cluster = first;
     while cluster < end {
         let place = bit_place(dev, block, vol, cluster).await?;
@@ -678,6 +763,11 @@ pub async fn set_bits<D: BlockDevice>(
 /// write, from the chain's end back to its start, the mirror FAT first as
 /// [`set`] does. A range outside the cluster heap fails with
 /// [`ErrorKind::Corrupt`] before anything is written.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] for a range outside the heap, or a device read, write or
+/// flush error. Earlier FAT groups remain linked on failure.
 pub async fn link_run<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -708,6 +798,11 @@ pub async fn link_run<D: BlockDevice>(
 
 /// The number of free clusters, counted from the active bitmap when it is
 /// not known, and kept in `vol`.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] for an invalid bitmap chain, or a device read error. The
+/// free count is cached only after the scan completes.
 pub async fn count_free<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &mut ExFat) -> FsResult<u32, D::Error> {
     if let Some(free) = vol.free {
         return Ok(free);
@@ -738,6 +833,12 @@ pub async fn count_free<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: 
 /// there before anything is written: as the head when there is none, else
 /// as the extra cluster. A known free count of 0 fails with
 /// [`ErrorKind::NoSpace`] without scanning the bitmap.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::NoSpace`] if no usable free cluster exists, or bitmap, FAT or
+/// device errors. A taken cluster may remain allocated; `held`, when supplied, records it
+/// before mutation.
 pub async fn allocate<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -801,6 +902,12 @@ pub async fn allocate<D: BlockDevice>(
 /// `held`, the chain is recorded as its head before any bit is set. One
 /// cluster is taken with [`allocate`]. On failure the clusters whose bits
 /// were set stay allocated, for the caller to free from `held`.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::NoSpace`] when fewer than `count` usable clusters exist, or bitmap,
+/// FAT or device errors. Partial allocations remain for recovery through `held` when
+/// supplied.
 pub async fn allocate_run<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -840,7 +947,9 @@ pub async fn allocate_run<D: BlockDevice>(
     if let Some(held) = held {
         held.set_head(head);
     }
-    dev.flush().await?;
+    if vol.durability() != hadris_fs::Durability::Buffered {
+        dev.flush().await?;
+    }
     mark_chain(dev, block, vol, None, head, count, ClusterState::Used).await?;
     let tail = at(last);
     vol.next_free = if tail == vol.geo.max_cluster() { raw::FIRST_CLUSTER } else { tail + 1 };
@@ -884,6 +993,12 @@ async fn link_free<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &mut 
 /// part being freed and `head` the rest; both are 0 once the chain is free.
 /// The bits of consecutive clusters of the chain that share a device block
 /// of each bitmap are cleared with one write.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Corrupt`] for invalid or cyclic allocation chains, or device read,
+/// write or flush errors. Earlier bitmap groups remain freed; `held` records the unfinished
+/// part.
 pub async fn free_chain<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -892,7 +1007,9 @@ pub async fn free_chain<D: BlockDevice>(
     first: u32,
 ) -> FsResult<(), D::Error> {
     let cluster = check_cluster(&vol.geo, first)?;
-    dev.flush().await?;
+    if vol.durability() != hadris_fs::Durability::Buffered {
+        dev.flush().await?;
+    }
     mark_chain(dev, block, vol, Some(held), cluster, vol.geo.cluster_count(), ClusterState::Free).await?;
     *held = Held::NONE;
     Ok(())
@@ -1017,7 +1134,9 @@ async fn patch_fat<D: BlockDevice>(
     next: u32,
 ) -> FsResult<(), D::Error> {
     begin_write(dev, block, vol).await?;
-    dev.flush().await?;
+    if vol.durability() != hadris_fs::Durability::Buffered {
+        dev.flush().await?;
+    }
     let size = block.block_size() as u64;
     for base in [vol.geo.mirror_fat(), Some(vol.geo.fat_start())].into_iter().flatten() {
         let index = (base + group.lowest() as u64 * 4) / size;
@@ -1041,6 +1160,11 @@ async fn patch_fat<D: BlockDevice>(
 /// device write for each run of entries that follow each other within one
 /// device block, the run holding the first entry last. A set inside one
 /// block is written at once.
+///
+/// # Errors
+///
+/// Propagates device read, write and flush errors publishing the set. Earlier runs may
+/// already be written; the primary-entry run is published last.
 pub async fn write_set<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -1054,6 +1178,11 @@ pub async fn write_set<D: BlockDevice>(
 /// Marks the entries of a set unused in `entries` and writes them at the
 /// offsets `at` as [`write_set`] does, but the run holding the File entry
 /// first.
+///
+/// # Errors
+///
+/// Propagates device read, write and flush errors clearing the set. `entries` is marked
+/// unused before I/O, and earlier device writes are not rolled back.
 pub async fn clear_set<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -1101,7 +1230,9 @@ async fn put_entries<D: BlockDevice>(
             }
         };
         begin_write(dev, block, vol).await?;
-        dev.flush().await?;
+        if vol.durability() != hadris_fs::Durability::Buffered {
+            dev.flush().await?;
+        }
         write_bytes(dev, block, at[from], entries[from..to].as_flattened()).await?;
         done += to - from;
     }

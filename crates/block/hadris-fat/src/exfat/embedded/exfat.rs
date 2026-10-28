@@ -85,19 +85,27 @@ impl<D, const FILES: usize> core::fmt::Debug for ExFat<'_, D, FILES> {
 impl<'mount, D: BlockDevice, const FILES: usize> ExFat<'mount, D, FILES> {
     /// Mounts the volume on `dev` with [`Options::new`], reserving `owner`
     /// until the volume and all its files are no longer used.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same unsupported-device, boot-region and device read errors as
+    /// [`mount_with`](Self::mount_with), retaining `dev` in [`MountError`].
     pub async fn mount(dev: D, owner: &'mount mut MountToken) -> Result<Self, MountError<D, D::Error>> {
         Self::mount_with(dev, owner, Options::new()).await
     }
 
     /// Mounts the volume on `dev`, from the backup boot region when the
     /// main one is damaged. Only the fold and UTC offset of `options`
-    /// apply.
+    /// apply. `FILES` must not exceed 255; larger capacities fail to compile.
+    ///
+    /// # Errors
     ///
     /// Fails with [`ErrorKind::Unsupported`] when the device's blocks are
     /// not 512 bytes, with [`ErrorKind::NotRecognized`] when the first
     /// sector does not name exFAT, and with [`ErrorKind::Corrupt`] when
     /// neither boot region is valid or the volume is larger than the
     /// device. The [`MountError`] gives `dev` back.
+    /// Device errors reading the boot regions propagate.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat::embedded", level = "trace", skip_all))]
     pub async fn mount_with(mut dev: D, owner: &'mount mut MountToken, options: Options) -> Result<Self, MountError<D, D::Error>> {
         const { assert!(FILES <= u8::MAX as usize, "at most 255 file slots") };
@@ -150,6 +158,12 @@ impl<'mount, D: BlockDevice, const FILES: usize> ExFat<'mount, D, FILES> {
     /// directories do not record their parent, so `..` fails with
     /// [`ErrorKind::Unsupported`]. Fails with [`ErrorKind::NotFound`] or
     /// [`ErrorKind::NotADirectory`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::Unsupported`] for `..`, [`ErrorKind::NotFound`] for a missing
+    /// name, [`ErrorKind::NotADirectory`] for a file, or name, directory-corruption and
+    /// device errors.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat::embedded", level = "trace", skip_all))]
     pub async fn open_dir(&mut self, parent: Dir, name: &str) -> FsResult<Dir, D::Error> {
         match name {
@@ -172,6 +186,11 @@ impl<'mount, D: BlockDevice, const FILES: usize> ExFat<'mount, D, FILES> {
     /// calling `each` with every file and directory until it returns
     /// `ControlFlow::Break`. Continue a listing from the
     /// [`next_cursor`](Entry::next_cursor) of the last entry seen.
+    ///
+    /// # Errors
+    ///
+    /// Returns corrupt-entry-set or directory-chain errors, or device read errors. Entries
+    /// delivered to `each` before failure remain delivered.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat::embedded", level = "trace", skip_all))]
     pub async fn list(
         &mut self,
@@ -198,6 +217,12 @@ impl<'mount, D: BlockDevice, const FILES: usize> ExFat<'mount, D, FILES> {
     /// that write fail with [`ErrorKind::ReadOnly`]. Fails with
     /// [`ErrorKind::LimitExceeded`] when every slot is taken and
     /// [`ErrorKind::IsADirectory`] for a directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns invalid-option errors, [`ErrorKind::ReadOnly`] for write access,
+    /// [`ErrorKind::LimitExceeded`] without a free file slot, [`ErrorKind::IsADirectory`]
+    /// for a directory, or lookup, corruption and device errors.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat::embedded", level = "trace", skip_all))]
     pub async fn open(&mut self, dir: Dir, name: &str, options: OpenOptions) -> FsResult<File<'mount>, D::Error> {
         let index = self.check_open(options)?;
@@ -209,6 +234,12 @@ impl<'mount, D: BlockDevice, const FILES: usize> ExFat<'mount, D, FILES> {
     /// Opens the file a listed [`Entry`] names, without a lookup. The
     /// position is valid until its directory changes; one that no longer
     /// holds a file fails with [`ErrorKind::NotFound`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the same option, access and slot-limit errors as [`open`](Self::open),
+    /// [`ErrorKind::NotFound`] for a stale entry position, or corrupt-directory/device
+    /// errors.
     pub async fn open_node(&mut self, node: Node, options: OpenOptions) -> FsResult<File<'mount>, D::Error> {
         let index = self.check_open(options)?;
         let mut walk = DirWalk::new(node.dir().extent(self.geo.root()));
@@ -222,6 +253,12 @@ impl<'mount, D: BlockDevice, const FILES: usize> ExFat<'mount, D, FILES> {
 
     /// Reads from the file's position and advances it. Returns 0 at the
     /// end. Bytes past `ValidDataLength` read as zeros.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidHandle`] for a stale or foreign file,
+    /// [`ErrorKind::Corrupt`] for invalid allocation chains, or device read errors. `buf`
+    /// may be partly filled on failure.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat::embedded", level = "trace", skip_all, fields(bytes = buf.len())))]
     pub async fn read(&mut self, file: &File<'_>, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         let index = self.slot(file)?;
@@ -261,6 +298,11 @@ impl<'mount, D: BlockDevice, const FILES: usize> ExFat<'mount, D, FILES> {
 
     /// Moves the file's position and returns it. A position before the
     /// start fails with [`ErrorKind::InvalidInput`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidHandle`] for a stale or foreign file, or
+    /// [`ErrorKind::InvalidInput`] for a negative or overflowing position.
     pub fn seek(&mut self, file: &File<'_>, pos: SeekFrom) -> FsResult<u64, D::Error> {
         let index = self.slot(file)?;
         let state = self.files[index];
@@ -271,6 +313,10 @@ impl<'mount, D: BlockDevice, const FILES: usize> ExFat<'mount, D, FILES> {
     }
 
     /// Closes the file and frees its slot.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidHandle`] for a stale or foreign file.
     pub fn close(&mut self, file: File<'_>) -> FsResult<(), D::Error> {
         let index = self.slot(&file)?;
         self.files[index] = FileSlot::FREE;
@@ -278,6 +324,10 @@ impl<'mount, D: BlockDevice, const FILES: usize> ExFat<'mount, D, FILES> {
     }
 
     /// The metadata of `name` in `dir`.
+    ///
+    /// # Errors
+    ///
+    /// Returns invalid-name, missing-entry, corrupt-directory or device read errors.
     pub async fn metadata(&mut self, dir: Dir, name: &str) -> FsResult<Metadata, D::Error> {
         let mut found = Named::new();
         self.lookup(dir, name, &mut found).await?;
@@ -287,6 +337,11 @@ impl<'mount, D: BlockDevice, const FILES: usize> ExFat<'mount, D, FILES> {
     /// The volume label from the root directory, or `None` when it has
     /// none, as UTF-8 in `buf`. Fails with [`ErrorKind::LimitExceeded`]
     /// when `buf` is too short.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::LimitExceeded`] when `buf` cannot hold the decoded label, or
+    /// corrupt-directory/device read errors.
     pub async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
         let Some(entry) = self.system_entry(raw::ENTRY_LABEL).await? else {
             return Ok(None);
@@ -298,6 +353,11 @@ impl<'mount, D: BlockDevice, const FILES: usize> ExFat<'mount, D, FILES> {
     }
 
     /// Total and free clusters, counted from the active Allocation Bitmap.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::Corrupt`] for a missing or invalid allocation bitmap, or device
+    /// read errors while scanning it.
     pub async fn stats(&mut self) -> FsResult<FsStats, D::Error> {
         let bitmap = self.system_entry(raw::ENTRY_BITMAP).await?.ok_or(ErrorKind::Corrupt)?;
         let extent = Extent::chain(le32(&bitmap, 20), le64(&bitmap, 24));

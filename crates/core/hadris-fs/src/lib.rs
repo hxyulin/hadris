@@ -95,7 +95,7 @@ pub use extent::Extent;
 pub use guid::{Guid, GuidParseError};
 pub use hadris_io::SeekFrom;
 pub use meta::{Attributes, Metadata, Owner, Permissions, SetAttr};
-pub use mount::MountOptions;
+pub use mount::{Durability, MountOptions};
 #[cfg(feature = "alloc")]
 pub use name::OwnedName;
 pub use name::{Name, NameBuf, NameError};

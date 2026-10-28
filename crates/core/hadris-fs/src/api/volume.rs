@@ -1,8 +1,11 @@
+use super::super::lock::{Guard, Lock};
+use super::filesystem::FileSystem;
 use super::handle::{File, ReadDir, WalkDir};
 use super::paths::{cancelled, components, resolve_parent, split_parent, write_all_at};
-use super::super::lock::{Guard, Lock};
-use super::*;
-use crate::OpenOptions;
+use crate::{
+    DirCursor, DirEntry, ErrorKind, FsResult, Metadata, Name, NodeId, OpenMode, OpenOptions,
+    RenameMode, Resolve, SetAttr,
+};
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -15,7 +18,7 @@ pub(super) enum Pending {
     Forget(NodeId),
 }
 
-/// `how` for the last component of ``symlink_metadata`, `read_link` and
+/// `how` for the last component of `symlink_metadata`, `read_link` and
 /// `remove_dir_all`: a
 /// symlink there is returned, not followed.
 const fn no_follow(how: Resolve) -> Resolve {
@@ -55,7 +58,12 @@ pub(super) struct Held<'a> {
 
 impl<'a> Held<'a> {
     fn new(pending: &'a spin::Mutex<VecDeque<Pending>>, node: NodeId) -> Self {
-        Self { pending, node: Some(node), open: false, pinned: true }
+        Self {
+            pending,
+            node: Some(node),
+            open: false,
+            pinned: true,
+        }
     }
 
     pub(super) fn node(&self) -> NodeId {
@@ -172,6 +180,12 @@ impl<F: FileSystem> core::ops::Deref for VolumeGuard<'_, F> {
     }
 }
 
+impl<F: FileSystem> core::fmt::Debug for VolumeGuard<'_, F> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("VolumeGuard").finish_non_exhaustive()
+    }
+}
+
 impl<F: FileSystem> core::ops::DerefMut for VolumeGuard<'_, F> {
     fn deref_mut(&mut self) -> &mut F {
         &mut self.fs
@@ -238,6 +252,11 @@ impl<F: FileSystem> Volume<F> {
     /// [`Detail::VolumeFailed`](crate::Detail::VolumeFailed) when the volume
     /// [failed](Self::is_failed). Take the filesystem back with
     /// [`into_inner`](Self::into_inner) to inspect or discard it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error with [`Detail::VolumeFailed`](crate::Detail::VolumeFailed)
+    /// if a previous panic left the volume failed.
     pub async fn lock(&self) -> FsResult<VolumeGuard<'_, F>, F::DeviceError> {
         watched!(self, { self.enter().await })
     }
@@ -269,6 +288,10 @@ impl<F: FileSystem> Volume<F> {
     /// A [failed](Self::is_failed) volume gives its filesystem back without
     /// making the queued calls. Its state may be inconsistent, so check it
     /// or discard it rather than writing through it.
+    ///
+    /// # Errors
+    ///
+    /// Returns the volume itself while other clones or handles still exist.
     pub async fn into_inner(self) -> Result<F, Self> {
         match Arc::try_unwrap(self.shared) {
             Ok(shared) => {
@@ -356,6 +379,13 @@ impl<F: FileSystem> Volume<F> {
     /// created or truncated, a directory with [`ErrorKind::IsADirectory`],
     /// and a symlink the volume's policy does not follow with
     /// [`ErrorKind::Symlink`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid options, path resolution failures, or
+    /// refused access. Creating an existing file with `create_new` returns
+    /// [`ErrorKind::AlreadyExists`]. Filesystem and device errors propagate;
+    /// creation or truncation may have happened before a later failure.
     pub async fn open(&self, path: impl AsRef<[u8]>, options: OpenOptions) -> FsResult<File<F>, F::DeviceError> {
         watched!(self, {
             options.validate()?;
@@ -406,6 +436,13 @@ impl<F: FileSystem> Volume<F> {
     /// [`ErrorKind::Symlink`]. `create` changes nothing, `create_new` fails
     /// with [`ErrorKind::AlreadyExists`], and the other options apply as for
     /// [`open`](Self::open).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] if the entry no longer names the same
+    /// node, or [`ErrorKind::AlreadyExists`] when `create_new` is set.
+    /// Invalid options, refused access, and filesystem or device failures
+    /// also return errors.
     pub async fn open_node(
         &self,
         dir: NodeId,
@@ -433,6 +470,11 @@ impl<F: FileSystem> Volume<F> {
     }
 
     /// Reads the whole file at `path`, as `std::fs::read`.
+    ///
+    /// # Errors
+    ///
+    /// Propagates errors from opening, reading, or closing the file.
+    /// Bytes already read are discarded if a later operation fails.
     pub async fn read(&self, path: impl AsRef<[u8]>) -> FsResult<Vec<u8>, F::DeviceError> {
         watched!(self, {
             let file = self.open(path, OpenOptions::new().read()).await?;
@@ -448,6 +490,11 @@ impl<F: FileSystem> Volume<F> {
 
     /// Writes `contents` as the whole file at `path`, creating it or
     /// truncating it first, as `std::fs::write`.
+    ///
+    /// # Errors
+    ///
+    /// Propagates errors from opening, writing, or closing the file.
+    /// Failure may leave the file created, truncated, or partly written.
     pub async fn write(&self, path: impl AsRef<[u8]>, contents: impl AsRef<[u8]>) -> FsResult<(), F::DeviceError> {
         watched!(self, {
             let file = self.open(path, OpenOptions::new().write().create().truncate()).await?;
@@ -463,6 +510,11 @@ impl<F: FileSystem> Volume<F> {
     /// Whether `path` names a node, following a final symlink when the
     /// volume's policy does, as `std::fs::exists`: `Ok(false)` when it is
     /// not found, and other errors as they are.
+    ///
+    /// # Errors
+    ///
+    /// Returns `false` for [`ErrorKind::NotFound`]. Other errors from path
+    /// resolution or metadata access are propagated.
     pub async fn exists(&self, path: impl AsRef<[u8]>) -> FsResult<bool, F::DeviceError> {
         match self.metadata(path).await {
             Ok(_) => Ok(true),
@@ -478,6 +530,12 @@ impl<F: FileSystem> Volume<F> {
     /// corrupt volume holds, ends the walk with [`ErrorKind::Corrupt`].
     /// Each step locks the volume once; see [`WalkDir`] for changes made
     /// during the walk.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotADirectory`] if the path is not a directory.
+    /// Propagates path resolution and metadata errors. Later traversal
+    /// errors are returned by [`WalkDir::next_entry`].
     pub async fn walk(&self, path: impl AsRef<[u8]>) -> FsResult<WalkDir<F>, F::DeviceError> {
         watched!(self, {
             let path = path.as_ref();
@@ -499,11 +557,19 @@ impl<F: FileSystem> Volume<F> {
 
     /// Metadata of the node at `path`, following a final symlink when the
     /// volume's policy does.
+    ///
+    /// # Errors
+    ///
+    /// Propagates errors from path resolution and [`FileSystem::stat`].
     pub async fn metadata(&self, path: impl AsRef<[u8]>) -> FsResult<Metadata, F::DeviceError> {
         self.stat_path(path.as_ref(), self.shared.resolve).await
     }
 
     /// Metadata of the node at `path`, never following a final symlink.
+    ///
+    /// # Errors
+    ///
+    /// Propagates errors from path resolution and [`FileSystem::stat`].
     pub async fn symlink_metadata(&self, path: impl AsRef<[u8]>) -> FsResult<Metadata, F::DeviceError> {
         self.stat_path(path.as_ref(), no_follow(self.shared.resolve)).await
     }
@@ -519,6 +585,12 @@ impl<F: FileSystem> Volume<F> {
     }
 
     /// Lists the directory at `path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotADirectory`] if the path is not a directory.
+    /// Propagates path resolution and metadata errors. Entry-reading errors
+    /// are returned by [`ReadDir::next_entry`].
     pub async fn read_dir(&self, path: impl AsRef<[u8]>) -> FsResult<ReadDir<F>, F::DeviceError> {
         watched!(self, {
             let mut fs = self.enter().await?;
@@ -538,6 +610,11 @@ impl<F: FileSystem> Volume<F> {
     }
 
     /// The target of the symlink at `path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the path cannot be resolved, is not a symlink,
+    /// or its target cannot be read within the supported buffer size.
     pub async fn read_link(&self, path: impl AsRef<[u8]>) -> FsResult<Vec<u8>, F::DeviceError> {
         watched!(self, {
             let mut fs = self.enter().await?;
@@ -549,6 +626,11 @@ impl<F: FileSystem> Volume<F> {
     }
 
     /// Creates the directory at `path`.
+    ///
+    /// # Errors
+    ///
+    /// Propagates path resolution and [`FileSystem::mkdir`] errors, including
+    /// [`ErrorKind::AlreadyExists`] when the final name already exists.
     pub async fn create_dir(&self, path: impl AsRef<[u8]>) -> FsResult<(), F::DeviceError> {
         watched!(self, {
             let mut fs = self.enter().await?;
@@ -562,6 +644,11 @@ impl<F: FileSystem> Volume<F> {
     }
 
     /// Creates the directory at `path` and every missing parent.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a component is not a directory or a missing
+    /// directory cannot be created. Earlier directories remain on failure.
     pub async fn create_dir_all(&self, path: impl AsRef<[u8]>) -> FsResult<(), F::DeviceError> {
         watched!(self, {
             let mut fs = self.enter().await?;
@@ -570,6 +657,11 @@ impl<F: FileSystem> Volume<F> {
     }
 
     /// Removes the file or symlink at `path`.
+    ///
+    /// # Errors
+    ///
+    /// Propagates path resolution and [`FileSystem::unlink`] errors, including
+    /// [`ErrorKind::IsADirectory`] and [`ErrorKind::Busy`].
     pub async fn remove_file(&self, path: impl AsRef<[u8]>) -> FsResult<(), F::DeviceError> {
         watched!(self, {
             let mut fs = self.enter().await?;
@@ -582,6 +674,11 @@ impl<F: FileSystem> Volume<F> {
     }
 
     /// Removes the empty directory at `path`.
+    ///
+    /// # Errors
+    ///
+    /// Propagates path resolution and [`FileSystem::rmdir`] errors, including
+    /// [`ErrorKind::NotADirectory`] and [`ErrorKind::DirectoryNotEmpty`].
     pub async fn remove_dir(&self, path: impl AsRef<[u8]>) -> FsResult<(), F::DeviceError> {
         watched!(self, {
             let mut fs = self.enter().await?;
@@ -597,6 +694,12 @@ impl<F: FileSystem> Volume<F> {
     /// `path` fails with [`ErrorKind::NotADirectory`] and is not followed,
     /// and a path ending in `.` or `..` fails with
     /// [`ErrorKind::InvalidInput`] before anything is removed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a non-directory, the root directory, an invalid
+    /// final component, or a failed traversal or removal. Earlier removals
+    /// are not rolled back.
     pub async fn remove_dir_all(&self, path: impl AsRef<[u8]>) -> FsResult<(), F::DeviceError> {
         watched!(self, {
             let path = path.as_ref();
@@ -622,6 +725,11 @@ impl<F: FileSystem> Volume<F> {
 
     /// Moves `from` to `to`, replacing an existing `to` as
     /// `std::fs::rename` does. The node keeps its id.
+    ///
+    /// # Errors
+    ///
+    /// Propagates path resolution and [`FileSystem::rename`] errors.
+    /// An I/O failure may leave partial changes.
     pub async fn rename(&self, from: impl AsRef<[u8]>, to: impl AsRef<[u8]>) -> FsResult<(), F::DeviceError> {
         watched!(self, {
             let how = self.shared.resolve;
@@ -646,6 +754,11 @@ impl<F: FileSystem> Volume<F> {
 
     /// Changes the times, permissions, owner or attributes of the node at
     /// `path`.
+    ///
+    /// # Errors
+    ///
+    /// Propagates path resolution and [`FileSystem::setattr`] errors,
+    /// including read-only mounts and attributes the format cannot store.
     pub async fn set_attr(&self, path: impl AsRef<[u8]>, changes: &SetAttr) -> FsResult<(), F::DeviceError> {
         watched!(self, {
             let mut fs = self.enter().await?;

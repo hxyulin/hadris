@@ -1,9 +1,6 @@
-use super::Container;
-use super::FileSystem;
 use super::storage::BlockDevice;
-use crate::types::filesystem::{
-    self, DirectoryEntryRecord, FileExtentRecord, XattrRecord, stream_size,
-};
+use super::{Container, FileSystem};
+use crate::types::filesystem::{self, DirectoryEntryRecord, FileExtentRecord, XattrRecord};
 use crate::types::{ContainerSuperblock, InodeRecord, VolumeSuperblock};
 use crate::{Detail, VolumeSelector};
 use alloc::collections::BTreeMap;
@@ -197,7 +194,7 @@ fn extent_sizes<E>(inode: &InodeRecord, extents: &[FileExtentRecord]) -> FsResul
         .filter(|extent| extent.physical_block != 0)
         .try_fold(0u64, |total, extent| total.checked_add(extent.length))
         .ok_or(ErrorKind::Corrupt)?;
-    Ok((stream_size(inode, extents), allocated))
+    Ok((filesystem::stream_size(inode, extents), allocated))
 }
 
 io_transform! {
@@ -236,6 +233,13 @@ impl<D: BlockDevice> ApfsFs<D> {
     /// [`ContainerSuperblock::check_incompatible_features`] and
     /// [`VolumeSuperblock::check_incompatible_features`].
     /// Mount failures return the device for inspection or retry.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] for an empty container or
+    /// [`ErrorKind::InvalidInput`] for ambiguous selection. Unsupported
+    /// features, damaged metadata, node limits, and device failures also
+    /// return errors. The device is retained in [`MountError`].
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn mount(device: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
         Self::mount_selected(device, options, None, None).await
@@ -244,6 +248,13 @@ impl<D: BlockDevice> ApfsFs<D> {
     /// Mounts exactly one volume selected by index, object identifier, UUID or
     /// exact name. Missing selectors fail with `NotFound`; duplicate matches
     /// fail with `InvalidInput`. Names are case sensitive for selection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] if the selector matches no volume,
+    /// or [`ErrorKind::InvalidInput`] if it matches more than one. Other
+    /// mount failures are as documented on [`mount`](Self::mount), and
+    /// retain the device in [`MountError`].
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn mount_volume(
         device: D,
@@ -260,6 +271,14 @@ impl<D: BlockDevice> ApfsFs<D> {
     /// [`Detail::Credentials`], preserving
     /// the device. Passwords are borrowed only during mounting. See
     /// [`Container::unlock_volume`] for supported encryption and resource limits.
+    ///
+    /// # Errors
+    ///
+    /// Returns the selection and mount errors documented on
+    /// [`mount`](Self::mount). Credential failures return
+    /// [`ErrorKind::InvalidInput`] with [`Detail::Credentials`]; unsupported
+    /// encryption returns [`ErrorKind::Unsupported`]. All failures retain
+    /// the device in [`MountError`].
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn mount_with_password(
@@ -275,6 +294,13 @@ impl<D: BlockDevice> ApfsFs<D> {
     ///
     /// Volume selection is independent of the optional crypto-user UUID.
     /// Credentials and limits behave as in [`Self::mount_with_password`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the selection errors documented on
+    /// [`mount_volume`](Self::mount_volume), and the credential and mount
+    /// errors documented on [`mount_with_password`](Self::mount_with_password).
+    /// All failures retain the device in [`MountError`].
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn mount_volume_with_password(
@@ -293,7 +319,7 @@ impl<D: BlockDevice> ApfsFs<D> {
         selector: Option<VolumeSelector<'_>>,
         credentials: Option<(&[u8], Option<[u8; 16]>)>,
     ) -> Result<Self, MountError<D, D::Error>> {
-        let mut container = Container::try_open(device).await?;
+        let mut container = Container::open(device).await?;
         let selected = match Self::select_volume(&mut container, selector, credentials).await {
             Ok(selected) => selected,
             Err(error) => return Err(MountError::new(error, container.into_inner())),
@@ -405,6 +431,11 @@ impl<D: BlockDevice> ApfsFs<D> {
     }
 
     /// Unmounts the read-only driver and returns its device.
+    ///
+    /// # Errors
+    ///
+    /// This read-only driver currently returns the device without I/O and does not
+    /// fail.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn unmount(self) -> Result<D, MountError<D, D::Error>> {
         Ok(self.container.into_inner())
@@ -664,11 +695,21 @@ impl<D: BlockDevice> ApfsFs<D> {
 
     /// Performs the [`FileSystem::root`] operation.
     pub fn root(&self) -> NodeId {
-        NodeId::new(crate::types::filesystem::INODE_ROOT_DIRECTORY).unwrap()
+        const ROOT: NodeId = match NodeId::new(filesystem::INODE_ROOT_DIRECTORY) {
+            Some(root) => root,
+            None => panic!("the APFS root inode number must be nonzero"),
+        };
+        ROOT
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     /// Performs the [`FileSystem::statfs`] operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for inconsistent free-block or file counts, unsupported
+    /// Fusion storage, or an unreadable or malformed space-manager summary. Device
+    /// errors propagate.
     pub async fn statfs(&mut self) -> FsResult<FsStats, D::Error> {
         let summary = self.container.space_manager_summary(&self.checkpoint).await?;
         if summary.main_device.free_count > summary.main_device.block_count {
@@ -684,6 +725,11 @@ impl<D: BlockDevice> ApfsFs<D> {
     }
 
     /// Performs the [`FileSystem::label`] operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::LimitExceeded`] if `buf` is too small, or a corruption
+    /// error if the volume name is not UTF-8.
     pub async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
         let name = self.volume.name()?;
         if name.is_empty() { return Ok(None); }
@@ -694,6 +740,12 @@ impl<D: BlockDevice> ApfsFs<D> {
 
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(dir = ?dir)))]
     /// Performs the [`FileSystem::lookup`] operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns the name, parent, and lookup errors described by
+    /// [`FileSystem::lookup`]. Invalid inode identifiers, exhausted node capacity,
+    /// and filesystem or device read failures also return errors.
     pub async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
         name.check()?;
         self.directory(dir).await?;
@@ -741,6 +793,11 @@ impl<D: BlockDevice> ApfsFs<D> {
 
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(dir = ?dir)))]
     /// Performs the [`FileSystem::parent`] operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `dir` or its parent is missing, is not a directory, or has
+    /// malformed metadata. Node-capacity and device read errors propagate.
     pub async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
         let inode = self.directory(dir).await?;
         if dir == self.root() { return Ok(dir); }
@@ -751,6 +808,12 @@ impl<D: BlockDevice> ApfsFs<D> {
 
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(node = ?node)))]
     /// Performs the [`FileSystem::stat`] operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unavailable or damaged inode, unsupported metadata, or
+    /// exhausted node capacity. Inode, extent, symlink, and device read errors
+    /// propagate.
     pub async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
         let inode = self.inode(node).await?;
         self.metadata(&inode, true).await
@@ -758,6 +821,12 @@ impl<D: BlockDevice> ApfsFs<D> {
 
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(dir = ?dir)))]
     /// Performs the [`FileSystem::readdir`] operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid cursor, an unavailable or non-directory
+    /// parent, exhausted node capacity, or an invalid entry name or identifier.
+    /// Directory read errors propagate.
     pub async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
         self.directory(dir).await?;
         if from.into_raw() > DirCursor::MAX_RAW { return Err(ErrorKind::InvalidInput.into()); }
@@ -788,6 +857,12 @@ impl<D: BlockDevice> ApfsFs<D> {
 
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(node = ?node, bytes = buf.len())))]
     /// Performs the [`FileSystem::readlink`] operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] for a non-symlink and
+    /// [`ErrorKind::LimitExceeded`] if `buf` is too small. Inode, attribute, and
+    /// device read errors propagate.
     pub async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
         let inode = self.inode(node).await?;
         if !file_type::<D::Error>(&inode)?.is_symlink() { return Err(ErrorKind::InvalidInput.into()); }
@@ -800,6 +875,13 @@ impl<D: BlockDevice> ApfsFs<D> {
 
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(node = ?node)))]
     /// Performs the [`FileSystem::open`] operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::IsADirectory`] for a directory, [`ErrorKind::Symlink`]
+    /// for a symlink, [`ErrorKind::ReadOnly`] for write access, or
+    /// [`ErrorKind::Unsupported`] for compressed files or other file types. Inode and
+    /// device read errors propagate.
     pub async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
         let inode = self.inode(node).await?;
         match file_type::<D::Error>(&inode)? {
@@ -815,6 +897,11 @@ impl<D: BlockDevice> ApfsFs<D> {
 
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(node = ?node)))]
     /// Performs the [`FileSystem::close`] operation.
+    ///
+    /// # Errors
+    ///
+    /// This read-only driver currently has no pending metadata to publish and does
+    /// not fail.
     pub async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         let _ = node;
         Ok(())
@@ -822,6 +909,12 @@ impl<D: BlockDevice> ApfsFs<D> {
 
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(node = ?node, offset = offset, bytes = buf.len())))]
     /// Performs the [`FileSystem::read`] operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for unavailable or unsupported file data, malformed extents,
+    /// or an encryption key that does not belong to this volume. Inode and device
+    /// read errors propagate; `buf` may be partly modified.
     pub async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         #[cfg(feature = "encryption")]
         self.container.check_unlocked_volume(&self.volume)?;
@@ -837,7 +930,7 @@ impl<D: BlockDevice> ApfsFs<D> {
         let extents = self.nodes.extents(inode.private_id);
         // `load_extents` checked these extents, so only the range is read.
         self.container
-            .read_checked_extents_at(extents, stream_size(&inode, extents), offset, buf)
+            .read_checked_extents_at(extents, filesystem::stream_size(&inode, extents), offset, buf)
             .await
     }
 }

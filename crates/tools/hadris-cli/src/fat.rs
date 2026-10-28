@@ -175,13 +175,17 @@ struct ExtractCache {
 impl ExtractCache {
     fn options(&self) -> CacheOptions {
         if self.no_cache {
-            return CacheOptions::sequential().with_directory_hint(false);
+            return CacheOptions::sequential().without_directory_hint();
         }
-        CacheOptions::sequential()
+        let options = CacheOptions::sequential()
             .with_blocks(self.cache_blocks.unwrap_or(0))
             .with_chain_positions(self.cache_chain_positions.unwrap_or(0))
-            .with_directory_entries(self.cache_directory_entries.unwrap_or(0))
-            .with_directory_hint(!self.no_directory_hint)
+            .with_directory_entries(self.cache_directory_entries.unwrap_or(0));
+        if self.no_directory_hint {
+            options.without_directory_hint()
+        } else {
+            options
+        }
     }
 
     fn fat_only(&self) -> bool {

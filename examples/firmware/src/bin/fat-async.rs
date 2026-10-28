@@ -6,6 +6,8 @@ use hadris_example_firmware::local::{block_on, fat};
 use hadris_fat::embedded::Options;
 
 #[cfg(target_os = "none")]
+// SAFETY: This no_main binary defines its sole entry point here; no other
+// object in the firmware defines the `_start` symbol.
 #[unsafe(no_mangle)]
 extern "C" fn _start() -> ! {
     core::hint::black_box(block_on(fat(hadris_example_firmware::Card, Options::new())));

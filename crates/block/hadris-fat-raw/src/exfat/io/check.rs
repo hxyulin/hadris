@@ -167,6 +167,13 @@ io_transform! {
 /// Fails with [`ErrorKind::LimitExceeded`] when `scratch` is shorter than
 /// 1536 bytes and with [`ErrorKind::Unsupported`] for device blocks above
 /// 4096 bytes. Device errors end the check.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::LimitExceeded`] for fewer than 1536 scratch bytes,
+/// [`ErrorKind::Unsupported`] for device blocks above 4096 bytes, or a mount error for
+/// unusable boot or system metadata. Device errors stop the check; previously reported
+/// findings remain delivered.
 pub async fn check<D: BlockDevice, F: FnMut(&Finding<'_>)>(
     dev: &mut D,
     scratch: &mut [u8],
@@ -197,6 +204,13 @@ pub async fn check<D: BlockDevice, F: FnMut(&Finding<'_>)>(
 /// with `Corrupt`. Does not change the device or the caller's volume state.
 /// The caller must exclude external device changes and preserve exclusive
 /// ownership in all subsequent mutations before caching a successful result.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::LimitExceeded`] for fewer than 1536 scratch bytes,
+/// [`ErrorKind::Unsupported`] for device blocks above 4096 bytes, or [`ErrorKind::Corrupt`]
+/// when exclusive allocation ownership cannot be established. Propagates device read
+/// errors.
 pub async fn check_allocations<D: BlockDevice>(
     dev: &mut D,
     vol: ExFat,

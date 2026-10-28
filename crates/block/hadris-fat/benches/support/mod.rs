@@ -54,8 +54,7 @@ impl WriteBreakdown {
                         geo.cluster_offset(cluster).unwrap(),
                         geo.cluster_size() as u64,
                     );
-                    let at = (geo.fat_copy(geo.active_fat()) + kind.entry_offset(cluster as u64))
-                        as usize;
+                    let at = (geo.fat_copy(geo.active_fat()) + kind.entry_offset(cluster)) as usize;
                     let stored = kind.decode(cluster as u64, &image[at..at + kind.entry_len()]);
                     match kind.next(stored, geo.max_cluster()).unwrap() {
                         Some(next) => cluster = next,

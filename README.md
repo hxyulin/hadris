@@ -43,14 +43,14 @@ Install the CLI with
 [cargo-binstall](https://github.com/cargo-bins/cargo-binstall):
 
 ```sh
-cargo binstall hadris-cli --version 3.0.0-rc.2
+cargo binstall hadris-cli --version 3.0.0-rc.3
 hadris --help
 ```
 
 Or compile it using Rust 1.88 or newer:
 
 ```sh
-cargo install hadris-cli --version 3.0.0-rc.2 --locked
+cargo install hadris-cli --version 3.0.0-rc.3 --locked
 hadris --help
 ```
 
@@ -87,7 +87,7 @@ filesystem APIs. For a hosted FAT application:
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 default-features = false
 features = ["std", "sync", "fat"]
 ```

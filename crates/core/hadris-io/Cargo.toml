@@ -31,3 +31,6 @@ embedded-io = ["dep:embedded-io", "dep:embedded-io-async"]
 hadris-macros = { workspace = true, optional = true }
 embedded-io = { workspace = true, optional = true }
 embedded-io-async = { workspace = true, optional = true }
+
+[lints]
+workspace = true

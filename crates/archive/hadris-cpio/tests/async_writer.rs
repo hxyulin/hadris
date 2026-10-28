@@ -49,6 +49,78 @@ impl hadris_io::async_::Write for Sink {
     }
 }
 
+#[test]
+fn non_send_streams_and_name_buffers_round_trip() {
+    use hadris_cpio::ReaderOptions;
+    use std::rc::Rc;
+
+    struct Local<T> {
+        inner: T,
+        _not_send: Rc<()>,
+    }
+
+    impl<T> Local<T> {
+        fn new(inner: T) -> Self {
+            Self {
+                inner,
+                _not_send: Rc::new(()),
+            }
+        }
+    }
+
+    impl<T: hadris_io::ErrorType> hadris_io::ErrorType for Local<T> {
+        type Error = T::Error;
+    }
+
+    impl<T: hadris_io::async_::Read> hadris_io::async_::Read for Local<T> {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            self.inner.read(buf).await
+        }
+    }
+
+    impl<T: hadris_io::async_::Write> hadris_io::async_::Write for Local<T> {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            self.inner.write(buf).await
+        }
+
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            self.inner.flush().await
+        }
+    }
+
+    impl<T: AsRef<[u8]>> AsRef<[u8]> for Local<T> {
+        fn as_ref(&self) -> &[u8] {
+            self.inner.as_ref()
+        }
+    }
+
+    impl<T: AsMut<[u8]>> AsMut<[u8]> for Local<T> {
+        fn as_mut(&mut self) -> &mut [u8] {
+            self.inner.as_mut()
+        }
+    }
+
+    let mut out = Local::new(Sink::default());
+    block_on(hadris_cpio::async_::write(
+        &mut out,
+        &tree(),
+        &CpioOptions::new(),
+    ))
+    .unwrap();
+    let mut reader = hadris_cpio::async_::CpioReader::with_buffer(
+        Local::new(Cursor::new(&out.inner.0)),
+        Local::new([0u8; 4096]),
+        ReaderOptions::new(),
+    );
+    let read = block_on(hadris_cpio::async_::read_tree(&mut reader)).unwrap();
+    assert_eq!(read.entry("linuxrc").unwrap().links(), 2);
+    assert_eq!(read.get("bin/sh").unwrap().target(), Some(&b"busybox"[..]));
+    assert_eq!(
+        read.get("linuxrc").unwrap().content().unwrap().as_bytes(),
+        Some(&[1u8; 5000][..]),
+    );
+}
+
 fn tree() -> Tree {
     let mut tree = Tree::new();
     tree.insert("bin/busybox", Node::file(Content::bytes(vec![1u8; 5000])))
@@ -198,4 +270,104 @@ fn async_odc_hard_links_store_each_payload() {
         assert_eq!(report.extents(entry.name).unwrap()[0].len(), 70_001);
     }
     assert_ne!(report.extents("a"), report.extents("b"));
+}
+
+#[test]
+fn finish_returns_owned_output_after_an_unfinished_entry() {
+    use common::failing_output::Output;
+    use hadris_io::async_::Write;
+    use std::sync::atomic::Ordering;
+
+    block_on(async {
+        let output = Output::new(None, false);
+        let drops = output.drops.clone();
+        let mut writer = hadris_cpio::async_::Writer::new(output, &CpioOptions::new());
+        {
+            let mut entry = writer
+                .append_file("short", &hadris_fs::SetAttr::new(), 3)
+                .await
+                .unwrap();
+            entry.write_all(b"ab").await.unwrap();
+        }
+        let failure = writer
+            .finish()
+            .await
+            .err()
+            .expect("unfinished entry must prevent finishing");
+        assert_eq!(failure.error().kind(), hadris_fs::ErrorKind::InvalidInput);
+        assert_eq!(drops.load(Ordering::SeqCst), 0);
+        let output = failure.into_output();
+        assert!(output.bytes.ends_with(b"ab"));
+        assert_eq!(output.flushes, 0);
+        drop(output);
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+    });
+}
+
+#[test]
+fn finish_retains_partial_trailer_output_and_write_cause() {
+    use common::failing_output::{Fault, Output, assert_cause};
+    use std::sync::atomic::Ordering;
+
+    let output = Output::new(Some(13), false);
+    let drops = output.drops.clone();
+    let writer = hadris_cpio::async_::Writer::new(output, &CpioOptions::new());
+    let failure = block_on(writer.finish())
+        .err()
+        .expect("the trailer write must fail");
+    assert_cause(&failure, Fault::Write, Some(hadris_cpio_raw::TRAILER_NAME));
+    assert_eq!(failure.output().bytes, common::trailer()[..13]);
+    assert_eq!(drops.load(Ordering::SeqCst), 0);
+    let (error, output) = failure.into_parts();
+    assert_eq!(error.downcast_device::<Fault>(), Some(&Fault::Write));
+    assert_eq!(output.bytes.len(), 13);
+    assert_eq!(output.flushes, 0);
+    drop(output);
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn finish_retains_complete_trailer_output_after_flush_failure() {
+    use common::failing_output::{Fault, Output, assert_cause};
+    use std::sync::atomic::Ordering;
+
+    let output = Output::new(None, true);
+    let drops = output.drops.clone();
+    let writer = hadris_cpio::async_::Writer::new(output, &CpioOptions::new());
+    let failure = block_on(writer.finish())
+        .err()
+        .expect("flushing the archive must fail");
+    assert_cause(&failure, Fault::Flush, None);
+    assert_eq!(
+        failure.output().bytes.len(),
+        (hadris_cpio_raw::NEWC_HEADER_LEN + hadris_cpio_raw::TRAILER_NAME.len() + 1)
+            .next_multiple_of(4)
+    );
+    assert!(
+        common::read_all(&failure.output().bytes)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(failure.output().flushes, 1);
+    assert_eq!(drops.load(Ordering::SeqCst), 0);
+    let error: hadris_fs::PathError = failure.into();
+    assert_eq!(error.downcast_device::<Fault>(), Some(&Fault::Flush));
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn cancelling_finish_drops_the_owned_output_without_returning_a_recovery_error() {
+    use common::failing_output::Output;
+    use std::sync::atomic::Ordering;
+
+    let output = Output::new(None, false);
+    let drops = output.drops.clone();
+    let writer = hadris_cpio::async_::Writer::new(output, &CpioOptions::new());
+    {
+        let mut finish = core::pin::pin!(writer.finish());
+        let mut cx = Context::from_waker(Waker::noop());
+        assert!(finish.as_mut().poll(&mut cx).is_pending());
+        assert_eq!(drops.load(Ordering::SeqCst), 0);
+    }
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
 }

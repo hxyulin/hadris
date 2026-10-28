@@ -1,4 +1,4 @@
-use super::*;
+use crate::ErrorKind;
 use crate::PathError;
 #[cfg(feature = "async")]
 use crate::tree::AsyncSource;
@@ -80,6 +80,11 @@ impl<'a> ContentReader<'a> {
     /// this mode: stored content and the other mode's lazy content fail
     /// with [`ErrorKind::Unsupported`]. Writers call it for every file
     /// before they write anything.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::Unsupported`] for stored extents or lazy content
+    /// that cannot be read in this mode.
     pub fn check(content: &Content) -> Result<(), PathError> {
         match &content.repr {
             Repr::Bytes(_) => Ok(()),
@@ -94,6 +99,12 @@ impl<'a> ContentReader<'a> {
     }
 
     /// Opens `content`: a host file is opened now.
+    ///
+    /// # Errors
+    ///
+    /// Returns the unsupported-content errors of [`check`](Self::check), host
+    /// opening or measurement errors, or [`ErrorKind::Corrupt`] when a host
+    /// file has changed length.
     pub async fn open(content: &'a Content) -> Result<Self, PathError> {
         Self::check(content)?;
         #[cfg(all(feature = "std", feature = "sync"))]
@@ -125,6 +136,12 @@ impl<'a> ContentReader<'a> {
     }
 
     /// Reads from `offset`. Returns 0 at or past the end.
+    ///
+    /// # Errors
+    ///
+    /// Propagates host or lazy-source read errors. A missing host handle
+    /// returns [`ErrorKind::InvalidHandle`]; content from an unsupported source
+    /// returns [`ErrorKind::Unsupported`]. Failure may partly modify `buf`.
     pub async fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, PathError> {
         let len = self.content.len();
         if offset >= len || buf.is_empty() {
@@ -157,6 +174,12 @@ impl<'a> ContentReader<'a> {
 
     /// Fills `buf` from `offset`, failing with [`ErrorKind::Corrupt`] when
     /// the content ends first.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::Corrupt`] if the content ends before filling
+    /// `buf`, or propagates [`read_at`](Self::read_at) errors. Failure may
+    /// leave `buf` partly filled.
     pub async fn read_exact_at(&mut self, mut offset: u64, mut buf: &mut [u8]) -> Result<(), PathError> {
         while !buf.is_empty() {
             match self.read_at(offset, buf).await? {

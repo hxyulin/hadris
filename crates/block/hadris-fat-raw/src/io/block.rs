@@ -7,6 +7,11 @@ use crate::io::BlockBuf;
 io_transform! {
 
 /// Reads device block `index` into `block`, unless it already holds it.
+///
+/// # Errors
+///
+/// Propagates device read errors, including an invalid block index or buffer size. On
+/// failure the cached block is invalidated and its bytes may be partly changed.
 pub async fn load<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, index: u64) -> FsResult<(), D::Error> {
     if block.cached == Some(index) {
         return Ok(());
@@ -21,6 +26,11 @@ pub async fn load<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, index: u64)
 
 /// Writes the contents of `block` as device block `index`, after which the
 /// buffer holds that block.
+///
+/// # Errors
+///
+/// Propagates device write errors, including an invalid block index or buffer size. A
+/// failed write invalidates the cached block and may have changed the device.
 pub async fn store<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, index: u64) -> FsResult<(), D::Error> {
     block.cached = None;
     let size = block.size;
@@ -31,6 +41,11 @@ pub async fn store<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, index: u64
 
 /// Reads `out.len()` bytes at byte `offset`. Whole blocks go straight into
 /// `out`; partial blocks go through `block`.
+///
+/// # Errors
+///
+/// Propagates device read errors for any block the range touches. Earlier bytes of `out`
+/// may already be filled when a later block fails.
 pub async fn read_bytes<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -68,6 +83,11 @@ pub async fn read_bytes<D: BlockDevice>(
 /// Writes `data` at byte `offset`. Whole blocks go straight to the device;
 /// partial blocks are read, patched and written through `block`, which is
 /// left holding the device's copy or nothing.
+///
+/// # Errors
+///
+/// Propagates device read errors for partial blocks and device write errors. Earlier parts
+/// of `data` may already be written when a later block fails.
 pub async fn write_bytes<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
@@ -79,6 +99,11 @@ pub async fn write_bytes<D: BlockDevice>(
 
 /// Writes `len` zero bytes at byte `offset`. Whole blocks go from `block`
 /// as many at once as it holds.
+///
+/// # Errors
+///
+/// Propagates device read errors for partial blocks and device write errors. A failure may
+/// leave only part of the requested range zeroed.
 pub async fn write_zeros<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,

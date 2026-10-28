@@ -90,6 +90,17 @@ remains the library MSRV. Feature tiers are checked independently from
 RUSTUP_TOOLCHAIN=1.88.0 RUSTFLAGS="-D warnings" python3 scripts/check-features.py all
 ```
 
+Clippy also checks each library tier independently on Linux, using Rust 1.97.1:
+
+```bash
+RUSTUP_TOOLCHAIN=1.97.1 python3 scripts/check-features.py all --clippy
+```
+
+The workspace Clippy jobs cover Linux, macOS, Windows and the FreeBSD target.
+FreeBSD uses cross-compilation on Linux; these lint jobs do not execute target
+binaries. Feature-tier linting excludes tests and examples to avoid their
+development dependencies enabling features in the library being checked.
+
 ### CI coverage
 
 FAT/exFAT and ISO 9660 formal proofs run in the separate daily and manually
@@ -526,6 +537,13 @@ python3 scripts/check-compliance-catalog.py
 ```
 
 ## Docs
+
+Workspace members inherit Clippy checks for unsafe safety comments and the
+`# Safety`, `# Errors` and `# Panics` rustdoc sections from the root
+`Cargo.toml`. Explain the conditions and partial effects of each operation.
+These checks run with the normal Clippy command and fail CI under `-D warnings`.
+Clippy does not find every possible panic, so review indexing and arithmetic
+on caller-controlled values as well.
 
 ```bash
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features

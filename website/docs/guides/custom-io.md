@@ -153,7 +153,7 @@ Allocation-free firmware uses `hadris::fat::embedded::sync::Fat` instead.
 
 ```toml
 [dependencies]
-hadris = { version = "3.0.0-rc.2", default-features = false, features = ["alloc", "sync", "fat"] }
+hadris = { version = "3.0.0-rc.3", default-features = false, features = ["alloc", "sync", "fat"] }
 ```
 
 ```rust,no_run

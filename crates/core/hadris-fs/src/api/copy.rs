@@ -1,7 +1,10 @@
+use super::filesystem::FileSystem;
 use super::paths::write_all_at;
 use super::tree::ContentReader;
-use super::*;
-use crate::{Field, Node, PathError, Report, Stored, Tree, TreeEntry, Warning, WarningKind};
+use crate::{
+    Capabilities, ErrorKind, Field, FileType, FsResult, Name, Node, NodeId, OpenMode, PathError,
+    Report, SetAttr, Stored, Tree, TreeEntry, Warning, WarningKind,
+};
 use alloc::vec::Vec;
 
 /// Bytes moved per read.
@@ -235,6 +238,13 @@ async fn walk<'t, F: FileSystem + ?Sized>(
 /// [`ErrorKind::Unsupported`]. Files are closed, not flushed; call `sync`
 /// to make the copy durable. The report's size is 0 and it lists no
 /// extents.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::AlreadyExists`] for a conflicting name,
+/// [`ErrorKind::Unsupported`] for unreadable content in this mode, or
+/// filesystem and content-source errors with the tree path. Earlier
+/// creations and writes remain on failure and are not flushed.
 pub async fn copy_tree<F: FileSystem + ?Sized>(tree: &Tree, fs: &mut F, dir: NodeId) -> Result<Report, PathError> {
     let mut report = Report::new();
     let mut dropped = Dropped::default();

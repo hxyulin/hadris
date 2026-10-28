@@ -167,7 +167,12 @@ impl Disk {
     }
 
     /// Replaces the start of the boot code area with `code` and zeroes the
-    /// rest. Fails with [`ErrorKind::LimitExceeded`] beyond 446 bytes.
+    /// rest.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::LimitExceeded`] when `code` exceeds 446 bytes.
+    /// The existing bootstrap is unchanged on failure.
     pub fn set_bootstrap(&mut self, code: &[u8]) -> Result<(), TableError> {
         let area = self
             .bootstrap

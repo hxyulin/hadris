@@ -1,7 +1,7 @@
 [package]
 name = "hadris-iso"
 autotests = false
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -47,9 +47,6 @@ static_assertions = { workspace = true }
 hadris-fs = { workspace = true, features = ["unstable-contract"] }
 hadris-storage = { workspace = true, features = ["std", "sync"] }
 tempfile.workspace = true
-
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
 
 [[test]]
 name = "roundtrip"
@@ -98,3 +95,6 @@ required-features = ["std", "sync", "async", "write"]
 [[test]]
 name = "unified_write"
 required-features = ["std", "sync", "async", "write"]
+
+[lints]
+workspace = true

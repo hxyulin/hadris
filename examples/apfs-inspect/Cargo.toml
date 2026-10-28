@@ -13,3 +13,6 @@ hadris-apfs = { workspace = true, features = ["std", "sync"] }
 hadris-fs = { workspace = true, features = ["std", "sync", "unstable-contract"] }
 hadris-storage = { workspace = true, features = ["std", "sync"] }
 hadris-io = { workspace = true, features = ["std", "sync"] }
+
+[lints]
+workspace = true

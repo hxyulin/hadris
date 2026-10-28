@@ -8,6 +8,7 @@ use hadris_fs::NodeId;
 /// `FatFs::mount` starts with caching disabled. `FatFs::with_cache` configures
 /// a lazily populated index; no FAT or file data is read during configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
 pub struct CacheOptions {
     pub(crate) positions: usize,
     pub(crate) blocks: usize,
@@ -40,8 +41,15 @@ impl CacheOptions {
 
     /// Reuses the most recently listed entry for matching lookups in that directory.
     /// Disabled by `new`; independent of the directory-prefix capacity.
-    pub const fn with_directory_hint(mut self, enabled: bool) -> Self {
-        self.directory_hint = enabled;
+    pub const fn with_directory_hint(mut self) -> Self {
+        self.directory_hint = true;
+        self
+    }
+
+    /// Disables reuse of the most recently listed entry for lookups.
+    /// Other cache bounds remain unchanged.
+    pub const fn without_directory_hint(mut self) -> Self {
+        self.directory_hint = false;
         self
     }
 

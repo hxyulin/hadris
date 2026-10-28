@@ -123,7 +123,7 @@ allocator either. The on-disk layouts live in `hadris_part::raw`.
 
 ```toml
 [dependencies]
-hadris-part = { version = "3.0.0-rc.2", default-features = false, features = ["sync"] }
+hadris-part = { version = "3.0.0-rc.3", default-features = false, features = ["sync"] }
 ```
 
 ## Partition Types
@@ -152,7 +152,7 @@ are `Send`. `open` preserves this capability in the returned partition device.
 
 - [Inspect a partition table](https://hxyulin.github.io/hadris/guides/read-partition-table)
 - [Open FAT inside a partition](https://hxyulin.github.io/hadris/guides/open-partitioned-fat)
-- [API reference](https://docs.rs/hadris-part/3.0.0-rc.2)
+- [API reference](https://docs.rs/hadris-part/3.0.0-rc.3)
 
 ## License
 

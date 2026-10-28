@@ -4,7 +4,97 @@ pub(crate) use hadris_fs::Error;
 use hadris_fs::{DetailCode, ErrorKind};
 use hadris_io::ExactError;
 
+#[cfg(feature = "write")]
+use hadris_fs::PathError;
+
 const DOMAIN: &str = "hadris-cpio";
+
+/// A failed archive finish, retaining its output for inspection or recovery.
+///
+/// Recover the output with [`into_output`](Self::into_output), or both values
+/// with [`into_parts`](Self::into_parts). A failed trailer write may already
+/// have emitted part of the trailer. The output is not a retryable writer;
+/// appending another trailer can produce an invalid archive.
+///
+/// `Display` describes the failed finish. The original [`PathError`], including
+/// its path and device error, is available through [`error`](Self::error) and
+/// [`source`](core::error::Error::source), so an error-chain printer shows each
+/// message once. Conversion into [`PathError`] or, with `std`, `std::io::Error`
+/// preserves that context and drops the output.
+#[cfg(feature = "write")]
+pub struct FinishError<W> {
+    error: PathError,
+    output: W,
+}
+
+#[cfg(feature = "write")]
+impl<W> FinishError<W> {
+    pub(crate) fn new(error: PathError, output: W) -> Self {
+        Self { error, output }
+    }
+
+    /// Borrows the failure, including its path and original source.
+    pub const fn error(&self) -> &PathError {
+        &self.error
+    }
+
+    /// Borrows the output in the state left by the failed finish.
+    pub const fn output(&self) -> &W {
+        &self.output
+    }
+
+    /// Returns the output, dropping the error. Its archive may be incomplete.
+    pub fn into_output(self) -> W {
+        self.output
+    }
+
+    /// Returns the error, dropping the output.
+    pub fn into_error(self) -> PathError {
+        self.error
+    }
+
+    /// Returns the original error and the output, in that order.
+    pub fn into_parts(self) -> (PathError, W) {
+        (self.error, self.output)
+    }
+}
+
+#[cfg(feature = "write")]
+impl<W> fmt::Debug for FinishError<W> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FinishError")
+            .field("error", &self.error)
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "write")]
+impl<W> fmt::Display for FinishError<W> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("finishing the cpio archive failed")
+    }
+}
+
+#[cfg(feature = "write")]
+impl<W> core::error::Error for FinishError<W> {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        Some(&self.error)
+    }
+}
+
+#[cfg(feature = "write")]
+impl<W> From<FinishError<W>> for PathError {
+    fn from(error: FinishError<W>) -> Self {
+        error.into_error()
+    }
+}
+
+#[cfg(all(feature = "write", feature = "std"))]
+impl<W> From<FinishError<W>> for std::io::Error {
+    fn from(error: FinishError<W>) -> Self {
+        error.into_error().into()
+    }
+}
 
 /// What exactly went wrong, beyond the [`ErrorKind`].
 ///

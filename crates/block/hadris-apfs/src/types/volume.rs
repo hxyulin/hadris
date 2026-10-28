@@ -2,9 +2,11 @@
 
 use crate::types::filesystem::DirectoryKeyLayout;
 #[cfg(feature = "alloc")]
-use crate::types::filesystem::NameComparison;
+use crate::types::filesystem::{NameComparison, NormalizationRule};
 use crate::types::object::{ObjectHeader, ObjectType};
 use crate::types::{le_u32, le_u64, take};
+#[cfg(feature = "alloc")]
+use hadris_fs::CaseRule;
 
 /// Magic value in volume superblocks (`APSB` on disk).
 pub const VOLUME_MAGIC: [u8; 4] = *b"APSB";
@@ -97,6 +99,11 @@ pub struct VolumeSuperblock {
 
 impl VolumeSuperblock {
     /// Parses a volume superblock from bytes beginning at an APFS object.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the volume superblock is truncated or has the wrong object
+    /// type or magic.
     pub fn parse(data: &[u8]) -> crate::Result<Self> {
         let object = ObjectHeader::parse(data)?;
         if object.kind() != ObjectType::VolumeSuperblock as u16 {
@@ -152,8 +159,16 @@ impl VolumeSuperblock {
     #[cfg(feature = "alloc")]
     pub const fn name_comparison(&self) -> NameComparison {
         NameComparison::new(
-            self.is_case_insensitive(),
-            self.is_normalization_insensitive(),
+            if self.is_case_insensitive() {
+                CaseRule::InsensitivePreserving
+            } else {
+                CaseRule::Sensitive
+            },
+            if self.is_normalization_insensitive() {
+                NormalizationRule::Insensitive
+            } else {
+                NormalizationRule::Sensitive
+            },
         )
     }
 
@@ -179,6 +194,11 @@ impl VolumeSuperblock {
     /// feature outside [`APFS_READABLE_INCOMPAT_MASK`] is set: an incomplete
     /// restore, the reserved `0x40` bit, or a bit the specification does not
     /// define.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ApfsError::Unsupported`] for an incomplete restore, the
+    /// reserved `0x40` bit, or unknown incompatible feature bits.
     pub const fn check_incompatible_features(&self) -> crate::Result<()> {
         let unreadable = self.incompatible_features & !APFS_READABLE_INCOMPAT_MASK;
         if unreadable == 0 {
@@ -199,6 +219,11 @@ impl VolumeSuperblock {
     }
 
     /// Returns the volume name as UTF-8 up to the first NUL byte.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ApfsError::InvalidValue`] if the volume name before the first
+    /// NUL is not UTF-8.
     pub fn name(&self) -> crate::Result<&str> {
         let len = self
             .volume_name

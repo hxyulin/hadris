@@ -16,3 +16,6 @@ hadris-storage = { workspace = true, features = ["sync", "async"] }
 [target.'cfg(not(target_os = "none"))'.dependencies]
 hadris-fat = { workspace = true, features = ["std"] }
 hadris-storage = { workspace = true, features = ["std"] }
+
+[lints]
+workspace = true

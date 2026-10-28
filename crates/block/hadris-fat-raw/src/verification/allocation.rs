@@ -4,9 +4,9 @@ use crate::{ChainGuard, FatKind, RawFsInfo, layout};
 fn fat_entry_offsets_fit_valid_cluster_domain() {
     let cluster: u32 = kani::any();
     let wide = u64::from(cluster);
-    assert_eq!(FatKind::Fat12.entry_offset(wide), wide + wide / 2);
-    assert_eq!(FatKind::Fat16.entry_offset(wide), wide * 2);
-    assert_eq!(FatKind::Fat32.entry_offset(wide), wide * 4);
+    assert_eq!(FatKind::Fat12.entry_offset(cluster), wide + wide / 2);
+    assert_eq!(FatKind::Fat16.entry_offset(cluster), wide * 2);
+    assert_eq!(FatKind::Fat32.entry_offset(cluster), wide * 4);
 }
 
 #[kani::proof]

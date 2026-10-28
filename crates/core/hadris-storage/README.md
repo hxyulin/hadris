@@ -39,6 +39,7 @@ FAT and exFAT formatters align their layout to it.
 | `ReadOnly` | A read-only view. Over a block device it is a device that is not writable, so drivers mount it read-only, and writes fail with kind `ReadOnly` without reaching the device. Over a `Read + Seek` stream it lets `StreamDevice` work without `Write` |
 | `host::FileDevice` | With `std`, in each enabled mode, an image file (512-byte blocks by default) or disk device (OS-reported logical blocks). `open(path)` is read-only; `new(file)` takes a file the caller opened and is writable when the file is. An image file grows when written past its end |
 | `StreamDevice` | A block device over a `Read + Seek` stream in sync mode, or poll-native `Stream` in async mode. `BlockingStream` explicitly adapts synchronous streams. Growth requires `new_growable`: the sync `StreamDevice::new_growable`, or `BlockingStream::new_growable` in async mode |
+| `StreamDeviceError` | A failed `StreamDevice` construction with its original stream and seek error. `into_parts()` returns both so callers can retry |
 | `Cache` | Write-back LRU cache of whole blocks (`alloc`). Its first write goes straight through, so a read-only device says so at once. Requests of at least `capacity` blocks bypass it |
 | `ReadAhead` | Optional, write-through read buffering (`alloc`). Two windows share a configurable block budget; adjacent access enables larger reads, while scattered misses fetch only requested blocks |
 | `ByteView` | Byte-granular reads and writes over a device, also usable as a stream |
@@ -46,6 +47,16 @@ FAT and exFAT formatters align their layout to it.
 | `BlockGeometry`, `BlockRange` | Checked block geometry and ranges |
 
 ## Opening an image
+
+`StreamDevice::new` measures a stream by seeking to its end. If the seek
+fails, both modes return `StreamDeviceError<T, T::Error>` instead of dropping
+the stream. Use `error()` to inspect the failure, `into_stream()` to recover
+the stream, or `into_parts()` to recover both. Its position may have changed
+before the seek failed. Async cancellation cancels the seek and drops the
+owned stream; it does not return a construction error.
+
+Code that intentionally discards the stream can use
+`.map_err(StreamDeviceError::into_error)?` to propagate `hadris_io::Error<E>`.
 
 `host::FileDevice` opens a host image file with 512-byte blocks by default,
 and its errors are the `std::io::Error` itself. Use
@@ -195,7 +206,7 @@ length through `get_mut` so its readable block count stays accurate.
 
 - [Storage and I/O model](https://hxyulin.github.io/hadris/concepts/storage-model)
 - [Adapt a custom device](https://hxyulin.github.io/hadris/guides/custom-io)
-- [API reference](https://docs.rs/hadris-storage/3.0.0-rc.2)
+- [API reference](https://docs.rs/hadris-storage/3.0.0-rc.3)
 
 ## License
 

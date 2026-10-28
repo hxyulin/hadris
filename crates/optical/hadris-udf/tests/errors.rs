@@ -17,6 +17,44 @@ fn good() -> Vec<u8> {
     image(&sample(), &UdfOptions::default())
 }
 
+#[test]
+fn unsupported_revisions_are_rejected_before_writing() {
+    let tree = Tree::new();
+    for raw in [0, 0x0101, 0x0103, 0x01ff, 0x0202, 0x0240, 0x0251, 0x0300] {
+        let options = UdfOptions::new().with_revision(UdfRevision::from_raw(raw));
+        let error = hadris_udf::plan(&tree, &options).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Unsupported, "revision {raw:#06x}");
+        assert_eq!(
+            error.detail().and_then(Detail::from_code),
+            Some(Detail::Revision)
+        );
+
+        let mut device = MemDevice::new(vec![0xa5; 1 << 20], SECTOR);
+        let error = hadris_udf::sync::write(&mut device, &tree, &options).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Unsupported, "revision {raw:#06x}");
+        assert!(device.get_ref().iter().all(|&byte| byte == 0xa5));
+
+        #[cfg(feature = "async")]
+        {
+            let error = common::block_on(hadris_udf::async_::write(&mut device, &tree, &options))
+                .unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::Unsupported, "revision {raw:#06x}");
+            assert!(device.get_ref().iter().all(|&byte| byte == 0xa5));
+        }
+
+        #[cfg(feature = "bridge")]
+        {
+            let iso = hadris_iso::IsoOptions::new();
+            let error = hadris_udf::plan_bridge(&tree, &iso, &options).unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::Unsupported, "revision {raw:#06x}");
+            let error =
+                hadris_udf::sync::write_bridge(&mut device, &tree, &iso, &options).unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::Unsupported, "revision {raw:#06x}");
+            assert!(device.get_ref().iter().all(|&byte| byte == 0xa5));
+        }
+    }
+}
+
 fn open_err(bytes: Vec<u8>) -> ErrorKind {
     UdfFs::mount(MemDevice::new(bytes, SECTOR), MountOptions::new())
         .unwrap_err()

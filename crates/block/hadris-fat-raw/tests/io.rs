@@ -196,7 +196,7 @@ fn allocate_after_preserves_reserved_bits_and_writes_only_the_active_fat() {
     let tail = io::allocate(&mut dev, &mut block, &mut fat, None).unwrap();
     let candidate = fat.next_free();
     for (cluster, stored) in [(tail, 0xAFFF_FFF8u32), (candidate, 0xB000_0000)] {
-        let at = geo.fat_copy(1) + FatKind::Fat32.entry_offset(cluster as u64);
+        let at = geo.fat_copy(1) + FatKind::Fat32.entry_offset(cluster);
         io::write_bytes(&mut dev, &mut block, at, &stored.to_le_bytes()).unwrap();
     }
     let mut held = Held::NONE;
@@ -231,7 +231,7 @@ fn allocate_run_after_preserves_reserved_bits_on_the_active_fat() {
     let tail = io::allocate(&mut dev, &mut block, &mut fat, None).unwrap();
     let first = fat.next_free();
     for (cluster, stored) in [(tail, 0xAFFF_FFF8u32), (first, 0xB000_0000)] {
-        let at = geo.fat_copy(1) + FatKind::Fat32.entry_offset(cluster as u64);
+        let at = geo.fat_copy(1) + FatKind::Fat32.entry_offset(cluster);
         io::write_bytes(&mut dev, &mut block, at, &stored.to_le_bytes()).unwrap();
     }
     let mut held = Held::NONE;

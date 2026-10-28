@@ -23,6 +23,11 @@ pub struct ObjectHeader {
 
 impl ObjectHeader {
     /// Parses an object header from the beginning of `data`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ApfsError::InputTooSmall`] if the 32-byte object header is
+    /// truncated.
     pub fn parse(data: &[u8]) -> crate::Result<Self> {
         Ok(Self {
             checksum: le_u64(data, 0)?,

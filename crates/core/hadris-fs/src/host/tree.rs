@@ -192,6 +192,11 @@ fn name_bytes(name: &OsStr) -> Option<&[u8]> {
 /// Its length is taken now, so planning does no I/O; a file whose length
 /// changed by then fails the write with both paths. A disk device such as
 /// `/dev/sdb` or `\\.\PhysicalDrive1` gives its whole contents.
+///
+/// # Errors
+///
+/// Returns host opening or measurement errors with `path`, or
+/// [`ErrorKind::IsADirectory`] when the path names a directory.
 pub fn file(path: impl AsRef<Path>) -> Result<Content, PathError> {
     let path = path.as_ref();
     let file =
@@ -479,6 +484,13 @@ impl Reader<'_> {
 /// than 1024 levels deep fails with [`ErrorKind::LimitExceeded`], and with
 /// [`Symlinks::Follow`] a link back to a directory already read fails with
 /// [`ErrorKind::Symlink`].
+///
+/// # Errors
+///
+/// Returns root metadata errors or [`ErrorKind::NotADirectory`] for a
+/// non-directory root. With [`OnError::Fail`], unreadable entries, invalid
+/// names, excessive depth and followed directory cycles stop traversal.
+/// With [`OnError::Skip`], entry failures are returned alongside the tree.
 pub fn read_tree(
     root: impl AsRef<Path>,
     options: &TreeOptions,
@@ -739,6 +751,12 @@ impl Writer {
 /// Errors carry the tree path and the host path. Another process that
 /// swaps a directory below `dir` for a symlink while it runs can still
 /// redirect a write, as with `tar`.
+///
+/// # Errors
+///
+/// Returns invalid-path, existing-entry, content-read and host filesystem
+/// errors with both paths. Previously created entries and written bytes
+/// remain on failure; extraction does not roll back.
 pub fn write_tree(dir: impl AsRef<Path>, tree: &Tree) -> Result<Report, PathError> {
     let dir = dir.as_ref();
     fs::create_dir_all(dir).map_err(|err| host_error(err, "cannot create host directory", dir))?;

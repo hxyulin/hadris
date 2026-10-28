@@ -34,6 +34,11 @@ use crate::{DateTime, ErrorKind, MountOptions, PathError, SystemClock};
 /// pass to `with_time` and `TreeOptions::with_clamp`. `None` when it is
 /// not set; [`ErrorKind::InvalidInput`] when it is not a decimal number of
 /// seconds.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::InvalidInput`] when the value is not a decimal
+/// integer or does not fit the supported [`DateTime`] range.
 pub fn source_date_epoch() -> Result<Option<DateTime>, PathError> {
     let Some(value) = std::env::var_os("SOURCE_DATE_EPOCH") else {
         return Ok(None);

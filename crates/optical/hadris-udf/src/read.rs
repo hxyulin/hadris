@@ -1,5 +1,5 @@
 use hadris_fs::{
-    Capabilities, DirCursor, DirEntry, ErrorKind, FileType, FsResult, FsStats, Metadata,
+    Capabilities, DirCursor, DirEntry, ErrorKind, Extent, FileType, FsResult, FsStats, Metadata,
     MountError, MountOptions, Name, NodeId, OpenMode, Permissions,
 };
 use hadris_storage::BlockIndex;
@@ -999,6 +999,8 @@ impl<D: BlockDevice> UdfFs<D> {
     /// skips the anchor at block 256 for those at the end of the volume
     /// and reads the reserve sequence first. Other options do not apply.
     ///
+    /// # Errors
+    ///
     /// Fails with [`ErrorKind::NotRecognized`] without a UDF recognition
     /// sequence, with [`ErrorKind::Corrupt`] when the structures are
     /// invalid, and with [`ErrorKind::Unsupported`] for partition maps
@@ -1015,6 +1017,10 @@ impl<D: BlockDevice> UdfFs<D> {
 
     /// Gives the device back. The volume is read-only, so there is nothing
     /// to sync and this never fails.
+    ///
+    /// # Errors
+    ///
+    /// This read-only unmount always succeeds and performs no I/O.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all))]
     pub async fn unmount(self) -> Result<D, MountError<D, D::Error>> {
         Ok(self.dev)
@@ -1034,6 +1040,12 @@ impl<D: BlockDevice> UdfFs<D> {
     }
 
     /// Reads `buf.len()` bytes from byte `offset` of the device.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::Corrupt`] if the requested range is outside the
+    /// mounted image, or propagates device failures. An error may leave
+    /// `buf` partly modified.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all, fields(offset = offset, bytes = buf.len())))]
     pub async fn read_raw(&mut self, offset: u64, buf: &mut [u8]) -> Result<(), Error<D::Error>> {
         read_bytes(&mut self.dev, self.info.len, offset, buf).await
@@ -1081,8 +1093,14 @@ impl<D: BlockDevice> UdfFs<D> {
     /// means there are none. Allocated but unrecorded extents are marked
     /// unwritten, holes are left out, and data embedded in the file entry
     /// is one extent inside it. Transformed content returns [`ErrorKind::Unsupported`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidHandle`] for a node outside the volume,
+    /// [`ErrorKind::Corrupt`] for damaged entries or allocation descriptors,
+    /// or a device error. `out` may contain extents found before failure.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all, fields(node = ?node)))]
-    pub async fn extents(&mut self, node: NodeId, from: u64, out: &mut [hadris_fs::Extent]) -> FsResult<usize, D::Error> {
+    pub async fn extents(&mut self, node: NodeId, from: u64, out: &mut [Extent]) -> FsResult<usize, D::Error> {
         let icb = self.icb(node).await?;
         let mut walk = Walk::new(&icb);
         let mut pos = 0u64;
@@ -1093,12 +1111,12 @@ impl<D: BlockDevice> UdfFs<D> {
             };
             let len = piece.len().min(icb.size - pos);
             let extent = match piece {
-                Piece::Disk { offset, .. } => Some(hadris_fs::Extent::new(offset, len)),
-                Piece::Zero { offset: Some(offset), .. } => Some(hadris_fs::Extent::new(offset, len).with_unwritten()),
+                Piece::Disk { offset, .. } => Some(Extent::new(offset, len)),
+                Piece::Zero { offset: Some(offset), .. } => Some(Extent::new(offset, len).with_unwritten()),
                 Piece::Zero { offset: None, .. } => None,
                 Piece::Embedded { start, .. } => {
                     let block = self.info.offset::<D::Error>(icb.at.partition, icb.at.block, 1)?;
-                    Some(hadris_fs::Extent::new(block + start as u64, len))
+                    Some(Extent::new(block + start as u64, len))
                 }
             };
             if let Some(extent) = extent.filter(|_| pos + len > from && len > 0) {
@@ -1116,8 +1134,14 @@ impl<D: BlockDevice> UdfFs<D> {
     /// Locates a node's on-disk record: its file entry, one logical block.
     /// Returns how many it filled; fails with [`ErrorKind::LimitExceeded`]
     /// when `out` is empty.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::LimitExceeded`] if `out` is empty, or
+    /// [`ErrorKind::InvalidHandle`] if the node lies outside the volume.
+    /// Entry corruption and device failures are propagated.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all, fields(node = ?node)))]
-    pub async fn records(&mut self, node: NodeId, out: &mut [hadris_fs::Extent]) -> FsResult<usize, D::Error> {
+    pub async fn records(&mut self, node: NodeId, out: &mut [Extent]) -> FsResult<usize, D::Error> {
         let at = Location::of(node).ok_or(ErrorKind::InvalidHandle)?;
         let block_size = u64::from(self.info.block_size);
         let offset = self
@@ -1125,7 +1149,7 @@ impl<D: BlockDevice> UdfFs<D> {
             .offset::<D::Error>(at.partition, at.block, block_size)
             .map_err(|_| ErrorKind::InvalidHandle)?;
         self.icb(node).await?;
-        *out.first_mut().ok_or(ErrorKind::LimitExceeded)? = hadris_fs::Extent::new(offset, block_size);
+        *out.first_mut().ok_or(ErrorKind::LimitExceeded)? = Extent::new(offset, block_size);
         Ok(1)
     }
 }

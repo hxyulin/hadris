@@ -1,6 +1,6 @@
 [package]
 name = "hadris-iso-raw"
-version = "0.1.0"
+version = "0.2.0"
 description = "ISO on-disk layouts and I/O-free codecs"
 readme = "README.md"
 keywords = ["iso", "no-std", "parser"]
@@ -23,5 +23,5 @@ bitflags = { workspace = true }
 bytemuck = { workspace = true, features = ["derive", "min_const_generics"] }
 hadris-fs = { workspace = true }
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+[lints]
+workspace = true

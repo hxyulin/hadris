@@ -15,6 +15,15 @@ fn mount(image: Vec<u8>) -> ApfsFs<MemDevice<Vec<u8>>> {
 }
 
 #[test]
+fn container_open_failure_returns_the_original_device() {
+    let image = vec![0xa5; BLOCK * 2];
+    let failure = hadris_apfs::sync::Container::open(device(image.clone())).unwrap_err();
+    let (error, device) = failure.into_parts();
+    assert_eq!(error.kind(), ErrorKind::NotRecognized);
+    assert_eq!(device.into_inner(), image);
+}
+
+#[test]
 fn generic_driver_contract_and_sealed_tree() {
     for image in [build_image(), build_image_variant(Variant::Sealed)] {
         let mut fs = mount(image);

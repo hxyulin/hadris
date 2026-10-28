@@ -1,4 +1,5 @@
 use core::fmt;
+use core::str::FromStr;
 
 use hadris_fs::ErrorKind;
 
@@ -16,9 +17,10 @@ const UNITS: usize = 36;
 /// ```rust
 /// use hadris_part::PartitionName;
 ///
-/// let name = PartitionName::new("Système EFI").unwrap();
+/// let name: PartitionName = "Système EFI".parse()?;
 /// assert_eq!(name.to_string(), "Système EFI");
 /// assert_eq!(name.units().len(), 11);
+/// # Ok::<(), hadris_part::TableError>(())
 /// ```
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PartitionName {
@@ -31,7 +33,9 @@ impl PartitionName {
 
     /// Encodes `name` as UTF-16.
     ///
-    /// Fails with [`ErrorKind::NameTooLong`] beyond 36 code units (a
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NameTooLong`] beyond 36 code units (a
     /// character outside the Basic Multilingual Plane takes two) and with
     /// [`ErrorKind::InvalidInput`] when it contains a NUL.
     pub fn new(name: &str) -> Result<Self, TableError> {
@@ -51,7 +55,9 @@ impl PartitionName {
     /// A name from raw UTF-16 code units, which need not be valid UTF-16.
     /// The name ends at the first NUL.
     ///
-    /// Fails with [`ErrorKind::NameTooLong`] beyond 36 units.
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NameTooLong`] beyond 36 units.
     pub fn from_units(units: &[u16]) -> Result<Self, TableError> {
         let used = units.iter().position(|&u| u == 0).unwrap_or(units.len());
         let mut name = Self::EMPTY;
@@ -111,7 +117,9 @@ impl PartitionName {
 
     /// Writes the name as UTF-8 into `buf` and returns it.
     ///
-    /// Fails with [`ErrorKind::Corrupt`] when the name is not valid UTF-16
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::Corrupt`] when the name is not valid UTF-16
     /// and with [`ErrorKind::LimitExceeded`] when `buf` is too small; 108
     /// bytes always suffice.
     pub fn to_str<'a>(&self, buf: &'a mut [u8]) -> Result<&'a str, TableError> {
@@ -133,6 +141,14 @@ impl PartitionName {
 impl Default for PartitionName {
     fn default() -> Self {
         Self::EMPTY
+    }
+}
+
+impl FromStr for PartitionName {
+    type Err = TableError;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        Self::new(name)
     }
 }
 
@@ -159,6 +175,25 @@ mod tests {
 
     use super::*;
     use alloc::string::ToString;
+
+    #[test]
+    fn standard_parsing_preserves_name_validation() {
+        let text = "EFI \u{1F600}";
+        let parsed: PartitionName = text.parse().unwrap();
+        assert_eq!(parsed.to_string(), text);
+        assert_eq!(parsed, PartitionName::new(text).unwrap());
+        for (invalid, expected) in [
+            ("a\0b", ErrorKind::InvalidInput),
+            (&"a".repeat(37), ErrorKind::NameTooLong),
+            (&"\u{1F600}".repeat(19), ErrorKind::NameTooLong),
+        ] {
+            assert_eq!(
+                invalid.parse::<PartitionName>().unwrap_err().kind(),
+                expected,
+                "invalid name {invalid:?}"
+            );
+        }
+    }
 
     #[test]
     fn encodes_and_decodes_beyond_ascii() {

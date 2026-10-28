@@ -1,7 +1,7 @@
 [package]
 name = "hadris-fat"
 autotests = false
-version = "3.0.0-rc.2"
+version = "3.0.0-rc.3"
 description = "Rust FAT12/FAT16/FAT32 filesystem library for disk images, embedded devices, and no-std"
 readme = "README.md"
 keywords = ["fat", "fat32", "vfat", "filesystem", "no-std"]
@@ -166,3 +166,6 @@ required-features = ["std", "sync", "write"]
 [[test]]
 name = "unified_async"
 required-features = ["std", "sync", "async", "write"]
+
+[lints]
+workspace = true

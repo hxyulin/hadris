@@ -83,6 +83,7 @@ extern crate alloc;
 extern crate std;
 
 mod error;
+mod info;
 mod record;
 mod volume;
 
@@ -117,6 +118,7 @@ pub mod sync {
 pub mod async_;
 
 pub use error::Detail;
+pub use info::VolumeInfo;
 
 /// Compiles the README's Rust examples as doctests.
 #[cfg(all(doctest, feature = "std", feature = "sync"))]

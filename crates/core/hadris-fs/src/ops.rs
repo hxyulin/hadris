@@ -223,6 +223,12 @@ impl OpenOptions {
 
     /// Rejects contradictory combinations and options that request no
     /// access.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OpenOptionsError::NoAccess`] when no access is requested,
+    /// [`OpenOptionsError::RequiresWrite`] for mutation flags without write
+    /// access, or [`OpenOptionsError::AppendWithTruncate`] for conflicting modes.
     pub const fn validate(&self) -> Result<(), OpenOptionsError> {
         if !self.is_read() && !self.is_write() {
             return Err(OpenOptionsError::NoAccess);

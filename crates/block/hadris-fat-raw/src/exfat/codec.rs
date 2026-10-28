@@ -139,6 +139,11 @@ impl Geometry {
 
 /// Checks a boot sector and returns its geometry, or the name of the first
 /// field that is wrong.
+///
+/// # Errors
+///
+/// Returns the name of the first field with an unsupported value, overflowing range, or
+/// inconsistent boot-sector geometry.
 pub fn parse_boot(boot: &BootSector) -> Result<Geometry, &'static str> {
     if boot.file_system_name != raw::FILE_SYSTEM_NAME {
         return Err("FileSystemName");
@@ -332,6 +337,12 @@ impl NameUnits {
     /// Encodes a name for a new entry. Fails with `NameTooLong` above 255
     /// units, and with `InvalidInput` for an empty name, `.`, `..`, a
     /// character exFAT forbids, or a trailing dot or space.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ErrorKind::NameTooLong` above 255 UTF-16 units, or
+    /// `ErrorKind::InvalidInput` for an empty, reserved or forbidden name, including a
+    /// trailing dot or space.
     pub fn encode(text: &str) -> Result<Self, ErrorKind> {
         if text.is_empty() || text == "." || text == ".." || text.ends_with(['.', ' ']) {
             return Err(ErrorKind::InvalidInput);

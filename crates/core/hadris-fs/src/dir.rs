@@ -55,6 +55,11 @@ impl DirEntry {
 
     /// Creates an entry. Fails when `name` is not a valid name or is longer
     /// than [`MAX_NAME`](Self::MAX_NAME).
+    ///
+    /// # Errors
+    ///
+    /// Returns the name validation error, or [`NameError::TooLong`] if the
+    /// name exceeds [`MAX_NAME`](Self::MAX_NAME).
     pub fn new(
         name: &Name,
         node: NodeId,

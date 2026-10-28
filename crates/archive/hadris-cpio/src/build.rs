@@ -5,8 +5,8 @@ use alloc::vec::Vec;
 use core::convert::Infallible;
 
 use hadris_fs::{
-    Content, DateTime, DeviceNumber, Extent, Field, FileType, Node, PathError, Report, SetAttr,
-    Tree, Warning, WarningKind,
+    Content, DateTime, DeviceNumber, ErrorKind, Extent, Field, FileType, Node, PathError, Report,
+    SetAttr, Tree, Warning, WarningKind,
 };
 
 use crate::error::{Detail, Error};
@@ -15,7 +15,6 @@ use crate::options::{CpioOptions, Format};
 use hadris_cpio_raw::{
     self as raw, NewcFields, NewcHeader, OdcFields, OdcHeader, PATH_MAX, TRAILER_NAME,
 };
-use hadris_fs::ErrorKind;
 
 /// The header fields of one entry, before encoding.
 #[derive(Debug, Clone, Copy)]
@@ -59,24 +58,26 @@ pub(crate) fn encode<E>(
     let small = |value: u64| u32::try_from(value).map_err(|_| limit());
     match format {
         Format::Newc | Format::Crc => {
-            let header = NewcHeader::new(
-                format == Format::Crc,
-                &NewcFields {
-                    ino: small(fields.ino)?,
-                    mode: fields.mode,
-                    uid: fields.uid,
-                    gid: fields.gid,
-                    nlink: small(fields.nlink)?,
-                    mtime: small(fields.mtime)?,
-                    filesize: small(fields.len)?,
-                    devmajor: 0,
-                    devminor: 0,
-                    rdevmajor: fields.rdev.major(),
-                    rdevminor: fields.rdev.minor(),
-                    namesize: small(namesize as u64)?,
-                    check: fields.check,
-                },
-            );
+            let fields = NewcFields {
+                ino: small(fields.ino)?,
+                mode: fields.mode,
+                uid: fields.uid,
+                gid: fields.gid,
+                nlink: small(fields.nlink)?,
+                mtime: small(fields.mtime)?,
+                filesize: small(fields.len)?,
+                devmajor: 0,
+                devminor: 0,
+                rdevmajor: fields.rdev.major(),
+                rdevminor: fields.rdev.minor(),
+                namesize: small(namesize as u64)?,
+                check: fields.check,
+            };
+            let header = if format == Format::Crc {
+                NewcHeader::new_crc(&fields)
+            } else {
+                NewcHeader::new(&fields)
+            };
             out.copy_from_slice(&header.0);
             Ok(raw::NEWC_HEADER_LEN)
         }
@@ -406,6 +407,8 @@ pub(crate) fn plan_tree<'t>(
 /// report `write` returns: the archive size with its trailer, what cpio
 /// drops, and where each file's data starts, counted from the start of the
 /// archive.
+///
+/// # Errors
 ///
 /// Fails as `write` does before it writes anything: a name that is empty,
 /// holds a NUL or is the trailer's name fails with

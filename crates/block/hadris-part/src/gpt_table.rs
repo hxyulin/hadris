@@ -23,6 +23,7 @@ use crate::{GptCopy, Guid, Partition, PartitionFlags, PartitionName};
 /// assert_eq!(entry.len(), 204_800);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
 pub struct GptEntry {
     type_guid: Guid,
     unique_guid: Guid,
@@ -140,7 +141,9 @@ impl Gpt {
     /// blocks, the primary entries from block 2 and the backup header in the
     /// last block.
     ///
-    /// Fails with [`ErrorKind::Unsupported`] unless the block size is a
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::Unsupported`] unless the block size is a
     /// power of two of at least 512 bytes, and with [`ErrorKind::NoSpace`]
     /// when the disk leaves no usable block.
     pub fn new(
@@ -274,7 +277,9 @@ impl Gpt {
     /// bytes. Smaller counts are accepted, as `sgdisk` accepts them, but
     /// such a table is outside the specification.
     ///
-    /// Fails with [`ErrorKind::InvalidInput`] when `count` is zero or drops
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] when `count` is zero or drops
     /// a used slot, [`ErrorKind::LimitExceeded`] when the array would pass
     /// 64 MiB, the largest one `read` accepts, [`ErrorKind::NoSpace`] when
     /// the disk leaves no usable block, and with [`Detail::Overlap`] naming
@@ -312,7 +317,9 @@ impl Gpt {
     /// block the one before that array, as `sgdisk -e` does after an image
     /// grows. The first usable block stays.
     ///
-    /// Fails with [`ErrorKind::NoSpace`] when the disk leaves no usable
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NoSpace`] when the disk leaves no usable
     /// block, and with [`ErrorKind::InvalidInput`] and
     /// [`Detail::Overlap`] naming the first partition that would end past
     /// the new usable area.
@@ -385,7 +392,9 @@ impl Gpt {
 
     /// Adds a partition in the first unused slot and returns its index.
     ///
-    /// Fails with [`ErrorKind::LimitExceeded`] when every slot is used and
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::LimitExceeded`] when every slot is used and
     /// [`ErrorKind::InvalidInput`] when the entry has the unused (nil) type,
     /// no blocks, lies outside the usable area or overlaps a partition.
     pub fn add(&mut self, entry: GptEntry) -> Result<usize, TableError> {
@@ -400,6 +409,11 @@ impl Gpt {
     }
 
     /// Clears slot `index`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] when `index` is outside the table
+    /// or names an unused slot.
     pub fn remove(&mut self, index: usize) -> Result<(), TableError> {
         self.used(index)?;
         self.entries[index] = RawGptEntry::default();
@@ -408,26 +422,49 @@ impl Gpt {
 
     /// Changes the length of partition `index` to `len` blocks, keeping its
     /// first block.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] for an unused or missing slot, or
+    /// [`ErrorKind::InvalidInput`] if the new length is zero, exceeds the
+    /// usable area, or overlaps another partition. The table is unchanged.
     pub fn resize(&mut self, index: usize, len: u64) -> Result<(), TableError> {
         self.edit(index, |entry| entry.len = len)
     }
 
     /// Changes the type of partition `index`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] for an unused or missing slot, or
+    /// [`ErrorKind::InvalidInput`] for the nil type GUID. The table is unchanged.
     pub fn set_type(&mut self, index: usize, type_guid: Guid) -> Result<(), TableError> {
         self.edit(index, |entry| entry.type_guid = type_guid)
     }
 
     /// Changes the unique GUID of partition `index`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] for an unused or missing slot.
     pub fn set_unique_guid(&mut self, index: usize, unique_guid: Guid) -> Result<(), TableError> {
         self.edit(index, |entry| entry.unique_guid = unique_guid)
     }
 
     /// Renames partition `index`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] for an unused or missing slot.
     pub fn set_name(&mut self, index: usize, name: PartitionName) -> Result<(), TableError> {
         self.edit(index, |entry| entry.name = name)
     }
 
     /// Replaces attribute bits 0 to 2 of partition `index` with `flags`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] for an unused or missing slot.
     pub fn set_flags(&mut self, index: usize, flags: PartitionFlags) -> Result<(), TableError> {
         self.edit(index, |entry| {
             entry.attributes = flags.to_gpt(entry.attributes)
@@ -435,6 +472,10 @@ impl Gpt {
     }
 
     /// Replaces all 64 attribute bits of partition `index`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] for an unused or missing slot.
     pub fn set_attributes(&mut self, index: usize, attributes: u64) -> Result<(), TableError> {
         self.edit(index, |entry| entry.attributes = attributes)
     }

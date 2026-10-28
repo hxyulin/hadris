@@ -19,14 +19,14 @@ fn container_inspection_and_selected_volume_reads() {
     let image = dir.path().join("container.apfs");
     std::fs::write(&image, common::multi_volume_image()).unwrap();
     let info = run(&image, "info", &[]);
-    assert!(info.status.success(), "{:?}", info);
+    assert!(info.status.success(), "{info:?}");
     assert!(String::from_utf8_lossy(&info.stdout).contains("Other"));
     assert!(!run(&image, "ls", &["/"]).status.success());
     let list = run(&image, "ls", &["/", "--volume-name", "Other"]);
-    assert!(list.status.success(), "{:?}", list);
+    assert!(list.status.success(), "{list:?}");
     assert!(String::from_utf8_lossy(&list.stdout).contains("file0.txt"));
     let cat = run(&image, "cat", &["/file0.txt", "--volume-object-id", "2048"]);
-    assert!(cat.status.success(), "{:?}", cat);
+    assert!(cat.status.success(), "{cat:?}");
     assert_eq!(cat.stdout, common::file_contents(0));
     assert!(
         run(&image, "stat", &["/file0.txt", "--volume-name", "Other"])
@@ -39,7 +39,7 @@ fn container_inspection_and_selected_volume_reads() {
         "extract",
         &["/", "--volume-name", "Other", "-o", out.to_str().unwrap()],
     );
-    assert!(extracted.status.success(), "{:?}", extracted);
+    assert!(extracted.status.success(), "{extracted:?}");
     assert_eq!(
         std::fs::read(out.join("file0.txt")).unwrap(),
         common::file_contents(0)
@@ -52,7 +52,7 @@ fn symlink_cat_and_hardlink_extraction_use_shared_driver() {
     let image = dir.path().join("container.apfs");
     std::fs::write(&image, common::use_case_image()).unwrap();
     let cat = run(&image, "cat", &["/link"]);
-    assert!(cat.status.success(), "{:?}", cat);
+    assert!(cat.status.success(), "{cat:?}");
     assert_eq!(cat.stdout, common::file_contents(0));
     let out = dir.path().join("extracted");
     let extracted = run(
@@ -60,7 +60,7 @@ fn symlink_cat_and_hardlink_extraction_use_shared_driver() {
         "extract",
         &["/alias.txt", "-o", out.to_str().unwrap()],
     );
-    assert!(extracted.status.success(), "{:?}", extracted);
+    assert!(extracted.status.success(), "{extracted:?}");
     assert_eq!(
         std::fs::read(out.join("alias.txt")).unwrap(),
         common::file_contents(0)
@@ -103,6 +103,6 @@ fn whole_disk_partition_selection_is_explicit_when_ambiguous() {
     std::fs::write(&image, device.into_inner()).unwrap();
     assert!(!run(&image, "info", &["--gpt"]).status.success());
     let cat = run(&image, "cat", &["/file0.txt", "--partition", "1"]);
-    assert!(cat.status.success(), "{:?}", cat);
+    assert!(cat.status.success(), "{cat:?}");
     assert_eq!(cat.stdout, common::file_contents(0));
 }

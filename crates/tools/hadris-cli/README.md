@@ -8,7 +8,7 @@ With [cargo-binstall](https://github.com/cargo-bins/cargo-binstall) installed,
 download a prebuilt binary:
 
 ```bash
-cargo binstall hadris-cli --version 3.0.0-rc.2
+cargo binstall hadris-cli --version 3.0.0-rc.3
 ```
 
 Release assets cover Linux x86-64/ARM64 (static musl binaries), macOS Intel/
@@ -18,7 +18,7 @@ includes APFS inspection and extraction as `hadris apfs`.
 Or compile it from crates.io with Rust 1.88 or newer:
 
 ```bash
-cargo install hadris-cli --version 3.0.0-rc.2 --locked
+cargo install hadris-cli --version 3.0.0-rc.3 --locked
 ```
 
 For development, build it from a workspace checkout:
@@ -171,7 +171,7 @@ are replaced by these subcommands and no longer installed.
 - [Detect and open images](https://hxyulin.github.io/hadris/guides/detect-open-images)
 - [Read a FAT image](https://hxyulin.github.io/hadris/guides/read-fat-image)
 - [Create a UDF or bridge image](https://hxyulin.github.io/hadris/creation/udf)
-- [Library API](https://docs.rs/hadris/3.0.0-rc.2)
+- [Library API](https://docs.rs/hadris/3.0.0-rc.3)
 
 ## License
 

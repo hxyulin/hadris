@@ -68,15 +68,23 @@ pub struct FileDevice {
 
 impl FileDevice {
     /// Opens the image or device at `path` read-only.
+    ///
+    /// # Errors
+    ///
+    /// Returns host errors when opening or measuring the file fails, or
+    /// [`io::ErrorKind::Unsupported`] when device geometry cannot be determined.
     pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
         Self::measure(File::open(path)?, false, None)
     }
 
     /// Wraps a file opened by the caller, measuring its size.
     ///
-    /// The device is writable when the file was opened for writing. Fails
-    /// with [`io::ErrorKind::Unsupported`] when the size or logical block
-    /// size of a disk device cannot be determined.
+    /// The device is writable when the file was opened for writing.
+    ///
+    /// # Errors
+    ///
+    /// Returns measurement errors or [`io::ErrorKind::Unsupported`] when the
+    /// device geometry cannot be determined. The file is dropped on failure.
     pub fn new(file: File) -> io::Result<Self> {
         let writable = accepts_writes(&file);
         Self::measure(file, writable, None)
@@ -86,6 +94,11 @@ impl FileDevice {
     ///
     /// For disk images, pass the logical sector size of the original disk.
     /// For physical devices, the caller must supply the actual logical block size.
+    ///
+    /// # Errors
+    ///
+    /// Returns host errors when opening or measuring the file fails, or
+    /// [`io::ErrorKind::Unsupported`] when its size cannot be determined.
     pub fn open_with_block_size(path: impl AsRef<Path>, block_size: BlockSize) -> io::Result<Self> {
         Self::measure(File::open(path)?, false, Some(block_size))
     }
@@ -94,15 +107,24 @@ impl FileDevice {
     ///
     /// The device is writable when the file accepts writes. For physical
     /// devices, the caller must supply the actual logical block size.
+    ///
+    /// # Errors
+    ///
+    /// Returns errors from measuring the file, including
+    /// [`io::ErrorKind::Unsupported`] when its size cannot be determined.
+    /// The file is dropped on failure.
     pub fn with_block_size(file: File, block_size: BlockSize) -> io::Result<Self> {
         let writable = accepts_writes(&file);
         Self::measure(file, writable, Some(block_size))
     }
 
     /// Reports `physical` as the physical block size, for an image of a disk
-    /// whose physical blocks are larger than its logical ones. Fails with
-    /// [`io::ErrorKind::InvalidInput`] unless it is a multiple of the
-    /// logical block size.
+    /// whose physical blocks are larger than its logical ones.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::ErrorKind::InvalidInput`] if `physical` is not a multiple
+    /// of the logical block size. The device is dropped on failure.
     pub fn with_physical_block_size(mut self, physical: BlockSize) -> io::Result<Self> {
         if physical.get() % self.block_size.get() != 0 {
             return Err(io::Error::new(
@@ -417,8 +439,10 @@ impl crate::async_::BlockDevice for FileDevice {
 /// Linux block device, is measured by seeking to the end; the position is
 /// restored afterwards.
 ///
-/// Fails with [`io::ErrorKind::Unsupported`] when a file that is not a
-/// regular file measures 0 bytes, since its size could not be determined.
+/// # Errors
+///
+/// Returns seek errors or [`io::ErrorKind::Unsupported`] when a non-regular
+/// file measures zero bytes. A failed seek may leave the position changed.
 pub fn file_len(file: &File) -> io::Result<u64> {
     let meta = file.metadata().ok();
     let regular = meta
@@ -581,6 +605,8 @@ fn query_block_size(file: &File) -> Option<u32> {
     #[cfg(target_os = "linux")]
     let ok = unsafe { libc::ioctl(file.as_raw_fd(), request, &mut size as *mut u32) == 0 };
     #[cfg(not(target_os = "linux"))]
+    // SAFETY: The descriptor remains open, and this request writes one u32
+    // logical sector size into the supplied pointer.
     let ok = unsafe { ioctl(file.as_raw_fd(), request, &mut size as *mut u32) == 0 };
     ok.then_some(size)
 }

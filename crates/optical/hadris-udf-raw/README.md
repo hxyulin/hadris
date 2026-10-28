@@ -6,7 +6,7 @@ The package starts at version 0.1.0 and versions independently of the driver.
 
 ```toml
 [dependencies]
-hadris-udf-raw = "0.1.0"
+hadris-udf-raw = "0.1.1"
 ```
 
 Every item is at the crate root. `hadris-udf` builds on this crate but
@@ -16,7 +16,7 @@ mounting, filesystem access and image writing.
 
 ## Documentation
 
-- [API reference](https://docs.rs/hadris-udf-raw/0.1.0)
+- [API reference](https://docs.rs/hadris-udf-raw/0.1.1)
 - [Hadris documentation](https://hxyulin.github.io/hadris/)
 - [`hadris-udf`](../hadris-udf), the driver using these codecs
 
