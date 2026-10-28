@@ -6,6 +6,7 @@ use std::path::{Component, Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use hadris_fs::FileType;
 use hadris_io::sync::Read;
+use tempfile::{NamedTempFile, TempPath};
 
 use hadris_cpio::sync::Entry;
 
@@ -135,11 +136,20 @@ fn relink(data: &Path, name: &Path, created: &HashSet<PathBuf>) -> Result<()> {
 
 /// The extracted names of a hard link group, in archive order. Once
 /// `linked`, they are all names of the file holding the group's data;
-/// before, each is an empty file waiting for it.
+/// before, each is an empty file waiting for it. `data` is a closed
+/// temporary copy of the group's data, kept only while no extracted name
+/// holds it, so open descriptors and temporary storage do not grow with
+/// the number of linked groups.
 #[derive(Default)]
 struct Group {
     names: Vec<PathBuf>,
     linked: bool,
+    data: Option<TempPath>,
+}
+
+/// A temporary file to retain hard link data in.
+fn retain() -> Result<NamedTempFile> {
+    NamedTempFile::new().context("Failed to retain hard link data")
 }
 
 /// The hard link groups, with the group each name belongs to, so a later
@@ -152,15 +162,26 @@ struct Links {
 }
 
 impl Links {
-    fn release(&mut self, path: &Path) {
+    /// Takes `path` out of its group before it is replaced, copying the
+    /// group's data first when `path` is the last name holding it.
+    fn release(&mut self, path: &Path, created: &HashSet<PathBuf>) -> Result<()> {
         if let Some(key) = self.owners.remove(path)
             && let Some(group) = self.groups.get_mut(&key)
         {
             group.names.retain(|name| name != path);
             if group.names.is_empty() {
+                if group.linked {
+                    ours(path, created)?;
+                    let mut source = File::open(path).context("Failed to retain hard link data")?;
+                    let mut data = retain()?;
+                    std::io::copy(&mut source, &mut data)
+                        .context("Failed to retain hard link data")?;
+                    group.data = Some(data.into_temp_path());
+                }
                 group.linked = false;
             }
         }
+        Ok(())
     }
 }
 
@@ -217,6 +238,16 @@ impl Extractor {
             file.write_all(&self.buf[..read])
                 .with_context(|| format!("Failed to write file: {}", dest.display()))?;
         }
+        if entry.nlink() > 1 && entry.is_empty() {
+            let group = self.links.groups.entry(link_key(entry)).or_default();
+            if let Some(data) = group.data.take() {
+                let mut data =
+                    File::open(&data).context("Failed to read retained hard link data")?;
+                std::io::copy(&mut data, &mut file)
+                    .with_context(|| format!("Failed to write file: {}", dest.display()))?;
+                group.linked = true;
+            }
+        }
         set_mode(&file, entry.mode() & self.mask);
         Ok(())
     }
@@ -237,6 +268,7 @@ impl Extractor {
             }
         }
         group.linked = true;
+        group.data = None;
         Ok(())
     }
 
@@ -253,6 +285,17 @@ impl Extractor {
             .get(&key)
             .and_then(|group| group.names.first().cloned())
         else {
+            let mut data = retain()?;
+            loop {
+                let n = entry
+                    .read(&mut self.buf)
+                    .context("Failed to read file data")?;
+                if n == 0 {
+                    break;
+                }
+                data.write_all(&self.buf[..n])?;
+            }
+            self.links.groups.entry(key).or_default().data = Some(data.into_temp_path());
             return Ok(());
         };
         ours(&first, &self.created)?;
@@ -392,7 +435,7 @@ pub fn extract(
         if let Some(parent) = dest.parent() {
             make_dirs(&x.output, parent, &mut x.made)?;
         }
-        x.links.release(&dest);
+        x.links.release(&dest, &x.created)?;
         replace(&dest, &x.created)?;
         match file_type {
             FileType::Dir => {

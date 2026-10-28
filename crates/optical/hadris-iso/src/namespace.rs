@@ -15,7 +15,8 @@ pub enum Namespace {
     RockRidge,
     /// The Joliet tree.
     Joliet,
-    /// The ISO 9660:1999 enhanced tree.
+    /// The ISO 9660:1999 enhanced tree, whose names include literal semicolons
+    /// and have no version suffixes.
     Enhanced,
 }
 

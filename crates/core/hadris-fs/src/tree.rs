@@ -23,6 +23,9 @@ pub(crate) type ReadFuture<'a> =
 #[cfg(feature = "async")]
 pub(crate) trait AsyncSource: Send + Sync {
     fn read_at<'a>(&'a self, offset: u64, buf: &'a mut [u8]) -> ReadFuture<'a>;
+
+    /// The volume reads go through, identified by address.
+    fn origin(&self) -> *const ();
 }
 
 #[derive(Clone)]
@@ -57,6 +60,15 @@ pub struct Content {
 }
 
 impl Content {
+    /// The volume lazy async content reads through, identified by address.
+    #[cfg(feature = "async")]
+    pub(crate) fn origin(&self) -> Option<*const ()> {
+        match &self.repr {
+            Repr::Async(source) => Some(source.origin()),
+            _ => None,
+        }
+    }
+
     /// No bytes.
     pub fn empty() -> Self {
         Self::bytes(Vec::new())

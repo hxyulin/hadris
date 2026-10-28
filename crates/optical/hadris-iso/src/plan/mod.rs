@@ -155,6 +155,7 @@ impl Region {
 /// The layout of an image.
 #[derive(Debug)]
 pub(crate) struct Plan {
+    pub(crate) catalog: Option<u32>,
     pub(crate) regions: Vec<Region>,
     /// The block after the ISO data, where a backup GPT region starts.
     pub(crate) end_blocks: u64,
@@ -394,7 +395,8 @@ fn join(parent: &[u8], name: &[u8]) -> Vec<u8> {
 /// [`ErrorKind::InvalidInput`] for a missing boot image, a diskette image
 /// of the wrong size, a load size of zero, an identifier that does not
 /// fit, a relocation clash or a tree too deep without Rock Ridge;
-/// [`ErrorKind::LimitExceeded`] for MBR boot code over 446 bytes;
+/// [`ErrorKind::LimitExceeded`] for MBR boot code over 446 bytes or more
+/// than 1024 El Torito entries;
 /// [`ErrorKind::FileTooLarge`] for a file of 4 GiB or more below Level 3;
 /// and [`ErrorKind::Unsupported`] for content stored on another image.
 #[cfg_attr(
@@ -1154,6 +1156,9 @@ impl Planner<'_> {
             return Ok(None);
         };
         let entries = el_torito.entries();
+        if entries.len() > crate::boot::CatalogParser::MAX_ENTRIES {
+            return Err(Detail::BootCatalog.error(ErrorKind::LimitExceeded));
+        }
         let mut out = Vec::new();
         let platform = entries
             .first()

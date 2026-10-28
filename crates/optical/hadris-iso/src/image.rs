@@ -688,10 +688,11 @@ impl View {
         }
         let len = match self.namespace {
             Namespace::Joliet => crate::name::decode_ucs2(record.name(), out),
+            Namespace::Enhanced => crate::name::sanitize(record.name(), out),
             _ => crate::name::sanitize(crate::name::strip_version(record.name()), out),
         }
         .ok_or(Error::from(ErrorKind::NameTooLong))?;
-        Ok(Some(Listed { len, rr: None, version: crate::name::version(record.name(), self.namespace == Namespace::Joliet), damaged: false }))
+        Ok(Some(Listed { len, rr: None, version: self.record_version(record.name()), damaged: false }))
     }
 
     async fn listed_id<D: BlockDevice>(
@@ -801,6 +802,14 @@ impl View {
         Ok(relocated)
     }
 
+    fn record_version(&self, name: &[u8]) -> Option<u16> {
+        if self.namespace == Namespace::Enhanced {
+            None
+        } else {
+            crate::name::version(name, self.namespace == Namespace::Joliet)
+        }
+    }
+
     async fn has_versions<D: BlockDevice>(&mut self, dev: &mut D, dir: Dir) -> Result<bool, Error<D::Error>> {
         if let Some((cached, found)) = self.versions {
             if cached == dir { return Ok(found); }
@@ -809,7 +818,7 @@ impl View {
         let mut block = Block::new();
         let mut multiple = false;
         while let Some(found) = self.next_record(dev, dir, &mut pos, &mut block).await? {
-            if crate::name::version(found.record.name(), self.namespace == Namespace::Joliet).is_some_and(|version| version > 1) {
+            if self.record_version(found.record.name()).is_some_and(|version| version > 1) {
                 multiple = true;
                 break;
             }
@@ -819,7 +828,7 @@ impl View {
     }
 
     async fn find_name<D: BlockDevice>(&mut self, dev: &mut D, dir: Dir, name: &Name, explicit: bool) -> FsResult<Option<(Found, Listed)>, D::Error> {
-        let requested = if explicit { crate::name::version(name.as_bytes(), false) } else { None };
+        let requested = if explicit && self.namespace != Namespace::Enhanced { crate::name::version(name.as_bytes(), false) } else { None };
         let multiple = requested.is_none() && self.versions.filter(|(cached, _)| *cached == dir).is_none_or(|(_, found)| found);
         let mut versions = false;
         let mut pos = 0;
@@ -827,7 +836,7 @@ impl View {
         let mut buf = [0u8; 1024];
         let mut best: Option<(Found, Listed, bool)> = None;
         while let Some(found) = self.next_record(dev, dir, &mut pos, &mut block).await? {
-            versions |= crate::name::version(found.record.name(), self.namespace == Namespace::Joliet).is_some_and(|version| version > 1);
+            versions |= self.record_version(found.record.name()).is_some_and(|version| version > 1);
             let listed = self.list(dev, &found, &mut buf).await?;
             self.skip_continuations(dev, dir, &mut pos, &mut block, &found.record).await?;
             let Some(listed) = listed else { continue; };
@@ -1269,9 +1278,6 @@ impl<D: BlockDevice> IsoFs<D> {
         let mut read = 0;
         let mut end = 0;
         while !parser.is_done() {
-            if end / 32 > CatalogParser::MAX_ENTRIES + 1 {
-                return Err(Detail::BootCatalog.corrupt());
-            }
             if end == read {
                 if read == usable {
                     return Err(ErrorKind::LimitExceeded.into());

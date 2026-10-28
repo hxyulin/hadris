@@ -39,6 +39,14 @@ Each published package owns its version and may be released independently.
   to recover the error and stream, or `into_error()` to discard the stream
   and propagate `hadris_io::Error<T::Error>`. The crate advances to
   `3.0.0-rc.3` for this API change.
+- **hadris-fs:** Async `copy_tree` now takes `&Volume<F>` rather than
+  `&mut F` and requires pointer-sized atomics, so cancelled copies queue
+  their file closes and pin releases for the next volume operation.
+  Async FAT/exFAT tree writers consequently require pointer-sized atomics;
+  sync tree writers and raw formatting retain their existing target support.
+  Copying a tree that `read_tree` read from the destination volume itself
+  returns `Unsupported` before writing, instead of waiting forever on the
+  volume.
 - **hadris-iso, hadris-udf, hadris-cpio:** The writers moved from `alloc`
   to a new default `write` feature, so `alloc` now only means a heap. In
   hadris-iso, `write` adds `plan`, `{sync, async_}::{write, Session}` and
@@ -189,6 +197,28 @@ Each published package owns its version and may be released independently.
   temporary scratch, and caches the result across dirty nodes and recovery.
 - **hadris-fat-raw:** Add sync/async `exfat::io::check_allocations`, reusing the
   checker's windowed ownership walk without changing the device.
+- **hadris-iso:** Sessions retain newly written El Torito catalogs across
+  successive writes and update every boot entry in catalogs larger than 16 KiB.
+  Malformed catalogs beyond the reader limit now fail instead of being truncated.
+  The 1024-entry limit counts boot entries rather than 32-byte records, so
+  catalogs the writer produces with up to 1024 entries read back. Plans with
+  more entries fail with `LimitExceeded` and `Detail::BootCatalog`.
+- **hadris-iso:** Editing sessions preserve hard links for empty files,
+  symlinks and special nodes, and accept long Rock Ridge symlink targets
+  supported by the reader and writer.
+
+- **hadris-fat:** Reject invalid formatter sector sizes before arithmetic, including
+  zero, without modifying the device.
+- **hadris-iso:** Preserve literal semicolon names in ISO 9660:1999 enhanced
+  trees during listing and lookup instead of interpreting them as versions.
+- **hadris-cli:** Selected cpio hard links retain data from earlier
+  unselected entries, including stdin archives. Data is retained in closed
+  temporary files only while no extracted name holds it, so archives with
+  many hard link groups no longer exhaust file descriptors or temporary
+  storage.
+- **hadris-fs:** Host tree extraction finalizes directory permissions and
+  times after deferred symlinks; `create_dir_all` follows the configured
+  symlink resolution policy.
 
 - **hadris-apfs:** Name comparison folds case and canonical decomposition as
   the volume's flags ask, following the default case algorithms of the

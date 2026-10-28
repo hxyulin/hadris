@@ -561,3 +561,33 @@ fn read_takes_the_length_as_a_hint() {
     let fs = vol.into_inner().unwrap();
     assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));
 }
+
+#[test]
+fn create_dir_all_resolves_symlink_components() {
+    for policy in [Resolve::Follow, Resolve::NoFollow] {
+        let mut fs = fixture();
+        fs.add("/", "absolute_dir", FileType::Symlink, b"/etc");
+        let vol = Volume::with_resolve(fs, policy);
+        vol.create_dir_all("/absolute_dir/absolute").unwrap();
+        vol.create_dir_all("/etc/up/relative").unwrap();
+        assert_eq!(
+            vol.create_dir_all("/loop/new").unwrap_err().kind(),
+            ErrorKind::Symlink
+        );
+        vol.create_dir_all("/link/").unwrap();
+        vol.create_dir_all("/link/new/deep").unwrap();
+        assert!(vol.metadata("/etc/new/deep").unwrap().file_type().is_dir());
+        vol.create_dir_all("/link/new/../other").unwrap();
+        assert!(vol.metadata("/etc/other").unwrap().file_type().is_dir());
+        assert_eq!(open_nodes(vol), 1);
+    }
+    let vol = Volume::with_resolve(fixture(), Resolve::Follow);
+    vol.create_dir_all("/link").unwrap();
+    assert_eq!(open_nodes(vol), 1);
+    let vol = Volume::with_resolve(fixture(), Resolve::NoFollow);
+    assert_eq!(
+        vol.create_dir_all("/link").unwrap_err().kind(),
+        ErrorKind::NotADirectory
+    );
+    assert_eq!(open_nodes(vol), 1);
+}

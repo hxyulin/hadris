@@ -401,7 +401,18 @@ async fn format_prepared<D: BlockDevice>(dev: &mut D, options: &ExFatOptions, pr
 
 }
 
-#[cfg(feature = "alloc")]
+sync_only! {
+    macro_rules! alloc_tree {
+        ($($item:item)*) => { $(#[cfg(feature = "alloc")] $item)* };
+    }
+}
+async_only! {
+    macro_rules! alloc_tree {
+        ($($item:item)*) => { $(#[cfg(all(feature = "alloc", target_has_atomic = "ptr"))] $item)* };
+    }
+}
+
+alloc_tree! {
 mod tree {
     use hadris_fs::{MountOptions, PathError, Report, Tree};
 
@@ -441,6 +452,8 @@ mod tree {
     /// Later formatting, source-read, copy or unmount failures carry the failing tree path
     /// when available and may leave a partial volume.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat", level = "trace", skip_all))]
+    ///
+    /// The async mode requires pointer-sized atomics for cancellation cleanup.
     pub async fn write<D: BlockDevice>(mut out: D, tree: &Tree, options: &ExFatOptions) -> Result<Report, PathError> {
         let options = options.with_seed(tree_seed(options.time, options.seed, tree));
         let tree = stamped(tree, options.time)?;
@@ -452,9 +465,14 @@ mod tree {
             max_dir_entries: hadris_fat_raw::exfat::MAX_DIRECTORY_SIZE / 32, max_file: u64::MAX,
         }, |name| hadris_fat_raw::exfat::NameUnits::encode(name).map(|name| 2 + name.entries() as u32))?;
         let (_, volume) = format_prepared(&mut out, &options, prepared).await?;
-        let mut fs = ExFatFs::mount(out, MountOptions::new()).await?;
+        let fs = ExFatFs::mount(out, MountOptions::new()).await?;
         let root = fs.root();
-        let mut report = copy_tree(&tree, &mut fs, root).await?;
+        sync_only! { let mut fs = fs; let mut report = copy_tree(&tree, &mut fs, root).await?; }
+        async_only! {
+            let target_volume = hadris_fs::async_::Volume::new(fs);
+            let mut report = copy_tree(&tree, &target_volume, root).await?;
+            let fs = target_volume.into_inner().await.map_err(|_| PathError::new(hadris_fs::ErrorKind::Busy, "copy volume is still shared"))?;
+        }
         fs.unmount().await?;
         report.set_size(volume);
         Ok(report)
@@ -463,8 +481,9 @@ mod tree {
     }
 }
 
-#[cfg(feature = "alloc")]
-pub use tree::write;
+}
+
+alloc_tree! { pub use tree::write; }
 
 #[cfg(test)]
 mod tests {

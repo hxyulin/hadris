@@ -28,8 +28,6 @@ const SECTOR: u64 = SECTOR_SIZE as u64;
 /// The system area, the backup GPT region after the data, and the first
 /// sectors of partitions that kept their size.
 type Tables512 = (Vec<u8>, Option<Vec<u8>>, Vec<u64>);
-/// Sectors of a kept boot catalog read to patch its entries.
-const CATALOG_SECTORS: u64 = 8;
 /// The deepest directory a session reads, as `hadris_fs` tree walks allow.
 const MAX_DEPTH: usize = 1024;
 
@@ -470,7 +468,7 @@ impl<D: BlockDevice> Session<D> {
     /// gets one too, with the 40 reserved bytes when the old table had them
     /// zeroed; an image shorter than 64 bytes then fails with
     /// [`Detail::BootInfoTable`]. With El Torito in `opts`, a new catalog is
-    /// written.
+    /// written and kept by subsequent writes without El Torito in `opts`.
     ///
     /// New data goes after the old volume and after every partition of
     /// the image's partition table, so partitions appended after the ISO
@@ -616,16 +614,9 @@ impl<D: BlockDevice> Session<D> {
         }
         emit(&mut self.dev, &self.tree, &plan).await?;
         self.volume_blocks = plan.total_blocks;
-        if keep_catalog.is_none() {
-            self.catalog = None;
-            self.boot.clear();
-        }
-        for boot in &mut self.boot {
-            if let Some(extent) = span(&plan.report, &boot.path) {
-                boot.len = extent.len();
-            }
-        }
         self.store_new_files(&plan.report, &contents)?;
+        self.catalog = plan.catalog;
+        self.map_boot_images().await?;
         Ok(plan.report)
     }
 
@@ -753,9 +744,24 @@ impl<D: BlockDevice> Session<D> {
     async fn read_catalog(&mut self, block: u32) -> Result<Vec<u8>, Error<D::Error>> {
         let len = self.dev.block_count().saturating_mul(u64::from(self.dev.block_size().get()));
         let offset = u64::from(block) * SECTOR;
-        let size = (CATALOG_SECTORS * SECTOR).min(len.saturating_sub(offset));
-        let mut bytes = vec![0u8; size as usize];
-        super::image::read_bytes(&mut self.dev, len, offset, &mut bytes).await?;
+        use crate::boot::{CatalogParser, Step};
+
+        let mut parser = CatalogParser::new();
+        let mut bytes = Vec::new();
+        let mut end = 0;
+        while !parser.is_done() {
+            if end == bytes.len() {
+                let start = bytes.len();
+                bytes.resize(start + SECTOR_SIZE, 0);
+                super::image::read_bytes(&mut self.dev, len, offset + start as u64, &mut bytes[start..]).await?;
+            }
+            let mut chunk = [0u8; 32];
+            chunk.copy_from_slice(&bytes[end..end + 32]);
+            match parser.feed(&chunk).map_err(|()| Detail::BootCatalog.corrupt())? {
+                Step::Done => break,
+                Step::Entry(_) | Step::More => end += 32,
+            }
+        }
         Ok(bytes)
     }
 
@@ -942,7 +948,7 @@ async fn read_session<D: BlockDevice>(iso: &mut IsoFs<D>) -> Result<(Tree, IsoOp
     let rock_ridge = view.namespace() == Namespace::RockRidge;
     let meta = view.stat(root).await?;
     tree.replace("", Node::dir().with_attrs(set_attr(&meta, rock_ridge))).map_err(tree_error)?;
-    let mut links: BTreeMap<u64, Vec<u8>> = BTreeMap::new();
+    let mut links: BTreeMap<NodeId, Vec<u8>> = BTreeMap::new();
     let mut pending: Vec<(NodeId, Vec<u8>, usize)> = vec![(root, Vec::new(), 0)];
     let mut visited = BTreeSet::from([root]);
     while let Some((dir, prefix, depth)) = pending.pop() {
@@ -954,6 +960,12 @@ async fn read_session<D: BlockDevice>(iso: &mut IsoFs<D>) -> Result<(Tree, IsoOp
             path.extend_from_slice(entry.name().as_bytes());
             let node = entry.node();
             let meta = *entry.metadata();
+            if meta.file_type() != FileType::Dir {
+                if let Some(target) = links.get(&node) {
+                    tree.link(target, &path).map_err(tree_error)?;
+                    continue;
+                }
+            }
             let attrs = set_attr(&meta, rock_ridge);
             let new = match meta.file_type() {
                 FileType::Dir => {
@@ -975,21 +987,18 @@ async fn read_session<D: BlockDevice>(iso: &mut IsoFs<D>) -> Result<(Tree, IsoOp
                         true
                     })
                     .await?;
-                    let first = extents.first().map(Extent::offset).filter(|_| meta.len() > 0);
-                    if let Some(target) = first.and_then(|first| links.get(&first).filter(|_| meta.nlink() > 1)) {
-                        tree.link(target, &path).map_err(tree_error)?;
-                        continue;
-                    }
-                    if let Some(first) = first {
-                        links.insert(first, path.clone());
-                    }
                     Node::file(match meta.len() {
                         0 => Content::empty(),
                         _ => Content::stored(extents).map_err(tree_error)?,
                     })
                 }
                 FileType::Symlink => {
-                    let mut target = vec![0u8; 4096];
+                    let len = usize::try_from(meta.len())
+                        .map_err(|_| Detail::DirectoryRecord.error(ErrorKind::LimitExceeded))?;
+                    let mut target = Vec::new();
+                    target.try_reserve_exact(len)
+                        .map_err(|_| Detail::DirectoryRecord.error(ErrorKind::LimitExceeded))?;
+                    target.resize(len, 0);
                     let len = view.readlink(node, &mut target).await?.len();
                     Node::symlink(&target[..len])
                 }
@@ -1005,6 +1014,9 @@ async fn read_session<D: BlockDevice>(iso: &mut IsoFs<D>) -> Result<(Tree, IsoOp
                 _ => continue,
             };
             tree.insert(&path, new.with_attrs(attrs)).map_err(tree_error)?;
+            if meta.file_type() != FileType::Dir {
+                links.insert(node, path);
+            }
         }
     }
     Ok((tree, options))
@@ -1038,33 +1050,18 @@ fn info_table_of(head: &[u8; 64], rba: u32, len: u64) -> BootInfo {
 /// The byte offset and load block of each boot entry in the El Torito
 /// catalog `bytes`: the default entry and the entries of each section.
 fn catalog_entries(bytes: &[u8]) -> Vec<(usize, u32)> {
-    let rba = |at: usize| {
-        u32::from_le_bytes([bytes[at + 8], bytes[at + 9], bytes[at + 10], bytes[at + 11]])
-    };
+    use crate::boot::{CatalogParser, Step};
+
+    let mut parser = CatalogParser::new();
     let mut out = Vec::new();
-    if bytes.len() < 64 || bytes[0] != 1 {
-        return out;
-    }
-    out.push((32, rba(32)));
-    let mut pos = 64;
-    while let Some(&kind) = bytes.get(pos) {
-        if kind != raw::HEADER_MORE && kind != raw::HEADER_FINAL || pos + 32 > bytes.len() {
+    for (index, chunk) in bytes.chunks_exact(32).enumerate() {
+        if parser.is_done() {
             break;
         }
-        let count = u16::from_le_bytes([bytes[pos + 2], bytes[pos + 3]]);
-        pos += 32;
-        for _ in 0..count {
-            if pos + 32 > bytes.len() {
-                return out;
-            }
-            out.push((pos, rba(pos)));
-            pos += 32;
-            while bytes.get(pos) == Some(&0x44) {
-                pos += 32;
-            }
-        }
-        if kind == raw::HEADER_FINAL {
-            break;
+        match parser.feed(chunk.try_into().unwrap()) {
+            Ok(Step::Entry(entry)) => out.push((index * 32, entry.load_block())),
+            Ok(Step::More) => {}
+            Ok(Step::Done) | Err(()) => break,
         }
     }
     out

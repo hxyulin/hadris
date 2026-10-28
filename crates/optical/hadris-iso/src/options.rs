@@ -254,7 +254,10 @@ impl BootEntry {
 /// The first entry is the default entry and gives the validation entry its
 /// platform; each further entry gets a section of its own. A catalog
 /// without entries, or with an entry whose image is empty, fails the plan
-/// with [`Detail::BootImage`](crate::Detail::BootImage).
+/// with [`Detail::BootImage`](crate::Detail::BootImage). More than 1024
+/// entries, the most the reader accepts, fail with
+/// [`ErrorKind::LimitExceeded`](hadris_fs::ErrorKind::LimitExceeded) and
+/// [`Detail::BootCatalog`](crate::Detail::BootCatalog).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct ElTorito {
     entries: Vec<BootEntry>,
