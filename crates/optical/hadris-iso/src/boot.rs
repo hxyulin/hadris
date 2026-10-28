@@ -236,6 +236,8 @@ impl core::iter::FusedIterator for CatalogEntries<'_> {}
 pub(crate) struct CatalogParser {
     validation: Option<raw::BootValidationEntry>,
     state: State,
+    entries: usize,
+    chunks: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -262,17 +264,39 @@ pub(crate) enum Step {
 }
 
 impl CatalogParser {
-    /// The most entries read before the catalog counts as malformed.
+    /// The most boot entries, the default entry included, before the
+    /// catalog counts as malformed.
     pub(crate) const MAX_ENTRIES: usize = 1024;
+
+    /// The most 32-byte chunks read, leaving room for the validation entry,
+    /// section headers and extension entries around `MAX_ENTRIES` entries.
+    const MAX_CHUNKS: usize = 4 * Self::MAX_ENTRIES;
 
     pub(crate) fn new() -> Self {
         Self {
             validation: None,
             state: State::Validation,
+            entries: 0,
+            chunks: 0,
         }
     }
 
     pub(crate) fn feed(&mut self, chunk: &[u8; 32]) -> Result<Step, ()> {
+        self.chunks += 1;
+        if self.chunks > Self::MAX_CHUNKS {
+            return Err(());
+        }
+        let step = self.step(chunk)?;
+        if matches!(step, Step::Entry(_)) {
+            self.entries += 1;
+            if self.entries > Self::MAX_ENTRIES {
+                return Err(());
+            }
+        }
+        Ok(step)
+    }
+
+    fn step(&mut self, chunk: &[u8; 32]) -> Result<Step, ()> {
         match self.state {
             State::Validation => {
                 let validation: raw::BootValidationEntry = bytemuck::cast(*chunk);
@@ -347,5 +371,63 @@ impl CatalogParser {
     /// Whether the catalog has ended, so no more chunks belong to it.
     pub(crate) fn is_done(&self) -> bool {
         matches!(self.state, State::Done)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec;
+    use alloc::vec::Vec;
+
+    fn header(last: bool, count: u16) -> [u8; 32] {
+        bytemuck::cast(raw::BootCatalogHeader {
+            header_type: if last {
+                raw::HEADER_FINAL
+            } else {
+                raw::HEADER_MORE
+            },
+            platform_id: 0,
+            section_count: raw::U16Le::new(count),
+            id_string: [0; 28],
+        })
+    }
+
+    fn feed_all(chunks: impl IntoIterator<Item = [u8; 32]>) -> Result<usize, ()> {
+        let mut parser = CatalogParser::new();
+        let mut entries = 0;
+        for chunk in chunks {
+            match parser.feed(&chunk)? {
+                Step::Entry(_) => entries += 1,
+                Step::More => {}
+                Step::Done => break,
+            }
+        }
+        Ok(entries)
+    }
+
+    fn catalog(sections: u16) -> Vec<[u8; 32]> {
+        let entry: [u8; 32] = bytemuck::cast(BootSectionEntry::new(0, 0, 1, 20));
+        let mut chunks = vec![bytemuck::cast(raw::BootValidationEntry::new(0)), entry];
+        chunks.push(header(true, sections));
+        chunks.extend(core::iter::repeat_n(entry, usize::from(sections)));
+        chunks.push([0; 32]);
+        chunks
+    }
+
+    #[test]
+    fn parser_limits_entries_not_chunks() {
+        assert_eq!(feed_all(catalog(1023)), Ok(1024));
+        assert_eq!(feed_all(catalog(1024)), Err(()));
+    }
+
+    #[test]
+    fn parser_bounds_chains_of_empty_headers() {
+        let mut chunks = vec![
+            bytemuck::cast(raw::BootValidationEntry::new(0)),
+            bytemuck::cast(BootSectionEntry::new(0, 0, 1, 20)),
+        ];
+        chunks.extend(core::iter::repeat_n(header(false, 0), 8192));
+        assert_eq!(feed_all(chunks), Err(()));
     }
 }

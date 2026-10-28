@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
-use std::io::{Seek, Write};
+use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use hadris_fs::FileType;
 use hadris_io::sync::Read;
+use tempfile::{NamedTempFile, TempPath};
 
 use hadris_cpio::sync::Entry;
 
@@ -135,12 +136,19 @@ fn relink(data: &Path, name: &Path, created: &HashSet<PathBuf>) -> Result<()> {
 
 /// The extracted names of a hard link group, in archive order. Once
 /// `linked`, they are all names of the file holding the group's data;
-/// before, each is an empty file waiting for it.
+/// before, each is an empty file waiting for it. `data` is a closed
+/// temporary copy of the group's data, so open descriptors do not grow
+/// with the number of groups.
 #[derive(Default)]
 struct Group {
     names: Vec<PathBuf>,
     linked: bool,
-    data: Option<File>,
+    data: Option<TempPath>,
+}
+
+/// A temporary file to retain hard link data in.
+fn retain() -> Result<NamedTempFile> {
+    NamedTempFile::new().context("Failed to retain hard link data")
 }
 
 /// The hard link groups, with the group each name belongs to, so a later
@@ -209,7 +217,7 @@ impl Extractor {
         let mut file = create_file(dest)?;
         self.created.insert(dest.to_path_buf());
         let mut retained = if entry.nlink() > 1 && !entry.is_empty() {
-            Some(tempfile::tempfile().context("Failed to retain hard link data")?)
+            Some(retain()?)
         } else {
             None
         };
@@ -227,13 +235,15 @@ impl Extractor {
                 .with_context(|| format!("Failed to write file: {}", dest.display()))?;
         }
         if let Some(data) = retained {
-            self.links.groups.entry(link_key(entry)).or_default().data = Some(data);
+            self.links.groups.entry(link_key(entry)).or_default().data =
+                Some(data.into_temp_path());
         }
         if entry.nlink() > 1 && entry.is_empty() {
             let group = self.links.groups.entry(link_key(entry)).or_default();
-            if let Some(data) = &mut group.data {
-                data.rewind()?;
-                std::io::copy(data, &mut file)?;
+            if let Some(data) = &group.data {
+                let mut data =
+                    File::open(data).context("Failed to read retained hard link data")?;
+                std::io::copy(&mut data, &mut file)?;
                 group.linked = true;
             }
         }
@@ -273,7 +283,7 @@ impl Extractor {
             .get(&key)
             .and_then(|group| group.names.first().cloned())
         else {
-            let mut data = tempfile::tempfile().context("Failed to retain hard link data")?;
+            let mut data = retain()?;
             loop {
                 let n = entry
                     .read(&mut self.buf)
@@ -283,7 +293,7 @@ impl Extractor {
                 }
                 data.write_all(&self.buf[..n])?;
             }
-            self.links.groups.entry(key).or_default().data = Some(data);
+            self.links.groups.entry(key).or_default().data = Some(data.into_temp_path());
             return Ok(());
         };
         ours(&first, &self.created)?;

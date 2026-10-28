@@ -750,9 +750,6 @@ impl<D: BlockDevice> Session<D> {
         let mut bytes = Vec::new();
         let mut end = 0;
         while !parser.is_done() {
-            if end / 32 > CatalogParser::MAX_ENTRIES + 1 {
-                return Err(Detail::BootCatalog.corrupt());
-            }
             if end == bytes.len() {
                 let start = bytes.len();
                 bytes.resize(start + SECTOR_SIZE, 0);

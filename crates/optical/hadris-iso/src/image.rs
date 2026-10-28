@@ -1278,9 +1278,6 @@ impl<D: BlockDevice> IsoFs<D> {
         let mut read = 0;
         let mut end = 0;
         while !parser.is_done() {
-            if end / 32 > CatalogParser::MAX_ENTRIES + 1 {
-                return Err(Detail::BootCatalog.corrupt());
-            }
             if end == read {
                 if read == usable {
                     return Err(ErrorKind::LimitExceeded.into());

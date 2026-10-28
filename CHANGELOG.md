@@ -197,6 +197,9 @@ Each published package owns its version and may be released independently.
 - **hadris-iso:** Sessions retain newly written El Torito catalogs across
   successive writes and update every boot entry in catalogs larger than 16 KiB.
   Malformed catalogs beyond the reader limit now fail instead of being truncated.
+  The 1024-entry limit counts boot entries rather than 32-byte records, so
+  catalogs the writer produces with up to 1024 entries read back. Plans with
+  more entries fail with `LimitExceeded` and `Detail::BootCatalog`.
 - **hadris-iso:** Editing sessions preserve hard links for empty files,
   symlinks and special nodes, and accept long Rock Ridge symlink targets
   supported by the reader and writer.
@@ -206,7 +209,9 @@ Each published package owns its version and may be released independently.
 - **hadris-iso:** Preserve literal semicolon names in ISO 9660:1999 enhanced
   trees during listing and lookup instead of interpreting them as versions.
 - **hadris-cli:** Selected cpio hard links retain data from earlier
-  unselected entries, including stdin archives.
+  unselected entries, including stdin archives. Retained data is kept in
+  closed temporary files, so archives with many hard link groups no longer
+  exhaust file descriptors.
 - **hadris-fs:** Host tree extraction finalizes directory permissions and
   times after deferred symlinks; `create_dir_all` follows the configured
   symlink resolution policy.

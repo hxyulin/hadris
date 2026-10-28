@@ -341,6 +341,35 @@ fn selected_hard_link_spools_stdin_and_resets_at_trailers() {
 }
 
 #[test]
+fn hard_link_groups_do_not_hold_descriptors_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let names: Vec<String> = (0..200).map(|i| format!("file{i}")).collect();
+    let entries: Vec<_> = names
+        .iter()
+        .zip(1..)
+        .map(|(name, ino)| link(name, ino, b"payload"))
+        .collect();
+    let path = dir.path().join("a.cpio");
+    std::fs::write(&path, newc(&entries)).unwrap();
+    let out = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(r#"ulimit -n 64 && exec "$0" "$@""#)
+        .arg(env!("CARGO_BIN_EXE_hadris"))
+        .args(["cpio", "extract", "-o"])
+        .arg(dir.path().join("out"))
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    for name in &names {
+        assert_eq!(
+            std::fs::read(dir.path().join("out").join(name)).unwrap(),
+            b"payload"
+        );
+    }
+}
+
+#[test]
 fn selected_hard_link_retains_latest_data_after_names_are_replaced() {
     let dir = tempfile::tempdir().unwrap();
     let archive = newc(&[

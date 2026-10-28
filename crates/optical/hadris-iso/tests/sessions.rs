@@ -1045,18 +1045,30 @@ fn async_new_and_large_catalogs_follow_successive_boot_image_replacements() {
 }
 
 #[test]
-fn sessions_reject_catalogs_beyond_the_parser_limit() {
-    let dev = image(&catalog_tree(), &boot_options(600));
-    let err = Session::open(dev).unwrap_err();
-    assert_eq!(err.kind(), hadris_fs::ErrorKind::Corrupt);
+fn catalogs_count_entries_not_section_headers() {
+    let dev = image(&catalog_tree(), &boot_options(1024));
+    let session = Session::open(dev).unwrap();
+    let mut iso = IsoFs::mount(session.into_inner(), MountOptions::new()).unwrap();
+    let mut bytes = vec![0; 128 * 1024];
+    let catalog = iso.boot_catalog(&mut bytes).unwrap().unwrap();
+    assert_eq!(catalog.entries().count(), 1024);
 }
 
 #[cfg(feature = "async")]
 #[test]
-fn async_sessions_reject_catalogs_beyond_the_parser_limit() {
-    let dev = image(&catalog_tree(), &boot_options(600));
+fn async_sessions_open_catalogs_at_the_entry_limit() {
+    let dev = image(&catalog_tree(), &boot_options(1024));
     common::block_on(async {
-        let err = hadris_iso::async_::Session::open(dev).await.unwrap_err();
-        assert_eq!(err.kind(), hadris_fs::ErrorKind::Corrupt);
+        hadris_iso::async_::Session::open(dev).await.unwrap();
     });
+}
+
+#[test]
+fn plans_reject_catalogs_beyond_the_entry_limit() {
+    let err = hadris_iso::plan(&catalog_tree(), &boot_options(1025)).unwrap_err();
+    assert_eq!(err.kind(), hadris_fs::ErrorKind::LimitExceeded);
+    assert_eq!(
+        err.detail().and_then(hadris_iso::Detail::from_code),
+        Some(hadris_iso::Detail::BootCatalog)
+    );
 }
