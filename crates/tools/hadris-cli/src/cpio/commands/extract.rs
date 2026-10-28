@@ -208,7 +208,7 @@ impl Extractor {
     fn write_file(&mut self, entry: &mut Entry<'_, Input>, dest: &Path) -> Result<()> {
         let mut file = create_file(dest)?;
         self.created.insert(dest.to_path_buf());
-        let mut retained = if entry.nlink() > 1 && entry.len() > 0 {
+        let mut retained = if entry.nlink() > 1 && !entry.is_empty() {
             Some(tempfile::tempfile().context("Failed to retain hard link data")?)
         } else {
             None
@@ -229,7 +229,7 @@ impl Extractor {
         if let Some(data) = retained {
             self.links.groups.entry(link_key(entry)).or_default().data = Some(data);
         }
-        if entry.nlink() > 1 && entry.len() == 0 {
+        if entry.nlink() > 1 && entry.is_empty() {
             let group = self.links.groups.entry(link_key(entry)).or_default();
             if let Some(data) = &mut group.data {
                 data.rewind()?;

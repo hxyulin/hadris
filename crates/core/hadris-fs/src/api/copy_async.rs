@@ -1,5 +1,5 @@
 include!("copy_shared.rs");
-use super::volume::Held;
+use super::volume::{Held, Volume};
 
 /// A directory being copied: its children in the tree, the next one to
 /// copy, the target directory (pinned unless it is the top) and the times
