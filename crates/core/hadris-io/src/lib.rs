@@ -7,7 +7,7 @@
 //! supertrait, as `embedded-io` does. The error can
 //! be any `core::error::Error + Send + Sync`: a kernel uses its own enum,
 //! [`StdIo`] reports `std::io::Error`, and `FromEmbedded` (with the
-//! `embedded-io` feature) passes an `embedded-io` error through unchanged. `&mut T` implements each trait
+//! `embedded-io-07` feature) passes an `embedded-io` error through unchanged. `&mut T` implements each trait
 //! when `T` does, and `&[u8]` implements `Read`. Enabling features only adds items; no trait or type changes
 //! shape.
 //!
@@ -30,7 +30,7 @@
 //! | `sync`  | yes     | Synchronous traits in [`sync`] |
 //! | `async` | no      | Asynchronous traits in `async_` |
 //! | `alloc` | via `std` | `Box<T>` implements the traits and `Vec<u8>` implements `Write` |
-//! | `embedded-io` | no | `FromEmbedded`, the `embedded-io` traits on [`StdIo`] and [`SeekFrom`] conversions |
+//! | `embedded-io-07` | no | `FromEmbedded`, the `embedded-io` traits on [`StdIo`] and [`SeekFrom`] conversions |
 //!
 //! ## Quick Start
 //!
@@ -125,7 +125,7 @@ pub use std_adapters::ToStd;
 /// A seek position, as in `std::io::SeekFrom`.
 ///
 /// Converts to and from `std::io::SeekFrom` with `std`, and
-/// `embedded_io::SeekFrom` with the `embedded-io` feature.
+/// `embedded_io::SeekFrom` with the `embedded-io-07` feature.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum SeekFrom {
@@ -178,7 +178,7 @@ impl From<std::io::SeekFrom> for SeekFrom {
     }
 }
 
-#[cfg(feature = "embedded-io")]
+#[cfg(feature = "embedded-io-07")]
 impl From<SeekFrom> for embedded_io::SeekFrom {
     fn from(pos: SeekFrom) -> Self {
         match pos {
@@ -189,7 +189,7 @@ impl From<SeekFrom> for embedded_io::SeekFrom {
     }
 }
 
-#[cfg(feature = "embedded-io")]
+#[cfg(feature = "embedded-io-07")]
 impl From<embedded_io::SeekFrom> for SeekFrom {
     fn from(pos: embedded_io::SeekFrom) -> Self {
         match pos {
@@ -202,11 +202,11 @@ impl From<embedded_io::SeekFrom> for SeekFrom {
 
 /// Use an `embedded-io` (or, in async mode, `embedded-io-async`) device with
 /// the Hadris traits. The device's error is used unchanged.
-#[cfg(feature = "embedded-io")]
+#[cfg(feature = "embedded-io-07")]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FromEmbedded<T>(T);
 
-#[cfg(feature = "embedded-io")]
+#[cfg(feature = "embedded-io-07")]
 impl<T> FromEmbedded<T> {
     /// Wrap an `embedded-io` device.
     pub const fn new(inner: T) -> Self {
@@ -229,39 +229,12 @@ impl<T> FromEmbedded<T> {
     }
 }
 
-#[cfg(feature = "embedded-io")]
+#[cfg(feature = "embedded-io-07")]
 impl<T: embedded_io::ErrorType> ErrorType for FromEmbedded<T>
 where
     T::Error: Send + Sync + 'static,
 {
     type Error = T::Error;
-}
-
-/// Short-circuit an `Err` by returning `Some(Err(..))`.
-///
-/// Useful in iterator implementations where the return type is
-/// `Option<Result<T, E>>`.
-///
-/// ```rust
-/// use hadris_io::try_io_result_option;
-///
-/// fn next_item(ok: bool) -> Option<Result<u32, &'static str>> {
-///     let result: Result<u32, &'static str> = if ok { Ok(42) } else { Err("missing") };
-///     let value = try_io_result_option!(result);
-///     Some(Ok(value * 2))
-/// }
-///
-/// assert!(matches!(next_item(true), Some(Ok(84))));
-/// assert!(matches!(next_item(false), Some(Err(_))));
-/// ```
-#[macro_export]
-macro_rules! try_io_result_option {
-    ($expr:expr) => {
-        match $expr {
-            Ok(val) => val,
-            Err(err) => return Some(Err(err.into())),
-        }
-    };
 }
 
 /// A no-std cursor for reading from a byte slice.
@@ -423,7 +396,7 @@ mod tests {
         for pos in [SeekFrom::Start(1), SeekFrom::End(-2), SeekFrom::Current(3)] {
             assert_eq!(SeekFrom::from(std::io::SeekFrom::from(pos)), pos);
         }
-        #[cfg(feature = "embedded-io")]
+        #[cfg(feature = "embedded-io-07")]
         for pos in [SeekFrom::Start(1), SeekFrom::End(-2), SeekFrom::Current(3)] {
             assert_eq!(SeekFrom::from(embedded_io::SeekFrom::from(pos)), pos);
         }
@@ -491,16 +464,6 @@ mod tests {
         let mut sink = Sink { accepted: 3 };
         assert_eq!(sink.write_all(&[1, 2]), Ok(()));
         assert_eq!(sink.write_all(&[1, 2]), Err(ExactError::WriteZero));
-    }
-
-    #[test]
-    fn try_io_result_option_err() {
-        fn test_fn() -> Option<Result<u32, InvalidSeek>> {
-            let val: Result<u32, InvalidSeek> = Err(InvalidSeek);
-            let _v = try_io_result_option!(val);
-            Some(Ok(0))
-        }
-        assert!(matches!(test_fn(), Some(Err(InvalidSeek))));
     }
 }
 

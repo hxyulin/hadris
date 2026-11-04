@@ -130,7 +130,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> ExFat<'mount, D, FILES> {
 
     /// Gives the device back. The volume was never written, so there is
     /// nothing to sync.
-    pub fn unmount(self) -> D {
+    pub fn into_inner(self) -> D {
         self.dev
     }
 

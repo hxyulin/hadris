@@ -5,11 +5,11 @@ use core::num::NonZeroU32;
 pub struct BlockSize(NonZeroU32);
 
 impl BlockSize {
-    /// Creates a non-zero logical block size.
+    /// Creates a block size, or `None` unless `bytes` is a power of two.
     pub const fn new(bytes: u32) -> Option<Self> {
         match NonZeroU32::new(bytes) {
-            Some(bytes) => Some(Self(bytes)),
-            None => None,
+            Some(bytes) if bytes.is_power_of_two() => Some(Self(bytes)),
+            _ => None,
         }
     }
 
@@ -143,8 +143,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rejects_zero_block_size() {
+    fn rejects_sizes_that_are_not_powers_of_two() {
         assert_eq!(BlockSize::new(0), None);
+        assert_eq!(BlockSize::new(1000), None);
+        assert_eq!(BlockSize::new(u32::MAX), None);
+        assert_eq!(BlockSize::new(1).map(BlockSize::get), Some(1));
+        assert_eq!(BlockSize::new(1 << 31).map(BlockSize::get), Some(1 << 31));
     }
 
     #[test]

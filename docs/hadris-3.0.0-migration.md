@@ -19,7 +19,7 @@ are optional. Turn off the umbrella defaults to select only the required formats
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.3"
+version = "3.0.0-rc.4"
 default-features = false
 features = ["std", "sync", "fat"]
 ```
@@ -153,9 +153,9 @@ is available through separate dependencies:
 
 ```toml
 [dependencies]
-hadris-fat = { version = "3.0.0-rc.3" }
-hadris-fs = { version = "3.0.0-rc.3" }
-hadris-storage = { version = "3.0.0-rc.3" }
+hadris-fat = { version = "3.0.0-rc.4" }
+hadris-fs = { version = "3.0.0-rc.4" }
+hadris-storage = { version = "3.0.0-rc.4" }
 ```
 
 The paths correspond directly: `hadris::fat` is `hadris_fat`, `hadris::fs` is
@@ -195,7 +195,7 @@ Per crate:
 | Crate | V2 features | V3 features | Removed, and what to do |
 |---|---|---|---|
 | `hadris` | `std`, `alloc`, `sync`, `async`, `read`, `write`, `block`, `optical`, `archive`, `path`, `fixed`, `storage`, `fat`, `part`, `iso`, `udf`, `cd`, `cpio` (default `std`, `sync`, `read`, `write`, `fixed`, `path`, `iso`, `fat`, `cpio`) | `std`, `alloc`, `sync`, `async`, `write`, `fat`, `part`, `iso`, `udf`, `cpio`, `detect`, `unstable-ntfs`, `unstable-apfs`, `apfs-encryption`, `tracing` (default `std`, `sync`, `write`, `fat`, `iso`, `cpio`, `detect`) | `read`: drop it. `archive`: use `cpio`. `block`, `optical`: use `detect` (adds `fat`, `part`, `iso`, `udf`, `cpio`). `cd`: use `udf`. `storage`: `hadris::storage` is always there. `path`, `fixed`: the crates are gone. `write` forwards the writers of every enabled format. |
-| `hadris-io` | `std`, `alloc`, `sync`, `async` | `std`, `alloc`, `sync`, `async`, `embedded-io` | `embedded-io` is now optional and gates `FromEmbedded` and the `embedded-io` conversions. |
+| `hadris-io` | `std`, `alloc`, `sync`, `async` | `std`, `alloc`, `sync`, `async`, `embedded-io-07` | `embedded-io-07` is optional and gates `FromEmbedded` and the embedded-io 0.7 conversions. |
 | `hadris-storage` | `std`, `alloc`, `sync`, `async` | `std`, `alloc`, `sync`, `async` | None. `async_::BlockDevice` serves non-`Send` and `Send` devices. |
 | `hadris-common` | `std`, `alloc`, `sync`, `async`, `bytemuck`, `optical` | `bytemuck` | The crate is internal and may break in a minor release; depend on it with `"~3.0"` only to name `hadris-fat-raw` field types. |
 | `hadris-fs` | (new) | `std`, `alloc`, `sync`, `async`, `unstable-contract` (default `std`, `sync`) | `unstable-contract` adds the driver test kit `contract::check`, outside semver; enable it in dev-dependencies only. |
@@ -217,7 +217,7 @@ Allocation-free ISO reader, for a bootloader:
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.3"
+version = "3.0.0-rc.4"
 default-features = false
 features = ["sync", "iso"]
 ```
@@ -226,7 +226,7 @@ FAT or exFAT driver without `std`, with an allocator:
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.3"
+version = "3.0.0-rc.4"
 default-features = false
 features = ["alloc", "sync", "fat"]
 ```
@@ -235,7 +235,7 @@ Firmware without an allocator, using the embedded FAT/exFAT API:
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.3"
+version = "3.0.0-rc.4"
 default-features = false
 features = ["sync", "write", "fat"]
 ```
@@ -328,7 +328,7 @@ pub trait ErrorType {
 - `std::io` types are no longer blanket-implemented. Wrap them in
   `StdIo::new(stream)`; `ToStd` goes the other way.
 - `embedded-io` types are wrapped in `FromEmbedded::new(dev)` (feature
-  `embedded-io`). `ToEmbedded` is removed.
+  `embedded-io-07`). `ToEmbedded` is removed.
 - `&mut T` and `Box<T>` implement the traits, so `Borrowed` is gone.
 - `SeekFrom` is a Hadris `#[non_exhaustive]` enum; resolve it with
   `SeekFrom::resolve(current, len)` rather than matching. It converts to and
@@ -598,7 +598,7 @@ Format extras are inherent methods with the same names on every driver:
 `read_raw(offset, buf)`. FAT and exFAT add `was_dirty`, `set_label` and
 `set_volume_serial`; ISO adds `boot_catalog(&mut buf)`, `boot_image(&entry)`,
 `rock_ridge(node)`, `namespaces()` and `descriptor(index)`; UDF adds
-`was_dirty`; NTFS keeps `volume_serial`, `cluster_size`, `sector_size`,
+`was_dirty`, which is `None` when the integrity sequence cannot be read; NTFS keeps `volume_serial`, `cluster_size`, `sector_size`,
 `total_sectors`, `mft_record_size`, `index_record_size`, `streams` and
 `read_stream_at`. On a `Volume`, reach them through `vol.lock()`.
 
@@ -1223,8 +1223,8 @@ follows. In V3, name I/O items through their mode module:
 | `hadris_io::{ReadSeek, ReadWrite, ReadWriteSeek}` and their mode twins | Removed. Write the bounds out: `R: Read + Seek` |
 | `hadris_io::{ReadExt, Parsable, Writable}` and their mode twins | Removed. Read raw layouts with the `hadris-<format>-raw` crates |
 | `hadris_io::Borrowed` and mode twins | Removed. `&mut T` implements the traits |
-| `hadris_io::FromEmbedded`, `hadris_io::sync::FromEmbedded`, `hadris_io::r#async::FromEmbedded` | `hadris_io::FromEmbedded` (feature `embedded-io`); one type for both modes |
-| `hadris_io::ToEmbedded`, `hadris_io::sync::ToEmbedded` | Removed. `StdIo` implements the `embedded-io` traits with the `embedded-io` feature |
+| `hadris_io::FromEmbedded`, `hadris_io::sync::FromEmbedded`, `hadris_io::r#async::FromEmbedded` | `hadris_io::FromEmbedded` (feature `embedded-io-07`); one type for both modes |
+| `hadris_io::ToEmbedded`, `hadris_io::sync::ToEmbedded` | Removed. `StdIo` implements the `embedded-io` traits with the `embedded-io-07` feature |
 | (blanket impls over `std::io` types) | `hadris_io::StdIo<T>`; `hadris_io::ToStd<T>` for the other direction |
 | `hadris_io::Cursor` | `hadris_io::Cursor` |
 | `hadris_io::SeekFrom` (re-export of `embedded_io::SeekFrom`) | `hadris_io::SeekFrom`, a Hadris `#[non_exhaustive]` enum with `resolve` |
@@ -1233,7 +1233,7 @@ follows. In V3, name I/O items through their mode module:
 | `hadris_io::Result` | `hadris_io::FsResult<T, E>`, or `Result<T, Self::Error>` on the traits |
 | `hadris_io::IoError` | Removed. The bound is `ErrorType::Error: core::error::Error + Send + Sync + 'static` |
 | `hadris_io::{Path, PathBuf}` | Removed. Use `std::path` |
-| `hadris_io::try_io_result_option!` | `hadris_io::try_io_result_option!` |
+| `hadris_io::try_io_result_option!` | Removed. Match on the result and return `Some(Err(err.into()))` |
 | (new) | `ErrorType`, `ExactError`, `StdIo`, `ToStd`, `into_std_error`, `Location`, `DetailCode`, `Errno`, `InvalidSeek` |
 
 ### hadris-storage

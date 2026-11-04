@@ -282,8 +282,8 @@ impl<D: BlockDevice> AnyFs<D> {
     /// Returns [`ErrorKind::Unsupported`] for ISO 9660 and APFS.
     pub fn volume_serial(&self) -> FsResult<Option<u64>, D::Error> {
         match self {
-            Self::Fat(fs) => Ok(fs.volume_serial().map(u64::from)),
-            Self::ExFat(fs) => Ok(Some(u64::from(fs.volume_serial()))),
+            Self::Fat(fs) => Ok(fs.info().volume_serial().map(u64::from)),
+            Self::ExFat(fs) => Ok(Some(u64::from(fs.info().volume_serial()))),
             Self::Udf(fs) => Ok(fs.info().volume_serial()),
             Self::Iso(_) => Err(ErrorKind::Unsupported.into()),
             #[cfg(feature = "unstable-apfs")]

@@ -679,12 +679,37 @@ fn integrity_extent(start: u32, blocks: u32, copies: &[(u32, bool)]) -> Vec<u8> 
 #[test]
 fn the_last_integrity_descriptor_of_an_extent_prevails() {
     let udf = open(integrity_extent(288, 2, &[(288, false)]));
-    assert!(
-        !udf.was_dirty(),
+    assert_eq!(
+        udf.was_dirty(),
+        Some(false),
         "the closed descriptor after the open one wins"
     );
     let udf = open(integrity_extent(288, 2, &[(288, true), (289, false)]));
-    assert!(udf.was_dirty());
+    assert_eq!(udf.was_dirty(), Some(true));
     let udf = open(integrity_extent(287, 3, &[(287, false)]));
-    assert!(udf.was_dirty(), "an unrecorded block ends the extent");
+    assert_eq!(
+        udf.was_dirty(),
+        Some(true),
+        "an unrecorded block ends the extent"
+    );
+}
+
+#[test]
+fn an_unreadable_integrity_sequence_leaves_the_state_unknown() {
+    let udf = open(integrity_extent(0, 1, &[]));
+    assert_eq!(udf.was_dirty(), None);
+    assert_eq!(udf.info().integrity_recorded(), None);
+
+    let mut damaged = integrity_extent(288, 2, &[(288, true)]);
+    damaged[289 * 2048 + 100] ^= 0xFF;
+    assert_eq!(
+        open(damaged).was_dirty(),
+        None,
+        "a damaged descriptor after a closed one"
+    );
+
+    let mut unknown = integrity_extent(289, 1, &[]);
+    unknown[289 * 2048 + 28..289 * 2048 + 32].copy_from_slice(&2u32.to_le_bytes());
+    reseal(&mut unknown, 289, 118);
+    assert_eq!(open(unknown).was_dirty(), None, "integrity type 2");
 }

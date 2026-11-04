@@ -1,7 +1,7 @@
 //! Format-neutral block-storage interfaces for Hadris.
 //!
-//! This crate describes storage in logical blocks with an explicit, non-zero
-//! block size. It intentionally does not define filesystem concepts such as FAT
+//! This crate describes storage in logical blocks with an explicit block size,
+//! a power of two. It intentionally does not define filesystem concepts such as FAT
 //! clusters or ISO logical sectors.
 //!
 //! Every device names its own error through [`hadris_io::ErrorType`], and

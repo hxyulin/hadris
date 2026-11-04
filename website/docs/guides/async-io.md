@@ -12,14 +12,14 @@ Every filesystem driver reads a `hadris::storage::async_::BlockDevice`:
 `MemDevice` implements it for bytes in memory, and a custom driver implements
 it for real hardware. The CPIO reader and writer take
 `hadris::io::async_::{Read, Write}` streams instead; wrap an
-`embedded-io-async` device in `hadris::io::FromEmbedded` (the `embedded-io`
+`embedded-io-async` device in `hadris::io::FromEmbedded` (the `embedded-io-07`
 feature on a direct `hadris-io` dependency), or use `hadris::io::Cursor` for bytes in memory. `StdIo` covers only
 the sync traits. See [embedded I/O adapters](./custom-io.md#wrap-an-embedded-io-device)
 for the additional dependency and feature recipe.
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.3"
+version = "3.0.0-rc.4"
 default-features = false
 features = ["alloc", "async", "fat"]
 ```

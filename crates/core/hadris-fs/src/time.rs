@@ -195,11 +195,41 @@ impl CivilTime {
 /// zone, such as FAT, read their fields as UTC, and the driver's
 /// [`Clock`] decides what they write.
 /// Supported years are -32768 to 32767 in UTC.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+///
+/// Equality, ordering and hashing compare only the instant, so the same
+/// instant recorded with two offsets is equal. Compare
+/// [`utc_offset_minutes`](Self::utc_offset_minutes) to tell them apart.
+#[derive(Debug, Clone, Copy)]
 pub struct DateTime {
     seconds: i64,
     nanoseconds: u32,
     offset_minutes: Option<i16>,
+}
+
+impl PartialEq for DateTime {
+    fn eq(&self, other: &Self) -> bool {
+        (self.seconds, self.nanoseconds) == (other.seconds, other.nanoseconds)
+    }
+}
+
+impl Eq for DateTime {}
+
+impl PartialOrd for DateTime {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DateTime {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        (self.seconds, self.nanoseconds).cmp(&(other.seconds, other.nanoseconds))
+    }
+}
+
+impl core::hash::Hash for DateTime {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        (self.seconds, self.nanoseconds).hash(state);
+    }
 }
 
 impl DateTime {
@@ -601,5 +631,22 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn system_clock_is_after_2020() {
         assert!(SystemClock.now().unix_seconds() > 1_577_836_800);
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn equality_ordering_and_hash_ignore_the_offset() {
+        use std::hash::{BuildHasher, RandomState};
+
+        let (date, time) = civil(2024, 6, 1, 12, 0, 0);
+        let utc = DateTime::from_civil(date, time, None).unwrap();
+        let (date, time) = civil(2024, 6, 1, 14, 0, 0);
+        let cest = DateTime::from_civil(date, time, Some(120)).unwrap();
+        assert_eq!(utc, cest);
+        assert_eq!(utc.cmp(&cest), core::cmp::Ordering::Equal);
+        let hasher = RandomState::new();
+        assert_eq!(hasher.hash_one(utc), hasher.hash_one(cest));
+        assert_ne!(utc.utc_offset_minutes(), cest.utc_offset_minutes());
+        assert!(utc < DateTime::new(utc.unix_seconds(), 1).unwrap());
     }
 }

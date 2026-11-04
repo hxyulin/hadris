@@ -252,7 +252,7 @@ follow R2 and take `with_time` and `with_seed` for reproducible output.
 
 | Crate | Default | Other features |
 |---|---|---|
-| `hadris-io` | `std`, `sync` | `alloc`; `async`; `embedded-io` (`FromEmbedded` and embedded-io conversions) |
+| `hadris-io` | `std`, `sync` | `alloc`; `async`; `embedded-io-07` (`FromEmbedded` and embedded-io 0.7 conversions) |
 | `hadris-storage` | `std`, `sync` | `alloc` (`Vec<u8>` devices, `Cache`, `ReadAhead`); `async` |
 | `hadris-fs` | `std`, `sync` | `alloc` (`Tree`, `PathError`, async `Volume`, `copy_tree`); `async`; `unstable-contract` (driver test kit) |
 | `hadris-fat` | `std`, `sync`, `write` | `alloc` (`FatFs`, `ExFatFs`); `write` (`format`, and with `alloc` the tree writer `write`; needs no allocator itself); `async`; `defmt`; `tracing` |

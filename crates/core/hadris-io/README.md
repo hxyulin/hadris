@@ -12,8 +12,8 @@ devices.
 Each trait reports the implementor's own error through the `ErrorType`
 supertrait, as `embedded-io` does. The only requirement on the error is
 `core::error::Error + Send + Sync + 'static`: a kernel uses its own enum,
-`StdIo` reports `std::io::Error`, and `FromEmbedded` (with the `embedded-io`
-feature) passes an `embedded-io` error through unchanged.
+`StdIo` reports `std::io::Error`, and `FromEmbedded` (with the
+`embedded-io-07` feature) passes an `embedded-io` error through unchanged.
 
 ## Features
 
@@ -31,7 +31,7 @@ feature) passes an `embedded-io` error through unchanged.
 | `sync` | Synchronous traits in `hadris_io::sync` | Yes |
 | `async` | Asynchronous traits in `hadris_io::async_`; futures are `Send` whenever the concrete stream is | No |
 | `alloc` | `Box<T>` implements the traits and `Vec<u8>` implements `Write` | via `std` |
-| `embedded-io` | `FromEmbedded`, the `embedded-io` traits on `StdIo`, and `SeekFrom` conversions | No |
+| `embedded-io-07` | `FromEmbedded`, the embedded-io 0.7 traits on `StdIo`, and `SeekFrom` conversions | No |
 
 Enabling a feature only adds items; no trait or type changes shape. The
 traits are always named through their mode module (`hadris_io::sync::Read`);
@@ -43,14 +43,14 @@ the crate root holds only mode-independent items.
 
 ```toml
 [dependencies]
-hadris-io = "3.0.0-rc.3"
+hadris-io = "3.0.0-rc.4"
 ```
 
 ### No-std
 
 ```toml
 [dependencies]
-hadris-io = { version = "3.0.0-rc.3", default-features = false, features = ["sync"] }
+hadris-io = { version = "3.0.0-rc.4", default-features = false, features = ["sync"] }
 ```
 
 ## Quick Start
@@ -106,7 +106,7 @@ pub enum SeekFrom { Start(u64), End(i64), Current(i64) }
 
 `SeekFrom` is Hadris's own, so no dependency is needed to seek. It converts
 to and from `std::io::SeekFrom` with `std` and `embedded_io::SeekFrom` with
-`embedded-io`, and an implementation of `Seek` resolves it with
+`embedded-io-07`, and an implementation of `Seek` resolves it with
 `SeekFrom::resolve(current, len)` rather than matching it.
 
 The async traits in `hadris_io::async_` have the same shape with `async fn`.
@@ -165,7 +165,7 @@ assert_eq!(
 |---------|---------|-------|---------|
 | `StdIo<T>` | `std` | `std::io::Error` | Use a `std::io` reader, writer or seeker |
 | `ToStd<T>` | `std` + `sync` | | Expose a Hadris reader, writer or seeker as `std::io` |
-| `FromEmbedded<T>` | `embedded-io` | `T::Error` | Use an `embedded-io` or `embedded-io-async` device |
+| `FromEmbedded<T>` | `embedded-io-07` | `T::Error` | Use an `embedded-io` or `embedded-io-async` device |
 
 ```rust
 use hadris_io::sync::Read;
@@ -256,7 +256,7 @@ message and location, `get_ref()` downcasts to the `Error<E>`, and
 - [Storage and I/O model](https://hxyulin.github.io/hadris/concepts/storage-model)
 - [Adapt a custom device](https://hxyulin.github.io/hadris/guides/custom-io)
 - [Use asynchronous I/O](https://hxyulin.github.io/hadris/guides/async-io)
-- [API reference](https://docs.rs/hadris-io/3.0.0-rc.3)
+- [API reference](https://docs.rs/hadris-io/3.0.0-rc.4)
 
 ## License
 

@@ -240,7 +240,7 @@ fn unicode_folding_is_opt_in() {
         fat.metadata(root, upper).unwrap_err().kind(),
         ErrorKind::NotFound
     );
-    let dev = fat.unmount();
+    let dev = fat.into_inner();
     let mut mount_token_1 = MountToken::new();
     let mut fat: ExFat<Dev> = ExFat::mount_with(
         dev,
@@ -430,7 +430,7 @@ fn mount_identity_survives_moves_and_ignores_disk_serials() {
     moved.close(a).unwrap();
     moved.close(b).unwrap();
     second.close(foreign).unwrap();
-    let dev = moved.unmount();
+    let dev = moved.into_inner();
     let mut remounted: ExFat<_> = ExFat::mount(dev, first_token).unwrap();
     let file = remounted
         .open(remounted.root(), "README.TXT", OpenOptions::new().read())

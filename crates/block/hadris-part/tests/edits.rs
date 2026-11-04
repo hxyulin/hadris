@@ -97,7 +97,7 @@ fn gpt_edits_reject_overlap_and_bounds_and_change_nothing() {
     assert_eq!((err.detail(), err.index()), (Detail::OutOfBounds, Some(1)));
     assert_eq!(table.resize(7, 1).unwrap_err().kind(), ErrorKind::NotFound);
     assert_eq!(
-        table.set_type(a, types::UNUSED).unwrap_err().detail(),
+        table.set_type_guid(a, types::UNUSED).unwrap_err().detail(),
         Detail::Kind
     );
     assert_eq!(table, before);
@@ -112,7 +112,7 @@ fn gpt_edits_reject_overlap_and_bounds_and_change_nothing() {
         .unwrap();
     table.set_attributes(a, 1 << 60).unwrap();
     table.set_unique_guid(a, guid(9)).unwrap();
-    table.set_type(a, types::EFI_SYSTEM).unwrap();
+    table.set_type_guid(a, types::EFI_SYSTEM).unwrap();
     let p = table.entry(b).unwrap();
     assert_eq!(p.name().unwrap().to_string(), "données");
     assert_eq!(p.attributes(), 0b110);
@@ -152,7 +152,7 @@ fn gpt_table_full_and_tiny_disks() {
     );
     assert!(Gpt::new(guid(0), 68, B512).is_ok());
     assert_eq!(
-        Gpt::new(guid(0), 1000, BlockSize::new(520).unwrap())
+        Gpt::new(guid(0), 1000, BlockSize::new(256).unwrap())
             .unwrap_err()
             .kind(),
         ErrorKind::Unsupported

@@ -333,7 +333,7 @@ macro_rules! raw_test {
                         assert_eq!(state.lock().unwrap().flags(), before);
                         assert!(!fat.needs_sync());
                     }
-                    for size in [1, 3, 5, 512, 4096] {
+                    for size in [1, 2, 8, 512, 4096] {
                         let original = flag_image(case, false, false);
                         let geo = hadris_fat_raw::parse_boot(original[..512].try_into().unwrap())
                             .unwrap();

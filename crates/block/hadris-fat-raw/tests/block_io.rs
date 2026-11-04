@@ -433,7 +433,7 @@ mod asynchronous {
 
     #[test]
     fn dropped_transfers_preserve_cache_and_can_be_retried_in_async_mode() {
-        for size in [3, 7, 512] {
+        for size in [2, 8, 512] {
             for op in [Op::Read, Op::Write, Op::Zero] {
                 for offset in [1, size as u64] {
                     let initial = Device::new(size, 0);
@@ -509,10 +509,10 @@ mod asynchronous {
     fn failed_transfers_preserve_device_errors_in_async_mode() {
         for op in [Op::Read, Op::Write, Op::Zero] {
             for cached in [0, 2, 8] {
-                for offset in [3, 7] {
+                for offset in [3, 8] {
                     for failed in 0..7 {
-                        let mut dev = Device::new(7, 0);
-                        let mut block = BlockBuf::<[u8; 17]>::new(7).unwrap();
+                        let mut dev = Device::new(8, 0);
+                        let mut block = BlockBuf::<[u8; 17]>::new(8).unwrap();
                         io::load(&mut dev, &mut block, cached).unwrap();
                         dev.calls.clear();
                         dev.fail_at = Some(failed);

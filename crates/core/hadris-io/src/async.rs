@@ -1,4 +1,4 @@
-#[cfg(feature = "embedded-io")]
+#[cfg(feature = "embedded-io-07")]
 use embedded_io_async as base;
 
 macro_rules! io_transform {

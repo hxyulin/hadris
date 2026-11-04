@@ -371,14 +371,15 @@ async fn sequence<D: BlockDevice>(
 #[derive(Default)]
 struct Integrity {
     free: Option<u64>,
-    open: bool,
+    open: Option<bool>,
     recorded: Option<hadris_fs::DateTime>,
 }
 
 /// Follows the integrity sequence to its last descriptor: each extent's
 /// descriptors are recorded one per block until a terminating descriptor,
-/// an unrecorded block or the extent's end, and the last one names the next
-/// extent (ECMA-167 3/10.10). A damaged sequence records nothing.
+/// an unrecorded (zeroed) block or the extent's end, and the last one names
+/// the next extent (ECMA-167 3/10.10). A damaged sequence, or a descriptor
+/// with an unknown integrity type, records nothing.
 async fn integrity<D: BlockDevice>(
     dev: &mut D,
     len: u64,
@@ -407,8 +408,8 @@ async fn integrity<D: BlockDevice>(
             }
             let tag = match check_tag(data, None, block) {
                 Ok(tag) => tag.identifier.get(),
-                Err(()) if index == 0 => return Integrity::default(),
-                Err(()) => break,
+                Err(()) if index > 0 && data.iter().all(|&byte| byte == 0) => break,
+                Err(()) => return Integrity::default(),
             };
             match tag {
                 tag::INTEGRITY => {}
@@ -428,7 +429,11 @@ async fn integrity<D: BlockDevice>(
                         .try_fold(0u64, |sum, v| (v != u32::MAX).then_some(sum + u64::from(v)))
                 })
                 .flatten();
-            found.open = lvid.integrity_type.get() == 0;
+            found.open = match lvid.integrity_type.get() {
+                0 => Some(true),
+                1 => Some(false),
+                _ => return Integrity::default(),
+            };
             found.recorded = crate::time::to_datetime(&lvid.recorded);
             next = lvid.next;
         }
@@ -529,7 +534,7 @@ async fn mount<D: BlockDevice>(dev: &mut D, backup: bool) -> Result<Info, Error<
             file_set: Identifier::decode(&[]),
             recorded: crate::time::to_datetime(&pvd.recorded),
             integrity_recorded: None,
-            was_dirty: false,
+            was_dirty: None,
         },
     };
 
@@ -1033,9 +1038,10 @@ impl<D: BlockDevice> UdfFs<D> {
     }
 
     /// Whether the logical volume integrity descriptor was open at mount:
-    /// the volume was not cleanly closed. A volume whose integrity
-    /// sequence cannot be read counts as clean.
-    pub fn was_dirty(&self) -> bool {
+    /// the volume was not cleanly closed. `None` when the integrity
+    /// sequence is empty, damaged, cannot be read or records an unknown
+    /// integrity type, so the state is unknown.
+    pub fn was_dirty(&self) -> Option<bool> {
         self.info.volume.was_dirty
     }
 

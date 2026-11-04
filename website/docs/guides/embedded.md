@@ -14,7 +14,7 @@ neither `std` nor `alloc`.
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.3"
+version = "3.0.0-rc.4"
 default-features = false
 features = ["sync", "write", "fat"]
 ```

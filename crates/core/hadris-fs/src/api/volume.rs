@@ -484,6 +484,10 @@ impl<F: FileSystem> Volume<F> {
 
     /// Reads the whole file at `path`, as `std::fs::read`.
     ///
+    /// The buffer grows until a read returns 0, so a crafted image whose
+    /// file declares a huge sparse length can use that much memory. On
+    /// untrusted images, open the file and read it in bounded chunks instead.
+    ///
     /// # Errors
     ///
     /// Propagates errors from opening, reading, or closing the file.

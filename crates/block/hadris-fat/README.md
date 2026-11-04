@@ -283,6 +283,12 @@ locates its directory entries, and `read_raw(offset, buf)` reads the
 device through the driver. `set_label(Some(label))` and
 `set_volume_serial(serial)` change the label and serial in place.
 
+The drivers do not enforce the read-only attribute. `stat` reports it as
+mode 0o444 for a file and 0o555 for a directory, but `open` for writing, `write`, `truncate`, `unlink` and
+`rename` still succeed on such an entry, as on Linux vfat, where the VFS
+layer checks permissions. Callers that want Windows behavior check
+`Attributes::READ_ONLY` themselves.
+
 ### Sharing a Volume Between Threads
 
 `hadris_fs::sync::Volume` puts a `FatFs` behind a lock, so its path methods
@@ -355,7 +361,7 @@ externally while mounted. This check does not add crash or power-loss guarantees
 
 ```toml
 [dependencies]
-hadris-fat = { version = "3.0.0-rc.3", default-features = false, features = ["sync"] }
+hadris-fat = { version = "3.0.0-rc.4", default-features = false, features = ["sync"] }
 ```
 
 Without `alloc` this gives the embedded API, `check` and the raw layer;
@@ -408,7 +414,7 @@ with `Unsupported`.
 
 ```toml
 [dependencies]
-hadris-fat = "3.0.0-rc.3"  # Uses default features
+hadris-fat = "3.0.0-rc.4"  # Uses default features
 ```
 
 ## FAT Variant Support
@@ -520,7 +526,7 @@ for the device contract.
 - [Read a FAT image](https://hxyulin.github.io/hadris/guides/read-fat-image)
 - [Modify FAT safely](https://hxyulin.github.io/hadris/guides/modify-fat)
 - [Create FAT filesystems](https://hxyulin.github.io/hadris/creation/fat)
-- [API reference](https://docs.rs/hadris-fat/3.0.0-rc.3)
+- [API reference](https://docs.rs/hadris-fat/3.0.0-rc.4)
 
 ## License
 
