@@ -2,7 +2,7 @@
 title: Getting started
 ---
 
-# Getting started with 3.0.0-rc.2
+# Getting started with 3.0.0-rc.3
 
 Use `hadris` for a single dependency that reaches the format drivers, shared
 filesystem API, block devices and stream adapters. Disable defaults to choose
@@ -10,7 +10,7 @@ only the formats and I/O mode the application needs.
 
 ## Get the release candidate
 
-These pages target `3.0.0-rc.2`, the current release candidate. Select it
+These pages target `3.0.0-rc.3`, the current release candidate. Select it
 explicitly:
 
 ```toml

@@ -8,6 +8,14 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+## [3.0.0-rc.3] - 2026-11-04
+
+The third release candidate of the 3.0 API. The 3.x packages move to
+`3.0.0-rc.3`, except `hadris-common` and `hadris-macros`, which have no code
+changes and stay at `3.0.0-rc.2`. The raw-format crates advance to
+`hadris-fat-raw` `0.3.0`, `hadris-iso-raw` `0.2.0`, `hadris-cpio-raw` `0.2.0`
+and `hadris-udf-raw` `0.1.1`.
+
 ### Breaking
 
 - **hadris-fat-raw, hadris-fat:** `FatKind::entry_offset` accepts a `u32` cluster
@@ -2582,7 +2590,8 @@ under Semantic Versioning.
 - **Build:** Disabled `thiserror` default features so the workspace builds as
   `no_std`. ([@aruiz](https://github.com/aruiz))
 
-[Unreleased]: https://github.com/hxyulin/hadris/compare/v3.0.0-rc.2...HEAD
+[Unreleased]: https://github.com/hxyulin/hadris/compare/v3.0.0-rc.3...HEAD
+[3.0.0-rc.3]: https://github.com/hxyulin/hadris/compare/v3.0.0-rc.2...v3.0.0-rc.3
 [3.0.0-rc.2]: https://github.com/hxyulin/hadris/compare/v3.0.0-rc.1...v3.0.0-rc.2
 [3.0.0-rc.1]: https://github.com/hxyulin/hadris/compare/v2.5.0...v3.0.0-rc.1
 [2.5.0]: https://github.com/hxyulin/hadris/compare/v2.4.0...v2.5.0
