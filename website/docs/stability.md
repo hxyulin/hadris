@@ -4,7 +4,7 @@ title: Stability and compatibility
 
 # Stability and compatibility
 
-These pages document Hadris 3.0.0-rc.2, the current release candidate of
+These pages document Hadris 3.0.0-rc.3, the current release candidate of
 the V3 API.
 Hadris 2.5.0 is the current stable release of V2, whose source is retained at the
 [`v2.5.0` tag](https://github.com/hxyulin/hadris/tree/v2.5.0).

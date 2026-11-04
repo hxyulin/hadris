@@ -22,7 +22,7 @@ supports hosted tools, bootloaders, kernels and embedded firmware, with `std`,
 Use one format crate, or the umbrella crate to detect and open multiple formats
 through a shared filesystem API.
 
-**Release candidate:** V3 [3.0.0-rc.2](CHANGELOG.md#300-rc2---2026-10-15)
+**Release candidate:** V3 [3.0.0-rc.3](CHANGELOG.md#300-rc3---2026-11-04)
 is the current release candidate, which the recipes below use. **Stable:** V2 [2.5.0](https://github.com/hxyulin/hadris/tree/v2.5.0),
 with maintenance on [`v2`](https://github.com/hxyulin/hadris/tree/v2).
 The [migration guide](docs/hadris-3.0.0-migration.md) covers the API and CLI changes.

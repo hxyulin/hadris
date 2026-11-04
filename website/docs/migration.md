@@ -2,7 +2,7 @@
 title: Migrate from 2.x
 ---
 
-# Migrate from 2.x to 3.0.0-rc.2
+# Migrate from 2.x to 3.0.0-rc.3
 
 This page gives the implementation order for a 2.4/2.5 application. The
 [full migration guide and symbol tables](https://github.com/hxyulin/hadris/blob/main/docs/hadris-3.0.0-migration.md)
@@ -15,7 +15,7 @@ The umbrella reaches the same native APIs as individual format crates, including
 `hadris::fat`, `hadris::iso`, `hadris::fs`, `hadris::storage` and `hadris::io`.
 A known FAT image needs only `std`, `sync` and `fat`; add `write` for formatting.
 
-Select `3.0.0-rc.2` explicitly in Cargo dependencies. Disable default features when
+Select `3.0.0-rc.3` explicitly in Cargo dependencies. Disable default features when
 selecting formats or targeting `no_std`; do so for every direct Hadris dependency
 if individual crates are used, because Cargo unifies their features.
 
