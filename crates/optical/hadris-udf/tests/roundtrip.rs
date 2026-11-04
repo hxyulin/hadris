@@ -442,7 +442,7 @@ fn extras_read_the_descriptors_records_and_extents() {
         Some(1_700_000_000)
     );
     assert!(info.integrity_recorded().is_some());
-    assert!(!udf.was_dirty());
+    assert_eq!(udf.was_dirty(), Some(false));
 
     let big = udf.resolve_path("/docs/big.bin").unwrap();
     let mut out = [hadris_fs::Extent::new(0, 0); 1];
@@ -468,7 +468,7 @@ fn extras_read_the_descriptors_records_and_extents() {
     let crc_length = u16::from_le_bytes([dirty[at + 10], dirty[at + 11]]) as usize;
     dirty[at + 28..at + 32].copy_from_slice(&0u32.to_le_bytes());
     common::reseal(&mut dirty, sector, crc_length);
-    assert!(open(dirty).was_dirty());
+    assert_eq!(open(dirty).was_dirty(), Some(true));
 }
 
 #[test]

@@ -438,7 +438,7 @@ impl Gpt {
     ///
     /// Returns [`ErrorKind::NotFound`] for an unused or missing slot, or
     /// [`ErrorKind::InvalidInput`] for the nil type GUID. The table is unchanged.
-    pub fn set_type(&mut self, index: usize, type_guid: Guid) -> Result<(), TableError> {
+    pub fn set_type_guid(&mut self, index: usize, type_guid: Guid) -> Result<(), TableError> {
         self.edit(index, |entry| entry.type_guid = type_guid)
     }
 

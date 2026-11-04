@@ -1,6 +1,6 @@
 [package]
 name = "hadris-part"
-version = "3.0.0-rc.3"
+version = "3.0.0-rc.4"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -34,7 +34,6 @@ hadris-io = { workspace = true, default-features = false }
 hadris-fs = { workspace = true, default-features = false }
 hadris-storage = { workspace = true, default-features = false }
 hadris-macros = { workspace = true }
-bitflags = { workspace = true }
 bytemuck = { workspace = true, features = ["derive", "min_const_generics"] }
 
 [dev-dependencies]

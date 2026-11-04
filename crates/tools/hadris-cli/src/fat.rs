@@ -403,7 +403,7 @@ fn cmd_info(image: &Image) -> Result<()> {
             println!("FAT Type:        {:?}", fs.info().kind());
             println!("OEM Name:        {}", boot.oem_name);
             println!("Volume Label:    {label}");
-            match fs.volume_serial() {
+            match fs.info().volume_serial() {
                 Some(serial) => println!("Volume ID:       {serial:08X}"),
                 None => println!("Volume ID:       none"),
             }
@@ -418,7 +418,7 @@ fn cmd_info(image: &Image) -> Result<()> {
             println!("============================");
             println!("FS Revision:     {}.{:02}", revision >> 8, revision & 0xFF);
             println!("Volume Label:    {label}");
-            println!("Volume ID:       {:08X}", fs.volume_serial());
+            println!("Volume ID:       {:08X}", fs.info().volume_serial());
             println!(
                 "Sector Size:     {} bytes",
                 1u32 << boot.bytes_per_sector_shift

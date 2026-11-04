@@ -79,7 +79,8 @@ struct ImageArgs {
 }
 
 fn open_device(args: &ImageArgs) -> Result<Device> {
-    let block_size = BlockSize::new(args.sector_size).context("sector size must be nonzero")?;
+    let block_size =
+        BlockSize::new(args.sector_size).context("sector size must be a power of two")?;
     if args.sector_size > 4096 || 4096 % args.sector_size != 0 {
         bail!("sector size must divide 4096 and be at most 4096 bytes");
     }

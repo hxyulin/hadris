@@ -1,7 +1,7 @@
 # hadris-storage
 
 Block devices for Hadris. Filesystems read and write whole logical blocks
-through `BlockDevice`, whose block size is explicit and non-zero. The crate
+through `BlockDevice`, whose block size is explicit and a power of two. The crate
 does not assume 512-byte sectors and does not define filesystem concepts such
 as FAT clusters or ISO logical sectors.
 
@@ -206,7 +206,7 @@ length through `get_mut` so its readable block count stays accurate.
 
 - [Storage and I/O model](https://hxyulin.github.io/hadris/concepts/storage-model)
 - [Adapt a custom device](https://hxyulin.github.io/hadris/guides/custom-io)
-- [API reference](https://docs.rs/hadris-storage/3.0.0-rc.3)
+- [API reference](https://docs.rs/hadris-storage/3.0.0-rc.4)
 
 ## License
 

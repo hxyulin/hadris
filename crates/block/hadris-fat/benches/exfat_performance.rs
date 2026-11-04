@@ -49,7 +49,7 @@ fn sample(
             offset += n;
         }
         assert_eq!(offset, BYTES);
-        (start.elapsed().as_nanos(), fs.unmount())
+        (start.elapsed().as_nanos(), fs.into_inner())
     } else {
         let mut fs = ExFatFs::mount(dev, MountOptions::new()).unwrap();
         let node = if workload.starts_with("write") {

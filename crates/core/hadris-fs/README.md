@@ -163,7 +163,7 @@ Partial copied contents may remain. The sync signature is unchanged.
 ## Documentation
 
 - [Crate overview](https://hxyulin.github.io/hadris/crates)
-- [API reference](https://docs.rs/hadris-fs/3.0.0-rc.3)
+- [API reference](https://docs.rs/hadris-fs/3.0.0-rc.4)
 
 ## License
 

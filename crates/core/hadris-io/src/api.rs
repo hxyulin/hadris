@@ -6,7 +6,7 @@ io_transform! {
 ///
 /// Implemented for `&mut T`, for `&[u8]`, which reads from its front as
 /// `std` and `embedded-io` do, and, with `alloc`, `Box<T>`. Wrap an
-/// `embedded-io` device in `FromEmbedded` (with the `embedded-io` feature)
+/// `embedded-io` device in `FromEmbedded` (with the `embedded-io-07` feature)
 /// and a `std::io` type in `StdIo`.
 pub trait Read: ErrorType {
     /// Reads up to `buf.len()` bytes. Returns 0 only at the end of input or
@@ -69,7 +69,7 @@ impl Read for &[u8] {
     }
 }
 
-#[cfg(feature = "embedded-io")]
+#[cfg(feature = "embedded-io-07")]
 impl<T: super::base::Read> Read for crate::FromEmbedded<T>
 where
     T::Error: Send + Sync + 'static,
@@ -163,7 +163,7 @@ impl Write for alloc::vec::Vec<u8> {
     }
 }
 
-#[cfg(feature = "embedded-io")]
+#[cfg(feature = "embedded-io-07")]
 impl<T: super::base::Write> Write for crate::FromEmbedded<T>
 where
     T::Error: Send + Sync + 'static,
@@ -229,7 +229,7 @@ impl<T: Seek + ?Sized> Seek for alloc::boxed::Box<T> {
     }
 }
 
-#[cfg(feature = "embedded-io")]
+#[cfg(feature = "embedded-io-07")]
 impl<T: super::base::Seek> Seek for crate::FromEmbedded<T>
 where
     T::Error: Send + Sync + 'static,

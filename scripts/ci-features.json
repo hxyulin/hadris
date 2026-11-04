@@ -63,7 +63,7 @@
     {
       "crate": "hadris-io",
       "tier": "embedded-io",
-      "features": "sync,async,embedded-io"
+      "features": "sync,async,embedded-io-07"
     },
     {
       "crate": "hadris-common",

@@ -8,6 +8,46 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Breaking
+
+- **hadris-io:** The `embedded-io` feature is renamed `embedded-io-07`, after
+  the embedded-io and embedded-io-async 0.7 lines its impls use, so a later
+  embedded-io release can get its own feature. The unused
+  `try_io_result_option!` macro is removed. The crate advances to
+  `3.0.0-rc.4`.
+- **hadris-storage:** `BlockSize::new` returns `None` unless the size is a
+  power of two, as every format needs. The crate advances to `3.0.0-rc.4`.
+- **hadris-fs:** `DateTime` equality, ordering and hashing compare only the
+  instant, so the same instant recorded with two UTC offsets is equal.
+  `utc_offset_minutes` still tells them apart. The crate advances to
+  `3.0.0-rc.4`.
+- **hadris-fat:** `FatFs::volume_serial` and `ExFatFs::volume_serial` are
+  removed; use `info().volume_serial()`, as the embedded drivers already do.
+  The read-only embedded exFAT driver's `unmount(self) -> D` is renamed
+  `into_inner`, the name every other driver uses for giving the device back
+  without a sync. The crate advances to `3.0.0-rc.4`.
+- **hadris-part:** `Gpt::set_type` is renamed `set_type_guid`, matching the
+  `GptEntry::type_guid` getter. `PartitionFlags` is a Hadris type instead of
+  a `bitflags` type, so a `bitflags` major release no longer changes its API.
+  It keeps the flag constants, `empty`, `all`, `bits`, `contains`, `|` and
+  `&`, adds `from_bits_truncate`, `is_empty`, `union` and `without`, and drops
+  the other `bitflags` methods and traits. The crate advances to
+  `3.0.0-rc.4`.
+- **hadris-iso:** `Preserve` is a Hadris type instead of a `bitflags` type,
+  with the same methods as `hadris_part::PartitionFlags`. The crate advances
+  to `3.0.0-rc.4`.
+- **hadris-udf:** `UdfFs::was_dirty` returns `Option<bool>`, `None` when the
+  integrity sequence is empty, damaged or cannot be read, instead of
+  reporting such a volume as clean. The crate advances to `3.0.0-rc.4`.
+- **hadris:** Advances to `3.0.0-rc.4` for the re-exported format APIs.
+
+### Changed
+
+- **hadris-fat:** The README states that the drivers do not enforce the
+  read-only attribute, as on Linux vfat.
+- **hadris-fs:** `Volume::read` documents that a crafted image can make it
+  allocate a file's whole declared length.
+
 ## [3.0.0-rc.3] - 2026-11-04
 
 The third release candidate of the 3.0 API. The 3.x packages move to

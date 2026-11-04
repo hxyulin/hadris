@@ -493,12 +493,10 @@ fn mbr_entries_past_32_bits_saturate() {
 
 #[test]
 fn unsupported_block_sizes_are_refused() {
-    let mut dev = MemDevice::new(vec![0u8; 520 * 8], BlockSize::new(520).unwrap());
+    let mut dev = MemDevice::new(vec![0u8; 256 * 8], BlockSize::new(256).unwrap());
     let err = read(&mut dev).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Unsupported);
     assert_eq!(Detail::of(&err), Some(Detail::BlockSize));
-    let mut dev = MemDevice::new(vec![0u8; 256 * 8], BlockSize::new(256).unwrap());
-    assert_eq!(read(&mut dev).unwrap_err().kind(), ErrorKind::Unsupported);
 
     let mut big = MemDevice::new(vec![0u8; 8192 * 8], BlockSize::new(8192).unwrap());
     assert_eq!(

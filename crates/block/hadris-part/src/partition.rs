@@ -47,19 +47,115 @@ impl From<Guid> for PartitionKind {
     }
 }
 
-bitflags::bitflags! {
-    /// Flags of a partition that both tables can express, at least in part.
-    ///
-    /// An MBR stores only [`BOOTABLE`](Self::BOOTABLE), as the active flag.
-    /// A GPT stores all three in attribute bits 2, 0 and 1.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-    pub struct PartitionFlags: u32 {
-        /// Active (MBR) or legacy BIOS bootable (GPT).
-        const BOOTABLE = 1 << 0;
-        /// Required by the platform (GPT).
-        const REQUIRED = 1 << 1;
-        /// Firmware must not expose it as a block device (GPT).
-        const NO_BLOCK_IO = 1 << 2;
+/// Flags of a partition that both tables can express, at least in part.
+///
+/// An MBR stores only [`BOOTABLE`](Self::BOOTABLE), as the active flag.
+/// A GPT stores all three in attribute bits 2, 0 and 1.
+///
+/// Combine flags with `|` or [`union`](Self::union).
+#[repr(transparent)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct PartitionFlags(u32);
+
+impl PartitionFlags {
+    /// Active (MBR) or legacy BIOS bootable (GPT).
+    pub const BOOTABLE: Self = Self(1 << 0);
+    /// Required by the platform (GPT).
+    pub const REQUIRED: Self = Self(1 << 1);
+    /// Firmware must not expose it as a block device (GPT).
+    pub const NO_BLOCK_IO: Self = Self(1 << 2);
+
+    const NAMES: [(Self, &'static str); 3] = [
+        (Self::BOOTABLE, "BOOTABLE"),
+        (Self::REQUIRED, "REQUIRED"),
+        (Self::NO_BLOCK_IO, "NO_BLOCK_IO"),
+    ];
+
+    /// No flag set.
+    pub const fn empty() -> Self {
+        Self(0)
+    }
+
+    /// Every flag set.
+    pub const fn all() -> Self {
+        Self(Self::BOOTABLE.0 | Self::REQUIRED.0 | Self::NO_BLOCK_IO.0)
+    }
+
+    /// Returns the flags of `bits`, dropping bits that are not a flag.
+    pub const fn from_bits_truncate(bits: u32) -> Self {
+        Self(bits & Self::all().0)
+    }
+
+    /// Returns the raw bits.
+    pub const fn bits(self) -> u32 {
+        self.0
+    }
+
+    /// Returns whether no flag is set.
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// Returns whether every flag of `other` is set in `self`.
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    /// Returns the flags of `self` and `other`.
+    #[must_use]
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    /// Returns `self` without the flags of `other`.
+    #[must_use]
+    pub const fn without(self, other: Self) -> Self {
+        Self(self.0 & !other.0)
+    }
+}
+
+impl core::ops::BitOr for PartitionFlags {
+    type Output = Self;
+
+    fn bitor(self, other: Self) -> Self {
+        self.union(other)
+    }
+}
+
+impl core::ops::BitOrAssign for PartitionFlags {
+    fn bitor_assign(&mut self, other: Self) {
+        *self = self.union(other);
+    }
+}
+
+impl core::ops::BitAnd for PartitionFlags {
+    type Output = Self;
+
+    fn bitand(self, other: Self) -> Self {
+        Self(self.0 & other.0)
+    }
+}
+
+impl core::ops::BitAndAssign for PartitionFlags {
+    fn bitand_assign(&mut self, other: Self) {
+        self.0 &= other.0;
+    }
+}
+
+impl core::fmt::Debug for PartitionFlags {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("PartitionFlags(")?;
+        let mut first = true;
+        for (flag, name) in Self::NAMES {
+            if self.contains(flag) {
+                if !first {
+                    f.write_str(" | ")?;
+                }
+                f.write_str(name)?;
+                first = false;
+            }
+        }
+        f.write_str(")")
     }
 }
 
@@ -75,7 +171,7 @@ impl PartitionFlags {
         if attributes & raw::GPT_ATTR_NO_BLOCK_IO != 0 {
             bits |= Self::NO_BLOCK_IO.bits();
         }
-        Self::from_bits_retain(bits)
+        Self(bits)
     }
 
     pub(crate) const fn to_gpt(self, attributes: u64) -> u64 {

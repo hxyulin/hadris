@@ -202,6 +202,6 @@ fn camera_card() -> Result<()> {
     card.close(file)?;
     let write = card.open(dir, "IMG_0001.JPG", OpenOptions::new().write());
     ensure!(write.is_err(), "the embedded exFAT reader does not write");
-    card.unmount();
+    card.into_inner();
     Ok(())
 }

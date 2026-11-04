@@ -24,8 +24,8 @@ DVD-Video, Blu-ray and many large removable drives.
 
 ```toml
 [dependencies]
-hadris-udf = "3.0.0-rc.3"
-hadris-fs = { version = "3.0.0-rc.3", features = ["std", "sync"] }
+hadris-udf = "3.0.0-rc.4"
+hadris-fs = { version = "3.0.0-rc.4", features = ["std", "sync"] }
 ```
 
 ```rust,no_run
@@ -178,7 +178,7 @@ both capabilities; the reader still works without an allocator.
 
 - [Read and extract UDF](https://hxyulin.github.io/hadris/guides/read-udf)
 - [Create UDF filesystems](https://hxyulin.github.io/hadris/creation/udf)
-- [API reference](https://docs.rs/hadris-udf/3.0.0-rc.3)
+- [API reference](https://docs.rs/hadris-udf/3.0.0-rc.4)
 
 ## License
 

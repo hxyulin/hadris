@@ -217,7 +217,7 @@ pub mod sync {
                 exfat.close(file).ok()?;
             }
         }
-        Some(exfat.unmount())
+        Some(exfat.into_inner())
     }
 }
 

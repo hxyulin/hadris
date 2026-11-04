@@ -1,7 +1,7 @@
 [package]
 name = "hadris-iso"
 autotests = false
-version = "3.0.0-rc.3"
+version = "3.0.0-rc.4"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -34,7 +34,6 @@ tracing = ["dep:tracing", "hadris-part?/tracing"]
 [dependencies]
 hadris-iso-raw = { workspace = true }
 tracing = { workspace = true, optional = true }
-bitflags = { workspace = true }
 bytemuck = { workspace = true, features = ["derive", "min_const_generics"] }
 hadris-io = { workspace = true, default-features = false }
 hadris-fs = { workspace = true, default-features = false }

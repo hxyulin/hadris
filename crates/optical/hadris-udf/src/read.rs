@@ -371,7 +371,7 @@ async fn sequence<D: BlockDevice>(
 #[derive(Default)]
 struct Integrity {
     free: Option<u64>,
-    open: bool,
+    open: Option<bool>,
     recorded: Option<hadris_fs::DateTime>,
 }
 
@@ -428,7 +428,7 @@ async fn integrity<D: BlockDevice>(
                         .try_fold(0u64, |sum, v| (v != u32::MAX).then_some(sum + u64::from(v)))
                 })
                 .flatten();
-            found.open = lvid.integrity_type.get() == 0;
+            found.open = Some(lvid.integrity_type.get() == 0);
             found.recorded = crate::time::to_datetime(&lvid.recorded);
             next = lvid.next;
         }
@@ -529,7 +529,7 @@ async fn mount<D: BlockDevice>(dev: &mut D, backup: bool) -> Result<Info, Error<
             file_set: Identifier::decode(&[]),
             recorded: crate::time::to_datetime(&pvd.recorded),
             integrity_recorded: None,
-            was_dirty: false,
+            was_dirty: None,
         },
     };
 
@@ -1033,9 +1033,9 @@ impl<D: BlockDevice> UdfFs<D> {
     }
 
     /// Whether the logical volume integrity descriptor was open at mount:
-    /// the volume was not cleanly closed. A volume whose integrity
-    /// sequence cannot be read counts as clean.
-    pub fn was_dirty(&self) -> bool {
+    /// the volume was not cleanly closed. `None` when the integrity
+    /// sequence is empty, damaged or cannot be read, so the state is unknown.
+    pub fn was_dirty(&self) -> Option<bool> {
         self.info.volume.was_dirty
     }
 

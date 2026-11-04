@@ -11,7 +11,7 @@ title: Create UDF filesystems
 
 ```toml
 [dependencies.hadris]
-version = "3.0.0-rc.3"
+version = "3.0.0-rc.4"
 default-features = false
 features = ["std", "sync", "write", "udf", "iso"]
 ```

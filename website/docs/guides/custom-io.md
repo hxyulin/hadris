@@ -20,7 +20,7 @@ directly when the hardware addresses whole blocks.
 
 ```toml
 [dependencies]
-hadris-io = { version = "3.0.0-rc.3", default-features = false, features = ["sync"] }
+hadris-io = { version = "3.0.0-rc.4", default-features = false, features = ["sync"] }
 ```
 
 `hadris_io::sync::Read`, `Write` and `Seek` report the implementor's own error
@@ -96,13 +96,13 @@ rather than matching it.
 ## Wrap an `embedded-io` device
 
 A device that already implements the `embedded-io` traits is wrapped in
-`FromEmbedded`, which needs the `embedded-io` feature. Its error passes
+`FromEmbedded`, which needs the `embedded-io-07` feature. Its error passes
 through unchanged.
 
 ```toml
 [dependencies]
 embedded-io = "0.7"
-hadris-io = { version = "3.0.0-rc.3", default-features = false, features = ["sync", "embedded-io"] }
+hadris-io = { version = "3.0.0-rc.4", default-features = false, features = ["sync", "embedded-io-07"] }
 ```
 
 ```rust,no_run
@@ -153,7 +153,7 @@ Allocation-free firmware uses `hadris::fat::embedded::sync::Fat` instead.
 
 ```toml
 [dependencies]
-hadris = { version = "3.0.0-rc.3", default-features = false, features = ["alloc", "sync", "fat"] }
+hadris = { version = "3.0.0-rc.4", default-features = false, features = ["alloc", "sync", "fat"] }
 ```
 
 ```rust,no_run

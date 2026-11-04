@@ -35,18 +35,114 @@ pub enum NameCase {
     Preserve,
 }
 
-bitflags::bitflags! {
-    /// The metadata Rock Ridge copies from the tree. What is not copied
-    /// gets a default: mode 0644 for files and 0755 for directories, owner
-    /// 0, the options' time.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub struct Preserve: u8 {
-        /// Permission bits.
-        const PERMISSIONS = 0b001;
-        /// Owner user and group.
-        const OWNERS = 0b010;
-        /// Creation, modification and access times.
-        const TIMES = 0b100;
+/// The metadata Rock Ridge copies from the tree. What is not copied
+/// gets a default: mode 0644 for files and 0755 for directories, owner
+/// 0, the options' time.
+///
+/// Combine flags with `|` or [`union`](Self::union).
+#[repr(transparent)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct Preserve(u8);
+
+impl Preserve {
+    /// Permission bits.
+    pub const PERMISSIONS: Self = Self(0b001);
+    /// Owner user and group.
+    pub const OWNERS: Self = Self(0b010);
+    /// Creation, modification and access times.
+    pub const TIMES: Self = Self(0b100);
+
+    const NAMES: [(Self, &'static str); 3] = [
+        (Self::PERMISSIONS, "PERMISSIONS"),
+        (Self::OWNERS, "OWNERS"),
+        (Self::TIMES, "TIMES"),
+    ];
+
+    /// No flag set.
+    pub const fn empty() -> Self {
+        Self(0)
+    }
+
+    /// Every flag set.
+    pub const fn all() -> Self {
+        Self(Self::PERMISSIONS.0 | Self::OWNERS.0 | Self::TIMES.0)
+    }
+
+    /// Returns the flags of `bits`, dropping bits that are not a flag.
+    pub const fn from_bits_truncate(bits: u8) -> Self {
+        Self(bits & Self::all().0)
+    }
+
+    /// Returns the raw bits.
+    pub const fn bits(self) -> u8 {
+        self.0
+    }
+
+    /// Returns whether no flag is set.
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// Returns whether every flag of `other` is set in `self`.
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    /// Returns the flags of `self` and `other`.
+    #[must_use]
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    /// Returns `self` without the flags of `other`.
+    #[must_use]
+    pub const fn without(self, other: Self) -> Self {
+        Self(self.0 & !other.0)
+    }
+}
+
+impl core::ops::BitOr for Preserve {
+    type Output = Self;
+
+    fn bitor(self, other: Self) -> Self {
+        self.union(other)
+    }
+}
+
+impl core::ops::BitOrAssign for Preserve {
+    fn bitor_assign(&mut self, other: Self) {
+        *self = self.union(other);
+    }
+}
+
+impl core::ops::BitAnd for Preserve {
+    type Output = Self;
+
+    fn bitand(self, other: Self) -> Self {
+        Self(self.0 & other.0)
+    }
+}
+
+impl core::ops::BitAndAssign for Preserve {
+    fn bitand_assign(&mut self, other: Self) {
+        self.0 &= other.0;
+    }
+}
+
+impl core::fmt::Debug for Preserve {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("Preserve(")?;
+        let mut first = true;
+        for (flag, name) in Self::NAMES {
+            if self.contains(flag) {
+                if !first {
+                    f.write_str(" | ")?;
+                }
+                f.write_str(name)?;
+                first = false;
+            }
+        }
+        f.write_str(")")
     }
 }
 

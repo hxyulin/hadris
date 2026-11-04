@@ -138,7 +138,7 @@ pub struct VolumeInfo {
     pub(crate) file_set: Identifier<64>,
     pub(crate) recorded: Option<DateTime>,
     pub(crate) integrity_recorded: Option<DateTime>,
-    pub(crate) was_dirty: bool,
+    pub(crate) was_dirty: Option<bool>,
 }
 
 impl VolumeInfo {

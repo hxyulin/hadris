@@ -13,7 +13,7 @@ fi
 
 no_alloc=(
   "hadris-common:"
-  "hadris-io:sync,async,embedded-io"
+  "hadris-io:sync,async,embedded-io-07"
   "hadris-storage:sync,async"
   "hadris-fs:sync,async"
   "hadris-fat-raw:sync,async"

@@ -679,12 +679,24 @@ fn integrity_extent(start: u32, blocks: u32, copies: &[(u32, bool)]) -> Vec<u8> 
 #[test]
 fn the_last_integrity_descriptor_of_an_extent_prevails() {
     let udf = open(integrity_extent(288, 2, &[(288, false)]));
-    assert!(
-        !udf.was_dirty(),
+    assert_eq!(
+        udf.was_dirty(),
+        Some(false),
         "the closed descriptor after the open one wins"
     );
     let udf = open(integrity_extent(288, 2, &[(288, true), (289, false)]));
-    assert!(udf.was_dirty());
+    assert_eq!(udf.was_dirty(), Some(true));
     let udf = open(integrity_extent(287, 3, &[(287, false)]));
-    assert!(udf.was_dirty(), "an unrecorded block ends the extent");
+    assert_eq!(
+        udf.was_dirty(),
+        Some(true),
+        "an unrecorded block ends the extent"
+    );
+}
+
+#[test]
+fn an_unreadable_integrity_sequence_leaves_the_state_unknown() {
+    let udf = open(integrity_extent(0, 1, &[]));
+    assert_eq!(udf.was_dirty(), None);
+    assert_eq!(udf.info().integrity_recorded(), None);
 }

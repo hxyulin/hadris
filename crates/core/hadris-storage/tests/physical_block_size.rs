@@ -104,7 +104,7 @@ mod sync {
         assert_eq!(dev.block_size(), LOGICAL);
         let odd = FileDevice::open(&path)
             .unwrap()
-            .with_physical_block_size(BlockSize::new(1000).unwrap())
+            .with_physical_block_size(BlockSize::new(256).unwrap())
             .unwrap_err();
         assert_eq!(odd.kind(), std::io::ErrorKind::InvalidInput);
         let dev = FileDevice::open_with_block_size(&path, BlockSize::new(2048).unwrap()).unwrap();
