@@ -106,7 +106,7 @@ pub enum SeekFrom { Start(u64), End(i64), Current(i64) }
 
 `SeekFrom` is Hadris's own, so no dependency is needed to seek. It converts
 to and from `std::io::SeekFrom` with `std` and `embedded_io::SeekFrom` with
-`embedded-io`, and an implementation of `Seek` resolves it with
+`embedded-io-07`, and an implementation of `Seek` resolves it with
 `SeekFrom::resolve(current, len)` rather than matching it.
 
 The async traits in `hadris_io::async_` have the same shape with `async fn`.
@@ -165,7 +165,7 @@ assert_eq!(
 |---------|---------|-------|---------|
 | `StdIo<T>` | `std` | `std::io::Error` | Use a `std::io` reader, writer or seeker |
 | `ToStd<T>` | `std` + `sync` | | Expose a Hadris reader, writer or seeker as `std::io` |
-| `FromEmbedded<T>` | `embedded-io` | `T::Error` | Use an `embedded-io` or `embedded-io-async` device |
+| `FromEmbedded<T>` | `embedded-io-07` | `T::Error` | Use an `embedded-io` or `embedded-io-async` device |
 
 ```rust
 use hadris_io::sync::Read;

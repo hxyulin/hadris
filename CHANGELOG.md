@@ -37,8 +37,10 @@ Each published package owns its version and may be released independently.
   with the same methods as `hadris_part::PartitionFlags`. The crate advances
   to `3.0.0-rc.4`.
 - **hadris-udf:** `UdfFs::was_dirty` returns `Option<bool>`, `None` when the
-  integrity sequence is empty, damaged or cannot be read, instead of
-  reporting such a volume as clean. The crate advances to `3.0.0-rc.4`.
+  integrity sequence is empty, damaged or cannot be read, or records an
+  integrity type other than open or closed, instead of reporting such a
+  volume as clean. A damaged descriptor after a readable one also gives
+  `None`; only a zeroed block ends an extent early. The crate advances to `3.0.0-rc.4`.
 - **hadris:** Advances to `3.0.0-rc.4` for the re-exported format APIs.
 
 ### Changed

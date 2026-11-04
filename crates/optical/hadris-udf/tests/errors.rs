@@ -699,4 +699,17 @@ fn an_unreadable_integrity_sequence_leaves_the_state_unknown() {
     let udf = open(integrity_extent(0, 1, &[]));
     assert_eq!(udf.was_dirty(), None);
     assert_eq!(udf.info().integrity_recorded(), None);
+
+    let mut damaged = integrity_extent(288, 2, &[(288, true)]);
+    damaged[289 * 2048 + 100] ^= 0xFF;
+    assert_eq!(
+        open(damaged).was_dirty(),
+        None,
+        "a damaged descriptor after a closed one"
+    );
+
+    let mut unknown = integrity_extent(289, 1, &[]);
+    unknown[289 * 2048 + 28..289 * 2048 + 32].copy_from_slice(&2u32.to_le_bytes());
+    reseal(&mut unknown, 289, 118);
+    assert_eq!(open(unknown).was_dirty(), None, "integrity type 2");
 }
