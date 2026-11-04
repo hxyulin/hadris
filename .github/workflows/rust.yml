@@ -753,7 +753,7 @@ jobs:
         with:
           toolchain: 1.97.1
           components: clippy
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
       - uses: Swatinem/rust-cache@v2
