@@ -6,9 +6,33 @@ use hadris_fs::{CodePage, ErrorKind, FsResult};
 
 use super::rawio;
 use super::storage::BlockDevice;
+use crate::RenamePhase;
 use crate::names::CANDIDATES;
 
 io_transform! {
+
+/// Decides whether a pending rename published its expected short entry.
+pub(crate) async fn recover_rename<D: BlockDevice>(
+    dev: &mut D,
+    block: &mut BlockBuf,
+    phase: RenamePhase,
+    offset: u64,
+    expected: &[u8; 32],
+) -> FsResult<RenamePhase, D::Error> {
+    Ok(match phase {
+        RenamePhase::Inserting => RenamePhase::RollingBack,
+        RenamePhase::Publishing => {
+            let found = rawio::read_slot(dev, block, offset).await?;
+            if matches!(found, Slot::Short(entry) if entry.is_visible() && entry.encode() == *expected) {
+                RenamePhase::Committed
+            } else {
+                RenamePhase::RollingBack
+            }
+        }
+        decided => decided,
+    })
+}
+
 
 /// Whether a short entry of `dir` other than the label and the slots
 /// `skip(slot, offset)` covers has the on-disk name `name`.

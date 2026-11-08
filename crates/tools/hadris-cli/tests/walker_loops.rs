@@ -220,6 +220,22 @@ fn udf_walkers_fail_on_a_directory_loop() {
 }
 
 #[test]
+fn generic_extraction_does_not_create_output_for_a_directory_loop() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = source(temp.path());
+    let image = temp.path().join("disc.udf");
+    build(&["udf", "create", "-o", text(&image), text(&source)]);
+    let looped = patched(&image, loop_udf);
+    let output = temp.path().join("out");
+    let (extracted, error) = run(&["extract", text(&looped), "-o", text(&output)]);
+    assert!(!extracted, "{error}");
+    assert!(
+        !output.exists(),
+        "failed traversal created the output directory"
+    );
+}
+
+#[test]
 fn bridge_compare_fails_on_a_directory_loop() {
     let temp = tempfile::tempdir().unwrap();
     let source = source(temp.path());

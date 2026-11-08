@@ -173,7 +173,7 @@ pub mod sync {
     mod write;
     #[cfg(feature = "write")]
     #[cfg_attr(docsrs, doc(cfg(feature = "write")))]
-    pub use write::write;
+    pub use write::{write, write_prepared};
     #[cfg(feature = "write")]
     #[path = "session.rs"]
     mod session;
@@ -193,7 +193,7 @@ pub use options::{
 };
 #[cfg(feature = "write")]
 #[cfg_attr(docsrs, doc(cfg(feature = "write")))]
-pub use plan::plan;
+pub use plan::{PreparedIso, plan};
 pub use rock_ridge::RockRidgeInfo;
 pub use volume_info::{IsoDate, IsoId, VolumeInfo};
 

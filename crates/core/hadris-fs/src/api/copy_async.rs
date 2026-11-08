@@ -42,40 +42,6 @@ fn reads_through<F>(tree: &Tree, volume: &Volume<F>) -> Option<Vec<u8>> {
 
 io_transform! {
 
-/// Sets `partial`, permissions the target stores only in part; a value it
-/// cannot hold is counted as dropped.
-async fn try_partial<F: FileSystem + ?Sized>(
-    fs: &mut F,
-    node: NodeId,
-    partial: Option<SetAttr>,
-    dropped: &mut Dropped,
-) -> FsResult<(), F::DeviceError> {
-    let Some(partial) = partial else { return Ok(()) };
-    match fs.setattr(node, &partial).await {
-        Err(err) if err.kind() == ErrorKind::Unsupported => {
-            dropped.add(Field::Permissions);
-            Ok(())
-        }
-        other => other,
-    }
-}
-
-/// Writes the content of `node` into the open file `to`.
-async fn copy_data<F: FileSystem + ?Sized>(fs: &mut F, node: &Node, to: NodeId, buf: &mut [u8]) -> Result<(), PathError> {
-    let Some(content) = node.content() else { return Ok(()) };
-    let mut reader = ContentReader::open(content).await?;
-    let mut offset = 0;
-    while offset < reader.len() {
-        let n = reader.read_at(offset, buf).await?;
-        if n == 0 {
-            return Err(PathError::new(ErrorKind::Corrupt, "file content ended early"));
-        }
-        write_all_at(fs, to, offset, &buf[..n]).await?;
-        offset += n as u64;
-    }
-    Ok(())
-}
-
 /// Creates the file `name` in `dir` from `node`: its data, then its times.
 async fn copy_file<F: FileSystem>(
     fs: &mut F,
@@ -92,13 +58,7 @@ async fn copy_file<F: FileSystem>(
     let result = match fs.open(to, OpenMode::Write).await {
         Ok(()) => {
             held.mark_open();
-            let mut done = copy_data(fs, node, to, buf).await;
-            if done.is_ok() && !times.is_empty() {
-                done = fs.setattr(to, &times).await.map_err(PathError::from);
-            }
-            if done.is_ok() {
-                done = try_partial(fs, to, partial, dropped).await.map_err(PathError::from);
-            }
+            let done = copy_file_contents(fs, node, to, &times, partial, dropped, buf).await;
             let closed = fs.close(to).await;
             held.closed();
             done.and(closed.map_err(PathError::from))

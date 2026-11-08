@@ -28,28 +28,19 @@ pub(crate) fn entry_name(name: &Name, invalid: ErrorKind) -> Result<&str, ErrorK
     }
 }
 
-/// The state of a pinned node that the pin, dirty and open accounting of
-/// [`Table`] reads and changes.
-pub(crate) trait NodeState {
-    fn is_dir(&self) -> bool;
-    /// The entry lacks the node's sizes and modification time. A dirty node
-    /// holds one pin of the driver's own until it is written.
-    fn is_dirty(&self) -> bool;
-    fn set_dirty(&mut self, dirty: bool);
-    /// Opens not yet closed.
-    fn opens(&self) -> u32;
-    fn set_opens(&mut self, opens: u32);
-    /// Removed while pinned: every method but `forget` and `close` answers
-    /// `NotFound`.
-    fn is_unlinked(&self) -> bool;
-    /// Marks the node removed: its entry and clusters are gone.
-    fn unlink(&mut self);
+struct Entry<V> {
+    pins: u32,
+    opens: u32,
+    dirty: bool,
+    unlinked: bool,
+    dir: bool,
+    value: V,
 }
 
 /// Per-node driver state with a pin count per node, for pinned and open
 /// nodes. An entry goes when its last pin does, or on `remove`.
 pub(crate) struct Table<V> {
-    nodes: BTreeMap<NodeId, (u32, V)>,
+    nodes: BTreeMap<NodeId, Entry<V>>,
     limit: Option<usize>,
 }
 
@@ -71,23 +62,23 @@ impl<V> Table<V> {
     }
 
     pub(crate) fn get(&self, id: NodeId) -> Option<&V> {
-        self.nodes.get(&id).map(|(_, value)| value)
+        self.nodes.get(&id).map(|entry| &entry.value)
     }
 
     pub(crate) fn get_mut(&mut self, id: NodeId) -> Option<&mut V> {
-        self.nodes.get_mut(&id).map(|(_, value)| value)
+        self.nodes.get_mut(&id).map(|entry| &mut entry.value)
     }
 
     /// The pin count of `id`, 0 when absent.
     pub(crate) fn pins(&self, id: NodeId) -> u32 {
-        self.nodes.get(&id).map_or(0, |(pins, _)| *pins)
+        self.nodes.get(&id).map_or(0, |entry| entry.pins)
     }
 
     /// The first entry for which `pred` holds.
     pub(crate) fn find(&self, mut pred: impl FnMut(NodeId, &V) -> bool) -> Option<NodeId> {
         self.nodes
             .iter()
-            .find(|(id, (_, value))| pred(**id, value))
+            .find(|(id, entry)| pred(**id, &entry.value))
             .map(|(id, _)| *id)
     }
 
@@ -103,43 +94,54 @@ impl<V> Table<V> {
         }
         self.nodes
             .range(from..=to)
-            .find(|(id, (_, value))| pred(**id, value))
+            .find(|(id, entry)| pred(**id, &entry.value))
             .map(|(id, _)| *id)
     }
 
     pub(crate) fn for_each_mut(&mut self, mut f: impl FnMut(NodeId, &mut V)) {
-        for (id, (_, value)) in &mut self.nodes {
-            f(*id, value);
+        for (id, entry) in &mut self.nodes {
+            f(*id, &mut entry.value);
         }
     }
 
     /// Adds `id` with one pin, or replaces its state and keeps its pins.
     /// [`ErrorKind::LimitExceeded`] when a new entry would pass the limit.
-    pub(crate) fn insert(&mut self, id: NodeId, value: V) -> Result<(), ErrorKind> {
-        if let Some((_, old)) = self.nodes.get_mut(&id) {
-            *old = value;
+    pub(crate) fn insert(&mut self, id: NodeId, value: V, dir: bool) -> Result<(), ErrorKind> {
+        let entry = Entry {
+            pins: 1,
+            opens: 0,
+            dirty: false,
+            unlinked: false,
+            dir,
+            value,
+        };
+        if let Some(old) = self.nodes.get_mut(&id) {
+            *old = Entry {
+                pins: old.pins,
+                ..entry
+            };
             return Ok(());
         }
         if self.limit.is_some_and(|limit| self.nodes.len() >= limit) {
             return Err(ErrorKind::LimitExceeded);
         }
-        self.nodes.insert(id, (1, value));
+        self.nodes.insert(id, entry);
         Ok(())
     }
 
     /// Adds a pin and returns the new count, or `None` when absent.
     pub(crate) fn pin(&mut self, id: NodeId) -> Option<u32> {
-        let (pins, _) = self.nodes.get_mut(&id)?;
-        *pins = pins.saturating_add(1);
-        Some(*pins)
+        let entry = self.nodes.get_mut(&id)?;
+        entry.pins = entry.pins.saturating_add(1);
+        Some(entry.pins)
     }
 
     /// Drops a pin and returns the remaining count, or `None` when absent.
     /// The entry goes at zero.
     pub(crate) fn unpin(&mut self, id: NodeId) -> Option<u32> {
-        let (pins, _) = self.nodes.get_mut(&id)?;
-        *pins = pins.saturating_sub(1);
-        let pins = *pins;
+        let entry = self.nodes.get_mut(&id)?;
+        entry.pins = entry.pins.saturating_sub(1);
+        let pins = entry.pins;
         if pins == 0 {
             self.nodes.remove(&id);
         }
@@ -147,27 +149,40 @@ impl<V> Table<V> {
     }
 
     pub(crate) fn remove(&mut self, id: NodeId) -> Option<V> {
-        self.nodes.remove(&id).map(|(_, value)| value)
+        self.nodes.remove(&id).map(|entry| entry.value)
     }
-}
 
-impl<V: NodeState> Table<V> {
+    pub(crate) fn is_dirty(&self, id: NodeId) -> bool {
+        self.nodes.get(&id).is_some_and(|entry| entry.dirty)
+    }
+
+    pub(crate) fn is_unlinked(&self, id: NodeId) -> bool {
+        self.nodes.get(&id).is_some_and(|entry| entry.unlinked)
+    }
+
+    pub(crate) fn first_dirty(&self) -> Option<NodeId> {
+        self.nodes
+            .iter()
+            .find(|(_, entry)| entry.dirty)
+            .map(|(id, _)| *id)
+    }
+
     /// Pins held by callers, not counting the driver's own pin on a dirty
     /// node.
     pub(crate) fn user_pins(&self, id: NodeId) -> u32 {
-        let dirty = self.get(id).is_some_and(V::is_dirty);
+        let dirty = self.is_dirty(id);
         self.pins(id).saturating_sub(dirty as u32)
     }
 
     pub(crate) fn is_open(&self, id: NodeId) -> bool {
-        self.get(id).is_some_and(|node| node.opens() > 0)
+        self.nodes.get(&id).is_some_and(|entry| entry.opens > 0)
     }
 
     /// Marks a node dirty, taking the driver's pin on it the first time.
     pub(crate) fn mark_dirty(&mut self, id: NodeId) {
-        let fresh = match self.get_mut(id) {
-            Some(node) if !node.is_dirty() => {
-                node.set_dirty(true);
+        let fresh = match self.nodes.get_mut(&id) {
+            Some(node) if !node.dirty => {
+                node.dirty = true;
                 true
             }
             _ => false,
@@ -179,9 +194,9 @@ impl<V: NodeState> Table<V> {
 
     /// Marks a node written, dropping the driver's pin on a dirty one.
     pub(crate) fn clean(&mut self, id: NodeId) {
-        let was_dirty = match self.get_mut(id) {
-            Some(node) if node.is_dirty() => {
-                node.set_dirty(false);
+        let was_dirty = match self.nodes.get_mut(&id) {
+            Some(node) if node.dirty => {
+                node.dirty = false;
                 true
             }
             _ => false,
@@ -191,22 +206,13 @@ impl<V: NodeState> Table<V> {
         }
     }
 
-    /// Drops the state of a node whose entry was just removed. A node
-    /// callers still pin stays, marked unlinked, so its id answers
-    /// `NotFound` until the last `forget`; returns whether it stayed.
-    pub(crate) fn mark_unlinked(&mut self, id: NodeId) -> bool {
+    /// Marks a removed node unlinked and returns its format state for cleanup
+    /// while callers still pin it. Otherwise drops it.
+    pub(crate) fn mark_unlinked(&mut self, id: NodeId) -> Option<&mut V> {
         self.clean(id);
-        if self.pins(id) == 0 {
-            self.remove(id);
-            return false;
-        }
-        match self.get_mut(id) {
-            Some(node) => {
-                node.unlink();
-                true
-            }
-            None => false,
-        }
+        let entry = self.nodes.get_mut(&id)?;
+        entry.unlinked = true;
+        Some(&mut entry.value)
     }
 
     /// Counts one `open` of a pinned file, refusing the root, directories,
@@ -221,12 +227,12 @@ impl<V: NodeState> Table<V> {
         if id == ROOT {
             return Err(ErrorKind::IsADirectory);
         }
-        match self.get_mut(id) {
-            Some(node) if node.is_unlinked() => Err(ErrorKind::NotFound),
-            Some(node) if node.is_dir() => Err(ErrorKind::IsADirectory),
+        match self.nodes.get_mut(&id) {
+            Some(node) if node.unlinked => Err(ErrorKind::NotFound),
+            Some(node) if node.dir => Err(ErrorKind::IsADirectory),
             Some(_) if mode == OpenMode::Write && read_only => Err(ErrorKind::ReadOnly),
             Some(node) => {
-                node.set_opens(node.opens().saturating_add(1));
+                node.opens = node.opens.saturating_add(1);
                 Ok(())
             }
             None => Err(ErrorKind::InvalidHandle),
@@ -235,8 +241,8 @@ impl<V: NodeState> Table<V> {
 
     /// Ends one `open`.
     pub(crate) fn close(&mut self, id: NodeId) {
-        if let Some(node) = self.get_mut(id) {
-            node.set_opens(node.opens().saturating_sub(1));
+        if let Some(node) = self.nodes.get_mut(&id) {
+            node.opens = node.opens.saturating_sub(1);
         }
     }
 
@@ -247,8 +253,7 @@ impl<V: NodeState> Table<V> {
             return;
         }
         for _ in 0..count.min(u64::from(self.user_pins(id))) {
-            if self.unpin(id) == Some(0) && self.get(id).is_some_and(V::is_unlinked) {
-                self.remove(id);
+            if self.unpin(id) == Some(0) {
                 break;
             }
         }
@@ -265,67 +270,50 @@ mod tests {
 
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
     struct State {
-        dir: bool,
-        dirty: bool,
-        opens: u32,
-        unlinked: bool,
         entry: u64,
-    }
-
-    impl NodeState for State {
-        fn is_dir(&self) -> bool {
-            self.dir
-        }
-        fn is_dirty(&self) -> bool {
-            self.dirty
-        }
-        fn set_dirty(&mut self, dirty: bool) {
-            self.dirty = dirty;
-        }
-        fn opens(&self) -> u32 {
-            self.opens
-        }
-        fn set_opens(&mut self, opens: u32) {
-            self.opens = opens;
-        }
-        fn is_unlinked(&self) -> bool {
-            self.unlinked
-        }
-        fn unlink(&mut self) {
-            self.unlinked = true;
-            self.entry = u64::MAX;
-        }
     }
 
     #[test]
     fn dirty_nodes_hold_one_driver_pin() {
         let mut table = Table::new(None);
-        table.insert(id(2), State::default()).unwrap();
+        table.insert(id(2), State::default(), false).unwrap();
         table.mark_dirty(id(2));
         table.mark_dirty(id(2));
         assert_eq!(table.pins(id(2)), 2);
         assert_eq!(table.user_pins(id(2)), 1);
         table.forget(id(2), 5);
         assert_eq!(table.pins(id(2)), 1);
-        assert!(table.get(id(2)).is_some_and(|node| node.dirty));
+        assert!(table.is_dirty(id(2)));
         table.clean(id(2));
         table.clean(id(2));
         assert_eq!(table.get(id(2)), None);
     }
 
     #[test]
+    fn changing_format_data_preserves_lifecycle_accounting() {
+        let mut table = Table::new(None);
+        table.insert(id(2), State { entry: 64 }, false).unwrap();
+        table.open(id(2), OpenMode::Write, false).unwrap();
+        table.mark_dirty(id(2));
+        table.get_mut(id(2)).unwrap().entry = 96;
+        table.for_each_mut(|_, node| node.entry += 32);
+        assert!(table.is_dirty(id(2)));
+        assert!(table.is_open(id(2)));
+        assert_eq!(table.first_dirty(), Some(id(2)));
+        assert_eq!(table.user_pins(id(2)), 1);
+        table.forget(id(2), u64::MAX);
+        assert_eq!(table.get(id(2)).map(|node| node.entry), Some(128));
+        table.close(id(2));
+        assert!(!table.is_open(id(2)));
+        table.clean(id(2));
+        assert!(table.is_empty());
+    }
+
+    #[test]
     fn opens_refuse_what_cannot_be_opened() {
         let mut table = Table::new(None);
-        table.insert(id(2), State::default()).unwrap();
-        table
-            .insert(
-                id(3),
-                State {
-                    dir: true,
-                    ..State::default()
-                },
-            )
-            .unwrap();
+        table.insert(id(2), State::default(), false).unwrap();
+        table.insert(id(3), State::default(), true).unwrap();
         assert_eq!(
             table.open(ROOT, OpenMode::Read, false),
             Err(ErrorKind::IsADirectory)
@@ -350,28 +338,20 @@ mod tests {
         table.close(id(2));
         table.close(id(2));
         assert!(!table.is_open(id(2)));
-        assert_eq!(table.get(id(2)).map(|node| node.opens), Some(0));
+        assert_eq!(table.nodes.get(&id(2)).map(|node| node.opens), Some(0));
     }
 
     #[test]
     fn unlinked_nodes_stay_until_their_last_pin() {
         let mut table = Table::new(None);
-        table
-            .insert(
-                id(2),
-                State {
-                    entry: 64,
-                    ..State::default()
-                },
-            )
-            .unwrap();
-        table.insert(id(3), State::default()).unwrap();
+        table.insert(id(2), State { entry: 64 }, false).unwrap();
+        table.insert(id(3), State::default(), false).unwrap();
         table.pin(id(2));
         table.mark_dirty(id(2));
-        assert!(table.mark_unlinked(id(2)));
+        assert!(table.mark_unlinked(id(2)).is_some());
         let node = *table.get(id(2)).unwrap();
-        assert!(node.unlinked && !node.dirty);
-        assert_eq!(node.entry, u64::MAX);
+        assert!(table.is_unlinked(id(2)) && !table.is_dirty(id(2)));
+        assert_eq!(node.entry, 64);
         assert_eq!(
             table.open(id(2), OpenMode::Read, false),
             Err(ErrorKind::NotFound)
@@ -381,7 +361,7 @@ mod tests {
         table.forget(id(2), 1);
         assert_eq!(table.get(id(2)), None);
         table.forget(id(3), 1);
-        assert!(!table.mark_unlinked(id(3)));
+        assert!(table.mark_unlinked(id(3)).is_none());
         assert!(table.is_empty());
         table.forget(ROOT, 1);
     }
@@ -412,7 +392,7 @@ mod tests {
     fn pins_and_removal() {
         let mut table = Table::new(None);
         assert!(table.is_empty());
-        assert_eq!(table.insert(id(1), 10), Ok(()));
+        assert_eq!(table.insert(id(1), 10, false), Ok(()));
         assert_eq!(table.pins(id(1)), 1);
         assert_eq!(table.pin(id(1)), Some(2));
         assert_eq!(table.pin(id(9)), None);
@@ -421,10 +401,10 @@ mod tests {
         assert_eq!(table.unpin(id(1)), Some(0));
         assert_eq!(table.get(id(1)), None);
         assert_eq!(table.unpin(id(1)), None);
-        table.insert(id(2), 20).unwrap();
-        table.insert(id(3), 30).unwrap();
+        table.insert(id(2), 20, false).unwrap();
+        table.insert(id(3), 30, false).unwrap();
         table.pin(id(3));
-        table.insert(id(3), 31).unwrap();
+        table.insert(id(3), 31, false).unwrap();
         assert_eq!(table.pins(id(3)), 2);
         *table.get_mut(id(2)).unwrap() += 1;
         assert_eq!(table.find(|_, value| *value == 21), Some(id(2)));
@@ -441,10 +421,10 @@ mod tests {
     #[test]
     fn the_limit_caps_new_entries() {
         let mut table = Table::new(Some(1));
-        table.insert(id(1), 1).unwrap();
-        assert_eq!(table.insert(id(2), 2), Err(ErrorKind::LimitExceeded));
-        assert_eq!(table.insert(id(1), 3), Ok(()));
+        table.insert(id(1), 1, false).unwrap();
+        assert_eq!(table.insert(id(2), 2, false), Err(ErrorKind::LimitExceeded));
+        assert_eq!(table.insert(id(1), 3, false), Ok(()));
         table.remove(id(1));
-        assert_eq!(table.insert(id(2), 2), Ok(()));
+        assert_eq!(table.insert(id(2), 2, false), Ok(()));
     }
 }

@@ -16,7 +16,7 @@ use hadris_fat_raw::exfat::{self as raw, ENTRY_SIZE, MAX_SET, NameUnits, RawEntr
 use hadris_fat_raw::name as names;
 
 use crate::exfat::{Geometry, Guid, VolumeLabel, entry_guid, guid_entry, le16, le32, le64};
-use crate::table::{NodeState, RESERVED, ROOT, Table, entry_name, node_id};
+use crate::table::{RESERVED, ROOT, Table, entry_name, node_id};
 use crate::{permissions, push_run, read_only_bit};
 use hadris_fat_raw::io::{ChainPos, Held};
 
@@ -66,13 +66,6 @@ pub(super) struct Node {
     dir: bool,
     /// A known position in the allocation.
     hint: ChainPos,
-    /// The entry set lacks the sizes and modification time. A dirty node
-    /// holds one pin of the driver's own until it is written.
-    dirty: bool,
-    opens: u32,
-    /// Removed while pinned: every method but `forget` and `close`
-    /// answers `NotFound`.
-    unlinked: bool,
 }
 
 impl Node {
@@ -86,9 +79,6 @@ impl Node {
             contiguous: set.flags() & raw::NO_FAT_CHAIN != 0,
             dir: set.is_dir(),
             hint: ChainPos::NONE,
-            dirty: false,
-            opens: 0,
-            unlinked: false,
         }
     }
 
@@ -97,40 +87,6 @@ impl Node {
             first: self.first,
             contiguous: self.contiguous,
         }
-    }
-}
-
-impl NodeState for Node {
-    fn is_dir(&self) -> bool {
-        self.dir
-    }
-
-    fn is_dirty(&self) -> bool {
-        self.dirty
-    }
-
-    fn set_dirty(&mut self, dirty: bool) {
-        self.dirty = dirty;
-    }
-
-    fn opens(&self) -> u32 {
-        self.opens
-    }
-
-    fn set_opens(&mut self, opens: u32) {
-        self.opens = opens;
-    }
-
-    fn is_unlinked(&self) -> bool {
-        self.unlinked
-    }
-
-    fn unlink(&mut self) {
-        self.unlinked = true;
-        self.entry = u64::MAX;
-        self.first = 0;
-        self.len = 0;
-        self.valid = 0;
     }
 }
 
@@ -1147,16 +1103,13 @@ impl<D: BlockDevice> ExFatFs<D> {
             contiguous: false,
             dir: is_dir,
             hint: ChainPos::NONE,
-            dirty: false,
-            opens: 0,
-            unlinked: false,
         };
-        self.nodes.insert(RESERVED, placeholder).map_err(|_| ErrorKind::LimitExceeded)?;
+        self.nodes.insert(RESERVED, placeholder, placeholder.dir).map_err(|_| ErrorKind::LimitExceeded)?;
         let created = self.create_set(start, dir_entry, &units, hash, &plan, is_dir, attrs).await;
         self.nodes.remove(RESERVED);
         let (node, tag) = created?;
         let id = self.free_id(node.entry, tag).ok_or(ErrorKind::LimitExceeded)?;
-        self.nodes.insert(id, node).map_err(|_| ErrorKind::LimitExceeded)?;
+        self.nodes.insert(id, node, node.dir).map_err(|_| ErrorKind::LimitExceeded)?;
         Ok(id)
     }
 
@@ -1217,7 +1170,7 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// Whether a node's sizes, or what an interrupted operation left, are
     /// not yet written.
     fn unwritten(&self) -> bool {
-        self.pending.is_some() || self.pending_set.is_some() || self.nodes.find(|_, node| node.dirty).is_some()
+        self.pending.is_some() || self.pending_set.is_some() || self.nodes.first_dirty().is_some()
     }
 
     /// Checks that the volume is writable and finishes what an interrupted
@@ -1528,7 +1481,11 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// callers still pin stays, marked unlinked, so its id answers
     /// `NotFound` until the last `forget`.
     fn mark_unlinked(&mut self, id: NodeId) {
-        if self.nodes.mark_unlinked(id) {
+        if let Some(node) = self.nodes.mark_unlinked(id) {
+            node.entry = u64::MAX;
+            node.first = 0;
+            node.len = 0;
+            node.valid = 0;
             self.moved = true;
         }
     }
@@ -1649,7 +1606,7 @@ impl<D: BlockDevice> ExFatFs<D> {
 
     async fn flush_node(&mut self, id: NodeId) -> FsResult<(), D::Error> {
         match self.nodes.get(id).copied() {
-            Some(node) if node.dirty => {
+            Some(node) if self.nodes.is_dirty(id) => {
                 self.store(Some(id), &node, node.alloc(), node.len, node.valid, node.hint).await
             }
             _ => Ok(()),
@@ -1691,7 +1648,7 @@ impl<D: BlockDevice> ExFatFs<D> {
             return Err(ErrorKind::InvalidHandle.into());
         }
         if let Some(node) = self.nodes.get(id) {
-            if node.unlinked {
+            if self.nodes.is_unlinked(id) {
                 return Err(ErrorKind::NotFound.into());
             }
             return Ok((Some(id), *node));
@@ -1849,7 +1806,7 @@ impl<D: BlockDevice> ExFatFs<D> {
         }
         let id = self.free_id(set.offset, set.tag()).ok_or(ErrorKind::LimitExceeded)?;
         self.nodes
-            .insert(id, Node::from_set(set, parent))
+            .insert(id, Node::from_set(set, parent), set.is_dir())
             .map_err(|_| ErrorKind::LimitExceeded)?;
         Ok(id)
     }
@@ -2287,9 +2244,6 @@ impl<D: BlockDevice> ExFatFs<D> {
             contiguous: dir.alloc.contiguous,
             dir: true,
             hint: ChainPos::NONE,
-            dirty: false,
-            opens: 0,
-            unlinked: false,
         };
         if old.first != 0 && old.contiguous {
             self.used_run_tail(old.first, old.len).await?;
@@ -2467,9 +2421,6 @@ impl<D: BlockDevice> ExFatFs<D> {
                     contiguous: false,
                     dir: is_dir,
                     hint: ChainPos::NONE,
-                    dirty: false,
-                    opens: 0,
-                    unlinked: false,
                 };
                 Ok((node, set_tag(&set[0], &set[1])))
             }
@@ -2482,7 +2433,7 @@ impl<D: BlockDevice> ExFatFs<D> {
 
     /// The primary and stream entries a moved node gets: its pending
     /// sizes, and the archive attribute for a file.
-    fn moved_entries(&self, set: &Set, node: &Node) -> (RawEntry, RawEntry) {
+    fn moved_entries(&self, set: &Set, node: &Node, id: Option<NodeId>) -> (RawEntry, RawEntry) {
         let mut primary = set.raw[0];
         let mut stream = set.raw[1];
         set_stream(&mut stream, node.alloc(), node.len, node.valid);
@@ -2490,7 +2441,7 @@ impl<D: BlockDevice> ExFatFs<D> {
             let attributes = le16(&primary, 4) | raw::ATTR_ARCHIVE;
             primary[4..6].copy_from_slice(&attributes.to_le_bytes());
         }
-        if node.dirty {
+        if id.is_some_and(|id| self.nodes.is_dirty(id)) {
             let now = self.now();
             stamp(&mut primary, MODIFIED, now);
             stamp(&mut primary, ACCESSED, now);
@@ -2500,7 +2451,7 @@ impl<D: BlockDevice> ExFatFs<D> {
 
     /// Renames in place to a name that differs only in case.
     async fn rewrite_name(&mut self, set: &Set, node: &Node, id: Option<NodeId>, name: &NameUnits, hash: u16) -> FsResult<(), D::Error> {
-        let (primary, stream) = self.moved_entries(set, node);
+        let (primary, stream) = self.moved_entries(set, node, id);
         let mut new = *set;
         let count = build_set(&primary, &stream, name, hash, set.extras(), &mut new.raw)?;
         if count != set.count {
@@ -2529,7 +2480,7 @@ impl<D: BlockDevice> ExFatFs<D> {
         name: &NameUnits,
         hash: u16,
     ) -> FsResult<(), D::Error> {
-        let (primary, stream) = self.moved_entries(set, node);
+        let (primary, stream) = self.moved_entries(set, node, id);
         let mut raw = [[0; ENTRY_SIZE]; MAX_SET];
         let count = build_set(&primary, &stream, name, hash, set.extras(), &mut raw)?;
         let offset = self.insert(to, to_entry, plan, &raw[..count], SetWrite::Clear).await?;
@@ -3213,12 +3164,12 @@ impl<D: BlockDevice> ExFatFs<D> {
             Some(wanted) => Some(read_only_bit(state.dir, wanted).ok_or(ErrorKind::Unsupported)?),
             None => None,
         };
-        if !state.dirty && changes.is_empty() {
+        if !self.nodes.is_dirty(node) && changes.is_empty() {
             return Ok(());
         }
         let mut set = Set::new();
         self.set_at(state.entry, &mut set).await?;
-        if state.dirty {
+        if self.nodes.is_dirty(node) {
             self.touch(&mut set, &state, state.alloc(), state.len, state.valid);
         }
         if let Some(attributes) = changes.attributes() {
@@ -3538,7 +3489,7 @@ impl<D: BlockDevice> ExFatFs<D> {
         }
         self.recover().await?;
         let mut corrupt = None;
-        while let Some(id) = self.nodes.find(|_, node| node.dirty) {
+        while let Some(id) = self.nodes.first_dirty() {
             match self.flush_node(id).await {
                 Err(err) if err.kind() == ErrorKind::Corrupt => {
                     self.nodes.clean(id);
@@ -3564,7 +3515,6 @@ impl<D: BlockDevice> ExFatFs<D> {
         self.flush_device().await
     }
 
-
     /// Resolves a path relative to the filesystem root.
     ///
     /// # Errors
@@ -3577,7 +3527,6 @@ impl<D: BlockDevice> ExFatFs<D> {
 }
 
 filesystem_impl!(ExFatFs);
-
 
 }
 

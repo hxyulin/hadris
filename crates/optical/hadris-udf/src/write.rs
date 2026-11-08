@@ -104,9 +104,10 @@ pub async fn write_bridge<D: BlockDevice>(mut out: D, tree: &Tree, iso: &IsoOpti
     check_block_size(&out)?;
     let plan = bridge::plan_both(tree, iso, udf)?;
     check_output(&out, plan.udf.total_blocks)?;
-    super::iso::write(&mut out, tree, &plan.iso).await?;
-    emit(&mut out, &plan.stored, &plan.udf).await?;
-    Ok(plan.report())
+    let report = plan.report();
+    super::iso::write_prepared(&mut out, plan.iso).await?;
+    emit(&mut out, tree, &plan.udf).await?;
+    Ok(report)
 }
 
 async fn write_sectors<D: BlockDevice>(out: &mut D, sector: u64, data: &[u8]) -> Result<(), Error<D::Error>> {
