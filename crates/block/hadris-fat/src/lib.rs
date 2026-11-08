@@ -222,6 +222,15 @@
 // Sync and async APIs intentionally compile the same source modules twice.
 #![allow(clippy::duplicate_mod)]
 
+#[cfg(any(feature = "sync", feature = "async"))]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RenamePhase {
+    Inserting,
+    Publishing,
+    Committed,
+    RollingBack,
+}
+
 #[cfg(any(feature = "std", test))]
 extern crate std;
 

@@ -486,3 +486,33 @@ fn actual_writer_undersized_preflight_and_readonly_failures_preserve_output() {
     assert!(readonly.audit.lock().unwrap().active.is_none());
     assert_eq!(readonly.inner.get_ref(), &before);
 }
+
+#[test]
+fn prepared_writer_matches_sync_with_pending_device_operations() {
+    let tree = write_tree();
+    let options = write_options();
+    let mut expected = write_device::<WriteState, ()>(Vec::new(), 512);
+    hadris_iso::sync::write(&mut expected.inner, &tree, &options).unwrap();
+    let mut output = write_device::<WriteState, ()>(Vec::new(), 512);
+    let prepared = hadris_iso::PreparedIso::new(&tree, &options).unwrap();
+    let expected_report = prepared.report().clone();
+    let future = hadris_iso::async_::write_prepared(&mut output, prepared);
+    fn require_send<T: Send>(_: &T) {}
+    require_send(&future);
+    assert_eq!(write_block_on(future).unwrap(), expected_report);
+    assert_eq!(output.inner.get_ref(), expected.inner.get_ref());
+    assert_eq!(output.audit.lock().unwrap().flushes, 1);
+}
+
+#[test]
+fn prepared_writer_rejects_capacity_before_any_device_writes() {
+    let tree = write_tree();
+    let prepared = hadris_iso::PreparedIso::new(&tree, &write_options()).unwrap();
+    let mut output = write_device::<WriteState, ()>(Vec::new(), 512);
+    output.inner = MemDevice::new(vec![0xA5; 512], BlockSize::new(512).unwrap());
+    let error =
+        write_block_on(hadris_iso::async_::write_prepared(&mut output, prepared)).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::NoSpace);
+    assert_eq!(output.audit.lock().unwrap().writes, 0);
+    assert_eq!(output.inner.get_ref(), &[0xA5; 512]);
+}

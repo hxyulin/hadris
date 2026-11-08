@@ -90,3 +90,58 @@ fn split_attrs(
     }
     (create, times, partial)
 }
+
+io_transform! {
+
+/// Sets `partial`, permissions the target stores only in part; a value it
+/// cannot hold is counted as dropped.
+async fn try_partial<F: FileSystem + ?Sized>(
+    fs: &mut F,
+    node: NodeId,
+    partial: Option<SetAttr>,
+    dropped: &mut Dropped,
+) -> FsResult<(), F::DeviceError> {
+    let Some(partial) = partial else { return Ok(()) };
+    match fs.setattr(node, &partial).await {
+        Err(err) if err.kind() == ErrorKind::Unsupported => {
+            dropped.add(Field::Permissions);
+            Ok(())
+        }
+        other => other,
+    }
+}
+
+/// Writes the content of `node` into the open file `to`.
+async fn copy_data<F: FileSystem + ?Sized>(fs: &mut F, node: &Node, to: NodeId, buf: &mut [u8]) -> Result<(), PathError> {
+    let Some(content) = node.content() else { return Ok(()) };
+    let mut reader = ContentReader::open(content).await?;
+    let mut offset = 0;
+    while offset < reader.len() {
+        let n = reader.read_at(offset, buf).await?;
+        if n == 0 {
+            return Err(PathError::new(ErrorKind::Corrupt, "file content ended early"));
+        }
+        write_all_at(fs, to, offset, &buf[..n]).await?;
+        offset += n as u64;
+    }
+    Ok(())
+}
+
+async fn copy_file_contents<F: FileSystem + ?Sized>(
+    fs: &mut F,
+    node: &Node,
+    to: NodeId,
+    times: &SetAttr,
+    partial: Option<SetAttr>,
+    dropped: &mut Dropped,
+    buf: &mut [u8],
+) -> Result<(), PathError> {
+    copy_data(fs, node, to, buf).await?;
+    if !times.is_empty() {
+        fs.setattr(to, times).await?;
+    }
+    try_partial(fs, to, partial, dropped).await?;
+    Ok(())
+}
+
+}
