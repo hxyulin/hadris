@@ -535,6 +535,7 @@ pub(crate) fn index_node(buf: &[u8], header: usize) -> Result<IndexNode, Detail>
 pub(crate) struct IndexEntry<'a> {
     /// The file reference, or `None` for the last entry of the node.
     pub(crate) entry: Option<(u64, FileName<'a>)>,
+    pub(crate) child_vcn: Option<u64>,
     pub(crate) next: usize,
 }
 
@@ -543,7 +544,7 @@ pub(crate) struct IndexEntry<'a> {
 // @hadris-compliance partial
 // @hadris-tests record::tests::index_entries_are_bounded_by_the_node, read::large_directory_lists_every_entry
 // @hadris-fuzz ntfs_read
-// @hadris-note Every node is enumerated; child-node pointers are not followed for a keyed descent.
+// @hadris-note Listings enumerate index nodes. Lookup follows child VCNs in indexes with a file-name collation.
 pub(crate) fn index_entry<'a>(
     buf: &'a [u8],
     node: IndexNode,
@@ -559,15 +560,27 @@ pub(crate) fn index_entry<'a>(
     if len < 16 || len % 8 != 0 || next > node.end {
         return Err(Detail::Index);
     }
+    let child_vcn = if flags & raw::INDEX_ENTRY_SUBNODE == 0 {
+        None
+    } else if len >= 24 {
+        Some(u64_at(buf, next - 8))
+    } else {
+        return Err(Detail::Index);
+    };
     if flags & raw::INDEX_ENTRY_LAST != 0 {
-        return Ok(IndexEntry { entry: None, next });
+        return Ok(IndexEntry {
+            entry: None,
+            child_vcn,
+            next,
+        });
     }
-    if content == 0 || 16 + content > len {
+    if content == 0 || 16 + content + 8 * usize::from(child_vcn.is_some()) > len {
         return Err(Detail::Index);
     }
     let name = file_name(&buf[at + 16..at + 16 + content])?;
     Ok(IndexEntry {
         entry: Some((u64_at(buf, at), name)),
+        child_vcn,
         next,
     })
 }

@@ -307,6 +307,65 @@ fn index_blocks_are_listed_through_the_bitmap() {
     assert_eq!(list(&mut fs, "/SUBDIR"), ["A.TXT", "B.TXT", "UNUSED.TXT"]);
 }
 
+fn index_child(mut entry: Vec<u8>, vcn: u64) -> Vec<u8> {
+    let len = (entry.len() + 8) as u16;
+    let flags = u32::from_le_bytes(entry[12..16].try_into().unwrap()) | raw::INDEX_ENTRY_SUBNODE;
+    entry[8..10].copy_from_slice(&len.to_le_bytes());
+    entry[12..16].copy_from_slice(&flags.to_le_bytes());
+    entry.extend_from_slice(&vcn.to_le_bytes());
+    entry
+}
+
+#[test]
+fn keyed_lookup_descends_only_the_relevant_index_blocks() {
+    let mut left = index_entry(19, "A.TXT", false, raw::FILE_NAME_WIN32);
+    left.extend(last_entry());
+    let mut right = index_entry(21, "m.txt", false, raw::FILE_NAME_WIN32);
+    right.extend(last_entry());
+    let mut right = indx(&right);
+    right[0x10..0x18].copy_from_slice(&2u64.to_le_bytes());
+    let mut image = allocation_image(1024, &[3], Some([indx(&left), right]));
+    let mut entries = index_child(index_entry(20, "M.TXT", false, raw::FILE_NAME_POSIX), 0);
+    entries.extend(index_child(last_entry(), 2));
+    let mut root = index_root(&entries, 1024);
+    let value = usize::from(u16::from_le_bytes(root[20..22].try_into().unwrap()));
+    root[value + 0x1C] = 1;
+    let size = (2 * REC) as u64;
+    let attributes = [
+        named(5, "SUBDIR", true),
+        root,
+        non_resident(
+            raw::ATTR_INDEX_ALLOCATION,
+            &raw::I30,
+            size / 512 - 1,
+            size,
+            size,
+            &[0x21, 4, INDX_LCN as u8, 0, 0],
+        ),
+        resident(raw::ATTR_BITMAP, &raw::I30, &[3]),
+    ];
+    put(&mut image, 17, &file_record(DIR, &attributes));
+
+    let mut fs = open(image.clone());
+    let dir = fs.lookup(fs.root(), name("SUBDIR")).unwrap();
+    assert_eq!(fs.lookup(dir, name("a.txt")).unwrap().get(), reference(19));
+    assert_eq!(fs.lookup(dir, name("M.TXT")).unwrap().get(), reference(20));
+    assert_eq!(fs.lookup(dir, name("m.txt")).unwrap().get(), reference(21));
+    assert_eq!(fs.lookup(dir, name("M.Txt")).unwrap().get(), reference(21));
+
+    image[INDX_LCN * SECTOR + REC] ^= 1;
+    let mut fs = open(image);
+    let dir = fs.lookup(fs.root(), name("SUBDIR")).unwrap();
+    assert_eq!(
+        fs.lookup(dir, name("b.txt")).unwrap_err().kind(),
+        ErrorKind::NotFound
+    );
+    assert_eq!(
+        fs.lookup(dir, name("z.txt")).unwrap_err().kind(),
+        ErrorKind::Corrupt
+    );
+}
+
 #[test]
 fn cursors_resume_across_index_blocks() {
     let mut fs = open(allocation_image(1024, &[0x03], None));

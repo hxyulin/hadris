@@ -62,7 +62,8 @@ references, so they are stable and hard links share one.
   returns the original Windows target. The shared resolver follows targets
   relative to the mounted volume.
 - Security descriptors are not read.
-- Lookups scan the directory index instead of descending its B-tree by key.
+- Lookups descend the file-name index by key when it links child nodes.
+  Unlinked indexes still use a bitmap scan.
 - `$LogFile` is not replayed, so a volume that was not cleanly unmounted may
   read inconsistently. `NtfsFs::info()` reports the dirty flag, hibernation
   status, and whether the driver used the MFT mirror.

@@ -1,3 +1,5 @@
+use core::cmp::Ordering;
+
 use hadris_fs::{
     Attributes, Capabilities, DirCursor, DirEntry, ErrorKind, FileType, FsResult, FsStats,
     Metadata, MountError, MountOptions, Name, NodeId, OpenMode, Permissions,
@@ -20,6 +22,7 @@ const CURSOR_END: u64 = 1 << 56;
 const CURSOR_SHIFT: u32 = 16;
 /// Bytes of a UTF-16 attribute name.
 const NAME_BYTES: usize = 510;
+const MAX_KEYED_NODES: usize = 64;
 
 /// A node id the caller gave that names nothing valid is an invalid handle,
 /// unless the device failed or the volume is cut short. An id that names a
@@ -134,6 +137,12 @@ struct Index<'a> {
     blocks: u64,
 }
 
+enum KeyLookup {
+    Found(u64),
+    Missing,
+    Scan,
+}
+
 /// Which attribute of a record an instance is.
 #[derive(Debug, Clone, Copy)]
 enum Slot {
@@ -217,15 +226,27 @@ async fn read_bytes<D: BlockDevice>(
             done += whole;
             pos += whole as u64;
         } else {
-            let mut scratch = [0u8; MAX_BLOCK];
-            let scratch = &mut scratch[..bs as usize];
-            dev.read_blocks(block, scratch).await?;
             let n = (bs as usize - within).min(left);
-            buf[done..done + n].copy_from_slice(&scratch[within..within + n]);
+            let partial = read_partial_block(dev, block, within, &mut buf[done..done + n]);
+            async_only! {
+                #[cfg(feature = "alloc")]
+                let partial = alloc::boxed::Box::pin(partial);
+            }
+            partial.await?;
             done += n;
             pos += n as u64;
         }
     }
+    Ok(())
+}
+
+async fn read_partial_block<D: BlockDevice>(
+    dev: &mut D, block: BlockIndex, within: usize, out: &mut [u8],
+) -> FsResult<(), D::Error> {
+    let mut scratch = [0u8; MAX_BLOCK];
+    let size = dev.block_size().get() as usize;
+    dev.read_blocks(block, &mut scratch[..size]).await?;
+    out.copy_from_slice(&scratch[within..within + out.len()]);
     Ok(())
 }
 
@@ -350,6 +371,23 @@ async fn name_match<D: BlockDevice>(
             _ => return Ok(Match::No),
         }
     }
+}
+
+/// NTFS orders directory keys by upper-cased UTF-16 code units first.
+/// Equal folded keys can hold different POSIX names, so lookup checks
+/// the neighbors of a separator that folds to the requested name.
+async fn folded_order<D: BlockDevice>(
+    dev: &mut D, geo: &Geometry, upcase: &mut Upcase, stored: &[u8], query: &str,
+) -> FsResult<Ordering, D::Error> {
+    for (unit, query) in stored.chunks_exact(2).zip(query.encode_utf16()) {
+        let unit = record::u16_at(unit, 0);
+        if unit == query { continue; }
+        let first = upper(dev, geo, upcase, unit).await?;
+        let second = upper(dev, geo, upcase, query).await?;
+        let order = first.cmp(&second);
+        if order != Ordering::Equal { return Ok(order); }
+    }
+    Ok((stored.len() / 2).cmp(&query.encode_utf16().count()))
 }
 
 /// Reads from byte `offset` of a stream kept in `extents`, and returns how
@@ -1266,6 +1304,108 @@ impl<D: BlockDevice> NtfsFs<D> {
         Ok(())
     }
 
+    async fn keyed_lookup(
+        &mut self, rec: &[u8], base: u64, index: &Index<'_>, query: &str, block: &mut [u8; MAX_RECORD],
+    ) -> FsResult<KeyLookup, D::Error> {
+        let mut pending = [0; MAX_KEYED_NODES];
+        let mut queued = 0;
+        let mut visited = [0; MAX_KEYED_NODES];
+        let mut count = 0;
+        let mut ordinal = 0;
+        let mut best = None;
+        loop {
+            let (buf, header) = if ordinal == 0 {
+                (index.root.root, 0x10)
+            } else {
+                (&block[..index.root.block_size], 0x18)
+            };
+            let area = record::index_node(buf, header)?;
+            let internal = buf[header + 12] & 1 != 0;
+            let mut pos = area.first;
+            loop {
+                let entry = record::index_entry(buf, area, pos)?;
+                pos = entry.next;
+                if internal != entry.child_vcn.is_some() {
+                    return Err(Detail::Index.into());
+                }
+                let order = if let Some((reference, name)) = entry.entry {
+                    let Info { geo, upcase, .. } = &mut self.info;
+                    let Ok(order) = folded_order(&mut self.dev, geo, upcase, name.name, query).await else {
+                        return Ok(KeyLookup::Scan);
+                    };
+                    if order == Ordering::Equal {
+                        let fold = name.namespace != raw::FILE_NAME_POSIX;
+                        let Ok(found) = name_match(&mut self.dev, geo, upcase, name.name, query, fold).await else {
+                            return Ok(KeyLookup::Scan);
+                        };
+                        let rank = match found {
+                            Match::Exact if !hidden(reference, &name) => return Ok(KeyLookup::Found(reference)),
+                            Match::Exact => Some(1),
+                            Match::Folded => Some(2 + u8::from(hidden(reference, &name))),
+                            Match::No => None,
+                        };
+                        if let Some(rank) = rank {
+                            if best.is_none_or(|(held, node, _)| (rank, ordinal) < (held, node)) {
+                                best = Some((rank, ordinal, reference));
+                            }
+                        }
+                    }
+                    order
+                } else {
+                    Ordering::Greater
+                };
+                if order != Ordering::Less {
+                    if let Some(vcn) = entry.child_vcn {
+                        let Some(next) = pending.get_mut(queued) else { return Ok(KeyLookup::Scan) };
+                        *next = vcn;
+                        queued += 1;
+                    }
+                }
+                if order == Ordering::Greater { break; }
+            }
+            if queued == 0 {
+                return Ok(best.map_or(KeyLookup::Missing, |(_, _, reference)| KeyLookup::Found(reference)));
+            }
+            queued -= 1;
+            let vcn = pending[queued];
+            if visited[..count].contains(&vcn) {
+                return Err(Detail::Index.into());
+            }
+            let Some(seen) = visited.get_mut(count) else { return Ok(KeyLookup::Scan) };
+            *seen = vcn;
+            count += 1;
+            let unit = if self.info.geo.cluster_size <= index.root.block_size as u64 {
+                self.info.geo.cluster_size
+            } else {
+                record::FIXUP_STRIDE as u64
+            };
+            let bytes = vcn.checked_mul(unit).ok_or(Detail::Index)?;
+            let size = index.root.block_size as u64;
+            let child = bytes / size;
+            if bytes % size != 0 || child >= index.blocks {
+                return Err(Detail::Index.into());
+            }
+            let bitmap = index.bitmap.ok_or(Detail::Index)?;
+            let mut bits = [0];
+            let read = stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_BITMAP, &raw::I30, &bitmap, child / 8, &mut bits).await?;
+            if read != 1 || bits[0] & (1 << (child % 8)) == 0 {
+                return Err(Detail::Index.into());
+            }
+            self.index_block(rec, base, index.allocation, index.root.block_size, child, block).await?;
+            if record::u64_at(block, 0x10) != vcn {
+                return Err(Detail::Index.into());
+            }
+            ordinal = child + 1;
+        }
+    }
+
+    fn lookup_reference(&self, reference: u64) -> FsResult<NodeId, D::Error> {
+        if record::reference_record(reference) == raw::RECORD_ROOT {
+            return Ok(self.root());
+        }
+        Ok(NodeId::new(reference).ok_or(Detail::Index)?)
+    }
+
     /// Calls `visit` with the name and length of each named data stream of
     /// a node, the alternate data streams.
     // @hadris-spec NTFS:Named-Streams
@@ -1369,9 +1509,9 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// matches exactly.
     // @hadris-spec NTFS:Directory-Index
     // @hadris-compliance partial
-    // @hadris-tests crafted::names_fold_case_through_upcase, read::large_directory_lists_every_entry
+    // @hadris-tests crafted::names_fold_case_through_upcase, read::large_directory_lists_every_entry, crafted::keyed_lookup_descends_only_the_relevant_index_blocks
     // @hadris-fuzz ntfs_read
-    // @hadris-note Walks the index root and every index block the bitmap marks in use instead of descending the B-tree by key.
+    // @hadris-note Descends the file-name index by its folded key. Unlinked indexes and comparisons that cannot use the key fall back to the bitmap scan.
     ///
     /// # Errors
     ///
@@ -1389,13 +1529,24 @@ impl<D: BlockDevice> NtfsFs<D> {
         let rec = &rec[..self.info.geo.mft_record_size];
         let base = record::reference_record(dir.get());
         let mut ext = [0u8; MAX_RECORD];
+        let index = self.dir_index(rec, base, &mut ext).await?;
+        let mut block = [0u8; MAX_RECORD];
+        if index.root.root[0x1C] & 1 != 0
+            && record::u32_at(index.root.root, 4) == 1
+            && !query.contains(char::REPLACEMENT_CHARACTER)
+        {
+            match self.keyed_lookup(rec, base, &index, query, &mut block).await? {
+                KeyLookup::Found(reference) => return self.lookup_reference(reference),
+                KeyLookup::Missing => return Err(ErrorKind::NotFound.into()),
+                KeyLookup::Scan => {}
+            }
+        }
         let Index {
             root: index,
             allocation,
             bitmap,
             blocks,
-        } = self.dir_index(rec, base, &mut ext).await?;
-        let mut block = [0u8; MAX_RECORD];
+        } = index;
         let mut best: Option<(u8, u64)> = None;
         let mut deferred = None;
         let mut node = 0u64;
@@ -1447,8 +1598,7 @@ impl<D: BlockDevice> NtfsFs<D> {
             }
         }
         match best {
-            Some((_, reference)) if record::reference_record(reference) == raw::RECORD_ROOT => Ok(self.root()),
-            Some((_, reference)) => Ok(NodeId::new(reference).ok_or(Detail::Index)?),
+            Some((_, reference)) => self.lookup_reference(reference),
             None => Err(ErrorKind::NotFound.into()),
         }
     }
