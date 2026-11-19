@@ -438,13 +438,14 @@ impl FileSystem for MemFs {
             _ => i,
         };
         let next = DirCursor::from_raw(i as u64 + 1);
-        let meta = if self.damaged.contains(&index) {
+        let damaged = self.damaged.contains(&index);
+        let meta = if damaged {
             Metadata::new(FileType::File, Permissions::new(0))
         } else {
             self.metadata(index)
         };
         let entry = DirEntry::new(Name::new(&node.name), id(index), meta, next)?;
-        Ok(Some(entry))
+        Ok(Some(if damaged { entry } else { entry.with_complete_metadata() }))
     }
 
     async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], MemError> {

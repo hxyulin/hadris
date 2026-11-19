@@ -842,12 +842,13 @@ impl<D: BlockDevice> ApfsFs<D> {
             .ok_or(ErrorKind::LimitExceeded)?;
         let node = NodeId::new(file_id).ok_or(ErrorKind::Corrupt)?;
         let metadata = self.listed_metadata(dir.get(), file_id, flags).await;
-        let metadata = match metadata {
-            Ok(metadata) => metadata,
+        let (metadata, complete) = match metadata {
+            Ok(metadata) => (metadata, true),
             Err(error) if is_resource(error.kind()) => return Err(error),
-            Err(_) => damaged(flags),
+            Err(_) => (damaged(flags), false),
         };
         DirEntry::new(Name::new(&name), node, metadata, DirCursor::from_raw(next))
+            .map(|entry| if complete { entry.with_complete_metadata() } else { entry })
             .map(Some)
             .map_err(|error| match error {
                 NameError::TooLong => ErrorKind::NameTooLong.into(),

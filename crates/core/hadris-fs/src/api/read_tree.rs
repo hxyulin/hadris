@@ -235,9 +235,9 @@ async fn stored_name<F: FileSystem>(
 /// Adds everything below the directories on `stack` to `tree`. The walk
 /// holds the lock throughout, so it lists directories by the ids `readdir`
 /// returned without pinning them and takes their metadata, and that of
-/// special files, from the listing. Files, whose content keeps a pin, and
-/// symlinks, whose target is read, are looked up and stated, so one whose
-/// metadata a driver could only list as damaged fails the walk.
+/// special files, from the listing. Files and symlinks are looked up to
+/// acquire a pin. If the listing cannot provide complete metadata for the
+/// pinned node, the walk asks the driver to validate it with `stat`.
 async fn walk<F: Lazy>(
     fs: &mut F,
     vol: &Volume<F>,
@@ -273,9 +273,13 @@ async fn walk<F: Lazy>(
             continue;
         }
         let child = vol.hold(fs.lookup(dir, entry.name()).await.map_err(|err| PathError::from(err).with_path(&path))?);
-        let meta = match fs.stat(child.node()).await {
-            Ok(meta) if meta.file_type().is_dir() => Err(ErrorKind::Corrupt.into()),
-            other => other,
+        let meta = if child.node() == entry.node() && entry.has_complete_metadata() {
+            Ok(*meta)
+        } else {
+            match fs.stat(child.node()).await {
+                Ok(meta) if meta.file_type().is_dir() => Err(ErrorKind::Corrupt.into()),
+                other => other,
+            }
         };
         let meta = match meta {
             Ok(meta) => meta,

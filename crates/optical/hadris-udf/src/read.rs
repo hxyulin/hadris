@@ -1268,13 +1268,13 @@ impl<D: BlockDevice> FileSystem for UdfFs<D> {
                 Ok(child) => self.icb_metadata(&child).await,
                 Err(err) => Err(err),
             };
-            let meta = match meta {
-                Ok(meta) => meta,
+            let (meta, complete) = match meta {
+                Ok(meta) => (meta, true),
                 Err(err) if err.kind() == ErrorKind::Io => return Err(err),
-                Err(_) => damaged(&fid),
+                Err(_) => (damaged(&fid), false),
             };
             let entry = DirEntry::new(Name::new(&buf[..len]), node, meta, DirCursor::from_raw(pos))?;
-            return Ok(Some(entry));
+            return Ok(Some(if complete { entry.with_complete_metadata() } else { entry }));
         }
         Ok(None)
     }

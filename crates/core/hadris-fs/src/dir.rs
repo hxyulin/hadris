@@ -45,6 +45,7 @@ pub struct DirEntry {
     name_len: u16,
     node: NodeId,
     metadata: Metadata,
+    metadata_complete: bool,
     next_cursor: DirCursor,
 }
 
@@ -78,8 +79,25 @@ impl DirEntry {
             name_len: bytes.len() as u16,
             node,
             metadata,
+            metadata_complete: false,
             next_cursor,
         })
+    }
+
+    /// Marks the metadata as equivalent to a successful `FileSystem::stat`
+    /// of this node while the listing is current.
+    ///
+    /// Drivers leave this unset when a listing substitutes metadata for a
+    /// damaged node or when a separate validation step is still needed.
+    #[must_use]
+    pub const fn with_complete_metadata(mut self) -> Self {
+        self.metadata_complete = true;
+        self
+    }
+
+    /// Returns whether the driver marked this entry's metadata as complete.
+    pub const fn has_complete_metadata(&self) -> bool {
+        self.metadata_complete
     }
 
     /// Returns the entry's name.
@@ -113,6 +131,7 @@ impl PartialEq for DirEntry {
         self.name() == other.name()
             && self.node == other.node
             && self.metadata == other.metadata
+            && self.metadata_complete == other.metadata_complete
             && self.next_cursor == other.next_cursor
     }
 }
@@ -125,6 +144,7 @@ impl fmt::Debug for DirEntry {
             .field("name", &self.name())
             .field("node", &self.node)
             .field("metadata", &self.metadata)
+            .field("metadata_complete", &self.metadata_complete)
             .field("next_cursor", &self.next_cursor)
             .finish()
     }

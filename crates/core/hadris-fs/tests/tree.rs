@@ -213,8 +213,8 @@ fn read_tree_takes_metadata_from_the_listing() {
     let after = vol.lock().unwrap().lookups_and_stats();
     assert_eq!(
         (after.0 - before.0, after.1 - before.1),
-        (7, 8),
-        "one lookup and stat per file and symlink, one stat for the top"
+        (7, 1),
+        "one lookup per file and symlink, one stat for the top"
     );
     assert_eq!(tree.get("etc/conf").unwrap().content().unwrap().len(), 9);
     drop(tree);

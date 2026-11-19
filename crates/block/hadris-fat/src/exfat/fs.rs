@@ -3043,7 +3043,8 @@ impl<D: BlockDevice> ExFatFs<D> {
         };
         let name = name.as_name().ok_or(ErrorKind::Corrupt)?;
         let entry = DirEntry::new(name, node, metadata(&state, &set, self.zone), DirCursor::from_raw(slot as u64))
-            .map_err(|_| ErrorKind::Corrupt)?;
+            .map_err(|_| ErrorKind::Corrupt)?
+            .with_complete_metadata();
         Ok(Some(entry))
     }
 

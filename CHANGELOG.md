@@ -48,6 +48,9 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fs:** Drivers can mark a `DirEntry`'s metadata as complete.
+  `read_tree` reuses it and still validates entries with partial metadata.
+
 - **hadris-iso, hadris-udf:** `PreparedIso` and `write_prepared` retain and
   write an ISO layout without planning again. Bridge writing reuses that
   layout and maps its extents into UDF without rebuilding the input tree.

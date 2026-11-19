@@ -1374,13 +1374,13 @@ impl<D: BlockDevice> NtfsFs<D> {
             }
         };
         let node = NodeId::new(reference).ok_or(Detail::Index)?;
-        let meta = match self.stat(node).await {
-            Ok(meta) => meta,
+        let (meta, complete) = match self.stat(node).await {
+            Ok(meta) => (meta, true),
             Err(err) if err.kind() == ErrorKind::Io => return Err(err),
-            Err(_) => damaged(flags),
+            Err(_) => (damaged(flags), false),
         };
         let entry = DirEntry::new(Name::new(&name[..len]), node, meta, next).map_err(|_| Detail::FileName)?;
-        Ok(Some(entry))
+        Ok(Some(if complete { entry.with_complete_metadata() } else { entry }))
     }
 
     /// Metadata of a node: type, size, the four times and the DOS
