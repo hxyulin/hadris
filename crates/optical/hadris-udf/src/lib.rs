@@ -42,13 +42,13 @@
 //! # fn main() {}
 //! ```
 //!
-//! The reader handles UDF 1.02 to 2.01 volumes with type 1 partitions:
+//! The reader handles UDF volumes with type 1 partitions:
 //! logical blocks of 512 to 4096 bytes, the prevailing descriptors of the
 //! main or reserve sequence, file entries and extended file entries,
 //! short, long, extended and embedded allocation descriptors with
-//! continuation extents, symbolic links and hard links. Virtual, sparable
-//! and metadata partitions (UDF 1.50 packet writing and 2.50) are refused
-//! as [`ErrorKind::Unsupported`](hadris_fs::ErrorKind::Unsupported).
+//! continuation extents, symbolic links and hard links. With `alloc`, it
+//! also reads virtual, sparable and metadata partitions, including metadata
+//! mirrors.
 //! The on-disk layouts are in the `hadris-udf-raw` crate, which versions
 //! apart from this one.
 //!

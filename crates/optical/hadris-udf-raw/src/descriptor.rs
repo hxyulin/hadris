@@ -166,8 +166,8 @@ pub struct PartitionDescriptor {
 /// partition maps follow it.
 // @hadris-spec ECMA-167:3/10.6
 // @hadris-compliance partial
-// @hadris-note The logical block size must be 512 to 4096 bytes and agree with the anchor; type 1 partition maps are read and other map types are refused as unsupported.
-// @hadris-tests roundtrip::every_tree_reads_back, errors::unsupported_partition_maps_are_refused
+// @hadris-note The logical block size must be 512 to 4096 bytes and agree with the anchor. Type 1 maps and, with alloc, virtual, sparable and metadata maps are read.
+// @hadris-tests roundtrip::every_tree_reads_back, errors::unsupported_partition_maps_are_refused, read::metadata_partitions_read_the_mirror_when_descriptors_are_damaged, read::sparable_partitions_choose_the_latest_table_and_split_extents, read::virtual_partition_maps_read_udf_15_and_20_vats
 // @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
@@ -202,7 +202,7 @@ pub struct LogicalVolumeDescriptor {
 /// Type 1 partition map (ECMA-167 3/10.7.2): a partition of this volume.
 // @hadris-spec ECMA-167:3/10.7.2
 // @hadris-compliance partial
-// @hadris-note Up to eight type 1 maps are read; type 2 maps (virtual, sparable and metadata partitions) are refused as unsupported.
+// @hadris-note Up to eight partition maps are read. Type 1 maps are supported without allocation.
 // @hadris-tests read::prevailing_descriptors_win, errors::unsupported_partition_maps_are_refused
 // @hadris-fuzz udf_read
 #[repr(C)]

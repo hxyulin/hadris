@@ -69,6 +69,9 @@ Each published package owns its version and may be released independently.
 - **hadris-apfs:** `ApfsFs::mount_snapshot` mounts an unencrypted volume
   snapshot by name or transaction identifier.
 
+- **hadris-udf:** With `alloc`, read virtual, sparable and metadata
+  partitions. Metadata reads can fall back to the mirror.
+
 - **hadris-iso, hadris-udf:** `PreparedIso` and `write_prepared` retain and
   write an ISO layout without planning again. Bridge writing reuses that
   layout and maps its extents into UDF without rebuilding the input tree.

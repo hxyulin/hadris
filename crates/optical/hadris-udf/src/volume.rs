@@ -49,6 +49,12 @@ pub enum PartitionKind {
     /// A type 1 map: logical blocks map directly to the partition.
     #[default]
     Physical,
+    /// A type 2 map that redirects sparing packets.
+    Sparable,
+    /// A type 2 map backed by a metadata file and optional mirror.
+    Metadata,
+    /// A type 2 map backed by a Virtual Allocation Table.
+    Virtual,
 }
 
 /// A partition of the logical volume, in the order of its partition maps.
@@ -75,12 +81,18 @@ impl PartitionInfo {
         self.number
     }
 
-    /// The first logical block of the partition on the device.
+    #[cfg(feature = "alloc")]
+    pub(crate) fn set_map(&mut self, kind: PartitionKind, len: u32) {
+        self.kind = kind;
+        self.len = len;
+    }
+
+    /// The first logical block of the backing partition on the device.
     pub const fn start(&self) -> u32 {
         self.start
     }
 
-    /// The length in logical blocks.
+    /// The length of the mapped partition in logical blocks.
     pub const fn len(&self) -> u32 {
         self.len
     }
@@ -254,13 +266,30 @@ impl<const N: usize> core::fmt::Debug for Identifier<N> {
 }
 
 /// What a mounted volume needs to find anything, read once at open.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub(crate) struct Info {
     pub(crate) block_size: u32,
     pub(crate) len: u64,
     pub(crate) root: Location,
     pub(crate) free_blocks: Option<u64>,
     pub(crate) volume: VolumeInfo,
+    #[cfg(feature = "alloc")]
+    pub(crate) maps: [PartitionMap; MAX_PARTITIONS],
+}
+
+#[cfg(feature = "alloc")]
+#[derive(Debug, Default)]
+pub(crate) struct PartitionMap {
+    pub(crate) main: alloc::vec::Vec<PartitionSpan>,
+    pub(crate) mirror: alloc::vec::Vec<PartitionSpan>,
+}
+
+#[cfg(feature = "alloc")]
+#[derive(Debug)]
+pub(crate) struct PartitionSpan {
+    pub(crate) block: u32,
+    pub(crate) physical: u64,
+    pub(crate) len: u32,
 }
 
 impl Info {
@@ -268,24 +297,65 @@ impl Info {
         self.volume.partitions()
     }
 
-    /// The byte offset of `count` bytes from logical block `block` of
-    /// partition `partition`, checked against the partition.
-    pub(crate) fn offset<E>(
-        &self,
-        partition: u16,
-        block: u32,
-        count: u64,
-    ) -> Result<u64, Error<E>> {
+    /// Checks that the logical range fits in its partition.
+    pub(crate) fn check_range<E>(&self, at: Location, count: u64) -> Result<(), Error<E>> {
         let part = self
             .partitions()
-            .get(usize::from(partition))
+            .get(usize::from(at.partition))
             .ok_or(Detail::Partition.corrupt())?;
         let bs = u64::from(self.block_size);
         let blocks = count.div_ceil(bs);
-        if u64::from(block) + blocks > u64::from(part.len) {
+        if u64::from(at.block) + blocks > u64::from(part.len) {
             return Err(Detail::Partition.corrupt());
         }
-        Ok((u64::from(part.start) + u64::from(block)) * bs)
+        Ok(())
+    }
+
+    /// Byte offset and contiguous bytes from a logical block in one copy.
+    pub(crate) fn run(&self, at: Location, mirror: bool) -> Option<(u64, u64)> {
+        let index = usize::from(at.partition);
+        let part = self.partitions().get(index)?;
+        let available = part.len.checked_sub(at.block).filter(|&n| n != 0)?;
+        let bs = u64::from(self.block_size);
+        if part.kind == PartitionKind::Physical {
+            return (!mirror).then(|| {
+                (
+                    (u64::from(part.start) + u64::from(at.block)) * bs,
+                    u64::from(available) * bs,
+                )
+            });
+        }
+        #[cfg(feature = "alloc")]
+        {
+            let spans = if mirror {
+                &self.maps[index].mirror
+            } else {
+                &self.maps[index].main
+            };
+            let i = spans.partition_point(|span| span.block <= at.block);
+            let span = spans.get(i.checked_sub(1)?)?;
+            let within = at.block - span.block;
+            let blocks = span
+                .len
+                .checked_sub(within)
+                .filter(|&n| n != 0)?
+                .min(available);
+            Some((
+                (span.physical + u64::from(within)) * bs,
+                u64::from(blocks) * bs,
+            ))
+        }
+        #[cfg(not(feature = "alloc"))]
+        None
+    }
+
+    pub(crate) fn mirrored(&self) -> bool {
+        #[cfg(feature = "alloc")]
+        {
+            self.maps.iter().any(|map| !map.mirror.is_empty())
+        }
+        #[cfg(not(feature = "alloc"))]
+        false
     }
 
     pub(crate) fn capabilities(&self) -> Capabilities {
@@ -306,6 +376,7 @@ impl Info {
 /// it for its allocation descriptors.
 pub(crate) struct Icb {
     pub(crate) at: Location,
+    pub(crate) disk_offset: u64,
     pub(crate) file_type: u8,
     pub(crate) flags: IcbFlags,
     pub(crate) uid: u32,
@@ -323,13 +394,14 @@ impl Icb {
     /// Decodes the entry in `block`, the logical block at `at`.
     pub(crate) fn parse<E>(
         at: Location,
+        disk_offset: u64,
+        identifier: u16,
         block: [u8; MAX_BLOCK],
         block_size: usize,
     ) -> Result<Self, Error<E>> {
         let data = &block[..block_size];
-        let tag = check_tag(data, None, at.block).map_err(|_| Detail::Icb.corrupt())?;
         let bad = || Detail::Icb.corrupt();
-        let (fixed, header): (usize, Header) = match tag.identifier.get() {
+        let (fixed, header): (usize, Header) = match identifier {
             tag::FILE_ENTRY => {
                 let fe: FileEntry = bytemuck::pod_read_unaligned(data.get(..176).ok_or_else(bad)?);
                 let times = Times {
@@ -392,6 +464,7 @@ impl Icb {
         }
         Ok(Self {
             at,
+            disk_offset,
             file_type: header.icb_tag.file_type,
             flags: IcbFlags::from_bits_retain(header.icb_tag.flags.get()),
             uid: header.uid,
