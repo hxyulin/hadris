@@ -819,6 +819,36 @@ impl<D: BlockDevice> ApfsFs<D> {
         self.metadata(&inode, true).await
     }
 
+    /// Visits the names and value sizes in bytes of a node's extended attributes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid node, malformed attribute records,
+    /// or a device failure. Previously visited attributes remain reported.
+    pub async fn xattrs(&mut self, node: NodeId, mut visit: impl FnMut(&str, u64)) -> FsResult<(), D::Error> {
+        self.inode(node).await?;
+        let entries = self.container.filesystem_records(&self.volume, node.get(), filesystem::FS_TYPE_XATTR).await?;
+        for entry in &entries {
+            let attr = XattrRecord::parse(&entry.key, &entry.value)?;
+            visit(attr.name, attr.len());
+        }
+        Ok(())
+    }
+
+    /// Reads an extended attribute at byte `offset`. Returns zero at EOF.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] if the node has no attribute with
+    /// this exact name. Invalid nodes, malformed values, and device
+    /// failures also return errors.
+    pub async fn read_xattr(&mut self, node: NodeId, name: &str, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
+        self.inode(node).await?;
+        let entry = self.container.xattr_entry(&self.volume, node.get(), name).await?.ok_or(ErrorKind::NotFound)?;
+        let attr = XattrRecord::parse(&entry.key, &entry.value)?;
+        self.container.read_xattr_value(&self.volume, &attr, offset, buf).await
+    }
+
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(dir = ?dir)))]
     /// Performs the [`FileSystem::readdir`] operation.
     ///

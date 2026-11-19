@@ -1447,6 +1447,38 @@ where
         Ok(extents)
     }
 
+    #[cfg(feature = "alloc")]
+    pub(crate) async fn xattr_entry(
+        &mut self, volume: &VolumeSuperblock, id: u64, name: &str,
+    ) -> FsResult<Option<OwnedEntry>, D::Error> {
+        let entries = self.filesystem_records(volume, id, filesystem::FS_TYPE_XATTR).await?;
+        let mut found = None;
+        for entry in entries {
+            let Ok((_, key)) = XattrRecord::parse_key(&entry.key) else { continue };
+            if key == name && found.replace(entry).is_some() {
+                return Err(ApfsError::InvalidValue("duplicate extended attribute").into());
+            }
+        }
+        Ok(found)
+    }
+
+    #[cfg(feature = "alloc")]
+    pub(crate) async fn read_xattr_value(
+        &mut self, volume: &VolumeSuperblock, attr: &XattrRecord<'_>, offset: u64, buf: &mut [u8],
+    ) -> FsResult<usize, D::Error> {
+        if offset >= attr.len() || buf.is_empty() {
+            return Ok(0);
+        }
+        if let Some(stream) = attr.stream {
+            let extents = self.file_extents(volume, stream.id).await?;
+            return self.read_volume_extents_at(volume, &extents, stream.size, offset, buf).await;
+        }
+        let bytes = &attr.data[offset as usize..];
+        let count = buf.len().min(bytes.len());
+        buf[..count].copy_from_slice(&bytes[..count]);
+        Ok(count)
+    }
+
     /// Returns every extent in a sealed volume's file extent tree, or none
     /// when the volume is not sealed or has no such tree.
     ///
@@ -1613,8 +1645,12 @@ where
         volume_scoped: bool,
     ) -> FsResult<(), D::Error> {
         let block_size = u64::from(self.info.superblock.block_size);
+        let mut end = 0;
         for extent in extents {
-            extent.logical_address.checked_add(extent.length).ok_or(ApfsError::AddressOverflow)?;
+            if extent.logical_address < end {
+                return Err(ApfsError::InvalidValue("overlapping file extents").into());
+            }
+            end = extent.logical_address.checked_add(extent.length).ok_or(ApfsError::AddressOverflow)?;
             if extent.cryptography_id != 0 && (!volume_scoped || !self.has_volume_key()) {
                 return Err(ApfsError::Unsupported("encrypted file extents").into());
             }

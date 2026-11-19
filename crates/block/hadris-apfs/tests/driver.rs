@@ -32,6 +32,42 @@ fn generic_driver_contract_and_sealed_tree() {
 }
 
 #[test]
+fn native_xattrs_read_inline_and_stream_values_at_offsets() {
+    let mut fs = mount(xattr_image());
+    let file = fs.lookup(fs.root(), Name::new("file0.txt")).unwrap();
+    let payload = file_contents(0);
+    let mut attributes = Vec::new();
+    fs.xattrs(file, |name, size| attributes.push((name.to_owned(), size)))
+        .unwrap();
+    assert_eq!(
+        attributes,
+        [
+            ("user.inline".into(), 6),
+            ("user.stream".into(), payload.len() as u64)
+        ]
+    );
+    let mut buf = [0xA5; 5];
+    assert_eq!(fs.read_xattr(file, "user.inline", 3, &mut buf).unwrap(), 3);
+    assert_eq!(&buf, b"ine\xA5\xA5");
+    assert_eq!(
+        fs.read_xattr(file, "user.stream", 4, &mut buf).unwrap(),
+        buf.len()
+    );
+    assert_eq!(&buf, &payload[4..9]);
+    assert_eq!(
+        fs.read_xattr(file, "user.stream", u64::MAX, &mut buf)
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        fs.read_xattr(file, "USER.INLINE", 0, &mut buf)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::NotFound
+    );
+}
+
+#[test]
 fn vfs_cursors_ids_open_pins_and_random_reads() {
     let mut fs = mount(build_image());
     let root = fs.root();
@@ -478,16 +514,16 @@ fn damaged_records_mount_and_fail_only_their_own_node() {
 }
 
 #[test]
-fn symlinks_with_stream_targets_list_and_fail_readlink() {
+fn symlinks_with_malformed_stream_targets_list_and_fail_readlink() {
     let mut fs = mount(invalid_directory_image("symlink_stream"));
     let listed = listing(&mut fs);
     check_intact_files(&mut fs, &listed);
     let (_, node, kind) = listed.iter().find(|(name, ..)| name == b"link").unwrap();
     assert_eq!(*kind, FileType::Symlink);
-    assert_eq!(fs.stat(*node).unwrap_err().kind(), ErrorKind::Unsupported);
+    assert_eq!(fs.stat(*node).unwrap_err().kind(), ErrorKind::Corrupt);
     assert_eq!(
         fs.readlink(*node, &mut [0; 64]).unwrap_err().kind(),
-        ErrorKind::Unsupported
+        ErrorKind::Corrupt
     );
 }
 

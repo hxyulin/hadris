@@ -114,8 +114,9 @@ is set still enables both, as the on-disk rules require.
 - Name comparison uses the Unicode default case folding and canonical
   decomposition rather than Apple's unpublished tables, so a name that
   differs only where the two disagree may not match.
-- Snapshots, Fusion tier-2 devices, extended attributes other than symlink
-  targets, and named data streams are not exposed.
+- `ApfsFs::xattrs` and `read_xattr` expose inline and stream-backed
+  extended attributes. Snapshots, Fusion tier-2 devices and named file
+  data streams are not exposed.
 - Native container path lookup walks the filesystem tree; a keyed query reads
   only the nodes whose key range can hold the records it wants. The mounted
   driver reads a node's records when an operation first needs them and keeps

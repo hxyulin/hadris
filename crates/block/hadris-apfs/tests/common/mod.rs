@@ -453,6 +453,34 @@ pub fn holey_contents(index: u64) -> Vec<u8> {
     data
 }
 
+fn xattr_entry(inode: u64, name: &str, flags: u16, payload: &[u8]) -> Entry {
+    let mut key = fs_key(inode, 4);
+    key.extend_from_slice(&((name.len() + 1) as u16).to_le_bytes());
+    key.extend_from_slice(name.as_bytes());
+    key.push(0);
+    let mut value = flags.to_le_bytes().to_vec();
+    value.extend_from_slice(&(payload.len() as u16).to_le_bytes());
+    value.extend_from_slice(payload);
+    (key, value)
+}
+
+#[allow(dead_code)]
+pub fn xattr_image() -> Vec<u8> {
+    let mut entries = vec![inode_entry(2, 2, 0o040755, 0)];
+    entries.extend(file_records(Variant::Plain, 0..FILE_COUNT));
+    entries.push(xattr_entry(16, "user.inline", 2, b"inline"));
+    let mut stream = [0u8; 48];
+    put(&mut stream, 0, &107u64.to_le_bytes());
+    put(
+        &mut stream,
+        8,
+        &(file_contents(0).len() as u64).to_le_bytes(),
+    );
+    entries.push(xattr_entry(16, "user.stream", 1, &stream));
+    entries.push(extent_entry(107, BLOCK as u64, 10));
+    build_image_records(Variant::Plain, entries)
+}
+
 #[allow(dead_code)]
 pub fn use_case_image() -> Vec<u8> {
     let mut linked = inode_entry(16, 100, 0o100644, file_contents(0).len() as u64);
@@ -482,14 +510,6 @@ pub fn use_case_image() -> Vec<u8> {
     let mut link_entry = drec_entry(2, "link", 22);
     put(&mut link_entry.1, 16, &10_u16.to_le_bytes());
     let target = b"file0.txt\0";
-    let xattr_name = "com.apple.fs.symlink";
-    let mut key = fs_key(22, 4);
-    key.extend_from_slice(&((xattr_name.len() + 1) as u16).to_le_bytes());
-    key.extend_from_slice(xattr_name.as_bytes());
-    key.push(0);
-    let mut value = 2_u16.to_le_bytes().to_vec();
-    value.extend_from_slice(&(target.len() as u16).to_le_bytes());
-    value.extend_from_slice(target);
     let mut sparse = extent_entry(107, BLOCK as u64, 10);
     put(&mut sparse.0, 8, &(2 * BLOCK as u64).to_le_bytes());
     let mut entries = vec![
@@ -504,7 +524,7 @@ pub fn use_case_image() -> Vec<u8> {
         inode_entry(17, 101, 0o100644, file_contents(1).len() as u64),
         extent_entry(101, BLOCK as u64, 11),
         inode_entry(22, 22, 0o120777, (target.len() - 1) as u64),
-        (key, value),
+        xattr_entry(22, "com.apple.fs.symlink", 2, target),
         inode_entry(
             23,
             107,

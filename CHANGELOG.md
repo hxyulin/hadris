@@ -60,6 +60,9 @@ Each published package owns its version and may be released independently.
 - **hadris-iso:** `Session::export_session` exports a new session to a
   separate device at a caller-chosen disc LBA, reusing old file extents.
 
+- **hadris-apfs:** `ApfsFs::xattrs` lists extended attributes and
+  `read_xattr` reads inline and stream-backed values at byte offsets.
+
 - **hadris-iso, hadris-udf:** `PreparedIso` and `write_prepared` retain and
   write an ISO layout without planning again. Bridge writing reuses that
   layout and maps its extents into UDF without rebuilding the input tree.

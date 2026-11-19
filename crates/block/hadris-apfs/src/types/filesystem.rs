@@ -384,6 +384,7 @@ pub fn stream_size(inode: &InodeRecord, extents: &[FileExtentRecord]) -> u64 {
 pub const SYMLINK_XATTR_NAME: &str = "com.apple.fs.symlink";
 /// Extended attribute flag: the data is stored inline in the record.
 pub const XATTR_DATA_EMBEDDED: u16 = 0x2;
+const XATTR_DATA_STREAM: u16 = 0x1;
 
 /// Parsed extended attribute record (`j_xattr_key_t` and `j_xattr_val_t`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -397,6 +398,13 @@ pub struct XattrRecord<'a> {
     pub flags: u16,
     /// Inline data; empty when the data is kept in a separate stream.
     pub data: &'a [u8],
+    pub(crate) stream: Option<XattrStream>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct XattrStream {
+    pub(crate) id: u64,
+    pub(crate) size: u64,
 }
 
 impl<'a> XattrRecord<'a> {
@@ -405,8 +413,38 @@ impl<'a> XattrRecord<'a> {
     /// # Errors
     ///
     /// Returns an error if the key has the wrong record type, the name is not UTF-8,
-    /// or the name or embedded value extends beyond the supplied bytes.
+    /// or the value or stream descriptor is malformed.
     pub fn parse(key: &'a [u8], value: &'a [u8]) -> crate::Result<Self> {
+        let (id, name) = Self::parse_key(key)?;
+        let flags = u16::from_le_bytes(crate::types::take(value, 0)?);
+        let data_len = u16::from_le_bytes(crate::types::take(value, 2)?) as usize;
+        let payload = value
+            .get(4..4 + data_len)
+            .ok_or(crate::ApfsError::InputTooSmall)?;
+        let (data, stream) = match flags & (XATTR_DATA_EMBEDDED | XATTR_DATA_STREAM) {
+            XATTR_DATA_EMBEDDED => (payload, None),
+            XATTR_DATA_STREAM if payload.len() == 48 => {
+                let id = u64::from_le_bytes(crate::types::take(payload, 0)?);
+                if id == 0 {
+                    return Err(crate::ApfsError::InvalidValue(
+                        "extended attribute stream identifier",
+                    ));
+                }
+                let size = u64::from_le_bytes(crate::types::take(payload, 8)?);
+                (&[][..], Some(XattrStream { id, size }))
+            }
+            _ => return Err(crate::ApfsError::InvalidValue("extended attribute storage")),
+        };
+        Ok(Self {
+            id,
+            name,
+            flags,
+            data,
+            stream,
+        })
+    }
+
+    pub(crate) fn parse_key(key: &'a [u8]) -> crate::Result<(u64, &'a str)> {
         let header = FileSystemKey::parse(key)?;
         if header.record_type != FS_TYPE_XATTR {
             return Err(crate::ApfsError::InvalidValue(
@@ -418,22 +456,22 @@ impl<'a> XattrRecord<'a> {
             .get(10..10 + name_len)
             .ok_or(crate::ApfsError::InputTooSmall)?;
         let name_bytes = name_bytes.strip_suffix(&[0]).unwrap_or(name_bytes);
-        let flags = u16::from_le_bytes(crate::types::take(value, 0)?);
-        let data_len = u16::from_le_bytes(crate::types::take(value, 2)?) as usize;
-        let data = if flags & XATTR_DATA_EMBEDDED != 0 {
-            value
-                .get(4..4 + data_len)
-                .ok_or(crate::ApfsError::InputTooSmall)?
-        } else {
-            &[]
-        };
-        Ok(Self {
-            id: header.id,
-            name: core::str::from_utf8(name_bytes)
-                .map_err(|_| crate::ApfsError::InvalidValue("extended attribute name UTF-8"))?,
-            flags,
-            data,
-        })
+        let name = core::str::from_utf8(name_bytes)
+            .map_err(|_| crate::ApfsError::InvalidValue("extended attribute name UTF-8"))?;
+        Ok((header.id, name))
+    }
+
+    /// Size of the attribute value in bytes, including stream-backed values.
+    pub const fn len(&self) -> u64 {
+        match self.stream {
+            Some(stream) => stream.size,
+            None => self.data.len() as u64,
+        }
+    }
+
+    /// Whether the attribute has a zero-length value.
+    pub const fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 
