@@ -338,6 +338,7 @@ struct NodeSlot {
     dir: DirStart,
     slot: u32,
     offset: u64,
+    position: ChainPos,
 }
 
 struct PendingRename {
@@ -1131,7 +1132,7 @@ impl<D: BlockDevice> FatFs<D> {
         self.nodes.remove(reserved);
         let slot = plan.start + plan.slots - 1;
         self.nodes.insert(id, node, node.dir)?;
-        self.record_id(id, NodeSlot { dir: start, slot, offset: node.entry });
+        self.record_id(id, NodeSlot { dir: start, slot, offset: node.entry, position: ChainPos::NONE });
         Ok(id)
     }
 
@@ -1271,7 +1272,7 @@ impl<D: BlockDevice> FatFs<D> {
             {
                 self.ids_by_offset.remove(&source_offset);
                 node.entry = offset;
-                self.record_id(id, NodeSlot { dir: destination.dir, slot: destination.short, offset });
+                self.record_id(id, NodeSlot { dir: destination.dir, slot: destination.short, offset, position: ChainPos::NONE });
             }
         } else {
             let destination = self.rename.as_ref().unwrap().destination;
@@ -2419,11 +2420,19 @@ impl<D: BlockDevice> FatFs<D> {
         Ok(id)
     }
 
-    fn record_id(&mut self, id: NodeId, slot: NodeSlot) {
+    fn record_id(&mut self, id: NodeId, mut slot: NodeSlot) {
         if let Some(previous) = self.ids_by_offset.insert(slot.offset, id)
             && previous != id
         {
             self.issued.remove(&previous);
+        }
+        if !slot.position.is_known()
+            && let Some(previous) = self.issued.get(&id)
+            && previous.dir == slot.dir
+            && previous.slot == slot.slot
+            && previous.offset == slot.offset
+        {
+            slot.position = previous.position;
         }
         self.issued.insert(id, slot);
     }
@@ -2456,7 +2465,8 @@ impl<D: BlockDevice> FatFs<D> {
 
     async fn unpinned(&mut self, id: NodeId) -> FsResult<(u64, ShortEntry), D::Error> {
         let slot = *self.issued.get(&id).ok_or(ErrorKind::InvalidHandle)?;
-        let mut walk = DirWalk::new(slot.dir);
+        // Directory growth only appends clusters. Slot retirement discards its position.
+        let mut walk = DirWalk::resume(slot.dir, slot.position);
         sync_only! {
             let offset = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot.slot)?;
         }
@@ -2473,6 +2483,11 @@ impl<D: BlockDevice> FatFs<D> {
             Slot::Short(entry)
                 if entry.is_visible() && crate::names::plausible_entry(&entry, self.fat.geometry()) =>
             {
+                if !slot.position.is_known()
+                    && let Some(issued) = self.issued.get_mut(&id)
+                {
+                    issued.position = walk.pos();
+                }
                 Ok((slot.offset, entry))
             }
             _ => Err(ErrorKind::InvalidHandle.into()),
@@ -2617,7 +2632,7 @@ impl<D: BlockDevice> FatFs<D> {
             return Err(ErrorKind::NotFound.into());
         };
         let found = self.find_entry(start, query).await?.ok_or(ErrorKind::NotFound)?;
-        Ok(self.intern(NodeSlot { dir: start, slot: found.slot, offset: found.offset }, &found.entry)?)
+        Ok(self.intern(NodeSlot { dir: start, slot: found.slot, offset: found.offset, position: ChainPos::NONE }, &found.entry)?)
     }
 
     /// Drops `count` pins of a node. Unknown ids and the root are ignored.
@@ -2663,7 +2678,7 @@ impl<D: BlockDevice> FatFs<D> {
         let mut long = Assembler::new();
         while let Some(found) = self.next_visible(&mut walk, &mut slot, &mut long).await? {
             if found.entry.is_dir() && found.entry.first_cluster(self.fat.geometry().kind()) == up {
-                return Ok(self.intern(NodeSlot { dir: grand, slot: found.slot, offset: found.offset }, &found.entry)?);
+                return Ok(self.intern(NodeSlot { dir: grand, slot: found.slot, offset: found.offset, position: walk.pos() }, &found.entry)?);
             }
         }
         Err(ErrorKind::Corrupt.into())
@@ -2721,7 +2736,7 @@ impl<D: BlockDevice> FatFs<D> {
         let next = DirCursor::from_raw(found.slot as u64 + 1);
         let entry = DirEntry::new(name, node, metadata(&state, &found.entry, self.zone), next)
             .map_err(|_| ErrorKind::Corrupt)?;
-        self.record_id(node, NodeSlot { dir: start, slot: found.slot, offset: found.offset });
+        self.record_id(node, NodeSlot { dir: start, slot: found.slot, offset: found.offset, position: walk.pos() });
         if self.directory_hint {
             let hint = ListedEntry {
                 start,
@@ -2783,11 +2798,12 @@ impl<D: BlockDevice> FatFs<D> {
     ///
     /// Returns [`ErrorKind::InvalidHandle`] for a stale id, [`ErrorKind::NotFound`]
     /// for a removed node, or corruption or device errors publishing pending metadata.
-    /// The open count is decremented before publication, so failure does not retain
-    /// an open for retry.
+    /// A returned error still consumes the open. Cancelling the async close before
+    /// it finishes leaves the open for retry.
     pub async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+        let result = self.publish_node(node).await;
         self.nodes.close(node);
-        self.publish_node(node).await
+        result
     }
 
     /// Reads from a file at `offset`. Returns 0 at or past the end. A chain

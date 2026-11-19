@@ -95,6 +95,27 @@ pub fn run_for<F: Future>(future: F, polls: usize) -> Option<F::Output> {
     None
 }
 
+pub async fn cancelled_close_keeps_the_other_open<F: FileSystem>(fs: &mut F) {
+    use hadris_fs::OpenMode;
+
+    let root = fs.root();
+    let name = Name::new("FILE.BIN");
+    let file = fs.create(root, name, &SetAttr::new()).await.unwrap();
+    fs.open(file, OpenMode::Write).await.unwrap();
+    fs.open(file, OpenMode::Read).await.unwrap();
+    assert_eq!(fs.write(file, 0, b"initial").await.unwrap(), 7);
+    assert_eq!(fs.write(file, 0, b"changed").await.unwrap(), 7);
+    assert!(run_for(fs.close(file), 1).is_none());
+    fs.close(file).await.unwrap();
+    assert_eq!(
+        fs.unlink(root, name).await.unwrap_err().kind(),
+        ErrorKind::Busy
+    );
+    fs.close(file).await.unwrap();
+    fs.unlink(root, name).await.unwrap();
+    fs.forget(file, 1);
+}
+
 /// A small xorshift generator, so runs repeat.
 pub struct Rng(pub u64);
 

@@ -3084,11 +3084,13 @@ impl<D: BlockDevice> ExFatFs<D> {
     ///
     /// # Errors
     ///
-    /// Returns corruption or device errors publishing pending file metadata. The open count
-    /// is decremented before publication, so failure does not retain an open for retry.
+    /// Returns corruption or device errors publishing pending file metadata. A returned
+    /// error still consumes the open. Cancelling the async close before it finishes leaves
+    /// the open for retry.
     pub async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+        let result = self.publish_node(node).await;
         self.nodes.close(node);
-        self.publish_node(node).await
+        result
     }
 
     /// Reads from a file at `offset`. Returns 0 at or past the end. Bytes

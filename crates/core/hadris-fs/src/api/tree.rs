@@ -208,7 +208,18 @@ impl<'a> ContentReader<'a> {
             &mut self, guard: &mut super::VolumeGuard<'_, F>, offset: u64, buf: &mut [u8],
         ) -> Result<usize, PathError> {
             let scope = guard.read_scope();
-            self.read_scoped(&mut **guard, Some(scope), offset, buf).await
+            let failed = guard.failure_flag();
+            if let Repr::Async(source) = &self.content.repr
+                && source.source_node(core::ptr::from_ref(scope).cast()).is_some()
+            {
+                if failed.load(core::sync::atomic::Ordering::Acquire) {
+                    return Err(crate::Detail::VolumeFailed.error::<core::convert::Infallible>().into());
+                }
+                let read = self.read_scoped(&mut **guard, Some(scope), offset, buf);
+                super::volume::watch_poll(failed, read).await
+            } else {
+                self.read_at(offset, buf).await
+            }
         }
     }
 

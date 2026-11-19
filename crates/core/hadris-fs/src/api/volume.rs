@@ -182,6 +182,25 @@ impl<'a, F: FileSystem> VolumeGuard<'a, F> {
     }
 }
 
+async_only! {
+    impl<'a, F: FileSystem> VolumeGuard<'a, F> {
+        pub(super) fn failure_flag(&self) -> &'a AtomicBool {
+            self.failed
+        }
+    }
+
+    pub(super) async fn watch_poll<T>(failed: &AtomicBool, call: impl core::future::Future<Output = T>) -> T {
+        let mut call = core::pin::pin!(call);
+        core::future::poll_fn(|cx| {
+            let armed = Unwinding(failed);
+            let polled = call.as_mut().poll(cx);
+            core::mem::forget(armed);
+            polled
+        })
+        .await
+    }
+}
+
 io_transform! {
 
 pub(super) async fn read_opened<F: FileSystem + ?Sized>(
@@ -260,11 +279,11 @@ impl<F: FileSystem> Drop for VolumeGuard<'_, F> {
 }
 
 /// Runs the calls dropped handles queued, in order. Close errors are
-/// ignored, as in the `Drop` that queued them. A call leaves the queue as it
-/// starts, so a dropped future leaves the rest queued.
+/// ignored, as in the `Drop` that queued them. A cancelled close stays queued
+/// ahead of the matching forget.
 async fn run_pending<F: FileSystem + ?Sized>(pending: &spin::Mutex<VecDeque<Pending>>, fs: &mut F) {
     loop {
-        let Some(call) = pending.lock().pop_front() else {
+        let Some(call) = pending.lock().front().copied() else {
             break;
         };
         match call {
@@ -273,6 +292,7 @@ async fn run_pending<F: FileSystem + ?Sized>(pending: &spin::Mutex<VecDeque<Pend
             }
             Pending::Forget(node) => fs.forget(node, 1),
         }
+        pending.lock().pop_front();
     }
 }
 
@@ -370,14 +390,7 @@ impl<F: FileSystem> Volume<F> {
     /// call dropped between polls, as by a cancelled future, is not a
     /// failure.
     pub(super) async fn watch<T>(&self, call: impl core::future::Future<Output = T>) -> T {
-        let mut call = core::pin::pin!(call);
-        core::future::poll_fn(|cx| {
-            let armed = Unwinding(&self.shared.failed);
-            let polled = call.as_mut().poll(cx);
-            core::mem::forget(armed);
-            polled
-        })
-        .await
+        watch_poll(&self.shared.failed, call).await
     }
     }
 

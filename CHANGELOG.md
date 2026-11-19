@@ -80,6 +80,11 @@ Each published package owns its version and may be released independently.
 - **hadris-fat:** FAT directory IDs verify that their slots belong to the
   directory and reject stale IDs after a slot is reused.
 
+- **hadris-fs, hadris-fat:** Guarded async reads mark a volume failed if
+  the filesystem panics. Cancelled async FAT and exFAT closes leave their
+  open available for retry, and cancelling deferred cleanup keeps the close
+  queued.
+
 ## [3.0.0-rc.3] - 2026-11-04
 
 The third release candidate of the 3.0 API. The 3.x packages move to

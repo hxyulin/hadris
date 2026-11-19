@@ -173,8 +173,7 @@ impl Group {
     }
 
     fn restore(&mut self, dest: &Path, mode: u32, created: &HashSet<PathBuf>) -> Result<bool> {
-        let moved;
-        let path: &Path = match &self.data {
+        match &self.data {
             GroupData::Pending => return Ok(false),
             GroupData::Linked => {
                 let source = self.names.first().context("Hard link group has no name")?;
@@ -184,34 +183,45 @@ impl Group {
                 return Ok(true);
             }
             GroupData::Moved(dir) => {
-                moved = dir.path().join("data");
-                &moved
-            }
-            GroupData::Spooled(path) => path.as_ref(),
-        };
-        match fs::hard_link(path, dest) {
-            Ok(()) => {
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    fs::set_permissions(path, fs::Permissions::from_mode(mode)).ok();
+                let path = dir.path().join("data");
+                match fs::hard_link(&path, dest) {
+                    Ok(()) => {
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::fs::PermissionsExt;
+                            fs::set_permissions(&path, fs::Permissions::from_mode(mode)).ok();
+                        }
+                    }
+                    Err(err)
+                        if matches!(
+                            err.kind(),
+                            std::io::ErrorKind::CrossesDevices
+                                | std::io::ErrorKind::Unsupported
+                                | std::io::ErrorKind::PermissionDenied
+                        ) =>
+                    {
+                        copy_retained(&path, dest, mode)?;
+                    }
+                    Err(err) => {
+                        return Err(err)
+                            .with_context(|| format!("Failed to link {}", dest.display()));
+                    }
                 }
             }
-            Err(err) if err.kind() == std::io::ErrorKind::CrossesDevices => {
-                let mut data =
-                    File::open(path).context("Failed to read retained hard link data")?;
-                let mut file = create_file(dest)?;
-                std::io::copy(&mut data, &mut file)
-                    .with_context(|| format!("Failed to write file: {}", dest.display()))?;
-                set_mode(&file, mode);
-            }
-            Err(err) => {
-                return Err(err).with_context(|| format!("Failed to link {}", dest.display()));
-            }
+            GroupData::Spooled(path) => copy_retained(path, dest, mode)?,
         }
         self.data = GroupData::Linked;
         Ok(true)
     }
+}
+
+fn copy_retained(path: &Path, dest: &Path, mode: u32) -> Result<()> {
+    let mut data = File::open(path).context("Failed to read retained hard link data")?;
+    let mut file = create_file(dest)?;
+    std::io::copy(&mut data, &mut file)
+        .with_context(|| format!("Failed to write file: {}", dest.display()))?;
+    set_mode(&file, mode);
+    Ok(())
 }
 
 /// The hard link groups, with the group each name belongs to, so a later
@@ -529,6 +539,23 @@ mod tests {
 mod retention_tests {
     use super::*;
     use std::os::unix::fs::MetadataExt;
+
+    #[test]
+    fn restoring_a_spooled_link_copies_to_a_new_inode() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("dest");
+        let mut spool = NamedTempFile::new_in(dir.path()).unwrap();
+        spool.write_all(b"payload").unwrap();
+        let inode = spool.as_file().metadata().unwrap().ino();
+        let mut group = Group {
+            names: Vec::new(),
+            data: GroupData::Spooled(spool.into_temp_path()),
+        };
+        assert!(group.restore(&dest, 0o644, &HashSet::new()).unwrap());
+        assert_ne!(fs::metadata(&dest).unwrap().ino(), inode);
+        assert_eq!(fs::read(&dest).unwrap(), b"payload");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
 
     #[test]
     fn restoring_a_moved_link_preserves_its_inode() {
