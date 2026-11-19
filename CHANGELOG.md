@@ -62,6 +62,11 @@ Each published package owns its version and may be released independently.
 - **hadris-fs:** `Volume::read` documents that a crafted image can make it
   allocate a file's whole declared length.
 
+### Fixed
+
+- **hadris-iso:** Automatic mounting reports malformed root Rock Ridge data
+  through `IsoFs::mount_warning` when it falls back to another namespace.
+
 ## [3.0.0-rc.3] - 2026-11-04
 
 The third release candidate of the 3.0 API. The 3.x packages move to

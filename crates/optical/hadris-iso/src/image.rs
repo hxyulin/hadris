@@ -9,6 +9,7 @@ use super::FileSystem;
 use super::storage::BlockDevice;
 #[cfg(feature = "alloc")]
 use crate::CacheOptions;
+use crate::MountWarning;
 use crate::boot::{BootCatalog, CatalogEntry, Emulation};
 use crate::error::{Detail, Error};
 use crate::info::{DescriptorScan, Info, Root};
@@ -168,6 +169,7 @@ async fn read_info<D: BlockDevice>(dev: &mut D) -> Result<InfoRead<D::Error>, Er
 pub struct IsoFs<D> {
     dev: D,
     view: View,
+    mount_warning: Option<MountWarning>,
 }
 
 /// The device-independent state of a mount.
@@ -1133,18 +1135,21 @@ impl<D: BlockDevice> IsoFs<D> {
         namespace: Namespace,
     ) -> Result<Self, MountError<D, D::Error>> {
         let _ = options;
-        let info = match read_info(&mut dev).await {
+        let (info, detected) = match read_info(&mut dev).await {
             Ok((_, Err(err))) if namespace == Namespace::RockRidge => {
                 return Err(MountError::new(err, dev));
             }
-            Ok((info, _)) => info,
+            Ok(result) => result,
             Err(err) => return Err(MountError::new(err, dev)),
         };
         let len = dev.block_count().saturating_mul(u64::from(dev.block_size().get()));
+        let mount_warning = (namespace == Namespace::Preferred && detected.is_err())
+            .then_some(MountWarning::MalformedRockRidge);
         match info.tree(namespace) {
             Some((namespace, root)) => Ok(Self {
                 dev,
                 view: View::new(info, namespace, root, len),
+                mount_warning,
             }),
             None => Err(MountError::new(Detail::NoNamespace.error(ErrorKind::NotFound), dev)),
         }
@@ -1195,6 +1200,11 @@ impl<D: BlockDevice> IsoFs<D> {
     /// The tree this mount reads; never [`Namespace::Preferred`].
     pub fn namespace(&self) -> Namespace {
         self.view.namespace
+    }
+
+    /// Reports why automatic mounting skipped the preferred namespace, if it did.
+    pub const fn mount_warning(&self) -> Option<MountWarning> {
+        self.mount_warning
     }
 
     /// The trees the image has.
