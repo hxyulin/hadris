@@ -243,7 +243,7 @@ impl<D: BlockDevice> ApfsFs<D> {
     /// return errors. The device is retained in [`MountError`].
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn mount(device: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
-        Self::mount_selected(device, options, None, None).await
+        Self::mount_selected(device, options, None, None, None).await
     }
 
     /// Mounts exactly one volume selected by index, object identifier, UUID or
@@ -262,7 +262,24 @@ impl<D: BlockDevice> ApfsFs<D> {
         options: MountOptions,
         selector: VolumeSelector<'_>,
     ) -> Result<Self, MountError<D, D::Error>> {
-        Self::mount_selected(device, options, Some(selector), None).await
+        Self::mount_selected(device, options, Some(selector), None, None).await
+    }
+
+    /// Mounts a named snapshot or transaction of an unencrypted volume.
+    ///
+    /// With no volume selector, the container must have exactly one
+    /// volume. Subsequent lookups and reads use the snapshot's transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] for a missing volume or snapshot,
+    /// [`ErrorKind::InvalidInput`] for ambiguous volume selection, or an
+    /// error for unsupported features, damaged metadata, or device failures.
+    /// All failures retain the device in [`MountError`].
+    pub async fn mount_snapshot(
+        device: D, options: MountOptions, selector: Option<VolumeSelector<'_>>, snapshot: crate::SnapshotSelector<'_>,
+    ) -> Result<Self, MountError<D, D::Error>> {
+        Self::mount_selected(device, options, selector, None, Some(snapshot)).await
     }
 
     /// Mounts the sole software-encrypted, single-key volume using a password.
@@ -288,7 +305,7 @@ impl<D: BlockDevice> ApfsFs<D> {
         password: &[u8],
         crypto_user: Option<[u8; 16]>,
     ) -> Result<Self, MountError<D, D::Error>> {
-        Self::mount_selected(device, options, None, Some((password, crypto_user))).await
+        Self::mount_selected(device, options, None, Some((password, crypto_user)), None).await
     }
 
     /// Mounts an explicitly selected software-encrypted volume using a password.
@@ -311,7 +328,7 @@ impl<D: BlockDevice> ApfsFs<D> {
         password: &[u8],
         crypto_user: Option<[u8; 16]>,
     ) -> Result<Self, MountError<D, D::Error>> {
-        Self::mount_selected(device, options, Some(selector), Some((password, crypto_user))).await
+        Self::mount_selected(device, options, Some(selector), Some((password, crypto_user)), None).await
     }
 
     async fn mount_selected(
@@ -319,6 +336,7 @@ impl<D: BlockDevice> ApfsFs<D> {
         options: MountOptions,
         selector: Option<VolumeSelector<'_>>,
         credentials: Option<(&[u8], Option<[u8; 16]>)>,
+        snapshot: Option<crate::SnapshotSelector<'_>>,
     ) -> Result<Self, MountError<D, D::Error>> {
         let mut container = Container::open(device).await?;
         let selected = match Self::select_volume(&mut container, selector, credentials).await {
@@ -326,6 +344,12 @@ impl<D: BlockDevice> ApfsFs<D> {
             Err(error) => return Err(MountError::new(error, container.into_inner())),
         };
         let (checkpoint, volume) = selected;
+        let volume = if let Some(snapshot) = snapshot {
+            match container.snapshot_superblock(&volume, snapshot).await {
+                Ok(volume) => volume,
+                Err(error) => return Err(MountError::new(error, container.into_inner())),
+            }
+        } else { volume };
         let mut fs = Self {
             container,
             checkpoint,
@@ -402,6 +426,8 @@ impl<D: BlockDevice> ApfsFs<D> {
     }
 
     /// The selected volume superblock, including its UUID, name and slot.
+    /// On a snapshot mount, its object map address is taken from the live
+    /// volume and resolved at the snapshot's transaction.
     pub const fn volume_superblock(&self) -> &VolumeSuperblock {
         &self.volume
     }

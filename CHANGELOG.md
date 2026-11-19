@@ -66,6 +66,9 @@ Each published package owns its version and may be released independently.
 - **hadris-apfs:** Opt into stored and zlib `decmpfs` file reads with
   `compression`, or add LZVN and LZFSE with `lzfse`.
 
+- **hadris-apfs:** `ApfsFs::mount_snapshot` mounts an unencrypted volume
+  snapshot by name or transaction identifier.
+
 - **hadris-iso, hadris-udf:** `PreparedIso` and `write_prepared` retain and
   write an ISO layout without planning again. Bridge writing reuses that
   layout and maps its extents into UDF without rebuilding the input tree.

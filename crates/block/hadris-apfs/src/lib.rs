@@ -105,6 +105,16 @@ pub enum VolumeSelector<'a> {
     Name(&'a str),
 }
 
+/// Selects a saved snapshot of an APFS volume.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SnapshotSelector<'a> {
+    /// The exact snapshot name.
+    Name(&'a str),
+    /// The snapshot's transaction identifier.
+    Xid(u64),
+}
+
 /// Compiles the README's Rust examples as doctests.
 #[cfg(all(doctest, feature = "std", feature = "sync"))]
 #[doc = include_str!("../README.md")]

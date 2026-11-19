@@ -1170,6 +1170,70 @@ where
         })
     }
 
+    #[cfg(feature = "alloc")]
+    pub(crate) async fn snapshot_superblock(
+        &mut self, volume: &VolumeSuperblock, selector: crate::SnapshotSelector<'_>,
+    ) -> FsResult<VolumeSuperblock, D::Error> {
+        use core::cmp::Ordering;
+        use crate::SnapshotSelector;
+
+        const SNAP_META: u8 = 1;
+        const SNAP_NAME: u8 = 11;
+        const NAME_OID: u64 = (1 << 60) - 1;
+        let block = volume.snapshot_metadata_tree_oid;
+        if block == 0 { return Err(ErrorKind::NotFound.into()); }
+        let node = self.read_btree_node(block).await?;
+        let root = BTreeRoot { info: node.tree_info()?, node, block, oid: block };
+        let xid = match selector {
+            SnapshotSelector::Xid(xid) => xid,
+            SnapshotSelector::Name(name) => {
+                if name.is_empty() || name.as_bytes().contains(&0) {
+                    return Err(ErrorKind::InvalidInput.into());
+                }
+                let names = self.btree_range(&root, None, None, |key| {
+                    let order = fs_key_order(key, NAME_OID, SNAP_NAME)?;
+                    if order != Ordering::Equal { return Ok(order); }
+                    let len = u16::from_le_bytes(crate::types::take(key, 8)?) as usize;
+                    let stored = key.get(10..10 + len).and_then(|name| name.strip_suffix(&[0]))
+                        .ok_or(ApfsError::InvalidValue("snapshot name key"))?;
+                    Ok(stored.cmp(name.as_bytes()))
+                }).await?;
+                let entry = match names.as_slice() {
+                    [entry] => entry,
+                    [] => return Err(ErrorKind::NotFound.into()),
+                    _ => return Err(ApfsError::InvalidValue("duplicate snapshot name").into()),
+                };
+                crate::types::le_u64(&entry.value, 0)?
+            }
+        };
+        if xid == 0 || xid > volume.object.transaction_identifier {
+            return Err(ErrorKind::NotFound.into());
+        }
+        let records = self.btree_range(&root, None, None, |key| fs_key_order(key, xid, SNAP_META)).await?;
+        let entry = match records.as_slice() {
+            [entry] => entry,
+            [] => return Err(ErrorKind::NotFound.into()),
+            _ => return Err(ApfsError::InvalidValue("duplicate snapshot metadata").into()),
+        };
+        if crate::types::le_u32(&entry.value, 44)? != 0 {
+            return Err(ApfsError::Unsupported("APFS snapshot being changed").into());
+        }
+        let address = crate::types::le_u64(&entry.value, 8)?;
+        let bytes = self.read_apfs_block_vec(address).await?;
+        checksum::verify_object(&bytes)?;
+        let mut snapshot = VolumeSuperblock::parse(&bytes)?;
+        if snapshot.object.identifier != address
+            || snapshot.object.transaction_identifier != xid
+            || snapshot.fs_index != volume.fs_index
+            || snapshot.volume_id != volume.volume_id
+        {
+            return Err(ApfsError::InvalidValue("snapshot volume superblock identity").into());
+        }
+        snapshot.check_incompatible_features()?;
+        snapshot.object_map_oid = volume.object_map_oid;
+        Ok(snapshot)
+    }
+
     /// Returns, in key order, the filesystem-tree records of one object and
     /// record type (e.g. a directory's entries, or a data stream's extents),
     /// descending the tree by key. The volume's object map and tree root are

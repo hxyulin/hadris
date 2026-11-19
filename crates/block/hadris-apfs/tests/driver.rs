@@ -67,6 +67,45 @@ fn native_xattrs_read_inline_and_stream_values_at_offsets() {
     );
 }
 
+#[test]
+fn snapshots_select_the_frozen_filesystem_by_name_and_xid() {
+    use hadris_apfs::SnapshotSelector;
+
+    let image = snapshot_image();
+    let mut live = mount(image.clone());
+    let root = live.root();
+    assert_eq!(
+        live.lookup(root, Name::new("file0.txt"))
+            .unwrap_err()
+            .kind(),
+        ErrorKind::NotFound
+    );
+    for selector in [SnapshotSelector::Name("before"), SnapshotSelector::Xid(1)] {
+        let mut snapshot =
+            ApfsFs::mount_snapshot(device(image.clone()), MountOptions::new(), None, selector)
+                .unwrap();
+        assert_eq!(
+            snapshot.volume_superblock().object.transaction_identifier,
+            1
+        );
+        let file = snapshot
+            .lookup(snapshot.root(), Name::new("file0.txt"))
+            .unwrap();
+        let mut out = [0; 64];
+        let n = snapshot.read(file, 0, &mut out).unwrap();
+        assert_eq!(&out[..n], file_contents(0));
+    }
+    let error = ApfsFs::mount_snapshot(
+        device(image.clone()),
+        MountOptions::new(),
+        None,
+        SnapshotSelector::Name("Before"),
+    )
+    .unwrap_err();
+    assert_eq!(error.error().kind(), ErrorKind::NotFound);
+    assert_eq!(error.into_device().into_inner(), image);
+}
+
 #[cfg(feature = "compression")]
 #[test]
 fn decmpfs_zlib_reads_inline_and_across_resource_chunks() {

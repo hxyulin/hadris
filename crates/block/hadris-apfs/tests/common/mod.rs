@@ -482,6 +482,56 @@ pub fn xattr_image() -> Vec<u8> {
 }
 
 #[allow(dead_code)]
+pub fn snapshot_image() -> Vec<u8> {
+    let mut image = build_image();
+    let mut live = image[3 * BLOCK..4 * BLOCK].to_vec();
+    let mut snapshot = live.clone();
+    put(&mut snapshot, 8, &22u64.to_le_bytes());
+    put(&mut snapshot, 24, &0x4000_000Du32.to_le_bytes());
+    put(&mut snapshot, 128, &0u64.to_le_bytes());
+    put(&mut image, 22 * BLOCK, &seal(snapshot));
+    put(&mut live, 16, &5u64.to_le_bytes());
+    put(&mut live, 152, &21u64.to_le_bytes());
+    put(&mut live, 216, &1u64.to_le_bytes());
+    put(&mut image, 3 * BLOCK, &seal(live));
+
+    let mut metadata = vec![0; 50];
+    put(&mut metadata, 8, &22u64.to_le_bytes());
+    put(&mut metadata, 48, &7u16.to_le_bytes());
+    metadata.extend_from_slice(b"before\0");
+    let mut key = fs_key((1 << 60) - 1, 11);
+    key.extend_from_slice(&7u16.to_le_bytes());
+    key.extend_from_slice(b"before\0");
+    let entries = vec![(fs_key(1, 1), metadata), (key, 1u64.to_le_bytes().to_vec())];
+    put(
+        &mut image,
+        21 * BLOCK,
+        &btree_node(21, true, true, 0, None, 0x10, false, &entries),
+    );
+
+    let mut live_entries = vec![inode_entry(2, 2, 0o040755, 0)];
+    live_entries.extend(file_records(Variant::Plain, 1..2));
+    put(
+        &mut image,
+        20 * BLOCK,
+        &btree_node(FS_ROOT_OID, true, true, 0, None, 0, false, &live_entries),
+    );
+    let omap = [
+        omap_entry(FS_ROOT_OID, 1, FS_ROOT_BLOCK, 0),
+        omap_entry(FS_ROOT_OID, 5, 20, 0),
+        omap_entry(1028, 1, 7, 0),
+        omap_entry(1029, 1, 8, 0),
+        omap_entry(1030, 1, 9, 0),
+    ];
+    put(
+        &mut image,
+        5 * BLOCK,
+        &btree_node(5, true, true, 0, Some((16, 16)), 0x10, false, &omap),
+    );
+    image
+}
+
+#[allow(dead_code)]
 pub fn compressed_image(method: u32, size: u64, payload: &[u8], resource: &[u8]) -> Vec<u8> {
     let mut entries = vec![
         inode_entry(2, 2, 0o040755, 0),
