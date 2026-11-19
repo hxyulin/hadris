@@ -154,15 +154,16 @@ impl Group {
         if self.names.len() == 1 && matches!(self.data, GroupData::Linked) {
             ours(path, created)?;
             let parent = path.parent().context("Hard link has no parent directory")?;
-            let mut builder = tempfile::Builder::new();
             #[cfg(unix)]
-            {
+            let dir = {
                 use std::os::unix::fs::PermissionsExt;
-                builder.permissions(fs::Permissions::from_mode(0o700));
-            }
-            let dir = builder
-                .tempdir_in(parent)
-                .context("Failed to retain hard link data")?;
+                tempfile::Builder::new()
+                    .permissions(fs::Permissions::from_mode(0o700))
+                    .tempdir_in(parent)
+            };
+            #[cfg(not(unix))]
+            let dir = tempfile::tempdir_in(parent);
+            let dir = dir.context("Failed to retain hard link data")?;
             fs::rename(path, dir.path().join("data"))
                 .with_context(|| format!("Failed to retain hard link data: {}", path.display()))?;
             self.data = GroupData::Moved(dir);
