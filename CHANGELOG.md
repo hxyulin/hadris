@@ -57,6 +57,9 @@ Each published package owns its version and may be released independently.
 - **hadris-ntfs:** Directory lookup follows the relevant B-tree branches
   and preserves exact spelling preference among names tied by case folding.
 
+- **hadris-ntfs:** With `alloc`, reads of the most recently opened ordinary
+  file reuse its base record and small unnamed non-resident runlists.
+
 - **hadris-ntfs:** Reads decode LZNT1-compressed streams, including units
   split across attribute-list extents.
 

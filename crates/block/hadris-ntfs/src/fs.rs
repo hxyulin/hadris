@@ -11,7 +11,9 @@ use super::storage::BlockDevice;
 use crate::VolumeInfo;
 use crate::error::{Detail, Error};
 use crate::raw;
-use crate::record::{self, Attr, Body, FileName, MAX_LIST_ENTRY, MAX_RECORD, RecordHeader, Runs};
+use crate::record::{
+    self, Attr, Body, FileName, MAX_LIST_ENTRY, MAX_RECORD, RecordHeader, Run, Runs,
+};
 use crate::volume::{
     DirIndex, Extents, Geometry, Info, MAX_BLOCK, MftExtents, PAGE, Upcase, UpcaseExtents,
 };
@@ -23,6 +25,8 @@ const CURSOR_SHIFT: u32 = 16;
 /// Bytes of a UTF-16 attribute name.
 const NAME_BYTES: usize = 510;
 const MAX_KEYED_NODES: usize = 64;
+#[cfg(feature = "alloc")]
+const MAX_CACHED_RUNS: usize = 128;
 
 /// A node id the caller gave that names nothing valid is an invalid handle,
 /// unless the device failed or the volume is cut short. An id that names a
@@ -113,6 +117,47 @@ struct Head {
     allocated: u64,
     compression_shift: u8,
     place: Place,
+}
+
+#[cfg(feature = "alloc")]
+#[derive(Debug)]
+struct OpenRecord {
+    node: NodeId,
+    bytes: alloc::boxed::Box<[u8]>,
+    data: Option<OpenData>,
+}
+
+#[cfg(feature = "alloc")]
+#[derive(Debug)]
+struct OpenData {
+    head: Head,
+    runs: Option<alloc::boxed::Box<[Run]>>,
+}
+
+#[cfg(feature = "alloc")]
+impl OpenData {
+    fn new(head: Head, record: &[u8]) -> Self {
+        let runs = (matches!(head.place, Place::Base)
+            && head.flags & (raw::ATTR_FLAG_COMPRESSED | raw::ATTR_FLAG_ENCRYPTED) == 0)
+            .then(|| Self::base_runs(record))
+            .flatten();
+        Self { head, runs }
+    }
+
+    fn base_runs(record: &[u8]) -> Option<alloc::boxed::Box<[Run]>> {
+        let attr = record::find_instance(record, raw::ATTR_DATA, &[], 0).ok()??;
+        let Body::NonResident(attr) = attr.body else {
+            return None;
+        };
+        let mut decoded = alloc::vec::Vec::new();
+        for run in Runs::new(attr.runs) {
+            if decoded.len() == MAX_CACHED_RUNS {
+                return None;
+            }
+            decoded.push(run.ok()?);
+        }
+        Some(decoded.into_boxed_slice())
+    }
 }
 
 impl Head {
@@ -317,14 +362,14 @@ async fn read_partial_block<D: BlockDevice>(
 async fn read_runs<D: BlockDevice>(
     dev: &mut D,
     geo: &Geometry,
-    runs: &[u8],
+    runs: impl Iterator<Item = Result<Run, Detail>> + Send,
     offset: u64,
     buf: &mut [u8],
 ) -> Result<(), Error<D::Error>> {
     let end = offset.checked_add(buf.len() as u64).ok_or(Detail::DataRun)?;
     let mut start = 0u64;
     let mut filled = 0usize;
-    for run in Runs::new(runs) {
+    for run in runs {
         if filled == buf.len() {
             break;
         }
@@ -364,7 +409,7 @@ async fn read_runs<D: BlockDevice>(
 async fn read_stream<D: BlockDevice>(
     dev: &mut D,
     geo: &Geometry,
-    runs: &[u8],
+    runs: impl Iterator<Item = Result<Run, Detail>> + Send,
     size: u64,
     initialized: u64,
     offset: u64,
@@ -485,7 +530,7 @@ async fn read_extents<D: BlockDevice, const N: usize, const S: usize>(
         let to = end.min(stop);
         if to > done {
             let part = &mut buf[(done - offset) as usize..(to - offset) as usize];
-            read_runs(dev, geo, runs, done - start, part).await?;
+            read_runs(dev, geo, Runs::new(runs), done - start, part).await?;
             done = to;
         }
     }
@@ -571,7 +616,7 @@ async fn next_attr<D: BlockDevice>(
             Body::Resident(value) => &value[*pos as usize..],
             Body::NonResident(nr) => {
                 let initialized = nr.initialized_size.min(nr.data_size);
-                let n = read_stream(dev, &info.geo, nr.runs, nr.data_size, initialized, *pos, &mut chunk).await?;
+                let n = read_stream(dev, &info.geo, Runs::new(nr.runs), nr.data_size, initialized, *pos, &mut chunk).await?;
                 &chunk[..n]
             }
         };
@@ -732,7 +777,7 @@ async fn stream_payload<D: BlockDevice>(
             let Body::NonResident(nr) = attr.body else {
                 return Err(Detail::Attribute.into());
             };
-            read_stream(dev, &info.geo, nr.runs, head.size, head.initialized, offset, buf).await
+            read_stream(dev, &info.geo, Runs::new(nr.runs), head.size, head.initialized, offset, buf).await
         }
         Place::Listed => {
             if offset >= head.size {
@@ -998,7 +1043,7 @@ async fn read_listed<D: BlockDevice>(
                     return Err(Detail::AttributeList.into());
                 };
                 let part = &mut buf[(done - offset) as usize..(to - offset) as usize];
-                read_runs(dev, &info.geo, nr.runs, done - start, part).await?;
+                read_runs(dev, &info.geo, Runs::new(nr.runs), done - start, part).await?;
                 done = to;
             }
         }
@@ -1177,6 +1222,8 @@ async fn mount<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>> {
 pub struct NtfsFs<D> {
     dev: D,
     info: Info,
+    #[cfg(feature = "alloc")]
+    opened: Option<OpenRecord>,
 }
 
 impl<D: BlockDevice> NtfsFs<D> {
@@ -1204,7 +1251,12 @@ impl<D: BlockDevice> NtfsFs<D> {
         let _ = options;
         match mount(&mut dev).await {
             Ok(info) => {
-                let mut fs = Self { dev, info };
+                let mut fs = Self {
+                    dev,
+                    info,
+                    #[cfg(feature = "alloc")]
+                    opened: None,
+                };
                 fs.info.hibernated = fs.detect_hibernation().await;
                 Ok(fs)
             }
@@ -1975,6 +2027,24 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// Failure may leave `buf` partly modified.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node, offset = offset, bytes = buf.len())))]
     pub async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
+        let base = record::reference_record(node.get());
+        #[cfg(feature = "alloc")]
+        if let Some(opened) = self.opened.as_mut().filter(|opened| opened.node == node) {
+            let rec = &opened.bytes;
+            let data = match &opened.data {
+                Some(data) => data,
+                None => {
+                    let head = stream_head(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &[])
+                        .await?
+                        .ok_or(Detail::Attribute)?;
+                    opened.data.insert(OpenData::new(head, rec))
+                }
+            };
+            if let Some(runs) = &data.runs {
+                return read_stream(&mut self.dev, &self.info.geo, runs.iter().copied().map(Ok), data.head.size, data.head.initialized, offset, buf).await;
+            }
+            return stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &[], &data.head, offset, buf).await;
+        }
         let mut rec = [0u8; MAX_RECORD];
         let header = self.node_record(node, &mut rec).await?;
         let rec = &rec[..self.info.geo.mft_record_size];
@@ -1987,7 +2057,6 @@ impl<D: BlockDevice> NtfsFs<D> {
         if header.is_dir() {
             return Err(ErrorKind::IsADirectory.into());
         }
-        let base = record::reference_record(node.get());
         let head = stream_head(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &[])
             .await?
             .ok_or(Error::<D::Error>::from(Detail::Attribute))?;
@@ -2091,7 +2160,8 @@ impl<D: BlockDevice> NtfsFs<D> {
         let mut rec = [0u8; MAX_RECORD];
         let header = self.node_record(node, &mut rec).await?;
         let rec = &rec[..self.info.geo.mft_record_size];
-        if self.reparse(node, rec).await?.is_some_and(|(tag, _)| is_link_tag(tag)) {
+        let reparse = self.reparse(node, rec).await?;
+        if reparse.is_some_and(|(tag, _)| is_link_tag(tag)) {
             return Err(ErrorKind::Symlink.into());
         }
         if header.is_dir() {
@@ -2100,10 +2170,14 @@ impl<D: BlockDevice> NtfsFs<D> {
         if mode == OpenMode::Write {
             return Err(ErrorKind::ReadOnly.into());
         }
+        #[cfg(feature = "alloc")]
+        if reparse.is_none() {
+            self.opened = Some(OpenRecord { node, bytes: rec.into(), data: None });
+        }
         Ok(())
     }
 
-    /// Closes a file without keeping open state or accessing the device.
+    /// Releases cached metadata for the file without accessing the device.
     ///
     /// # Errors
     ///
@@ -2111,6 +2185,10 @@ impl<D: BlockDevice> NtfsFs<D> {
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node)))]
     pub async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         let _ = node;
+        #[cfg(feature = "alloc")]
+        if self.opened.as_ref().is_some_and(|opened| opened.node == node) {
+            self.opened = None;
+        }
         Ok(())
     }
 
