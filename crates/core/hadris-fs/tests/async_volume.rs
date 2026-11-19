@@ -54,26 +54,85 @@ fn paths_handles_and_policies() {
 }
 
 #[test]
-fn copies_reject_trees_read_lazily_from_the_target() {
+fn copies_read_lazy_content_from_the_target_volume() {
     block_on(async {
         let mut src = MemFs::new();
+        let payload = vec![0xA5; 140_000];
         src.add("/", "etc", hadris_fs::FileType::Dir, b"");
-        src.add("/etc", "conf", hadris_fs::FileType::File, b"key=value");
-        src.add("/", "empty", hadris_fs::FileType::Dir, b"");
-        src.add("/empty", "none", hadris_fs::FileType::File, b"");
+        src.add("/etc", "conf", hadris_fs::FileType::File, &payload);
+        src.add("/etc", "empty", hadris_fs::FileType::File, b"");
         let root = src.root();
         let vol = SendVolume::new(Sendable::new(src));
-        let empty = read_tree(&vol, "/empty").await.unwrap();
-        copy_tree(&empty, &vol, root).await.unwrap();
-        drop(empty);
         let tree = read_tree(&vol, "/etc").await.unwrap();
-        let err = copy_tree(&tree, &vol, root).await.unwrap_err();
-        assert_eq!(err.kind(), ErrorKind::Unsupported);
-        assert_eq!(err.path(), Some(&b"/conf"[..]));
+        let content = tree.get("conf").unwrap().content().unwrap();
+        let mut reader = ContentReader::open(content).await.unwrap();
+        let mut guard = vol.lock().await.unwrap();
+        let mut buf = [0; 16];
+        assert_eq!(
+            reader
+                .read_at_with_guard(&mut guard, 0, &mut buf)
+                .await
+                .unwrap(),
+            buf.len()
+        );
+        assert_eq!(buf, [0xA5; 16]);
+        drop(guard);
+        copy_tree(&tree, &vol, root).await.unwrap();
         drop(tree);
         let src = vol.into_inner().await.ok().unwrap();
-        assert_eq!(src.contents("/etc/conf").unwrap(), b"key=value");
-        assert_eq!(src.contents("/none").unwrap(), b"");
+        assert_eq!(src.contents("/conf").unwrap(), payload);
+        assert_eq!(src.contents("/empty").unwrap(), b"");
+        assert_eq!((src.open_nodes(), src.open_files()), (1, 0));
+    });
+}
+
+#[test]
+fn caught_panic_in_guarded_read_marks_volume_failed() {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    let mut fs = MemFs::new();
+    fs.add("/", "file", hadris_fs::FileType::File, b"payload");
+    let vol = SendVolume::new(Sendable::new(fs));
+    let tree = block_on(read_tree(&vol, "/")).unwrap();
+    let content = tree.get("file").unwrap().content().unwrap();
+    let mut reader = block_on(ContentReader::open(content)).unwrap();
+    let mut guard = block_on(vol.lock()).unwrap();
+    guard.panic_on_read();
+    let panic = catch_unwind(AssertUnwindSafe(|| {
+        block_on(reader.read_at_with_guard(&mut guard, 0, &mut [0; 7]))
+    }));
+    assert!(panic.is_err());
+    assert!(vol.is_failed());
+    assert_eq!(
+        block_on(reader.read_at_with_guard(&mut guard, 0, &mut [0; 7]))
+            .unwrap_err()
+            .detail(),
+        Some(hadris_fs::Detail::VolumeFailed.code())
+    );
+    drop(guard);
+    assert!(block_on(vol.lock()).is_err());
+}
+
+#[test]
+fn cancelled_same_volume_copy_releases_both_opens() {
+    block_on(async {
+        for calls in 0..32 {
+            let mut src = MemFs::new();
+            src.add("/", "dir", hadris_fs::FileType::Dir, b"");
+            src.add("/dir", "file", hadris_fs::FileType::File, b"payload");
+            let root = src.root();
+            let vol = SendVolume::new(Sendable::new(src));
+            let tree = read_tree(&vol, "/dir").await.unwrap();
+            vol.lock().await.unwrap().stall_in(calls);
+            let pending = poll_once(copy_tree(&tree, &vol, root));
+            vol.lock().await.unwrap().stall_in(u32::MAX);
+            drop(tree);
+            let fs = vol.into_inner().await.ok().unwrap();
+            assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0), "stall {calls}");
+            if !pending {
+                break;
+            }
+        }
     });
 }
 
@@ -152,6 +211,23 @@ fn a_close_dropped_while_the_driver_closes_still_closes_the_file() {
         let file = vol.open("/a.txt", OpenOptions::new().read()).await.unwrap();
         vol.lock().await.unwrap().stall_in(0);
         cancel(file.close());
+        vol.remove_file("/a.txt").await.unwrap();
+        let fs = vol.into_inner().await.unwrap();
+        assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));
+    });
+}
+
+#[test]
+fn cancelling_deferred_close_keeps_it_queued_before_forget() {
+    block_on(async {
+        let vol = Volume::new(fixture());
+        let first = vol.open("/a.txt", OpenOptions::new().read()).await.unwrap();
+        let second = vol.open("/a.txt", OpenOptions::new().read()).await.unwrap();
+        vol.lock().await.unwrap().stall_in(0);
+        drop(first);
+        cancel(vol.lock());
+        assert_eq!(vol.lock().await.unwrap().open_files(), 1);
+        second.close().await.unwrap();
         vol.remove_file("/a.txt").await.unwrap();
         let fs = vol.into_inner().await.unwrap();
         assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));

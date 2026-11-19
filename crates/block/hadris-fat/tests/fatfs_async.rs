@@ -462,6 +462,18 @@ fn async_extras_match_the_sync_mode() {
 mod cancel;
 
 #[test]
+fn a_cancelled_close_can_be_retried_without_closing_a_second_open() {
+    let case = CASES[0];
+    let dev = cancel::YieldDev(common::device(case, common::blank(case)));
+    block_on(async {
+        let mut fs = hadris_fat::async_::FatFs::mount(dev, MountOptions::new())
+            .await
+            .unwrap();
+        cancel::cancelled_close_keeps_the_other_open(&mut fs).await;
+    });
+}
+
+#[test]
 fn dropped_operations_leave_no_lost_clusters_or_unequal_fats() {
     use hadris_fat::async_::{FatFs, check};
     use hadris_fs::MountOptions;

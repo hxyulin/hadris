@@ -185,6 +185,15 @@ pub mod sync {
 pub use boot::{BootCatalog, CatalogEntries, CatalogEntry, Emulation, Platform};
 pub use error::Detail;
 pub use namespace::{JolietLevel, Namespace, Namespaces};
+
+/// A problem that affected automatic ISO namespace selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MountWarning {
+    /// The root directory's Rock Ridge area was malformed, so another tree was mounted.
+    MalformedRockRidge,
+}
+
 #[cfg(feature = "write")]
 #[cfg_attr(docsrs, doc(cfg(feature = "write")))]
 pub use options::{

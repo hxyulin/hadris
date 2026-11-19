@@ -6,12 +6,14 @@ use hadris_fs::{CodePage, ErrorKind, FsResult};
 
 use super::rawio;
 use super::storage::BlockDevice;
+#[cfg(feature = "alloc")]
 use crate::RenamePhase;
 use crate::names::CANDIDATES;
 
 io_transform! {
 
 /// Decides whether a pending rename published its expected short entry.
+#[cfg(feature = "alloc")]
 pub(crate) async fn recover_rename<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,

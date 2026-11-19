@@ -985,6 +985,37 @@ fn append_planning_preserves_high_byte_aliases_that_decode_as_ascii() {
 }
 
 #[test]
+fn stat_reuses_the_directory_chain_position_of_listed_nodes() {
+    use hadris_fs::DirCursor;
+
+    let case = CASES[2];
+    let (image, names) = directory_fixture(case);
+    let counts = Cell::new(IoCounts::default());
+    let dev = Counted {
+        inner: common::device(case, image),
+        counts: &counts,
+        written_blocks: None,
+    };
+    let mut fs = FatFs::mount(dev, MountOptions::new().read_only()).unwrap();
+    let mut cursor = DirCursor::START;
+    let mut listed = Vec::new();
+    while let Some(entry) = fs.readdir(fs.root(), cursor).unwrap() {
+        cursor = entry.next_cursor();
+        listed.push(entry.node());
+    }
+    assert_eq!(listed.len(), names.len());
+    counts.set(IoCounts::default());
+    for id in listed.iter().rev() {
+        assert_eq!(fs.stat(*id).unwrap().len(), 1);
+    }
+    assert!(
+        counts.get().read_calls <= listed.len() as u64,
+        "{:?}",
+        counts.get()
+    );
+}
+
+#[test]
 fn listing_hint_eliminates_repeated_directory_reads() {
     for case in CASES {
         let (image, _) = directory_fixture(case);

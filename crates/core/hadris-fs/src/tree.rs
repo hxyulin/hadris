@@ -11,6 +11,8 @@ use crate::{DeviceNumber, ErrorKind, Extent, FileType, Name, PathError, SetAttr}
 /// Content read lazily in the sync mode: a node of a sync `Volume`.
 #[cfg(feature = "sync")]
 pub(crate) trait SyncSource: Send + Sync {
+    #[cfg(feature = "std")]
+    fn source_node(&self, origin: *const ()) -> Option<crate::NodeId>;
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<usize, PathError>;
 }
 
@@ -24,8 +26,7 @@ pub(crate) type ReadFuture<'a> =
 pub(crate) trait AsyncSource: Send + Sync {
     fn read_at<'a>(&'a self, offset: u64, buf: &'a mut [u8]) -> ReadFuture<'a>;
 
-    /// The volume reads go through, identified by address.
-    fn origin(&self) -> *const ();
+    fn source_node(&self, origin: *const ()) -> Option<crate::NodeId>;
 }
 
 #[derive(Clone)]
@@ -60,15 +61,6 @@ pub struct Content {
 }
 
 impl Content {
-    /// The volume lazy async content reads through, identified by address.
-    #[cfg(feature = "async")]
-    pub(crate) fn origin(&self) -> Option<*const ()> {
-        match &self.repr {
-            Repr::Async(source) => Some(source.origin()),
-            _ => None,
-        }
-    }
-
     /// No bytes.
     pub fn empty() -> Self {
         Self::bytes(Vec::new())

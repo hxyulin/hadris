@@ -1,6 +1,6 @@
 use super::filesystem::FileSystem;
 use super::paths::write_all_at;
-use super::tree::ContentReader;
+use super::tree::{ContentReader, ReadScope};
 use crate::{
     Capabilities, ErrorKind, Field, FileType, FsResult, Name, Node, NodeId, OpenMode, PathError,
     Report, SetAttr, Stored, Tree, TreeEntry, Warning, WarningKind,
@@ -112,12 +112,12 @@ async fn try_partial<F: FileSystem + ?Sized>(
 }
 
 /// Writes the content of `node` into the open file `to`.
-async fn copy_data<F: FileSystem + ?Sized>(fs: &mut F, node: &Node, to: NodeId, buf: &mut [u8]) -> Result<(), PathError> {
+async fn copy_data<F: FileSystem + ?Sized>(fs: &mut F, scope: Option<ReadScope<'_>>, node: &Node, to: NodeId, buf: &mut [u8]) -> Result<(), PathError> {
     let Some(content) = node.content() else { return Ok(()) };
     let mut reader = ContentReader::open(content).await?;
     let mut offset = 0;
     while offset < reader.len() {
-        let n = reader.read_at(offset, buf).await?;
+        let n = reader.read_scoped(fs, scope, offset, buf).await?;
         if n == 0 {
             return Err(PathError::new(ErrorKind::Corrupt, "file content ended early"));
         }
@@ -129,14 +129,15 @@ async fn copy_data<F: FileSystem + ?Sized>(fs: &mut F, node: &Node, to: NodeId, 
 
 async fn copy_file_contents<F: FileSystem + ?Sized>(
     fs: &mut F,
+    scope: Option<ReadScope<'_>>,
     node: &Node,
     to: NodeId,
-    times: &SetAttr,
-    partial: Option<SetAttr>,
+    attrs: (&SetAttr, Option<SetAttr>),
     dropped: &mut Dropped,
     buf: &mut [u8],
 ) -> Result<(), PathError> {
-    copy_data(fs, node, to, buf).await?;
+    let (times, partial) = attrs;
+    copy_data(fs, scope, node, to, buf).await?;
     if !times.is_empty() {
         fs.setattr(to, times).await?;
     }

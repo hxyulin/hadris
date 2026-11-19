@@ -43,6 +43,9 @@ Each published package owns its version and may be released independently.
   `None`; only a zeroed block ends an extent early. The crate advances to `3.0.0-rc.4`.
 - **hadris:** Advances to `3.0.0-rc.4` for the re-exported format APIs.
 
+- **hadris-fat:** Embedded FAT listing tokens expire after a removal or
+  rename anywhere on the same mount. Open file handles keep their identities.
+
 ### Changed
 
 - **hadris-iso, hadris-udf:** `PreparedIso` and `write_prepared` retain and
@@ -61,6 +64,26 @@ Each published package owns its version and may be released independently.
   read-only attribute, as on Linux vfat.
 - **hadris-fs:** `Volume::read` documents that a crafted image can make it
   allocate a file's whole declared length.
+
+### Fixed
+
+- **hadris-iso:** Automatic mounting reports malformed root Rock Ridge data
+  through `IsoFs::mount_warning` when it falls back to another namespace.
+
+- **hadris-cli:** cpio extraction retains overwritten hard-link data on the
+  destination filesystem and restores it without copying on that filesystem.
+
+- **hadris-fs:** Async tree copy and sync `VolumeGuard::copy_tree` can copy
+  lazy files within one volume. `ContentReader::read_at_with_guard` reads
+  through an existing guard in either mode.
+
+- **hadris-fat:** FAT directory IDs verify that their slots belong to the
+  directory and reject stale IDs after a slot is reused.
+
+- **hadris-fs, hadris-fat:** Guarded async reads mark a volume failed if
+  the filesystem panics. Cancelled async FAT and exFAT closes leave their
+  open available for retry, and cancelling deferred cleanup keeps the close
+  queued.
 
 ## [3.0.0-rc.3] - 2026-11-04
 

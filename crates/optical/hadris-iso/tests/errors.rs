@@ -560,9 +560,14 @@ fn a_malformed_root_rock_ridge_area_leaves_the_other_trees_mountable() {
 
     let mut iso = IsoFs::mount(dev(), MountOptions::new()).unwrap();
     assert_eq!(iso.namespace(), Namespace::Joliet);
+    assert_eq!(
+        iso.mount_warning(),
+        Some(hadris_iso::MountWarning::MalformedRockRidge)
+    );
     assert_eq!(iso.read_to_vec("/readme.txt").unwrap(), b"hello world\n");
     let mut primary =
         IsoFs::mount_namespace(dev(), MountOptions::new(), Namespace::Primary).unwrap();
+    assert_eq!(primary.mount_warning(), None);
     assert_eq!(
         primary.read_to_vec("/README.TXT").unwrap(),
         b"hello world\n"
@@ -571,4 +576,11 @@ fn a_malformed_root_rock_ridge_area_leaves_the_other_trees_mountable() {
         panic!("a malformed Rock Ridge tree mounted");
     };
     assert_eq!(err.kind(), ErrorKind::Corrupt);
+}
+
+#[test]
+fn an_image_without_rock_ridge_mounts_without_a_warning() {
+    let dev = image(&sample(false, false), &IsoOptions::default());
+    let iso = IsoFs::mount(dev, MountOptions::new()).unwrap();
+    assert_eq!(iso.mount_warning(), None);
 }

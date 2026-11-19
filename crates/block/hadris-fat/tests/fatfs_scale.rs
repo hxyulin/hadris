@@ -252,8 +252,11 @@ fn allocation_wraps_to_the_start_and_fails_cleanly_when_full() {
         "the chain must wrap"
     );
     assert_eq!(read(&mut fs, wrap, data.len()), data);
+    fs.forget(second, 1);
+    fs.forget(wrap, 1);
     assert_clean(&mut fs, "wrapped");
 
+    let second = fs.lookup(fs.root(), name("second.bin")).unwrap();
     let before = free(&mut fs);
     let err = fs
         .write(
@@ -265,9 +268,8 @@ fn allocation_wraps_to_the_start_and_fails_cleanly_when_full() {
     assert_eq!(err.kind(), ErrorKind::NoSpace);
     assert_eq!(free(&mut fs), before);
     assert_eq!(fs.stat(second).unwrap().len(), (total / 4 * cluster) as u64);
-    assert_clean(&mut fs, "full");
     fs.forget(second, 1);
-    fs.forget(wrap, 1);
+    assert_clean(&mut fs, "full");
 }
 
 #[test]

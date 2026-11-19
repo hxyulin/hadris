@@ -1,3 +1,4 @@
+use super::filesystem::FileSystem;
 use crate::ErrorKind;
 use crate::PathError;
 #[cfg(feature = "async")]
@@ -13,6 +14,16 @@ fn stored() -> PathError {
         ErrorKind::Unsupported,
         "content stored on the output device",
     )
+}
+
+sync_only! {
+    #[cfg(feature = "std")]
+    pub(super) use super::volume::ReadScope;
+    #[cfg(not(feature = "std"))]
+    pub(super) type ReadScope<'a> = &'a ();
+}
+async_only! {
+    pub(super) use super::volume::ReadScope;
 }
 
 io_transform! {
@@ -170,6 +181,75 @@ impl<'a> ContentReader<'a> {
             Repr::Async(source) => read_async(source, offset, buf).await,
             Repr::Stored(_) => Err(stored()),
         }
+    }
+
+    sync_only! {
+        #[cfg(feature = "std")]
+        /// Reads content from a locked volume without reacquiring its lock.
+        ///
+        /// # Errors
+        ///
+        /// Propagates the same read errors as `read_at`.
+        pub fn read_at_with_guard<F: FileSystem>(
+            &mut self, guard: &mut super::VolumeGuard<'_, F>, offset: u64, buf: &mut [u8],
+        ) -> Result<usize, PathError> {
+            let scope = guard.read_scope();
+            self.read_scoped(&mut **guard, Some(scope), offset, buf)
+        }
+    }
+
+    async_only! {
+        /// Reads content from a locked volume without reacquiring its lock.
+        ///
+        /// # Errors
+        ///
+        /// Propagates the same read errors as `read_at`.
+        pub async fn read_at_with_guard<F: FileSystem>(
+            &mut self, guard: &mut super::VolumeGuard<'_, F>, offset: u64, buf: &mut [u8],
+        ) -> Result<usize, PathError> {
+            let scope = guard.read_scope();
+            let failed = guard.failure_flag();
+            if let Repr::Async(source) = &self.content.repr
+                && source.source_node(core::ptr::from_ref(scope).cast()).is_some()
+            {
+                if failed.load(core::sync::atomic::Ordering::Acquire) {
+                    return Err(crate::Detail::VolumeFailed.error::<core::convert::Infallible>().into());
+                }
+                let read = self.read_scoped(&mut **guard, Some(scope), offset, buf);
+                super::volume::watch_poll(failed, read).await
+            } else {
+                self.read_at(offset, buf).await
+            }
+        }
+    }
+
+    pub(super) async fn read_scoped<F: FileSystem + ?Sized>(
+        &mut self, _fs: &mut F, _scope: Option<ReadScope<'_>>, offset: u64, buf: &mut [u8],
+    ) -> Result<usize, PathError> {
+        let limit = usize::try_from(self.content.len().saturating_sub(offset))
+            .unwrap_or(usize::MAX)
+            .min(buf.len());
+        if limit == 0 {
+            return Ok(0);
+        }
+        sync_only! {
+            #[cfg(feature = "std")]
+            if let Some(scope) = _scope
+                && let Repr::Sync(source) = &self.content.repr
+                && let Some(node) = source.source_node(core::ptr::from_ref(scope).cast())
+            {
+                return super::volume::read_opened(_fs, scope, node, offset, &mut buf[..limit]);
+            }
+        }
+        async_only! {
+            if let Some(scope) = _scope
+                && let Repr::Async(source) = &self.content.repr
+                && let Some(node) = source.source_node(core::ptr::from_ref(scope).cast())
+            {
+                return super::volume::read_opened(_fs, scope, node, offset, &mut buf[..limit]).await;
+            }
+        }
+        self.read_at(offset, &mut buf[..limit]).await
     }
 
     /// Fills `buf` from `offset`, failing with [`ErrorKind::Corrupt`] when

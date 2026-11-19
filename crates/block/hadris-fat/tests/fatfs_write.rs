@@ -1367,6 +1367,40 @@ fn unpinned_ids_write_through() {
 }
 
 #[test]
+fn a_listing_id_does_not_follow_same_name_slot_reuse() {
+    for case in CASES {
+        let mut fs = open(case, common::blank(case));
+        let root = fs.root();
+        let file = "LONG FILE NAME.txt";
+        let id = create(&mut fs, root, file, FileType::File);
+        fs.forget(id, 1);
+        let old = fs.readdir(root, DirCursor::START).unwrap().unwrap();
+        assert_eq!(old.node(), id);
+
+        fs.unlink(root, name(file)).unwrap();
+        let replacement = create(&mut fs, root, file, FileType::File);
+        assert_ne!(replacement, old.node());
+        assert_eq!(
+            fs.stat(old.node()).unwrap_err().kind(),
+            ErrorKind::InvalidHandle
+        );
+
+        fs.rename(
+            root,
+            name(file),
+            root,
+            name("RENAMED.TXT"),
+            RenameMode::NoReplace,
+        )
+        .unwrap();
+        let listed = fs.readdir(root, DirCursor::START).unwrap().unwrap();
+        assert_eq!(listed.node(), replacement);
+        fs.forget(replacement, 1);
+        assert_eq!(fs.stat(listed.node()).unwrap().len(), 0);
+    }
+}
+
+#[test]
 fn two_handles_on_a_volume_see_one_size() {
     let case = CASES[2];
     let vol = Volume::new(open(case, common::blank(case)));
@@ -2483,17 +2517,18 @@ fn forged_node_ids_are_invalid_handles() {
         let mut forged = [0u8; 32];
         forged[..11].copy_from_slice(b"EVIL    BIN");
         forged[11] = 0x20;
-        forged[20..22].copy_from_slice(&0x0FFFu16.to_le_bytes());
-        forged[26..28].copy_from_slice(&0xFFF0u16.to_le_bytes());
         forged[28..32].copy_from_slice(&100u32.to_le_bytes());
         let data = write(&mut fs, root, "data.bin", &forged);
         let mut out = [hadris_fs::Extent::new(0, 0); 1];
         assert_eq!(fs.extents(data, 0, &mut out).unwrap(), 1);
         let slot = out[0].offset() / 32;
-        for raw in [slot]
-            .into_iter()
-            .chain((0..256).map(|tag| slot << 23 | tag))
-        {
+        let legacy_tag = forged[..11]
+            .iter()
+            .chain(&[0; 6])
+            .fold(0x811c_9dc5u32, |hash, &byte| {
+                (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
+            });
+        for raw in [slot, (slot << 23) | u64::from(legacy_tag & ((1 << 23) - 1))] {
             let id = NodeId::new(raw).unwrap();
             assert_eq!(
                 fs.stat(id).unwrap_err().kind(),
@@ -2521,16 +2556,13 @@ impl Clock for Ticking {
     }
 }
 
-/// The tag covers the short name and creation time, not the long name: a
-/// file recreated in the same slot under the same `~N` alias is refused only
-/// when the clock gives it another creation time.
 #[test]
-fn stale_ids_with_a_shared_alias_depend_on_the_creation_time() {
+fn stale_ids_with_a_shared_alias_are_refused_even_with_a_fixed_clock() {
     static TICKING: Ticking = Ticking(std::sync::atomic::AtomicI64::new(0));
     let case = CASES[0];
-    for (options, refused) in [
-        (MountOptions::new(), false),
-        (MountOptions::new().with_clock(&TICKING), true),
+    for options in [
+        MountOptions::new(),
+        MountOptions::new().with_clock(&TICKING),
     ] {
         let mut fs = FatFs::mount(common::device(case, common::blank(case)), options).unwrap();
         let root = fs.root();
@@ -2543,17 +2575,9 @@ fn stale_ids_with_a_shared_alias_depend_on_the_creation_time() {
         fs.forget(two, 1);
         let entry = fs.readdir(root, DirCursor::START).unwrap().unwrap();
         assert_eq!(entry.name().to_str().unwrap(), "Quarterly report two.txt");
-        match fs.stat(stale) {
-            Err(error) => {
-                assert!(refused);
-                assert_eq!(error.kind(), ErrorKind::InvalidHandle);
-            }
-            Ok(meta) => {
-                assert!(!refused, "a new creation time must refuse the stale id");
-                assert_eq!(meta.len(), 6);
-                assert_eq!(entry.node(), stale);
-            }
-        }
+        assert_eq!(fs.stat(stale).unwrap_err().kind(), ErrorKind::InvalidHandle);
+        assert_eq!(fs.stat(entry.node()).unwrap().len(), 6);
+        assert_ne!(entry.node(), stale);
     }
 }
 

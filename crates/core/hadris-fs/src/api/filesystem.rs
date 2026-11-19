@@ -174,7 +174,9 @@ pub trait FileSystem {
     async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), Self::DeviceError>;
 
     /// Ends one `open` and publishes the node's size and times, without
-    /// flushing the device.
+    /// flushing the device. In async mode, a close cancelled before completion
+    /// leaves the open for the caller to close again. Metadata updates may
+    /// already have reached the device.
     ///
     /// # Errors
     ///

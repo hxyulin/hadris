@@ -1,3 +1,4 @@
+use alloc::collections::BTreeMap;
 use core::fmt;
 
 use super::block_io::{BlockBuf, new_block, read_bytes, write_bytes};
@@ -168,16 +169,6 @@ impl<D: BlockDevice> BlockDevice for MetadataDevice<D> {
 }
 }
 
-/// A node id holds the slot of its short entry, the entry's byte offset
-/// divided by 32, above its low `TAG_BITS` bits. Those hold the entry's
-/// [`entry_tag`](crate::names::entry_tag), counted up past ids pinned nodes
-/// that moved away from the slot still hold, so a listing and a lookup of
-/// one entry agree on its id, and an unpinned id whose slot now holds an
-/// entry with another tag is refused. A FAT volume has at most `2^32` sectors of
-/// 4096 bytes, so slots stay below `2^39`, ids below `2^62`, and no id of a
-/// directory slot is 0.
-const TAG_BITS: u32 = 23;
-const TAG_MASK: u64 = (1 << TAG_BITS) - 1;
 /// Size of one directory entry.
 const ENTRY_SIZE: u64 = raw::ENTRY_SIZE as u64;
 const MAX_FILE_SIZE: u64 = u32::MAX as u64;
@@ -342,14 +333,22 @@ struct SavedRun {
     raw: [[u8; ENTRY_SIZE as usize]; lfn::MAX_ENTRIES + 1],
 }
 
+#[derive(Clone, Copy)]
+struct NodeSlot {
+    dir: DirStart,
+    slot: u32,
+    offset: u64,
+    position: ChainPos,
+}
+
 struct PendingRename {
     source: Run,
+    source_offset: u64,
     destination: Run,
     offset: u64,
     entry: ShortEntry,
     dot_dot: Option<(u32, u32)>,
-    source_id: Option<NodeId>,
-    target_id: Option<NodeId>,
+    target_offset: Option<u64>,
     saved: Option<alloc::boxed::Box<SavedRun>>,
     end: Option<u64>,
     phase: RenamePhase,
@@ -464,15 +463,15 @@ io_transform! {
 ///
 /// Mount with [`mount`](FatFs::mount) and [`MountOptions`]:
 ///
-/// - Nodes are identified by the location of their directory entry.
+/// - Node IDs are issued by the mount and are never reused.
 ///   `lookup`, `create` and `parent` pin the node they return in a table
 ///   on the heap, and `forget` unpins it. A pinned node keeps its id across
 ///   `rename`. The table grows without a limit unless
 ///   [`MountOptions::with_node_limit`] caps it; past the cap `lookup` and
 ///   `create` fail with [`ErrorKind::LimitExceeded`] before anything is
 ///   written. Ids from `readdir` are not pinned and stay valid until that
-///   directory changes; until then, and unless a node is forgotten in
-///   between, they are the ids a `lookup` of the same names pins.
+///   entry changes and are the ids a `lookup` of the same names pins. The
+///   mount retains a slot locator for each issued id until the entry is retired.
 /// - The [`Clock`] stamps created and modified entries. The default
 ///   `NoClock` writes 1980-01-01, so images are reproducible; `SystemClock`
 ///   with `std` writes the current time.
@@ -586,9 +585,9 @@ pub struct FatFs<D> {
     code_page: &'static dyn CodePage,
     /// The UTC offset of the volume's timestamps, `None` for UTC.
     zone: Option<i16>,
-    /// Some pinned node is not at the slot its id names, because it was
-    /// renamed or removed. Until the table empties, `pinned_at` searches it.
-    moved: bool,
+    next_id: u64,
+    ids_by_offset: BTreeMap<u64, NodeId>,
+    issued: BTreeMap<NodeId, NodeSlot>,
     /// A known `(index, cluster)` of a FAT32 root directory's chain.
     root_hint: ChainPos,
     chain_cache: ChainCache,
@@ -656,7 +655,9 @@ impl<D: BlockDevice> FatFs<D> {
             clock: options.clock(),
             code_page: options.code_page(),
             zone: options.utc_offset(),
-            moved: false,
+            next_id: ROOT.get() + 1,
+            ids_by_offset: BTreeMap::new(),
+            issued: BTreeMap::new(),
             root_hint: ChainPos::NONE,
             chain_cache: ChainCache::new(0),
             directory_index: None,
@@ -1100,6 +1101,7 @@ impl<D: BlockDevice> FatFs<D> {
         let text = entry_name(name, ErrorKind::InvalidInput)?;
         let new = NewName::new(text, self.code_page, raw::fold_unicode)?;
         let plan = self.plan(start, text, true, &new, Skip::default()).await?;
+        let id = self.allocate_id()?;
         let reserved = RESERVED;
         let placeholder = Node {
             entry: u64::MAX,
@@ -1112,7 +1114,7 @@ impl<D: BlockDevice> FatFs<D> {
             .insert(reserved, placeholder, placeholder.dir)
             .map_err(|_| ErrorKind::LimitExceeded)?;
         let append = self.append_index.take();
-        let (node, entry) = match self.create_entry(start, &new, &plan, is_dir, attrs).await {
+        let (node, _) = match self.create_entry(start, &new, &plan, is_dir, attrs).await {
             Ok(created) => created,
             Err(err) => {
                 self.nodes.remove(reserved);
@@ -1128,10 +1130,9 @@ impl<D: BlockDevice> FatFs<D> {
             }
         }
         self.nodes.remove(reserved);
-        let id = self.free_id(node.entry, &entry).ok_or(ErrorKind::LimitExceeded)?;
-        self.nodes
-            .insert(id, node, node.dir)
-            .map_err(|_| ErrorKind::LimitExceeded)?;
+        let slot = plan.start + plan.slots - 1;
+        self.nodes.insert(id, node, node.dir)?;
+        self.record_id(id, NodeSlot { dir: start, slot, offset: node.entry, position: ChainPos::NONE });
         Ok(id)
     }
 
@@ -1162,7 +1163,8 @@ impl<D: BlockDevice> FatFs<D> {
         if first != 0 {
             self.pending = Some(Pending::chain(first, Owner::Removed(found.offset)));
         }
-        self.run = Run::of(start, found.first, found.slot);
+        self.invalidate_slot(found.offset);
+        self.run = Some(Run { dir: start, first: found.first, short: found.slot });
         self.put_bytes(found.offset, &[raw::ENTRY_FREE]).await?;
         if let Some(id) = pinned {
             self.mark_unlinked(id);
@@ -1239,6 +1241,13 @@ impl<D: BlockDevice> FatFs<D> {
         let Some(rename) = self.rename.as_ref() else {
             return Ok(());
         };
+        let (source_offset, offset, target_offset) = (rename.source_offset, rename.offset, rename.target_offset);
+        self.invalidate_slot(source_offset);
+        self.invalidate_slot(offset);
+        if let Some(target) = target_offset {
+            self.invalidate_slot(target);
+        }
+        let rename = self.rename.as_ref().unwrap();
         let phase = dirs::recover_rename(&mut self.dev, &mut self.block, rename.phase, rename.offset, &rename.entry.encode()).await?;
         self.rename.as_mut().unwrap().phase = phase;
         if phase == RenamePhase::Committed {
@@ -1249,13 +1258,21 @@ impl<D: BlockDevice> FatFs<D> {
             let source = self.rename.as_ref().unwrap().source;
             self.clear_slots(source.dir, source.first, source.short + 1).await?;
             let rename = self.rename.as_ref().unwrap();
-            let (target_id, source_id, offset) = (rename.target_id, rename.source_id, rename.offset);
-            if let Some(id) = target_id {
-                self.mark_unlinked(id);
+            let source_id = self.pinned_at(source_offset);
+            let destination = rename.destination;
+            for old in [target_offset, Some(offset)].into_iter().flatten() {
+                if let Some(id) = self.pinned_at(old)
+                    && Some(id) != source_id
+                {
+                    self.mark_unlinked(id);
+                }
             }
-            if let Some(node) = source_id.and_then(|id| self.nodes.get_mut(id)) {
+            if let Some(id) = source_id
+                && let Some(node) = self.nodes.get_mut(id)
+            {
+                self.ids_by_offset.remove(&source_offset);
                 node.entry = offset;
-                self.moved = true;
+                self.record_id(id, NodeSlot { dir: destination.dir, slot: destination.short, offset, position: ChainPos::NONE });
             }
         } else {
             let destination = self.rename.as_ref().unwrap().destination;
@@ -1292,7 +1309,16 @@ impl<D: BlockDevice> FatFs<D> {
         if let Some(run) = self.run {
             let mut walk = DirWalk::new(run.dir);
             let short = match rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, run.short).await? {
-                Some(at) => matches!(rawio::read_slot(&mut self.dev, &mut self.block, at).await?, Slot::Short(entry) if entry.is_visible()),
+                Some(at) => {
+                    let visible = matches!(rawio::read_slot(&mut self.dev, &mut self.block, at).await?, Slot::Short(entry) if entry.is_visible());
+                    if !visible {
+                        self.invalidate_slot(at);
+                        if let Some(id) = self.pinned_at(at) {
+                            self.mark_unlinked(id);
+                        }
+                    }
+                    visible
+                }
                 None => true,
             };
             if !short {
@@ -1436,11 +1462,14 @@ impl<D: BlockDevice> FatFs<D> {
     /// callers still pin stays, marked unlinked, so its id answers
     /// `NotFound` until the last `forget`.
     fn mark_unlinked(&mut self, id: NodeId) {
+        self.issued.remove(&id);
+        if let Some(node) = self.nodes.get(id) {
+            self.ids_by_offset.remove(&node.entry);
+        }
         if let Some(node) = self.nodes.mark_unlinked(id) {
             node.entry = u64::MAX;
             node.first = 0;
             node.size = 0;
-            self.moved = true;
         }
     }
 
@@ -2055,8 +2084,7 @@ impl<D: BlockDevice> FatFs<D> {
         plan: &Plan,
         mut entry: ShortEntry,
         dot_dot: Option<(u32, u32, u32)>,
-        src_id: Option<NodeId>,
-        target_id: Option<NodeId>,
+        target_offset: Option<u64>,
         saved: Option<alloc::boxed::Box<SavedRun>>,
     ) -> FsResult<(), D::Error> {
         entry.set_name(plan.short);
@@ -2071,14 +2099,19 @@ impl<D: BlockDevice> FatFs<D> {
                 end = Some(offset);
             }
         }
+        self.invalidate_slot(src.offset);
+        self.invalidate_slot(offset);
+        if let Some(target) = target_offset {
+            self.invalidate_slot(target);
+        }
         self.rename = Some(alloc::boxed::Box::new(PendingRename {
             source: Run { dir: from, first: src.first, short: src.slot },
+            source_offset: src.offset,
             destination: Run { dir: to, first: plan.start, short },
             offset,
             entry,
             dot_dot: dot_dot.map(|(dir, _, parent)| (dir, parent)),
-            source_id: src_id,
-            target_id,
+            target_offset,
             end,
             phase: RenamePhase::Inserting,
             saved,
@@ -2097,10 +2130,9 @@ impl<D: BlockDevice> FatFs<D> {
         grown: u32,
         moved: ShortEntry,
         dot_dot: Option<(u32, u32, u32)>,
-        src_id: Option<NodeId>,
     ) -> FsResult<(), D::Error> {
         if self.rename.is_none() {
-            self.begin_rename(from, src, to, plan, moved, dot_dot, src_id, None, None).await?;
+            self.begin_rename(from, src, to, plan, moved, dot_dot, None, None).await?;
         }
         let offset = self.rename.as_ref().unwrap().offset;
         if let Err(err) = self.put_bytes(offset, &[raw::ENTRY_FREE]).await {
@@ -2135,7 +2167,6 @@ impl<D: BlockDevice> FatFs<D> {
         new: &NewName<'_>,
         moved: ShortEntry,
         dot_dot: Option<(u32, u32, u32)>,
-        src_id: Option<NodeId>,
     ) -> FsResult<(), D::Error> {
         let target_id = self.pinned_at(target.offset);
         if target_id.is_some_and(|id| self.nodes.is_open(id)) {
@@ -2166,7 +2197,7 @@ impl<D: BlockDevice> FatFs<D> {
         });
         self.save_run(to, target.slot, &mut saved).await?;
         let grown = self.grow(&plan).await?;
-        self.begin_rename(from, src, to, &plan, moved, dot_dot, src_id, target_id, Some(saved)).await?;
+        self.begin_rename(from, src, to, &plan, moved, dot_dot, Some(target.offset), Some(saved)).await?;
         let held = (target_first != 0).then(|| Pending::chain(target_first, Owner::Removed(target.offset)));
         self.pending = held;
         self.run = Run::of(to, target.first, target.slot);
@@ -2179,7 +2210,7 @@ impl<D: BlockDevice> FatFs<D> {
             return Err(err);
         }
         if let Err(err) = self
-            .move_entry(from, src, to, new, &plan, grown, moved, dot_dot, src_id)
+            .move_entry(from, src, to, new, &plan, grown, moved, dot_dot)
             .await
         {
             let _ = self.recover().await;
@@ -2376,68 +2407,88 @@ impl<D: BlockDevice> FatFs<D> {
     /// The pinned node whose short entry is at `offset`. Unless a pinned
     /// node has moved, its id is among the ids of the slot.
     fn pinned_at(&self, offset: u64) -> Option<NodeId> {
-        if !self.moved {
-            let base = (offset / ENTRY_SIZE) << TAG_BITS;
-            return self
-                .nodes
-                .find_in(node_id(base), node_id(base | TAG_MASK), |_, node| node.entry == offset);
+        let &id = self.ids_by_offset.get(&offset)?;
+        self.nodes.get(id).map(|_| id)
+    }
+
+    fn allocate_id(&mut self) -> Result<NodeId, ErrorKind> {
+        if self.next_id == RESERVED.get() {
+            return Err(ErrorKind::LimitExceeded);
         }
-        self.nodes.find(|_, node| node.entry == offset)
-    }
-
-    /// The first id for `entry` at `offset` that no node in the table
-    /// holds, from the one its tag names. `None` only when every id of the
-    /// slot is taken.
-    fn free_id(&self, offset: u64, entry: &ShortEntry) -> Option<NodeId> {
-        let base = (offset / ENTRY_SIZE) << TAG_BITS;
-        let tag = u64::from(crate::names::entry_tag(entry));
-        (0..=TAG_MASK)
-            .map(|step| node_id(base | (tag + step) & TAG_MASK))
-            .find(|&id| self.nodes.get(id).is_none())
-    }
-
-    /// The id of `entry` at `offset` without pinning it: its pinned id,
-    /// else the id a lookup would pin.
-    fn id_at(&self, offset: u64, entry: &ShortEntry) -> NodeId {
-        self.pinned_at(offset)
-            .or_else(|| self.free_id(offset, entry))
-            .unwrap_or(RESERVED)
-    }
-
-    /// Pins the node whose short entry is at `offset`.
-    fn intern(&mut self, offset: u64, entry: &ShortEntry) -> Result<NodeId, ErrorKind> {
-        if let Some(id) = self.pinned_at(offset) {
-            self.nodes.pin(id);
-            return Ok(id);
-        }
-        let id = self.free_id(offset, entry).ok_or(ErrorKind::LimitExceeded)?;
-        self.nodes
-            .insert(id, Node::new(offset, entry, self.fat.geometry().kind()), entry.is_dir())
-            .map_err(|_| ErrorKind::LimitExceeded)?;
+        let id = node_id(self.next_id);
+        self.next_id += 1;
         Ok(id)
     }
 
-    /// The entry of an id that is not pinned, decoded from its location.
-    /// The slot must lie in a directory region and hold a plausible visible
-    /// entry that no other id is pinned on and whose id this is; anything
-    /// else is [`ErrorKind::InvalidHandle`].
+    fn record_id(&mut self, id: NodeId, mut slot: NodeSlot) {
+        if let Some(previous) = self.ids_by_offset.insert(slot.offset, id)
+            && previous != id
+        {
+            self.issued.remove(&previous);
+        }
+        if !slot.position.is_known()
+            && let Some(previous) = self.issued.get(&id)
+            && previous.dir == slot.dir
+            && previous.slot == slot.slot
+            && previous.offset == slot.offset
+        {
+            slot.position = previous.position;
+        }
+        self.issued.insert(id, slot);
+    }
+
+    fn invalidate_slot(&mut self, offset: u64) {
+        if let Some(&id) = self.ids_by_offset.get(&offset) {
+            self.issued.remove(&id);
+            if self.nodes.get(id).is_none() {
+                self.ids_by_offset.remove(&offset);
+            }
+        }
+    }
+
+    fn id_at(&mut self, offset: u64) -> Result<NodeId, ErrorKind> {
+        match self.ids_by_offset.get(&offset) {
+            Some(&id) if self.issued.contains_key(&id) || self.nodes.get(id).is_some() => Ok(id),
+            _ => self.allocate_id(),
+        }
+    }
+
+    fn intern(&mut self, slot: NodeSlot, entry: &ShortEntry) -> Result<NodeId, ErrorKind> {
+        let id = self.id_at(slot.offset)?;
+        if self.nodes.pin(id).is_none() {
+            let node = Node::new(slot.offset, entry, self.fat.geometry().kind());
+            self.nodes.insert(id, node, node.dir)?;
+        }
+        self.record_id(id, slot);
+        Ok(id)
+    }
+
     async fn unpinned(&mut self, id: NodeId) -> FsResult<(u64, ShortEntry), D::Error> {
-        let raw = id.get();
-        if raw == ROOT.get() || raw >= RESERVED.get() {
+        let slot = *self.issued.get(&id).ok_or(ErrorKind::InvalidHandle)?;
+        // Directory growth only appends clusters. Slot retirement discards its position.
+        let mut walk = DirWalk::resume(slot.dir, slot.position);
+        sync_only! {
+            let offset = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot.slot)?;
+        }
+        async_only! {
+            // Keep the chain walk out of callers' futures.
+            let offset = alloc::boxed::Box::pin(
+                rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot.slot)
+            ).await?;
+        }
+        if offset != Some(slot.offset) {
             return Err(ErrorKind::InvalidHandle.into());
         }
-        let offset = (raw >> TAG_BITS) * ENTRY_SIZE;
-        if !crate::names::in_directory_region(self.fat.geometry(), offset) {
-            return Err(ErrorKind::InvalidHandle.into());
-        }
-        match rawio::read_slot(&mut self.dev, &mut self.block, offset).await? {
+        match rawio::read_slot(&mut self.dev, &mut self.block, slot.offset).await? {
             Slot::Short(entry)
-                if entry.is_visible()
-                    && crate::names::plausible_entry(&entry, self.fat.geometry())
-                    && self.pinned_at(offset).is_none()
-                    && self.free_id(offset, &entry) == Some(id) =>
+                if entry.is_visible() && crate::names::plausible_entry(&entry, self.fat.geometry()) =>
             {
-                Ok((offset, entry))
+                if !slot.position.is_known()
+                    && let Some(issued) = self.issued.get_mut(&id)
+                {
+                    issued.position = walk.pos();
+                }
+                Ok((slot.offset, entry))
             }
             _ => Err(ErrorKind::InvalidHandle.into()),
         }
@@ -2581,7 +2632,7 @@ impl<D: BlockDevice> FatFs<D> {
             return Err(ErrorKind::NotFound.into());
         };
         let found = self.find_entry(start, query).await?.ok_or(ErrorKind::NotFound)?;
-        Ok(self.intern(found.offset, &found.entry)?)
+        Ok(self.intern(NodeSlot { dir: start, slot: found.slot, offset: found.offset, position: ChainPos::NONE }, &found.entry)?)
     }
 
     /// Drops `count` pins of a node. Unknown ids and the root are ignored.
@@ -2589,9 +2640,13 @@ impl<D: BlockDevice> FatFs<D> {
     /// `close`, `fsync` or `sync`; a removed node leaves the table with its
     /// last pin.
     pub fn forget(&mut self, node: NodeId, count: u64) {
+        let offset = self.nodes.get(node).map(|state| state.entry);
         self.nodes.forget(node, count);
-        if self.nodes.is_empty() {
-            self.moved = false;
+        if let Some(offset) = offset
+            && self.nodes.get(node).is_none()
+            && !self.issued.contains_key(&node)
+        {
+            self.ids_by_offset.remove(&offset);
         }
     }
 
@@ -2623,18 +2678,14 @@ impl<D: BlockDevice> FatFs<D> {
         let mut long = Assembler::new();
         while let Some(found) = self.next_visible(&mut walk, &mut slot, &mut long).await? {
             if found.entry.is_dir() && found.entry.first_cluster(self.fat.geometry().kind()) == up {
-                return Ok(self.intern(found.offset, &found.entry)?);
+                return Ok(self.intern(NodeSlot { dir: grand, slot: found.slot, offset: found.offset, position: walk.pos() }, &found.entry)?);
             }
         }
         Err(ErrorKind::Corrupt.into())
     }
 
-    /// Metadata of a pinned node or of an id just returned by
-    /// `readdir`. Directories have length 0. An unpinned id whose slot now
-    /// holds an entry with another short name, creation time or type fails
-    /// with [`ErrorKind::InvalidHandle`]; one that differs only in its long
-    /// name, as a file recreated under the same `~N` alias with a clock that
-    /// does not move, is not detected.
+    /// Metadata of a pinned or listed node. Directories have length 0.
+    /// An unpinned id must still refer to an issued directory slot.
     ///
     /// # Errors
     ///
@@ -2676,7 +2727,7 @@ impl<D: BlockDevice> FatFs<D> {
         let units = long.finish(found.entry.lfn_checksum());
         let mut name = NameBuf::new();
         write_name(&mut name, units.filter(|units| !units.is_empty()), &found.entry, self.code_page)?;
-        let node = self.id_at(found.offset, &found.entry);
+        let node = self.id_at(found.offset)?;
         let state = match self.pinned_at(found.offset).and_then(|id| self.nodes.get(id)) {
             Some(state) => *state,
             None => Node::new(found.offset, &found.entry, self.fat.geometry().kind()),
@@ -2685,6 +2736,7 @@ impl<D: BlockDevice> FatFs<D> {
         let next = DirCursor::from_raw(found.slot as u64 + 1);
         let entry = DirEntry::new(name, node, metadata(&state, &found.entry, self.zone), next)
             .map_err(|_| ErrorKind::Corrupt)?;
+        self.record_id(node, NodeSlot { dir: start, slot: found.slot, offset: found.offset, position: walk.pos() });
         if self.directory_hint {
             let hint = ListedEntry {
                 start,
@@ -2746,11 +2798,12 @@ impl<D: BlockDevice> FatFs<D> {
     ///
     /// Returns [`ErrorKind::InvalidHandle`] for a stale id, [`ErrorKind::NotFound`]
     /// for a removed node, or corruption or device errors publishing pending metadata.
-    /// The open count is decremented before publication, so failure does not retain
-    /// an open for retry.
+    /// A returned error still consumes the open. Cancelling the async close before
+    /// it finishes leaves the open for retry.
     pub async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+        let result = self.publish_node(node).await;
         self.nodes.close(node);
-        self.publish_node(node).await
+        result
     }
 
     /// Reads from a file at `offset`. Returns 0 at or past the end. A chain
@@ -3128,7 +3181,7 @@ impl<D: BlockDevice> FatFs<D> {
                     return Err(ErrorKind::AlreadyExists.into());
                 }
                 return self
-                    .replace_entry(from_start, &src, to_start, &target, to_text, &new, moved, dot_dot, src_id)
+                    .replace_entry(from_start, &src, to_start, &target, to_text, &new, moved, dot_dot)
                     .await;
             }
             _ => {
@@ -3139,7 +3192,7 @@ impl<D: BlockDevice> FatFs<D> {
                 };
                 let plan = self.plan(to_start, to_text, false, &new, skip).await?;
                 let grown = self.grow(&plan).await?;
-                self.move_entry(from_start, &src, to_start, &new, &plan, grown, moved, dot_dot, src_id)
+                self.move_entry(from_start, &src, to_start, &new, &plan, grown, moved, dot_dot)
                     .await?;
             }
         }

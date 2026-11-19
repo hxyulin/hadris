@@ -11,6 +11,20 @@ use hadris_fs::ErrorKind;
 use hadris_fs::MountOptions;
 
 #[test]
+fn a_cancelled_close_can_be_retried_without_closing_a_second_open() {
+    let image = common::image(common::small(8 << 20, 512));
+    let dev = cancel::YieldDev(common::device(image, 512));
+    cancel::run_for(
+        async {
+            let mut fs = ExFatFs::mount(dev, MountOptions::new()).await.unwrap();
+            cancel::cancelled_close_keeps_the_other_open(&mut fs).await;
+        },
+        usize::MAX,
+    )
+    .unwrap();
+}
+
+#[test]
 fn dropped_operations_leave_whole_entry_sets_and_no_lost_clusters() {
     for (size, cluster) in [(8 << 20, 512), (16 << 20, 4096)] {
         let image = common::image(common::small(size, cluster));

@@ -36,6 +36,7 @@ pub struct MemFs {
     stall_next: bool,
     stall_in: Option<u32>,
     fail_truncate: bool,
+    panic_read: bool,
     scanned: u64,
     lookups: u64,
     stats: u64,
@@ -71,6 +72,7 @@ impl MemFs {
             stall_next: false,
             stall_in: None,
             fail_truncate: false,
+            panic_read: false,
             scanned: 0,
             lookups: 0,
             stats: 0,
@@ -175,6 +177,10 @@ impl MemFs {
     /// `close` calls that succeeded.
     pub fn closes(&self) -> u32 {
         self.closes
+    }
+
+    pub fn panic_on_read(&mut self) {
+        self.panic_read = true;
     }
 
     /// Makes the next `stat`, `unlink` or `setattr` yield once before it runs.
@@ -476,6 +482,7 @@ impl FileSystem for MemFs {
     }
 
     async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, MemError> {
+        assert!(!self.panic_read, "injected read panic");
         self.tick().await;
         self.device()?;
         let Kind::File(data) = &self.node(node)?.kind else {
