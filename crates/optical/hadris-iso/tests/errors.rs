@@ -266,6 +266,43 @@ fn boot_options_are_checked_against_the_images() {
 }
 
 #[test]
+fn grub2_bootstrap_patch_is_independent_of_boot_info() {
+    let tree = sample(false, false);
+    let hybrid = || Hybrid::mbr().with_grub2_bootstrap(&[0x90u8; 446]);
+    let opts = IsoOptions::new()
+        .with_hybrid(hybrid())
+        .with_el_torito(ElTorito::new().with_entry(BootEntry::bios("boot/boot.img")));
+    let bytes = image(&tree, &opts).into_inner();
+    let offset = hadris_iso::plan(&tree, &opts)
+        .unwrap()
+        .extents("boot/boot.img")
+        .unwrap()[0]
+        .offset();
+    assert_eq!(
+        u64::from_le_bytes(bytes[432..440].try_into().unwrap()),
+        offset / 512 + 4
+    );
+    assert!(bytes[..432].iter().all(|&byte| byte == 0x90));
+    assert!(bytes[440..446].iter().all(|&byte| byte == 0x90));
+    assert_eq!(
+        &bytes[offset as usize + 2548..offset as usize + 2556],
+        &[0x90; 8]
+    );
+
+    for invalid_opts in [
+        IsoOptions::new().with_hybrid(hybrid()),
+        IsoOptions::new()
+            .with_hybrid(hybrid())
+            .with_el_torito(ElTorito::new().with_entry(BootEntry::uefi("boot/efi.img"))),
+    ] {
+        assert_eq!(
+            refused(&tree, &invalid_opts),
+            (ErrorKind::InvalidInput, Some(Detail::HybridBoot))
+        );
+    }
+}
+
+#[test]
 fn output_blocks_must_divide_2048() {
     let tree = sample(false, false);
     let dev = MemDevice::new(

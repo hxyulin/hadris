@@ -54,6 +54,9 @@ Each published package owns its version and may be released independently.
 - **hadris-ntfs:** Symbolic link and junction reparse points appear as
   symlinks. `NtfsFs::read_windows_link` reads the original Windows target.
 
+- **hadris-iso:** `Hybrid::with_grub2_bootstrap` patches the MBR boot code
+  with the boot image address GRUB2 expects.
+
 - **hadris-iso, hadris-udf:** `PreparedIso` and `write_prepared` retain and
   write an ISO layout without planning again. Bridge writing reuses that
   layout and maps its extents into UDF without rebuilding the input tree.
