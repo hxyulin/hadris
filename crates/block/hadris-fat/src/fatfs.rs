@@ -22,8 +22,8 @@ use crate::names::{
     CANDIDATES, NewName, Query, apply_attributes, is_exact, permissions, read_only_bit,
     set_read_only, stamp,
 };
-use crate::table::{NodeState, RESERVED, ROOT, Table, entry_name, node_id};
-use crate::{FatKind, Geometry, VolumeLabel, push_run};
+use crate::table::{RESERVED, ROOT, Table, entry_name, node_id};
+use crate::{FatKind, Geometry, RenamePhase, VolumeLabel, push_run};
 
 struct MetadataDevice<D> {
     inner: D,
@@ -195,15 +195,6 @@ struct Node {
     /// A known position in the chain, so sequential reads do not walk it
     /// from the start.
     hint: ChainPos,
-    /// The directory entry lacks the size and modification time. A dirty
-    /// node holds one pin of the driver's own until it is written.
-    dirty: bool,
-    /// Opens not yet closed; `unlink` and a replacing `rename` refuse the
-    /// node while there are any.
-    opens: u32,
-    /// The node was removed while pinned. Its entry is gone and every
-    /// method but `forget` and `close` answers `NotFound`.
-    unlinked: bool,
 }
 
 impl Node {
@@ -214,43 +205,7 @@ impl Node {
             size: short.size(),
             dir: short.is_dir(),
             hint: ChainPos::NONE,
-            dirty: false,
-            opens: 0,
-            unlinked: false,
         }
-    }
-}
-
-impl NodeState for Node {
-    fn is_dir(&self) -> bool {
-        self.dir
-    }
-
-    fn is_dirty(&self) -> bool {
-        self.dirty
-    }
-
-    fn set_dirty(&mut self, dirty: bool) {
-        self.dirty = dirty;
-    }
-
-    fn opens(&self) -> u32 {
-        self.opens
-    }
-
-    fn set_opens(&mut self, opens: u32) {
-        self.opens = opens;
-    }
-
-    fn is_unlinked(&self) -> bool {
-        self.unlinked
-    }
-
-    fn unlink(&mut self) {
-        self.unlinked = true;
-        self.entry = u64::MAX;
-        self.first = 0;
-        self.size = 0;
     }
 }
 
@@ -397,8 +352,7 @@ struct PendingRename {
     target_id: Option<NodeId>,
     saved: Option<alloc::boxed::Box<SavedRun>>,
     end: Option<u64>,
-    publishing: bool,
-    committed: bool,
+    phase: RenamePhase,
 }
 
 /// Clusters added to a file's chain, to undo on failure.
@@ -1153,12 +1107,9 @@ impl<D: BlockDevice> FatFs<D> {
             size: 0,
             dir: is_dir,
             hint: ChainPos::NONE,
-            dirty: false,
-            opens: 0,
-            unlinked: false,
         };
         self.nodes
-            .insert(reserved, placeholder)
+            .insert(reserved, placeholder, placeholder.dir)
             .map_err(|_| ErrorKind::LimitExceeded)?;
         let append = self.append_index.take();
         let (node, entry) = match self.create_entry(start, &new, &plan, is_dir, attrs).await {
@@ -1179,7 +1130,7 @@ impl<D: BlockDevice> FatFs<D> {
         self.nodes.remove(reserved);
         let id = self.free_id(node.entry, &entry).ok_or(ErrorKind::LimitExceeded)?;
         self.nodes
-            .insert(id, node)
+            .insert(id, node, node.dir)
             .map_err(|_| ErrorKind::LimitExceeded)?;
         Ok(id)
     }
@@ -1240,7 +1191,7 @@ impl<D: BlockDevice> FatFs<D> {
             || self.run.is_some()
             || self.rename.is_some()
             || self.fat.unmirrored().is_some()
-            || self.nodes.find(|_, node| node.dirty).is_some()
+            || self.nodes.first_dirty().is_some()
     }
 
     /// Checks that the volume is writable and finishes what an interrupted
@@ -1288,18 +1239,9 @@ impl<D: BlockDevice> FatFs<D> {
         let Some(rename) = self.rename.as_ref() else {
             return Ok(());
         };
-        let committed = rename.committed;
-        if !committed && rename.publishing {
-            let offset = rename.offset;
-            let expected = rename.entry.encode();
-            let found = rawio::read_slot(&mut self.dev, &mut self.block, offset).await?;
-            if matches!(found, Slot::Short(entry) if entry.is_visible() && entry.encode() == expected) {
-                self.rename.as_mut().unwrap().committed = true;
-            } else {
-                self.rename.as_mut().unwrap().publishing = false;
-            }
-        }
-        if self.rename.as_ref().unwrap().committed {
+        let phase = dirs::recover_rename(&mut self.dev, &mut self.block, rename.phase, rename.offset, &rename.entry.encode()).await?;
+        self.rename.as_mut().unwrap().phase = phase;
+        if phase == RenamePhase::Committed {
             self.rename_end().await?;
             if let Some((dir, parent)) = self.rename.as_ref().unwrap().dot_dot {
                 self.set_dot_dot(dir, parent).await?;
@@ -1494,7 +1436,10 @@ impl<D: BlockDevice> FatFs<D> {
     /// callers still pin stays, marked unlinked, so its id answers
     /// `NotFound` until the last `forget`.
     fn mark_unlinked(&mut self, id: NodeId) {
-        if self.nodes.mark_unlinked(id) {
+        if let Some(node) = self.nodes.mark_unlinked(id) {
+            node.entry = u64::MAX;
+            node.first = 0;
+            node.size = 0;
             self.moved = true;
         }
     }
@@ -1625,7 +1570,7 @@ impl<D: BlockDevice> FatFs<D> {
 
     async fn flush_node(&mut self, id: NodeId) -> FsResult<(), D::Error> {
         match self.nodes.get(id).copied() {
-            Some(node) if node.dirty => {
+            Some(node) if self.nodes.is_dirty(id) => {
                 self.store(Some(id), &node, node.first, node.size, node.hint)
                     .await
             }
@@ -1636,7 +1581,7 @@ impl<D: BlockDevice> FatFs<D> {
     /// The table id and state of a node that is not the root.
     async fn any_node(&mut self, id: NodeId) -> FsResult<(Option<NodeId>, Node), D::Error> {
         if let Some(node) = self.nodes.get(id) {
-            if node.unlinked {
+            if self.nodes.is_unlinked(id) {
                 return Err(ErrorKind::NotFound.into());
             }
             return Ok((Some(id), *node));
@@ -1969,7 +1914,7 @@ impl<D: BlockDevice> FatFs<D> {
                     |index| {
                         if index + 1 == plan.slots {
                             if let Some(rename) = rename.as_mut() {
-                                rename.publishing = true;
+                                rename.phase = RenamePhase::Publishing;
                             }
                             entry.encode()
                         } else {
@@ -2087,9 +2032,6 @@ impl<D: BlockDevice> FatFs<D> {
             size: 0,
             dir: is_dir,
             hint: ChainPos::NONE,
-            dirty: false,
-            opens: 0,
-            unlinked: false,
         };
         Ok((node, entry))
     }
@@ -2138,9 +2080,8 @@ impl<D: BlockDevice> FatFs<D> {
             source_id: src_id,
             target_id,
             end,
-            publishing: false,
+            phase: RenamePhase::Inserting,
             saved,
-            committed: false,
         }));
         Ok(())
     }
@@ -2172,7 +2113,7 @@ impl<D: BlockDevice> FatFs<D> {
         }
         let entry = self.rename.as_ref().unwrap().entry;
         self.insert_entry(to, new, plan, &entry, grown).await?;
-        self.rename.as_mut().unwrap().committed = true;
+        self.rename.as_mut().unwrap().phase = RenamePhase::Committed;
         if let Err(err) = self.finish_rename().await {
             let _ = self.recover().await;
             return Err(err);
@@ -2424,7 +2365,6 @@ impl<D: BlockDevice> FatFs<D> {
         Ok(hint)
     }
 
-
     fn check_cluster(&self, cluster: u32) -> Result<u32, ErrorKind> {
         self.fat.check_cluster(cluster)
     }
@@ -2472,11 +2412,10 @@ impl<D: BlockDevice> FatFs<D> {
         }
         let id = self.free_id(offset, entry).ok_or(ErrorKind::LimitExceeded)?;
         self.nodes
-            .insert(id, Node::new(offset, entry, self.fat.geometry().kind()))
+            .insert(id, Node::new(offset, entry, self.fat.geometry().kind()), entry.is_dir())
             .map_err(|_| ErrorKind::LimitExceeded)?;
         Ok(id)
     }
-
 
     /// The entry of an id that is not pinned, decoded from its location.
     /// The slot must lie in a directory region and hold a plausible visible
@@ -2528,7 +2467,6 @@ impl<D: BlockDevice> FatFs<D> {
         }
         Ok(DirStart::Chain(self.check_cluster(node.first)?))
     }
-
 
 
 
@@ -2889,11 +2827,11 @@ impl<D: BlockDevice> FatFs<D> {
             Some(wanted) => Some(read_only_bit(state.dir, wanted).ok_or(ErrorKind::Unsupported)?),
             None => None,
         };
-        if !state.dirty && changes.is_empty() {
+        if !self.nodes.is_dirty(node) && changes.is_empty() {
             return Ok(());
         }
         let mut entry = self.read_short(state.entry).await?;
-        if state.dirty {
+        if self.nodes.is_dirty(node) {
             self.touch(&mut entry, &state);
         }
         if let Some(attributes) = changes.attributes() {
@@ -3236,7 +3174,7 @@ impl<D: BlockDevice> FatFs<D> {
         }
         self.recover().await?;
         let mut corrupt = None;
-        while let Some(id) = self.nodes.find(|_, node| node.dirty) {
+        while let Some(id) = self.nodes.first_dirty() {
             match self.flush_node(id).await {
                 Err(err) if err.kind() == ErrorKind::Corrupt => {
                     self.nodes.clean(id);
@@ -3257,7 +3195,6 @@ impl<D: BlockDevice> FatFs<D> {
         self.note(cleared)
     }
 
-
     /// Resolves a path relative to the filesystem root.
     ///
     /// # Errors
@@ -3270,6 +3207,5 @@ impl<D: BlockDevice> FatFs<D> {
 }
 
 filesystem_impl!(FatFs);
-
 
 }

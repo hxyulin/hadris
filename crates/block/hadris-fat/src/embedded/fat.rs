@@ -18,7 +18,7 @@ use crate::embedded::{
 use crate::names::{
     CANDIDATES, NewName, apply_attributes, is_exact, matches, read_only_bit, set_read_only, stamp,
 };
-use crate::{FatKind, Geometry, VolumeLabel};
+use crate::{FatKind, Geometry, RenamePhase, VolumeLabel};
 
 const ENTRY_SIZE: u64 = raw::ENTRY_SIZE as u64;
 
@@ -48,14 +48,6 @@ struct Located {
     entry: ShortEntry,
     /// Whether the query equals the entry's name exactly.
     exact: bool,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum RenamePhase {
-    Inserting,
-    Publishing,
-    Committed,
-    RollingBack,
 }
 
 #[derive(Clone, Copy)]
@@ -2052,15 +2044,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
 
     async fn finish_rename(&mut self) -> FsResult<(), D::Error> {
         let Some(mut rename) = self.rename else { return Ok(()); };
-        rename.phase = match rename.phase {
-            RenamePhase::Inserting => RenamePhase::RollingBack,
-            RenamePhase::Publishing => {
-                if self.visible_at(rename.destination).await?.is_some_and(|entry| entry.encode() == rename.expected) {
-                    RenamePhase::Committed
-                } else { RenamePhase::RollingBack }
-            }
-            decided => decided,
-        };
+        rename.phase = dirs::recover_rename(&mut self.dev, &mut self.block, rename.phase, rename.destination, &rename.expected).await?;
         self.rename = Some(rename);
         if rename.phase == RenamePhase::RollingBack {
             if let Some(run) = self.run {

@@ -45,6 +45,18 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-iso, hadris-udf:** `PreparedIso` and `write_prepared` retain and
+  write an ISO layout without planning again. Bridge writing reuses that
+  layout and maps its extents into UDF without rebuilding the input tree.
+- **hadris-fs:** Tree copies share content and attribute helpers while
+  retaining mode-specific cleanup on errors and cancellation.
+- **hadris-fat:** Node tables own lifecycle accounting, and allocated and
+  embedded FAT drivers share rename phases.
+- **hadris-cli:** Extraction uses one execution path with an explicit name
+  conversion policy. A failed source-tree traversal leaves the output
+  directory uncreated; command-specific error context stays at the command
+  boundary.
+
 - **hadris-fat:** The README states that the drivers do not enforce the
   read-only attribute, as on Linux vfat.
 - **hadris-fs:** `Volume::read` documents that a crafted image can make it

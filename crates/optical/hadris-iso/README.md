@@ -17,7 +17,10 @@ desktop tools as well as `no_std` bootloaders, kernels and firmware.
 - **A writer driven by a shared tree.** `write` lays out a
   `hadris_fs::Tree` as `IsoOptions` says and returns a `hadris_fs::Report`
   of the image size, where each file went and what could not be stored.
-  `plan` gives the same report without I/O. The writer reads no clock:
+  `plan` gives the same report without I/O. `PreparedIso::new` retains the
+  layout; `sync::write_prepared` and `async_::write_prepared` write it without
+  planning again. The layout borrows its input tree until it is written.
+  The writer reads no clock:
   `with_time` dates the image, so images are reproducible.
 - **Sessions.** `Session` reads an image back into a tree whose files point
   at their extents, and writes it again as a new session or rebuilt in

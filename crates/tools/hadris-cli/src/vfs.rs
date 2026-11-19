@@ -127,16 +127,29 @@ pub fn extract<F: FileSystem + Send + 'static>(
     output: &Path,
     path: Option<&str>,
 ) -> Result<()> {
-    Extraction::plan(&mut fs, path.unwrap_or("/"), output, Wording::Fat)?.run(fs)
+    let from = path.unwrap_or("/");
+    let plan = Extraction::plan(&mut fs, from, output, NamePolicy::StrictUtf8)
+        .with_context(|| format!("Failed to open: {from}"))?;
+    plan.run(fs)
+        .with_context(|| format!("Failed to extract {from} to {}", output.display()))
 }
 
-/// How an extract command words its errors and decodes names: FAT and the
-/// generic commands refuse names that are not UTF-8, ISO 9660 and UDF
-/// decode them lossily.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Wording {
-    Fat,
-    Optical,
+/// How the selected entry's name is converted to a host path component.
+#[derive(Debug, Clone, Copy)]
+pub enum NamePolicy {
+    StrictUtf8,
+    Lossy,
+}
+
+impl NamePolicy {
+    fn decode(self, name: &[u8]) -> Result<String> {
+        Ok(match self {
+            Self::StrictUtf8 => std::str::from_utf8(name)
+                .context("Directory entry name is not valid UTF-8")?
+                .to_string(),
+            Self::Lossy => String::from_utf8_lossy(name).into_owned(),
+        })
+    }
 }
 
 /// A path to extract and where it lands.
@@ -146,7 +159,6 @@ pub struct Extraction {
     /// The host path the extracted path lands at.
     pub destination: PathBuf,
     target: PathBuf,
-    wording: Wording,
 }
 
 impl Extraction {
@@ -156,21 +168,16 @@ impl Extraction {
         fs: &mut F,
         from: &str,
         output: &Path,
-        wording: Wording,
+        names: NamePolicy,
     ) -> Result<Self> {
-        let node = match wording {
-            Wording::Fat => resolve(fs, from)?,
-            Wording::Optical => fs
-                .resolve(from.as_bytes(), Resolve::Lexical)
-                .with_context(|| format!("Not found: {from}"))?,
-        };
-        let name = stored_name(fs, from, node, wording);
-        let is_dir = name
-            .is_ok()
-            .then(|| fs.stat(node).map(|meta| meta.file_type().is_dir()));
+        let node = fs.resolve(from.as_bytes(), Resolve::Lexical)?;
+        let selected = (|| {
+            let name = stored_name(fs, from, node, names)?;
+            let is_dir = fs.stat(node)?.file_type().is_dir();
+            Ok::<_, anyhow::Error>((name, is_dir))
+        })();
         fs.forget(node, 1);
-        let name = name?;
-        let is_dir = is_dir.unwrap_or(Ok(false))?;
+        let (name, is_dir) = selected?;
         let (destination, target) = match name {
             None => (output.to_path_buf(), output.to_path_buf()),
             Some(name) if is_dir => (output.join(&name), output.join(name)),
@@ -180,7 +187,6 @@ impl Extraction {
             from: from.to_string(),
             destination,
             target,
-            wording,
         })
     }
 
@@ -188,24 +194,10 @@ impl Extraction {
     pub fn run<F: FileSystem + Send + 'static>(&self, fs: F) -> Result<()> {
         let (from, target) = (self.from.as_str(), &self.target);
         let vol = Volume::new(fs);
-        let tree = match self.wording {
-            Wording::Fat => {
-                fs::create_dir_all(target).with_context(|| {
-                    format!("Failed to create output directory: {}", target.display())
-                })?;
-                read_tree(&vol, from).with_context(|| format!("Failed to read {from}"))?
-            }
-            Wording::Optical => {
-                let tree =
-                    read_tree(&vol, from).with_context(|| format!("Failed to extract {from}"))?;
-                fs::create_dir_all(target)?;
-                tree
-            }
-        };
-        let report = host::write_tree(target, &tree).with_context(|| match self.wording {
-            Wording::Fat => format!("Failed to extract {from} to {}", target.display()),
-            Wording::Optical => format!("Failed to extract {from}"),
-        })?;
+        let tree = read_tree(&vol, from).with_context(|| format!("Failed to read {from}"))?;
+        fs::create_dir_all(target)
+            .with_context(|| format!("Failed to create output directory: {}", target.display()))?;
+        let report = host::write_tree(target, &tree)?;
         for warning in report.warnings() {
             eprintln!("warning: {warning}");
         }
@@ -220,53 +212,49 @@ fn stored_name<F: FileSystem>(
     fs: &mut F,
     path: &str,
     node: NodeId,
-    wording: Wording,
+    names: NamePolicy,
 ) -> Result<Option<String>> {
     if node == fs.root() {
         return Ok(None);
     }
-    let name = find_name(fs, path, node, wording)?;
+    let name = names.decode(&find_name(fs, path, node)?)?;
     if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
-        let what = match wording {
-            Wording::Fat => "stored name",
-            Wording::Optical => "name",
-        };
-        bail!("Refusing to extract {path}: its {what} {name:?} is not a plain file name");
+        bail!("Refusing to extract {path}: its stored name {name:?} is not a plain file name");
     }
     Ok(Some(name))
 }
 
 /// Scans the parent of `path` for the entry listed with id `node`.
-fn find_name<F: FileSystem>(
-    fs: &mut F,
-    path: &str,
-    node: NodeId,
-    wording: Wording,
-) -> Result<String> {
+fn find_name<F: FileSystem>(fs: &mut F, path: &str, node: NodeId) -> Result<Vec<u8>> {
     let parent_path = format!("{path}/..");
-    let parent = match wording {
-        Wording::Fat => resolve(fs, &parent_path)?,
-        Wording::Optical => fs.resolve(parent_path.as_bytes(), Resolve::Lexical)?,
-    };
+    let parent = fs.resolve(parent_path.as_bytes(), Resolve::Lexical)?;
     let mut cursor = DirCursor::START;
     let found = loop {
         match fs.readdir(parent, cursor) {
             Ok(Some(entry)) if entry.node() == node => break Ok(entry),
             Ok(Some(entry)) => cursor = entry.next_cursor(),
             Ok(None) => break Err(anyhow::anyhow!("{path} is not listed in its directory")),
-            Err(err) if wording == Wording::Fat => {
-                break Err(err).context("Failed to read directory entry");
-            }
             Err(err) => break Err(err.into()),
         }
     };
     fs.forget(parent, 1);
     let entry = found?;
-    let name = entry.name().as_bytes();
-    Ok(match wording {
-        Wording::Fat => std::str::from_utf8(name)
-            .context("Directory entry name is not valid UTF-8")?
-            .to_string(),
-        Wording::Optical => String::from_utf8_lossy(name).into_owned(),
-    })
+    Ok(entry.name().as_bytes().to_vec())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NamePolicy;
+
+    #[test]
+    fn extraction_name_policies_preserve_valid_names_and_handle_invalid_utf8() {
+        for policy in [NamePolicy::StrictUtf8, NamePolicy::Lossy] {
+            assert_eq!(policy.decode("café.txt".as_bytes()).unwrap(), "café.txt");
+        }
+        assert!(NamePolicy::StrictUtf8.decode(b"bad\xff.txt").is_err());
+        assert_eq!(
+            NamePolicy::Lossy.decode(b"bad\xff.txt").unwrap(),
+            "bad\u{fffd}.txt"
+        );
+    }
 }

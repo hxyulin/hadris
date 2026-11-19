@@ -1420,3 +1420,23 @@ fn long_symlink_targets_read_back() {
     listed.sort();
     assert_eq!(listed, ["long", "short"]);
 }
+
+#[test]
+fn prepared_layout_matches_the_ordinary_writer() {
+    let tree = sample(true, true);
+    let options = full();
+    let prepared = hadris_iso::PreparedIso::new(&tree, &options).unwrap();
+    assert_eq!(
+        prepared.report(),
+        &hadris_iso::plan(&tree, &options).unwrap()
+    );
+    let mut output = hadris_storage::MemDevice::new(
+        vec![0xA5; prepared.report().size() as usize],
+        hadris_storage::BlockSize::new(512).unwrap(),
+    );
+    let expected_report = prepared.report().clone();
+    let report = hadris_iso::sync::write_prepared(&mut output, prepared).unwrap();
+    assert_eq!(report, expected_report);
+    let expected = image(&tree, &options);
+    assert_eq!(output.get_ref(), expected.get_ref());
+}

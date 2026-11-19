@@ -164,6 +164,36 @@ pub(crate) struct Plan {
     pub(crate) report: Report,
 }
 
+/// An ISO layout ready to write, borrowing the tree whose content it uses.
+///
+/// Preparing performs no I/O. The borrow keeps the tree's paths, metadata and
+/// content lengths unchanged until the image is written. Lazy content can
+/// still fail when read. Use `sync::write_prepared` or `async_::write_prepared`
+/// to write this layout without planning it again.
+#[derive(Debug)]
+pub struct PreparedIso<'tree> {
+    pub(crate) tree: &'tree Tree,
+    pub(crate) plan: Plan,
+}
+
+impl<'tree> PreparedIso<'tree> {
+    /// Prepares the layout of `tree` using `opts`, without reading content.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same validation and size-limit errors as [`plan`].
+    pub fn new(tree: &'tree Tree, opts: &IsoOptions) -> Result<Self, PathError> {
+        let contents = measure(tree, false)?;
+        let plan = lay_out(tree, opts, &contents, Base::image())?;
+        Ok(Self { tree, plan })
+    }
+
+    /// The image size, warnings and file extents the writer will report.
+    pub fn report(&self) -> &Report {
+        &self.plan.report
+    }
+}
+
 // ---------------------------------------------------------------------------
 // The tree as the planner sees it.
 
@@ -404,8 +434,7 @@ fn join(parent: &[u8], name: &[u8]) -> Vec<u8> {
     tracing::instrument(target = "hadris::iso", level = "trace", skip_all)
 )]
 pub fn plan(tree: &Tree, opts: &IsoOptions) -> Result<Report, PathError> {
-    let contents = measure(tree, false)?;
-    Ok(lay_out(tree, opts, &contents, Base::image())?.report)
+    Ok(PreparedIso::new(tree, opts)?.plan.report)
 }
 
 /// Lays `tree` out as `opts` says, from `base`.

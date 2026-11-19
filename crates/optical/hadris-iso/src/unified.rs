@@ -36,7 +36,7 @@ use hadris_part::async_ as part;
 mod write;
 #[cfg(feature = "write")]
 #[cfg_attr(docsrs, doc(cfg(feature = "write")))]
-pub use write::write;
+pub use write::{write, write_prepared};
 #[cfg(feature = "write")]
 #[path = "session.rs"]
 mod session;

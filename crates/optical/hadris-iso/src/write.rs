@@ -8,7 +8,7 @@ use super::fs::ContentReader;
 use super::storage::BlockDevice;
 use crate::error::{Detail, Error};
 use crate::options::{BootInfo, IsoOptions};
-use crate::plan::{self, Base, InfoTable, Plan, Region};
+use crate::plan::{InfoTable, Plan, PreparedIso, Region};
 use hadris_iso_raw::{self as raw, SECTOR_SIZE};
 
 /// Bytes read from a content per request.
@@ -33,10 +33,25 @@ io_transform! {
 /// can leave a partially written image. An owned output device is dropped on
 /// return; pass `&mut device` to retain it after success or failure.
 #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
-pub async fn write<D: BlockDevice>(mut out: D, tree: &Tree, opts: &IsoOptions) -> Result<Report, PathError> {
+pub async fn write<D: BlockDevice>(out: D, tree: &Tree, opts: &IsoOptions) -> Result<Report, PathError> {
     check_block_size(&out)?;
-    let contents = plan::measure(tree, false)?;
-    let plan = plan::lay_out(tree, opts, &contents, Base::image())?;
+    write_prepared(out, PreparedIso::new(tree, opts)?).await
+}
+
+/// Writes a prepared ISO layout without repeating its planning pass.
+///
+/// The layout borrows the tree used to prepare it. Blocks are written in
+/// ascending order and the device is flushed, as with [`write()`]. Pass
+/// `&mut device` to retain the device after success or failure.
+///
+/// # Errors
+///
+/// Rejects an incompatible block size, insufficient device capacity or
+/// content unreadable in this mode before writing. Content, device and
+/// flush failures after writing starts can leave a partial image.
+pub async fn write_prepared<D: BlockDevice>(mut out: D, prepared: PreparedIso<'_>) -> Result<Report, PathError> {
+    check_block_size(&out)?;
+    let PreparedIso { tree, plan } = prepared;
     check_output(&out, &plan)?;
     check_contents(tree, &plan)?;
     emit(&mut out, tree, &plan).await?;

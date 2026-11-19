@@ -5,12 +5,12 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::convert::Infallible;
 
-use hadris_fs::{Content, FileType, Node, PathError, Report, Tree};
-use hadris_iso::IsoOptions;
+use hadris_fs::{FileType, PathError, Report, Tree};
+use hadris_iso::{IsoOptions, PreparedIso};
 
 use crate::error::Detail;
 use crate::options::UdfOptions;
-use crate::plan::{self, Plan, SECTOR};
+use crate::plan::{self, ContentInfo, Plan, SECTOR};
 
 /// Blocks the UDF volume keeps after the last file, before its trailing
 /// anchor, as 2.x did.
@@ -19,12 +19,8 @@ const SLACK: u64 = 100;
 const TAIL: u64 = 257;
 
 /// Both halves of a bridge image.
-pub(crate) struct BridgePlan {
-    /// The ISO 9660 options, with the room the UDF metadata needs.
-    pub(crate) iso: IsoOptions,
-    pub(crate) iso_report: Report,
-    /// The tree with every file pointing at its ISO 9660 extents.
-    pub(crate) stored: Tree,
+pub(crate) struct BridgePlan<'tree> {
+    pub(crate) iso: PreparedIso<'tree>,
     pub(crate) udf: Plan,
 }
 
@@ -33,46 +29,41 @@ fn iso_descriptors(opts: &IsoOptions) -> u32 {
     2 + u32::from(opts.joliet()) + u32::from(opts.iso1999()) + u32::from(opts.el_torito().is_some())
 }
 
-/// The files of `tree` as the extents the ISO 9660 writer stores them in,
-/// with the same directories, symlinks, special files, hard links and
-/// attributes.
-fn stored(tree: &Tree, iso: &Report) -> Result<Tree, PathError> {
-    let mut out = Tree::new();
-    out.replace("", Node::dir().with_attrs(*tree.root().node().attrs()))?;
-    let mut first: BTreeMap<usize, Vec<u8>> = BTreeMap::new();
+fn stored_contents(tree: &Tree, iso: &Report) -> Result<BTreeMap<usize, ContentInfo>, PathError> {
+    let mut out = BTreeMap::new();
     let mut pending = vec![(tree.root(), Vec::new())];
     while let Some((dir, prefix)) = pending.pop() {
         for (name, child) in dir.children() {
             let mut path = prefix.clone();
             path.push(b'/');
             path.extend_from_slice(name.as_bytes());
-            if let Some(target) = first.get(&child.id()) {
-                out.link(target, &path)?;
+            let node = child.node();
+            if node.file_type() == FileType::Dir {
+                pending.push((child, path));
                 continue;
             }
-            let node = child.node();
-            let new = match node.content() {
-                Some(content) => {
-                    let content = match iso.extents(&path) {
-                        Some(extents) => Content::stored(extents.to_vec())
-                            .map_err(|error| error.with_path(&path))?,
-                        None if content.is_empty() => Content::empty(),
-                        None => {
-                            return Err(PathError::from(Detail::Content.corrupt::<Infallible>())
-                                .with_path(path));
-                        }
-                    };
-                    Node::file(content).with_attrs(*node.attrs())
-                }
-                None => node.clone(),
+            let Some(content) = node.content() else {
+                continue;
             };
-            out.insert(&path, new)?;
-            if node.file_type() == FileType::Dir {
-                pending.push((child, path.clone()));
+            if out.contains_key(&child.id()) {
+                continue;
             }
-            if child.links() > 1 {
-                first.insert(child.id(), path);
-            }
+            let info = match iso.extents(&path) {
+                Some(extents) => ContentInfo {
+                    len: content.len(),
+                    stored: Some(extents.to_vec()),
+                },
+                None if content.is_empty() => ContentInfo {
+                    len: 0,
+                    stored: None,
+                },
+                None => {
+                    return Err(
+                        PathError::from(Detail::Content.corrupt::<Infallible>()).with_path(path)
+                    );
+                }
+            };
+            out.insert(child.id(), info);
         }
     }
     Ok(out)
@@ -80,11 +71,11 @@ fn stored(tree: &Tree, iso: &Report) -> Result<Tree, PathError> {
 
 /// Plans a bridge image: the UDF metadata first, the ISO 9660 image after
 /// it, then the UDF volume over the ISO 9660 file extents.
-pub(crate) fn plan_both(
-    tree: &Tree,
+pub(crate) fn plan_both<'tree>(
+    tree: &'tree Tree,
     iso: &IsoOptions,
     udf: &UdfOptions,
-) -> Result<BridgePlan, PathError> {
+) -> Result<BridgePlan<'tree>, PathError> {
     let descriptors = iso_descriptors(iso);
     let bridge = udf.clone().with_min_blocks(0);
     let first = plan::lay_out(
@@ -107,40 +98,35 @@ pub(crate) fn plan_both(
         .max(files_end + SLACK + TAIL)
         .max(iso.min_image_blocks());
     let iso = iso.with_min_image_blocks(total);
-    let iso_report = hadris_iso::plan(tree, &iso)?;
-    let stored = stored(tree, &iso_report)?;
-    let contents = plan::measure(&stored, true, true)?;
+    let iso = PreparedIso::new(tree, &iso)?;
+    let contents = stored_contents(tree, iso.report())?;
     let udf = plan::lay_out(
-        &stored,
+        tree,
         &bridge.with_min_blocks(total),
         &contents,
         true,
         Some(descriptors),
     )?;
-    Ok(BridgePlan {
-        iso,
-        iso_report,
-        stored,
-        udf,
-    })
+    Ok(BridgePlan { iso, udf })
 }
 
-impl BridgePlan {
+impl BridgePlan<'_> {
     /// The report of the image: its size, the warnings of the ISO 9660
     /// writer then those of the UDF writer, and the file extents both
     /// trees share.
     pub(crate) fn report(&self) -> Report {
         let mut report = Report::new();
-        report.set_size(self.udf.report.size().max(self.iso_report.size()));
+        report.set_size(self.udf.report.size().max(self.iso.report().size()));
         for warning in self
-            .iso_report
+            .iso
+            .report()
             .warnings()
             .iter()
             .chain(self.udf.report.warnings())
         {
             report.push_warning(warning.clone());
         }
-        for (path, extents) in self.iso_report.files() {
+        for (path, extents) in self.iso.report().files() {
             for extent in extents {
                 report.push_extent(path.as_bytes(), *extent);
             }
