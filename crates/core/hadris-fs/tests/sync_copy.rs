@@ -156,6 +156,42 @@ fn volumes_copy_through_trees() {
     assert_eq!(vol.into_inner().ok().unwrap().open_nodes(), 1);
 }
 
+#[test]
+fn locked_volume_copies_its_own_lazy_content() {
+    let mut fs = fixture();
+    let payload = vec![0xA5; 140_000];
+    fs.add("/", "input", FileType::Dir, b"");
+    fs.add("/input", "multi", FileType::File, &payload);
+    let vol = Volume::new(fs);
+    let tree = read_tree(&vol, "/input").unwrap();
+    let content = tree.get("multi").unwrap().content().unwrap();
+    let mut reader = hadris_fs::sync::ContentReader::open(content).unwrap();
+    let mut guard = vol.lock().unwrap();
+    let root = guard.root();
+    let mut buf = [0; 16];
+    assert_eq!(
+        reader.read_at(0, &mut buf).unwrap_err().kind(),
+        ErrorKind::Busy
+    );
+    assert_eq!(
+        reader.read_at_with_guard(&mut guard, 0, &mut buf).unwrap(),
+        buf.len()
+    );
+    assert_eq!(buf, [0xA5; 16]);
+    let other = guard.lookup(root, hadris_fs::Name::new(b"etc")).unwrap();
+    assert_eq!(
+        copy_tree(&tree, &mut *guard, other).unwrap_err().kind(),
+        ErrorKind::Busy
+    );
+    guard.forget(other, 1);
+    guard.copy_tree(&tree, root).unwrap();
+    assert_eq!(guard.contents("/multi").unwrap(), payload);
+    drop(guard);
+    drop(tree);
+    let fs = vol.into_inner().ok().unwrap();
+    assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));
+}
+
 /// A unique scratch directory, removed on drop.
 struct Scratch(PathBuf);
 

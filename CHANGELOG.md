@@ -70,6 +70,10 @@ Each published package owns its version and may be released independently.
 - **hadris-cli:** cpio extraction retains overwritten hard-link data on the
   destination filesystem and restores it without copying on that filesystem.
 
+- **hadris-fs:** Async tree copy and sync `VolumeGuard::copy_tree` can copy
+  lazy files within one volume. `ContentReader::read_at_with_guard` reads
+  through an existing guard in either mode.
+
 ## [3.0.0-rc.3] - 2026-11-04
 
 The third release candidate of the 3.0 API. The 3.x packages move to

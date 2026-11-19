@@ -4,7 +4,7 @@ use super::handle::{File, ReadDir, WalkDir};
 use super::paths::{cancelled, components, resolve_parent, split_parent, write_all_at};
 use crate::{
     DirCursor, DirEntry, ErrorKind, FsResult, Metadata, Name, NodeId, OpenMode, OpenOptions,
-    RenameMode, Resolve, SetAttr,
+    PathError, RenameMode, Resolve, SetAttr,
 };
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
@@ -164,13 +164,39 @@ pub struct VolumeGuard<'a, F: FileSystem> {
     failed: &'a AtomicBool,
 }
 
-async_only! {
-    impl<F> Volume<F> {
-        /// The address that identifies this volume and its clones.
-        pub(crate) fn origin(&self) -> *const () {
-            Arc::as_ptr(&self.shared).cast()
-        }
+pub(super) type ReadScope<'a> = &'a spin::Mutex<VecDeque<Pending>>;
+
+impl<F> Volume<F> {
+    pub(super) fn origin(&self) -> *const () {
+        core::ptr::from_ref(self.read_scope()).cast()
     }
+
+    pub(super) fn read_scope(&self) -> ReadScope<'_> {
+        &self.shared.pending
+    }
+}
+
+impl<'a, F: FileSystem> VolumeGuard<'a, F> {
+    pub(super) fn read_scope(&self) -> ReadScope<'a> {
+        self.pending
+    }
+}
+
+io_transform! {
+
+pub(super) async fn read_opened<F: FileSystem + ?Sized>(
+    fs: &mut F, scope: ReadScope<'_>, node: NodeId, offset: u64, buf: &mut [u8],
+) -> Result<usize, PathError> {
+    fs.open(node, OpenMode::Read).await?;
+    let open = Held { pending: scope, node: Some(node), open: true, pinned: false };
+    let read = fs.read(node, offset, buf).await;
+    let closed = fs.close(node).await;
+    open.keep();
+    let n = read?;
+    closed?;
+    Ok(n)
+}
+
 }
 
 impl<F> Clone for Volume<F> {
@@ -190,6 +216,20 @@ impl<F: FileSystem> core::ops::Deref for VolumeGuard<'_, F> {
 
     fn deref(&self) -> &F {
         &self.fs
+    }
+}
+
+sync_only! {
+    impl<F: FileSystem> VolumeGuard<'_, F> {
+        /// Copies a tree, including lazy content from this locked volume.
+        ///
+        /// # Errors
+        ///
+        /// Returns the same errors as [`copy_tree`](super::copy_tree).
+        pub fn copy_tree(&mut self, tree: &crate::Tree, dir: NodeId) -> Result<crate::Report, PathError> {
+            let scope = self.read_scope();
+            super::copy::copy_tree_scoped(tree, &mut **self, Some(scope), dir)
+        }
     }
 }
 
@@ -269,7 +309,8 @@ impl<F: FileSystem> Volume<F> {
     /// # Errors
     ///
     /// Returns an I/O error with [`Detail::VolumeFailed`](crate::Detail::VolumeFailed)
-    /// if a previous panic left the volume failed.
+    /// if a previous panic left the volume failed. In sync mode, attempting to
+    /// lock a volume again on the same thread returns [`ErrorKind::Busy`].
     pub async fn lock(&self) -> FsResult<VolumeGuard<'_, F>, F::DeviceError> {
         watched!(self, { self.enter().await })
     }
@@ -284,6 +325,11 @@ impl<F: FileSystem> Volume<F> {
     pub(super) async fn enter(&self) -> FsResult<VolumeGuard<'_, F>, F::DeviceError> {
         if self.is_failed() {
             return Err(crate::Detail::VolumeFailed.error());
+        }
+        sync_only! {
+            if self.shared.fs.held_by_current_thread() {
+                return Err(ErrorKind::Busy.into());
+            }
         }
         let Some(mut fs) = self.shared.fs.lock().await else {
             return Err(crate::Detail::VolumeFailed.error());
@@ -372,12 +418,6 @@ impl<F: FileSystem> Volume<F> {
     /// Guards the pin of `node` while a call on this volume awaits.
     pub(super) fn hold(&self, node: NodeId) -> Held<'_> {
         Held::new(&self.shared.pending, node)
-    }
-
-    /// Guards an open of `node`, whose pin its caller keeps, while a call on
-    /// this volume awaits.
-    pub(super) fn hold_open(&self, node: NodeId) -> Held<'_> {
-        Held { pending: &self.shared.pending, node: Some(node), open: true, pinned: false }
     }
 
     /// Guards both the open and the pin of `node` while a call on this

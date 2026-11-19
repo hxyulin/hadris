@@ -16,6 +16,7 @@ io_transform! {
 /// Creates the file `name` in `dir` from `node`: its data, then its times.
 async fn copy_file<F: FileSystem + ?Sized>(
     fs: &mut F,
+    scope: Option<ReadScope<'_>>,
     dir: NodeId,
     name: &Name,
     node: &Node,
@@ -26,7 +27,7 @@ async fn copy_file<F: FileSystem + ?Sized>(
     let to = fs.create(dir, name, &create).await?;
     let result = match fs.open(to, OpenMode::Write).await {
         Ok(()) => {
-            let done = copy_file_contents(fs, node, to, &times, partial, dropped, buf).await;
+            let done = copy_file_contents(fs, scope, node, to, (&times, partial), dropped, buf).await;
             let closed = fs.close(to).await;
             done.and(closed.map_err(PathError::from))
         }
@@ -38,6 +39,7 @@ async fn copy_file<F: FileSystem + ?Sized>(
 
 async fn walk<'t, F: FileSystem + ?Sized>(
     fs: &mut F,
+    scope: Option<ReadScope<'_>>,
     stack: &mut Vec<Frame<'t>>,
     report: &mut Report,
     dropped: &mut Dropped,
@@ -77,7 +79,7 @@ async fn walk<'t, F: FileSystem + ?Sized>(
                 report.push_warning(Warning::new(WarningKind::Skipped, "hard links cannot be created through the filesystem trait").with_path(&path));
             }
             FileType::File => {
-                copy_file(fs, dir, name, node, dropped, buf).await.map_err(|err| err.with_path(&path))?;
+                copy_file(fs, scope, dir, name, node, dropped, buf).await.map_err(|err| err.with_path(&path))?;
                 if entry.links() > 1 {
                     copied.push(entry.id());
                 }
@@ -114,14 +116,21 @@ async fn walk<'t, F: FileSystem + ?Sized>(
 /// [`ErrorKind::Unsupported`] for unreadable content in this mode, or
 /// filesystem and content-source errors with the tree path. Earlier
 /// creations and writes remain on failure and are not flushed.
+/// To copy lazy content within a sync volume, use `VolumeGuard::copy_tree`.
 pub async fn copy_tree<F: FileSystem + ?Sized>(tree: &Tree, fs: &mut F, dir: NodeId) -> Result<Report, PathError> {
+    copy_tree_scoped(tree, fs, None, dir).await
+}
+
+pub(super) async fn copy_tree_scoped<F: FileSystem + ?Sized>(
+    tree: &Tree, fs: &mut F, scope: Option<ReadScope<'_>>, dir: NodeId,
+) -> Result<Report, PathError> {
     let mut report = Report::new();
     let mut dropped = Dropped::default();
     let mut copied = Vec::new();
     let mut buf = alloc::vec![0u8; CHUNK];
     let root = tree.root();
     let mut stack = alloc::vec![Frame { children: root.children().collect(), next: 0, dst: dir, path: Vec::new(), times: None }];
-    let result = walk(fs, &mut stack, &mut report, &mut dropped, &mut copied, &mut buf).await;
+    let result = walk(fs, scope, &mut stack, &mut report, &mut dropped, &mut copied, &mut buf).await;
     for frame in stack.into_iter().skip(1) {
         fs.forget(frame.dst, 1);
     }

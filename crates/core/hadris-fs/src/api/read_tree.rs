@@ -2,7 +2,7 @@ use super::filesystem::FileSystem;
 use super::volume::{Held, Volume};
 use crate::tree::Content;
 use crate::{
-    DeviceNumber, DirCursor, ErrorKind, FileType, FsResult, Metadata, Node, NodeId, OpenMode,
+    DeviceNumber, DirCursor, ErrorKind, FileType, FsResult, Metadata, Node, NodeId,
     PathError, Resolve, SetAttr, Tree,
 };
 use alloc::sync::Arc;
@@ -87,14 +87,8 @@ impl<F: FileSystem> VolumeContent<F> {
     async fn read(&self, offset: u64, buf: &mut [u8]) -> Result<usize, PathError> {
         watched!(self.vol, {
             let mut fs = self.vol.enter().await?;
-            fs.open(self.node, OpenMode::Read).await?;
-            let open = self.vol.hold_open(self.node);
-            let read = fs.read(self.node, offset, buf).await;
-            open.keep();
-            let closed = fs.close(self.node).await;
-            let n = read?;
-            closed?;
-            Ok(n)
+            let scope = fs.read_scope();
+            super::volume::read_opened(&mut *fs, scope, self.node, offset, buf).await
         })
     }
 }
@@ -336,6 +330,10 @@ async fn node_of<F: Lazy>(
 
 sync_only! {
     impl<F: FileSystem + Send + 'static> crate::tree::SyncSource for VolumeContent<F> {
+        fn source_node(&self, origin: *const ()) -> Option<NodeId> {
+            (origin == self.vol.origin()).then_some(self.node)
+        }
+
         fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<usize, PathError> {
             self.read(offset, buf)
         }
@@ -356,8 +354,8 @@ async_only! {
             alloc::boxed::Box::pin(self.read(offset, buf))
         }
 
-        fn origin(&self) -> *const () {
-            self.vol.origin()
+        fn source_node(&self, origin: *const ()) -> Option<NodeId> {
+            (origin == self.vol.origin()).then_some(self.node)
         }
     }
 

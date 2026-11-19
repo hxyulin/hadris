@@ -39,7 +39,43 @@ pub use api::{FileSystem, Walk};
 /// reports itself failed instead of reaching a driver left mid-call.
 #[cfg(feature = "std")]
 mod lock {
-    pub(crate) type Guard<'a, T> = std::sync::MutexGuard<'a, T>;
+    use std::cell::RefCell;
+    use std::ops::{Deref, DerefMut};
+    use std::vec::Vec;
+
+    std::thread_local! {
+        static HELD: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+    }
+
+    pub(crate) struct Guard<'a, T> {
+        guard: std::sync::MutexGuard<'a, T>,
+        lock: usize,
+    }
+
+    impl<T> Deref for Guard<'_, T> {
+        type Target = T;
+
+        fn deref(&self) -> &T {
+            &self.guard
+        }
+    }
+
+    impl<T> DerefMut for Guard<'_, T> {
+        fn deref_mut(&mut self) -> &mut T {
+            &mut self.guard
+        }
+    }
+
+    impl<T> Drop for Guard<'_, T> {
+        fn drop(&mut self) {
+            let _ = HELD.try_with(|held| {
+                let mut held = held.borrow_mut();
+                if let Some(index) = held.iter().position(|&lock| lock == self.lock) {
+                    held.swap_remove(index);
+                }
+            });
+        }
+    }
 
     pub(crate) struct Lock<T>(std::sync::Mutex<T>);
 
@@ -50,12 +86,24 @@ mod lock {
 
         /// The guard, or `None` when the lock is poisoned.
         pub(crate) fn lock(&self) -> Option<Guard<'_, T>> {
-            self.0.lock().ok()
+            self.0.lock().ok().map(|guard| self.track(guard))
         }
 
         /// The guard, or `None` when the lock is held or poisoned.
         pub(crate) fn try_lock(&self) -> Option<Guard<'_, T>> {
-            self.0.try_lock().ok()
+            self.0.try_lock().ok().map(|guard| self.track(guard))
+        }
+
+        fn track<'a>(&self, guard: std::sync::MutexGuard<'a, T>) -> Guard<'a, T> {
+            let lock = core::ptr::from_ref(self).addr();
+            let _ = HELD.try_with(|held| held.borrow_mut().push(lock));
+            Guard { guard, lock }
+        }
+
+        pub(crate) fn held_by_current_thread(&self) -> bool {
+            let lock = core::ptr::from_ref(self).addr();
+            HELD.try_with(|held| held.borrow().contains(&lock))
+                .unwrap_or(false)
         }
 
         pub(crate) fn poisoned(&self) -> bool {

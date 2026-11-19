@@ -54,26 +54,58 @@ fn paths_handles_and_policies() {
 }
 
 #[test]
-fn copies_reject_trees_read_lazily_from_the_target() {
+fn copies_read_lazy_content_from_the_target_volume() {
     block_on(async {
         let mut src = MemFs::new();
+        let payload = vec![0xA5; 140_000];
         src.add("/", "etc", hadris_fs::FileType::Dir, b"");
-        src.add("/etc", "conf", hadris_fs::FileType::File, b"key=value");
-        src.add("/", "empty", hadris_fs::FileType::Dir, b"");
-        src.add("/empty", "none", hadris_fs::FileType::File, b"");
+        src.add("/etc", "conf", hadris_fs::FileType::File, &payload);
+        src.add("/etc", "empty", hadris_fs::FileType::File, b"");
         let root = src.root();
         let vol = SendVolume::new(Sendable::new(src));
-        let empty = read_tree(&vol, "/empty").await.unwrap();
-        copy_tree(&empty, &vol, root).await.unwrap();
-        drop(empty);
         let tree = read_tree(&vol, "/etc").await.unwrap();
-        let err = copy_tree(&tree, &vol, root).await.unwrap_err();
-        assert_eq!(err.kind(), ErrorKind::Unsupported);
-        assert_eq!(err.path(), Some(&b"/conf"[..]));
+        let content = tree.get("conf").unwrap().content().unwrap();
+        let mut reader = ContentReader::open(content).await.unwrap();
+        let mut guard = vol.lock().await.unwrap();
+        let mut buf = [0; 16];
+        assert_eq!(
+            reader
+                .read_at_with_guard(&mut guard, 0, &mut buf)
+                .await
+                .unwrap(),
+            buf.len()
+        );
+        assert_eq!(buf, [0xA5; 16]);
+        drop(guard);
+        copy_tree(&tree, &vol, root).await.unwrap();
         drop(tree);
         let src = vol.into_inner().await.ok().unwrap();
-        assert_eq!(src.contents("/etc/conf").unwrap(), b"key=value");
-        assert_eq!(src.contents("/none").unwrap(), b"");
+        assert_eq!(src.contents("/conf").unwrap(), payload);
+        assert_eq!(src.contents("/empty").unwrap(), b"");
+        assert_eq!((src.open_nodes(), src.open_files()), (1, 0));
+    });
+}
+
+#[test]
+fn cancelled_same_volume_copy_releases_both_opens() {
+    block_on(async {
+        for calls in 0..32 {
+            let mut src = MemFs::new();
+            src.add("/", "dir", hadris_fs::FileType::Dir, b"");
+            src.add("/dir", "file", hadris_fs::FileType::File, b"payload");
+            let root = src.root();
+            let vol = SendVolume::new(Sendable::new(src));
+            let tree = read_tree(&vol, "/dir").await.unwrap();
+            vol.lock().await.unwrap().stall_in(calls);
+            let pending = poll_once(copy_tree(&tree, &vol, root));
+            vol.lock().await.unwrap().stall_in(u32::MAX);
+            drop(tree);
+            let fs = vol.into_inner().await.ok().unwrap();
+            assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0), "stall {calls}");
+            if !pending {
+                break;
+            }
+        }
     });
 }
 
