@@ -114,7 +114,7 @@ fn remap_root(bytes: &mut [u8]) {
     while pos < entry.information_length.get() as usize {
         let fid: hadris_udf_raw::FileIdentifierDescriptor =
             bytemuck::pod_read_unaligned(&dir[pos..pos + 38]);
-        let end = pos + usize::from(fid.total_len());
+        let end = pos + fid.total_len();
         dir[pos + 28..pos + 30].copy_from_slice(&1u16.to_le_bytes());
         Tag::seal(
             &mut dir[pos..end],
