@@ -168,6 +168,9 @@ pub(crate) struct Upcase {
 pub(crate) struct Info {
     pub(crate) geo: Geometry,
     pub(crate) mft: MftExtents,
+    pub(crate) mft_mirror: Option<u64>,
+    pub(crate) dirty: Option<bool>,
+    pub(crate) hibernated: Option<bool>,
     pub(crate) upcase: Upcase,
     pub(crate) root_sequence: u16,
     pub(crate) free_clusters: Option<u64>,

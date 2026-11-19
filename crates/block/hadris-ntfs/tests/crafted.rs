@@ -67,6 +67,9 @@ fn volume_info_is_an_owned_snapshot_in_both_modes() {
     assert_eq!(info.mft_record_size(), 1024);
     assert_eq!(info.index_record_size(), 1024);
     assert_eq!(info.total_sectors(), 512);
+    assert_eq!(info.was_dirty(), None);
+    assert_eq!(info.was_hibernated(), Some(false));
+    assert!(!info.used_mft_mirror());
     let _device = fs.unmount().unwrap();
     assert_eq!(info.volume_serial(), 0x1122_3344_5566_7788);
 
@@ -79,6 +82,65 @@ fn volume_info_is_an_owned_snapshot_in_both_modes() {
         .unwrap();
         assert_eq!(fs.info(), info);
     }
+}
+
+#[test]
+fn mount_falls_back_to_the_mft_mirror() {
+    let mut image = base_image();
+    let mft = MFT_LCN * SECTOR;
+    let mirror = 500 * SECTOR;
+    image.copy_within(mft..mft + REC, mirror);
+    image[56..64].copy_from_slice(&500u64.to_le_bytes());
+    image[mft + SECTOR - 2] ^= 1;
+
+    let mut fs = open(image.clone());
+    assert!(fs.info().used_mft_mirror());
+    assert_eq!(fs.read_to_vec("/HELLO.TXT").unwrap(), b"hello ntfs");
+    assert!(fs.metadata("/$MFT").is_ok());
+
+    #[cfg(feature = "async")]
+    block_on(async {
+        let fs = hadris_ntfs::async_::NtfsFs::mount(device(image.clone()), MountOptions::new())
+            .await
+            .unwrap();
+        assert!(fs.info().used_mft_mirror());
+    });
+
+    image[mirror..mirror + 4].fill(0);
+    assert_eq!(Detail::of(&open_err(image)), Some(Detail::UpdateSequence));
+}
+
+#[test]
+fn mount_reports_dirty_and_hibernated_without_refusing_read_access() {
+    let mut image = base_image();
+    put(
+        &mut image,
+        raw::RECORD_VOLUME,
+        &file_record(
+            FILE,
+            &[resident(
+                raw::ATTR_VOLUME_INFORMATION,
+                &[],
+                &[0, 0, 0, 0, 0, 0, 0, 0, 3, 1, 1, 0],
+            )],
+        ),
+    );
+    let mut entries = index_entry(16, "hiberfil.sys", false, raw::FILE_NAME_WIN32);
+    entries.extend(last_entry());
+    put(
+        &mut image,
+        raw::RECORD_ROOT,
+        &file_record(DIR, &[index_root(&entries, 1024)]),
+    );
+    put(
+        &mut image,
+        16,
+        &file_record(FILE, &[resident(raw::ATTR_DATA, &[], b"hibr")]),
+    );
+
+    let info = open(image).info();
+    assert_eq!(info.was_dirty(), Some(true));
+    assert_eq!(info.was_hibernated(), Some(true));
 }
 
 #[test]

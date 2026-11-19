@@ -70,6 +70,10 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-ntfs:** Read-only mounts can recover MFT record zero from
+  `$MFTMirr`. `VolumeInfo` reports mirror use, the dirty flag, and
+  hibernation status.
+
 - **hadris-iso:** Automatic mounting reports malformed root Rock Ridge data
   through `IsoFs::mount_warning` when it falls back to another namespace.
 

@@ -395,7 +395,10 @@ async fn read_record<D: BlockDevice>(
     if offset.checked_add(size as u64).is_none_or(|end| end > info.mft.size) {
         return Err(Detail::Record.into());
     }
-    read_extents(dev, &info.geo, &info.mft, offset, buf).await?;
+    match info.mft_mirror.filter(|_| index == raw::RECORD_MFT) {
+        Some(mirror) => read_bytes(dev, info.geo.volume_len, mirror, buf).await?,
+        None => { read_extents(dev, &info.geo, &info.mft, offset, buf).await?; }
+    }
     Ok(record::file_record(buf)?)
 }
 
@@ -759,6 +762,32 @@ async fn load_page<D: BlockDevice>(
     Ok(())
 }
 
+async fn mft_base<D: BlockDevice>(
+    dev: &mut D,
+    geo: &Geometry,
+    offset: u64,
+    record: &mut [u8],
+) -> FsResult<MftExtents, D::Error> {
+    read_bytes(dev, geo.volume_len, offset, record).await?;
+    let header = fs(record::file_record(record))?;
+    if header.is_dir() || record::u64_at(record, 0x20) != 0 {
+        return Err(Detail::Record.into());
+    }
+    match record::find_instance(record, raw::ATTR_DATA, &[], 0)? {
+        Some(Attr { flags: 0, body: Body::NonResident(nr), .. }) if nr.initialized_size >= record.len() as u64 => {
+            MftExtents::new(&nr).ok_or_else(|| Detail::Attribute.into())
+        }
+        _ => Err(Detail::Attribute.into()),
+    }
+}
+
+async fn volume_dirty<D: BlockDevice>(dev: &mut D, info: &Info, buf: &mut [u8]) -> Option<bool> {
+    read_record(dev, info, raw::RECORD_VOLUME, buf).await.ok()?;
+    let attr = record::find_attr(&buf[..info.geo.mft_record_size], raw::ATTR_VOLUME_INFORMATION, &[]).ok()??;
+    let Body::Resident(value) = attr.body else { return None };
+    (value.len() >= 12).then(|| record::u16_at(value, 10) & 1 != 0)
+}
+
 /// Reads the volume structures.
 async fn mount<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>> {
     let block = dev.block_size().get() as usize;
@@ -778,17 +807,29 @@ async fn mount<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>> {
     let geo = Geometry::new(&boot, device_len)?;
 
     let size = geo.mft_record_size;
-    let mut rec = [0u8; MAX_RECORD];
-    read_bytes(dev, geo.volume_len, geo.mft_offset, &mut rec[..size]).await?;
-    record::file_record(&mut rec[..size])?;
-    let rec = &rec[..size];
-    let mft = match record::find_instance(rec, raw::ATTR_DATA, &[], 0)? {
-        Some(Attr { body: Body::NonResident(nr), .. }) => MftExtents::new(&nr).ok_or(Detail::Attribute)?,
-        _ => return Err(Detail::Attribute.into()),
+    let mut record = [0u8; MAX_RECORD];
+    let rec = &mut record[..size];
+    let (mft, mft_mirror) = match mft_base(dev, &geo, geo.mft_offset, rec).await {
+        Ok(mft) => (mft, None),
+        Err(primary) => {
+            let cluster = u64::from_le_bytes(boot.mft_mirror_lcn);
+            if cluster == 0 || cluster >= geo.total_clusters {
+                return Err(primary);
+            }
+            let offset = cluster * geo.cluster_size;
+            if offset == geo.mft_offset {
+                return Err(primary);
+            }
+            let mft = mft_base(dev, &geo, offset, rec).await.map_err(|_| primary)?;
+            (mft, Some(offset))
+        }
     };
     let mut info = Info {
         geo,
         mft,
+        mft_mirror,
+        dirty: None,
+        hibernated: None,
         upcase: Upcase {
             stream: UpcaseExtents::empty(),
             low: [0; PAGE],
@@ -831,6 +872,7 @@ async fn mount<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>> {
     };
     let Info { upcase, .. } = &mut info;
     load_page(dev, &geo, &upcase.stream, 0, &mut upcase.low).await?;
+    info.dirty = volume_dirty(dev, &info, &mut buf).await;
     Ok(info)
 }
 
@@ -874,6 +916,8 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// Mounts the volume on `dev`, read-only. NTFS reads only the primary
     /// boot sector, so [`MountOptions::backup_boot`] and the other options
     /// do not apply.
+    /// The mount can recover MFT record zero from `$MFTMirr`. See
+    /// [`info`](Self::info) for diagnostics recorded at mount time.
     ///
     /// # Errors
     ///
@@ -885,14 +929,18 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// the [`MountError`].
     // @hadris-spec NTFS:Master-File-Table
     // @hadris-compliance partial
-    // @hadris-tests read::open_blank_volume, crafted::open_rejects_bad_boot_sectors, crafted::fragmented_mft_is_followed
+    // @hadris-tests read::open_blank_volume, crafted::open_rejects_bad_boot_sectors, crafted::fragmented_mft_is_followed, crafted::mount_falls_back_to_the_mft_mirror
     // @hadris-fuzz ntfs_read
-    // @hadris-note Reads `$MFT` from its base record and extension records and checks file references; `$MFTMirr` recovery is not supported.
+    // @hadris-note Reads `$MFT` from its base record and extension records, checks file references and can recover record zero from `$MFTMirr`.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all))]
     pub async fn mount(mut dev: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
         let _ = options;
         match mount(&mut dev).await {
-            Ok(info) => Ok(Self { dev, info }),
+            Ok(info) => {
+                let mut fs = Self { dev, info };
+                fs.info.hibernated = fs.detect_hibernation().await;
+                Ok(fs)
+            }
             Err(err) => Err(MountError::new(err, dev)),
         }
     }
@@ -908,11 +956,28 @@ impl<D: BlockDevice> NtfsFs<D> {
         Ok(self.dev)
     }
 
-    /// Returns a snapshot of the mounted volume's geometry and serial number.
+    /// Returns a snapshot of the mounted volume's geometry and diagnostics.
     ///
     /// This does no I/O and the result does not borrow the filesystem.
     pub const fn info(&self) -> VolumeInfo {
-        VolumeInfo::new(self.info.geo)
+        VolumeInfo::new(&self.info)
+    }
+
+    async fn detect_hibernation(&mut self) -> Option<bool> {
+        let node = match self.lookup(self.info.root(), Name::new("hiberfil.sys")).await {
+            Ok(node) => node,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Some(false),
+            Err(_) => return None,
+        };
+        let mut header = [0u8; 4096];
+        let count = self.read(node, 0, &mut header).await.ok()?;
+        if count >= 4 && matches!(&header[..4], b"hibr" | b"HIBR") {
+            Some(true)
+        } else if count == header.len() && header.iter().all(|&byte| byte == 0) {
+            Some(false)
+        } else {
+            None
+        }
     }
 
     /// The volume serial number, also available through [`info`](Self::info).

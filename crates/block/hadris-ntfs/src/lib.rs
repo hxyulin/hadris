@@ -45,8 +45,10 @@
 //! bytes are supported. Listings leave out DOS aliases and the metadata
 //! files, which a lookup by name still finds.
 //!
-//! It does not yet recover from `$MFTMirr`, decode compressed or encrypted
-//! streams (they fail with
+//! It can recover MFT record zero from `$MFTMirr` and reports the dirty flag
+//! and hibernation status through `NtfsFs::info`.
+//!
+//! It does not yet decode compressed or encrypted streams (they fail with
 //! [`ErrorKind::Unsupported`](hadris_fs::ErrorKind::Unsupported)), interpret
 //! reparse points, read security descriptors, or descend the index B-tree
 //! by key. NTFS is a preview in Hadris 3.0: the `FileSystem` implementation

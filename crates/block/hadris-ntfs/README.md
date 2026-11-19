@@ -55,15 +55,16 @@ references, so they are stable and hard links share one.
 
 - The filesystem is read-only; the write methods of `FileSystem` fail with
   `ReadOnly`.
-- `$MFTMirr` is not used to recover unreadable MFT records, and the `$Mft`
-  bitmap is not consulted.
+- The driver uses `$MFTMirr` to recover record zero. It does not consult the
+  `$Mft` bitmap.
 - Compressed and encrypted streams fail with `Unsupported`.
 - Reparse points (symbolic links, junctions) are shown as ordinary files and
   directories.
 - Security descriptors are not read.
 - Lookups scan the directory index instead of descending its B-tree by key.
 - `$LogFile` is not replayed, so a volume that was not cleanly unmounted may
-  read inconsistently.
+  read inconsistently. `NtfsFs::info()` reports the dirty flag, hibernation
+  status, and whether the driver used the MFT mirror.
 
 ## Feature flags
 
