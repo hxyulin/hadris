@@ -482,6 +482,33 @@ pub fn xattr_image() -> Vec<u8> {
 }
 
 #[allow(dead_code)]
+pub fn compressed_image(method: u32, size: u64, payload: &[u8], resource: &[u8]) -> Vec<u8> {
+    let mut entries = vec![
+        inode_entry(2, 2, 0o040755, 0),
+        drec_entry(2, "file0.txt", 16),
+    ];
+    entries.extend(file_records(Variant::Plain, 1..FILE_COUNT));
+    let mut inode = inode_entry(16, 100, 0o100644, 0);
+    put(&mut inode.1, 68, &0x20u32.to_le_bytes());
+    entries.push(inode);
+    let mut attr = b"fpmc".to_vec();
+    attr.extend_from_slice(&method.to_le_bytes());
+    attr.extend_from_slice(&size.to_le_bytes());
+    attr.extend_from_slice(payload);
+    entries.push(xattr_entry(16, "com.apple.decmpfs", 2, &attr));
+    if !resource.is_empty() {
+        let mut stream = [0u8; 48];
+        put(&mut stream, 0, &107u64.to_le_bytes());
+        put(&mut stream, 8, &(resource.len() as u64).to_le_bytes());
+        entries.push(xattr_entry(16, "com.apple.ResourceFork", 1, &stream));
+        entries.push(extent_entry(107, BLOCK as u64, 21));
+    }
+    let mut image = build_image_records(Variant::Plain, entries);
+    put(&mut image, 21 * BLOCK, resource);
+    image
+}
+
+#[allow(dead_code)]
 pub fn use_case_image() -> Vec<u8> {
     let mut linked = inode_entry(16, 100, 0o100644, file_contents(0).len() as u64);
     put(&mut linked.1, 56, &2_i32.to_le_bytes());

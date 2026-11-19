@@ -13,7 +13,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [package.metadata.docs.rs]
-features = ["std", "sync", "async", "encryption", "tracing"]
+features = ["std", "sync", "async", "encryption", "compression", "lzfse", "tracing"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
@@ -21,6 +21,8 @@ default = ["std", "sync"]
 std = ["alloc", "hadris-io/std", "hadris-storage/std", "hadris-fs/std", "tracing?/std"]
 alloc = ["hadris-fs/alloc", "hadris-storage/alloc", "dep:icu_casemap", "dep:icu_normalizer"]
 encryption = ["alloc", "dep:aes", "dep:aes-kw", "dep:xts-mode", "dep:pbkdf2", "dep:sha2", "dep:hmac", "dep:zeroize"]
+compression = ["alloc", "dep:miniz_oxide"]
+lzfse = ["compression", "std", "dep:lzfse_rust"]
 sync = ["hadris-io/sync", "hadris-storage/sync", "hadris-fs/sync"]
 async = ["hadris-io/async", "hadris-storage/async", "hadris-fs/async"]
 
@@ -40,6 +42,8 @@ pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"], opti
 sha2 = { version = "0.11", default-features = false, optional = true }
 hmac = { version = "0.13", default-features = false, optional = true }
 zeroize = { version = "1.8", default-features = false, features = ["alloc"], optional = true }
+miniz_oxide = { version = "0.9", default-features = false, features = ["with-alloc"], optional = true }
+lzfse_rust = { version = "0.2", optional = true }
 
 icu_casemap = { version = "2.3", default-features = false, features = ["compiled_data"], optional = true }
 icu_normalizer = { version = "2.3", default-features = false, features = ["compiled_data"], optional = true }

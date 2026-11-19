@@ -208,7 +208,8 @@ io_transform! {
 /// filesystem tree. File data is read with one APFS block of scratch space
 /// regardless of file length. `MountOptions::with_node_limit` caps how many
 /// nodes may be held; an operation that needs one more fails with
-/// `LimitExceeded`. Compression, encryption and snapshots remain unsupported.
+/// `LimitExceeded`. Optional features enable compression and software-encrypted
+/// volumes.
 ///
 /// A record that cannot be used damages only its node: the entry is listed
 /// with the type its directory record holds, and `stat`, `open`, `read` and
@@ -653,7 +654,10 @@ impl<D: BlockDevice> ApfsFs<D> {
             .with_changed(timestamp::<D::Error>(inode.change_time_ns)?)
             .with_accessed(timestamp::<D::Error>(inode.access_time_ns)?)
             .with_nlink(if kind.is_dir() { 1 } else { u64::try_from(inode.link_or_child_count).map_err(|_| ErrorKind::Corrupt)?.max(1) });
-        if kind.is_file() {
+        if kind.is_file() && inode.is_compressed() {
+            let (header, _) = self.container.compression_attribute(&self.volume, inode.id).await?;
+            metadata = metadata.with_len(header.size);
+        } else if kind.is_file() {
             let (len, allocated) = if keep {
                 self.load_extents(inode).await?;
                 extent_sizes(inode, self.nodes.extents(inode.private_id))?
@@ -911,7 +915,7 @@ impl<D: BlockDevice> ApfsFs<D> {
     ///
     /// Returns [`ErrorKind::IsADirectory`] for a directory, [`ErrorKind::Symlink`]
     /// for a symlink, [`ErrorKind::ReadOnly`] for write access, or
-    /// [`ErrorKind::Unsupported`] for compressed files or other file types. Inode and
+    /// [`ErrorKind::Unsupported`] for unsupported compression or other file types. Inode and
     /// device read errors propagate.
     pub async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
         let inode = self.inode(node).await?;
@@ -922,7 +926,12 @@ impl<D: BlockDevice> ApfsFs<D> {
             _ => return Err(ErrorKind::Unsupported.into()),
         }
         if mode == OpenMode::Write { return Err(ErrorKind::ReadOnly.into()); }
-        if inode.is_compressed() { return Err(crate::ApfsError::Unsupported("compressed file data").into()); }
+        if inode.is_compressed() {
+            #[cfg(not(feature = "compression"))]
+            return Err(crate::ApfsError::Unsupported("compressed file data").into());
+            #[cfg(feature = "compression")]
+            self.container.compression_attribute(&self.volume, inode.id).await?.0.encoding()?;
+        }
         Ok(())
     }
 
@@ -956,7 +965,15 @@ impl<D: BlockDevice> ApfsFs<D> {
             FileType::File => {},
             _ => return Err(ErrorKind::Unsupported.into()),
         }
-        if inode.is_compressed() { return Err(crate::ApfsError::Unsupported("compressed file data").into()); }
+        if inode.is_compressed() {
+            #[cfg(not(feature = "compression"))]
+            return Err(crate::ApfsError::Unsupported("compressed file data").into());
+            #[cfg(feature = "compression")]
+            {
+                let (header, entry) = self.container.compression_attribute(&self.volume, inode.id).await?;
+                return self.container.read_compressed_at(&self.volume, inode.id, header, &entry, offset, buf).await;
+            }
+        }
         self.load_extents(&inode).await?;
         let extents = self.nodes.extents(inode.private_id);
         // `load_extents` checked these extents, so only the range is read.

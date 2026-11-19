@@ -24,6 +24,8 @@
 //! scratch space for sparse and arbitrarily large files. Generic `Volume`
 //! handles follow symbolic links and expose hard-linked inodes consistently.
 //! Native container inspection remains available independently of mounting.
+//! The `compression` feature enables stored and zlib `decmpfs` files.
+//! The `lzfse` feature adds LZVN and LZFSE decoding.
 //! With `encryption`, password mounts unlock software-encrypted single-key
 //! volumes. `ApfsFs::mount_with_password` and `mount_volume_with_password` borrow
 //! credentials independently of volume selection. Native encrypted reads require
@@ -73,6 +75,8 @@ extern crate std;
 
 #[cfg(all(feature = "encryption", any(feature = "sync", feature = "async")))]
 mod crypto;
+#[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
+mod decmpfs;
 
 /// Error types returned by APFS readers and writers.
 pub mod error;

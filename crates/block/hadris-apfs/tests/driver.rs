@@ -67,6 +67,81 @@ fn native_xattrs_read_inline_and_stream_values_at_offsets() {
     );
 }
 
+#[cfg(feature = "compression")]
+#[test]
+fn decmpfs_zlib_reads_inline_and_across_resource_chunks() {
+    use miniz_oxide::deflate::compress_to_vec_zlib;
+
+    let plain = b"a short compressed file";
+    let encoded = compress_to_vec_zlib(plain, 6);
+    let mut fs = mount(compressed_image(3, plain.len() as u64, &encoded, &[]));
+    let file = fs.lookup(fs.root(), Name::new("file0.txt")).unwrap();
+    assert_eq!(fs.stat(file).unwrap().len(), plain.len() as u64);
+    fs.open(file, OpenMode::Read).unwrap();
+    let mut out = [0; 32];
+    let read = fs.read(file, 8, &mut out).unwrap();
+    assert_eq!(&out[..read], &plain[8..]);
+
+    let chunk = compress_to_vec_zlib(&[b'A'; 65536], 6);
+    let tail = [0xFF, b'z', b'l', b'i', b'b'];
+    let mut resource = vec![0; 256];
+    resource[..4].copy_from_slice(&256u32.to_be_bytes());
+    let size = 20 + chunk.len() + tail.len();
+    resource[8..12].copy_from_slice(&((4 + size) as u32).to_be_bytes());
+    resource.extend_from_slice(&(size as u32).to_be_bytes());
+    resource.extend_from_slice(&2u32.to_le_bytes());
+    resource.extend_from_slice(&20u32.to_le_bytes());
+    resource.extend_from_slice(&(chunk.len() as u32).to_le_bytes());
+    resource.extend_from_slice(&((20 + chunk.len()) as u32).to_le_bytes());
+    resource.extend_from_slice(&(tail.len() as u32).to_le_bytes());
+    resource.extend_from_slice(&chunk);
+    resource.extend_from_slice(&tail);
+    let mut fs = mount(compressed_image(4, 65540, &[], &resource));
+    let file = fs.lookup(fs.root(), Name::new("file0.txt")).unwrap();
+    assert_eq!(fs.stat(file).unwrap().len(), 65540);
+    assert_eq!(fs.read(file, 65534, &mut out).unwrap(), 6);
+    assert_eq!(&out[..6], b"AAzlib");
+    assert_eq!(fs.read(file, 65540, &mut out).unwrap(), 0);
+
+    resource[256 + 8..256 + 12].copy_from_slice(&u32::MAX.to_le_bytes());
+    let mut fs = mount(compressed_image(4, 65540, &[], &resource));
+    let file = fs.lookup(fs.root(), Name::new("file0.txt")).unwrap();
+    assert_eq!(
+        fs.read(file, 0, &mut out).unwrap_err().kind(),
+        ErrorKind::Corrupt
+    );
+    let sibling = fs.lookup(fs.root(), Name::new("file1.txt")).unwrap();
+    let n = fs.read(sibling, 0, &mut out).unwrap();
+    assert_eq!(&out[..n], file_contents(1));
+}
+
+#[cfg(feature = "lzfse")]
+#[test]
+fn decmpfs_reads_lzvn_and_lzfse_streams() {
+    let lzvn = [0xe5, b'h', b'e', b'l', b'l', b'o', 6, 0, 0, 0, 0, 0, 0, 0];
+    let plain = vec![b'b'; 8192];
+    let mut lzfse = Vec::new();
+    lzfse_rust::encode_bytes(&plain, &mut lzfse).unwrap();
+    for (method, encoded, decoded) in [
+        (7, lzvn.as_slice(), b"hello".as_slice()),
+        (11, lzfse.as_slice(), &plain),
+    ] {
+        let mut fs = mount(compressed_image(method, decoded.len() as u64, encoded, &[]));
+        let file = fs.lookup(fs.root(), Name::new("file0.txt")).unwrap();
+        let mut out = [0; 4];
+        assert_eq!(fs.read(file, 1, &mut out).unwrap(), 4);
+        assert_eq!(&out, &decoded[1..5]);
+    }
+    let mut fork = 8u32.to_le_bytes().to_vec();
+    fork.extend_from_slice(&(8 + lzvn.len() as u32).to_le_bytes());
+    fork.extend_from_slice(&lzvn);
+    let mut fs = mount(compressed_image(8, 5, &[], &fork));
+    let file = fs.lookup(fs.root(), Name::new("file0.txt")).unwrap();
+    let mut out = [0; 8];
+    assert_eq!(fs.read(file, 2, &mut out).unwrap(), 3);
+    assert_eq!(&out[..3], b"llo");
+}
+
 #[test]
 fn vfs_cursors_ids_open_pins_and_random_reads() {
     let mut fs = mount(build_image());

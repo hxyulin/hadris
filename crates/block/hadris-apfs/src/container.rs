@@ -78,6 +78,20 @@ struct ObjectMapTree {
     max_xid: u64,
 }
 
+#[cfg(feature = "alloc")]
+enum XattrData<'a> {
+    Inline(&'a [u8]),
+    Stream { size: u64, extents: alloc::vec::Vec<FileExtentRecord> },
+}
+
+#[cfg(feature = "compression")]
+struct CompressionFork {
+    table: u64,
+    base: u64,
+    first: u64,
+    end: u64,
+}
+
 /// Orders an object-map key (`omap_key_t`) by `oid`, treating a key of `oid`
 /// whose transaction identifier is at or below `max_xid` as inside the wanted
 /// range. Entries of one object identifier are contiguous and sorted by
@@ -1469,14 +1483,146 @@ where
         if offset >= attr.len() || buf.is_empty() {
             return Ok(0);
         }
+        let data = self.open_xattr(volume, attr).await?;
+        self.read_xattr_data(&data, offset, buf).await
+    }
+
+    #[cfg(feature = "alloc")]
+    async fn open_xattr<'a>(&mut self, volume: &VolumeSuperblock, attr: &XattrRecord<'a>) -> FsResult<XattrData<'a>, D::Error> {
         if let Some(stream) = attr.stream {
             let extents = self.file_extents(volume, stream.id).await?;
-            return self.read_volume_extents_at(volume, &extents, stream.size, offset, buf).await;
+            self.check_volume_extents(volume, &extents)?;
+            return Ok(XattrData::Stream { size: stream.size, extents });
         }
-        let bytes = &attr.data[offset as usize..];
+        Ok(XattrData::Inline(attr.data))
+    }
+
+    #[cfg(feature = "alloc")]
+    async fn read_xattr_data(&mut self, data: &XattrData<'_>, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
+        let bytes = match data {
+            XattrData::Inline(bytes) => *bytes,
+            XattrData::Stream { size, extents } => return self.read_checked_extents_at(extents, *size, offset, buf).await,
+        };
+        let Some(bytes) = usize::try_from(offset).ok().and_then(|at| bytes.get(at..)) else { return Ok(0) };
         let count = buf.len().min(bytes.len());
         buf[..count].copy_from_slice(&bytes[..count]);
         Ok(count)
+    }
+
+    #[cfg(feature = "alloc")]
+    pub(crate) async fn compression_attribute(
+        &mut self, volume: &VolumeSuperblock, inode: u64,
+    ) -> FsResult<(crate::decmpfs::Header, OwnedEntry), D::Error> {
+        use crate::decmpfs;
+        let entry = self.xattr_entry(volume, inode, decmpfs::ATTRIBUTE).await?.ok_or_else(decmpfs::invalid)?;
+        let attr = XattrRecord::parse(&entry.key, &entry.value)?;
+        let mut bytes = [0; decmpfs::HEADER_SIZE];
+        if self.read_xattr_value(volume, &attr, 0, &mut bytes).await? != bytes.len() {
+            return Err(decmpfs::invalid().into());
+        }
+        Ok((decmpfs::Header::parse(&bytes)?, entry))
+    }
+
+    #[cfg(feature = "compression")]
+    async fn read_compression_bytes(
+        &mut self, data: &XattrData<'_>, offset: u64, buf: &mut [u8],
+    ) -> FsResult<(), D::Error> {
+        if self.read_xattr_data(data, offset, buf).await? != buf.len() {
+            return Err(crate::decmpfs::invalid().into());
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "compression")]
+    pub(crate) async fn read_compressed_at(
+        &mut self, volume: &VolumeSuperblock, inode: u64, header: crate::decmpfs::Header,
+        entry: &OwnedEntry, offset: u64, buf: &mut [u8],
+    ) -> FsResult<usize, D::Error> {
+        use crate::decmpfs::{self, CHUNK_SIZE, Layout};
+        let (codec, layout) = header.encoding()?;
+        let len = header.size.saturating_sub(offset).min(buf.len() as u64) as usize;
+        if len == 0 { return Ok(0); }
+        if layout == Layout::Attribute {
+            let attr = XattrRecord::parse(&entry.key, &entry.value)?;
+            let encoded_size = attr.len().checked_sub(decmpfs::HEADER_SIZE as u64).ok_or_else(decmpfs::invalid)?;
+            if encoded_size > CHUNK_SIZE as u64 + 1 || header.size > 4 * 1024 * 1024 {
+                return Err(ErrorKind::LimitExceeded.into());
+            }
+            let mut encoded = alloc::vec![0; encoded_size as usize];
+            let data = self.open_xattr(volume, &attr).await?;
+            self.read_compression_bytes(&data, decmpfs::HEADER_SIZE as u64, &mut encoded).await?;
+            let mut decoded = alloc::vec![0; header.size as usize];
+            codec.decode(&encoded, &mut decoded)?;
+            buf[..len].copy_from_slice(&decoded[offset as usize..offset as usize + len]);
+            return Ok(len);
+        }
+
+        let entry = self.xattr_entry(volume, inode, decmpfs::RESOURCE_FORK).await?.ok_or_else(decmpfs::invalid)?;
+        let attr = XattrRecord::parse(&entry.key, &entry.value)?;
+        let data = self.open_xattr(volume, &attr).await?;
+        let chunks = header.size.div_ceil(CHUNK_SIZE as u64);
+        let mut encoded = alloc::vec![0; CHUNK_SIZE + 1];
+        let mut decoded = alloc::vec![0; CHUNK_SIZE];
+        let fork = self.compression_fork(&data, attr.len(), layout, chunks).await?;
+        let mut pos = offset;
+        let mut written = 0;
+        while written < len {
+            let chunk = pos / CHUNK_SIZE as u64;
+            let start = chunk * CHUNK_SIZE as u64;
+            let size = (header.size - start).min(CHUNK_SIZE as u64) as usize;
+            let mut pair = [0; 8];
+            let step = if layout == Layout::ZlibFork { 8 } else { 4 };
+            self.read_compression_bytes(&data, fork.table + chunk * step, &mut pair).await?;
+            let first = u64::from(crate::types::le_u32(&pair, 0)?);
+            let second = u64::from(crate::types::le_u32(&pair, 4)?);
+            let from = fork.base + first;
+            let to = if layout == Layout::ZlibFork { from + second } else { second };
+            if from < fork.first || to > fork.end || to <= from || to - from > encoded.len() as u64 {
+                return Err(decmpfs::invalid().into());
+            }
+            let raw = &mut encoded[..(to - from) as usize];
+            self.read_compression_bytes(&data, from, raw).await?;
+            codec.decode(raw, &mut decoded[..size])?;
+            let within = (pos - start) as usize;
+            let take = (len - written).min(size - within);
+            buf[written..written + take].copy_from_slice(&decoded[within..within + take]);
+            written += take;
+            pos += take as u64;
+        }
+        Ok(written)
+    }
+
+    #[cfg(feature = "compression")]
+    async fn compression_fork(
+        &mut self, data: &XattrData<'_>, size: u64, layout: crate::decmpfs::Layout, chunks: u64,
+    ) -> FsResult<CompressionFork, D::Error> {
+        use crate::decmpfs::{Layout, invalid};
+        if layout == Layout::OffsetFork {
+            let mut first = [0; 4];
+            self.read_compression_bytes(data, 0, &mut first).await?;
+            let first = u64::from(u32::from_le_bytes(first));
+            if first < (chunks + 1) * 4 || first > size {
+                return Err(invalid().into());
+            }
+            return Ok(CompressionFork { table: 0, base: 0, first, end: size });
+        }
+        let mut header = [0; 16];
+        self.read_compression_bytes(data, 0, &mut header).await?;
+        let offset = u64::from(u32::from_be_bytes(crate::types::take(&header, 0)?));
+        let length = u64::from(u32::from_be_bytes(crate::types::take(&header, 8)?));
+        if offset < header.len() as u64 || length < 8 || offset + length > size {
+            return Err(invalid().into());
+        }
+        let mut head = [0; 8];
+        self.read_compression_bytes(data, offset, &mut head).await?;
+        let base = offset + 4;
+        let end = base + u64::from(u32::from_be_bytes(crate::types::take(&head, 0)?));
+        let table = base + 4;
+        let first = table + chunks * 8;
+        if end > offset + length || first > end || u64::from(crate::types::le_u32(&head, 4)?) != chunks {
+            return Err(invalid().into());
+        }
+        Ok(CompressionFork { table, base, first, end })
     }
 
     /// Returns every extent in a sealed volume's file extent tree, or none
@@ -1515,19 +1661,21 @@ where
             .inode_record(volume, inode)
             .await?
             .ok_or(ApfsError::InvalidValue("inode record not found"))?;
+        if inode.is_compressed() {
+            return Ok(self.compression_attribute(volume, inode.id).await?.0.size);
+        }
         let extents = self.file_extents(volume, inode.private_id).await?;
         Ok(filesystem::stream_size(&inode, &extents))
     }
 
-    /// Reads up to `max_bytes` from the start of an uncompressed file into
+    /// Reads up to `max_bytes` from the start of a file into
     /// one buffer, or fails if that much memory cannot be reserved. Holes read
-    /// as zeros. Use [`Self::read_extents_at`] to stream large files. Compressed files
-    /// return [`ErrorKind::Unsupported`].
+    /// as zeros. Use the mounted driver to stream large files.
     ///
     /// # Errors
     ///
     /// Returns an error if the inode or extents cannot be read, or memory
-    /// cannot be reserved. Compressed files and unsupported encryption
+    /// cannot be reserved. Unsupported compression and encryption
     /// return [`ErrorKind::Unsupported`]. Device errors propagate.
     #[cfg(feature = "alloc")]
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
@@ -1542,18 +1690,34 @@ where
             .await?
             .ok_or(ApfsError::InvalidValue("inode record not found"))?;
         if inode.is_compressed() {
+            #[cfg(not(feature = "compression"))]
             return Err(ApfsError::Unsupported("compressed file data").into());
+            #[cfg(feature = "compression")]
+            {
+                let (header, entry) = self.compression_attribute(volume, inode.id).await?;
+                header.encoding()?;
+                let mut output = Self::file_buffer(header.size, max_bytes)?;
+                let read = self.read_compressed_at(volume, inode.id, header, &entry, 0, &mut output).await?;
+                output.truncate(read);
+                return Ok(output);
+            }
         }
         let extents = self.file_extents(volume, inode.private_id).await?;
         let size = filesystem::stream_size(&inode, &extents);
+        let mut output = Self::file_buffer(size, max_bytes)?;
+        let read = self.read_volume_extents_at(volume, &extents, size, 0, &mut output).await?;
+        output.truncate(read);
+        Ok(output)
+    }
+
+    #[cfg(feature = "alloc")]
+    fn file_buffer(size: u64, max_bytes: usize) -> FsResult<alloc::vec::Vec<u8>, D::Error> {
         let len = usize::try_from(size).unwrap_or(usize::MAX).min(max_bytes);
         let mut output = alloc::vec::Vec::new();
         output
             .try_reserve_exact(len)
             .map_err(|_| ApfsError::InvalidValue("file is too large to read into memory"))?;
         output.resize(len, 0);
-        let read = self.read_volume_extents_at(volume, &extents, size, 0, &mut output).await?;
-        output.truncate(read);
         Ok(output)
     }
 
@@ -1604,6 +1768,12 @@ where
         offset: u64,
         buf: &mut [u8],
     ) -> FsResult<usize, D::Error> {
+        self.check_volume_extents(volume, extents)?;
+        self.read_checked_extents_at(extents, size, offset, buf).await
+    }
+
+    #[cfg(feature = "alloc")]
+    fn check_volume_extents(&self, volume: &VolumeSuperblock, extents: &[FileExtentRecord]) -> FsResult<(), D::Error> {
         #[cfg(feature = "encryption")]
         {
             self.check_unlocked_volume(volume)?;
@@ -1616,7 +1786,7 @@ where
         }
         #[cfg(not(feature = "encryption"))]
         let _ = volume;
-        self.read_extents_inner(extents, size, offset, buf, true).await
+        self.check_extents(extents, true)
     }
 
     #[cfg(feature = "alloc")]

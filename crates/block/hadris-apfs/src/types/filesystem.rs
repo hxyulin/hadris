@@ -243,8 +243,7 @@ impl InodeRecord {
         })
     }
 
-    /// Returns whether the file data is stored compressed (`decmpfs`), which
-    /// this reader does not decode.
+    /// Returns whether the file data is stored compressed (`decmpfs`).
     pub const fn is_compressed(&self) -> bool {
         self.bsd_flags & UF_COMPRESSED != 0
     }
