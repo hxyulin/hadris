@@ -152,6 +152,15 @@ fn open_file_reads_reuse_the_validated_base_record() {
         fs.close(node).await.unwrap();
         assert_eq!(fs.read(node, 0, &mut bytes).await.unwrap(), 5);
         assert!(fs.device().reads > reads);
+
+        let node = fs.lookup(fs.root(), Name::new("BIN.DAT")).await.unwrap();
+        fs.open(node, OpenMode::Read).await.unwrap();
+        let reads = fs.device().reads;
+        assert_eq!(fs.read(node, 1, &mut bytes).await.unwrap(), 2);
+        assert_eq!(&bytes[..2], b"in");
+        assert_eq!(fs.read(node, 0, &mut bytes).await.unwrap(), 3);
+        assert_eq!(&bytes[..3], b"bin");
+        assert_eq!(fs.device().reads, reads + 2);
     });
 }
 #[test]

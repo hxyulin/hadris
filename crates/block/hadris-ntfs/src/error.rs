@@ -193,6 +193,8 @@ mod tests {
             (Detail::AttributeList, 15),
             (Detail::OutsideVolume, 16),
             (Detail::ReparseData, 17),
+            (Detail::ReparseLink, 18),
+            (Detail::CompressionData, 19),
         ];
         assert_eq!(pinned.len(), Detail::ALL.len());
         for (detail, number) in pinned {
