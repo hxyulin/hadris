@@ -535,7 +535,7 @@ async fn integrity<D: BlockDevice>(
     len: u64,
     block_size: u32,
     mut next: raw::ExtentAd,
-    partitions: usize,
+    partitions: &[PartitionInfo],
 ) -> Integrity {
     let mut found = Integrity::default();
     let mut buf = [0u8; MAX_BLOCK];
@@ -567,7 +567,7 @@ async fn integrity<D: BlockDevice>(
                 _ => return Integrity::default(),
             }
             let lvid: LogicalVolumeIntegrityDescriptor = bytemuck::pod_read_unaligned(&data[..80]);
-            let count = (lvid.partition_count.get() as usize).min(partitions);
+            let count = (lvid.partition_count.get() as usize).min(partitions.len());
             let Some(table) = data.get(80..80 + 4 * count) else {
                 return Integrity::default();
             };
@@ -575,6 +575,9 @@ async fn integrity<D: BlockDevice>(
                 .then(|| {
                     table
                         .chunks_exact(4)
+                        .zip(partitions)
+                        .filter(|(_, partition)| matches!(partition.kind(), PartitionKind::Physical | PartitionKind::Sparable))
+                        .map(|(value, _)| value)
                         .map(|v| u32::from_le_bytes([v[0], v[1], v[2], v[3]]))
                         .try_fold(0u64, |sum, v| (v != u32::MAX).then_some(sum + u64::from(v)))
                 })
@@ -922,7 +925,7 @@ async fn mount<D: BlockDevice>(dev: &mut D, backup: bool) -> Result<Info, Error<
     if !root.is_dir() {
         return Err(Detail::FileSet.corrupt());
     }
-    let integrity = integrity(dev, len, block_size, lvd.integrity_sequence, count).await;
+    let integrity = integrity(dev, len, block_size, lvd.integrity_sequence, info.partitions()).await;
     info.free_blocks = integrity.free;
     info.volume.was_dirty = integrity.open;
     info.volume.integrity_recorded = integrity.recorded;

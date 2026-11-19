@@ -172,6 +172,14 @@ fn metadata_partitions_read_the_mirror_when_descriptors_are_damaged() {
     map[58] = 1;
     set_partition_map(&mut bytes, &map, true);
     set_partition_end(&mut bytes, end);
+    let integrity = sector(&mut bytes, PARTITION - 1);
+    integrity[72..76].copy_from_slice(&2u32.to_le_bytes());
+    integrity[76..80].copy_from_slice(&0u32.to_le_bytes());
+    integrity[80..84].copy_from_slice(&7u32.to_le_bytes());
+    integrity[84..88].copy_from_slice(&u32::MAX.to_le_bytes());
+    integrity[88..92].copy_from_slice(&((end - PARTITION) as u32).to_le_bytes());
+    integrity[92..96].copy_from_slice(&(blocks as u32).to_le_bytes());
+    reseal(&mut bytes, PARTITION - 1, 80);
     write_special(
         &mut bytes,
         free,
@@ -196,6 +204,9 @@ fn metadata_partitions_read_the_mirror_when_descriptors_are_damaged() {
     let mut udf = open(bytes.clone());
     let kind = hadris_udf::PartitionKind::Metadata;
     assert_eq!(udf.info().partitions()[1].kind(), kind);
+    let stats = hadris_fs::sync::FileSystem::statfs(&mut udf).unwrap();
+    assert_eq!(stats.total_blocks(), end - PARTITION);
+    assert_eq!(stats.free_blocks(), 7);
     assert_eq!(udf.read_to_vec("/f.bin").unwrap(), pattern(5000, 7));
     let node = udf.resolve_path("/f.bin").unwrap();
     let mut out = [hadris_fs::Extent::new(0, 0)];
