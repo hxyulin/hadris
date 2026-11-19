@@ -471,6 +471,86 @@ fn export_rejects_outside_source_before_writing() {
     assert_eq!(out.into_inner(), initial);
 }
 
+#[test]
+fn export_session_uses_disc_addresses_and_writes_only_the_session_payload() {
+    let initial_opts = IsoOptions::new().with_rock_ridge();
+    let source = image(&sample(false, false), &initial_opts).into_inner();
+    let mut session = Session::open(MemDevice::new(source.clone(), common::SECTOR)).unwrap();
+    let start = session.volume_blocks() + 32;
+    let reused = session
+        .tree()
+        .get("readme.txt")
+        .unwrap()
+        .content()
+        .unwrap()
+        .stored_extents()
+        .unwrap()[0];
+    session
+        .tree_mut()
+        .insert("added.txt", Node::file(Content::bytes("session data")))
+        .unwrap();
+    let opts = initial_opts.with_el_torito(
+        ElTorito::new()
+            .with_entry(BootEntry::bios("boot/boot.img").with_boot_info(BootInfo::Table)),
+    );
+    let mut out = MemDevice::new(vec![0xA5; 1 << 20], common::SECTOR);
+    let report = session.export_session(&mut out, &opts, start).unwrap();
+    assert_eq!(report.extents("readme.txt").unwrap(), &[reused]);
+    assert_eq!(out.get_ref()[..16 * 2048], [0; 16 * 2048]);
+    assert_eq!(&out.get_ref()[16 * 2048 + 1..16 * 2048 + 6], b"CD001");
+    let boot =
+        report.extents("boot/boot.img").unwrap()[0].offset() as usize - start as usize * 2048;
+    assert_eq!(
+        u32::from_le_bytes(out.get_ref()[boot + 8..boot + 12].try_into().unwrap()),
+        start as u32 + 16
+    );
+    let mut exact = MemDevice::new(vec![0; report.size() as usize], common::SECTOR);
+    assert_eq!(
+        session.export_session(&mut exact, &opts, start).unwrap(),
+        report
+    );
+    assert_eq!(exact.get_ref(), &out.get_ref()[..report.size() as usize]);
+    assert_eq!(session.into_inner().into_inner(), source);
+
+    let mut combined = source;
+    combined.resize(start as usize * 2048, 0);
+    combined.extend_from_slice(exact.get_ref());
+    // Readers without a session table look for the descriptor set at LBA 16.
+    combined[16 * 2048..19 * 2048].copy_from_slice(&exact.get_ref()[16 * 2048..19 * 2048]);
+    let mut iso = IsoFs::mount(
+        MemDevice::new(combined, common::SECTOR),
+        MountOptions::new(),
+    )
+    .unwrap();
+    assert_eq!(iso.read_to_vec("/readme.txt").unwrap(), b"hello world\n");
+    assert_eq!(iso.read_to_vec("/added.txt").unwrap(), b"session data");
+}
+
+#[test]
+fn export_session_rejects_overlaps_and_small_outputs_before_writing() {
+    use hadris_fs::ErrorKind;
+
+    let opts = IsoOptions::new().with_rock_ridge();
+    let mut session = Session::open(image(&sample(false, false), &opts)).unwrap();
+    let mut out = MemDevice::new(vec![0xA5; 2048], common::SECTOR);
+    let old = session.volume_blocks();
+    assert_eq!(
+        session
+            .export_session(&mut out, &opts, old - 1)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::InvalidInput
+    );
+    assert_eq!(
+        session
+            .export_session(&mut out, &opts, old)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::NoSpace
+    );
+    assert_eq!(out.get_ref(), &[0xA5; 2048]);
+}
+
 #[cfg(feature = "async")]
 #[test]
 fn async_export_matches_sync() {

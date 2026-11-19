@@ -65,7 +65,8 @@
 //! `Session` (in each mode, with the `write` feature) reads an existing image into a
 //! tree whose files point back at their extents, and writes it back after
 //! changes: as a new session after the old one ([`SessionMode::Append`]),
-//! or rebuilt in place ([`SessionMode::Rewrite`]).
+//! or rebuilt in place ([`SessionMode::Rewrite`]). `Session::export_session`
+//! writes the new session to a separate device for a chosen disc address.
 //!
 //! Reading fails with [`hadris_fs::Error`]; [`Detail::of`] names the
 //! structure or option at fault, and a device whose first volume descriptor

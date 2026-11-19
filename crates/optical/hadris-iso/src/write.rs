@@ -61,7 +61,7 @@ pub async fn write_prepared<D: BlockDevice>(mut out: D, prepared: PreparedIso<'_
 /// Checks that `out` can hold the planned image.
 pub(crate) fn check_output<D: BlockDevice>(out: &D, plan: &Plan) -> Result<(), PathError> {
     let per_sector = (SECTOR_SIZE / out.block_size().get() as usize) as u64;
-    if plan.total_blocks.saturating_mul(per_sector) > out.max_block_count() {
+    if (plan.total_blocks - plan.output_start).saturating_mul(per_sector) > out.max_block_count() {
         return Err(PathError::new(ErrorKind::NoSpace, "the output device is smaller than the image"));
     }
     Ok(())
@@ -121,17 +121,17 @@ pub(crate) async fn emit_from<D: BlockDevice, S: BlockDevice>(
     plan: &Plan,
     mut source: Option<&mut S>,
 ) -> Result<(), PathError> {
-    let mut next = plan.regions.first().map_or(0, Region::block);
-    if plan.fill_gaps {
-        next = 0;
-    }
+    let start = plan.output_start;
+    let pvd_lba = u32::try_from(start + u64::from(raw::DESCRIPTOR_START))
+        .map_err(|_| Detail::ImageTooLarge.invalid::<Infallible>())?;
+    let mut next = if plan.fill_gaps { start } else { plan.regions.first().map_or(start, Region::block) };
     let mut buf = vec![0u8; CHUNK];
     for region in &plan.regions {
-        if region.block() < next {
+        if region.block() < next || region.block() < start {
             return Err(Detail::Session.corrupt::<Infallible>().into());
         }
         if plan.fill_gaps {
-            zero(out, next, region.block(), &mut buf).await?;
+            zero(out, next - start, region.block() - start, &mut buf).await?;
         }
         match region {
             Region::Bytes { block, data } => {
@@ -143,20 +143,20 @@ pub(crate) async fn emit_from<D: BlockDevice, S: BlockDevice>(
                     padded.resize(data.len().div_ceil(SECTOR_SIZE) * SECTOR_SIZE, 0);
                     &padded[..]
                 };
-                write_sectors(out, *block, data).await?;
+                write_sectors(out, *block - start, data).await?;
             }
             Region::File { block, path, len, info } => {
                 let content = planned_content(tree, path, *len)?;
-                file(out, content, *block, *info, &mut buf, source.as_deref_mut()).await.map_err(|err| err.with_path(path))?;
+                file(out, content, *block - start, pvd_lba, *info, &mut buf, source.as_deref_mut()).await.map_err(|err| err.with_path(path))?;
             }
             Region::Content { block, content, info } => {
-                file(out, content, *block, *info, &mut buf, source.as_deref_mut()).await?;
+                file(out, content, *block - start, pvd_lba, *info, &mut buf, source.as_deref_mut()).await?;
             }
         }
         next = region.block() + region.blocks();
     }
     if plan.fill_gaps {
-        zero(out, next, plan.total_blocks, &mut buf).await?;
+        zero(out, next - start, plan.total_blocks - start, &mut buf).await?;
     }
     out.flush().await?;
     Ok(())
@@ -269,6 +269,7 @@ async fn file<D: BlockDevice, S: BlockDevice>(
     out: &mut D,
     content: &Content,
     block: u64,
+    pvd_lba: u32,
     info: Option<InfoTable>,
     buf: &mut [u8],
     source: Option<&mut S>,
@@ -283,7 +284,7 @@ async fn file<D: BlockDevice, S: BlockDevice>(
             let grub2 = (info.kind == BootInfo::Grub2).then(|| (u64::from(info.block) * 4 + 5).to_le_bytes());
             let sum = checksum(out, &mut reader, len, grub2.as_ref(), buf).await?;
             let table = raw::Grub2BootInfoTable {
-                pvd_lba: raw::U32Le::new(raw::DESCRIPTOR_START),
+                pvd_lba: raw::U32Le::new(pvd_lba),
                 file_lba: raw::U32Le::new(info.block),
                 file_len: raw::U32Le::new(info.len),
                 checksum: raw::U32Le::new(sum),

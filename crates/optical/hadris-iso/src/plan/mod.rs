@@ -160,6 +160,8 @@ pub(crate) struct Plan {
     /// The block after the ISO data, where a backup GPT region starts.
     pub(crate) end_blocks: u64,
     pub(crate) total_blocks: u64,
+    /// The disc block written at byte zero of the output device.
+    pub(crate) output_start: u64,
     pub(crate) fill_gaps: bool,
     pub(crate) report: Report,
 }
