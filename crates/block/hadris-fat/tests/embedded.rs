@@ -247,7 +247,7 @@ fn stale_nodes_are_invalid_handles() {
         .unwrap();
         let listed = listed.unwrap();
         fat.remove_file(root, "a.txt").unwrap();
-        write_file(&mut fat, root, "b.txt", b"new data");
+        write_file(&mut fat, root, "a.txt", b"new data");
         let mut current = None;
         fat.list(root, DirCursor::START, |entry| {
             current = Some(entry.node());

@@ -152,6 +152,7 @@ pub struct Fat<'mount, D, const FILES: usize = 4> {
     run: Option<Run>,
     rename: Option<Rename>,
     next_generation: u16,
+    listing_generation: u64,
     read_only: bool,
     was_dirty: bool,
 }
@@ -219,6 +220,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
             run: None,
             rename: None,
             next_generation: 0,
+            listing_generation: 0,
             was_dirty,
         })
     }
@@ -350,7 +352,8 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
                     &short[..len]
                 }
             };
-            let entry = Entry::new(self.owner, name, found.entry, found.offset, found.slot as u64 + 1, zone);
+            let node = Node { owner: self.owner, dir: start, slot: found.slot, generation: self.listing_generation };
+            let entry = Entry::new(node, name, found.entry, zone);
             if each(&entry).is_break() {
                 break;
             }
@@ -396,11 +399,9 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         self.open_entry(index, offset, &entry, options).await
     }
 
-    /// Opens the file a listed [`Entry`] names, without a lookup. The
-    /// position is valid until its directory changes; a position that no
-    /// longer holds a file fails with [`ErrorKind::NotFound`], and a node of
-    /// another mount, or whose slot now holds an entry with another short
-    /// name, creation time or type, with [`ErrorKind::InvalidHandle`].
+    /// Opens a listed file without a name lookup. A token from before a
+    /// removal or rename, or from another mount, fails with
+    /// [`ErrorKind::InvalidHandle`].
     /// `create_new` fails with [`ErrorKind::AlreadyExists`].
     ///
     /// # Errors
@@ -417,13 +418,16 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         if options.is_write() {
             self.writable()?;
         }
-        let index = self.free_slot()?;
-        let offset = node.offset();
-        if !node.belongs_to(self.owner) || !crate::names::in_directory_region(self.fat.geometry(), offset) {
+        if !core::ptr::eq(node.owner, self.owner) || node.generation != self.listing_generation || node.generation == u64::MAX {
             return Err(ErrorKind::InvalidHandle.into());
         }
-        let entry = self.visible_at(offset).await?.ok_or(ErrorKind::NotFound)?;
-        if crate::names::entry_tag(&entry) != node.tag() || !crate::names::plausible_entry(&entry, self.fat.geometry()) {
+        let index = self.free_slot()?;
+        let mut walk = DirWalk::new(node.dir);
+        let offset = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, node.slot)
+            .await?
+            .ok_or(ErrorKind::InvalidHandle)?;
+        let entry = self.visible_at(offset).await?.ok_or(ErrorKind::InvalidHandle)?;
+        if !crate::names::plausible_entry(&entry, self.fat.geometry()) {
             return Err(ErrorKind::InvalidHandle.into());
         }
         self.open_entry(index, offset, &entry, options).await
@@ -883,6 +887,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
             rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, plan.start + plan.slots).await?.unwrap_or(0)
         } else { 0 };
         let (old_parent, new_parent) = (self.parent_cluster(from_start), self.parent_cluster(to_start));
+        self.invalidate_listings();
         self.run = Some(Run { dir: to_start, first: plan.start, short: plan.start + plan.slots - 1 });
         self.rename = Some(Rename {
             source: Run { dir: from_start, first: src.first, short: src.slot },
@@ -1780,6 +1785,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         if self.open_slot(found.offset).is_some() {
             return Err(ErrorKind::Busy.into());
         }
+        self.invalidate_listings();
         let first = found.entry.first_cluster(self.kind());
         if first != 0 {
             self.pending = Pending::chain(first, Owner::Entry(found.offset));
@@ -2042,9 +2048,22 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         Ok(())
     }
 
+    fn invalidate_listings(&mut self) {
+        self.listing_generation = self.listing_generation.saturating_add(1);
+    }
+
     async fn finish_rename(&mut self) -> FsResult<(), D::Error> {
         let Some(mut rename) = self.rename else { return Ok(()); };
-        rename.phase = dirs::recover_rename(&mut self.dev, &mut self.block, rename.phase, rename.destination, &rename.expected).await?;
+        self.invalidate_listings();
+        rename.phase = match rename.phase {
+            RenamePhase::Inserting => RenamePhase::RollingBack,
+            RenamePhase::Publishing => {
+                if self.visible_at(rename.destination).await?.is_some_and(|entry| entry.encode() == rename.expected) {
+                    RenamePhase::Committed
+                } else { RenamePhase::RollingBack }
+            }
+            decided => decided,
+        };
         self.rename = Some(rename);
         if rename.phase == RenamePhase::RollingBack {
             if let Some(run) = self.run {

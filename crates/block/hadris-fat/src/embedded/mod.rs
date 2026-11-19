@@ -305,25 +305,22 @@ impl<'mount> File<'mount> {
     }
 }
 
-/// Where a listed entry is: valid for `open_node` on its mount until its
-/// directory changes. It carries the mount identity, as a [`File`] does,
-/// and a tag of the entry's short name, creation time and type, so a node
-/// from another mount, or one whose slot now holds an entry that differs in
-/// those, fails with `InvalidHandle`. A new file in the slot with the same
-/// short name and creation time, as under the default clock, is not
-/// detected.
+/// A listed entry on one mount. A removal or rename on that mount
+/// invalidates listing tokens. Open files keep their own identities.
 #[derive(Debug, Clone, Copy)]
 pub struct Node<'mount> {
     owner: &'mount MountToken,
-    offset: u64,
-    tag: u32,
+    dir: DirStart,
+    slot: u32,
+    generation: u64,
 }
 
 impl PartialEq for Node<'_> {
     fn eq(&self, other: &Self) -> bool {
         core::ptr::eq(self.owner, other.owner)
-            && self.offset == other.offset
-            && self.tag == other.tag
+            && self.dir == other.dir
+            && self.slot == other.slot
+            && self.generation == other.generation
     }
 }
 
@@ -332,30 +329,15 @@ impl Eq for Node<'_> {}
 impl core::hash::Hash for Node<'_> {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         core::ptr::hash(self.owner, state);
-        self.offset.hash(state);
-        self.tag.hash(state);
-    }
-}
-
-impl<'mount> Node<'mount> {
-    pub(crate) fn new(owner: &'mount MountToken, offset: u64, entry: &ShortEntry) -> Self {
-        Self {
-            owner,
-            offset,
-            tag: crate::names::entry_tag(entry),
+        match self.dir {
+            DirStart::Fixed { start, slots } => {
+                start.hash(state);
+                slots.hash(state);
+            }
+            DirStart::Chain(first) => first.hash(state),
         }
-    }
-
-    pub(crate) fn belongs_to(&self, owner: &MountToken) -> bool {
-        core::ptr::eq(self.owner, owner)
-    }
-
-    pub(crate) const fn offset(self) -> u64 {
-        self.offset
-    }
-
-    pub(crate) const fn tag(self) -> u32 {
-        self.tag
+        self.slot.hash(state);
+        self.generation.hash(state);
     }
 }
 
@@ -363,29 +345,23 @@ impl<'mount> Node<'mount> {
 /// `list`.
 #[derive(Debug)]
 pub struct Entry<'a, 'mount> {
-    owner: &'mount MountToken,
+    node: Node<'mount>,
     name: &'a [u16],
     short: ShortEntry,
-    offset: u64,
-    next: u64,
     zone: Option<i16>,
 }
 
 impl<'a, 'mount> Entry<'a, 'mount> {
     pub(crate) const fn new(
-        owner: &'mount MountToken,
+        node: Node<'mount>,
         name: &'a [u16],
         short: ShortEntry,
-        offset: u64,
-        next: u64,
         zone: Option<i16>,
     ) -> Self {
         Self {
-            owner,
+            node,
             name,
             short,
-            offset,
-            next,
             zone,
         }
     }
@@ -447,12 +423,12 @@ impl<'a, 'mount> Entry<'a, 'mount> {
 
     /// The entry's position, for `open_node`.
     pub fn node(&self) -> Node<'mount> {
-        Node::new(self.owner, self.offset, &self.short)
+        self.node
     }
 
     /// Where a `list` continues after this entry.
     pub fn next_cursor(&self) -> DirCursor {
-        DirCursor::from_raw(self.next)
+        DirCursor::from_raw(u64::from(self.node.slot) + 1)
     }
 }
 

@@ -81,7 +81,8 @@ vol.lock()?.sync()?;
   found by it.
 - `with_node_limit` caps the pinned and open nodes; past it `lookup`,
   `create` and `mkdir` fail with `ErrorKind::LimitExceeded`. The table is
-  unbounded otherwise.
+  unbounded otherwise. FAT also keeps a locator for each issued node ID
+  until its directory entry is retired. IDs are local to the mounted driver.
 
 ```rust,no_run
 use hadris_fat::sync::FatFs;
@@ -378,6 +379,10 @@ to a callback. Names fold ASCII case unless
 Unicode, so the Unicode case tables stay out of flash. The async variant
 takes a `hadris_storage::async_::BlockDevice`, whose futures need not be
 `Send`. The device's blocks must be 512 bytes.
+
+A listed FAT node token belongs to one mount. A removal or rename anywhere
+on that mount invalidates previous listing tokens. Open files keep their own
+identities.
 
 ```rust,ignore
 use hadris_fat::embedded::{MountToken, sync::Fat};

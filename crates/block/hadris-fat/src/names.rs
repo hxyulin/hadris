@@ -17,18 +17,6 @@ pub(crate) const ATTR_MAPPED: [(u8, Attributes); 4] = [
     (raw::ATTR_ARCHIVE, Attributes::ARCHIVE),
 ];
 
-/// Whether the slot at byte `offset` can hold a directory entry: it is
-/// aligned to an entry and lies in the fixed root directory or the cluster
-/// heap.
-pub(crate) fn in_directory_region(geo: &raw::Geometry, offset: u64) -> bool {
-    let in_root = matches!(
-        geo.root(),
-        raw::RootLocation::Fixed { start, size } if (start..start + size).contains(&offset)
-    );
-    offset % raw::ENTRY_SIZE as u64 == 0
-        && (in_root || (geo.data_start()..geo.data_end()).contains(&offset))
-}
-
 /// Whether a visible short entry decoded from a node locator is one a FAT
 /// driver could have written: its name has no control bytes and does not
 /// start with a space, the reserved attribute bits are clear, and its first
@@ -43,26 +31,6 @@ pub(crate) fn plausible_entry(entry: &ShortEntry, geo: &raw::Geometry) -> bool {
     let first = entry.first_cluster(geo.kind());
     let first_ok = first == 0 || (first >= raw::FIRST_DATA_CLUSTER && first <= geo.max_cluster());
     name_ok && entry.attributes() & 0xC0 == 0 && first_ok
-}
-
-/// A 32-bit FNV-1a hash of the parts of a short entry that stay fixed while
-/// it lives in its slot: the stored name, the creation time and whether it
-/// is a directory. Node locators carry it, so a locator whose slot now holds
-/// an entry that differs in one of those, or bytes that only look like an
-/// entry, is refused. The long name is not covered: with a clock that does
-/// not move, such as the default `NoClock`, a new entry that takes the slot
-/// and the same `~N` short name of a removed one gets the same tag.
-pub(crate) fn entry_tag(entry: &ShortEntry) -> u32 {
-    let (date, time, tenths) = entry.created();
-    let [d0, d1] = date.to_le_bytes();
-    let [t0, t1] = time.to_le_bytes();
-    let name = entry.name();
-    let rest = [tenths, t0, t1, d0, d1, entry.is_dir() as u8];
-    name.iter()
-        .chain(rest.iter())
-        .fold(0x811c_9dc5, |hash: u32, &byte| {
-            (hash ^ byte as u32).wrapping_mul(0x0100_0193)
-        })
 }
 
 /// The boot sector's label when the volume has none.

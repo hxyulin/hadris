@@ -372,7 +372,7 @@ fn unpinned_ids_from_listings_and_bad_handles() {
     assert_eq!(buf[..], common::payload(4, 2)[..]);
 
     for bad in [
-        NodeId::new(2).unwrap(),
+        NodeId::new(1 << 25).unwrap(),
         NodeId::new(1 << 59).unwrap(),
         NodeId::new(1 << 63).unwrap(),
         NodeId::new(u64::MAX).unwrap(),

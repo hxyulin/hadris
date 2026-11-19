@@ -43,6 +43,9 @@ Each published package owns its version and may be released independently.
   `None`; only a zeroed block ends an extent early. The crate advances to `3.0.0-rc.4`.
 - **hadris:** Advances to `3.0.0-rc.4` for the re-exported format APIs.
 
+- **hadris-fat:** Embedded FAT listing tokens expire after a removal or
+  rename anywhere on the same mount. Open file handles keep their identities.
+
 ### Changed
 
 - **hadris-iso, hadris-udf:** `PreparedIso` and `write_prepared` retain and
@@ -73,6 +76,9 @@ Each published package owns its version and may be released independently.
 - **hadris-fs:** Async tree copy and sync `VolumeGuard::copy_tree` can copy
   lazy files within one volume. `ContentReader::read_at_with_guard` reads
   through an existing guard in either mode.
+
+- **hadris-fat:** FAT directory IDs verify that their slots belong to the
+  directory and reject stale IDs after a slot is reused.
 
 ## [3.0.0-rc.3] - 2026-11-04
 
