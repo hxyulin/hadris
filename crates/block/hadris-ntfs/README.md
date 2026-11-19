@@ -57,7 +57,9 @@ references, so they are stable and hard links share one.
   `ReadOnly`.
 - The driver uses `$MFTMirr` to recover record zero. It does not consult the
   `$Mft` bitmap.
-- Compressed and encrypted streams fail with `Unsupported`.
+- LZNT1-compressed streams are decoded when read. Encrypted streams and
+  streams whose payload is stored by WOF or Data Deduplication return
+  `Unsupported`.
 - Symbolic links and junctions appear as symlinks. `read_windows_link`
   returns the original Windows target. The shared resolver follows targets
   relative to the mounted volume.

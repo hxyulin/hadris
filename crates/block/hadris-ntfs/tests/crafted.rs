@@ -816,7 +816,7 @@ fn index_roots_in_extension_records_are_followed() {
 }
 
 #[test]
-fn compressed_and_encrypted_streams_are_unsupported() {
+fn unsupported_compression_and_encryption_are_reported() {
     for flag in [raw::ATTR_FLAG_COMPRESSED, raw::ATTR_FLAG_ENCRYPTED] {
         let mut image = base_image();
         let mut bin = non_resident(
@@ -840,6 +840,87 @@ fn compressed_and_encrypted_streams_are_unsupported() {
         );
         assert_eq!(fs.metadata("/BIN.DAT").unwrap().len(), 3);
     }
+}
+
+fn compressed_attribute(mut attr: Vec<u8>, allocated: u64) -> Vec<u8> {
+    attr[0x0C..0x0E].copy_from_slice(&raw::ATTR_FLAG_COMPRESSED.to_le_bytes());
+    attr[0x22] = 4;
+    attr[0x28..0x30].copy_from_slice(&allocated.to_le_bytes());
+    attr
+}
+
+#[test]
+fn lznt1_reads_compressed_sparse_and_stored_units_at_offsets() {
+    let mut image = base_image();
+    let unit = 16 * SECTOR;
+    let lcn = 130;
+    let data_at = lcn * SECTOR;
+    let stored_at = (lcn + 16) * SECTOR;
+    let packed = [
+        0x03, 0xB0, 0x02, b'A', 0xFC, 0x0F, 0x03, 0xB0, 0x02, b'B', 0xFC, 0x0F,
+    ];
+    image[data_at..data_at + packed.len()].copy_from_slice(&packed);
+    image[stored_at..stored_at + unit].fill(b'C');
+    let runs = [0x21, 1, lcn as u8, 0, 0x01, 31, 0x11, 16, 16, 0];
+    let size = (unit * 3) as u64;
+    let initialized = (unit * 2 + 3000) as u64;
+    let data = compressed_attribute(
+        non_resident(raw::ATTR_DATA, &[], 47, size, initialized, &runs),
+        size,
+    );
+    put(
+        &mut image,
+        18,
+        &file_record(FILE, &[named(5, "BIN.DAT", false), data]),
+    );
+    let mut fs = open(image.clone());
+    let file = fs.lookup(fs.root(), name("BIN.DAT")).unwrap();
+    let mut range = [0; 20];
+    assert_eq!(fs.read(file, 4090, &mut range).unwrap(), 20);
+    assert_eq!(&range[..6], &[b'A'; 6]);
+    assert_eq!(&range[6..], &[b'B'; 14]);
+    let bytes = fs.read_to_vec("/BIN.DAT").unwrap();
+    assert_eq!(bytes.len(), size as usize);
+    assert_eq!(&bytes[..4096], &[b'A'; 4096]);
+    assert_eq!(&bytes[4096..unit], &[b'B'; 4096]);
+    assert_eq!(&bytes[unit..unit * 2], &[0; 8192]);
+    assert_eq!(&bytes[unit * 2..initialized as usize], &[b'C'; 3000]);
+    assert!(bytes[initialized as usize..].iter().all(|&byte| byte == 0));
+    image[data_at + 5] = 0xF0;
+    let mut fs = open(image);
+    let file = fs.lookup(fs.root(), name("BIN.DAT")).unwrap();
+    assert_eq!(
+        Detail::of(&fs.read(file, 0, &mut range).unwrap_err()),
+        Some(Detail::CompressionData)
+    );
+}
+
+#[test]
+fn lznt1_units_can_span_attribute_list_extents() {
+    let mut image = base_image();
+    let size = 8192;
+    let first = non_resident(raw::ATTR_DATA, &[], 0, size, size, &[0x21, 1, 130, 0, 0]);
+    let first = with_id(compressed_attribute(first, size), 1);
+    let second = non_resident(raw::ATTR_DATA, &[], 15, 0, 0, &[0x01, 15, 0]);
+    let second = starting_at(compressed_attribute(second, 0), 1);
+    let mut entries = list_entry(raw::ATTR_FILE_NAME, &[], 0, 18, 2);
+    entries.extend(list_entry(raw::ATTR_DATA, &[], 0, 18, 1));
+    entries.extend(list_entry(raw::ATTR_DATA, &[], 1, 22, 0));
+    let list = resident(raw::ATTR_ATTRIBUTE_LIST, &[], &entries);
+    put(
+        &mut image,
+        18,
+        &file_record(FILE, &[list, with_id(named(5, "BIN.DAT", false), 2), first]),
+    );
+    put(&mut image, 22, &file_record(FILE, &[second]));
+    let packed = [
+        0x03, 0xB0, 0x02, b'A', 0xFC, 0x0F, 0x03, 0xB0, 0x02, b'B', 0xFC, 0x0F,
+    ];
+    image[130 * SECTOR..130 * SECTOR + packed.len()].copy_from_slice(&packed);
+    let mut fs = open(image);
+    let bytes = fs.read_to_vec("/BIN.DAT").unwrap();
+    assert_eq!(&bytes[..4096], &[b'A'; 4096]);
+    assert_eq!(&bytes[4096..], &[b'B'; 4096]);
 }
 
 #[test]

@@ -57,6 +57,9 @@ Each published package owns its version and may be released independently.
 - **hadris-ntfs:** Directory lookup follows the relevant B-tree branches
   and preserves exact spelling preference among names tied by case folding.
 
+- **hadris-ntfs:** Reads decode LZNT1-compressed streams, including units
+  split across attribute-list extents.
+
 - **hadris-iso:** `Hybrid::with_grub2_bootstrap` patches the MBR boot code
   with the boot image address GRUB2 expects.
 

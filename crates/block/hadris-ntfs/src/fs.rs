@@ -110,21 +110,83 @@ struct Head {
     flags: u16,
     size: u64,
     initialized: u64,
+    allocated: u64,
+    compression_shift: u8,
     place: Place,
 }
 
 impl Head {
     fn of(attr: &Attr<'_>, place: Place) -> Self {
-        let (size, initialized) = match attr.body {
-            Body::Resident(value) => (value.len() as u64, value.len() as u64),
-            Body::NonResident(nr) => (nr.data_size, nr.initialized_size.min(nr.data_size)),
+        let (size, initialized, allocated, compression_shift) = match attr.body {
+            Body::Resident(value) => (value.len() as u64, value.len() as u64, 0, 0),
+            Body::NonResident(nr) => (
+                nr.data_size,
+                nr.initialized_size.min(nr.data_size),
+                nr.allocated_size,
+                nr.compression_shift,
+            ),
         };
         Self {
             flags: attr.flags,
             size,
             initialized,
+            allocated,
+            compression_shift,
             place,
         }
+    }
+}
+
+struct UnitCoverage {
+    end: u64,
+    seen: u64,
+    stored: u64,
+}
+
+impl UnitCoverage {
+    fn add<E>(
+        &mut self,
+        nr: &record::NonResident<'_>,
+        geo: &Geometry,
+        limit: u64,
+    ) -> FsResult<(), E> {
+        let mut start = nr
+            .start_vcn
+            .checked_mul(geo.cluster_size)
+            .ok_or(Detail::DataRun)?;
+        let end = self.end.min(limit);
+        for run in Runs::new(nr.runs) {
+            if self.seen >= end {
+                break;
+            }
+            let run = run?;
+            let next = run
+                .len
+                .checked_mul(geo.cluster_size)
+                .and_then(|len| start.checked_add(len))
+                .ok_or(Detail::DataRun)?;
+            if next > self.seen {
+                if start > self.seen {
+                    return Err(Detail::DataRun.into());
+                }
+                let to = next.min(end);
+                if let Some(lcn) = run.lcn {
+                    if self.stored != self.seen {
+                        return Err(Detail::CompressionData.into());
+                    }
+                    if lcn
+                        .checked_add(run.len)
+                        .is_none_or(|end| end > geo.total_clusters)
+                    {
+                        return Err(Detail::OutsideVolume.into());
+                    }
+                    self.stored = to;
+                }
+                self.seen = to;
+            }
+            start = next;
+        }
+        Ok(())
     }
 }
 
@@ -612,7 +674,7 @@ async fn listed_stream_head<D: BlockDevice>(
 }
 
 /// Reads from byte `offset` of a value `stream_head` found, and returns how
-/// many bytes it read. Compressed and encrypted values are unsupported.
+/// many bytes it read.
 #[allow(clippy::too_many_arguments)]
 async fn stream_read<D: BlockDevice>(
     dev: &mut D,
@@ -625,12 +687,26 @@ async fn stream_read<D: BlockDevice>(
     offset: u64,
     buf: &mut [u8],
 ) -> Result<usize, Error<D::Error>> {
-    if head.flags & raw::ATTR_FLAG_COMPRESSED != 0 {
-        return Err(Detail::Compressed.into());
-    }
     if head.flags & raw::ATTR_FLAG_ENCRYPTED != 0 {
         return Err(Detail::Encrypted.into());
     }
+    if head.flags & raw::ATTR_FLAG_COMPRESSED != 0 && !matches!(head.place, Place::Resident(..)) {
+        if kind != raw::ATTR_DATA { return Err(Detail::Compressed.into()); }
+        let compressed = read_compressed(dev, info, rec, base, name, head, offset, buf);
+        async_only! {
+            #[cfg(feature = "alloc")]
+            let compressed = alloc::boxed::Box::pin(compressed);
+        }
+        return compressed.await;
+    }
+    stream_payload(dev, info, rec, base, kind, name, head, offset, buf).await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn stream_payload<D: BlockDevice>(
+    dev: &mut D, info: &Info, rec: &[u8], base: u64, kind: u32, name: &[u8],
+    head: &Head, offset: u64, buf: &mut [u8],
+) -> FsResult<usize, D::Error> {
     match head.place {
         Place::Resident(record, slot) => {
             let mut ext = [0u8; MAX_RECORD];
@@ -676,6 +752,127 @@ async fn stream_read<D: BlockDevice>(
             Ok(n)
         }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn read_compressed<D: BlockDevice>(
+    dev: &mut D, info: &Info, rec: &[u8], base: u64, name: &[u8], head: &Head,
+    mut offset: u64, out: &mut [u8],
+) -> FsResult<usize, D::Error> {
+    let cluster = info.geo.cluster_size;
+    let unit_size = (1u64.checked_shl(u32::from(head.compression_shift)))
+        .and_then(|clusters| clusters.checked_mul(cluster))
+        .filter(|&size| size <= 65536 && head.compression_shift != 0)
+        .ok_or(Detail::Compressed)?;
+    if head.allocated < head.initialized || head.allocated % cluster != 0 {
+        return Err(Detail::CompressionData.into());
+    }
+    let count = head.size.saturating_sub(offset).min(out.len() as u64) as usize;
+    let mut initialized = head.initialized.saturating_sub(offset).min(count as u64) as usize;
+    let mut done = 0;
+    let payload = Head { size: head.allocated, initialized: head.allocated, ..*head };
+    while initialized > 0 {
+        let start = offset / unit_size * unit_size;
+        let end = start.saturating_add(unit_size).min(head.allocated);
+        let mut coverage = UnitCoverage { end, seen: start, stored: start };
+        compressed_runs(dev, info, rec, base, name, head.place, &mut coverage).await?;
+        if coverage.seen != end { return Err(Detail::DataRun.into()); }
+        let take = (end - offset).min(initialized as u64) as usize;
+        let chunk = &mut out[done..done + take];
+        if coverage.stored == start {
+            chunk.fill(0);
+        } else if coverage.stored == end {
+            let read = stream_payload(dev, info, rec, base, raw::ATTR_DATA, name, &payload, offset, chunk).await?;
+            if read != take { return Err(Detail::DataRun.into()); }
+        } else {
+            read_lznt1_unit(dev, info, rec, base, name, &payload, start, coverage.stored, offset - start, chunk).await?;
+        }
+        initialized -= take;
+        done += take;
+        offset += take as u64;
+    }
+    out[done..count].fill(0);
+    Ok(count)
+}
+
+async fn compressed_runs<D: BlockDevice>(
+    dev: &mut D, info: &Info, rec: &[u8], base: u64, name: &[u8], place: Place,
+    unit: &mut UnitCoverage,
+) -> FsResult<(), D::Error> {
+    let kind = raw::ATTR_DATA;
+    if matches!(place, Place::Base) {
+        let attr = record::find_instance(rec, kind, name, 0)?.ok_or(Detail::Attribute)?;
+        let Body::NonResident(nr) = attr.body else { return Err(Detail::Attribute.into()) };
+        return unit.add(&nr, &info.geo, unit.end);
+    }
+    let mut pending: Option<Found> = None;
+    let mut pos = 0;
+    let mut found_name = [0; NAME_BYTES];
+    let mut ext = [0; MAX_RECORD];
+    loop {
+        let next = loop {
+            match next_attr(dev, info, rec, base, kind, &mut pos, &mut found_name).await? {
+                Some(found) if &found_name[..found.name_len] == name => break Some(found),
+                Some(_) => {}
+                None => break None,
+            }
+        };
+        let limit = match next {
+            Some(found) => found.start_vcn.checked_mul(info.geo.cluster_size).ok_or(Detail::DataRun)?,
+            None => unit.end,
+        };
+        if let Some(current) = pending {
+            if next.is_some_and(|next| next.start_vcn <= current.start_vcn) {
+                return Err(Detail::AttributeList.into());
+            }
+            if limit > unit.seen {
+                let attr = load(dev, info, rec, &mut ext, kind, &current).await?;
+                let Body::NonResident(nr) = attr.body else { return Err(Detail::AttributeList.into()) };
+                unit.add(&nr, &info.geo, limit)?;
+            }
+        }
+        if unit.seen == unit.end || next.is_none() { return Ok(()); }
+        pending = next;
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn read_lznt1_unit<D: BlockDevice>(
+    dev: &mut D, info: &Info, rec: &[u8], base: u64, name: &[u8], payload: &Head,
+    mut input: u64, stored_end: u64, offset: u64, out: &mut [u8],
+) -> FsResult<(), D::Error> {
+    use crate::lznt1::{CHUNK_BYTES, Chunk};
+    let kind = raw::ATTR_DATA;
+    let end = offset + out.len() as u64;
+    let mut logical = 0;
+    let mut encoded = [0; CHUNK_BYTES];
+    let mut decoded = [0; CHUNK_BYTES];
+    out.fill(0);
+    while logical < end && input < stored_end {
+        if stored_end - input < 2 { return Err(Detail::CompressionData.into()); }
+        let mut header = [0; 2];
+        let read = stream_payload(dev, info, rec, base, kind, name, payload, input, &mut header).await?;
+        if read != header.len() { return Err(Detail::CompressionData.into()); }
+        input += 2;
+        let Some(chunk) = Chunk::header(u16::from_le_bytes(header))? else { break };
+        let next = input.checked_add(chunk.len as u64).ok_or(Detail::CompressionData)?;
+        if next > stored_end { return Err(Detail::CompressionData.into()); }
+        let after = logical + CHUNK_BYTES as u64;
+        if after > offset {
+            let raw = &mut encoded[..chunk.len];
+            if stream_payload(dev, info, rec, base, kind, name, payload, input, raw).await? != raw.len() {
+                return Err(Detail::CompressionData.into());
+            }
+            chunk.decode(raw, &mut decoded)?;
+            let from = logical.max(offset);
+            let to = after.min(end);
+            out[(from - offset) as usize..(to - offset) as usize]
+                .copy_from_slice(&decoded[(from - logical) as usize..(to - logical) as usize]);
+        }
+        input = next;
+        logical = after;
+    }
+    Ok(())
 }
 
 /// The first byte range within `[offset, end)` of a value `stream_head`
@@ -1449,7 +1646,7 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// # Errors
     ///
     /// Returns [`ErrorKind::NotFound`] if the named stream is absent,
-    /// [`ErrorKind::Unsupported`] for compressed or encrypted content, or
+    /// [`ErrorKind::Unsupported`] for unsupported compression or encryption, or
     /// an error for invalid node references, malformed mapping pairs, or
     /// device failures.
     /// Failure may leave `buf` partly modified.
@@ -1761,14 +1958,14 @@ impl<D: BlockDevice> NtfsFs<D> {
 
     /// Reads from the unnamed data stream of a file at `offset`. Bytes past
     /// the initialized size and sparse runs read as zeros. Directories fail
-    /// with [`ErrorKind::IsADirectory`]; compressed and encrypted streams,
-    /// and files whose data a WOF (CompactOS) or deduplication reparse point
-    /// keeps elsewhere, with [`ErrorKind::Unsupported`].
+    /// with [`ErrorKind::IsADirectory`]. LZNT1 streams are decoded on read.
+    /// Encrypted streams and content stored by WOF (CompactOS) or Data
+    /// Deduplication return [`ErrorKind::Unsupported`].
     // @hadris-spec NTFS:Data-Stream
     // @hadris-compliance partial
-    // @hadris-tests read::files_read_back, crafted::streams_past_the_volume_fail, crafted::attribute_lists_join_extension_records
+    // @hadris-tests read::files_read_back, crafted::streams_past_the_volume_fail, crafted::attribute_lists_join_extension_records, crafted::lznt1_reads_compressed_sparse_and_stored_units_at_offsets, crafted::lznt1_units_can_span_attribute_list_extents
     // @hadris-fuzz ntfs_read
-    // @hadris-note Reads resident, non-resident, sparse and partly initialized streams, also across extension records; compressed and encrypted streams, and WOF and deduplication reparse points, are unsupported.
+    // @hadris-note Reads resident, non-resident, sparse, partly initialized and LZNT1 streams across extension records. Encrypted, WOF and deduplicated streams are unsupported.
     ///
     /// # Errors
     ///

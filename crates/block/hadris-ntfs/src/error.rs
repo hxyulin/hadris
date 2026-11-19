@@ -54,6 +54,8 @@ pub enum Detail {
     ReparseData = 17,
     /// A symbolic link or junction has a malformed reparse value.
     ReparseLink = 18,
+    /// An invalid LZNT1 chunk or compression unit.
+    CompressionData = 19,
 }
 
 impl Detail {
@@ -77,6 +79,7 @@ impl Detail {
             Self::OutsideVolume => "a structure lies outside the declared volume",
             Self::ReparseData => "data kept elsewhere by a WOF or deduplication reparse point",
             Self::ReparseLink => "malformed symbolic link or junction",
+            Self::CompressionData => "malformed NTFS compression data",
         }
     }
 
@@ -100,7 +103,7 @@ impl fmt::Display for Detail {
 }
 
 impl Detail {
-    const ALL: [Self; 18] = [
+    const ALL: [Self; 19] = [
         Self::BootSector,
         Self::Geometry,
         Self::RecordSize,
@@ -119,6 +122,7 @@ impl Detail {
         Self::OutsideVolume,
         Self::ReparseData,
         Self::ReparseLink,
+        Self::CompressionData,
     ];
 
     /// The detail an NTFS operation recorded on `err`, if any.

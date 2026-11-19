@@ -50,7 +50,7 @@
 //!
 //! Symbolic links and junctions expose their Windows targets through
 //! `NtfsFs::read_windows_link` and volume-relative targets through `readlink`.
-//! Compressed and encrypted streams still fail with
+//! Reads decode LZNT1-compressed streams. Encrypted streams fail with
 //! [`ErrorKind::Unsupported`](hadris_fs::ErrorKind::Unsupported). The reader
 //! does not read security descriptors. Directory lookups descend linked
 //! file-name indexes by key.
@@ -89,6 +89,7 @@ extern crate std;
 
 mod error;
 mod info;
+mod lznt1;
 mod record;
 mod volume;
 

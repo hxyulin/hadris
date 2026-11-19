@@ -128,6 +128,8 @@ pub(crate) struct NonResident<'a> {
     pub(crate) runs: &'a [u8],
     pub(crate) data_size: u64,
     pub(crate) initialized_size: u64,
+    pub(crate) allocated_size: u64,
+    pub(crate) compression_shift: u8,
 }
 
 /// Where an attribute's value is.
@@ -265,6 +267,8 @@ impl<'a> Iterator for Attrs<'a> {
                 runs: &data[at + runs_offset..end],
                 data_size,
                 initialized_size,
+                allocated_size: u64_at(data, at + 0x28),
+                compression_shift: data[at + 0x22],
             })
         };
         self.offset = end;
