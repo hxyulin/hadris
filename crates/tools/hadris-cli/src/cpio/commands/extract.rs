@@ -6,7 +6,7 @@ use std::path::{Component, Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use hadris_fs::FileType;
 use hadris_io::sync::Read;
-use tempfile::{NamedTempFile, TempPath};
+use tempfile::{NamedTempFile, TempDir, TempPath};
 
 use hadris_cpio::sync::Entry;
 
@@ -134,22 +134,83 @@ fn relink(data: &Path, name: &Path, created: &HashSet<PathBuf>) -> Result<()> {
     fs::hard_link(data, name).with_context(|| format!("Failed to link {}", name.display()))
 }
 
-/// The extracted names of a hard link group, in archive order. Once
-/// `linked`, they are all names of the file holding the group's data;
-/// before, each is an empty file waiting for it. `data` is a closed
-/// temporary copy of the group's data, kept only while no extracted name
-/// holds it, so open descriptors and temporary storage do not grow with
-/// the number of linked groups.
+#[derive(Default)]
+enum GroupData {
+    #[default]
+    Pending,
+    Linked,
+    Moved(TempDir),
+    Spooled(TempPath),
+}
+
 #[derive(Default)]
 struct Group {
     names: Vec<PathBuf>,
-    linked: bool,
-    data: Option<TempPath>,
+    data: GroupData,
 }
 
-/// A temporary file to retain hard link data in.
-fn retain() -> Result<NamedTempFile> {
-    NamedTempFile::new().context("Failed to retain hard link data")
+impl Group {
+    fn release(&mut self, path: &Path, created: &HashSet<PathBuf>) -> Result<()> {
+        if self.names.len() == 1 && matches!(self.data, GroupData::Linked) {
+            ours(path, created)?;
+            let parent = path.parent().context("Hard link has no parent directory")?;
+            let mut builder = tempfile::Builder::new();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                builder.permissions(fs::Permissions::from_mode(0o700));
+            }
+            let dir = builder
+                .tempdir_in(parent)
+                .context("Failed to retain hard link data")?;
+            fs::rename(path, dir.path().join("data"))
+                .with_context(|| format!("Failed to retain hard link data: {}", path.display()))?;
+            self.data = GroupData::Moved(dir);
+        }
+        self.names.retain(|name| name != path);
+        Ok(())
+    }
+
+    fn restore(&mut self, dest: &Path, mode: u32, created: &HashSet<PathBuf>) -> Result<bool> {
+        let moved;
+        let path: &Path = match &self.data {
+            GroupData::Pending => return Ok(false),
+            GroupData::Linked => {
+                let source = self.names.first().context("Hard link group has no name")?;
+                ours(source, created)?;
+                fs::hard_link(source, dest)
+                    .with_context(|| format!("Failed to link {}", dest.display()))?;
+                return Ok(true);
+            }
+            GroupData::Moved(dir) => {
+                moved = dir.path().join("data");
+                &moved
+            }
+            GroupData::Spooled(path) => path.as_ref(),
+        };
+        match fs::hard_link(path, dest) {
+            Ok(()) => {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    fs::set_permissions(path, fs::Permissions::from_mode(mode)).ok();
+                }
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::CrossesDevices => {
+                let mut data =
+                    File::open(path).context("Failed to read retained hard link data")?;
+                let mut file = create_file(dest)?;
+                std::io::copy(&mut data, &mut file)
+                    .with_context(|| format!("Failed to write file: {}", dest.display()))?;
+                set_mode(&file, mode);
+            }
+            Err(err) => {
+                return Err(err).with_context(|| format!("Failed to link {}", dest.display()));
+            }
+        }
+        self.data = GroupData::Linked;
+        Ok(true)
+    }
 }
 
 /// The hard link groups, with the group each name belongs to, so a later
@@ -162,25 +223,13 @@ struct Links {
 }
 
 impl Links {
-    /// Takes `path` out of its group before it is replaced, copying the
-    /// group's data first when `path` is the last name holding it.
     fn release(&mut self, path: &Path, created: &HashSet<PathBuf>) -> Result<()> {
-        if let Some(key) = self.owners.remove(path)
-            && let Some(group) = self.groups.get_mut(&key)
+        if let Some(key) = self.owners.get(path)
+            && let Some(group) = self.groups.get_mut(key)
         {
-            group.names.retain(|name| name != path);
-            if group.names.is_empty() {
-                if group.linked {
-                    ours(path, created)?;
-                    let mut source = File::open(path).context("Failed to retain hard link data")?;
-                    let mut data = retain()?;
-                    std::io::copy(&mut source, &mut data)
-                        .context("Failed to retain hard link data")?;
-                    group.data = Some(data.into_temp_path());
-                }
-                group.linked = false;
-            }
+            group.release(path, created)?;
         }
+        self.owners.remove(path);
         Ok(())
     }
 }
@@ -238,16 +287,6 @@ impl Extractor {
             file.write_all(&self.buf[..read])
                 .with_context(|| format!("Failed to write file: {}", dest.display()))?;
         }
-        if entry.nlink() > 1 && entry.is_empty() {
-            let group = self.links.groups.entry(link_key(entry)).or_default();
-            if let Some(data) = group.data.take() {
-                let mut data =
-                    File::open(&data).context("Failed to read retained hard link data")?;
-                std::io::copy(&mut data, &mut file)
-                    .with_context(|| format!("Failed to write file: {}", dest.display()))?;
-                group.linked = true;
-            }
-        }
         set_mode(&file, entry.mode() & self.mask);
         Ok(())
     }
@@ -267,8 +306,7 @@ impl Extractor {
                 relink(dest, name, &self.created)?;
             }
         }
-        group.linked = true;
-        group.data = None;
+        group.data = GroupData::Linked;
         Ok(())
     }
 
@@ -285,7 +323,7 @@ impl Extractor {
             .get(&key)
             .and_then(|group| group.names.first().cloned())
         else {
-            let mut data = retain()?;
+            let mut data = NamedTempFile::new().context("Failed to retain hard link data")?;
             loop {
                 let n = entry
                     .read(&mut self.buf)
@@ -295,7 +333,8 @@ impl Extractor {
                 }
                 data.write_all(&self.buf[..n])?;
             }
-            self.links.groups.entry(key).or_default().data = Some(data.into_temp_path());
+            self.links.groups.entry(key).or_default().data =
+                GroupData::Spooled(data.into_temp_path());
             return Ok(());
         };
         ours(&first, &self.created)?;
@@ -313,14 +352,10 @@ impl Extractor {
             self.fill_group(entry, key, dest)?;
         } else {
             let group = self.links.groups.entry(key).or_default();
-            match group.names.first() {
-                Some(data) if group.linked => {
-                    ours(data, &self.created)?;
-                    fs::hard_link(data, dest)
-                        .with_context(|| format!("Failed to link {}", dest.display()))?;
-                    self.created.insert(dest.to_path_buf());
-                }
-                _ => self.write_file(entry, dest)?,
+            if group.restore(dest, entry.mode() & self.mask, &self.created)? {
+                self.created.insert(dest.to_path_buf());
+            } else {
+                self.write_file(entry, dest)?;
             }
         }
         self.links
@@ -359,6 +394,7 @@ impl Extractor {
     /// does not block its children, and only to directories this run
     /// created.
     fn finish(self) {
+        drop(self.links);
         let mut dirs: Vec<(PathBuf, u32)> = self
             .dir_modes
             .into_iter()
@@ -485,5 +521,31 @@ mod tests {
         assert_eq!(relocate(&select, "usr/libexec"), None);
         assert_eq!(relocate(&select, "usr"), None);
         assert_eq!(relocate(&[], "a/b").as_deref(), Some("a/b"));
+    }
+}
+
+#[cfg(all(test, unix))]
+mod retention_tests {
+    use super::*;
+    use std::os::unix::fs::MetadataExt;
+
+    #[test]
+    fn restoring_a_moved_link_preserves_its_inode() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = dir.path().join("first");
+        let revived = dir.path().join("revived");
+        fs::write(&first, b"original").unwrap();
+        let inode = fs::metadata(&first).unwrap().ino();
+        let mut group = Group {
+            names: vec![first.clone()],
+            data: GroupData::Linked,
+        };
+        let created = HashSet::from([first.clone()]);
+        group.release(&first, &created).unwrap();
+        fs::write(&first, b"replacement").unwrap();
+        assert!(group.restore(&revived, 0o600, &created).unwrap());
+        assert_eq!(fs::metadata(&revived).unwrap().ino(), inode);
+        assert_eq!(fs::read(&revived).unwrap(), b"original");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
     }
 }
