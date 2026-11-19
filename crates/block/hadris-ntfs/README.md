@@ -58,8 +58,9 @@ references, so they are stable and hard links share one.
 - The driver uses `$MFTMirr` to recover record zero. It does not consult the
   `$Mft` bitmap.
 - Compressed and encrypted streams fail with `Unsupported`.
-- Reparse points (symbolic links, junctions) are shown as ordinary files and
-  directories.
+- Symbolic links and junctions appear as symlinks. `read_windows_link`
+  returns the original Windows target. The shared resolver follows targets
+  relative to the mounted volume.
 - Security descriptors are not read.
 - Lookups scan the directory index instead of descending its B-tree by key.
 - `$LogFile` is not replayed, so a volume that was not cleanly unmounted may

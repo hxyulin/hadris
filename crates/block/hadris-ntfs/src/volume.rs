@@ -184,6 +184,7 @@ impl Info {
     pub(crate) fn capabilities(&self) -> Capabilities {
         Capabilities::new(CaseRule::InsensitivePreserving, Charset::Unicode, 765)
             .with_hard_links()
+            .with_symlinks()
             .with_stored(Field::Created, Stored::Yes)
             .with_stored(Field::Modified, Stored::Yes)
             .with_stored(Field::Accessed, Stored::Yes)

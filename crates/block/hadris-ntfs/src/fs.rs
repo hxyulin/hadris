@@ -55,12 +55,23 @@ fn unsupported_list<E>() -> Error<E> {
 
 /// POSIX permissions derived from the type and the DOS read-only bit.
 fn permissions(file_type: FileType, attributes: Attributes) -> Permissions {
-    let bits = if file_type.is_dir() { 0o755 } else { 0o644 };
+    let bits = match file_type {
+        FileType::Symlink => 0o777,
+        FileType::Dir => 0o755,
+        _ => 0o644,
+    };
     if attributes.contains(Attributes::READ_ONLY) {
         Permissions::new(bits & !0o222)
     } else {
         Permissions::new(bits)
     }
+}
+
+fn is_link_tag(tag: u32) -> bool {
+    matches!(
+        tag,
+        raw::IO_REPARSE_TAG_SYMLINK | raw::IO_REPARSE_TAG_MOUNT_POINT
+    )
 }
 
 /// How a stored name matches a query.
@@ -529,6 +540,22 @@ async fn stream_head<D: BlockDevice>(
         }
         return Ok(None);
     }
+    let listed = listed_stream_head(dev, info, rec, base, kind, name);
+    async_only! {
+        #[cfg(feature = "alloc")]
+        let listed = alloc::boxed::Box::pin(listed);
+    }
+    listed.await
+}
+
+async fn listed_stream_head<D: BlockDevice>(
+    dev: &mut D,
+    info: &Info,
+    rec: &[u8],
+    base: u64,
+    kind: u32,
+    name: &[u8],
+) -> Result<Option<Head>, Error<D::Error>> {
     let mut pos = 0;
     let mut found_name = [0u8; NAME_BYTES];
     let mut ext = [0u8; MAX_RECORD];
@@ -600,7 +627,12 @@ async fn stream_read<D: BlockDevice>(
             let n = (head.size - offset).min(buf.len() as u64) as usize;
             let stored = head.initialized.saturating_sub(offset).min(n as u64) as usize;
             if stored > 0 {
-                read_listed(dev, info, rec, base, kind, name, offset, &mut buf[..stored]).await?;
+                let read = read_listed(dev, info, rec, base, kind, name, offset, &mut buf[..stored]);
+                async_only! {
+                    #[cfg(feature = "alloc")]
+                    let read = alloc::boxed::Box::pin(read);
+                }
+                read.await?;
             }
             buf[stored..n].fill(0);
             Ok(n)
@@ -1070,7 +1102,62 @@ impl<D: BlockDevice> NtfsFs<D> {
         if !self.node_record(node, buf).await?.is_dir() {
             return Err(ErrorKind::NotADirectory.into());
         }
+        let rec = &buf[..self.info.geo.mft_record_size];
+        if record::find_attr(rec, raw::ATTR_REPARSE_POINT, &[])?.is_some()
+            || record::find_attr(rec, raw::ATTR_ATTRIBUTE_LIST, &[])?.is_some()
+        {
+            let reparse = self.reparse(node, rec);
+            async_only! {
+                #[cfg(feature = "alloc")]
+                let reparse = alloc::boxed::Box::pin(reparse);
+            }
+            if reparse.await?.is_some_and(|(tag, _)| is_link_tag(tag)) {
+                return Err(ErrorKind::NotADirectory.into());
+            }
+        }
         Ok(())
+    }
+
+    async fn reparse(&mut self, node: NodeId, rec: &[u8]) -> FsResult<Option<(u32, Head)>, D::Error> {
+        let base = record::reference_record(node.get());
+        let kind = raw::ATTR_REPARSE_POINT;
+        let Some(head) = stream_head(&mut self.dev, &self.info, rec, base, kind, &[]).await? else {
+            return Ok(None);
+        };
+        let mut bytes = [0; 4];
+        if stream_read(&mut self.dev, &self.info, rec, base, kind, &[], &head, 0, &mut bytes).await? != bytes.len() {
+            return Err(Detail::ReparseLink.into());
+        }
+        Ok(Some((u32::from_le_bytes(bytes), head)))
+    }
+
+    async fn link_chars(
+        &mut self, node: NodeId, rec: &[u8], tag: u32, head: &Head, mut visit: impl FnMut(char) -> FsResult<(), D::Error>,
+    ) -> FsResult<bool, D::Error> {
+        if head.size > record::MAX_REPARSE as u64 || head.size > head.initialized {
+            return Err(Detail::ReparseLink.into());
+        }
+        let base = record::reference_record(node.get());
+        let kind = raw::ATTR_REPARSE_POINT;
+        let mut value = [0; 512];
+        let n = stream_read(&mut self.dev, &self.info, rec, base, kind, &[], head, 0, &mut value[..20]).await?;
+        let link = record::ReparseLink::parse(&value[..n], head.size as usize, tag)?;
+        let mut at = link.target.start;
+        while at < link.target.end {
+            let count = (link.target.end - at).min(value.len());
+            let mut n = stream_read(&mut self.dev, &self.info, rec, base, kind, &[], head, at as u64, &mut value[..count]).await?;
+            if n != count {
+                return Err(Detail::ReparseLink.into());
+            }
+            if at + n < link.target.end && (0xD800..=0xDBFF).contains(&record::u16_at(&value, n - 2)) {
+                n -= 2;
+            }
+            for c in record::ReparseLink::chars(&value[..n]) {
+                visit(c?)?;
+            }
+            at += n;
+        }
+        Ok(link.relative)
     }
 
     /// The index root, allocation and bitmap of the directory whose record
@@ -1462,7 +1549,8 @@ impl<D: BlockDevice> NtfsFs<D> {
         let header = self.node_record(node, &mut rec).await?;
         let rec = &rec[..self.info.geo.mft_record_size];
         let base = record::reference_record(node.get());
-        let file_type = if header.is_dir() { FileType::Dir } else { FileType::File };
+        let link = self.reparse(node, rec).await?.filter(|(tag, _)| is_link_tag(*tag));
+        let file_type = if link.is_some() { FileType::Symlink } else if header.is_dir() { FileType::Dir } else { FileType::File };
         let mut meta = Metadata::new(file_type, permissions(file_type, Attributes::NONE));
         if let Some(Attr { body: Body::Resident(value), .. }) = fs(record::find_attr(rec, raw::ATTR_STANDARD_INFORMATION, &[]))? {
             if value.len() >= 0x24 {
@@ -1507,7 +1595,14 @@ impl<D: BlockDevice> NtfsFs<D> {
                 names += 1;
             }
         }
-        if !header.is_dir() {
+        if let Some((tag, head)) = link {
+            let mut len = 0;
+            self.link_chars(node, rec, tag, &head, |c| {
+                len += c.len_utf8();
+                Ok(())
+            }).await?;
+            meta = meta.with_len(len as u64);
+        } else if !header.is_dir() {
             let head = stream_head(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &[]).await?;
             meta = meta.with_len(head.ok_or(Error::<D::Error>::from(Detail::Attribute))?.size);
         }
@@ -1534,22 +1629,21 @@ impl<D: BlockDevice> NtfsFs<D> {
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node, offset = offset, bytes = buf.len())))]
     pub async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
         let mut rec = [0u8; MAX_RECORD];
-        if self.node_record(node, &mut rec).await?.is_dir() {
+        let header = self.node_record(node, &mut rec).await?;
+        let rec = &rec[..self.info.geo.mft_record_size];
+        if let Some((tag, _)) = self.reparse(node, rec).await? {
+            if is_link_tag(tag) { return Err(ErrorKind::Symlink.into()); }
+            if matches!(tag, raw::IO_REPARSE_TAG_WOF | raw::IO_REPARSE_TAG_DEDUP) {
+                return Err(Detail::ReparseData.into());
+            }
+        }
+        if header.is_dir() {
             return Err(ErrorKind::IsADirectory.into());
         }
-        let rec = &rec[..self.info.geo.mft_record_size];
         let base = record::reference_record(node.get());
         let head = stream_head(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &[])
             .await?
             .ok_or(Error::<D::Error>::from(Detail::Attribute))?;
-        if let Some(reparse) = stream_head(&mut self.dev, &self.info, rec, base, raw::ATTR_REPARSE_POINT, &[]).await? {
-            let mut tag = [0u8; 4];
-            let n = stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_REPARSE_POINT, &[], &reparse, 0, &mut tag).await?;
-            let tag = u32::from_le_bytes(tag);
-            if n == 4 && matches!(tag, raw::IO_REPARSE_TAG_WOF | raw::IO_REPARSE_TAG_DEDUP) {
-                return Err(Detail::ReparseData.into());
-            }
-        }
         stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &[], &head, offset, buf).await
     }
 
@@ -1648,7 +1742,12 @@ impl<D: BlockDevice> NtfsFs<D> {
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node)))]
     pub async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
         let mut rec = [0u8; MAX_RECORD];
-        if self.node_record(node, &mut rec).await?.is_dir() {
+        let header = self.node_record(node, &mut rec).await?;
+        let rec = &rec[..self.info.geo.mft_record_size];
+        if self.reparse(node, rec).await?.is_some_and(|(tag, _)| is_link_tag(tag)) {
+            return Err(ErrorKind::Symlink.into());
+        }
+        if header.is_dir() {
             return Err(ErrorKind::IsADirectory.into());
         }
         if mode == OpenMode::Write {
@@ -1668,20 +1767,52 @@ impl<D: BlockDevice> NtfsFs<D> {
         Ok(())
     }
 
-    /// NTFS here has no symlinks: every node fails with
-    /// [`ErrorKind::InvalidInput`].
+    /// Reads a Windows link target within the mounted volume, with `/` separators.
     ///
     /// # Errors
     ///
-    /// Returns [`ErrorKind::InvalidInput`] for every valid node because this
-    /// reader does not interpret reparse points as symbolic links. Invalid
-    /// node references and failed device reads retain their own errors.
+    /// Returns [`ErrorKind::InvalidInput`] for an ordinary file,
+    /// [`ErrorKind::LimitExceeded`] if the buffer is too small, or
+    /// [`ErrorKind::Unsupported`] for absolute Windows targets. Use
+    /// [`read_windows_link`](Self::read_windows_link)
+    /// to inspect those targets. Corruption and device errors also propagate.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node, bytes = buf.len())))]
     pub async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
+        Ok(self.read_link(node, buf, true).await?.as_bytes())
+    }
+
+    /// Reads the original UTF-8 spelling of a symbolic link or junction,
+    /// including Windows drive and namespace prefixes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] for a non-link,
+    /// [`ErrorKind::LimitExceeded`] if the buffer is too small, or an error
+    /// for an invalid node, malformed target, or device failure.
+    pub async fn read_windows_link<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b str, D::Error> {
+        self.read_link(node, buf, false).await
+    }
+
+    async fn read_link<'b>(&mut self, node: NodeId, buf: &'b mut [u8], normalize: bool) -> FsResult<&'b str, D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         self.node_record(node, &mut rec).await?;
-        let _ = buf;
-        Err(ErrorKind::InvalidInput.into())
+        let rec = &rec[..self.info.geo.mft_record_size];
+        let (tag, head) = self.reparse(node, rec).await?.filter(|(tag, _)| is_link_tag(*tag)).ok_or(ErrorKind::InvalidInput)?;
+        let mut len = 0;
+        let relative = self.link_chars(node, rec, tag, &head, |c| {
+            if normalize && ((len == 0 && matches!(c, '\\' | '/')) || (len == 1 && c == ':')) {
+                return Err(ErrorKind::Unsupported.into());
+            }
+            let c = if normalize && c == '\\' { '/' } else { c };
+            let end = len + c.len_utf8();
+            c.encode_utf8(buf.get_mut(len..end).ok_or(ErrorKind::LimitExceeded)?);
+            len = end;
+            Ok(())
+        }).await?;
+        if normalize && !relative {
+            return Err(ErrorKind::Unsupported.into());
+        }
+        core::str::from_utf8(&buf[..len]).map_err(|_| Detail::ReparseLink.into())
     }
 }
 hadris_fs::__forward_filesystem! {

@@ -605,6 +605,65 @@ pub(crate) fn utf16_to_utf8(bytes: &[u8], out: &mut [u8]) -> Option<usize> {
     Some(len)
 }
 
+/// The largest Windows reparse buffer, including its header.
+pub(crate) const MAX_REPARSE: usize = 16 * 1024;
+
+pub(crate) struct ReparseLink {
+    pub(crate) target: core::ops::Range<usize>,
+    pub(crate) relative: bool,
+}
+
+impl ReparseLink {
+    pub(crate) fn parse(value: &[u8], size: usize, tag: u32) -> Result<Self, Detail> {
+        let header = if tag == raw::IO_REPARSE_TAG_SYMLINK {
+            20
+        } else {
+            16
+        };
+        if value.len() < header || u32_at(value, 0) != tag {
+            return Err(Detail::ReparseLink);
+        }
+        let end = 8 + usize::from(u16_at(value, 4));
+        if end < header || end > size {
+            return Err(Detail::ReparseLink);
+        }
+        let path = |at| {
+            let offset = usize::from(u16_at(value, at));
+            let len = usize::from(u16_at(value, at + 2));
+            let start = header + offset;
+            let stop = start + len;
+            if offset % 2 != 0 || len % 2 != 0 || stop > end {
+                return Err(Detail::ReparseLink);
+            }
+            Ok(start..stop)
+        };
+        let target = path(8)?;
+        path(12)?;
+        if target.is_empty() {
+            return Err(Detail::ReparseLink);
+        }
+        let relative = if tag == raw::IO_REPARSE_TAG_SYMLINK {
+            match u32_at(value, 16) {
+                0 => false,
+                1 => true,
+                _ => return Err(Detail::ReparseLink),
+            }
+        } else {
+            false
+        };
+        Ok(Self { target, relative })
+    }
+
+    pub(crate) fn chars(bytes: &[u8]) -> impl Iterator<Item = Result<char, Detail>> + '_ {
+        char::decode_utf16(bytes.chunks_exact(2).map(|unit| u16_at(unit, 0))).map(|decoded| {
+            match decoded {
+                Ok(c) if c != '\0' => Ok(c),
+                _ => Err(Detail::ReparseLink),
+            }
+        })
+    }
+}
+
 /// Converts an NTFS time, 100 ns units since 1601-01-01 UTC, or `None` for
 /// zero.
 pub(crate) fn nt_time(value: u64) -> Option<DateTime> {

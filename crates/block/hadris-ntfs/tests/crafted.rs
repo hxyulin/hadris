@@ -788,7 +788,7 @@ fn wof_and_dedup_reparse_points_are_unsupported() {
     for (tag, unsupported) in [
         (raw::IO_REPARSE_TAG_WOF, true),
         (raw::IO_REPARSE_TAG_DEDUP, true),
-        (0xA000_000C, false),
+        (0x8000_001B, false),
     ] {
         let mut image = base_image();
         let bin = non_resident(
@@ -817,6 +817,111 @@ fn wof_and_dedup_reparse_points_are_unsupported() {
             assert_eq!(result.unwrap(), b"bin");
         }
     }
+}
+
+fn reparse_link(tag: u32, relative: bool, target: &str) -> Vec<u8> {
+    let target = utf16(target);
+    let mut value = vec![
+        0;
+        if tag == raw::IO_REPARSE_TAG_SYMLINK {
+            20
+        } else {
+            16
+        }
+    ];
+    let data_len = (value.len() - 8 + target.len()) as u16;
+    value[..4].copy_from_slice(&tag.to_le_bytes());
+    value[4..6].copy_from_slice(&data_len.to_le_bytes());
+    value[10..12].copy_from_slice(&(target.len() as u16).to_le_bytes());
+    if relative {
+        value[16] = 1;
+    }
+    value.extend(target);
+    resident(raw::ATTR_REPARSE_POINT, &[], &value)
+}
+
+#[test]
+fn reparse_links_keep_windows_targets_separate_from_volume_paths() {
+    let mut image = base_image();
+    put(
+        &mut image,
+        18,
+        &file_record(
+            FILE,
+            &[
+                named(5, "BIN.DAT", false),
+                reparse_link(raw::IO_REPARSE_TAG_SYMLINK, true, r".\HELLO.TXT"),
+            ],
+        ),
+    );
+    put(
+        &mut image,
+        17,
+        &file_record(
+            DIR,
+            &[
+                named(5, "SUBDIR", true),
+                reparse_link(raw::IO_REPARSE_TAG_MOUNT_POINT, false, r"\??\D:\docs"),
+            ],
+        ),
+    );
+    let mut fs = open(image);
+    let root = fs.root();
+    let file = fs.lookup(root, name("BIN.DAT")).unwrap();
+    assert_eq!(fs.stat(file).unwrap().file_type(), FileType::Symlink);
+    let mut buf = [0; 64];
+    assert_eq!(fs.readlink(file, &mut buf).unwrap(), b"./HELLO.TXT");
+    assert_eq!(fs.stat(file).unwrap().len(), 11);
+    let hello = fs.lookup(root, name("HELLO.TXT")).unwrap();
+    assert_eq!(
+        hadris_fs::sync::FileSystem::resolve(&mut fs, b"/BIN.DAT", hadris_fs::Resolve::Follow)
+            .unwrap(),
+        hello
+    );
+    assert_eq!(
+        fs.readlink(file, &mut buf[..2]).unwrap_err().kind(),
+        ErrorKind::LimitExceeded
+    );
+    assert_eq!(
+        fs.read(file, 0, &mut buf).unwrap_err().kind(),
+        ErrorKind::Symlink
+    );
+    let junction = fs.lookup(root, name("SUBDIR")).unwrap();
+    assert_eq!(fs.stat(junction).unwrap().file_type(), FileType::Symlink);
+    assert_eq!(
+        fs.read_windows_link(junction, &mut buf).unwrap(),
+        r"\??\D:\docs"
+    );
+    assert_eq!(
+        fs.readlink(junction, &mut buf).unwrap_err().kind(),
+        ErrorKind::Unsupported
+    );
+}
+
+#[test]
+fn a_malformed_link_is_listed_but_fails_validation() {
+    let mut image = base_image();
+    let mut reparse = reparse_link(raw::IO_REPARSE_TAG_SYMLINK, true, "HELLO.TXT");
+    reparse[24 + 8] = 1;
+    put(
+        &mut image,
+        18,
+        &file_record(FILE, &[named(5, "BIN.DAT", false), reparse]),
+    );
+    let mut fs = open(image);
+    let node = fs.lookup(fs.root(), name("BIN.DAT")).unwrap();
+    assert_eq!(
+        Detail::of(&fs.stat(node).unwrap_err()),
+        Some(Detail::ReparseLink)
+    );
+    let entries = fs.entries("/").unwrap();
+    assert!(
+        !entries
+            .iter()
+            .find(|entry| entry.node() == node)
+            .unwrap()
+            .has_complete_metadata()
+    );
 }
 
 #[test]

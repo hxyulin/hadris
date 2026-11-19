@@ -48,10 +48,12 @@
 //! It can recover MFT record zero from `$MFTMirr` and reports the dirty flag
 //! and hibernation status through `NtfsFs::info`.
 //!
-//! It does not yet decode compressed or encrypted streams (they fail with
-//! [`ErrorKind::Unsupported`](hadris_fs::ErrorKind::Unsupported)), interpret
-//! reparse points, read security descriptors, or descend the index B-tree
-//! by key. NTFS is a preview in Hadris 3.0: the `FileSystem` implementation
+//! Symbolic links and junctions expose their Windows targets through
+//! `NtfsFs::read_windows_link` and volume-relative targets through `readlink`.
+//! Compressed and encrypted streams still fail with
+//! [`ErrorKind::Unsupported`](hadris_fs::ErrorKind::Unsupported). The reader
+//! does not read security descriptors or descend the index B-tree by key.
+//! NTFS is a preview in Hadris 3.0: the `FileSystem` implementation
 //! follows the frozen trait, the native methods may still change. The
 //! on-disk layouts are in [`raw`].
 //!
@@ -102,6 +104,9 @@ pub mod sync {
     }
 
     macro_rules! send_filesystem {
+        ($($item:tt)*) => {};
+    }
+    macro_rules! async_only {
         ($($item:tt)*) => {};
     }
     use hadris_fs::sync::FileSystem;

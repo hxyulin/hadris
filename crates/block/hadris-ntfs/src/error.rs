@@ -52,6 +52,8 @@ pub enum Detail {
     /// The unnamed stream is a placeholder for data a reparse point keeps
     /// elsewhere: Windows Overlay Filter (CompactOS) or Data Deduplication.
     ReparseData = 17,
+    /// A symbolic link or junction has a malformed reparse value.
+    ReparseLink = 18,
 }
 
 impl Detail {
@@ -74,6 +76,7 @@ impl Detail {
             Self::AttributeList => "malformed or unsupported $ATTRIBUTE_LIST",
             Self::OutsideVolume => "a structure lies outside the declared volume",
             Self::ReparseData => "data kept elsewhere by a WOF or deduplication reparse point",
+            Self::ReparseLink => "malformed symbolic link or junction",
         }
     }
 
@@ -97,7 +100,7 @@ impl fmt::Display for Detail {
 }
 
 impl Detail {
-    const ALL: [Self; 17] = [
+    const ALL: [Self; 18] = [
         Self::BootSector,
         Self::Geometry,
         Self::RecordSize,
@@ -115,6 +118,7 @@ impl Detail {
         Self::AttributeList,
         Self::OutsideVolume,
         Self::ReparseData,
+        Self::ReparseLink,
     ];
 
     /// The detail an NTFS operation recorded on `err`, if any.
