@@ -935,10 +935,11 @@ impl<D: BlockDevice> Session<D> {
             .map(|&(start, _)| start)
             .collect();
         let extends = |start: u64, len: u64| ends_with_volume(start, len) && fits(start);
+        let block_count = tables.disk.block_count();
         let bootstrap = *tables.disk.bootstrap();
         let mut disk = match tables.disk.into_table() {
             PartitionTable::Mbr(mut mbr) => {
-                mbr.set_block_count(total * 4).map_err(bad)?;
+                mbr.set_block_count(block_count.max(total * 4)).map_err(bad)?;
                 let resize: Vec<(usize, u64)> = mbr
                     .partitions()
                     .filter(|p| extends(p.start(), p.len()))
